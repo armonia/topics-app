@@ -1457,7 +1457,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const state: ResourceFloorKind | "exempt" | null =
         verdict.kind ?? (verdict.memoryFirstCardExempt ? "exempt" : null);
       if (state !== lastAdmissionBlock) {
-        if (state === "exempt") log("pavimento memoria ancora sotto la riga, ma nessun lavoro di Topics è in volo: passa UNA card per deroga, e il pavimento torna pieno appena è partita");
+        // The derogation line is written by the launch that uses it (at the claim), not by the state: no card may be launchable.
+        if (state === "exempt") { /* said at the claim */ }
         else if (state) log(`coda ferma — ${reason}`);
         else if (lastAdmissionBlock) log("coda ripartita: le risorse sono rientrate sopra il pavimento");
         // The same comparison that decides the log line counts the episode:
@@ -1500,6 +1501,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * every reading, so the comparison is on which axis said no, not on the text.
    */
   let lastPressureAxis: AdmissionVerdict["blockedBy"] = null;
+  /** The last budget verdict let the first agent through: the launch that uses it logs it. */
   let firstAgentExemptNoted = false;
   /**
    * THE HYSTERESIS STATE, and it has to live across ticks or it is not one.
@@ -1625,10 +1627,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const { verdict, sample, share, mem } = computed;
       budgetGate = verdict.state;
       if (verdict.firstAgentExempt) {
-        // Not a block, but not a free machine either: the log says why the
-        // first one went through, once, or the next "why did that start on a
-        // loaded Mac" costs somebody a read of the shared contract.
-        if (!firstAgentExemptNoted) log("budget superato ma nessun agent al lavoro: il primo parte comunque");
+        // Not a block, but not a free machine either: the launch that uses it
+        // says so (at the claim), with the card's id.
         firstAgentExemptNoted = true;
       } else {
         firstAgentExemptNoted = false;
@@ -5791,6 +5791,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         continue;
       }
       clearGrace(t.id);
+      if (!remoteTask) {
+        if (floorNow.memoryFirstCardExempt) log(`pavimento memoria ancora sotto la riga, ma nessun lavoro di Topics è in volo: la card ${t.id} parte per deroga, e il pavimento torna pieno appena è partita`);
+        if (firstAgentExemptNoted) log(`budget superato ma nessun agent al lavoro: il primo parte comunque (card ${t.id})`);
+      }
       // Il claim è riuscito: l'episodio «tetto pieno» di questa card è chiuso, e
       // va dimenticato QUI. La ripulitura in cima al ciclo guarda solo chi è
       // ancora fra i `todos`, e un task appena partito non lo è più: senza

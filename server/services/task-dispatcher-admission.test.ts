@@ -519,6 +519,13 @@ describe("the memory window on the floor and on the budget axis", () => {
     expect(w.h.lines("le risorse sono rientrate sopra il pavimento")).toHaveLength(0);
   });
 
+  it("[29] E4b: with nothing launchable the derogation is not logged", async () => {
+    const w = windowHarness("count");
+    await w.beats(repeat(4.8, 14));
+    expect(w.h.startedAt).toHaveLength(0);
+    expect(w.h.lines("per deroga")).toHaveLength(0);
+  });
+
   it("E5: the derogation is declared where the budget declares its own", async () => {
     // KANBAN-75 asks for it "as the budget declares it", which is
     // `DispatchAdmission.firstAgentExempt` - the field the client paints amber

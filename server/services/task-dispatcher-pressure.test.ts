@@ -472,6 +472,19 @@ describe("the cap by resources: over the budget nothing starts, under it it does
     expect(h.logLines.filter((l) => l.includes("il primo parte comunque"))).toHaveLength(1);
   });
 
+  it("[29] says nothing about the first agent going through when no card launches", async () => {
+    const h = harness();
+    boardOn(h);
+    h.svc.setGlobalCap({ mode: "resources" });
+    h.machine.pressure = { ...QUIET, ourCoreUnits: 30, running: 0 };
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.topicsCreated).toHaveLength(0);
+    expect(h.logLines.filter((l) => l.includes("parte comunque"))).toHaveLength(0);
+  });
+
   it("blocks on memory alone", async () => {
     const h = harness();
     boardOn(h);
