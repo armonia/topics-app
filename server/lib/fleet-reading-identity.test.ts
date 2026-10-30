@@ -1,6 +1,7 @@
 /**
  * @covers KANBAN-75
  */
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { EMPTY_FREEZE_STATE, FREEZE_SETTLE_MS, freezePlan } from "../../shared/machine-budget";
 import { newOtherLoadState, smoothedOther } from "../services/dispatch-capacity";
@@ -52,5 +53,15 @@ describe("card 10469e3e: a cached reading is one sample", () => {
       Date.now = () => realNow() + 90_000;
       expect(fleetLoadSync()).toBeNull();
     } finally { Date.now = realNow; _resetFleetUsageCache(); }
+  });
+});
+
+describe("card 10469e3e: the beat refreshes the fleet reading before both consumers", () => {
+  test("reconcile and the governor both wait for the same fresh reading", () => {
+    const src = readFileSync(new URL("../../server.ts", import.meta.url), "utf8");
+    const beat = src.slice(src.indexOf("const freshFleet = getFleetUsage()"));
+    expect(beat.startsWith("const freshFleet")).toBe(true);
+    expect(beat.slice(0, 900)).toContain("freshFleet\n      .then(() => taskDispatcher.reconcile");
+    expect(beat.slice(0, 1800)).toContain("freshFleet.then(() => budgetGovernor.sampleOnce())");
   });
 });

@@ -5569,12 +5569,17 @@ const dispatchTimer = setInterval(() => {
   // THE E2E BENCH CAN HOLD THIS ONE STEP, and nothing else can: the only writer
   // is a route mounted on a test server. See `lib/e2e-dispatch-hold.ts` for the
   // race it closes — a staged fake agent recovered mid-gesture.
+  // A fresh reading per beat (TTL 4 s, ps ~0.1 s), taken BEFORE both the
+  // admission and the governor: they decide on the same instant, so the freeze
+  // never fights the admission and neither judges a 30 s old cache.
+  const freshFleet = getFleetUsage().catch(() => {});
   if (!dispatchReconcileHeld()) {
-    taskDispatcher.reconcile({ reason: "poll" }).catch((err) => console.error("[dispatcher] poll reconcile failed", err));
+    void freshFleet
+      .then(() => taskDispatcher.reconcile({ reason: "poll" }))
+      .catch((err) => console.error("[dispatcher] poll reconcile failed", err));
   }
   void delegatedRevocations.tick().catch((err) => console.error("[delegated-revoke] retry failed", err));
-  // A fresh reading per beat (TTL 4 s, ps ~0.1 s): the governor must not judge a 30 s old cache.
-  void getFleetUsage().catch(() => {}).then(() => budgetGovernor.sampleOnce()).catch((err) => console.error("[budget] sample failed", err));
+  void freshFleet.then(() => budgetGovernor.sampleOnce()).catch((err) => console.error("[budget] sample failed", err));
   // LA QUOTA DI CORE SI RILEGGE QUI, sullo stesso giro che fa nascere e morire
   // gli agenti — cioè l'unico momento in cui il denominatore («quanti stanno
   // compilando accanto a me») può essere cambiato. L'ambiente di un processo si

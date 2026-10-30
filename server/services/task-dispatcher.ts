@@ -1589,6 +1589,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   function admissionPreview(projectId?: string | null): DispatchAdmission | null {
     return buildDispatchAdmissionPreview({
       drainBlock,
+      frozenCount: activeFrozenCount,
       floorVerdict: () => floorVerdict(true, projectId),
       globalCap: () => deps.svc.getGlobalCap(),
       budgetVerdict: (cap) => budgetVerdict(cap, undefined, undefined, projectId),
@@ -1613,6 +1614,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (floorVerdict(false, projectId).reason) return false;
       const gcap = deps.svc.getGlobalCap();
       if (capMode(gcap) !== "resources") return true;
+      // Frozen checks restart before any new card, a light one included.
+      if (activeFrozenCount() > 0) return false;
       return budgetVerdict(gcap, undefined, undefined, projectId)?.verdict.admit ?? true;
     } catch { return false; }
   }

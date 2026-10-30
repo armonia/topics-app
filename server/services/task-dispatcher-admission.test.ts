@@ -290,6 +290,18 @@ describe("the exemption and the floor", () => {
     expect(h.startedAt).toHaveLength(1);
   });
 
+  it("card 10469e3e: the preview says blockedBy frozen while the tick holds the queue for the frozen checks", async () => {
+    let frozen = 1;
+    setActiveBudgetGovernor({ frozenCount: () => frozen } as unknown as BudgetGovernor);
+    try {
+      const h = harness({ agentCostSamples: () => [1] });
+      h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.5 });
+      expect(h.dispatcher.admissionPreview?.()).toMatchObject({ admit: false, blockedBy: "frozen" });
+      frozen = 0;
+      expect(h.dispatcher.admissionPreview?.()).toMatchObject({ admit: true, blockedBy: null });
+    } finally { setActiveBudgetGovernor(null); }
+  });
+
   it("card 10469e3e: room freed by a freeze goes to the frozen checks first, not to a new agent", async () => {
     let frozen = 1;
     setActiveBudgetGovernor({ frozenCount: () => frozen } as unknown as BudgetGovernor);
