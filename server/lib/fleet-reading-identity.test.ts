@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-75
+ */
 import { describe, expect, test } from "bun:test";
 import { EMPTY_FREEZE_STATE, FREEZE_SETTLE_MS, freezePlan } from "../../shared/machine-budget";
 import { newOtherLoadState, smoothedOther } from "../services/dispatch-capacity";
