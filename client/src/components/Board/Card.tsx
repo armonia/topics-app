@@ -1867,12 +1867,13 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
         {/* WHICH MACHINE it runs on, next to the model it runs with. Only when
             a node is named: an absent one means "here", and saying that on
             every card would be noise on all of them to inform one. */}
+        {/* Moved by the overflow, it says where and why in the same one line. */}
         {task.machineId && (
           <span
             data-testid="card-node-chip"
-            title={tr('board.task.node.onTitle', { node: machineLabel(machines, task.machineId) })}
+            title={tr(task.overflowedAt ? 'board.task.node.overflowedTitle' : 'board.task.node.onTitle', { node: machineLabel(machines, task.machineId) })}
             className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
-          ><Server className="h-3 w-3 shrink-0 text-app-text-muted" /> {tr('board.task.node.on', { node: machineLabel(machines, task.machineId) })}</span>
+          ><Server className="h-3 w-3 shrink-0 text-app-text-muted" /> {tr(task.overflowedAt ? 'board.task.node.overflowed' : 'board.task.node.on', { node: machineLabel(machines, task.machineId) })}</span>
         )}
         {/* THE GIT CHANGES, next to the model that is writing them.
             Closed it is a chip like the others; open it is a list that drops

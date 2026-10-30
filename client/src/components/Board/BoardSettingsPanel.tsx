@@ -14,7 +14,7 @@
  * questo file tiene la struttura e le sezioni, non i singoli interruttori.
  */
 import { useRef, useState } from 'react';
-import { ChevronDown, PauseCircle, Sparkles } from 'lucide-react';
+import { ChevronDown, Laptop, PauseCircle, Server, Sparkles } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { Select } from '../Shared/Select';
 import { MAX_CHECKS, boardApi, type BoardSettings, type BoardSettingsPatch, type BoardTask, type ReviewCheck } from '../../lib/board';
@@ -99,6 +99,39 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
       {s.dispatchPaused && (
         <p className="text-mini text-amber-300/80">{tr('board.settings.pausedActive')}</p>
       )}
+      {/* THE OVERFLOW: a card held by this Mac's memory floor for two minutes
+          moves to Cloud Claude or the PC. ON unless switched off here; an
+          older server that does not send the field reads as ON. */}
+      <label
+        className="flex min-h-6 cursor-pointer items-center justify-between gap-3 coarse:min-h-11"
+        title={tr('board.settings.overflowTitle')}
+      >
+        <span className="flex items-center gap-1.5">
+          <Server className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.settings.overflow')}
+        </span>
+        <input
+          type="checkbox"
+          data-testid="board-dispatch-overflow"
+          checked={s.dispatchOverflow !== false}
+          onChange={(e) => patch({ dispatchOverflow: e.target.checked })}
+          className="h-3.5 w-3.5 shrink-0 accent-emerald-500"
+        />
+      </label>
+      <label
+        className="flex min-h-6 cursor-pointer items-center justify-between gap-3 coarse:min-h-11"
+        title={tr('board.settings.stayLocalTitle')}
+      >
+        <span className="flex items-center gap-1.5">
+          <Laptop className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.settings.stayLocal')}
+        </span>
+        <input
+          type="checkbox"
+          data-testid="board-dispatch-stay-local"
+          checked={!!s.dispatchStayLocal}
+          onChange={(e) => patch({ dispatchStayLocal: e.target.checked })}
+          className="h-3.5 w-3.5 shrink-0 accent-emerald-500"
+        />
+      </label>
       <div className="flex items-center justify-between gap-2">
         <span>{tr('board.settings.effort')}</span>
         <div className="flex gap-0.5">
