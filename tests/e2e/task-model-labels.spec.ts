@@ -21,7 +21,7 @@ async function mockModels(page: Page) {
   const snapshot: ProvidersSnapshot = {
     generatedAt: new Date().toISOString(), defaultProvider: 'topics',
     providers: [
-      { name: 'topics', label: 'Topics', status: 'ready', isDefault: true, models: ['claude-opus-4-8'], capabilities: ['coding-tasks'], requirements: [], fetchedAt },
+      { name: 'topics', label: 'Topics', status: 'ready', isDefault: true, models: ['claude-opus-5'], capabilities: ['coding-tasks'], requirements: [], fetchedAt },
       { name: 'codex', label: 'Codex', status: 'ready', isDefault: false, models: ['gpt-5.5'], capabilities: ['coding-tasks'], requirements: [], fetchedAt },
       { name: 'openai', label: 'OpenAI', status: 'ready', isDefault: false, models: ['gpt-api-only'], capabilities: ['streaming'], requirements: [], fetchedAt },
     ],
@@ -205,13 +205,16 @@ for (const device of [
         await expect(longChip).toHaveAttribute('title', new RegExp(longLabel));
         await page.screenshot({ path: testInfo.outputPath('resolved-card-model.png') });
         // MSEL-01, variant `chip`: a card whose choice runs through Topics says so.
+        // The id is the current Opus on purpose: the server refuses a retired
+        // generation (MP-TASK-03), and the bench's Claude catalog is the CLI's
+        // own shortlist, whose newest Opus is this one.
         const routedResponse = await request.post(`/api/boards/${projectId}/tasks`, {
-          data: { text: `Routed model ${device.name}`, status: 'review', model: 'claude-code:claude-opus-4-8', topicsRouting: true },
+          data: { text: `Routed model ${device.name}`, status: 'review', model: 'claude-code:claude-opus-5', topicsRouting: true },
         });
         expect(routedResponse.ok()).toBe(true);
         routedTaskId = (await routedResponse.json()).id;
         const routedCard = projectWindow.locator(`[data-task-card="${routedTaskId}"]`);
-        await expect(routedCard.getByTestId('card-foot')).toContainText('Opus 4.8 · via Topics');
+        await expect(routedCard.getByTestId('card-foot')).toContainText('Opus 5 · via Topics');
         await expect(card.getByTestId('card-foot')).not.toContainText('via Topics');
 
         await page.goto(`/topic/${chatTopic.id}`);

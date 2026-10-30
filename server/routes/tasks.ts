@@ -27,6 +27,7 @@ import type { AIProvider } from "../providers";
 import { resolvePrincipals } from "../lib/principals";
 import { liveAgentStartCapability, queueDelegatedRun } from "../lib/delegated-agent-start";
 import type { OutboundMessage } from "../../shared/ws-outbound";
+import type { ProvidersSnapshot } from "../../shared/types";
 import { budgetShare, capMode, isAgentWorking, isCiEvidenceCheck, type CheckRun, isThreadSpeech, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type DispatchAdmission, type DispatchMemoryQueueSnapshot, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
 import { toFeedTask } from "../../shared/board-feed";
 import { selectTaskSessionPeek } from "../../shared/task-session-peek";
@@ -221,6 +222,8 @@ const AGENT_COMMENT_MAX_CHARS = 600;
 
 export interface TasksRouterOpts {
   scheduledCards?: ScheduledCardsService;
+  /** Current coding-provider catalogs, used to refuse a stale or unknown card model (MP-TASK-03). */
+  taskModelSnapshot?: () => ProvidersSnapshot | null;
   /**
    * The repository a delivery report is verified against, and how a root
    * becomes a probe (tests pass a fake). Handed to the router's OWN task
@@ -3607,6 +3610,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             status: "backlog",
             idempotencyKey: typeof body?.idempotency_key === "string" ? body.idempotency_key : null,
             createdByTopicId: globalSession.topicId,
+            createdBy: "agent:coordinator",
           });
           broadcastToAll({ type: "task:created", projectId, task });
           titoloInSottofondo(task, projectId);
@@ -3773,6 +3777,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             // durevole che uno step è della TUA checklist, e regge il requeue
             // che azzera `assigned_topic_id` mentre il turno gira.
             createdByTopicId: sess.topicId,
+            createdBy: "agent:session",
           });
           broadcastToAll({ type: "task:created", projectId: sess.projectId, task });
           // ANCHE QUI, ed e' la meta' che la prima versione aveva scordato.

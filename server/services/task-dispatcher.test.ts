@@ -501,7 +501,9 @@ describe("task-dispatcher", () => {
       // Il terzo giro è quello che prima non partiva nemmeno.
       expect(h.task("t1")!.dispatchState).toBe("working");
 
-      h.dispatcher.deferWait("t1", "il servizio X è giù", 30);
+      // A machine wait, so the WIDE streak cap: the refund is what this pins,
+      // and an agent's second wait parks by design (next test).
+      h.dispatcher.deferWait("t1", "il servizio X è giù", 30, "machine");
       h.finishTurn();
       await flush();
       const dopo = h.task("t1")!;
@@ -516,6 +518,39 @@ describe("task-dispatcher", () => {
     const finale = h.task("t1")!;
     expect(finale.dispatchState).not.toBe("failed");
     expect(finale.status).not.toBe("backlog");
+  });
+
+  it("il secondo rimando dell'agente ferma la card e la chiede: nessun terzo turno parte", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 2 });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
+    seedTask(h.db, { id: "t1", status: "todo", text: "Aspetta che la CI torni su" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.dispatcher.deferWait("t1", "il servizio X è giù", 30).status).toBe("todo");
+    h.finishTurn();
+    await flush();
+    h.db.run("UPDATE tasks SET dispatch_deferred_until = ? WHERE id = 't1'", [new Date(Date.now() - 1000).toISOString()]);
+
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task("t1")!.dispatchState).toBe("working"); // the second turn starts: the first wait was legitimate
+    const parked = h.dispatcher.deferWait("t1", "il servizio X è giù", 30);
+    expect(parked.status).toBe("backlog");
+    expect(parked.dispatchState).toBe(PARKED_WAITED_OUT);
+    expect(h.events.filter((e) => e.type === "task:parked")).toHaveLength(1); // the question reaches the human
+    h.finishTurn();
+    await flush();
+
+    const turns = h.turns.length;
+    await h.dispatcher.tick(PID);
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("backlog");
+    expect(t.dispatchState).toBe(PARKED_WAITED_OUT);
+    expect(h.dispatcher.isInFlight("t1")).toBe(false);
+    expect(h.turns.length).toBe(turns);
   });
 
   it("sfondato il tetto delle attese la card resta `waited_out`: onTurnEnd non la azzera", async () => {
@@ -5014,5 +5049,62 @@ describe("una consegna senza commit guarda anche il worktree", () => {
     const h = harness();
     const thread = await finoAllaConsegnaForzata(h);
     expect(thread).toContain("nessun ramo e nessun file toccato");
+  });
+});
+
+describe("task-dispatcher: the card nobody owns (f2289637)", () => {
+  /** A backlog card opened by `createdBy`, last touched `minutesAgo` minutes ago. */
+  function backlogCard(h: ReturnType<typeof harness>, id: string, createdBy: string | null, minutesAgo: number): void {
+    const at = new Date(Date.now() - minutesAgo * 60_000).toISOString();
+    seedTask(h.db, { id, status: "backlog", createdAt: at });
+    h.db.run("UPDATE tasks SET created_by = ?, updated_at = ? WHERE id = ?", [createdBy, at, id]);
+  }
+  const unowned = (h: ReturnType<typeof harness>) => h.events.filter((e) => e.type === "task:unowned");
+
+  it("announces `task:unowned` once, to the coordinator, past ten minutes", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    backlogCard(h, "fresh", "agent:jarvis", 3);
+    backlogCard(h, "stale", "agent:jarvis", 12);
+    await h.dispatcher.reconcile();
+    await flush();
+    expect(unowned(h)).toEqual([
+      expect.objectContaining({ taskId: "stale", projectId: PID, createdBy: "agent:jarvis", waitedMinutes: 12 }),
+    ]);
+
+    // The poll runs every 10 s: the second pass says nothing.
+    await h.dispatcher.reconcile();
+    await flush();
+    expect(unowned(h)).toHaveLength(1);
+  });
+
+  it("stays quiet for a person's own parking and for a card somebody holds", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    backlogCard(h, "mine", "human", 60);
+    backlogCard(h, "held", "agent:jarvis", 60);
+    h.db.run("UPDATE tasks SET assigned_to = 'jarvis' WHERE id = 'held'");
+    await h.dispatcher.reconcile();
+    await flush();
+    expect(unowned(h)).toEqual([]);
+  });
+
+  it("announces it with the global auto-dispatch switch OFF, and leaves the activity_log row", async () => {
+    const rows: any[] = [];
+    const h = harness({ recordActivity: (entry) => { rows.push(entry); } });
+    // No updateBoardSettings, no global switch: the sweep must not depend on them.
+    expect(h.svc.getGlobalAutoDispatch()).toBe(false);
+    backlogCard(h, "stale", "agent:jarvis", 12);
+    await h.dispatcher.reconcile();
+    await flush();
+    expect(unowned(h)).toEqual([
+      expect.objectContaining({ taskId: "stale", createdBy: "agent:jarvis", waitedMinutes: 12 }),
+    ]);
+    expect(rows).toEqual([
+      expect.objectContaining({
+        category: "board", level: "warn", entityType: "task", entityId: "stale", actor: "agent:jarvis",
+        metadata: expect.objectContaining({ projectId: PID, createdBy: "agent:jarvis", waitedMinutes: 12 }),
+      }),
+    ]);
   });
 });

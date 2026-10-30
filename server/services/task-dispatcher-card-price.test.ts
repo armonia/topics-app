@@ -96,6 +96,7 @@ function harness(o: HarnessOptions) {
   const db = freshDb();
   const svc: TaskService = createTaskService(db);
   const turns: string[] = [];
+  const ends = new Map<string, () => void>();
   const holds: MemoryFloorHold[] = [];
   let held = o.held;
   let disk = 500;
@@ -110,8 +111,8 @@ function harness(o: HarnessOptions) {
     createWorktree: async () => "wt",
     deleteWorktree: async () => {},
     topicExists: () => true,
-    // Never settles: a local turn that started stays in flight.
-    runTurn: (sessionKey) => { turns.push(sessionKey); return new Promise<TurnEndInfo | void>(() => {}); },
+    // Settles only through `endTurn`: a local turn that started stays in flight.
+    runTurn: (sessionKey) => { turns.push(sessionKey); return new Promise<TurnEndInfo | void>((r) => { ends.set(sessionKey, () => r()); }); },
     broadcast: () => {},
     // The real floor of a native machine, with the window already full.
     resourceBlock: (hold) => {
@@ -159,6 +160,13 @@ function harness(o: HarnessOptions) {
   return {
     db, svc, dispatcher, turns, holds, seed, park,
     setHeld: (gb: number) => { held = gb; },
+    /** The card delivered: its turn ends with the card in review, so nothing resumes it. */
+    async endTurn(id: string) {
+      const sessionKey = `topic:${svc.get(id)!.task.assignedTopicId}`;
+      db.run("UPDATE tasks SET status = 'review' WHERE id = ?", [id]);
+      ends.get(sessionKey)?.();
+      await flush();
+    },
     setDisk: (gb: number) => { disk = gb; },
     task: (id: string) => svc.get(id)!.task,
     flush,
@@ -499,5 +507,60 @@ describe("la coda di memoria e la capacità parlano col prezzo della board", () 
 
     expect(h.dispatcher.admissionPreview?.(QUIET)).toMatchObject({ admit: true, costMemGB: 1 });
     expect(h.dispatcher.admissionPreview?.(REPO)).toMatchObject({ admit: false, blockedBy: "memory", costMemGB: 4 });
+  });
+});
+
+describe("il peso misurato delle card sposta la riga della board", () => {
+  /** Three cards of `board` that each grew the server tree by half a giga, one at a time. */
+  async function weighThree(h: ReturnType<typeof harness>, board: string) {
+    h.dispatcher.sampleCardWeight(1.0); // the idle server: the baseline
+    for (const id of ["w1", "w2", "w3"]) {
+      h.seed(id, board);
+      await h.dispatch(board);
+      expect(h.task(id).status).toBe("in_progress");
+      h.dispatcher.sampleCardWeight(1.5);
+      await h.endTurn(id);
+    }
+  }
+
+  it("una board con worktree misurata a 0,5 GB parte accanto a un turno, dove il listino da 4 la teneva ferma", async () => {
+    // List line: 6 + 4 + 4 = 14 GB. Measured line: 6 + 0.5 + 0.5 = 7 GB.
+    const h = harness({ held: 8.5 });
+    await weighThree(h, REPO);
+    h.seed("first", REPO);
+    await h.dispatch(REPO);
+    h.seed("second", REPO);
+
+    await h.dispatch(REPO);
+
+    expect(h.task("first").status).toBe("in_progress");
+    expect(h.task("second").status).toBe("in_progress");
+    // The machine verdict still reads the list; the card asked again at its board's weight.
+    expect(h.holds.some((hold) => Math.abs(hold.cardGB - 0.5) < 1e-9)).toBe(true);
+  });
+
+  it("sotto la riga misurata (6 + 0,5 + 0,5 = 7 GB) la card aspetta lo stesso", async () => {
+    const h = harness({ held: 6.9 });
+    await weighThree(h, REPO);
+    h.seed("first", REPO);
+    await h.dispatch(REPO);
+    h.seed("second", REPO);
+
+    await h.dispatch(REPO);
+
+    expect(h.task("second").status).toBe("todo");
+    expect(h.dispatcher.admissionPreview?.(REPO)?.reason).toContain("7.0 GB");
+  });
+
+  it("le misure di una board non abbassano la riga di un'altra", async () => {
+    const h = harness({ held: 8.5 });
+    await weighThree(h, QUIET);
+    h.seed("first", REPO);
+    await h.dispatch(REPO);
+    h.seed("second", REPO);
+
+    await h.dispatch(REPO);
+
+    expect(h.task("second").status).toBe("todo");
   });
 });

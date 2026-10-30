@@ -587,7 +587,7 @@
       ]
     },
 
-    "server/routes/tasks-board.ts": 1242,
+    "server/routes/tasks-board.ts": 1365,
 
     "server/routes/tasks.test.ts": 2813,
 
@@ -647,8 +647,9 @@
     "server/services/task-dispatcher.test.ts": 4978,
 
     "server/services/task-dispatcher.ts": {
-      "lines": 6710,
+      "lines": 6727,
       "why": [
+        "2026-10-27, measured card weight and the cap on agent waits: 6710 -> 6727, +17 the wiring only (the meter is its own module, server/services/dispatch-card-weight.ts): the meter fed to the price table, the vote at the two places a local turn ends, the sampleCardWeight entry the host calls on the [memsig] minute, the re-ask opened to any card priced under the machine's price, and the source of a wait (agent or machine).",
         "2026-10-26, per-board card price: 6658 on main -> 6710, +52 the wiring of the price (the price table is its own module, server/services/dispatch-card-price.ts): the reservation priced per launched turn, the stateless light-card re-ask (lightMemoryPass) with its call sites and the fresh look right before the claim, and the board argument of the capacity preview. The gates stay in the dispatcher because they close over its launch map and its hysteresis state."
       ]
     },

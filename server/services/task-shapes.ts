@@ -206,6 +206,8 @@ export interface Task {
    * a person's; nothing moves a card to a quieter node by itself.
    */
   machineId: string | null;
+  /** WHO opened the card: `human`, `agent:<name>`, `cron:<name>`; `null` = born before the field. */
+  createdBy: string | null;
   /** The effort the task actually ran with (from the agent's topic). Read
    *  only: with the board on `auto` this is the only place the choice shows. */
   effort: string | null;
@@ -426,6 +428,12 @@ export interface CreateTaskInput {
    * assignments (see `isOwnStep`).
    */
   createdByTopicId?: string | null;
+  /**
+   * WHO opened the card, as the label the board shows: `human`,
+   * `agent:<name>` or `cron:<name>` (`shared/created-by.ts`). The route decides
+   * it from the request; omitted = NULL, a card from an internal path.
+   */
+  createdBy?: string | null;
 }
 
 export interface UpdateTaskPatch {
@@ -441,6 +449,12 @@ export interface UpdateTaskPatch {
   /** Screenshot for the card (absolute path); empty string / null clears it.
    *  The gate on the media allowlist lives in the route layer (like comment media). */
   previewImage?: string | null;
+  /**
+   * When an ARCHIVED done card was closed (ISO, UTC). Refused on a live card,
+   * where moving to done stamps it. It repairs a date a restore overwrote
+   * (card 600feca6).
+   */
+  completedAt?: string;
   /**
    * THE DELIVERY, in words. Required when an AGENT moves the card to `review`,
    * ignored on every other transition.

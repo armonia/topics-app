@@ -106,7 +106,7 @@ describe("one reading, the same route in every reader", () => {
       reusedSessionRouteConflict: reusedSessionRouteConflict(VALUE, { provider: "claude-code", topicsRouting: true }, null) === null ? expected : "direct",
       taskModelMatchesSession: taskModelMatchesSession(VALUE, { provider: "claude-code", model: "claude-opus-5-5", topicsRouting: true }, null) ? expected : "direct",
       pickAutomaticTaskModel: resolveDispatchTopicIdentity({ provider: plan.provider, model: plan.model, topicsRouting: null }, SNAPSHOT).executor === "topics" ? "topics" : "direct",
-      surfaceTopicsRoutingEnabled: surfaceTopicsRoutingEnabled(null, null, VALUE, null) ? "topics" : "direct",
+      surfaceTopicsRoutingEnabled: surfaceTopicsRoutingEnabled({ topicsRouting: null, model: VALUE }, null, null) ? "topics" : "direct",
       boardTopicsRoutingEnabled: boardTopicsRoutingEnabled(null, null) ? "topics" : "direct",
     };
     for (const [reader, via] of Object.entries(readers)) expect([reader, via]).toEqual([reader, expected]);

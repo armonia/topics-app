@@ -4023,6 +4023,20 @@ contro i 4,0 del vecchio prezzo, e i giri di check delle board con worktree a
 porta il prezzo di ogni card, e `GET /api/system/dispatch-capacity?board=<id>`
 risponde per quella board; senza board vale il prezzo caro.
 
+**E quando le card della board sono state pesate, vale il peso misurato.** Sul
+minuto di `[memsig]` l'host legge l'impronta dell'intero albero del server: senza
+turni locali in volo e' la base, con N turni in volo `(albero - base) / N` e' cio'
+che ciascuno aggiunge, e ogni card tiene la lettura piu' alta della sua vita, o il
+picco dei suoi check pre-review quando e' piu' alto. Da TRE card della board nelle
+ultime 72 ore il prezzo di una card in piu' SHALL essere la mediana di quei pesi,
+mai sotto il picco di un agente CLI (0,42 GB) ne' sopra il soffitto del listino;
+prima, la board SHALL tenere il prezzo della sua classe. Una card segnata pesante
+SHALL pagare il listino comunque. La card prezzata sotto il prezzo della macchina,
+leggera per classe o per misura, SHALL ripetere la domanda col proprio prezzo come
+la card leggera. In memoria e non nel DB: un riavvio torna al prezzo della classe.
+`scripts/card-weight-replay.ts` rigioca le righe `[memsig]` delle ultime 72 ore
+contro il pavimento vero e dice quante card avrebbe ammesso in media a ogni prezzo.
+
 MISURA: `shared/machine-budget.test.ts` per il controllore puro (budget contro
 libero, ammissione uno per tick con isteresi, ordine di congelamento, due
 letture per decidere, e il rigioco delle otto card del 07/09);
@@ -4030,6 +4044,8 @@ letture per decidere, e il rigioco delle otto card del 07/09);
 `server/services/task-dispatcher-card-price.test.ts` per la riga di memoria
 della board (classe, prenotazione per turno, ripresa, solo la memoria
 alleggerita, coda e capacità per board);
+`server/services/dispatch-card-weight.test.ts` per il peso misurato, e
+`bun scripts/card-weight.mutants.ts` per la prova che quei test sanno fallire;
 `server/services/budget-governor.test.ts` per il congelamento vero;
 `server/services/task-dispatcher-pressure.test.ts` per i due versi dentro il
 dispatcher; `server/services/task-dispatcher-admission.test.ts` per le porte
@@ -4522,6 +4538,14 @@ un tetto su una SERIE: con una sola attesa dichiarata l'orologio SHALL partire
 dalla sveglia, non dalla dichiarazione, perche' il tempo in cui nessuno ha guardato
 la card comincia li'.
 
+Il tetto sul CONTEGGIO dipende da chi rimanda. Un'attesa dichiarata dall'agente
+(`wait_for_condition`) costa un turno intero alla ripartenza, che rilegge card,
+thread e repo per trovare la condizione ancora assente: alla SECONDA attesa di
+fila per la stessa ragione la card SHALL fermarsi in `backlog` con `waited_out` e
+il fronte `task:parked` SHALL chiedere all'umano (`AGENT_WAIT_STREAK_CAP` = 1).
+Un'attesa della macchina (il nodo che non risponde) non apre nessun turno e SHALL
+tenere il tetto largo (`WAIT_STREAK_CAP` = 6).
+
 E il tetto SHALL valere solo su una serie ANCORA IN CORSO. Un turno che e'
 ripartito dopo la dichiarazione e ha smesso di aspettare chiude la serie, e
 nessuna rimessa in coda del dispatcher azzera `wait_since` — solo umano→todo,
@@ -4577,6 +4601,16 @@ turno interrotto.
 - **GIVEN** la stessa card, il cui turno ha dichiarato di nuovo la stessa attesa
 - **WHEN** la serie supera le quattro ore e la sveglia e' passata
 - **THEN** la card SHALL essere parcheggiata con lo stato `waited_out`
+
+#### Scenario: al secondo rimando dell'agente la card chiede
+- **GIVEN** una card il cui agente ha gia' dichiarato un'attesa per «la CI sta girando»
+- **WHEN** il turno successivo dichiara di nuovo la stessa attesa
+- **THEN** la card SHALL essere parcheggiata con lo stato `waited_out`, senza finestra di rinvio, e nessun terzo turno SHALL partire
+
+#### Scenario: il nodo muto non consuma il tetto dell'agente
+- **GIVEN** una card assegnata a un nodo che non risponde per la seconda volta
+- **WHEN** il dispatcher la rimanda
+- **THEN** la card SHALL restare in `todo` con `node_unreachable`
 
 #### Scenario: una bocciatura umana riparte col suo testo
 - **GIVEN** una card con `reopened_actor = 'human'` e tre obiezioni scritte dall'umano

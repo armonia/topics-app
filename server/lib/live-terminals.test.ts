@@ -9,6 +9,7 @@ import {
   parseLsofCwd,
   parseTerminalTabs,
   parseTmuxPanes,
+  SendRefusedError,
   type Runner,
 } from "./live-terminals";
 
@@ -360,15 +361,24 @@ describe("createLiveTerminals", () => {
     expect(calls).toEqual([]);
   });
 
-  it("Terminal.app: senza Invio non si può scrivere, e lo dice", async () => {
+  it("Terminal.app: senza Invio non si può scrivere, e lo dice: il terminale c'è, quindi non è un 404", async () => {
     const { run, calls } = fakeRunner({ osascript: "ok" });
     const svc = createLiveTerminals({
       topics: () => [], topicsScreen: async () => null, topicsSend: () => true,
       run, sources: { tmux: false, terminal: true },
     });
-    expect(await svc.send("terminal:ttys004", "x", { enter: false })).toBe(false);
+    await expect(svc.send("terminal:ttys004", "x", { enter: false })).rejects.toBeInstanceOf(SendRefusedError);
+    expect(calls.some(([f]) => f === "osascript")).toBe(false);
     expect(await svc.send("terminal:ttys004", "x")).toBe(true);
     expect(calls.at(-1)?.[1].slice(-2)).toEqual(["/dev/ttys004", "x"]);
+  });
+
+  it("Terminal.app: un terminale sparito resta false (404), non un rifiuto", async () => {
+    const svc = createLiveTerminals({
+      topics: () => [], topicsScreen: async () => null, topicsSend: () => true,
+      run: fakeRunner({ osascript: "missing" }).run, sources: { tmux: false, terminal: true },
+    });
+    expect(await svc.send("terminal:ttys004", "x")).toBe(false);
   });
 
   it("lo schermo di Terminal arriva con i CR del Mac classico: diventano a capo", async () => {

@@ -26,7 +26,9 @@ import { isTaskLabel } from "../../shared/task-labels";
 import { stopCauseOf, STOP_CAUSE_HEADER, type StopCause } from "../lib/abort-cause";
 import { ScheduledCardsError, type ScheduledCardsService } from "../services/scheduled-cards";
 import { invalidateProbeCache } from "../services/url-probe-cache";
+import { STALE_TASK_MODEL_ERROR, isStaleModelChange, taskModelIsCurrent } from "../services/task-model-catalog";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
+import { resolveCreatedBy } from "../lib/created-by";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
 
 /**
@@ -450,6 +452,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       }
       if (method === "POST") {
         const body = (await readJSON(req)) as any;
+        if (!taskModelIsCurrent(body?.model, opts?.taskModelSnapshot?.() ?? null)) return json(STALE_TASK_MODEL_ERROR, 400);
         try {
           const effectiveProjectId = resolveBoardId(projectId, body?.text, body?.description);
           // Absent = the board's default machine (see `TaskService.create`);
@@ -474,6 +477,8 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             blockedByTaskId: typeof body?.blockedByTaskId === "string" ? body.blockedByTaskId : null,
             reuseBlockerContext: body?.reuseBlockerContext === true,
             machineId: bornMachine,
+            // Who opened it: the interface marks itself, anyone else is automation.
+            createdBy: resolveCreatedBy(req, body),
           });
           // THE BIRTH ATTACHMENTS, BEFORE THE DISPATCH.
           //
@@ -1254,6 +1259,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         // 200, ed è indistinguibile dall'aver funzionato. Vedi task-patch.ts.
         const parsed = parseTaskPatch(body, "human", acceptPreview);
         if (!parsed.ok) return json(unapplicableFieldsBody(parsed.errors), 400);
+        if (isStaleModelChange(parsed.patch.model, () => svc.get(taskId, { projectId })?.task.model, opts)) return json(STALE_TASK_MODEL_ERROR, 400);
         // THE MACHINE MUST EXIST. `machine_id` has a FK to `machines`, so an
         // unknown id would surface as a 500 with SQLite's own words; and a
         // TYPO would be worse than an error - the card would sit in the queue
@@ -1305,7 +1311,10 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           // writes that on the card and hands it back to the agent, which
           // beats a mute closure. Fire-and-forget: the PATCH does not wait on
           // git, or dragging a card would block the interface.
-          if (prevStatus !== "done" && task.status === "done" && task.deliveryBranch) {
+          // An ARCHIVED card going back to done is a restore (card 600feca6):
+          // archiving already closed its branch as "will not land".
+          const archived = (ctx.db.query("SELECT archived FROM tasks WHERE id = ?").get(taskId) as { archived?: number } | null)?.archived === 1;
+          if (prevStatus !== "done" && task.status === "done" && task.deliveryBranch && !archived) {
             enqueueLandOnDone(projectId, taskId, task.deliveryBranch);
           }
           return json(task);

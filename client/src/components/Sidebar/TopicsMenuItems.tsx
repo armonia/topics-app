@@ -175,6 +175,21 @@ export function TopicsMenuItems({
           inverse, which is exactly the pair that reads badly flat: side by
           side in one level you see they are a choice, not two buttons. */}
       {splitLayoutAvailable && (
+        <button
+          type="button"
+          onClick={() => {
+            window.dispatchEvent(new CustomEvent('topics:auto-tile-layout'));
+            onClose();
+          }}
+          data-testid="topics-menu-arrange-now"
+          className={row}
+          title={tr('app.tileAll')}
+        >
+          <Grid2x2 size={glyph} className="flex-shrink-0" />
+          <span className="flex-1 text-left">{tr('app.arrangePanels')}</span>
+        </button>
+      )}
+      {splitLayoutAvailable && (
         <SubmenuItem
           icon={LayoutTemplate}
           label={tr('app.panelsGroup')}

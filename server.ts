@@ -67,7 +67,7 @@ import { sweepStaleStreams, rescueByOwner, type SilenceMark } from "./server/lib
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { flushTurnBody } from "./server/lib/turn-body-flush";
 import { endReattachLeg, finalizeStaleRow } from "./server/lib/closed-outside";
-import { cardTurnsHoldingReload, chatsHolding, describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
+import { cardTurnsHoldingReload, chatsHolding, describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice, unrecoverableHolders } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion, PARKED_ASK_HOLD_MS } from "./server/lib/parked-asks";
 import { touchReloadDeferred, clearReloadDeferred } from "./server/lib/reload-deferred";
@@ -114,7 +114,7 @@ import { createMemoryOwnersReader } from "./server/services/memory-owners-probe"
 import { createDispatchMemoryHistory } from "./server/services/dispatch-memory-history";
 import { createDispatchMemoryInputs, createDispatchResourceBlockFromInputs } from "./server/services/dispatch-memory-inputs";
 import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB, procResidentKB, registeredFleetSocketPaths } from "./server/lib/fleet-usage";
-import { recentCardMemPeaksGB } from "./server/lib/card-memory-peaks";
+import { cardMemPeakGB, recentCardMemPeaksGB, treeFootprintKB } from "./server/lib/card-memory-peaks";
 import { machineCores } from "./server/lib/machine-cores";
 import { createBudgetGovernor, freezableRuns, liveCheckTreeGB, setActiveBudgetGovernor, signalProcessTree } from "./server/services/budget-governor";
 import { createSwapBrake, killCheckTree, stopReviewChecks } from "./server/services/review-checks-brakes";
@@ -1899,7 +1899,11 @@ const memSignal = createMemSignal({
 const dispatchMemoryHistory = createDispatchMemoryHistory();
 function recordDispatchMemoryHistory(): void {
   const sample = memSignal.samples().at(-1);
-  if (sample?.availGB != null) dispatchMemoryHistory.record(sample.at, sample.availGB);
+  if (sample?.availGB != null) {
+    let running: number | undefined;
+    try { running = taskDispatcher.busyCount(); } catch { /* the dispatcher is built after the first sample */ }
+    dispatchMemoryHistory.record(sample.at, sample.availGB, running);
+  }
 }
 // Created here, before the listener opens: the socket open handler sends its
 // frame, and the port starts accepting during the boot's first await.
@@ -2043,6 +2047,7 @@ const taskDispatcher = createTaskDispatcher({
   agentMemSamples: () => {
     try { return recentCardMemPeaksGB(); } catch { return []; }
   },
+  cardCheckPeakGB: cardMemPeakGB,
   ...dispatchMemoryInputs,
   // Corse di check pre-review in volo: ogni barra vale uno slot nel freno.
   // Letto dalla closure: il checksGate nasce dentro `createTasksRouter`, che e'
@@ -2785,6 +2790,11 @@ sondaLavoroNonCommittato = async (taskId: string) => {
 const landingQueue = createLandingQueue({ log: (m) => console.warn(m) });
 const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   scheduledCards,
+  taskModelSnapshot: () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy to preserve provider startup order
+    const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
+    return getSnapshotManager().getSnapshot();
+  },
   landings: landingQueue,
   stopCardProcesses: stopCardCommandProcesses,
   stopTopicProcesses: stopTopicCommandProcesses,
@@ -3740,6 +3750,10 @@ const opzioniServer = {
         // opened it - and a future one that forgets to attach would leave a
         // wait that ends in nothing.
         const pending = attesaQuiescenza.inProgress();
+        // `?zeroTurns=1`: the watcher asks this way when the production checkout
+        // moved by a LAND, not by a save (RGATE-09). Then a chat that is working
+        // defers like a card instead of being cut after its minute.
+        if (url.searchParams.get("zeroTurns") === "1") restartAtZeroTurns = true;
         void waitForDispatcherQuiescent("restart-when-idle").then(() => {
           process.kill(process.pid, "SIGTERM");
         });
@@ -3749,6 +3763,7 @@ const opzioniServer = {
           inFlight: busy,
           alreadyWaiting: pending !== null,
           waitingForMs: pending ? Date.now() - pending.startedAt : 0,
+          zeroTurns: restartAtZeroTurns,
           // `null` = nothing is holding, so the restart is a tick away.
           holding,
         }), {
@@ -5536,6 +5551,11 @@ const dispatchTimer = setInterval(() => {
     const now = Date.now();
     if (now - memsigAt < MEMSIG_EVERY_MS) return;
     memsigAt = now;
+    // The same minute weighs the local cards in flight: the server's whole tree
+    // against its idle baseline (`dispatch-card-weight.ts`).
+    void treeFootprintKB(process.pid)
+      .then((kb) => taskDispatcher.sampleCardWeight(kb == null ? null : (kb * 1024) / 1e9))
+      .catch((err) => console.error("[card-weight] sample failed", err));
     return memoryOwners.sample().then(() => {
       const samples = memSignal.samples();
       console.log(formatMemorySignalLine({
@@ -6655,7 +6675,7 @@ let askProbeCache: { at: number; parked: string[] } = { at: 0, parked: [] };
  * adottati che vivono solo nel broker. Le prime due sono gratis e si guardano a
  * ogni giro; la terza si paga, e si guarda ogni QUIESCENCE_BROKER_PROBE_MS.
  */
-async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; chats: number; holder: string | null; holderKind: "turn" | "question" }> {
+async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; chats: number; workingChats: number; holder: string | null; holderKind: "turn" | "question" }> {
   // A land in flight is a card turn for this purpose: it rewrites main and
   // the card, and a restart in the middle of it forgets the delivery branch.
   //
@@ -6732,6 +6752,9 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
     // A card turn streams through /api/chat too, so its own session is taken
     // out here, or every card in flight would reopen the door by itself.
     chats: chatsHolding({ streamKeys, brokerOpenKeys: brokerOpen, parkedKeys: parked, cardSessionKeys: taskDispatcher.busySessionKeys() }),
+    // The same chats minus the ones parked on a question: the turns a restart
+    // "at zero turns" waits for (see `unrecoverableHolders`).
+    workingChats: chatsHolding({ streamKeys, brokerOpenKeys: brokerOpen, parkedKeys: [], cardSessionKeys: taskDispatcher.busySessionKeys() }),
     // STESSA PRIORITA' di `describeInFlight`, o la notifica nomina un soggetto
     // che non e' quello che trattiene: quando a trattenere e' una card la frase
     // parla di card, e qui non c'e' un topic da nominare — meglio `null` e il
@@ -6758,6 +6781,14 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
  * N held-reload notices and N loops fighting over one `drain` token.
  */
 const attesaQuiescenza = sharedWait<void>();
+
+/**
+ * Some caller asked this restart "at zero turns" (a land: RGATE-09). Sticky for
+ * the life of the process, and read on every lap of the ONE shared wait: an ask
+ * that joins a wait already running must still be able to stop it from cutting
+ * a chat, and nothing un-asks a land.
+ */
+let restartAtZeroTurns = false;
 
 function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_MS): Promise<void> {
   return attesaQuiescenza.join(() => runDispatcherQuiescentWait(label, capMs));
@@ -6814,7 +6845,7 @@ async function runDispatcherQuiescentWait(label: string, capMs = QUIESCENCE_CAP_
   // card cannot start in the gap between "nothing holds" and the shutdown.
   let doorClosed = true;
   for (;;) {
-    const { busy, cards, unadoptable, chats, holder, holderKind } = await whatIsStillWorking();
+    const { busy, cards, unadoptable, chats, workingChats, holder, holderKind } = await whatIsStillWorking();
     if (!busy) {
       if (!doorClosed) {
         taskDispatcher.drain(label);
@@ -6837,7 +6868,7 @@ async function runDispatcherQuiescentWait(label: string, capMs = QUIESCENCE_CAP_
     // senza avviare un server — che e' il motivo per cui il difetto del
     // rinnovo infinito e' sopravvissuto tanto a lungo.
     const verdetto = quiescenceVerdict({
-      busy, unrecoverable: cards + unadoptable,
+      busy, unrecoverable: unrecoverableHolders({ cards, unadoptable, workingChats, zeroTurns: restartAtZeroTurns }),
       now: Date.now(), startedAt: inizio,
       chatCapMs: QUIESCENCE_CHAT_CAP_MS,
     });
@@ -6967,7 +6998,7 @@ async function runDispatcherQuiescentWait(label: string, capMs = QUIESCENCE_CAP_
       if (attesaS - ultimoRinvioLoggatoS >= 60) {
         ultimoRinvioLoggatoS = attesaS;
         console.warn(
-          `[quiescence] ${label}: riavvio RINVIATO da ${attesaS}s — ${busy} non tornerebbe se lo tagliassi. ` +
+          `[quiescence] ${label}: riavvio RINVIATO da ${attesaS}s — ${busy} ${restartAtZeroTurns ? "e il riavvio e' chiesto a zero turni (land)" : "non tornerebbe se lo tagliassi"}. ` +
           `Riparto appena finisce; per forzare adesso: launchctl kickstart -k gui/$(id -u)/com.armonia.topics-server`,
         );
       }

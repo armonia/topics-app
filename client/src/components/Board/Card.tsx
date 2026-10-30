@@ -52,11 +52,13 @@ import { UpdatedAgo } from './UpdatedAgo';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
 import { LiveEffortChip, LiveToolLine, RETRY_NOW_MESSAGE, RetryWaitChip } from './CardLive';
 import { SessionPeek } from './SessionPeek';
+import { createSessionPeekIntent } from './sessionPeekIntent';
 import { SwapIce } from '../Shared/SwapIce';
 import { SwapFreezeLabel } from '../Shared/SwapFreezeLabel';
 import { useSwapFreeze } from '../../state/swapFreeze';
 import { taskHasWork, uncommittedChipCount } from './chipKey';
 import { runInitiatorName } from './taskFilter';
+import { openedByLabel } from './createdByLabel';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '../../lib/popoverStyles';
 import { BoardCommandHint } from './BoardCommandHint';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
@@ -514,7 +516,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // crowds the card header). Cursor-positioned, portaled, viewport-clamped.
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; includePeek?: boolean } | null>(null);
   const [sessionPeekOpen, setSessionPeekOpen] = useState(false);
-  const sessionPeekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [peekIntent] = useState(() => createSessionPeekIntent(() => setSessionPeekOpen(true)));
   const cardElementRef = useRef<HTMLDivElement | null>(null);
   const touchMenuPeekRef = useRef(false);
   // Il menu della tessera si apriva SOLO col tasto destro: sulla board da
@@ -531,22 +533,13 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
       openContextMenuAt(target);
     } else openCardMenuAt(target);
   }, { enabled: isTouch });
-  const scheduleSessionPeek = useCallback(() => {
-    if (!task.assignedTopicId) return;
-    if (sessionPeekTimer.current) clearTimeout(sessionPeekTimer.current);
-    sessionPeekTimer.current = setTimeout(() => {
-      sessionPeekTimer.current = null;
-      setSessionPeekOpen(true);
-    }, 400);
-  }, [task.assignedTopicId]);
   const closeSessionPeek = useCallback(() => {
-    if (sessionPeekTimer.current) clearTimeout(sessionPeekTimer.current);
-    sessionPeekTimer.current = null;
+    peekIntent.cancel();
     setSessionPeekOpen(false);
-  }, []);
-  useEffect(() => () => {
-    if (sessionPeekTimer.current) clearTimeout(sessionPeekTimer.current);
-  }, []);
+  }, [peekIntent]);
+  // The session can reach the card while the pointer already rests on it (`sessionPeekIntent.ts`).
+  useEffect(() => { peekIntent.sessionChanged(!!task.assignedTopicId); }, [peekIntent, task.assignedTopicId]);
+  useEffect(() => () => peekIntent.leave(), [peekIntent]);
   // Stable, so dnd-kit does not see the node unregistered and registered again on every render.
   const setCardRef = useCallback((node: HTMLDivElement | null) => { cardElementRef.current = node; setNodeRef(node); }, [setNodeRef]);
   /**
@@ -1017,6 +1010,8 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // blocco «i due versi dell'attesa» in lib/board.ts.
   const waitingOnThis = waitingOnThisChip(task, tr);
   const runInitiator = runInitiatorName(task);
+  // WHO opened the card (`createdBy`): the answer to "whose is this, who closes it".
+  const openedBy = openedByLabel(task.createdBy, task.status, tr);
   // LA RIGA DEI CHIP ESISTE SE C'È ALMENO UN CHIP, e questo elenco è la lista
   // di quelli possibili: chi ne aggiunge uno e non lo scrive qui ottiene un
   // chip che non si monta MAI, con il dato giusto nel DB, giusto nella rotta e
@@ -1025,7 +1020,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // `card-meta-row-completeness.test.ts` confronta questa riga con i chip
   // davvero disegnati sotto, così la prossima dimenticanza è un rosso e non
   // un'ora di indagine.
-  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
+  const hasMetaRow = !!(openedBy || blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
 
   return (
     <div
@@ -1037,8 +1032,8 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
         onOpen(task.id);
       }}
       ref={setCardRef}
-      onMouseEnter={scheduleSessionPeek}
-      onMouseLeave={closeSessionPeek}
+      onMouseEnter={() => peekIntent.enter(!!task.assignedTopicId)}
+      onMouseLeave={() => { peekIntent.leave(); setSessionPeekOpen(false); }}
       // Keyboard focus only: a mouse press focuses too, and the click that follows opens the session.
       onFocusCapture={(event) => { if (task.assignedTopicId && (event.target as HTMLElement).matches(':focus-visible')) setSessionPeekOpen(true); }}
       onBlurCapture={(event) => {
@@ -1467,6 +1462,13 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               title={task.lastActorDeviceName ? `${task.lastActorPersonName} (${task.lastActorDeviceName})` : task.lastActorPersonName}
               className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-800 dark:text-sky-300"
             >{task.lastActorPersonName}</span>
+          )}
+          {openedBy && (
+            <span
+              data-testid="card-created-by"
+              title={tr('board.card.createdByTitle', { who: openedBy })}
+              className="flex items-center gap-1 rounded bg-slate-500/15 px-1.5 py-0.5 text-compact leading-4 text-slate-700 dark:text-slate-300 md:text-mini"
+            >{openedBy}</span>
           )}
           {runInitiator && (
             <span

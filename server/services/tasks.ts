@@ -35,7 +35,9 @@ import { isAutoCapturedPreview, isDeliverySheetPath } from "../../shared/media-k
 import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
 import { readChecksMemFloorGB, readGlobalCap, readSpendCaps } from "./dispatch-capacity";
 import { checksMemFloorGB } from "../../shared/checks-memory-floor";
-import { currentDispatchBlock, heldResumeBlock } from "./dispatch-block-signal";
+import { parseCreatedBy, UNOWNED_BACKLOG_MS } from "../../shared/created-by";
+import { currentDispatchBlock, currentMemoryWait, heldResumeBlock } from "./dispatch-block-signal";
+import { readElsewhere } from "./task-elsewhere";
 import { liveAgentCount, RUNS_HERE_SQL } from "./agent-census";
 
 // The statuses and the thread's shape live in `shared/board.ts`, so the client
@@ -48,18 +50,19 @@ import {
   ARCHIVE_PARKED_LABEL, DEPLOY_ACTION_LABEL, DISPATCH_CHIP_QUEUED, HUMAN_AUTHOR, clampGlobalCap,
   MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN,
   PARKED_REQUEUE_NOTE_LIKE, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, TASK_STATUSES,
-  WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
+  WAITING_MEMORY_REASON, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
   deriveQueueReason, deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
   isUnattributedSubtask, noteParkedChildrenResolved, parseQuestionBlock, questionAsksHuman,
   readTaskWeight, statusEventEnters, waitReasonKey,
 } from "../../shared/board";
 import type { ParkedChildrenDecision } from "../../shared/board";
+import { AGENT_WAIT_STREAK_CAP } from "../../shared/agent-wait-cap";
 import { EFFORT_TIERS } from "../../shared/effort";
 // Il vocabolario delle etichette e la regola che le deriva: una sola
 // dichiarazione, letta anche dal client e dalla derivazione alla consegna.
 import { CLOSER_LABELS, KIND_LABELS, deriveCloser, deriveKind, isCloserLabel, isKindLabel, isTaskLabel, normalizeLabels, type LabelSource, type TaskFile, type TaskLabel, type TaskLabelRow } from "../../shared/task-labels";
 import { findNeighbours, type Neighbour } from "../../shared/task-similarity";
-import type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, QueueReason, SubtaskWork, TaskWeight, GlobalDispatchCap, GlobalCapPatch, TaskActionOrigin } from "../../shared/board";
+import type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, QueueContext, QueueReason, SubtaskWork, TaskWeight, GlobalDispatchCap, GlobalCapPatch, TaskActionOrigin } from "../../shared/board";
 import { budgetShare } from "../../shared/board";
 import { sliceCodePoints } from "../lib/code-points";
 import { allWideRows } from "../lib/wide-rows";
@@ -68,7 +71,7 @@ import type { Task, CreateTaskInput, UpdateTaskPatch, ListTasksInput } from "./t
 import { markTargetNotificationsSeen } from "../db/notification-log";
 import { withCardAttention } from "../attention/card-sync";
 import {
-  CHECKS_RUNNING_SQL, CHILD_AGENT_COMING, PARKED_CHILDREN_CANDIDATES_SQL, PARKED_IN_SERIES_SQL, QUEUED_ROOT_BOARDS_SQL,
+  CHECKS_RUNNING_SQL, CHILD_AGENT_COMING, PARKED_CHILDREN_CANDIDATES_SQL, PARKED_IN_SERIES_SQL, QUEUED_ROOT_BOARDS_SQL, UNOWNED_BACKLOG_SQL,
 } from "../lib/task-timer-reads";
 
 export type Actor = "human" | "agent";
@@ -661,6 +664,16 @@ export interface TaskService {
    */
   sweepWaitedOut(args?: { eligible?: (projectId: string) => boolean; busy?: (taskId: string) => boolean }): Task[];
   /**
+   * Cards that sat in backlog past `UNOWNED_BACKLOG_MS` with nobody on them
+   * (`UNOWNED_BACKLOG_SQL`). Each one is returned ONCE per round: the sweep
+   * stamps `unowned_alerted_at` before returning it, without touching
+   * `updated_at`, so the next pass skips it until somebody touches the card
+   * again. It changes nothing else on the card: telling the coordinator is the
+   * caller's job. No board filter: an unowned card is unowned whatever the
+   * board's dispatch switch says.
+   */
+  sweepUnownedBacklog(): Task[];
+  /**
    * Esegue la risposta umana allo stallo. `requeue` manda i figli parcheggiati
    * in `todo`; `archive` li archivia; `promote` toglie loro il padre e li mette
    * in coda come task indipendenti. In tutti i casi il padre torna in coda col
@@ -879,8 +892,13 @@ export interface TaskService {
    * LORO — attese consecutive per la stessa ragione (`WAIT_STREAK_CAP`) e durata
    * della serie (`WAIT_SERIES_MAX_MS`). Sfondato un tetto il task si parcheggia
    * in backlog con chip `waited_out`: fermo, non fallito.
+   *
+   * THE COUNT DEPENDS ON WHO WAITS. An agent's wait costs a whole turn when
+   * it restarts, and stops at the second one (`AGENT_WAIT_STREAK_CAP`); a
+   * machine's wait (`source: "machine"`, the silent node) opens no turn and
+   * keeps the wide cap (`WAIT_STREAK_CAP`).
    */
-  deferForWait(args: { taskId: string; reason: string; minutes?: number; by?: string }): Task;
+  deferForWait(args: { taskId: string; reason: string; minutes?: number; by?: string; source?: "agent" | "machine" }): Task;
   /** Overwrite the topic binding of a claimed task (dispatcher: placeholder → real topic). */
   bindTopic(args: { taskId: string; topicId: string; freshSession?: boolean }): Task;
   /** Update just the dispatch state/error (queued|starting|working|needs_input). */
@@ -1956,6 +1974,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
      * pays no read at all.
      */
     nodeNames: Map<string, string>;
+    /** Where an In-progress card with no agent here works (`task-elsewhere.ts`). */
+    elsewhere: Map<string, NonNullable<QueueContext["elsewhere"]>>;
     peopleNames: Map<string, string>;
     deviceNames: Map<string, string>;
     autoDispatch: boolean;
@@ -2304,6 +2324,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       previewImages: previewImagesFor(ids),
       queue: null,
       nodeNames: new Map(),
+      // Only the In-progress cards no agent is in: the `no_agent` branch.
+      elsewhere: readElsewhere(db, rows.filter((r) => r.status === "in_progress" && !isAgentWorking(r.dispatch_state))),
       peopleNames: new Map(),
       deviceNames: new Map(),
       autoDispatch: false,
@@ -2437,6 +2459,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           blockedBy: r.blocked_by_task_id ? (b.blockers.get(r.blocked_by_task_id) ?? null) : null,
           assignedTo: r.assigned_to ?? null,
           machineId: r.machine_id ?? null,
+          updatedAt: r.updated_at ?? null,
         },
         {
           now: b.nowIso,
@@ -2488,8 +2511,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // pavimento (KANBAN-97): resta un blocco della macchina, o la card
           // ricadrebbe sul ramo dello slot.
           dispatchBlock: inCoda
-            ? (r.dispatch_error === "waiting-memory" ? { kind: "resources", reason: "waiting-memory" } : currentDispatchBlock())
+            ? (r.dispatch_error === WAITING_MEMORY_REASON ? { kind: "resources", reason: WAITING_MEMORY_REASON } : currentDispatchBlock())
             : heldResume ? heldResumeBlock(r.id, r.dispatch_error) : null,
+          memoryWait: r.dispatch_error === WAITING_MEMORY_REASON ? currentMemoryWait() : null,
+          elsewhere: b.elsewhere.get(r.id) ?? null,
           parentStatus: r.parent_task_id ? (b.parentStatus.get(r.parent_task_id) ?? null) : null,
           projectless: r.project_id === UNASSIGNED_PROJECT_ID,
           openSubtasks: r.status === "review" ? (b.openChildren.get(r.id) ?? 0) : 0,
@@ -2610,6 +2635,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // WHERE it runs. `null` is «this machine», which is what every card
       // written before the column existed says (KANBAN-76).
       machineId: r.machine_id ?? null,
+      // WHO opened it; NULL for every card written before the column.
+      createdBy: r.created_by ?? null,
       // Delegation metadata is rare. Absence means an ordinary owner run, not
       // a UI state, so five repeated null keys on every board card carry no
       // information. A delegated row still gets the complete audit identity.
@@ -3675,8 +3702,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (input.blockedByTaskId) assertBlockerValid(id, input.blockedByTaskId);
 
       db.prepare(
-        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id, topics_routing)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id, topics_routing, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id, input.projectId, text, input.description ?? null, status, priority, order,
         input.assignedTo ?? null, input.chatId ?? null, ts, ts, input.idempotencyKey ?? null,
@@ -3689,6 +3716,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // No explicit machine = the board's default one (NULL when it has none).
         input.machineId === undefined ? boardDispatchMachineId(input.projectId) : input.machineId,
         input.topicsRouting === undefined || input.topicsRouting === null ? null : (input.topicsRouting ? 1 : 0),
+        parseCreatedBy(input.createdBy),
       );
       return rowToTask(getTaskRow(id));
     },
@@ -4027,9 +4055,29 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       if (patch.reuseBlockerContext !== undefined) put("reuse_blocker_context", patch.reuseBlockerContext ? 1 : 0);
       if (patch.planFirst !== undefined) put("plan_first", patch.planFirst ? 1 : 0);
+      // AN ARCHIVED CARD THAT GOES BACK TO DONE KEEPS THE DAY IT WAS CLOSED.
+      //
+      // Archiving 2939 closed cards put 49 back in backlog (card 47b63de2):
+      // `release` writes status in raw SQL and left `completed_at` where it was.
+      // Putting them back with a PATCH stamped them closed today — 2026-07-14
+      // became 2026-10-26 on a22b3191, and every count of cards closed today
+      // with it. An archived card is not worked on: done there is a restore,
+      // not a new closing. The explicit date is the way back for a card whose
+      // date has already been overwritten.
+      if (patch.completedAt !== undefined) {
+        if (!row.archived) {
+          throw new TaskServiceError("invalid_input", "completedAt si scrive solo su una card archiviata: su una card viva la data di chiusura la mette il passaggio a done");
+        }
+        if ((patch.status ?? current) !== "done") {
+          throw new TaskServiceError("invalid_input", "completedAt vale solo per una card in done");
+        }
+      }
+      const closedAt = () =>
+        patch.completedAt ?? (row.archived && row.completed_at ? row.completed_at : now());
+      if (patch.status === undefined && patch.completedAt !== undefined) put("completed_at", patch.completedAt);
       if (patch.status !== undefined) {
         put("status", patch.status);
-        put("completed_at", patch.status === "done" ? now() : null);
+        put("completed_at", patch.status === "done" ? closedAt() : null);
         // Chi chiude, e chi riapre — i due fatti che la board deve poter dire da
         // sé (il thread non basta: chi guarda la colonna vede solo il buco).
         if (patch.status === "done") {
@@ -5059,7 +5107,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    deferForWait({ taskId, reason, minutes, by }): Task {
+    deferForWait({ taskId, reason, minutes, by, source }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       const mins = clampInt(minutes ?? 15, 1, 1440);
@@ -5085,14 +5133,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // A limitare le attese ci pensano i loro tetti, qui sotto.
       const rimborso = "dispatch_attempts = MAX(dispatch_attempts - 1, 0),";
 
-      if (streak > WAIT_STREAK_CAP || serieMs >= WAIT_SERIES_MAX_MS) {
+      const ceiling = source === "machine" ? WAIT_STREAK_CAP : AGENT_WAIT_STREAK_CAP;
+      if (streak > ceiling || serieMs >= WAIT_SERIES_MAX_MS) {
         return parkWaitedOut(this, { row, streak, serieMs, chiave, since, detto, ts, refundAttempt: true });
       }
 
       const note =
         (detto ? `In attesa: ${detto}. ` : "In attesa di una condizione esterna. ") +
         `Rilascio lo slot, il task torna in coda e riprovo tra ~${mins} min` +
-        (streak > 1 ? ` (attesa ${streak} di ${WAIT_STREAK_CAP}).` : ".");
+        (streak > 1 ? ` (attesa ${streak} di ${ceiling}).` : ".");
       // Note first (author = the agent by default) so the "perché è fermo" trail
       // survives clearing the topic link.
       try { this.addComment({ taskId, author: by ?? "agent", content: note }); } catch { /* dedupe/best-effort */ }
@@ -5617,6 +5666,32 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         } catch { /* a card may have moved underneath: the next pass picks it up */ }
       }
       return parkedCards;
+    },
+
+    sweepUnownedBacklog(): Task[] {
+      // Same clock as the rest of the service (`now()`, injectable), so a test
+      // with a fake clock and the live server read the same minute.
+      const ts = now();
+      const cutoff = new Date(Date.parse(ts) - UNOWNED_BACKLOG_MS).toISOString();
+      let candidates: Array<{ id: string; project_id: string }> = [];
+      try {
+        candidates = db.prepare(UNOWNED_BACKLOG_SQL).all(cutoff) as Array<{ id: string; project_id: string }>;
+      } catch { return []; }
+      const alerted: Task[] = [];
+      for (const c of candidates) {
+        // The stamp goes in the SAME statement that re-checks the predicate's
+        // moving parts, so two passes (or a card that just got an owner) cannot
+        // both report it. `updated_at` stays put: the stamp is not a touch.
+        const res = db.prepare(
+          `UPDATE tasks SET unowned_alerted_at = ?
+            WHERE id = ? AND status = 'backlog' AND assigned_to IS NULL AND assigned_topic_id IS NULL
+              AND (unowned_alerted_at IS NULL OR unowned_alerted_at < updated_at)`,
+        ).run(ts, c.id);
+        if (!res.changes) continue;
+        const row = getTaskRow(c.id);
+        if (row) alerted.push(rowToTask(row));
+      }
+      return alerted;
     },
 
     resolveParkedChildren({ taskId, decision, by }): { task: Task; children: Task[] } | null {

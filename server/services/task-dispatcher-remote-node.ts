@@ -25,7 +25,8 @@ import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import type { PlantBranchInput, PlantBranchResult } from "./node-branch-plant";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { defaultLifecycleHooks, type HookOutcome, type LifecycleHookRunner } from "./lifecycle-hooks";
-import { nodeRunDescription } from "./node-run-brief";
+import { nodeRunDescription, withNodeRunLanguage } from "./node-run-brief";
+import type { OutputLanguage } from "../../shared/types";
 
 /**
  * THE REMOTE LANE'S HOST CAPABILITY: how this board talks to a paired node, and
@@ -195,8 +196,10 @@ export interface RemoteNodeHost {
     args: Parameters<TaskService["release"]>[0],
     opts?: { announce?: boolean },
   ) => Task;
-  deferWait: (taskId: string, reason: string, minutes?: number) => Task;
+  deferWait: (taskId: string, reason: string, minutes?: number, source?: "agent" | "machine") => Task;
   delegatedPolicyForTask?: (taskId: string) => DelegatedRunPolicy | null;
+  /** The board's effective answer language (`langFor`). Absent = no language block. */
+  languageOf?: (projectId: string) => OutputLanguage;
   recordDelegatedPhase?: (input: {
     taskId: string;
     phase: "dispatch" | "cancelled" | "completed" | "failed";
@@ -270,7 +273,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    */
   function deferForSilentNode(task: Task, why: string): void {
     try {
-      const after = host.deferWait(task.id, why, NODE_RETRY_MINUTES);
+      const after = host.deferWait(task.id, why, NODE_RETRY_MINUTES, "machine");
       // The sentinel goes ONLY on a card that is still waiting in the queue.
       // Past its own cap the wait parks the card and announces the park with
       // its own chip (`waited_out`) and note: overwriting that would hide "the
@@ -408,7 +411,11 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
           // The node cannot `get_task` a card that lives here: the thread (review feedback,
           // previous delivery) travels with it, or a rerun repeats the first round. Not to a
           // confined guest device: the owner's discussion is not part of what it was granted.
-          description: policy ? task.description ?? "" : nodeRunDescription(task.description, svc.get(task.id)?.comments ?? []),
+          // The board's language rides last: the node has no role prompt and no envelope of ours.
+          description: withNodeRunLanguage(
+            policy ? task.description ?? "" : nodeRunDescription(task.description, svc.get(task.id)?.comments ?? []),
+            host.languageOf?.(task.projectId),
+          ),
           model: policy?.model ?? task.model ?? settings.model ?? null,
           effort: policy ? settings.effort : (settings.effort && settings.effort !== "auto" ? settings.effort : null),
         },

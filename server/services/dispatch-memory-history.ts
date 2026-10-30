@@ -7,6 +7,8 @@ const MAX_DISPATCH_MEMORY_HISTORY_POINTS =
 export type DispatchMemoryHistoryPoint = {
   at: number;
   freeGB: number;
+  /** Cards working at that minute, when the dispatcher could say (the chart's lower strip). */
+  running?: number;
 };
 
 /** Keeps bounded, process-local memory readings for the dispatch dashboard. */
@@ -15,7 +17,7 @@ export function createDispatchMemoryHistory() {
 
   return {
     /** Records at most one reading per cadence and drops readings older than two hours. */
-    record(at: number, freeGB: number): boolean {
+    record(at: number, freeGB: number, running?: number): boolean {
       if (!Number.isFinite(at) || !Number.isFinite(freeGB) || freeGB < 0) return false;
 
       const last = points.at(-1);
@@ -24,7 +26,7 @@ export function createDispatchMemoryHistory() {
       const cutoff = at - DISPATCH_MEMORY_HISTORY_WINDOW_MS;
       while (points.length > 0 && points[0]!.at < cutoff) points.shift();
 
-      points.push({ at, freeGB });
+      points.push(running === undefined ? { at, freeGB } : { at, freeGB, running });
       while (points.length > MAX_DISPATCH_MEMORY_HISTORY_POINTS) points.shift();
       return true;
     },
