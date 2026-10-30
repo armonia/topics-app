@@ -7,7 +7,6 @@ import { test, expect } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, deleteTask } from "./helpers/api-fixtures";
-import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath } from "../../shared/board";
@@ -29,15 +28,16 @@ test.describe("Task drawer: words and one status line", () => {
   test.beforeAll(async ({ request }) => {
     mkdirSync(PROJECT_PATH, { recursive: true });
     writeFileSync(`${PROJECT_PATH}/package.json`, JSON.stringify({ name: "e2e-words-only" }));
-    topicId = (await createTopic(request, `words-only-${STAMP}`)).id;
-    const sessionKey = `topic:${topicId.slice(0, 8)}`;
-    await seedMessage(request, { sessionKey, role: "user", content: "fix it" });
-    await seedMessage(request, {
-      sessionKey, role: "assistant", content: AGENT_WORDS,
-    });
-    await seedMessage(request, {
-      sessionKey, role: "assistant", content: "",
-      toolCalls: [{ id: `wo-${STAMP}`, name: "Bash", args: { command: "bun test" }, status: "running", startedAt: Date.now() }],
+    topicId = (await createTopic(request, `words-only-${STAMP}`, { projectPath: PROJECT_PATH })).id;
+    const row = async (data: unknown) => {
+      const r = await request.post(`${E2E_BASE}/api/test/topics/${topicId}/session-row`, { data });
+      expect(r.ok()).toBe(true);
+    };
+    await row({ role: "user", content: "fix it" });
+    await row({ role: "assistant", content: AGENT_WORDS, blocks: [{ kind: "text", text: AGENT_WORDS }] });
+    await row({
+      role: "assistant", content: "",
+      blocks: [{ kind: "tool", toolCall: { id: `wo-${STAMP}`, name: "Bash", args: { command: "bun test" }, status: "running" } }],
     });
     const res = await request.post(`${E2E_BASE}/api/boards/${PROJECT_ID}/tasks`, { data: { text: `Words only ${STAMP}` } });
     expect(res.ok()).toBe(true);
