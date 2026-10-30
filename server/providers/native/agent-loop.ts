@@ -449,6 +449,8 @@ async function streamOnce(
   const partialJson = new Map<number, string>();
   /** Per streaming tool block: when its primary argument was last looked at, and what went out. */
   const partialArgs = new Map<number, { at: number; value?: string }>();
+  /** Indexes of the reasoning blocks open right now, to close the right one. */
+  const openThinking = new Set<number>();
   let stopReason: string | null = null;
   let stopDetails: StopDetails | null = null;
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 };
@@ -507,6 +509,13 @@ async function streamOnce(
               partialJson.set(ev.index, "");
               handler.onToolStart(b.id, b.name, {});
             }
+            // The same live sign the CLI path gives (`claude-code.ts`): the
+            // client reserves the reasoning row here, before any summary text
+            // exists, so the row does not land at the end of the turn.
+            if (b.type === "thinking" || b.type === "redacted_thinking") {
+              openThinking.add(ev.index);
+              handler.onThinkingStart?.();
+            }
             break;
           }
 
@@ -557,6 +566,7 @@ async function streamOnce(
           }
 
           case "content_block_stop": {
+            if (openThinking.delete(ev.index)) handler.onThinkingEnd?.();
             const raw = partialJson.get(ev.index);
             if (raw !== undefined && blocks[ev.index]) {
               // TRUNCATED ARGUMENTS ARE REPORTED, NOT FAKED INTO AN EMPTY OBJECT.

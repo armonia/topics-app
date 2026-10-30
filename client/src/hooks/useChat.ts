@@ -1115,12 +1115,15 @@ export function useChat() {
         // the cut, as the server writes them.
         const lateStart = !!(frame?.lateStart && contentDelta);
         let nextBlocks = lastMsg.blocks;
+        // Reasoning first: a frame that buffered both is a block that closed
+        // before the answer opened, and the row goes above the text, where the
+        // final message keeps it.
+        if (thinkingDelta) nextBlocks = appendBlock(nextBlocks, { kind: 'thinking', text: thinkingDelta });
         if (contentDelta) {
           nextBlocks = lateStart
             ? [...(nextBlocks ?? []), { kind: 'text', text: contentDelta }]
             : appendBlock(nextBlocks, { kind: 'text', text: contentDelta });
         }
-        if (thinkingDelta) nextBlocks = appendBlock(nextBlocks, { kind: 'thinking', text: thinkingDelta });
 
         // Create a new object without mutating the old state reference
         updatedMessages[lastMessageIndex] = {
