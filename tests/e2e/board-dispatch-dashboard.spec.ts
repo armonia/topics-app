@@ -179,30 +179,36 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     await expect(menu.getByText("Impostazioni della board", { exact: true })).toBeVisible();
     await expect(dash.getByTestId("dispatch-dashboard-hero")).toHaveText("2 al lavoro · 3 in coda");
     // Auto-dispatch off in the test env: the row states the memory, it does not promise another one will start.
-    await expect(dash.getByTestId("dispatch-dashboard-memory")).toHaveText("Memoria libera del Mac: 2,8 GB su 32 GB.");
-    await expect(dash.getByTestId("dispatch-dashboard-holders")).toContainText("Jarvis e altre sessioni di Claude");
-    await expect(dash.getByText("Chi tiene la memoria del Mac · 32 GB")).toBeVisible();
+    // «Chi tiene la memoria» is closed by default and opens on request.
+    const fold = menu.getByTestId("dispatch-dashboard-holders-fold");
+    await expect(menu.getByTestId("dispatch-dashboard-holders")).toBeHidden();
+    await fold.locator("summary").click();
+    await expect(menu.getByTestId("dispatch-dashboard-holders")).toContainText("Jarvis e altre sessioni di Claude");
+    await expect(menu.getByText("Chi tiene la memoria del Mac · 32 GB")).toBeVisible();
+    await fold.locator("summary").click();
     await expect(page.locator("label", { hasText: "Auto-dispatch" }).getByRole("checkbox")).toBeVisible();
     await expect(menu.getByText("Agent in parallelo", { exact: true })).toBeVisible();
     await expect(menu.getByTestId("global-cap-running")).toBeVisible();
     // The three improvements.
     await expect(dash.getByTestId("dispatch-dashboard-live")).toHaveText("dal vivo");
     // The test env starts with Auto-dispatch off: the row does not promise they start by themselves.
-    await expect(dash.getByTestId("dispatch-dashboard-ok")).toHaveText("Auto-dispatch spento: le 3 in coda partono quando lo accendi.");
-    const chart = dash.getByTestId("dispatch-chart");
+    await expect(dash.getByTestId("dispatch-dashboard-answer")).toHaveText("Auto-dispatch spento: le 3 in coda partono quando lo accendi.");
+    await expect(dash.getByTestId("dispatch-dashboard-turn-on")).toBeVisible();
+    await dash.screenshot({ path: join(SHOTS, "riepilogo-spento.png") });
+    const chart = menu.getByTestId("dispatch-chart");
     await expect(chart).toBeVisible();
     await expect(chart).toContainText("3,5 GB liberi: ne parte un’altra");
     await expect(chart).toContainText("2 card");
-    const rows = dash.getByTestId("dispatch-dashboard-queue-row");
+    const rows = menu.getByTestId("dispatch-dashboard-queue-row");
     await expect(rows).toHaveCount(3);
     for (let i = 0; i < QUEUED.length; i++) await expect(rows.nth(i)).toContainText(QUEUED[i]!);
     await expect(rows.first().getByTestId("dispatch-dashboard-queue-project")).toHaveText(NAME);
     await expect(rows.first()).toContainText("da 1 min");
-    await expect(dash.getByTestId("dispatch-dashboard-start-now")).toHaveCount(1);
+    await expect(menu.getByTestId("dispatch-dashboard-start-now")).toHaveCount(1);
     await expect(rows.first().getByTestId("dispatch-dashboard-start-now")).toBeVisible();
-    // The order: summary, chart, queue, who holds the memory.
-    const ys = await Promise.all(["dispatch-dashboard-memory", "dispatch-chart-block", "dispatch-dashboard-queue", "dispatch-dashboard-holders"]
-      .map(async (id) => (await dash.getByTestId(id).boundingBox())!.y));
+    // The order: summary, controls, chart, queue, who holds the memory.
+    const ys = await Promise.all(["dispatch-dashboard-answer", "global-cap-control", "dispatch-chart-block", "dispatch-dashboard-queue", "dispatch-dashboard-holders-fold"]
+      .map(async (id) => (await menu.getByTestId(id).boundingBox())!.y));
     expect([...ys].sort((p, q) => p - q), `ordine dei blocchi ${ys.join(",")}`).toEqual(ys);
     await menu.screenshot({ path: join(SHOTS, "pannello.png") });
     await menu.getByTestId("global-cap-running").scrollIntoViewIfNeeded();
@@ -228,8 +234,8 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     await page.goto("/");
     await openBoard(page);
     await gear(page).click();
-    const dash = page.getByTestId("board-settings-menu").getByTestId("dispatch-dashboard");
-    const rows = dash.getByTestId("dispatch-dashboard-queue-row");
+    const dash = page.getByTestId("board-settings-menu");
+    const rows = menu.getByTestId("dispatch-dashboard-queue-row");
     await expect(rows).toHaveCount(3);
     const button = rows.first().getByTestId("dispatch-dashboard-start-now");
     await expect(button).toBeEnabled();
