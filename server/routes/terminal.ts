@@ -73,6 +73,7 @@ import {
 export { noteSubAgentStopHook, retireIdleSubAgents, _forgetSubAgentMemory } from "../lib/subagent-runtime";
 import { composerHoldsPrompt, trustCursorOnYes, trustDialogShowing } from "../lib/subagent-seed";
 import { boardSpawnRefusal, liveAgentCount } from "../services/agent-census";
+import { capMode } from "../../shared/dispatch-pressure";
 import { effectiveDispatchCap, readGlobalCap, computeDispatchCapacity } from "../services/dispatch-capacity";
 import { resolveAgentRuntime } from "../services/app-settings";
 import { deriveClaudeSessionTitle } from "../lib/claude-transcript-title";
@@ -237,6 +238,12 @@ export function setTerminalBrowserCloser(fn: ((contextId: string) => void) | nul
 let terminalMemPressure: (() => { atCeiling: boolean }) | null = null;
 export function setTerminalMemPressure(fn: (() => { atCeiling: boolean }) | null): void {
   terminalMemPressure = fn;
+}
+
+let terminalSpawnAdmission: (() => { admit: boolean } | null) | null = null;
+/** The dispatcher's `admissionPreview`, for the sub-agent door in "by resources" mode. */
+export function setTerminalSpawnAdmission(fn: (() => { admit: boolean } | null) | null): void {
+  terminalSpawnAdmission = fn;
 }
 
 /** The lines of a sub-agent's own transcript (which survives the PTY death),
@@ -2518,8 +2525,11 @@ function spawnedAgentDepth(sessionKey: string): number {
  * incontrano su `readGlobalCap`, che è l'unico posto dove è scritto cosa vuol
  * dire NULL in quella colonna.
  */
-function boardAgentCap(): number {
+function boardAgentCap(): number | null {
   try {
+    // In "by resources" mode the number does not apply, as in the dispatcher
+    // (`currentCap`): the sub-agent door asks the admission preview instead.
+    if (capMode(readGlobalCap(getDatabase())) === "resources") return null;
     // Gli agenti VIVI vanno passati: il freno vivo del tetto è un credito sul
     // budget di CPU della flotta, e senza sapere quanti ne stanno già girando
     // il loro costo verrebbe scontato dal tetto totale invece che dai posti
@@ -3814,10 +3824,12 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         // concorrenza della board come chiunque altro, e una figlia non apre
         // nipoti. Vedi `agent-census.ts` per il perché di entrambi.
         {
-          const boardRefusal = boardSpawnRefusal(getDatabase(), { parentSessionKey: parentKey, cap: boardAgentCap() });
+          const boardRefusal = boardSpawnRefusal(getDatabase(), { parentSessionKey: parentKey, cap: boardAgentCap(), admission: () => terminalSpawnAdmission?.() ?? null });
           if (!boardRefusal.ok) {
             return boardRefusal.code === "depth"
               ? errorResponse(429, "sub-agent depth limit (1) reached: a board sub-agent cannot spawn its own")
+              : boardRefusal.code === "admission"
+              ? errorResponse(429, "board resource budget exhausted: a sub-agent waits like a card would")
               : errorResponse(429, `board concurrency cap reached (${boardRefusal.live}/${boardRefusal.cap} live agents)`);
           }
         }

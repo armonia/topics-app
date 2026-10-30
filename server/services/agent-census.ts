@@ -320,6 +320,7 @@ export function orphanChildSessions(db: Database): string[] {
 export type SpawnRefusal =
   | { ok: true }
   | { ok: false; code: "cap"; live: number; cap: number }
+  | { ok: false; code: "admission" }
   | { ok: false; code: "depth" };
 
 /**
@@ -344,11 +345,21 @@ export type SpawnRefusal =
  */
 export function boardSpawnRefusal(
   db: Database,
-  args: { parentSessionKey: string; cap: number },
+  args: {
+    parentSessionKey: string;
+    /** The count door. `null` in "by resources" mode, where the number does not apply (as in the dispatcher). */
+    cap: number | null;
+    /** The dispatcher's non-mutating admission preview: the one rule of the "by resources" mode. */
+    admission?: () => { admit: boolean } | null;
+  },
 ): SpawnRefusal {
   const owner = boardTaskForSession(db, args.parentSessionKey);
   if (!owner) return { ok: true };
   if (owner.isChild) return { ok: false, code: "depth" };
+  if (args.cap === null) {
+    // Same gates as a card launch (floor, then budget), asked without moving any state. Fail open: no reading is not a block.
+    return args.admission?.()?.admit === false ? { ok: false, code: "admission" } : { ok: true };
+  }
   const live = liveAgentCount(db);
   const cap = Math.max(1, Math.floor(args.cap) || 1);
   if (live >= cap) return { ok: false, code: "cap", live, cap };

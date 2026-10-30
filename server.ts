@@ -86,7 +86,7 @@ import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
 import { createUsageRouter } from "./server/routes/usage";
 import { createOrphanCensusRunner } from "./server/services/orphan-census";
-import { createTerminalRouter, setTerminalMemPressure, handleTerminalWebSocket, disconnectBridge, getAgentPtyCliPids, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, countBusyAgentTerminals, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession, liveTerminalCwds, listTopicsLiveTerminals, readTopicsTerminalScreen, writeTopicsTerminal } from "./server/routes/terminal";
+import { createTerminalRouter, setTerminalMemPressure, setTerminalSpawnAdmission, handleTerminalWebSocket, disconnectBridge, getAgentPtyCliPids, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, countBusyAgentTerminals, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession, liveTerminalCwds, listTopicsLiveTerminals, readTopicsTerminalScreen, writeTopicsTerminal } from "./server/routes/terminal";
 import { createLiveTerminals } from "./server/lib/live-terminals";
 import { createLiveTerminalsRouter } from "./server/routes/live-terminals";
 import { createStatusRouter } from "./server/routes/status";
@@ -1922,6 +1922,8 @@ setAvailableMemReader(() => memSignal.latestAvailGB() ?? availableMemGB());
 // seconda qui. Iniettato con un setter perche' questo segnale nasce dopo il
 // router; senza, la passata usa la soglia normale come sempre.
 setTerminalMemPressure(() => ({ atCeiling: memSignal.swap().sustained }));
+// Lazy: the dispatcher is built further down, and is only asked when a sub-agent spawns.
+setTerminalSpawnAdmission(() => taskDispatcher.admissionPreview?.() ?? null);
 
 /**
  * CHI tiene la memoria quando non e' Topics: un solo `/bin/ps` al minuto, sul

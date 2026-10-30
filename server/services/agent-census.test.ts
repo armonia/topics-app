@@ -154,6 +154,19 @@ describe("il tetto conta le figlie", () => {
     expect(boardSpawnRefusal(db, { parentSessionKey: b.sessionKey, cap: 3 }).ok).toBe(false);
   });
 
+  test("[13] in modalita' risorse il numero non conta: decide l'anteprima di ammissione, sia col budget pieno sia con 4 card vive", () => {
+    const cards = [dispatchedTask(db, { projectId: "p1" }), dispatchedTask(db, { projectId: "p2" }), dispatchedTask(db, { projectId: "p3" }), dispatchedTask(db, { projectId: "p4" })];
+    expect(liveAgentCount(db)).toBe(4);
+    // 4 card vive e budget libero: la figlia passa (prima: 429 «cap 4/4»).
+    expect(boardSpawnRefusal(db, { parentSessionKey: cards[0]!.sessionKey, cap: null, admission: () => ({ admit: true }) })).toEqual({ ok: true });
+    // Budget chiuso: la figlia aspetta come una card, anche con una sola card viva.
+    const solo = freshDb();
+    const one = dispatchedTask(solo);
+    expect(boardSpawnRefusal(solo, { parentSessionKey: one.sessionKey, cap: null, admission: () => ({ admit: false }) })).toEqual({ ok: false, code: "admission" });
+    // Nessuna lettura: non e' un blocco.
+    expect(boardSpawnRefusal(solo, { parentSessionKey: one.sessionKey, cap: null, admission: () => null })).toEqual({ ok: true });
+  });
+
   test("una figlia non apre nipoti: profondita' 1", () => {
     const t = dispatchedTask(db);
     const c = child(db, t.sessionKey);
