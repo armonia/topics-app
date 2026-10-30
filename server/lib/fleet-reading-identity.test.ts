@@ -16,7 +16,7 @@ describe("card 10469e3e: a cached reading is one sample", () => {
   });
 
   test("after a freeze, readings taken within the settle window do not count", () => {
-    let st = freezePlan({ ...over, at: 1000 }, EMPTY_FREEZE_STATE).state;
+    const st = freezePlan({ ...over, at: 1000 }, EMPTY_FREEZE_STATE).state;
     const act = freezePlan({ ...over, at: 2000 }, st);
     expect(act.freeze).toBe("b");
     const early1 = freezePlan({ ...over, at: 2000 + 5000 }, act.state);
