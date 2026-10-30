@@ -64,8 +64,8 @@
 // giusto in cui sbagliare.
 
 import os from "node:os";
-import { accessSync, constants, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { accessSync, constants, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { basename, delimiter, join } from "node:path";
 import type { Database } from "bun:sqlite";
 import { readTaskWeight, type TaskWeight } from "../../shared/board";
 import { readGlobalCap, sizingDispatchCap, structuralDispatchCapacity } from "./dispatch-capacity";
@@ -508,13 +508,59 @@ export function applyJobQuota(db: Database, sessionKey: string, env: Record<stri
 export function refreshLiveJobQuotas(db: Database): number {
   let vive: Array<{ sessionKey: string; weight: TaskWeight | null }> = [];
   try { vive = liveDispatchedSessions(db); } catch { return 0; }
+  gcJobQuotaChannels(new Set(vive.map((a) => basename(quotaChannelDir(a.sessionKey)))));
   if (!vive.length) return 0;
   const peers = countLiveDispatchedAgents(db);
   const cap = capOfConcurrency(db);
   const cores = Math.max(1, os.cpus().length);
   let scritti = 0;
   for (const a of vive) {
-    if (writeLiveQuota(a.sessionKey, computeJobQuota({ cores, cap, weight: a.weight, peers }))) scritti++;
+    const jobs = computeJobQuota({ cores, cap, weight: a.weight, peers });
+    // Unchanged number, nothing to write: the file is already what the shims read.
+    if (ultimoScritto.get(quotaChannelDir(a.sessionKey)) === jobs) continue;
+    if (writeLiveQuota(a.sessionKey, jobs)) { ultimoScritto.set(quotaChannelDir(a.sessionKey), jobs); scritti++; }
   }
   return scritti;
+}
+
+/** Last number written per channel folder by the refresh, so an unchanged one is not rewritten every 10 s. */
+const ultimoScritto = new Map<string, number>();
+
+/** A channel folder that is not live is kept this long: a spawn writes it before its binding is readable. */
+const GRACE_CANALE_MS = 60 * 60_000;
+/** The sweep runs at most this often. */
+const GC_OGNI_MS = 10 * 60_000;
+let ultimoGc = 0;
+
+/**
+ * Removes the channel folders of topics that are no longer live (a finished card
+ * leaves `jobs` and `bin/*` behind otherwise, forever). `live` holds the folder
+ * names to keep; a folder touched within the grace window is kept too.
+ * Returns how many folders it removed.
+ */
+export function gcJobQuotaChannels(live: ReadonlySet<string>, now = Date.now(), graceMs = GRACE_CANALE_MS): number {
+  if (now - ultimoGc < GC_OGNI_MS) return 0;
+  ultimoGc = now;
+  const root = rootChannel();
+  let rimosse = 0;
+  let nomi: string[];
+  try { nomi = readdirSync(root); } catch { return 0; }
+  for (const nome of nomi) {
+    if (live.has(nome)) continue;
+    const dir = join(root, nome);
+    try {
+      if (now - statSync(dir).mtimeMs < graceMs) continue;
+      rmSync(dir, { recursive: true, force: true });
+      rimosse++;
+    } catch { /* it will be found again at the next sweep */ }
+  }
+  // A folder that is gone must be written again if its topic comes back.
+  ultimoScritto.clear();
+  return rimosse;
+}
+
+/** Test seam: forget the sweep clock and the written numbers. */
+export function _resetJobQuotaGc(): void {
+  ultimoGc = 0;
+  ultimoScritto.clear();
 }

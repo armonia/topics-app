@@ -5,7 +5,7 @@ import { test, expect, describe, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync, utimesSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import {
   applyJobQuota,
@@ -19,6 +19,8 @@ import {
   readDispatchBinding,
   readLiveQuota,
   refreshLiveJobQuotas,
+  gcJobQuotaChannels,
+  _resetJobQuotaGc,
   resolveJobQuotaEnv,
   writeLiveQuota,
 } from "./agent-job-quota";
@@ -102,6 +104,7 @@ function temporaryRoot(): string {
   return dir;
 }
 afterEach(() => {
+  _resetJobQuotaGc();
   delete process.env.TOPICS_JOB_QUOTA_DIR;
   for (const d of temporaryRoots.splice(0)) rmSync(d, { recursive: true, force: true });
 });
@@ -324,6 +327,33 @@ describe("refreshLiveJobQuotas — LA RILETTURA A METÀ SESSIONE", () => {
     refreshLiveJobQuotas(db);
     expect(readLiveQuota("topic:1")).toBe(readLiveQuota("topic:2"));
     expect(readLiveQuota("topic:2")).toBe(readLiveQuota("topic:3"));
+  });
+
+  test("[25] un numero invariato non si riscrive a ogni giro", () => {
+    temporaryRoot();
+    const db = dbVivo();
+    for (const n of [1, 2]) aliveAgent(db, n);
+    expect(refreshLiveJobQuotas(db)).toBe(2);
+    expect(refreshLiveJobQuotas(db)).toBe(0);
+    db.prepare("UPDATE tasks SET status='review', dispatch_state=NULL WHERE id='k2'").run();
+    expect(refreshLiveJobQuotas(db)).toBe(1);
+  });
+
+  test("[25] la cartella di un topic non piu' vivo sparisce dopo la tolleranza, quella di uno vivo no", () => {
+    const root = temporaryRoot();
+    const db = dbVivo();
+    aliveAgent(db, 1);
+    writeLiveQuota("topic:1", 2);
+    writeLiveQuota("topic:finito", 2);
+    writeLiveQuota("topic:appena-nato", 2);
+    const adesso = Date.now();
+    const vecchia = new Date(adesso - 2 * 3_600_000);
+    utimesSync(join(root, "topic-1"), vecchia, vecchia);
+    utimesSync(join(root, "topic-finito"), vecchia, vecchia);
+    expect(gcJobQuotaChannels(new Set(["topic-1"]), adesso)).toBe(1);
+    expect(existsSync(join(root, "topic-finito"))).toBe(false);
+    expect(existsSync(join(root, "topic-1"))).toBe(true);
+    expect(existsSync(join(root, "topic-appena-nato"))).toBe(true);
   });
 
   test("nessun agente vivo: nessun file toccato", () => {
