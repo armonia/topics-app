@@ -2323,7 +2323,9 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          created_by = 'agent:jarvis', unowned_alerted_at = '2020-01-01T00:00:00.000Z',
          -- 20261030181324: the overflow - the "this Mac only" mark and when the
          -- dispatcher moved the card off this machine. Same reason as above.
-         stay_local = 1, overflowed_at = '2020-01-01T00:00:00.000Z'
+         stay_local = 1, overflowed_at = '2020-01-01T00:00:00.000Z',
+         -- Same migration: a node mirror's base branch. Same reason as above.
+         base_branch = 'topics/endless-calf'
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite
