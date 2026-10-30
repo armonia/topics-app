@@ -26,7 +26,7 @@ import { useProjectLayout } from './hooks/useProjectLayout';
 import { useProjectChatSync } from './hooks/useProjectChatSync';
 import { useProjectPersistenceSave } from './hooks/useProjectPersistenceSave';
 import type { SendMessageOptions, StopSessionOptions } from '@/hooks/useChat';
-import { missionPrompt, type Mission } from '../../lib/missions';
+import { draftWithMission, missionPrompt, type Mission } from '../../lib/missions';
 import { pickMissionSession } from '../../lib/missionTarget';
 import { useConfirmTerminalStop } from '../../lib/subagentStopGuard';
 
@@ -418,7 +418,7 @@ export function ProjectWindowPane({
     let seeded = text;
     try {
       const existing = localStorage.getItem(`draft:${topicId}`) || '';
-      seeded = existing.trim() ? `${existing.trimEnd()}\n\n${text}` : text;
+      seeded = draftWithMission(existing, text);
       localStorage.setItem(`draft:${topicId}`, seeded);
     } catch { /* private mode: la bozza vive comunque nell'evento qui sotto */ }
     // The pane may ALREADY be mounted on that topic, and a mounted pane reads
