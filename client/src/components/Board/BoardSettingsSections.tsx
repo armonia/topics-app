@@ -48,7 +48,9 @@ export function SettingsPanelHead({ onClose }: { onClose: () => void }) {
  * mounted behind `hasProject`, so on the board without a project the only
  * surface left was the ▾, the very surface this change exists to stop relying on.
  */
-export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks }: {
+export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks, onOpenTask }: {
+  /** Opens a card's drawer (the stopped cards the red box names). */
+  onOpenTask?: (id: string) => void;
   dispatchOn: boolean | null;
   onToggleDispatch: () => void;
   /** The board's cards, from which the dashboard derives the queue. Absent = no dashboard. */
@@ -58,7 +60,7 @@ export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks }: {
   return (
     <>
       {/* ONE ANSWER ON TOP, then the controls; chart, queue and memory go below them. */}
-      {tasks && <DispatchSummary tasks={tasks} dispatchOn={dispatchOn} onTurnOn={onToggleDispatch} />}
+      {tasks && <DispatchSummary tasks={tasks} dispatchOn={dispatchOn} onTurnOn={onToggleDispatch} onOpenTask={onOpenTask} />}
       {/* The whole row is the checkbox's label, and it is the target: 24 tall
           with the mouse, 44 under a finger (usability audit, 04/10: 16). */}
       <label
@@ -113,7 +115,8 @@ export const SETTINGS_PANEL_SHELL =
  * no per-board rows: the machine-wide block, alone, behind the same ⚙ and in the
  * same place as on a project board. One gesture finds the cap on every board.
  */
-export function GlobalOnlySettingsPanel({ dispatchOn, onToggleDispatch, onClose, tasks }: {
+export function GlobalOnlySettingsPanel({ dispatchOn, onToggleDispatch, onClose, tasks, onOpenTask }: {
+  onOpenTask?: (id: string) => void;
   dispatchOn: boolean | null;
   onToggleDispatch: () => void;
   onClose: () => void;
@@ -122,7 +125,7 @@ export function GlobalOnlySettingsPanel({ dispatchOn, onToggleDispatch, onClose,
   return (
     <div className={SETTINGS_PANEL_SHELL}>
       <SettingsPanelHead onClose={onClose} />
-      <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} tasks={tasks} />
+      <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} tasks={tasks} onOpenTask={onOpenTask} />
     </div>
   );
 }

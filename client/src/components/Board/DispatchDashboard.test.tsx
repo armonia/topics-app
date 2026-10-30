@@ -12,7 +12,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { DispatchDashboardView, DispatchSummaryView, MemoryChart } from './DispatchDashboard';
 import { GlobalSettingsSection } from './BoardSettingsSections';
 import { adoptDispatchCapacity, adoptGlobalCap } from '../../state/globalDispatchCap';
-import { chartMax, queuedCards, waitingLabel, type QueuedCard } from './dispatchDashboardModel';
+import { brokenCards, chartMax, queuedCards, waitingLabel, type QueuedCard } from './dispatchDashboardModel';
 import type { BoardTask, DispatchCapacity } from '../../lib/board';
 import type { DispatchMemoryQueueSnapshot } from '../../../../shared/board';
 
@@ -260,5 +260,37 @@ describe('cruscotto auto-dispatch', () => {
       expect(at('dispatch-dashboard-answer')).toBeLessThan(at('global-cap-control'));
       expect(at('global-cap-control')).toBeLessThan(at('dispatch-dashboard-details'));
     });
+  });
+});
+
+describe('le card ferme per un guasto nel riquadro rosso', () => {
+  const failed = (n: number): BoardTask[] => Array.from({ length: n }, (_, i) => ({
+    id: `f${i}`, text: `Card guasta numero ${i + 1}`, status: 'todo', dispatchState: 'failed', projectId: 'p-1',
+  })) as unknown as BoardTask[];
+  test('2 guasti → 2 titoli, nessun «+N»', () => {
+    const b = brokenCards(failed(2));
+    expect(b.listed.map((c) => c.title)).toEqual(['Card guasta numero 1', 'Card guasta numero 2']);
+    expect(b.total).toBe(2);
+    expect(b.more).toBe(0);
+  });
+  test('5 guasti → 3 titoli + «+2»', () => {
+    const b = brokenCards(failed(5));
+    expect(b.listed).toHaveLength(3);
+    expect(b.total).toBe(5);
+    expect(b.more).toBe(2);
+    const html = renderToStaticMarkup(<DispatchSummaryView capacity={capacity} snapshot={snapshot} queue={queue} broken={b.total} brokenList={b} dispatchOn now={NOW} />);
+    expect(html.match(/dispatch-dashboard-broken-card/g)).toHaveLength(3);
+    expect(text(html)).toContain('+2');
+  });
+  test('un titolo lungo è accorciato su una riga', () => {
+    const [c] = brokenCards([{ ...failed(1)[0]!, text: 'x'.repeat(80) + '\n seconda riga' } as BoardTask]).listed;
+    expect(c!.title.length).toBeLessThanOrEqual(40);
+    expect(c!.title.endsWith('…')).toBe(true);
+  });
+  test('le card finite o figlie non contano', () => {
+    const t = failed(2);
+    (t[0] as { status: string }).status = 'done';
+    (t[1] as { parentTaskId?: string }).parentTaskId = 'p';
+    expect(brokenCards(t).total).toBe(0);
   });
 });

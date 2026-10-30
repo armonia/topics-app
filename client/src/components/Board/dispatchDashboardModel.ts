@@ -66,3 +66,35 @@ export function chartMax(values: readonly number[], startGB: number | null): num
   const top = Math.max(6, startGB ?? 0, ...values);
   return top <= 6 ? 6 : Math.ceil(top / 3) * 3;
 }
+
+/** A card stopped by a real fault, as the red box lists it. */
+export interface BrokenCard {
+  id: string;
+  /** Short title, one line: the box is narrow. */
+  title: string;
+  projectId: string;
+}
+
+/** How many stopped cards the red box names before "+N". */
+export const MAX_BROKEN_LISTED = 3;
+const SHORT_TITLE_CHARS = 40;
+
+/** One line, cut with an ellipsis: enough to recognise the card, not to read it. */
+export function shortTitle(text: string): string {
+  const one = text.replace(/\s+/g, ' ').trim();
+  return one.length <= SHORT_TITLE_CHARS ? one : `${one.slice(0, SHORT_TITLE_CHARS - 1).trimEnd()}…`;
+}
+
+/**
+ * The cards parked by a real fault (the dispatcher's `failed`, or `blocked` =
+ * configuration to fix; a wait is not one). `total` is the true count, `listed`
+ * the first {@link MAX_BROKEN_LISTED}, `more` the ones left out.
+ */
+export function brokenCards(tasks: readonly BoardTask[]): { total: number; listed: BrokenCard[]; more: number } {
+  const all = tasks.filter((t) => !t.parentTaskId && t.status !== 'done' && (t.dispatchState === 'failed' || t.dispatchState === 'blocked'));
+  return {
+    total: all.length,
+    listed: all.slice(0, MAX_BROKEN_LISTED).map((t) => ({ id: t.id, title: shortTitle(t.text), projectId: t.projectId })),
+    more: Math.max(0, all.length - MAX_BROKEN_LISTED),
+  };
+}
