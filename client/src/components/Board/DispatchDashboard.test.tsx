@@ -26,7 +26,7 @@ const snapshot: DispatchMemoryQueueSnapshot = {
 const NOW = Date.parse('2026-10-28T12:00:00Z');
 const card = (over: Partial<QueuedCard>): QueuedCard => ({ id: 'x', title: 't', project: null, waitingMs: 60_000, reason: null, memoryWaiter: true, stalled: false, projectId: 'p-1', ...over });
 const queue: QueuedCard[] = [
-  card({ id: 'a', title: 'Comando usage-hub', project: 'attilio', waitingMs: 19 * 60_000, reason: 'In coda · aspetta memoria libera' }),
+  card({ id: 'a', title: 'Comando usage-hub', project: 'attilio', waitingMs: 19 * 60_000, reason: 'aspetta memoria libera', detail: 'Il Mac ha poca memoria libera adesso' }),
   card({ id: 'b', title: 'Tray del PC', project: 'topics-app', waitingMs: 4 * 60_000 }),
 ];
 const text = (html: string) => html.replace(/<[^>]+>/g, '');
@@ -39,7 +39,7 @@ describe('cruscotto auto-dispatch', () => {
     expect(text(html)).toContain('Chi tiene la memoria del Mac · 32 GB');
     expect(html).toContain('data-testid="dispatch-dashboard-holders"');
     expect(html.indexOf('Comando usage-hub')).toBeLessThan(html.indexOf('Tray del PC'));
-    expect(html).toContain('title="In coda · aspetta memoria libera"');
+    expect(html).toContain('title="Il Mac ha poca memoria libera adesso"');
     expect(html).not.toMatch(/ferma · la macchina|0x[0-9a-f]+|Sonnet 4/i);
   });
   test('l\'ordine: riepilogo, grafico, coda, chi tiene la memoria', () => {
@@ -117,6 +117,11 @@ describe('cruscotto auto-dispatch', () => {
     expect(order).toEqual(['new-high', 'older-low', 'old-low']);
     const [named] = queuedCards([{ ...base, id: 'n', text: 'n', status: 'todo', dispatchState: 'queued', dispatchError: null } as BoardTask], tr, NOW, () => 'attilio');
     expect(named!.project).toBe('attilio');
+    // One reason per state: the row carries the head only, the detail goes to the tooltip.
+    const withReason = { ...base, id: 'r', text: 'r', status: 'todo', dispatchState: 'queued', queueReason: { key: 'k', tone: 'waiting' } } as unknown as BoardTask;
+    const [why] = queuedCards([withReason], (k: string) => k.split('.').pop()!, NOW);
+    expect(why!.reason).toBe('head');
+    expect(why!.detail).toBe('detail');
   });
   test('se frena la CPU non dice «parte a 3,5 GB»', () => {
     const cpu = { ...capacity, admission: { admit: false, blockedBy: 'cpu' } } as unknown as DispatchCapacity;
@@ -154,5 +159,26 @@ describe('cruscotto auto-dispatch', () => {
   test('quanto aspetta', () => {
     expect(waitingLabel(10_000)).toBe('1 min');
     expect(waitingLabel(125 * 60_000)).toBe('2 h 5 min');
+  });
+  test('un solo motivo per stato: la riga dice il perche, il dettaglio solo nel suggerimento', () => {
+    const html = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queue} now={NOW} />);
+    expect(text(html)).toContain('aspetta memoria libera');
+    expect(text(html)).not.toContain('Il Mac ha poca memoria libera adesso');
+    expect(text(html)).not.toContain('In coda · aspetta');
+  });
+  test('Accendi sta nella riga gialla solo se spento; i colori non si mescolano', () => {
+    const off = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queue} dispatchOn={false} onTurnOn={() => {}} now={NOW} />);
+    expect(off).toContain('data-testid="dispatch-dashboard-turn-on"');
+    expect(off).toContain('data-tone="warn"');
+    expect(off).not.toContain('rose');
+    const on = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queue} dispatchOn onTurnOn={() => {}} now={NOW} />);
+    expect(on).not.toContain('dispatch-dashboard-turn-on');
+    const bad = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queue} broken={1} now={NOW} />);
+    expect(bad).toContain('data-tone="bad"');
+  });
+  test('chi tiene la memoria e chiuso di default', () => {
+    const html = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queue} now={NOW} />);
+    expect(html).toMatch(/<details data-testid="dispatch-dashboard-holders-details">/);
+    expect(html).not.toMatch(/<details[^>]*\sopen/);
   });
 });

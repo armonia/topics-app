@@ -199,7 +199,9 @@ const START_ERR: Record<string, string> = {
   dispatcher_unavailable: 'board.dash.startErr.noDispatcher',
 };
 
-export function DispatchDashboardView({ capacity, snapshot, queue, broken = 0, now, onStartNow, starting, dispatchOn, live, startFailure }: {
+export function DispatchDashboardView({ capacity, snapshot, queue, broken = 0, now, onStartNow, starting, dispatchOn, live, startFailure, onTurnOn }: {
+  /** Turns the global auto-dispatch on; shown inside the warning row while it is off. */
+  onTurnOn?: () => void;
   capacity: DispatchCapacity | null;
   /** The server's read is fresh; absent = there is a snapshot. */
   live?: boolean;
@@ -252,10 +254,19 @@ export function DispatchDashboardView({ capacity, snapshot, queue, broken = 0, n
           </span>
         )}
       </div>
-      {/* The status row: a wait is not a fault, and this says which of the two it is. */}
-      <p className="flex items-center gap-1.5 font-medium text-app-text" data-testid="dispatch-dashboard-ok">
+      {/* The reason box: a wait is not a fault, and this says which of the two it is.
+          Red is only for faults, amber only for waits, green for all clear. */}
+      <div data-testid="dispatch-dashboard-reason" data-tone={status.tone}
+        className={`space-y-1 rounded-md border p-2 ${status.tone === 'bad' ? 'border-rose-500/40 bg-rose-500/10' : status.tone === 'warn' ? 'border-amber-500/40 bg-amber-500/10' : 'border-app-border-light bg-white/5'}`}>
+      <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 font-medium text-app-text" data-testid="dispatch-dashboard-ok">
         <i className={`h-[7px] w-[7px] shrink-0 rounded-full ${status.tone === 'bad' ? 'bg-rose-500' : status.tone === 'warn' ? 'bg-amber-500' : 'bg-emerald-600'}`} />
-        {status.text}
+        <span className="min-w-0 flex-1 basis-40">{status.text}</span>
+        {dispatchOn === false && onTurnOn && (
+          <button type="button" data-testid="dispatch-dashboard-turn-on" onClick={onTurnOn}
+            className="inline-flex shrink-0 items-center rounded-md border border-amber-500/50 bg-surface px-2 py-0.5 text-mini font-medium text-app-text enabled:hover:bg-app-hover coarse:min-h-11">
+            {tr('board.dash.turnOn')}
+          </button>
+        )}
       </p>
       {free !== null && (
         <p className="text-mini text-app-text-secondary" data-testid="dispatch-dashboard-memory">
@@ -266,6 +277,7 @@ export function DispatchDashboardView({ capacity, snapshot, queue, broken = 0, n
             : tr('board.dash.memoryFree', { free: gb(free), total: total !== null ? gb(total) : '' })}
         </p>
       )}
+      </div>
       <div data-testid="dispatch-chart-block">
         <SectionLabel right={tr('board.dash.chartSub')}>{tr('board.dash.chartTitle')}</SectionLabel>
         <MemoryChart history={snapshot?.history ?? []} startGB={startGB} now={now} cpuHolds={cpuHolds} />
@@ -277,14 +289,14 @@ export function DispatchDashboardView({ capacity, snapshot, queue, broken = 0, n
         ) : (
           <ol className="space-y-1" data-testid="dispatch-dashboard-queue">
             {queue.map((q, i) => (
-              <li key={q.id} className="flex flex-wrap items-start gap-x-1.5" data-testid="dispatch-dashboard-queue-row">
+              <li key={q.id} className="flex flex-wrap items-start gap-x-1.5 gap-y-1" data-testid="dispatch-dashboard-queue-row">
                 <span className="w-5 shrink-0 text-mini text-app-text-secondary">{i + 1}ª</span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate" title={q.title}>{q.title}</span>
-                  <span className="flex items-center gap-1 text-mini text-app-text-secondary">
+                  <span className="line-clamp-2 break-words" title={q.title}>{q.title}</span>
+                  <span className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-mini text-app-text-secondary">
                     <Hourglass className="h-3 w-3 shrink-0" />
                     {q.project && <span className="shrink-0 rounded bg-white/5 px-1" data-testid="dispatch-dashboard-queue-project">{q.project}</span>}
-                    <span className="truncate" title={q.reason ?? undefined}>{q.reason ?? tr('board.dash.waiting')}</span>
+                    <span className="min-w-0 break-words" title={q.detail ?? undefined}>{q.reason ?? tr('board.dash.waiting')}</span>
                     <span className="shrink-0">· {tr('board.dash.since', { time: waitingLabel(q.waitingMs) })}</span>
                   </span>
                 </span>
@@ -309,9 +321,9 @@ export function DispatchDashboardView({ capacity, snapshot, queue, broken = 0, n
         )}
       </div>
       {consumers.length > 0 && (
-        <div>
-          <SectionLabel>{tr('board.dash.holders', { total: total !== null ? gb(total) : '' })}</SectionLabel>
-          <ul className="space-y-0.5" data-testid="dispatch-dashboard-holders">
+        <details data-testid="dispatch-dashboard-holders-details">
+          <summary className="cursor-pointer select-none text-mini font-medium uppercase tracking-wide text-app-text-secondary coarse:min-h-11">{tr('board.dash.holders', { total: total !== null ? gb(total) : '' })}</summary>
+          <ul className="mt-1 space-y-0.5" data-testid="dispatch-dashboard-holders">
             {consumers.map((c) => (
               <li key={c.label} className="flex items-center gap-2 text-mini">
                 <span className="min-w-0 flex-1 truncate">{c.label}</span>
@@ -322,14 +334,14 @@ export function DispatchDashboardView({ capacity, snapshot, queue, broken = 0, n
               </li>
             ))}
           </ul>
-        </div>
+        </details>
       )}
     </section>
   );
 }
 
 /** The live dashboard: capacity from the store, queue and series from the server every 15 s. */
-export function DispatchDashboard({ tasks, dispatchOn }: { tasks: readonly BoardTask[]; dispatchOn?: boolean | null }) {
+export function DispatchDashboard({ tasks, dispatchOn, onTurnOn }: { tasks: readonly BoardTask[]; dispatchOn?: boolean | null; onTurnOn?: () => void }) {
   const tr = useT();
   const { capacity } = useGlobalDispatchCap();
   const snapshot = useMemoryQueueSnapshot();
@@ -352,5 +364,5 @@ export function DispatchDashboard({ tasks, dispatchOn }: { tasks: readonly Board
       .finally(() => setStarting(null));
   };
   return <DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queuedCards(tasks, tr, now, projectName)} broken={broken}
-    now={now} onStartNow={start} starting={starting} dispatchOn={dispatchOn} live={snapshotIsLive(now)} startFailure={startFailure} />;
+    now={now} onStartNow={start} starting={starting} dispatchOn={dispatchOn} live={snapshotIsLive(now)} startFailure={startFailure} onTurnOn={onTurnOn} />;
 }
