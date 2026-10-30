@@ -32,6 +32,7 @@ import { Database } from "bun:sqlite";
 import type { MachineBudgetSample } from "../../shared/board";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
+import { setActiveBudgetGovernor, type BudgetGovernor } from "./budget-governor";
 import { currentDispatchBlock } from "./dispatch-block-signal";
 import { dispatchResourceVerdict } from "./dispatch-capacity";
 import { createMemSignal } from "./mem-signal";
@@ -289,6 +290,22 @@ describe("the exemption and the floor", () => {
     expect(h.startedAt).toHaveLength(1);
   });
 
+  it("card 10469e3e: room freed by a freeze goes to the frozen checks first, not to a new agent", async () => {
+    let frozen = 1;
+    setActiveBudgetGovernor({ frozenCount: () => frozen } as unknown as BudgetGovernor);
+    try {
+      const h = harness({ agentCostSamples: () => [1] });
+      h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.5 });
+      seedTodo(h.db, "frozen-1");
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.startedAt).toHaveLength(0);
+      frozen = 0;
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.startedAt).toHaveLength(1);
+    } finally { setActiveBudgetGovernor(null); }
+  });
 });
 
 /**

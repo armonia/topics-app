@@ -462,7 +462,14 @@ export interface FreezeState {
   underSamples: number;
   /** Ids frozen so far, in the order they were frozen. */
   frozen: readonly string[];
+  /** Identity (timestamp) of the last reading counted: the same reading never counts twice. */
+  lastAt?: number;
+  /** After an action only readings taken after this instant count: the effect has to be measured first. */
+  notBefore?: number;
 }
+
+/** A reading must be taken this long after a freeze/thaw to judge its effect. */
+export const FREEZE_SETTLE_MS = 10_000;
 
 export const EMPTY_FREEZE_STATE: FreezeState = { overSamples: 0, underSamples: 0, frozen: [] };
 
@@ -487,12 +494,18 @@ export interface FreezePlan {
  * continue, and keeping the id would block the thaw of everything under it.
  */
 export function freezePlan(
-  input: { used: number; budget: number; targets: readonly FreezeTarget[] },
+  input: { used: number; budget: number; targets: readonly FreezeTarget[]; at?: number },
   state: FreezeState = EMPTY_FREEZE_STATE,
 ): FreezePlan {
   const budget = Math.max(0.0001, input.budget);
   const alive = new Set(input.targets.map((t) => t.id));
   const frozen = state.frozen.filter((id) => alive.has(id));
+  // A reading already counted, or taken before the last action had time to
+  // show its effect, is not a new sample (the 30 s cache is read every 10 s).
+  if (input.at != null && (state.lastAt === input.at || (state.notBefore != null && input.at <= state.notBefore))) {
+    return { state: { ...state, frozen }, freeze: null, thaw: null };
+  }
+  const seen = input.at != null ? { lastAt: input.at } : {};
   const over = input.used > budget;
   const under = input.used < budget * THAW_FRACTION;
   const overSamples = over ? state.overSamples + 1 : 0;
@@ -505,7 +518,7 @@ export function freezePlan(
         // The counter resets after acting: the next freeze needs its own two
         // samples, so a single episode cannot walk down the whole list in two
         // ticks while the effect of the first pause is still on its way.
-        state: { overSamples: 0, underSamples: 0, frozen: [...frozen, victim.id] },
+        state: { overSamples: 0, underSamples: 0, frozen: [...frozen, victim.id], ...seen, ...settle(input.at) },
         freeze: victim.id,
         thaw: null,
       };
@@ -513,9 +526,13 @@ export function freezePlan(
   }
   if (underSamples >= FREEZE_SAMPLES && frozen.length) {
     const id = frozen[frozen.length - 1]!;
-    return { state: { overSamples: 0, underSamples: 0, frozen: frozen.slice(0, -1) }, freeze: null, thaw: id };
+    return { state: { overSamples: 0, underSamples: 0, frozen: frozen.slice(0, -1), ...seen, ...settle(input.at) }, freeze: null, thaw: id };
   }
-  return { state: { overSamples, underSamples, frozen }, freeze: null, thaw: null };
+  return { state: { overSamples, underSamples, frozen, ...seen, ...(state.notBefore != null ? { notBefore: state.notBefore } : {}) }, freeze: null, thaw: null };
+}
+
+function settle(at: number | undefined): { notBefore?: number } {
+  return at != null ? { notBefore: at + FREEZE_SETTLE_MS } : {};
 }
 
 /**

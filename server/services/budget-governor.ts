@@ -81,7 +81,7 @@ export interface GovernorDeps {
   /** Core-units our own tree is burning now, and the budget it has
    *  (`governorReading`: the CPU only, never memory). `null` = not measured,
    *  and a governor that cannot measure freezes nothing. */
-  read: () => { used: number; budget: number } | null;
+  read: () => { used: number; budget: number; at?: number } | null;
   /** SIGSTOP / SIGCONT on a whole process tree. */
   signalTree: (pid: number, sig: "SIGSTOP" | "SIGCONT") => Promise<void>;
   log: (message: string) => void;
@@ -112,7 +112,7 @@ export function createBudgetGovernor(deps: GovernorDeps): BudgetGovernor {
   async function sampleOnce(): Promise<void> {
     const reading = (() => { try { return deps.read(); } catch { return null; } })();
     if (!reading) return;
-    const plan = freezePlan({ used: reading.used, budget: reading.budget, targets: targets() }, state);
+    const plan = freezePlan({ used: reading.used, budget: reading.budget, targets: targets(), at: reading.at }, state);
     state = plan.state;
     if (plan.freeze) await apply(plan.freeze, "SIGSTOP");
     if (plan.thaw) await apply(plan.thaw, "SIGCONT");

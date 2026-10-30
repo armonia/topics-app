@@ -1033,7 +1033,7 @@ export function fleetSlotBudget(input: {
  */
 export const OTHER_WINDOW_MS = 45_000;
 type OtherSample = { at: number; coreUnits: number };
-export type OtherLoadState = { samples: OtherSample[]; held: number | null };
+export type OtherLoadState = { samples: OtherSample[]; held: number | null; lastAt?: number };
 export const newOtherLoadState = (): OtherLoadState => ({ samples: [], held: null });
 const otherState = newOtherLoadState();
 
@@ -1041,8 +1041,12 @@ export function smoothedOther(
   other: number | null | undefined,
   state: OtherLoadState = otherState,
   now: number = Date.now(),
+  /** Identity of the fleet reading: a call carrying the one already counted adds no sample. */
+  at?: number,
 ): number | null {
   if (other == null || !Number.isFinite(other)) return null;
+  if (at != null && state.lastAt === at && state.held != null) return state.held;
+  if (at != null) state.lastAt = at;
   const samples = state.samples;
   samples.push({ at: now, coreUnits: Math.max(0, other) });
   // Drop what fell out of the window. Anything dated in the future is kept: a
@@ -1258,7 +1262,7 @@ export function budgetSample(
     cores,
     totalMemGB,
     ourCoreUnits: fleet ? fleet.coreUnits + fleet.scriptsCoreUnits : 0,
-    otherCoreUnits: fleet ? smoothedOther(fleet.otherCoreUnits) : null,
+    otherCoreUnits: fleet ? smoothedOther(fleet.otherCoreUnits, undefined, undefined, fleet.at) : null,
     ourMemGB: fleet ? fleet.memGB : 0,
     availableMemGB: availMemGB != null && Number.isFinite(availMemGB) ? availMemGB : null,
     running,

@@ -25,6 +25,7 @@
  *    requeues (bounded by the retry cap) or parks a task that ended without
  *    reaching `review`.
  */
+import { activeFrozenCount } from "./budget-governor";
 import { LAND_ACTION_LABEL, UNASSIGNED_PROJECT_ID, commentAsksHuman, type Task, type TaskService } from "./tasks";
 import { type SessionUsage } from "./transcript-usage";
 import { onHumanHoldChange } from "../lib/human-hold-events";
@@ -1633,7 +1634,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       } else {
         firstAgentExemptNoted = false;
       }
-      const reason = verdict.admit ? null : machineBudgetMessage(verdict, sample.cores, share, mem);
+      // Frozen checks come back first: the room the freeze made is theirs, not a new agent's.
+      const reason = verdict.admit
+        ? (activeFrozenCount() > 0 ? "prima ripartono i check congelati" : null)
+        : machineBudgetMessage(verdict, sample.cores, share, mem);
       if (verdict.blockedBy && verdict.blockedBy !== lastPressureAxis && reason) log(`coda in attesa per budget: ${reason}`);
       else if (!verdict.blockedBy && lastPressureAxis) log("coda ripartita: l'uso di Topics è rientrato nel budget");
       lastPressureAxis = reason ? verdict.blockedBy : null;

@@ -113,7 +113,7 @@ import { OUR_APP_MARKERS } from "./server/services/memory-owners";
 import { createMemoryOwnersReader } from "./server/services/memory-owners-probe";
 import { createDispatchMemoryHistory } from "./server/services/dispatch-memory-history";
 import { createDispatchMemoryInputs, createDispatchResourceBlockFromInputs } from "./server/services/dispatch-memory-inputs";
-import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB, procResidentKB, registeredFleetSocketPaths } from "./server/lib/fleet-usage";
+import { fleetLoadSync, fleetSessionCoreUnits, getFleetUsage, procFootprintKB, procResidentKB, registeredFleetSocketPaths } from "./server/lib/fleet-usage";
 import { cardMemPeakGB, recentCardMemPeaksGB, treeFootprintKB } from "./server/lib/card-memory-peaks";
 import { machineCores } from "./server/lib/machine-cores";
 import { createBudgetGovernor, freezableRuns, liveCheckTreeGB, setActiveBudgetGovernor, signalProcessTree } from "./server/services/budget-governor";
@@ -5376,7 +5376,7 @@ const budgetGovernor = createBudgetGovernor({
       const share = budgetShare(cap);
       const sample = budgetSample(fleet, memSignal.latestAvailGB(), machineCores(), osTotalmem() / 1e9, turniInVolo());
       // The CPU only: a freeze on memory has no way out (see `governorReading`).
-      return governorReading(sample, share);
+      return { ...governorReading(sample, share), at: fleet.at };
     } catch { return null; }
   },
   signalTree: signalProcessTree,
@@ -5573,7 +5573,8 @@ const dispatchTimer = setInterval(() => {
     taskDispatcher.reconcile({ reason: "poll" }).catch((err) => console.error("[dispatcher] poll reconcile failed", err));
   }
   void delegatedRevocations.tick().catch((err) => console.error("[delegated-revoke] retry failed", err));
-  void budgetGovernor.sampleOnce().catch((err) => console.error("[budget] sample failed", err));
+  // A fresh reading per beat (TTL 4 s, ps ~0.1 s): the governor must not judge a 30 s old cache.
+  void getFleetUsage().catch(() => {}).then(() => budgetGovernor.sampleOnce()).catch((err) => console.error("[budget] sample failed", err));
   // LA QUOTA DI CORE SI RILEGGE QUI, sullo stesso giro che fa nascere e morire
   // gli agenti — cioè l'unico momento in cui il denominatore («quanti stanno
   // compilando accanto a me») può essere cambiato. L'ambiente di un processo si

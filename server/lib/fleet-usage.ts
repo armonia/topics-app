@@ -358,6 +358,12 @@ function finish(
  * fresca a ogni chiamata, si vuole non decidere su una vecchia.
  */
 const FLEET_LOAD_MAX_AGE_MS = 30_000;
+/**
+ * While a refresh is running the last reading keeps being served up to this
+ * age instead of `null`: a blind tick reads as "nobody else is on the machine"
+ * and opens the CPU brake (card 10469e3e).
+ */
+const FLEET_LOAD_STALE_GRACE_MS = 60_000;
 
 /**
  * Il carico della NOSTRA flotta in unità di core, letto SENZA aspettare.
@@ -375,11 +381,13 @@ const FLEET_LOAD_MAX_AGE_MS = 30_000;
  */
 export function fleetLoadSync(): FleetLoadReading | null {
   if (isWindows) return null;
-  if (!cached || Date.now() - cachedAt >= FLEET_LOAD_MAX_AGE_MS) {
+  const age = Date.now() - cachedAt;
+  if (!cached || age >= FLEET_LOAD_MAX_AGE_MS) {
     // Scalda la cache per il prossimo giro. Non si aspetta e non si propaga:
     // un errore qui deve valere «non lo so», mai far cadere un tick di dispatch.
     void getFleetUsage().catch(() => {});
-    return null;
+    // Serve the last reading while the refresh runs; only a really old one is "not known".
+    if (!cached || age >= FLEET_LOAD_STALE_GRACE_MS) return null;
   }
   if (!cached.supported) return null;
   const cores = Math.max(1, cached.cpuCores);
@@ -389,6 +397,7 @@ export function fleetLoadSync(): FleetLoadReading | null {
     scriptsCoreUnits: (cached.scriptsCpuPercent / 100) * cores,
     otherCoreUnits: (cached.otherCpuPercent / 100) * cores,
     memGB: (cached.memoryMB + cached.scriptsMB) / 1024,
+    at: cachedAt,
   };
 }
 
@@ -408,6 +417,8 @@ export interface FleetLoadReading {
   otherCoreUnits: number;
   /** Fleet memory in GB, scripts included. */
   memGB: number;
+  /** When the measure was taken (epoch ms): identical `at` means the very same reading, not a new sample. */
+  at?: number;
 }
 
 /**
@@ -494,7 +505,8 @@ async function readFleet(take: () => Promise<PsRow[]>, unsupported: FleetUsage):
     const usage = finish(rows, base, now);
     prevSample = sampleNow;
     cached = usage;
-    cachedAt = now;
+    // Written at the END of the read: stamping the start would make a slow `ps` look older than it is.
+    cachedAt = Date.now();
     return usage;
   } catch {
     // Keep the last good reading rather than flashing a zero through the UI.
