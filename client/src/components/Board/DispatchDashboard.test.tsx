@@ -8,6 +8,8 @@
  * @covers KANBAN-79
  */
 import { describe, test, expect, beforeEach } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DispatchDashboardView, DispatchSummaryView, MemoryChart } from './DispatchDashboard';
 import { GlobalSettingsSection } from './BoardSettingsSections';
@@ -234,7 +236,7 @@ describe('cruscotto auto-dispatch', () => {
       expect(html).not.toMatch(RED);
       expect(html).not.toContain('global-cap-verdict');
       // Resources brake, Topics over its ceiling: the live band is red on the wire, amber on screen.
-      adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 1, maxAgentsMode: 'resources', maxAgentsBudgetShare: 0.6 });
+      adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 1, maxAgentsMode: 'resources' });
       adoptDispatchCapacity(full({ cores: 12, usedCoreUnits: 7.4, usableCoreUnits: 6, budgetCoreUnits: 7.2, running: 2,
         admission: { admit: false, blockedBy: 'cpu', firstAgentExempt: false } as never }));
       html = panel();
@@ -249,7 +251,7 @@ describe('cruscotto auto-dispatch', () => {
       expect(html.indexOf('dispatch-dashboard-answer')).toBeLessThan(html.indexOf('global-cap-control'));
     });
     test('con un guasto il rosso c\'è, ed è solo il riquadro', () => {
-      const html = renderToStaticMarkup(<DispatchSummaryView capacity={full()} snapshot={snapshot} queue={queue} broken={2} dispatchOn now={NOW} />);
+      const html = renderToStaticMarkup(<DispatchSummaryView capacity={full()} snapshot={snapshot} queue={queue} broken={2} dispatchOn />);
       expect(html).toMatch(RED);
       expect(html).toContain('data-tone="bad"');
       expect(text(html)).toContain('2 card sono ferme per un guasto');
@@ -278,7 +280,7 @@ describe('le card ferme per un guasto nel riquadro rosso', () => {
     expect(b.listed).toHaveLength(3);
     expect(b.total).toBe(5);
     expect(b.more).toBe(2);
-    const html = renderToStaticMarkup(<DispatchSummaryView capacity={capacity} snapshot={snapshot} queue={queue} broken={b.total} brokenList={b} dispatchOn now={NOW} />);
+    const html = renderToStaticMarkup(<DispatchSummaryView capacity={capacity} snapshot={snapshot} queue={queue} broken={b.total} brokenList={b} dispatchOn />);
     expect(html.match(/dispatch-dashboard-broken-card/g)).toHaveLength(3);
     expect(text(html)).toContain('+2');
   });
@@ -292,5 +294,24 @@ describe('le card ferme per un guasto nel riquadro rosso', () => {
     (t[0] as { status: string }).status = 'done';
     (t[1] as { parentTaskId?: string }).parentTaskId = 'p';
     expect(brokenCards(t).total).toBe(0);
+  });
+});
+
+describe('regressioni della verifica avversaria', () => {
+  test('la lista del riquadro rosso può restringersi (min-w-0): un titolo lungo non sfora', () => {
+    const b = brokenCards([{ id: 'f0', text: 'x'.repeat(200), status: 'todo', dispatchState: 'failed', projectId: 'p-1' } as unknown as BoardTask]);
+    const html = renderToStaticMarkup(<DispatchSummaryView capacity={capacity} snapshot={snapshot} queue={queue} broken={b.total} brokenList={b} dispatchOn />);
+    const ul = html.match(/<ul[^>]*dispatch-dashboard-broken-list[^>]*>/)?.[0] ?? '';
+    expect(ul).toMatch(/class="[^"]*\bmin-w-0\b/);
+  });
+  test('il titolo è un bottone cablato su onOpenTask con l\'id della card', () => {
+    const src = readFileSync(join(import.meta.dir, 'DispatchDashboard.tsx'), 'utf8');
+    expect(src).toMatch(/data-testid="dispatch-dashboard-broken-card"[\s\S]{0,120}onClick=\{\(\) => onOpenTask\?\.\(c\.id\)\}/);
+  });
+  test.each(['it', 'en'])('i18n-%s: nessuna chiave duplicata (TS1117 rompe tsc -b)', (loc) => {
+    const src = readFileSync(join(import.meta.dir, '../../lib', `i18n-${loc}.ts`), 'utf8');
+    const keys = [...src.matchAll(/^\s*'([^']+)':/gm)].map((m) => m[1]!);
+    const dup = keys.filter((k, i) => keys.indexOf(k) !== i);
+    expect(dup).toEqual([]);
   });
 });

@@ -234,7 +234,8 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     await page.goto("/");
     await openBoard(page);
     await gear(page).click();
-    const dash = page.getByTestId("board-settings-menu");
+    const menu = page.getByTestId("board-settings-menu");
+    const dash = menu;
     const rows = menu.getByTestId("dispatch-dashboard-queue-row");
     await expect(rows).toHaveCount(3);
     const button = rows.first().getByTestId("dispatch-dashboard-start-now");
@@ -248,4 +249,41 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     await expect(rows.first().getByTestId("dispatch-dashboard-start-error")).toHaveText("Non è partita: il Mac non la regge adesso (disco, spesa o CPU)");
     await expect(dash).not.toContainText("task cannot be started");
   });
+
+  for (const width of [400, 1100]) {
+    test(`DISPATCHDASH-03: il riquadro rosso elenca le card ferme, senza sforare a ${width} px, e il clic apre il drawer`, async ({ page, request }) => {
+      await stubMachine(page, 0);
+      await stubQueue(page);
+      // Two of the three cards stop on a fault; the first has a title longer than the box.
+      for (const id of created.slice(0, 2)) {
+        const r = await request.post(`${E2E_BASE}/api/test/tasks/${id}/dispatch-state`, { data: { state: "failed", error: "Avvio agent fallito" } });
+        expect(r.ok(), "dispatch-state failed").toBe(true);
+      }
+      await page.setViewportSize({ width, height: 1800 });
+      await page.goto("/");
+      await openBoard(page);
+      await gear(page).click();
+      const menu = page.getByTestId("board-settings-menu");
+      const answer = menu.getByTestId("dispatch-dashboard-answer");
+      await expect(answer).toContainText("2 card sono ferme per un guasto");
+      const cards = menu.getByTestId("dispatch-dashboard-broken-card");
+      await expect(cards).toHaveCount(2);
+      // No horizontal overflow: neither the page nor the panel nor the red box scroll sideways.
+      const overflow = await page.evaluate(() => {
+        const wide = (el: Element | null) => (el ? el.scrollWidth - el.clientWidth : 0);
+        const menuEl = document.querySelector('[data-testid="board-settings-menu"]');
+        const list = document.querySelector('[data-testid="dispatch-dashboard-broken-list"]');
+        const box = list?.parentElement ?? null;
+        return { page: wide(document.documentElement), menu: wide(menuEl), box: wide(box), list: wide(list) };
+      });
+      expect(overflow, `overflow-X a ${width} px`).toEqual({ page: 0, menu: 0, box: 0, list: 0 });
+      await menu.screenshot({ path: join(SHOTS, `guasti-${width}.png`) });
+      // Click on a title: the panel closes and the drawer of THAT card opens.
+      await cards.first().click();
+      const drawer = page.getByTestId("task-detail-drawer");
+      await expect(drawer).toBeVisible();
+      await expect(drawer).toContainText(QUEUED[0]!);
+      await expect(menu).toBeHidden();
+    });
+  }
 });
