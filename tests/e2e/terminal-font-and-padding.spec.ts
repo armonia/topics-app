@@ -50,13 +50,36 @@ test.describe("Terminal font and padding", () => {
     });
     expect(fontLoaded).toBe(true);
 
-    // xterm mounts `.xterm` straight into the padded container, so the
-    // container is its parent: that is where the 12 px gap is measured.
-    const padding = await page.evaluate(() => {
-      const termNode = document.querySelector(".xterm");
-      const host = termNode?.parentElement;
-      return host ? getComputedStyle(host).paddingTop : null;
-    });
-    expect(padding).toBe("12px");
+    // The gap is measured from the box that holds xterm to xterm's screen, at
+    // several pane heights: FitAddon rounds the rows down, so the gap below the
+    // last row is 12 px plus the remainder, and a fit that counts the padding
+    // as rows puts the last row past the bottom edge.
+    const measureGaps = () =>
+      page.evaluate(() => {
+        const box = [...document.querySelectorAll<HTMLElement>('[data-testid="terminal-gap-box"]')].find(
+          (el) => el.offsetParent !== null,
+        );
+        const screen = box?.querySelector<HTMLElement>(".xterm-screen");
+        if (!box || !screen) return null;
+        const b = box.getBoundingClientRect();
+        const s = screen.getBoundingClientRect();
+        return { top: s.top - b.top, left: s.left - b.left, bottom: b.bottom - s.bottom, right: b.right - s.right };
+      });
+
+    for (const height of [600, 610, 642, 673]) {
+      await page.setViewportSize({ width: 1280, height });
+      await expect
+        .poll(async () => {
+          const g = await measureGaps();
+          return g !== null && g.bottom >= 12 && g.right >= 11.5;
+        }, { timeout: 10_000 })
+        .toBe(true);
+      const g = await measureGaps();
+      expect(g, `gaps at height ${height}`).not.toBeNull();
+      expect(Math.abs(g!.top - 12), `top gap at height ${height}`).toBeLessThanOrEqual(1);
+      expect(Math.abs(g!.left - 12), `left gap at height ${height}`).toBeLessThanOrEqual(1);
+      expect(g!.bottom, `bottom gap at height ${height}`).toBeGreaterThanOrEqual(12);
+      expect(g!.right, `right gap at height ${height}`).toBeGreaterThanOrEqual(11.5);
+    }
   });
 });
