@@ -290,8 +290,8 @@ describe("F5: the heaviest background command, and nothing else", () => {
     expect(pickVictim([heavy, withMoreCpu]).victim).toBe(withMoreCpu);
     // The newest heavy tree goes first so the older ones can finish, whatever it weighs.
     const older = c({ footprintGB: 5, cpuCores: 0.9, startedAt: 1000 });
-    const youngest = c({ footprintGB: 1, cpuCores: 0.2, startedAt: 2000 });
-    expect(pickVictim([older, youngest]).victim).toBe(youngest);
+    const recent = c({ footprintGB: 1, cpuCores: 0.2, startedAt: 2000 });
+    expect(pickVictim([older, recent]).victim).toBe(recent);
   });
 });
 
