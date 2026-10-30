@@ -106,6 +106,12 @@ export interface CreateRunBody {
   description: string;
   model: string | null;
   effort: string | null;
+  /**
+   * The branch the run starts FROM, already on origin: the card's own delivery
+   * branch when it was sent back after a review. Absent = the default branch,
+   * which for such a card throws its commits away (df5fd8c5, 30/10/2026).
+   */
+  baseBranch?: string | null;
 }
 
 /** Immutable authority envelope for the confined delegated-node path. */

@@ -2648,6 +2648,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       stayLocal: !!r.stay_local,
       // Only while it still runs where the overflow sent it.
       ...(r.overflowed_at && r.machine_id ? { overflowedAt: r.overflowed_at } : {}),
+      ...(r.base_branch ? { baseBranch: r.base_branch } : {}),
       // WHO opened it; NULL for every card written before the column.
       createdBy: r.created_by ?? null,
       // Delegation metadata is rare. Absence means an ordinary owner run, not
@@ -3715,8 +3716,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (input.blockedByTaskId) assertBlockerValid(id, input.blockedByTaskId);
 
       db.prepare(
-        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id, topics_routing, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id, topics_routing, created_by, stay_local, base_branch)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id, input.projectId, text, input.description ?? null, status, priority, order,
         input.assignedTo ?? null, input.chatId ?? null, ts, ts, input.idempotencyKey ?? null,
@@ -3730,6 +3731,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         input.machineId === undefined ? boardDispatchMachineId(input.projectId) : input.machineId,
         input.topicsRouting === undefined || input.topicsRouting === null ? null : (input.topicsRouting ? 1 : 0),
         parseCreatedBy(input.createdBy),
+        input.stayLocal ? 1 : 0,
+        input.baseBranch?.trim() || null,
       );
       return rowToTask(getTaskRow(id));
     },

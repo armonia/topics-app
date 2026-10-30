@@ -72,6 +72,13 @@ export interface NodeDeps {
   /** The git remote the node resolves its own project by (never a path: the ids differ). */
   originUrlOf: (projectId: string) => Promise<string | null>;
   plantBranch: (input: PlantBranchInput) => Promise<PlantBranchResult>;
+  /**
+   * Makes sure a card's own branch is on origin, pushing it when this checkout
+   * is ahead (or origin lacks it). `ok: false` = the branch carries work origin
+   * cannot get, and a run started elsewhere would start without it. Absent = no
+   * card carries its branch to a node, the historical behaviour.
+   */
+  ensureBranchOnOrigin?: (input: { projectId: string; branch: string }) => Promise<{ ok: true } | { ok: false; reason: string }>;
   /** The checkout of a project on THIS machine: the `cwd` the `node-run` hook starts in. */
   projectPathOf?: (projectId: string) => string | null;
   /**
@@ -337,6 +344,26 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       );
       return;
     }
+    // A CARD THAT ALREADY HAS A BRANCH STARTS FROM IT over there (a rerun after
+    // a review). Started from main, the delivery lacked that branch's commits and
+    // conflicted with them at the land (df5fd8c5, 30/10/2026: 5 files). The node
+    // can only start from what origin has, so the branch is pushed first; a
+    // branch that cannot reach origin keeps the card from starting at all.
+    let baseBranch: string | null = null;
+    if (task.deliveryBranch && !policy && node.ensureBranchOnOrigin) {
+      const branch = task.deliveryBranch;
+      const ready = await Promise.resolve(node.ensureBranchOnOrigin({ projectId: task.projectId, branch }))
+        .catch((err): { ok: false; reason: string } => ({ ok: false, reason: err instanceof Error ? err.message : String(err) }));
+      if (!ready.ok) {
+        parkNodeCard(
+          task,
+          `Questa card ha già il ramo «${branch}», ma su origin non c'è e non si è potuto pusharlo (${ready.reason}). ` +
+            `Il nodo «${name}» partirebbe da main senza i suoi commit: pusha il ramo, oppure togli la macchina dalla card.`,
+        );
+        return;
+      }
+      baseBranch = branch;
+    }
     if (policy) {
       let begun: boolean | number = false;
       try {
@@ -418,6 +445,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
           ),
           model: policy?.model ?? task.model ?? settings.model ?? null,
           effort: policy ? settings.effort : (settings.effort && settings.effort !== "auto" ? settings.effort : null),
+          ...(baseBranch ? { baseBranch } : {}),
         },
       });
       lastNodeRun.set(task.id, runId);
