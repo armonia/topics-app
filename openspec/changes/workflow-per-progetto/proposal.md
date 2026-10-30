@@ -130,4 +130,7 @@ Codice sul ramo di questa card, a partire da `main` v2.3.43.
    E2E_VIDEO=1`): exit 0, con video.
 4. Mutazione: `awaitsHuman` che conta anche `ai_review` (cioè la tray e «Ti aspetta» che contano AI review): la
    spec del passo 3 e `shared/tray-board.test.ts` escono non-zero.
-5. `bun run test:unit`: vedi la consegna della card.
+5. `bun run test:unit`: due rossi miei (test che leggevano il sorgente della colonna), corretti e verdi. Restano
+   quattro rossi che non dipendono da questo ramo: `command-service` è rosso anche su `main`,
+   `server-restart-keeps-claude-session` cade su `EAFNOSUPPORT` (niente IPv6 nel container), `late-scan-past-cap`
+   e `processes.command` da soli passano su entrambi i rami (3 su 3).
