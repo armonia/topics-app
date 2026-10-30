@@ -1450,6 +1450,7 @@ const EN = {
   'board.settings.deployCommandSuggestion': 'The project already has a `deploy` script: {cmd}',
   'board.settings.deployCommandUseSuggestion': 'Use it',
   'board.settings.autoDispatch': 'Auto-dispatch',
+  'board.dash.turnOn': 'Turn on',
   'board.dash.hero': '{running} working · {queued} queued',
   'board.dash.live': 'live',
   'board.dash.noBroken': 'No card is stuck on a fault: the {queued} queued will start on their own.',

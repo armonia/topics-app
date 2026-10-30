@@ -57,7 +57,7 @@ export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks }: {
   const tr = useT();
   return (
     <>
-      {tasks && <DispatchDashboard tasks={tasks} dispatchOn={dispatchOn} />}
+      {tasks && <DispatchDashboard tasks={tasks} dispatchOn={dispatchOn} onTurnOn={onToggleDispatch} />}
       {/* The whole row is the checkbox's label, and it is the target: 24 tall
           with the mouse, 44 under a finger (usability audit, 04/10: 16). */}
       <label

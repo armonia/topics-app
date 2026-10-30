@@ -16,6 +16,8 @@ export interface QueuedCard {
   waitingMs: number;
   /** Neutral phrase decided by the server, already translated; `null` = the server has none. */
   reason: string | null;
+  /** The longer explanation, kept out of the row (tooltip only): one reason per state. */
+  detail?: string | null;
   /** Waits only for free memory: the one wait Start anyway can skip. */
   memoryWaiter: boolean;
   /** The server considers it stuck (tone `stalled`): it does not start by itself. */
@@ -43,7 +45,8 @@ export function queuedCards(
         title: t.text,
         project: projectName(t),
         waitingMs: Math.max(0, now - Date.parse(t.updatedAt)),
-        reason: text ? `${text.head} · ${text.detail}` : null,
+        reason: text ? text.head : null,
+        detail: text ? text.detail : null,
         // The same test as the server (`isMemoryWaiter`): outside it the server answers 409.
         memoryWaiter: t.status === 'todo' && t.dispatchState === 'queued' && t.dispatchError === WAITING_MEMORY_REASON,
         stalled: t.queueReason?.tone === 'stalled',
