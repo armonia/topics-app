@@ -24,6 +24,7 @@ import { isDoneThreadService, isFreshSessionNote, isServiceComment } from '../..
 import { questionToProse } from '../../../../shared/question-prose';
 import { pendingQuestionComment } from '../../../../shared/board';
 import { ThreadRuns } from './ThreadRuns';
+import { runningToolLabel } from '../Chat/runningToolLabel';
 import { surfaceTopicsRoutingEnabled } from '../../lib/topicsRoutingGate';
 import { useTaskModelTrigger } from '../../hooks/useTaskModelTrigger';
 import { copyText } from '../../lib/clipboard';
@@ -1958,6 +1959,16 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
      */
     const folds = task.status === 'done' ? isDoneThreadService : isServiceComment;
     const isService = (item: TimelineItem) => item.source === 'comment' && folds(item);
+    // The column keeps WORDS only: the dispatcher's chronicle (service notes,
+    // transitions, envelopes, system lines) sits in the «Details» panel.
+    const isChronicle = (item: TimelineItem) => item.source === 'comment'
+      ? item.kind === 'status' || isService(item) || (item.comment.author === 'system' && item.comment.kind === 'comment' && !parseQuestionBlock(item.comment.content))
+      : !!item.envelope;
+    const at = new Map(timeline.map((t, i) => [t.id, i]));
+    const words = timeline.filter((t) => !isChronicle(t));
+    const chronicle = timeline.filter(isChronicle);
+    const wordRow = (item: TimelineItem) => row(item, at.get(item.id) ?? 0);
+    const liveTool = [...timeline].reverse().find((t) => t.source === 'session' && !t.envelope && t.msg.role === 'assistant');
     return (
       <div
         ref={threadScrollRef}
@@ -1986,6 +1997,14 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
       >
         <div ref={threadContentRef} className="chat-measure space-y-2 px-3">
         {details}
+        {detailsOpen && chronicle.length > 0 && (
+          <div data-testid="task-chronicle" className="rounded-md border border-app-border-subtle px-2 py-2">
+            <div className="mb-1 text-mini font-medium uppercase tracking-wide text-app-text-muted">{tr('board.task.chronicle')} · {chronicle.length}</div>
+            <div className="space-y-2">
+              <ThreadRuns comments={chronicle} renderRow={wordRow} renderStatusRun={statusRun} isService={() => false} />
+            </div>
+          </div>
+        )}
         {task.previewImage && !previewInThread && (
           <button type="button" data-testid="task-conversation-attachment" onClick={() => openTaskPane(mediaPaneIdFor(task.previewImage!))}
             className="flex w-full items-center gap-2 rounded border border-app-border px-2.5 py-2 text-left text-compact leading-4 text-app-text-secondary hover:bg-white/5 coarse:min-h-11">
@@ -2002,7 +2021,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
             aspetta te. Ora la condizione e' la LISTA vuota e basta: da quando
             la sessione e' nella stessa lista, "ha un topic" non dice piu'
             niente su quello che c'e' da leggere. */}
-        {timeline.length === 0 && (
+        {words.length === 0 && (
           <p data-testid="task-thread-empty" className="text-compact leading-4 text-app-text-muted">
             {tr(emptyThreadKey(task.status))}
           </p>
@@ -2023,8 +2042,8 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
           </div>
         )}
         <ThreadRuns
-          comments={timeline} renderRow={row} renderStatusRun={statusRun}
-          isService={isService}
+          comments={words} renderRow={wordRow} renderStatusRun={statusRun}
+          isService={() => false}
         />
         {/* THE LIVE ROW, at the tail: "how is it going" is asked where you
             write, and a composer with no sign of life above it reads as an
@@ -2034,13 +2053,14 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
           <SessionLiveRow
             phase={task.dispatchState === 'queued' ? tr('board.task.dispatch.queued') : task.dispatchState === 'starting' ? tr('board.task.dispatch.starting') : tr('board.task.dispatch.working')}
             since={task.dispatchState === 'working' ? sessionRuns.since : null}
+            tool={liveTool?.source === 'session' ? runningToolLabel(liveTool.msg) : null}
           />
         )}
         </div>
       </div>
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- action callbacks use the task state listed below
-  }, [task, timeline, commentReceipt, deliveryWord, agentBusy, busy, sending, uploading, pending, lastThreadComment, replyOptions, tr, ownerName, children, sessionKey, openTaskPane, previewInThread, foldedDeliveryNotes, composerHeight, sessionRuns]);
+  }, [task, timeline, commentReceipt, deliveryWord, agentBusy, busy, sending, uploading, pending, lastThreadComment, replyOptions, tr, ownerName, children, sessionKey, openTaskPane, previewInThread, foldedDeliveryNotes, composerHeight, sessionRuns, detailsOpen]);
 
   const renderSurface = useCallback<RenderSurface>((pane, _isVisible) => {
     if (pane.id.startsWith('plan:') && planComment)

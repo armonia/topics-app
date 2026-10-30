@@ -1219,6 +1219,7 @@ const EN = {
   'chat.attachments.removeFile': 'Remove {name}',
   'board.task.pdfPreviewTitle': 'PDF preview',
   'board.task.serviceNotes': 'service notes',
+  'board.task.chronicle': 'System log',
   'board.task.serviceNotesTitle': 'Dispatcher bookkeeping (restarts, queue holds, retries). Open to read them all, in order.',
   'board.task.recapturePreview': 'Recapture evidence',
   'board.task.recapturePreviewTitle': "Rebuild this card's preview: reboot the server from its worktree and shoot it again. It does NOT wake the agent and burns no attempt. If it can't be done, the reason lands in the thread.",
