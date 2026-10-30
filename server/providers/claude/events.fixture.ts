@@ -127,6 +127,15 @@ export const PARTIAL_BLOCK_START = {
   },
 };
 
+export const PARTIAL_THINKING_START = {
+  type: "stream_event",
+  event: {
+    type: "content_block_start",
+    index: 0,
+    content_block: { type: "thinking", thinking: "", signature: "" },
+  },
+};
+
 export const PARTIAL_INPUT_DELTA = {
   type: "stream_event",
   event: {

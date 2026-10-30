@@ -249,6 +249,10 @@ export interface StreamHandler {
    */
   onTextDelta: (text: string, fullText: string) => void;
   onThinkingDelta?: (text: string) => void;
+  /** The model entered a reasoning block, before any of its text exists. */
+  onThinkingStart?: () => void;
+  /** The reasoning block closed. */
+  onThinkingEnd?: () => void;
   onToolStart: (toolCallId: string, name: string, args?: ToolArgs) => void;
   /**
    * THE TOOL IS RUNNING NOW - not announced, running.

@@ -7,6 +7,10 @@
       "fixes": [],
       "perf": [
         {
+          "text": "porta cache TTL a 1h e keepalive a 4 min",
+          "scope": null
+        },
+        {
           "text": "porta cache TTL a 1h e keepalive a 4 min (#481)",
           "scope": null
         }
