@@ -294,7 +294,7 @@ export function DispatchSummaryView({ capacity, snapshot, queue, broken = 0, bro
           >{tr('board.dash.turnOn')}</button>
         )}
         {answer.tone === 'bad' && brokenList && brokenList.listed.length > 0 && (
-          <ul className="basis-full space-y-0.5 pl-[15px] font-normal" data-testid="dispatch-dashboard-broken-list">
+          <ul className="min-w-0 basis-full space-y-0.5 pl-[15px] font-normal" data-testid="dispatch-dashboard-broken-list">
             {brokenList.listed.map((c) => (
               <li key={c.id} className="min-w-0">
                 <button

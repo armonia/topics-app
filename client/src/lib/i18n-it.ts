@@ -1629,7 +1629,6 @@ const IT: Dict = {
   'board.dash.broken': '{n} card sono ferme per un guasto: guarda il motivo sulla card.',
   'board.dash.dispatchOff': 'Auto-dispatch spento: le {queued} in coda partono quando lo accendi.',
   'board.dash.dispatchOffEmpty': 'Auto-dispatch spento: le card non partono da sole.',
-  'board.dash.turnOn': 'Accendi',
   'board.dash.memoryFree': 'Memoria libera del Mac: {free} su {total}.',
   'board.dash.memoryWait': 'Ne parte un’altra quando il Mac ha {start} liberi (adesso {free}).',
   'board.dash.cpuWait': 'Le card in coda aspettano che il Mac sia meno occupato.',
