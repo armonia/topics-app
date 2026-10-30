@@ -1406,6 +1406,7 @@ const EN = {
   'board.card.systemNote': 'System note',
   'board.card.noSummary': 'No summary: what follows is machine bookkeeping',
   'board.card.commentMore': 'Show all',
+  'board.card.noteShow': 'show',
   'board.card.commentLess': 'Show less',
   'board.card.uncommitted': 'branch with no commit',
   // THE WORK IS THERE, IT IS JUST NOT ON A COMMIT. The chip said the same thing
