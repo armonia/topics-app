@@ -513,11 +513,14 @@ export type PartialToolEvent =
   /** Un altro pezzo di JSON dell'input. */
   | { kind: "input_delta"; index: number; chunk: string }
   /** L'input è completo: quel che c'è nel buffer è tutto. */
-  | { kind: "block_stop"; index: number };
+  | { kind: "block_stop"; index: number }
+  /** Il modello è entrato in un blocco di ragionamento. Il testo arriva dopo (o
+   *  mai, in diretta): questo è l'unico segnale che c'è mentre ragiona. */
+  | { kind: "thinking_start"; index: number };
 
 /**
  * Decodifica un `stream_event`. Null per tutto ciò che non riguarda il ciclo di
- * vita di un `tool_use` — inclusi gli eventi delle sotto-sessioni, i cui tool
+ * vita di un `tool_use` o l'ingresso in un blocco di ragionamento — inclusi gli eventi delle sotto-sessioni, i cui tool
  * si aggregano dagli snapshot della sidechain e non da qui.
  */
 export function decodePartialStreamEvent(event: unknown): PartialToolEvent | null {
@@ -530,6 +533,7 @@ export function decodePartialStreamEvent(event: unknown): PartialToolEvent | nul
 
   if (ev.type === "content_block_start") {
     const block = asRecord(ev.content_block);
+    if (block?.type === "thinking" || block?.type === "redacted_thinking") return { kind: "thinking_start", index };
     if (!block || block.type !== "tool_use") return null;
     const id = typeof block.id === "string" ? block.id : "";
     if (!id) return null;

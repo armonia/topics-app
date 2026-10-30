@@ -34,4 +34,32 @@ describe('ReasoningRow across partial and final', () => {
   test('a final message with no reasoning draws no row', () => {
     expect(render(false, '')).not.toContain('reasoning-row');
   });
+
+  test('a reserved row between the tools keeps its place when the turn ends', () => {
+    // Live: the thinking block opened (empty) before the tool and the answer.
+    // Final: the same block now carries its text. Same order, no insertion.
+    const tool = { id: 't1', name: 'Bash', args: { command: 'sleep 12' }, status: 'success' as const };
+    const withBlocks = (partial: boolean, thinking: string) =>
+      renderToStaticMarkup(
+        <MessageContent
+          role="assistant"
+          content="The answer"
+          partial={partial}
+          toolCalls={[tool]}
+          blocks={[
+            { kind: 'thinking', text: thinking },
+            { kind: 'tool', toolCall: tool },
+            { kind: 'text', text: 'The answer' },
+          ]}
+          messageId="m2"
+        />,
+      );
+    const order = (html: string) => [html.indexOf('reasoning-row'), html.indexOf('tool-call'), html.indexOf('The answer')];
+    const live = order(withBlocks(true, ''));
+    const final = order(withBlocks(false, 'abc'));
+    expect(live[0]).toBeGreaterThan(-1);
+    expect(final[0]).toBeGreaterThan(-1);
+    expect([...live].sort((a, b) => a - b)).toEqual(live);
+    expect([...final].sort((a, b) => a - b)).toEqual(final);
+  });
 });

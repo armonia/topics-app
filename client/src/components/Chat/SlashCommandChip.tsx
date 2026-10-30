@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react';
 import { useT } from '../../hooks/useT';
-import { ChevronDown, ChevronRight, Loader2, Sparkles, Terminal } from 'lucide-react';
+import { ChevronDown, ChevronRight, Sparkles, Terminal } from 'lucide-react';
+import { SparkLoader } from '../Layout/StreamingIndicator';
 import { slashCommandsApi } from '../../lib/api';
 import { DisclosureBody } from './DisclosureBody';
 import { useDisclosureToggle } from './transcriptDisclosure';
@@ -113,7 +114,7 @@ export function SlashCommandChip({ command, args }: { command: string; args?: st
           <span className="font-medium">/{command}</span>
           {args && <span className="opacity-80">{args}</span>}
           {revealing
-            ? <Loader2 size={12} className="flex-shrink-0 animate-spin opacity-60" aria-hidden="true" />
+            ? <SparkLoader className="flex-shrink-0 opacity-60" />
             : open
               ? <ChevronDown size={12} className="flex-shrink-0 opacity-60" />
               : <ChevronRight size={12} className="flex-shrink-0 opacity-60" />}

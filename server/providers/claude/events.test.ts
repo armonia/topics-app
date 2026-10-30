@@ -278,6 +278,10 @@ describe("decodePartialStreamEvent", () => {
     expect(decodePartialStreamEvent(F.PARTIAL_BLOCK_STOP)).toEqual({ kind: "block_stop", index: 1 });
   });
 
+  test("l'ingresso in un blocco di ragionamento è un segnale, senza testo", () => {
+    expect(decodePartialStreamEvent(F.PARTIAL_THINKING_START)).toEqual({ kind: "thinking_start", index: 0 });
+  });
+
   test("i delta di TESTO si ignorano: la loro sorgente sono gli snapshot", () => {
     // Leggerli anche da qui li conterebbe due volte.
     expect(decodePartialStreamEvent(F.PARTIAL_TEXT_DELTA)).toBeNull();

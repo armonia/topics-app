@@ -1464,12 +1464,14 @@ export function useChat() {
 
       case 'stream:thinking_start':
         setThinking(prev => ({ ...prev, [sessionKey]: true }));
-        // Reserve the reasoning row now, in its final place above the answer,
-        // so it never gets inserted over the text when the turn ends.
+        // Reserve the reasoning row now, at the point of the timeline where the
+        // model started reasoning, so the end of the turn inserts nothing over
+        // the text. The server sends this event when the CLI opens a thinking
+        // block, even though its text only exists in the final message.
         setMessages(prev => {
           const list = prev[sessionKey] || [];
           const last = list[list.length - 1];
-          if (!last || last.role !== 'assistant' || !last.partial || last.blocks?.some(b => b.kind === 'thinking')) return prev;
+          if (!last || last.role !== 'assistant' || !last.partial || last.blocks?.[last.blocks.length - 1]?.kind === 'thinking') return prev;
           const next = list.slice();
           next[next.length - 1] = { ...last, blocks: [...(last.blocks ?? []), { kind: 'thinking', text: '' }] };
           return { ...prev, [sessionKey]: next };
