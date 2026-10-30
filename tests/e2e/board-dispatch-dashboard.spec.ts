@@ -180,15 +180,18 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     await expect(dash.getByTestId("dispatch-dashboard-hero")).toHaveText("2 al lavoro · 3 in coda");
     // Auto-dispatch off in the test env: the row states the memory, it does not promise another one will start.
     await expect(dash.getByTestId("dispatch-dashboard-memory")).toHaveText("Memoria libera del Mac: 2,8 GB su 32 GB.");
+    // Who holds the memory is closed by default and opens on request.
+    await expect(dash.getByTestId("dispatch-dashboard-holders")).toBeHidden();
+    await dash.getByText("Chi tiene la memoria del Mac · 32 GB").click();
     await expect(dash.getByTestId("dispatch-dashboard-holders")).toContainText("Jarvis e altre sessioni di Claude");
-    await expect(dash.getByText("Chi tiene la memoria del Mac · 32 GB")).toBeVisible();
     await expect(page.locator("label", { hasText: "Auto-dispatch" }).getByRole("checkbox")).toBeVisible();
     await expect(menu.getByText("Agent in parallelo", { exact: true })).toBeVisible();
     await expect(menu.getByTestId("global-cap-running")).toBeVisible();
     // The three improvements.
     await expect(dash.getByTestId("dispatch-dashboard-live")).toHaveText("dal vivo");
     // The test env starts with Auto-dispatch off: the row does not promise they start by themselves.
-    await expect(dash.getByTestId("dispatch-dashboard-ok")).toHaveText("Auto-dispatch spento: le 3 in coda partono quando lo accendi.");
+    await expect(dash.getByTestId("dispatch-dashboard-ok")).toContainText("Auto-dispatch spento: le 3 in coda partono quando lo accendi.");
+    await expect(dash.getByTestId("dispatch-dashboard-turn-on")).toBeVisible();
     const chart = dash.getByTestId("dispatch-chart");
     await expect(chart).toBeVisible();
     await expect(chart).toContainText("3,5 GB liberi: ne parte un’altra");
