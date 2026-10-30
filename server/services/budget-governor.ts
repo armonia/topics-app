@@ -46,6 +46,8 @@ export interface FreezableRun {
   commit?: string | null;
   /** Latest footprint of the whole tree in KB, written by the runner's sampler. */
   treeKB?: number;
+  /** Waiting for a gate slot: it burns no CPU, so freezing it gives nothing back. */
+  queued?: boolean;
   /** Called when the run is paused, so its own deadline can stop counting.
    *  A frozen gate that times out would be this module inventing a red. */
   onFreeze?: () => void;
@@ -101,18 +103,47 @@ export interface BudgetGovernor {
   thawAll: () => Promise<void>;
 }
 
+/** Longest a run stays frozen for the CPU, under the 5 min per-file cap inside the test runner. */
+export const BUDGET_FREEZE_MAX_MS = 4 * 60_000;
+/** Freezes per run before it is left alone. */
+export const BUDGET_FREEZES_PER_RUN = 2;
+
 export const FROZEN_NOTE = "Congelata per carico: riprende da sola quando la macchina scende.";
 
 export function createBudgetGovernor(deps: GovernorDeps): BudgetGovernor {
   let state: FreezeState = EMPTY_FREEZE_STATE;
 
+  /** When each frozen run was stopped. */
+  const frozenSince = new Map<string, number>();
+  /** Runs that hit the cap or the per-run freeze count: never frozen again. */
+  const immune = new Set<string>();
+  const freezeCounts = new Map<string, number>();
+  /** Runs whose card already got the note: one per run, not one per freeze. */
+  const noted = new Set<string>();
+
   const targets = (): FreezeTarget[] =>
-    freezableRuns().map((r) => ({ id: r.id, kind: "check" as const, startedAt: r.startedAt }));
+    freezableRuns()
+      .filter((r) => !r.queued && !immune.has(r.id))
+      .map((r) => ({ id: r.id, kind: "check" as const, startedAt: r.startedAt }));
+
+  /** Fail open: a run frozen past the cap is continued and left alone. */
+  async function releaseExpired(): Promise<void> {
+    const now = Date.now();
+    for (const id of [...state.frozen]) {
+      const since = frozenSince.get(id);
+      if (since === undefined || now - since < BUDGET_FREEZE_MAX_MS) continue;
+      immune.add(id);
+      state = { ...state, frozen: state.frozen.filter((f) => f !== id) };
+      await apply(id, "SIGCONT");
+    }
+  }
 
   async function sampleOnce(): Promise<void> {
     const reading = (() => { try { return deps.read(); } catch { return null; } })();
+    await releaseExpired();
     if (!reading) return;
-    const plan = freezePlan({ used: reading.used, budget: reading.budget, targets: targets(), at: reading.at }, state);
+    const all = freezableRuns();
+    const plan = freezePlan({ used: reading.used, budget: reading.budget, targets: [...targets(), ...all.filter((r) => state.frozen.includes(r.id) && (r.queued || immune.has(r.id))).map((r) => ({ id: r.id, kind: "check" as const, startedAt: r.startedAt }))], at: reading.at }, state);
     state = plan.state;
     if (plan.freeze) await apply(plan.freeze, "SIGSTOP");
     if (plan.thaw) await apply(plan.thaw, "SIGCONT");
@@ -129,12 +160,19 @@ export function createBudgetGovernor(deps: GovernorDeps): BudgetGovernor {
       return;
     }
     if (sig === "SIGSTOP") {
+      frozenSince.set(id, Date.now());
+      const n = (freezeCounts.get(id) ?? 0) + 1;
+      freezeCounts.set(id, n);
+      if (n >= BUDGET_FREEZES_PER_RUN) immune.add(id);
       try { run.onFreeze?.(); } catch { /* the deadline stays as it was */ }
       deps.log(`congelo "${run.name}" per carico: Topics e' sopra il budget da due letture`);
-      if (run.taskId) { try { deps.note?.(run.taskId, FROZEN_NOTE); } catch { /* the freeze holds anyway */ } }
+      if (run.taskId && !noted.has(id)) { noted.add(id); try { deps.note?.(run.taskId, FROZEN_NOTE); } catch { /* the freeze holds anyway */ } }
     } else {
       try { run.onThaw?.(); } catch { /* the deadline stays as it was */ }
-      deps.log(`scongelo "${run.name}": Topics e' rientrato nel budget`);
+      const since = frozenSince.get(id);
+      frozenSince.delete(id);
+      const secs = since === undefined ? 0 : Math.round((Date.now() - since) / 1000);
+      deps.log(`scongelo "${run.name}" dopo ${secs} s: Topics e' rientrato nel budget`);
     }
   }
 
@@ -165,9 +203,26 @@ export function createBudgetGovernor(deps: GovernorDeps): BudgetGovernor {
  */
 export async function signalProcessTree(pid: number, sig: "SIGSTOP" | "SIGCONT"): Promise<void> {
   if (!pid || pid <= 0) return;
-  const pids = await getDescendantPids(pid, { fresh: true });
-  for (const p of pids) {
-    try { process.kill(p, sig); } catch { /* already gone */ }
+  // The check is detached, so it leads its own group: the group catches
+  // children born after the snapshot and grandchildren re-adopted by init.
+  const hitGroup = () => { try { process.kill(-pid, sig); } catch { /* no such group */ } };
+  const hitPids = (pids: Iterable<number>) => {
+    for (const p of pids) {
+      try { process.kill(p, sig); } catch { /* already gone */ }
+    }
+  };
+  if (sig === "SIGSTOP") {
+    hitGroup();
+    const seen = new Set<number>();
+    for (let round = 0; round < 2; round++) {
+      const fresh = [...(await getDescendantPids(pid, { fresh: true }))].filter((p) => !seen.has(p));
+      if (!fresh.length) break;
+      fresh.forEach((p) => seen.add(p));
+      hitPids(fresh);
+    }
+  } else {
+    hitPids(await getDescendantPids(pid, { fresh: true }));
+    hitGroup();
   }
 }
 
