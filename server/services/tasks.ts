@@ -269,6 +269,13 @@ const DELIVERY_SNAPSHOT_COLUMNS = [
   "checks_json",
   "checks_commit",
 ] as const;
+/**
+ * Is a card's delivery branch still work that main lacks? A landed (or
+ * superseded) branch is not a base for the next run: main already has it.
+ */
+function branchStillAhead(row: { landing_state?: string | null }): boolean {
+  return row.landing_state !== "landed" && row.landing_state !== "superseded";
+}
 const clampInt = (n: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, Math.trunc(Number.isFinite(n) ? n : lo)));
 
@@ -2649,6 +2656,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // Only while it still runs where the overflow sent it.
       ...(r.overflowed_at && r.machine_id ? { overflowedAt: r.overflowed_at } : {}),
       ...(r.base_branch ? { baseBranch: r.base_branch } : {}),
+      ...(r.prior_branch ? { priorBranch: r.prior_branch } : {}),
       // WHO opened it; NULL for every card written before the column.
       createdBy: r.created_by ?? null,
       // Delegation metadata is rare. Absence means an ordinary owner run, not
@@ -4154,6 +4162,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // Stessa lista che azzera `recordDelivery`: la TESTIMONIANZA cade col
         // suo commit, altrimenti il prossimo verdetto nascerebbe già «visto».
         if ((current === "done" || current === "review") && patch.status !== "done" && patch.status !== "review") {
+          // The branch outlives its snapshot: the next run, here or on another
+          // machine, starts FROM it (df5fd8c5 restarted from main without it).
+          // A branch already on main is no base: main itself is newer.
+          if (row.delivery_branch) put("prior_branch", branchStillAhead(row) ? row.delivery_branch : null);
           for (const col of DELIVERY_SNAPSHOT_COLUMNS) put(col, null);
           put("landing_state", null); put("landing_checked_at", null); put("landing_witnessed", 0);
         }
@@ -4655,6 +4667,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // non ci passa, perché questa porta scrive lo status a SQL grezzo.
         db.prepare(
           "UPDATE tasks SET status = ?, completed_at = NULL, dispatch_state = NULL, dispatch_attempts = 0, " +
+            // Read before the snapshot is cleared (SQLite evaluates SET on the old row).
+            "prior_branch = CASE WHEN delivery_branch IS NULL THEN prior_branch " +
+            "WHEN landing_state IN ('landed', 'superseded') THEN NULL ELSE delivery_branch END, " +
             DELIVERY_SNAPSHOT_COLUMNS.map((c) => `${c} = NULL`).join(", ") + ", " +
             "landing_state = NULL, landing_checked_at = NULL, landing_witnessed = 0, updated_at = ? WHERE id = ?",
         ).run(target, ts, taskId);

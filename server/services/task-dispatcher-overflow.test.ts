@@ -20,6 +20,8 @@
  *
  * Harness: the node fake and the injected floor of
  * `task-dispatcher-remote-node-floor.test.ts`, with a clock the test moves.
+ *
+ * @covers KANBAN-76
  */
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -31,6 +33,7 @@ import {
   OVERFLOW_AFTER_MS, OVERFLOW_MAX_PER_ROUND, OVERFLOW_SLOTS, cloudRunsModel, overflowEligible, pickOverflowMachine,
   type OverflowChoice, type OverflowMachine,
 } from "./dispatch-overflow";
+import { CloudSetupError } from "../providers/claude-cloud/api";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
 const PID = "alpha-abc123";
@@ -60,7 +63,8 @@ function freshDb(): Database {
     dispatch_mcp TEXT,
     dispatch_retry_cap INTEGER, dispatch_retry_backoff_s INTEGER,
     max_agents_auto INTEGER, dispatch_fanout INTEGER,
-    dispatch_overflow INTEGER NOT NULL DEFAULT 1, dispatch_stay_local INTEGER NOT NULL DEFAULT 0
+    dispatch_overflow INTEGER NOT NULL DEFAULT 1, dispatch_stay_local INTEGER NOT NULL DEFAULT 0,
+    dispatch_model TEXT
   )`);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
@@ -83,6 +87,10 @@ const NAME: Record<string, string> = { [CLOUD]: "Cloud Claude", [PC]: "PC Window
 
 function harness(opts: {
   cloudOnline?: boolean; pcOnline?: boolean; cloudCredit?: boolean; github?: boolean;
+  /** The PC is offline but a `node-run` hook can wake it. */
+  pcWakeable?: boolean;
+  /** What `createRun` throws instead of answering (a cloud account without environments). */
+  createRunError?: () => Error;
   /** The Mac under its memory floor (default) or free. */
   floor?: boolean;
   /** What pushing a card's own branch answers (default: it reaches origin). */
@@ -99,7 +107,7 @@ function harness(opts: {
   let nextRun = 0;
   const machines = (): OverflowMachine[] => [
     { id: CLOUD, name: NAME[CLOUD], kind: "cloud", online: opts.cloudOnline ?? true },
-    { id: PC, name: NAME[PC], kind: "node", online: opts.pcOnline ?? true },
+    { id: PC, name: NAME[PC], kind: "node", online: opts.pcOnline ?? true, wakeable: opts.pcWakeable ?? false },
   ];
 
   const deps: DispatcherDeps = {
@@ -118,6 +126,7 @@ function harness(opts: {
     resourceBlock: () => (opts.floor === false ? null : BLOCKED),
     node: {
       createRun: async ({ baseUrl, body }) => {
+        if (opts.createRunError) throw opts.createRunError();
         created.push({ baseUrl, originTaskId: body.originTaskId });
         bodies.push({ originTaskId: body.originTaskId, baseBranch: body.baseBranch });
         nextRun += 1;
@@ -158,10 +167,22 @@ function harness(opts: {
       [id, PID, ts, ts, extra.machineId ?? null, extra.stayLocal ? 1 : 0, extra.deliveryBranch ?? null, extra.model ?? null, extra.costCents ?? 0, extra.baseBranch ?? null],
     );
   };
+  /**
+   * A card that was delivered on `branch` and then sent back to the queue by the
+   * REAL transition (review -> todo through `svc.update`), not seeded in todo.
+   */
+  const sendBack = (id: string, branch: string, extra: { machineId?: string | null; landed?: boolean } = {}) => {
+    seed(id, { machineId: extra.machineId ?? null });
+    db.run("UPDATE tasks SET status = 'review', delivery_branch = ?, delivery_commit = 'abc1234', landing_state = ? WHERE id = ?",
+      [branch, extra.landed ? "landed" : null, id]);
+    svc.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "todo" } });
+    // The transition clears the delivery snapshot: what is left is the kept branch.
+    expect(svc.get(id)!.task.deliveryBranch).toBeNull();
+  };
   const flush = async (n = 12) => { for (let i = 0; i < n; i++) await Promise.resolve(); };
   const tick = async () => { await dispatcher.tick(PID); await flush(); };
   const advance = (ms: number) => { now += ms; };
-  return { db, svc, created, bodies, pushed, worktrees, turns, seed, tick, advance, task: (id: string) => svc.get(id)!.task };
+  return { db, svc, created, bodies, pushed, worktrees, turns, seed, sendBack, tick, advance, task: (id: string) => svc.get(id)!.task };
 }
 
 /** Held once, then past the two minutes: the round the move must happen in. */
@@ -344,6 +365,106 @@ describe("overflow: il ramo della card, l'origin, il modello", () => {
     h.seed(CARD, { model: "codex:gpt-5.5" });
     await holdPastThreshold(h);
     expect(h.task(CARD).machineId).toBeNull();
+  });
+});
+
+describe("overflow: una card rimandata in coda dopo la review porta il suo ramo", () => {
+  it("review -> todo vero, poi l'overflow su Cloud: il nodo riceve quel ramo come base", async () => {
+    const h = harness();
+    h.sendBack(CARD, "topics/endless-calf");
+    expect(h.task(CARD).priorBranch).toBe("topics/endless-calf");
+    await holdPastThreshold(h);
+    await h.tick();
+    expect(h.task(CARD).machineId).toBe(CLOUD);
+    expect(h.pushed).toContain("topics/endless-calf");
+    expect(h.bodies).toEqual([{ originTaskId: CARD, baseBranch: "topics/endless-calf" }]);
+  });
+
+  it("review -> todo vero con la macchina scelta a mano: stesso ramo come base", async () => {
+    const h = harness({ floor: false });
+    h.sendBack(CARD, "topics/endless-calf", { machineId: PC });
+    await h.tick();
+    expect(h.bodies).toEqual([{ originTaskId: CARD, baseBranch: "topics/endless-calf" }]);
+  });
+
+  it("un rifiuto in review conserva il ramo, e la card mandata poi sul PC parte da lì", async () => {
+    const h = harness({ floor: false });
+    h.seed(CARD);
+    h.db.run("UPDATE tasks SET status = 'review', delivery_branch = 'topics/endless-calf', delivery_commit = 'abc1234' WHERE id = ?", [CARD]);
+    h.svc.reviewDecision({ taskId: CARD, by: "attilio", decision: "reject", comment: "manca un test" });
+    expect(h.task(CARD).deliveryBranch).toBeNull();
+    expect(h.task(CARD).priorBranch).toBe("topics/endless-calf");
+    h.db.run("UPDATE tasks SET status = 'todo', machine_id = ? WHERE id = ?", [PC, CARD]);
+    await h.tick();
+    expect(h.bodies).toEqual([{ originTaskId: CARD, baseBranch: "topics/endless-calf" }]);
+  });
+
+  it("un ramo già atterrato su main non fa da base: main è più nuovo", async () => {
+    const h = harness({ floor: false });
+    h.sendBack(CARD, "topics/endless-calf", { machineId: PC, landed: true });
+    expect(h.task(CARD).priorBranch).toBeUndefined();
+    await h.tick();
+    expect(h.bodies).toEqual([{ originTaskId: CARD, baseBranch: undefined }]);
+  });
+});
+
+describe("overflow: il modello predefinito della board", () => {
+  it("board con dispatchModel Codex e card senza modello: niente Cloud, va sul PC", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { dispatchModel: "codex:gpt-5.5" });
+    h.seed(CARD);
+    await holdPastThreshold(h);
+    expect(h.task(CARD).machineId).toBe(PC);
+  });
+
+  it("board con dispatchModel Claude: Cloud", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { dispatchModel: "claude-code:sonnet" });
+    h.seed(CARD);
+    await holdPastThreshold(h);
+    expect(h.task(CARD).machineId).toBe(CLOUD);
+  });
+});
+
+describe("overflow: il PC addormentato", () => {
+  it("senza Cloud e con il PC addormentato ma svegliabile: la card va sul PC", async () => {
+    const h = harness({ cloudCredit: false, pcOnline: false, pcWakeable: true });
+    h.seed(CARD);
+    await holdPastThreshold(h);
+    expect(h.task(CARD).machineId).toBe(PC);
+    expect(h.created).toEqual([{ baseUrl: "https://pc.local", originTaskId: CARD }]);
+  });
+
+  it("un PC offline senza nulla che lo svegli resta escluso", async () => {
+    const h = harness({ cloudCredit: false, pcOnline: false, pcWakeable: false });
+    h.seed(CARD);
+    await holdPastThreshold(h);
+    expect(h.task(CARD).machineId).toBeNull();
+  });
+});
+
+describe("Cloud senza ambiente attivo sull'account", () => {
+  it("la card si ferma con la causa, non resta in attesa di un nodo «che non risponde»", async () => {
+    const h = harness({
+      floor: false,
+      createRunError: () => new CloudSetupError("nessun ambiente cloud attivo sull'account"),
+    });
+    h.seed(CARD, { machineId: CLOUD });
+    await h.tick();
+    const t = h.task(CARD);
+    expect(t.status).not.toBe("todo");
+    expect(t.dispatchDeferredUntil ?? null).toBeNull();
+    const thread = h.svc.get(CARD)!.comments.map((c) => c.content).join("\n");
+    expect(thread).toContain("nessun ambiente cloud attivo sull'account");
+    expect(thread).not.toContain("non risponde");
+  });
+
+  it("un errore di rete resta un nodo muto: si riprova", async () => {
+    const h = harness({ floor: false, createRunError: () => new Error("fetch failed") });
+    h.seed(CARD, { machineId: CLOUD });
+    await h.tick();
+    expect(h.task(CARD).status).toBe("todo");
+    expect(h.task(CARD).dispatchError).toBeString();
   });
 });
 

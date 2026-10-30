@@ -24,6 +24,7 @@ import type { BundleResult, CreateRunBody, NodeRunBinding, NodeRunReport } from 
 import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import type { PlantBranchInput, PlantBranchResult } from "./node-branch-plant";
 import type { OutboundMessage } from "../../shared/ws-outbound";
+import { carriedBranch } from "./branch-on-origin";
 import { defaultLifecycleHooks, type HookOutcome, type LifecycleHookRunner } from "./lifecycle-hooks";
 import { nodeRunDescription, withNodeRunLanguage } from "./node-run-brief";
 import type { OutputLanguage } from "../../shared/types";
@@ -350,8 +351,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     // can only start from what origin has, so the branch is pushed first; a
     // branch that cannot reach origin keeps the card from starting at all.
     let baseBranch: string | null = null;
-    if (task.deliveryBranch && !policy && node.ensureBranchOnOrigin) {
-      const branch = task.deliveryBranch;
+    const carried = carriedBranch(task);
+    if (carried && !policy && node.ensureBranchOnOrigin) {
+      const branch = carried;
       const ready = await Promise.resolve(node.ensureBranchOnOrigin({ projectId: task.projectId, branch }))
         .catch((err): { ok: false; reason: string } => ({ ok: false, reason: err instanceof Error ? err.message : String(err) }));
       if (!ready.ok) {
@@ -535,6 +537,19 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
           task,
           `Il nodo «${name}» non ha nessun progetto con il remoto \`${originUrl}\`: clonalo là, oppure togli la macchina ` +
             "dalla card. Nessun progetto è stato creato sul nodo.",
+        );
+        return;
+      }
+      // The node answered, and what it said is that THIS ACCOUNT cannot run there
+      // (no active cloud environment, credentials refused): waiting does not fix
+      // it, so the card stops with the cause instead of "not answering" for half an
+      // hour (30/10/2026: 7 cards, 31 minutes, a Keychain login switched account).
+      if (nodeFailureReason(err) === "cloud_setup") {
+        const why = err instanceof Error ? err.message : String(err);
+        parkNodeCard(
+          task,
+          `«${name}» non può far partire questa card: ${why}. Non è un nodo muto, è l'account: controlla il login ` +
+            "di Claude Code su questa macchina (o TOPICS_CLAUDE_CLOUD_ACCOUNT) e i suoi ambienti cloud, oppure togli la macchina dalla card.",
         );
         return;
       }

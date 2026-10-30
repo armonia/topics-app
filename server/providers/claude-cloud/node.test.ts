@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CloudApi, setCloudApiBase, type CloudEvent, type FetchLike } from "./api";
+import { CloudApi, CloudSetupError, setCloudApiBase, type CloudEvent, type FetchLike } from "./api";
 import { cloudModelFor, createCloudNodeClient, githubSlug, type GitRun } from "./node";
 import { createNodeBranchPlanter } from "../../services/node-branch-plant";
 
@@ -331,6 +331,60 @@ describe("nodo cloud", () => {
       expect(r).toMatchObject({ status: "review", dispatchError: "cloud_refused", deliveryBranch: null });
       expect(r.reason).toContain("solo da GitHub");
     } finally { setCloudApiBase("http://fake.test"); }
+  });
+
+  test("account senza ambiente cloud attivo: createRun rifiuta con cloud_setup, nessuna sessione, e il nodo non risulta pronto", async () => {
+    const creates: string[] = [];
+    const api = new CloudApi(async () => ({ accessToken: "t", orgUuid: "o" }), async (url, init) => {
+      if (url.endsWith("/v1/environment_providers")) {
+        return new Response(JSON.stringify({ environments: [{ environment_id: "e", kind: "anthropic_cloud", state: "inactive" }] }));
+      }
+      if (init?.method === "POST") creates.push(url);
+      return new Response(JSON.stringify({ id: "session_x" }));
+    });
+    const node = createCloudNodeClient({ api, repoPathOfTask: () => checkout });
+    expect(node.environmentReady()).toBeNull();
+    const err = await node.createRun({ body: { ...body, originTaskId: "senzaambiente1", originUrl: origin } }).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(CloudSetupError);
+    expect((err as CloudSetupError).reason).toBe("cloud_setup");
+    expect((err as Error).message).toContain("nessun ambiente cloud attivo");
+    expect(creates).toEqual([]);
+    expect(node.environmentReady()).toEqual({ ok: false, reason: "nessun ambiente cloud attivo sull'account" });
+  });
+
+  test("probeEnvironment: risposta certa aggiorna lo stato, un errore di rete lo lascia com'era, al massimo una domanda per intervallo", async () => {
+    let mode: "none" | "active" | "down" = "none";
+    let asked = 0;
+    let t = 0;
+    const api = new CloudApi(async () => ({ accessToken: "t", orgUuid: "o" }), async () => {
+      asked++;
+      if (mode === "down") throw new Error("fetch failed");
+      const state = mode === "active" ? "active" : "inactive";
+      return new Response(JSON.stringify({ environments: [{ environment_id: "e", kind: "anthropic_cloud", state }] }));
+    });
+    const node = createCloudNodeClient({ api, repoPathOfTask: () => checkout, now: () => t });
+    await node.probeEnvironment(1_000);
+    expect(node.environmentReady()?.ok).toBe(false);
+    mode = "active";
+    await node.probeEnvironment(1_000);
+    expect(asked).toBe(1);
+    t += 1_000;
+    await node.probeEnvironment(1_000);
+    expect(node.environmentReady()).toEqual({ ok: true, reason: "" });
+    mode = "down";
+    t += 1_000;
+    await node.probeEnvironment(1_000);
+    expect(asked).toBe(3);
+    expect(node.environmentReady()?.ok).toBe(true);
+  });
+
+  test("un token rifiutato (401/403) è l'account, non un servizio muto", async () => {
+    const api = new CloudApi(async () => ({ accessToken: "t", orgUuid: "o" }), async () => new Response("no", { status: 403 }));
+    const err = await api.defaultEnvironmentId().then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(CloudSetupError);
+    const five = new CloudApi(async () => ({ accessToken: "t", orgUuid: "o" }), async () => new Response("boom", { status: 503 }));
+    const e5 = await five.defaultEnvironmentId().then(() => null, (e: unknown) => e);
+    expect(e5).not.toBeInstanceOf(CloudSetupError);
   });
 
   test("su un'API finta il token vero non si chiede nemmeno", async () => {

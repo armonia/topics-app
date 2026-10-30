@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { BundleResult, CreateRunBody, NodeRunComment, NodeRunReport } from "../../services/node-client";
-import { CloudApi, cloudApiIsReal, type CloudEvent } from "./api";
+import { CloudApi, CloudSetupError, cloudApiIsReal, type CloudEvent } from "./api";
 import { isPermissionAsk } from "./events";
 import { runBounded } from "../../lib/bounded-spawn";
 
@@ -304,10 +304,41 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
     }
   }
 
+  // DOES THIS ACCOUNT HAVE AN ACTIVE CLOUD ENVIRONMENT? `null` = not asked yet,
+  // or the last question got no answer (network): only a definite answer moves it.
+  // The heartbeat reads it (`environmentReady`): without one the cloud row is not
+  // online, and the overflow does not send cards there.
+  let envReady: { ok: boolean; reason: string } | null = null;
+  let envAskedAt = -Infinity;
+  let envAsking: Promise<void> | null = null;
+  /** The environment id, or a `CloudSetupError` (the lane parks the card with its words). */
+  async function environmentId(): Promise<string> {
+    try {
+      const id = await deps.api.defaultEnvironmentId();
+      envReady = { ok: true, reason: "" };
+      return id;
+    } catch (err) {
+      if (err instanceof CloudSetupError) envReady = { ok: false, reason: err.message };
+      throw err;
+    } finally { envAskedAt = now(); }
+  }
+
   const note = (id: string, content: string): NodeRunComment =>
     ({ id, author: "system", kind: "service", createdAt: new Date().toISOString(), content });
 
   return {
+    /** The last definite answer on the account's cloud environment: `null` = none yet. */
+    environmentReady(): { ok: boolean; reason: string } | null {
+      return envReady;
+    },
+    /** Ask again, at most every `everyMs`: the heartbeat calls it on every beat. */
+    probeEnvironment(everyMs = 5 * 60_000): Promise<void> {
+      if (envAsking) return envAsking;
+      if (now() - envAskedAt < everyMs) return Promise.resolve();
+      envAsking = environmentId().then(() => {}, () => {}).finally(() => { envAsking = null; });
+      return envAsking;
+    },
+
     async createRun(input: { body: CreateRunBody }): Promise<{ runId: string }> {
       const { body } = input;
       // After a restart the lane relaunches the same card: the live session is resumed.
@@ -324,6 +355,9 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
         runs.set(sid, { ...newRun({ taskId: body.originTaskId, originUrl: body.originUrl, branch: "" }), refused: `il cloud di Claude clona solo da GitHub, e l'origin di questo progetto è ${body.originUrl}` });
         return { runId: sid };
       }
+      // The account first: without an active environment nothing can start, and the error is a
+      // `CloudSetupError` the lane parks the card with, not a silent node it retries for half an hour.
+      const environment = await environmentId();
       // A card that already has a branch starts from it, not from main: started from main, the
       // delivery lacked that branch's commits and conflicted with them at the land (df5fd8c5).
       const revision = body.baseBranch?.trim() || await defaultBranch(body.originUrl);
@@ -335,7 +369,7 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
         deliveryBranch: branch,
         model: cloudModelFor(body.model),
         effort: body.effort ?? undefined,
-        environmentId: await deps.api.defaultEnvironmentId(),
+        environmentId: environment,
       });
       const p = { taskId: body.originTaskId, originUrl: body.originUrl, branch };
       runs.set(sid, newRun(p));

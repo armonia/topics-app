@@ -1,8 +1,10 @@
 /**
  * A CARD'S OWN BRANCH, ON ORIGIN BEFORE THE CARD LEAVES THIS MACHINE.
  *
- * A card sent back after a review already has a delivery branch here
- * (`tasks.delivery_branch`, e.g. `topics/endless-calf`). Run on another machine
+ * A card sent back after a review already has a branch here: the one it
+ * delivered on (`tasks.delivery_branch`, e.g. `topics/endless-calf`), kept as
+ * `tasks.prior_branch` when going back to the queue clears the delivery
+ * snapshot (`carriedBranch`). Run on another machine
  * (a paired node, Cloud Claude) it must start FROM that branch, and the other
  * machine only sees what origin has. On 30/10/2026 df5fd8c5 moved to the cloud
  * restarted from main without the three commits of its branch, and its delivery
@@ -14,6 +16,14 @@
  */
 import { runBounded, SPAWN_TIMEOUT } from "../lib/bounded-spawn";
 import type { GitRunner } from "./own-commits";
+
+/**
+ * The branch a card's next run starts from: its live delivery branch, or the
+ * one it had when it went back to the queue. `null` = none, the default branch.
+ */
+export function carriedBranch(task: { deliveryBranch?: string | null; priorBranch?: string | null }): string | null {
+  return task.deliveryBranch?.trim() || task.priorBranch?.trim() || null;
+}
 
 export type BranchOnOrigin = { ok: true } | { ok: false; reason: string };
 

@@ -30,3 +30,8 @@ ALTER TABLE tasks ADD COLUMN overflowed_at TEXT;
 -- as always. Without it a card sent back after a review and moved to another
 -- machine restarted from main and conflicted with its own commits (df5fd8c5).
 ALTER TABLE tasks ADD COLUMN base_branch TEXT;
+-- tasks.prior_branch: on an ORIGIN card, the delivery branch it had when it went
+-- back to the queue (review/done -> todo, or a reject). That transition clears
+-- delivery_branch with the rest of the delivery snapshot, so without this a
+-- card moved to another machine afterwards restarted from main (df5fd8c5).
+ALTER TABLE tasks ADD COLUMN prior_branch TEXT;

@@ -20,15 +20,19 @@
  * WHERE: Cloud Claude while the Claude plan has credit (no provider hold), the
  * project's origin is on GitHub (the only host a cloud session clones from) and
  * the card's model is a Claude one (the cloud has no other); otherwise the first
- * online paired node. The remote lane's `node-run` hook wakes it before the run,
- * the same path a person's choice takes. A machine already carrying its share
+ * online paired node, and failing that a SLEEPING one this machine can wake (a
+ * `node-run` hook is declared): the remote lane runs that hook before the run,
+ * the same path a person's choice takes. A PC asleep goes offline five minutes
+ * after its last heartbeat, and refusing it left the card on the full Mac, the
+ * very problem this file exists for. A machine already carrying its share
  * (`OVERFLOW_SLOTS`) takes nothing more, and one round moves at most
  * `OVERFLOW_MAX_PER_ROUND` cards: a full Mac must not empty its queue onto a PC
  * that has its own floor.
  *
- * A card that already has a delivery branch (sent back after a review) carries
- * it: the remote run starts FROM that branch, pushed to origin first. A branch
- * that cannot reach origin keeps the card here (`deliveryBranchReady`).
+ * A card that already has a branch (`carriedBranch`: its delivery branch, or
+ * the `prior_branch` kept when a review sent it back to the queue) carries it:
+ * the remote run starts FROM that branch, pushed to origin first. A branch that
+ * cannot reach origin keeps the card here (`overflowBranchReady`).
  */
 
 /** How long a card waits behind the memory floor before it moves (the floor's own window). */
@@ -47,12 +51,14 @@ export const OVERFLOW_MAX_PER_ROUND = 2;
 /** A machine the overflow can send a card to: never this one. */
 export interface OverflowMachine {
   id: string;
-  /** For the line a person reads («Spostata su Cloud Claude: Mac pieno»). */
+  /** For the line a person reads ("moved to Cloud Claude: Mac full"). */
   name: string;
   /** `cloud` = the Claude cloud row, `node` = a paired computer (the PC). */
   kind: "cloud" | "node";
-  /** The heartbeat's verdict: an offline machine is never chosen. */
+  /** The heartbeat's verdict. Cloud: online or never chosen. */
   online: boolean;
+  /** A node only: offline, but the `node-run` hook wakes it before the run. */
+  wakeable?: boolean;
   /** The machine's declared capacity, when it has one (default `OVERFLOW_SLOTS[kind]`). */
   slots?: number;
 }
@@ -76,9 +82,9 @@ export interface OverflowChoice {
  * card sent there would run on another model than the one it asked for.
  */
 export function cloudRunsModel(selection: string | null | undefined): boolean {
-  const sel = (selection ?? "").trim().toLowerCase();
-  if (!sel) return true;
-  const parts = sel.split(":");
+  const chosen = (selection ?? "").trim().toLowerCase();
+  if (!chosen) return true;
+  const parts = chosen.split(":");
   const model = parts.at(-1)!.trim();
   const provider = parts.length > 1 ? parts[0]!.trim() : "";
   if (provider && !provider.startsWith("claude")) return false;
@@ -89,7 +95,8 @@ export function cloudRunsModel(selection: string | null | undefined): boolean {
  * The machine a held card goes to, or `null` when there is none. Cloud first
  * when it can take this card (credit, a GitHub origin, a Claude model: it needs
  * nobody and nothing to wake), then the first online node in the order given
- * (the store lists the freshest heartbeat first). A machine at its slots is skipped.
+ * (the store lists the freshest heartbeat first), then the first sleeping node
+ * that can be woken. A machine at its slots is skipped.
  */
 export function pickOverflowMachine(
   machines: readonly OverflowMachine[],
@@ -101,7 +108,9 @@ export function pickOverflowMachine(
     const cloud = online.find((m) => m.kind === "cloud");
     if (cloud) return cloud;
   }
-  return online.find((m) => m.kind === "node") ?? null;
+  return online.find((m) => m.kind === "node")
+    ?? machines.find((m) => m.kind === "node" && !m.online && m.wakeable && room(m))
+    ?? null;
 }
 
 /**

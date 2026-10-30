@@ -2325,7 +2325,9 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          -- dispatcher moved the card off this machine. Same reason as above.
          stay_local = 1, overflowed_at = '2020-01-01T00:00:00.000Z',
          -- Same migration: a node mirror's base branch. Same reason as above.
-         base_branch = 'topics/endless-calf'
+         base_branch = 'topics/endless-calf',
+         -- Same migration: the branch kept when the card went back to the queue.
+         prior_branch = 'topics/endless-calf'
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite
