@@ -45,7 +45,7 @@ import { STATUS_LABEL } from '../../lib/board';
 import { ROW_ACTION_BOX, ROW_ACTION_GLYPH, ON_FILL_TEXT_SOFT } from '../../lib/selectionStyles';
 import {
   TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner,
-  OrbitLoader, LoaderSlot,
+  SparkLoader, LoaderSlot,
 } from './StreamingIndicator';
 import { useBoardAttention, useBoardTabCounts } from './BoardTabCounts';
 
@@ -196,7 +196,7 @@ function SlotView({
                 cannot win over that: the wrapper takes it out of flow, or it
                 becomes a flex item squeezed beside the number. */}
             <div className="absolute inset-0 flex">
-              <OrbitLoader size={SLOT_PX} onFill={onFill} />
+              <SparkLoader size={SLOT_PX} onFill={onFill} />
             </div>
             <span
               data-notification-count={display}
