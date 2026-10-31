@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { buildToolDisplayLabel, resolveToolDetail } from './toolDetail';
+import { buildToolDisplayLabel, resolveToolDetail, subAgentBodyDescription } from './toolDetail';
 import { deriveToolDetail } from '../../../../shared/tool-detail';
 import type { ToolCall } from '../../types';
 
@@ -394,5 +394,14 @@ describe('toolDetail — browser openings (CHAT-BROWSER-03)', () => {
     const d = buildToolDisplayLabel({ type: 'sub_agent', via: 'task', subAgentType: 'Explore', description: long } as never);
     expect(d.summary).toBe(long);
     expect(d.tooltip).toBe(long);
+  });
+
+  test('the open sub-agent card repeats the description only when the row cuts it', () => {
+    const short = { subAgentType: 'Explore', description: 'Controlla' };
+    expect(subAgentBodyDescription(short)).toBeUndefined();
+    const same = { subAgentType: 'general-purpose', description: 'general-purpose' };
+    expect(subAgentBodyDescription(same)).toBeUndefined();
+    const long = 'Controlla in dettaglio ogni file del modulo di pagamento e riporta le differenze '.repeat(3).trim();
+    expect(subAgentBodyDescription({ subAgentType: 'Explore', description: long })).toBe(long);
   });
 });

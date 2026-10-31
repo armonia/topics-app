@@ -111,6 +111,19 @@ function stripLeadingCd(command: string): string {
   return out;
 }
 
+/** Longer than this, the row's one-line summary cuts the sub-agent description. */
+export const SUB_AGENT_ROW_CUT_CHARS = 60;
+
+/**
+ * The description the open sub-agent card should print, or undefined when the
+ * row already shows all of it (short ones, or ones that only repeat the type).
+ */
+export function subAgentBodyDescription(detail: { subAgentType?: string; description?: string }): string | undefined {
+  const text = detail.description;
+  if (!text || text === detail.subAgentType) return undefined;
+  return text.length > SUB_AGENT_ROW_CUT_CHARS ? text : undefined;
+}
+
 /**
  * `tooltip`: hover text for the summary, set only when the summary stands in
  * for something else (a Bash description in place of its command, a sub-agent
