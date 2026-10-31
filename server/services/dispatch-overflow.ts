@@ -11,7 +11,8 @@
  * the PC and the cloud online.
  *
  * WHAT MOVES: a card that would run here (no machine, or this machine's own
- * row - the board default meaning "here") and has been held by the memory floor
+ * row - the board default meaning "here", chosen by hand or not: the row does
+ * not say which) and has been held by the memory floor
  * for more than `OVERFLOW_AFTER_MS`, in consecutive rounds. WHAT STAYS: a card or
  * a board explicitly marked "this Mac only" (`stayLocal` / `dispatchStayLocal`) -
  * local processes, OpenClaw, sessions, macOS. A mark and not a guess on the
@@ -130,7 +131,11 @@ const MIRROR_KEY_PREFIX = "node-run:";
  *    origin is polling here;
  *  - a card with work never committed (`deliveryUncommittedFiles`, or
  *    `priorUncommittedFiles` once a review sent it back to the queue): what is
- *    not committed cannot be pushed, so the run over there would start without it.
+ *    not committed cannot be pushed, so the run over there would start without it;
+ *  - a PLAN-FIRST card (`planFirst`): the "plan first, implement nothing"
+ *    instruction is written only into the local prompt, and `CreateRunBody`
+ *    does not carry it, so over there it would be implemented without an
+ *    approved plan. Those cards stay here (decision of 31/10/2026).
  */
 export function overflowEligible(
   task: {
@@ -140,12 +145,13 @@ export function overflowEligible(
     claudeTaskId?: string | null;
     deliveryUncommittedFiles?: number | null;
     priorUncommittedFiles?: number | null;
+    planFirst?: boolean;
   },
   board: { dispatchOverflow?: boolean; dispatchStayLocal?: boolean },
   localMachineId: string | null,
 ): boolean {
   if (board.dispatchOverflow === false || board.dispatchStayLocal) return false;
-  if (task.stayLocal || task.delegated) return false;
+  if (task.stayLocal || task.delegated || task.planFirst) return false;
   if (task.claudeTaskId?.startsWith(MIRROR_KEY_PREFIX)) return false;
   if ((task.deliveryUncommittedFiles ?? 0) > 0 || (task.priorUncommittedFiles ?? 0) > 0) return false;
   return task.machineId == null || (localMachineId != null && task.machineId === localMachineId);
@@ -154,7 +160,8 @@ export function overflowEligible(
 /** The one line on the card and in the thread: where it went and why. */
 export function overflowNote(machineName: string): string {
   return `Spostata su ${machineName}: Mac pieno. La memoria di questa macchina è rimasta sotto il pavimento per più di 2 minuti, ` +
-    `e lì il pavimento non vale. Per tenerla sul Mac segnala «solo Mac», o rimetti la macchina a mano.`;
+    `e lì il pavimento non vale. Per tenerla sul Mac segnala «solo Mac» sulla card o sulla board: ` +
+    `scegliere a mano questo Mac come macchina non basta, vale come la macchina predefinita.`;
 }
 
 /** What the overflow reads of one row of the machine store. */

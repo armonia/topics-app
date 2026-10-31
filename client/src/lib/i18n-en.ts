@@ -1430,7 +1430,7 @@ const EN = {
   'board.settings.pausedTitle': 'Stops dispatch for THIS board and lets the others run. The global switch above applies to all of them: if it is off, nothing starts anyway.',
   'board.settings.pausedActive': 'Paused: this board queues up. The other boards keep going.',
   'board.settings.overflow': 'Mac full: move to Cloud or PC',
-  'board.settings.overflowTitle': "A card held by this Mac's memory for more than 2 minutes goes to Cloud Claude (with credit) or the PC, where the floor does not apply.",
+  'board.settings.overflowTitle': "A card held by this Mac's memory for more than 2 minutes goes to Cloud Claude (with credit) or the PC, where the floor does not apply. \"This Mac only\" and \"plan first\" cards stay here.",
   'board.settings.stayLocal': 'Mac only: never move cards',
   'board.settings.stayLocalTitle': "This board's cards touch the Mac itself (local processes, OpenClaw, sessions, macOS): they stay here even when the Mac is full.",
   'board.settings.effort': 'Effort',

@@ -34,6 +34,8 @@ import {
   type OverflowChoice, type OverflowMachine,
 } from "./dispatch-overflow";
 import { CloudSetupError } from "../providers/claude-cloud/api";
+import { NODE_DEAD_POLLS, NODE_SETUP_POLLS } from "./task-dispatcher-remote-node";
+import { overflowNote } from "./dispatch-overflow";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 import { delegatedPolicyForTask, putAgentStartCapability, queueDelegatedRun } from "../lib/delegated-agent-start";
 import { readFileSync } from "node:fs";
@@ -121,6 +123,8 @@ function harness(opts: {
   readRunError?: { current: (() => Error) | null };
   /** The Mac under its memory floor (default) or free. */
   floor?: boolean;
+  /** The floor's verdict while it holds (default `BLOCKED`, a memory floor). */
+  verdict?: ResourceFloorVerdict;
   /** What pushing a card's own branch answers (default: it reaches origin). */
   ensure?: (branch: string) => { ok: true } | { ok: false; reason: string };
 } = {}) {
@@ -151,7 +155,7 @@ function harness(opts: {
     runTurn: (sessionKey) => { turns.push(sessionKey); return new Promise<TurnEndInfo | void>(() => {}); },
     broadcast: () => {},
     // The Mac stays under its floor for the whole test: only a move gets the card out.
-    resourceBlock: () => (opts.floor === false ? null : BLOCKED),
+    resourceBlock: () => (opts.floor === false ? null : opts.verdict ?? BLOCKED),
     node: {
       createRun: async ({ baseUrl, body }) => {
         if (opts.createRunError) throw opts.createRunError();
@@ -743,7 +747,7 @@ describe("verifica del 31/10: le card legate a questa macchina non si spostano",
 });
 
 describe("verifica del 31/10: errore d'account su una corsa viva", () => {
-  it("il primo giro che lo riceve ferma la card con la causa, non dopo 30 giri «non ha risposto»", async () => {
+  it("pochi giri di fila la fermano con la causa, non 30 giri «non ha risposto»", async () => {
     const readRunError: { current: (() => Error) | null } = { current: null };
     const h = harness({ floor: false, readRunError });
     h.seed(CARD, { machineId: CLOUD });
@@ -751,6 +755,8 @@ describe("verifica del 31/10: errore d'account su una corsa viva", () => {
     expect(h.task(CARD).status).toBe("in_progress");
     await h.poll();
     readRunError.current = () => new CloudSetupError("l'API del cloud rifiuta l'account (401 su /v1/sessions)");
+    // Not on the first answer (31/10, fourth round): a few in a row, far fewer than NODE_DEAD_POLLS.
+    for (let i = 1; i < NODE_SETUP_POLLS; i++) { await h.poll(); expect(h.task(CARD).status).toBe("in_progress"); }
     await h.poll();
     const t = h.task(CARD);
     expect(t.status).not.toBe("in_progress");
@@ -880,6 +886,95 @@ describe("verifica del 31/10 (terzo giro): il lavoro non committato nel flusso v
     h.db.run("UPDATE tasks SET delivery_branch = NULL, delivery_commit = NULL WHERE id = ?", [CARD]);
     await holdPastThreshold(h);
     await h.tick();
+    expect(h.task(CARD).machineId).toBe(CLOUD);
+  });
+});
+
+describe("verifica del 31/10 (quarto giro)", () => {
+  it("punto 3: una card «prima il piano» non si sposta, resta sul Mac", async () => {
+    const h = harness();
+    h.seed(CARD);
+    h.db.run("UPDATE tasks SET plan_first = 1 WHERE id = ?", [CARD]);
+    expect(h.task(CARD).planFirst).toBe(true);
+    await holdPastThreshold(h);
+    for (let i = 0; i < 3; i++) { h.advance(60_000); await h.poll(); }
+    expect(h.task(CARD).machineId).toBeNull();
+    expect(h.created).toHaveLength(0);
+    expect(overflowEligible({ machineId: null, planFirst: true }, {}, LOCAL)).toBe(false);
+  });
+
+  it("punto 4: un errore di credenziali solo, su una corsa Cloud viva, non la ferma", async () => {
+    const readRunError: { current: (() => Error) | null } = { current: null };
+    const h = harness({ floor: false, readRunError });
+    h.seed(CARD, { machineId: CLOUD });
+    await h.tick();
+    await h.poll();
+    expect(h.task(CARD).status).toBe("in_progress");
+    readRunError.current = () => new CloudSetupError("credenziali del cloud non leggibili: voce assente nel Portachiavi");
+    await h.poll();
+    readRunError.current = null;
+    await h.poll();
+    expect(h.task(CARD).status).toBe("in_progress");
+    // The count starts over after an answer: NODE_SETUP_POLLS - 1 more errors still do not park.
+    readRunError.current = () => new CloudSetupError("credenziali del cloud non leggibili: voce assente nel Portachiavi");
+    for (let i = 1; i < NODE_SETUP_POLLS; i++) await h.poll();
+    expect(h.task(CARD).status).toBe("in_progress");
+    expect(NODE_SETUP_POLLS).toBeGreaterThan(1);
+    expect(NODE_SETUP_POLLS).toBeLessThan(NODE_DEAD_POLLS);
+  });
+
+  it("punto 5: la nota non promette che la macchina scelta a mano trattenga la card", async () => {
+    const h = harness();
+    h.seed(CARD);
+    h.svc.update({ taskId: CARD, actor: "human", by: "attilio", patch: { machineId: LOCAL } });
+    await holdPastThreshold(h);
+    // Choosing this Mac by hand reads as the default: the card moves anyway...
+    expect(h.task(CARD).machineId).toBe(CLOUD);
+    // ...so the line on the card must not say that choosing it keeps the card here.
+    const note = overflowNote("Cloud Claude");
+    expect(note).not.toContain("rimetti la macchina a mano");
+    expect(note).toContain("«solo Mac»");
+    expect(h.thread(CARD)).toContain("non basta");
+  });
+
+  it("il warm-up del pavimento non è il pavimento di memoria: oltre 2 minuti la card resta", async () => {
+    const h = harness({ verdict: { ...BLOCKED, kind: "memory_warmup" } });
+    h.seed(CARD);
+    await holdPastThreshold(h);
+    for (let i = 0; i < 3; i++) { h.advance(60_000); await h.poll(); }
+    expect(h.task(CARD).machineId).toBeNull();
+    expect(h.created).toHaveLength(0);
+  });
+
+  it("l'orologio si azzera con l'auto-dispatch spento in mezzo", async () => {
+    const h = harness();
+    h.seed(CARD);
+    await h.poll();
+    h.advance(90_000);
+    h.svc.updateBoardSettings(PID, { autoDispatch: false });
+    await h.poll();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.advance(60_000); // 150 s since the first hold, 60 s since the switch came back on
+    await h.poll();
+    expect(h.task(CARD).machineId).toBeNull();
+    h.advance(OVERFLOW_AFTER_MS + 1_000);
+    await h.poll();
+    expect(h.task(CARD).machineId).toBe(CLOUD);
+  });
+
+  it("l'orologio si azzera anche con la board in pausa in mezzo", async () => {
+    const h = harness();
+    h.seed(CARD);
+    await h.poll();
+    h.advance(90_000);
+    h.svc.updateBoardSettings(PID, { dispatchPaused: true });
+    await h.poll();
+    h.svc.updateBoardSettings(PID, { dispatchPaused: false });
+    h.advance(60_000);
+    await h.poll();
+    expect(h.task(CARD).machineId).toBeNull();
+    h.advance(OVERFLOW_AFTER_MS + 1_000);
+    await h.poll();
     expect(h.task(CARD).machineId).toBe(CLOUD);
   });
 });

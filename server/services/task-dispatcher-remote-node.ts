@@ -117,6 +117,8 @@ export interface NodeSlot {
   reviewWithoutBranch?: number;
   /** Rounds in a row in which the old mirror of the previous delivery could not be cancelled. */
   retireFails?: number;
+  /** Consecutive polls answered with a cloud account error (see `NODE_SETUP_POLLS`). Reset by any answer. */
+  setupFails?: number;
 }
 
 /**
@@ -144,6 +146,16 @@ export function isNodeSessionKey(sessionKey: string): boolean {
  * its hysteresis against.
  */
 export const NODE_DEAD_POLLS = 30;
+/**
+ * How many CONSECUTIVE polls of a LIVE run must answer with a cloud account
+ * error (`cloud_setup`) before the card is parked with that cause. Not one: a
+ * credential read is a `security` call with a 10 s timeout, and on a loaded Mac
+ * (load up to 131 on 12 cores) one of them can fail while the account is fine;
+ * parking on it stopped a live cloud run that the next round read again. Not
+ * thirty either (`NODE_DEAD_POLLS`): a login really switched to another account
+ * answers the same every round, and five minutes of "did not answer" hid it.
+ */
+export const NODE_SETUP_POLLS = 3;
 /**
  * A node that answers but will not drop the old mirror of the previous delivery: after this many
  * rounds the card is parked with the fix in words, because re-queueing it would only be handed the
@@ -864,12 +876,19 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         // a silent poll, it buried the run after thirty rounds with "did not
         // answer" and the cause was never written. The run id stays in
         // `lastNodeRun`: the next dispatch cancels it before starting another.
+        // Parked only after `NODE_SETUP_POLLS` such answers in a row: a single
+        // credential read that times out is not the account.
         if (nodeFailureReason(err) === "cloud_setup" && task) {
-          const still = inFlight.get(taskId);
-          if (!still || still.runId !== slot.runId) continue;
-          inFlight.delete(taskId);
-          parkNodeCard(task, cloudSetupParkReason(nodeName(node.machineId), err));
-          continue;
+          node.setupFails = (node.setupFails ?? 0) + 1;
+          if (node.setupFails >= NODE_SETUP_POLLS) {
+            const still = inFlight.get(taskId);
+            if (!still || still.runId !== slot.runId) continue;
+            inFlight.delete(taskId);
+            parkNodeCard(task, cloudSetupParkReason(nodeName(node.machineId), err));
+            continue;
+          }
+        } else {
+          node.setupFails = 0;
         }
         node.fails++;
         log(`nodo: giro fallito per ${taskId} (${node.fails}/${NODE_DEAD_POLLS})`, err);
@@ -882,6 +901,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       const still = inFlight.get(taskId);
       if (!still || still.runId !== slot.runId || still.node?.runId !== node.runId) continue;
       node.fails = 0;
+      node.setupFails = 0;
       if (!node.primed && report.status === "review" && isPreviousDelivery(taskId, report)) {
         if (await retirePreviousMirror(taskId, node)) continue;
         node.retireFails = (node.retireFails ?? 0) + 1;

@@ -5547,8 +5547,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // again instead of staying mute forever. It looks at the block and not at
     // the single card, because the block is one per machine.
     // The overflow's clock measures the MEMORY floor only: a disk or a bill
-    // holding the queue is not a reason to send a card elsewhere.
-    const memoryFloorHolds = resourceFloor != null && (floorNow.kind === "memory" || floorNow.kind === "memory_warmup");
+    // holding the queue is not a reason to send a card elsewhere. Nor is the
+    // warm-up (`memory_warmup`): the floor has no two minutes of readings yet,
+    // so nothing says this Mac is full.
+    const memoryFloorHolds = resourceFloor != null && floorNow.kind === "memory";
     if (!memoryFloorHolds) memoryHeldSince.clear();
     // This round's number for the overflow's clock, and how many cards it moved.
     const overflowRound = { no: overflowRoundNo, moved: 0 };
@@ -5719,7 +5721,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         const stale = !sent || sent.key !== block.key
           || (sent.reason !== block.reason && clock() - sent.at >= HELD_RESUME_REFRESH_MS);
         const memoryWait = resourceFloor != null && (floorNow.kind === "memory" || floorNow.kind === "memory_warmup");
-        if (memoryWait) markMemoryHeld(t, overflowRoundNo);
+        if (memoryFloorHolds) markMemoryHeld(t, overflowRoundNo);
         const wrote = queueChip(t, memoryWait ? WAITING_MEMORY : undefined);
         // In attesa di memoria la card legge solo il codice: cifre nuove non cambiano niente.
         if (stale && !wrote && !memoryWait) {
@@ -6701,7 +6703,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     //    tutto ciò che segue è lavoro che finisce nel cestino. Chiederla per
     //    board dentro `sweepParkedChildren` e poi rifare il giro dei todo
     //    significava pagare quel cestino ogni 10 secondi.
-    if (!(() => { try { return deps.svc.getGlobalAutoDispatch(); } catch { return false; } })()) return;
+    if (!(() => { try { return deps.svc.getGlobalAutoDispatch(); } catch { return false; } })()) {
+      // The switch is global (a board's `autoDispatch` reads and writes it).
+      // Nothing ticks with it off, so no round breaks a hold: the
+      // overflow's clocks go here, or a card held before the switch went off
+      // moved on the first round after it came back, with no wait at all.
+      for (const id of [...memoryHeldSince.keys()]) forgetOverflowClock(id);
+      return;
+    }
     const acceso = (projectId: string): boolean => {
       try { return deps.svc.getBoardSettings(projectId).autoDispatch; } catch { return false; }
     };

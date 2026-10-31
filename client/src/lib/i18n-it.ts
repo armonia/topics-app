@@ -1596,7 +1596,7 @@ const IT: Dict = {
   'board.settings.pausedTitle': "Ferma il dispatch di QUESTA board e lascia girare le altre. L'interruttore globale qui sopra vale per tutte: se e' spento, non parte niente comunque.",
   'board.settings.pausedActive': 'In pausa: i task di questa board restano in coda. Le altre board continuano.',
   'board.settings.overflow': 'Mac pieno: sposta su Cloud o PC',
-  'board.settings.overflowTitle': 'Una card ferma per la memoria di questo Mac da più di 2 minuti va su Cloud Claude (se c\'è credito) o sul PC, dove il pavimento non vale.',
+  'board.settings.overflowTitle': 'Una card ferma per la memoria di questo Mac da più di 2 minuti va su Cloud Claude (se c\'è credito) o sul PC, dove il pavimento non vale. Restano qui le card «solo Mac» e quelle «prima il piano».',
   'board.settings.stayLocal': 'Solo Mac: non spostare le card',
   'board.settings.stayLocalTitle': 'Le card di questa board toccano il Mac stesso (processi locali, OpenClaw, sessioni, macOS): restano qui anche col Mac pieno.',
   'board.settings.effort': 'Effort',
