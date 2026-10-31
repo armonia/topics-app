@@ -214,7 +214,7 @@ export interface DropPlan {
    * `redirectedFrom`) on a card already where the redirect sends it has nothing
    * to write, and still has something to say.
    */
-  patch: { status?: TaskStatus; kanbanOrder?: number };
+  patch: { status?: TaskStatus; kanbanOrder?: number; stage?: string | null };
   /**
    * Le ALTRE card della colonna da riscrivere, quando l'interstizio frazionario
    * si è esaurito e la sola patch non basta (vedi `planDrop`). Assente = il caso

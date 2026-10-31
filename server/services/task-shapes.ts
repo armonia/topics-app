@@ -208,6 +208,15 @@ export interface Task {
   machineId: string | null;
   /** WHO opened the card: `human`, `agent:<name>`, `cron:<name>`; `null` = born before the field. */
   createdBy: string | null;
+  /**
+   * The workflow column the card sits in when it is not the default one of its
+   * status (`triage`, `ai_review`, `human_review`; `shared/workflow.ts`).
+   * Absent = the default column: every card on a board with the default
+   * workflow, so those rows read exactly as before.
+   */
+  stage?: string;
+  /** The question for the person a delivery carried (what sends it to Human review). Absent = none. */
+  humanAsk?: string;
   /** The effort the task actually ran with (from the agent's topic). Read
    *  only: with the board on `auto` this is the only place the choice shows. */
   effort: string | null;
@@ -434,6 +443,17 @@ export interface CreateTaskInput {
    * it from the request; omitted = NULL, a card from an internal path.
    */
   createdBy?: string | null;
+  /**
+   * The workflow column to be born in. Omitted = the server decides
+   * (`stageAtBirth`: triage for a card from a person on a board that has it).
+   */
+  stage?: string | null;
+  /**
+   * The question for the person a card born in review carries. On a board
+   * with AI review it is what lets a card opened by an agent or a schedule be
+   * born in Human review, as on a delivery (`stageForDelivery`).
+   */
+  humanAsk?: string | null;
 }
 
 export interface UpdateTaskPatch {
@@ -486,6 +506,20 @@ export interface UpdateTaskPatch {
    * its agent turning with nobody watching it.
    */
   parentTaskId?: string | null;
+  /**
+   * Move the card to a column of the board's workflow (`shared/workflow.ts`).
+   * The status follows the column's base; sent with a `status` it must agree
+   * with it. `null` = the default column of the status. Unknown on the
+   * board's workflow = refused.
+   */
+  stage?: string | null;
+  /**
+   * THE QUESTION FOR THE PERSON, sent with a delivery. On a board with AI
+   * review it is what sends a card opened by an agent to Human review instead
+   * of back to whoever opened it (rule of 28/10: in review only what the
+   * person has to see). Empty/null clears.
+   */
+  humanAsk?: string | null;
 }
 
 export interface ListTasksInput {

@@ -38,7 +38,7 @@ describe("il corpo colonna legge la misura", () => {
   const CARD = readFileSync(join(import.meta.dir, "Card.tsx"), "utf8");
 
   test("il padding del corpo colonna e' la variabile, non un numero fisso", () => {
-    const body = CARD.slice(CARD.indexOf("data-testid={`kanban-column-body-${status}`}"));
+    const body = CARD.slice(CARD.indexOf("data-testid={`kanban-column-body-${colKey}`}"));
     const tag = body.slice(0, body.indexOf(">"));
     expect(tag).toContain(`var(${BOARD_BOTTOM_CLEAR}`);
     expect(tag, "il pavimento sul telefono e' la banda dei tasti").toContain("var(--mobile-band-own-h");
