@@ -188,7 +188,7 @@ queste regole.
    commento di sintesi nel thread + spostamento in `review` fatto DALL'AGENTE
    (`update_task(status="review")`). L'umano approva; l'agente non porta mai a `done`.
 
-1-ter. **Su una board con il workflow `armonia` la review ha due colonne**
+   Su una board con il workflow `armonia` la review ha due colonne
    (`shared/workflow.ts`). Una card aperta da un agente o da una schedulazione
    consegnata SENZA domanda va in **AI review**: torna a chi l'ha aperta, che la
    chiude con la prova (`update_task(status="done", summary=<prova>)`), o al
