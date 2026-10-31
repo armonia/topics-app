@@ -163,12 +163,6 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- when the coordinator was last told it sits in backlog with no owner.
   created_by TEXT,
   unowned_alerted_at TEXT,
-  -- 20261030225403: the workflow column the card sits in (NULL = the default
-  -- column of its status), the question a delivery carries for the person, and
-  -- when the coordinator was last reminded of a card left in AI review.
-  stage TEXT,
-  human_ask TEXT,
-  ai_review_reminded_at TEXT,
   -- 20261030181324: overflow dispatch. The card's "this Mac only" mark, and
   -- when the dispatcher moved it off this machine.
   stay_local INTEGER NOT NULL DEFAULT 0,
@@ -178,7 +172,13 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- Same migration: an origin card's delivery branch, kept when it went back to the queue.
   prior_branch TEXT,
   -- Same migration: the uncommitted files the card had when it went back to the queue.
-  prior_uncommitted_files INTEGER
+  prior_uncommitted_files INTEGER,
+  -- 20261030225403: the workflow column the card sits in (NULL = the default
+  -- column of its status), the question a delivery carries for the person, and
+  -- when the coordinator was last reminded of a card left in AI review.
+  stage TEXT,
+  human_ask TEXT,
+  ai_review_reminded_at TEXT
 )`;
 
 /**
