@@ -76,9 +76,13 @@ describe("square loader clock", () => {
     const large = { body: new LoaderBody(32, fakeContext(counter), { scale: 2 }), activity: () => "think" as const, color: () => "red" };
     clock.add(small);
     clock.add(large);
-    for (let i = 0; i < 60; i++) frame(1000 + i * (1000 / 60));
-    expect(clock.stats.draws).toBeGreaterThan(80);
-    expect(clock.stats.draws).toBeLessThanOrEqual(60 + 31);
+    // A change of shape gets every frame: the cap starts once the body has settled.
+    for (let i = 0; i < 90; i++) frame(1000 + i * (1000 / 60));
+    const settled = clock.stats.draws;
+    for (let i = 90; i < 150; i++) frame(1000 + i * (1000 / 60));
+    const draws = clock.stats.draws - settled;
+    expect(draws).toBeGreaterThan(80);
+    expect(draws).toBeLessThanOrEqual(60 + 31);
   });
 
   test("with no loader registered the clock does not schedule a frame", () => {
@@ -87,6 +91,47 @@ describe("square loader clock", () => {
     expect(isScheduled()).toBe(true);
     clients.forEach((c) => clock.remove(c));
     expect(isScheduled()).toBe(false);
+  });
+});
+
+describe("a change of shape", () => {
+  const ALL: LoaderActivity[] = ["rest", "think", "search", "write", "tool", "sync", "wait", "done", "error"];
+
+  /** The largest change of light of a single cell in one frame, during the second after a change. */
+  function worstJump(size: number, from: LoaderActivity, to: LoaderActivity): number {
+    const cells = new Map<string, number>();
+    let cell = "";
+    const ctx: LoaderContext = {
+      clearRect: () => { cells.clear(); },
+      beginPath: () => {},
+      roundRect: (x: number, y: number) => { cell = `${x},${y}`; },
+      fill: () => { cells.set(cell, ctx.globalAlpha); },
+      fillStyle: "",
+      globalAlpha: 1,
+    };
+    const body = new LoaderBody(size, ctx, { scale: 2 });
+    let t = 5;
+    for (let i = 0; i < 90; i++) { body.step(from, t, 1 / 30); t += 1 / 30; }
+    body.draw("black");
+    let before = new Map(cells);
+    let worst = 0;
+    for (let i = 0; i < 24; i++) {
+      body.step(to, t, 1 / 30);
+      t += 1 / 30;
+      body.draw("black");
+      for (const k of new Set([...cells.keys(), ...before.keys()])) worst = Math.max(worst, Math.abs((cells.get(k) ?? 0) - (before.get(k) ?? 0)));
+      before = new Map(cells);
+    }
+    return worst;
+  }
+
+  // Before the glide every pair reached 1: a cell went from off to full in one frame.
+  test("no cell goes from off to full in one frame", () => {
+    for (const size of [12, 20]) {
+      for (const from of ALL) for (const to of ALL) {
+        if (from !== to) expect(worstJump(size, from, to), `${size}px ${from} to ${to}`).toBeLessThan(0.8);
+      }
+    }
   });
 });
 

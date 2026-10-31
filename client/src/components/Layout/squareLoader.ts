@@ -25,6 +25,20 @@ const STRIDE = 4;
 /** Under this size a body steps at most 30 times a second. */
 const SMALL_PX = 24;
 const SMALL_FRAME_MS = 1000 / 30;
+/** A change of shape takes this long to settle back onto the grid (seconds). */
+const SETTLE_S = 1;
+/** How long the body takes to loosen at the start of a change: no pop on the first frame. */
+const LOOSEN_S = 0.12;
+/** Half the width of the crossfade between two cells: at rest, and at the height of a change. */
+const BLUR_REST = 0.18;
+const BLUR_CHANGE = 0.5;
+/** How fast a small body follows its shape: slow while changing, tight once settled. Alpha keeps the slow pace. */
+const RATE_FREE = 6.5;
+/** A small body crosses cells: any faster and a point lands on the next cell in one frame. */
+const RATE_SMALL_CHANGE = 4;
+/** A change starts from standing: the pace ramps up over this long (seconds). */
+const RAMP_S = 0.3;
+const RATE_SETTLED = 16;
 
 type Particle = [number, number, number, number];
 type Shape = (t: number, n: number, pixel: boolean, age: number) => Particle[];
@@ -194,6 +208,10 @@ export class LoaderBody {
   private mapLen = -1;
   private activity: LoaderActivity | null = null;
   private since = 0;
+  /** 0 right after a change of shape, 1 once settled. */
+  private settled = 0;
+  /** Half width of the crossfade between two cells, see `BLUR_REST`. */
+  private blur = BLUR_REST;
   /** Last time this body stepped (seconds), for dt and the 30 fps cap. */
   lastStep = -1;
   readonly pixel: boolean;
@@ -217,7 +235,8 @@ export class LoaderBody {
   private readonly hollow: boolean;
 
   get minFrameMs(): number {
-    return this.size < SMALL_PX ? SMALL_FRAME_MS : 0;
+    // The cap saves work on a settled body; a change of shape gets every frame, that is what makes it fluid.
+    return this.size < SMALL_PX && this.settled >= 1 ? SMALL_FRAME_MS : 0;
   }
 
   private target(activity: LoaderActivity, t: number, cache?: Map<string, Particle[]>): Particle[] {
@@ -263,14 +282,21 @@ export class LoaderBody {
     if (this.activity !== activity) { this.activity = activity; this.since = t; this.mapLen = -1; }
     const raw = this.target(activity, t, cache);
     if (this.mapLen !== raw.length) this.assign(raw);
-    const rate = 1 - Math.exp(-dt * (this.pixel ? 16 : 6.5));
+    const age = t - this.since;
+    this.settled = Math.min(1, age / SETTLE_S);
+    const loose = age < LOOSEN_S ? age / LOOSEN_S : Math.max(0, 1 - (age - LOOSEN_S) / (SETTLE_S - LOOSEN_S));
+    this.blur = BLUR_REST + (BLUR_CHANGE - BLUR_REST) * loose;
+    const ramp = Math.min(1, age / RAMP_S);
+    const pace = this.pixel ? RATE_SMALL_CHANGE + (RATE_SETTLED - RATE_SMALL_CHANGE) * this.settled ** 4 : RATE_FREE;
+    const posRate = 1 - Math.exp(-dt * pace * ramp * ramp);
+    const alphaRate = 1 - Math.exp(-dt * RATE_SMALL_CHANGE);
     for (let j = 0; j < PARTICLES; j++) {
       const b = j * STRIDE;
       const i = this.mapping[j];
       const g = i >= 0 ? raw[i] : null;
       for (let k = 0; k < STRIDE; k++) {
         const goal = g ? g[k] : k === 2 ? 0 : this.pos[b + k];
-        this.pos[b + k] += (goal - this.pos[b + k]) * rate;
+        this.pos[b + k] += (goal - this.pos[b + k]) * (k === 2 ? alphaRate : posRate);
       }
     }
   }
@@ -278,7 +304,11 @@ export class LoaderBody {
   /** Jump straight to the shape of `activity` (the reduced-motion still frame). */
   snap(activity: LoaderActivity, t: number): void {
     this.step(activity, t, 0);
+    // Past the ramp, or a body that has just changed shape would not move at all.
+    this.since = t - SETTLE_S;
     this.step(activity, t, 10);
+    this.settled = 1;
+    this.blur = BLUR_REST;
   }
 
   draw(color: string): void {
@@ -298,12 +328,29 @@ export class LoaderBody {
       const inset = Math.floor(gap / 2);
       const rr = q < 2 ? 0 : Math.max(0.6, q * 0.3);
       const a = new Float32Array(n * n);
-      // Small: every point falls on its own cell, edges are crisp and sit on device pixels.
+      // Small: a point near the middle of a cell is that cell, crisp, on device pixels.
+      // Near the edge it crossfades into the next one, so it never jumps; during a
+      // change of shape the crossfade widens and the point glides across the grid.
+      const put = (x: number, y: number, v: number): void => {
+        if (x >= 0 && y >= 0 && x < n && y < n) a[y * n + x] = Math.max(a[y * n + x], v);
+      };
+      const crisp = (f: number): number => {
+        const e = Math.min(1, Math.max(0, (f - 0.5 + this.blur) / (2 * this.blur)));
+        return e * e * (3 - 2 * e);
+      };
       for (let j = 0; j < PARTICLES; j++) {
         const b = j * STRIDE;
-        const x = Math.round(((pos[b] / 0.92 + 1) / 2) * (n - 1));
-        const y = Math.round(((pos[b + 1] / 0.92 + 1) / 2) * (n - 1));
-        if (x >= 0 && y >= 0 && x < n && y < n) a[y * n + x] = Math.max(a[y * n + x], pos[b + 2]);
+        const gx = ((pos[b] / 0.92 + 1) / 2) * (n - 1);
+        const gy = ((pos[b + 1] / 0.92 + 1) / 2) * (n - 1);
+        const x0 = Math.floor(gx);
+        const y0 = Math.floor(gy);
+        const fx = crisp(gx - x0);
+        const fy = crisp(gy - y0);
+        const v = pos[b + 2];
+        put(x0, y0, v * (1 - fx) * (1 - fy));
+        put(x0 + 1, y0, v * fx * (1 - fy));
+        put(x0, y0 + 1, v * (1 - fx) * fy);
+        put(x0 + 1, y0 + 1, v * fx * fy);
       }
       for (let y = 0; y < n; y++) {
         for (let x = 0; x < n; x++) {
