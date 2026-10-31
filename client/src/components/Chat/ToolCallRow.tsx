@@ -167,19 +167,17 @@ function useIsTextCut(ref: RefObject<HTMLElement | null>, text: string | undefin
   useLayoutEffect(() => {
     const measure = () => {
       const el = ref.current;
-      setCut(!!el && el.scrollWidth > el.clientWidth);
+      // A hidden pane has clientWidth 0: nothing is measurable there, so keep
+      // the last answer instead of reading 0 > 0 as "not cut".
+      if (!el || el.clientWidth === 0) return;
+      setCut(el.scrollWidth > el.clientWidth);
     };
-    const frame = requestAnimationFrame(measure);
+    measure();
     const el = ref.current;
-    if (!el || typeof ResizeObserver === 'undefined') {
-      return () => cancelAnimationFrame(frame);
-    }
+    if (!el || typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(measure);
     observer.observe(el);
-    return () => {
-      cancelAnimationFrame(frame);
-      observer.disconnect();
-    };
+    return () => observer.disconnect();
   }, [ref, text]);
   return cut;
 }
@@ -680,7 +678,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               che si va a rileggere sei mesi dopo. */}
           {toolCall.permissionRequest && (isAwaitingPermission || toolCall.permissionOutcome) && sessionKey ? (
             <>
-            <ToolCardBody detail={detail} isError={isError} isRunning={false} sessionKey={sessionKey} />
+            <ToolCardBody detail={detail} isError={isError} isRunning={false} sessionKey={sessionKey} summaryCut={summaryCut} />
             <ToolPermissionRow
               request={toolCall.permissionRequest}
               outcome={toolCall.permissionOutcome}
@@ -690,7 +688,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             </>
           ) : isWaiting && toolCall.userInputSchema && sessionKey ? (
             <>
-            {!askIsTheWholeCall && <ToolCardBody detail={detail} isError={isError} isRunning={false} sessionKey={sessionKey} />}
+            {!askIsTheWholeCall && <ToolCardBody detail={detail} isError={isError} isRunning={false} sessionKey={sessionKey} summaryCut={summaryCut} />}
             <ErrorBoundary fallbackMessageKey="crash.toolInput">
             <Suspense fallback={<SpinnerFallback />}>
             <ToolInputForm
