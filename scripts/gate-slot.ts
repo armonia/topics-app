@@ -131,6 +131,8 @@ function alive(pid: number): boolean {
  * its command goes on (`reclaimAfterStop`).
  *
  * Fails toward the old reading: if `ps` does not answer, nobody is stopped.
+ * `TOPICS_GATE_PS` names another `ps` (a test's script that prints the states
+ * it is given), so the whole probe runs in the tests, no signal sent.
  */
 export function stoppedByPs(pids: readonly number[]): Set<number> {
   const out = new Set<number>();
@@ -142,7 +144,7 @@ export function stoppedByPs(pids: readonly number[]): Set<number> {
 export function psStates(pids: readonly number[]): Map<number, string> {
   if (pids.length === 0) return new Map();
   try {
-    const r = Bun.spawnSync(["ps", "-o", "pid=,stat=", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore" });
+    const r = Bun.spawnSync([process.env.TOPICS_GATE_PS || "ps", "-o", "pid=,stat=", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore" });
     return parsePsStates(r.stdout.toString());
   } catch { return new Map(); /* no answer: nobody is stopped */ }
 }
@@ -157,14 +159,12 @@ export function parsePsStates(out: string): Map<number, string> {
   return states;
 }
 
-type StoppedProbe = (pids: readonly number[]) => ReadonlySet<number>;
-
 /**
  * A slot whose holder is gone is free: a killed run must not park a slot
  * forever. Nor must a STOPPED one (see `stoppedByPs`): one `ps` per pass, for
  * the live holders only.
  */
-function reapStale(dir: string, stopped: StoppedProbe = stoppedByPs): void {
+function reapStale(dir: string): void {
   const live: { path: string; raw: string; pid: number }[] = [];
   for (const name of readdirSync(dir)) {
     if (!name.endsWith(".pid")) continue;
@@ -178,7 +178,7 @@ function reapStale(dir: string, stopped: StoppedProbe = stoppedByPs): void {
     } catch { /* someone else reaped it first */ }
   }
   if (live.length === 0) return;
-  const frozen = stopped(live.map((l) => l.pid));
+  const frozen = stoppedByPs(live.map((l) => l.pid));
   for (const l of live) if (frozen.has(l.pid)) unlinkIfStill(l.path, l.raw);
 }
 
@@ -252,8 +252,8 @@ interface AcquireOptions {
   nameMaxWaitMs?: number;
   /** Where the wait notices go. Silent by default in a test process. */
   onWait?: (message: string) => void;
-  /** Which holders are stopped. `ps` by default; a test passes its own. */
-  stopped?: StoppedProbe;
+  /** Checked between two polls: true gives up the wait, releasing what it took. */
+  aborted?: () => boolean;
 }
 
 /** What `acquireSlot` hands back: the release, plus whether the place is still this run's. */
@@ -268,9 +268,33 @@ export interface SlotHold {
  * run anyway (unthrottled). Never throws: see the header.
  */
 export function acquireSlot(slots: number, label: string, opts: AcquireOptions = {}): SlotHold | null {
+  const wait = acquireSteps(slots, label, opts);
+  for (;;) {
+    const step = wait.next();
+    if (step.done) return step.value;
+    Bun.sleepSync(step.value);
+  }
+}
+
+/**
+ * The same wait, without blocking the process: for a run that must go on
+ * hearing its signals while it queues (`reclaimAfterStop`).
+ */
+export async function acquireSlotAsync(slots: number, label: string, opts: AcquireOptions = {}): Promise<SlotHold | null> {
+  const wait = acquireSteps(slots, label, opts);
+  for (;;) {
+    const step = wait.next();
+    if (step.done) return step.value;
+    await Bun.sleep(step.value);
+  }
+}
+
+/** The wait itself: yields how long to sleep before the next poll. */
+function* acquireSteps(slots: number, label: string, opts: AcquireOptions): Generator<number, SlotHold | null> {
   const dir = slotDir();
   const maxWaitMs = opts.maxWaitMs ?? defaultMaxWaitMs();
   const notify = opts.onWait ?? ((m: string) => console.error(m));
+  const aborted = opts.aborted ?? (() => false);
   try {
     mkdirSync(dir, { recursive: true });
     const startedAt = Date.now();
@@ -283,7 +307,7 @@ export function acquireSlot(slots: number, label: string, opts: AcquireOptions =
     let announcedName = false;
     const namePath = nameLockPath(dir, label);
     for (;;) {
-      reapStale(dir, opts.stopped);
+      reapStale(dir);
       releaseName = takeFile(namePath);
       if (releaseName) break;
       if (Date.now() >= nameDeadline) {
@@ -294,7 +318,8 @@ export function acquireSlot(slots: number, label: string, opts: AcquireOptions =
         announcedName = true;
         notify(`[slot] ${label}: another ${label} is already running on this machine, waiting for it.`);
       }
-      Bun.sleepSync(POLL_MS);
+      yield POLL_MS;
+      if (aborted()) return null;
     }
     const withName = (release: () => void, slotPath: string): SlotHold =>
       Object.assign(() => { release(); releaseName?.(); }, {
@@ -306,7 +331,7 @@ export function acquireSlot(slots: number, label: string, opts: AcquireOptions =
     // two, as before: those callers must not start waiting twice as long.
     const deadline = opts.nameMaxWaitMs == null ? startedAt + maxWaitMs : Date.now() + maxWaitMs;
     for (;;) {
-      reapStale(dir, opts.stopped);
+      reapStale(dir);
       for (let i = 0; i < slots; i++) {
         const slotPath = join(dir, `${i}.pid`);
         const release = takeFile(slotPath);
@@ -324,7 +349,8 @@ export function acquireSlot(slots: number, label: string, opts: AcquireOptions =
         announced = true;
         notify(`[slot] ${label}: all ${slots} gate slots are busy, waiting for one.`);
       }
-      Bun.sleepSync(POLL_MS);
+      yield POLL_MS;
+      if (aborted()) { releaseName?.(); return null; }
     }
   } catch (e) {
     notify(`[slot] ${label}: throttle unavailable (${e instanceof Error ? e.message : e}), running unthrottled.`);
@@ -342,21 +368,26 @@ export function acquireSlot(slots: number, label: string, opts: AcquireOptions =
  * SIGCONT: if the place is gone, the command is stopped again (`pause`), the
  * run waits like any other, and the command goes on once it holds a place.
  *
+ * THE WAIT DOES NOT BLOCK. A `sleepSync` here kept `slot.ts` deaf for the
+ * whole queue: a SIGTERM was handled only at its end, and the command stayed
+ * stopped meanwhile (review of 31/10). `opts.aborted` ends the wait early;
+ * the command is continued in every case, so a terminating signal reaches it.
+ *
  * Returns what to release at the end: the same hold when nothing was lost,
  * the new one, or null when the new wait gave up (unthrottled, as any wait).
  */
-export function reclaimAfterStop(
+export async function reclaimAfterStop(
   hold: SlotHold,
   slots: number,
   label: string,
   pause: (sig: "SIGSTOP" | "SIGCONT") => void,
   opts: AcquireOptions = {},
-): SlotHold | null {
+): Promise<SlotHold | null> {
   if (!hold.lost()) return hold;
   pause("SIGSTOP");
   try {
     hold();
-    return acquireSlot(slots, label, opts);
+    return await acquireSlotAsync(slots, label, opts);
   } finally {
     pause("SIGCONT");
   }

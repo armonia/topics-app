@@ -330,6 +330,20 @@ describe("F8 and F9: what continues a tree, and what does not", () => {
     expect(w.signals.filter((x) => x.sig === "SIGSTOP").length, "a second ten minutes at the wall buys nothing").toBe(stops);
   });
 
+  test("one calm beat between two sustained ones does not end the episode (review of 31/10)", async () => {
+    const w = world({ procs, sessions });
+    await twoBeats(w, { pagesReadBackPerS: 33.6 });
+    w.advance(150_000);
+    await w.beat({ pagesReadBackPerS: 4.1 });
+    w.advance(FREEZE_MAX_MS);
+    await w.beat({ pagesReadBackPerS: 4.1 });
+    const stops = w.signals.filter((x) => x.sig === "SIGSTOP").length;
+    w.advance(10_000);
+    await w.beat({ sustained: false });
+    for (let k = 0; k < 4; k++) { w.advance(130_000); await w.beat(); }
+    expect(w.signals.filter((x) => x.sig === "SIGSTOP").length, "swap flickers: the tree at the wall stays continued").toBe(stops);
+  });
+
   test("F9: the owner gone continues every recorded pid", async () => {
     const w = world({ procs, sessions });
     await twoBeats(w);

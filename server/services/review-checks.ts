@@ -23,7 +23,7 @@
 // anche il client per renderizzare il gate. Qui resta l'esecuzione.
 export type { ReviewCheck, CheckRun } from "../../shared/board";
 import { GATES_CI_CHECK, MAX_CHECKS, NOT_MEASURED_EXIT, UNIT_CI_CHECK, isCiEvidenceCheck, type ReviewCheck, type CheckRun } from "../../shared/board";
-import { hasSlotWaiting, parseSlotAcquired } from "../../shared/slot-acquired";
+import { hasSlotWaiting, parseSlotAcquired, SLOT_ACQUIRED_PREFIX } from "../../shared/slot-acquired";
 import { registerFreezableRun, type FreezableRun } from "./budget-governor";
 import { killCheckTree, memoryWaiter, throwIfInterrupted, throwIfStopping, type MemoryFloor } from "./review-checks-brakes";
 import { slotCount } from "../../scripts/gate-slot";
@@ -660,6 +660,10 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
     const outP = new Response(proc.stdout as ReadableStream<Uint8Array>).text();
     let err = "";
     let queuedMs: number | null = null;
+    // After the first acquired line: where the next slot line is looked for,
+    // and when a later queue began (see below).
+    let slotScan = 0;
+    let queuedAgainAt = 0;
     let slowdown: number | null = null;
     const reader = (proc.stderr as ReadableStream<Uint8Array>).getReader();
     const decoder = new TextDecoder();
@@ -674,11 +678,37 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
           queued = false;
           if (entry) entry.queued = false;
           clockFrom = Date.now();
+          slotScan = err.indexOf(SLOT_ACQUIRED_PREFIX) + SLOT_ACQUIRED_PREFIX.length;
           armTimer();
         } else if (!queued && hasSlotWaiting(err)) {
           queued = true;
           if (entry) entry.queued = true;
           if (timer) clearTimeout(timer);
+        }
+      }
+      // A RUN THAT LOST ITS PLACE WHILE FROZEN QUEUES AGAIN: `slot.ts` stops
+      // its command and prints the same two lines (card cda99908). The clock
+      // stops on the waiting line and resumes, not restarts, on the acquired
+      // one: the time the command had already run still counts.
+      while (queuedMs !== null) {
+        const rest = err.slice(slotScan);
+        if (!queuedAgainAt) {
+          const at = rest.search(/(?:^|\n)\[slot\] waiting /);
+          if (at < 0) break;
+          queuedAgainAt = Date.now();
+          queued = true;
+          if (entry) entry.queued = true;
+          if (timer) clearTimeout(timer);
+          slotScan += at + 1;
+        } else {
+          const at = rest.indexOf(SLOT_ACQUIRED_PREFIX);
+          if (at < 0) break;
+          clockFrom += Date.now() - queuedAgainAt;
+          queuedAgainAt = 0;
+          queued = false;
+          if (entry) entry.queued = false;
+          slotScan += at + SLOT_ACQUIRED_PREFIX.length;
+          armTimer();
         }
       }
       if (slowdown === null) {

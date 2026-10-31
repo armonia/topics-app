@@ -145,18 +145,37 @@ const finish = (code: number): never => {
 // `detached` mette il comando fuori dal process group del terminale, quindi il
 // Ctrl-C arriva solo qui: inoltrarlo al gruppo non è cortesia, è l'unico modo
 // che ha di ricevere il segnale.
+// A command this run has stopped to queue again (see SIGCONT below) is
+// continued too: a stopped process does not act on SIGTERM until it runs.
+let stopping = false;
+let paused = false;
 for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-  process.on(sig, () => { signalTree(sig); release?.(); });
+  process.on(sig, () => {
+    stopping = true;
+    signalTree(sig);
+    if (paused) signalTree("SIGCONT");
+    release?.();
+  });
 }
 process.on("exit", () => release?.());
 // Continued after a freeze: if a waiter took the place meanwhile, stop the
-// command again until this run holds one (see `reclaimAfterStop`).
+// command again until this run holds one (see `reclaimAfterStop`). The two
+// lines around the wait are the ones of the first queue: whoever times the
+// command from outside stops its clock again while it is stopped.
+let reclaiming = false;
 process.on("SIGCONT", () => {
-  if (done || !release) return;
-  release = reclaimAfterStop(release, slots, label, signalTree, {
+  if (done || stopping || reclaiming || !release?.lost()) return;
+  reclaiming = true;
+  const since = Date.now();
+  console.error(slotWaitingLine(label));
+  void reclaimAfterStop(release, slots, label, (sig) => { paused = sig === "SIGSTOP"; signalTree(sig); }, {
     nameMaxWaitMs: defaultNameMaxWaitMs(),
+    aborted: () => done || stopping,
     onWait: (message) => console.error(`${message} (continued after a freeze, its place was taken)`),
-  });
+  }).then((hold) => {
+    release = hold;
+    if (!done && !stopping) console.error(slotAcquiredLine(label, Date.now() - since));
+  }).finally(() => { reclaiming = false; });
 });
 
 if (MAX_RUN_MS > 0) {

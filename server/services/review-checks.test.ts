@@ -292,6 +292,33 @@ describe("runReviewChecks", () => {
     expect(runs[0].ok).toBe(true);
   }, 20_000);
 
+  test.concurrent("a second queue after a freeze stops the clock again, and resumes it where it was (card cda99908)", async () => {
+    // `slot.ts` continued after a freeze whose place was taken queues again and
+    // prints the two lines once more. 0.3 s of work, 1.5 s queued again, 0.3 s
+    // of work, against a 1 s cap: without the second pair the cap kills it in
+    // the queue (review of 31/10).
+    const waiting = slotWaitingLine("typecheck");
+    const acquired = slotAcquiredLine("typecheck", 0);
+    const runs = await runReviewChecks(
+      [{ name: "ricongelato", cmd: `echo '${acquired}' 1>&2; sleep ${sleepFor(300)}; echo '${waiting}' 1>&2; sleep ${sleepFor(1500)}; echo '${acquired}' 1>&2; sleep ${sleepFor(300)}` }],
+      { cwd, timeoutMs: stretched(1000) },
+    );
+    expect(runs[0].timedOut).toBe(false);
+    expect(runs[0].ok).toBe(true);
+  }, 20_000);
+
+  test.concurrent("the second acquired line resumes the clock, it does not hand out a fresh cap (control)", async () => {
+    // 0.7 s of work, a short second queue, 0.7 s of work: 1.4 s of command
+    // against a 1 s cap is a timeout, as without any queue.
+    const waiting = slotWaitingLine("typecheck");
+    const acquired = slotAcquiredLine("typecheck", 0);
+    const runs = await runReviewChecks(
+      [{ name: "ricongelato lungo", cmd: `echo '${acquired}' 1>&2; sleep ${sleepFor(700)}; echo '${waiting}' 1>&2; sleep 0.1; echo '${acquired}' 1>&2; sleep ${sleepFor(700)}` }],
+      { cwd, timeoutMs: stretched(1000) },
+    );
+    expect(runs[0].timedOut).toBe(true);
+  }, 20_000);
+
   test.concurrent("a declared slowdown stretches the cap: fewer shards is a plan, not a hang", async () => {
     // 1.5 s against a 1 s cap: dead. With the runner declaring "x2 slower"
     // first (card 40dc7674: 2 shards instead of 4 under the fleet) the cap

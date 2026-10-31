@@ -254,7 +254,10 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
    * Roots this episode has nothing more to ask of: thawed for `no effect` (the
    * thrash was not theirs) or signalled without a single pid reading `T`.
    * Trying either again 120 s later spends the one action of a beat to learn
-   * what is already known. Forgotten when the swap calms down.
+   * what is already known. Forgotten when the episode ends (a calm of
+   * `SWAP_EPISODE_CALM_MS`), not on one calm beat: swap flickers, and a single
+   * calm reading between two sustained ones handed a tree that had reached the
+   * ten minutes a third freeze of the same episode (review of 31/10).
    */
   const noEffectThisEpisode = new Set<number>();
   /** A beat that continued a tree does not also freeze one: one action per beat. */
@@ -636,11 +639,13 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
         await thawPass({ swap, held });
         if (disabled || !swap.sustained) {
           if (!swap.sustained) {
-            noEffectThisEpisode.clear();
             // The "already said" lines are forgotten only after a real calm:
             // swap flickers, and every calm beat used to say everything again.
             calmSince ??= now();
-            if (now() - calmSince >= SWAP_EPISODE_CALM_MS) { episodeSince = null; saidNothing = false; saidOnlyTurn = false; saidExhausted = false; namedPids.clear(); }
+            if (now() - calmSince >= SWAP_EPISODE_CALM_MS) {
+              episodeSince = null; saidNothing = false; saidOnlyTurn = false; saidExhausted = false; namedPids.clear();
+              noEffectThisEpisode.clear();
+            }
           }
           return;
         }
