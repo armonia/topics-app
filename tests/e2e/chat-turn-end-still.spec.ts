@@ -70,7 +70,7 @@ const SCRIPTS: Record<string, FakeRound[]> = {
   // The answer's text and the end of the turn back to back, no pause: on
   // the wire they reach the client in the same read. The check of 31/10 saw
   // the text drawn only in the frame the loader went, the row 27 px higher.
-  quick: [{ thinking: REASONING, afterThinkingMs: 1_000, text: ANSWER_QUICK }],
+  quick: [{ thinking: REASONING, afterThinkingMs: 2_000, text: ANSWER_QUICK }],
   manytool: [
     { thinking: REASONING, afterThinkingMs: 500, tools: [echo("one"), echo("two"), echo("three")] },
     { text: ANSWER_TOOLS, holdMs: 3_000 },
