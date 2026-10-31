@@ -1,6 +1,7 @@
 import { memo, useContext, useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { useT } from '../../hooks/useT';
-import { ChevronDown, ChevronRight, Loader2, X, Workflow } from 'lucide-react';
+import { ChevronDown, ChevronRight, X, Workflow } from 'lucide-react';
+import { SparkLoader } from '../Layout/StreamingIndicator';
 import type { ToolCall } from '../../types';
 import type { PlanDecisionHandler } from './planDetection';
 import { ToolCallRow, ElapsedTimer } from './ToolCallRow';
@@ -186,7 +187,7 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
               </span>
             )}
             {/* Qui resta solo ciò che è VIVO. L'esito sta accanto al nome. */}
-            {live && <Loader2 size={11} className="animate-spin text-primary" />}
+            {live && <SparkLoader className="flex-shrink-0" />}
           </span>
         </span>
       </div>

@@ -2,6 +2,22 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.43 — 2026-10-30
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-29 [skip ci]
+- Budget governor: frozen check keeps its deadline stopped, freeze cap, FIFO thaw, group signals
+- Fix timing of the frozen-deadline probe
+- Drop unrelated files swept into the previous commit
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-30 [skip ci]
+- Loader unico per chat e drawer: 8 px sopra e sotto, «Esegue: tool», numeri solo al passaggio del mouse (card 045ef721)
+- Test del loader: dichiara cosa copre
+- Riga meta alta quanto il loader: la fine del turno non sposta la chat
+- la riga viva tiene l'ingombro di 14 px della riga finita, il respiro di 8 px sporge
+- stellina Sparkle che respira al posto dell'anello; riga di ragionamento riservata dal primo istante (card 045ef721)
+- Ragionamento riservato da un segnale vero; stellina anche su righe tool e strisce (card 045ef721)
+- CI di main: commenti del segnale di ragionamento in inglese; il controllo della demo ignora l'avviso di xterm a qualunque ora
+
 ## 2.3.42 — 2026-10-29
 
 ### Sotto il cofano
@@ -59,23 +75,30 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Dopo un riavvio il nodo non rimanda più la consegna vecchia come nuova (#485)
 - Il PC accoppiato non scade più offline cinque minuti dopo l'accoppiamento (#486)
 - **args** · guard against empty --setting-sources in Claude spawns (card 803aca76) (#483)
+- **missions** · MISSIONS-03, a draft already in the chat is kept
 
 ## 2.3.34 — 2026-10-26
 
 ### Prestazioni
+- porta cache TTL a 1h e keepalive a 4 min
 - porta cache TTL a 1h e keepalive a 4 min (#481)
 
 ### Sotto il cofano
+- OpenClaw AGENTS.md size analysis and cut proposals
 - Chiudi i comandi di una card insieme alla card (#454)
 - Coda per memoria della kanban: una card locale alla volta quando la memoria è poca (#465)
 - Main di nuovo verde: avviso postcss-selector-parser e tetto di bloat del dispatcher (#476)
 - Le card su Cloud Claude non aspettano più la memoria del Mac (#473)
 - i token dei nodi appaiati in nodes/ non entrano nel repo (#475)
 - il B7 della parità di ammissione misura dal t0 dell'harness (#477)
+- devreap REAP-NOCLIENT per astro/vite senza browser (card 50bf1f38)
 - GET /__daemon/idle, «c'è un turno in volo?» di sola lettura (card fe19d3f9) (#469)
 - Card dei nodi: «review» senza ramo aspetta tre giri prima di consegnare vuoto (#478)
 - Nodo remoto: il feedback della review arriva al nodo, il cloud consegna il ramo col suo suffisso (#480)
+- **args** · guard against empty --setting-sources in Claude spawns (card 803aca76)
 - Archiving a done card no longer reopens it (card 47b63de2) (#471)
+- **e2e** · acceptance for the board missions side session
+- **kanban** · KANBAN-100/101 name what the missions spec proves
 
 ## 2.3.33 — 2026-10-26
 
@@ -85,6 +108,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - topics/doleful-hood (card eba16167) (#446)
 - Sposta i check statici su GitHub CI (#459)
 - Mobile e2e: no tab strip on the phone, only the pane name (card f0613e3b) (#458)
+- declare the model in every workflow stage and subagent (card f50e49ae)
 - Card su «Cloud Claude»: una card gira in una sessione cloud di Claude, non sul Mac (#466)
 
 ## 2.3.32 — 2026-10-26

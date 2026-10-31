@@ -106,17 +106,16 @@ let testo = '';   // first engine's text, for the boot summary line only
 async function runEngine(engine, browser) {
   const tag = (m) => (engine === 'chromium' ? m : `[${engine}] ${m}`);
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-  let probed = false;   // true from the moment the probe flips the theme, until the page closes
   page.on('pageerror', (e) => errori.push(tag(`uncaught: ${e.message}`)));
   page.on('console', (m) => {
     if (m.type() !== 'error') return;
     const t = m.text().split('\n')[0];
-    // The glass probe flips the theme in place, which makes the demo terminal
-    // replay its canned frames; xterm warns about the multi-byte glyph it
-    // re-reads mid-sequence. A side effect of the probe, not of the boot, and
-    // the replay is timer-driven: on a loaded runner it lands well after the
-    // probe returns (CI run 40745674687, chromium), so the window does not close.
-    if (probed && /xterm\.js: Parsing error/.test(t)) return;
+    // Any remount makes the demo terminal replay its canned frames; xterm warns
+    // about the multi-byte glyph it re-reads mid-sequence. The replay is
+    // timer-driven, so on a loaded runner the warning lands at any moment, also
+    // before the glass probe (main 7f6ee8f6d, first attempt). It is noise from
+    // the canned frames, not a boot fault: uncaught errors still fail here.
+    if (/xterm\.js: Parsing error/.test(t)) return;
     if (/Failed to load resource/.test(t)) return;   // covered by the response hook
     // WebKit's own notes about the page, not faults of the demo: an unknown
     // viewport key, and the notification permission asked outside a gesture.
@@ -165,7 +164,6 @@ async function runEngine(engine, browser) {
   if (MUTANT) await page.addStyleTag({ content: 'html .glass-surface.glass-surface.glass-surface{background-color:rgb(237 239 243 / .72) !important;backdrop-filter:none !important;-webkit-backdrop-filter:none !important}' });
   if (await identityRow.click({ timeout: 10000 }).then(() => true, () => false)) {
     await page.waitForTimeout(2500);
-    probed = true;
     const glass = (await glassProblems(page, browser)).map(tag);
     await page.waitForTimeout(3000);
     if (MUTANT) {

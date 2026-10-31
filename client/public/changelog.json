@@ -1,5 +1,80 @@
 [
   {
+    "version": "2.3.43",
+    "date": "2026-10-30",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-29 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Budget governor: frozen check keeps its deadline stopped, freeze cap, FIFO thaw, group signals",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fix timing of the frozen-deadline probe",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Drop unrelated files swept into the previous commit",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-30 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Loader unico per chat e drawer: 8 px sopra e sotto, «Esegue: tool», numeri solo al passaggio del mouse (card 045ef721)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test del loader: dichiara cosa copre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riga meta alta quanto il loader: la fine del turno non sposta la chat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "la riga viva tiene l'ingombro di 14 px della riga finita, il respiro di 8 px sporge",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "stellina Sparkle che respira al posto dell'anello; riga di ragionamento riservata dal primo istante (card 045ef721)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Ragionamento riservato da un segnale vero; stellina anche su righe tool e strisce (card 045ef721)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "CI di main: commenti del segnale di ragionamento in inglese; il controllo della demo ignora l'avviso di xterm a qualunque ora",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.42",
     "date": "2026-10-29",
     "sections": {
@@ -221,6 +296,12 @@
           "en": "",
           "scope": "args",
           "breaking": false
+        },
+        {
+          "it": "MISSIONS-03, a draft already in the chat is kept",
+          "en": "",
+          "scope": "missions",
+          "breaking": false
         }
       ]
     }
@@ -233,6 +314,12 @@
       "fixes": [],
       "perf": [
         {
+          "it": "porta cache TTL a 1h e keepalive a 4 min",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "porta cache TTL a 1h e keepalive a 4 min (#481)",
           "en": "",
           "scope": null,
@@ -240,6 +327,12 @@
         }
       ],
       "internal": [
+        {
+          "it": "OpenClaw AGENTS.md size analysis and cut proposals",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
         {
           "it": "Chiudi i comandi di una card insieme alla card (#454)",
           "en": "",
@@ -273,6 +366,12 @@
           "breaking": false
         },
         {
+          "it": "devreap REAP-NOCLIENT per astro/vite senza browser (card 50bf1f38)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "GET /__daemon/idle, «c'è un turno in volo?» di sola lettura (card fe19d3f9) (#469)",
           "en": "",
           "scope": null,
@@ -289,9 +388,27 @@
           "scope": null
         },
         {
+          "it": "guard against empty --setting-sources in Claude spawns (card 803aca76)",
+          "en": "",
+          "scope": "args",
+          "breaking": false
+        },
+        {
           "it": "Archiving a done card no longer reopens it (card 47b63de2) (#471)",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "acceptance for the board missions side session",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "KANBAN-100/101 name what the missions spec proves",
+          "en": "",
+          "scope": "kanban",
+          "breaking": false
         }
       ]
     }
@@ -330,6 +447,12 @@
           "it": "Mobile e2e: no tab strip on the phone, only the pane name (card f0613e3b) (#458)",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "declare the model in every workflow stage and subagent (card f50e49ae)",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "Card su «Cloud Claude»: una card gira in una sessione cloud di Claude, non sul Mac (#466)",

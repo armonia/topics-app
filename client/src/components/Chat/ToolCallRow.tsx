@@ -1,6 +1,7 @@
 import { createElement, lazy, memo, Suspense, useCallback, useContext, useEffect, useRef, useState, type MouseEvent } from 'react';
 import { useT } from '../../hooks/useT';
-import { ChevronDown, ChevronRight, HelpCircle, Hourglass, Loader2, PenLine, ShieldOff, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, HelpCircle, Hourglass, PenLine, ShieldOff, X } from 'lucide-react';
+import { SparkLoader } from '../Layout/StreamingIndicator';
 import type { ToolCall, ToolUserResponse } from '../../types';
 import type { PlanDecisionHandler } from './planDetection';
 import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';
@@ -435,7 +436,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             there is no hover to wait for. The `revealing` spinner is a state
             and always shows. */}
         {hasBody && revealing ? (
-          <Loader2 size={12} className="animate-spin text-app-text-muted flex-shrink-0" />
+          <SparkLoader className="flex-shrink-0" />
         ) : hasBody ? (
           <span className="w-3 flex-shrink-0 inline-flex justify-center" aria-hidden="true">
             {effectiveOpen
@@ -533,7 +534,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           {/* Qui resta solo ciò che è VIVO: la rotella mentre l'agente è dentro
               al tool, il cerchietto ambra mentre la palla è tua. L'esito, buono
               o cattivo, sta accanto al nome. */}
-          {isRunning && <Loader2 size={11} className="animate-spin text-primary" />}
+          {isRunning && <SparkLoader className="flex-shrink-0" />}
         </span>
         </>
   );

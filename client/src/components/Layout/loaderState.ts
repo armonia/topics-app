@@ -34,8 +34,8 @@ export function loaderStateFor({ inProgress, waiting }: {
  * says the same. Frozen is not off, so it breathes slowly.
  */
 const ARC: Record<LoaderState, string> = {
-  working: 'animate-orbit-spin text-[var(--primary)]',
-  waiting: 'animate-orbit-breath text-amber-500',
+  working: 'animate-spark-breathe text-[var(--primary)]',
+  waiting: 'text-amber-500',
 };
 
 /**
@@ -45,5 +45,5 @@ const ARC: Record<LoaderState, string> = {
  * blue arc on blue, about 1.3:1, and the glyph vanishes.
  */
 export function loaderArcClass(state: LoaderState, onFill = false): string {
-  return onFill && state === 'working' ? `animate-orbit-spin ${ON_FILL_TEXT_SOFT}` : ARC[state];
+  return onFill && state === 'working' ? `animate-spark-breathe ${ON_FILL_TEXT_SOFT}` : ARC[state];
 }
