@@ -38,7 +38,6 @@ import { checksMemFloorGB } from "../../shared/checks-memory-floor";
 import { parseCreatedBy, UNOWNED_BACKLOG_MS } from "../../shared/created-by";
 import { AI_REVIEW_REMIND_MS, STAGE_AI_REVIEW, STAGE_HUMAN_REVIEW, agentAskInThread, defaultColumnFor, stageAtBirth, stageForDelivery, type WorkflowColumn, type WorkflowPresetId } from "../../shared/workflow";
 import { requestAiReviewNotice } from "./ai-review-notice";
-import { commentAuthorLabel } from "../../shared/comment-author";
 import { clearStagesOutsideWorkflow, readBoardWorkflow, routeAskOutOfAiReview, stampStaleAiReview, writeBoardWorkflow } from "./board-workflow";
 import { currentDispatchBlock, currentMemoryWait, heldResumeBlock } from "./dispatch-block-signal";
 import { readElsewhere } from "./task-elsewhere";
@@ -56,7 +55,7 @@ import {
   PARKED_REQUEUE_NOTE_LIKE, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, TASK_STATUSES,
   WAITING_MEMORY_REASON, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
   deriveQueueReason, deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
-  isThreadSpeech, isUnattributedSubtask, noteParkedChildrenResolved, parseQuestionBlock, questionAsksHuman,
+  isUnattributedSubtask, noteParkedChildrenResolved, parseQuestionBlock, questionAsksHuman,
   readTaskWeight, statusEventEnters, waitReasonKey,
 } from "../../shared/board";
 import type { ParkedChildrenDecision } from "../../shared/board";
