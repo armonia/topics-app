@@ -5379,9 +5379,12 @@ Sul preset `armonia` una card aperta da una persona SHALL nascere in Triage. Una
 aperta da un agente o da un cron, da qualunque porta (l'agente o la consegna di sistema), SHALL andare
 in AI review, e chi l'ha aperta SHALL esserne avvisato (la sua chat, o il coordinatore quando non c'è
 una chat da svegliare). Da AI review la SHALL chiudere solo chi l'ha aperta o il coordinatore al suo
-posto, con la prova; in Human review una card SHALL entrare solo con una domanda per la persona. Solo
-ciò che aspetta una persona SHALL contare per la tray e per l'attenzione. Tornando a un workflow
-senza AI review, le card rimaste lì SHALL tornare alla colonna di default del loro stato.
+posto, con la prova; in Human review una card aperta da un agente o da un cron SHALL entrare solo con
+una domanda per la persona, anche quando nasce già in review. Un promemoria su una card ferma in AI
+review che non raggiunge nessuno SHALL essere ritentato. Solo ciò che aspetta una persona SHALL
+contare per la tray e per l'attenzione. Tornando a un workflow senza AI review, o spostando la card su
+una board che non ce l'ha, le card rimaste lì SHALL tornare alla colonna di default del loro stato; una
+card chiusa che il land riporta in review SHALL aspettare la persona.
 
 #### Scenario: una consegna senza domanda torna a chi ha aperto la card
 - **GIVEN** il preset `armonia` e una card aperta da un agente

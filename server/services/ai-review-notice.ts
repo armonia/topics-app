@@ -20,7 +20,9 @@
  *
  * A reminder (`sweepStaleAiReview`, every reconcile) goes to the coordinator
  * when a card is still in AI review long after its last touch: that is also
- * the path that survives a restart, since the wake itself lives in memory.
+ * the path that survives a restart, since the wake itself lives in memory. A
+ * reminder that reached somebody is sent once per touch; one that reached
+ * nobody (`onUndelivered`) is tried again at a later sweep.
  *
  * The wake is a `user` row through the chat route, marked as the board's
  * (`dispatched`), sent only when the session has no turn in flight, the same
@@ -42,6 +44,12 @@ export interface AiReviewNotice {
   openerTopicId: string | null;
   /** A reminder from the sweep goes to the coordinator, not to the opener. */
   reminder?: boolean;
+  /**
+   * Called when nobody could be woken (every try failed, or there was nobody
+   * to wake). The sweep uses it to take its stamp back, so a reminder that did
+   * not reach anybody is sent again instead of leaving the card silent.
+   */
+  onUndelivered?: () => void;
 }
 
 export interface AiReviewNoticeDeps {
@@ -54,6 +62,8 @@ export interface AiReviewNoticeDeps {
   canWake(sessionKey: string): "wake" | "wait" | "row";
   /** The eligible global coordinator's session, `null` when there is none. */
   coordinatorSessionKey(): string | null;
+  /** Any global coordinator's session (eligible or not): it has no project, so it closes with the global tools. */
+  isCoordinatorSession?(sessionKey: string): boolean;
   broadcast(msg: OutboundMessage): void;
   recordActivity(entry: ActivityLogEntry): void;
   log?: (msg: string) => void;
@@ -71,20 +81,22 @@ export interface AiReviewNoticeDeps {
  * reads. The title is the card's own text: inside quotes, with its `<`
  * neutralised, so it reads as data.
  */
-export function aiReviewWakeText(n: AiReviewNotice, closer: "opener" | "coordinator"): string {
+export function aiReviewWakeText(n: AiReviewNotice, closer: "opener" | "coordinator", globalTool = closer === "coordinator"): string {
   const title = n.title.replace(/</g, "<\\").replace(/"/g, "'");
-  const how = closer === "opener"
-    ? "update_task"
-    : "update_global_task";
-  const lead = closer === "opener"
-    ? "A card you opened was delivered and sits in AI review: it is yours to close, nobody else will look at it."
-    : n.reminder
-      ? "A card has been sitting in AI review with nobody closing it."
-      : "A card opened by an agent or a schedule with no chat of its own was delivered and sits in AI review: you close it in its opener's place.";
+  // The coordinator's session has no project of its own: `update_task` there
+  // answers `no_project`, so whatever card it closes, it closes with the
+  // global tool, the cards it opened itself included.
+  const how = globalTool ? "update_global_task" : "update_task";
+  const read = globalTool ? "get_global_task" : "get_task";
+  const lead = n.reminder
+    ? "A card has been sitting in AI review with nobody closing it."
+    : closer === "coordinator"
+      ? "A card opened by an agent or a schedule with no chat of its own was delivered and sits in AI review: you close it in its opener's place."
+      : "A card you opened was delivered and sits in AI review: it is yours to close, nobody else will look at it.";
   return [
     `<card-ai-review task_id="${n.taskId}" project_id="${n.projectId}" opened_by="${n.createdBy ?? "unknown"}" title="${title}">`,
     lead,
-    "Read the delivery against the acceptance bar in the description (get_task / get_global_task), then one of:",
+    `Read the delivery against the acceptance bar in the description (${read}), then one of:`,
     `- it holds: ${how}(status='done', summary=<the proof: what you checked, the command and its exit, where it can be seen>);`,
     `- the person has to see or decide something: ${how}(stage='human_review', human_ask=<the question for them>);`,
     "- it does not hold: comment what is missing on the card and send it back to work.",
@@ -101,17 +113,21 @@ export function createAiReviewNotices(deps: AiReviewNoticeDeps) {
   const attempts = Math.max(1, deps.attempts ?? 3);
   const retryMs = deps.retryMs ?? 60_000;
 
-  type Target = { sessionKey: string; closer: "opener" | "coordinator" };
+  /** `globalTool`: the session is the coordinator's, which closes with the global tools. */
+  type Target = { sessionKey: string; closer: "opener" | "coordinator"; globalTool: boolean };
 
   /** Whom to wake, in order: the opener's chat when it can take a turn, then the coordinator. */
   function targets(n: AiReviewNotice): Target[] {
     const out: Target[] = [];
+    const coordinator = deps.coordinatorSessionKey();
     if (!n.reminder && n.openerTopicId) {
       const sk = deps.sessionKeyOfTopic(n.openerTopicId);
-      if (sk && deps.canWake(sk) !== "row") out.push({ sessionKey: sk, closer: "opener" });
+      // A card the coordinator opened (the global route stamps its topic) is
+      // its own to close, but with the global tools: its session has no
+      // project, and `update_task` there answers `no_project`.
+      if (sk && deps.canWake(sk) !== "row") out.push({ sessionKey: sk, closer: "opener", globalTool: sk === coordinator || !!deps.isCoordinatorSession?.(sk) });
     }
-    const coordinator = deps.coordinatorSessionKey();
-    if (coordinator && !out.some((t) => t.sessionKey === coordinator)) out.push({ sessionKey: coordinator, closer: "coordinator" });
+    if (coordinator && !out.some((t) => t.sessionKey === coordinator)) out.push({ sessionKey: coordinator, closer: "coordinator", globalTool: true });
     return out;
   }
 
@@ -155,7 +171,7 @@ export function createAiReviewNotices(deps: AiReviewNoticeDeps) {
       for (let i = 0; i < attempts; i++) {
         if (i > 0) await sleep(retryMs * 2 ** (i - 1));
         let why: string | null;
-        try { why = await wake(to.sessionKey, aiReviewWakeText(n, to.closer)); }
+        try { why = await wake(to.sessionKey, aiReviewWakeText(n, to.closer, to.globalTool)); }
         catch (err) { why = err instanceof Error ? err.message : String(err); }
         if (why === null) { deps.log?.(`${n.taskId}: ${to.closer} woken`); return; }
         deps.log?.(`${n.taskId}: ${to.closer} not woken (try ${i + 1}/${attempts}), ${why}`);
@@ -164,6 +180,7 @@ export function createAiReviewNotices(deps: AiReviewNoticeDeps) {
         if (why === "the session stayed busy") break;
       }
     }
+    try { n.onUndelivered?.(); } catch (err) { deps.log?.(`${n.taskId}: ${err instanceof Error ? err.message : String(err)}`); }
     deps.recordActivity({
       category: "board", level: "warn", title: "AI review notice not delivered",
       detail: `${n.title || "Task"}: ${reasons.join("; ").slice(0, 400)}`,
@@ -186,7 +203,10 @@ export function createAiReviewNotices(deps: AiReviewNoticeDeps) {
       entityType: "task", entityId: n.taskId, actor: n.createdBy ?? undefined,
       metadata: { projectId: n.projectId, createdBy: n.createdBy, openerTopicId: n.openerTopicId, reminder: !!n.reminder, notified: to?.closer ?? null },
     });
-    if (list.length === 0) return;
+    if (list.length === 0) {
+      try { n.onUndelivered?.(); } catch (err) { deps.log?.(`${n.taskId}: ${err instanceof Error ? err.message : String(err)}`); }
+      return;
+    }
     void deliver(n, list).catch((err) => deps.log?.(`${n.taskId}: ${err instanceof Error ? err.message : String(err)}`));
   }
 

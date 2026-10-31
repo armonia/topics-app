@@ -513,6 +513,9 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             createdBy: resolveCreatedBy(req, body),
             // The workflow column it is born in; absent = the server decides.
             stage: typeof body?.stage === "string" ? body.stage : undefined,
+            // A card born in review: the question that lets it be born in Human review.
+            humanAsk: typeof body?.human_ask === "string" ? body.human_ask
+              : typeof body?.humanAsk === "string" ? body.humanAsk : undefined,
           });
           // THE BIRTH ATTACHMENTS, BEFORE THE DISPATCH.
           //

@@ -192,3 +192,10 @@ export function agentAskInThread(comments: readonly { author?: string | null; co
  * lost to a restart.
  */
 export const AI_REVIEW_REMIND_MS = 30 * 60 * 1000;
+
+/**
+ * How long after a reminder that reached nobody the sweep tries it again. A
+ * floor, not a schedule: without it a board with no coordinator to wake would
+ * log the same failed reminder at every reconcile.
+ */
+export const AI_REVIEW_RETRY_MS = 5 * 60 * 1000;

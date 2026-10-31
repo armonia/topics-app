@@ -202,6 +202,11 @@ queste regole.
      review e la domanda diventa il suo `human_ask`.
    Le opzioni che sono solo azioni della board («Landa su main») non sono una
    domanda. Una card aperta da una persona va sempre in Human review.
+   Vale anche per una card che NASCE in review (`POST /api/boards/:id/tasks`
+   con `status="review"`): se l'ha aperta un agente o una schedulazione nasce in
+   AI review, e in Human review solo con `human_ask` nel corpo. Il coordinatore
+   chiude con `update_global_task` anche le card che ha aperto lui: la sua
+   sessione non ha un progetto, e lì `update_task` risponde `no_project`.
 
 1-bis. **Una card in review si deve poter LEGGERE senza rileggere il diff.**
    Quando un turno viene tagliato prima che l'agente commenti (riavvio del

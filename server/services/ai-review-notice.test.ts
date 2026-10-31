@@ -135,6 +135,67 @@ describe("a failed wake is not the end of the notice", () => {
   });
 });
 
+describe("a notice that reached nobody tells its caller (the sweep retries it)", () => {
+  test("every try failed: onUndelivered is called once", async () => {
+    const h = harness({ attempts: 2, retryMs: 1 });
+    h.setAnswer(() => new Response("boom", { status: 500 }));
+    let undelivered = 0;
+    h.n.request({ ...card, reminder: true, onUndelivered: () => { undelivered++; } });
+    await settle();
+    expect(undelivered).toBe(1);
+  });
+
+  test("nobody to wake at all: onUndelivered too", async () => {
+    const h = harness({ coordinatorSessionKey: () => null, sessionKeyOfTopic: () => null });
+    let undelivered = 0;
+    h.n.request({ ...card, reminder: true, onUndelivered: () => { undelivered++; } });
+    await settle();
+    expect(undelivered).toBe(1);
+  });
+
+  test("a wake that went through: not called", async () => {
+    const h = harness();
+    let undelivered = 0;
+    h.n.request({ ...card, reminder: true, onUndelivered: () => { undelivered++; } });
+    await settle();
+    expect(h.posts).toHaveLength(1);
+    expect(undelivered).toBe(0);
+  });
+});
+
+describe("a card the coordinator opened", () => {
+  test("is its own to close, with the global tool its session can use", async () => {
+    // The global route stamps the coordinator's topic as the opener.
+    const h = harness({ sessionKeyOfTopic: (id) => (id === "coord-topic" ? "sk-coordinator" : null) });
+    h.n.request({ ...card, createdBy: "agent:coordinator", openerTopicId: "coord-topic" });
+    await settle();
+    expect(h.posts.map((p) => p.sessionKey)).toEqual(["sk-coordinator"]);
+    const text = h.posts[0]!.content;
+    expect(text).toContain("A card you opened");
+    expect(text).toContain("update_global_task(status='done'");
+    expect(text).toContain("get_global_task");
+    expect(text).not.toMatch(/\bupdate_task\(/);
+    expect(h.events[0]).toMatchObject({ notified: "opener" });
+  });
+
+  test("a coordinator session that is not the eligible one still gets the global tool", async () => {
+    const h = harness({
+      sessionKeyOfTopic: (id) => (id === "old-coord" ? "sk-old-coord" : null),
+      isCoordinatorSession: (sk) => sk === "sk-old-coord",
+    });
+    h.n.request({ ...card, createdBy: "agent:coordinator", openerTopicId: "old-coord" });
+    await settle();
+    expect(h.posts[0]).toMatchObject({ sessionKey: "sk-old-coord" });
+    expect(h.posts[0]!.content).toContain("update_global_task(status='done'");
+  });
+
+  test("an ordinary opener still gets the session tool", () => {
+    const text = aiReviewWakeText(card, "opener");
+    expect(text).toContain("update_task(status='done'");
+    expect(text).not.toContain("update_global_task");
+  });
+});
+
 test("the card's title is data: quoted, its `<` neutralised", () => {
   const text = aiReviewWakeText(card, "opener");
   expect(text).toContain('title="Rename the <\\route>"');

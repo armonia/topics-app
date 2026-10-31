@@ -448,6 +448,12 @@ export interface CreateTaskInput {
    * (`stageAtBirth`: triage for a card from a person on a board that has it).
    */
   stage?: string | null;
+  /**
+   * The question for the person a card born in review carries. On a board
+   * with AI review it is what lets a card opened by an agent or a schedule be
+   * born in Human review, as on a delivery (`stageForDelivery`).
+   */
+  humanAsk?: string | null;
 }
 
 export interface UpdateTaskPatch {

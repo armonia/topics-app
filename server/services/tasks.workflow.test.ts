@@ -15,7 +15,7 @@ import { Database } from "bun:sqlite";
 import type { TaskService } from "./tasks";
 import { freshDb, svc, PID } from "./tasks-test-db";
 import { readBoardWorkflow, writeBoardWorkflow } from "./board-workflow";
-import { AI_REVIEW_REMIND_MS, awaitsHuman, columnOfTask } from "../../shared/workflow";
+import { AI_REVIEW_REMIND_MS, AI_REVIEW_RETRY_MS, awaitsHuman, columnOfTask } from "../../shared/workflow";
 import { _resetAiReviewNotices, _takeWaitingAiReviewNotices } from "./ai-review-notice";
 import { UNOWNED_BACKLOG_MS } from "../../shared/created-by";
 
@@ -411,5 +411,121 @@ describe("third review of 31/10: the agent's question is a question, however it 
     deliver(s, b.id);
     expect(() => s.update({ taskId: b.id, actor: "agent", by: "x", agentTopicId: OPENER, patch: { stage: "human_review" } }))
       .toThrow(/human_ask/);
+  });
+});
+
+describe("fourth review of 31/10: the reminder retries, the column follows the board, and Human review needs a question at birth", () => {
+  let db: Database; let s: TaskService; let clock: { t: number };
+  beforeEach(() => {
+    db = freshDb();
+    db.run(WORKFLOWS_DDL);
+    for (const id of [OPENER, WORKER, OTHER]) db.run("INSERT INTO topics (id) VALUES (?)", [id]);
+    clock = { t: Date.parse("2026-10-30T10:00:00.000Z") };
+    s = svc(db, clock);
+    writeBoardWorkflow(db, PID, "armonia", "2026-10-30T10:00:00.000Z");
+    _resetAiReviewNotices();
+  });
+
+  function apiCard() {
+    const t = s.create({ projectId: PID, text: "card from the board API", status: "todo", createdBy: "agent:api", priority: 1, description: "bar" });
+    db.run("UPDATE tasks SET status = 'in_progress', assigned_topic_id = ?, dispatch_state = 'working' WHERE id = ?", [WORKER, t.id]);
+    return t;
+  }
+  const sweepIds = () => s.sweepStaleAiReview().map((t) => t.id);
+
+  test("3. a reminder that reached nobody is sent again at a later sweep; a delivered one is not", () => {
+    const a = apiCard();
+    deliver(s, a.id);
+    _takeWaitingAiReviewNotices();
+    clock.t += AI_REVIEW_REMIND_MS + 60_000;
+    expect(sweepIds()).toEqual([a.id]);
+    const [failed] = _takeWaitingAiReviewNotices();
+    expect(failed).toMatchObject({ taskId: a.id, reminder: true });
+    failed!.onUndelivered!();
+    // Not at the very next reconcile (the retry floor), but at a later sweep.
+    clock.t += 10_000;
+    expect(sweepIds()).toEqual([]);
+    clock.t += AI_REVIEW_RETRY_MS;
+    expect(sweepIds()).toEqual([a.id]);
+    const [delivered] = _takeWaitingAiReviewNotices();
+    expect(delivered).toMatchObject({ taskId: a.id, reminder: true });
+    // This one reached somebody: once per touch, no matter how long the card stays.
+    clock.t += AI_REVIEW_REMIND_MS + 1;
+    expect(sweepIds()).toEqual([]);
+    clock.t += 24 * 60 * 60 * 1000;
+    expect(sweepIds()).toEqual([]);
+  });
+
+  test("3. a reminder that keeps failing keeps coming back", () => {
+    const a = apiCard();
+    deliver(s, a.id);
+    _takeWaitingAiReviewNotices();
+    clock.t += AI_REVIEW_REMIND_MS + 60_000;
+    for (let i = 0; i < 3; i++) {
+      expect(sweepIds()).toEqual([a.id]);
+      _takeWaitingAiReviewNotices()[0]!.onUndelivered!();
+      clock.t += AI_REVIEW_RETRY_MS + 1;
+    }
+  });
+
+  test("4. a card moved to a board without AI review waits on the person there", () => {
+    const opened = s.create({ projectId: PID, text: "opened from a chat", status: "todo", createdBy: "agent:session", createdByTopicId: OPENER, priority: 1, description: "bar" });
+    db.run("UPDATE tasks SET status = 'in_progress', assigned_topic_id = ?, dispatch_state = 'working' WHERE id = ?", [OPENER, opened.id]);
+    s.update({ taskId: opened.id, actor: "agent", by: `agent:${OPENER}`, agentTopicId: OPENER, patch: { status: "review", summary: "done" } });
+    db.run("UPDATE tasks SET assigned_topic_id = NULL, dispatch_state = NULL WHERE id = ?", [opened.id]);
+    expect(s.get(opened.id)!.task.stage).toBe("ai_review");
+    const moved = s.moveToProject({ taskId: opened.id, toProjectId: "pB" });
+    expect(moved.status).toBe("review");
+    expect(moved.stage).toBeUndefined();
+    expect(awaitsHuman(moved)).toBe(true);
+    // A board that has the column keeps it.
+    writeBoardWorkflow(db, "pC", "armonia", "2026-10-30T10:00:00.000Z");
+    const b = apiCard();
+    deliver(s, b.id);
+    db.run("UPDATE tasks SET assigned_topic_id = NULL, dispatch_state = NULL WHERE id = ?", [b.id]);
+    expect(s.moveToProject({ taskId: b.id, toProjectId: "pC" }).stage).toBe("ai_review");
+  });
+
+  test("5. a card a failed land withdraws from done waits on the person, not on its opener", () => {
+    const a = apiCard();
+    deliver(s, a.id, { humanAsk: "look at the layout" });
+    const approved = s.reviewDecision({ taskId: a.id, by: "user", decision: "approve" });
+    expect(approved.status).toBe("done");
+    const back = s.update({ taskId: a.id, actor: "human", by: "system", patch: { status: "review" }, statusReason: "il land non è riuscito" });
+    expect(back.status).toBe("review");
+    expect(back.stage).not.toBe("ai_review");
+    expect(awaitsHuman(back)).toBe(true);
+    // Closed from AI review by the coordinator, then withdrawn: the person's too.
+    const b = apiCard();
+    deliver(s, b.id);
+    s.update({ taskId: b.id, actor: "agent", by: "agent:coordinator", asCoordinator: true, patch: { status: "done", summary: "bun test exit 0" } });
+    _takeWaitingAiReviewNotices();
+    const back2 = s.update({ taskId: b.id, actor: "human", by: "system", patch: { status: "review" } });
+    expect(awaitsHuman(back2)).toBe(true);
+    expect(_takeWaitingAiReviewNotices()).toEqual([]);
+  });
+
+  test("7. a machine card is born in Human review only with a question", () => {
+    expect(() => s.create({ projectId: PID, text: "x", status: "review", stage: "human_review", createdBy: "agent:api" })).toThrow(/human_ask/);
+    expect(() => s.create({ projectId: PID, text: "x", status: "review", stage: null, createdBy: "agent:api" })).toThrow(/human_ask/);
+    const routed = s.create({ projectId: PID, text: "x", status: "review", createdBy: "agent:api" });
+    expect(routed.stage).toBe("ai_review");
+    expect(awaitsHuman(routed)).toBe(false);
+    expect(_takeWaitingAiReviewNotices().map((n) => n.taskId)).toEqual([routed.id]);
+    const asked = s.create({ projectId: PID, text: "y", status: "review", stage: "human_review", createdBy: "agent:api", humanAsk: "which one?" });
+    expect(asked.stage).toBe("human_review");
+    expect(asked.humanAsk).toBe("which one?");
+    const asked2 = s.create({ projectId: PID, text: "z", status: "review", createdBy: "cron:nightly", humanAsk: "ok?" });
+    // No stage = the default review column, which is Human review.
+    expect(asked2.stage).not.toBe("ai_review");
+    expect(asked2.humanAsk).toBe("ok?");
+    expect(awaitsHuman(asked2)).toBe(true);
+    // A person's card is unchanged: Human review, no question needed.
+    const human = s.create({ projectId: PID, text: "h", status: "review", createdBy: "human" });
+    expect(awaitsHuman(human)).toBe(true);
+    // On the default workflow nothing changes.
+    writeBoardWorkflow(db, PID, null, "2026-10-30T10:00:00.000Z");
+    const plain = s.create({ projectId: PID, text: "p", status: "review", createdBy: "agent:api" });
+    expect(plain.stage).toBeUndefined();
   });
 });

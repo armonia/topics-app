@@ -87,9 +87,10 @@ export function clearStagesOutsideWorkflow(db: Database, scope: string, nowIso: 
  * The cards left in AI review, untouched since `cutoffIso`, that the
  * coordinator was not reminded of since their last touch: each is stamped
  * (`ai_review_reminded_at`, `updated_at` left alone) in the statement that
- * re-checks it, so two passes cannot both return it. Returns their ids.
+ * re-checks it, so two passes cannot both return it. `skip`: cards held back
+ * this pass (a failed reminder waiting for its retry). Returns their ids.
  */
-export function stampStaleAiReview(db: Database, cutoffIso: string, nowIso: string): string[] {
+export function stampStaleAiReview(db: Database, cutoffIso: string, nowIso: string, skip?: ReadonlyMap<string, unknown>): string[] {
   const fresh = "(ai_review_reminded_at IS NULL OR ai_review_reminded_at < updated_at)";
   let ids: Array<{ id: string }> = [];
   try {
@@ -97,7 +98,7 @@ export function stampStaleAiReview(db: Database, cutoffIso: string, nowIso: stri
       `SELECT id FROM tasks WHERE archived = 0 AND status = 'review' AND stage = ? AND updated_at < ? AND ${fresh} ORDER BY updated_at`,
     ).all(STAGE_AI_REVIEW, cutoffIso) as Array<{ id: string }>;
   } catch { return []; }
-  return ids.filter(({ id }) => db.prepare(
+  return ids.filter(({ id }) => !skip?.has(id) && db.prepare(
     `UPDATE tasks SET ai_review_reminded_at = ? WHERE id = ? AND status = 'review' AND stage = ? AND ${fresh}`,
   ).run(nowIso, id, STAGE_AI_REVIEW).changes > 0).map(({ id }) => id);
 }

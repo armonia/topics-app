@@ -55,7 +55,7 @@ import { buildRouteTable, dispatchRouteTable } from "./server/route-table";
 import { createOrchestratorSessionsRouter } from "./server/routes/orchestrator-sessions";
 import { archiveTopicFully, reopenTopicFully } from "./server/services/archive-topic";
 import { applyPaneCascade, clearRetirement, reconcile, recordRetirement, retiredIds, type ReconcileDeps } from "./server/services/retirement";
-import { eligibleGlobalOrchestratorSessionKey, isGlobalOrchestratorTopic } from "./server/services/global-orchestrator-session";
+import { eligibleGlobalOrchestratorSessionKey, isGlobalOrchestratorSession, isGlobalOrchestratorTopic } from "./server/services/global-orchestrator-session";
 import { startAiReviewNotices } from "./server/services/ai-review-notice";
 import { logActivity } from "./server/db/activity-log";
 import { computeCascade } from "./server/services/pane-retirement-cascade";
@@ -6117,6 +6117,7 @@ void survivingTurnsAdopted
       return isProviderHeld(topic.provider || getDefaultProviderName() || "claude-code") ? "wait" : "wake";
     },
     coordinatorSessionKey: () => eligibleGlobalOrchestratorSessionKey(ctx.db),
+    isCoordinatorSession: (sk) => isGlobalOrchestratorSession(ctx.db, sk),
     broadcast: (msg) => ctx.broadcastToAll(msg),
     recordActivity: logActivity,
     log: (m) => console.log(`[ai-review] ${m}`),

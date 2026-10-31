@@ -91,3 +91,20 @@ test("a question written after the delivery moves the card out of AI review, and
   await ask(id);
   expect(rang(id)).toBe(1);
 });
+
+// Fourth review of 31/10, point 7: the board API cannot open a machine card
+// straight into Human review without a question.
+const born = (body: Record<string, unknown>) =>
+  call("POST", `/api/boards/${PID}/tasks`, { text: "born in review", status: "review", createdBy: "agent:api", ...body });
+
+test("a machine card born in review: Human review only with human_ask, AI review otherwise", async () => {
+  const refused = await born({ stage: "human_review" });
+  expect(refused.status).toBe(409);
+  expect(refused.body).toMatchObject({ code: "human_review_needs_ask" });
+  const routed = await born({});
+  expect(routed.status).toBe(201);
+  expect(routed.body).toMatchObject({ status: "review", stage: "ai_review" });
+  const asked = await born({ stage: "human_review", human_ask: "Which layout?" });
+  expect(asked.status).toBe(201);
+  expect(asked.body).toMatchObject({ stage: "human_review", humanAsk: "Which layout?" });
+});
