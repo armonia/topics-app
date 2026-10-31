@@ -24,7 +24,18 @@ export interface FakeTool {
   /** Spread the input JSON over this many ms, in 30 pieces: a model writing a long call. */
   argStreamMs?: number;
 }
-export interface FakeRound { text?: string; tools?: FakeTool[] }
+export interface FakeRound {
+  text?: string;
+  tools?: FakeTool[];
+  /** A reasoning block before everything else: its summary, streamed in one delta. */
+  thinking?: string;
+  /** A `redacted_thinking` block before everything else: no text ever streams for it. */
+  redactedThinking?: boolean;
+  /** Pause after the reasoning block, before the answer: the reasoning row live alone. */
+  afterThinkingMs?: number;
+  /** Pause after the last block, before the round ends: the turn live with all its rows. */
+  holdMs?: number;
+}
 
 export interface FakeAnthropic {
   baseUrl: string;
@@ -80,6 +91,19 @@ export async function startFakeAnthropic(scripts: Record<string, FakeRound[]>): 
       const write = (s: string) => { try { res.write(s); } catch { /* the client went away */ } };
       write(sse("message_start", { message: { id: `msg_${++n}`, type: "message", role: "assistant", content: [], model: body.model ?? "fake", usage: { input_tokens: 10, output_tokens: 0 } } }));
       let index = 0;
+      if (spec.redactedThinking) {
+        write(sse("content_block_start", { index, content_block: { type: "redacted_thinking", data: "e2e-encrypted" } }));
+        write(sse("content_block_stop", { index }));
+        index++;
+      }
+      if (spec.thinking) {
+        write(sse("content_block_start", { index, content_block: { type: "thinking", thinking: "" } }));
+        write(sse("content_block_delta", { index, delta: { type: "thinking_delta", thinking: spec.thinking } }));
+        write(sse("content_block_delta", { index, delta: { type: "signature_delta", signature: "e2e-signature" } }));
+        write(sse("content_block_stop", { index }));
+        index++;
+      }
+      if (spec.afterThinkingMs) await sleep(spec.afterThinkingMs);
       if (spec.text) {
         write(sse("content_block_start", { index, content_block: { type: "text", text: "" } }));
         write(sse("content_block_delta", { index, delta: { type: "text_delta", text: spec.text } }));
@@ -100,6 +124,7 @@ export async function startFakeAnthropic(scripts: Record<string, FakeRound[]>): 
         write(sse("content_block_stop", { index }));
         index++;
       }
+      if (spec.holdMs) await sleep(spec.holdMs);
       write(sse("message_delta", { delta: { stop_reason: spec.tools?.length ? "tool_use" : "end_turn" }, usage: { output_tokens: 20 } }));
       write(sse("message_stop", {}));
       res.end();

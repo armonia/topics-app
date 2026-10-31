@@ -39,4 +39,31 @@ describe('MessageEntrance', () => {
     e.note('t1', ['a', 'b'], true, 900);
     expect(e.isEntering('b', 1050)).toBe(true);
   });
+
+  test('a row that takes the server id in its place is the same row, not an arrival (card 40ea050c)', () => {
+    const e = new MessageEntrance();
+    e.note('t1', ['a', 'q'], false, 0);
+    e.note('t1', ['a', 'q', 'msg_local'], true, 100);
+    expect(e.isEntering('msg_local', 100)).toBe(true);
+    // Five seconds later the turn ends and the history reload renames it.
+    e.note('t1', ['a', 'q', 'uuid-1'], true, 5100);
+    expect(e.isEntering('uuid-1', 5100)).toBe(false);
+  });
+
+  test('a rename while the entrance still plays keeps it playing, no restart', () => {
+    const e = new MessageEntrance();
+    e.note('t1', ['a'], false, 0);
+    e.note('t1', ['a', 'msg_local'], true, 100);
+    e.note('t1', ['a', 'uuid-1'], true, 400);
+    expect(e.isEntering('uuid-1', 400)).toBe(true);
+    expect(e.isEntering('uuid-1', 100 + ENTRANCE_WINDOW_MS)).toBe(false);
+  });
+
+  test('a new id beside rows that are all still there is an arrival', () => {
+    const e = new MessageEntrance();
+    e.note('t1', ['a', 'b'], false, 0);
+    e.note('t1', ['a', 'b'], true, 10);
+    e.note('t1', ['a', 'b', 'c'], true, 2000);
+    expect(e.isEntering('c', 2000)).toBe(true);
+  });
 });

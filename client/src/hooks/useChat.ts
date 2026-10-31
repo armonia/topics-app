@@ -1115,12 +1115,15 @@ export function useChat() {
         // the cut, as the server writes them.
         const lateStart = !!(frame?.lateStart && contentDelta);
         let nextBlocks = lastMsg.blocks;
+        // Reasoning first: a frame that buffered both is a block that closed
+        // before the answer opened, and the row goes above the text, where the
+        // final message keeps it.
+        if (thinkingDelta) nextBlocks = appendBlock(nextBlocks, { kind: 'thinking', text: thinkingDelta });
         if (contentDelta) {
           nextBlocks = lateStart
             ? [...(nextBlocks ?? []), { kind: 'text', text: contentDelta }]
             : appendBlock(nextBlocks, { kind: 'text', text: contentDelta });
         }
-        if (thinkingDelta) nextBlocks = appendBlock(nextBlocks, { kind: 'thinking', text: thinkingDelta });
 
         // Create a new object without mutating the old state reference
         updatedMessages[lastMessageIndex] = {
@@ -1313,6 +1316,29 @@ export function useChat() {
     toolUpdateBufferRef.current.clear();
   }, []);
 
+  /**
+   * The model opened a reasoning block: reserve its row now, at the point of
+   * the timeline where it started reasoning, so the end of the turn inserts
+   * nothing over the text. The server sends this sign when the CLI opens the
+   * block (its reasoning text only exists in the final message), and with the
+   * block's first text on the native runtime.
+   * Called by the WS frame (`stream:thinking_start`) and by the sender's own
+   * SSE (`{ thinking: { open: true } }`). The text that came before goes in
+   * first, or the row would land above it.
+   */
+  const reserveThinkingRow = useCallback((sessionKey: string) => {
+    flushLiveDeltas(sessionKey);
+    setThinking(prev => ({ ...prev, [sessionKey]: true }));
+    setMessages(prev => {
+      const list = prev[sessionKey] || [];
+      const last = list[list.length - 1];
+      if (!last || last.role !== 'assistant' || !last.partial || last.blocks?.[last.blocks.length - 1]?.kind === 'thinking') return prev;
+      const next = list.slice();
+      next[next.length - 1] = { ...last, blocks: [...(last.blocks ?? []), { kind: 'thinking', text: '' }] };
+      return { ...prev, [sessionKey]: next };
+    });
+  }, [flushLiveDeltas]);
+
   const handleStreamEvent = useCallback((event: WSMessage) => {
     // Every stream:* and message:media variant carries a sessionKey, but the
     // dispatcher upstream accepts the full WSMessage union (which includes
@@ -1463,19 +1489,7 @@ export function useChat() {
         break;
 
       case 'stream:thinking_start':
-        setThinking(prev => ({ ...prev, [sessionKey]: true }));
-        // Reserve the reasoning row now, at the point of the timeline where the
-        // model started reasoning, so the end of the turn inserts nothing over
-        // the text. The server sends this event when the CLI opens a thinking
-        // block, even though its text only exists in the final message.
-        setMessages(prev => {
-          const list = prev[sessionKey] || [];
-          const last = list[list.length - 1];
-          if (!last || last.role !== 'assistant' || !last.partial || last.blocks?.[last.blocks.length - 1]?.kind === 'thinking') return prev;
-          const next = list.slice();
-          next[next.length - 1] = { ...last, blocks: [...(last.blocks ?? []), { kind: 'thinking', text: '' }] };
-          return { ...prev, [sessionKey]: next };
-        });
+        reserveThinkingRow(sessionKey);
         break;
 
       case 'stream:thinking_chunk':
@@ -1864,7 +1878,7 @@ export function useChat() {
         }
         break;
     }
-  }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn, relightSettledTurn]);
+  }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn, relightSettledTurn, reserveThinkingRow]);
 
   // Register WebSocket handler
   const registerWSHandler = useCallback((handler: (event: WSMessage) => void) => {
@@ -2144,6 +2158,17 @@ export function useChat() {
                 }
               }
 
+              // The reasoning, on this reply's own SSE (the WS copies are
+              // dropped for this window): the block's opening reserves the
+              // row in its place, its text fills it, as in any other window.
+              if (parsed.thinking?.open === true) {
+                commitTextBefore();
+                reserveThinkingRow(sessionKey);
+              } else if (parsed.thinking?.open === false) {
+                setThinking(prev => ({ ...prev, [sessionKey]: false }));
+              }
+              if (typeof delta?.thinking === 'string') thinkingBatch += delta.thinking;
+
               // Handle tool calls
               if (delta?.tool_calls) {
                 commitTextBefore();
@@ -2389,7 +2414,7 @@ export function useChat() {
         void loadHistoryRef.current?.(sessionKey, { fresh: true, keepLit: true });
       }
     }
-  }, [addMessage, addToolCallToLastMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, resetStreamTimeout, withRowsArrivedDuringOwnSse]);
+  }, [addMessage, addToolCallToLastMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, resetStreamTimeout, withRowsArrivedDuringOwnSse, reserveThinkingRow]);
 
   /**
    * Fa partire quello che è in coda, se è il momento — TUTTO INSIEME, in un
@@ -3058,6 +3083,16 @@ export function useChat() {
                 if (isInThinking) { thinkingBatch += chunk; }
                 else if (chunk) { contentBatch += chunk; }
               }
+              // The same reasoning frames as the send above.
+              if (parsed.thinking?.open === true) {
+                if (contentBatch || thinkingBatch) bufferLiveDelta(sessionKey, contentBatch || undefined, thinkingBatch || undefined);
+                contentBatch = '';
+                thinkingBatch = '';
+                reserveThinkingRow(sessionKey);
+              } else if (parsed.thinking?.open === false) {
+                setThinking(prev => ({ ...prev, [sessionKey]: false }));
+              }
+              if (typeof delta?.thinking === 'string') thinkingBatch += delta.thinking;
             } catch {}
           }
 
@@ -3105,7 +3140,7 @@ export function useChat() {
       delete abortControllersRef.current[sessionKey];
       if (streamed) void loadHistoryRef.current?.(sessionKey, { fresh: true });
     }
-  }, [addMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, withRowsArrivedDuringOwnSse]);
+  }, [addMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, withRowsArrivedDuringOwnSse, reserveThinkingRow]);
 
   const editMessage = useCallback(
     (sessionKey: string, messageId: string, newContent: string): Promise<boolean> =>
