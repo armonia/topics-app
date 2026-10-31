@@ -17,14 +17,14 @@
  * ones (`queueReason`), not a phrase of ours.
  */
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { ChevronRight, Hourglass, Play } from 'lucide-react';
+import { ChevronRight, Play } from 'lucide-react';
 import { useActiveLocale, useT } from '../../hooks/useT';
 import { boardApi, isProjectlessId, req } from '../../lib/board';
 import { projectNameFromId } from '../../lib/boardProjectsStore';
 import type { BoardTask, DispatchCapacity } from '../../lib/board';
 import type { DispatchMemoryQueueSnapshot } from '../../../../shared/board';
 import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
-import { brokenCards, chartMax, queuedCards, waitingLabel, type BrokenCard, type QueuedCard } from './dispatchDashboardModel';
+import { brokenCards, chartMax, queuedCards, rowReason, waitingLabel, type BrokenCard, type QueuedCard } from './dispatchDashboardModel';
 import { DANGER_TEXT } from '../../lib/popoverStyles';
 import { admissionVerdictText, verdictSentence } from './dispatchLoad';
 
@@ -256,13 +256,15 @@ function useAnswer({ capacity, snapshot, queue, broken = 0, dispatchOn }: Dashbo
  * The controls come right after it; the detail (chart, queue, who holds the
  * memory) is `DispatchDetailsView`, below the controls.
  */
-export function DispatchSummaryView({ capacity, snapshot, queue, broken = 0, brokenList, dispatchOn, live, onTurnOn, onOpenTask }: DashboardInput & {
+export function DispatchSummaryView({ capacity, snapshot, queue, broken = 0, brokenList, dispatchOn, live, onTurnOn, onToggle, onOpenTask }: DashboardInput & {
   /** Opens the card's drawer: the stopped cards in the red box are links. */
   onOpenTask?: (id: string) => void;
   /** The server's read is fresh; absent = there is a snapshot. */
   live?: boolean;
   /** Turns auto-dispatch on: the button sits in the warning box while it is off. */
   onTurnOn?: () => void;
+  /** The ONE switch of the panel, in its head: absent = no switch drawn. */
+  onToggle?: () => void;
 }) {
   const tr = useT();
   const running = capacity?.running ?? 0;
@@ -278,14 +280,22 @@ export function DispatchSummaryView({ capacity, snapshot, queue, broken = 0, bro
   );
   return (
     <section data-testid="dispatch-dashboard" className="space-y-1.5">
-      <div className="flex items-baseline justify-between gap-2">
-        <div className="font-semibold text-app-text" data-testid="dispatch-dashboard-hero">
-          {tr('board.dash.hero', { running, queued: queue.length })}
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="font-semibold text-app-text" data-testid="dispatch-dashboard-hero">
+            {tr('board.dash.hero', { running, queued: queue.length })}
+          </div>
+          {isLive && (
+            <span data-testid="dispatch-dashboard-live" className="inline-flex items-center gap-1 text-mini text-app-text-secondary">
+              <i className="h-1.5 w-1.5 rounded-full bg-emerald-600" />{tr('board.dash.live')}
+            </span>
+          )}
         </div>
-        {isLive && (
-          <span data-testid="dispatch-dashboard-live" className="inline-flex shrink-0 items-center gap-1 text-mini text-app-text-secondary">
-            <i className="h-1.5 w-1.5 rounded-full bg-emerald-600" />{tr('board.dash.live')}
-          </span>
+        {onToggle && (
+          <label className="flex min-h-6 shrink-0 cursor-pointer items-center gap-2 coarse:min-h-11" title={tr('board.settings.dispatchOnTitle')}>
+            <span className="text-mini font-medium text-app-text">{tr('board.dash.autoStart')}</span>
+            <input type="checkbox" role="switch" data-testid="dispatch-dashboard-switch" checked={dispatchOn === true} onChange={onToggle} className="h-3.5 w-3.5 shrink-0 accent-emerald-500" />
+          </label>
         )}
       </div>
       <div
@@ -329,8 +339,38 @@ export function DispatchSummaryView({ capacity, snapshot, queue, broken = 0, bro
   );
 }
 
-/** BELOW the controls: the memory chart, the numbered queue, and who holds the memory (closed). */
-export function DispatchDetailsView({ capacity, snapshot, queue, now, onStartNow, starting, startFailure }: Omit<DashboardInput, 'broken' | 'dispatchOn'> & {
+/** Who holds the Mac's memory: closed by default, it opens on request. */
+export function HoldersFold({ consumers, total }: { consumers: DispatchMemoryQueueSnapshot['consumers']; total: number | null }) {
+  const tr = useT();
+  const biggest = Math.max(1, ...consumers.map((c) => c.gb));
+  if (consumers.length === 0) return null;
+  return (
+  // Closed by default: it opens on request.
+  <details className="group" data-testid="dispatch-dashboard-holders-fold">
+    <summary className="mb-1 flex min-h-6 cursor-pointer list-none items-center gap-1 text-mini font-medium uppercase tracking-wide text-app-text-secondary coarse:min-h-11">
+      <ChevronRight size={10} className="shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
+      {tr('board.dash.holders', { total: total !== null ? gb(total) : '' })}
+    </summary>
+    <ul className="space-y-0.5" data-testid="dispatch-dashboard-holders">
+      {consumers.map((c) => (
+        <li key={c.label} className="flex items-center gap-2 text-mini">
+          <span className="min-w-0 flex-1 break-words">{c.label}</span>
+          <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded bg-white/10">
+            <i className="block h-full bg-sky-500/80" style={{ width: `${Math.round((c.gb / biggest) * 100)}%` }} />
+          </span>
+          <span className="w-14 shrink-0 text-right tabular-nums">{gb(c.gb)}</span>
+        </li>
+      ))}
+    </ul>
+  </details>
+
+  );
+}
+
+/** BELOW the summary: the numbered queue, then the memory chart, and (unless it lives in Advanced) who holds the memory. */
+export function DispatchDetailsView({ capacity, snapshot, queue, now, onStartNow, starting, startFailure, withHolders = true }: Omit<DashboardInput, 'broken' | 'dispatchOn'> & {
+  /** False when the holders fold is drawn elsewhere (the Advanced block of the panel). */
+  withHolders?: boolean;
   /** The last rejected Start anyway; shown only while that card is still queued. */
   startFailure?: StartFailure | null;
   now: number;
@@ -344,7 +384,6 @@ export function DispatchDetailsView({ capacity, snapshot, queue, now, onStartNow
   const total = capacity?.totalMemGB ?? null;
   const startGB = snapshot?.threshold.startGB ?? null;
   const consumers = snapshot?.consumers ?? [];
-  const biggest = Math.max(1, ...consumers.map((c) => c.gb));
   const cpuHolds = capacity?.admission?.blockedBy === 'cpu';
   // The server keeps one single manual seat and refuses it while a local turn is in flight
   // (dispatch-memory-start: `localMemorySeatTaken`): with cards at work the button cannot
@@ -353,10 +392,6 @@ export function DispatchDetailsView({ capacity, snapshot, queue, now, onStartNow
   const failure = startFailure && queue.some((q) => q.id === startFailure.id) ? startFailure : null;
   return (
     <section data-testid="dispatch-dashboard-details" className="space-y-2 rounded-md bg-white/5 p-2.5">
-      <div data-testid="dispatch-chart-block">
-        <SectionLabel right={tr('board.dash.chartSub')}>{tr('board.dash.chartTitle')}</SectionLabel>
-        <MemoryChart history={snapshot?.history ?? []} startGB={startGB} now={now} cpuHolds={cpuHolds} />
-      </div>
       <div>
         <SectionLabel>{tr('board.dash.queue', { n: queue.length })}</SectionLabel>
         {queue.length === 0 ? (
@@ -370,10 +405,9 @@ export function DispatchDetailsView({ capacity, snapshot, queue, now, onStartNow
                   {/* At 400 px (and on the phone) nothing is cut: title and reason wrap. */}
                   <span className="block break-words" title={q.title}>{q.title}</span>
                   <span className="flex flex-wrap items-center gap-x-1 text-mini text-app-text-secondary">
-                    <Hourglass className="h-3 w-3 shrink-0" />
                     {q.project && <span className="min-w-0 [overflow-wrap:anywhere] rounded bg-white/5 px-1" data-testid="dispatch-dashboard-queue-project">{q.project}</span>}
-                    {/* ONE reason per card; the detail is the tooltip. */}
-                    <span className="min-w-0 [overflow-wrap:anywhere]" data-testid="dispatch-dashboard-queue-reason" title={q.detail ?? undefined}>{q.reason ?? tr('board.dash.waiting')}</span>
+                    {/* ONE reason per card, one line under the title; the detail is the tooltip. */}
+                    <span className="min-w-0 [overflow-wrap:anywhere]" data-testid="dispatch-dashboard-queue-reason" title={q.detail ?? undefined}>{q.reason ? rowReason(q.reason) : tr('board.dash.waiting')}</span>
                     <span>· {tr('board.dash.since', { time: waitingLabel(q.waitingMs) })}</span>
                   </span>
                 </span>
@@ -397,26 +431,11 @@ export function DispatchDetailsView({ capacity, snapshot, queue, now, onStartNow
           </ol>
         )}
       </div>
-      {consumers.length > 0 && (
-        // Closed by default: it opens on request.
-        <details className="group" data-testid="dispatch-dashboard-holders-fold">
-          <summary className="mb-1 flex min-h-6 cursor-pointer list-none items-center gap-1 text-mini font-medium uppercase tracking-wide text-app-text-secondary coarse:min-h-11">
-            <ChevronRight size={10} className="shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
-            {tr('board.dash.holders', { total: total !== null ? gb(total) : '' })}
-          </summary>
-          <ul className="space-y-0.5" data-testid="dispatch-dashboard-holders">
-            {consumers.map((c) => (
-              <li key={c.label} className="flex items-center gap-2 text-mini">
-                <span className="min-w-0 flex-1 break-words">{c.label}</span>
-                <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded bg-white/10">
-                  <i className="block h-full bg-sky-500/80" style={{ width: `${Math.round((c.gb / biggest) * 100)}%` }} />
-                </span>
-                <span className="w-14 shrink-0 text-right tabular-nums">{gb(c.gb)}</span>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
+      <div data-testid="dispatch-chart-block">
+        <SectionLabel right={tr('board.dash.chartSub')}>{tr('board.dash.chartTitle')}</SectionLabel>
+        <MemoryChart history={snapshot?.history ?? []} startGB={startGB} now={now} cpuHolds={cpuHolds} />
+      </div>
+      {withHolders && <HoldersFold consumers={consumers} total={total} />}
     </section>
   );
 }
@@ -450,13 +469,13 @@ function useDashboardData(tasks: readonly BoardTask[]) {
 }
 
 /** The live summary, for the top of the panel. */
-export function DispatchSummary({ tasks, dispatchOn, onTurnOn, onOpenTask }: { tasks: readonly BoardTask[]; dispatchOn?: boolean | null; onTurnOn?: () => void; onOpenTask?: (id: string) => void }) {
+export function DispatchSummary({ tasks, dispatchOn, onTurnOn, onToggle, onOpenTask }: { tasks: readonly BoardTask[]; dispatchOn?: boolean | null; onTurnOn?: () => void; onToggle?: () => void; onOpenTask?: (id: string) => void }) {
   const d = useDashboardData(tasks);
-  return <DispatchSummaryView capacity={d.capacity} snapshot={d.snapshot} queue={d.queue} broken={d.broken} brokenList={d.brokenList} dispatchOn={dispatchOn} live={snapshotIsLive(d.now)} onTurnOn={onTurnOn} onOpenTask={onOpenTask} />;
+  return <DispatchSummaryView capacity={d.capacity} snapshot={d.snapshot} queue={d.queue} broken={d.broken} brokenList={d.brokenList} dispatchOn={dispatchOn} live={snapshotIsLive(d.now)} onTurnOn={onTurnOn} onToggle={onToggle} onOpenTask={onOpenTask} />;
 }
 
 /** The live detail (chart, queue, holders), for below the controls. */
-export function DispatchDetails({ tasks }: { tasks: readonly BoardTask[] }) {
+export function DispatchDetails({ tasks, withHolders = true }: { tasks: readonly BoardTask[]; withHolders?: boolean }) {
   const d = useDashboardData(tasks);
   const [starting, setStarting] = useState<string | null>(null);
   const [startFailure, setStartFailure] = useState<StartFailure | null>(null);
@@ -469,5 +488,12 @@ export function DispatchDetails({ tasks }: { tasks: readonly BoardTask[] }) {
       .then(() => loadSnapshot(), (e: unknown) => setStartFailure({ id: card.id, code: (e as { code?: string } | null)?.code ?? null }))
       .finally(() => setStarting(null));
   };
-  return <DispatchDetailsView capacity={d.capacity} snapshot={d.snapshot} queue={d.queue} now={d.now} onStartNow={start} starting={starting} startFailure={startFailure} />;
+  return <DispatchDetailsView capacity={d.capacity} snapshot={d.snapshot} queue={d.queue} now={d.now} onStartNow={start} starting={starting} startFailure={startFailure} withHolders={withHolders} />;
+}
+
+/** Who holds the memory, live: for the Advanced block. */
+export function DispatchHolders() {
+  const snapshot = useMemoryQueueSnapshot();
+  const { capacity } = useGlobalDispatchCap();
+  return <HoldersFold consumers={snapshot?.consumers ?? []} total={capacity?.totalMemGB ?? null} />;
 }

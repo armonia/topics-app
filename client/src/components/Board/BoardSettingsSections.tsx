@@ -12,11 +12,11 @@
  * is little enough to render for real with `renderToStaticMarkup`, so the test
  * asserts on painted output instead of on the presence of a string.
  */
-import { Bot, X } from 'lucide-react';
+import { Bot, ChevronRight, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { GlobalCapControl } from './GlobalCapControl';
 import { SpendCapControl } from './SpendCapControl';
-import { DispatchDetails, DispatchSummary } from './DispatchDashboard';
+import { DispatchDetails, DispatchHolders, DispatchSummary } from './DispatchDashboard';
 import type { BoardTask } from '../../lib/board';
 
 /** The panel is not "Auto-dispatch": it holds effort, model, language, worktree,
@@ -59,39 +59,45 @@ export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks, onO
   const tr = useT();
   return (
     <>
-      {/* ONE ANSWER ON TOP, then the controls; chart, queue and memory go below them. */}
-      {tasks && <DispatchSummary tasks={tasks} dispatchOn={dispatchOn} onTurnOn={onToggleDispatch} onOpenTask={onOpenTask} />}
-      {/* The whole row is the checkbox's label, and it is the target: 24 tall
-          with the mouse, 44 under a finger (usability audit, 04/10: 16). */}
-      <label
-        className="flex min-h-6 cursor-pointer items-center justify-between gap-3 coarse:min-h-11"
-        title={tr('board.settings.dispatchOnTitle')}
-      >
-        {/* SAME label as the ▾ in the header: it is the same global switch, and
-            two different names for one value make it look like two settings.
-            What it does lives in the `title`, not in the name. */}
-        <span className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.settings.autoDispatch')}</span>
-        <input type="checkbox" checked={!!dispatchOn} onChange={onToggleDispatch} className="h-3.5 w-3.5 shrink-0 accent-emerald-500" />
-      </label>
+      {/* ONE ORDER: summary with the single switch and the answer, the queue, the
+          memory chart, how many cards together, then Advanced (closed). */}
+      {tasks && <DispatchSummary tasks={tasks} dispatchOn={dispatchOn} onTurnOn={onToggleDispatch} onToggle={onToggleDispatch} onOpenTask={onOpenTask} />}
+      {tasks && <DispatchDetails tasks={tasks} withHolders={false} />}
+      {/* Without the dashboard (no tasks) the switch keeps its own row. */}
+      {!tasks && (
+        <label
+          className="flex min-h-6 cursor-pointer items-center justify-between gap-3 coarse:min-h-11"
+          title={tr('board.settings.dispatchOnTitle')}
+        >
+          <span className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.settings.autoDispatch')}</span>
+          <input type="checkbox" checked={!!dispatchOn} onChange={onToggleDispatch} className="h-3.5 w-3.5 shrink-0 accent-emerald-500" />
+        </label>
+      )}
 
-      {/* THE CAP, IN HERE. It used to live only in the ▾ menu next to the title,
-          and this panel merely named it in a `title` — a tooltip, which does not
-          exist on a phone. Whoever opened the settings saw no limit at all. It
-          is the SAME component the menu mounts, on the same store: what you
-          change here shows up there without a reload, and the other way round. */}
+      {/* THE CAP stays in the panel (a tooltip does not exist on a phone). It is the
+          SAME component the header menu mounts, on the same store. */}
       <div className="border-y border-app-border-subtle py-2">
         <GlobalCapControl quiet={!!tasks} />
       </div>
 
-      {/* THE SPEND, and the spend caps, in the same place and for the same
-          reason: they belong to the MACHINE and live on the same reserved row.
-          The dollars are always visible; the two caps are born empty, and empty
-          means unlimited. Whoever looks for "how much am I spending" finds it
-          next to "how many agents at once", the other question about the same tap. */}
-      <div className="border-b border-app-border-subtle pb-2">
-        <SpendCapControl />
-      </div>
-      {tasks && <DispatchDetails tasks={tasks} />}
+      {/* Spend and caps are born empty (= unlimited) and are not the daily question:
+          closed by default, with who holds the Mac's memory. */}
+      {tasks ? (
+        <details className="group" data-testid="settings-advanced">
+          <summary className="flex min-h-6 cursor-pointer list-none items-center gap-1 text-mini font-medium uppercase tracking-wide text-app-text-secondary coarse:min-h-11">
+            <ChevronRight size={10} className="shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
+            {tr('board.dash.advanced')}
+          </summary>
+          <div className="space-y-2 pt-1.5">
+            <SpendCapControl />
+            <DispatchHolders />
+          </div>
+        </details>
+      ) : (
+        <div className="border-b border-app-border-subtle pb-2">
+          <SpendCapControl />
+        </div>
+      )}
     </>
   );
 }

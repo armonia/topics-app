@@ -49,6 +49,7 @@ import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { hermetic } from "./fixtures/hermetic";
 import { removeTmpDir } from "./helpers/file-project";
+import { openCapMode } from "./helpers/open-cap-mode";
 
 hermetic(test);
 
@@ -319,6 +320,7 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await expect(control).toBeVisible();
     // Born "by count", with the number box.
     await expect(page.getByTestId("global-cap-brake-count")).toHaveAttribute("aria-checked", "true");
+    await openCapMode(page);
     await expect(page.getByTestId("global-cap-mode-auto")).toBeVisible();
 
     await page.getByTestId("global-cap-brake-resources").click();
@@ -405,6 +407,7 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
 
     // Back to "by count": the three states and the number are back.
     await page.getByTestId("global-cap-brake-count").click();
+    await openCapMode(page);
     await expect(page.getByTestId("global-cap-mode-auto")).toBeVisible();
     await expect(page.getByTestId("global-cap-budget-slider")).toHaveCount(0);
   });

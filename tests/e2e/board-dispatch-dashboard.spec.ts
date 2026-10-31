@@ -182,14 +182,17 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     await expect(dash.getByTestId("dispatch-dashboard-hero")).toHaveText("2 al lavoro · 3 in coda");
     // Auto-dispatch off in the test env: the row states the memory, it does not promise another one will start.
     // «Chi tiene la memoria» is closed by default and opens on request.
+    // It lives inside Advanced, which is closed too.
+    await expect(menu.getByTestId("dispatch-dashboard-holders-fold")).toBeHidden();
+    await menu.getByTestId("settings-advanced").locator("summary").first().click();
     const fold = menu.getByTestId("dispatch-dashboard-holders-fold");
     await expect(menu.getByTestId("dispatch-dashboard-holders")).toBeHidden();
     await fold.locator("summary").click();
     await expect(menu.getByTestId("dispatch-dashboard-holders")).toContainText("Jarvis e altre sessioni di Claude");
     await expect(menu.getByText("Chi tiene la memoria del Mac · 32 GB")).toBeVisible();
     await fold.locator("summary").click();
-    await expect(page.locator("label", { hasText: "Auto-dispatch" }).getByRole("checkbox")).toBeVisible();
-    await expect(menu.getByText("Agent in parallelo", { exact: true })).toBeVisible();
+    await expect(menu.getByTestId("dispatch-dashboard-switch")).toBeVisible();
+    await expect(menu.getByText("Quante card insieme", { exact: true })).toBeVisible();
     await expect(menu.getByTestId("global-cap-running")).toBeVisible();
     // The three improvements.
     await expect(dash.getByTestId("dispatch-dashboard-live")).toHaveText("dal vivo");
@@ -208,8 +211,8 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     await expect(rows.first()).toContainText("da 1 min");
     await expect(menu.getByTestId("dispatch-dashboard-start-now")).toHaveCount(1);
     await expect(rows.first().getByTestId("dispatch-dashboard-start-now")).toBeVisible();
-    // The order: summary, controls, chart, queue, who holds the memory.
-    const ys = await Promise.all(["dispatch-dashboard-answer", "global-cap-control", "dispatch-chart-block", "dispatch-dashboard-queue", "dispatch-dashboard-holders-fold"]
+    // The order: summary, queue, chart, how many cards together, Advanced (spend, who holds the memory).
+    const ys = await Promise.all(["dispatch-dashboard-answer", "dispatch-dashboard-queue", "dispatch-chart-block", "global-cap-control", "dispatch-dashboard-holders-fold"]
       .map(async (id) => (await menu.getByTestId(id).boundingBox())!.y));
     expect([...ys].sort((p, q) => p - q), `ordine dei blocchi ${ys.join(",")}`).toEqual(ys);
     await menu.screenshot({ path: join(SHOTS, "pannello.png") });
@@ -314,7 +317,7 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
       expect(cut, "testo tagliato").toEqual([]);
       await menu.screenshot({ path: join(SHOTS, `spento-guasto-${width}.png`) });
       // The button does something: auto-dispatch goes on, and the "off" box goes away.
-      const toggle = page.locator("label", { hasText: "Auto-dispatch" }).getByRole("checkbox");
+      const toggle = menu.getByTestId("dispatch-dashboard-switch");
       await expect(toggle).not.toBeChecked();
       await off.getByTestId("dispatch-dashboard-turn-on").click();
       await expect(menu.getByTestId("dispatch-dashboard-off")).toHaveCount(0);

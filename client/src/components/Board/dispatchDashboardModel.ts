@@ -101,3 +101,12 @@ export function brokenCards(tasks: readonly BoardTask[]): { total: number; liste
     more: Math.max(0, all.length - MAX_BROKEN_LISTED),
   };
 }
+
+/**
+ * The row's one-line reason: the generic state word ("stopped: ", "queued: ", in
+ * the UI language) is dropped, because every row in the queue already is that. A
+ * specific head ("waits for memory: ...") stays, it is the actual why.
+ */
+export function rowReason(reason: string): string {
+  return reason.replace(/^(?:ferma|in coda|rinviata|in attesa): /, '');
+}

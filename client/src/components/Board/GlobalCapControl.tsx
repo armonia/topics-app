@@ -89,7 +89,7 @@ export function GlobalCapControl({ quiet = false }: { quiet?: boolean } = {}) {
   return (
     <div className="space-y-1" data-testid="global-cap-control">
       <p className="text-mini font-semibold uppercase tracking-wide text-app-text-muted">
-        {tr('board.dispatch.parallel')}
+        {tr(quiet ? 'board.dash.together' : 'board.dispatch.parallel')}
       </p>
 
       {/* THE SAME ONE NUMBER AS THE COLUMN HEADER'S POPOVER, not a second
@@ -289,6 +289,35 @@ function CountBrake({ quiet }: { quiet: boolean }) {
           checkboxes ("automatic" plus "no limit") would leave a fourth reading
           — both ticked — that means nothing, and someone would have to decide
           silently which one wins. */}
+      {/* ONE selector at a time: in the dashboard the second level is a fold that
+          names the current choice and opens only when someone wants to change it. */}
+      {quiet ? (
+        <details className="group" data-testid="global-cap-mode-fold">
+          <summary className="flex min-h-6 cursor-pointer list-none items-center gap-1 text-mini text-app-text-muted coarse:min-h-11">
+            <ChevronRight size={10} className="shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
+            {tr(mode === 'auto' ? 'board.dispatch.parallelAuto' : mode === 'fixed' ? 'board.dispatch.fixed' : 'board.dispatch.noLimit')}
+          </summary>
+          <div className="pt-1">
+          <Segmented
+            value={mode}
+            options={(['auto', 'fixed', 'off'] as const).map((m) => ({
+              value: m,
+              label: tr(m === 'auto' ? 'board.dispatch.parallelAuto' : m === 'fixed' ? 'board.dispatch.fixed' : 'board.dispatch.noLimit'),
+            }))}
+            onChange={(m) => {
+              if (m === 'auto') { void saveGlobalCap({ auto: true }); return; }
+              // Leaving `auto` needs BOTH halves in one write: the mode and the
+              // number it means. Sending only `auto:false` would land on
+              // whatever stale number the row still carried.
+              void saveGlobalCap({ auto: false, max: m === 'off' ? GLOBAL_CAP_OFF : lastFixed });
+            }}
+            ariaLabel={tr('board.dispatch.parallel')}
+            testId="global-cap-mode"
+            disabled={s.saving || !s.cap}
+          />
+          </div>
+        </details>
+      ) : (
       <Segmented
         value={mode}
         options={(['auto', 'fixed', 'off'] as const).map((m) => ({
@@ -306,6 +335,8 @@ function CountBrake({ quiet }: { quiet: boolean }) {
         testId="global-cap-mode"
         disabled={s.saving || !s.cap}
       />
+
+      )}
 
       {mode === 'fixed' && (
         <label className="flex items-center justify-between gap-3">
