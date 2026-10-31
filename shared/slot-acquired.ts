@@ -43,7 +43,7 @@ export function hasSlotWaiting(text: string): boolean {
 /**
  * `run`: the token of this `slot.ts` run, a secret of the script (never passed
  * to the command). A second queue after a freeze is told by lines carrying it
- * (`slotRequeueLine`): a command that merely prints "[slot] waiting ..." after
+ * (`slotQueuedAgainLine`): a command that merely prints "[slot] waiting ..." after
  * its start must not stop its own deadline (review of 31/10, fourth round).
  */
 export function slotAcquiredLine(label: string, queuedMs: number, run?: string): string {
@@ -57,7 +57,7 @@ export function slotAcquiredLine(label: string, queuedMs: number, run?: string):
  * group: if `slot.ts` dies in the queue, its command stays stopped with the
  * stderr open, and only the reader can still end it.
  */
-export function slotRequeueLine(label: string, run: string, pid: number | string, group: number | string): string {
+export function slotQueuedAgainLine(label: string, run: string, pid: number | string, group: number | string): string {
   return `${SLOT_WAITING_PREFIX} ${label}: its place was taken while frozen, the command is stopped until it holds one (run ${run}, pid ${pid}, group ${group})`;
 }
 
@@ -69,8 +69,8 @@ export function parseSlotRun(text: string): { run: string; end: number } | null 
   return m ? { run: m[1]!, end: m.index + m[0].length } : null;
 }
 
-/** The first requeue line of `run` in `text`: where it ends, who to watch, what to end. */
-export function findSlotRequeue(text: string, run: string): { end: number; pid: number; group: number } | null {
+/** The first queued-again line of `run` in `text`: where it ends, who to watch, what to end. */
+export function findSlotQueuedAgain(text: string, run: string): { end: number; pid: number; group: number } | null {
   const m = new RegExp(`\\[slot\\] waiting [^\\n]*\\(run ${run}, pid (\\d+), group (\\d+)\\)`).exec(text);
   return m ? { end: m.index + m[0].length, pid: Number(m[1]), group: Number(m[2]) } : null;
 }

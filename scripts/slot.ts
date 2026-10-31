@@ -47,7 +47,7 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { acquireSlot, defaultNameMaxWaitMs, reclaimAfterStop, slotCount, GATE_HELD_ENV, slotAcquiredLine, type SlotHold } from "./gate-slot.ts";
-import { slotRequeueLine, slotWaitingLine } from "../shared/slot-acquired.ts";
+import { slotQueuedAgainLine, slotWaitingLine } from "../shared/slot-acquired.ts";
 
 /**
  * THE LOCK PROTOCOL LIVES IN `gate-slot.ts`, not here any more: the same
@@ -166,7 +166,7 @@ for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
 process.on("exit", () => release?.());
 // Continued after a freeze: if a waiter took the place meanwhile, stop the
 // command again until this run holds one (see `reclaimAfterStop`). The two
-// lines around the wait carry this run's token (`slotRequeueLine`, then the
+// lines around the wait carry this run's token (`slotQueuedAgainLine`, then the
 // acquired line): whoever times the command from outside stops its clock again
 // while it is stopped, and ends the command if this script dies meanwhile.
 // The wall-clock cap stops for that wait too, as it never ran during the first
@@ -190,7 +190,7 @@ function onContinue(): void {
   continuedInWait = false;
   const since = Date.now();
   pauseCap();
-  console.error(slotRequeueLine(label, RUN, process.pid, child.pid ?? 0));
+  console.error(slotQueuedAgainLine(label, RUN, process.pid, child.pid ?? 0));
   void reclaimAfterStop(release, slots, label, (sig) => { paused = sig === "SIGSTOP"; signalTree(sig); }, {
     nameMaxWaitMs: defaultNameMaxWaitMs(),
     queuesAgainOnContinue: true,
