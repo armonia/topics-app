@@ -83,7 +83,7 @@ export interface GovernorDeps {
   /** Core-units our own tree is burning now, and the budget it has
    *  (`governorReading`: the CPU only, never memory). `null` = not measured,
    *  and a governor that cannot measure freezes nothing. */
-  read: () => { used: number; budget: number } | null;
+  read: () => { used: number; budget: number; at?: number } | null;
   /** SIGSTOP / SIGCONT on a whole process tree. */
   signalTree: (pid: number, sig: "SIGSTOP" | "SIGCONT") => Promise<void>;
   log: (message: string) => void;
@@ -186,7 +186,7 @@ export function createBudgetGovernor(deps: GovernorDeps): BudgetGovernor {
     if (!reading) return;
     await refreshCommands(reading.used > reading.budget);
     const all = freezableRuns();
-    const plan = freezePlan({ used: reading.used, budget: reading.budget, targets: [...targets(), ...commandTargets(), ...all.filter((r) => state.frozen.includes(r.id) && (r.queued || immune.has(r.id))).map((r) => ({ id: r.id, kind: "check" as const, startedAt: r.startedAt }))] }, state);
+    const plan = freezePlan({ used: reading.used, budget: reading.budget, targets: [...targets(), ...commandTargets(), ...all.filter((r) => state.frozen.includes(r.id) && (r.queued || immune.has(r.id))).map((r) => ({ id: r.id, kind: "check" as const, startedAt: r.startedAt }))], at: reading.at }, state);
     state = plan.state;
     if (plan.freeze) await apply(plan.freeze, "SIGSTOP");
     if (plan.thaw) await apply(plan.thaw, "SIGCONT");

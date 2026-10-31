@@ -28,6 +28,7 @@ import { afterEach, describe, it, expect, setSystemTime } from "bun:test";
 import { Database } from "bun:sqlite";
 import type { MachineBudgetSample, ReviewCheck } from "../../shared/board";
 import { createTaskService, type TaskService } from "./tasks";
+import { setActiveBudgetGovernor, type BudgetGovernor } from "./budget-governor";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { dispatchResourceVerdict, type MemoryFloorHold } from "./dispatch-capacity";
 import type { TurnEndInfo } from "../providers/stop-reason";
@@ -283,6 +284,38 @@ describe("la riga di memoria è quella della board della card", () => {
 });
 
 describe("la riga della card leggera alleggerisce solo la memoria", () => {
+  it("card 10469e3e: un check congelato tiene ferma anche la card leggera, sotto il pavimento di memoria", async () => {
+    setActiveBudgetGovernor({ frozenCount: () => 1 } as unknown as BudgetGovernor);
+    try {
+      const roomy: MachineBudgetSample = {
+        cores: 12, totalMemGB: 32, ourCoreUnits: 0.5, otherCoreUnits: 1,
+        ourMemGB: 1, availableMemGB: 30, running: 1,
+      };
+      const h = await withOneQuietTurn({ held: 8.5, budget: roomy });
+      pastTheRamp();
+      h.svc.setGlobalCap({ auto: false, max: 4, mode: "resources", budgetShare: 0.8 });
+      h.seed("second", QUIET);
+      await h.dispatch(QUIET);
+      expect(h.task("second").status).toBe("todo");
+    } finally { setActiveBudgetGovernor(null); }
+  });
+
+  it("card 10469e3e: un check congelato tiene ferma anche la card leggera, sotto la pressione del tetto per risorse", async () => {
+    const sample: MachineBudgetSample = {
+      cores: 12, totalMemGB: 32, ourCoreUnits: 0.5, otherCoreUnits: 1,
+      ourMemGB: 1, availableMemGB: 5, running: 1,
+    };
+    setActiveBudgetGovernor({ frozenCount: () => 1 } as unknown as BudgetGovernor);
+    try {
+      const h = await withOneQuietTurn({ held: 20, budget: sample });
+      pastTheRamp();
+      h.svc.setGlobalCap({ auto: false, max: 4, mode: "resources", budgetShare: 0.8 });
+      h.seed("second", QUIET);
+      await h.dispatch(QUIET);
+      expect(h.task("second").status).toBe("todo");
+    } finally { setActiveBudgetGovernor(null); }
+  });
+
   it("un disco quasi pieno tiene ferma anche la card leggera", async () => {
     const h = await withOneQuietTurn({ held: 20 });
     h.setDisk(1);

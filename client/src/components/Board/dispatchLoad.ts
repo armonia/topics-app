@@ -243,6 +243,7 @@ export function admissionVerdictText(a: DispatchAdmission, cap: DispatchCapacity
   // hover away in `title`; the line says what it means in plain words.
   if (a.blockedBy === 'floor') return wait('board.dispatch.verdictWaitFloor');
   if (a.blockedBy === 'drain') return wait('board.dispatch.verdictWaitDrain');
+  if (a.blockedBy === 'frozen') return wait('board.dispatch.verdictWaitFrozen');
   const pct = machineBusyPct(cap);
   if (pct == null) return wait('board.dispatch.verdictWaitBusyUnknown');
   return wait('board.dispatch.verdictWaitBusy', { pct });

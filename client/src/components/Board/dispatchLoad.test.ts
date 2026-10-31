@@ -253,6 +253,13 @@ describe('admissionVerdictText: the wait said in the one number', () => {
     expect(v).toMatchObject({ key: 'board.dispatch.verdictWaitBusy', params: { pct: 90 } });
   });
 
+  test('frozen checks hold the queue: the verdict and the ring word name them, not a busy Mac', () => {
+    const v = admissionVerdictText({ ...base, blockedBy: 'frozen' }, cpuBound);
+    expect(v).toMatchObject({ key: 'board.dispatch.verdictWaitFrozen', tone: 'wait' });
+    expect(itText(v)).toContain('check congelati');
+    expect(t('board.gauge.wait.frozen', 'it')).toBe('aspetta: check congelati');
+  });
+
   test('no gate numbers (an old server): the number, and no invented point', () => {
     expect(admissionVerdictText({ ...base, blockedBy: 'cpu' }, cpuBound).key).toBe('board.dispatch.verdictWaitBusy');
   });

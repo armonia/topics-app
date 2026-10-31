@@ -26,6 +26,7 @@
  *    reaching `review`.
  */
 import { awaitsHuman } from "../../shared/workflow";
+import { activeFrozenCount } from "./budget-governor";
 import { LAND_ACTION_LABEL, UNASSIGNED_PROJECT_ID, commentAsksHuman, type Task, type TaskService } from "./tasks";
 import { type SessionUsage } from "./transcript-usage";
 import { onHumanHoldChange } from "../lib/human-hold-events";
@@ -1534,7 +1535,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * Said once per EPISODE in the log, like the floor: the numbers change at
    * every reading, so the comparison is on which axis said no, not on the text.
    */
-  let lastPressureAxis: AdmissionVerdict["blockedBy"] = null;
+  let lastPressureAxis: AdmissionVerdict["blockedBy"] | "frozen" = null;
   let firstAgentExemptNoted = false;
   /**
    * THE HYSTERESIS STATE, and it has to live across ticks or it is not one.
@@ -1606,6 +1607,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     let gcap: GlobalDispatchCap;
     try { gcap = deps.svc.getGlobalCap(); } catch { return { needed: false, allowed: true }; }
     if (capMode(gcap) !== "resources") return { needed: false, allowed: true };
+    // Frozen checks restart before any new card: the no-check exemption does not skip that line.
+    if (activeFrozenCount() > 0) return { needed: false, allowed: false };
     const sample = deps.budgetSample?.() ?? null;
     const normal = budgetVerdict(gcap, undefined, sample);
     const candidate = budgetVerdict(gcap, reservationGB, sample);
@@ -1623,6 +1626,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   function admissionPreview(projectId?: string | null): DispatchAdmission | null {
     return buildDispatchAdmissionPreview({
       drainBlock,
+      frozenCount: activeFrozenCount,
       floorVerdict: () => floorVerdict(true, projectId),
       globalCap: () => deps.svc.getGlobalCap(),
       budgetVerdict: (cap) => budgetVerdict(cap, undefined, undefined, projectId),
@@ -1638,6 +1642,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   function childAdmissionPreview(): DispatchAdmission | null {
     const price = reservationForRuntime(deps.isCliRuntime?.() ?? false);
     return buildDispatchAdmissionPreview({
+      frozenCount: activeFrozenCount,
       drainBlock,
       floorVerdict: () => floorVerdict(false, undefined, price),
       globalCap: () => deps.svc.getGlobalCap(),
@@ -1663,6 +1668,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (floorVerdict(false, projectId).reason) return false;
       const gcap = deps.svc.getGlobalCap();
       if (capMode(gcap) !== "resources") return true;
+      // Frozen checks restart before any new card, a light one included.
+      if (activeFrozenCount() > 0) return false;
       return budgetVerdict(gcap, undefined, undefined, projectId)?.verdict.admit ?? true;
     } catch { return false; }
   }
@@ -1675,7 +1682,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (!computed) return null;
       const { verdict, sample, share, mem } = computed;
       budgetGate = verdict.state;
-      if (verdict.firstAgentExempt) {
+      // Frozen checks come back first: the room the freeze made is theirs, not a new agent's.
+      const frozenHold = verdict.admit && activeFrozenCount() > 0;
+      if (verdict.firstAgentExempt && !frozenHold) {
         // Not a block, but not a free machine either: the log says why the
         // first one went through, once, or the next "why did that start on a
         // loaded Mac" costs somebody a read of the shared contract.
@@ -1685,10 +1694,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         firstAgentExemptNoted = false;
         budgetExemptPending = false;
       }
-      const reason = verdict.admit ? null : machineBudgetMessage(verdict, sample.cores, share, mem);
-      if (verdict.blockedBy && verdict.blockedBy !== lastPressureAxis && reason) log(`coda in attesa per budget: ${reason}`);
-      else if (!verdict.blockedBy && lastPressureAxis) log("coda ripartita: l'uso di Topics è rientrato nel budget");
-      lastPressureAxis = reason ? verdict.blockedBy : null;
+      const axis = frozenHold ? "frozen" : verdict.blockedBy;
+      const reason = frozenHold
+        ? "prima ripartono i check congelati"
+        : verdict.admit ? null : machineBudgetMessage(verdict, sample.cores, share, mem);
+      if (axis && axis !== lastPressureAxis && reason) log(`coda in attesa per budget: ${reason}`);
+      else if (!axis && lastPressureAxis) log("coda ripartita: l'uso di Topics è rientrato nel budget");
+      lastPressureAxis = reason ? axis : null;
       return reason;
     } catch { return null; }
   }

@@ -3,6 +3,7 @@ import type { ResourceFloorVerdict } from "./dispatch-capacity";
 
 export function buildDispatchAdmissionPreview(deps: {
   drainBlock(): string | null;
+  frozenCount(): number;
   floorVerdict(): ResourceFloorVerdict | null;
   globalCap(): GlobalDispatchCap;
   budgetVerdict(cap: GlobalDispatchCap): {
@@ -30,10 +31,14 @@ export function buildDispatchAdmissionPreview(deps: {
     const computed = deps.budgetVerdict(cap);
     if (!computed) return exemptPass;
     const { verdict, mem } = computed;
+    // Same rule as the tick: the room a freeze made is the frozen checks', so
+    // the panel must not say "would start" while the queue is held for them.
+    const frozen = verdict.admit && deps.frozenCount() > 0;
     return {
-      admit: verdict.admit,
-      blockedBy: verdict.blockedBy,
-      firstAgentExempt: verdict.firstAgentExempt || exempt,
+      admit: verdict.admit && !frozen,
+      blockedBy: frozen ? "frozen" : verdict.blockedBy,
+      ...(frozen ? { reason: "prima ripartono i check congelati" } : {}),
+      firstAgentExempt: !frozen && (verdict.firstAgentExempt || exempt),
       costCoreUnits: verdict.costCoreUnits,
       usedCoreUnits: verdict.usedCoreUnits,
       usableCoreUnits: verdict.usableCoreUnits,
