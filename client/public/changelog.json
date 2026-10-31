@@ -1,5 +1,132 @@
 [
   {
+    "version": "2.3.45",
+    "date": "2026-10-31",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Square loader: shape changes glide instead of jumping",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Release builds move to macos-15: GitHub retires macos-14 on 2 November",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Square loader: the ink fade reads the motion token",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.44",
+    "date": "2026-10-31",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Affiancamento prima/dopo della riga di avanzamento della card (card 91a42e8f)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Feedback di revisione intero ai nodi Cloud",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Revisione più recente fuori dal budget del filo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Load brakes: stopped slot holders, lone card, thaw that lands",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "an agent's question reaches Human review, a failed wake retries and falls back, moved and withdrawn cards stay visible",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the newest arrival is the one frozen, the governor freezes agents' commands with a ledger that survives a crash, the job-quota sweep spares live sub-agents and its own database's folders",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "nothing moves when the loader goes at the end of a turn, in the window you write from too; the tool fold waits, the reader who scrolled up stays there",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "a card waiting on a full Mac moves to the PC or Cloud after two minutes, with the reason written on it",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-31 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Load management: a cached fleet reading counts as one sample, frozen checks hold new starts, one CPU budget in resources mode",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Square loader replaces the Sparkle star across the app",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "App icon: steel spinning top, small-size design for 16-64 px, regenerated PWA and -dev icons",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Square loader: stops drawing when the app is in the background, ink follows the state at once",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Square loader: squares on whole pixels at small sizes",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Published icons: steel spinning top",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "CI back to green on main: loader comments in English, bundle limit for the loader, column order, dev-only advisory",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Square loader test declares the requirement it covers",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.43",
     "date": "2026-10-30",
     "sections": {

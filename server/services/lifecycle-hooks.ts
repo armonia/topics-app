@@ -72,6 +72,8 @@ export type HookOutcome = { ok: true } | { ok: false; reason: string };
 /** The one door the runtime, the worktree manager and the task route call. */
 export interface LifecycleHookRunner {
   run(event: HookEvent, payload: LifecycleHookPayload): Promise<HookOutcome>;
+  /** Does this machine declare at least one hook for `event`? (The overflow asks for `node-run`: it wakes a sleeping node.) */
+  declares?(event: HookEvent): boolean;
 }
 
 export const DEFAULT_HOOK_TIMEOUT_MS = 10_000;
@@ -292,6 +294,9 @@ export function createLifecycleHooks(opts: LifecycleHooksOptions): LifecycleHook
         if (!outcome.ok) return outcome;
       }
       return { ok: true };
+    },
+    declares(event) {
+      return load().some((h) => h.event === event);
     },
   };
 }

@@ -2320,7 +2320,20 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          topics_routing = 1,
          -- 20261028163640: who opened the card, and when the coordinator was
          -- last told it sat unowned. Same reason as the columns above.
-         created_by = 'agent:jarvis', unowned_alerted_at = '2020-01-01T00:00:00.000Z'
+         created_by = 'agent:jarvis', unowned_alerted_at = '2020-01-01T00:00:00.000Z',
+         -- 20261030225403: the workflow column, the question for the person,
+         -- and when the coordinator was last reminded of a card left in AI
+         -- review. Same reason as the columns above.
+         stage = 'human_review', human_ask = 'which layout?', ai_review_reminded_at = '2020-01-01T00:00:00.000Z',
+         -- 20261030181324: the overflow - the "this Mac only" mark and when the
+         -- dispatcher moved the card off this machine. Same reason as above.
+         stay_local = 1, overflowed_at = '2020-01-01T00:00:00.000Z',
+         -- Same migration: a node mirror's base branch. Same reason as above.
+         base_branch = 'topics/endless-calf',
+         -- Same migration: the branch kept when the card went back to the queue.
+         prior_branch = 'topics/endless-calf',
+         -- Same migration: the uncommitted files kept when it went back to the queue.
+         prior_uncommitted_files = 3
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite

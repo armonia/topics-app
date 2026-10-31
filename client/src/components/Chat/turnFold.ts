@@ -131,3 +131,31 @@ export function noteWatchedLive(messageId: string): void {
 export function wasWatchedLive(messageId: string): boolean {
   return watchedLive.has(messageId);
 }
+
+/**
+ * A RENAME KEEPS THE TURN WATCHED. The window that sent the message draws the
+ * reply under a local id (`msg_…`), and the history read again at the end of
+ * the turn gives the same row the server's id. Unknown to the set, the renamed
+ * bubble folded 35 ms after the loader went: with two tools or more the
+ * reasoning row vanished into «N actions», the text and the meta row moved
+ * 0.6 px and the transcript above jumped 107-218 px (card 40ea050c). The other
+ * windows streamed under the server's id and never folded.
+ *
+ * Rows are matched from the END, where the turn that just streamed is: a
+ * watched id the new list no longer holds passes to the assistant row at the
+ * same distance from the end, if that row is new to the list.
+ */
+export function carryWatchedLive(prev: readonly { id?: string; role: string }[], next: readonly { id?: string; role: string }[]): void {
+  if (prev === next) return;
+  const nextIds = new Set<string>();
+  for (const m of next) if (m.id) nextIds.add(m.id);
+  const prevIds = new Set<string>();
+  for (const m of prev) if (m.id) prevIds.add(m.id);
+  for (let k = 1; k <= Math.min(prev.length, next.length); k++) {
+    const before = prev[prev.length - k]!;
+    const after = next[next.length - k]!;
+    if (!before.id || !watchedLive.has(before.id) || nextIds.has(before.id)) continue;
+    if (after.role !== 'assistant' || !after.id || prevIds.has(after.id)) continue;
+    watchedLive.add(after.id);
+  }
+}

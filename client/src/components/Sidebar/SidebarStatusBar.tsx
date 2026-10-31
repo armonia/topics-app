@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { WifiOff, Loader2, DatabaseZap } from 'lucide-react';
+import { WifiOff, DatabaseZap } from 'lucide-react';
+import { SparkLoader } from '../Layout/StreamingIndicator';
 import { IdentityBlock } from './IdentityBlock';
 import type { SidebarCommands } from './ProfileMenu';
 import { SEGNALE_ATTESA, SEGNALE_GUASTO } from './chromeSignals';
@@ -173,7 +174,7 @@ export function TransportAlarms({ wsStatus, dataNotice, inset, hidden = false }:
           >
             {wsStatus === 'offline'
               ? <WifiOff size={15} aria-hidden="true" className={`shrink-0 ${SEGNALE_GUASTO}`} />
-              : <Loader2 size={15} aria-hidden="true" className={`shrink-0 animate-spin ${SEGNALE_ATTESA}`} />}
+              : <SparkLoader size={15} activity="sync" className={`shrink-0 ${SEGNALE_ATTESA}`} />}
             <span className={`truncate text-compact font-medium ${wsStatus === 'offline' ? SEGNALE_GUASTO : SEGNALE_ATTESA}`}>
               {wsStatus === 'connecting' ? 'Connecting…' : wsStatus === 'reconnecting' ? 'Reconnecting…' : 'Offline'}
             </span>

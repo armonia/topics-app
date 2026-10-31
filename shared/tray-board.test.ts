@@ -19,6 +19,17 @@ describe("trayBoardGroups", () => {
     expect(g.map((x) => x.status)).toEqual(["review", "in_progress", "todo"]);
   });
 
+  test("review counts only what waits on a person: AI review is not in the menu", () => {
+    const g = trayBoardGroups([
+      { id: "ai", status: "review", stage: "ai_review", text: "ai", projectId: "p" },
+      { id: "hr", status: "review", stage: "human_review", text: "hr", projectId: "p" },
+      { id: "rv", status: "review", text: "plain", projectId: "p" },
+    ]);
+    expect(g).toHaveLength(1);
+    expect(g[0]!.count).toBe(2);
+    expect(g[0]!.rows.map((r) => r.id)).toEqual(["hr", "rv"]);
+  });
+
   test("un gruppo vuoto NON esce: «Review (0)» si legge come un difetto", () => {
     const g = trayBoardGroups([t("a", "todo")]);
     expect(g.map((x) => x.status)).toEqual(["todo"]);

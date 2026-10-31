@@ -12,7 +12,7 @@ import { providerHold, holdUntilLabel, onProviderHold, configureProviderHoldStor
 import { providerHoldFrame, wireHoldToResume } from "./server/lib/provider-hold-broadcast";
 import { createResumeSweepClock } from "./server/lib/resume-sweep-clock";
 import { resolveStateDir } from "./server/lib/data-dir";
-import { createSwapFreezer } from "./server/services/swap-freeze";
+import { createSwapFreezer, oneLine } from "./server/services/swap-freeze";
 import { createSwapFreezeLedger, fileLedgerIo, thawLedgerAtBoot } from "./server/services/swap-freeze-ledger";
 import { setActiveSwapFreezer, setSwapFreezeBroadcast, announceSwapFreeze, swapFreezeViews, isSwapFreezeHold, swapFrozenMsSince } from "./server/lib/swap-freeze-hold";
 import { createMemoryPressureSignal } from "./server/services/memory-pressure";
@@ -55,7 +55,9 @@ import { buildRouteTable, dispatchRouteTable } from "./server/route-table";
 import { createOrchestratorSessionsRouter } from "./server/routes/orchestrator-sessions";
 import { archiveTopicFully, reopenTopicFully } from "./server/services/archive-topic";
 import { applyPaneCascade, clearRetirement, reconcile, recordRetirement, retiredIds, type ReconcileDeps } from "./server/services/retirement";
-import { isGlobalOrchestratorTopic } from "./server/services/global-orchestrator-session";
+import { eligibleGlobalOrchestratorSessionKey, isGlobalOrchestratorSession, isGlobalOrchestratorTopic } from "./server/services/global-orchestrator-session";
+import { startAiReviewNotices } from "./server/services/ai-review-notice";
+import { logActivity } from "./server/db/activity-log";
 import { computeCascade } from "./server/services/pane-retirement-cascade";
 import { createOpenRouter } from "./server/routes/open";
 import { configureSessionParkingForTracker, parkTopicSession } from "./server/lib/session-parking";
@@ -86,7 +88,7 @@ import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
 import { createUsageRouter } from "./server/routes/usage";
 import { createOrphanCensusRunner } from "./server/services/orphan-census";
-import { createTerminalRouter, setTerminalMemPressure, handleTerminalWebSocket, disconnectBridge, getAgentPtyCliPids, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, countBusyAgentTerminals, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession, liveTerminalCwds, listTopicsLiveTerminals, readTopicsTerminalScreen, writeTopicsTerminal } from "./server/routes/terminal";
+import { createTerminalRouter, setTerminalMemPressure, setChildAdmissionPreview, handleTerminalWebSocket, disconnectBridge, getAgentPtyCliPids, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, countBusyAgentTerminals, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession, liveTerminalCwds, listTopicsLiveTerminals, readTopicsTerminalScreen, writeTopicsTerminal } from "./server/routes/terminal";
 import { createLiveTerminals } from "./server/lib/live-terminals";
 import { createLiveTerminalsRouter } from "./server/routes/live-terminals";
 import { createStatusRouter } from "./server/routes/status";
@@ -107,13 +109,13 @@ import { createExternalSessionsRouter } from "./server/routes/external-sessions"
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { isChecksHold as isChecksHoldOf, sweepStaleChecksLights as sweepStaleChecksLightsOf } from "./server/services/checks-lights";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
-import { availableMemGB, budgetSample, computeDispatchCapacity, probeVm, setAvailableMemReader } from "./server/services/dispatch-capacity";
+import { availableMemGB, budgetSample, computeDispatchCapacity, governorRead, probeVm, setAvailableMemReader } from "./server/services/dispatch-capacity";
 import { createMemSignal, fileMemSampleStore, formatMemorySignalLine } from "./server/services/mem-signal";
 import { OUR_APP_MARKERS } from "./server/services/memory-owners";
 import { createMemoryOwnersReader } from "./server/services/memory-owners-probe";
 import { createDispatchMemoryHistory } from "./server/services/dispatch-memory-history";
 import { createDispatchMemoryInputs, createDispatchResourceBlockFromInputs } from "./server/services/dispatch-memory-inputs";
-import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB, procResidentKB, registeredFleetSocketPaths } from "./server/lib/fleet-usage";
+import { fleetLoadSync, fleetSessionCoreUnits, getFleetUsage, procFootprintKB, procResidentKB, registeredFleetSocketPaths } from "./server/lib/fleet-usage";
 import { cardMemPeakGB, recentCardMemPeaksGB, treeFootprintKB } from "./server/lib/card-memory-peaks";
 import { machineCores } from "./server/lib/machine-cores";
 import { createBudgetGovernor, freezableRuns, liveCheckTreeGB, setActiveBudgetGovernor, signalProcessTree } from "./server/services/budget-governor";
@@ -127,7 +129,7 @@ import { createPreviewBrowser } from "./server/services/preview-browser";
 import { recordServerSpawn } from "./server/lib/spawn-metrics";
 import { makeSheetWriter } from "./server/services/delivery-sheet";
 import { registerPreviewProcess, unregisterPreviewProcess, trackedScriptPidTrees, listOwnedScripts } from "./server/routes/processes";
-import { killProcessTree } from "./server/lib/process-tree";
+import { getDescendantPids, killProcessTree } from "./server/lib/process-tree";
 import { killAgentProcessTree } from "./server/lib/kill-agent-tree";
 import { branchExistsInRepo, branchStatusFromRepo, commitIsAncestor, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
 import { deliveryPointer } from "./server/services/own-commits";
@@ -253,8 +255,10 @@ import { CloudApi } from "./server/providers/claude-cloud/api";
 import { credentialsFor } from "./server/providers/claude-cloud/creds";
 import {
   CLOUD_NODE_BASE_URL, CLOUD_NODE_HOST, CLOUD_NODE_NAME, CLOUD_NODE_TOKEN,
-  cloudCredentialsPresent, createCloudNodeClient, isCloudBaseUrl,
+  cloudCredentialsPresent, createCloudNodeClient, isCloudBaseUrl, resolveGithubSlug,
 } from "./server/providers/claude-cloud/node";
+import { ensureBranchOnOrigin } from "./server/services/branch-on-origin";
+import { githubOriginFrom, overflowMachinesFrom } from "./server/services/dispatch-overflow";
 import { createDelegatedRevocationRetry } from "./server/services/delegated-revocation-retry";
 import { initVapid } from "./server/push-service";
 import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/lib/dev-bundle-reload";
@@ -280,7 +284,7 @@ import { backfillDeliveries as backfillDeliveriesPass } from "./server/services/
 import { keepDeliveryCommit, pruneDeliveryRefs, DELIVERY_REF_RETENTION_DAYS } from "./server/services/delivery-ref-keep";
 import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLandingPass, type AuditWiring } from "./server/services/landing-audit-pass";
 import { decodeCol } from "./shared/message-blob";
-import { budgetShare, capMode, governorReading, TURN_ERROR_PREFIX } from "./shared/board";
+import { budgetShare, capMode, TURN_ERROR_PREFIX } from "./shared/board";
 import { noticeOwedChanges, postBackgroundNotice } from "./server/lib/background-notice";
 import type { ChatGoalLoop } from "./server/services/goal-continuation";
 
@@ -1922,6 +1926,8 @@ setAvailableMemReader(() => memSignal.latestAvailGB() ?? availableMemGB());
 // seconda qui. Iniettato con un setter perche' questo segnale nasce dopo il
 // router; senza, la passata usa la soglia normale come sempre.
 setTerminalMemPressure(() => ({ atCeiling: memSignal.swap().sustained }));
+// The sub-agent door asks the dispatcher's own gate, priced for a child, when the board runs "by resources".
+setChildAdmissionPreview(() => taskDispatcher.childAdmissionPreview?.() ?? null);
 
 /**
  * CHI tiene la memoria quando non e' Topics: un solo `/bin/ps` al minuto, sul
@@ -2160,8 +2166,8 @@ const taskDispatcher = createTaskDispatcher({
   // da qui in poi la stessa nascita la usa anche un sotto-agente isolato
   // (WORKTREE-14): il corpo sta in `worktree-for-agent.ts`, il perché del
   // ripiego su HEAD in `worktree-base-ref.ts`.
-  createWorktree: (projectStoreId) =>
-    createAgentWorktree(agentWorktreeDeps("dispatch"), projectStoreId, worktreeReadyMs()),
+  createWorktree: (projectStoreId, opts) =>
+    createAgentWorktree(agentWorktreeDeps("dispatch"), projectStoreId, worktreeReadyMs(), opts),
   worktreeSetupResult: (worktreeId) => ctx.worktreeManager.setupResult(worktreeId),
   deleteWorktree: async (worktreeId) => { await ctx.worktreeManager.delete(worktreeId); },
   // C'e' qualcosa da perdere in questo worktree? Serve al dispatcher per NON
@@ -2273,10 +2279,28 @@ const taskDispatcher = createTaskDispatcher({
     localMachineId: () => ctx.machineStore.upsertLocal().id,
     originUrlOf: (projectId) => nodeBranchPlanter.originUrlOf(projectId),
     plantBranch: (input) => nodeBranchPlanter.plantBranch(input),
+    // A card that already has a branch carries it to the node: pushed first,
+    // from this machine's checkout (`branch-on-origin.ts`).
+    ensureBranchOnOrigin: ({ projectId, branch }) => ensureBranchOnOrigin(projectPathForNode(projectId), branch),
     // The `node-run` hook starts in the project's checkout on this machine,
     // the same path the planter reads the origin from and plants into.
     projectPathOf: projectPathForNode,
   },
+  // THE OVERFLOW (`dispatch-overflow.ts`): where a card held by this Mac's
+  // memory floor can go. The cloud has no heartbeat: it is there while its
+  // login is; a paired node only while its heartbeat says online.
+  // Cloud Claude clones only from GitHub: the overflow asks before choosing it.
+  githubOriginOf: async (projectId) => githubOriginFrom(await nodeBranchPlanter.originUrlOf(projectId), resolveGithubSlug),
+  // The cloud row is online only while the account has an active cloud
+  // environment (the heartbeat asks, `tickHeartbeat`); a node asleep is still a
+  // choice when a `node-run` hook is there to wake it.
+  overflowMachines: () => overflowMachinesFrom({
+    rows: ctx.machineStore.list(),
+    isCloud: isCloudBaseUrl,
+    cloudEnabled,
+    environmentOk: cloudNode.environmentReady()?.ok ?? null,
+    wakeable: defaultLifecycleHooks().declares?.("node-run") ?? false,
+  }),
   // Usage consumed by the dispatched session so far, from its Claude Code
   // transcript (jsonl_path is kept fresh by the session tracker). The reader
   // (transcript-usage.ts) is incremental (per-path byte offset — the live
@@ -3176,9 +3200,22 @@ function tickHeartbeat() {
     // rinfreschiamo noi, o dopo 5 minuti la card direbbe «non risponde» su un servizio vivo.
     // Solo se il cloud è acceso QUI: una riga rimasta da un avvio di prima, a cloud spento,
     // deve diventare «non risponde» col giro normale invece di restare in linea.
+    // And only while the account has an active cloud environment: without one the node
+    // answers but can start nothing (30/10: the Keychain login moved to an account with no
+    // environments), and "online" sent cards there. Asked from here, at most every 5 minutes.
     const cloud = cloudEnabled ? ctx.machineStore.getByHostname(CLOUD_NODE_HOST) : null;
     if (cloud && isCloudBaseUrl(cloud.baseUrl)) {
-      ctx.machineStore.upsertNode({ hostname: CLOUD_NODE_HOST, name: cloud.name, baseUrl: CLOUD_NODE_BASE_URL });
+      void cloudNode.probeEnvironment();
+      const env = cloudNode.environmentReady();
+      if (env && !env.ok) {
+        const off = ctx.machineStore.markNodeOffline(cloud.id);
+        if (off) {
+          console.warn(`[claude-cloud] offline: ${env.reason}`);
+          ctx.broadcastToAll({ type: "machine:updated", machine: off, payload_version: 1 });
+        }
+      } else {
+        ctx.machineStore.upsertNode({ hostname: CLOUD_NODE_HOST, name: cloud.name, baseUrl: CLOUD_NODE_BASE_URL });
+      }
     }
     probeNodes();
     const flipped = ctx.machineStore.markStaleOffline(STALE_THRESHOLD_MS);
@@ -5366,6 +5403,32 @@ const DISPATCH_POLL_MS = 10_000;
  * `read()` returning `null` means "not measurable", and a governor that cannot
  * measure freezes nothing.
  */
+/** When the governor stopped each native command, to hand the deadline back what the pause took. */
+const governorFrozenAt = new Map<number, number>();
+/**
+ * The commands the agents run inside their own tree, screened by the swap
+ * freezer's own rules, as targets for the CPU governor. A native command has a
+ * deadline that must stop counting while it is stopped; a background shell has
+ * none. The "frozen for swap" line in the shell's output is NOT written: it names
+ * a cause that is not this one.
+ */
+async function agentCommandsForGovernor() {
+  return (await swapFreezer.freezableCommands()).map(({ root, startedAt }) => ({
+    id: `cmd:${root.pid}`,
+    pid: root.pid,
+    name: oneLine(root.command, 60),
+    taskId: root.taskId ?? undefined,
+    startedAt,
+    ...(root.kind === "native" ? {
+      onFreeze: () => { governorFrozenAt.set(root.pid, Date.now()); nativeCommandByPid(root.pid)?.onFreeze(); },
+      onThaw: () => {
+        const at = governorFrozenAt.get(root.pid);
+        governorFrozenAt.delete(root.pid);
+        nativeCommandByPid(root.pid)?.onThaw(at === undefined ? 0 : Date.now() - at);
+      },
+    } : {}),
+  }));
+}
 const budgetGovernor = createBudgetGovernor({
   read: () => {
     try {
@@ -5374,12 +5437,26 @@ const budgetGovernor = createBudgetGovernor({
       const fleet = fleetLoadSync();
       if (!fleet) return null;
       const share = budgetShare(cap);
-      const sample = budgetSample(fleet, memSignal.latestAvailGB(), machineCores(), osTotalmem() / 1e9, turniInVolo());
-      // The CPU only: a freeze on memory has no way out (see `governorReading`).
-      return governorReading(sample, share);
+      return governorRead(fleet, share, memSignal.latestAvailGB(), machineCores(), osTotalmem() / 1e9, turniInVolo());
     } catch { return null; }
   },
   signalTree: signalProcessTree,
+  agentCommands: agentCommandsForGovernor,
+  // Same ledger as the swap freezer: a tree the governor stopped is continued
+  // at the next boot if this server dies first (`thawLedgerAtBoot`).
+  record: async (id, pid) => {
+    const pids = [pid, ...(await getDescendantPids(pid, { fresh: true }))];
+    const starts = await readStartTimes(pids);
+    const rootLstart = starts?.get(pid);
+    if (!starts || !rootLstart) throw new Error(`no identity for pid ${pid}`);
+    const treeId = `governor:${id}`;
+    swapFreezeLedger.begin({ treeId, sessionKey: treeId, frozenAt: Date.now(), root: { pid, lstart: rootLstart } });
+    swapFreezeLedger.addBatch(treeId, {
+      groups: [{ pgid: pid, leaderLstart: rootLstart }],
+      pids: pids.flatMap((p) => (starts.get(p) ? [{ pid: p, lstart: starts.get(p)! }] : [])),
+    });
+  },
+  release: (id) => swapFreezeLedger.release(`governor:${id}`),
   log: (m) => console.log(`[budget] ${m}`),
   note: (taskId, text) => {
     try { dispatcherSvc.addComment({ taskId, author: "system", kind: "service", content: text }); }
@@ -5484,6 +5561,9 @@ const swapFreezer = createSwapFreezer({
   },
   ledger: swapFreezeLedger,
   log: (line) => console.warn(line),
+  // The same census the first-card exemption of the dispatcher reads: cards in
+  // flight plus pre-review check runs.
+  ourWorkInFlight: () => turniInVolo() + (checksGateRunningCount?.() ?? 0),
   note: (taskId, text) => {
     try { dispatcherSvc.addComment({ taskId, author: "system", kind: "service", content: text }); }
     catch { /* a note that cannot be written must not stop the freeze */ }
@@ -5569,11 +5649,17 @@ const dispatchTimer = setInterval(() => {
   // THE E2E BENCH CAN HOLD THIS ONE STEP, and nothing else can: the only writer
   // is a route mounted on a test server. See `lib/e2e-dispatch-hold.ts` for the
   // race it closes — a staged fake agent recovered mid-gesture.
+  // A fresh reading per beat (TTL 4 s, ps ~0.1 s), taken BEFORE both the
+  // admission and the governor: they decide on the same instant, so the freeze
+  // never fights the admission and neither judges a 30 s old cache.
+  const freshFleet = getFleetUsage().catch(() => {});
   if (!dispatchReconcileHeld()) {
-    taskDispatcher.reconcile({ reason: "poll" }).catch((err) => console.error("[dispatcher] poll reconcile failed", err));
+    void freshFleet
+      .then(() => taskDispatcher.reconcile({ reason: "poll" }))
+      .catch((err) => console.error("[dispatcher] poll reconcile failed", err));
   }
   void delegatedRevocations.tick().catch((err) => console.error("[delegated-revoke] retry failed", err));
-  void budgetGovernor.sampleOnce().catch((err) => console.error("[budget] sample failed", err));
+  void freshFleet.then(() => budgetGovernor.sampleOnce()).catch((err) => console.error("[budget] sample failed", err));
   // LA QUOTA DI CORE SI RILEGGE QUI, sullo stesso giro che fa nascere e morire
   // gli agenti — cioè l'unico momento in cui il denominatore («quanti stanno
   // compilando accanto a me») può essere cambiato. L'ambiente di un processo si
@@ -6100,6 +6186,25 @@ void survivingTurnsAdopted
       return isProviderHeld(topic.provider || getDefaultProviderName() || "claude-code") ? "wait" : "wake";
     },
     log: (m) => console.log(`[subagent-wake] ${m}`),
+  }));
+// A card that enters AI review wakes whoever has to close it (its opener's
+// chat, or the coordinator), on the same condition as the two above.
+void survivingTurnsAdopted
+  .catch(() => { /* logged by the chain below */ })
+  .then(() => startAiReviewNotices({
+    route: topicsRouter,
+    isBusy: (sk) => activeStreams.has(sk),
+    sessionKeyOfTopic: (id) => ctx.getTopicById(id)?.sessionKey ?? null,
+    canWake: (sk) => {
+      const topic = ctx.getTopicBySessionKey(sk);
+      if (!topic || wakeVerdict({ id: topic.id, archived: topic.archived }, (id) => runningTaskOwnsTopic(ctx.db, id), (id) => stoppedSubagentChat(ctx.db, id)) !== "adopt") return "row";
+      return isProviderHeld(topic.provider || getDefaultProviderName() || "claude-code") ? "wait" : "wake";
+    },
+    coordinatorSessionKey: () => eligibleGlobalOrchestratorSessionKey(ctx.db),
+    isCoordinatorSession: (sk) => isGlobalOrchestratorSession(ctx.db, sk),
+    broadcast: (msg) => ctx.broadcastToAll(msg),
+    recordActivity: logActivity,
+    log: (m) => console.log(`[ai-review] ${m}`),
   }));
 // Native children still `running` after the restart: their turn may have been
 // resumed with their chat, or lost with the process. Watched, then reported.

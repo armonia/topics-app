@@ -39,6 +39,15 @@ describe("the freezer is wired in the one order that works", () => {
     expect(brake, "a freeze gives no memory back: the kill is tried first").toBeLessThan(freezer);
   });
 
+  test("the CPU governor is handed the agents' commands from the freezer's own screen", () => {
+    const governor = at(server, "const budgetGovernor = createBudgetGovernor({", "the CPU governor");
+    const wired = at(server, "agentCommands: agentCommandsForGovernor", "the governor's agent commands");
+    const source = at(server, "swapFreezer.freezableCommands()", "the screen the commands come from");
+    expect(wired, "the dependency belongs to the governor's construction").toBeGreaterThan(governor);
+    expect(wired - governor).toBeLessThan(1500);
+    expect(source).toBeLessThan(governor);
+  });
+
   test("the boot thaw comes before the memory signal exists", () => {
     const boot = at(server, "thawLedgerAtBoot({", "the boot thaw");
     const signal = at(server, "const memSignal = createMemSignal(", "the memory signal");
@@ -62,6 +71,14 @@ describe("the freezer is wired in the one order that works", () => {
     const release = at(killTree, "await releaseSwapFreeze(sessionKey)", "the release");
     const kill = at(killTree, "await killProcessTree(pid)", "the kill");
     expect(release).toBeLessThan(kill);
+  });
+
+  test("the freezer is told how much of our work is in flight (card cda99908, finding 26)", () => {
+    // Without it `inFlight` is unknown, read as "no limit": the only card of
+    // Topics is frozen again a minute after the exemption admitted it.
+    const start = at(server, "const swapFreezer = createSwapFreezer({", "the freezer");
+    const block = server.slice(start, server.indexOf("\n});", start));
+    expect(block).toContain("ourWorkInFlight: () => turniInVolo() + (checksGateRunningCount?.() ?? 0),");
   });
 
   test("the silence clocks read the hold", () => {

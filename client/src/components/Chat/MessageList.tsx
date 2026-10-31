@@ -354,6 +354,11 @@ export function MessageList({
   const prevTopicIdRef = useRef(viewKey);
   const needsScrollRef = useRef(false);
   const prevLoadingRef = useRef(false);
+  /** The loading under way carried a live turn: a send, not a history read. */
+  const loadingCarriedTurnRef = useRef(false);
+  /** When the reader last touched the scroll by hand, and when the loading under way began. */
+  const lastGestureAtRef = useRef(0);
+  const loadingSinceRef = useRef(0);
   // Read settings into state instead of calling loadSettings() in the render
   // body — MessageList re-renders on every streaming token, so the old inline
   // read ran a synchronous localStorage.getItem + JSON.parse per token on the
@@ -1368,11 +1373,28 @@ export function MessageList({
   // On page refresh or tab switch, Virtuoso mounts at the bottom via
   // initialTopMostItemIndex, but loadHistory then replaces the messages array
   // which can shift the scroll position.
+  //
+  // NOT AT THE END OF A TURN. A send keeps `currentLoading` up for its whole
+  // turn, so this transition also came when the reply ended: the opening was
+  // re-armed and the view forced to the bottom, and a reader who had gone up
+  // 400 px with the wheel was taken down 400 px about 40 ms after the loader
+  // went (card 40ea050c, `chat-turn-end-still`). A loading that carried a
+  // live turn is a send, not a history landing: a reader who went up by hand
+  // after it began, and still holds the view (`userHeld`), keeps it. Only
+  // then: the same pin is what takes a reader who sent from the top of the
+  // thread down to the tail Virtuoso had not mounted yet, and a gesture made
+  // before the send was overruled by it (`chat-streaming-indicator`, "snaps
+  // the view to the bottom").
   useEffect(() => {
     const wasLoading = prevLoadingRef.current;
     prevLoadingRef.current = currentLoading;
+    if (!wasLoading && currentLoading) { loadingCarriedTurnRef.current = _currentStreaming; loadingSinceRef.current = performance.now(); }
+    else if (currentLoading && _currentStreaming) loadingCarriedTurnRef.current = true;
     if (wasLoading && !currentLoading) sawLoadCompleteRef.current = true;
-    if (wasLoading && !currentLoading && filteredMessages.length > 0) {
+    const carriedTurn = loadingCarriedTurnRef.current;
+    if (!currentLoading) loadingCarriedTurnRef.current = false;
+    const readerWentUp = authorityRef.current.userHeld && lastGestureAtRef.current > loadingSinceRef.current;
+    if (wasLoading && !currentLoading && filteredMessages.length > 0 && !(carriedTurn && readerWentUp)) {
       // Pending palette jump wins over the bottom anchor — see the effect above.
       if (peekScrollToMessage(topic.id)) return;
       // QUESTO e' il momento in cui la lista diventa autorevole, ed e' l'unico
@@ -1398,7 +1420,7 @@ export function MessageList({
         { viaVirtuoso: true, frames: 2, settleFrames: OPEN_SETTLE_FRAMES, force: true },
       );
     }
-  }, [currentLoading, filteredMessages.length, dispatchScroll, topic.id, OPEN_SETTLE_FRAMES, grewFromEmpty]);
+  }, [currentLoading, _currentStreaming, filteredMessages.length, dispatchScroll, topic.id, OPEN_SETTLE_FRAMES, grewFromEmpty]);
 
   // ── Palette jump: scroll to a searched message ────────────────────────────
   // A ⌘K message hit registers a pending target (scrollToMessage.ts) before
@@ -1643,6 +1665,7 @@ export function MessageList({
     const holder = rowHolder(el);
     const releasePress = () => gesture.release(Date.now());
     const markGesture = (e?: Event) => {
+      lastGestureAtRef.current = performance.now();
       // Shared with `totalListHeightChanged` and the general ResizeObserver
       // below: both need to suspect a growth that follows this same gesture,
       // not just the local scroll effect.

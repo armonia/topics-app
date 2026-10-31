@@ -146,6 +146,8 @@ const HUMAN_FIELDS: Record<string, FieldSpec> = {
   // a machine that will never answer.
   machineId: { to: "machineId", read: asRefOrNull },
   machine_id: { to: "machineId", read: asRefOrNull },
+  // "This Mac only": the overflow dispatch never moves the card elsewhere.
+  stayLocal: { to: "stayLocal", read: asBoolean },
   blockedByTaskId: { to: "blockedByTaskId", read: asRefOrNull },
   reuseBlockerContext: { to: "reuseBlockerContext", read: asBoolean },
   planFirst: { to: "planFirst", read: asBoolean },
@@ -155,6 +157,11 @@ const HUMAN_FIELDS: Record<string, FieldSpec> = {
   // (card 600feca6, the 49 cards archiving put back in backlog).
   completedAt: { to: "completedAt", read: asPastIsoUtc },
   completed_at: { to: "completedAt", read: asPastIsoUtc },
+  // The workflow column (`shared/workflow.ts`); the service checks it against
+  // the board's workflow, which this reader does not know.
+  stage: { to: "stage", read: asStringOrNull },
+  humanAsk: { to: "humanAsk", read: asStringOrNull },
+  human_ask: { to: "humanAsk", read: asStringOrNull },
 };
 
 /**
@@ -175,6 +182,12 @@ const AGENT_FIELDS: Record<string, FieldSpec> = {
   // `status: 'review'`. Not a task field: the service writes it into the thread
   // as a `kind: 'delivery'` comment, and without it review is refused.
   summary: { to: "summary", read: asString },
+  // Triage moves a card out of its column, and a delivery may carry the
+  // question that sends it to Human review. Which stages an agent may name is
+  // the service's rule (`update`), not this reader's.
+  stage: { to: "stage", read: asStringOrNull },
+  humanAsk: { to: "humanAsk", read: asStringOrNull },
+  human_ask: { to: "humanAsk", read: asStringOrNull },
 };
 
 const PREVIEW_KEYS = ["previewImage", "preview_image"];

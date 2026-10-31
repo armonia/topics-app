@@ -13,7 +13,8 @@
  * thing that removes a directory.
  */
 
-import { resolveWorktreeBaseRef } from "./worktree-base-ref";
+import { defaultRunGit, fetchRemoteBase, resolveWorktreeBaseRef, type WorktreeBaseRef } from "./worktree-base-ref";
+import type { GitRunner } from "./own-commits";
 import type { Worktree } from "../types";
 
 /**
@@ -47,6 +48,8 @@ export interface AgentWorktreeDeps {
     worktreeId: string,
     timeoutMs: number,
   ) => Promise<{ id: string; status: string; errorMessage?: string | null }>;
+  /** Injected by the tests of a base from a branch (`resolveBranchBaseRef`). Default: the real `git`. */
+  runGit?: GitRunner;
   /** Where the fallback to `HEAD` is said out loud, prefix included by the
    *  caller (a card's birth and a sub-agent's want different labels). */
   warn?: (reason: string) => void;
@@ -68,9 +71,12 @@ export async function createAgentWorktree(
   deps: AgentWorktreeDeps,
   projectStoreId: string,
   readyMs: number,
+  opts: { baseBranch?: string } = {},
 ): Promise<string> {
   const warn = deps.warn ?? ((reason: string) => console.warn(`[worktree] ${reason}`));
-  const base = await resolveWorktreeBaseRef(deps.projectPath(projectStoreId));
+  const base = opts.baseBranch
+    ? await resolveBranchBaseRef(deps.projectPath(projectStoreId), opts.baseBranch, deps.runGit)
+    : await resolveWorktreeBaseRef(deps.projectPath(projectStoreId));
   if (base.reason) warn(base.fallback ? `${base.reason}: the worktree starts from HEAD` : base.reason);
   const wt = await deps.create({ projectId: projectStoreId, mode: "branch", baseRef: base.baseRef });
   const ready = await deps.awaitMaterialisation(wt.id, readyMs);
@@ -78,6 +84,26 @@ export async function createAgentWorktree(
     throw new Error(`worktree ${wt.id}: ${ready.status}${ready.errorMessage ? " " + ready.errorMessage : ""}`);
   }
   return ready.id;
+}
+
+/**
+ * The base of a card that must start from a GIVEN branch (a node's mirror of a
+ * card that already has one): `origin/<branch>`, fetched now. No fallback: a
+ * worktree born from main or HEAD instead would redo the work without that
+ * branch's commits and conflict with them at the land (df5fd8c5), so a branch
+ * origin does not have is an error the caller turns into a failed launch.
+ */
+export async function resolveBranchBaseRef(
+  repoPath: string | null | undefined,
+  branch: string,
+  runGit: GitRunner = defaultRunGit,
+): Promise<WorktreeBaseRef> {
+  if (!repoPath) throw new Error(`base branch '${branch}': the project has no repo path`);
+  // A failed fetch is a failure here, not a stale copy: the origin card has
+  // just pushed, and an older `origin/<branch>` would miss exactly that.
+  const { ref, fetchError } = await fetchRemoteBase(runGit, repoPath, branch);
+  if (!ref || fetchError) throw new Error(`base branch '${branch}' is not on origin${fetchError ? ` (${fetchError})` : ""}`);
+  return { baseRef: ref, fallback: false, reason: "" };
 }
 
 /** The directories that can answer "which project is this", most specific first. */

@@ -310,6 +310,13 @@
 
     "client/src/components/Board/Card.tsx": 2150,
 
+    "client/src/components/Board/FloatingTaskComposer.tsx": {
+      "lines": 808,
+      "why": [
+        "2026-10-30, overflow dispatch (card 6d60b323): 790 on main -> 808, +18 the \"this Mac only\" mark settable when the card is created (the composer's menu), next to the machine choice it qualifies."
+      ]
+    },
+
     "client/src/components/Board/KanbanBoardPane.tsx": 2209,
 
     "client/src/components/Board/TaskDetail.tsx": 3773,
@@ -629,6 +636,10 @@
 
     "server/services/task-dispatcher-held-resume-quiet.test.ts": 875,
 
+    "server/services/task-dispatcher-admission.test.ts": 812,
+
+    "server/services/task-dispatcher-overflow.test.ts": 1039,
+
     "server/services/task-dispatcher-remote-node.test.ts": {
       "lines": 1124,
       "why": [
@@ -638,8 +649,9 @@
     },
 
     "server/services/task-dispatcher-remote-node.ts": {
-      "lines": 831,
+      "lines": 982,
       "why": [
+        "2026-10-30, overflow dispatch (card 6d60b323): 939 on main -> 982, +43 a card's own branch carried to the node (pushed first, parked when it cannot reach origin) and a cloud account without an active environment parked with its cause instead of deferred as a silent node. The push lives in branch-on-origin.ts.",
         "2026-10-26, pc-nodo (PR #457): 797 on main -> 831, +34 the node-run hook that wakes a sleeping node before any call to it (two optional NodeDeps fields, the call and its veto). The hook runner lives in server/services/lifecycle-hooks.ts; the lane stays whole in one file as its header says."
       ]
     },
@@ -658,7 +670,7 @@
 
     "server/services/tasks.test.ts": 2789,
 
-    "server/services/tasks.ts": 6641,
+    "server/services/tasks.ts": 7047,
 
     "server/services/worktree-gc.test.ts": 997,
 
@@ -668,7 +680,12 @@
 
     "shared/board.test.ts": 1167,
 
-    "shared/board.ts": 2501,
+    "shared/board.ts": {
+      "lines": 2637,
+      "why": [
+        "2026-10-30, overflow dispatch (card 6d60b323): 2624 on main -> 2637, +13 the board's overflow switch and its \"this Mac only\" mark (dispatchOverflow, dispatchStayLocal), documented where every other board setting is."
+      ]
+    },
 
     "shared/relay-protocol.ts": 1101,
 

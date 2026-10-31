@@ -2,6 +2,7 @@ import { createElement, lazy, memo, Suspense, useCallback, useContext, useEffect
 import { useT } from '../../hooks/useT';
 import { ChevronDown, ChevronRight, HelpCircle, Hourglass, PenLine, ShieldOff, X } from 'lucide-react';
 import { SparkLoader } from '../Layout/StreamingIndicator';
+import { loaderActivityForTool } from '../Layout/loaderState';
 import type { ToolCall, ToolUserResponse } from '../../types';
 import type { PlanDecisionHandler } from './planDetection';
 import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';
@@ -431,7 +432,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
         {/* Il posto del chevron c'è sempre — occupato o vuoto — o le righe con
             corpo e quelle senza partirebbero da due colonne diverse. */}
         {hasBody ? (
-          revealing ? <SparkLoader className="flex-shrink-0" />
+          revealing ? <SparkLoader className="flex-shrink-0" activity={loaderActivityForTool(toolCall.name)} />
             : effectiveOpen ? <ChevronDown size={12} className="text-app-text-muted flex-shrink-0" /> : <ChevronRight size={12} className="text-app-text-muted flex-shrink-0" />
         ) : (
           <span className="w-3 flex-shrink-0" aria-hidden="true" />
@@ -524,7 +525,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           {/* Qui resta solo ciò che è VIVO: la rotella mentre l'agente è dentro
               al tool, il cerchietto ambra mentre la palla è tua. L'esito, buono
               o cattivo, sta accanto al nome. */}
-          {isRunning && <SparkLoader className="flex-shrink-0" />}
+          {isRunning && <SparkLoader className="flex-shrink-0" activity={loaderActivityForTool(toolCall.name)} />}
         </span>
         </>
   );

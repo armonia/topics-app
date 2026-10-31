@@ -21,6 +21,7 @@
  */
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useT } from '../../hooks/useT';
+import { SparkLoader } from '../Layout/StreamingIndicator';
 import { useLaunchedProcess, type LiveBackgroundShell } from '../../hooks/useBackgroundShell';
 import { stripAnsi } from '../../lib/stripAnsi';
 import { launchedProcessId } from './launchedProcess';
@@ -64,11 +65,17 @@ export function LiveShellTail({ live, variant = 'card' }: { live: LiveBackground
   return (
     <div className="space-y-1" data-testid="shell-live">
       <div className="flex items-center gap-1.5 text-mini text-app-text-muted">
-        <span
-          data-testid="shell-live-status"
-          data-status={running ? 'running' : 'ended'}
-          className={`inline-block w-1.5 h-1.5 rounded-full ${running ? 'bg-emerald-500 animate-pulse' : (live.status === 'error' ? 'bg-red-500' : 'bg-app-text-muted')}`}
-        />
+        {running ? (
+          <span data-testid="shell-live-status" data-status="running" className="inline-flex">
+            <SparkLoader activity="tool" />
+          </span>
+        ) : (
+          <span
+            data-testid="shell-live-status"
+            data-status="ended"
+            className={`inline-block w-1.5 h-1.5 rounded-full ${live.status === 'error' ? 'bg-red-500' : 'bg-app-text-muted'}`}
+          />
+        )}
         <span>{running ? tr('tool.live.running') : (live.exitCode != null ? tr('tool.live.exit', { code: live.exitCode }) : tr('tool.live.ended'))}</span>
       </div>
       {live.truncatedLines > 0 && (

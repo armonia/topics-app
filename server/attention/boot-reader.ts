@@ -13,6 +13,7 @@ import { terminalIdOfSubject, topicIdOfSubject } from "../../shared/attention";
 import { recentActiveRows, type ActiveRowsSource } from "../lib/ask-answer-routing";
 import { toolCallWaitingOnRows } from "../lib/question-outlives-asker";
 import type { AttentionBootReader } from "./store";
+import { STAGE_AI_REVIEW } from "../../shared/workflow";
 
 export interface AttentionBootSources extends ActiveRowsSource {
   db: Database & ActiveRowsSource["db"];
@@ -24,6 +25,13 @@ export interface AttentionBootSources extends ActiveRowsSource {
   /** The chat subjects of the board agents in flight (dispatcher). */
   dispatchedSubjects: () => string[];
   decode: (value: unknown) => string | null | undefined;
+}
+
+/** The review predicate that leaves out AI review, where the DB has the column. */
+function reviewWaitsOnPerson(db: Database): string {
+  let hasStage = false;
+  try { hasStage = (db.query("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).some((c) => c.name === "stage"); } catch { /* the plain predicate */ }
+  return hasStage ? `(status = 'review' AND (stage IS NULL OR stage != '${STAGE_AI_REVIEW}'))` : "status = 'review'";
 }
 
 export function attentionBootReader(src: AttentionBootSources): AttentionBootReader {
@@ -53,9 +61,12 @@ export function attentionBootReader(src: AttentionBootSources): AttentionBootRea
       if (!sk) return false;
       try { return toolCallWaitingOnRows(recentActiveRows(src, sk), toolCallId, src.decode); } catch { return false; }
     },
+    // A card in AI review (`stage = 'ai_review'`, shared/workflow.ts) waits on
+    // whoever opened it, not on a person: it is not lit. The migrated DB has
+    // the column; a reduced one reads every review card, as before.
     cards: () => (src.db.query(
       `SELECT id, status, dispatch_error, review_at, updated_at FROM tasks
-        WHERE archived = 0 AND (status = 'review' OR (status = 'backlog' AND dispatch_state IN ('failed', 'blocked', 'waited_out')))`,
+        WHERE archived = 0 AND (${reviewWaitsOnPerson(src.db)} OR (status = 'backlog' AND dispatch_state IN ('failed', 'blocked', 'waited_out')))`,
     ).all() as Array<{ id: string; status: string; dispatch_error: string | null; review_at: string | null; updated_at: string }>)
       .map((r) => r.status === "review"
         ? { taskId: r.id, status: "review" as const, since: r.review_at ?? r.updated_at }

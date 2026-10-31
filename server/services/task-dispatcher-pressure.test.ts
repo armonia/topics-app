@@ -470,6 +470,24 @@ describe("the cap by resources: over the budget nothing starts, under it it does
     expect(h.topicsCreated).toHaveLength(1);
     expect(currentDispatchBlock()).toBeNull();
     expect(h.logLines.filter((l) => l.includes("il primo parte comunque"))).toHaveLength(1);
+    expect(h.logLines.filter((l) => l.includes("il primo parte comunque"))[0]).toContain("e1");
+  });
+
+  it("does not say the first one starts anyway when no card can start", async () => {
+    const h = harness();
+    boardOn(h);
+    h.svc.setGlobalCap({ mode: "resources" });
+    h.machine.pressure = { ...QUIET, ourCoreUnits: 30, running: 0 };
+    seedTask(h.db, "blocker");
+    h.db.run("UPDATE tasks SET status = 'backlog' WHERE id = 'blocker'");
+    seedTask(h.db, "behind");
+    h.db.run("UPDATE tasks SET blocked_by_task_id = 'blocker' WHERE id = 'behind'");
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.topicsCreated).toHaveLength(0);
+    expect(h.logLines.filter((l) => l.includes("il primo parte comunque"))).toHaveLength(0);
   });
 
   it("blocks on memory alone", async () => {

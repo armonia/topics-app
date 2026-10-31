@@ -17,6 +17,7 @@
  * Both go through the service's projectId guard, so a caller can only touch
  * tasks on the project it named/owns (no cross-project IDOR).
  */
+import { STAGE_AI_REVIEW, awaitsHuman } from "../../shared/workflow";
 import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { cpus, homedir } from "node:os";
@@ -67,6 +68,7 @@ import { deliverAnswer } from "../lib/ask-user-bridge";
 import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "../services/tasks";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { activeFrozenCount } from "../services/budget-governor";
+import { swapFrozenCount } from "../lib/swap-freeze-hold";
 import { resolveAgentRuntime } from "../services/app-settings";
 import { newProjectParentDir, scaffoldNewProject } from "../services/project-path-resolver";
 import { parkedEdgeEvent, type TaskDispatcher } from "../services/task-dispatcher";
@@ -124,6 +126,11 @@ const ERROR_STATUS: Record<string, number> = {
   agent_cannot_complete: 409,
   open_subtasks: 409,
   review_needs_summary: 409,
+  // The two gates of a board workflow (shared/workflow.ts): closing an AI
+  // review without the proof, reaching Human review without the question.
+  // State refusals like the one above, not permissions.
+  ai_review_needs_proof: 409,
+  human_review_needs_ask: 409,
   // A card the board ALREADY labelled `visibile` has a surface someone will
   // look at, so it delivers with a preview. 409 like the other review gates:
   // the delivery is refused for its state, not for a missing permission.
@@ -154,7 +161,7 @@ const ERROR_STATUS: Record<string, number> = {
 export function emitReviewReadyEdge(
   broadcast: (m: OutboundMessage) => void,
   projectId: string,
-  task: { id: string; text: string; status: string } | undefined | null,
+  task: { id: string; text: string; status: string; stage?: string | null } | undefined | null,
   prevStatus: string | undefined,
   reason?: string,
   /**
@@ -166,8 +173,17 @@ export function emitReviewReadyEdge(
    * be a query for nothing.
    */
   resolveComments?: () => readonly PendingQuestionComment[] | null | undefined,
+  /**
+   * The column the card was in. A card that moves from AI review to Human
+   * review does not change status, and it is exactly the moment it starts
+   * waiting on the person.
+   */
+  prevStage?: string | null,
 ): void {
-  if (task && task.status === "review" && prevStatus !== "review") {
+  // Only what waits on a PERSON rings: a card in AI review goes back to whoever
+  // opened it (`awaitsHuman`, rule of 28/10).
+  const entered = !!task && task.status === "review" && (prevStatus !== "review" || prevStage === STAGE_AI_REVIEW);
+  if (task && entered && awaitsHuman(task)) {
     let question: { text: string; options: string[] } | null = null;
     // Best-effort: a thread read that fails must not swallow the edge (a banner
     // without buttons is still far better than no banner at all).
@@ -2706,7 +2722,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (noDelivery) return noDelivery;
     const unexpected = rejectUnexpectedGlobalFields(
       body,
-      ["status", "priority", "assignee", "text", "description", "summary", "legMs"],
+      ["status", "priority", "assignee", "text", "description", "summary", "legMs", "stage", "human_ask", "humanAsk"],
     );
     if (unexpected) return unexpected;
     // `legMs` is transport for the review-check polling loop, not a persisted
@@ -2726,7 +2742,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // Re-read immediately before mutation. The project id used here came from
       // the task row, never from the caller, and this guard also handles a
       // concurrent removal/move as a normal not-found result.
-      const prevStatus = svc.get(taskId, { projectId })?.task.status;
+      const prev = svc.get(taskId, { projectId })?.task;
+      const prevStatus = prev?.status;
       let task = svc.update({
         taskId,
         actor: "agent",
@@ -2737,6 +2754,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // ownership carve-out would make a registry-authorized cross-board
         // coordinator depend on whichever task happens to own its Topic.
         patch: parsed.patch,
+        // What it has instead is the coordinator's own carve-out: closing a
+        // card in AI review in place of an opener that has no chat to do it.
+        asCoordinator: true,
       });
       if (prevStatus !== "done" && task.status === "done") requestCardProcessStop(opts, taskId);
       task = await captureDelivery(task, prevStatus);
@@ -2751,8 +2771,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         else if (prevStatus === "todo") dispatcher.onLeaveTodo(taskId);
         if (task.status === "done") dispatcher.onBlockerDone(taskId);
       }
+      // An AI review closed in the opener's place lands like a person's approval.
+      if (prevStatus === "review" && prev?.stage === STAGE_AI_REVIEW && task.status === "done" && task.deliveryBranch) {
+        enqueueLandOnDone(projectId, taskId, task.deliveryBranch);
+      }
       emitReviewReadyEdge(broadcastToAll, projectId, task, prevStatus, undefined,
-        () => svc.get(task.id)?.comments);
+        () => svc.get(task.id)?.comments, prev?.stage ?? null);
       triggerUrlProbe(taskId, task.outputUrl ?? null, projectId);
       return json(task);
     } catch (e) { return fail(e); }
@@ -3067,6 +3091,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         ...computeDispatchCapacity(running, undefined, resolveAgentRuntime() === "cli", undefined, {
           share: budgetShare(svc.getGlobalCap()),
           frozen: activeFrozenCount(),
+          swapFrozen: swapFrozenCount(),
+          resources: capMode(svc.getGlobalCap()) === "resources",
         }),
         admission,
       });
@@ -3644,6 +3670,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const target = resolveGlobalTask(globalCommentsRoute.taskId);
       if (!target) return json({ error: "task not found", code: "not_found" }, 404);
       try {
+        const prevStage = target.got.task.stage ?? null;
         const comment = svc.addComment({
           taskId: globalCommentsRoute.taskId,
           author: globalSession.actor,
@@ -3656,6 +3683,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         });
         const task = svc.get(globalCommentsRoute.taskId, { projectId: target.projectId })?.task;
         broadcastToAll({ type: "task:updated", projectId: target.projectId, task });
+        // A question on a card in AI review sends it to the person.
+        emitReviewReadyEdge(broadcastToAll, target.projectId, task, "review", undefined,
+          () => svc.get(globalCommentsRoute.taskId)?.comments, prevStage);
         return json(comment, 201);
       } catch (e) { return fail(e); }
     }
@@ -3824,6 +3854,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         }, 400);
       }
       try {
+        const prevStage = svc.get(commentsRoute.taskId, { projectId: sess.projectId })?.task.stage ?? null;
         const comment = svc.addComment({
           taskId: commentsRoute.taskId,
           // The same identity the status row carries. What a person reads on
@@ -3847,6 +3878,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         });
         const task = svc.get(commentsRoute.taskId, { projectId: sess.projectId })?.task;
         broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
+        // A question on a card in AI review sends it to the person.
+        emitReviewReadyEdge(broadcastToAll, sess.projectId, task, "review", undefined,
+          () => svc.get(commentsRoute.taskId)?.comments, prevStage);
         return json(comment, 201);
       } catch (e) { return fail(e); }
     }
@@ -3981,7 +4015,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const parsed = parseTaskPatch(body, "agent", acceptPreview);
         if (!parsed.ok) return json(unapplicableFieldsBody(parsed.errors), 400);
         try {
-          const prevStatus = svc.get(item.taskId, { projectId: sess.projectId })?.task.status;
+          const prev = svc.get(item.taskId, { projectId: sess.projectId })?.task;
+          const prevStatus = prev?.status;
           let task = svc.update({
             taskId: item.taskId,
             actor: "agent",
@@ -4005,8 +4040,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // update_task). Al momento del fronte la domanda è l'ultima riga del
           // thread — esattamente ciò che la card mostra come quick-reply.
           emitReviewReadyEdge(broadcastToAll, sess.projectId, task, prevStatus, undefined,
-            () => svc.get(task.id)?.comments);
+            () => svc.get(task.id)?.comments, prev?.stage ?? null);
           triggerUrlProbe(item.taskId, task.outputUrl ?? null, sess.projectId);
+          // AN AI REVIEW CLOSED BY WHOEVER OPENED THE CARD is the same «done»
+          // a person's approval is: what was waiting on it starts, and the
+          // delivery lands if the board lands on done.
+          if (prevStatus === "review" && prev?.stage === STAGE_AI_REVIEW && task.status === "done") {
+            dispatcher?.onBlockerDone(item.taskId);
+            if (task.deliveryBranch) enqueueLandOnDone(sess.projectId, item.taskId, task.deliveryBranch);
+          }
           return json(task);
         } catch (e) { return fail(e); }
       }

@@ -1,4 +1,5 @@
 import { TASK_STATUSES, type TaskStatus } from "./board";
+import { awaitsHuman } from "./workflow";
 
 /** Il minimo che serve alla tray: il contratto della card sta in `board.ts`,
  *  ma il guscio non ha bisogno di conoscerlo tutto per disegnare una riga. */
@@ -7,6 +8,8 @@ export interface TrayTaskInput {
   text: string;
   status: string;
   projectId: string;
+  /** The workflow column (`shared/workflow.ts`): AI review is not a person's. */
+  stage?: string | null;
 }
 
 /**
@@ -70,7 +73,9 @@ export function trayBoardGroups(
   const perGroup = Math.max(1, opts.rowsPerGroup ?? TRAY_ROWS_PER_GROUP);
   const out: TrayGroup[] = [];
   for (const status of TRAY_GROUP_ORDER) {
-    const miei = tasks.filter((t) => t.status === status);
+    // The review group is what waits on a PERSON: a card in AI review goes back
+    // to whoever opened it, so it is not in the menu (`awaitsHuman`).
+    const miei = tasks.filter((t) => (status === "review" ? awaitsHuman(t) : t.status === status));
     if (miei.length === 0) continue;
     out.push({
       status,

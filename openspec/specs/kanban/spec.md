@@ -5367,3 +5367,31 @@ nascosto e non disabilitato. Il resto della chrome della board SHALL restare int
 - **GIVEN** un'installazione senza il flag di sviluppo
 - **WHEN** si apre la kanban di un progetto
 - **THEN** il comando delle missioni SHALL avere zero nodi nel DOM e le colonne della board SHALL essere visibili
+
+### Requirement: KANBAN-102 - Workflow della board: triage, AI review e human review, e chi apre chiude
+
+Una board SHALL disegnare le colonne del suo workflow: un preset scelto per progetto, con un default
+globale (`board_workflows`, riga `'*'`), il progetto che vince sul globale. Senza nessuna riga le
+colonne SHALL essere le cinque di prima. Ogni colonna sta sopra uno dei cinque stati: `tasks.status`
+non cambia, `tasks.stage` dice in quale colonna sta la card.
+
+Sul preset `armonia` una card aperta da una persona SHALL nascere in Triage. Una consegna su una card
+aperta da un agente o da un cron, da qualunque porta (l'agente o la consegna di sistema), SHALL andare
+in AI review, e chi l'ha aperta SHALL esserne avvisato (la sua chat, o il coordinatore quando non c'è
+una chat da svegliare). Da AI review la SHALL chiudere solo chi l'ha aperta o il coordinatore al suo
+posto, con la prova; in Human review una card aperta da un agente o da un cron SHALL entrare solo con
+una domanda per la persona, anche quando nasce già in review. Un promemoria su una card ferma in AI
+review che non raggiunge nessuno SHALL essere ritentato. Solo ciò che aspetta una persona SHALL
+contare per la tray e per l'attenzione. Tornando a un workflow senza AI review, o spostando la card su
+una board che non ce l'ha, le card rimaste lì SHALL tornare alla colonna di default del loro stato; una
+card chiusa che il land riporta in review SHALL aspettare la persona.
+
+#### Scenario: una consegna senza domanda torna a chi ha aperto la card
+- **GIVEN** il preset `armonia` e una card aperta da un agente
+- **WHEN** la card viene consegnata senza `human_ask`
+- **THEN** SHALL stare in AI review, non SHALL accendere l'attenzione, e chi l'ha aperta SHALL essere avvisato
+
+#### Scenario: tornando al preset standard la card aspetta la persona
+- **GIVEN** una card in AI review
+- **WHEN** la board torna al preset `default`
+- **THEN** la card SHALL stare in Review e l'attenzione SHALL contarla

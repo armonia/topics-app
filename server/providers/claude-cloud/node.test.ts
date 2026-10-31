@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CloudApi, setCloudApiBase, type CloudEvent, type FetchLike } from "./api";
+import { CloudApi, CloudSetupError, setCloudApiBase, type CloudEvent, type FetchLike } from "./api";
 import { cloudModelFor, createCloudNodeClient, githubSlug, type GitRun } from "./node";
 import { createNodeBranchPlanter } from "../../services/node-branch-plant";
 
@@ -35,7 +35,10 @@ afterAll(() => { setCloudApiBase(null); rmSync(root, { recursive: true, force: t
 /** The fake cloud: creates the session, and when the test says "work" pushes a branch to origin. */
 function fakeCloud() {
   const events: CloudEvent[] = [];
-  let created: { session_context: { outcomes: Array<{ git_info: { branches: string[] } }>; model: string } } | null = null;
+  let created: {
+    session_context: { sources: Array<{ revision: string }>; outcomes: Array<{ git_info: { branches: string[] } }>; model: string };
+    events: Array<{ data: { message: { content: string } } }>;
+  } | null = null;
   const creates: string[] = [];
   const posts: string[] = [];
   const f: FetchLike = async (url, init) => {
@@ -61,6 +64,8 @@ function fakeCloud() {
     posts,
     branch: () => created!.session_context.outcomes[0].git_info.branches[0],
     model: () => created!.session_context.model,
+    revision: () => created!.session_context.sources[0].revision,
+    prompt: () => created!.events[0].data.message.content,
     /** `pushAs`: the name the session really pushes, when its harness gives it another one. */
     work(name?: string) {
       const pushAs = name ?? this.branch();
@@ -109,6 +114,23 @@ describe("nodo cloud", () => {
     });
     expect(planted).toMatchObject({ planted: true, commit: tip });
     expect(sh(["show", `${r1.deliveryBranch}:b.txt`], checkout)).toBe("fatto nel cloud");
+  });
+
+  // card df5fd8c5, 30/10: moved to the cloud with a branch of its own, the session started from main
+  // and the delivery lacked that branch's three commits (5 files in conflict at the land).
+  test("una card con un ramo suo: la sessione parte da quel ramo, non dal default", async () => {
+    const cloud = fakeCloud();
+    const node = createCloudNodeClient({ api: cloud.api, repoPathOfTask: () => checkout });
+    await node.createRun({ body: { ...body, originTaskId: "df5fd8c5aaaa", originUrl: origin, baseBranch: "topics/endless-calf" } });
+    expect(cloud.revision()).toBe("topics/endless-calf");
+    expect(cloud.prompt()).toContain("creato da `topics/endless-calf`");
+  });
+
+  test("senza ramo suo la sessione parte dal ramo di default di origin", async () => {
+    const cloud = fakeCloud();
+    const node = createCloudNodeClient({ api: cloud.api, repoPathOfTask: () => checkout });
+    await node.createRun({ body: { ...body, originTaskId: "0123456789ab", originUrl: origin } });
+    expect(cloud.revision()).toBe("main");
   });
 
   // card ff0bb951, 26/10: the cloud harness forces its own suffix on the branch of the session
@@ -309,6 +331,60 @@ describe("nodo cloud", () => {
       expect(r).toMatchObject({ status: "review", dispatchError: "cloud_refused", deliveryBranch: null });
       expect(r.reason).toContain("solo da GitHub");
     } finally { setCloudApiBase("http://fake.test"); }
+  });
+
+  test("account senza ambiente cloud attivo: createRun rifiuta con cloud_setup, nessuna sessione, e il nodo non risulta pronto", async () => {
+    const creates: string[] = [];
+    const api = new CloudApi(async () => ({ accessToken: "t", orgUuid: "o" }), async (url, init) => {
+      if (url.endsWith("/v1/environment_providers")) {
+        return new Response(JSON.stringify({ environments: [{ environment_id: "e", kind: "anthropic_cloud", state: "inactive" }] }));
+      }
+      if (init?.method === "POST") creates.push(url);
+      return new Response(JSON.stringify({ id: "session_x" }));
+    });
+    const node = createCloudNodeClient({ api, repoPathOfTask: () => checkout });
+    expect(node.environmentReady()).toBeNull();
+    const err = await node.createRun({ body: { ...body, originTaskId: "senzaambiente1", originUrl: origin } }).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(CloudSetupError);
+    expect((err as CloudSetupError).reason).toBe("cloud_setup");
+    expect((err as Error).message).toContain("nessun ambiente cloud attivo");
+    expect(creates).toEqual([]);
+    expect(node.environmentReady()).toEqual({ ok: false, reason: "nessun ambiente cloud attivo sull'account" });
+  });
+
+  test("probeEnvironment: risposta certa aggiorna lo stato, un errore di rete lo lascia com'era, al massimo una domanda per intervallo", async () => {
+    let mode: "none" | "active" | "down" = "none";
+    let asked = 0;
+    let t = 0;
+    const api = new CloudApi(async () => ({ accessToken: "t", orgUuid: "o" }), async () => {
+      asked++;
+      if (mode === "down") throw new Error("fetch failed");
+      const state = mode === "active" ? "active" : "inactive";
+      return new Response(JSON.stringify({ environments: [{ environment_id: "e", kind: "anthropic_cloud", state }] }));
+    });
+    const node = createCloudNodeClient({ api, repoPathOfTask: () => checkout, now: () => t });
+    await node.probeEnvironment(1_000);
+    expect(node.environmentReady()?.ok).toBe(false);
+    mode = "active";
+    await node.probeEnvironment(1_000);
+    expect(asked).toBe(1);
+    t += 1_000;
+    await node.probeEnvironment(1_000);
+    expect(node.environmentReady()).toEqual({ ok: true, reason: "" });
+    mode = "down";
+    t += 1_000;
+    await node.probeEnvironment(1_000);
+    expect(asked).toBe(3);
+    expect(node.environmentReady()?.ok).toBe(true);
+  });
+
+  test("un token rifiutato (401/403) è l'account, non un servizio muto", async () => {
+    const api = new CloudApi(async () => ({ accessToken: "t", orgUuid: "o" }), async () => new Response("no", { status: 403 }));
+    const err = await api.defaultEnvironmentId().then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(CloudSetupError);
+    const five = new CloudApi(async () => ({ accessToken: "t", orgUuid: "o" }), async () => new Response("boom", { status: 503 }));
+    const e5 = await five.defaultEnvironmentId().then(() => null, (e: unknown) => e);
+    expect(e5).not.toBeInstanceOf(CloudSetupError);
   });
 
   test("su un'API finta il token vero non si chiede nemmeno", async () => {

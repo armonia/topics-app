@@ -59,7 +59,9 @@ Limite onesto: la CLI finta non chiama mai `update_task`, quindi le card arrivat
 **Correzione.** Una riga di avanzamento nel corpo, in chiaro, sotto il titolo (ultimo passo del tool in corso, o l'ultima frase dell'agente). La nota di sistema è ripiegata sotto un «mostra» e mai sola nel corpo.
 **Modello e durata sulla card (decisione di Attilio, 31/10).** Non più solo nel dettaglio: il modello con il provider, la durata e i token stanno in una sola riga secondaria discreta, in lavorazione e in review. Niente pillole impilate. Sta sulla stessa riga dello stato quando ci sta; il tempo dall'ultimo aggiornamento resta in fondo, a destra. A 300 px la riga non va in overflow: si accorcia dalla coda, prima i token e poi il resto.
 **In review.** Il corpo tiene l'ultima frase dell'agente, anche quando l'ultima voce del thread è una nota di sistema; la nota sta ripiegata sotto «mostra». Sotto, la stessa riga secondaria con modello e durata.
-**Prova.** `client/src/components/Board/Card.test.ts` (misura e review, più il controllo a 300 px come contratto di classi) e `cardComments.test.ts` (campo `agentWord`). Una mutazione che toglie il modello dal contenuto della riga rende rossi due test; ripristinata, il set torna verde. L'affiancamento prima/dopo non è ancora fatto: lo porta la card di Jarvis.
+**Tool una volta sola.** Il tool in corso compare solo nella riga di avanzamento in alto (`name · input`). La riga separata «Bash · …» sotto la misura è tolta, insieme al tempo trascorso sul tool: il tempo totale resta nella misura. Un test fallisce se `<LiveToolLine>` torna nella card.
+**Pallino.** Il punto di lavorazione è il caricamento `SparkLoader` di main, non più il pallino sky.
+**Prova.** `client/src/components/Board/Card.test.ts` (misura e review, più il controllo a 300 px come contratto di classi) e `cardComments.test.ts` (campo `agentWord`). Una mutazione che toglie il modello dal contenuto della riga rende rosso il test del contenuto (exit 1); ripristinata, il set torna verde (82/82). L'affiancamento prima/dopo non è ancora fatto: lo porta la card di Jarvis.
 
 ## 8. Il task come chat pulita (verifica tecnica)
 

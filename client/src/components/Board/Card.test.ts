@@ -132,12 +132,14 @@ describe('the wait before a retry and the running tool', () => {
     expect(src).toContain('onRetryNow={() => steer(RETRY_NOW_MESSAGE)}');
   });
 
-  test('the "what is it doing" line sits under the foot and goes out with the retry wait', () => {
-    expect(src).toContain("live?.lastTool && !live.retry && task.dispatchState === 'working' && (");
-    // `frozen`: while the swap freezer holds the session's command STOPped the
-    // line stops ticking and says so (KANBAN-85), so the pin travels with it.
-    expect(src).toContain('<LiveToolLine tool={live.lastTool} frozen={!!swapFreeze} />');
-    expect(live).toContain('data-testid="card-live-tool"');
+  test('the running tool is drawn ONCE: the progress line carries it, and the card has no second tool line', () => {
+    // The progress line is the only place the tool's name and input are printed.
+    expect(src).toContain("const progressLine = live?.lastTool && !live.retry && task.dispatchState === 'working'");
+    expect(src).toContain('`${live.lastTool.name}');
+    // A second `<LiveToolLine>` in the card would print «Bash · bun run test:unit» twice.
+    expect(src).not.toContain('<LiveToolLine');
+    expect(src).not.toContain('card-live-tool');
+    expect(live).toContain('export function LiveToolLine');
   });
 });
 
@@ -187,12 +189,17 @@ describe('the progress word', () => {
  * a pill. At 300 px it is cut from the tail: tokens go before the model does.
  */
 describe('la misura del turno sulla card', () => {
-  test('in lavorazione la riga viva c\'e\': niente chip, solo testo e un punto', () => {
+  test('in lavorazione la riga viva c\'e\': niente chip, solo testo e il caricamento di main', () => {
     expect(src).not.toContain("task.status === 'in_progress' ? null");
     expect(src).toContain('<LiveEffortChip usage={live} label={modelLine} />');
     expect(live).toContain('data-testid="card-measure"');
+    // The live dot is main's SparkLoader now, not a sky pulse dot.
+    expect(live).toContain("import { SparkLoader } from '../Layout/StreamingIndicator';");
+    expect(live).toContain('<SparkLoader className="shrink-0" />');
+    expect(live).not.toContain('animate-pulse rounded-full bg-sky-400');
     expect(live).not.toContain('bg-sky-500/15');
   });
+
 
   test('il modello e il provider sono nel CONTENUTO della riga, non solo nel titolo', () => {
     // Guard against the model moving into `title` alone: the visible text must carry it.

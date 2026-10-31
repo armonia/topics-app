@@ -50,7 +50,7 @@ import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState 
 import { fmtMs, fmtTok, fmtAttesa, fmtUsd, taskCopyText } from './format';
 import { UpdatedAgo } from './UpdatedAgo';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
-import { LiveEffortChip, LiveToolLine, RETRY_NOW_MESSAGE, RetryWaitChip } from './CardLive';
+import { LiveEffortChip, RETRY_NOW_MESSAGE, RetryWaitChip } from './CardLive';
 import { SessionPeek } from './SessionPeek';
 import { createSessionPeekIntent } from './sessionPeekIntent';
 import { SwapIce } from '../Shared/SwapIce';
@@ -71,12 +71,18 @@ import { VirtualizedCards } from './VirtualizedCards';
 // The droppable SHELL, for the same reason as `Card` below: during a drag the
 // header re-ran on every over change; `ColumnBody` only sees `isOver` flip.
 export function Column(props: ColumnProps) {
-  const { setNodeRef, isOver, active } = useDroppable({ id: props.status });
+  // The workflow column's id (`shared/workflow.ts`): equal to the status for
+  // the plain columns, so on the default workflow nothing here changes.
+  const { setNodeRef, isOver, active } = useDroppable({ id: props.columnId ?? props.status });
   return <ColumnBody {...props} setNodeRef={setNodeRef} isOver={isOver} dragging={active !== null} activeId={active ? String(active.id) : null} />;
 }
 
 type ColumnProps = {
-  status: TaskStatus; tasks: BoardTask[]; onOpen: OpenTask; onCreate: (text: string) => void;
+  status: TaskStatus; tasks: BoardTask[];
+  /** The workflow column this is, when it is not the plain one of `status` (Triage, AI review, Human review). */
+  columnId?: string;
+  /** Its header; absent = the status label. */
+  label?: string; onOpen: OpenTask; onCreate: (text: string) => void;
   activeId?: string | null;
   canCreate: boolean; showProject: boolean; onRefetch: () => void;
   /** L'errore dell'ULTIMA azione fallita, con la card a cui appartiene: la
@@ -122,7 +128,7 @@ type ColumnProps = {
   viewKey?: string;
 };
 
-const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, paneBoardId, paneSettings, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid', viewKey, setNodeRef, isOver, dragging, activeId }: ColumnProps & {
+const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, paneBoardId, paneSettings, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid', viewKey, setNodeRef, isOver, dragging, activeId }: ColumnProps & {
   setNodeRef: (element: HTMLElement | null) => void; isOver: boolean; dragging: boolean;
 }) {
   const tr = useT();
@@ -131,12 +137,13 @@ const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, c
   const submit = () => { const v = text.trim(); if (v) { onCreate(v); } setText(''); setAdding(false); };
   // QUANTE card si disegnano. La regola (e il perché vale solo su Review e Done)
   // sta in `columnSlice`; qui c'è solo la memoria di quante ne hai chieste.
-  const [shown, setShown] = useState(() => (viewKey === undefined ? COLUMN_PAGE : recallColumnPages(viewKey, status)));
+  const colKey = columnId ?? status;
+  const [shown, setShown] = useState(() => (viewKey === undefined ? COLUMN_PAGE : recallColumnPages(viewKey, colKey)));
   const [virtualViewport, setVirtualViewport] = useState({ top: 0, height: 0 });
   const virtualBodyRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    if (viewKey !== undefined) rememberColumnPages(viewKey, status, shown);
-  }, [viewKey, status, shown]);
+    if (viewKey !== undefined) rememberColumnPages(viewKey, colKey, shown);
+  }, [viewKey, colKey, shown]);
   const slice = useMemo(() => columnSlice(status, tasks, shown), [status, tasks, shown]);
   // Infinite scroll: the next page comes as the column's tail comes into view, never while a card is carried.
   const moreRef = useLoadOnReach(() => setShown((n) => n + COLUMN_PAGE), { more: slice.hidden > 0, loading: false, count: slice.rows.length, enabled: !dragging }, layout);
@@ -267,7 +274,7 @@ const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, c
   return (
     <div
       ref={setNodeRef}
-      data-testid={`kanban-column-${status}`}
+      data-testid={`kanban-column-${colKey}`}
       // DOVE CADRÀ: `into`, perché la card entra DENTRO questa colonna. Il verde
       // scritto a mano era il disegno di questo file soltanto, mentre lo stesso
       // rilascio nel resto dell'app si dipinge con la regola unica di
@@ -279,7 +286,7 @@ const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, c
       <div className="flex items-center justify-between px-3 py-2">
         <span className="flex items-center gap-1.5 text-compact leading-4 font-semibold uppercase tracking-wide text-app-text-heading">
           <StatusIcon status={status} />
-          {STATUS_LABEL[status]}
+          {label ?? STATUS_LABEL[status]}
         </span>
         {/* Il TOTALE della colonna, non quante card se ne disegnano: sfogliare
             Done non deve accorciarne la storia. La testid esiste perché il
@@ -289,7 +296,7 @@ const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, c
               are working in, so it is the one place where "why is nothing
               starting?" gets asked. Beside the count, never instead of it. */}
           {status === 'in_progress' && !archived && <DispatchLoadGauge onOpenSettings={onOpenSettings} />}
-          <span data-testid={`kanban-column-count-${status}`} className="rounded bg-white/10 px-1.5 text-compact leading-4 text-app-text-secondary">{tasks.length}</span>
+          <span data-testid={`kanban-column-count-${colKey}`} className="rounded bg-white/10 px-1.5 text-compact leading-4 text-app-text-secondary">{tasks.length}</span>
         </span>
       </div>
       {/* Bottom clearance lives on the scroll body (not the outer board padding)
@@ -318,7 +325,7 @@ const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, c
           the fallback for the first frame before the measure lands. */}
       <div
         ref={virtualized ? onVirtualScroll : undefined}
-        data-testid={`kanban-column-body-${status}`}
+        data-testid={`kanban-column-body-${colKey}`}
         className={layout === 'list' ? 'space-y-2 px-2 pt-1.5' : 'flex-1 space-y-2 overflow-y-auto px-2 pt-1.5 pb-[max(var(--board-bottom-clear,9rem),calc(var(--mobile-band-own-h,0px)+1rem))] scrollbar-standard'}
       >
         {/* THE GHOST OF THE CARD BEING WRITTEN, in the column it will land in
@@ -691,7 +698,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // Riga di avanzamento per una card in lavorazione: l'ultimo passo del tool,
   // o la prima riga dell'agente. Una sola riga, mai il testo intero. Una nota
   // della macchina non diventa mai la riga: va sotto «mostra».
-  const progressLine = live?.lastTool
+  const progressLine = live?.lastTool && !live.retry && task.dispatchState === 'working'
     ? `${live.lastTool.name}${live.lastTool.input ? ` · ${live.lastTool.input}` : ''}`
     : showsQuestion && bodyWord
       ? (stripMarkdown(bodyWord.content).split('\n').find((l) => l.trim()) ?? '').trim()
@@ -1901,12 +1908,13 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
         {/* WHICH MACHINE it runs on, next to the model it runs with. Only when
             a node is named: an absent one means "here", and saying that on
             every card would be noise on all of them to inform one. */}
+        {/* Moved by the overflow, it says where and why in the same one line. */}
         {task.machineId && (
           <span
             data-testid="card-node-chip"
-            title={tr('board.task.node.onTitle', { node: machineLabel(machines, task.machineId) })}
+            title={tr(task.overflowedAt ? 'board.task.node.overflowedTitle' : 'board.task.node.onTitle', { node: machineLabel(machines, task.machineId) })}
             className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
-          ><Server className="h-3 w-3 shrink-0 text-app-text-muted" /> {tr('board.task.node.on', { node: machineLabel(machines, task.machineId) })}</span>
+          ><Server className="h-3 w-3 shrink-0 text-app-text-muted" /> {tr(task.overflowedAt ? 'board.task.node.overflowed' : 'board.task.node.on', { node: machineLabel(machines, task.machineId) })}</span>
         )}
         {/* THE GIT CHANGES, next to the model that is writing them.
             Closed it is a chip like the others; open it is a list that drops
@@ -1931,14 +1939,9 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           title={tr('board.card.lastUpdate', { when: new Date(task.updatedAt).toLocaleString(locale) })}
         ><UpdatedAgo iso={task.updatedAt} /></span>
       </div>
-      {/* WHAT IT IS DOING RIGHT NOW: the tool the session is running and for
-          how long. A 14-minute stopwatch did not tell a unit suite that has
-          been running nine minutes from an agent that is stuck; the answer was
-          in the chat, which is what the board was meant to spare. One line,
-          under the measures, muted: a fact about the minute, not the card. */}
-      {live?.lastTool && !live.retry && task.dispatchState === 'working' && (
-        <LiveToolLine tool={live.lastTool} frozen={!!swapFreeze} />
-      )}
+      {/* The tool the session is running is NOT drawn again here: the progress
+          line under the title already says `name · input`. Drawing it twice
+          put «Bash · bun run test:unit» on the card two times. */}
       {/* WHAT THE FROST MEANS, in words: which command, how much it held, and
           that it comes back by itself. A texture alone would only say that
           something is wrong with this card. */}

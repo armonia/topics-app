@@ -36,6 +36,9 @@ import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
 import { readChecksMemFloorGB, readGlobalCap, readSpendCaps } from "./dispatch-capacity";
 import { checksMemFloorGB } from "../../shared/checks-memory-floor";
 import { parseCreatedBy, UNOWNED_BACKLOG_MS } from "../../shared/created-by";
+import { STAGE_AI_REVIEW, STAGE_HUMAN_REVIEW, agentAskInThread, defaultColumnFor, namesHumanReviewWithoutAsk, stageAtBirth, stageForDelivery, stageForStatusChange, type WorkflowColumn, type WorkflowPresetId } from "../../shared/workflow";
+import { requestAiReviewNotice } from "./ai-review-notice";
+import { checkStage, clearStagesOutsideWorkflow, dropStageOutsideTarget, readBoardWorkflow, routeAskOutOfAiReview, stampStaleAiReview, clearAiReviewReminderStamp, writeBoardWorkflow } from "./board-workflow";
 import { currentDispatchBlock, currentMemoryWait, heldResumeBlock } from "./dispatch-block-signal";
 import { readElsewhere } from "./task-elsewhere";
 import { liveAgentCount, RUNS_HERE_SQL } from "./agent-census";
@@ -269,6 +272,13 @@ const DELIVERY_SNAPSHOT_COLUMNS = [
   "checks_json",
   "checks_commit",
 ] as const;
+/**
+ * Is a card's delivery branch still work that main lacks? A landed (or
+ * superseded) branch is not a base for the next run: main already has it.
+ */
+function branchStillAhead(row: { landing_state?: string | null }): boolean {
+  return row.landing_state !== "landed" && row.landing_state !== "superseded";
+}
 const clampInt = (n: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, Math.trunc(Number.isFinite(n) ? n : lo)));
 
@@ -406,7 +416,12 @@ export interface TaskService {
    * macchina (il land in conflitto che la ritira da `done`): senza, la riga
    * dice solo chi e quando, e chi rivede legge un ritiro senza causa.
    */
-  update(args: { taskId: string; actor: Actor; by: string; patch: UpdateTaskPatch; projectId?: string; agentTopicId?: string | null; statusReason?: string | null; messageId?: string | null; origin?: TaskActionOrigin }): Task;
+  /**
+   * `asCoordinator`: the caller is the global coordinator (registry-gated by
+   * the route). It may close a card in AI review in its opener's place: most
+   * machine cards come from the board API or a schedule, with no chat to do it.
+   */
+  update(args: { taskId: string; actor: Actor; by: string; patch: UpdateTaskPatch; projectId?: string; agentTopicId?: string | null; statusReason?: string | null; messageId?: string | null; origin?: TaskActionOrigin; asCoordinator?: boolean }): Task;
   /**
    * `questionOptions` turns the comment into a human-decision request: the
    * SERVER composes the canonical ```question``` block (question = content,
@@ -674,6 +689,23 @@ export interface TaskService {
    */
   sweepUnownedBacklog(): Task[];
   /**
+   * Cards left in AI review past `AI_REVIEW_REMIND_MS` since their last touch:
+   * the coordinator is reminded of each (`services/ai-review-notice.ts`), once
+   * per touch, with the same dedupe as `sweepUnownedBacklog`
+   * (`ai_review_reminded_at`, `updated_at` left alone); one that reached
+   * nobody is sent again (`stampStaleAiReview`). Returns the cards reminded.
+   */
+  sweepStaleAiReview(): Task[];
+  /**
+   * Write a board's workflow preset (`'*'` = the global default; `null`
+   * removes the row) and put back in the default column of their status the
+   * cards whose stage the board's NEW workflow does not have. Without that a
+   * card left in AI review by the old preset stayed in Review on `default`
+   * while the tray and «Ti aspetta» kept leaving it out (`awaitsHuman`).
+   * Returns the cards it moved.
+   */
+  applyBoardWorkflow(args: { scope: string; preset: WorkflowPresetId | null }): Task[];
+  /**
    * Esegue la risposta umana allo stallo. `requeue` manda i figli parcheggiati
    * in `todo`; `archive` li archivia; `promote` toglie loro il padre e li mette
    * in coda come task indipendenti. In tutti i casi il padre torna in coda col
@@ -823,6 +855,21 @@ export interface TaskService {
      */
     remote?: boolean;
   }): Task | null;
+  /**
+   * The overflow dispatch's move (`dispatch-overflow.ts`): the card goes to
+   * `machineId` and is stamped `overflowed_at`, in ONE compare-and-set. It
+   * applies only to a card still waiting here: in `todo`, unbound, not marked
+   * "this Mac only", and running on this machine (`machine_id` NULL or
+   * `localMachineId`). `null` = it did not apply (it moved, a person picked a
+   * machine meanwhile), and the caller leaves it alone.
+   */
+  overflowToMachine(args: { taskId: string; machineId: string; localMachineId: string | null }): Task | null;
+  /**
+   * How many live cards name `machineId` (Todo or in progress, not archived),
+   * across every board: what the overflow counts against a machine's slots.
+   * A card waiting for a silent node is in Todo, so it counts.
+   */
+  countOnMachine(machineId: string): number;
   /**
    * C'è un task `heavy` con un agente vivo su questa macchina adesso?
    *
@@ -2635,8 +2682,19 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // WHERE it runs. `null` is «this machine», which is what every card
       // written before the column existed says (KANBAN-76).
       machineId: r.machine_id ?? null,
+      // "This Mac only": absent column (old harness) reads as unmarked.
+      stayLocal: !!r.stay_local,
+      // Only while it still runs where the overflow sent it.
+      ...(r.overflowed_at && r.machine_id ? { overflowedAt: r.overflowed_at } : {}),
+      ...(r.base_branch ? { baseBranch: r.base_branch } : {}),
+      ...(r.prior_branch ? { priorBranch: r.prior_branch } : {}),
+      ...(r.prior_uncommitted_files ? { priorUncommittedFiles: r.prior_uncommitted_files } : {}),
       // WHO opened it; NULL for every card written before the column.
       createdBy: r.created_by ?? null,
+      // The workflow column, only when it is not the default one: a board with
+      // the default workflow sends the same row as before.
+      ...(r.stage ? { stage: r.stage } : {}),
+      ...(r.human_ask ? { humanAsk: r.human_ask } : {}),
       // Delegation metadata is rare. Absence means an ordinary owner run, not
       // a UI state, so five repeated null keys on every board card carry no
       // information. A delegated row still gets the complete audit identity.
@@ -3653,6 +3711,62 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     } catch { return null; } // reduced schema without the column: no rule
   }
 
+  /** `checkStage` (board-workflow.ts), its refusal as the service's error. */
+  function checkedStage(columns: readonly WorkflowColumn[], stage: string, status: TaskStatus | undefined): string | null {
+    const r = checkStage(columns, stage, status);
+    if ("error" in r) throw new TaskServiceError("invalid_input", r.error);
+    return r.stage;
+  }
+
+  /** A reminder that reached nobody: card → when (ms); a later sweep sends it again. */
+  const failedAiReviewReminders = new Map<string, number>();
+
+  /**
+   * A card just entered AI review: whoever has to close it is told
+   * (`services/ai-review-notice.ts`), and the thread keeps a line of who that
+   * is. `service`, not `comment`: the card's last word stays the delivery.
+   */
+  function announceAiReview(taskId: string, reminder = false, stampIso?: string): void {
+    const row = getTaskRow(taskId);
+    if (!row) return;
+    if (!reminder) {
+      try {
+        service.addComment({
+          taskId, author: "system", kind: "service",
+          content: `AI review: the card goes back to whoever opened it (${row.created_by ?? "unknown"}), who closes it with the proof or sends it to Human review with a question.`,
+        });
+      } catch { /* best-effort: the notice below is what matters */ }
+    }
+    requestAiReviewNotice({
+      taskId, projectId: row.project_id, title: row.text ?? "",
+      createdBy: row.created_by ?? null, openerTopicId: row.created_by_topic_id ?? null, reminder,
+      ...(reminder && stampIso ? { onUndelivered: () => {
+        clearAiReviewReminderStamp(db, taskId, stampIso);
+        failedAiReviewReminders.set(taskId, Date.parse(now()));
+      } } : {}),
+    });
+  }
+
+  /** `agentAskInThread` (shared/workflow.ts) on this card's thread. */
+  function agentAskOnThread(taskId: string): string | null {
+    try { return agentAskInThread(service.get(taskId)?.comments ?? []); } catch { return null; }
+  }
+
+  /**
+   * Where a delivery the SYSTEM makes lands (the turn ended without one, the
+   * parked-children question): the same routing as an agent's delivery, with
+   * `humanAsk` the question the thread or the system asks the person. Written
+   * only when it changes something, like `update()`.
+   */
+  function routeSystemDelivery(taskId: string, humanAsk: string | null): void {
+    const row = getTaskRow(taskId);
+    if (!row || row.parent_task_id) return;
+    const stage = stageForDelivery(readBoardWorkflow(db, row.project_id).columns, { createdBy: row.created_by, humanAsk });
+    if (stage === null && row.stage == null && row.human_ask == null) return;
+    db.prepare("UPDATE tasks SET stage = ?, human_ask = ? WHERE id = ?").run(stage, humanAsk, taskId);
+    if (stage === STAGE_AI_REVIEW) announceAiReview(taskId);
+  }
+
   const service: TaskService = {
     create(input: CreateTaskInput): Task {
       const text = (input.text ?? "").trim();
@@ -3701,9 +3815,30 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // be inside an existing chain, so the cycle walk is trivially safe).
       if (input.blockedByTaskId) assertBlockerValid(id, input.blockedByTaskId);
 
+      // THE COLUMN IT IS BORN IN. A subtask is a step of its parent's
+      // checklist, never a card of the board, so it has no column of its own.
+      let birthStage: string | null = null;
+      const bornAsk = (input.humanAsk ?? "").trim() || null;
+      if (!input.parentTaskId) {
+        const columns = readBoardWorkflow(db, input.projectId).columns;
+        if (namesHumanReviewWithoutAsk(columns, { status, createdBy: parseCreatedBy(input.createdBy), humanAsk: bornAsk, stage: input.stage })) {
+          throw new TaskServiceError("human_review_needs_ask", "a card reaches Human review with a question for the person: send `human_ask` with what they have to look at or decide.");
+        }
+        if (input.stage) {
+          birthStage = checkedStage(columns, input.stage, status);
+        } else if (input.stage === undefined) {
+          birthStage = stageAtBirth(columns, {
+            status,
+            createdBy: parseCreatedBy(input.createdBy),
+            complete: input.priority !== undefined && !!(input.description ?? "").trim(),
+            humanAsk: bornAsk,
+          });
+        }
+      }
+
       db.prepare(
-        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id, topics_routing, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id, topics_routing, created_by, stay_local, base_branch)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id, input.projectId, text, input.description ?? null, status, priority, order,
         input.assignedTo ?? null, input.chatId ?? null, ts, ts, input.idempotencyKey ?? null,
@@ -3717,7 +3852,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         input.machineId === undefined ? boardDispatchMachineId(input.projectId) : input.machineId,
         input.topicsRouting === undefined || input.topicsRouting === null ? null : (input.topicsRouting ? 1 : 0),
         parseCreatedBy(input.createdBy),
+        input.stayLocal ? 1 : 0,
+        input.baseBranch?.trim() || null,
       );
+      // Its own statement, and only when there is a stage: a board on the
+      // default workflow writes the same row as before.
+      if (birthStage) db.prepare("UPDATE tasks SET stage = ? WHERE id = ?").run(birthStage, id);
+      if (bornAsk && status === "review") db.prepare("UPDATE tasks SET human_ask = ? WHERE id = ?").run(bornAsk, id);
+      // Born in AI review: whoever opened it is told, as on any other entry.
+      if (birthStage === STAGE_AI_REVIEW && status === "review") announceAiReview(id);
       return rowToTask(getTaskRow(id));
     },
 
@@ -3831,7 +3974,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return withSubtaskCounts(rowsToTasks(rows));
     },
 
-    update({ taskId, actor, by, patch, projectId, agentTopicId, statusReason, messageId, origin }): Task {
+    update({ taskId, actor, by, patch, projectId, agentTopicId, statusReason, messageId, origin, asCoordinator }): Task {
       const row = getTaskRow(taskId);
       // projectId guard: a session may only touch tasks on its own project.
       // A mismatch is reported as not_found (not 403) so cross-project ids stay
@@ -3846,6 +3989,64 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.model !== undefined && row.assigned_topic_id
         && ((patch.model ?? "").trim() || null) !== (row.model || null)) {
         throw new TaskServiceError("invalid_input", "Il modello è fissato alla sessione già assegnata a questo task. Non è possibile cambiarlo dal task dopo l'avvio.");
+      }
+
+      // THE WORKFLOW COLUMN (`shared/workflow.ts`). The stage rides on top of
+      // the status: naming a column moves the card to its base status, and a
+      // status change without a column puts it in the default column of the
+      // new status, except a delivery, which the board's workflow routes
+      // (`stageForDelivery`: back to whoever opened it, or to the person).
+      // `nextStage === undefined` = this call does not touch the stage.
+      let nextStage: string | null | undefined;
+      let wantsStage = patch.stage !== undefined ? ((patch.stage ?? "").trim() || null) : undefined;
+      let humanAsk: string | null = patch.humanAsk !== undefined
+        ? ((patch.humanAsk ?? "").trim() || null)
+        : (row.human_ask ?? null);
+      let askFromThread = false;
+      // WHO MAY TAKE A CARD OUT OF AI REVIEW: the one that opened it, or the
+      // coordinator in its place (a card from the board API or a schedule has
+      // no chat that could). It is the rule of 28/10 (whoever opens a card closes it), and
+      // the only exception to `agent_cannot_complete` below.
+      const closesAiReview = actor === "agent" && current === "review" && row.stage === STAGE_AI_REVIEW
+        && (!!asCoordinator || (!!agentTopicId && row.created_by_topic_id === agentTopicId));
+      if (wantsStage !== undefined || (patch.status !== undefined && patch.status !== current)) {
+        const columns = readBoardWorkflow(db, row.project_id).columns;
+        // An agent asking for «no stage» asks for the default column of the
+        // status, and goes through the same gates as naming it: `stage: null`
+        // on a card in AI review is a move to Human review.
+        if (actor === "agent" && wantsStage === null) wantsStage = defaultColumnFor(columns, patch.status ?? current)?.id ?? null;
+        // A question the agent already wrote in the thread is the `human_ask`,
+        // read BEFORE the summary below enters the thread and hides it.
+        if (!humanAsk && (patch.status === "review" || wantsStage === STAGE_HUMAN_REVIEW)) askFromThread = !!(humanAsk = agentAskOnThread(taskId));
+        if (wantsStage) {
+          if (actor === "agent") {
+            // AI review is where the SERVER routes a delivery; an agent naming
+            // it could send its own work to itself and close it.
+            if (wantsStage === STAGE_AI_REVIEW) {
+              throw new TaskServiceError("invalid_input", "ai_review is decided by the server when a card is delivered: move it to status 'review' with a `summary` (and `human_ask` if the person has to look at it).");
+            }
+            // A stage move by an agent: on a card in triage (the triage pass),
+            // on its own card, on one it opened, or out of AI review by whoever
+            // may close it.
+            const inTriage = current === "backlog";
+            const mine = closesAiReview || (!!agentTopicId && (
+              row.assigned_topic_id === agentTopicId || row.created_by_topic_id === agentTopicId || isOwnStep(taskId, agentTopicId)));
+            if (!inTriage && !mine) {
+              throw new TaskServiceError("task_not_yours", "this card is neither in triage nor yours: you cannot move it to another column. Write a comment instead.");
+            }
+            // Human review takes only what the person has to see, and says what.
+            if (wantsStage === STAGE_HUMAN_REVIEW && !humanAsk) {
+              throw new TaskServiceError("human_review_needs_ask", "a card reaches Human review with a question for the person: send `human_ask` with what they have to look at or decide.");
+            }
+          }
+          nextStage = checkedStage(columns, wantsStage, patch.status);
+          const col = columns.find((c) => c.id === wantsStage)!;
+          if (patch.status === undefined && col.base !== current) patch = { ...patch, status: col.base };
+        } else if (wantsStage === null) {
+          nextStage = null;
+        } else {
+          nextStage = stageForStatusChange(columns, { from: current, to: patch.status!, byAgent: actor === "agent", createdBy: row.created_by, humanAsk });
+        }
       }
 
       if (patch.status !== undefined) {
@@ -3888,6 +4089,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           actor === "agent" && agentTopicId
           && (boundElsewhere || releasedByDispatcher)
           && !isOwnStep(taskId, agentTopicId)
+          && !closesAiReview
         ) {
           throw new TaskServiceError(
             "task_not_yours",
@@ -3898,11 +4100,24 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // ONE carve-out: its own checklist steps (strict descendants of the
         // task bound to its topic) close directly — they are the agent's plan,
         // not the deliverable the human reviews.
-        if (patch.status === "done" && actor === "agent" && !(agentTopicId && isOwnStep(taskId, agentTopicId))) {
+        if (patch.status === "done" && actor === "agent" && !(agentTopicId && isOwnStep(taskId, agentTopicId)) && !closesAiReview) {
           throw new TaskServiceError(
             "agent_cannot_complete",
-            "agents deliver to 'review' for human approval; only a human moves 'review' → 'done' (exception: subtask steps of YOUR assigned task). Set status to 'review' instead.",
+            "agents deliver to 'review' for human approval; only a human moves 'review' → 'done' (exceptions: subtask steps of YOUR assigned task, and a card YOU opened that sits in AI review). Set status to 'review' instead.",
           );
+        }
+        // Closing an AI review is a decision on somebody else's work, and it
+        // says on what it rests: the proof goes into the thread before the
+        // card moves, like a delivery's summary.
+        if (patch.status === "done" && closesAiReview) {
+          const proof = (patch.summary ?? "").trim();
+          if (!proof) {
+            throw new TaskServiceError(
+              "ai_review_needs_proof",
+              "closing an AI review needs the proof: call update_task again with `summary` = what you checked and where it can be seen (the command and its exit, the screenshot, the commit).",
+            );
+          }
+          this.addComment({ taskId, author: by, content: proof, projectId: projectId ?? row.project_id, kind: "comment", messageId: messageId ?? null });
         }
         // Una card chiusa da un UMANO non la riapre un agente.
         //
@@ -4027,7 +4242,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.machineId !== undefined) {
         const node = (patch.machineId ?? "").trim();
         put("machine_id", node || null);
+        // A person chose the machine: the overflow's «moved because the Mac
+        // was full» no longer describes it.
+        put("overflowed_at", null);
       }
+      if (patch.stayLocal !== undefined) put("stay_local", patch.stayLocal ? 1 : 0);
       if (patch.blockedByTaskId !== undefined) {
         if (patch.blockedByTaskId) assertBlockerValid(taskId, patch.blockedByTaskId);
         put("blocked_by_task_id", patch.blockedByTaskId || null);
@@ -4134,6 +4353,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // Stessa lista che azzera `recordDelivery`: la TESTIMONIANZA cade col
         // suo commit, altrimenti il prossimo verdetto nascerebbe già «visto».
         if ((current === "done" || current === "review") && patch.status !== "done" && patch.status !== "review") {
+          // The branch outlives its snapshot: the next run, here or on another
+          // machine, starts FROM it (df5fd8c5 restarted from main without it).
+          // A branch already on main is no base: main itself is newer.
+          if (row.delivery_branch) put("prior_branch", branchStillAhead(row) ? row.delivery_branch : null);
+          // The uncommitted files outlive their count too: they are still in
+          // this machine's worktree, and the overflow must not leave them behind.
+          if (row.delivery_uncommitted_files != null) put("prior_uncommitted_files", row.delivery_uncommitted_files || null);
           for (const col of DELIVERY_SNAPSHOT_COLUMNS) put(col, null);
           put("landing_state", null); put("landing_checked_at", null); put("landing_witnessed", 0);
         }
@@ -4260,9 +4486,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // ricomincia ad aspettare da capo, e mostrare l'attesa precedente sarebbe
       // una misura vera di una domanda sbagliata.
       if (patch.status === "review" && current !== "review") put("review_at", now());
+      // The column, written only when it changes something (a reduced schema
+      // without it keeps working on the default workflow).
+      if (nextStage !== undefined && (nextStage !== null || row.stage != null)) put("stage", nextStage);
+      // The question for the person belongs to one delivery: back to work drops it.
+      if (patch.humanAsk !== undefined || askFromThread) put("human_ask", humanAsk);
+      else if (row.human_ask != null && patch.status !== undefined && patch.status !== "review" && patch.status !== "done") put("human_ask", null);
       put("updated_at", now());
 
       db.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...params, taskId);
+      if (nextStage === STAGE_AI_REVIEW && (row.stage !== STAGE_AI_REVIEW || current !== "review")) announceAiReview(taskId);
       // Un task che ESCE da review si porta dietro la sua richiesta di
       // approvazione: va chiusa qui.
       //
@@ -4454,6 +4687,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // drawer, review card) see a change signal and refetch — without this, a
       // new comment broadcasts task:updated but the payload looks identical.
       db.prepare("UPDATE tasks SET updated_at = ? WHERE id = ?").run(ts, taskId);
+      // A question for the person takes the card out of AI review.
+      if (row.status === "review" && row.stage === STAGE_AI_REVIEW && commentKind !== "service") routeAskOutOfAiReview(db, row, author, body);
       // QUALE commento è il piano: lo si SCRIVE qui, non lo si indovina dopo.
       // Il segnale è il contratto piano-prima — un task `plan_first` + un blocco
       // question che offre l'approvazione del piano, scritto da un agente (mai
@@ -4635,6 +4870,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // non ci passa, perché questa porta scrive lo status a SQL grezzo.
         db.prepare(
           "UPDATE tasks SET status = ?, completed_at = NULL, dispatch_state = NULL, dispatch_attempts = 0, " +
+            // Read before the snapshot is cleared (SQLite evaluates SET on the old row).
+            "prior_branch = CASE WHEN delivery_branch IS NULL THEN prior_branch " +
+            "WHEN landing_state IN ('landed', 'superseded') THEN NULL ELSE delivery_branch END, " +
+            "prior_uncommitted_files = CASE WHEN delivery_uncommitted_files IS NULL THEN prior_uncommitted_files " +
+            "ELSE NULLIF(delivery_uncommitted_files, 0) END, " +
             DELIVERY_SNAPSHOT_COLUMNS.map((c) => `${c} = NULL`).join(", ") + ", " +
             "landing_state = NULL, landing_checked_at = NULL, landing_witnessed = 0, updated_at = ? WHERE id = ?",
         ).run(target, ts, taskId);
@@ -4648,6 +4888,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             "reopened_at = NULL, reopened_by = NULL, reopened_actor = NULL, updated_at = ? WHERE id = ?",
         ).run(target, ts, ts, taskId);
       }
+      // The human decision ends the review round and its column: a stage left
+      // behind would decide where the NEXT delivery lands (even a system one).
+      if (row.stage != null || row.human_ask != null) db.prepare("UPDATE tasks SET stage = NULL, human_ask = NULL WHERE id = ?").run(taskId);
       logStatus(taskId, "review", target, by, null, origin);
       // As in `update()`: this door writes the status in raw SQL and does not
       // go through there. Approving and rejecting are both "I looked at it".
@@ -4966,6 +5209,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // Re-append the root at the end of the target board; children keep their
       // relative order (kanban_order is just a per-board sort key).
       db.prepare("UPDATE tasks SET kanban_order = ? WHERE id = ?").run((maxRow?.m ?? 0) + 1, taskId);
+      dropStageOutsideTarget(db, taskId, target);
       return rowToTask(getTaskRow(taskId));
     },
 
@@ -4975,6 +5219,28 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
 
     liveAgents(scope): number {
       return liveAgentCount(db, scope?.projectId ?? null);
+    },
+
+    overflowToMachine({ taskId, machineId, localMachineId }): Task | null {
+      const ts = now();
+      const res = db.prepare(
+        `UPDATE tasks SET machine_id = ?, overflowed_at = ?, updated_at = ?
+          WHERE id = ? AND status = 'todo' AND assigned_topic_id IS NULL AND archived = 0
+            AND stay_local = 0 AND (machine_id IS NULL OR machine_id = ?)
+            AND delegated_start_capability_id IS NULL
+            AND (claude_task_id IS NULL OR claude_task_id NOT LIKE 'node-run:%')
+            AND COALESCE(delivery_uncommitted_files, 0) = 0 AND COALESCE(prior_uncommitted_files, 0) = 0`,
+      ).run(machineId, ts, ts, taskId, localMachineId ?? "");
+      if (res.changes === 0) return null;
+      const row = getTaskRow(taskId);
+      return row ? rowToTask(row) : null;
+    },
+
+    countOnMachine(machineId: string): number {
+      const row = db.prepare(
+        "SELECT COUNT(*) AS n FROM tasks WHERE machine_id = ? AND status IN ('todo', 'in_progress') AND archived = 0",
+      ).get(machineId) as { n: number } | null;
+      return row?.n ?? 0;
     },
 
     claim({ taskId, cap, maxAttempts, agentId, scope, machineIdle, noCheckExemption, remote }): Task | null {
@@ -5319,11 +5585,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // instant later would be a number that first drawing never saw.
         "UPDATE tasks SET status = 'review', dispatch_state = 'needs_input', dispatch_error = NULL, " +
           "wait_streak = 0, wait_reason = NULL, wait_since = NULL, review_at = ?, " +
-          "delivery_uncommitted_files = ?, " +
+          "delivery_uncommitted_files = ?, prior_uncommitted_files = NULL, " +
           "delivered_by = 'system', delivered_reason = ?, updated_at = ? WHERE id = ?",
       ).run(ts, typeof uncommittedFiles === "number" ? uncommittedFiles : null, cause ?? null, ts, taskId);
       if (row.status !== "review") logStatus(taskId, row.status, "review", "dispatcher");
       markReopened(taskId, row.status, "review", "system", "dispatcher");
+      // THE BOARD'S WORKFLOW ROUTES THIS DELIVERY TOO: a machine card goes
+      // back to whoever opened it unless the AGENT's last word (not the
+      // thread's: this door writes its own notes under it) asks the person.
+      routeSystemDelivery(taskId, agentAskOnThread(taskId));
       // Open the pending review approval so the review decision flow works, just
       // like an agent-initiated hand-off would.
       try {
@@ -5477,6 +5747,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       ).run(question, ts, ts, taskId);
       if (row.status !== "review") logStatus(taskId, row.status, "review", by ?? "dispatcher");
       markReopened(taskId, row.status, "review", "system", by ?? "dispatcher");
+      // A question for a person by construction: on a board with Human review
+      // it goes there, whoever opened the card.
+      routeSystemDelivery(taskId, question);
       // L'approvazione pendente serve al flusso di review: la risposta rapida
       // arriva su quella porta, ed è anche ciò che la chiude quando il task esce.
       try {
@@ -5692,6 +5965,19 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         if (row) alerted.push(rowToTask(row));
       }
       return alerted;
+    },
+
+    applyBoardWorkflow({ scope, preset }): Task[] {
+      writeBoardWorkflow(db, scope, preset, now());
+      return clearStagesOutsideWorkflow(db, scope, now()).map((id) => rowToTask(getTaskRow(id)));
+    },
+
+    sweepStaleAiReview(): Task[] {
+      const ts = now();
+      return stampStaleAiReview(db, ts, failedAiReviewReminders).map((id) => {
+        announceAiReview(id, true, ts);
+        return rowToTask(getTaskRow(id));
+      });
     },
 
     resolveParkedChildren({ taskId, decision, by }): { task: Task; children: Task[] } | null {
@@ -6308,7 +6594,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // vecchio: un dato che non si aggiorna insieme al suo soggetto mente.
       db.prepare(
         "UPDATE tasks SET delivery_branch = ?, delivery_commit = ?, landing_state = NULL, " +
-        "landing_checked_at = NULL, landing_witnessed = 0, " +
+        "landing_checked_at = NULL, landing_witnessed = 0, prior_uncommitted_files = NULL, " +
         "delivery_files_changed = ?, delivery_insertions = ?, delivery_deletions = ? WHERE id = ?",
       ).run(
         branch || null, commit || null,
@@ -6602,6 +6888,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // AICTRL-05: default board dello switch; NULL = nessuna scelta su questa board (ordine di risoluzione in shared/board.ts). allow-italian: dice cosa significa NULL in colonna
         dispatchTopicsRouting: r?.dispatch_topics_routing == null ? null : !!r.dispatch_topics_routing,
         dispatchMachineId: r?.dispatch_machine_id ?? null,
+        // ON unless a person switched it off: an absent column or row is the default.
+        dispatchOverflow: r?.dispatch_overflow == null ? true : !!r.dispatch_overflow,
+        dispatchStayLocal: !!r?.dispatch_stay_local,
         language: r?.language ?? "inherit",
         // NULL = 1: una board che non ha mai sentito parlare di fan-out dispaccia
         // un agente per task, com'è sempre stato.
@@ -6674,6 +6963,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         sets.push("dispatch_machine_id = ?");
         params.push((patch.dispatchMachineId ?? "").trim() || null);
       }
+      if (patch.dispatchOverflow !== undefined) { sets.push("dispatch_overflow = ?"); params.push(patch.dispatchOverflow ? 1 : 0); }
+      if (patch.dispatchStayLocal !== undefined) { sets.push("dispatch_stay_local = ?"); params.push(patch.dispatchStayLocal ? 1 : 0); }
       if (patch.language !== undefined) { sets.push("language = ?"); params.push(patch.language && patch.language !== "inherit" ? patch.language : null); }
       // Tetto a 5: oltre, il fan-out non è più "confronto fra alternative" ma un
       // modo di saturare la macchina — e ogni tentativo è un agente vero che
