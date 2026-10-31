@@ -48,7 +48,12 @@ test.describe.serial("Descrizione del sotto-agente: il corpo solo se la riga la 
   });
 
   /** One assistant turn that ran a sub-agent with this description. */
-  async function seedSubAgent(request: APIRequestContext, id: string, description: string) {
+  async function seedSubAgent(
+    request: APIRequestContext,
+    id: string,
+    description: string,
+    permission = false,
+  ) {
     const u = await seedMessage(request, {
       sessionKey,
       role: "user",
@@ -70,6 +75,9 @@ test.describe.serial("Descrizione del sotto-agente: il corpo solo se la riga la 
           detail: { type: "sub_agent", subAgentType: "Explore", description, actions: [], result: "ok" },
           startedAt: Date.now() - 4200,
           endedAt: Date.now() - 4100,
+          ...(permission
+            ? { permissionRequest: { id: `perm-${id}`, tool: "Task" }, permissionOutcome: { decision: "allow_once" } }
+            : {}),
         },
       ],
       latencyMs: 3900,
@@ -128,5 +136,82 @@ test.describe.serial("Descrizione del sotto-agente: il corpo solo se la riga la 
     const body = bodyOf(page, id);
     await expect(body).toHaveCount(1);
     await expect(body).toHaveText(DESCRIPTION_45);
+  });
+
+  test("the row never lays out without the body while the description is cut (ResizeObserver, 900 px)", async ({ page, request }) => {
+    const id = "tc-sub-90-observer";
+    await seedSubAgent(request, id, DESCRIPTION_90);
+    // Record, at every resize callback, whether the body is in the row.
+    await page.addInitScript(() => {
+      const seen: boolean[] = [];
+      (window as unknown as { __subAgentSeen: boolean[] }).__subAgentSeen = seen;
+      const Native = window.ResizeObserver;
+      window.ResizeObserver = class extends Native {
+        constructor(cb: ResizeObserverCallback) {
+          super((entries, obs) => {
+            const row = document.querySelector('[data-testid="tool-call-row-tc-sub-90-observer"]');
+            if (row) seen.push(!!row.querySelector('[data-testid="sub-agent-description"]'));
+            cb(entries, obs);
+          });
+        }
+      };
+    });
+    await page.setViewportSize({ width: 900, height: 900 });
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+    await expect(bodyOf(page, id)).toHaveCount(1, { timeout: 15_000 });
+    const seen = await page.evaluate(() => (window as unknown as { __subAgentSeen: boolean[] }).__subAgentSeen);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every(Boolean)).toBe(true);
+  });
+
+  test("a Task with a permission and a cut row carries the whole text in the body (900 px)", async ({ page, request }) => {
+    const id = "tc-sub-90-permission";
+    await seedSubAgent(request, id, DESCRIPTION_90, true);
+    await page.setViewportSize({ width: 900, height: 900 });
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+    const body = bodyOf(page, id);
+    await expect(body).toHaveCount(1, { timeout: 15_000 });
+    await expect(body).toHaveText(DESCRIPTION_90);
+  });
+
+  test("resize 1440 -> 900 -> 1440: the body appears and goes away with the cut", async ({ page, request }) => {
+    const id = "tc-sub-90-resize";
+    await seedSubAgent(request, id, DESCRIPTION_90);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+    const row = page.locator(`[data-testid="tool-call-row-${id}"]`);
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await expect(bodyOf(page, id)).toHaveCount(0);
+    await page.setViewportSize({ width: 900, height: 900 });
+    await expect(bodyOf(page, id)).toHaveCount(1);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(bodyOf(page, id)).toHaveCount(0);
+  });
+
+  test("back from another topic the row keeps its height, and the description stays at a hidden pane", async ({ page, request }) => {
+    const id = "tc-sub-90-return";
+    await seedSubAgent(request, id, DESCRIPTION_90);
+    const other = await createTopic(request, "Sub-agent other " + Date.now());
+    await page.setViewportSize({ width: 900, height: 900 });
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+    const row = page.locator(`[data-testid="tool-call-row-${id}"]`);
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await expect(bodyOf(page, id)).toHaveCount(1);
+    const before = (await row.boundingBox())?.height ?? -1;
+    await openTopic(page, new RegExp(other.name));
+    await openTopic(page, new RegExp(topicName));
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await expect(bodyOf(page, id)).toHaveCount(1);
+    const after = (await row.boundingBox())?.height ?? -2;
+    expect(after).toBe(before);
+    await deleteTopic(request, other.id);
   });
 });
