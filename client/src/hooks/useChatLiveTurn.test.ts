@@ -81,6 +81,8 @@ interface Driver {
   /** Text of every message of the session, in order. */
   texts(): string[];
   ids(): string[];
+  /** One more animation frame, with no frame of the socket in it. */
+  frame(): void;
   unmount(): void;
 }
 
@@ -111,6 +113,10 @@ function drive(): Driver {
     },
     texts: () => api().getSessionMessages(sessionKey).map((m) => m.content ?? ''),
     ids: () => api().getSessionMessages(sessionKey).map((m) => m.id),
+    frame() {
+      flushFrames();
+      harness.rerender();
+    },
     unmount: () => harness.unmount(),
   };
 }
@@ -491,6 +497,9 @@ describe('a stop the machine wanted leaves no interruption banner', () => {
         d.ws({ type: 'stream:start', messageId: LIVE });
         d.ws({ type: 'stream:content_chunk', content: PRIMA });
         d.ws({ type: 'stream:end', messageId: LIVE, ...end });
+        // The end waits for the frame that paints the words before it
+        // (`textPaintGate.ts`): they came in the frame it arrived in.
+        d.frame();
         const causesOf = (msgs: Array<{ blocks?: Array<{ kind: string; cause?: string }> | null }> | null) =>
           (msgs ?? []).flatMap((m) => (m.blocks ?? []).filter((b) => b.kind === 'error').map((b) => b.cause ?? ''));
         expect(causesOf(d.chat.getSessionMessages(sk))).toEqual(causes);
@@ -502,6 +511,45 @@ describe('a stop the machine wanted leaves no interruption banner', () => {
       }
     });
   }
+});
+
+describe('the end of a turn waits for the frame that paints its last words (card 40ea050c)', () => {
+  test('text and end in the same frame: the end, and what comes behind it, land a painted frame later, in order', () => {
+    const d = drive();
+    const sk = keyOf();
+    d.ws({ type: 'stream:start', messageId: LIVE });
+    // The words are committed in this frame (`ws` drains the frame it
+    // queued); the end and a frame of the next turn come before any other.
+    d.ws({ type: 'stream:content_chunk', content: PRIMA });
+    const frame = (f: Record<string, unknown>) => d.chat.onWSMessage({ sessionKey: sk, ...f } as unknown as WSMessage);
+    frame({ type: 'stream:end', messageId: LIVE });
+    frame({ type: 'stream:start', messageId: 'a1b2c3d4-0000-4000-8000-0000000000aa' });
+    const live = () => d.chat.getSessionMessages(sk).find((m) => m.id === LIVE);
+    // Still live, so the loader is there while the words are painted.
+    expect(live()?.content).toBe(PRIMA);
+    expect(live()?.partial).toBe(true);
+    // The frame that renders them: not painted yet when its callbacks run.
+    d.frame();
+    expect(live()?.partial).toBe(true);
+    d.frame();
+    expect(live()?.partial).toBeFalsy();
+    // The next turn started after the end, not before it.
+    expect(d.chat.getSessionMessages(sk).at(-1)?.partial).toBe(true);
+    expect(d.chat.getSessionMessages(sk).at(-1)?.id).not.toBe(LIVE);
+    d.unmount();
+  });
+
+  test('an end with nothing left to paint closes at once', () => {
+    const d = drive();
+    const sk = keyOf();
+    d.ws({ type: 'stream:start', messageId: LIVE });
+    d.ws({ type: 'stream:content_chunk', content: PRIMA });
+    d.frame();
+    d.frame();
+    d.ws({ type: 'stream:end', messageId: LIVE });
+    expect(d.chat.getSessionMessages(sk).find((m) => m.id === LIVE)?.partial).toBeFalsy();
+    d.unmount();
+  });
 });
 
 describe("a closed turn's late answer waits for the frame, like the live one", () => {
