@@ -76,7 +76,10 @@ test.describe.serial("Descrizione del sotto-agente: il corpo solo se la riga la 
           startedAt: Date.now() - 4200,
           endedAt: Date.now() - 4100,
           ...(permission
-            ? { permissionRequest: { id: `perm-${id}`, tool: "Task" }, permissionOutcome: { decision: "allow_once" } }
+            ? {
+                permissionRequest: { toolName: "Task", input: { description, subagent_type: "Explore" }, requestedAt: Date.now() - 4150 },
+                permissionOutcome: { decision: "allow", decidedAt: new Date(Date.now() - 4100).toISOString() },
+              }
             : {}),
         },
       ],
