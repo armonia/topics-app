@@ -1367,16 +1367,17 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           contain: 'layout paint',
         }}
       >
-        {/* The gap is on this outer box, not on the one xterm mounts into: FitAddon
-            sizes the rows and columns from the mount's own box, so padding on it
-            is counted as rows and columns that do not fit. */}
+        {/* xterm mounts into an absolutely positioned box inset by the gap, not into
+            a padded or `h-full` one. FitAddon reads the mount's computed height: while
+            the pane is hidden (display: none) a `height: 100%` reads back as "100%",
+            parses to 100 rows and sends a real 11x4 resize to the PTY. An inset box
+            reads "auto" there, and FitAddon proposes nothing. */}
         <div
           data-testid="terminal-gap-box"
           className="absolute inset-0"
-          style={{ padding: TERMINAL_PADDING_PX }}
           onClick={() => termRef.current?.term.focus()}
         >
-          <div ref={containerRef} className="h-full w-full" />
+          <div ref={containerRef} className="absolute" style={{ inset: TERMINAL_PADDING_PX }} />
         </div>
         {/* The last screen, or the skeleton, until xterm has drawn the replay. */}
         {!replayDrawn && (scrollbackSeed || !stale) && <TerminalCover ref={seedRef} copy={scrollbackSeed} />}

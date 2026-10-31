@@ -699,7 +699,17 @@ export function UnknownCard({ args, result }: { args?: Record<string, unknown>; 
 // ── Dispatcher ──────────────────────────────────────────────────────────────
 
 
-export function ToolCardBody({ detail, isError, error, isRunning, sessionKey, liveResult }: {
+/** Card bodies set their own leading: they would otherwise inherit the body's 1.5
+ *  (11 px text at 16.5 px lines). 1.25 is the leading of chat code blocks. */
+export function ToolCardBody(props: Parameters<typeof ToolCardBodyDetail>[0]) {
+  return (
+    <div className="leading-[1.25]">
+      <ToolCardBodyDetail {...props} />
+    </div>
+  );
+}
+
+function ToolCardBodyDetail({ detail, isError, error, isRunning, sessionKey, liveResult }: {
   detail: ToolCallDetail; isError?: boolean; error?: string; isRunning?: boolean;
   /** Serve alle sole card delle shell in background: è la metà della chiave
    *  con cui la shell sta nel registro dei processi. */
