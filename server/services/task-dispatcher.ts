@@ -38,7 +38,7 @@ import { decideNight, deadlineFrom } from "./night-mode";
 import { DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, effectiveDispatchCap, type MemoryFloorHold, type ResourceFloorKind, type ResourceFloorVerdict } from "./dispatch-capacity";
 import type { HeldMemory } from "./mem-signal";
 import type { DispatchMemoryHistoryPoint } from "./dispatch-memory-history";
-import { NoCheckExemptionLedger } from "./dispatch-no-check-exemption";
+import { NoCheckExemptionLedger, reservationForRuntime } from "./dispatch-no-check-exemption";
 import { createNoCheckReservationManager } from "./dispatch-no-check-reservations";
 import { createCardPrices } from "./dispatch-card-price";
 import { createCardWeightMeter } from "./dispatch-card-weight";
@@ -670,6 +670,8 @@ export interface TaskDispatcher {
    * is the gate's and not a second opinion.
    */
   admissionPreview?(projectId?: string | null): DispatchAdmission | null;
+  /** The same, priced for one sub-agent: what the spawn door asks in "by resources" mode. */
+  childAdmissionPreview?(): DispatchAdmission | null;
   /** Read-only data for the dispatch memory dashboard. */
   memoryQueueSnapshot(): DispatchMemoryQueueSnapshot;
   /** One reading of the server's process tree in GB, on the `[memsig]` minute: it weighs the local cards in flight. */
@@ -1251,6 +1253,20 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    *  still under the line, and saying "le risorse sono rientrate" there is a lie
    *  on the one line the board's history is read from. */
   let lastAdmissionBlock: ResourceFloorKind | "exempt" | null = null;
+  /** The floor and the budget have each offered a derogation that no launch has used yet. */
+  let floorExemptPending = false;
+  let budgetExemptPending = false;
+  /** The claim that USES a derogation says so, with the card; with no launchable card nothing is written. */
+  function noteDerogationUsed(taskId: string): void {
+    if (floorExemptPending) {
+      floorExemptPending = false;
+      log(`pavimento memoria ancora sotto la riga, ma nessun lavoro di Topics è in volo: la card ${taskId} passa per deroga, e il pavimento torna pieno appena è partita`);
+    }
+    if (budgetExemptPending) {
+      budgetExemptPending = false;
+      log(`budget superato ma nessun agent al lavoro: il primo parte comunque (card ${taskId})`);
+    }
+  }
   /**
    * HOW LONG THE QUEUE WAS HELD, so it can be said with a number. It MEASURES
    * and nothing else: under the floor no card starts and `dispatchFanOut`
@@ -1372,8 +1388,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * so it charges N x price itself.
    */
   let lastMemoryStartGB: number | null = null;
-  function floorVerdict(cleanupReservations = true, projectId?: string | null): ResourceFloorVerdict {
-    const price = agentMemPrice(projectId);
+  function floorVerdict(cleanupReservations = true, projectId?: string | null, priceGB?: number): ResourceFloorVerdict {
+    const price = priceGB ?? agentMemPrice(projectId);
     const launchEntries = regularLocalLaunchEntries(cleanupReservations);
     const launches = launchEntries.map(([, at]) => at);
     const checks = (() => { try { return deps.checksRunning?.() ?? 0; } catch { return 0; } })();
@@ -1458,9 +1474,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const state: ResourceFloorKind | "exempt" | null =
         verdict.kind ?? (verdict.memoryFirstCardExempt ? "exempt" : null);
       if (state !== lastAdmissionBlock) {
-        if (state === "exempt") log("pavimento memoria ancora sotto la riga, ma nessun lavoro di Topics è in volo: passa UNA card per deroga, e il pavimento torna pieno appena è partita");
-        else if (state) log(`coda ferma — ${reason}`);
-        else if (lastAdmissionBlock) log("coda ripartita: le risorse sono rientrate sopra il pavimento");
+        // The derogation is not announced here: nothing may be launchable (every
+        // card behind a blocker), and the line would describe an admission that
+        // never happened. It is written by the claim that uses it (`noteDerogationUsed`).
+        floorExemptPending = state === "exempt";
+        if (state && state !== "exempt") log(`coda ferma — ${reason}`);
+        else if (!state && lastAdmissionBlock) log("coda ripartita: le risorse sono rientrate sopra il pavimento");
         // The same comparison that decides the log line counts the episode:
         // two truths off one transition cannot drift apart. A real block
         // opens it, anything else (the derogation included) closes it.
@@ -1596,6 +1615,22 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     });
   }
   /**
+   * The same preview for ONE SUB-AGENT: the door that opens children asks it in
+   * "by resources" mode, where the number of agents does not apply. A child is
+   * an agent and its light commands (`reservationForRuntime`), not the typical
+   * card of a board, which carries a worktree and the repo gates.
+   */
+  function childAdmissionPreview(): DispatchAdmission | null {
+    const price = reservationForRuntime(deps.isCliRuntime?.() ?? false);
+    return buildDispatchAdmissionPreview({
+      drainBlock,
+      floorVerdict: () => floorVerdict(false, undefined, price),
+      globalCap: () => deps.svc.getGlobalCap(),
+      budgetVerdict: (cap) => budgetVerdict(cap, price),
+      memoryClause,
+    });
+  }
+  /**
    * A LIGHT CARD IS HELD BY THE MEMORY GATES ONLY IF IT WOULD STILL BE HELD AT
    * ITS OWN PRICE. The machine verdict above is one state machine per machine
    * (its log lines, its episodes, its hysteresis) and reads the dearer price, so
@@ -1629,10 +1664,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // Not a block, but not a free machine either: the log says why the
         // first one went through, once, or the next "why did that start on a
         // loaded Mac" costs somebody a read of the shared contract.
-        if (!firstAgentExemptNoted) log("budget superato ma nessun agent al lavoro: il primo parte comunque");
+        if (!firstAgentExemptNoted) budgetExemptPending = true; // said by the claim that uses it
         firstAgentExemptNoted = true;
       } else {
         firstAgentExemptNoted = false;
+        budgetExemptPending = false;
       }
       const reason = verdict.admit ? null : machineBudgetMessage(verdict, sample.cores, share, mem);
       if (verdict.blockedBy && verdict.blockedBy !== lastPressureAxis && reason) log(`coda in attesa per budget: ${reason}`);
@@ -5800,6 +5836,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         continue;
       }
       clearGrace(t.id);
+      if (!remoteTask) noteDerogationUsed(t.id);
       // Il claim è riuscito: l'episodio «tetto pieno» di questa card è chiuso, e
       // va dimenticato QUI. La ripulitura in cima al ciclo guarda solo chi è
       // ancora fra i `todos`, e un task appena partito non lo è più: senza
@@ -6721,7 +6758,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     taskForSession: taskWaitingOnSession,
     sessionsInFlight: () => [...inFlight.values()].map((slot) => slot.sessionKey).filter((sk): sk is string => typeof sk === "string" && !!sk),
     tick, onEnterTodo, onLeaveTodo, deferWait, onBlockerDone, resume, reconcile, markInterrupted,
-    revokeDelegatedCapability, shutdown, nightStatus, admissionPreview, memoryQueueSnapshot,
+    revokeDelegatedCapability, shutdown, nightStatus, admissionPreview, childAdmissionPreview, memoryQueueSnapshot,
     sampleCardWeight: (treeGB) => cardWeights.sample(treeGB, [...inFlight].filter(([, slot]) => !slot.node && !isNodeSessionKey(slot.sessionKey))
       .flatMap(([taskId]) => { try { const projectId = deps.svc.get(taskId)?.task.projectId; return projectId ? [{ taskId, projectId }] : []; } catch { return []; } })),
     startAnyway: manualMemoryStart.startAnyway,

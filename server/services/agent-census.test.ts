@@ -154,6 +154,37 @@ describe("il tetto conta le figlie", () => {
     expect(boardSpawnRefusal(db, { parentSessionKey: b.sessionKey, cap: 3 }).ok).toBe(false);
   });
 
+  /** [13] Same door, "by resources": the number of agents does not apply, the machine's verdict does. */
+  test("per risorse il numero non conta: con la macchina che ammette, la figlia passa anche oltre il tetto", () => {
+    const t = dispatchedTask(db);
+    child(db, t.sessionKey);
+    child(db, t.sessionKey);
+    const admit = { resources: { admission: { admit: true, blockedBy: null } } };
+    expect(liveAgentCount(db)).toBe(3);
+    expect(boardSpawnRefusal(db, { parentSessionKey: t.sessionKey, cap: 3 }).ok).toBe(false);
+    expect(boardSpawnRefusal(db, { parentSessionKey: t.sessionKey, cap: 3, ...admit })).toEqual({ ok: true });
+  });
+
+  test("per risorse una macchina piena rifiuta anche la prima figlia di una card sola", () => {
+    const t = dispatchedTask(db);
+    const full = { resources: { admission: { admit: false, blockedBy: "memory" } } };
+    expect(boardSpawnRefusal(db, { parentSessionKey: t.sessionKey, cap: 99, ...full })).toEqual({ ok: false, code: "machine", blockedBy: "memory" });
+  });
+
+  test("per risorse una macchina non misurabile lascia passare, come il dispatcher senza campione", () => {
+    const t = dispatchedTask(db);
+    expect(boardSpawnRefusal(db, { parentSessionKey: t.sessionKey, cap: 1, resources: { admission: null } })).toEqual({ ok: true });
+  });
+
+  test("per risorse la profondita' 1 vale ancora, e una chat dell'umano passa senza domande", () => {
+    const t = dispatchedTask(db);
+    const c = child(db, t.sessionKey);
+    const admit = { resources: { admission: { admit: true, blockedBy: null } } };
+    expect(boardSpawnRefusal(db, { parentSessionKey: c, cap: 99, ...admit })).toEqual({ ok: false, code: "depth" });
+    const full = { resources: { admission: { admit: false, blockedBy: "cpu" } } };
+    expect(boardSpawnRefusal(db, { parentSessionKey: topicSessionKey(topicUuid("topic-libero")), cap: 1, ...full })).toEqual({ ok: true });
+  });
+
   test("una figlia non apre nipoti: profondita' 1", () => {
     const t = dispatchedTask(db);
     const c = child(db, t.sessionKey);

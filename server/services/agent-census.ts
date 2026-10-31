@@ -320,6 +320,7 @@ export function orphanChildSessions(db: Database): string[] {
 export type SpawnRefusal =
   | { ok: true }
   | { ok: false; code: "cap"; live: number; cap: number }
+  | { ok: false; code: "machine"; blockedBy: string | null }
   | { ok: false; code: "depth" };
 
 /**
@@ -344,11 +345,26 @@ export type SpawnRefusal =
  */
 export function boardSpawnRefusal(
   db: Database,
-  args: { parentSessionKey: string; cap: number },
+  args: {
+    parentSessionKey: string;
+    cap: number;
+    /**
+     * Present = the board runs "by resources", where the NUMBER does not apply
+     * (the dispatcher ignores it) and the machine decides: the same preview the
+     * dispatcher's gate gives, priced for one sub-agent. One rule per mode, in
+     * both doors. `admission: null` is a machine that cannot be measured, which
+     * the dispatcher lets through as well.
+     */
+    resources?: { admission: { admit: boolean; blockedBy: string | null } | null };
+  },
 ): SpawnRefusal {
   const owner = boardTaskForSession(db, args.parentSessionKey);
   if (!owner) return { ok: true };
   if (owner.isChild) return { ok: false, code: "depth" };
+  if (args.resources) {
+    const admission = args.resources.admission;
+    return !admission || admission.admit ? { ok: true } : { ok: false, code: "machine", blockedBy: admission.blockedBy };
+  }
   const live = liveAgentCount(db);
   const cap = Math.max(1, Math.floor(args.cap) || 1);
   if (live >= cap) return { ok: false, code: "cap", live, cap };
