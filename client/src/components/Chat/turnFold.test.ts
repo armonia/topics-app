@@ -3,7 +3,7 @@
  * @covers CHAT-BROWSER-01
  */
 import { describe, expect, test } from 'bun:test';
-import { foldFinishedTurn, type FoldableGroup } from './turnFold';
+import { carryWatchedLive, foldFinishedTurn, noteWatchedLive, wasWatchedLive, type FoldableGroup } from './turnFold';
 import type { ToolCall } from '../../types';
 
 const tool = (id: string, status: ToolCall['status'] = 'success'): ToolCall =>
@@ -89,5 +89,35 @@ describe('the finished turn folds its work and shows its answer', () => {
   test('a recap that is the last text never becomes the folded answer', () => {
     const recap = text(2, 'This session is being continued from a previous conversation that ran out of context. Summary: ...');
     expect(foldFinishedTurn([tools(0, tool('a'), tool('b')), text(1, 'x'), recap], false)).toBeNull();
+  });
+});
+
+describe('the turn watched live stays spread out under its new name', () => {
+  test('the sender\'s reload renames the reply in place: the new id is watched too', () => {
+    noteWatchedLive('msg_carry_1');
+    const prev = [{ id: 'u1', role: 'user' }, { id: 'msg_user_1', role: 'user' }, { id: 'msg_carry_1', role: 'assistant' }];
+    const next = [{ id: 'u1', role: 'user' }, { id: 'srv-user-1', role: 'user' }, { id: 'srv-carry-1', role: 'assistant' }];
+    carryWatchedLive(prev, next);
+    expect(wasWatchedLive('srv-carry-1')).toBe(true);
+    expect(wasWatchedLive('srv-user-1')).toBe(false);
+  });
+
+  test('a page of older rows in front changes nothing: rows match from the end', () => {
+    noteWatchedLive('msg_carry_2');
+    const prev = [{ id: 'a', role: 'user' }, { id: 'msg_carry_2', role: 'assistant' }];
+    const next = [{ id: 'older', role: 'assistant' }, { id: 'a', role: 'user' }, { id: 'srv-carry-2', role: 'assistant' }];
+    carryWatchedLive(prev, next);
+    expect(wasWatchedLive('srv-carry-2')).toBe(true);
+    expect(wasWatchedLive('older')).toBe(false);
+  });
+
+  test('a row that is still there, or a row the list already held, takes nothing', () => {
+    noteWatchedLive('msg_carry_3');
+    carryWatchedLive([{ id: 'msg_carry_3', role: 'assistant' }], [{ id: 'msg_carry_3', role: 'assistant' }]);
+    carryWatchedLive([{ id: 'old-4', role: 'assistant' }, { id: 'msg_carry_3', role: 'assistant' }], [{ id: 'x', role: 'user' }, { id: 'old-4', role: 'assistant' }]);
+    expect(wasWatchedLive('old-4')).toBe(false);
+    // A turn nobody watched is not watched after a rename either.
+    carryWatchedLive([{ id: 'msg_unseen', role: 'assistant' }], [{ id: 'srv-unseen', role: 'assistant' }]);
+    expect(wasWatchedLive('srv-unseen')).toBe(false);
   });
 });

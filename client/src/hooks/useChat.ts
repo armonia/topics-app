@@ -11,6 +11,7 @@ import { clearPartialForReattach, reviveClosedBubble } from './streamReattachRes
 import { LiveTurnIds, carryLateStart, frameTargetIndex, lateStartContent, liveAssistantIndex, queueLateDelta, shouldFillFromBroadcast, takeLateDeltas, type LateDelta } from './liveTurn';
 import { liveInterruptionBlock } from '../components/Chat/turnError';
 import { mergeMediaSizes, type MediaSizes } from '../components/Chat/mediaBox';
+import { carryWatchedLive } from '../components/Chat/turnFold';
 import { decideCacheWrite } from './messageCacheWrite';
 import { decideCachePrune } from './messageCachePrune';
 import { mergeHistoryPage, mergeOlderHistory, pageOverlapsExisting, rowsAboveLocalCopy } from './historyPaging';
@@ -2269,7 +2270,13 @@ export function useChat() {
             content: cleanInvisibleMarkers(msg.content || ''),
             timestamp: msg.timestamp || new Date().toISOString(),
           }));
-        setMessages(prev => ({ ...prev, [sessionKey]: withRowsArrivedDuringOwnSse(sessionKey, prev[sessionKey], chatMessages) }));
+        setMessages(prev => {
+          const next = withRowsArrivedDuringOwnSse(sessionKey, prev[sessionKey], chatMessages);
+          // The reply this window just streamed, now under the server's id,
+          // stays spread out as it was drawn (`carryWatchedLive`).
+          carryWatchedLive(prev[sessionKey] ?? [], next);
+          return { ...prev, [sessionKey]: next };
+        });
         // Before the queue drains at the end of this send: what it holds already stored leaves it.
         dropStoredTurns(sessionKey, chatMessages);
         const finalAssistant = [...chatMessages].reverse().find((message) => message.role === 'assistant');
@@ -2857,6 +2864,9 @@ export function useChat() {
         // sotto gli occhi un secondo dopo il ricarico. Vedi reconcileMessages.
         const riconciliato = reconcileMessages(existing, merged);
         if (riconciliato === existing) return prev;
+        // The reply this window streamed keeps its spread-out shape under
+        // the server's id (`carryWatchedLive`).
+        carryWatchedLive(existing, riconciliato);
         return { ...prev, [sessionKey]: riconciliato };
       });
       if (boundaryId && !alreadyWhole) {
@@ -3025,7 +3035,11 @@ export function useChat() {
       // Like the reload at the end of a send: a row written beside the turn
       // that reached this window over the socket while the snapshot was in
       // flight stays.
-      setMessages(prev => ({ ...prev, [sessionKey]: withRowsArrivedDuringOwnSse(sessionKey, prev[sessionKey], chatMessages) }));
+      setMessages(prev => {
+        const next = withRowsArrivedDuringOwnSse(sessionKey, prev[sessionKey], chatMessages);
+        carryWatchedLive(prev[sessionKey] ?? [], next);
+        return { ...prev, [sessionKey]: next };
+      });
       const finalAssistant = [...chatMessages].reverse().find((message) => message.role === 'assistant');
       finishStreamTokenRate(sessionKey, finalAssistant?.usageCompletionTokens);
       hydratedSessionsRef.current.add(sessionKey);

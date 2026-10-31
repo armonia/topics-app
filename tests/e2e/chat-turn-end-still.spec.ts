@@ -48,6 +48,8 @@ test.use({ contextOptions: { reducedMotion: "no-preference" } });
 const REASONING = "Let me look at the question first.";
 const ANSWER = "ANSWER-STILL the answer, streamed live after the reasoning.";
 const ANSWER_REDACTED = "ANSWER-REDACTED the answer after a redacted reasoning block.";
+const ANSWER_TOOLS = "ANSWER-TOOLS the answer after a round of tools.";
+const echo = (word: string) => ({ name: "bash", input: { command: `echo ${word}` } });
 
 const SCRIPTS: Record<string, FakeRound[]> = {
   // The reasoning alone for a while, then the answer, then the turn stays
@@ -55,6 +57,19 @@ const SCRIPTS: Record<string, FakeRound[]> = {
   still: [{ thinking: REASONING, afterThinkingMs: 1_000, text: ANSWER, holdMs: 3_000 }],
   // A block that never carries text: nothing to reserve, nothing to vanish.
   redacted: [{ redactedThinking: true, afterThinkingMs: 1_000, text: ANSWER_REDACTED, holdMs: 3_000 }],
+  // Work enough to fold (`turnFold.ts`, two tools or more), then a last round
+  // with the answer alone. The turn this window watched must not fold when
+  // its reload renames it: the check of 31/10 saw the reasoning row vanish
+  // into «N actions», the text and the meta row move 0.6-0.7 px and the
+  // transcript above jump 107 px (2 tools) and 218 px (3 tools).
+  twotool: [
+    { thinking: REASONING, afterThinkingMs: 500, tools: [echo("one"), echo("two")] },
+    { text: ANSWER_TOOLS, holdMs: 3_000 },
+  ],
+  manytool: [
+    { thinking: REASONING, afterThinkingMs: 500, tools: [echo("one"), echo("two"), echo("three")] },
+    { text: ANSWER_TOOLS, holdMs: 3_000 },
+  ],
 };
 
 let fake: FakeAnthropic | null = null;
@@ -90,13 +105,15 @@ async function openChat(page: Page, name: string) {
   await page.getByRole("textbox", { name: /Campo del messaggio|Message input for/ }).waitFor({ state: "visible", timeout: 15_000 });
 }
 
-type Frame = { t: number; loader: boolean; row: number | null; text: number | null; meta: number | null; metaLive: boolean };
+type Frame = { t: number; loader: boolean; row: number | null; text: number | null; meta: number | null; metaLive: boolean; above: number | null };
 
 /**
  * Starts, in the page, a per-frame sampler of the LAST assistant bubble: found
  * again every frame by position, because the bubble changes id at the end of
  * the turn. It waits until the answer's text is on screen and every measured
  * top has held for 10 frames, then records until 1.5 s after the loader went.
+ * `above` is the prompt's bubble, the last user row: the transcript over the
+ * turn, which a bubble that shrank or grew would push.
  */
 async function startSampler(page: Page, marker: string): Promise<void> {
   await page.evaluate((marker) => {
@@ -117,7 +134,9 @@ async function startSampler(page: Page, marker: string): Promise<void> {
       const bubbles = document.querySelectorAll('[data-message-id][data-role="assistant"]');
       const bubble = bubbles[bubbles.length - 1] ?? null;
       const meta = bubble?.querySelector('[data-testid="message-meta-row"]') ?? null;
+      const prompts = document.querySelectorAll('[data-message-id][data-role="user"]');
       return {
+        above: topOf(prompts[prompts.length - 1] ?? null),
         loader: !!document.querySelector('[data-testid="chat-streaming-indicator"]'),
         row: bubble ? topOf(bubble.querySelector('[data-testid="reasoning-row"]')) : null,
         text: bubble ? textTop(bubble) : null,
@@ -133,7 +152,7 @@ async function startSampler(page: Page, marker: string): Promise<void> {
     const tick = () => {
       const s = sample();
       if (!recording) {
-        const same = !!previous && previous.row === s.row && previous.text === s.text && previous.meta === s.meta;
+        const same = !!previous && previous.row === s.row && previous.text === s.text && previous.meta === s.meta && previous.above === s.above;
         steady = s.loader && s.text !== null && same ? steady + 1 : 0;
         previous = s;
         if (steady >= 10) { recording = true; t0 = performance.now(); }
@@ -165,7 +184,7 @@ const spread = (values: Array<number | null>) => {
 
 /** The end of the turn as one window lived it: the loader went, nothing moved. */
 function judge(who: string, frames: Frame[], opts: { row: boolean }) {
-  const report = `${who}: ${frames.length} frames, row ${spread(frames.map((f) => f.row)).toFixed(2)} px, text ${spread(frames.map((f) => f.text)).toFixed(2)} px, meta ${spread(frames.map((f) => f.meta)).toFixed(2)} px`;
+  const report = `${who}: ${frames.length} frames, row ${spread(frames.map((f) => f.row)).toFixed(2)} px, text ${spread(frames.map((f) => f.text)).toFixed(2)} px, meta ${spread(frames.map((f) => f.meta)).toFixed(2)} px, above ${spread(frames.map((f) => f.above)).toFixed(2)} px`;
   console.log(`TURN-END ${report}`);
   // The window holds both sides of the end: the loader on, then gone.
   expect(frames.some((f) => f.loader), report).toBe(true);
@@ -174,11 +193,13 @@ function judge(who: string, frames: Frame[], opts: { row: boolean }) {
   // On screen in every frame: the end neither removes nor re-inserts them.
   expect(frames.filter((f) => f.text === null), report).toHaveLength(0);
   expect(frames.filter((f) => f.meta === null), report).toHaveLength(0);
+  expect(frames.filter((f) => f.above === null), report).toHaveLength(0);
   if (opts.row) expect(frames.filter((f) => f.row === null), report).toHaveLength(0);
   else expect(frames.filter((f) => f.row !== null), report).toHaveLength(0);
   expect(spread(frames.map((f) => f.row)), report).toBe(0);
   expect(spread(frames.map((f) => f.text)), report).toBe(0);
   expect(spread(frames.map((f) => f.meta)), report).toBe(0);
+  expect(spread(frames.map((f) => f.above)), report).toBe(0);
 }
 
 test.describe("the end of a turn moves nothing, in the window that sent it and in another", () => {
@@ -239,4 +260,28 @@ test.describe("the end of a turn moves nothing, in the window that sent it and i
     await viewer.close();
     await deleteTopic(request, topic.id).catch(() => {});
   });
+
+  for (const scen of ["twotool", "manytool"] as const) {
+    test(`a turn with work enough to fold (${scen}) does not fold under the eyes of the window that sent it`, async ({ page, request, chatPage, context }) => {
+      const topic = await nativeTopic(request, `turn-end-${scen}`);
+      const viewer = await context.newPage();
+      await openChat(viewer, topic.name);
+      await openChat(page, topic.name);
+
+      await startSampler(page, "ANSWER-TOOLS");
+      await startSampler(viewer, "ANSWER-TOOLS");
+      await chatPage.sendMessage(`SCEN:${scen} go`);
+
+      const sender = await framesOf(page);
+      const second = await framesOf(viewer);
+      judge("sender", sender, { row: true });
+      judge("second window", second, { row: true });
+      // Spread out, as it streamed: no «N actions» row over the answer.
+      const last = page.locator('[data-message-id][data-role="assistant"]').last();
+      await expect(last.getByTestId("reasoning-row")).toBeVisible();
+      await expect(last.getByTestId("turn-work-fold")).toHaveCount(0);
+      await viewer.close();
+      await deleteTopic(request, topic.id).catch(() => {});
+    });
+  }
 });
