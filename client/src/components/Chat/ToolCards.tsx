@@ -37,6 +37,7 @@ import { useWaitedProcess } from '../../hooks/useWaitedProcess';
 import { LaunchedProcessTail, LiveShellTail } from './LiveShellTail';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { liveShellTail } from './runningShellTail';
+import { subAgentBodyDescription } from './toolDetail';
 
 /**
  * Monospace block with lazy syntax highlighting. hljs ESCAPES the source and
@@ -729,7 +730,7 @@ export function ToolCardBody({ detail, isError, error, isRunning, sessionKey, li
     case 'sub_agent':
       // Topics' `spawn_agent`: a child with a pane, a live state and results of its own.
       if (detail.via === 'spawn_agent') return <SpawnAgentCard detail={detail} sessionKey={sessionKey} isRunning={isRunning} isError={isError} error={error} />;
-      return <SubAgentCard actions={detail.actions} result={detail.result} isRunning={isRunning} description={detail.description !== detail.subAgentType ? detail.description : undefined} />;
+      return <SubAgentCard actions={detail.actions} result={detail.result} isRunning={isRunning} description={subAgentBodyDescription(detail)} />;
     case 'plan':
       return <PlanCard text={detail.text} />;
     case 'mcp':
