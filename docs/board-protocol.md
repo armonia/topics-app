@@ -188,6 +188,21 @@ queste regole.
    commento di sintesi nel thread + spostamento in `review` fatto DALL'AGENTE
    (`update_task(status="review")`). L'umano approva; l'agente non porta mai a `done`.
 
+1-ter. **Su una board con il workflow `armonia` la review ha due colonne**
+   (`shared/workflow.ts`). Una card aperta da un agente o da una schedulazione
+   consegnata SENZA domanda va in **AI review**: torna a chi l'ha aperta, che la
+   chiude con la prova (`update_task(status="done", summary=<prova>)`), o al
+   coordinatore se chi l'ha aperta non ha una chat (`agent:api`, cron). Arriva in
+   **Human review** solo con una domanda per la persona, in uno di due modi
+   equivalenti:
+   - `human_ask` = la domanda, insieme alla consegna o con `stage="human_review"`;
+   - un commento dell'agente con `options` (il blocco ```question```) che sia
+     l'ultima parola del thread al momento della consegna, oppure scritto DOPO,
+     mentre la card sta in AI review: in quel caso la card passa da sola in Human
+     review e la domanda diventa il suo `human_ask`.
+   Le opzioni che sono solo azioni della board («Landa su main») non sono una
+   domanda. Una card aperta da una persona va sempre in Human review.
+
 1-bis. **Una card in review si deve poter LEGGERE senza rileggere il diff.**
    Quando un turno viene tagliato prima che l'agente commenti (riavvio del
    server, watchdog, sessione morta) la card sale in `review` con un ramo

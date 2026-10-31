@@ -354,3 +354,62 @@ describe("review of 31/10: whoever opens a card closes it, and review only with 
     expect(s.applyBoardWorkflow({ scope: "*", preset: null }).map((t) => t.id)).toEqual([a.id]);
   });
 });
+
+describe("third review of 31/10: the agent's question is a question, however it is asked", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => {
+    ({ db, s } = setup());
+    writeBoardWorkflow(db, PID, "armonia", "2026-10-30T10:00:00.000Z");
+    _resetAiReviewNotices();
+  });
+
+  function apiCard() {
+    const t = s.create({ projectId: PID, text: "card from the board API", status: "todo", createdBy: "agent:api", priority: 1, description: "bar" });
+    db.run("UPDATE tasks SET status = 'in_progress', assigned_topic_id = ?, dispatch_state = 'working' WHERE id = ?", [WORKER, t.id]);
+    return t;
+  }
+  const ask = (id: string, content = "Which layout do you prefer?") =>
+    s.addComment({ taskId: id, author: `agent:${WORKER}`, content, questionOptions: ["A (recommended)", "B"] });
+
+  test("2. a question in the thread, then the delivery without human_ask: Human review with the question", () => {
+    const a = apiCard();
+    ask(a.id);
+    const d = deliver(s, a.id);
+    expect(d.stage).toBe("human_review");
+    expect(d.humanAsk).toBe("Which layout do you prefer?");
+    expect(awaitsHuman(d)).toBe(true);
+    expect(_takeWaitingAiReviewNotices()).toEqual([]);
+  });
+
+  test("2. a question written AFTER the delivery takes the card out of AI review", () => {
+    const a = apiCard();
+    expect(deliver(s, a.id).stage).toBe("ai_review");
+    ask(a.id);
+    const t = s.get(a.id)!.task;
+    expect(t.stage).toBe("human_review");
+    expect(t.humanAsk).toBe("Which layout do you prefer?");
+    expect(awaitsHuman(t)).toBe(true);
+  });
+
+  test("2. options that are only board actions are not a question, and neither is an answered one", () => {
+    const a = apiCard();
+    s.addComment({ taskId: a.id, author: `agent:${WORKER}`, content: "Delivered", questionOptions: ["Landa su main"] });
+    expect(deliver(s, a.id).stage).toBe("ai_review");
+    const b = apiCard();
+    ask(b.id);
+    s.addComment({ taskId: b.id, author: "user", content: "A" });
+    expect(deliver(s, b.id).stage).toBe("ai_review");
+  });
+
+  test("2. the opener's move to Human review accepts the question already in the thread", () => {
+    const a = agentCard(db, s);
+    deliver(s, a.id);
+    s.addComment({ taskId: a.id, author: `agent:${OPENER}`, content: "Ship it?", questionOptions: ["Yes", "No"] });
+    // The comment alone already moved it; a plain stage move on a fresh card needs the ask.
+    expect(s.get(a.id)!.task.stage).toBe("human_review");
+    const b = agentCard(db, s);
+    deliver(s, b.id);
+    expect(() => s.update({ taskId: b.id, actor: "agent", by: "x", agentTopicId: OPENER, patch: { stage: "human_review" } }))
+      .toThrow(/human_ask/);
+  });
+});

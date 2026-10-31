@@ -36,10 +36,10 @@ import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
 import { readChecksMemFloorGB, readGlobalCap, readSpendCaps } from "./dispatch-capacity";
 import { checksMemFloorGB } from "../../shared/checks-memory-floor";
 import { parseCreatedBy, UNOWNED_BACKLOG_MS } from "../../shared/created-by";
-import { AI_REVIEW_REMIND_MS, STAGE_AI_REVIEW, STAGE_HUMAN_REVIEW, defaultColumnFor, stageAtBirth, stageForDelivery, type WorkflowColumn, type WorkflowPresetId } from "../../shared/workflow";
+import { AI_REVIEW_REMIND_MS, STAGE_AI_REVIEW, STAGE_HUMAN_REVIEW, agentAskInThread, defaultColumnFor, stageAtBirth, stageForDelivery, type WorkflowColumn, type WorkflowPresetId } from "../../shared/workflow";
 import { requestAiReviewNotice } from "./ai-review-notice";
 import { commentAuthorLabel } from "../../shared/comment-author";
-import { clearStagesOutsideWorkflow, readBoardWorkflow, stampStaleAiReview, writeBoardWorkflow } from "./board-workflow";
+import { clearStagesOutsideWorkflow, readBoardWorkflow, routeAskOutOfAiReview, stampStaleAiReview, writeBoardWorkflow } from "./board-workflow";
 import { currentDispatchBlock, currentMemoryWait, heldResumeBlock } from "./dispatch-block-signal";
 import { readElsewhere } from "./task-elsewhere";
 import { liveAgentCount, RUNS_HERE_SQL } from "./agent-census";
@@ -3726,6 +3726,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * `humanAsk` the question the thread or the system asks the person. Written
    * only when it changes something, like `update()`.
    */
+  /** `agentAskInThread` (shared/workflow.ts) on this card's thread. */
+  function agentAskOnThread(taskId: string): string | null {
+    try { return agentAskInThread(service.get(taskId)?.comments ?? []); } catch { return null; }
+  }
+
   function routeSystemDelivery(taskId: string, humanAsk: string | null): void {
     const row = getTaskRow(taskId);
     if (!row || row.parent_task_id) return;
@@ -3957,9 +3962,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // `nextStage === undefined` = this call does not touch the stage.
       let nextStage: string | null | undefined;
       let wantsStage = patch.stage !== undefined ? ((patch.stage ?? "").trim() || null) : undefined;
-      const humanAsk: string | null = patch.humanAsk !== undefined
+      let humanAsk: string | null = patch.humanAsk !== undefined
         ? ((patch.humanAsk ?? "").trim() || null)
         : (row.human_ask ?? null);
+      let askFromThread = false;
       // WHO MAY TAKE A CARD OUT OF AI REVIEW: the one that opened it, or the
       // coordinator in its place (a card from the board API or a schedule has
       // no chat that could). It is the rule of 28/10 (whoever opens a card closes it), and
@@ -3972,6 +3978,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // status, and goes through the same gates as naming it: `stage: null`
         // on a card in AI review is a move to Human review.
         if (actor === "agent" && wantsStage === null) wantsStage = defaultColumnFor(columns, patch.status ?? current)?.id ?? null;
+        // A question the agent already wrote in the thread is the `human_ask`,
+        // read BEFORE the summary below enters the thread and hides it.
+        if (!humanAsk && (patch.status === "review" || wantsStage === STAGE_HUMAN_REVIEW)) askFromThread = !!(humanAsk = agentAskOnThread(taskId));
         if (wantsStage) {
           if (actor === "agent") {
             // AI review is where the SERVER routes a delivery; an agent naming
@@ -4435,7 +4444,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (nextStage !== undefined && (nextStage !== null || row.stage != null)) put("stage", nextStage);
       // The question for the person belongs to one delivery: a card that goes
       // back to work drops it, the next delivery says its own.
-      if (patch.humanAsk !== undefined) put("human_ask", humanAsk);
+      if (patch.humanAsk !== undefined || askFromThread) put("human_ask", humanAsk);
       else if (row.human_ask != null && patch.status !== undefined && patch.status !== "review" && patch.status !== "done") put("human_ask", null);
       put("updated_at", now());
 
@@ -4632,6 +4641,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // drawer, review card) see a change signal and refetch — without this, a
       // new comment broadcasts task:updated but the payload looks identical.
       db.prepare("UPDATE tasks SET updated_at = ? WHERE id = ?").run(ts, taskId);
+      // A question for the person takes the card out of AI review.
+      if (row.status === "review" && row.stage === STAGE_AI_REVIEW && commentKind !== "service") routeAskOutOfAiReview(db, row, author, body);
       // QUALE commento è il piano: lo si SCRIVE qui, non lo si indovina dopo.
       // Il segnale è il contratto piano-prima — un task `plan_first` + un blocco
       // question che offre l'approvazione del piano, scritto da un agente (mai
@@ -5512,16 +5523,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // word is a question for the person, which is what Human review is for.
       // The AGENT's last word, not the thread's: this door writes its own
       // notes under it, and they would hide the question.
-      {
-        let ask: string | null = null;
-        try {
-          const comments = this.get(taskId)?.comments ?? [];
-          const word = [...comments].reverse().find((c) => isThreadSpeech(c) && commentAuthorLabel(c.author).kind === "agent");
-          const q = word ? parseQuestionBlock(word.content) : null;
-          if (q && questionAsksHuman(q)) ask = q.question;
-        } catch { /* no question read: routed as a delivery without one */ }
-        routeSystemDelivery(taskId, ask);
-      }
+      routeSystemDelivery(taskId, agentAskOnThread(taskId));
       // Open the pending review approval so the review decision flow works, just
       // like an agent-initiated hand-off would.
       try {

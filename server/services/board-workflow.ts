@@ -1,9 +1,12 @@
 import type { Database } from "bun:sqlite";
+import { commentAuthorLabel } from "../../shared/comment-author";
+import { parseQuestionBlock, questionAsksHuman } from "../../shared/board";
 import {
   GLOBAL_WORKFLOW_SCOPE,
   STAGE_AI_REVIEW,
   isWorkflowPresetId,
   resolveWorkflow,
+  stageForDelivery,
   type BoardWorkflow,
   type WorkflowPresetId,
 } from "../../shared/workflow";
@@ -97,4 +100,26 @@ export function stampStaleAiReview(db: Database, cutoffIso: string, nowIso: stri
   return ids.filter(({ id }) => db.prepare(
     `UPDATE tasks SET ai_review_reminded_at = ? WHERE id = ? AND status = 'review' AND stage = ? AND ${fresh}`,
   ).run(nowIso, id, STAGE_AI_REVIEW).changes > 0).map(({ id }) => id);
+}
+
+/**
+ * A QUESTION FOR THE PERSON ON A CARD IN AI REVIEW, written by an agent after
+ * the delivery: the card stops waiting on its opener and waits on the person,
+ * the same routing a delivery carrying the question gets (`stageForDelivery`),
+ * with the question as its `human_ask`. Without this the question sat in a
+ * column no person looks at. `true` when the card moved.
+ */
+export function routeAskOutOfAiReview(
+  db: Database,
+  card: { id: string; project_id: string; created_by?: string | null },
+  author: string,
+  body: string,
+): boolean {
+  if (commentAuthorLabel(author).kind !== "agent") return false;
+  const q = parseQuestionBlock(body);
+  if (!q || !questionAsksHuman(q)) return false;
+  const stage = stageForDelivery(readBoardWorkflow(db, card.project_id).columns, { createdBy: card.created_by, humanAsk: q.question });
+  if (stage === STAGE_AI_REVIEW) return false;
+  return db.prepare("UPDATE tasks SET stage = ?, human_ask = ? WHERE id = ? AND status = 'review' AND stage = ?")
+    .run(stage, q.question, card.id, STAGE_AI_REVIEW).changes > 0;
 }

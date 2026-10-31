@@ -60,6 +60,10 @@ export interface AiReviewNoticeDeps {
   pollMs?: number;
   /** How long a wake waits for a busy session before giving up on it. */
   maxWaitMs?: number;
+  /** Tries per session before the next one is woken (or the notice is given up). */
+  attempts?: number;
+  /** Pause before the second try; it doubles at every further one. */
+  retryMs?: number;
 }
 
 /**
@@ -94,14 +98,21 @@ export function createAiReviewNotices(deps: AiReviewNoticeDeps) {
   const pollMs = deps.pollMs ?? 1_000;
   const maxWaitMs = deps.maxWaitMs ?? 6 * 60 * 60 * 1000;
 
-  /** Whom to wake: the opener's chat when it can take a turn, else the coordinator. */
-  function target(n: AiReviewNotice): { sessionKey: string; closer: "opener" | "coordinator" } | null {
+  const attempts = Math.max(1, deps.attempts ?? 3);
+  const retryMs = deps.retryMs ?? 60_000;
+
+  type Target = { sessionKey: string; closer: "opener" | "coordinator" };
+
+  /** Whom to wake, in order: the opener's chat when it can take a turn, then the coordinator. */
+  function targets(n: AiReviewNotice): Target[] {
+    const out: Target[] = [];
     if (!n.reminder && n.openerTopicId) {
       const sk = deps.sessionKeyOfTopic(n.openerTopicId);
-      if (sk && deps.canWake(sk) !== "row") return { sessionKey: sk, closer: "opener" };
+      if (sk && deps.canWake(sk) !== "row") out.push({ sessionKey: sk, closer: "opener" });
     }
     const coordinator = deps.coordinatorSessionKey();
-    return coordinator ? { sessionKey: coordinator, closer: "coordinator" } : null;
+    if (coordinator && !out.some((t) => t.sessionKey === coordinator)) out.push({ sessionKey: coordinator, closer: "coordinator" });
+    return out;
   }
 
   /** `null` = woken; otherwise why not, for the log. */
@@ -130,8 +141,40 @@ export function createAiReviewNotices(deps: AiReviewNoticeDeps) {
     }
   }
 
+  /**
+   * A FAILED WAKE IS NOT THE END OF THE NOTICE. Each session gets `attempts`
+   * tries with a growing pause (a route that answered 500 or a provider that
+   * dropped the request often takes the next one); when the opener's chat
+   * still refuses, the coordinator is woken in its place, since it may close
+   * the card too. Only when nobody could be woken is the notice given up, with
+   * a row in activity_log: the sweep reminds the coordinator later anyway.
+   */
+  async function deliver(n: AiReviewNotice, list: Target[]): Promise<void> {
+    const reasons: string[] = [];
+    for (const to of list) {
+      for (let i = 0; i < attempts; i++) {
+        if (i > 0) await sleep(retryMs * 2 ** (i - 1));
+        let why: string | null;
+        try { why = await wake(to.sessionKey, aiReviewWakeText(n, to.closer)); }
+        catch (err) { why = err instanceof Error ? err.message : String(err); }
+        if (why === null) { deps.log?.(`${n.taskId}: ${to.closer} woken`); return; }
+        deps.log?.(`${n.taskId}: ${to.closer} not woken (try ${i + 1}/${attempts}), ${why}`);
+        reasons.push(`${to.closer}: ${why}`);
+        // A session busy for the whole wait gets no more tries of its own.
+        if (why === "the session stayed busy") break;
+      }
+    }
+    deps.recordActivity({
+      category: "board", level: "warn", title: "AI review notice not delivered",
+      detail: `${n.title || "Task"}: ${reasons.join("; ").slice(0, 400)}`,
+      entityType: "task", entityId: n.taskId, actor: n.createdBy ?? undefined,
+      metadata: { projectId: n.projectId, reasons },
+    });
+  }
+
   function request(n: AiReviewNotice): void {
-    const to = target(n);
+    const list = targets(n);
+    const to = list[0] ?? null;
     deps.broadcast({
       type: "task:ai-review", projectId: n.projectId, taskId: n.taskId, taskTitle: n.title || "Task",
       createdBy: n.createdBy, reminder: !!n.reminder, notified: to?.closer ?? null,
@@ -143,10 +186,8 @@ export function createAiReviewNotices(deps: AiReviewNoticeDeps) {
       entityType: "task", entityId: n.taskId, actor: n.createdBy ?? undefined,
       metadata: { projectId: n.projectId, createdBy: n.createdBy, openerTopicId: n.openerTopicId, reminder: !!n.reminder, notified: to?.closer ?? null },
     });
-    if (!to) return;
-    void wake(to.sessionKey, aiReviewWakeText(n, to.closer))
-      .then((why) => deps.log?.(`${n.taskId}: ${to.closer} ${why === null ? "woken" : `not woken, ${why}`}`))
-      .catch((err) => deps.log?.(`${n.taskId}: ${err instanceof Error ? err.message : String(err)}`));
+    if (list.length === 0) return;
+    void deliver(n, list).catch((err) => deps.log?.(`${n.taskId}: ${err instanceof Error ? err.message : String(err)}`));
   }
 
   return { request };

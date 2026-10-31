@@ -101,6 +101,40 @@ describe("the wake never cuts into a turn", () => {
   });
 });
 
+describe("a failed wake is not the end of the notice", () => {
+  test("the opener is retried, then the coordinator is woken in its place", async () => {
+    const h = harness({ attempts: 2, retryMs: 1 });
+    let calls = 0;
+    h.setAnswer(() => (++calls <= 2 ? new Response("boom", { status: 500 }) : new Response("{}", { status: 200 })));
+    h.n.request(card);
+    await settle();
+    expect(h.posts.map((p) => p.sessionKey)).toEqual(["sk-opener", "sk-opener", "sk-coordinator"]);
+    expect(h.posts[2]!.content).toContain("update_global_task(status='done'");
+    expect(h.rows.filter((r) => r.title === "AI review notice not delivered")).toEqual([]);
+  });
+
+  test("the coordinator is retried too: a single 500 does not lose the notice", async () => {
+    const h = harness({ attempts: 3, retryMs: 1 });
+    let calls = 0;
+    h.setAnswer(() => (++calls === 1 ? new Response("boom", { status: 500 }) : new Response("{}", { status: 200 })));
+    h.n.request({ ...card, createdBy: "agent:api", openerTopicId: null });
+    await settle();
+    expect(h.posts.map((p) => p.sessionKey)).toEqual(["sk-coordinator", "sk-coordinator"]);
+  });
+
+  test("nobody could be woken: a warning row says so, with the reasons", async () => {
+    const h = harness({ attempts: 2, retryMs: 1 });
+    h.setAnswer(() => new Response("boom", { status: 500 }));
+    h.n.request(card);
+    await settle();
+    expect(h.posts).toHaveLength(4);
+    const lost = h.rows.find((r) => r.title === "AI review notice not delivered");
+    expect(lost).toMatchObject({ level: "warn", entityId: "t1" });
+    expect(String(lost!.detail)).toContain("opener: the chat route answered 500");
+    expect(String(lost!.detail)).toContain("coordinator: the chat route answered 500");
+  });
+});
+
 test("the card's title is data: quoted, its `<` neutralised", () => {
   const text = aiReviewWakeText(card, "opener");
   expect(text).toContain('title="Rename the <\\route>"');

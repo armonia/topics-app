@@ -14,7 +14,7 @@
 export { MAX_FANOUT, TASK_STATUSES, PARKED_STOPPED, PARKED_WAITED_OUT, isAgentWorking, isThreadSpeech, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock, showsLandingDebt, showsDeployProposal } from '../../../shared/board';
 // The board's columns (`shared/workflow.ts`): which ones, and which a card is in.
 import type { BoardWorkflow, WorkflowPresetId } from '../../../shared/workflow';
-export { WORKFLOW_PRESETS, WORKFLOW_PRESET_IDS, columnOfTask, awaitsHuman, type WorkflowColumn, type WorkflowPresetId } from '../../../shared/workflow';
+export { WORKFLOW_PRESETS, WORKFLOW_PRESET_IDS, columnOfTask, type WorkflowPresetId } from '../../../shared/workflow';
 /** `GET /boards/:id/workflow`: the resolved workflow plus the row of exactly this board. */
 export interface BoardWorkflowView extends BoardWorkflow { own: WorkflowPresetId | null }
 // Il tetto globale di concorrenza: estremi, arrotondamento e formula del numero

@@ -3667,6 +3667,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const target = resolveGlobalTask(globalCommentsRoute.taskId);
       if (!target) return json({ error: "task not found", code: "not_found" }, 404);
       try {
+        const prevStage = target.got.task.stage ?? null;
         const comment = svc.addComment({
           taskId: globalCommentsRoute.taskId,
           author: globalSession.actor,
@@ -3679,6 +3680,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         });
         const task = svc.get(globalCommentsRoute.taskId, { projectId: target.projectId })?.task;
         broadcastToAll({ type: "task:updated", projectId: target.projectId, task });
+        // A question on a card in AI review sends it to the person.
+        emitReviewReadyEdge(broadcastToAll, target.projectId, task, "review", undefined,
+          () => svc.get(globalCommentsRoute.taskId)?.comments, prevStage);
         return json(comment, 201);
       } catch (e) { return fail(e); }
     }
@@ -3847,6 +3851,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         }, 400);
       }
       try {
+        const prevStage = svc.get(commentsRoute.taskId, { projectId: sess.projectId })?.task.stage ?? null;
         const comment = svc.addComment({
           taskId: commentsRoute.taskId,
           // The same identity the status row carries. What a person reads on
@@ -3870,6 +3875,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         });
         const task = svc.get(commentsRoute.taskId, { projectId: sess.projectId })?.task;
         broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
+        // A question on a card in AI review sends it to the person.
+        emitReviewReadyEdge(broadcastToAll, sess.projectId, task, "review", undefined,
+          () => svc.get(commentsRoute.taskId)?.comments, prevStage);
         return json(comment, 201);
       } catch (e) { return fail(e); }
     }

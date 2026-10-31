@@ -17,7 +17,8 @@
  */
 
 import { splitCreatedBy } from './created-by';
-import { TASK_STATUSES, type TaskStatus } from './board';
+import { commentAuthorLabel } from './comment-author';
+import { TASK_STATUSES, isThreadSpeech, parseQuestionBlock, questionAsksHuman, type TaskStatus } from './board';
 
 export interface WorkflowColumn {
   /** Stable id: equal to the base status for the plain columns. */
@@ -160,6 +161,28 @@ export function stageForDelivery(
   const openedByMachine = !!who && who.kind !== 'human';
   if (openedByMachine && !(card.humanAsk ?? '').trim()) return STAGE_AI_REVIEW;
   return workflowHasStage(columns, STAGE_HUMAN_REVIEW) ? STAGE_HUMAN_REVIEW : null;
+}
+
+/**
+ * The question an AGENT left for the person as the thread's last word, or
+ * `null`. This is how most agents ask: a comment with `options`, not
+ * `human_ask` on the delivery, so the routing above reads both. The board's
+ * own notes (system, dispatcher, verifier) are skipped, since they are
+ * written under the agent's word; a person speaking after it means the
+ * question was already answered. Options that are only board actions
+ * («Landa su main») are a delivery, not a question (`questionAsksHuman`).
+ */
+export function agentAskInThread(comments: readonly { author?: string | null; content: string; kind?: string | null }[]): string | null {
+  for (let i = comments.length - 1; i >= 0; i--) {
+    const c = comments[i]!;
+    if (!isThreadSpeech(c)) continue;
+    const who = commentAuthorLabel(c.author).kind;
+    if (who === 'system' || who === 'dispatcher' || who === 'verifier') continue;
+    if (who !== 'agent') return null;
+    const q = parseQuestionBlock(c.content);
+    return q && questionAsksHuman(q) ? q.question : null;
+  }
+  return null;
 }
 
 /**
