@@ -261,16 +261,16 @@ test.describe("the end of a turn moves nothing, in the window that sent it and i
     await deleteTopic(request, topic.id).catch(() => {});
   });
 
-  for (const scen of ["twotool", "manytool"] as const) {
-    test(`a turn with work enough to fold (${scen}) does not fold under the eyes of the window that sent it`, async ({ page, request, chatPage, context }) => {
-      const topic = await nativeTopic(request, `turn-end-${scen}`);
+  for (const scenario of ["twotool", "manytool"] as const) {
+    test(`a turn with work enough to fold (${scenario}) does not fold under the eyes of the window that sent it`, async ({ page, request, chatPage, context }) => {
+      const topic = await nativeTopic(request, `turn-end-${scenario}`);
       const viewer = await context.newPage();
       await openChat(viewer, topic.name);
       await openChat(page, topic.name);
 
       await startSampler(page, "ANSWER-TOOLS");
       await startSampler(viewer, "ANSWER-TOOLS");
-      await chatPage.sendMessage(`SCEN:${scen} go`);
+      await chatPage.sendMessage(`SCEN:${scenario} go`);
 
       const sender = await framesOf(page);
       const second = await framesOf(viewer);
