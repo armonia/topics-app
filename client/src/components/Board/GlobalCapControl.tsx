@@ -259,6 +259,26 @@ function CountBrake({ quiet }: { quiet: boolean }) {
    *  sentinel, never a number to display, so it falls back to the default. */
   const lastFixed = s.cap && !s.cap.auto && s.cap.max > 0 ? s.cap.max : 3;
 
+  const modeSelector = (
+      <Segmented
+        value={mode}
+        options={(['auto', 'fixed', 'off'] as const).map((m) => ({
+          value: m,
+          label: tr(m === 'auto' ? 'board.dispatch.parallelAuto' : m === 'fixed' ? 'board.dispatch.fixed' : 'board.dispatch.noLimit'),
+        }))}
+        onChange={(m) => {
+          if (m === 'auto') { void saveGlobalCap({ auto: true }); return; }
+          // Leaving `auto` needs BOTH halves in one write: the mode and the
+          // number it means. Sending only `auto:false` would land on
+          // whatever stale number the row still carried.
+          void saveGlobalCap({ auto: false, max: m === 'off' ? GLOBAL_CAP_OFF : lastFixed });
+        }}
+        ariaLabel={tr('board.dispatch.parallel')}
+        testId="global-cap-mode"
+        disabled={s.saving || !s.cap}
+      />
+  );
+
   return (
     <>
       {/* The live line comes before the controls: it is the one people come to
@@ -297,46 +317,9 @@ function CountBrake({ quiet }: { quiet: boolean }) {
             <ChevronRight size={10} className="shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
             {tr(mode === 'auto' ? 'board.dispatch.parallelAuto' : mode === 'fixed' ? 'board.dispatch.fixed' : 'board.dispatch.noLimit')}
           </summary>
-          <div className="pt-1">
-          <Segmented
-            value={mode}
-            options={(['auto', 'fixed', 'off'] as const).map((m) => ({
-              value: m,
-              label: tr(m === 'auto' ? 'board.dispatch.parallelAuto' : m === 'fixed' ? 'board.dispatch.fixed' : 'board.dispatch.noLimit'),
-            }))}
-            onChange={(m) => {
-              if (m === 'auto') { void saveGlobalCap({ auto: true }); return; }
-              // Leaving `auto` needs BOTH halves in one write: the mode and the
-              // number it means. Sending only `auto:false` would land on
-              // whatever stale number the row still carried.
-              void saveGlobalCap({ auto: false, max: m === 'off' ? GLOBAL_CAP_OFF : lastFixed });
-            }}
-            ariaLabel={tr('board.dispatch.parallel')}
-            testId="global-cap-mode"
-            disabled={s.saving || !s.cap}
-          />
-          </div>
+          <div className="pt-1">{modeSelector}</div>
         </details>
-      ) : (
-      <Segmented
-        value={mode}
-        options={(['auto', 'fixed', 'off'] as const).map((m) => ({
-          value: m,
-          label: tr(m === 'auto' ? 'board.dispatch.parallelAuto' : m === 'fixed' ? 'board.dispatch.fixed' : 'board.dispatch.noLimit'),
-        }))}
-        onChange={(m) => {
-          if (m === 'auto') { void saveGlobalCap({ auto: true }); return; }
-          // Leaving `auto` needs BOTH halves in one write: the mode and the
-          // number it means. Sending only `auto:false` would land on
-          // whatever stale number the row still carried.
-          void saveGlobalCap({ auto: false, max: m === 'off' ? GLOBAL_CAP_OFF : lastFixed });
-        }}
-        ariaLabel={tr('board.dispatch.parallel')}
-        testId="global-cap-mode"
-        disabled={s.saving || !s.cap}
-      />
-
-      )}
+      ) : modeSelector}
 
       {mode === 'fixed' && (
         <label className="flex items-center justify-between gap-3">

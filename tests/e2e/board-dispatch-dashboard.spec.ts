@@ -183,7 +183,7 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     // Auto-dispatch off in the test env: the row states the memory, it does not promise another one will start.
     // «Chi tiene la memoria» is closed by default and opens on request.
     // It lives inside Advanced, which is closed too.
-    await expect(menu.getByTestId("dispatch-dashboard-holders-fold")).toBeHidden();
+    await expect(menu.getByTestId("settings-advanced")).not.toHaveAttribute("open", /.*/);
     await menu.getByTestId("settings-advanced").locator("summary").first().click();
     const fold = menu.getByTestId("dispatch-dashboard-holders-fold");
     await expect(menu.getByTestId("dispatch-dashboard-holders")).toBeHidden();
