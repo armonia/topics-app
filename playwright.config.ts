@@ -665,6 +665,10 @@ export default defineConfig({
         // A turn silent in a tool keeps its Stop in a viewer: a real server
         // turn from a fake CLI, filmed on the engine that ships.
         "**/chat-silent-tool-live.spec.ts",
+        // Nothing moves when a turn ends, in the window that sent it and in a
+        // second one: the independent check of card 40ea050c measured it in
+        // WebKit, where the product ships.
+        "**/chat-turn-end-still.spec.ts",
         "**/prompt-history.spec.ts",
         "**/goal-send-and-rate.spec.ts",
         // The goal bar starts closed, agent goal included, and opens on click.

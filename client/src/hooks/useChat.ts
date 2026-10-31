@@ -11,6 +11,7 @@ import { clearPartialForReattach, reviveClosedBubble } from './streamReattachRes
 import { LiveTurnIds, carryLateStart, frameTargetIndex, lateStartContent, liveAssistantIndex, queueLateDelta, shouldFillFromBroadcast, takeLateDeltas, type LateDelta } from './liveTurn';
 import { liveInterruptionBlock } from '../components/Chat/turnError';
 import { mergeMediaSizes, type MediaSizes } from '../components/Chat/mediaBox';
+import { carryWatchedLive } from '../components/Chat/turnFold';
 import { decideCacheWrite } from './messageCacheWrite';
 import { decideCachePrune } from './messageCachePrune';
 import { mergeHistoryPage, mergeOlderHistory, pageOverlapsExisting, rowsAboveLocalCopy } from './historyPaging';
@@ -100,6 +101,7 @@ import {
 import { flagMapRef, flagSetter, getSessionFlag } from '../state/sessionFlags';
 import { apiFetch } from '../lib/shell/net';
 import { COMMAND_ANSWER_EVENT } from '../lib/commandAnswer';
+import { TextPaintGate } from './textPaintGate';
 
 // The turn flags' setters, readers and live refs: module constants, so every
 // callback that uses them stays stable (see `state/sessionFlags.ts`).
@@ -670,6 +672,13 @@ export function useChat() {
    * bolla morta. Vedi `liveTurn.ts`.
    */
   const streamMessageIdRef = useRef<LiveTurnIds>(new LiveTurnIds());
+  /** Whether a session's last live text is on screen yet (`textPaintGate.ts`). */
+  const textPaintGateRef = useRef(new TextPaintGate());
+  /**
+   * Per session, the WS frames that came behind a `stream:end` held for its
+   * last words to be painted: they run after it, in their order.
+   */
+  const heldBehindEndRef = useRef<Map<string, WSMessage[]>>(new Map());
   // Watchdog per il caso "il server ha finito, il nostro SSE no": vedi
   // scheduleSSEFailsafe.
   const sseFailsafeRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -1103,6 +1112,8 @@ export function useChat() {
   };
 
   const appendToLastMessage = useCallback((sessionKey: string, contentDelta?: string, thinkingDelta?: string, frame?: WSFrameRow) => {
+    // Unpainted until a frame shows it: the end of the turn waits for that frame.
+    if (contentDelta || thinkingDelta) textPaintGateRef.current.markCommitted(sessionKey);
     setMessages(prev => {
       const sessionMessages = prev[sessionKey] || [];
       const lastMessageIndex = frameTargetIndex(sessionMessages, streamMessageIdRef.current.get(sessionKey), frame);
@@ -1115,12 +1126,15 @@ export function useChat() {
         // the cut, as the server writes them.
         const lateStart = !!(frame?.lateStart && contentDelta);
         let nextBlocks = lastMsg.blocks;
+        // Reasoning first: a frame that buffered both is a block that closed
+        // before the answer opened, and the row goes above the text, where the
+        // final message keeps it.
+        if (thinkingDelta) nextBlocks = appendBlock(nextBlocks, { kind: 'thinking', text: thinkingDelta });
         if (contentDelta) {
           nextBlocks = lateStart
             ? [...(nextBlocks ?? []), { kind: 'text', text: contentDelta }]
             : appendBlock(nextBlocks, { kind: 'text', text: contentDelta });
         }
-        if (thinkingDelta) nextBlocks = appendBlock(nextBlocks, { kind: 'thinking', text: thinkingDelta });
 
         // Create a new object without mutating the old state reference
         updatedMessages[lastMessageIndex] = {
@@ -1313,6 +1327,29 @@ export function useChat() {
     toolUpdateBufferRef.current.clear();
   }, []);
 
+  /**
+   * The model opened a reasoning block: reserve its row now, at the point of
+   * the timeline where it started reasoning, so the end of the turn inserts
+   * nothing over the text. The server sends this sign when the CLI opens the
+   * block (its reasoning text only exists in the final message), and with the
+   * block's first text on the native runtime.
+   * Called by the WS frame (`stream:thinking_start`) and by the sender's own
+   * SSE (`{ thinking: { open: true } }`). The text that came before goes in
+   * first, or the row would land above it.
+   */
+  const reserveThinkingRow = useCallback((sessionKey: string) => {
+    flushLiveDeltas(sessionKey);
+    setThinking(prev => ({ ...prev, [sessionKey]: true }));
+    setMessages(prev => {
+      const list = prev[sessionKey] || [];
+      const last = list[list.length - 1];
+      if (!last || last.role !== 'assistant' || !last.partial || last.blocks?.[last.blocks.length - 1]?.kind === 'thinking') return prev;
+      const next = list.slice();
+      next[next.length - 1] = { ...last, blocks: [...(last.blocks ?? []), { kind: 'thinking', text: '' }] };
+      return { ...prev, [sessionKey]: next };
+    });
+  }, [flushLiveDeltas]);
+
   const handleStreamEvent = useCallback((event: WSMessage) => {
     // Every stream:* and message:media variant carries a sessionKey, but the
     // dispatcher upstream accepts the full WSMessage union (which includes
@@ -1320,6 +1357,9 @@ export function useChat() {
     // use `sessionKey` without per-case re-narrowing on each switch arm.
     const sessionKey = 'sessionKey' in event ? (event as { sessionKey?: string }).sessionKey : undefined;
     if (!sessionKey) return;
+    // An end is waiting for its last words to be painted: what follows it waits too.
+    const heldBehindEnd = heldBehindEndRef.current.get(sessionKey);
+    if (heldBehindEnd) { heldBehindEnd.push(event); return; }
 
     // Ordering guarantee: a non-delta event must see buffered text already
     // committed before it reads/mutates the last message (blocks timeline).
@@ -1388,6 +1428,29 @@ export function useChat() {
         endedDuringOwnSseRef.current.add(sessionKey);
         scheduleSSEFailsafe(sessionKey);
       }
+      return;
+    }
+
+    // THE LAST WORDS ARE DRAWN BEFORE THE TURN CLOSES (`textPaintGate.ts`).
+    // A reply that ends right behind its text brings the last chunk and the
+    // end a millisecond apart: closed in the same commit, the text grew the
+    // bubble in the frame the loader went and the turn jumped 27 px (card
+    // 40ea050c). The end, and every frame of the session after it, waits for
+    // the frame that shows those words.
+    // An end that draws an interruption banner (the watchdog, the reaper) is
+    // not the still end this protects: the banner grows the turn anyway, and
+    // the person watching must see why it stopped in the frame it stopped.
+    if (
+      event.type === 'stream:end'
+      && textPaintGateRef.current.isPending(sessionKey)
+      && !liveInterruptionBlock({ stopCause: event.stopCause, error: event.error })
+    ) {
+      const queue: WSMessage[] = [event];
+      heldBehindEndRef.current.set(sessionKey, queue);
+      textPaintGateRef.current.afterPaint(sessionKey, () => {
+        heldBehindEndRef.current.delete(sessionKey);
+        for (const held of queue) handleStreamEventRef.current(held);
+      });
       return;
     }
 
@@ -1463,19 +1526,7 @@ export function useChat() {
         break;
 
       case 'stream:thinking_start':
-        setThinking(prev => ({ ...prev, [sessionKey]: true }));
-        // Reserve the reasoning row now, at the point of the timeline where the
-        // model started reasoning, so the end of the turn inserts nothing over
-        // the text. The server sends this event when the CLI opens a thinking
-        // block, even though its text only exists in the final message.
-        setMessages(prev => {
-          const list = prev[sessionKey] || [];
-          const last = list[list.length - 1];
-          if (!last || last.role !== 'assistant' || !last.partial || last.blocks?.[last.blocks.length - 1]?.kind === 'thinking') return prev;
-          const next = list.slice();
-          next[next.length - 1] = { ...last, blocks: [...(last.blocks ?? []), { kind: 'thinking', text: '' }] };
-          return { ...prev, [sessionKey]: next };
-        });
+        reserveThinkingRow(sessionKey);
         break;
 
       case 'stream:thinking_chunk':
@@ -1864,7 +1915,9 @@ export function useChat() {
         }
         break;
     }
-  }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn, relightSettledTurn]);
+  }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn, relightSettledTurn, reserveThinkingRow]);
+  // The held frames run through the handler of the moment they are released.
+  const handleStreamEventRef = useRefMirror(handleStreamEvent);
 
   // Register WebSocket handler
   const registerWSHandler = useCallback((handler: (event: WSMessage) => void) => {
@@ -2144,6 +2197,17 @@ export function useChat() {
                 }
               }
 
+              // The reasoning, on this reply's own SSE (the WS copies are
+              // dropped for this window): the block's opening reserves the
+              // row in its place, its text fills it, as in any other window.
+              if (parsed.thinking?.open === true) {
+                commitTextBefore();
+                reserveThinkingRow(sessionKey);
+              } else if (parsed.thinking?.open === false) {
+                setThinking(prev => ({ ...prev, [sessionKey]: false }));
+              }
+              if (typeof delta?.thinking === 'string') thinkingBatch += delta.thinking;
+
               // Handle tool calls
               if (delta?.tool_calls) {
                 commitTextBefore();
@@ -2214,6 +2278,10 @@ export function useChat() {
           // Finalize after flushing so content is up to date
           if (isDone && assistantMessageCreated) {
             flushLiveDeltas(sessionKey); // `partial:false` must not race the last token
+            // A reply that ends right behind its last word: those words are
+            // drawn while the loader is still there, and the loader goes in a
+            // later frame, where it moves nothing (`textPaintGate.ts`).
+            if (textPaintGateRef.current.isPending(sessionKey)) await textPaintGateRef.current.painted(sessionKey);
             if (currentContent.includes('{{BROWSER:') || currentContent.includes('{{TOPIC_SWITCH:') || currentContent.includes('{{TOPIC_NEW:') || currentContent.includes('{{PROJECT_')) {
               currentContent = cleanInvisibleMarkers(currentContent);
               updateLastMessage(sessionKey, { content: currentContent, partial: false });
@@ -2244,7 +2312,13 @@ export function useChat() {
             content: cleanInvisibleMarkers(msg.content || ''),
             timestamp: msg.timestamp || new Date().toISOString(),
           }));
-        setMessages(prev => ({ ...prev, [sessionKey]: withRowsArrivedDuringOwnSse(sessionKey, prev[sessionKey], chatMessages) }));
+        setMessages(prev => {
+          const next = withRowsArrivedDuringOwnSse(sessionKey, prev[sessionKey], chatMessages);
+          // The reply this window just streamed, now under the server's id,
+          // stays spread out as it was drawn (`carryWatchedLive`).
+          carryWatchedLive(prev[sessionKey] ?? [], next);
+          return { ...prev, [sessionKey]: next };
+        });
         // Before the queue drains at the end of this send: what it holds already stored leaves it.
         dropStoredTurns(sessionKey, chatMessages);
         const finalAssistant = [...chatMessages].reverse().find((message) => message.role === 'assistant');
@@ -2389,7 +2463,7 @@ export function useChat() {
         void loadHistoryRef.current?.(sessionKey, { fresh: true, keepLit: true });
       }
     }
-  }, [addMessage, addToolCallToLastMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, resetStreamTimeout, withRowsArrivedDuringOwnSse]);
+  }, [addMessage, addToolCallToLastMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, resetStreamTimeout, withRowsArrivedDuringOwnSse, reserveThinkingRow]);
 
   /**
    * Fa partire quello che è in coda, se è il momento — TUTTO INSIEME, in un
@@ -2832,6 +2906,9 @@ export function useChat() {
         // sotto gli occhi un secondo dopo il ricarico. Vedi reconcileMessages.
         const riconciliato = reconcileMessages(existing, merged);
         if (riconciliato === existing) return prev;
+        // The reply this window streamed keeps its spread-out shape under
+        // the server's id (`carryWatchedLive`).
+        carryWatchedLive(existing, riconciliato);
         return { ...prev, [sessionKey]: riconciliato };
       });
       if (boundaryId && !alreadyWhole) {
@@ -3000,7 +3077,11 @@ export function useChat() {
       // Like the reload at the end of a send: a row written beside the turn
       // that reached this window over the socket while the snapshot was in
       // flight stays.
-      setMessages(prev => ({ ...prev, [sessionKey]: withRowsArrivedDuringOwnSse(sessionKey, prev[sessionKey], chatMessages) }));
+      setMessages(prev => {
+        const next = withRowsArrivedDuringOwnSse(sessionKey, prev[sessionKey], chatMessages);
+        carryWatchedLive(prev[sessionKey] ?? [], next);
+        return { ...prev, [sessionKey]: next };
+      });
       const finalAssistant = [...chatMessages].reverse().find((message) => message.role === 'assistant');
       finishStreamTokenRate(sessionKey, finalAssistant?.usageCompletionTokens);
       hydratedSessionsRef.current.add(sessionKey);
@@ -3069,6 +3150,8 @@ export function useChat() {
           }
           if (isDone) {
             flushLiveDeltas(sessionKey); // `partial:false` must not race the last token
+            // The last words on screen before the loader goes (`textPaintGate.ts`).
+            if (textPaintGateRef.current.isPending(sessionKey)) await textPaintGateRef.current.painted(sessionKey);
             updateLastMessage(sessionKey, { partial: false });
           }
         }
