@@ -70,3 +70,28 @@ describe('the failure badge of a closed group', () => {
     expect(tagOf('tool-group-toggle')).toContain('aria-expanded="false"');
   });
 });
+
+describe('the chevron of a group', () => {
+  // Four calls: below GROUP_MIN the rows render solo and there is no group chevron.
+  const html = renderToStaticMarkup(createElement(GroupedToolRows, { tools: [ok('a'), ok('b'), ok('c'), ok('d')] }));
+
+  function chevronClass(): string {
+    const at = html.indexOf('data-testid="tool-group-chevron"');
+    expect(at).toBeGreaterThan(-1);
+    const svg = html.indexOf('<svg', at);
+    return html.slice(svg, html.indexOf('>', svg) + 1);
+  }
+
+  test('hidden without hover or focus, shown on touch', () => {
+    const cls = chevronClass();
+    expect(cls).toContain('opacity-0');
+    expect(cls).toContain('group-hover/toolgroup:opacity-100');
+    expect(cls).toContain('group-focus-within/toolgroup:opacity-100');
+    expect(cls).toContain('coarse:opacity-100');
+  });
+
+  test('its 12px column is always reserved, so nothing shifts on hover', () => {
+    const at = html.indexOf('data-testid="tool-group-chevron"');
+    expect(html.slice(at, html.indexOf('>', at) + 1)).toContain('w-3');
+  });
+});

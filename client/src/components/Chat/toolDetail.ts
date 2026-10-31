@@ -113,7 +113,8 @@ function stripLeadingCd(command: string): string {
 
 /**
  * `tooltip`: hover text for the summary, set only when the summary stands in
- * for something else (a Bash description in place of its command).
+ * for something else (a Bash description in place of its command, a sub-agent
+ * description cut to one line).
  */
 export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string): { name: string; summary?: string; tooltip?: string } {
   switch (detail.type) {
@@ -149,10 +150,14 @@ export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string):
     }
     case 'sub_agent':
       if (detail.via === 'spawn_agent') return { name: 'Sub-agent', summary: detail.name ?? detail.description };
-      return {
-        name: detail.subAgentType ?? 'Task',
-        summary: detail.description,
-      };
+      // The type is already the row's name: a description that just repeats
+      // it ("general-purpose") would print the same label twice.
+      // The summary is cut to one line, so the full description rides on the
+      // tooltip; the open card shows it whole.
+      if (detail.description && detail.description !== detail.subAgentType) {
+        return { name: detail.subAgentType ?? 'Task', summary: detail.description, tooltip: detail.description };
+      }
+      return { name: detail.subAgentType ?? 'Task' };
     case 'plan':
       return { name: 'Plan', summary: planSummary(detail.text) };
     case 'mcp':
