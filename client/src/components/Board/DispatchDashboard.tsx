@@ -277,7 +277,7 @@ export function DispatchSummaryView({ capacity, snapshot, queue, broken = 0, bro
       type="button"
       data-testid="dispatch-dashboard-turn-on"
       onClick={onTurnOn}
-      className="inline-flex min-h-6 shrink-0 items-center rounded-md bg-amber-500/25 px-2 py-0.5 text-mini font-semibold hover:bg-amber-500/40 coarse:min-h-11"
+      className="inline-flex min-h-6 shrink-0 items-center rounded-md bg-amber-500/25 px-2 py-0.5 text-mini font-semibold text-amber-950 hover:bg-amber-500/40 dark:text-amber-100 coarse:min-h-11"
     >{tr('board.dash.turnOn')}</button>
   );
   return (
