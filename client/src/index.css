@@ -2527,9 +2527,9 @@ html.native-frost.dark .edge-lit::before {
 /* Il margine del composer, come variabile: serve a `max(…)` nel confronto con
  * la safe-area (vedi ChatInput), e una variabile è l'unico modo di scriverlo
  * una volta invece di ripetere `0.5rem` dentro una `calc` dove nessuno lo
- * troverebbe. Segue il breakpoint come le classi `m-2` / `m-3` che gli stanno
+ * troverebbe. Uguale su desktop e telefono (8px), come la classe `m-2` che gli sta
  * accanto. */
-:root { --composer-gap: 0.75rem; }
+:root { --composer-gap: 0.5rem; }
 @media (max-width: 767px) { :root { --composer-gap: 0.5rem; } }
 
 /* IL VETRO DELLA BANDA DEGLI AVVISI («Utilizzo Claude», connessione, non inviati).
