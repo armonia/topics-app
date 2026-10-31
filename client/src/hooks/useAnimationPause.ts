@@ -6,7 +6,7 @@ import { isWindowAwake, onWindowAwakeChange } from '../state/windowAwake';
  * minimized, occluded, or simply not the focused app.
  *
  * On the large transparent-vibrancy desktop window the always-running cues keep
- * the compositor busy on EVERY frame even when nobody is looking: the `orbit-spin`
+ * the compositor busy on EVERY frame even when nobody is looking: the `spark-breathe`
  * "working now" loaders and the `awaiting-pulse` breathers on
  * every parked-session tab/row. With many panes + an ultrawide surface that's a
  * steady GPU/CPU draw for zero benefit while the app sits in the background.

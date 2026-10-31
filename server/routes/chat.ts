@@ -2940,6 +2940,19 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               }
             },
 
+            onThinkingStart: () => {
+              resetStreamTimer();
+              const start = { type: "stream:thinking_start" as const, sessionKey, topicId: matchedTopic?.id };
+              if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, start);
+              else broadcastToAll(start);
+            },
+
+            onThinkingEnd: () => {
+              const end = { type: "stream:thinking_end" as const, sessionKey, topicId: matchedTopic?.id };
+              if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, end);
+              else broadcastToAll(end);
+            },
+
             onThinkingDelta: (text: string) => {
               resetStreamTimer();
               fullThinking += text;
