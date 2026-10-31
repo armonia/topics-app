@@ -6188,6 +6188,21 @@ comandi muti restano muti. I testi passano dall'i18n.
 - **WHEN** si legge la durata di `sleep 30; echo ok`, `sleep 2m`, `make && sleep 5` e `sleepy 3`
 - **THEN** valgono 30 s, 120 s, nessuna e nessuna
 
+### Requirement: CHAT-TOOL-14 — Il chevron della riga tool è un segnale di hover e focus, senza spostamenti
+
+Il chevron di una riga tool con corpo SHALL essere visibile solo con hover o focus
+sulla riga, e sempre su touch (`coarse:`). La sua colonna da 12 px SHALL restare
+riservata in ogni stato, così che l'etichetta non si sposti quando compare.
+La riga di un sotto-agente SHALL NON ripetere nel corpo il tipo e la descrizione
+già mostrati dalla riga.
+
+#### Scenario: chevron nascosto senza hover, colonna riservata
+
+- DATO una riga tool con corpo e il puntatore fuori
+- QUANDO la riga è a riposo
+- ALLORA il chevron ha opacità 0 e la colonna da 12 px è presente
+
+
 ### Requirement: CHAT-RUN-01 — Il blocco shell di una risposta finita offre Esegui, e niente gira da solo
 
 Un blocco di codice SHALL offrire «Esegui» e «Apri nel terminale», accanto a
