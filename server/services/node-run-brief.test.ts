@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from "bun:test";
 import type { TaskComment } from "../../shared/board";
-import { MAX_COMMENT_CHARS, MAX_THREAD_CHARS, nodeRunDescription } from "./node-run-brief";
+import { MAX_COMMENT_CHARS, MAX_REVIEW_CHARS, MAX_THREAD_CHARS, nodeRunDescription } from "./node-run-brief";
 
 let n = 0;
 function comment(over: Partial<TaskComment>): TaskComment {
@@ -50,10 +50,43 @@ describe("nodeRunDescription", () => {
     expect(out).toContain("NOT in it");
   });
 
-  it("un commento enorme è tagliato, e i più vecchi cadono prima dei nuovi", () => {
+  it("il commento di revisione più recente arriva intero fino a 20.000 caratteri", () => {
+    // A reviewer's list of defects, longer than the old 2.000 cut: the middle used to be dropped.
+    const list = `INIZIO-ELENCO\n${"difetto riga\n".repeat(400)}FINE-ELENCO-MEZZO-${"x".repeat(2_000)}`;
+    expect(list.length).toBeGreaterThan(MAX_COMMENT_CHARS);
+    expect(list.length).toBeLessThan(MAX_REVIEW_CHARS);
+    const out = nodeRunDescription("", [comment({ content: list })]);
+    expect(out).toContain("INIZIO-ELENCO");
+    expect(out).toContain("FINE-ELENCO-MEZZO-");
+    expect(out).not.toContain("[...cut");
+
+    const over = comment({ content: `${"A".repeat(MAX_REVIEW_CHARS + 500)}\nLA CODA` });
+    const capped = nodeRunDescription("", [over]);
+    expect(capped).toContain("LA CODA");
+    // Past the cap the node is told the middle is out of reach, and that it can ask for it.
+    expect(capped).toContain("NOT reachable from this machine");
+    expect(capped.length).toBeLessThan(MAX_REVIEW_CHARS + 1_500);
+  });
+
+  it("la revisione più recente non consuma il budget: la consegna precedente resta anche con una revisione lunga", () => {
+    // A 10.000-character review used to spend the thread budget and push the previous delivery out.
+    const review = `REVISIONE-INIZIO\n${"difetto riga\n".repeat(700)}REVISIONE-FINE`;
+    expect(review.length).toBeGreaterThan(MAX_THREAD_CHARS);
+    expect(review.length).toBeLessThan(MAX_REVIEW_CHARS);
+    const out = nodeRunDescription("d", [
+      comment({ author: "agent", kind: "delivery", content: "CONSEGNA PRECEDENTE" }),
+      comment({ content: review }),
+    ]);
+    expect(out).toContain("CONSEGNA PRECEDENTE");
+    expect(out).toContain("REVISIONE-INIZIO");
+    expect(out).toContain("REVISIONE-FINE");
+  });
+
+  it("un commento più vecchio di quello di revisione resta tagliato, e i più vecchi cadono prima dei nuovi", () => {
     const huge = comment({ content: `${"A".repeat(MAX_COMMENT_CHARS * 3)}\nLA RICHIESTA IN CODA` });
-    const cut = nodeRunDescription("", [huge]);
-    expect(cut.length).toBeLessThan(MAX_COMMENT_CHARS + 1_500);
+    const cut = nodeRunDescription("", [huge, comment({ content: "feedback nuovo" })]);
+    expect(cut.length).toBeLessThan(MAX_COMMENT_CHARS + 2_000);
+    expect(cut).toContain("NOT reachable from this machine");
     // The end of a long comment is where the reviewer asks for the thing.
     expect(cut).toContain("LA RICHIESTA IN CODA");
 
