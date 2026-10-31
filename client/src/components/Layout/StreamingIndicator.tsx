@@ -59,6 +59,9 @@ import { deriveWorkLongevity, formatElapsedCompact } from '../../state/workLonge
 /** Glyph size. 12 in a 16px slot leaves an integer 2px margin per side. */
 const GLYPH = 12;
 
+/** The ink fades from one state to the next (CSS, `motion-safe`); the canvas re-reads it for this long. */
+const INK_FADE_MS = 400;
+
 /** The movement a loader plays when the caller does not say. */
 function defaultActivity(state: LoaderState): LoaderActivity {
   return state === 'waiting' ? 'wait' : 'think';
@@ -90,16 +93,21 @@ export function SparkLoader({ className = '', state = 'working', onFill = false,
     const body = new LoaderBody(size, ctx, { scale, hollow });
     let color = getComputedStyle(canvas).color;
     let draws = 0;
+    let fadingUntil = 0;
     const still = !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     refreshRef.current = () => {
       color = getComputedStyle(canvas).color;
+      fadingUntil = performance.now() + INK_FADE_MS;
       if (still) { body.snap(activityRef.current, 2); body.draw(color); }
     };
     const client: ClockClient = {
       body,
       activity: () => activityRef.current,
       // The ink can change with the theme: re-read it now and then, not on every frame.
-      color: () => { if (++draws % 45 === 0) color = getComputedStyle(canvas).color; return color; },
+      color: () => {
+        if (++draws % 45 === 0 || performance.now() < fadingUntil) color = getComputedStyle(canvas).color;
+        return color;
+      },
     };
     if (still) {
       body.snap(activityRef.current, 2);
@@ -124,7 +132,7 @@ export function SparkLoader({ className = '', state = 'working', onFill = false,
 
   return (
     <span
-      className={`relative inline-flex items-center justify-center ${loaderInkClass(state, onFill, activity)} ${className}`}
+      className={`relative inline-flex items-center justify-center motion-safe:transition-colors motion-safe:duration-300 ${loaderInkClass(state, onFill, activity)} ${className}`}
       style={{ width: size, height: size }}
       aria-hidden="true"
     >
