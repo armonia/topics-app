@@ -269,6 +269,15 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    */
   const lastNodeRun = new Map<string, string>();
 
+  /**
+   * Consecutive STARTS of a task answered with a cloud account error
+   * (`cloud_setup`), kept per task because the slot dies with each failed start.
+   * Same hysteresis as the poll (`NODE_SETUP_POLLS`): one credential read that
+   * times out on a loaded Mac defers the card, only a run of them parks it.
+   * Cleared by any start that gets past the account (a run, or another error).
+   */
+  const startSetupFails = new Map<string, number>();
+
   /** The node's name as a person reads it, with the id as the honest fallback. */
   function nodeName(machineId: string): string {
     try { return host.client?.nameOf(machineId) || machineId; } catch { return machineId; }
@@ -469,6 +478,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
           ...(baseBranch ? { baseBranch } : {}),
         },
       });
+      startSetupFails.delete(task.id);
       lastNodeRun.set(task.id, runId);
       if (!host.ownsRun(task.id, runNo)) {
         // Superseded while the node was answering: the run we just created has
@@ -563,10 +573,22 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       // (no active cloud environment, credentials refused): waiting does not fix
       // it, so the card stops with the cause instead of "not answering" for half an
       // hour (30/10/2026: 7 cards, 31 minutes, a Keychain login switched account).
+      // Parked only after `NODE_SETUP_POLLS` such answers in a row, like the
+      // poll: a single credential read that times out is not the account.
       if (nodeFailureReason(err) === "cloud_setup") {
-        parkNodeCard(task, cloudSetupParkReason(name, err));
+        const fails = (startSetupFails.get(task.id) ?? 0) + 1;
+        if (fails >= NODE_SETUP_POLLS) {
+          startSetupFails.delete(task.id);
+          parkNodeCard(task, cloudSetupParkReason(name, err));
+          return;
+        }
+        startSetupFails.set(task.id, fails);
+        log(`nodo: avvio su «${name}» rifiutato dall'account per ${task.id} (${fails}/${NODE_SETUP_POLLS})`, err);
+        const why = err instanceof Error ? err.message : String(err);
+        deferForSilentNode(task, `«${name}» non ha accettato l'avvio (${why}), riprovo`);
         return;
       }
+      startSetupFails.delete(task.id);
       log(`nodo: creazione della corsa per ${task.id} fallita`, err);
       deferForSilentNode(task, `il nodo «${name}» non risponde`);
     }

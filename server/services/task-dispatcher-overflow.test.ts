@@ -118,7 +118,7 @@ function harness(opts: {
   /** The PC is offline but a `node-run` hook can wake it. */
   pcWakeable?: boolean;
   /** What `createRun` throws instead of answering (a cloud account without environments). */
-  createRunError?: () => Error;
+  createRunError?: () => Error | null;
   /** What `readRun` throws instead of answering, while set (a live run's account refused). */
   readRunError?: { current: (() => Error) | null };
   /** The Mac under its memory floor (default) or free. */
@@ -158,7 +158,8 @@ function harness(opts: {
     resourceBlock: () => (opts.floor === false ? null : opts.verdict ?? BLOCKED),
     node: {
       createRun: async ({ baseUrl, body }) => {
-        if (opts.createRunError) throw opts.createRunError();
+        const startError = opts.createRunError?.();
+        if (startError) throw startError;
         created.push({ baseUrl, originTaskId: body.originTaskId });
         bodies.push({ originTaskId: body.originTaskId, baseBranch: body.baseBranch });
         nextRun += 1;
@@ -485,6 +486,15 @@ describe("overflow: il PC addormentato", () => {
   });
 });
 
+/**
+ * The node retry wait is over. The service writes `dispatch_deferred_until` with
+ * the wall clock, not the harness one, so the wait is ended the way time would.
+ */
+function expireWait(h: ReturnType<typeof harness>) {
+  h.advance(10 * 60_000);
+  h.db.run("UPDATE tasks SET dispatch_deferred_until = NULL WHERE id = ?", [CARD]);
+}
+
 describe("Cloud senza ambiente attivo sull'account", () => {
   it("la card si ferma con la causa, non resta in attesa di un nodo «che non risponde»", async () => {
     const h = harness({
@@ -492,6 +502,12 @@ describe("Cloud senza ambiente attivo sull'account", () => {
       createRunError: () => new CloudSetupError("nessun ambiente cloud attivo sull'account"),
     });
     h.seed(CARD, { machineId: CLOUD });
+    // The same answer start after start: parked after NODE_SETUP_POLLS of them in a row.
+    for (let i = 1; i < NODE_SETUP_POLLS; i++) {
+      await h.tick();
+      expect(h.task(CARD).status).toBe("todo");
+      expireWait(h);
+    }
     await h.tick();
     const t = h.task(CARD);
     expect(t.status).not.toBe("todo");
@@ -499,6 +515,49 @@ describe("Cloud senza ambiente attivo sull'account", () => {
     const thread = h.svc.get(CARD)!.comments.map((c) => c.content).join("\n");
     expect(thread).toContain("nessun ambiente cloud attivo sull'account");
     expect(thread).not.toContain("non risponde");
+  });
+
+  it("una sola lettura fallita delle credenziali alla partenza: rinvio, poi la card riparte da sola", async () => {
+    let fail = true;
+    const h = harness({
+      floor: false,
+      createRunError: () => {
+        if (!fail) return null;
+        fail = false;
+        return new CloudSetupError("credenziali del cloud non leggibili: voce assente nel Portachiavi");
+      },
+    });
+    h.seed(CARD, { machineId: CLOUD });
+    await h.tick();
+    expect(h.task(CARD).status).toBe("todo");
+    expect(h.task(CARD).dispatchDeferredUntil ?? null).not.toBeNull();
+    expect(h.created).toHaveLength(0);
+    expireWait(h);
+    await h.tick();
+    expect(h.created).toHaveLength(1);
+    expect(h.task(CARD).status).toBe("in_progress");
+    expect(h.task(CARD).machineId).toBe(CLOUD);
+  });
+
+  it("errori d'account alternati a un errore di rete non si sommano", async () => {
+    const answers = ["setup", "setup", "net", "setup", "setup"];
+    const h = harness({
+      floor: false,
+      createRunError: () => {
+        const a = answers.shift();
+        if (a === "setup") return new CloudSetupError("credenziali del cloud non leggibili");
+        if (a === "net") return new Error("fetch failed");
+        return null;
+      },
+    });
+    h.seed(CARD, { machineId: CLOUD });
+    for (let i = 0; i < 5; i++) {
+      await h.tick();
+      expect(h.task(CARD).status).toBe("todo");
+      expireWait(h);
+    }
+    await h.tick();
+    expect(h.task(CARD).status).toBe("in_progress");
   });
 
   it("un errore di rete resta un nodo muto: si riprova", async () => {
