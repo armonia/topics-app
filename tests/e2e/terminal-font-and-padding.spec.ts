@@ -4,8 +4,8 @@
  * are not allowed to fall back to a system font.
  *
  * Measured in the DOM: the font is read from `document.fonts`, not from the
- * CSS, so a missing file fails here. No screenshot assertion: there is no
- * baseline in the repo for it, and a missing baseline fails on CI.
+ * CSS, so a missing file fails here. The pane is also compared with a
+ * screenshot baseline (tests/e2e/terminal-font-and-padding.spec.ts-snapshots).
  *
  * @covers TERM-FONT-01
  */
@@ -56,8 +56,8 @@ test.describe("Terminal font and padding", () => {
     expect(faces).toHaveLength(2);
     expect(faces.find((f) => f.weight === '400')?.status).toBe('loaded');
 
-    // The rows xterm draws use the bundled face, and at 13 px with a 1.25 line
-    // height JetBrains Mono's cell is 21 px tall (measured, not assumed).
+    // The rows xterm draws use the bundled face. At 13 px, xterm's lineHeight 1
+    // gives 17 px rows, the nearest to a 1.25 leading (16.25 px); measured, not assumed.
     const rowMetrics = await page.evaluate(() => {
       const rows = document.querySelector<HTMLElement>('.xterm-rows');
       const row = rows?.firstElementChild as HTMLElement | null;
@@ -67,7 +67,7 @@ test.describe("Terminal font and padding", () => {
       };
     });
     expect(rowMetrics.family).toContain('JetBrains Mono');
-    expect(rowMetrics.rowPx).toBe(21);
+    expect(rowMetrics.rowPx).toBe(17);
 
     // The shade blocks are drawn by the face, so they must reach the rows.
     await terminalPage.waitForReady();
@@ -106,5 +106,30 @@ test.describe("Terminal font and padding", () => {
       expect(g!.bottom, `bottom gap at height ${height}`).toBeGreaterThanOrEqual(12);
       expect(g!.right, `right gap at height ${height}`).toBeGreaterThanOrEqual(11.5);
     }
+
+    // The pane as a whole: font, rows and 12 px gap in one picture. The cursor
+    // blinks, so it is masked.
+    await expect(pane).toHaveScreenshot("terminal-pane.png", {
+      maxDiffPixelRatio: 0.01,
+      mask: [page.locator(".xterm-cursor-layer")],
+    });
+  });
+
+  test("CHAT-FONT-01: chat code blocks use the 1.25 leading", async ({ page, request, terminalPage }) => {
+    await resetTerminalWorkspace(request, topicId);
+    await navigateAndOpenTerminal(page, terminalPage, topicName);
+    // The rule is global CSS, so a block injected into the page gets the same
+    // leading as a fenced block in a chat message. Tool card bodies use the same
+    // 1.25 through ToolCardBody (ToolCards.tsx).
+    const leading = await page.evaluate(() => {
+      const pre = document.createElement("pre");
+      pre.textContent = "x";
+      document.body.appendChild(pre);
+      const cs = getComputedStyle(pre);
+      const out = { lineHeight: parseFloat(cs.lineHeight), fontSize: parseFloat(cs.fontSize) };
+      pre.remove();
+      return out;
+    });
+    expect(leading.lineHeight / leading.fontSize).toBeCloseTo(1.25, 2);
   });
 });
