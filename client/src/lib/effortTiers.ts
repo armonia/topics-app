@@ -72,3 +72,18 @@ export function effortIndex(tier: string | null | undefined): number {
   if (!tier) return -1;
   return (EFFORT_TIERS as readonly string[]).indexOf(tier);
 }
+
+/**
+ * The effort tier a session shows: the per-topic override if set, else the tier
+ * the active provider imposes, else null (rendered as "auto"). One function for
+ * the chat bar and the task drawer so both read the same value (card 067a1f5b).
+ */
+export function resolveShownEffortTier(
+  entries: ProviderSnapshotEntry[],
+  effort: string | null | undefined,
+  providerOverride: ProviderSelection | null,
+  defaultProviderLabel?: string,
+): string | null {
+  const effective = resolveEffectiveProvider(entries, providerOverride, defaultProviderLabel);
+  return effort ?? providerEffortTier(entries, effective, providerOverride) ?? null;
+}

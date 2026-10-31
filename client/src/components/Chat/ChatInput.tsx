@@ -1448,7 +1448,7 @@ export function ChatInput({
       {othersTyping && (
         <div
           data-testid="others-typing-indicator"
-          className={`${isMobile ? 'mx-2' : 'mx-3'} absolute bottom-0 left-0 right-0 mb-1 px-3 flex items-center gap-2 pointer-events-none`}
+          className={`mx-2 absolute bottom-0 left-0 right-0 mb-1 px-3 flex items-center gap-2 pointer-events-none`}
         >
           <div className="flex gap-1 flex-shrink-0">
             <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -1467,20 +1467,16 @@ export function ChatInput({
           invia subito) solo in quella nascosta delle due. Adesso vivono sulla
           bolla che riguardano — vedi `QueuedTurns`. */}
 
-      {/* Il composer: LA CARD è solo il campo di testo, e i controlli stanno
-          FUORI, sotto. La card portava dentro anche loro, e finiva per
-          disegnare un riquadro attorno a due cose diverse — quello che scrivi e
-          gli interruttori della sessione — come se fossero la stessa. Il bordo
-          adesso recinta soltanto ciò in cui si scrive.
-          Il `<form>` resta il contenitore di entrambi (l'invio parte da lui) ma
-          non ha più nessun vestito: niente bordo, niente fondo, niente ombra. */}
+      {/* The composer: the card is the text field only, the session controls
+          sit OUTSIDE it in a low bar underneath (card 067a1f5b). The form has
+          no chrome of its own and an 8px margin, like the task drawer. */}
       <form
         onSubmit={onSubmit}
         // @container: the action-bar row below keys its shrink/scroll
         // behavior off THIS element's width (the pane/tab), not the
         // viewport — panes can be resized far narrower than any viewport
         // breakpoint would ever fire at.
-        className={`relative @container ${isMobile ? 'm-2' : 'm-3'} flex-shrink-0 min-w-0 max-w-full`}
+        className={`relative @container m-2 flex-shrink-0 min-w-0 max-w-full`}
         // L'HOME INDICATOR LO SCAVALCA IL COMPOSER, non la pane.
         //
         // «Il bordo dell'input nelle chat tocca i bordi sull'iPhone»: il suo
@@ -1566,7 +1562,7 @@ export function ChatInput({
 
             {/* Row 0a: Editing indicator (inside card) */}
             {editingMessage && (
-              <div className="mx-3 mt-2 flex items-center gap-1.5">
+              <div className="mx-2 mt-2 flex items-center gap-1.5">
                 <div className="w-0.5 h-5 bg-amber-500 rounded-full flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <div className="text-mini text-amber-600 dark:text-amber-400 font-medium">
@@ -1581,7 +1577,7 @@ export function ChatInput({
 
             {/* Row 0b: Reply preview (inside card) */}
             {replyingTo && (
-              <div data-testid="chat-reply-preview" className="mx-3 mt-2 flex items-center gap-1.5">
+              <div data-testid="chat-reply-preview" className="mx-2 mt-2 flex items-center gap-1.5">
                 <div className="w-0.5 h-5 bg-primary rounded-full flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <div className="text-mini text-app-text-tertiary font-medium">
@@ -1788,7 +1784,7 @@ export function ChatInput({
             </div>
           </div>
 
-            {/* FUORI DALLA CARD: le condizioni con cui il messaggio parte.
+            {/* FUORI DALLA CARD, in una barra bassa (card 067a1f5b): le condizioni con cui il messaggio parte.
                 Non sono il messaggio — chi risponde, quanto può fare da sé,
                 quanto ci pensa — quindi non stanno nel recinto di quello che
                 scrivi. Dentro la card restano i tre gesti che agiscono su di
@@ -1802,7 +1798,7 @@ export function ChatInput({
                 (misurato da `chat-layout-audit`, sotto il minimo WCAG 2.2 di
                 24px), con l'icona da 16px in un box storto. */}
             {!isGlobalOrchestrator && (
-              <div className="flex items-center gap-0.5 min-w-0 px-0.5 pt-1.5 overflow-x-auto scrollbar-hide">
+              <div className="flex items-center gap-0.5 min-w-0 px-0.5 pt-0.5 overflow-x-auto scrollbar-hide" data-testid="composer-controls">
               {/* I PERMESSI PER PRIMI: è l'unica leva di questa riga che
                   decide se l'agente può toccare i tuoi file, ed è quindi la
                   cosa da guardare prima di premere invio — non l'ultima
