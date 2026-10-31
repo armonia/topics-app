@@ -365,13 +365,14 @@ describe('regressioni della verifica avversaria', () => {
     expect(c!.reason).toBe('in coda: aspetta un posto libero');
     expect(c!.detail).toBeTruthy();
   });
-  test('chip progetto e motivo possono restringersi e spezzare una parola lunga (min-w-0 break-all)', () => {
+  test('chip progetto e motivo possono restringersi e spezzare una parola lunga (min-w-0 overflow-wrap:anywhere)', () => {
     const long = card({ id: 'w', title: 'Una card', project: 'p'.repeat(90), reason: 'r'.repeat(90), detail: 'd' });
     const html = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={[long]} now={NOW} />);
     for (const id of ['dispatch-dashboard-queue-project', 'dispatch-dashboard-queue-reason']) {
       const tag = html.match(new RegExp(`<span[^>]*${id}[^>]*>`))?.[0] ?? '';
       expect(tag, id).toMatch(/class="[^"]*\bmin-w-0\b/);
-      expect(tag, id).toMatch(/class="[^"]*\bbreak-all\b/);
+      expect(tag, id).toContain('[overflow-wrap:anywhere]');
+      expect(tag, id).not.toMatch(/\bbreak-all\b/);
     }
   });
   test('il titolo è un bottone cablato su onOpenTask con l\'id della card', () => {
