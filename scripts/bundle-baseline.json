@@ -832,7 +832,7 @@
   "updated": "2026-10-23",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 909773,
+    "raw": 912000,
     "gz": 392156
   },
   "critical_path": {
