@@ -64,12 +64,14 @@
 // giusto in cui sbagliare.
 
 import os from "node:os";
-import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import type { Database } from "bun:sqlite";
 import { readTaskWeight, type TaskWeight } from "../../shared/board";
 import { readGlobalCap, sizingDispatchCap, structuralDispatchCapacity } from "./dispatch-capacity";
 import { resolveAgentRuntime } from "./app-settings";
+import { topicSessionKeyMatchesSql } from "./agent-census";
+import { topicsHome } from "./daemon-state";
 
 /** Cosa sa lo spawn del topic che sta per far partire. */
 export type DispatchBinding = {
@@ -325,7 +327,7 @@ export function resolveJobQuotaEnv(db: Database, sessionKey: string): Record<str
 
 /** Un solo file per topic, e il PATH che ci porta. Sovrascrivibile per i test. */
 function rootChannel(): string {
-  return process.env.TOPICS_JOB_QUOTA_DIR || join(os.homedir(), ".topics", "job-quota");
+  return process.env.TOPICS_JOB_QUOTA_DIR || join(topicsHome(), "job-quota");
 }
 
 function channelSlug(sessionKey: string): string {
@@ -343,6 +345,7 @@ export function quotaChannelDir(sessionKey: string): string {
  * only place that fills it: a second writer that skipped it (the spawn) left the
  * map saying 3 over a file that said 11, and the refresh trusted the map.
  */
+const OWNER_MARKER = ".owner-db";
 const lastWritten = new Map<string, number>();
 let lastGcAt = Number.NEGATIVE_INFINITY;
 
@@ -514,6 +517,7 @@ export function applyJobQuota(db: Database, sessionKey: string, env: Record<stri
   const congelato = resolveJobQuotaEnv(db, sessionKey);
   if (!congelato) return null;
   Object.assign(env, congelato);
+  claimChannelRoot(db);
   const jobs = Number(congelato.CARGO_BUILD_JOBS);
   writeLiveQuota(sessionKey, jobs);
   const shim = installQuotaShims(sessionKey, env.PATH || process.env.PATH || "");
@@ -538,13 +542,16 @@ export function refreshLiveJobQuotas(db: Database): number {
   try { vive = liveDispatchedSessions(db); } catch { return 0; }
   try { gcJobQuotaChannels(db); } catch { /* a sweep that fails is tried again in ten minutes */ }
   if (!vive.length) return 0;
+  claimChannelRoot(db);
   const peers = countLiveDispatchedAgents(db);
   const cap = capOfConcurrency(db);
   const cores = Math.max(1, os.cpus().length);
   let scritti = 0;
   const liveDirs = new Set<string>();
   for (const a of vive) {
-    liveDirs.add(quotaChannelDir(a.sessionKey));
+    const dir = quotaChannelDir(a.sessionKey);
+    liveDirs.add(dir);
+    keepChannelFresh(a.sessionKey, dir);
     if (writeLiveQuotaIfChanged(a.sessionKey, computeJobQuota({ cores, cap, weight: a.weight, peers }))) scritti++;
   }
   // What an agent that is gone had written is not news for the next one of that name.
@@ -552,9 +559,46 @@ export function refreshLiveJobQuotas(db: Database): number {
   return scritti;
 }
 
+/**
+ * A live agent's folder must not age while its number stays the same (the file
+ * is no longer rewritten), and a folder whose shims were swept is given them
+ * back: the agent already runs with the shim directory in its PATH.
+ */
+function keepChannelFresh(sessionKey: string, dir: string): void {
+  try {
+    if (existsSync(dir)) {
+      const now = new Date();
+      utimesSync(dir, now, now);
+    }
+    if (!existsSync(join(dir, "bin"))) installQuotaShims(sessionKey, process.env.PATH || "");
+  } catch { /* the next refresh tries again */ }
+}
+
 /** How often the channel folders are swept, and how long a fresh folder is left alone. */
 export const JOB_QUOTA_GC_EVERY_MS = 10 * 60_000;
 export const JOB_QUOTA_GC_GRACE_MS = 60 * 60_000;
+
+/**
+ * The root belongs to the database of the instance that first wrote a channel in it. Another instance whose
+ * HOME is shared but whose database is not (the QA and probe scripts) would
+ * judge every folder by cards that are not its own and remove the lot.
+ */
+function ownsChannelRoot(db: Database, root: string): boolean {
+  try {
+    return readFileSync(join(root, OWNER_MARKER), "utf8").trim() === (db.filename || ":memory:");
+  } catch {
+    return false;
+  }
+}
+
+/** Written by whoever writes channels: the sweep only trusts a root its own database has written to. */
+function claimChannelRoot(db: Database): void {
+  const root = rootChannel();
+  try {
+    mkdirSync(root, { recursive: true });
+    if (!existsSync(join(root, OWNER_MARKER))) writeFileSync(join(root, OWNER_MARKER), `${db.filename || ":memory:"}\n`);
+  } catch { /* no marker, no sweep */ }
+}
 
 /**
  * Removes the channel folders (`jobs` and the shims) of topics that can never be
@@ -576,6 +620,7 @@ export function gcJobQuotaChannels(db: Database, now = Date.now()): number {
   let names: string[];
   try { names = readdirSync(root); } catch { return 0; }
   if (!names.length) return 0;
+  if (!ownsChannelRoot(db, root)) return 0;
   let keys: Array<{ k?: string }>;
   try {
     keys = [
@@ -586,6 +631,12 @@ export function gcJobQuotaChannels(db: Database, now = Date.now()): number {
       ...(db.prepare(
         `SELECT t.session_key AS k FROM task_attempts a JOIN tasks k ON k.id = a.task_id JOIN topics t ON t.id = a.topic_id
           WHERE k.status != 'done' AND k.archived = 0`,
+      ).all() as Array<{ k?: string }>),
+      // A live sub-agent keeps the channel of its coordinator, whatever the card says.
+      ...(db.prepare(
+        `SELECT t.session_key AS k FROM topics t WHERE EXISTS (
+           SELECT 1 FROM terminal_sessions ts
+            WHERE ts.status = 'active' AND ${topicSessionKeyMatchesSql("ts.parent_session_key", "t.id")})`,
       ).all() as Array<{ k?: string }>),
     ];
   } catch { return 0; }

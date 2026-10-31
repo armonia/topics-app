@@ -5,6 +5,7 @@ import { test, expect, describe, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
+import { TERMINAL_SESSIONS_DDL } from "../db/test-schema";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync, statSync, utimesSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import {
@@ -74,6 +75,7 @@ function dbVivo(): Database {
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, idx INTEGER NOT NULL, topic_id TEXT,
     state TEXT NOT NULL DEFAULT 'running'
   )`);
+  db.run(TERMINAL_SESSIONS_DDL);
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, max_agents INTEGER, max_agents_auto INTEGER
   )`);
@@ -623,7 +625,9 @@ describe("the channel folders: swept when the topic can never come back, rewritt
     age(key);
     return key;
   }
-  const sweep = (db: Database) => { _resetJobQuotaState(); return gcJobQuotaChannels(db); };
+  const sweep = (db: Database) => { claim(db, process.env.TOPICS_JOB_QUOTA_DIR!); _resetJobQuotaState(); return gcJobQuotaChannels(db); };
+  /** What the first write of this instance leaves in the root. */
+  const claim = (db: Database, root: string) => writeFileSync(join(root, ".owner-db"), `${db.filename || ":memory:"}\n`);
 
   test("a done or archived card loses its folder; an open one keeps it, wherever its column is", () => {
     temporaryRoot();
@@ -681,6 +685,7 @@ describe("the channel folders: swept when the topic can never come back, rewritt
   test("the sweep runs once per interval", () => {
     temporaryRoot();
     const db = dbVivo();
+    claim(db, process.env.TOPICS_JOB_QUOTA_DIR!);
     _resetJobQuotaState();
     expect(gcJobQuotaChannels(db, Date.now())).toBe(0);
     writeLiveQuota("topic:late", 2);
@@ -696,6 +701,7 @@ describe("the channel folders: swept when the topic can never come back, rewritt
     const db = dbVivo();
     writeLiveQuota("topic:orphan", 2);
     age("topic:orphan");
+    claim(db, process.env.TOPICS_JOB_QUOTA_DIR!);
     _resetJobQuotaState();
     refreshLiveJobQuotas(db);
     expect(existsSync(quotaChannelDir("topic:orphan"))).toBe(false);
