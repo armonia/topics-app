@@ -1437,7 +1437,14 @@ export function useChat() {
     // bubble in the frame the loader went and the turn jumped 27 px (card
     // 40ea050c). The end, and every frame of the session after it, waits for
     // the frame that shows those words.
-    if (event.type === 'stream:end' && textPaintGateRef.current.isPending(sessionKey)) {
+    // An end that draws an interruption banner (the watchdog, the reaper) is
+    // not the still end this protects: the banner grows the turn anyway, and
+    // the person watching must see why it stopped in the frame it stopped.
+    if (
+      event.type === 'stream:end'
+      && textPaintGateRef.current.isPending(sessionKey)
+      && !liveInterruptionBlock({ stopCause: event.stopCause, error: event.error })
+    ) {
       const queue: WSMessage[] = [event];
       heldBehindEndRef.current.set(sessionKey, queue);
       textPaintGateRef.current.afterPaint(sessionKey, () => {

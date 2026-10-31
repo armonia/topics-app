@@ -496,12 +496,17 @@ describe('a stop the machine wanted leaves no interruption banner', () => {
         const sk = keyOf();
         d.ws({ type: 'stream:start', messageId: LIVE });
         d.ws({ type: 'stream:content_chunk', content: PRIMA });
+        // No frame passes: a banner is due in the frame the turn stopped in,
+        // and a still end with nothing to say must not draw one later either.
         d.ws({ type: 'stream:end', messageId: LIVE, ...end });
-        // The end waits for the frame that paints the words before it
-        // (`textPaintGate.ts`): they came in the frame it arrived in.
-        d.frame();
         const causesOf = (msgs: Array<{ blocks?: Array<{ kind: string; cause?: string }> | null }> | null) =>
           (msgs ?? []).flatMap((m) => (m.blocks ?? []).filter((b) => b.kind === 'error').map((b) => b.cause ?? ''));
+        expect(causesOf(d.chat.getSessionMessages(sk))).toEqual(causes);
+        expect(causesOf(JSON.parse(storage.getItem(`messages-cache-${sk}`) ?? 'null'))).toEqual(causes);
+        // Once the words are painted, the held end lands: still the same verdict.
+        d.frame();
+        d.frame();
+        expect(d.chat.getSessionMessages(sk).find((m) => m.id === LIVE)?.partial).toBeFalsy();
         expect(causesOf(d.chat.getSessionMessages(sk))).toEqual(causes);
         expect(causesOf(JSON.parse(storage.getItem(`messages-cache-${sk}`) ?? 'null'))).toEqual(causes);
         d.unmount();
