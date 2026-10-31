@@ -45,8 +45,9 @@
  *         TOPICS_GATE_KILL_GRACE_MS  SIGTERM → SIGKILL window (default 10s)
  */
 import { spawn } from "node:child_process";
-import { acquireSlot, defaultNameMaxWaitMs, slotCount, GATE_HELD_ENV, slotAcquiredLine } from "./gate-slot.ts";
-import { slotWaitingLine } from "../shared/slot-acquired.ts";
+import { randomBytes } from "node:crypto";
+import { acquireSlot, defaultNameMaxWaitMs, reclaimAfterStop, slotCount, GATE_HELD_ENV, slotAcquiredLine, type SlotHold } from "./gate-slot.ts";
+import { slotQueuedAgainLine, slotWaitingLine } from "../shared/slot-acquired.ts";
 
 /**
  * THE LOCK PROTOCOL LIVES IN `gate-slot.ts`, not here any more: the same
@@ -81,8 +82,12 @@ if (!cmd) {
 }
 
 const slots = slotCount();
-let release: (() => void) | null = null;
+let release: SlotHold | null = null;
 const queuedSince = Date.now();
+// This run's token, on its acquired lines and on a later queue's: only this
+// script knows it (the command is not told), so a command that prints a slot
+// line of its own cannot stop or restart the deadline it is timed by.
+const RUN = randomBytes(6).toString("hex");
 // The wrapped gates (test:unit, typecheck, lint, deadcode) wait for another
 // run of themselves longer than for a free slot (30 min against 10): see
 // `defaultNameMaxWaitMs`.
@@ -92,6 +97,7 @@ let waitingSaid = false;
 if (slots > 0) {
   release = acquireSlot(slots, label, {
     nameMaxWaitMs: defaultNameMaxWaitMs(),
+    queuesAgainOnContinue: true,
     onWait: (message) => {
       if (!waitingSaid) { waitingSaid = true; console.error(slotWaitingLine(label)); }
       console.error(message);
@@ -105,7 +111,7 @@ if (slots > 0) {
 // NOT said with the throttle off: nothing was acquired and nobody waited, and
 // the line would make a card report a queue of "0 s" for a semaphore that never
 // ran (15/09/2026, two board checks side by side under `CI`).
-if (slots > 0) console.error(slotAcquiredLine(label, Date.now() - queuedSince));
+if (slots > 0) console.error(slotAcquiredLine(label, Date.now() - queuedSince, RUN));
 
 // `-c`, NOT `-lc`. A login shell sources the user's profile, and this machine's
 // profile exports a NODE_OPTIONS that eslint refuses to start under
@@ -145,12 +151,74 @@ const finish = (code: number): never => {
 // `detached` mette il comando fuori dal process group del terminale, quindi il
 // Ctrl-C arriva solo qui: inoltrarlo al gruppo non è cortesia, è l'unico modo
 // che ha di ricevere il segnale.
+// A command this run has stopped to queue again (see SIGCONT below) is
+// continued too: a stopped process does not act on SIGTERM until it runs.
+let stopping = false;
+let paused = false;
 for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-  process.on(sig, () => { signalTree(sig); release?.(); });
+  process.on(sig, () => {
+    stopping = true;
+    signalTree(sig);
+    if (paused) signalTree("SIGCONT");
+    release?.();
+  });
 }
 process.on("exit", () => release?.());
+// Continued after a freeze: if a waiter took the place meanwhile, stop the
+// command again until this run holds one (see `reclaimAfterStop`). The two
+// lines around the wait carry this run's token (`slotQueuedAgainLine`, then the
+// acquired line): whoever times the command from outside stops its clock again
+// while it is stopped, and ends the command if this script dies meanwhile.
+// The wall-clock cap stops for that wait too, as it never ran during the first
+// one: a command stopped in the queue is not hung, and killing it there was a
+// fake red (review of 31/10, third round).
+// FROZEN AND CONTINUED AGAIN DURING THAT WAIT: the SIGCONT of a freezer
+// reaches the whole tree, the command this run had stopped included, which
+// then ran beside the run holding the name (review of 31/10, fourth round). It
+// is stopped again at once, and once this wait ends the place is checked
+// again: the new one may have been reaped while this run was stopped.
+let reclaiming = false;
+let continuedInWait = false;
+function onContinue(): void {
+  if (reclaiming) {
+    continuedInWait = true;
+    if (paused) signalTree("SIGSTOP");
+    return;
+  }
+  if (done || stopping || !release?.lost()) return;
+  reclaiming = true;
+  continuedInWait = false;
+  const since = Date.now();
+  pauseCap();
+  console.error(slotQueuedAgainLine(label, RUN, process.pid, child.pid ?? 0));
+  void reclaimAfterStop(release, slots, label, (sig) => { paused = sig === "SIGSTOP"; signalTree(sig); }, {
+    nameMaxWaitMs: defaultNameMaxWaitMs(),
+    queuesAgainOnContinue: true,
+    aborted: () => done || stopping,
+    onWait: (message) => console.error(`${message} (continued after a freeze, its place was taken)`),
+  }).then((hold) => {
+    release = hold;
+    if (!done && !stopping) console.error(slotAcquiredLine(label, Date.now() - since, RUN));
+  }).finally(() => {
+    reclaiming = false;
+    if (!done) armCap();
+    if (continuedInWait) onContinue();
+  });
+}
+process.on("SIGCONT", onContinue);
 
-if (MAX_RUN_MS > 0) {
+/** What is left of the cap, and since when it is running (null: stopped). */
+let capLeftMs = MAX_RUN_MS;
+let capSince: number | null = null;
+function pauseCap(): void {
+  if (timer) clearTimeout(timer);
+  timer = null;
+  if (capSince != null) capLeftMs -= Date.now() - capSince;
+  capSince = null;
+}
+function armCap(): void {
+  if (MAX_RUN_MS <= 0 || timedOut || capSince != null) return;
+  capSince = Date.now();
   timer = setTimeout(() => {
     timedOut = true;
     console.error(
@@ -160,9 +228,10 @@ if (MAX_RUN_MS > 0) {
     // Chi ignora SIGTERM è esattamente chi è appeso: la seconda mossa non è
     // negoziabile, e non deve tenere sveglio il processo se il comando cede prima.
     setTimeout(() => signalTree("SIGKILL"), KILL_GRACE_MS).unref();
-  }, MAX_RUN_MS);
+  }, Math.max(0, capLeftMs));
   timer.unref();
 }
+armCap();
 
 child.on("error", (e) => { console.error(`[slot] ${label}: ${e.message}`); finish(1); });
 child.on("exit", (code, signal) => finish(timedOut ? TIMEOUT_EXIT_CODE : signal ? 1 : (code ?? 0)));

@@ -23,10 +23,10 @@
 // anche il client per renderizzare il gate. Qui resta l'esecuzione.
 export type { ReviewCheck, CheckRun } from "../../shared/board";
 import { GATES_CI_CHECK, MAX_CHECKS, NOT_MEASURED_EXIT, UNIT_CI_CHECK, isCiEvidenceCheck, type ReviewCheck, type CheckRun } from "../../shared/board";
-import { hasSlotWaiting, parseSlotAcquired } from "../../shared/slot-acquired";
+import { findSlotReacquired, findSlotQueuedAgain, hasSlotWaiting, parseSlotAcquired, parseSlotRun } from "../../shared/slot-acquired";
 import { registerFreezableRun, type FreezableRun } from "./budget-governor";
 import { killCheckTree, memoryWaiter, throwIfInterrupted, throwIfStopping, type MemoryFloor } from "./review-checks-brakes";
-import { slotCount } from "../../scripts/gate-slot";
+import { psStates, slotCount } from "../../scripts/gate-slot";
 import { parseGateSlowdown } from "../../shared/gate-slowdown";
 import { TIME_SLACK_ENV, timeSlack, timeSlackNote } from "../../shared/test-time-slack";
 import { cpus, loadavg } from "node:os";
@@ -361,6 +361,9 @@ interface RunOpts {
  */
 const TREE_SAMPLE_MS = 3_000;
 
+/** How often a `slot.ts` queueing again with its command stopped is looked at (see `watchQueueAgain`). */
+const QUEUE_AGAIN_WATCH_MS = 1_000;
+
 /** Options one command is run with, the round's plus the tree sampler. */
 interface RunOneOpts {
   cwd: string;
@@ -526,6 +529,8 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
   let timedOut = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let sampler: ReturnType<typeof setInterval> | null = null;
+  /** Watches `slot.ts` while it queues again with its command stopped (see below). */
+  let queueAgainWatch: ReturnType<typeof setInterval> | null = null;
   /** Deregistration from the freeze registry, hoisted so the `finally` can call
    *  it: a registry entry that outlives its process would send signals to a
    *  recycled pid. */
@@ -660,7 +665,36 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
     const outP = new Response(proc.stdout as ReadableStream<Uint8Array>).text();
     let err = "";
     let queuedMs: number | null = null;
+    // After the first acquired line: the run's token, where its next slot line
+    // is looked for, and when a later queue began (see below).
+    let slotRun: string | null = null;
+    let slotScan = 0;
+    let queuedAgainAt = 0;
     let slowdown: number | null = null;
+    const resumeAfterQueueAgain = () => {
+      if (queueAgainWatch) clearInterval(queueAgainWatch);
+      queueAgainWatch = null;
+      clockFrom += Date.now() - queuedAgainAt;
+      queuedAgainAt = 0;
+      queued = false;
+      if (entry) entry.queued = false;
+      armTimer();
+    };
+    // `slot.ts` DEAD IN THAT QUEUE leaves its command stopped in a group of its
+    // own, out of `killCheckTree`'s reach once orphaned, with the stderr open:
+    // the check never returned (review of 31/10, fourth round, point 4). The
+    // deadline is off meanwhile, so the watch is what ends it: the group is
+    // killed and the clock goes on where it was.
+    const watchQueueAgain = (pid: number, group: number) => {
+      if (queueAgainWatch) clearInterval(queueAgainWatch);
+      queueAgainWatch = setInterval(() => {
+        let gone = false;
+        try { process.kill(pid, 0); gone = psStates([pid]).get(pid)?.startsWith("Z") ?? false; } catch { gone = true; }
+        if (!gone || !queuedAgainAt) return;
+        if (group > 1) try { process.kill(-group, "SIGKILL"); } catch { /* already gone */ }
+        resumeAfterQueueAgain();
+      }, QUEUE_AGAIN_WATCH_MS);
+    };
     const reader = (proc.stderr as ReadableStream<Uint8Array>).getReader();
     const decoder = new TextDecoder();
     for (;;) {
@@ -674,11 +708,38 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
           queued = false;
           if (entry) entry.queued = false;
           clockFrom = Date.now();
+          const first = parseSlotRun(err);
+          if (first) { slotRun = first.run; slotScan = first.end; }
           armTimer();
         } else if (!queued && hasSlotWaiting(err)) {
           queued = true;
           if (entry) entry.queued = true;
           if (timer) clearTimeout(timer);
+        }
+      }
+      // A RUN THAT LOST ITS PLACE WHILE FROZEN QUEUES AGAIN: `slot.ts` stops
+      // its command and prints the same two lines (card cda99908). The clock
+      // stops on the waiting line and resumes, not restarts, on the acquired
+      // one: the time the command had already run still counts.
+      // Only lines with the token of the first acquired line count: a command
+      // that prints "[slot] waiting ..." of its own, or a nested `slot.ts`,
+      // left its deadline off for good (review of 31/10, fourth round, point 3).
+      while (slotRun) {
+        const rest = err.slice(slotScan);
+        if (!queuedAgainAt) {
+          const again = findSlotQueuedAgain(rest, slotRun);
+          if (!again) break;
+          queuedAgainAt = Date.now();
+          queued = true;
+          if (entry) entry.queued = true;
+          if (timer) clearTimeout(timer);
+          slotScan += again.end;
+          watchQueueAgain(again.pid, again.group);
+        } else {
+          const at = findSlotReacquired(rest, slotRun);
+          if (at < 0) break;
+          resumeAfterQueueAgain();
+          slotScan += at;
         }
       }
       if (slowdown === null) {
@@ -726,6 +787,7 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
   } finally {
     if (timer) clearTimeout(timer);
     if (sampler) clearInterval(sampler);
+    if (queueAgainWatch) clearInterval(queueAgainWatch);
     releaseFreezable();
     opts.signal?.removeEventListener("abort", onAbort);
   }
