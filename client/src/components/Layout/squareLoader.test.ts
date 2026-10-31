@@ -2,6 +2,8 @@
  * The square loader runs by the dozen, so its cost is part of the contract:
  * 50 bodies on one clock stay under 2 ms of work per frame, and a hidden
  * window draws nothing at all.
+ *
+ * @covers LAYOUT-33
  */
 import { describe, expect, test } from "bun:test";
 import { createLoaderClock, LoaderBody, type ClockClient, type LoaderActivity, type LoaderContext } from "./squareLoader";
