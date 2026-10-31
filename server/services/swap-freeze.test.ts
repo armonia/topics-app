@@ -11,181 +11,9 @@
  * @covers KANBAN-85
  */
 import { describe, expect, test } from "bun:test";
-import { createSwapFreezer, pickVictim, thawReason, type FreezeCandidate } from "./swap-freeze";
-import { createSwapFreezeLedger, type LedgerIo } from "./swap-freeze-ledger";
-import { encodeAsPsWould, type AgentSessionRef, type NativeCommandRef, type PsRow } from "../lib/agent-tool-children";
-import type { HeldMemory, SwapVerdict } from "./mem-signal";
 import { FREEZE_MAX_MS, SWAP_EPISODE_CALM_MS } from "../../shared/swap-freeze";
-
-const T0 = 1_760_000_000_000;
-
-const SERVER = 1733;
-const CLI = 38515;
-const BRIDGE = 2382;
-
-interface ProcSpec {
-  pid: number;
-  ppid: number;
-  pgid?: number;
-  command: string;
-  /** Core-units this process burns, turned into CPU seconds as the clock moves. */
-  cores?: number;
-  footprintGB?: number;
-  residentGB?: number;
-}
-
-const BASE: ProcSpec[] = [
-  { pid: 1, ppid: 0, pgid: 0, command: "/sbin/launchd" },
-  { pid: 981, ppid: 1, pgid: 981, command: "bash scripts/start-prod.sh" },
-  { pid: SERVER, ppid: 981, pgid: 981, command: "bun run server.ts" },
-  { pid: 10557, ppid: 981, pgid: 981, command: "fswatch -o server" },
-  { pid: BRIDGE, ppid: 1, pgid: BRIDGE, command: "pty-bridge --socket /tmp/topics-pty-bridge.sock" },
-  { pid: CLI, ppid: 34260, pgid: 48914, command: "/Applications/claude.app/Contents/MacOS/claude --resume=abc" },
-  { pid: 39135, ppid: CLI, pgid: 48914, command: "bun run topics-mcp-server.ts" },
-];
-
-/**
- * A shell of the CLI: its own group, the command inside its `eval` - WRITTEN THE
- * WAY `ps` WOULD WRITE IT.
- *
- * The fixture used to interpolate the command raw, which made every test here a
- * measurement of a `ps` that does not exist: the real one escapes the single
- * quotes the `eval` forces on it AND rewrites every byte it cannot print (a
- * newline reads `\012`). Fifty-two green tests therefore said nothing about a
- * multi-line command, which is how a foreground command stayed one step from a
- * SIGSTOP.
- */
-function shell(pid: number, command: string, opts: { cores?: number; footprintGB?: number; residentGB?: number } = {}): ProcSpec[] {
-  const printedByPs = encodeAsPsWould(command).replace(/'/g, `'\\''`);
-  return [
-    { pid, ppid: CLI, pgid: pid, command: `/bin/zsh -c source ~/.claude/shell-snapshots/snapshot-zsh-1.sh && eval '${printedByPs}' < /dev/null && pwd -P` },
-    { pid: pid + 4, ppid: pid, pgid: pid, command: encodeAsPsWould(command), cores: opts.cores ?? 0, footprintGB: opts.footprintGB ?? 0, residentGB: opts.residentGB ?? 0 },
-  ];
-}
-
-interface World {
-  freezer: ReturnType<typeof createSwapFreezer>;
-  signals: { pid: number; sig: string }[];
-  logs: string[];
-  notes: Array<[string, string]>;
-  now: () => number;
-  advance(ms: number): void;
-  beat(over?: { sustained?: boolean; heldGB?: number | null; pagesReadBackPerS?: number | null; debtGBPerMin?: number | null; swapPct?: number | null; brake?: { interrupted: boolean; skipped: string | null } }): Promise<void>;
-  ledgerText(): string | null;
-  setProcs(list: ProcSpec[]): void;
-  stopped: Set<number>;
-}
-
-function world(i: {
-  procs: ProcSpec[];
-  sessions?: AgentSessionRef[];
-  natives?: NativeCommandRef[];
-  ledgerText?: string | null;
-  /** A pid the post-check reports as stopped even though it was never signalled. */
-  fakeStopped?: number[];
-  outsidePeers?: (pids: readonly number[]) => Promise<number[] | null>;
-  xpc?: Record<number, number[]>;
-  xpcFootprintGB?: number;
-  /** `ps` mute: not an empty answer, no answer at all (its own 4 s timeout). */
-  psMute?: { lstart?: boolean; table?: boolean; stat?: boolean };
-  /** Pids whose SIGSTOP silently does nothing: a command that is not ours to signal. */
-  deafPids?: number[];
-  /** In the table, but gone by the time `ps` answered with the start times. */
-  lstartMissing?: number[];
-  /** Called before each `lstartOf`, so a test can kill a pid BETWEEN two reads. */
-  onLstart?: (call: number, pids: readonly number[]) => void;
-}): World {
-  let procs = [...i.procs];
-  let clock = T0;
-  const signals: { pid: number; sig: string }[] = [];
-  const logs: string[] = [];
-  const notes: Array<[string, string]> = [];
-  const stopped = new Set<number>();
-  let lstartCalls = 0;
-  let text = i.ledgerText ?? null;
-  const io: LedgerIo = { read: () => text, write: (t) => { text = t; }, log: (l) => logs.push(l) };
-  const ledger = createSwapFreezeLedger(io);
-  const spec = (pid: number): ProcSpec | undefined => procs.find((p) => p.pid === pid);
-
-  const table = (): PsRow[] => procs.map((p) => ({
-    pid: p.pid, ppid: p.ppid, pgid: p.pgid ?? p.pid,
-    cpuSeconds: (p.cores ?? 0) * ((clock - T0) / 1000),
-    command: p.command,
-  }));
-
-  const freezer = createSwapFreezer({
-    now: () => clock,
-    processTable: async () => (i.psMute?.table ? null : table()),
-    footprintKB: (pid) => {
-      const own = spec(pid)?.footprintGB ?? 0;
-      const asXpc = Object.values(i.xpc ?? {}).some((list) => list.includes(pid)) ? (i.xpcFootprintGB ?? 0) : 0;
-      return ((own + asXpc) * 1e9) / 1024;
-    },
-    residentKB: (pid) => ((spec(pid)?.residentGB ?? 0) * 1e9) / 1024,
-    lstartOf: async (pids) => {
-      i.onLstart?.(++lstartCalls, pids);
-      if (i.psMute?.lstart) return null;
-      return new Map(pids
-        .filter((p) => (spec(p) || (i.xpc && Object.values(i.xpc).flat().includes(p))) && !(i.lstartMissing ?? []).includes(p))
-        .map((p) => [p, `start-${p}`]));
-    },
-    statOf: async (pids) => (i.psMute?.stat ? null : new Map(pids.map((p) => [p, stopped.has(p) || (i.fakeStopped ?? []).includes(p) ? "T" : "S"]))),
-    signal: (pid, sig) => {
-      // The production invariant, asserted from the outside: a SIGSTOP to a pid
-      // the ledger does not name yet is a defect, not a test failure to tune.
-      if (sig === "SIGSTOP") {
-        const onDisk = JSON.parse(text ?? "{}") as { active?: { batches: { groups: { pgid: number }[]; pids: { pid: number }[] }[] }[] };
-        const named = (onDisk.active ?? []).flatMap((t) => t.batches.flatMap((b) => [...b.pids.map((p) => p.pid), ...b.groups.map((g) => g.pgid)]));
-        if (!named.includes(Math.abs(pid))) throw new Error(`SIGSTOP to ${pid} before it was on disk`);
-      }
-      signals.push({ pid, sig });
-      const members = pid < 0 ? procs.filter((p) => (p.pgid ?? p.pid) === -pid).map((p) => p.pid) : [pid];
-      for (const m of members) {
-        if ((i.deafPids ?? []).includes(m)) continue;
-        if (sig === "SIGSTOP") stopped.add(m); else stopped.delete(m);
-      }
-    },
-    sessions: () => i.sessions ?? [],
-    natives: () => i.natives ?? [],
-    guardRoles: () => ({ serverPid: SERVER, sidecarPids: [BRIDGE], cliPids: [CLI] }),
-    xpcServicePids: async (appPid) => (i.xpc ?? {})[appPid] ?? [],
-    outsidePeers: i.outsidePeers ?? (async () => []),
-    ledger,
-    note: (taskId, text_) => notes.push([taskId, text_]),
-    log: (line) => logs.push(line),
-  });
-
-  return {
-    freezer, signals, logs, stopped, notes,
-    now: () => clock,
-    advance: (ms) => { clock += ms; },
-    ledgerText: () => text,
-    setProcs: (list) => { procs = [...list]; },
-    async beat(over = {}) {
-      const swap: SwapVerdict = {
-        sustained: over.sustained ?? true,
-        pagesReadBackPerS: over.pagesReadBackPerS ?? 33.6,
-        debtGBPerMin: over.debtGBPerMin ?? 8.8,
-        swapPct: over.swapPct ?? null,
-        coveredMs: 120_000,
-      };
-      const held: HeldMemory = { measurable: true, latestGB: 4, heldGB: over.heldGB ?? 4, coveredMs: 120_000 };
-      await freezer.tick({ swap, held, brake: over.brake ?? { interrupted: false, skipped: "noHeavyRun" } });
-    },
-  };
-}
-
-const session = (over: Partial<AgentSessionRef> = {}): AgentSessionRef => ({
-  sessionKey: "topic:a", cliPid: CLI, topicId: "a", terminalId: "term-a", taskId: null,
-  backgroundBash: [], foregroundBash: [], ...over,
-});
-
-/** Two beats: the first has no CPU base, so a rate is measured and not invented. */
-async function twoBeats(w: World, over?: Parameters<World["beat"]>[0]): Promise<void> {
-  await w.beat(over);
-  w.advance(10_000);
-  await w.beat(over);
-}
+import { T0, SERVER, CLI, BRIDGE, BASE, shell, world, session, twoBeats, type ProcSpec } from "./swap-freeze.world";
+import type { NativeCommandRef } from "../lib/agent-tool-children";
 
 describe("F5: the heaviest background command, and nothing else", () => {
   const procs = [
@@ -259,7 +87,7 @@ describe("F5: the heaviest background command, and nothing else", () => {
     await twoBeats(w);
     w.advance(10_000);
     await w.beat({ sustained: false });
-    // Un episodio finisce solo dopo una calma vera, non al primo battito calmo.
+    // An episode ends only after a real calm, not on the first calm beat.
     w.advance(SWAP_EPISODE_CALM_MS);
     await w.beat({ sustained: false });
     // Past the shared action window: the first episode froze a tree, and a
@@ -277,17 +105,32 @@ describe("F5: the heaviest background command, and nothing else", () => {
     expect(w.logs.join("\n")).toContain("nothing to freeze");
   });
 
-  test("the pure rule on its own: floor, CPU, ties and the two-freeze limit", () => {
-    const c = (over: Partial<FreezeCandidate>): FreezeCandidate => ({
-      root: { kind: "claude-background", pid: 1, pgid: 1, sessionKey: "s", command: "x", topicId: null, terminalId: null, taskId: null },
-      treePids: [1], xpcPids: [], footprintGB: 1, residentGB: 1, cpuCores: 1, frozenCount: 0, ...over,
-    });
-    expect(pickVictim([c({ footprintGB: 0.49 })]).skipped).toBe("belowFloor");
-    expect(pickVictim([c({ cpuCores: 0.05 })]).skipped).toBe("belowFloor");
-    expect(pickVictim([c({ frozenCount: 2 })]).skipped).toBe("exhausted");
-    const heavy = c({ footprintGB: 2, cpuCores: 0.2 });
-    const withMoreCpu = c({ footprintGB: 2, cpuCores: 0.9 });
-    expect(pickVictim([heavy, withMoreCpu]).victim).toBe(withMoreCpu);
+  test("wired: one card in flight is not frozen, two are (card cda99908, finding 26)", async () => {
+    const procs = [...BASE, ...shell(51000, "bun batteria.ts", { cores: 0.5, footprintGB: 2.1, residentGB: 1.4 })];
+    const sessions = [session({ backgroundBash: [{ command: "bun batteria.ts", startedAt: T0 }] })];
+    const alone = world({ procs, sessions, ourWorkInFlight: () => 1 });
+    await twoBeats(alone);
+    expect(alone.signals).toEqual([]);
+    expect(alone.logs.join("\n")).toContain("only work of Topics in flight");
+    const two = world({ procs, sessions, ourWorkInFlight: () => 2 });
+    await twoBeats(two);
+    expect(two.freezer.views()).toHaveLength(1);
+  });
+
+  test("two trees of the one turn: the heavier stops so the other can finish (review of 30/10)", async () => {
+    const procs = [
+      ...BASE,
+      ...shell(51000, "bun batteria.ts", { cores: 0.5, footprintGB: 2.1 }),
+      ...shell(53000, "bun lint.ts", { cores: 0.5, footprintGB: 1.2 }),
+    ];
+    const sessions = [session({ backgroundBash: [{ command: "bun batteria.ts", startedAt: T0 }, { command: "bun lint.ts", startedAt: T0 }] })];
+    const pair = world({ procs, sessions, ourWorkInFlight: () => 1 });
+    await twoBeats(pair);
+    expect(pair.freezer.views().map((v) => v.command)).toEqual(["bun batteria.ts"]);
+    // The heavier serves a client: the lighter is the victim, not "the only one left".
+    const served = world({ procs, sessions, ourWorkInFlight: () => 1, outsidePeers: async (pids) => (pids.includes(51000) ? [777] : []) });
+    await twoBeats(served);
+    expect(served.freezer.views().map((v) => v.command)).toEqual(["bun lint.ts"]);
   });
 });
 
@@ -434,11 +277,15 @@ describe("F8 and F9: what continues a tree, and what does not", () => {
     await twoBeats(w);
     expect(w.freezer.views()).toHaveLength(1);
     w.advance(60_000);
-    await w.beat({ sustained: false, heldGB: 5.5 });
+    await w.beat({ sustained: false, heldGB: 4.5 });
     expect(w.freezer.views(), "calm is what the freeze produced, not a reason to undo it").toHaveLength(1);
+    // A calm that outlasts a whole episode is room, with held where it was (finding 27).
+    w.advance(300_000);
+    await w.beat({ sustained: false, heldGB: 4.5 });
+    expect(w.logs.join("\n")).toMatch(/thawed "bun batteria.ts".*room/);
   });
 
-  test("F9: room, at the floor plus what the tree would take back", async () => {
+  test("F9: room, when the machine gained what the tree would take back since its freeze", async () => {
     const w = world({ procs, sessions });
     await twoBeats(w);
     w.advance(60_000);
@@ -470,6 +317,33 @@ describe("F8 and F9: what continues a tree, and what does not", () => {
     expect(w.logs.join("\n")).toContain(": max");
   });
 
+  test("after the ten minutes the same tree is not frozen again in the same episode (card cda99908, finding 27)", async () => {
+    const w = world({ procs, sessions });
+    await twoBeats(w, { pagesReadBackPerS: 33.6 });
+    w.advance(150_000);
+    await w.beat({ pagesReadBackPerS: 4.1 });
+    w.advance(FREEZE_MAX_MS);
+    await w.beat({ pagesReadBackPerS: 4.1 });
+    expect(w.freezer.views()).toHaveLength(0);
+    const stops = w.signals.filter((x) => x.sig === "SIGSTOP").length;
+    for (let k = 0; k < 4; k++) { w.advance(130_000); await w.beat(); }
+    expect(w.signals.filter((x) => x.sig === "SIGSTOP").length, "a second ten minutes at the wall buys nothing").toBe(stops);
+  });
+
+  test("one calm beat between two sustained ones does not end the episode (review of 31/10)", async () => {
+    const w = world({ procs, sessions });
+    await twoBeats(w, { pagesReadBackPerS: 33.6 });
+    w.advance(150_000);
+    await w.beat({ pagesReadBackPerS: 4.1 });
+    w.advance(FREEZE_MAX_MS);
+    await w.beat({ pagesReadBackPerS: 4.1 });
+    const stops = w.signals.filter((x) => x.sig === "SIGSTOP").length;
+    w.advance(10_000);
+    await w.beat({ sustained: false });
+    for (let k = 0; k < 4; k++) { w.advance(130_000); await w.beat(); }
+    expect(w.signals.filter((x) => x.sig === "SIGSTOP").length, "swap flickers: the tree at the wall stays continued").toBe(stops);
+  });
+
   test("F9: the owner gone continues every recorded pid", async () => {
     const w = world({ procs, sessions });
     await twoBeats(w);
@@ -482,19 +356,6 @@ describe("F8 and F9: what continues a tree, and what does not", () => {
     expect(w.freezer.views()).toHaveLength(0);
   });
 
-  test("the pure rule, in the order it is asked", () => {
-    const base = {
-      now: T0 + 60_000, frozenAt: T0, ownerGone: false, sustained: true, heldGB: 12,
-      residentGBAtFreeze: 1.4, pagesReadBackPerS: 30, pagesReadBackAtFreeze: 33, effectAlreadyRead: false,
-    };
-    expect(thawReason({ ...base, ownerGone: true })).toBe("owner gone");
-    expect(thawReason({ ...base, sustained: false, heldGB: 7.5 })).toBe("room");
-    expect(thawReason({ ...base, sustained: false, heldGB: 7.0 }), "6 GB floor plus the 1.4 the tree takes back").toBeNull();
-    expect(thawReason({ ...base, now: T0 + 130_000 })).toBe("no effect");
-    expect(thawReason({ ...base, now: T0 + 130_000, effectAlreadyRead: true })).toBeNull();
-    expect(thawReason({ ...base, now: T0 + FREEZE_MAX_MS })).toBe("max");
-    expect(thawReason(base)).toBeNull();
-  });
 });
 
 describe("F10: two per tree, across a reload of the server", () => {

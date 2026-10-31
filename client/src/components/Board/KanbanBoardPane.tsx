@@ -29,8 +29,8 @@ import { useBoardFeed } from '../../hooks/useBoardFeed';
 import { canAbsorbBoardTaskFrame } from '../../lib/boardTasksStore';
 import {
   boardApi, boardIdForPath, isProjectlessId, showsLandingDebt, TASK_STATUSES,
-  STATUS_LABEL, taskDetailBump,
-  type BoardTask, type TaskStatus, type BoardSettings,
+  STATUS_LABEL, taskDetailBump, WORKFLOW_PRESETS, columnOfTask,
+  type BoardTask, type TaskStatus, type BoardSettings, type BoardWorkflowView,
   type PublishProject, type DiffBundle,
 } from '../../lib/board';
 import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
@@ -868,6 +868,21 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     return () => { alive = false; };
   }, [hasProject, projectId]);
 
+  // THE BOARD'S COLUMNS (`shared/workflow.ts`). Until the answer arrives, and
+  // on the global board (cards from many projects, each with its own
+  // workflow), the five columns of before: a card is never lost, because every
+  // workflow has a default column for each status.
+  const [workflow, setWorkflow] = useState<BoardWorkflowView | null>(null);
+  useEffect(() => {
+    if (!hasProject) { setWorkflow(null); return; }
+    let alive = true;
+    boardApi.getWorkflow(projectId)
+      .then((v) => { if (alive) setWorkflow(v); })
+      .catch(() => { /* the default columns stay */ });
+    return () => { alive = false; };
+  }, [hasProject, projectId]);
+  const boardColumns = workflow?.columns ?? WORKFLOW_PRESETS.default;
+
   // L'ARCHIVIO È UNA VISTA, non una colonna: stessa board, stesse colonne, ma
   // popolate da `?archived=1`. Sta nello stato della pane e non nei `filters`
   // perché non è un filtro sull'insieme già scaricato — è un'altra fetch, ed è
@@ -1198,6 +1213,18 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
    * ri-renderizza ogni 4 secondi per far girare i contatori delle card al
    * lavoro, e ogni giro costerebbe una misura di tutti i rettangoli.
    */
+  // The cards of each workflow column: a status's cards split by their stage.
+  const byColumn = useMemo(() => {
+    const out = new Map<string, BoardTask[]>(boardColumns.map((c) => [c.id, []]));
+    for (const s of TASK_STATUSES) {
+      for (const t of byStatus[s]) {
+        const col = columnOfTask(boardColumns, t);
+        if (col) out.get(col.id)?.push(t);
+      }
+    }
+    return out;
+  }, [byStatus, boardColumns]);
+
   const motionKey = useMemo(
     () => TASK_STATUSES.map((s) => byStatus[s].map((t) => t.id).join(',')).join('|'),
     [byStatus],
@@ -1581,9 +1608,16 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     endDrag();
     const task = tasks.find((t) => t.id === e.active.id);
     if (!task) { flushDeferredRead(); return; }
+    // WHICH WORKFLOW COLUMN the hand let go on: a column's own id (Triage, AI
+    // review...) or a card inside one. `planDrop` speaks statuses, so it gets
+    // the column's base; the column itself travels as `stage`.
+    const overRaw = e.over ? String(e.over.id) : null;
+    const overColumn = overRaw ? boardColumns.find((c) => c.id === overRaw) : undefined;
+    const overCard = !overColumn && overRaw ? tasks.find((t) => t.id === overRaw) : undefined;
+    const targetColumn = overColumn ?? (overCard ? columnOfTask(boardColumns, overCard) : null);
     const plan = planDrop({
       task,
-      overId: e.over ? String(e.over.id) : null,
+      overId: overColumn ? overColumn.base : overRaw,
       byStatus,
       // I numeri li decide la colonna INTERA, non quella filtrata: vedi
       // `planDrop`. Con un filtro attivo erano la stessa lista, e la
@@ -1599,10 +1633,20 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     // reads as a bug. `onDragStart` already cleared the previous one, so this
     // only ever adds.
     if (plan?.redirectedFrom === 'in_progress') setDropNotice(tr('board.drop.inProgressRedirected'));
+    // The column changes, the status may not (AI review → Human review): the
+    // stage says it. Only when the card really lands in that column: a
+    // redirected drop goes where the redirect sends it, with no stage.
+    if (plan && targetColumn && !plan.redirectedFrom) {
+      const landsIn = plan.patch.status ?? task.status;
+      const fromColumn = columnOfTask(boardColumns, task);
+      if (landsIn === targetColumn.base && fromColumn?.id !== targetColumn.id) {
+        plan.patch = { ...plan.patch, status: targetColumn.base, stage: targetColumn.id === targetColumn.base ? null : targetColumn.id };
+      }
+    }
     // Nessun piano = nessuna scrittura da aspettare: la lettura parcheggiata
     // non ha più niente dietro cui mettersi in fila.
     if (plan) dropTo(task, plan); else flushDeferredRead();
-  }, [tasks, byStatus, dropTo, endDrag, flushDeferredRead, orderScope, skipFlight, tr]);
+  }, [tasks, byStatus, boardColumns, dropTo, endDrag, flushDeferredRead, orderScope, skipFlight, tr]);
   const activeTask = activeId ? tasks.find((t) => t.id === activeId) ?? null : null;
   /**
    * COSA HO IN MANO, in parole: la riga di contesto e i badge che la scheda di
@@ -2018,6 +2062,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             onError={setError}
             tasks={tasks}
             onOpenTask={(id) => { setShowSettings(false); openTask(id); }}
+            workflow={workflow}
+            onWorkflowChanged={setWorkflow}
           />
         ) : (
           <GlobalOnlySettingsPanel
@@ -2068,11 +2114,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             <div ref={columnsScrollRef} data-testid="kanban-columns-row" data-keeps-smooth-scroll="" className={boardLayout === 'list'
               ? COLUMNS_ROW_LIST
               : `${COLUMNS_ROW_GRID} ${columnsSnap.held ? '' : 'snap-x snap-mandatory'} sm:scroll-smooth`}>
-              {TASK_STATUSES.map((status) => (
+              {boardColumns.map(({ id: columnKey, base: status, label: columnLabel }) => (
                 <Column
-                  key={status}
+                  key={columnKey}
                   status={status}
-                  tasks={byStatus[status]}
+                  columnId={columnKey === status ? undefined : columnKey}
+                  label={columnKey === status ? undefined : columnLabel}
+                  tasks={byColumn.get(columnKey) ?? []}
                   onOpen={openTask}
                   onCreate={(text) => create(status, text)}
                   canCreate={mode === 'project' && !showArchived}
@@ -2094,7 +2142,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                   justCreated={justCreated}
                   archived={showArchived}
                   onOpenSettings={toggleSettings}
-                  draft={draft && draft.status === status && !showArchived ? draft : undefined}
+                  draft={draft && draft.status === status && !showArchived && columnOfTask(boardColumns, { status })?.id === columnKey ? draft : undefined}
                 />
               ))}
             </div>

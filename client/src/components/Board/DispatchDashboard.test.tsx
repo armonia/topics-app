@@ -16,7 +16,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { DispatchDashboardView, DispatchDetailsView, DispatchSummaryView, MemoryChart } from './DispatchDashboard';
 import { GlobalSettingsSection } from './BoardSettingsSections';
 import { adoptDispatchCapacity, adoptGlobalCap } from '../../state/globalDispatchCap';
-import { rowReason, brokenCards, chartMax, queuedCards, waitingLabel, type QueuedCard } from './dispatchDashboardModel';
+import { rowReason, brokenCards, chartMax, overflowedCards, queuedCards, waitingLabel, type QueuedCard } from './dispatchDashboardModel';
 import type { BoardTask, DispatchCapacity } from '../../lib/board';
 import type { DispatchMemoryQueueSnapshot } from '../../../../shared/board';
 
@@ -417,5 +417,20 @@ describe('regressioni della verifica avversaria', () => {
   test('quante card insieme: nel cruscotto il secondo livello è dentro un blocco chiuso', () => {
     const src = readFileSync(join(import.meta.dir, 'GlobalCapControl.tsx'), 'utf8');
     expect(src).toMatch(/quiet \? \(\s*<details className="group" data-testid="global-cap-mode-fold">/);
+  });
+});
+
+describe('cruscotto auto-dispatch: le card spostate perché il Mac era pieno', () => {
+  test('una riga sola per card: dove è andata e perché', () => {
+    const tasks = [
+      { id: 'm', text: 'Sistema il login', status: 'in_progress', machineId: 'cloud', runComputerName: 'Cloud Claude', overflowedAt: '2026-10-30T10:02:00Z' },
+      { id: 'n', text: 'Scelta a mano', status: 'todo', machineId: 'pc', runComputerName: 'PC Windows' },
+      { id: 'd', text: 'Già chiusa', status: 'done', machineId: 'cloud', runComputerName: 'Cloud Claude', overflowedAt: '2026-10-30T09:00:00Z' },
+    ] as unknown as BoardTask[];
+    const moved = overflowedCards(tasks);
+    expect(moved).toEqual([{ id: 'm', title: 'Sistema il login', node: 'Cloud Claude' }]);
+    const html = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={[]} moved={moved} now={NOW} />);
+    expect(text(html)).toContain('Sistema il login· spostata su Cloud Claude: Mac pieno');
+    expect(html.match(/data-testid="dispatch-dashboard-moved-row"/g)).toHaveLength(1);
   });
 });

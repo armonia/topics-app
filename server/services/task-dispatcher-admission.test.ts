@@ -32,6 +32,7 @@ import { Database } from "bun:sqlite";
 import type { MachineBudgetSample } from "../../shared/board";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
+import { setActiveBudgetGovernor, type BudgetGovernor } from "./budget-governor";
 import { currentDispatchBlock } from "./dispatch-block-signal";
 import { dispatchResourceVerdict } from "./dispatch-capacity";
 import { createMemSignal } from "./mem-signal";
@@ -289,6 +290,81 @@ describe("the exemption and the floor", () => {
     expect(h.startedAt).toHaveLength(1);
   });
 
+  it("card 10469e3e: the preview says blockedBy frozen while the tick holds the queue for the frozen checks", async () => {
+    let frozen = 1;
+    setActiveBudgetGovernor({ frozenCount: () => frozen } as unknown as BudgetGovernor);
+    try {
+      const h = harness({ agentCostSamples: () => [1] });
+      h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.5 });
+      expect(h.dispatcher.admissionPreview?.()).toMatchObject({ admit: false, blockedBy: "frozen" });
+      frozen = 0;
+      expect(h.dispatcher.admissionPreview?.()).toMatchObject({ admit: true, blockedBy: null });
+    } finally { setActiveBudgetGovernor(null); }
+  });
+
+  it("card 10469e3e: a frozen hold does not log \"the first starts anyway\" and the preview is not exempt", async () => {
+    setActiveBudgetGovernor({ frozenCount: () => 1 } as unknown as BudgetGovernor);
+    try {
+      const h = harness({ agentCostSamples: () => [1] });
+      h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.5 });
+      h.machine.sample = () => ({ ...QUIET, otherCoreUnits: 11, running: 0 });
+      seedTodo(h.db, "frozen-first");
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.startedAt).toHaveLength(0);
+      expect(h.lines("il primo parte comunque")).toHaveLength(0);
+      expect(h.dispatcher.admissionPreview?.()).toMatchObject({ admit: false, blockedBy: "frozen", firstAgentExempt: false });
+    } finally { setActiveBudgetGovernor(null); }
+  });
+
+  it("card 10469e3e: the queue log tells the truth across CPU hold, frozen hold and release", async () => {
+    let frozen = 0;
+    setActiveBudgetGovernor({ frozenCount: () => frozen } as unknown as BudgetGovernor);
+    try {
+      const h = harness({ agentCostSamples: () => [1] });
+      h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.5 });
+      seedTodo(h.db, "log-1");
+      seedTodo(h.db, "log-2");
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.startedAt).toHaveLength(1);
+      const busy = { ...QUIET, otherCoreUnits: 11, running: 1 };
+      h.machine.sample = () => ({ ...busy });
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.lines("coda in attesa")).toHaveLength(1);
+      // CPU hold gives way to the frozen hold: still waiting, so NOT "restarted".
+      h.machine.sample = () => ({ ...QUIET, running: 1 });
+      frozen = 1;
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.startedAt).toHaveLength(1);
+      expect(h.lines("coda ripartita")).toHaveLength(0);
+      expect(h.lines("coda in attesa").some((l) => l.includes("congelati"))).toBe(true);
+      // The real release is the one that is said.
+      frozen = 0;
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.lines("coda ripartita")).toHaveLength(1);
+    } finally { setActiveBudgetGovernor(null); }
+  });
+
+  it("card 10469e3e: room freed by a freeze goes to the frozen checks first, not to a new agent", async () => {
+    let frozen = 1;
+    setActiveBudgetGovernor({ frozenCount: () => frozen } as unknown as BudgetGovernor);
+    try {
+      const h = harness({ agentCostSamples: () => [1] });
+      h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.5 });
+      seedTodo(h.db, "frozen-1");
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.startedAt).toHaveLength(0);
+      frozen = 0;
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.startedAt).toHaveLength(1);
+    } finally { setActiveBudgetGovernor(null); }
+  });
 });
 
 /**
@@ -516,7 +592,25 @@ describe("the memory window on the floor and on the budget axis", () => {
     await w.beats(repeat(4.8, 14));
     expect(w.h.startedAt).toHaveLength(1);
     expect(w.h.lines("per deroga")).toHaveLength(1);
+    expect(w.h.lines("per deroga")[0]).toContain("e4-0");
     expect(w.h.lines("le risorse sono rientrate sopra il pavimento")).toHaveLength(0);
+  });
+
+  /**
+   * [29] The line used to come out when the VERDICT changed, whether or not a
+   * card could use it: here every card waits behind a blocker, nothing is
+   * launchable, and a log line saying a card goes through by derogation reads as an admission
+   * that never happened.
+   */
+  it("E4b: with nothing launchable the derogation is NOT written", async () => {
+    const w = windowHarness("count");
+    seedTodo(w.h.db, "e4b-blocker");
+    w.h.db.run("UPDATE tasks SET status = 'backlog' WHERE id = 'e4b-blocker'");
+    seedTodo(w.h.db, "e4b-0");
+    w.h.db.run("UPDATE tasks SET blocked_by_task_id = 'e4b-blocker' WHERE id = 'e4b-0'");
+    await w.beats(repeat(4.8, 14));
+    expect(w.h.startedAt).toHaveLength(0);
+    expect(w.h.lines("per deroga")).toHaveLength(0);
   });
 
   it("E5: the derogation is declared where the budget declares its own", async () => {

@@ -58,6 +58,22 @@ export function queuedCards(
     });
 }
 
+/** A card the overflow moved off this Mac, as its one line says it. */
+export interface MovedCard {
+  id: string;
+  title: string;
+  /** Where it went, by name (the id when the name is unknown). */
+  node: string;
+}
+
+/** The open cards the overflow sent elsewhere because the Mac was full, newest first. */
+export function overflowedCards(tasks: readonly BoardTask[]): MovedCard[] {
+  return tasks
+    .filter((t) => !t.parentTaskId && t.status !== 'done' && !!t.overflowedAt && !!t.machineId)
+    .sort((a, b) => (b.overflowedAt ?? '').localeCompare(a.overflowedAt ?? ''))
+    .map((t) => ({ id: t.id, title: t.text, node: t.runComputerName ?? t.machineId! }));
+}
+
 /** "19 min" / "2 h 5 min": how long it has waited, never a timestamp. */
 export function waitingLabel(ms: number): string {
   const min = Math.max(1, Math.round(ms / 60_000));

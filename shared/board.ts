@@ -1884,6 +1884,19 @@ export interface BoardSettings {
    */
   dispatchMachineId: string | null;
   /**
+   * Overflow dispatch, ON by default: a card that would run here and has been
+   * held by this machine's memory floor for more than two minutes moves to the
+   * first online machine (Cloud Claude with credit, else a paired node). See
+   * `server/services/dispatch-overflow.ts`.
+   */
+  dispatchOverflow: boolean;
+  /**
+   * Every card of this board touches this Mac itself (local processes,
+   * OpenClaw, sessions, macOS): the overflow never moves them. The same mark
+   * a single card carries as `stayLocal`.
+   */
+  dispatchStayLocal: boolean;
+  /**
    * Lingua in cui rispondono gli agenti dispatchati su questa board.
    * 'inherit' (il default NULL) → vale la preferenza globale
    * (`app_settings.output_language`), che e' anche quella di chat e terminale:
@@ -2000,8 +2013,9 @@ export interface DispatchCapacity {
   usedMemGB: number | null;
   /** Core-units everything that is not ours is burning, or `null`. */
   otherCoreUnits: number | null;
-  /** How many check runs are frozen right now by the budget governor. */
+  /** How many runs are frozen right now: the budget governor's plus the swap freezer's. */
   frozen: number;
+  frozenBy?: { governor: number; swapFreezer: number }; // who froze them
   /**
    * Memory REALLY available right now, in GB, or `null` where the probe has
    * nothing to say (outside macOS). It travels with the capacity because the
@@ -2102,9 +2116,10 @@ export interface DispatchAdmission {
    * Which brake said no. `floor` is the hard RAM/disk floor
    * (`dispatchResourceBlock`) and `drain` a planned restart: both hold the
    * queue in EITHER brake mode, before the budget is even asked, so they are
-   * the only verdicts a count-mode reading carries.
+   * the only verdicts a count-mode reading carries. `frozen`: the budget has
+   * room but a frozen check has not restarted yet, and it restarts first.
    */
-  blockedBy: "cpu" | "memory" | "floor" | "drain" | null;
+  blockedBy: "cpu" | "memory" | "floor" | "drain" | "frozen" | null;
   /** The pass is owed only to nothing running yet. */
   firstAgentExempt: boolean;
   /** What one more agent is priced at, in core-units (median of measured ones). */

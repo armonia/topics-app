@@ -103,7 +103,12 @@ export function reviewEvidence(task: {
   // dire `system` anche su una card che nessun agente ha mai toccato (uno
   // spazzino che chiude un giro), e li' «l'agent non ha prodotto niente»
   // parlerebbe di un agente che non e' mai esistito.
-  if (!task.assignedTopicId) return { kind: 'manual', isolated: false };
+  //
+  // A delivery an AGENT declared is not a hand either, bound or not: an agent
+  // that delivers a card it opened from its own chat, or the coordinator, has
+  // no session on the card (`assignedTopicId`), and the card said it had been
+  // moved by hand on Human review (seen on the board-workflow clip, 30/10).
+  if (!task.assignedTopicId) return task.deliveredBy === 'agent' ? { kind: 'in-place', isolated: false } : { kind: 'manual', isolated: false };
   if (task.deliveredBy === 'system') return { kind: 'empty', isolated: false };
   // Nessun ramo, ma un agente c'e' ed e' stato LUI a dichiarare finito: il
   // lavoro esiste, sta su main insieme a quello degli altri e non si puo'

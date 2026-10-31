@@ -298,6 +298,25 @@ describe("freezing what is already running", () => {
     expect(p.state.frozen).toEqual(["check-1"]);
   });
 
+  test("checks, then the agents' own commands, then agents; the latest start first inside a kind", () => {
+    const targets: FreezeTarget[] = [
+      { id: "agent-late", kind: "agent", startedAt: 9000 },
+      { id: "cmd-old", kind: "agent-command", startedAt: 100 },
+      { id: "cmd-new", kind: "agent-command", startedAt: 500 },
+      { id: "check-old", kind: "check", startedAt: 10 },
+    ];
+    let s: FreezeState = EMPTY_FREEZE_STATE;
+    const order: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      s = freezePlan({ used: 20, budget: 9.6, targets }, s).state;
+      const p = freezePlan({ used: 20, budget: 9.6, targets }, s);
+      s = p.state;
+      if (p.freeze) order.push(p.freeze);
+    }
+    // The last one standing is never frozen: the agent keeps running.
+    expect(order).toEqual(["check-old", "cmd-new", "cmd-old"]);
+  });
+
   test("checks before agents, however recent the agent is", () => {
     let s: FreezeState = EMPTY_FREEZE_STATE;
     const targets: FreezeTarget[] = [
@@ -311,8 +330,7 @@ describe("freezing what is already running", () => {
       return p.freeze;
     };
     expect(freeze()).toBe("check-old");
-    expect(freeze()).toBe("agent-late");
-    // Nothing left to give up: it stops asking instead of looping.
+    // The agent is the last one running: it is left alone, and it stops asking instead of looping.
     expect(freeze()).toBe(null);
   });
 
@@ -426,4 +444,21 @@ test("the eight cards of the card do not start together any more", () => {
   // paid; the other three wait, and they wait one tick apart, not none.
   expect(started).toBe(5);
   expect(ourCoreUnits).toBeLessThanOrEqual(cores * share);
+});
+
+describe("the last command keeps running", () => {
+  test("never freezes the only unfrozen target: the oldest is left to finish", () => {
+    const targets = [
+      { id: "old", kind: "agent-command" as const, startedAt: 1 },
+      { id: "new", kind: "agent-command" as const, startedAt: 2 },
+    ];
+    let s = EMPTY_FREEZE_STATE;
+    const frozenAt: string[][] = [];
+    for (let i = 0; i < 8; i++) {
+      const p = freezePlan({ used: 10, budget: 5, targets }, s);
+      s = p.state;
+      frozenAt.push([...s.frozen]);
+    }
+    expect(frozenAt.at(-1)).toEqual(["new"]);
+  });
 });

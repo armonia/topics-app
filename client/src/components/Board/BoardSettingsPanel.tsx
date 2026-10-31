@@ -13,11 +13,11 @@
  * Le RIGHE del pannello stanno un gradino piu' sotto, in `BoardSettingsSections.tsx`:
  * questo file tiene la struttura e le sezioni, non i singoli interruttori.
  */
-import { useRef, useState } from 'react';
-import { ChevronDown, PauseCircle, Sparkles } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ChevronDown, Laptop, PauseCircle, Server, Sparkles } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { Select } from '../Shared/Select';
-import { MAX_CHECKS, boardApi, type BoardSettings, type BoardSettingsPatch, type BoardTask, type ReviewCheck } from '../../lib/board';
+import { MAX_CHECKS, WORKFLOW_PRESET_IDS, boardApi, type BoardSettings, type BoardSettingsPatch, type BoardTask, type BoardWorkflowView, type ReviewCheck, type WorkflowPresetId } from '../../lib/board';
 import { NightModeCard } from './NightModeCard';
 import { EFFORTS, FANOUT_CHOICES } from './constants';
 import { useTaskModelTrigger } from '../../hooks/useTaskModelTrigger';
@@ -29,7 +29,7 @@ import {
   SETTINGS_PANEL_SHELL,
 } from './BoardSettingsSections';
 
-export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models, onToggleDispatch, onChanged, onClose, onError, tasks, onOpenTask }: {
+export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models, onToggleDispatch, onChanged, onClose, onError, tasks, onOpenTask, workflow, onWorkflowChanged }: {
   onOpenTask?: (id: string) => void;
   projectId: string;
   /** Owned by the board (per-project config) — this panel only renders and patches it. */
@@ -44,6 +44,9 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
   onError: (e: string) => void;
   /** The board's cards: the dashboard derives the queue from them. */
   tasks?: readonly BoardTask[];
+  /** The board's workflow (its columns); absent = the picker is not shown. */
+  workflow?: BoardWorkflowView | null;
+  onWorkflowChanged?: (w: BoardWorkflowView) => void;
 }) {
   const tr = useT();
   const [modelOpen, setModelOpen] = useState(false);
@@ -100,6 +103,39 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
       {s.dispatchPaused && (
         <p className="text-mini text-amber-300/80">{tr('board.settings.pausedActive')}</p>
       )}
+      {/* THE OVERFLOW: a card held by this Mac's memory floor for two minutes
+          moves to Cloud Claude or the PC. ON unless switched off here; an
+          older server that does not send the field reads as ON. */}
+      <label
+        className="flex min-h-6 cursor-pointer items-center justify-between gap-3 coarse:min-h-11"
+        title={tr('board.settings.overflowTitle')}
+      >
+        <span className="flex items-center gap-1.5">
+          <Server className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.settings.overflow')}
+        </span>
+        <input
+          type="checkbox"
+          data-testid="board-dispatch-overflow"
+          checked={s.dispatchOverflow !== false}
+          onChange={(e) => patch({ dispatchOverflow: e.target.checked })}
+          className="h-3.5 w-3.5 shrink-0 accent-emerald-500"
+        />
+      </label>
+      <label
+        className="flex min-h-6 cursor-pointer items-center justify-between gap-3 coarse:min-h-11"
+        title={tr('board.settings.stayLocalTitle')}
+      >
+        <span className="flex items-center gap-1.5">
+          <Laptop className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.settings.stayLocal')}
+        </span>
+        <input
+          type="checkbox"
+          data-testid="board-dispatch-stay-local"
+          checked={!!s.dispatchStayLocal}
+          onChange={(e) => patch({ dispatchStayLocal: e.target.checked })}
+          className="h-3.5 w-3.5 shrink-0 accent-emerald-500"
+        />
+      </label>
       <div className="flex items-center justify-between gap-2">
         <span>{tr('board.settings.effort')}</span>
         <div className="flex gap-0.5">
@@ -226,6 +262,15 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
       )}
       </SettingsSection>
 
+      {/* THE COLUMNS OF THIS BOARD (`shared/workflow.ts`): a preset, not an
+          editor. Two rows because there are two levels: this board, which may
+          inherit, and the default for every board. The project wins. */}
+      {workflow && onWorkflowChanged && (
+        <SettingsSection label={tr('board.settings.sec.workflow')}>
+          <WorkflowPicker projectId={projectId} workflow={workflow} onChanged={onWorkflowChanged} onError={onError} />
+        </SettingsSection>
+      )}
+
       {/* La modalità notturna ha una CARD sua, non una casella in mezzo alle
           altre: l'interruttore è la parte piccola, la parte utile è lo stato —
           sta dispacciando o è in attesa, e per quale motivo. Vedi
@@ -326,6 +371,63 @@ function DeployCommandField({ value, suggestion, onSave }: {
  * SENZA aggiungere una seconda scatola: il pannello è già dentro un bordo, e un
  * riquadro dentro un riquadro renderebbe ogni gruppo un oggetto a sé.
  */
+/**
+ * Which columns the board shows. «Inherit» is a choice of its own (no row for
+ * this board: it follows the global default), and the global default is a
+ * second row, because «the same workflow on every project» is the common case
+ * and should not be set board by board.
+ */
+function WorkflowPicker({ projectId, workflow, onChanged, onError }: {
+  projectId: string;
+  workflow: BoardWorkflowView;
+  onChanged: (w: BoardWorkflowView) => void;
+  onError: (e: string) => void;
+}) {
+  const tr = useT();
+  const [globalPreset, setGlobalPreset] = useState<WorkflowPresetId | null>(workflow.source === 'global' ? workflow.preset : null);
+  useEffect(() => {
+    let alive = true;
+    boardApi.getWorkflow('*').then((g) => { if (alive) setGlobalPreset(g.own); }).catch(() => { /* the row just stays unknown */ });
+    return () => { alive = false; };
+  }, []);
+  const save = async (scope: string, preset: WorkflowPresetId | null) => {
+    try {
+      const saved = await boardApi.setWorkflow(scope, preset);
+      if (scope === '*') { setGlobalPreset(saved.own); onChanged(await boardApi.getWorkflow(projectId)); }
+      else onChanged(saved);
+    } catch (e) { onError(e instanceof Error ? e.message : 'workflow save failed'); }
+  };
+  const chip = (on: boolean) => `rounded px-1.5 py-0.5 ${on ? 'bg-emerald-500/80 text-white' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'}`;
+  const presetLabel = (p: WorkflowPresetId) => tr(`board.settings.workflow.preset.${p}`);
+  return (
+    <div className="space-y-2" data-testid="board-workflow-picker">
+      <div className="flex items-center justify-between gap-2" title={tr('board.settings.workflow.hereTitle')}>
+        <span>{tr('board.settings.workflow.here')}</span>
+        <div className="flex flex-wrap justify-end gap-0.5">
+          <button type="button" data-testid="board-workflow-inherit" onClick={() => save(projectId, null)} className={chip(workflow.own === null)}>
+            {tr('board.settings.workflow.inherit', { preset: presetLabel(globalPreset ?? 'default') })}
+          </button>
+          {WORKFLOW_PRESET_IDS.map((p) => (
+            <button key={p} type="button" data-testid={`board-workflow-${p}`} onClick={() => save(projectId, p)} className={chip(workflow.own === p)}>
+              {presetLabel(p)}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-2" title={tr('board.settings.workflow.globalTitle')}>
+        <span>{tr('board.settings.workflow.global')}</span>
+        <div className="flex gap-0.5">
+          {WORKFLOW_PRESET_IDS.map((p) => (
+            <button key={p} type="button" data-testid={`board-workflow-global-${p}`} onClick={() => save('*', p === 'default' ? null : p)} className={chip((globalPreset ?? 'default') === p)}>
+              {presetLabel(p)}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SettingsSection({ label, first, children }: { label: string; first?: boolean; children: React.ReactNode }) {
   return (
     <div className={first ? 'space-y-2' : 'space-y-2 border-t border-app-border-subtle pt-2'}>

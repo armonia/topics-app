@@ -27,22 +27,19 @@ function accountOAuth(account: string): OAuthBlob {
 const orgCache = new Map<string, string>();
 
 async function orgFor(account: string | undefined, token: string): Promise<string> {
-  const key = account ?? "";
-  const hit = orgCache.get(key);
+  // The Keychain login is read fresh every call, and so is its org: cached, a login
+  // switched to another account sent the new token with the old org (30/10/2026).
+  if (!account) return JSON.parse(readFileSync(join(homedir(), ".claude.json"), "utf8")).oauthAccount.organizationUuid;
+  const hit = orgCache.get(account);
   if (hit) return hit;
-  let org: string;
-  if (!account) {
-    org = JSON.parse(readFileSync(join(homedir(), ".claude.json"), "utf8")).oauthAccount.organizationUuid;
-  } else {
-    // ~/.claude.json only describes the logged-in account: for the others the org comes from the profile.
-    const res = await fetch("https://api.anthropic.com/api/oauth/profile", {
-      headers: { Authorization: `Bearer ${token}`, "anthropic-version": "2023-06-01", "anthropic-beta": "oauth-2025-04-20" },
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (!res.ok) throw new Error(`profilo ${account}: ${res.status}`);
-    org = ((await res.json()) as { organization: { uuid: string } }).organization.uuid;
-  }
-  orgCache.set(key, org);
+  // ~/.claude.json only describes the logged-in account: for the others the org comes from the profile.
+  const res = await fetch("https://api.anthropic.com/api/oauth/profile", {
+    headers: { Authorization: `Bearer ${token}`, "anthropic-version": "2023-06-01", "anthropic-beta": "oauth-2025-04-20" },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!res.ok) throw new Error(`profilo ${account}: ${res.status}`);
+  const org = ((await res.json()) as { organization: { uuid: string } }).organization.uuid;
+  orgCache.set(account, org);
   return org;
 }
 

@@ -12,6 +12,11 @@
 // letto dai due lati del filo: `export … from` ri-esporta ma non porta i nomi
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
 export { MAX_FANOUT, TASK_STATUSES, PARKED_STOPPED, PARKED_WAITED_OUT, isAgentWorking, isThreadSpeech, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock, showsLandingDebt, showsDeployProposal } from '../../../shared/board';
+// The board's columns (`shared/workflow.ts`): which ones, and which a card is in.
+import type { BoardWorkflow, WorkflowPresetId } from '../../../shared/workflow';
+export { WORKFLOW_PRESETS, WORKFLOW_PRESET_IDS, columnOfTask, type WorkflowPresetId } from '../../../shared/workflow';
+/** `GET /boards/:id/workflow`: the resolved workflow plus the row of exactly this board. */
+export interface BoardWorkflowView extends BoardWorkflow { own: WorkflowPresetId | null }
 // Il tetto globale di concorrenza: estremi, arrotondamento e formula del numero
 // EFFETTIVO. Stessa cartella condivisa e stesso motivo del resto: il dispatcher
 // applica questo calcolo, il pannello impostazioni della board lo scrive sotto
@@ -595,12 +600,21 @@ export interface BoardTask {
   /** AICTRL-01 routing switch; null = never set explicitly (legacy topics: fallback). */
   topicsRouting?: boolean | null;
   /**
-   * The paired node this card runs on. `null` = this machine (KANBAN-76): the
-   * choice is human, there is no `auto` node, and nothing moves a card by load.
+   * The paired node this card runs on. `null` = this machine (KANBAN-76). The
+   * choice is human, except the overflow: a card held by this Mac's memory
+   * floor for two minutes moves by itself, and then `overflowedAt` says so.
    */
   machineId: string | null;
+  /** "This Mac only": the overflow never moves it (absent on an older server). */
+  stayLocal?: boolean;
+  /** When the overflow moved it off this machine because the Mac was full. */
+  overflowedAt?: string;
   /** Who opened the card: `human`, `agent:<name>`, `cron:<name>` (`shared/created-by.ts`); absent/null = born before the field. */
   createdBy?: string | null;
+  /** The workflow column when it is not the default one of the status (`shared/workflow.ts`); absent/null = the default column. */
+  stage?: string | null;
+  /** The question for the person the delivery carried (Human review). */
+  humanAsk?: string;
   /** Lo sforzo con cui il task ha girato davvero (dal topic dell'agente). Con la
    *  board su `auto` lo sceglie il classificatore, e questo è l'unico posto in
    *  cui la scelta si legge: è la leva di costo più pesante che abbiamo. */
@@ -790,6 +804,8 @@ export function __resetFeedRevalidation(): void {
 
 export interface CreateTaskBody {
   text: string;
+  /** The workflow column to be born in; absent = the server decides (Triage for a person's card). */
+  stage?: string;
   description?: string | null;
   priority?: number;
   assignee?: string | null;
@@ -813,6 +829,8 @@ export interface CreateTaskBody {
   blockedByTaskId?: string | null;
   /** When blocked, hand the new agent the blocker's session context. */
   reuseBlockerContext?: boolean;
+  /** "Mac only" at birth: the overflow dispatch never moves the card off this Mac. */
+  stayLocal?: boolean;
   /**
    * Il link (parent o blocker) arriva da una proposta di intake ACCETTATA: il
    * server scrive il perché nei thread di entrambe le card. Senza questo flag
@@ -854,12 +872,16 @@ export interface UpdateTaskBody {
   /** The paired node the card runs on; null (or an empty string) clears it back
    *  to this machine. An unknown id is refused with `unknown_machine`. */
   machineId?: string | null;
+  /** "This Mac only": the overflow never moves the card when the Mac is full. */
+  stayLocal?: boolean;
   /** Gate: don't dispatch until this root task is done; null clears it. */
   blockedByTaskId?: string | null;
   /** When blocked, hand the new agent the blocker's session context. */
   reuseBlockerContext?: boolean;
   /** Agent delivers a plan to approve before implementing. */
   planFirst?: boolean;
+  /** The workflow column (`shared/workflow.ts`); the status follows it. null = the default column of the status. */
+  stage?: string | null;
 }
 
 
@@ -1272,6 +1294,12 @@ export const boardApi = {
     req<BoardProjectRef>('/all-boards/projects', { method: 'POST', body: JSON.stringify({ name }) }),
   getSettings: (projectId: string) =>
     req<BoardSettings>(`/boards/${enc(projectId)}/settings`),
+  /** The board's workflow: its columns, which preset, and whether it is chosen HERE (`own`) or inherited. */
+  getWorkflow: (projectId: string) =>
+    req<BoardWorkflowView>(`/boards/${enc(projectId)}/workflow`),
+  /** Choose this board's preset; `null` goes back to inheriting the global one. */
+  setWorkflow: (projectId: string, preset: WorkflowPresetId | null) =>
+    req<BoardWorkflowView>(`/boards/${enc(projectId)}/workflow`, { method: 'PUT', body: JSON.stringify({ preset }) }),
   updateSettings: (projectId: string, patch: BoardSettingsPatch) =>
     req<BoardSettings>(`/boards/${enc(projectId)}/settings`, { method: 'PATCH', body: JSON.stringify(patch) }),
   /**

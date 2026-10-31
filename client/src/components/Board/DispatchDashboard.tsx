@@ -24,7 +24,7 @@ import { projectNameFromId } from '../../lib/boardProjectsStore';
 import type { BoardTask, DispatchCapacity } from '../../lib/board';
 import type { DispatchMemoryQueueSnapshot } from '../../../../shared/board';
 import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
-import { brokenCards, chartMax, queuedCards, rowReason, waitingLabel, type BrokenCard, type QueuedCard } from './dispatchDashboardModel';
+import { brokenCards, chartMax, overflowedCards, queuedCards, rowReason, waitingLabel, type BrokenCard, type MovedCard, type QueuedCard } from './dispatchDashboardModel';
 import { DANGER_TEXT } from '../../lib/popoverStyles';
 import { admissionVerdictText, verdictSentence } from './dispatchLoad';
 
@@ -215,6 +215,8 @@ interface DashboardInput {
   capacity: DispatchCapacity | null;
   snapshot: DispatchMemoryQueueSnapshot | null;
   queue: QueuedCard[];
+  /** Cards the overflow moved to another machine because the Mac was full. */
+  moved?: MovedCard[];
   /** Cards stopped by a real fault (not by a wait). */
   broken?: number;
   /** Which of them: the first few, and how many were left out. Absent = the box names none. */
@@ -368,7 +370,7 @@ export function HoldersFold({ consumers, total }: { consumers: DispatchMemoryQue
 }
 
 /** BELOW the summary: the numbered queue, then the memory chart, and (unless it lives in Advanced) who holds the memory. */
-export function DispatchDetailsView({ capacity, snapshot, queue, now, onStartNow, starting, startFailure, withHolders = true }: Omit<DashboardInput, 'broken' | 'dispatchOn'> & {
+export function DispatchDetailsView({ capacity, snapshot, queue, moved = [], now, onStartNow, starting, startFailure, withHolders = true }: Omit<DashboardInput, 'broken' | 'dispatchOn'> & {
   /** False when the holders fold is drawn elsewhere (the Advanced block of the panel). */
   withHolders?: boolean;
   /** The last rejected Start anyway; shown only while that card is still queued. */
@@ -431,6 +433,16 @@ export function DispatchDetailsView({ capacity, snapshot, queue, now, onStartNow
           </ol>
         )}
       </div>
+      {moved.length > 0 && (
+        <ul className="space-y-0.5" data-testid="dispatch-dashboard-moved">
+          {moved.map((m) => (
+            <li key={m.id} className="flex items-center gap-1.5 text-mini text-app-text-secondary" data-testid="dispatch-dashboard-moved-row">
+              <span className="min-w-0 truncate" title={m.title}>{m.title}</span>
+              <span className="shrink-0">· {tr('board.task.node.overflowed', { node: m.node })}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       <div data-testid="dispatch-chart-block">
         <SectionLabel right={tr('board.dash.chartSub')}>{tr('board.dash.chartTitle')}</SectionLabel>
         <MemoryChart history={snapshot?.history ?? []} startGB={startGB} now={now} cpuHolds={cpuHolds} />
@@ -465,7 +477,7 @@ function useDashboardData(tasks: readonly BoardTask[]) {
   const brokenAll = brokenCards(tasks);
   // The project name from the id (`<folder>-<hash>`); cards without a project show none.
   const projectName = (t: BoardTask) => (isProjectlessId(t.projectId) ? null : projectNameFromId(t.projectId));
-  return { capacity, snapshot, now, broken: brokenAll.total, brokenList: brokenAll, queue: queuedCards(tasks, tr, now, projectName) };
+  return { capacity, snapshot, now, broken: brokenAll.total, brokenList: brokenAll, moved: overflowedCards(tasks), queue: queuedCards(tasks, tr, now, projectName) };
 }
 
 /** The live summary, for the top of the panel. */
@@ -488,7 +500,7 @@ export function DispatchDetails({ tasks, withHolders = true }: { tasks: readonly
       .then(() => loadSnapshot(), (e: unknown) => setStartFailure({ id: card.id, code: (e as { code?: string } | null)?.code ?? null }))
       .finally(() => setStarting(null));
   };
-  return <DispatchDetailsView capacity={d.capacity} snapshot={d.snapshot} queue={d.queue} now={d.now} onStartNow={start} starting={starting} startFailure={startFailure} withHolders={withHolders} />;
+  return <DispatchDetailsView capacity={d.capacity} snapshot={d.snapshot} queue={d.queue} moved={d.moved} now={d.now} onStartNow={start} starting={starting} startFailure={startFailure} withHolders={withHolders} />;
 }
 
 /** Who holds the memory, live: for the Advanced block. */

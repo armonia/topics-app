@@ -28,6 +28,7 @@ import { afterEach, describe, it, expect, setSystemTime } from "bun:test";
 import { Database } from "bun:sqlite";
 import type { MachineBudgetSample, ReviewCheck } from "../../shared/board";
 import { createTaskService, type TaskService } from "./tasks";
+import { setActiveBudgetGovernor, type BudgetGovernor } from "./budget-governor";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { dispatchResourceVerdict, type MemoryFloorHold } from "./dispatch-capacity";
 import type { TurnEndInfo } from "../providers/stop-reason";
@@ -283,6 +284,38 @@ describe("la riga di memoria è quella della board della card", () => {
 });
 
 describe("la riga della card leggera alleggerisce solo la memoria", () => {
+  it("card 10469e3e: un check congelato tiene ferma anche la card leggera, sotto il pavimento di memoria", async () => {
+    setActiveBudgetGovernor({ frozenCount: () => 1 } as unknown as BudgetGovernor);
+    try {
+      const roomy: MachineBudgetSample = {
+        cores: 12, totalMemGB: 32, ourCoreUnits: 0.5, otherCoreUnits: 1,
+        ourMemGB: 1, availableMemGB: 30, running: 1,
+      };
+      const h = await withOneQuietTurn({ held: 8.5, budget: roomy });
+      pastTheRamp();
+      h.svc.setGlobalCap({ auto: false, max: 4, mode: "resources", budgetShare: 0.8 });
+      h.seed("second", QUIET);
+      await h.dispatch(QUIET);
+      expect(h.task("second").status).toBe("todo");
+    } finally { setActiveBudgetGovernor(null); }
+  });
+
+  it("card 10469e3e: un check congelato tiene ferma anche la card leggera, sotto la pressione del tetto per risorse", async () => {
+    const sample: MachineBudgetSample = {
+      cores: 12, totalMemGB: 32, ourCoreUnits: 0.5, otherCoreUnits: 1,
+      ourMemGB: 1, availableMemGB: 5, running: 1,
+    };
+    setActiveBudgetGovernor({ frozenCount: () => 1 } as unknown as BudgetGovernor);
+    try {
+      const h = await withOneQuietTurn({ held: 20, budget: sample });
+      pastTheRamp();
+      h.svc.setGlobalCap({ auto: false, max: 4, mode: "resources", budgetShare: 0.8 });
+      h.seed("second", QUIET);
+      await h.dispatch(QUIET);
+      expect(h.task("second").status).toBe("todo");
+    } finally { setActiveBudgetGovernor(null); }
+  });
+
   it("un disco quasi pieno tiene ferma anche la card leggera", async () => {
     const h = await withOneQuietTurn({ held: 20 });
     h.setDisk(1);
@@ -507,6 +540,39 @@ describe("la coda di memoria e la capacità parlano col prezzo della board", () 
 
     expect(h.dispatcher.admissionPreview?.(QUIET)).toMatchObject({ admit: true, costMemGB: 1 });
     expect(h.dispatcher.admissionPreview?.(REPO)).toMatchObject({ admit: false, blockedBy: "memory", costMemGB: 4 });
+  });
+
+  /** [13] The door of the sub-agents asks for a CHILD, not for the typical card of a board. */
+  it("l'anteprima del figlio prezza un agente e i suoi comandi leggeri, non la card con worktree", async () => {
+    const h = await withOneQuietTurn({ held: 8.5 });
+    // The same reading holds the standard card on the floor (14 GB line) ...
+    expect(h.dispatcher.admissionPreview?.(REPO)?.blockedBy).toBe("floor");
+    // ... and lets a child through (8 GB line, one light price).
+    expect(h.dispatcher.childAdmissionPreview?.()?.blockedBy ?? null).toBeNull();
+  });
+
+  it("nel tetto per risorse l'anteprima del figlio porta il prezzo del figlio e si ferma sul budget", async () => {
+    const sample: MachineBudgetSample = {
+      cores: 12, totalMemGB: 32, ourCoreUnits: 0.5, otherCoreUnits: 1,
+      ourMemGB: 1, availableMemGB: 5, running: 1,
+    };
+    const h = await withOneQuietTurn({ held: 20, budget: sample });
+    h.svc.setGlobalCap({ auto: false, max: 4, mode: "resources", budgetShare: 0.8 });
+    expect(h.dispatcher.childAdmissionPreview?.()).toMatchObject({ admit: true, costMemGB: 1 });
+    sample.availableMemGB = 0.2;
+    expect(h.dispatcher.childAdmissionPreview?.()).toMatchObject({ admit: false, blockedBy: "memory" });
+  });
+
+  it("l'anteprima del figlio non muove l'isteresi del cancello", async () => {
+    const sample: MachineBudgetSample = {
+      cores: 12, totalMemGB: 32, ourCoreUnits: 0.5, otherCoreUnits: 1,
+      ourMemGB: 1, availableMemGB: 5, running: 1,
+    };
+    const h = await withOneQuietTurn({ held: 20, budget: sample });
+    h.svc.setGlobalCap({ auto: false, max: 4, mode: "resources", budgetShare: 0.8 });
+    const before = h.dispatcher.admissionPreview?.(QUIET);
+    for (let i = 0; i < 3; i++) h.dispatcher.childAdmissionPreview?.();
+    expect(h.dispatcher.admissionPreview?.(QUIET)).toEqual(before);
   });
 });
 

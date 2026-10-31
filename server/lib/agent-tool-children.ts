@@ -116,7 +116,7 @@ const LSTART_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "
  * text. Strict on purpose: `Date.parse` in Bun reads a year out of almost
  * anything (`"start-51000"` is the year 51000).
  */
-function parseLstart(text: string): number | null {
+export function parseLstart(text: string): number | null {
   const m = /^[A-Z][a-z]{2} ([A-Z][a-z]{2}) +(\d{1,2}) (\d{2}):(\d{2}):(\d{2}) (\d{4})$/.exec(text.trim());
   if (!m) return null;
   const month = LSTART_MONTHS.indexOf(m[1]!);

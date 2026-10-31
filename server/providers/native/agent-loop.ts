@@ -449,6 +449,8 @@ async function streamOnce(
   const partialJson = new Map<number, string>();
   /** Per streaming tool block: when its primary argument was last looked at, and what went out. */
   const partialArgs = new Map<number, { at: number; value?: string }>();
+  /** Indexes of the reasoning blocks announced and not closed yet, to close the right one. */
+  const openThinking = new Set<number>();
   let stopReason: string | null = null;
   let stopDetails: StopDetails | null = null;
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 };
@@ -518,6 +520,9 @@ async function streamOnce(
               handler.onTextDelta(d.text, currentText(blocks));
             } else if (d.type === "thinking_delta") {
               if (block) block.thinking = (block.thinking ?? "") + d.thinking;
+              // The sign the client reserves the reasoning row on, with the FIRST
+              // text: a block with none has no row to keep (card 40ea050c).
+              if (d.thinking && !openThinking.has(ev.index)) { openThinking.add(ev.index); handler.onThinkingStart?.(); }
               handler.onThinkingDelta?.(d.thinking);
             } else if (d.type === "signature_delta") {
               // Senza firma il pensiero non torna indietro: l'API la pretende
@@ -557,6 +562,7 @@ async function streamOnce(
           }
 
           case "content_block_stop": {
+            if (openThinking.delete(ev.index)) handler.onThinkingEnd?.();
             const raw = partialJson.get(ev.index);
             if (raw !== undefined && blocks[ev.index]) {
               // TRUNCATED ARGUMENTS ARE REPORTED, NOT FAKED INTO AN EMPTY OBJECT.

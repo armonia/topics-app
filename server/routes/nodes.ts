@@ -18,6 +18,7 @@
  */
 import type { AppContext, RouteHandler } from "../types";
 import type { ProvidersSnapshot } from "../../shared/types";
+import { isPlainBranchName } from "../services/branch-on-origin";
 import { createTaskService, TaskServiceError, type Task } from "../services/tasks";
 import { STALE_TASK_MODEL_ERROR, isStaleMirroredModel } from "../services/task-model-catalog";
 import { deliveryFacts } from "../services/delivery-facts";
@@ -99,6 +100,18 @@ function stripCtrl(input: unknown): string | null {
 function statOf(task: Task): { filesChanged: number; insertions: number; deletions: number } | null {
   if (task.deliveryFilesChanged === null || task.deliveryInsertions === null || task.deliveryDeletions === null) return null;
   return { filesChanged: task.deliveryFilesChanged, insertions: task.deliveryInsertions, deletions: task.deliveryDeletions };
+}
+
+/**
+ * `CreateRunBody.baseBranch` as the node accepts it: `null` when absent, the
+ * name when it is a plain branch name, `undefined` when it is not one (a
+ * leading dash, `..`, a space, a control char: it becomes a git argument).
+ */
+export function nodeRunBaseBranch(raw: unknown): string | null | undefined {
+  if (raw == null || raw === "") return null;
+  if (typeof raw !== "string") return undefined;
+  const name = raw.trim();
+  return isPlainBranchName(name) ? name : undefined;
 }
 
 export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): RouteHandler {
@@ -609,6 +622,11 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       }
       if (prior) db.run("UPDATE tasks SET claude_task_id = NULL WHERE id = ?", [prior.id]);
 
+      // The branch the run starts from, when the origin card already has one: a
+      // ref name and nothing else, since it ends up as `origin/<name>` in git.
+      const baseBranch = nodeRunBaseBranch(body.baseBranch);
+      if (baseBranch === undefined) return errorResponse(400, "baseBranch must be a branch name");
+
       // On the BOARD, not the store UUID: see the delegated route above.
       const boardId = projectIdForPath(project.path);
       try {
@@ -616,6 +634,8 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
           projectId: boardId,
           // Runs HERE: a board default machine must not send a mirror out again.
           machineId: null,
+          // Its worktree is born from the origin card's branch, not from main.
+          baseBranch,
           text,
           description: typeof body.description === "string" ? body.description : null,
           status: "todo",

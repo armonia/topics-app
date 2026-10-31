@@ -2940,17 +2940,25 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               }
             },
 
+            // THE REASONING TRAVELS ON THE SSE TOO (card 40ea050c). The window
+            // that sent the message reads only its own SSE while the reply is
+            // open and drops these WS frames (`senderAlsoSees.ts`), so it never
+            // reserved the row nor saw its text: the row was born from the
+            // history reload after the loader had gone. On the SSE they keep
+            // their order with the answer's text, which a WS frame cannot.
             onThinkingStart: () => {
               resetStreamTimer();
               const start = { type: "stream:thinking_start" as const, sessionKey, topicId: matchedTopic?.id };
               if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, start);
               else broadcastToAll(start);
+              writeSSE(JSON.stringify({ thinking: { open: true } }));
             },
 
             onThinkingEnd: () => {
               const end = { type: "stream:thinking_end" as const, sessionKey, topicId: matchedTopic?.id };
               if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, end);
               else broadcastToAll(end);
+              writeSSE(JSON.stringify({ thinking: { open: false } }));
             },
 
             onThinkingDelta: (text: string) => {
@@ -2960,6 +2968,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               const thinkingChunk = { type: "stream:thinking_chunk" as const, sessionKey, topicId: matchedTopic?.id, content: text };
               if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, thinkingChunk);
               else broadcastToAll(thinkingChunk);
+              if (text) writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { thinking: text } }] }));
               updateStreamContent(sessionKey, fullContent, fullThinking);
             },
 
