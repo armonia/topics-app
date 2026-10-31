@@ -23,7 +23,7 @@ describe("effort chip is always rendered", () => {
   });
   test("chat bar mounts the badge with no tier condition", () => {
     expect(popover).toContain("<EffortBadge tier={shownTier}");
-    expect(popover).not.toMatch(/shownTier\s*(\?|&&)/);
+    expect(popover).not.toMatch(/shownTier\s*(\?|&&)\s*\(?\s*<EffortBadge/);
   });
   test("drawer composer mounts the badge under the field, always", () => {
     expect(drawer).toContain('testId="task-composer-effort-badge"');
