@@ -14,7 +14,7 @@ describe("pickVictim", () => {
   test("the pure rule on its own: floor, CPU, ties and the two-freeze limit", () => {
     const c = (over: Partial<FreezeCandidate>): FreezeCandidate => ({
       root: { kind: "claude-background", pid: 1, pgid: 1, sessionKey: "s", command: "x", topicId: null, terminalId: null, taskId: null },
-      treePids: [1], xpcPids: [], footprintGB: 1, residentGB: 1, cpuCores: 1, frozenCount: 0, ...over,
+      treePids: [1], xpcPids: [], footprintGB: 1, residentGB: 1, cpuCores: 1, frozenCount: 0, startedAt: 0, ...over,
     });
     expect(pickVictim([c({ footprintGB: 0.49 })]).skipped).toBe("belowFloor");
     expect(pickVictim([c({ cpuCores: 0.05 })]).skipped).toBe("belowFloor");
@@ -27,7 +27,7 @@ describe("pickVictim", () => {
   test("the only work of Topics in flight is never the victim (card cda99908, finding 26)", () => {
     const only: FreezeCandidate = {
       root: { kind: "claude-background", pid: 1, pgid: 1, sessionKey: "s", command: "x", topicId: null, terminalId: null, taskId: "card" },
-      treePids: [1], xpcPids: [], footprintGB: 3, residentGB: 2, cpuCores: 1, frozenCount: 0,
+      treePids: [1], xpcPids: [], footprintGB: 3, residentGB: 2, cpuCores: 1, frozenCount: 0, startedAt: 0,
     };
     expect(pickVictim([only], 1)).toEqual({ victim: null, skipped: "onlyTurn" });
     expect(pickVictim([only], 2).victim).toBe(only);
@@ -36,7 +36,7 @@ describe("pickVictim", () => {
   test("two trees of the one turn: the heavier is stopped so the other can finish (review of 30/10)", () => {
     const tree = (pid: number, footprintGB: number): FreezeCandidate => ({
       root: { kind: "claude-background", pid, pgid: pid, sessionKey: "s", command: "x", topicId: null, terminalId: null, taskId: "card" },
-      treePids: [pid], xpcPids: [], footprintGB, residentGB: 1, cpuCores: 1, frozenCount: 0,
+      treePids: [pid], xpcPids: [], footprintGB, residentGB: 1, cpuCores: 1, frozenCount: 0, startedAt: 0,
     });
     const light = tree(1, 1);
     const heavy = tree(2, 3);

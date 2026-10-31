@@ -29,7 +29,10 @@ import { captureWithDeadline } from "./bounded-capture";
  * minute thaw cap.
  */
 async function runPs(args: string[], timeoutMs = 4_000): Promise<string | null> {
-  const capture = await captureWithDeadline(["/bin/ps", ...args], timeoutMs);
+  // LC_ALL=C: `lstart` prints month and day names in the user's locale, and
+  // `parseLstart` only reads the English ones. A localized date would parse as
+  // null and silently flatten every start time to 0.
+  const capture = await captureWithDeadline(["/bin/ps", ...args], timeoutMs, { LC_ALL: "C" });
   return capture === null ? null : capture.text;
 }
 

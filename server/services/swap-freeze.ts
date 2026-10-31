@@ -52,6 +52,7 @@ import {
   containsAgentCli,
   descendantPids,
   guardSet,
+  parseLstart,
   recordClaimsProcess,
   toolRoots,
   type AgentSessionRef,
@@ -73,27 +74,22 @@ export interface FreezeCandidate {
   residentGB: number;
   cpuCores: number;
   frozenCount: number;
+  /** When the root started (epoch ms, from `ps lstart`); 0 when unreadable, which reads as the oldest. */
+  startedAt: number;
 }
 
 export type VictimSkip = "belowFloor" | "exhausted" | "onlyTurn" | null;
 
 /**
- * THE HEAVIEST, measured on FOOTPRINT and not on resident memory: footprint is
- * what survives compression, and `rss` reads small exactly while a tree thrashes
- * (memory note `memoria-numeri-che-mentono`, allow-italian: the note's own filename).
- * The CPU term names one specific
- * failure: an idle 2 GB background process is the heaviest tree on the machine
- * and freezing it stops no page activity at all.
+ * THE NEWEST HEAVY TREE: footprint and CPU are the ENTRY THRESHOLD, not the
+ * ranking (the heaviest was an old build nearly done). Past the floor the latest
+ * start wins; footprint (`rss` reads small while a tree thrashes), then CPU, break
+ * a tie. Freezing an idle 2 GB process would stop no page activity at all.
  *
- * `inFlight` is how much work of Topics is running (turns of agents plus check
- * runs). At one, the tree here is the only thing of ours on the machine:
- * stopping it lets nothing of ours finish and gives back none of the memory
- * the other apps hold. It is the same "first card" the dispatcher admits under
- * its memory floor (`memoryFirstCardExempt`), so one rule holds for both brakes
- * instead of admitting a card and freezing it a minute later (card cda99908,
- * finding 26). Unknown = no such limit. Every tree here is work too: with two
- * trees of the one turn, stopping the heavier lets the other finish, so the
- * rule holds only for a lone tree.
+ * `inFlight` is the work of Topics running (agent turns plus check runs). At one
+ * nothing of ours can finish by stopping it: the "first card" the dispatcher admits
+ * (`memoryFirstCardExempt`, card cda99908, finding 26). Unknown = no limit. Two
+ * trees of the one turn: the newer stops so the other can finish.
  */
 export function pickVictim(candidates: readonly FreezeCandidate[], inFlight = Number.POSITIVE_INFINITY): { victim: FreezeCandidate | null; skipped: VictimSkip } {
   const heavy = candidates.filter((c) => c.footprintGB >= FREEZE_MIN_GB && c.cpuCores >= FREEZE_MIN_CORES);
@@ -101,7 +97,11 @@ export function pickVictim(candidates: readonly FreezeCandidate[], inFlight = Nu
   if (Math.max(inFlight, candidates.length) <= 1) return { victim: null, skipped: "onlyTurn" };
   const open = heavy.filter((c) => c.frozenCount < FREEZES_PER_TREE);
   if (open.length === 0) return { victim: null, skipped: "exhausted" };
-  const victim = open.reduce((a, b) => (b.footprintGB > a.footprintGB || (b.footprintGB === a.footprintGB && b.cpuCores > a.cpuCores) ? b : a));
+  const startsLater = (a: FreezeCandidate, b: FreezeCandidate): boolean =>
+    b.startedAt !== a.startedAt ? b.startedAt > a.startedAt
+      : b.footprintGB !== a.footprintGB ? b.footprintGB > a.footprintGB
+        : b.cpuCores > a.cpuCores;
+  const victim = open.reduce((a, b) => (startsLater(a, b) ? b : a));
   return { victim, skipped: null };
 }
 
@@ -219,6 +219,20 @@ export interface SwapFreezer {
   frozenGB(): number;
   /** The last moment either swap lever acted, for the shared spacing. */
   lastActionAt(): number;
+  /**
+   * The background and native commands of the agents that are safe to pause for
+   * the CPU budget, screened by the same rules as a swap candidate (no agent CLI
+   * or guarded pid in the tree, no group that reaches the server, nobody
+   * connected from outside, not already frozen by the swap lever). `[]` on any
+   * doubt: a `ps` or `lsof` that did not answer is not a clearance.
+   */
+  freezableCommands(): Promise<FreezableCommand[]>;
+}
+
+/** A command the CPU governor may pause. `startedAt` is epoch ms, 0 when unreadable. */
+export interface FreezableCommand {
+  root: ToolRoot;
+  startedAt: number;
 }
 
 const gb = (n: number | null | undefined): string => (n == null || !Number.isFinite(n) ? "?" : n.toFixed(1));
@@ -240,6 +254,9 @@ export function oneLine(command: string, max = LOG_COMMAND_MAX): string {
   return `${flat.slice(0, max - 1).replace(/[\uD800-\uDBFF]$/, "")}…`;
 }
 
+/** Two ten-second beats and a margin: older than this is not the previous beat. */
+const CPU_BASE_MAX_AGE_MS = 25_000;
+
 type OncePerPidKind = "foreground" | "unrecognised" | "agentCli" | "guarded" | "peers" | "staleRecord";
 
 export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
@@ -247,7 +264,11 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
   const frozen = new Map<string, FrozenTree>();
   /** Closed frozen intervals per session, for the silence clocks. */
   const history = new Map<string, { from: number; to: number }[]>();
-  /** CPU time of each root tree on the previous sustained beat. */
+  /**
+   * CPU time of each root tree on the previous sustained beat. A base older than
+   * `CPU_BASE_MAX_AGE_MS` is no base: it spans a calm stretch, and a rate over
+   * hours is not the rate of now. Emptied with the episode, pruned on the live table.
+   */
   const cpuBase = new Map<number, { at: number; seconds: number }>();
   let lastFreezeAt = Number.NEGATIVE_INFINITY;
   /**
@@ -452,7 +473,8 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
         residentKB += deps.residentKB(pid) ?? 0;
         cpuSeconds += byPid.get(pid)?.cpuSeconds ?? 0;
       }
-      const base = cpuBase.get(root.pid);
+      const stored = cpuBase.get(root.pid);
+      const base = stored && t - stored.at <= CPU_BASE_MAX_AGE_MS ? stored : undefined;
       cpuBase.set(root.pid, { at: t, seconds: cpuSeconds });
       // The FIRST sustained beat of a tree has no base, so its decision comes
       // ten seconds later rather than on a rate nobody measured.
@@ -467,10 +489,35 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
         footprintGB: (footprintKB * 1024) / 1e9,
         residentGB: (residentKB * 1024) / 1e9,
         cpuCores,
+        startedAt: parseLstart(rootLstart) ?? 0,
         frozenCount: deps.ledger.freezeCount({ pid: root.pid, lstart: rootLstart }),
       });
     }
     return { candidates, foreground: foreground.map((f) => ({ pid: f.pid, command: f.command })) };
+  }
+
+  async function freezableCommands(): Promise<FreezableCommand[]> {
+    const table = await deps.processTable();
+    if (table === null || disabled) return [];
+    const guard = guardSet(table, guardRolesFor(table));
+    const { roots } = toolRoots({ rows: table, sessions: deps.sessions(), natives: deps.natives() });
+    const starts = await deps.lstartOf(roots.map((r) => r.pid)).catch(() => null);
+    if (starts === null) return [];
+    const frozenRoots = new Set([...frozen.values()].map((t) => t.root.pid));
+    const out: FreezableCommand[] = [];
+    for (const root of roots) {
+      const lstart = starts.get(root.pid);
+      if (!lstart || frozenRoots.has(root.pid)) continue;
+      if (root.kind === "claude-background" && !recordClaimsProcess(root.recordedAt, lstart)) continue;
+      const tree = descendantPids(table, root.pid);
+      if (containsAgentCli(table, tree) !== null) continue;
+      if ([...tree].some((p) => guard.has(p))) continue;
+      if (allowedGroups(table, tree, guard).some((g) => g.members.some((p) => guard.has(p)))) continue;
+      const peers = await deps.outsidePeers([...tree]).catch(() => null);
+      if (peers === null || peers.length > 0) continue;
+      out.push({ root, startedAt: parseLstart(lstart) ?? 0 });
+    }
+    return out;
   }
 
   async function freeze(candidate: FreezeCandidate, swap: SwapVerdict, held: HeldMemory): Promise<boolean> {
@@ -644,7 +691,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
             calmSince ??= now();
             if (now() - calmSince >= SWAP_EPISODE_CALM_MS) {
               episodeSince = null; saidNothing = false; saidOnlyTurn = false; saidExhausted = false; namedPids.clear();
-              noEffectThisEpisode.clear();
+              noEffectThisEpisode.clear(); cpuBase.clear();
             }
           }
           return;
@@ -673,6 +720,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
         const livePids = new Set(table.map((r) => r.pid));
         deps.ledger.pruneCounts((c) => livePids.has(c.pid));
         for (const pid of namedPids.keys()) if (!livePids.has(pid)) namedPids.delete(pid);
+        for (const pid of cpuBase.keys()) if (!livePids.has(pid)) cpuBase.delete(pid);
         const { candidates, foreground } = await measure(table, guard);
         for (const f of foreground) logOncePerPid(f.pid, "foreground", `[freeze] skipped "${oneLine(f.command)}" (pid ${f.pid}): foreground Bash, never frozen`);
         const inFlight = (() => {
@@ -745,6 +793,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
       return total;
     },
     frozenCount: () => frozen.size,
+    freezableCommands,
     frozenGB: () => [...frozen.values()].reduce((sum, t) => sum + t.footprintGB, 0),
     lastActionAt: () => lastFreezeAt,
   };
