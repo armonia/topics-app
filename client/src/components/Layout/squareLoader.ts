@@ -294,7 +294,9 @@ export class LoaderBody {
       let gap = Math.max(1, Math.round(p * 0.14));
       if (p - gap < 1) gap = 0;
       const q = p - gap;
-      const rr = Math.max(0.6, q * 0.3);
+      // Intero: con uno spazio dispari, gap / 2 metteva ogni quadrato su mezzo pixel, e usciva sfocato.
+      const inset = Math.floor(gap / 2);
+      const rr = q < 2 ? 0 : Math.max(0.6, q * 0.3);
       const a = new Float32Array(n * n);
       // Small: every point falls on its own cell, edges are crisp and sit on device pixels.
       for (let j = 0; j < PARTICLES; j++) {
@@ -309,7 +311,7 @@ export class LoaderBody {
           if (v < 0.06) continue;
           c.globalAlpha = Math.sqrt(v);
           c.beginPath();
-          c.roundRect(m + x * p + gap / 2, m + y * p + gap / 2, q, q, rr);
+          c.roundRect(m + x * p + inset, m + y * p + inset, q, q, rr);
           c.fill();
         }
       }
