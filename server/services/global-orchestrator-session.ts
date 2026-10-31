@@ -161,6 +161,33 @@ export function getEligibleGlobalOrchestratorSessionBySessionKey(
   }
 }
 
+/**
+ * The session key of the eligible coordinator, for the server to reach it (a
+ * card left in AI review, `services/ai-review-notice.ts`). Same conditions as
+ * `getEligibleGlobalOrchestratorSessionBySessionKey`; `null` when none.
+ */
+export function eligibleGlobalOrchestratorSessionKey(db: Database): string | null {
+  try {
+    const row = db
+      .query(
+        `SELECT topics.session_key AS session_key
+           FROM global_orchestrator_sessions AS registry
+           JOIN topics ON topics.id = registry.topic_id
+          WHERE registry.scope = ?
+            AND topics.session_key IS NOT NULL
+            AND topics.project_path IS NULL
+            AND topics.worktree_id IS NULL
+            AND topics.parent_id IS NULL
+            AND topics.provider = 'codex'
+          LIMIT 1`,
+      )
+      .get(GLOBAL_ORCHESTRATOR_SCOPE) as { session_key: string } | null;
+    return row?.session_key ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Role predicate for a Topic id; callers must still perform normal auth. */
 export function isGlobalOrchestratorTopic(db: Database, topicId: string): boolean {
   return getGlobalOrchestratorSessionByTopicId(db, topicId) !== null;

@@ -18,6 +18,7 @@
  * with a fake node, a fake clock and no repository at all
  * (`task-dispatcher-remote-node.test.ts`).
  */
+import { awaitsHuman } from "../../shared/workflow";
 import { NODE_UNREACHABLE_ERROR } from "../../shared/board";
 import type { Task, TaskService } from "./tasks";
 import type { BundleResult, CreateRunBody, NodeRunBinding, NodeRunReport } from "./node-client";
@@ -729,15 +730,19 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       }
       // Same edge the local system delivery emits: without it the review-ready
       // notification never fires for a card that never passed through the route.
-      try {
-        host.broadcast({
-          type: "task:review-ready",
-          projectId: delivered.projectId,
-          taskId: delivered.id,
-          taskTitle: delivered.text || "Task",
-          reason: "system-delivered",
-        });
-      } catch { /* best-effort */ }
+      // Only a card that waits on a PERSON rings: one routed to AI review goes
+      // back to whoever opened it (`awaitsHuman`, shared/workflow.ts).
+      if (awaitsHuman(delivered)) {
+        try {
+          host.broadcast({
+            type: "task:review-ready",
+            projectId: delivered.projectId,
+            taskId: delivered.id,
+            taskTitle: delivered.text || "Task",
+            reason: "system-delivered",
+          });
+        } catch { /* best-effort */ }
+      }
     } catch (err) { log(`nodo: consegna in review non riuscita per ${taskId}`, err); }
   }
 

@@ -270,6 +270,7 @@ describe('outbound registry contract', () => {
       'stream:tool_user_input_required',
       'stream:usage',
       'swap-freeze:state',
+      'task:ai-review',
       'task:awaiting-human',
       'task:created',
       'task:deleted',
@@ -429,8 +430,9 @@ describe('outbound registry contract', () => {
   // them live. Owner-only. Sender `server/attention/store.ts`
   // (`recordHistoryRow`), listener `useNotificationHistory`.
   // 105 -> 106: `task:unowned`, the coordinator's event for a card nobody owns.
+  // 106 -> 107: `task:ai-review`, the coordinator's event for a card in AI review.
   test('all 104 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(106);
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(107);
   });
 });
 

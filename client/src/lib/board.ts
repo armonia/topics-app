@@ -12,6 +12,11 @@
 // letto dai due lati del filo: `export … from` ri-esporta ma non porta i nomi
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
 export { MAX_FANOUT, TASK_STATUSES, PARKED_STOPPED, PARKED_WAITED_OUT, isAgentWorking, isThreadSpeech, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock, showsLandingDebt, showsDeployProposal } from '../../../shared/board';
+// The board's columns (`shared/workflow.ts`): which ones, and which a card is in.
+import type { BoardWorkflow, WorkflowPresetId } from '../../../shared/workflow';
+export { WORKFLOW_PRESETS, WORKFLOW_PRESET_IDS, columnOfTask, type WorkflowPresetId } from '../../../shared/workflow';
+/** `GET /boards/:id/workflow`: the resolved workflow plus the row of exactly this board. */
+export interface BoardWorkflowView extends BoardWorkflow { own: WorkflowPresetId | null }
 // Il tetto globale di concorrenza: estremi, arrotondamento e formula del numero
 // EFFETTIVO. Stessa cartella condivisa e stesso motivo del resto: il dispatcher
 // applica questo calcolo, il pannello impostazioni della board lo scrive sotto
@@ -601,6 +606,10 @@ export interface BoardTask {
   machineId: string | null;
   /** Who opened the card: `human`, `agent:<name>`, `cron:<name>` (`shared/created-by.ts`); absent/null = born before the field. */
   createdBy?: string | null;
+  /** The workflow column when it is not the default one of the status (`shared/workflow.ts`); absent/null = the default column. */
+  stage?: string | null;
+  /** The question for the person the delivery carried (Human review). */
+  humanAsk?: string;
   /** Lo sforzo con cui il task ha girato davvero (dal topic dell'agente). Con la
    *  board su `auto` lo sceglie il classificatore, e questo è l'unico posto in
    *  cui la scelta si legge: è la leva di costo più pesante che abbiamo. */
@@ -790,6 +799,8 @@ export function __resetFeedRevalidation(): void {
 
 export interface CreateTaskBody {
   text: string;
+  /** The workflow column to be born in; absent = the server decides (Triage for a person's card). */
+  stage?: string;
   description?: string | null;
   priority?: number;
   assignee?: string | null;
@@ -860,6 +871,8 @@ export interface UpdateTaskBody {
   reuseBlockerContext?: boolean;
   /** Agent delivers a plan to approve before implementing. */
   planFirst?: boolean;
+  /** The workflow column (`shared/workflow.ts`); the status follows it. null = the default column of the status. */
+  stage?: string | null;
 }
 
 
@@ -1272,6 +1285,12 @@ export const boardApi = {
     req<BoardProjectRef>('/all-boards/projects', { method: 'POST', body: JSON.stringify({ name }) }),
   getSettings: (projectId: string) =>
     req<BoardSettings>(`/boards/${enc(projectId)}/settings`),
+  /** The board's workflow: its columns, which preset, and whether it is chosen HERE (`own`) or inherited. */
+  getWorkflow: (projectId: string) =>
+    req<BoardWorkflowView>(`/boards/${enc(projectId)}/workflow`),
+  /** Choose this board's preset; `null` goes back to inheriting the global one. */
+  setWorkflow: (projectId: string, preset: WorkflowPresetId | null) =>
+    req<BoardWorkflowView>(`/boards/${enc(projectId)}/workflow`, { method: 'PUT', body: JSON.stringify({ preset }) }),
   updateSettings: (projectId: string, patch: BoardSettingsPatch) =>
     req<BoardSettings>(`/boards/${enc(projectId)}/settings`, { method: 'PATCH', body: JSON.stringify(patch) }),
   /**

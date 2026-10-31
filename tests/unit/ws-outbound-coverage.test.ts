@@ -71,6 +71,7 @@ const UNCONSUMED: Record<string, string> = {
   // connected loses nothing. Drawing it on the board would put a banner on
   // cards a person already sees in their column.
   "task:unowned": "event for the coordinator; durable trace in activity_log (category board)",
+  "task:ai-review": "event for the coordinator (a card back to its opener); durable trace in activity_log (category board)",
 };
 
 /** Sorgenti del CLIENT: quelli che possono ascoltare. Test esclusi. */

@@ -108,6 +108,13 @@ describe('cosa mostra una card in review', () => {
       expect(reviewEvidence({ ...base, deliveredBy: 'system' }).kind).toBe('manual');
     });
 
+    test('consegnata da un agente senza sessione sulla card: non e\' una mano', () => {
+      // An agent delivering a card it opened from its own chat (or the
+      // coordinator) declared it finished: the work exists, unattributed.
+      expect(reviewEvidence({ ...base, deliveredBy: 'agent' }).kind).toBe('in-place');
+      expect(reviewEvidence({ ...base, deliveredBy: 'human' }).kind).toBe('manual');
+    });
+
     test('i QUATTRO casi restano distinti', () => {
       const tipi = new Set([
         reviewEvidence({ ...base, deliveryBranch: 'topics/x', deliveryFilesChanged: 3 }).kind,

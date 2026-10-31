@@ -382,7 +382,7 @@ const TOOLS = [
   {
     name: "update_task",
     description:
-      "Update a task on THIS session's project board: status, priority, assignee, title/description, preview_image. The project is derived from the session (no project id). DELIVERING (status='review') REQUIRES `summary`: without it the call is refused. NOTE: you CANNOT set status='done' on your MAIN task — that is a human review gate: set status='review' and a human approves it. Exception: subtask STEPS of the task assigned to you (created with parent_task_id) are your checklist — mark each done as you complete it. You also cannot REOPEN a card a human closed (approved in review, or moved to done on the board): that is their decision — comment the reason and ask. Your own steps, which you closed yourself, you may reopen. To give the reviewer something concrete to look at, do NOT reach for output_url: a live page goes in a TAB of the task (open_browser_pane) and files go in the task's download list (comment_task media[]).",
+      "Update a task on THIS session's project board: status, priority, assignee, title/description, preview_image. The project is derived from the session (no project id). DELIVERING (status='review') REQUIRES `summary`: without it the call is refused. NOTE: you CANNOT set status='done' on your MAIN task — that is a human review gate: set status='review' and a human approves it. Exceptions: a card YOU opened that sits in AI review (close it with status='done' and the proof in `summary`), and subtask STEPS of the task assigned to you (created with parent_task_id) are your checklist — mark each done as you complete it. You also cannot REOPEN a card a human closed (approved in review, or moved to done on the board): that is their decision — comment the reason and ask. Your own steps, which you closed yourself, you may reopen. To give the reviewer something concrete to look at, do NOT reach for output_url: a live page goes in a TAB of the task (open_browser_pane) and files go in the task's download list (comment_task media[]).",
     inputSchema: {
       type: "object",
       properties: {
@@ -402,6 +402,16 @@ const TOOLS = [
         // dei posti in cui l'agente legge la regola, e finché era un riassunto
         // scritto qui diceva due rami mentre il protocollo ne diceva tre.
         preview_image: { type: "string", description: PREVIEW_RULE },
+        stage: {
+          type: "string",
+          description:
+            "The board column, when the board's workflow has more columns than statuses (e.g. triage, human_review). Triage: move a card out of 'triage' to 'todo' (or keep it in backlog) once title, priority and dependencies are set. 'ai_review' is never yours to set: the server routes a delivery there when an agent or a schedule opened the card.",
+        },
+        human_ask: {
+          type: "string",
+          description:
+            "WITH a delivery (status='review'): the question the PERSON has to answer or the thing they have to see. On a board with AI review it sends the card to Human review; without it, a card an agent opened goes back to that agent, which closes it with the proof. Leave it out when nobody but the opener needs to look.",
+        },
       },
       required: ["task_id"],
     },
@@ -518,6 +528,15 @@ const TOOLS = [
         assignee: { type: "string", description: "Agent/person to assign." },
         text: { type: "string", description: "Replacement title." },
         description: { type: "string", description: "Replacement description." },
+        stage: {
+          type: "string",
+          description:
+            "The board column, on a board whose workflow has more columns than statuses. TRIAGE is yours: a card in 'triage' gets its title, priority and dependency set, missing information asked with comment_global_task, then stage='todo' (or archive it). 'ai_review' is set only by the server. A card in AI review opened by the board API or a schedule is yours to close in its opener's place: status='done' with the proof in `summary`, or stage='human_review' with `human_ask`.",
+        },
+        human_ask: {
+          type: "string",
+          description: "The question for the PERSON that sends a card to Human review (with stage='human_review' or a delivery).",
+        },
       },
       required: ["task_id"],
     },
@@ -2094,7 +2113,7 @@ export async function callListTasks(
 
 export async function callUpdateTask(
   args: ParsedArgs,
-  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown; preview_image?: unknown; previewImage?: unknown; summary?: unknown },
+  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown; preview_image?: unknown; previewImage?: unknown; summary?: unknown; stage?: unknown; human_ask?: unknown },
   fetchImpl: typeof fetch = fetch,
   /**
    * Le manopole del ciclo a gambe: servono quando la consegna fa girare i check
@@ -2153,6 +2172,9 @@ export async function callUpdateTask(
   // the service gate refuses it and can say why it is needed; dropping it here
   // would answer "no field to change", which is the answer to another question.
   if (typeof toolArgs.summary === "string" && patch.status !== undefined) patch.summary = toolArgs.summary;
+  // The workflow column and the question for the person (`shared/workflow.ts`).
+  if (typeof toolArgs.stage === "string" && toolArgs.stage) patch.stage = toolArgs.stage;
+  if (typeof toolArgs.human_ask === "string") patch.humanAsk = toolArgs.human_ask;
   if (Object.keys(patch).length === 0) {
     throw new Error("update_task: provide at least one of 'status', 'priority', 'assignee', 'output_url', 'text', 'description', 'preview_image'");
   }
@@ -2456,7 +2478,7 @@ export async function callCreateGlobalTask(
 
 export async function callUpdateGlobalTask(
   args: ParsedArgs,
-  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; text?: unknown; description?: unknown; summary?: unknown },
+  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; text?: unknown; description?: unknown; summary?: unknown; stage?: unknown; human_ask?: unknown },
   fetchImpl: typeof fetch = fetch,
   opts: {
     legMs?: number;
@@ -2481,6 +2503,8 @@ export async function callUpdateGlobalTask(
     ...(typeof toolArgs.text === "string" ? { text: toolArgs.text } : {}),
     ...(typeof toolArgs.description === "string" ? { description: toolArgs.description } : {}),
     ...(typeof toolArgs.summary === "string" ? { summary: toolArgs.summary } : {}),
+    ...(typeof toolArgs.stage === "string" ? { stage: toolArgs.stage } : {}),
+    ...(typeof toolArgs.human_ask === "string" ? { human_ask: toolArgs.human_ask } : {}),
   };
   const result = await callUpdateTask(
     args,
