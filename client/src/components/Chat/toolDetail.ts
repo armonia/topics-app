@@ -149,9 +149,11 @@ export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string):
     }
     case 'sub_agent':
       if (detail.via === 'spawn_agent') return { name: 'Sub-agent', summary: detail.name ?? detail.description };
+      // The type is already the row's name: a description that just repeats
+      // it ("general-purpose") would print the same label twice.
       return {
         name: detail.subAgentType ?? 'Task',
-        summary: detail.description,
+        summary: detail.description && detail.description !== detail.subAgentType ? detail.description : undefined,
       };
     case 'plan':
       return { name: 'Plan', summary: planSummary(detail.text) };
