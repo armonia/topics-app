@@ -16,8 +16,8 @@ import { test } from "./fixtures/layout.fixture";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { projectRow } from "./helpers/project-row";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
-import { join } from "path";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { join, resolve } from "path";
 import { hermetic } from "./fixtures/hermetic";
 import { apiCreateTask } from "./helpers/board-topbar";
 import { E2E_BASE } from "./helpers/test-server";
@@ -31,6 +31,8 @@ const NAME = "dispatchdash";
 const ROOT = `${canonicalTmpRoot()}/e2e-${NAME}-${STAMP}`;
 const DIR = `${ROOT}/${NAME}`;
 
+// `__dirname`, not `import.meta.url`: Playwright transpiles the specs to CJS.
+const UI_AUDIT_JS = readFileSync(resolve(__dirname, "helpers/ui-audit.js"), "utf8");
 const SHOTS = process.env.DASH_SHOTS ?? join(process.cwd(), "test-results", "dispatch-dashboard");
 const topicIds: string[] = [];
 /** A 12-core machine at rest, with `running` agents in flight on a recommended 4. */
@@ -179,30 +181,39 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     await expect(menu.getByText("Impostazioni della board", { exact: true })).toBeVisible();
     await expect(dash.getByTestId("dispatch-dashboard-hero")).toHaveText("2 al lavoro · 3 in coda");
     // Auto-dispatch off in the test env: the row states the memory, it does not promise another one will start.
-    await expect(dash.getByTestId("dispatch-dashboard-memory")).toHaveText("Memoria libera del Mac: 2,8 GB su 32 GB.");
-    await expect(dash.getByTestId("dispatch-dashboard-holders")).toContainText("Jarvis e altre sessioni di Claude");
-    await expect(dash.getByText("Chi tiene la memoria del Mac · 32 GB")).toBeVisible();
-    await expect(page.locator("label", { hasText: "Auto-dispatch" }).getByRole("checkbox")).toBeVisible();
-    await expect(menu.getByText("Agent in parallelo", { exact: true })).toBeVisible();
+    // «Chi tiene la memoria» is closed by default and opens on request.
+    // It lives inside Advanced, which is closed too.
+    await expect(menu.getByTestId("settings-advanced")).not.toHaveAttribute("open", /.*/);
+    await menu.getByTestId("settings-advanced").locator("summary").first().click();
+    const fold = menu.getByTestId("dispatch-dashboard-holders-fold");
+    await expect(menu.getByTestId("dispatch-dashboard-holders")).toBeHidden();
+    await fold.locator("summary").click();
+    await expect(menu.getByTestId("dispatch-dashboard-holders")).toContainText("Jarvis e altre sessioni di Claude");
+    await expect(menu.getByText("Chi tiene la memoria del Mac · 32 GB")).toBeVisible();
+    await fold.locator("summary").click();
+    await expect(menu.getByTestId("dispatch-dashboard-switch")).toBeVisible();
+    await expect(menu.getByText("Quante card insieme", { exact: true })).toBeVisible();
     await expect(menu.getByTestId("global-cap-running")).toBeVisible();
     // The three improvements.
     await expect(dash.getByTestId("dispatch-dashboard-live")).toHaveText("dal vivo");
     // The test env starts with Auto-dispatch off: the row does not promise they start by themselves.
-    await expect(dash.getByTestId("dispatch-dashboard-ok")).toHaveText("Auto-dispatch spento: le 3 in coda partono quando lo accendi.");
-    const chart = dash.getByTestId("dispatch-chart");
+    await expect(dash.getByTestId("dispatch-dashboard-answer")).toHaveText("Auto-dispatch spento: le 3 in coda partono quando lo accendi.");
+    await expect(dash.getByTestId("dispatch-dashboard-turn-on")).toBeVisible();
+    await dash.screenshot({ path: join(SHOTS, "riepilogo-spento.png") });
+    const chart = menu.getByTestId("dispatch-chart");
     await expect(chart).toBeVisible();
     await expect(chart).toContainText("3,5 GB liberi: ne parte un’altra");
     await expect(chart).toContainText("2 card");
-    const rows = dash.getByTestId("dispatch-dashboard-queue-row");
+    const rows = menu.getByTestId("dispatch-dashboard-queue-row");
     await expect(rows).toHaveCount(3);
     for (let i = 0; i < QUEUED.length; i++) await expect(rows.nth(i)).toContainText(QUEUED[i]!);
     await expect(rows.first().getByTestId("dispatch-dashboard-queue-project")).toHaveText(NAME);
     await expect(rows.first()).toContainText("da 1 min");
-    await expect(dash.getByTestId("dispatch-dashboard-start-now")).toHaveCount(1);
+    await expect(menu.getByTestId("dispatch-dashboard-start-now")).toHaveCount(1);
     await expect(rows.first().getByTestId("dispatch-dashboard-start-now")).toBeVisible();
-    // The order: summary, chart, queue, who holds the memory.
-    const ys = await Promise.all(["dispatch-dashboard-memory", "dispatch-chart-block", "dispatch-dashboard-queue", "dispatch-dashboard-holders"]
-      .map(async (id) => (await dash.getByTestId(id).boundingBox())!.y));
+    // The order: summary, queue, chart, how many cards together, Advanced (spend, who holds the memory).
+    const ys = await Promise.all(["dispatch-dashboard-answer", "dispatch-dashboard-queue", "dispatch-chart-block", "global-cap-control", "dispatch-dashboard-holders-fold"]
+      .map(async (id) => (await menu.getByTestId(id).boundingBox())!.y));
     expect([...ys].sort((p, q) => p - q), `ordine dei blocchi ${ys.join(",")}`).toEqual(ys);
     await menu.screenshot({ path: join(SHOTS, "pannello.png") });
     await menu.getByTestId("global-cap-running").scrollIntoViewIfNeeded();
@@ -228,8 +239,9 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     await page.goto("/");
     await openBoard(page);
     await gear(page).click();
-    const dash = page.getByTestId("board-settings-menu").getByTestId("dispatch-dashboard");
-    const rows = dash.getByTestId("dispatch-dashboard-queue-row");
+    const menu = page.getByTestId("board-settings-menu");
+    const dash = menu;
+    const rows = menu.getByTestId("dispatch-dashboard-queue-row");
     await expect(rows).toHaveCount(3);
     const button = rows.first().getByTestId("dispatch-dashboard-start-now");
     await expect(button).toBeEnabled();
@@ -242,4 +254,77 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     await expect(rows.first().getByTestId("dispatch-dashboard-start-error")).toHaveText("Non è partita: il Mac non la regge adesso (disco, spesa o CPU)");
     await expect(dash).not.toContainText("task cannot be started");
   });
+
+  for (const width of [400, 1100]) {
+    test(`DISPATCHDASH-03: il riquadro rosso elenca le card ferme, senza sforare a ${width} px, e il clic apre il drawer`, async ({ page, request }) => {
+      await stubMachine(page, 0);
+      await stubQueue(page);
+      // Two of the three cards stop on a fault; the first has a title longer than the box.
+      for (const id of created.slice(0, 2)) {
+        const r = await request.post(`${E2E_BASE}/api/test/tasks/${id}/dispatch-state`, { data: { state: "failed", error: "Avvio agent fallito" } });
+        expect(r.ok(), "dispatch-state failed").toBe(true);
+      }
+      await page.setViewportSize({ width, height: 1800 });
+      await page.goto("/");
+      await openBoard(page);
+      await gear(page).click();
+      const menu = page.getByTestId("board-settings-menu");
+      const answer = menu.getByTestId("dispatch-dashboard-answer");
+      await expect(answer).toContainText("2 card sono ferme per un guasto");
+      const cards = menu.getByTestId("dispatch-dashboard-broken-card");
+      await expect(cards).toHaveCount(2);
+      // No horizontal overflow: neither the page nor the panel nor the red box scroll sideways.
+      const overflow = await page.evaluate(() => {
+        const wide = (el: Element | null) => (el ? el.scrollWidth - el.clientWidth : 0);
+        const menuEl = document.querySelector('[data-testid="board-settings-menu"]');
+        const list = document.querySelector('[data-testid="dispatch-dashboard-broken-list"]');
+        const box = list?.parentElement ?? null;
+        return { page: wide(document.documentElement), menu: wide(menuEl), box: wide(box), list: wide(list) };
+      });
+      expect(overflow, `overflow-X a ${width} px`).toEqual({ page: 0, menu: 0, box: 0, list: 0 });
+      await menu.screenshot({ path: join(SHOTS, `guasti-${width}.png`) });
+      // Click on a title: the panel closes and the drawer of THAT card opens.
+      await cards.first().click();
+      const drawer = page.getByTestId("task-detail-drawer");
+      await expect(drawer).toBeVisible();
+      await expect(drawer).toContainText(QUEUED[0]!);
+      await expect(menu).toBeHidden();
+    });
+  }
+  for (const width of [400, 1100]) {
+    test(`DISPATCHDASH-04: spento con un guasto, «Accendi» c'è e funziona; la coda si legge senza sforare a ${width} px`, async ({ page, request }) => {
+      await stubMachine(page, 0);
+      await stubQueue(page);
+      const r = await request.post(`${E2E_BASE}/api/test/tasks/${created[0]}/dispatch-state`, { data: { state: "failed", error: "Avvio agent fallito" } });
+      expect(r.ok(), "dispatch-state failed").toBe(true);
+      await page.setViewportSize({ width, height: 1800 });
+      await page.goto("/");
+      await openBoard(page);
+      await gear(page).click();
+      const menu = page.getByTestId("board-settings-menu");
+      // The test env starts with Auto-dispatch off: the red box keeps the fault, the amber one says it is off.
+      await expect(menu.getByTestId("dispatch-dashboard-answer")).toContainText("1 card è ferma per un guasto");
+      const off = menu.getByTestId("dispatch-dashboard-off");
+      await expect(off).toContainText("Auto-dispatch spento");
+      await expect(off.getByTestId("dispatch-dashboard-turn-on")).toHaveCount(1);
+      // DOM measure (helpers/ui-audit.js) of the whole panel, plus the queue rows cut by nothing.
+      const audit = JSON.parse(await page.evaluate(`${UI_AUDIT_JS}\n__uiAudit({ scope: '[data-testid="board-settings-menu"]' })`) as string);
+      mkdirSync(join(process.cwd(), "test-results", "ui-audit"), { recursive: true });
+      writeFileSync(join(process.cwd(), "test-results", "ui-audit", `dispatch-panel-${width}.json`), JSON.stringify(audit, null, 2));
+      expect(audit.overflowX.present, `overflow-X a ${width} px: ${JSON.stringify(audit.overflowX.offenders)}`).toBe(false);
+      const cut = await page.evaluate(() => [...document.querySelectorAll('[data-testid="dispatch-dashboard-queue-row"] span, [data-testid^="dispatch-dashboard-"][data-testid$="-text"], [data-testid="dispatch-dashboard-answer"]')]
+        .filter((el) => el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).display !== "inline").map((el) => el.getAttribute("data-testid") ?? el.textContent));
+      expect(cut, "testo tagliato").toEqual([]);
+      await menu.screenshot({ path: join(SHOTS, `spento-guasto-${width}.png`) });
+      // The button does something: auto-dispatch goes on, and the "off" box goes away.
+      const toggle = menu.getByTestId("dispatch-dashboard-switch");
+      await expect(toggle).not.toBeChecked();
+      await off.getByTestId("dispatch-dashboard-turn-on").click();
+      await expect(menu.getByTestId("dispatch-dashboard-off")).toHaveCount(0);
+      await expect(toggle).toBeChecked();
+      // The switch is a server setting: put it back, the other tests start from "off".
+      await toggle.click();
+      await expect(toggle).not.toBeChecked();
+    });
+  }
 });

@@ -58,7 +58,7 @@ import {
   CHECKS_MEM_FLOOR_MIN_GB, CHECKS_MEM_FLOOR_MAX_GB, checksMemFloorIsOff,
 } from '../../lib/board';
 import type { DispatchAdmission, DispatchCapacity, DispatchCapMode, ThresholdBand } from '../../lib/board';
-import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
+import { SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { DispatchLoadSummary } from './DispatchLoadGauge';
 import { admissionVerdictText, checksFloorBoxValue, gateCoreNumbers, verdictSentence, type VerdictText } from './dispatchLoad';
 import { MachineBusyLine } from '../Shared/MachineBusyLine';
@@ -75,12 +75,13 @@ import {
 const BAND_TEXT: Record<ThresholdBand, string> = {
   green: SUCCESS_TEXT,
   amber: WARNING_TEXT,
-  red: DANGER_TEXT,
+  // Over the ceiling is a wait, not a fault: amber, never red (red = failures only).
+  red: WARNING_TEXT,
 };
 
 /** Deliberately propless: every surface mounts THE SAME thing, and a per-surface
  *  variant is the first step towards two controls that drift apart. */
-export function GlobalCapControl() {
+export function GlobalCapControl({ quiet = false }: { quiet?: boolean } = {}) {
   const tr = useT();
   const s = useGlobalDispatchCap();
   const brake: DispatchCapMode = s.cap ? capMode(s.cap) : 'count';
@@ -88,13 +89,13 @@ export function GlobalCapControl() {
   return (
     <div className="space-y-1" data-testid="global-cap-control">
       <p className="text-mini font-semibold uppercase tracking-wide text-app-text-muted">
-        {tr('board.dispatch.parallel')}
+        {tr(quiet ? 'board.dash.together' : 'board.dispatch.parallel')}
       </p>
 
       {/* THE SAME ONE NUMBER AS THE COLUMN HEADER'S POPOVER, not a second
           reading of the machine: whichever brake the radios below apply, this
           is what it is limiting. */}
-      <MachineBusyLine shares={s.capacity} />
+      <MachineBusyLine shares={s.capacity} calm />
 
       {/* WHICH QUESTION the brake asks, before any answer to it. Two radios and
           not a checkbox "measure the machine instead": a checkbox has an implied
@@ -109,7 +110,7 @@ export function GlobalCapControl() {
         disabled={s.saving || !s.cap}
       />
 
-      {brake === 'count' ? <CountBrake /> : <ResourcesBrake />}
+      {brake === 'count' ? <CountBrake quiet={quiet} /> : <ResourcesBrake quiet={quiet} />}
 
       {/* OUTSIDE the two brakes on purpose: this one does not gate agents, it
           gates the check COMMANDS a delivery runs before review, and it applies
@@ -195,16 +196,16 @@ function ChecksFloorField() {
  * ring and its word. Same store, same words, so the two surfaces cannot start
  * disagreeing about the same machine.
  */
-function RunningLine({ className, children }: { className: string; children: ReactNode }) {
+function RunningLine({ className, children, quiet }: { className: string; children: ReactNode; quiet: boolean }) {
   return (
     <div className="flex items-center justify-between gap-2">
       <p data-testid="global-cap-running" className={`text-compact font-medium ${className}`}>{children}</p>
-      <DispatchLoadSummary />
+      <DispatchLoadSummary calm hideHold={quiet} />
     </div>
   );
 }
 
-const VERDICT_TEXT: Record<VerdictText['tone'], string> = { go: SUCCESS_TEXT, first: WARNING_TEXT, wait: DANGER_TEXT };
+const VERDICT_TEXT: Record<VerdictText['tone'], string> = { go: SUCCESS_TEXT, first: WARNING_TEXT, wait: WARNING_TEXT };
 
 /**
  * The gate's verdict, in the words of `admissionVerdictText`: the axis that
@@ -241,7 +242,7 @@ function HowItWorks({ children }: { children: ReactNode }) {
 }
 
 /** The brake of always: how many together. `auto`, a fixed number, or none. */
-function CountBrake() {
+function CountBrake({ quiet }: { quiet: boolean }) {
   const tr = useT();
   const s = useGlobalDispatchCap();
   const limit = currentCapLimit(s);
@@ -258,36 +259,7 @@ function CountBrake() {
    *  sentinel, never a number to display, so it falls back to the default. */
   const lastFixed = s.cap && !s.cap.auto && s.cap.max > 0 ? s.cap.max : 3;
 
-  return (
-    <>
-      {/* The live line comes before the controls: it is the one people come to
-          read. */}
-      <RunningLine className={full ? 'text-amber-300' : 'text-app-text-heading'}>
-        {limit === null
-          ? tr('board.dispatch.runningLoading')
-          : !bounded
-            // "8 di Infinity" is what a bare interpolation would print here.
-            ? tr('board.dispatch.runningNoLimit', { running })
-            : over
-              ? tr('board.dispatch.runningOver', { running, cap: limit })
-              : tr('board.dispatch.running', { running, cap: limit })}
-      </RunningLine>
-      {/* THE FLOOR HOLDS IN THIS MODE TOO, and it was said nowhere: "3 di 4"
-          reads as a free slot while no agent can start. The capacity reading
-          carries a verdict here only when the floor or a drain holds. */}
-      {s.capacity?.admission && !s.capacity.admission.admit && (
-        <p className="text-mini leading-snug"><Verdict admission={s.capacity.admission} cap={s.capacity} /></p>
-      )}
-      {full && (
-        <p className="text-mini leading-snug text-amber-300/80">
-          {tr(over ? 'board.dispatch.capOver' : 'board.dispatch.capFull')}
-        </p>
-      )}
-
-      {/* THREE states that exclude one another, drawn as three. Two interacting
-          checkboxes ("automatic" plus "no limit") would leave a fourth reading
-          — both ticked — that means nothing, and someone would have to decide
-          silently which one wins. */}
+  const modeSelector = (
       <Segmented
         value={mode}
         options={(['auto', 'fixed', 'off'] as const).map((m) => ({
@@ -305,6 +277,49 @@ function CountBrake() {
         testId="global-cap-mode"
         disabled={s.saving || !s.cap}
       />
+  );
+
+  return (
+    <>
+      {/* The live line comes before the controls: it is the one people come to
+          read. */}
+      <RunningLine quiet={quiet} className={full ? 'text-amber-300' : 'text-app-text-heading'}>
+        {limit === null
+          ? tr('board.dispatch.runningLoading')
+          : !bounded
+            // "8 di Infinity" is what a bare interpolation would print here.
+            ? tr('board.dispatch.runningNoLimit', { running })
+            : over
+              ? tr('board.dispatch.runningOver', { running, cap: limit })
+              : tr('board.dispatch.running', { running, cap: limit })}
+      </RunningLine>
+      {/* THE FLOOR HOLDS IN THIS MODE TOO, and it was said nowhere: "3 di 4"
+          reads as a free slot while no agent can start. The capacity reading
+          carries a verdict here only when the floor or a drain holds. */}
+      {!quiet && s.capacity?.admission && !s.capacity.admission.admit && (
+        <p className="text-mini leading-snug"><Verdict admission={s.capacity.admission} cap={s.capacity} /></p>
+      )}
+      {full && (
+        <p className="text-mini leading-snug text-amber-300/80">
+          {tr(over ? 'board.dispatch.capOver' : 'board.dispatch.capFull')}
+        </p>
+      )}
+
+      {/* THREE states that exclude one another, drawn as three. Two interacting
+          checkboxes ("automatic" plus "no limit") would leave a fourth reading
+          — both ticked — that means nothing, and someone would have to decide
+          silently which one wins. */}
+      {/* ONE selector at a time: in the dashboard the second level is a fold that
+          names the current choice and opens only when someone wants to change it. */}
+      {quiet ? (
+        <details className="group" data-testid="global-cap-mode-fold">
+          <summary className="flex min-h-6 cursor-pointer list-none items-center gap-1 text-mini text-app-text-muted coarse:min-h-11">
+            <ChevronRight size={10} className="shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
+            {tr(mode === 'auto' ? 'board.dispatch.parallelAuto' : mode === 'fixed' ? 'board.dispatch.fixed' : 'board.dispatch.noLimit')}
+          </summary>
+          <div className="pt-1">{modeSelector}</div>
+        </details>
+      ) : modeSelector}
 
       {mode === 'fixed' && (
         <label className="flex items-center justify-between gap-3">
@@ -344,7 +359,7 @@ function CountBrake() {
  * line against it with its verdict, and the explanations folded away. The fixed
  * number is not drawn here because it does not apply.
  */
-function ResourcesBrake() {
+function ResourcesBrake({ quiet }: { quiet: boolean }) {
   const tr = useT();
   const s = useGlobalDispatchCap();
   const cap = s.capacity;
@@ -374,7 +389,7 @@ function ResourcesBrake() {
 
   return (
     <>
-      <RunningLine className="text-app-text-heading">
+      <RunningLine quiet={quiet} className="text-app-text-heading">
         {s.cap ? tr('board.dispatch.runningResources', { running: cap?.running ?? 0 }) : tr('board.dispatch.runningLoading')}
       </RunningLine>
 
@@ -395,7 +410,7 @@ function ResourcesBrake() {
               ? tr(pending === 1 ? 'board.dispatch.liveFreePendingOne' : 'board.dispatch.liveFreePending', { ...sharePct, n: pending })
               : tr('board.dispatch.liveFree', sharePct)}
         </span>
-        {admission && (used != null || !admission.admit) && <Verdict admission={admission} cap={cap} />}
+        {!quiet && admission && (used != null || !admission.admit) && <Verdict admission={admission} cap={cap} />}
       </p>
 
       <HowItWorks>

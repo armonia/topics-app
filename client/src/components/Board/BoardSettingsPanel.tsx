@@ -29,7 +29,8 @@ import {
   SETTINGS_PANEL_SHELL,
 } from './BoardSettingsSections';
 
-export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models, onToggleDispatch, onChanged, onClose, onError, tasks, workflow, onWorkflowChanged }: {
+export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models, onToggleDispatch, onChanged, onClose, onError, tasks, onOpenTask, workflow, onWorkflowChanged }: {
+  onOpenTask?: (id: string) => void;
   projectId: string;
   /** Owned by the board (per-project config) — this panel only renders and patches it. */
   settings: BoardSettings | null;
@@ -70,7 +71,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           Le righe stanno in `BoardSettingsSections.tsx` perché il pannello della
           board generale monta le STESSE: un blocco, due pannelli. */}
       <SettingsSection label={tr('board.settings.sec.global')} first>
-        <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} tasks={tasks} />
+        <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} tasks={tasks} onOpenTask={onOpenTask} />
         {dispatchOn && (
           <p className="text-mini text-amber-300/80">{tr('board.settings.dispatchOnActive')}</p>
         )}
