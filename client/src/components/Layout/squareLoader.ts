@@ -1,17 +1,19 @@
 /**
  * THE SQUARE LOADER ENGINE: 48 rounded squares that slide from one shape to the
- * next. A faithful port of the approved reference bench (card 6b25eff7): same
+ * next. A faithful port of the approved reference bench: same
  * shapes, same movements, same easing. Nothing here knows about React; the
  * component lives in `StreamingIndicator`.
  *
  * COST IS THE RISK: dozens of loaders run at once. So there is ONE clock
  * (`requestAnimationFrame`) shared by every body, bodies off screen are removed
- * from it, a hidden window stops it, and bodies under 24px step at 30 fps at
+ * from it, a window nobody is looking at stops it, and bodies under 24px step at 30 fps at
  * most. `prefers-reduced-motion` draws one still frame and never joins the clock.
  *
  * The colour is not here: the canvas is filled with the element's own
  * `currentColor`, so `loaderArcClass` keeps deciding it.
  */
+
+import { isWindowAwake, onWindowAwakeChange } from '../../state/windowAwake';
 
 export type LoaderActivity = 'rest' | 'think' | 'search' | 'write' | 'tool' | 'sync' | 'wait' | 'done' | 'error';
 
@@ -404,9 +406,10 @@ export function sharedLoaderClock(): ReturnType<typeof createLoaderClock> {
     shared = createLoaderClock({
       raf: (cb) => requestAnimationFrame(cb),
       cancel: (n) => cancelAnimationFrame(n),
-      hidden: () => document.hidden,
+      // Non `document.hidden`: con l'app dietro a un'altra e' falso, e si disegnerebbe per nessuno.
+      hidden: () => !isWindowAwake(),
     });
-    document.addEventListener('visibilitychange', () => shared?.visibilityChanged());
+    onWindowAwakeChange(() => shared?.visibilityChanged());
   }
   return shared;
 }

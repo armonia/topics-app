@@ -79,6 +79,7 @@ export function SparkLoader({ className = '', state = 'working', onFill = false,
   const shown = activity ?? defaultActivity(state);
   const activityRef = useRef(shown);
   activityRef.current = shown;
+  const refreshRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -89,13 +90,18 @@ export function SparkLoader({ className = '', state = 'working', onFill = false,
     const body = new LoaderBody(size, ctx, { scale, hollow });
     let color = getComputedStyle(canvas).color;
     let draws = 0;
+    const still = !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    refreshRef.current = () => {
+      color = getComputedStyle(canvas).color;
+      if (still) { body.snap(activityRef.current, 2); body.draw(color); }
+    };
     const client: ClockClient = {
       body,
       activity: () => activityRef.current,
       // The ink can change with the theme: re-read it now and then, not on every frame.
       color: () => { if (++draws % 45 === 0) color = getComputedStyle(canvas).color; return color; },
     };
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    if (still) {
       body.snap(activityRef.current, 2);
       body.draw(color);
       return;
@@ -112,6 +118,9 @@ export function SparkLoader({ className = '', state = 'working', onFill = false,
     if (visible) clock.add(client);
     return () => { io?.disconnect(); clock.remove(client); };
   }, [size, hollow]);
+
+  // Lo stato cambia l'inchiostro subito, non al prossimo giro di lettura; il fotogramma fermo si ridisegna.
+  useEffect(() => { refreshRef.current?.(); }, [shown, state, onFill]);
 
   return (
     <span
