@@ -286,12 +286,9 @@ test.describe("Project folder loader", () => {
     // Nothing is repeating it one row below: the child is not on screen at all.
     await expect(childRow).toHaveCount(0);
 
-    // The glyph is the ORBIT, not the old three-bar equaliser: inside the slot
-    // there is ONE square element made of two layers, the still round track and
-    // the arc turning over it. Since 2026-09-07 the arc is lucide's
-    // `LoaderCircle` (an SVG, so it has no CSS border-radius of its own) drawn
-    // over a masked disc; before it was a second round span. An equaliser would
-    // be N oblong bars, and a progress arc would be one layer, so the shape
+    // The glyph is the square loader, not an equaliser or a ring: inside the
+    // slot there is ONE square element holding ONE canvas, where the 48
+    // squares are drawn. An equaliser would be N oblong bars, so the shape
     // alone still tells them apart.
     const orbit = await rollupLoader.evaluate((el) => {
       const glyph = el.firstElementChild as HTMLElement | null;
@@ -301,16 +298,13 @@ test.describe("Project folder loader", () => {
         square: Math.round(box.width) === Math.round(box.height),
         layers: [...glyph.children].map((layer) => ({
           tag: layer.tagName.toLowerCase(),
-          radius: getComputedStyle(layer).borderRadius,
-          spinning: layer.classList.contains("animate-spark-breathe"),
         })),
       };
     });
     expect(orbit, "the loader slot holds a glyph").not.toBeNull();
     expect(orbit!.square, "a ring is square, a bar is not").toBe(true);
-    expect(orbit!.layers.length, "one star").toBe(1);
-    expect(orbit!.layers[0].tag, "the star is the lucide Sparkle").toBe("svg");
-    expect(orbit!.layers[0].spinning, "the star breathes").toBe(true);
+    expect(orbit!.layers.length, "one canvas").toBe(1);
+    expect(orbit!.layers[0].tag, "the squares are drawn on a canvas").toBe("canvas");
 
     // The live number wears the live voice, so it cannot be read as the grey
     // "agg. X fa" receipt sitting on the same row.

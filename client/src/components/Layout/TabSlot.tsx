@@ -196,7 +196,7 @@ function SlotView({
                 cannot win over that: the wrapper takes it out of flow, or it
                 becomes a flex item squeezed beside the number. */}
             <div className="absolute inset-0 flex">
-              <SparkLoader size={SLOT_PX} onFill={onFill} />
+              <SparkLoader size={SLOT_PX} onFill={onFill} hollow />
             </div>
             <span
               data-notification-count={display}

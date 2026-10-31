@@ -21,6 +21,7 @@ import { useSharedNow } from '../../state/useSharedNow';
 import { deriveSubjectTime, formatElapsedShort, formatElapsedCompact, WORK_ELAPSED_AFTER_MS } from '../../state/workLongevity';
 import { useTopicPreview } from '../../state/topicPreviews';
 import { timeToneClass, timeVoice } from './timeTone';
+import { SparkLoader } from '../Layout/StreamingIndicator';
 import { ON_FILL_TEXT, ON_FILL_TEXT_SOFT, TIER_DONE_BG, TIER_INPUT_BG } from '../../lib/selectionStyles';
 import { startVisibleInterval } from '../../state/documentVisibility';
 
@@ -297,7 +298,9 @@ export function SessionActivityBar({ subjectId, className = '' }: { subjectId: s
       : TIER_DONE_BG;
   return (
     <div className={`flex items-center gap-2 px-3 py-1.5 border-b border-app-border bg-surface flex-shrink-0 ${className}`}>
-      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dot} ${activity.working || activity.tier === 'input' ? 'animate-pulse' : ''}`} />
+      {activity.working || activity.tier === 'input'
+        ? <SparkLoader className="flex-shrink-0" state={activity.working ? 'working' : 'waiting'} />
+        : <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dot}`} />}
       <SessionActivity subjectId={subjectId} className="!text-compact" />
     </div>
   );

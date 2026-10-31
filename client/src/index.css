@@ -3313,7 +3313,7 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
  * Keyframes from the reference desktop client we studied:
  *   · `timeline-blur-in`    — content swap entry (24px blur → 0 in 120ms)
  *   · `timeline-blur-out`   — exit (faster, 80ms)
- * (the "working now" cue is `spark-breathe` below, defined with SparkLoader.)
+ * (the "working now" cue is the square loader, drawn by `squareLoader.ts`.)
  * Plus three Material easing curves.
  */
 @keyframes timeline-blur-in {
@@ -3328,35 +3328,6 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
 
 .animate-timeline-in { animation: timeline-blur-in 120ms cubic-bezier(0, 0, 0.2, 1) both; }
 .animate-timeline-out { animation: timeline-blur-out 80ms cubic-bezier(0.4, 0, 1, 1) both; }
-
-/* THE SPARK — the "I am working" cue (SparkLoader in StreamingIndicator).
- *
- * Third shape of this glyph, and the reason for the change is on the card that
- * asked for it: the loader had to become "something more modern and designed".
- * Before there were three columns rising out of phase, and before those a 2x3
- * matrix of squares lit one at a time. Both were METERS, and a meter promises a
- * quantity: an LLM turn has none, so the promise was always broken.
- *
- * A ring with no head and no end promises nothing and says the one true thing.
- * The sweep is the primary colour going from transparent to full over about
- * three quarters of the circle, with a lighter head, so the eye follows a body
- * of light instead of a stick going round.
- *
- * Only `transform` animates (a rotation): the compositor moves it without
- * touching the main thread and without a reflow, which is the same rule already
- * written above for `awaiting-pulse` and `turnDotGlow`. The ring is cut out of a
- * disc by a mask, so the gradient can be conic (a `border` cannot).
- *
- * 1.15s and not half a second: below the second the ring "runs" and reads like a
- * progress bar about to finish; slower it reads like something thinking, which
- * is what is actually happening. */
-@keyframes spark-breathe {
-  0%, 100% { transform: scale(0.85) rotate(-8deg); opacity: 0.75; }
-  50%      { transform: scale(1) rotate(8deg); opacity: 1; }
-}
-.animate-spark-breathe {
-  animation: spark-breathe 1.6s ease-in-out infinite;
-}
 
 /* THE TIME THAT IS PASSING RIGHT NOW, told by MOTION and not by colour.
  *
@@ -3397,7 +3368,6 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
 @media (prefers-reduced-motion: reduce) {
   /* No movement, but the signal stays: the sweep stops on an angle, so the
      travel becomes a shape instead of a time. */
-  .animate-spark-breathe { animation: none; transform: none; opacity: 1; }
   /* Without motion the only thing left to separate a running number from a
      receipt is weight, so the live one settles on the FULL text ink while the
      receipt stays in its own quiet tone. Not the primary: the colour left this
@@ -3464,7 +3434,7 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
 /* Pause EVERY keyframe animation while the window is backgrounded (driven by
  * useAnimationPause, which toggles `.anims-paused` on <html> on blur/hide). On
  * the big transparent-vibrancy desktop window the always-running loaders
- * (spark-breathe) and parked-session breathers (awaiting-pulse) otherwise keep the
+ * (square loaders pause by themselves) and parked-session breathers (awaiting-pulse) otherwise keep the
  * compositor working every frame with nobody watching. `animation-play-state` is
  * compositor-safe: the toggle costs one style recalc on blur/focus, never a
  * per-frame cost, and CSS *transitions* are unaffected. */

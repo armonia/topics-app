@@ -185,7 +185,7 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
               </span>
             )}
             {/* Qui resta solo ciò che è VIVO. L'esito sta accanto al nome. */}
-            {live && <SparkLoader className="flex-shrink-0" />}
+            {live && <SparkLoader className="flex-shrink-0" activity="tool" />}
           </span>
         </span>
       </div>

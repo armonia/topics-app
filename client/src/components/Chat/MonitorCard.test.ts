@@ -57,11 +57,11 @@ describe('MonitorCard', () => {
     // riposo — la stessa lezione dei tre pallini di «sta scrivendo».
     const out = html({ description: 'esito build' });
     expect(out).toContain('in ascolto');
-    expect(out).not.toContain('animate-pulse');
+    expect(out).not.toContain('<canvas');
   });
 
-  test('il turno in volo lo fa pulsare', () => {
+  test('il turno in volo disegna il loader in attesa', () => {
     const out = html({ description: 'esito build', isRunning: true });
-    expect(out).toContain('animate-pulse');
+    expect(out).toContain('<canvas');
   });
 });

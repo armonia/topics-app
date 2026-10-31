@@ -21,6 +21,7 @@
 import { Bot, MessagesSquare } from 'lucide-react';
 import { CHIP_INK_DIM } from './identityChip';
 import { SEGNALE_ATTESA, SEGNALE_OK } from './chromeSignals';
+import { SparkLoader } from '../Layout/StreamingIndicator';
 import type { SignalKind, WorkSignal } from './workSignals';
 import { useT } from '@/hooks/useT';
 import { useActiveAgentRows, type ActiveAgentRow } from '@/state/signals';
@@ -74,7 +75,9 @@ function AgentLine({ row, testId, alive = false, tone = SEGNALE_ATTESA }: { row:
   const Icon = row.kind === 'terminal' ? Bot : MessagesSquare;
   return (
     <div data-testid={testId} data-kind={row.kind} className="flex items-center gap-2 px-3 py-1 text-mini text-app-text" title={row.label}>
-      <Icon size={12} className={`flex-shrink-0 ${alive ? `animate-pulse ${SEGNALE_OK}` : tone}`} />
+      {alive
+        ? <SparkLoader className="flex-shrink-0" />
+        : <Icon size={12} className={`flex-shrink-0 ${tone}`} />}
       <span className="min-w-0 flex-1 truncate">{row.label}</span>
     </div>
   );
@@ -102,7 +105,7 @@ function Signal({ kind, n, title }: { kind: SignalKind; n: number; title?: strin
   const { Icon, tint, label, alive } = SIGNALS[kind];
   return (
     <span data-signal={kind} className={`flex items-center gap-0.5 ${tint}`} title={title ?? tr(label, { n })}>
-      <Icon size={11} className={alive ? 'animate-pulse' : undefined} />
+      {alive ? <SparkLoader size={11} /> : <Icon size={11} />}
       <span>{n}</span>
     </span>
   );
