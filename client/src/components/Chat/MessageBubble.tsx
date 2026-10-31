@@ -663,7 +663,11 @@ export const MessageBubble = memo(function MessageBubble({
           {!liveTurn && (!isWorkOnlyAssistant(msg) || hasTurnMetrics) && msg.timestamp && !(msg.role === 'user' && (msg.queued || msg.partial)) && (
             <div
               data-testid="message-meta-row"
-              className={`text-mini mt-0.5 min-h-[14px] transition-opacity flex items-center gap-1.5 whitespace-nowrap overflow-x-auto scrollbar-none ${
+              // EXACTLY 14px, the live row's box: `min-h` let the 11px text's
+              // inherited 16.5px line grow it, and the swap from the live row
+              // pushed the transcript up 2.5px at every end of turn (card
+              // 40ea050c, `chat-turn-end-still`).
+              className={`text-mini leading-[14px] mt-0.5 h-[14px] transition-opacity flex items-center gap-1.5 whitespace-nowrap overflow-x-auto scrollbar-none ${
                 msg.role === 'user' ? 'justify-end' : 'justify-start'
               } ${
                 // La riga di servizio (ora, durata, costo) e' una delle cose che

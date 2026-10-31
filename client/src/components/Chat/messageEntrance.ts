@@ -26,6 +26,8 @@ export class MessageEntrance {
   private topicId: string | null = null;
   private readonly known = new Set<string>();
   private readonly arrivedAt = new Map<string, number>();
+  /** The ids of the last `note`, in order: where a renamed row was. */
+  private lastIds: string[] = [];
 
   /**
    * Record the ids the list holds now. Idempotent, so it can run during render
@@ -38,14 +40,31 @@ export class MessageEntrance {
       this.topicId = topicId;
       this.known.clear();
       this.arrivedAt.clear();
+      this.lastIds = [];
       // The first render of a new topic can still carry the old `settled`.
       settled = false;
     }
-    for (const id of ids) {
-      if (this.known.has(id)) continue;
+    const list = [...ids];
+    const present = new Set(list);
+    list.forEach((id, i) => {
+      if (this.known.has(id)) return;
       this.known.add(id);
+      // A RENAME IS NOT AN ARRIVAL. The reply drawn under a local id
+      // (`msg_…`) takes the server's id when the history is read again at the
+      // end of the turn: same row, same place, new name. Taken for an arrival,
+      // it replayed the 6px slide on a bubble already on screen, and the
+      // reasoning row, the text and the meta row all went down 6px right after
+      // the loader went (card 40ea050c). The new name inherits the old one's
+      // state, so an entrance still playing goes on playing.
+      const before = this.lastIds[i];
+      if (before !== undefined && before !== id && !present.has(before) && this.known.has(before)) {
+        const at = this.arrivedAt.get(before);
+        if (at !== undefined) this.arrivedAt.set(id, at);
+        return;
+      }
       if (settled) this.arrivedAt.set(id, now);
-    }
+    });
+    this.lastIds = list;
   }
 
   /** Whether the row of `id`, mounting at `now`, is a message that just came in. */
