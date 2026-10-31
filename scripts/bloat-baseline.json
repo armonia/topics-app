@@ -636,6 +636,8 @@
 
     "server/services/task-dispatcher-held-resume-quiet.test.ts": 875,
 
+    "server/services/task-dispatcher-admission.test.ts": 812,
+
     "server/services/task-dispatcher-overflow.test.ts": 1039,
 
     "server/services/task-dispatcher-remote-node.test.ts": {

@@ -2013,8 +2013,9 @@ export interface DispatchCapacity {
   usedMemGB: number | null;
   /** Core-units everything that is not ours is burning, or `null`. */
   otherCoreUnits: number | null;
-  /** How many check runs are frozen right now by the budget governor. */
+  /** How many runs are frozen right now: the budget governor's plus the swap freezer's. */
   frozen: number;
+  frozenBy?: { governor: number; swapFreezer: number }; // who froze them
   /**
    * Memory REALLY available right now, in GB, or `null` where the probe has
    * nothing to say (outside macOS). It travels with the capacity because the
@@ -2115,9 +2116,10 @@ export interface DispatchAdmission {
    * Which brake said no. `floor` is the hard RAM/disk floor
    * (`dispatchResourceBlock`) and `drain` a planned restart: both hold the
    * queue in EITHER brake mode, before the budget is even asked, so they are
-   * the only verdicts a count-mode reading carries.
+   * the only verdicts a count-mode reading carries. `frozen`: the budget has
+   * room but a frozen check has not restarted yet, and it restarts first.
    */
-  blockedBy: "cpu" | "memory" | "floor" | "drain" | null;
+  blockedBy: "cpu" | "memory" | "floor" | "drain" | "frozen" | null;
   /** The pass is owed only to nothing running yet. */
   firstAgentExempt: boolean;
   /** What one more agent is priced at, in core-units (median of measured ones). */

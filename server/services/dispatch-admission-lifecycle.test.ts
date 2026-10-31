@@ -4,6 +4,7 @@
  */
 import { afterAll, afterEach, beforeAll, describe, it, expect, setSystemTime } from "bun:test";
 import { budgetShare, E2E_CI_CHECK, UNIT_CI_CHECK } from "../../shared/board";
+import { setActiveBudgetGovernor, type BudgetGovernor } from "./budget-governor";
 import { createMemSignal } from "./mem-signal";
 import { createDispatchResourceBlock } from "./dispatch-resource-block";
 import type { TurnEndInfo } from "../providers/stop-reason";
@@ -205,6 +206,24 @@ describe("no-local-check exception lifecycle", () => {
     expect(w.h.attempts.getNoLocalChecksReservation?.("quota-at-reservation")).toBe(1);
     expect(w.h.commentsFor("quota-at-reservation").some((line) => line.includes("Partenza in esenzione"))).toBe(true);
   });
+
+  for (const [label, availableMemGB, reading] of [["quota minimum", 1.25, 4.8], ["memory floor", 4.8, 4.8]] as const) {
+    it(`card 10469e3e: frozen checks hold the no-check exemption at the ${label}`, async () => {
+      const frozen = 1;
+      setActiveBudgetGovernor({ frozenCount: () => frozen } as unknown as BudgetGovernor);
+      try {
+        const w = sharedWindowHarness("resources", { checksRunning: () => 1 }, 0, 0.8);
+        await w.beats(repeatMemoryReading(20, 14));
+        await w.beats(repeatMemoryReading(reading, 14));
+        w.h.machine.sample = () => ({ ...QUIET, availableMemGB, ourMemGB: 2, running: 1 });
+        seedTodo(w.h.db, "frozen-exempt");
+        await w.h.dispatcher.tick(PID);
+        await flush();
+        expect(w.h.startedAt).toHaveLength(0);
+        expect(w.h.commentsFor("frozen-exempt").some((line) => line.includes("Partenza in esenzione"))).toBe(false);
+      } finally { setActiveBudgetGovernor(null); }
+    });
+  }
 
   it("holds the no-check start when free quota is below its reservation", async () => {
     const w = sharedWindowHarness("resources", { checksRunning: () => 1 }, 0, 0.8);
