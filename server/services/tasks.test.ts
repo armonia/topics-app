@@ -2321,9 +2321,10 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          -- 20261028163640: who opened the card, and when the coordinator was
          -- last told it sat unowned. Same reason as the columns above.
          created_by = 'agent:jarvis', unowned_alerted_at = '2020-01-01T00:00:00.000Z',
-         -- 20261030225403: the workflow column and the question for the
-         -- person. Same reason as the columns above.
-         stage = 'human_review', human_ask = 'which layout?'
+         -- 20261030225403: the workflow column, the question for the person,
+         -- and when the coordinator was last reminded of a card left in AI
+         -- review. Same reason as the columns above.
+         stage = 'human_review', human_ask = 'which layout?', ai_review_reminded_at = '2020-01-01T00:00:00.000Z'
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite
