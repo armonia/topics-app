@@ -2,6 +2,27 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.44 — 2026-10-31
+
+### Sotto il cofano
+- Affiancamento prima/dopo della riga di avanzamento della card (card 91a42e8f)
+- Feedback di revisione intero ai nodi Cloud
+- Revisione più recente fuori dal budget del filo
+- Load brakes: stopped slot holders, lone card, thaw that lands
+- an agent's question reaches Human review, a failed wake retries and falls back, moved and withdrawn cards stay visible
+- the newest arrival is the one frozen, the governor freezes agents' commands with a ledger that survives a crash, the job-quota sweep spares live sub-agents and its own database's folders
+- nothing moves when the loader goes at the end of a turn, in the window you write from too; the tool fold waits, the reader who scrolled up stays there
+- a card waiting on a full Mac moves to the PC or Cloud after two minutes, with the reason written on it
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-31 [skip ci]
+- Load management: a cached fleet reading counts as one sample, frozen checks hold new starts, one CPU budget in resources mode
+- Square loader replaces the Sparkle star across the app
+- App icon: steel spinning top, small-size design for 16-64 px, regenerated PWA and -dev icons
+- Square loader: stops drawing when the app is in the background, ink follows the state at once
+- Square loader: squares on whole pixels at small sizes
+- Published icons: steel spinning top
+- CI back to green on main: loader comments in English, bundle limit for the loader, column order, dev-only advisory
+- Square loader test declares the requirement it covers
+
 ## 2.3.43 — 2026-10-30
 
 ### Sotto il cofano
