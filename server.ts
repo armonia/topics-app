@@ -5484,6 +5484,9 @@ const swapFreezer = createSwapFreezer({
   },
   ledger: swapFreezeLedger,
   log: (line) => console.warn(line),
+  // The same census the first-card exemption of the dispatcher reads: cards in
+  // flight plus pre-review check runs.
+  ourWorkInFlight: () => turniInVolo() + (checksGateRunningCount?.() ?? 0),
   note: (taskId, text) => {
     try { dispatcherSvc.addComment({ taskId, author: "system", kind: "service", content: text }); }
     catch { /* a note that cannot be written must not stop the freeze */ }

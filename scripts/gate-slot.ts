@@ -28,7 +28,7 @@
  */
 import { cpus } from "node:os";
 import { createHash } from "node:crypto";
-import { mkdirSync, openSync, closeSync, writeSync, readFileSync, unlinkSync, readdirSync } from "node:fs";
+import { mkdirSync, openSync, closeSync, writeSync, writeFileSync, readFileSync, unlinkSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -116,16 +116,104 @@ function alive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
-/** A slot whose holder is gone is free: a killed run must not park a slot forever. */
+/**
+ * WHICH OF THESE PIDS ARE STOPPED (`ps` state `T`), so a frozen holder stops
+ * holding.
+ *
+ * `kill(pid, 0)` answers "alive" for a process under SIGSTOP, and both freezers
+ * of the server stop whole trees: the load governor a check round (`slot.ts`
+ * included), the swap freezer an agent's background command. A holder frozen
+ * that way kept its name file and its numbered slot, so every other run of the
+ * same gate waited the full name deadline and then started "alongside", all at
+ * once, on a machine that was frozen precisely because it was loaded (card
+ * cda99908, findings 2 and 15). A stopped holder is doing no work: its place
+ * goes to the next run, and when it is continued it queues again for it before
+ * its command goes on (`reclaimAfterStop`).
+ *
+ * Only a holder that DOES queue again is reaped this way: see `QUEUE_AGAIN_SUFFIX`.
+ *
+ * Fails toward the old reading: if `ps` does not answer, nobody is stopped.
+ * `TOPICS_GATE_PS` names another `ps` (a test's script that prints the states
+ * it is given), so the whole probe runs in the tests, no signal sent.
+ */
+export function stoppedByPs(pids: readonly number[]): Set<number> {
+  const out = new Set<number>();
+  for (const [pid, stat] of psStates(pids)) if (stat.startsWith("T")) out.add(pid);
+  return out;
+}
+
+/** The `ps` state of each pid that answered; empty when `ps` does not. */
+export function psStates(pids: readonly number[]): Map<number, string> {
+  if (pids.length === 0) return new Map();
+  try {
+    const r = Bun.spawnSync([process.env.TOPICS_GATE_PS || "ps", "-o", "pid=,stat=", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore" });
+    return parsePsStates(r.stdout.toString());
+  } catch { return new Map(); /* no answer: nobody is stopped */ }
+}
+
+/** `ps -o pid=,stat=` lines, as pid -> state. */
+export function parsePsStates(out: string): Map<number, string> {
+  const states = new Map<number, string>();
+  for (const line of out.split("\n")) {
+    const m = line.trim().match(/^(\d+)\s+(\S+)/);
+    if (m) states.set(Number(m[1]), m[2]!);
+  }
+  return states;
+}
+
+/**
+ * THE MARK OF A HOLDER THAT QUEUES AGAIN WHEN CONTINUED, next to its lock file
+ * and holding the same pid.
+ *
+ * Only `slot.ts` has that handler. The bun-test preload and the e2e shards take
+ * their place from inside the process that runs the work, so nothing stops them
+ * again on SIGCONT: reaping them while stopped let the next run in, and the
+ * continued one then ran beside it, "one per name" broken (review of 31/10,
+ * third round: two `bun test` side by side). Their place stays theirs while
+ * stopped, as before. A side file, not a change of the lock file: other
+ * worktrees run older copies of this module, which read the lock as a bare pid
+ * and skip any name that does not end in `.pid`.
+ */
+const QUEUE_AGAIN_SUFFIX = ".requeue";
+
+function marksQueueAgain(path: string, raw: string): boolean {
+  try { return readFileSync(path + QUEUE_AGAIN_SUFFIX, "utf8").trim() === raw; } catch { return false; }
+}
+
+/**
+ * A slot whose holder is gone is free: a killed run must not park a slot
+ * forever. Nor must a STOPPED one that will queue again (see `stoppedByPs`
+ * and `QUEUE_AGAIN_SUFFIX`): one `ps` per pass, for the live holders only.
+ */
 function reapStale(dir: string): void {
+  const live: { path: string; raw: string; pid: number }[] = [];
   for (const name of readdirSync(dir)) {
     if (!name.endsWith(".pid")) continue;
     const p = join(dir, name);
     try {
-      const pid = Number(readFileSync(p, "utf8").trim());
-      if (!Number.isFinite(pid) || !alive(pid)) unlinkSync(p);
+      const raw = readFileSync(p, "utf8").trim();
+      const pid = Number(raw);
+      if (!Number.isFinite(pid) || !alive(pid)) { unlinkIfStill(p, raw); unlinkIfStill(p + QUEUE_AGAIN_SUFFIX, raw); }
+      // An output claim stays with a stopped writer: it will write again.
+      else if (pid !== process.pid && !name.startsWith("out-")) live.push({ path: p, raw, pid });
     } catch { /* someone else reaped it first */ }
   }
+  if (live.length === 0) return;
+  const frozen = stoppedByPs(live.map((l) => l.pid));
+  for (const l of live) if (frozen.has(l.pid) && marksQueueAgain(l.path, l.raw)) unlinkIfStill(l.path, l.raw);
+}
+
+/**
+ * Removes a lock file only while it still says what this pass read in it.
+ *
+ * Every waiter reaps, and between the read and the unlink there is a `ps`.
+ * Waiters that all read the same stopped holder used to unlink in turn, each
+ * one the file the previous one had just TAKEN: up to four `typecheck` at once
+ * behind one frozen holder (review of card cda99908, 30/10). Reading again
+ * narrows that window from a `ps` to two system calls.
+ */
+function unlinkIfStill(path: string, raw: string): void {
+  try { if (readFileSync(path, "utf8").trim() === raw) unlinkSync(path); } catch { /* someone else reaped it first */ }
 }
 
 /**
@@ -133,18 +221,28 @@ function reapStale(dir: string): void {
  * process that is still alive. `wx` is the whole mutual exclusion: exclusive
  * create is atomic, so two callers racing for the same name cannot both win.
  */
-function takeFile(path: string): (() => void) | null {
+function takeFile(path: string, queuesAgain = false): (() => void) | null {
   try {
     const fd = openSync(path, "wx");
     writeSync(fd, String(process.pid));
     closeSync(fd);
+    // Without the mark the place is simply not reaped while stopped: failing
+    // to write it only brings back the old reading.
+    if (queuesAgain) try { writeFileSync(path + QUEUE_AGAIN_SUFFIX, String(process.pid)); } catch { /* unmarked */ }
     let released = false;
     return () => {
       if (released) return;
       released = true;
-      try { unlinkSync(path); } catch { /* already reaped */ }
+      // Only OUR file: a holder that was stopped had its file reaped and taken
+      // by the next run, and unlinking that one would let a third run in.
+      try { if (ours(path)) unlinkSync(path); } catch { /* already reaped */ }
+      try { if (queuesAgain && ours(path + QUEUE_AGAIN_SUFFIX)) unlinkSync(path + QUEUE_AGAIN_SUFFIX); } catch { /* already gone */ }
     };
   } catch { return null; }
+}
+
+function ours(path: string): boolean {
+  try { return readFileSync(path, "utf8").trim() === String(process.pid); } catch { return false; }
 }
 
 /**
@@ -179,16 +277,52 @@ interface AcquireOptions {
   nameMaxWaitMs?: number;
   /** Where the wait notices go. Silent by default in a test process. */
   onWait?: (message: string) => void;
+  /** Checked between two polls: true gives up the wait, releasing what it took. */
+  aborted?: () => boolean;
+  /** This run queues again when continued after a freeze (`reclaimAfterStop`),
+   *  so its place may go to the next run while it is stopped. Only `slot.ts`. */
+  queuesAgainOnContinue?: boolean;
+}
+
+/** What `acquireSlot` hands back: the release, plus whether the place is still this run's. */
+export interface SlotHold {
+  (): void;
+  /** True when the slot or the name file was reaped while this run was stopped. */
+  lost: () => boolean;
 }
 
 /**
  * Returns the release function, or null when it gave up and the caller should
  * run anyway (unthrottled). Never throws: see the header.
  */
-export function acquireSlot(slots: number, label: string, opts: AcquireOptions = {}): (() => void) | null {
+export function acquireSlot(slots: number, label: string, opts: AcquireOptions = {}): SlotHold | null {
+  const wait = acquireSteps(slots, label, opts);
+  for (;;) {
+    const step = wait.next();
+    if (step.done) return step.value;
+    Bun.sleepSync(step.value);
+  }
+}
+
+/**
+ * The same wait, without blocking the process: for a run that must go on
+ * hearing its signals while it queues (`reclaimAfterStop`).
+ */
+export async function acquireSlotAsync(slots: number, label: string, opts: AcquireOptions = {}): Promise<SlotHold | null> {
+  const wait = acquireSteps(slots, label, opts);
+  for (;;) {
+    const step = wait.next();
+    if (step.done) return step.value;
+    await Bun.sleep(step.value);
+  }
+}
+
+/** The wait itself: yields how long to sleep before the next poll. */
+function* acquireSteps(slots: number, label: string, opts: AcquireOptions): Generator<number, SlotHold | null> {
   const dir = slotDir();
   const maxWaitMs = opts.maxWaitMs ?? defaultMaxWaitMs();
   const notify = opts.onWait ?? ((m: string) => console.error(m));
+  const aborted = opts.aborted ?? (() => false);
   try {
     mkdirSync(dir, { recursive: true });
     const startedAt = Date.now();
@@ -199,9 +333,10 @@ export function acquireSlot(slots: number, label: string, opts: AcquireOptions =
     // holding half the pair.
     let releaseName: (() => void) | null = null;
     let announcedName = false;
+    const namePath = nameLockPath(dir, label);
     for (;;) {
       reapStale(dir);
-      releaseName = takeFile(nameLockPath(dir, label));
+      releaseName = takeFile(namePath, opts.queuesAgainOnContinue);
       if (releaseName) break;
       if (Date.now() >= nameDeadline) {
         notify(`[slot] ${label}: another ${label} has been running for ${Math.round((opts.nameMaxWaitMs ?? maxWaitMs) / 60_000)} min, running alongside it.`);
@@ -211,9 +346,13 @@ export function acquireSlot(slots: number, label: string, opts: AcquireOptions =
         announcedName = true;
         notify(`[slot] ${label}: another ${label} is already running on this machine, waiting for it.`);
       }
-      Bun.sleepSync(POLL_MS);
+      yield POLL_MS;
+      if (aborted()) return null;
     }
-    const withName = (release: () => void): (() => void) => () => { release(); releaseName?.(); };
+    const withName = (release: () => void, slotPath: string): SlotHold =>
+      Object.assign(() => { release(); releaseName?.(); }, {
+        lost: () => !ours(slotPath) || (releaseName != null && !ours(namePath)),
+      });
     // With a name wait of its own, the count gets its own wait from here: time
     // spent behind the same gate is not time spent behind the others. Without
     // one (the bun-test preload, the e2e shards) there is ONE deadline for the
@@ -222,8 +361,9 @@ export function acquireSlot(slots: number, label: string, opts: AcquireOptions =
     for (;;) {
       reapStale(dir);
       for (let i = 0; i < slots; i++) {
-        const release = takeFile(join(dir, `${i}.pid`));
-        if (release) return withName(release);
+        const slotPath = join(dir, `${i}.pid`);
+        const release = takeFile(slotPath, opts.queuesAgainOnContinue);
+        if (release) return withName(release, slotPath);
       }
       if (Date.now() >= deadline) {
         notify(`[slot] ${label}: ${Math.round(maxWaitMs / 60_000)} min of waiting, running anyway (unthrottled).`);
@@ -237,11 +377,47 @@ export function acquireSlot(slots: number, label: string, opts: AcquireOptions =
         announced = true;
         notify(`[slot] ${label}: all ${slots} gate slots are busy, waiting for one.`);
       }
-      Bun.sleepSync(POLL_MS);
+      yield POLL_MS;
+      if (aborted()) { releaseName?.(); return null; }
     }
   } catch (e) {
     notify(`[slot] ${label}: throttle unavailable (${e instanceof Error ? e.message : e}), running unthrottled.`);
     return null;
+  }
+}
+
+/**
+ * A RUN CONTINUED AFTER A FREEZE QUEUES AGAIN for the place it lost.
+ *
+ * A stopped holder is reaped (`stoppedByPs`) so the gate does not wait on it,
+ * but the freeze ends: the swap freezer and the load governor both continue
+ * the tree, and the run used to go on next to the one that had taken its name,
+ * two `typecheck` at once (card cda99908, finding 15). Called by `slot.ts` on
+ * SIGCONT: if the place is gone, the command is stopped again (`pause`), the
+ * run waits like any other, and the command goes on once it holds a place.
+ *
+ * THE WAIT DOES NOT BLOCK. A `sleepSync` here kept `slot.ts` deaf for the
+ * whole queue: a SIGTERM was handled only at its end, and the command stayed
+ * stopped meanwhile (review of 31/10). `opts.aborted` ends the wait early;
+ * the command is continued in every case, so a terminating signal reaches it.
+ *
+ * Returns what to release at the end: the same hold when nothing was lost,
+ * the new one, or null when the new wait gave up (unthrottled, as any wait).
+ */
+export async function reclaimAfterStop(
+  hold: SlotHold,
+  slots: number,
+  label: string,
+  pause: (sig: "SIGSTOP" | "SIGCONT") => void,
+  opts: AcquireOptions = {},
+): Promise<SlotHold | null> {
+  if (!hold.lost()) return hold;
+  pause("SIGSTOP");
+  try {
+    hold();
+    return await acquireSlotAsync(slots, label, opts);
+  } finally {
+    pause("SIGCONT");
   }
 }
 
