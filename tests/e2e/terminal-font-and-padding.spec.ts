@@ -44,15 +44,17 @@ test.describe("Terminal font and padding", () => {
     const pane = page.locator('[data-testid="single-terminal-pane"]:visible').first();
     await expect(pane).toBeVisible({ timeout: 20_000 });
 
-    // Both faces must be `loaded`, not merely declared: `document.fonts.check`
-    // answers true for a face that is in `error`, so it proves nothing here.
+    // The Regular face must be `loaded`, not merely declared: `document.fonts.check`
+    // answers true for a face that is in `error`, so it proves nothing here. The
+    // Bold face is fetched only when bold text is drawn, so it may stay `unloaded`.
     const faces = await page.evaluate(async () => {
       await document.fonts.ready;
       return [...document.fonts]
         .filter((f) => f.family === 'JetBrains Mono')
         .map((f) => ({ weight: f.weight, status: f.status }));
     });
-    expect(faces.map((f) => f.status)).toEqual(['loaded', 'loaded']);
+    expect(faces).toHaveLength(2);
+    expect(faces.find((f) => f.weight === '400')?.status).toBe('loaded');
 
     // The rows xterm draws use the bundled face, and at 13 px with a 1.25 line
     // height JetBrains Mono's cell is 21 px tall (measured, not assumed).
