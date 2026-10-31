@@ -533,9 +533,9 @@ test.describe("Chat waiting on background work", () => {
     await expect(row.locator('[data-loader-state="waiting"]')).toHaveCount(0);
     // The tooltip says how many jobs run and that the chat is free.
     await expect(glyph).toHaveAttribute("title", /2 lavori in background\. La chat è libera/);
-    // The suite runs with reduced motion: the arc stands still
-    // (`index.css`, the `prefers-reduced-motion` branch).
-    expect(await glyph.locator("svg").evaluate((el) => getComputedStyle(el).animationName)).toBe("none");
+    // The loader is one canvas of squares. (The suite runs with reduced
+    // motion: the body draws one still frame and never joins the shared clock.)
+    await expect(glyph.locator("canvas")).toHaveCount(1);
     const tab = page.locator(`[data-pane-id="${bgTopicId}"]`).first();
     await expect(tab.locator('[data-loader-state="working"]')).toBeVisible({ timeout: 10_000 });
     // No turn is open, so the row offers no Stop: that one is the composer's.

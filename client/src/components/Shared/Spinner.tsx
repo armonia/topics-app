@@ -12,6 +12,8 @@
  * è l'attesa di un BLOCCO (un pannello che carica, un pane in Suspense), la
  * rotella lucide sta dentro le righe e i bottoni insieme alle altre icone.
  */
+import { SparkLoader } from '../Layout/StreamingIndicator';
+
 const RING = 'rounded-full animate-spin';
 
 const SIZES = {
@@ -42,6 +44,16 @@ export type SpinnerSize = keyof typeof SIZES;
 export type SpinnerTone = keyof typeof TONES;
 
 export function Spinner({ size = 'sm', tone = 'default', className = '' }: { size?: SpinnerSize; tone?: SpinnerTone; className?: string }) {
+  // The wait of a whole block (`sm` and `md`, default tone) is the square loader,
+  // like every other place an agent or a panel is at work. `xs` and `current`
+  // stay the ring: they sit inside buttons, next to text of their own colour.
+  if (tone === 'default' && size !== 'xs') {
+    return (
+      <span role="status" aria-label="Loading" className={`inline-flex flex-shrink-0 ${className}`}>
+        <SparkLoader size={size === 'md' ? 16 : 12} />
+      </span>
+    );
+  }
   // Etichetta in inglese come il resto delle superfici di attesa («Loading...»
   // in App.tsx, GitChanges): questo anello sta
   // accanto a quelle scritte in dieci file, e uno screen reader che legge

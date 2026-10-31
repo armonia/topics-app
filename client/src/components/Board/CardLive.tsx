@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useT, useLocale } from '../../hooks/useT';
 import { fmtLive, fmtModel, fmtTok, liveToolLabel } from './format';
 import type { LiveTool, LiveUsage, RetryWait } from './constants';
+import { SparkLoader } from '../Layout/StreamingIndicator';
 import { startVisibleInterval } from '../../state/documentVisibility';
 
 // ── The live chips of a working card ──────────────────────────────────────
@@ -110,7 +111,7 @@ export function LiveEffortChip({ usage }: { usage: LiveUsage }) {
       })}
       className="flex min-w-0 max-w-full items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-800 dark:text-sky-300 tabular-nums"
     >
-      <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-sky-400" />
+      <SparkLoader className="shrink-0" />
       <span className="truncate">{fmtModel(usage.model)} · ⏱ {fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)}`}</span>
     </span>
   );
