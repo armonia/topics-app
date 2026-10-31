@@ -601,9 +601,9 @@ function claimChannelRoot(db: Database): void {
 }
 
 /**
- * Removes the channel folders (`jobs` and the shims) of topics that can never be
- * resumed: their card is done or archived, or no card is bound to the topic at
- * all. NOT those of a card in backlog, todo, review or in progress: a card in
+ * Removes the channel folders (`jobs` and the shims) of topics with no open card
+ * and no live sub-agent: their card is done or archived, or no card is bound to
+ * the topic at all. NOT those of a card in backlog, todo, review or in progress: a card in
  * review is resumed on a rejection and its child can outlive the turn in a
  * background command, and its shims must still be there. The old rule kept only
  * the cards with a live agent and would have swept 18 open cards on its first

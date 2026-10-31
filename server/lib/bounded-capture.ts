@@ -31,9 +31,9 @@ export interface Capture {
 }
 
 /** The spawn itself, kept apart so its piped-stdout type survives a failure to start. */
-function spawnWithPipe(argv: string[]) {
+function spawnWithPipe(argv: string[], env?: Record<string, string>) {
   try {
-    return Bun.spawn(argv, { stdout: "pipe", stderr: "ignore" });
+    return Bun.spawn(argv, { stdout: "pipe", stderr: "ignore", ...(env ? { env: { ...process.env, ...env } } : {}) });
   } catch {
     return null;
   }
@@ -45,8 +45,8 @@ function spawnWithPipe(argv: string[]) {
  * never "it answered nothing": that distinction is the whole reason the callers
  * can tell a machine with no matching process from a machine that is thrashing.
  */
-export async function captureWithDeadline(argv: string[], timeoutMs: number): Promise<Capture | null> {
-  const proc = spawnWithPipe(argv);
+export async function captureWithDeadline(argv: string[], timeoutMs: number, env?: Record<string, string>): Promise<Capture | null> {
+  const proc = spawnWithPipe(argv, env);
   if (proc === null) return null;
   let timedOut = false;
   let killer: ReturnType<typeof setTimeout> | undefined;

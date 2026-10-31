@@ -72,18 +72,20 @@ describe("freezing", () => {
 
   it("one victim per sample, never the whole board at once", async () => {
     const h = harness({ used: 30, budget: 9.6 });
+    addRun("c", 3, 500);
     addRun("a", 1, 1000);
     addRun("b", 2, 2000);
-    for (let i = 0; i < 4; i++) await h.governor.sampleOnce();
-    // Four samples, two freezes: each one needs its own two readings.
+    for (let i = 0; i < 6; i++) await h.governor.sampleOnce();
+    // Six samples, two freezes: each one needs its own two readings, and the oldest keeps running.
     expect(h.signals).toEqual(["SIGSTOP:2", "SIGSTOP:1"]);
   });
 
   it("thaws in reverse order once the use is back under the line, and gives the clock back", async () => {
     const h = harness({ used: 30, budget: 9.6 });
+    addRun("c", 3, 500);
     const first = addRun("a", 1, 1000);
     const second = addRun("b", 2, 2000);
-    for (let i = 0; i < 4; i++) await h.governor.sampleOnce();
+    for (let i = 0; i < 6; i++) await h.governor.sampleOnce();
     expect(h.governor.frozenCount()).toBe(2);
 
     h.box.reading = { used: 5, budget: 9.6 };
@@ -115,9 +117,10 @@ describe("freezing", () => {
 
   it("thawAll continues everything on the way out: nobody else will", async () => {
     const h = harness({ used: 30, budget: 9.6 });
+    addRun("c", 3, 500);
     addRun("a", 1, 1000);
     addRun("b", 2, 2000);
-    for (let i = 0; i < 4; i++) await h.governor.sampleOnce();
+    for (let i = 0; i < 6; i++) await h.governor.sampleOnce();
     await h.governor.thawAll();
     expect(h.signals.filter((s) => s.startsWith("SIGCONT"))).toEqual(["SIGCONT:1", "SIGCONT:2"]);
     expect(h.governor.frozenCount()).toBe(0);
@@ -246,5 +249,49 @@ describe("the commands the agents run in their own tree", () => {
     await h.governor.sampleOnce();
     await h.governor.thawAll();
     expect(h.signals).toEqual(["SIGSTOP:20", "SIGCONT:20"]);
+  });
+});
+
+describe("the ledger: nothing is stopped unless it is on disk first", () => {
+  function withLedger(failRecord = false) {
+    const events: string[] = [];
+    const governor = createBudgetGovernor({
+      read: () => ({ used: 12, budget: 9.6 }),
+      signalTree: async (pid, sig) => { events.push(`${sig}:${pid}`); },
+      log: () => {},
+      record: async (id, pid) => { if (failRecord) throw new Error("disk"); events.push(`record:${id}:${pid}`); },
+      release: (id) => { events.push(`release:${id}`); },
+    });
+    return { governor, events };
+  }
+
+  it("records before the SIGSTOP and releases after the SIGCONT", async () => {
+    const h = withLedger();
+    addRun("typecheck", 100, 1000);
+    addRun("lint", 200, 2000);
+    await h.governor.sampleOnce();
+    await h.governor.sampleOnce();
+    expect(h.events).toEqual(["record:lint:200", "SIGSTOP:200"]);
+    await h.governor.thawAll();
+    expect(h.events.slice(2)).toEqual(["SIGCONT:200", "release:lint"]);
+  });
+
+  it("does not stop a tree it could not record", async () => {
+    const h = withLedger(true);
+    addRun("typecheck", 100, 1000);
+    addRun("lint", 200, 2000);
+    await h.governor.sampleOnce();
+    await h.governor.sampleOnce();
+    expect(h.events).toEqual([]);
+  });
+});
+
+describe("the oldest keeps running", () => {
+  it("with two commands over the budget only the newest is ever frozen", async () => {
+    const h = harness({ used: 10, budget: 5 });
+    addRun("old", 1, 1000);
+    addRun("new", 2, 2000);
+    for (let i = 0; i < 8; i++) await h.governor.sampleOnce();
+    expect(h.signals).toEqual(["SIGSTOP:2"]);
   });
 });

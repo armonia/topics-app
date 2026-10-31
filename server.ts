@@ -127,7 +127,7 @@ import { createPreviewBrowser } from "./server/services/preview-browser";
 import { recordServerSpawn } from "./server/lib/spawn-metrics";
 import { makeSheetWriter } from "./server/services/delivery-sheet";
 import { registerPreviewProcess, unregisterPreviewProcess, trackedScriptPidTrees, listOwnedScripts } from "./server/routes/processes";
-import { killProcessTree } from "./server/lib/process-tree";
+import { getDescendantPids, killProcessTree } from "./server/lib/process-tree";
 import { killAgentProcessTree } from "./server/lib/kill-agent-tree";
 import { branchExistsInRepo, branchStatusFromRepo, commitIsAncestor, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
 import { deliveryPointer } from "./server/services/own-commits";
@@ -5409,6 +5409,21 @@ const budgetGovernor = createBudgetGovernor({
   },
   signalTree: signalProcessTree,
   agentCommands: agentCommandsForGovernor,
+  // Same ledger as the swap freezer: a tree the governor stopped is continued
+  // at the next boot if this server dies first (`thawLedgerAtBoot`).
+  record: async (id, pid) => {
+    const pids = [pid, ...(await getDescendantPids(pid, { fresh: true }))];
+    const starts = await readStartTimes(pids);
+    const rootLstart = starts?.get(pid);
+    if (!starts || !rootLstart) throw new Error(`no identity for pid ${pid}`);
+    const treeId = `governor:${id}`;
+    swapFreezeLedger.begin({ treeId, sessionKey: treeId, frozenAt: Date.now(), root: { pid, lstart: rootLstart } });
+    swapFreezeLedger.addBatch(treeId, {
+      groups: [{ pgid: pid, leaderLstart: rootLstart }],
+      pids: pids.flatMap((p) => (starts.get(p) ? [{ pid: p, lstart: starts.get(p)! }] : [])),
+    });
+  },
+  release: (id) => swapFreezeLedger.release(`governor:${id}`),
   log: (m) => console.log(`[budget] ${m}`),
   note: (taskId, text) => {
     try { dispatcherSvc.addComment({ taskId, author: "system", kind: "service", content: text }); }

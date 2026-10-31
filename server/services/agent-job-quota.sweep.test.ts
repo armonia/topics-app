@@ -29,7 +29,7 @@ afterEach(() => {
   for (const d of roots.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-function dbVivo(): Database {
+function liveDb(): Database {
   const db = new Database(":memory:");
   db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY, session_key TEXT NOT NULL UNIQUE)`);
   db.run(`CREATE TABLE tasks (
@@ -76,7 +76,7 @@ describe("the channel folders: who sweeps and what is spared", () => {
   /** Two instances on one HOME, each with its own database: the second one must not judge the first one's folders. */
   test("a root claimed by another database is not swept", () => {
     const root = temporaryRoot();
-    const db = dbVivo();
+    const db = liveDb();
     writeLiveQuota("topic:1", 2);
     age("topic:1");
     writeFileSync(join(root, ".owner-db"), "/somewhere/else/topics.db\n");
@@ -87,7 +87,7 @@ describe("the channel folders: who sweeps and what is spared", () => {
 
   test("a root nobody has written to through a database is not swept", () => {
     const root = temporaryRoot();
-    const db = dbVivo();
+    const db = liveDb();
     writeLiveQuota("topic:1", 2);
     age("topic:1");
     _resetJobQuotaState();
@@ -98,7 +98,7 @@ describe("the channel folders: who sweeps and what is spared", () => {
 
   test("the first refresh with a live agent claims the root for its database", () => {
     const root = temporaryRoot();
-    const db = dbVivo();
+    const db = liveDb();
     aliveAgent(db, 1);
     refreshLiveJobQuotas(db);
     expect(readFileSync(join(root, ".owner-db"), "utf8").trim()).toBe(":memory:");
@@ -118,7 +118,7 @@ describe("the channel folders: who sweeps and what is spared", () => {
   /** A done card whose sub-agent is still active: the child's shims must outlive the card. */
   test("a live sub-agent keeps the channel of a done or archived card", () => {
     temporaryRoot();
-    const db = dbVivo();
+    const db = liveDb();
     const done = card(db, 1, "done");
     const archived = card(db, 2, "in_pr", 1);
     const gone = card(db, 3, "done");
@@ -139,7 +139,7 @@ describe("the channel folders: who sweeps and what is spared", () => {
 
   test("a live agent's folder does not age while its number stays the same", () => {
     temporaryRoot();
-    const db = dbVivo();
+    const db = liveDb();
     aliveAgent(db, 1);
     refreshLiveJobQuotas(db);
     age("topic:1");
@@ -149,7 +149,7 @@ describe("the channel folders: who sweeps and what is spared", () => {
 
   test("a live agent whose shims were swept gets them back on the next refresh", () => {
     temporaryRoot();
-    const db = dbVivo();
+    const db = liveDb();
     aliveAgent(db, 1);
     const prevPath = process.env.PATH;
     process.env.PATH = `/usr/bin${delimiter}/bin`;

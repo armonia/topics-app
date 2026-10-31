@@ -548,6 +548,10 @@ export function governorReading(sample: MachineBudgetSample, share: number): { u
 function nextVictim(targets: readonly FreezeTarget[], frozen: readonly string[]): FreezeTarget | null {
   const taken = new Set(frozen);
   const free = targets.filter((t) => !taken.has(t.id));
+  // With more than one target, the oldest keeps running: freezing all of them
+  // leaves nobody to finish, and the reading (which also counts foreground
+  // gates that are no targets) never comes down. A lone target is still fair game.
+  if (targets.length > 1 && free.length <= 1) return null;
   const rank = (t: FreezeTarget) => (t.kind === "check" ? 0 : t.kind === "agent-command" ? 1 : 2);
   free.sort((a, b) => rank(a) - rank(b) || b.startedAt - a.startedAt);
   return free[0] ?? null;

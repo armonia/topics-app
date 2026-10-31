@@ -99,6 +99,14 @@ export interface GovernorDeps {
    * list, so a frozen command is never forgotten and left stopped.
    */
   agentCommands?: () => Promise<FreezableRun[]>;
+  /**
+   * Writes the tree to disk BEFORE it is stopped (the swap freezer's ledger):
+   * a server killed while a tree is stopped is the only thing that could have
+   * continued it. If it throws, the tree is NOT stopped. `release` runs after the
+   * SIGCONT, or when the stop failed.
+   */
+  record?: (id: string, pid: number) => Promise<void>;
+  release?: (id: string) => void;
 }
 
 export interface BudgetGovernor {
@@ -187,9 +195,13 @@ export function createBudgetGovernor(deps: GovernorDeps): BudgetGovernor {
   async function apply(id: string, sig: "SIGSTOP" | "SIGCONT"): Promise<void> {
     const run = runs.get(id) ?? commandRuns.get(id);
     if (!run) return;
+    if (sig === "SIGSTOP" && deps.record) {
+      try { await deps.record(id, run.pid); } catch { return; }
+    }
     try {
       await deps.signalTree(run.pid, sig);
     } catch {
+      if (sig === "SIGSTOP") { try { deps.release?.(id); } catch { /* nothing recorded to undo */ } }
       // A signal that cannot be delivered (the process just exited) is not an
       // error worth a line: the next sample will find it gone from the registry.
       return;
@@ -203,6 +215,7 @@ export function createBudgetGovernor(deps: GovernorDeps): BudgetGovernor {
       deps.log(`congelo "${run.name}" per carico: Topics e' sopra il budget da due letture`);
       if (run.taskId && !noted.has(id)) { noted.add(id); try { deps.note?.(run.taskId, FROZEN_NOTE); } catch { /* the freeze holds anyway */ } }
     } else {
+      try { deps.release?.(id); } catch { /* the boot thaw finds a running pid and does nothing */ }
       try { run.onThaw?.(); } catch { /* the deadline stays as it was */ }
       const since = frozenSince.get(id);
       frozenSince.delete(id);
