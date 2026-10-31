@@ -388,4 +388,11 @@ describe('toolDetail — browser openings (CHAT-BROWSER-03)', () => {
     const described = buildToolDisplayLabel({ type: 'sub_agent', via: 'task', subAgentType: 'Explore', description: 'cerca il bug' } as never);
     expect(described.summary).toBe('cerca il bug');
   });
+
+  test('a long sub-agent description keeps its full text on the tooltip', () => {
+    const long = 'Controlla in dettaglio ogni file del modulo di pagamento e riporta le differenze '.repeat(3).trim();
+    const d = buildToolDisplayLabel({ type: 'sub_agent', via: 'task', subAgentType: 'Explore', description: long } as never);
+    expect(d.summary).toBe(long);
+    expect(d.tooltip).toBe(long);
+  });
 });
