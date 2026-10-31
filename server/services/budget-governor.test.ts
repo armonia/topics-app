@@ -16,11 +16,12 @@ import {
   BUDGET_FREEZE_MAX_MS,
   freezableRuns,
   registerFreezableRun,
+  type FreezableRun,
 } from "./budget-governor";
 
 afterEach(() => { _resetFreezableRuns(); });
 
-function harness(reading: { used: number; budget: number } | null) {
+function harness(reading: { used: number; budget: number } | null, agentCommands?: () => Promise<FreezableRun[]>) {
   const signals: string[] = [];
   const logs: string[] = [];
   const notes: { taskId: string; text: string }[] = [];
@@ -30,6 +31,7 @@ function harness(reading: { used: number; budget: number } | null) {
     signalTree: async (pid, sig) => { signals.push(`${sig}:${pid}`); },
     log: (m) => logs.push(m),
     note: (taskId, text) => notes.push({ taskId, text }),
+    agentCommands,
   });
   return { governor, signals, logs, notes, box };
 }
@@ -159,5 +161,90 @@ describe("review defects", () => {
     expect(h.governor.frozenCount()).toBe(0);
     await h.governor.sampleOnce(); await h.governor.sampleOnce(); await h.governor.sampleOnce();
     expect(h.signals.filter((x) => x.startsWith("SIGSTOP"))).toHaveLength(1);
+  });
+});
+
+/** [28] The gates run inside the agents' own tree: the server's registry is empty, and the governor still has to act. */
+describe("the commands the agents run in their own tree", () => {
+  const command = (pid: number, startedAt: number, extra: Partial<FreezableRun> = {}): FreezableRun =>
+    ({ id: `cmd:${pid}`, pid, name: `gate-${pid}`, startedAt, ...extra });
+
+  it("with no server check alive, the newest command is frozen: the first ones finish", async () => {
+    const live = [command(10, 1000), command(20, 2000)];
+    const h = harness({ used: 12, budget: 9.6 }, async () => live);
+    await h.governor.sampleOnce();
+    await h.governor.sampleOnce();
+    expect(h.signals).toEqual(["SIGSTOP:20"]);
+    expect(h.governor.frozenIds()).toEqual(["cmd:20"]);
+  });
+
+  it("a server check goes before an agent command, even a newer command", async () => {
+    addRun("typecheck", 5, 1000);
+    const h = harness({ used: 12, budget: 9.6 }, async () => [command(30, 9000)]);
+    await h.governor.sampleOnce();
+    await h.governor.sampleOnce();
+    expect(h.signals).toEqual(["SIGSTOP:5"]);
+  });
+
+  it("gives the command its own clock back, tells its card, and thaws it when the load drops", async () => {
+    const hooks = { frozen: 0, thawed: 0 };
+    const live = [command(20, 2000, { taskId: "task-z", onFreeze: () => { hooks.frozen++; }, onThaw: () => { hooks.thawed++; } })];
+    const h = harness({ used: 12, budget: 9.6 }, async () => live);
+    await h.governor.sampleOnce();
+    await h.governor.sampleOnce();
+    expect(hooks).toEqual({ frozen: 1, thawed: 0 });
+    expect(h.notes).toEqual([{ taskId: "task-z", text: FROZEN_NOTE }]);
+    h.box.reading = { used: 3, budget: 9.6 };
+    await h.governor.sampleOnce();
+    await h.governor.sampleOnce();
+    expect(h.signals).toEqual(["SIGSTOP:20", "SIGCONT:20"]);
+    expect(hooks.thawed).toBe(1);
+  });
+
+  it("is not even asked while the machine is within budget", async () => {
+    let asked = 0;
+    const h = harness({ used: 3, budget: 9.6 }, async () => { asked++; return [command(10, 1)]; });
+    await h.governor.sampleOnce();
+    await h.governor.sampleOnce();
+    expect(asked).toBe(0);
+  });
+
+  it("a screen that doubts (fewer commands, or an error) never leaves a frozen command stopped", async () => {
+    let answer: FreezableRun[] | Error = [command(20, 2000)];
+    const h = harness({ used: 12, budget: 9.6 }, async () => { if (answer instanceof Error) throw answer; return answer; });
+    await h.governor.sampleOnce();
+    await h.governor.sampleOnce();
+    expect(h.governor.frozenIds()).toEqual(["cmd:20"]);
+    answer = [];
+    await h.governor.sampleOnce();
+    expect(h.governor.frozenIds()).toEqual(["cmd:20"]);
+    answer = new Error("ps mute");
+    h.box.reading = { used: 3, budget: 9.6 };
+    await h.governor.sampleOnce();
+    await h.governor.sampleOnce();
+    expect(h.signals).toEqual(["SIGSTOP:20", "SIGCONT:20"]);
+  });
+
+  it("a command frozen for the second time, which makes it immune, is still thawed by the plan", async () => {
+    const h = harness({ used: 12, budget: 9.6 }, async () => [command(20, 2000)]);
+    const samples = async (reading: { used: number; budget: number }) => {
+      h.box.reading = reading;
+      await h.governor.sampleOnce();
+      await h.governor.sampleOnce();
+    };
+    await samples({ used: 12, budget: 9.6 });
+    await samples({ used: 3, budget: 9.6 });
+    await samples({ used: 12, budget: 9.6 });
+    await samples({ used: 3, budget: 9.6 });
+    expect(h.signals).toEqual(["SIGSTOP:20", "SIGCONT:20", "SIGSTOP:20", "SIGCONT:20"]);
+    expect(h.governor.frozenCount()).toBe(0);
+  });
+
+  it("thawAll continues a frozen command on the way out", async () => {
+    const h = harness({ used: 12, budget: 9.6 }, async () => [command(20, 2000)]);
+    await h.governor.sampleOnce();
+    await h.governor.sampleOnce();
+    await h.governor.thawAll();
+    expect(h.signals).toEqual(["SIGSTOP:20", "SIGCONT:20"]);
   });
 });

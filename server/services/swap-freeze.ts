@@ -52,6 +52,7 @@ import {
   containsAgentCli,
   descendantPids,
   guardSet,
+  parseLstart,
   recordClaimsProcess,
   toolRoots,
   type AgentSessionRef,
@@ -73,24 +74,32 @@ export interface FreezeCandidate {
   residentGB: number;
   cpuCores: number;
   frozenCount: number;
+  /** When the root started (epoch ms, from `ps lstart`); 0 when unreadable, which reads as the oldest. */
+  startedAt: number;
 }
 
 export type VictimSkip = "belowFloor" | "exhausted" | null;
 
 /**
- * THE HEAVIEST, measured on FOOTPRINT and not on resident memory: footprint is
- * what survives compression, and `rss` reads small exactly while a tree thrashes
- * (memory note `memoria-numeri-che-mentono`, allow-italian: the note's own filename).
- * The CPU term names one specific
- * failure: an idle 2 GB background process is the heaviest tree on the machine
- * and freezing it stops no page activity at all.
+ * THE NEWEST HEAVY TREE: footprint and CPU are the ENTRY THRESHOLD, not the
+ * ranking. Picking the heaviest froze an old build that was nearly done instead
+ * of the one that had just started, which is the opposite of "the first ones
+ * finish". Among the trees that pass the floor the latest start wins; footprint
+ * (what survives compression, since `rss` reads small exactly while a tree
+ * thrashes) then CPU only break a tie in start time.
+ * The CPU term names one specific failure: an idle 2 GB background process is
+ * the heaviest tree on the machine and freezing it stops no page activity at all.
  */
 export function pickVictim(candidates: readonly FreezeCandidate[]): { victim: FreezeCandidate | null; skipped: VictimSkip } {
   const heavy = candidates.filter((c) => c.footprintGB >= FREEZE_MIN_GB && c.cpuCores >= FREEZE_MIN_CORES);
   if (heavy.length === 0) return { victim: null, skipped: "belowFloor" };
   const open = heavy.filter((c) => c.frozenCount < FREEZES_PER_TREE);
   if (open.length === 0) return { victim: null, skipped: "exhausted" };
-  const victim = open.reduce((a, b) => (b.footprintGB > a.footprintGB || (b.footprintGB === a.footprintGB && b.cpuCores > a.cpuCores) ? b : a));
+  const startsLater = (a: FreezeCandidate, b: FreezeCandidate): boolean =>
+    b.startedAt !== a.startedAt ? b.startedAt > a.startedAt
+      : b.footprintGB !== a.footprintGB ? b.footprintGB > a.footprintGB
+        : b.cpuCores > a.cpuCores;
+  const victim = open.reduce((a, b) => (startsLater(a, b) ? b : a));
   return { victim, skipped: null };
 }
 
@@ -192,6 +201,20 @@ export interface SwapFreezer {
   frozenGB(): number;
   /** The last moment either swap lever acted, for the shared spacing. */
   lastActionAt(): number;
+  /**
+   * The background and native commands of the agents that are safe to pause for
+   * the CPU budget, screened by the same rules as a swap candidate (no agent CLI
+   * or guarded pid in the tree, no group that reaches the server, nobody
+   * connected from outside, not already frozen by the swap lever). `[]` on any
+   * doubt: a `ps` or `lsof` that did not answer is not a clearance.
+   */
+  freezableCommands(): Promise<FreezableCommand[]>;
+}
+
+/** A command the CPU governor may pause. `startedAt` is epoch ms, 0 when unreadable. */
+export interface FreezableCommand {
+  root: ToolRoot;
+  startedAt: number;
 }
 
 const gb = (n: number | null | undefined): string => (n == null || !Number.isFinite(n) ? "?" : n.toFixed(1));
@@ -213,6 +236,9 @@ export function oneLine(command: string, max = LOG_COMMAND_MAX): string {
   return `${flat.slice(0, max - 1).replace(/[\uD800-\uDBFF]$/, "")}…`;
 }
 
+/** Two ten-second beats and a margin: older than this is not the previous beat. */
+const CPU_BASE_MAX_AGE_MS = 25_000;
+
 type OncePerPidKind = "foreground" | "unrecognised" | "agentCli" | "guarded" | "peers" | "staleRecord";
 
 export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
@@ -220,7 +246,11 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
   const frozen = new Map<string, FrozenTree>();
   /** Closed frozen intervals per session, for the silence clocks. */
   const history = new Map<string, { from: number; to: number }[]>();
-  /** CPU time of each root tree on the previous sustained beat. */
+  /**
+   * CPU time of each root tree on the previous sustained beat. A base older than
+   * `CPU_BASE_MAX_AGE_MS` is no base: it spans a calm stretch, and a rate over
+   * hours is not the rate of now. Emptied with the episode, pruned on the live table.
+   */
   const cpuBase = new Map<number, { at: number; seconds: number }>();
   let lastFreezeAt = Number.NEGATIVE_INFINITY;
   /**
@@ -415,7 +445,8 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
         residentKB += deps.residentKB(pid) ?? 0;
         cpuSeconds += byPid.get(pid)?.cpuSeconds ?? 0;
       }
-      const base = cpuBase.get(root.pid);
+      const stored = cpuBase.get(root.pid);
+      const base = stored && t - stored.at <= CPU_BASE_MAX_AGE_MS ? stored : undefined;
       cpuBase.set(root.pid, { at: t, seconds: cpuSeconds });
       // The FIRST sustained beat of a tree has no base, so its decision comes
       // ten seconds later rather than on a rate nobody measured.
@@ -430,10 +461,35 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
         footprintGB: (footprintKB * 1024) / 1e9,
         residentGB: (residentKB * 1024) / 1e9,
         cpuCores,
+        startedAt: parseLstart(rootLstart) ?? 0,
         frozenCount: deps.ledger.freezeCount({ pid: root.pid, lstart: rootLstart }),
       });
     }
     return { candidates, foreground: foreground.map((f) => ({ pid: f.pid, command: f.command })) };
+  }
+
+  async function freezableCommands(): Promise<FreezableCommand[]> {
+    const table = await deps.processTable();
+    if (table === null || disabled) return [];
+    const guard = guardSet(table, guardRolesFor(table));
+    const { roots } = toolRoots({ rows: table, sessions: deps.sessions(), natives: deps.natives() });
+    const starts = await deps.lstartOf(roots.map((r) => r.pid)).catch(() => null);
+    if (starts === null) return [];
+    const frozenRoots = new Set([...frozen.values()].map((t) => t.root.pid));
+    const out: FreezableCommand[] = [];
+    for (const root of roots) {
+      const lstart = starts.get(root.pid);
+      if (!lstart || frozenRoots.has(root.pid)) continue;
+      if (root.kind === "claude-background" && !recordClaimsProcess(root.recordedAt, lstart)) continue;
+      const tree = descendantPids(table, root.pid);
+      if (containsAgentCli(table, tree) !== null) continue;
+      if ([...tree].some((p) => guard.has(p))) continue;
+      if (allowedGroups(table, tree, guard).some((g) => g.members.some((p) => guard.has(p)))) continue;
+      const peers = await deps.outsidePeers([...tree]).catch(() => null);
+      if (peers === null || peers.length > 0) continue;
+      out.push({ root, startedAt: parseLstart(lstart) ?? 0 });
+    }
+    return out;
   }
 
   async function freeze(candidate: FreezeCandidate, swap: SwapVerdict): Promise<boolean> {
@@ -605,7 +661,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
             // The "already said" lines are forgotten only after a real calm:
             // swap flickers, and every calm beat used to say everything again.
             calmSince ??= now();
-            if (now() - calmSince >= SWAP_EPISODE_CALM_MS) { episodeSince = null; saidNothing = false; saidExhausted = false; namedPids.clear(); }
+            if (now() - calmSince >= SWAP_EPISODE_CALM_MS) { episodeSince = null; saidNothing = false; saidExhausted = false; namedPids.clear(); cpuBase.clear(); }
           }
           return;
         }
@@ -633,6 +689,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
         const livePids = new Set(table.map((r) => r.pid));
         deps.ledger.pruneCounts((c) => livePids.has(c.pid));
         for (const pid of namedPids.keys()) if (!livePids.has(pid)) namedPids.delete(pid);
+        for (const pid of cpuBase.keys()) if (!livePids.has(pid)) cpuBase.delete(pid);
         const { candidates, foreground } = await measure(table, guard);
         for (const f of foreground) logOncePerPid(f.pid, "foreground", `[freeze] skipped "${oneLine(f.command)}" (pid ${f.pid}): foreground Bash, never frozen`);
         let { victim, skipped } = pickVictim(candidates);
@@ -692,6 +749,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
       return total;
     },
     frozenCount: () => frozen.size,
+    freezableCommands,
     frozenGB: () => [...frozen.values()].reduce((sum, t) => sum + t.footprintGB, 0),
     lastActionAt: () => lastFreezeAt,
   };

@@ -74,6 +74,7 @@ export { noteSubAgentStopHook, retireIdleSubAgents, _forgetSubAgentMemory } from
 import { composerHoldsPrompt, trustCursorOnYes, trustDialogShowing } from "../lib/subagent-seed";
 import { boardSpawnRefusal, liveAgentCount } from "../services/agent-census";
 import { effectiveDispatchCap, readGlobalCap, computeDispatchCapacity } from "../services/dispatch-capacity";
+import { capMode, type DispatchAdmission } from "../../shared/board";
 import { resolveAgentRuntime } from "../services/app-settings";
 import { deriveClaudeSessionTitle } from "../lib/claude-transcript-title";
 import { topicsAgentSystemPrompt, resolveClaudeEffort, resolveCodexReasoningEffort, topicEffortFor } from "../lib/topics-agent-prompt";
@@ -2518,7 +2519,7 @@ function spawnedAgentDepth(sessionKey: string): number {
  * incontrano su `readGlobalCap`, che è l'unico posto dove è scritto cosa vuol
  * dire NULL in quella colonna.
  */
-function boardAgentCap(): number {
+export function boardAgentCap(): number {
   try {
     // Gli agenti VIVI vanno passati: il freno vivo del tetto è un credito sul
     // budget di CPU della flotta, e senza sapere quanti ne stanno già girando
@@ -2532,6 +2533,32 @@ function boardAgentCap(): number {
     // sconosciuto non autorizza a non averne uno.
     return 3;
   }
+}
+
+/**
+ * What the dispatcher's gate would answer for ONE SUB-AGENT right now, injected
+ * by `server.ts` (the dispatcher is born after this router). Absent = the
+ * machine cannot be asked, which the door reads as "let it through", like the
+ * dispatcher without a sample.
+ */
+let childAdmissionPreview: (() => DispatchAdmission | null) | null = null;
+export function setChildAdmissionPreview(fn: (() => DispatchAdmission | null) | null): void {
+  childAdmissionPreview = fn;
+}
+
+/**
+ * The mode the spawn door asks in. "By resources" ignores the number of agents
+ * (so a card holding the whole machine cannot make every child a 429, and a
+ * lone card cannot open three more unchecked) and asks the machine, with the
+ * price of a child; "count" keeps the cap. An unreadable mode reads as count.
+ */
+export function boardSpawnMode(): { resources?: { admission: DispatchAdmission | null } } {
+  try {
+    if (capMode(readGlobalCap(getDatabase())) !== "resources") return {};
+  } catch { return {}; }
+  let admission: DispatchAdmission | null = null;
+  try { admission = childAdmissionPreview?.() ?? null; } catch { /* unmeasurable: lets it through */ }
+  return { resources: { admission } };
 }
 
 /** Live children of a parent (present in the in-memory `sessions` map). */
@@ -3814,11 +3841,11 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         // concorrenza della board come chiunque altro, e una figlia non apre
         // nipoti. Vedi `agent-census.ts` per il perché di entrambi.
         {
-          const boardRefusal = boardSpawnRefusal(getDatabase(), { parentSessionKey: parentKey, cap: boardAgentCap() });
+          const boardRefusal = boardSpawnRefusal(getDatabase(), { parentSessionKey: parentKey, cap: boardAgentCap(), ...boardSpawnMode() });
           if (!boardRefusal.ok) {
-            return boardRefusal.code === "depth"
-              ? errorResponse(429, "sub-agent depth limit (1) reached: a board sub-agent cannot spawn its own")
-              : errorResponse(429, `board concurrency cap reached (${boardRefusal.live}/${boardRefusal.cap} live agents)`);
+            if (boardRefusal.code === "depth") return errorResponse(429, "sub-agent depth limit (1) reached: a board sub-agent cannot spawn its own");
+            if (boardRefusal.code === "machine") return errorResponse(429, `machine budget reached${boardRefusal.blockedBy ? ` (${boardRefusal.blockedBy})` : ""}: no room for another sub-agent`);
+            return errorResponse(429, `board concurrency cap reached (${boardRefusal.live}/${boardRefusal.cap} live agents)`);
           }
         }
         // WORKTREE-14, and the opt-in IS the point: without `isolation` the

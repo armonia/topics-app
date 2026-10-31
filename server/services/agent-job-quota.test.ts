@@ -5,9 +5,13 @@ import { test, expect, describe, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync, statSync, utimesSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import {
+  _resetJobQuotaState,
+  JOB_QUOTA_GC_EVERY_MS,
+  JOB_QUOTA_GC_GRACE_MS,
+  gcJobQuotaChannels,
   applyJobQuota,
   computeJobQuota,
   countLiveDispatchedAgents,
@@ -598,5 +602,145 @@ describe("resolveJobQuotaEnv — cosa finisce davvero nell'ambiente del figlio",
     const env = resolveJobQuotaEnv(db, "topic:agente");
     expect(env).not.toBeNull();
     expect(Number(env!.CARGO_BUILD_JOBS)).toBeGreaterThanOrEqual(1);
+  });
+});
+
+/** [25] The folder of a channel grows by one per dispatched topic and nothing removed it. */
+describe("the channel folders: swept when the topic can never come back, rewritten only when the number moves", () => {
+  const LONG_AGO = Date.now() - 3 * JOB_QUOTA_GC_GRACE_MS;
+  const age = (sessionKey: string, atMs = LONG_AGO) => {
+    const dir = quotaChannelDir(sessionKey);
+    utimesSync(dir, new Date(atMs), new Date(atMs));
+  };
+  /** A card in `status` with its topic, and the channel folder of that topic, an hour old and more. */
+  function card(db: Database, n: number, status: string, opts: { archived?: number } = {}): string {
+    const key = `topic:${n}`;
+    topic(db, `t${n}`, key);
+    db.prepare(
+      "INSERT INTO tasks (id, assigned_topic_id, dispatch_weight, status, dispatch_state, archived) VALUES (?,?,?,?,?,?)",
+    ).run(`k${n}`, `t${n}`, null, status, null, opts.archived ?? 0);
+    writeLiveQuota(key, 2);
+    age(key);
+    return key;
+  }
+  const sweep = (db: Database) => { _resetJobQuotaState(); return gcJobQuotaChannels(db); };
+
+  test("a done or archived card loses its folder; an open one keeps it, wherever its column is", () => {
+    temporaryRoot();
+    const db = dbVivo();
+    const gone = [card(db, 1, "done"), card(db, 2, "backlog", { archived: 1 })];
+    const kept = [card(db, 3, "backlog"), card(db, 4, "todo"), card(db, 5, "review"), card(db, 6, "in_progress")];
+    expect(sweep(db)).toBe(2);
+    for (const key of gone) expect(existsSync(quotaChannelDir(key))).toBe(false);
+    for (const key of kept) {
+      expect(existsSync(join(quotaChannelDir(key), "jobs"))).toBe(true);
+    }
+  });
+
+  test("a card in review keeps its shims: the child that outlives the turn still runs them", () => {
+    temporaryRoot();
+    const db = dbVivo();
+    const key = card(db, 1, "review");
+    installQuotaShims(key, `/usr/bin${delimiter}/bin`);
+    age(key);
+    sweep(db);
+    expect(existsSync(quotaChannelDir(key))).toBe(true);
+  });
+
+  test("the topic of a fan-out attempt of an open card is kept too", () => {
+    temporaryRoot();
+    const db = dbVivo();
+    card(db, 1, "review");
+    topic(db, "t2", "topic:2");
+    db.prepare("INSERT INTO task_attempts (id, task_id, idx, topic_id, state) VALUES ('a2','k1',2,'t2','done')").run();
+    writeLiveQuota("topic:2", 2);
+    age("topic:2");
+    sweep(db);
+    expect(existsSync(quotaChannelDir("topic:2"))).toBe(true);
+  });
+
+  test("a folder with no card behind it is swept, but a fresh one is left alone", () => {
+    temporaryRoot();
+    const db = dbVivo();
+    writeLiveQuota("topic:orphan", 2);
+    age("topic:orphan");
+    writeLiveQuota("topic:newborn", 2);
+    expect(sweep(db)).toBe(1);
+    expect(existsSync(quotaChannelDir("topic:orphan"))).toBe(false);
+    expect(existsSync(quotaChannelDir("topic:newborn"))).toBe(true);
+  });
+
+  test("a database that cannot be read removes nothing: no answer is not an empty list of cards to keep", () => {
+    temporaryRoot();
+    writeLiveQuota("topic:1", 2);
+    age("topic:1");
+    expect(sweep(new Database(":memory:"))).toBe(0);
+    expect(existsSync(quotaChannelDir("topic:1"))).toBe(true);
+  });
+
+  test("the sweep runs once per interval", () => {
+    temporaryRoot();
+    const db = dbVivo();
+    _resetJobQuotaState();
+    expect(gcJobQuotaChannels(db, Date.now())).toBe(0);
+    writeLiveQuota("topic:late", 2);
+    age("topic:late");
+    expect(gcJobQuotaChannels(db, Date.now() + 1000)).toBe(0);
+    expect(existsSync(quotaChannelDir("topic:late"))).toBe(true);
+    expect(gcJobQuotaChannels(db, Date.now() + JOB_QUOTA_GC_EVERY_MS + 1000)).toBe(1);
+  });
+
+  /** Take the call out of `refreshLiveJobQuotas` and every other test here stays green: this one does not. */
+  test("the 10 s refresh is what runs the sweep", () => {
+    temporaryRoot();
+    const db = dbVivo();
+    writeLiveQuota("topic:orphan", 2);
+    age("topic:orphan");
+    _resetJobQuotaState();
+    refreshLiveJobQuotas(db);
+    expect(existsSync(quotaChannelDir("topic:orphan"))).toBe(false);
+  });
+
+  test("an unchanged number is not rewritten on the next refresh", () => {
+    temporaryRoot();
+    const db = dbVivo();
+    aliveAgent(db, 1);
+    expect(refreshLiveJobQuotas(db)).toBe(1);
+    const file = join(quotaChannelDir("topic:1"), "jobs");
+    const past = new Date(Date.now() - 600_000);
+    utimesSync(file, past, past);
+    expect(refreshLiveJobQuotas(db)).toBe(0);
+    expect(statSync(file).mtimeMs).toBeLessThan(Date.now() - 300_000);
+  });
+
+  test("a folder removed from under the refresh is written again", () => {
+    temporaryRoot();
+    const db = dbVivo();
+    aliveAgent(db, 1);
+    refreshLiveJobQuotas(db);
+    rmSync(quotaChannelDir("topic:1"), { recursive: true, force: true });
+    expect(refreshLiveJobQuotas(db)).toBe(1);
+    expect(readLiveQuota("topic:1")).toBe(SOLO);
+  });
+
+  /**
+   * The spawn writes the number too. The refresh skips what it believes is
+   * already there, so the spawn's write has to be what it believes: otherwise a
+   * file left at the spawn's value stays there until the number moves again.
+   */
+  test("the spawn's write is known to the refresh: the file goes back to the roster's number", () => {
+    if (CORES <= 2) return; // with two cores every slice is one job and there is nothing to tell apart
+    temporaryRoot();
+    const db = dbVivo();
+    aliveAgent(db, 1);
+    refreshLiveJobQuotas(db);
+    expect(readLiveQuota("topic:1")).toBe(SOLO);
+    for (const n of [2, 3, 4]) aliveAgent(db, n);
+    applyJobQuota(db, "topic:1", { PATH: "/usr/bin" });
+    const atSpawn = readLiveQuota("topic:1")!;
+    expect(atSpawn).toBeLessThan(SOLO);
+    db.prepare("UPDATE tasks SET status='review', dispatch_state=NULL WHERE id IN ('k2','k3','k4')").run();
+    refreshLiveJobQuotas(db);
+    expect(readLiveQuota("topic:1")).toBe(SOLO);
   });
 });

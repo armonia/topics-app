@@ -280,7 +280,7 @@ describe("F5: the heaviest background command, and nothing else", () => {
   test("the pure rule on its own: floor, CPU, ties and the two-freeze limit", () => {
     const c = (over: Partial<FreezeCandidate>): FreezeCandidate => ({
       root: { kind: "claude-background", pid: 1, pgid: 1, sessionKey: "s", command: "x", topicId: null, terminalId: null, taskId: null },
-      treePids: [1], xpcPids: [], footprintGB: 1, residentGB: 1, cpuCores: 1, frozenCount: 0, ...over,
+      treePids: [1], xpcPids: [], footprintGB: 1, residentGB: 1, cpuCores: 1, frozenCount: 0, startedAt: 0, ...over,
     });
     expect(pickVictim([c({ footprintGB: 0.49 })]).skipped).toBe("belowFloor");
     expect(pickVictim([c({ cpuCores: 0.05 })]).skipped).toBe("belowFloor");

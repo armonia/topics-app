@@ -90,6 +90,15 @@ export interface GovernorDeps {
   /** One line in the card's thread, so the person does not read the pause as a
    *  hung agent. Best effort: a note that fails must not stop the freeze. */
   note?: (taskId: string, text: string) => void;
+  /**
+   * The commands the agents run inside their own tree (a gate with `parallel.ts`
+   * and five `tsc`, the tests), already screened for what may be paused. They
+   * come AFTER the checks the server launched: these are where the CPU is when
+   * no server check is running. Only asked while
+   * the budget is exceeded or one of them is frozen; a failure keeps the last
+   * list, so a frozen command is never forgotten and left stopped.
+   */
+  agentCommands?: () => Promise<FreezableRun[]>;
 }
 
 export interface BudgetGovernor {
@@ -121,10 +130,35 @@ export function createBudgetGovernor(deps: GovernorDeps): BudgetGovernor {
   /** Runs whose card already got the note: one per run, not one per freeze. */
   const noted = new Set<string>();
 
+  /** The agent commands of the last sample that asked, by id: what `apply` signals. */
+  let commandRuns = new Map<string, FreezableRun>();
+
   const targets = (): FreezeTarget[] =>
     freezableRuns()
       .filter((r) => !r.queued && !immune.has(r.id))
       .map((r) => ({ id: r.id, kind: "check" as const, startedAt: r.startedAt }));
+
+  const commandTargets = (): FreezeTarget[] =>
+    [...commandRuns.values()]
+      // A frozen one stays in even when immune: the plan must still see it alive to thaw it.
+      .filter((r) => !immune.has(r.id) || state.frozen.includes(r.id))
+      .map((r) => ({ id: r.id, kind: "agent-command" as const, startedAt: r.startedAt }));
+
+  async function refreshCommands(over: boolean): Promise<void> {
+    if (!deps.agentCommands) return;
+    if (!over && !state.frozen.some((id) => commandRuns.has(id))) { commandRuns = new Map(); return; }
+    try {
+      const fresh = new Map((await deps.agentCommands()).map((r) => [r.id, r]));
+      // A screen that doubts answers with fewer commands, not with an error: a
+      // frozen one missing from the answer is kept, or it would be forgotten
+      // while still stopped. If it really exited, the SIGCONT finds nobody.
+      for (const id of state.frozen) {
+        const known = commandRuns.get(id);
+        if (known && !fresh.has(id)) fresh.set(id, known);
+      }
+      commandRuns = fresh;
+    } catch { /* the last list stands */ }
+  }
 
   /** Fail open: a run frozen past the cap is continued and left alone. */
   async function releaseExpired(): Promise<void> {
@@ -142,15 +176,16 @@ export function createBudgetGovernor(deps: GovernorDeps): BudgetGovernor {
     const reading = (() => { try { return deps.read(); } catch { return null; } })();
     await releaseExpired();
     if (!reading) return;
+    await refreshCommands(reading.used > reading.budget);
     const all = freezableRuns();
-    const plan = freezePlan({ used: reading.used, budget: reading.budget, targets: [...targets(), ...all.filter((r) => state.frozen.includes(r.id) && (r.queued || immune.has(r.id))).map((r) => ({ id: r.id, kind: "check" as const, startedAt: r.startedAt }))] }, state);
+    const plan = freezePlan({ used: reading.used, budget: reading.budget, targets: [...targets(), ...commandTargets(), ...all.filter((r) => state.frozen.includes(r.id) && (r.queued || immune.has(r.id))).map((r) => ({ id: r.id, kind: "check" as const, startedAt: r.startedAt }))] }, state);
     state = plan.state;
     if (plan.freeze) await apply(plan.freeze, "SIGSTOP");
     if (plan.thaw) await apply(plan.thaw, "SIGCONT");
   }
 
   async function apply(id: string, sig: "SIGSTOP" | "SIGCONT"): Promise<void> {
-    const run = runs.get(id);
+    const run = runs.get(id) ?? commandRuns.get(id);
     if (!run) return;
     try {
       await deps.signalTree(run.pid, sig);

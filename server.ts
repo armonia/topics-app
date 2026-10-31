@@ -12,7 +12,7 @@ import { providerHold, holdUntilLabel, onProviderHold, configureProviderHoldStor
 import { providerHoldFrame, wireHoldToResume } from "./server/lib/provider-hold-broadcast";
 import { createResumeSweepClock } from "./server/lib/resume-sweep-clock";
 import { resolveStateDir } from "./server/lib/data-dir";
-import { createSwapFreezer } from "./server/services/swap-freeze";
+import { createSwapFreezer, oneLine } from "./server/services/swap-freeze";
 import { createSwapFreezeLedger, fileLedgerIo, thawLedgerAtBoot } from "./server/services/swap-freeze-ledger";
 import { setActiveSwapFreezer, setSwapFreezeBroadcast, announceSwapFreeze, swapFreezeViews, isSwapFreezeHold, swapFrozenMsSince } from "./server/lib/swap-freeze-hold";
 import { createMemoryPressureSignal } from "./server/services/memory-pressure";
@@ -86,7 +86,7 @@ import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
 import { createUsageRouter } from "./server/routes/usage";
 import { createOrphanCensusRunner } from "./server/services/orphan-census";
-import { createTerminalRouter, setTerminalMemPressure, handleTerminalWebSocket, disconnectBridge, getAgentPtyCliPids, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, countBusyAgentTerminals, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession, liveTerminalCwds, listTopicsLiveTerminals, readTopicsTerminalScreen, writeTopicsTerminal } from "./server/routes/terminal";
+import { createTerminalRouter, setTerminalMemPressure, setChildAdmissionPreview, handleTerminalWebSocket, disconnectBridge, getAgentPtyCliPids, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, countBusyAgentTerminals, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession, liveTerminalCwds, listTopicsLiveTerminals, readTopicsTerminalScreen, writeTopicsTerminal } from "./server/routes/terminal";
 import { createLiveTerminals } from "./server/lib/live-terminals";
 import { createLiveTerminalsRouter } from "./server/routes/live-terminals";
 import { createStatusRouter } from "./server/routes/status";
@@ -1922,6 +1922,8 @@ setAvailableMemReader(() => memSignal.latestAvailGB() ?? availableMemGB());
 // seconda qui. Iniettato con un setter perche' questo segnale nasce dopo il
 // router; senza, la passata usa la soglia normale come sempre.
 setTerminalMemPressure(() => ({ atCeiling: memSignal.swap().sustained }));
+// The sub-agent door asks the dispatcher's own gate, priced for a child, when the board runs "by resources".
+setChildAdmissionPreview(() => taskDispatcher.childAdmissionPreview?.() ?? null);
 
 /**
  * CHI tiene la memoria quando non e' Topics: un solo `/bin/ps` al minuto, sul
@@ -5366,6 +5368,32 @@ const DISPATCH_POLL_MS = 10_000;
  * `read()` returning `null` means "not measurable", and a governor that cannot
  * measure freezes nothing.
  */
+/** When the governor stopped each native command, to hand the deadline back what the pause took. */
+const governorFrozenAt = new Map<number, number>();
+/**
+ * The commands the agents run inside their own tree, screened by the swap
+ * freezer's own rules, as targets for the CPU governor. A native command has a
+ * deadline that must stop counting while it is stopped; a background shell has
+ * none. The "frozen for swap" line in the shell's output is NOT written: it names
+ * a cause that is not this one.
+ */
+async function agentCommandsForGovernor() {
+  return (await swapFreezer.freezableCommands()).map(({ root, startedAt }) => ({
+    id: `cmd:${root.pid}`,
+    pid: root.pid,
+    name: oneLine(root.command, 60),
+    taskId: root.taskId ?? undefined,
+    startedAt,
+    ...(root.kind === "native" ? {
+      onFreeze: () => { governorFrozenAt.set(root.pid, Date.now()); nativeCommandByPid(root.pid)?.onFreeze(); },
+      onThaw: () => {
+        const at = governorFrozenAt.get(root.pid);
+        governorFrozenAt.delete(root.pid);
+        nativeCommandByPid(root.pid)?.onThaw(at === undefined ? 0 : Date.now() - at);
+      },
+    } : {}),
+  }));
+}
 const budgetGovernor = createBudgetGovernor({
   read: () => {
     try {
@@ -5380,6 +5408,7 @@ const budgetGovernor = createBudgetGovernor({
     } catch { return null; }
   },
   signalTree: signalProcessTree,
+  agentCommands: agentCommandsForGovernor,
   log: (m) => console.log(`[budget] ${m}`),
   note: (taskId, text) => {
     try { dispatcherSvc.addComment({ taskId, author: "system", kind: "service", content: text }); }

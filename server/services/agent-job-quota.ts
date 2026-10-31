@@ -64,7 +64,7 @@
 // giusto in cui sbagliare.
 
 import os from "node:os";
-import { accessSync, constants, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import type { Database } from "bun:sqlite";
 import { readTaskWeight, type TaskWeight } from "../../shared/board";
@@ -328,10 +328,28 @@ function rootChannel(): string {
   return process.env.TOPICS_JOB_QUOTA_DIR || join(os.homedir(), ".topics", "job-quota");
 }
 
+function channelSlug(sessionKey: string): string {
+  return sessionKey.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 120) || "senza-nome";
+}
+
 /** La cartella del canale vivo di un topic: dentro, `jobs` e `bin/`. */
 export function quotaChannelDir(sessionKey: string): string {
-  const slug = sessionKey.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 120) || "senza-nome";
-  return join(rootChannel(), slug);
+  return join(rootChannel(), channelSlug(sessionKey));
+}
+
+/**
+ * The number each channel's `jobs` file holds, as last written by THIS process,
+ * keyed by directory. Every write goes through `writeLiveQuota`, which is the
+ * only place that fills it: a second writer that skipped it (the spawn) left the
+ * map saying 3 over a file that said 11, and the refresh trusted the map.
+ */
+const lastWritten = new Map<string, number>();
+let lastGcAt = Number.NEGATIVE_INFINITY;
+
+/** Test seam: forget what was written and when the channels were last swept. */
+export function _resetJobQuotaState(): void {
+  lastWritten.clear();
+  lastGcAt = Number.NEGATIVE_INFINITY;
 }
 
 /**
@@ -347,10 +365,20 @@ export function writeLiveQuota(sessionKey: string, jobs: number): boolean {
     const tmp = join(dir, `jobs.${process.pid}.tmp`);
     writeFileSync(tmp, `${n}\n`);
     renameSync(tmp, join(dir, "jobs"));
+    lastWritten.set(dir, n);
     return true;
   } catch {
     return false;
   }
+}
+
+/** Writes only when the file would change: the refresh runs every 10 s for every live agent. */
+function writeLiveQuotaIfChanged(sessionKey: string, jobs: number): boolean {
+  const n = Math.max(1, Math.floor(jobs) || 1);
+  const dir = quotaChannelDir(sessionKey);
+  // The file must still be there: a swept or removed channel is rewritten.
+  if (lastWritten.get(dir) === n && existsSync(join(dir, "jobs"))) return false;
+  return writeLiveQuota(sessionKey, n);
 }
 
 /** Il numero letto dagli shim, per i test e per chi vuole verificare a mano. */
@@ -508,13 +536,71 @@ export function applyJobQuota(db: Database, sessionKey: string, env: Record<stri
 export function refreshLiveJobQuotas(db: Database): number {
   let vive: Array<{ sessionKey: string; weight: TaskWeight | null }> = [];
   try { vive = liveDispatchedSessions(db); } catch { return 0; }
+  try { gcJobQuotaChannels(db); } catch { /* a sweep that fails is tried again in ten minutes */ }
   if (!vive.length) return 0;
   const peers = countLiveDispatchedAgents(db);
   const cap = capOfConcurrency(db);
   const cores = Math.max(1, os.cpus().length);
   let scritti = 0;
+  const liveDirs = new Set<string>();
   for (const a of vive) {
-    if (writeLiveQuota(a.sessionKey, computeJobQuota({ cores, cap, weight: a.weight, peers }))) scritti++;
+    liveDirs.add(quotaChannelDir(a.sessionKey));
+    if (writeLiveQuotaIfChanged(a.sessionKey, computeJobQuota({ cores, cap, weight: a.weight, peers }))) scritti++;
   }
+  // What an agent that is gone had written is not news for the next one of that name.
+  for (const dir of [...lastWritten.keys()]) if (!liveDirs.has(dir)) lastWritten.delete(dir);
   return scritti;
+}
+
+/** How often the channel folders are swept, and how long a fresh folder is left alone. */
+export const JOB_QUOTA_GC_EVERY_MS = 10 * 60_000;
+export const JOB_QUOTA_GC_GRACE_MS = 60 * 60_000;
+
+/**
+ * Removes the channel folders (`jobs` and the shims) of topics that can never be
+ * resumed: their card is done or archived, or no card is bound to the topic at
+ * all. NOT those of a card in backlog, todo, review or in progress: a card in
+ * review is resumed on a rejection and its child can outlive the turn in a
+ * background command, and its shims must still be there. The old rule kept only
+ * the cards with a live agent and would have swept 18 open cards on its first
+ * pass. A folder touched in the last hour is left alone as well.
+ *
+ * A database that cannot be read answers nothing, and nothing is removed:
+ * `tutte` would read the same failure as an empty list of cards to keep.
+ * Returns how many folders it removed.
+ */
+export function gcJobQuotaChannels(db: Database, now = Date.now()): number {
+  if (now - lastGcAt < JOB_QUOTA_GC_EVERY_MS) return 0;
+  lastGcAt = now;
+  const root = rootChannel();
+  let names: string[];
+  try { names = readdirSync(root); } catch { return 0; }
+  if (!names.length) return 0;
+  let keys: Array<{ k?: string }>;
+  try {
+    keys = [
+      ...(db.prepare(
+        `SELECT t.session_key AS k FROM tasks k JOIN topics t ON t.id = k.assigned_topic_id
+          WHERE k.status != 'done' AND k.archived = 0`,
+      ).all() as Array<{ k?: string }>),
+      ...(db.prepare(
+        `SELECT t.session_key AS k FROM task_attempts a JOIN tasks k ON k.id = a.task_id JOIN topics t ON t.id = a.topic_id
+          WHERE k.status != 'done' AND k.archived = 0`,
+      ).all() as Array<{ k?: string }>),
+    ];
+  } catch { return 0; }
+  const keep = new Set(keys.map((r) => channelSlug(r.k ?? "")));
+  let removed = 0;
+  for (const name of names) {
+    if (keep.has(name)) continue;
+    const dir = join(root, name);
+    try {
+      const st = statSync(dir);
+      if (!st.isDirectory() || now - st.mtimeMs < JOB_QUOTA_GC_GRACE_MS) continue;
+      rmSync(dir, { recursive: true, force: true });
+      lastWritten.delete(dir);
+      removed++;
+    } catch { /* gone already, or not ours to read */ }
+  }
+  return removed;
 }

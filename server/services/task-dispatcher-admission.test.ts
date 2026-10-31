@@ -516,7 +516,25 @@ describe("the memory window on the floor and on the budget axis", () => {
     await w.beats(repeat(4.8, 14));
     expect(w.h.startedAt).toHaveLength(1);
     expect(w.h.lines("per deroga")).toHaveLength(1);
+    expect(w.h.lines("per deroga")[0]).toContain("e4-0");
     expect(w.h.lines("le risorse sono rientrate sopra il pavimento")).toHaveLength(0);
+  });
+
+  /**
+   * [29] The line used to come out when the VERDICT changed, whether or not a
+   * card could use it: here every card waits behind a blocker, nothing is
+   * launchable, and a log line saying a card goes through by derogation reads as an admission
+   * that never happened.
+   */
+  it("E4b: with nothing launchable the derogation is NOT written", async () => {
+    const w = windowHarness("count");
+    seedTodo(w.h.db, "e4b-blocker");
+    w.h.db.run("UPDATE tasks SET status = 'backlog' WHERE id = 'e4b-blocker'");
+    seedTodo(w.h.db, "e4b-0");
+    w.h.db.run("UPDATE tasks SET blocked_by_task_id = 'e4b-blocker' WHERE id = 'e4b-0'");
+    await w.beats(repeat(4.8, 14));
+    expect(w.h.startedAt).toHaveLength(0);
+    expect(w.h.lines("per deroga")).toHaveLength(0);
   });
 
   it("E5: the derogation is declared where the budget declares its own", async () => {

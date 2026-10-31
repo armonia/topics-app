@@ -298,6 +298,24 @@ describe("freezing what is already running", () => {
     expect(p.state.frozen).toEqual(["check-1"]);
   });
 
+  test("checks, then the agents' own commands, then agents; the latest start first inside a kind", () => {
+    const targets: FreezeTarget[] = [
+      { id: "agent-late", kind: "agent", startedAt: 9000 },
+      { id: "cmd-old", kind: "agent-command", startedAt: 100 },
+      { id: "cmd-new", kind: "agent-command", startedAt: 500 },
+      { id: "check-old", kind: "check", startedAt: 10 },
+    ];
+    let s: FreezeState = EMPTY_FREEZE_STATE;
+    const order: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      s = freezePlan({ used: 20, budget: 9.6, targets }, s).state;
+      const p = freezePlan({ used: 20, budget: 9.6, targets }, s);
+      s = p.state;
+      if (p.freeze) order.push(p.freeze);
+    }
+    expect(order).toEqual(["check-old", "cmd-new", "cmd-old", "agent-late"]);
+  });
+
   test("checks before agents, however recent the agent is", () => {
     let s: FreezeState = EMPTY_FREEZE_STATE;
     const targets: FreezeTarget[] = [
