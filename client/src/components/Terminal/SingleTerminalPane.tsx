@@ -612,6 +612,18 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     setTimeout(doFit, 500);
     setTimeout(() => { doFit(); term.focus(); }, 600);
 
+    // xterm measures its character cell once, when it opens. JetBrains Mono
+    // arrives later (font-display: swap), so a cold open measures the fallback
+    // (18 px rows instead of 21) and every fit after it uses that cell. Once the
+    // face is in, set the family again: a changed value makes xterm measure again.
+    let fontSettled = false;
+    void document.fonts.load(`13px 'JetBrains Mono'`).then(() => {
+      if (fontSettled) return;
+      term.options.fontFamily = 'monospace';
+      term.options.fontFamily = TERMINAL_FONT_FAMILY;
+      doFit();
+    }, () => { /* no face: xterm keeps the fallback it measured */ });
+
     // How long an unproven attach stays silent before the pane says so. Under
     // it, a normal mount would flash a warning at every pane you open; over it,
     // the reader is left guessing exactly when the cursor is lying to them.
@@ -929,6 +941,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
 
     return () => {
       intentionalClose = true;
+      fontSettled = true;
       captureRef.current();
       clearTimeout(retryTimer);
       if (pasteFallback) clearTimeout(pasteFallback);

@@ -995,5 +995,6 @@ The terminal SHALL draw in JetBrains Mono shipped with the client bundle (`font-
 #### Scenario: Il font è caricato e il padding è 12 px
 - **GIVEN** a terminal pane is open
 - **WHEN** the page has loaded
-- **THEN** `document.fonts` reports JetBrains Mono as loaded
+- **THEN** `document.fonts` reports both JetBrains Mono faces as `loaded`
+- **AND** the rows xterm draws are 21 px tall, also when the face arrives after xterm has opened (xterm measures its cell again once the face is in)
 - **AND** the gap between the terminal box and xterm's screen is 12 px on the top and the left, and at least 12 px on the bottom and the right, at every pane height: the last row (the prompt) stays inside the pane
