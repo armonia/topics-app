@@ -12,7 +12,7 @@
     "riscrivere la baseline, o marcisce.",
     "03/10: accettato http-cache-semantics GHSA-ch52-4w7c-c8xp (landing, via astro). Nessuna versione corretta esiste (<= 4.2.0, senza patch). Il sito e' una build statica: astro lo usa solo in build/dev, mai come cache condivisa fra utenti, che e' la condizione dell'avviso. Si toglie appena esce la patch."
   ],
-  "updated": "2026-10-31",
+  "updated": "2026-10-06",
   "advisories": {
     ".": [
       {
@@ -32,13 +32,6 @@
         "url": "https://github.com/advisories/GHSA-238p-pmpm-9mq7"
       },
       {
-        "package": "minimatch",
-        "id": 1244012,
-        "severity": "moderate",
-        "title": "minimatch has potential denial of service via globparts amplification",
-        "url": "https://github.com/advisories/GHSA-g3hv-75wg-m249"
-      },
-      {
         "package": "source-map-js",
         "id": 1241209,
         "severity": "high",
@@ -47,6 +40,20 @@
       }
     ],
     "landing": [
+      {
+        "package": "http-cache-semantics",
+        "id": 1240991,
+        "severity": "high",
+        "title": "http-cache-semantics max-stale handling can disclose cross-user cached responses",
+        "url": "https://github.com/advisories/GHSA-ch52-4w7c-c8xp"
+      },
+      {
+        "package": "postcss-selector-parser",
+        "id": 1241232,
+        "severity": "moderate",
+        "title": "PostCSS: Quadratic complexity in flat selector parsing allows CPU exhaustion",
+        "url": "https://github.com/advisories/GHSA-rj75-hqrm-r3gf"
+      },
       {
         "package": "sharp",
         "id": 1241331,
