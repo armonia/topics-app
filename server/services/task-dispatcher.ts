@@ -1500,7 +1500,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * Said once per EPISODE in the log, like the floor: the numbers change at
    * every reading, so the comparison is on which axis said no, not on the text.
    */
-  let lastPressureAxis: AdmissionVerdict["blockedBy"] = null;
+  let lastPressureAxis: AdmissionVerdict["blockedBy"] | "frozen" = null;
   let firstAgentExemptNoted = false;
   /**
    * THE HYSTERESIS STATE, and it has to live across ticks or it is not one.
@@ -1638,12 +1638,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         firstAgentExemptNoted = false;
       }
       // Frozen checks come back first: the room the freeze made is theirs, not a new agent's.
-      const reason = verdict.admit
-        ? (activeFrozenCount() > 0 ? "prima ripartono i check congelati" : null)
-        : machineBudgetMessage(verdict, sample.cores, share, mem);
-      if (verdict.blockedBy && verdict.blockedBy !== lastPressureAxis && reason) log(`coda in attesa per budget: ${reason}`);
-      else if (!verdict.blockedBy && lastPressureAxis) log("coda ripartita: l'uso di Topics è rientrato nel budget");
-      lastPressureAxis = reason ? verdict.blockedBy : null;
+      const frozenHold = verdict.admit && activeFrozenCount() > 0;
+      const axis = frozenHold ? "frozen" : verdict.blockedBy;
+      const reason = frozenHold
+        ? "prima ripartono i check congelati"
+        : verdict.admit ? null : machineBudgetMessage(verdict, sample.cores, share, mem);
+      if (axis && axis !== lastPressureAxis && reason) log(`coda in attesa per budget: ${reason}`);
+      else if (!axis && lastPressureAxis) log("coda ripartita: l'uso di Topics è rientrato nel budget");
+      lastPressureAxis = reason ? axis : null;
       return reason;
     } catch { return null; }
   }

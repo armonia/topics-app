@@ -34,6 +34,7 @@
  */
 
 import { machineCores } from "./machine-cores";
+import { machineCpuPct } from "./machine-cpu";
 import {
   type FleetKind,
   type FleetSessionRef,
@@ -333,7 +334,7 @@ function finish(
   const sessions = (() => { try { return sessionSource?.() ?? []; } catch { return []; } })();
   const scripts = (() => { try { return scriptSource?.() ?? []; } catch { return []; } })();
 
-  const usage = {
+  const summary = {
     ...summarizeFleet(
       rows,
       resolveFleetRoots(rows, process.pid),
@@ -346,9 +347,34 @@ function finish(
     ),
     supported: true,
   };
+  const usage = { ...summary, otherCpuPercent: otherFloorFromTicks(summary) };
   cached = usage;
   cachedAt = Date.now();
   return usage;
+}
+
+/**
+ * Where the machine's CPU comes from, injectable for a test. The kernel's tick
+ * counters (`machine-cpu.ts`) see every process, including the ones born and
+ * dead between two `ps` readings (a `tsc` or a test shard shorter than the
+ * interval), which the `ps time` delta counts as zero.
+ */
+let machineCpuSource: () => number | null = () => { try { return machineCpuPct(); } catch { return null; } };
+export function _setMachineCpuSource(fn: (() => number | null) | null): void {
+  machineCpuSource = fn ?? (() => { try { return machineCpuPct(); } catch { return null; } });
+}
+
+/**
+ * THE OTHERS' CPU, never lower than what the kernel says is left once ours is
+ * taken off: `machine - ours`. A short-lived process of ours is not in our
+ * `ps` sum either, so it lands in "others" here: the safe side, the gate only
+ * becomes more careful, never more generous. (`getrusage(RUSAGE_CHILDREN)`
+ * would attribute it back, but neither Bun nor Node expose it.)
+ */
+function otherFloorFromTicks(u: { cpuPercent: number; scriptsCpuPercent: number; otherCpuPercent: number }): number {
+  const machine = machineCpuSource();
+  if (machine == null || !Number.isFinite(machine)) return u.otherCpuPercent;
+  return Math.max(u.otherCpuPercent, machine - u.cpuPercent - u.scriptsCpuPercent);
 }
 
 /**

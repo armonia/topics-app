@@ -107,7 +107,7 @@ import { createExternalSessionsRouter } from "./server/routes/external-sessions"
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { isChecksHold as isChecksHoldOf, sweepStaleChecksLights as sweepStaleChecksLightsOf } from "./server/services/checks-lights";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
-import { availableMemGB, budgetSample, computeDispatchCapacity, probeVm, setAvailableMemReader } from "./server/services/dispatch-capacity";
+import { availableMemGB, budgetSample, computeDispatchCapacity, governorRead, probeVm, setAvailableMemReader } from "./server/services/dispatch-capacity";
 import { createMemSignal, fileMemSampleStore, formatMemorySignalLine } from "./server/services/mem-signal";
 import { OUR_APP_MARKERS } from "./server/services/memory-owners";
 import { createMemoryOwnersReader } from "./server/services/memory-owners-probe";
@@ -280,7 +280,7 @@ import { backfillDeliveries as backfillDeliveriesPass } from "./server/services/
 import { keepDeliveryCommit, pruneDeliveryRefs, DELIVERY_REF_RETENTION_DAYS } from "./server/services/delivery-ref-keep";
 import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLandingPass, type AuditWiring } from "./server/services/landing-audit-pass";
 import { decodeCol } from "./shared/message-blob";
-import { budgetShare, capMode, governorReading, TURN_ERROR_PREFIX } from "./shared/board";
+import { budgetShare, capMode, TURN_ERROR_PREFIX } from "./shared/board";
 import { noticeOwedChanges, postBackgroundNotice } from "./server/lib/background-notice";
 import type { ChatGoalLoop } from "./server/services/goal-continuation";
 
@@ -5374,9 +5374,7 @@ const budgetGovernor = createBudgetGovernor({
       const fleet = fleetLoadSync();
       if (!fleet) return null;
       const share = budgetShare(cap);
-      const sample = budgetSample(fleet, memSignal.latestAvailGB(), machineCores(), osTotalmem() / 1e9, turniInVolo());
-      // The CPU only: a freeze on memory has no way out (see `governorReading`).
-      return { ...governorReading(sample, share), at: fleet.at };
+      return governorRead(fleet, share, memSignal.latestAvailGB(), machineCores(), osTotalmem() / 1e9, turniInVolo());
     } catch { return null; }
   },
   signalTree: signalProcessTree,

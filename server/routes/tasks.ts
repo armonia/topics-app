@@ -67,6 +67,7 @@ import { deliverAnswer } from "../lib/ask-user-bridge";
 import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "../services/tasks";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { activeFrozenCount } from "../services/budget-governor";
+import { swapFrozenCount } from "../lib/swap-freeze-hold";
 import { resolveAgentRuntime } from "../services/app-settings";
 import { newProjectParentDir, scaffoldNewProject } from "../services/project-path-resolver";
 import { parkedEdgeEvent, type TaskDispatcher } from "../services/task-dispatcher";
@@ -3067,6 +3068,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         ...computeDispatchCapacity(running, undefined, resolveAgentRuntime() === "cli", undefined, {
           share: budgetShare(svc.getGlobalCap()),
           frozen: activeFrozenCount(),
+          swapFrozen: swapFrozenCount(),
+          resources: capMode(svc.getGlobalCap()) === "resources",
         }),
         admission,
       });

@@ -302,6 +302,38 @@ describe("the exemption and the floor", () => {
     } finally { setActiveBudgetGovernor(null); }
   });
 
+  it("card 10469e3e: the queue log tells the truth across CPU hold, frozen hold and release", async () => {
+    let frozen = 0;
+    setActiveBudgetGovernor({ frozenCount: () => frozen } as unknown as BudgetGovernor);
+    try {
+      const h = harness({ agentCostSamples: () => [1] });
+      h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.5 });
+      seedTodo(h.db, "log-1");
+      seedTodo(h.db, "log-2");
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.startedAt).toHaveLength(1);
+      const busy = { ...QUIET, otherCoreUnits: 11, running: 1 };
+      h.machine.sample = () => ({ ...busy });
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.lines("coda in attesa")).toHaveLength(1);
+      // CPU hold gives way to the frozen hold: still waiting, so NOT "restarted".
+      h.machine.sample = () => ({ ...QUIET, running: 1 });
+      frozen = 1;
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.startedAt).toHaveLength(1);
+      expect(h.lines("coda ripartita")).toHaveLength(0);
+      expect(h.lines("coda in attesa").some((l) => l.includes("congelati"))).toBe(true);
+      // The real release is the one that is said.
+      frozen = 0;
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.lines("coda ripartita")).toHaveLength(1);
+    } finally { setActiveBudgetGovernor(null); }
+  });
+
   it("card 10469e3e: room freed by a freeze goes to the frozen checks first, not to a new agent", async () => {
     let frozen = 1;
     setActiveBudgetGovernor({ frozenCount: () => frozen } as unknown as BudgetGovernor);

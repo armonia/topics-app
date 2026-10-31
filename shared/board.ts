@@ -2000,8 +2000,9 @@ export interface DispatchCapacity {
   usedMemGB: number | null;
   /** Core-units everything that is not ours is burning, or `null`. */
   otherCoreUnits: number | null;
-  /** How many check runs are frozen right now by the budget governor. */
+  /** How many runs are frozen right now: the budget governor's plus the swap freezer's. */
   frozen: number;
+  frozenBy?: { governor: number; swapFreezer: number }; // who froze them
   /**
    * Memory REALLY available right now, in GB, or `null` where the probe has
    * nothing to say (outside macOS). It travels with the capacity because the

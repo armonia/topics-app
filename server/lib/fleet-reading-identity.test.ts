@@ -2,10 +2,11 @@
  * @covers KANBAN-75
  */
 import { readFileSync } from "node:fs";
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { EMPTY_FREEZE_STATE, FREEZE_SETTLE_MS, freezePlan } from "../../shared/machine-budget";
-import { newOtherLoadState, smoothedOther } from "../services/dispatch-capacity";
-import { _resetFleetUsageCache, fleetLoadSync, getFleetUsage } from "./fleet-usage";
+import { budgetSample, computeDispatchCapacity, governorRead, newOtherLoadState, smoothedOther } from "../services/dispatch-capacity";
+import { _resetFreezableRuns, createBudgetGovernor, registerFreezableRun } from "../services/budget-governor";
+import { _resetFleetUsageCache, _setMachineCpuSource, fleetLoadSync, getFleetUsage, type FleetLoadReading } from "./fleet-usage";
 
 const targets = [{ id: "a", kind: "check" as const, startedAt: 1 }, { id: "b", kind: "check" as const, startedAt: 2 }];
 const over = { used: 10, budget: 5, targets };
@@ -63,5 +64,118 @@ describe("card 10469e3e: the beat refreshes the fleet reading before both consum
     expect(beat.startsWith("const freshFleet")).toBe(true);
     expect(beat.slice(0, 900)).toContain("freshFleet\n      .then(() => taskDispatcher.reconcile");
     expect(beat.slice(0, 1800)).toContain("freshFleet.then(() => budgetGovernor.sampleOnce())");
+  });
+});
+
+const reading = (other: number, at: number): FleetLoadReading => ({ cores: 12, coreUnits: 1, scriptsCoreUnits: 0, otherCoreUnits: other, memGB: 1, at });
+
+describe("card 10469e3e: the identity travels through every wire", () => {
+  test("the governor's read carries the fleet reading's `at`", () => {
+    expect(governorRead(reading(1, 4242), 0.8, 20, 12, 32, 0).at).toBe(4242);
+  });
+
+  test("budgetSample: the same fleet reading read again adds no sample, a new one does", () => {
+    const first = budgetSample(reading(2, 777_001), 20, 12, 32, 0).otherCoreUnits;
+    for (let i = 0; i < 3; i++) expect(budgetSample(reading(100, 777_001), 20, 12, 32, 0).otherCoreUnits).toBe(first);
+    expect(budgetSample(reading(100, 777_002), 20, 12, 32, 0).otherCoreUnits).not.toBe(first);
+  });
+
+  test("the capacity route reads the held value: asking it many times moves nothing", () => {
+    const probe = () => reading(3, 888_001);
+    const ask = () => computeDispatchCapacity(0, probe, true, () => 20, undefined, undefined, () => 10).otherCoreUnits;
+    const first = ask();
+    budgetSample(reading(100, 888_001), 20, 12, 32, 0);
+    expect(ask()).toBe(first);
+    expect(ask()).toBe(first);
+  });
+
+  test("the governor counts one reading once: the same `at` twice does not freeze, a fresh one does", async () => {
+    _resetFreezableRuns();
+    const signals: string[] = [];
+    let at = 1000;
+    const g = createBudgetGovernor({
+      read: () => ({ used: 12, budget: 9.6, at }),
+      signalTree: async (pid, sig) => { signals.push(`${sig}:${pid}`); },
+      log: () => {},
+      note: () => {},
+    });
+    const off = registerFreezableRun({ id: "r", pid: 9, name: "r", startedAt: 1, onFreeze: () => {}, onThaw: () => {} });
+    try {
+      await g.sampleOnce();
+      await g.sampleOnce();
+      expect(signals).toEqual([]);
+      at = 11_000;
+      await g.sampleOnce();
+      expect(signals).toEqual(["SIGSTOP:9"]);
+    } finally { off(); _resetFreezableRuns(); }
+  });
+
+  test("after a thaw the settle window also holds: the effect is measured before the next action", () => {
+    const frozenState = { overSamples: 0, underSamples: 1, frozen: ["a"], lastAt: 1000 };
+    const thaw = freezePlan({ used: 0, budget: 10, targets, at: 2000 }, frozenState);
+    expect(thaw.thaw).toBe("a");
+    expect(thaw.state.notBefore).toBe(2000 + FREEZE_SETTLE_MS);
+    const early = freezePlan({ ...over, at: 2000 + 3000 }, thaw.state);
+    expect(early.state.overSamples).toBe(0);
+  });
+});
+
+describe("card 10469e3e: the fleet reading stamp and the kernel floor", () => {
+  const rows = (own: number, other: number) => [
+    { pid: process.pid, ppid: 1, cpu: 0, cpuSeconds: own, rssKB: 1000, command: "bun server.ts" },
+    { pid: 424242, ppid: 1, cpu: 0, cpuSeconds: other, rssKB: 1000, command: "/usr/bin/somebody" },
+  ] as never;
+
+  afterEach(() => { _setMachineCpuSource(null); _resetFleetUsageCache(); });
+
+  test("`at` is taken when the read ends, not when it starts", async () => {
+    _resetFleetUsageCache();
+    _setMachineCpuSource(() => null);
+    const realNow = Date.now;
+    let clock = realNow();
+    try {
+      Date.now = () => clock;
+      await getFleetUsage(async () => rows(1, 1));
+      clock += 5000;
+      const started = clock;
+      await getFleetUsage(async () => { clock += 150; return rows(2, 1); });
+      expect(fleetLoadSync()?.at).toBe(started + 150);
+    } finally { Date.now = realNow; }
+  });
+
+  test("the others' CPU is never below the kernel's machine figure minus ours (short-lived processes)", async () => {
+    _resetFleetUsageCache();
+    const realNow = Date.now;
+    let clock = realNow();
+    try {
+      Date.now = () => clock;
+      _setMachineCpuSource(() => 90);
+      await getFleetUsage(async () => rows(1, 1));
+      clock += 30_000;
+      // ps sees almost nothing (the heavy processes were born and died between readings): the kernel says 90%.
+      await getFleetUsage(async () => rows(1.1, 1.1));
+      const r = fleetLoadSync()!;
+      expect(r.otherCoreUnits).toBeGreaterThan(0.5);
+      _setMachineCpuSource(() => null);
+    } finally { Date.now = realNow; }
+  });
+});
+
+describe("card 10469e3e: one CPU budget and every freeze in the capacity payload", () => {
+  const quiet = () => reading(1, 999_001);
+  const cap = (knob: { share: number; frozen: number; swapFrozen?: number; resources?: boolean }) =>
+    computeDispatchCapacity(2, quiet, true, () => 20, knob, undefined, () => 10);
+
+  test("in resources mode budgetCores is the knob's budget, not half of the free", () => {
+    const c = cap({ share: 0.8, frozen: 0, resources: true });
+    expect(c.budgetCores).toBe(c.budgetCoreUnits);
+    const counted = cap({ share: 0.8, frozen: 0 });
+    expect(counted.budgetCores).not.toBe(counted.budgetCoreUnits);
+  });
+
+  test("frozen sums the governor and the swap freezer, with the detail of who", () => {
+    const c = cap({ share: 0.8, frozen: 1, swapFrozen: 2 });
+    expect(c.frozen).toBe(3);
+    expect(c.frozenBy).toEqual({ governor: 1, swapFreezer: 2 });
   });
 });

@@ -63,7 +63,7 @@ import { recordServerSpawn } from "../lib/spawn-metrics";
 // La forma sta in `shared/board.ts` (la legge la UI delle impostazioni board).
 export type { DispatchCapacity } from "../../shared/board";
 import type { DispatchCapacity, GlobalDispatchCap, GlobalDispatchCapExtras, MachineBudgetSample } from "../../shared/board";
-import { AGENT_COST_FLOOR_MEM_GB, BUDGET_SHARE_DEFAULT, BUDGET_SHARE_MAX, BUDGET_SHARE_MIN, clampGlobalCap, estimatedAgentCost, estimatedAgentMemCost, machineBudget } from "../../shared/board";
+import { AGENT_COST_FLOOR_MEM_GB, BUDGET_SHARE_DEFAULT, BUDGET_SHARE_MAX, BUDGET_SHARE_MIN, clampGlobalCap, estimatedAgentCost, estimatedAgentMemCost, governorReading, machineBudget } from "../../shared/board";
 import { CHECKS_MEM_FLOOR_DEFAULT_GB, checksMemFloorGB } from "../../shared/checks-memory-floor";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
@@ -1096,7 +1096,7 @@ export function computeDispatchCapacity(
    *  frozen right now. They travel through the capacity because the panel, the
    *  gauge and the gate must read ONE reading: a second probe for the same
    *  question is two numbers that disagree on screen. */
-  budgetKnob: { share: number; frozen: number } = { share: BUDGET_SHARE_DEFAULT, frozen: 0 },
+  budgetKnob: { share: number; frozen: number; swapFrozen?: number; resources?: boolean } = { share: BUDGET_SHARE_DEFAULT, frozen: 0 },
   /** The live price list of one agent, per session, injectable for the same
    *  reason as the probes: a test must be able to fix what an agent costs. */
   priceList: { coreUnits: () => number[]; memGB: () => number[] } = {
@@ -1135,20 +1135,6 @@ export function computeDispatchCapacity(
     : null;
   const live = budget ? budget.slots : loadAverageSlots(cores, load1);
 
-  const recommended = clamp(Math.min(structural, live), 1, MAX_AUTO_CAP);
-  const reason =
-    `${cores} core → base ${byCores}` +
-    (byMem < byCores ? `, limitato dalla RAM (${totalMemGB.toFixed(0)}GB → ${byMem})` : "") +
-    (budget
-      ? live < structural
-        ? `, ridotto a ${live}: gli agent tengono ${fleet!.coreUnits.toFixed(1)} core sui ${budget.budgetCores.toFixed(0)} di quota`
-        // WITHOUT "the rest of the load is not ours" (card 363bbbc8): it was
-        // true and it explained nothing to whoever read it, because in this
-        // mode nobody else's load enters the decision at all.
-        : `; gli agent tengono ${fleet!.coreUnits.toFixed(1)} core sui ${budget.budgetCores.toFixed(0)} di quota`
-      : live < structural
-        ? `, ridotto per carico (load ${load1.toFixed(1)})`
-        : "");
   // The budget half of the answer, from the SAME reading: what we may take,
   // what is left of it once the rest of the machine has taken its share, and
   // what we are taking now (agents and their gates together).
@@ -1163,6 +1149,27 @@ export function computeDispatchCapacity(
     coreUnits: estimatedAgentCost((() => { try { return priceList.coreUnits(); } catch { return []; } })()),
     memGB: estimatedAgentMemCost((() => { try { return priceList.memGB(); } catch { return []; } })()),
   };
+  // In "by resources" mode the count-mode quota (`FLEET_CPU_SHARE` of the free)
+  // decides nothing: the panel's CPU figures and the advice come from the same
+  // budget the gate applies, or one panel shows two different CPU budgets.
+  const byResources = budgetKnob.resources === true;
+  const resourceSlots = Math.max(0, running) + Math.floor(Math.max(0, budgetNow.usableCoreUnits - Math.max(0, sample.ourCoreUnits)) / Math.max(0.01, agentCost.coreUnits));
+  const recommended = byResources ? clamp(resourceSlots, 1, MAX_AUTO_CAP) : clamp(Math.min(structural, live), 1, MAX_AUTO_CAP);
+  const reason =
+    `${cores} core → base ${byCores}` +
+    (byMem < byCores ? `, limitato dalla RAM (${totalMemGB.toFixed(0)}GB → ${byMem})` : "") +
+    (byResources && budget
+      ? `; gli agent tengono ${fleet!.coreUnits.toFixed(1)} core sui ${budgetNow.usableCoreUnits.toFixed(1)} utilizzabili`
+      : budget
+      ? live < structural
+        ? `, ridotto a ${live}: gli agent tengono ${fleet!.coreUnits.toFixed(1)} core sui ${budget.budgetCores.toFixed(0)} di quota`
+        // WITHOUT "the rest of the load is not ours" (card 363bbbc8): it was
+        // true and it explained nothing to whoever read it, because in this
+        // mode nobody else's load enters the decision at all.
+        : `; gli agent tengono ${fleet!.coreUnits.toFixed(1)} core sui ${budget.budgetCores.toFixed(0)} di quota`
+      : live < structural
+        ? `, ridotto per carico (load ${load1.toFixed(1)})`
+        : "");
   return {
     recommended,
     cores,
@@ -1172,7 +1179,7 @@ export function computeDispatchCapacity(
     // The fleet share is of the FREE like everything else: report the real one
     // here, not `cores x share`, or the panel shows a ceiling the brake does not
     // apply.
-    budgetCores: budget ? Math.round(budget.budgetCores * 10) / 10 : Math.round(cores * FLEET_CPU_SHARE * 10) / 10,
+    budgetCores: byResources ? round(budgetNow.cpuCoreUnits) : budget ? Math.round(budget.budgetCores * 10) / 10 : Math.round(cores * FLEET_CPU_SHARE * 10) / 10,
     budgetShare: share,
     budgetCoreUnits: round(budgetNow.cpuCoreUnits),
     usableCoreUnits: round(budgetNow.usableCoreUnits),
@@ -1182,7 +1189,8 @@ export function computeDispatchCapacity(
     // the gate decided on, otherwise a spike appears on screen that no ceiling
     // ever reacted to.
     otherCoreUnits: sample.otherCoreUnits == null ? null : round(sample.otherCoreUnits),
-    frozen: Math.max(0, budgetKnob.frozen),
+    frozen: Math.max(0, budgetKnob.frozen) + Math.max(0, budgetKnob.swapFrozen ?? 0),
+    frozenBy: { governor: Math.max(0, budgetKnob.frozen), swapFreezer: Math.max(0, budgetKnob.swapFrozen ?? 0) },
     availableMemGB: availMemGB != null && Number.isFinite(availMemGB) ? Math.round(availMemGB * 10) / 10 : null,
     agentCostMemGB: round(agentCost.memGB),
     freeQuotaMemGB: budgetNow.freeQuotaMemGB == null ? null : round(budgetNow.freeQuotaMemGB),
@@ -1267,4 +1275,21 @@ export function budgetSample(
     availableMemGB: availMemGB != null && Number.isFinite(availMemGB) ? availMemGB : null,
     running,
   };
+}
+
+/**
+ * WHAT THE GOVERNOR READS EACH BEAT: the CPU only (a freeze on memory has no
+ * way out, see `governorReading`), stamped with the identity of the fleet
+ * reading so the same cached measure is never counted as a second sample.
+ */
+export function governorRead(
+  fleet: FleetLoadReading,
+  share: number,
+  availMemGB: number | null,
+  cores: number,
+  totalMemGB: number,
+  running: number,
+): { used: number; budget: number; at?: number } {
+  const sample = budgetSample(fleet, availMemGB, cores, totalMemGB, running);
+  return { ...governorReading(sample, share), at: fleet.at };
 }

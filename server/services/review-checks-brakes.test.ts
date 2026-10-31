@@ -207,7 +207,7 @@ describe("checks under load: the semaphore, the memory floor, the shutdown", () 
     // memory term comes back through the call site either.
     const governor = server.slice(server.indexOf("const budgetGovernor = createBudgetGovernor("));
     const read = governor.slice(0, governor.indexOf("signalTree:"));
-    expect(read).toContain("...governorReading(sample, share)");
+    expect(read).toContain("return governorRead(fleet, share,");
     expect(read).not.toContain("DISPATCH_MEM_FLOOR");
     const body = server.slice(server.indexOf("async function gracefulShutdown("));
     const end = body.indexOf("process.exit(0)");

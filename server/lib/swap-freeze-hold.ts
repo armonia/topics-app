@@ -15,6 +15,7 @@ import type { SwapFreezeView } from "../../shared/swap-freeze";
 
 interface FreezerFacade {
   views(): SwapFreezeView[];
+  frozenCount(): number;
   isHold(sessionKey: string): boolean;
   frozenMsSince(sessionKey: string, since: number): number;
   release(sessionKey: string): Promise<void>;
@@ -27,6 +28,11 @@ let broadcast: ((views: SwapFreezeView[]) => void) | null = null;
 
 export function setActiveSwapFreezer(freezer: FreezerFacade | null): void {
   active = freezer;
+}
+
+/** How many process trees the swap freezer holds stopped right now. */
+export function swapFrozenCount(): number {
+  try { return active?.frozenCount() ?? 0; } catch { return 0; }
 }
 
 /** A command of this session is stopped by us right now. */
