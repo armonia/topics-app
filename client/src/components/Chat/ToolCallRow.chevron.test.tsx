@@ -6,6 +6,8 @@
  * moves when it appears. Rendered with `renderToStaticMarkup` (no DOM in this
  * repo): the class contract is checked here, the measured no-shift is in the
  * e2e spec.
+ *
+ * @covers CHAT-TOOL-14
  */
 import { describe, expect, test } from 'bun:test';
 import { createElement } from 'react';
