@@ -371,9 +371,9 @@ export function DispatchDetailsView({ capacity, snapshot, queue, now, onStartNow
                   <span className="block break-words" title={q.title}>{q.title}</span>
                   <span className="flex flex-wrap items-center gap-x-1 text-mini text-app-text-secondary">
                     <Hourglass className="h-3 w-3 shrink-0" />
-                    {q.project && <span className="rounded bg-white/5 px-1" data-testid="dispatch-dashboard-queue-project">{q.project}</span>}
+                    {q.project && <span className="min-w-0 break-all rounded bg-white/5 px-1" data-testid="dispatch-dashboard-queue-project">{q.project}</span>}
                     {/* ONE reason per card; the detail is the tooltip. */}
-                    <span className="break-words" data-testid="dispatch-dashboard-queue-reason" title={q.detail ?? undefined}>{q.reason ?? tr('board.dash.waiting')}</span>
+                    <span className="min-w-0 break-all" data-testid="dispatch-dashboard-queue-reason" title={q.detail ?? undefined}>{q.reason ?? tr('board.dash.waiting')}</span>
                     <span>· {tr('board.dash.since', { time: waitingLabel(q.waitingMs) })}</span>
                   </span>
                 </span>

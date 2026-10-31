@@ -1644,6 +1644,8 @@ const IT: Dict = {
   'board.dash.queue': 'In coda · {n}',
   'board.dash.queueEmpty': 'Nessuna card in coda.',
   'board.dash.waiting': 'In coda',
+  'board.dash.waitingNoReason': 'in coda: aspetta un posto libero',
+  'board.dash.waitingNoReasonDetail': 'Nessun fermo della macchina segnalato: la card parte appena il dispatcher ha un posto libero.',
   'board.dash.since': 'da {time}',
   'board.dash.startNow': 'Avvia comunque',
   'board.dash.startNowTitle': 'Fa partire adesso questa card, senza aspettare memoria libera',

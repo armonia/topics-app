@@ -1473,6 +1473,8 @@ const EN = {
   'board.dash.queue': 'Queued · {n}',
   'board.dash.queueEmpty': 'No cards queued.',
   'board.dash.waiting': 'Queued',
+  'board.dash.waitingNoReason': 'queued: waiting for a free seat',
+  'board.dash.waitingNoReasonDetail': 'No machine hold reported: the card starts as soon as the dispatcher has a free seat.',
   'board.dash.since': 'for {time}',
   'board.dash.startNow': 'Start anyway',
   'board.dash.startNowTitle': 'Starts this card now, without waiting for free memory',

@@ -46,9 +46,10 @@ export function queuedCards(
         project: projectName(t),
         waitingMs: Math.max(0, now - Date.parse(t.updatedAt)),
         // Plain words in the row (the phone has no tooltip): the head says the state, the detail says why.
-        reason: text ? (text.detail ? `${text.head}: ${text.detail}` : text.head) : null,
+        // No server reason (e.g. an in-progress card re-queued after a restart): never a bare "Queued".
+        reason: text ? (text.detail ? `${text.head}: ${text.detail}` : text.head) : tr('board.dash.waitingNoReason'),
         // The long explanation stays in the tooltip.
-        detail: text ? text.title : null,
+        detail: text ? text.title : tr('board.dash.waitingNoReasonDetail'),
         // The same test as the server (`isMemoryWaiter`): outside it the server answers 409.
         memoryWaiter: t.status === 'todo' && t.dispatchState === 'queued' && t.dispatchError === WAITING_MEMORY_REASON,
         stalled: t.queueReason?.tone === 'stalled',

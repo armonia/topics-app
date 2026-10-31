@@ -358,6 +358,22 @@ describe('regressioni della verifica avversaria', () => {
     const ul = html.match(/<ul[^>]*dispatch-dashboard-broken-list[^>]*>/)?.[0] ?? '';
     expect(ul).toMatch(/class="[^"]*\bmin-w-0\b/);
   });
+  test('card in coda senza motivo dal server: la riga dice perché e il tooltip non è vuoto', () => {
+    const it = readFileSync(join(import.meta.dir, '../../lib/i18n-it.ts'), 'utf8');
+    const tr = (k: string) => it.match(new RegExp(`'${k.replace(/\./g, '\\.')}': '([^']*)'`))?.[1] ?? '';
+    const [c] = queuedCards([{ id: 'n', text: 'n', status: 'in_progress', dispatchState: 'queued', parentTaskId: null, priority: 1, createdAt: '2026-10-28T10:00:00Z', updatedAt: '2026-10-28T11:00:00Z', projectId: 'p', queueReason: null } as unknown as BoardTask], tr, NOW);
+    expect(c!.reason).toBe('in coda: aspetta un posto libero');
+    expect(c!.detail).toBeTruthy();
+  });
+  test('chip progetto e motivo possono restringersi e spezzare una parola lunga (min-w-0 break-all)', () => {
+    const long = card({ id: 'w', title: 'Una card', project: 'p'.repeat(90), reason: 'r'.repeat(90), detail: 'd' });
+    const html = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={[long]} now={NOW} />);
+    for (const id of ['dispatch-dashboard-queue-project', 'dispatch-dashboard-queue-reason']) {
+      const tag = html.match(new RegExp(`<span[^>]*${id}[^>]*>`))?.[0] ?? '';
+      expect(tag, id).toMatch(/class="[^"]*\bmin-w-0\b/);
+      expect(tag, id).toMatch(/class="[^"]*\bbreak-all\b/);
+    }
+  });
   test('il titolo è un bottone cablato su onOpenTask con l\'id della card', () => {
     const src = readFileSync(join(import.meta.dir, 'DispatchDashboard.tsx'), 'utf8');
     expect(src).toMatch(/data-testid="dispatch-dashboard-broken-card"[\s\S]{0,120}onClick=\{\(\) => onOpenTask\?\.\(c\.id\)\}/);
