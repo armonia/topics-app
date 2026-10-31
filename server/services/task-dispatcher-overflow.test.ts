@@ -218,7 +218,7 @@ function harness(opts: {
   const advance = (ms: number) => { now += ms; };
   const poll = async () => { await dispatcher.reconcile({ reason: "poll" }); await flush(); };
   return {
-    db, svc, created, bodies, pushed, worktrees, turns, seed, sendBack, tick, poll, advance, now: () => now,
+    db, svc, dispatcher, created, bodies, pushed, worktrees, turns, seed, sendBack, tick, poll, advance, now: () => now,
     task: (id: string) => svc.get(id)!.task, thread: (id: string) => svc.get(id)!.comments.map((c) => c.content).join("\n"),
   };
 }
@@ -766,5 +766,120 @@ describe("verifica del 31/10: errore d'account su una corsa viva", () => {
     await h.tick();
     await h.poll();
     expect(h.task(CARD).status).toBe("in_progress");
+  });
+});
+
+describe("verifica del 31/10 (terzo giro): l'orologio di una card che esce da Todo", () => {
+  /** Held, then out of Todo while its board has nothing else queued, then back. */
+  async function outAndBack(h: ReturnType<typeof harness>, rounds: number) {
+    h.seed(CARD);
+    await h.poll();
+    h.advance(10_000);
+    await h.poll();
+    h.svc.update({ taskId: CARD, actor: "human", by: "attilio", patch: { status: "backlog" } });
+    h.dispatcher.onLeaveTodo(CARD);
+    for (let i = 0; i < rounds; i++) { h.advance(600_000); await h.poll(); }
+    h.svc.update({ taskId: CARD, actor: "human", by: "attilio", patch: { status: "todo" } });
+    h.dispatcher.onEnterTodo(PID, CARD);
+    await h.poll();
+  }
+
+  it("sola sulla board, un'ora in backlog: al rientro l'attesa riparte da zero", async () => {
+    const h = harness();
+    await outAndBack(h, 6);
+    expect(h.task(CARD).machineId).toBeNull();
+    h.advance(OVERFLOW_AFTER_MS - 10_000);
+    await h.poll();
+    expect(h.task(CARD).machineId).toBeNull();
+    h.advance(20_000);
+    await h.poll();
+    expect(h.task(CARD).machineId).toBe(CLOUD);
+  });
+
+  it("sola sulla board, backlog e ritorno fra due giri: riparte da zero", async () => {
+    const h = harness();
+    h.seed(CARD);
+    await h.poll();
+    h.advance(OVERFLOW_AFTER_MS + 1_000);
+    h.svc.update({ taskId: CARD, actor: "human", by: "attilio", patch: { status: "backlog" } });
+    h.dispatcher.onLeaveTodo(CARD);
+    h.svc.update({ taskId: CARD, actor: "human", by: "attilio", patch: { status: "todo" } });
+    h.dispatcher.onEnterTodo(PID, CARD);
+    await h.poll();
+    expect(h.task(CARD).machineId).toBeNull();
+  });
+
+  it("uscita da Todo senza i due ganci (scrittura diretta): il primo giro senza card in coda azzera", async () => {
+    const h = harness();
+    h.seed(CARD);
+    await h.poll();
+    h.advance(10_000);
+    h.db.run("UPDATE tasks SET status = 'backlog' WHERE id = ?", [CARD]);
+    await h.poll();
+    h.advance(OVERFLOW_AFTER_MS);
+    h.db.run("UPDATE tasks SET status = 'todo' WHERE id = ?", [CARD]);
+    await h.poll();
+    expect(h.task(CARD).machineId).toBeNull();
+  });
+});
+
+describe("verifica del 31/10 (terzo giro): il lavoro non committato nel flusso vero", () => {
+  /** Delivered by the system with `n` uncommitted files, as the dispatcher does. */
+  function deliveredDirty(h: ReturnType<typeof harness>, n: number) {
+    h.seed(CARD);
+    h.db.run("UPDATE tasks SET status = 'in_progress' WHERE id = ?", [CARD]);
+    h.svc.deliverToReviewBySystem({ taskId: CARD, reason: "turno finito senza commit", uncommittedFiles: n });
+    expect(h.task(CARD).deliveryUncommittedFiles).toBe(n);
+  }
+
+  it("review -> todo vero con 3 file non committati: la card resta sul Mac", async () => {
+    const h = harness();
+    deliveredDirty(h, 3);
+    h.svc.update({ taskId: CARD, actor: "human", by: "attilio", patch: { status: "todo" } });
+    expect(h.task(CARD).deliveryUncommittedFiles).toBeNull();
+    await holdPastThreshold(h);
+    await h.tick();
+    expect(h.task(CARD).machineId).toBeNull();
+    expect(h.created).toEqual([]);
+  });
+
+  it("rifiuto in review con 3 file non committati: la card resta sul Mac", async () => {
+    const h = harness();
+    deliveredDirty(h, 3);
+    h.svc.reviewDecision({ taskId: CARD, by: "attilio", decision: "reject", comment: "rifai" });
+    // The reject reopens the card (in_progress) and clears the snapshot; it waits in Todo afterwards.
+    expect(h.task(CARD).deliveryUncommittedFiles).toBeNull();
+    h.svc.update({ taskId: CARD, actor: "human", by: "attilio", patch: { status: "todo" } });
+    await holdPastThreshold(h);
+    await h.tick();
+    expect(h.task(CARD).machineId).toBeNull();
+    expect(h.created).toEqual([]);
+  });
+
+  it("anche il CAS del servizio la rifiuta dopo il rientro in coda", () => {
+    const h = harness();
+    deliveredDirty(h, 3);
+    h.svc.update({ taskId: CARD, actor: "human", by: "attilio", patch: { status: "todo" } });
+    expect(h.svc.overflowToMachine({ taskId: CARD, machineId: CLOUD, localMachineId: LOCAL })).toBeNull();
+  });
+
+  it("consegna pulita (0 file) e rientro: la card si sposta", async () => {
+    const h = harness();
+    deliveredDirty(h, 0);
+    h.svc.update({ taskId: CARD, actor: "human", by: "attilio", patch: { status: "todo" } });
+    await holdPastThreshold(h);
+    await h.tick();
+    expect(h.task(CARD).machineId).toBe(CLOUD);
+  });
+
+  it("una nuova consegna registrata qui toglie il vecchio conteggio", async () => {
+    const h = harness();
+    deliveredDirty(h, 3);
+    h.svc.update({ taskId: CARD, actor: "human", by: "attilio", patch: { status: "todo" } });
+    h.svc.recordDelivery({ taskId: CARD, branch: "topics/clean", commit: "abc1234", stat: null });
+    h.db.run("UPDATE tasks SET delivery_branch = NULL, delivery_commit = NULL WHERE id = ?", [CARD]);
+    await holdPastThreshold(h);
+    await h.tick();
+    expect(h.task(CARD).machineId).toBe(CLOUD);
   });
 });

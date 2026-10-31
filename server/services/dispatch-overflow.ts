@@ -128,7 +128,8 @@ const MIRROR_KEY_PREFIX = "node-run:";
  *  - a MIRROR card (`node-run:`): this machine is already the node another
  *    one sent it to, and sending it on would hand a third machine a run the
  *    origin is polling here;
- *  - a card with work never committed (`deliveryUncommittedFiles`): what is
+ *  - a card with work never committed (`deliveryUncommittedFiles`, or
+ *    `priorUncommittedFiles` once a review sent it back to the queue): what is
  *    not committed cannot be pushed, so the run over there would start without it.
  */
 export function overflowEligible(
@@ -138,6 +139,7 @@ export function overflowEligible(
     delegated?: boolean;
     claudeTaskId?: string | null;
     deliveryUncommittedFiles?: number | null;
+    priorUncommittedFiles?: number | null;
   },
   board: { dispatchOverflow?: boolean; dispatchStayLocal?: boolean },
   localMachineId: string | null,
@@ -145,7 +147,7 @@ export function overflowEligible(
   if (board.dispatchOverflow === false || board.dispatchStayLocal) return false;
   if (task.stayLocal || task.delegated) return false;
   if (task.claudeTaskId?.startsWith(MIRROR_KEY_PREFIX)) return false;
-  if ((task.deliveryUncommittedFiles ?? 0) > 0) return false;
+  if ((task.deliveryUncommittedFiles ?? 0) > 0 || (task.priorUncommittedFiles ?? 0) > 0) return false;
   return task.machineId == null || (localMachineId != null && task.machineId === localMachineId);
 }
 

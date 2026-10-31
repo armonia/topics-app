@@ -2344,6 +2344,21 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const held = unbrokenHold(t, round);
     memoryHeldSince.set(t.id, { since: held?.since ?? clock(), projectId: t.projectId, round });
   }
+  /**
+   * A card that leaves Todo (or comes back to it) loses its clock now. A board
+   * with nothing else queued does not tick (`boardsWithQueuedTodos`), so its
+   * round count stops and the end-of-round prune never runs: without this the
+   * card came back to Todo still carrying the old hold, and moved on the first
+   * round after it, with no wait at all.
+   */
+  function forgetOverflowClock(taskId: string): void {
+    memoryHeldSince.delete(taskId);
+    overflowBranch.delete(taskId);
+  }
+  /** Boards that will not tick this pass hold nothing by memory: their clocks go. */
+  function pruneOverflowClocksOutside(ticking: ReadonlySet<string>): void {
+    for (const [id, e] of [...memoryHeldSince]) if (!ticking.has(e.projectId)) forgetOverflowClock(id);
+  }
   /** End of a round on `projectId`: a card this round did not mark held loses its clock. */
   function pruneOverflowClocks(projectId: string, round: number): void {
     for (const [id, e] of [...memoryHeldSince]) {
@@ -6077,6 +6092,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   function onEnterTodo(projectId: string, taskId: string): void {
+    // A fresh entry into Todo is a fresh wait: the overflow's clock starts over.
+    forgetOverflowClock(taskId);
     // No project = no dispatch (and no stranded chip): assign a board first.
     if (projectId === UNASSIGNED_PROJECT_ID) return;
     clearGrace(taskId);
@@ -6110,6 +6127,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
   function onLeaveTodo(taskId: string): void {
     clearGrace(taskId);
+    forgetOverflowClock(taskId);
     // IL CHIP «IN CODA» SI SPEGNE ANCHE FUORI DALLA FINESTRA DI GRAZIA.
     //
     // Prima questa riga viveva dentro `if (graceTimers.has(taskId))`, e quella
@@ -6747,6 +6765,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const boards = new Set<string>();
     try { for (const projectId of deps.svc.boardsWithQueuedTodos()) boards.add(projectId); }
     catch (err) { log("reconcile todo list failed", err); }
+    // A card that left Todo by a path that calls neither hook (a direct write,
+    // a sweep) on a board with nothing else queued: its clock goes here.
+    pruneOverflowClocksOutside(boards);
     // A TURNO, non sempre nello stesso ordine. Il tetto è globale: la board che
     // tocca per prima riempie i posti, e chi viene dopo non ne trova mai. Con
     // l'ordine fisso della lista, l'11/08 una board ha preso 26 claim su 31 in

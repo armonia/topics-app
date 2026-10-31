@@ -35,3 +35,8 @@ ALTER TABLE tasks ADD COLUMN base_branch TEXT;
 -- delivery_branch with the rest of the delivery snapshot, so without this a
 -- card moved to another machine afterwards restarted from main (df5fd8c5).
 ALTER TABLE tasks ADD COLUMN prior_branch TEXT;
+-- tasks.prior_uncommitted_files: the same transition clears
+-- delivery_uncommitted_files, yet those files are still in the card's worktree
+-- here. Kept so the overflow never moves a card whose work cannot be pushed;
+-- a new delivery recorded here clears it.
+ALTER TABLE tasks ADD COLUMN prior_uncommitted_files INTEGER;

@@ -170,7 +170,9 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- 20261030181324: on a node's mirror card, the branch its worktree starts from.
   base_branch TEXT,
   -- Same migration: an origin card's delivery branch, kept when it went back to the queue.
-  prior_branch TEXT
+  prior_branch TEXT,
+  -- Same migration: the uncommitted files the card had when it went back to the queue.
+  prior_uncommitted_files INTEGER
 )`;
 
 /**

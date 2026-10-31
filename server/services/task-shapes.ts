@@ -232,6 +232,12 @@ export interface Task {
    * another machine starts FROM (`carriedBranch`).
    */
   priorBranch?: string;
+  /**
+   * ON THE WIRE only when set: the files the card's worktree held WITHOUT a
+   * commit when it went back to the queue. Going back clears
+   * `deliveryUncommittedFiles`, the files stay here: the overflow keeps the card.
+   */
+  priorUncommittedFiles?: number;
   /** WHO opened the card: `human`, `agent:<name>`, `cron:<name>`; `null` = born before the field. */
   createdBy: string | null;
   /** The effort the task actually ran with (from the agent's topic). Read
