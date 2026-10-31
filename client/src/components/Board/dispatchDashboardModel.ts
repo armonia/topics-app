@@ -16,7 +16,7 @@ export interface QueuedCard {
   waitingMs: number;
   /** Neutral phrase decided by the server, already translated; `null` = the server has none. */
   reason: string | null;
-  /** The longer explanation, kept out of the row (tooltip only): one reason per state. */
+  /** The longer explanation (what happens next, what to do), kept out of the row: tooltip only. */
   detail?: string | null;
   /** Waits only for free memory: the one wait Start anyway can skip. */
   memoryWaiter: boolean;
@@ -45,8 +45,10 @@ export function queuedCards(
         title: t.text,
         project: projectName(t),
         waitingMs: Math.max(0, now - Date.parse(t.updatedAt)),
-        reason: text ? text.head : null,
-        detail: text ? text.detail : null,
+        // Plain words in the row (the phone has no tooltip): the head says the state, the detail says why.
+        reason: text ? (text.detail ? `${text.head}: ${text.detail}` : text.head) : null,
+        // The long explanation stays in the tooltip.
+        detail: text ? text.title : null,
         // The same test as the server (`isMemoryWaiter`): outside it the server answers 409.
         memoryWaiter: t.status === 'todo' && t.dispatchState === 'queued' && t.dispatchError === WAITING_MEMORY_REASON,
         stalled: t.queueReason?.tone === 'stalled',

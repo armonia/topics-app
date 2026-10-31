@@ -234,10 +234,11 @@ function useAnswer({ capacity, snapshot, queue, broken = 0, dispatchOn }: Dashbo
   const startGB = snapshot?.threshold.startGB ?? null;
   const stalled = queue.filter((q) => q.stalled).length;
   const admission = capacity?.admission ?? null;
-  const base = { off: false };
+  const base = { off: dispatchOn === false };
+  // A fault wins the sentence, but the switch state still travels: off + fault shows both.
   if (broken) return { ...base, tone: 'bad', text: tr(broken === 1 ? 'board.dash.broken1' : 'board.dash.broken', { n: broken }) };
   // Off wins even with an empty queue: the switch is the thing to turn back on.
-  if (dispatchOn === false) return { off: true, tone: 'warn', text: queue.length ? tr('board.dash.dispatchOff', { queued: queue.length }) : tr('board.dash.dispatchOffEmpty') };
+  if (dispatchOn === false) return { ...base, tone: 'warn', text: queue.length ? tr('board.dash.dispatchOff', { queued: queue.length }) : tr('board.dash.dispatchOffEmpty') };
   if (!queue.length) return { ...base, tone: 'ok', text: tr('board.dash.noBrokenEmpty') };
   if (stalled) return { ...base, tone: 'warn', text: tr(stalled === 1 ? 'board.dash.stalled1' : 'board.dash.stalled', { n: stalled }) };
   if (admission && !admission.admit) {
@@ -267,6 +268,14 @@ export function DispatchSummaryView({ capacity, snapshot, queue, broken = 0, bro
   const running = capacity?.running ?? 0;
   const isLive = live ?? snapshot !== null;
   const answer = useAnswer({ capacity, snapshot, queue, broken, dispatchOn });
+  const turnOnButton = onTurnOn && (
+    <button
+      type="button"
+      data-testid="dispatch-dashboard-turn-on"
+      onClick={onTurnOn}
+      className="inline-flex min-h-6 shrink-0 items-center rounded-md bg-amber-500/25 px-2 py-0.5 text-mini font-semibold hover:bg-amber-500/40 coarse:min-h-11"
+    >{tr('board.dash.turnOn')}</button>
+  );
   return (
     <section data-testid="dispatch-dashboard" className="space-y-1.5">
       <div className="flex items-baseline justify-between gap-2">
@@ -285,14 +294,7 @@ export function DispatchSummaryView({ capacity, snapshot, queue, broken = 0, bro
       >
         <i className={`h-[7px] w-[7px] shrink-0 rounded-full ${TONE_DOT[answer.tone]}`} />
         <p className="min-w-0 flex-1 break-words" data-testid="dispatch-dashboard-answer">{answer.text}</p>
-        {answer.off && onTurnOn && (
-          <button
-            type="button"
-            data-testid="dispatch-dashboard-turn-on"
-            onClick={onTurnOn}
-            className="inline-flex min-h-6 shrink-0 items-center rounded-md bg-amber-500/25 px-2 py-0.5 text-mini font-semibold hover:bg-amber-500/40 coarse:min-h-11"
-          >{tr('board.dash.turnOn')}</button>
-        )}
+        {answer.off && answer.tone !== 'bad' && turnOnButton}
         {answer.tone === 'bad' && brokenList && brokenList.listed.length > 0 && (
           <ul className="min-w-0 basis-full space-y-0.5 pl-[15px] font-normal" data-testid="dispatch-dashboard-broken-list">
             {brokenList.listed.map((c) => (
@@ -310,6 +312,19 @@ export function DispatchSummaryView({ capacity, snapshot, queue, broken = 0, bro
           </ul>
         )}
       </div>
+      {/* Off AND a fault: the red box keeps the fault, a separate amber one says it is off and holds the button. */}
+      {answer.off && answer.tone === 'bad' && (
+        <div
+          className={`flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md px-2.5 py-2 font-medium ${WARN_BOX}`}
+          data-testid="dispatch-dashboard-off" data-tone="warn"
+        >
+          <i className={`h-[7px] w-[7px] shrink-0 rounded-full ${TONE_DOT.warn}`} />
+          <p className="min-w-0 flex-1 break-words" data-testid="dispatch-dashboard-off-text">
+            {queue.length ? tr('board.dash.dispatchOff', { queued: queue.length }) : tr('board.dash.dispatchOffEmpty')}
+          </p>
+          {turnOnButton}
+        </div>
+      )}
     </section>
   );
 }

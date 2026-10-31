@@ -10,6 +10,8 @@
 import { describe, test, expect, beforeEach } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { ReactElement, ReactNode } from 'react';
+import { isValidElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DispatchDashboardView, DispatchSummaryView, MemoryChart } from './DispatchDashboard';
 import { GlobalSettingsSection } from './BoardSettingsSections';
@@ -34,6 +36,20 @@ const queue: QueuedCard[] = [
   card({ id: 'b', title: 'Tray del PC', project: 'topics-app', waitingMs: 4 * 60_000 }),
 ];
 const text = (html: string) => html.replace(/<[^>]+>/g, '');
+/** The element tree a component returns, captured inside a real render (hooks work); there is no DOM to click in bun test. */
+function treeOf(render: () => ReactElement): ReactNode {
+  let out: ReactNode = null;
+  const Probe = () => { out = render(); return null; };
+  renderToStaticMarkup(<Probe />);
+  return out;
+}
+/** The props of the first element carrying this data-testid. */
+function propsByTestId(node: ReactNode, id: string): Record<string, unknown> | null {
+  if (Array.isArray(node)) { for (const n of node) { const f = propsByTestId(n, id); if (f) return f; } return null; }
+  if (!isValidElement(node)) return null;
+  const props = node.props as Record<string, unknown>;
+  return props['data-testid'] === id ? props : propsByTestId(props.children as ReactNode, id);
+}
 
 describe('cruscotto auto-dispatch', () => {
   test('la prima versione resta: riepilogo, memoria, coda, chi tiene la memoria', () => {
@@ -133,11 +149,14 @@ describe('cruscotto auto-dispatch', () => {
     expect(order).toEqual(['new-high', 'older-low', 'old-low']);
     const [named] = queuedCards([{ ...base, id: 'n', text: 'n', status: 'todo', dispatchState: 'queued', dispatchError: null } as BoardTask], tr, NOW, () => 'attilio');
     expect(named!.project).toBe('attilio');
-    // One reason per state: the row carries the head only, the detail goes to the tooltip.
+    // One reason per state, in plain words: the row says state AND why ("head: detail"), the long text is the tooltip.
     const withReason = { ...base, id: 'r', text: 'r', status: 'todo', dispatchState: 'queued', queueReason: { key: 'k', tone: 'waiting' } } as unknown as BoardTask;
     const [why] = queuedCards([withReason], (k: string) => k.split('.').pop()!, NOW);
-    expect(why!.reason).toBe('head');
-    expect(why!.detail).toBe('detail');
+    expect(why!.reason).toBe('head: detail');
+    expect(why!.detail).toBe('title');
+    // A head with nothing after it stays the head alone (no dangling colon).
+    const [bare] = queuedCards([withReason], (k: string) => (k.endsWith('.detail') ? '' : k.split('.').pop()!), NOW);
+    expect(bare!.reason).toBe('head');
   });
   test('se frena la CPU non dice «parte a 3,5 GB»', () => {
     const cpu = { ...capacity, admission: { admit: false, blockedBy: 'cpu' } } as unknown as DispatchCapacity;
@@ -194,13 +213,48 @@ describe('cruscotto auto-dispatch', () => {
     // no handler = no dead button
     expect(renderToStaticMarkup(<DispatchSummaryView capacity={capacity} snapshot={snapshot} queue={queue} dispatchOn={false} />)).not.toContain('dispatch-dashboard-turn-on');
   });
-  test('un solo motivo per card: la riga dice la testa, il dettaglio sta nel tooltip', () => {
-    const long = card({ id: 'r', title: 'Una card', reason: 'In coda', detail: 'aspetta memoria libera' });
+  test('un solo motivo per card: la riga lo scrive in chiaro, la spiegazione lunga sta nel tooltip', () => {
+    const long = card({ id: 'r', title: 'Una card', reason: 'ferma: dispatch spento', detail: 'Idonea, ma l\'auto-dispatch è spento' });
     const html = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={[long]} now={NOW} />);
     const reason = html.match(/data-testid="dispatch-dashboard-queue-reason"[^>]*>([^<]*)</)?.[1];
-    expect(reason).toBe('In coda');
-    expect(html).toContain('title="aspetta memoria libera"');
-    expect(text(html)).not.toContain('aspetta memoria libera');
+    expect(reason).toBe('ferma: dispatch spento');
+    expect(html).toContain('title="Idonea, ma l&#x27;auto-dispatch è spento"');
+    expect(text(html)).not.toContain('Idonea, ma');
+  });
+  test('nessuna riga della coda resta alla sola testa generica («ferma», «in coda», «rinviata», «in attesa»)', () => {
+    const it = readFileSync(join(import.meta.dir, '../../lib/i18n-it.ts'), 'utf8');
+    const GENERIC = new Set(['ferma', 'in coda', 'rinviata', 'in attesa']);
+    const heads = [...it.matchAll(/'(board\.queue\.[^']+)\.head': '([^']*)'/g)].filter((m) => GENERIC.has(m[2]!));
+    expect(heads.length).toBeGreaterThan(10);
+    const tr = (k: string) => it.match(new RegExp(`'${k.replace(/\./g, '\\.')}': '([^']*)'`))?.[1] ?? '';
+    for (const [, key] of heads) {
+      const [c] = queuedCards([{ id: 'g', text: 'g', status: 'todo', dispatchState: 'queued', parentTaskId: null, priority: 1, createdAt: '2026-10-28T10:00:00Z', updatedAt: '2026-10-28T11:00:00Z', projectId: 'p', queueReason: { key, tone: 'waiting' } } as unknown as BoardTask], tr, NOW);
+      expect(GENERIC.has(c!.reason ?? ''), `${key}: la riga dice solo «${c!.reason}»`).toBe(false);
+    }
+  });
+  test('«Accendi» è cablato: il clic chiama onTurnOn, anche con un guasto', () => {
+    const b = brokenCards([{ id: 'f0', text: 'rotta', status: 'todo', dispatchState: 'failed', projectId: 'p-1' } as unknown as BoardTask]);
+    for (const withFault of [false, true]) {
+      let turned = 0;
+      const tree = treeOf(() => DispatchSummaryView({ capacity, snapshot, queue, broken: withFault ? b.total : 0, brokenList: withFault ? b : undefined, dispatchOn: false, onTurnOn: () => { turned++; } }));
+      const btn = propsByTestId(tree, 'dispatch-dashboard-turn-on');
+      expect(btn, withFault ? 'con guasto' : 'senza guasto').not.toBeNull();
+      (btn!.onClick as () => void)();
+      expect(turned).toBe(1);
+    }
+  });
+  test('spento + guasto: il riquadro rosso resta, e un riquadro giallo dice che è spento con «Accendi»', () => {
+    const b = brokenCards([{ id: 'f0', text: 'rotta', status: 'todo', dispatchState: 'failed', projectId: 'p-1' } as unknown as BoardTask]);
+    const html = renderToStaticMarkup(<DispatchSummaryView capacity={capacity} snapshot={snapshot} queue={queue} broken={b.total} brokenList={b} dispatchOn={false} onTurnOn={() => {}} />);
+    expect(html).toContain('data-testid="dispatch-dashboard-ok" data-tone="bad"');
+    expect(html).toContain('data-testid="dispatch-dashboard-off" data-tone="warn"');
+    expect(text(html)).toContain('Auto-dispatch spento: le 2 in coda partono quando lo accendi.');
+    expect(html.indexOf('dispatch-dashboard-turn-on')).toBeGreaterThan(html.indexOf('dispatch-dashboard-off'));
+    expect(html.match(/dispatch-dashboard-turn-on/g)?.length).toBe(1);
+    // on, or state unknown: no amber box
+    for (const dispatchOn of [true, null] as const) {
+      expect(renderToStaticMarkup(<DispatchSummaryView capacity={capacity} snapshot={snapshot} queue={queue} broken={b.total} brokenList={b} dispatchOn={dispatchOn} onTurnOn={() => {}} />)).not.toContain('dispatch-dashboard-off');
+    }
   });
   test('la coda va a capo: niente troncamenti con il pannello stretto', () => {
     const html = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queue} now={NOW} onStartNow={() => {}} />);

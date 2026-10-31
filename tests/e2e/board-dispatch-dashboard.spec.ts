@@ -16,8 +16,8 @@ import { test } from "./fixtures/layout.fixture";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { projectRow } from "./helpers/project-row";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
-import { join } from "path";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { join, resolve } from "path";
 import { hermetic } from "./fixtures/hermetic";
 import { apiCreateTask } from "./helpers/board-topbar";
 import { E2E_BASE } from "./helpers/test-server";
@@ -31,6 +31,8 @@ const NAME = "dispatchdash";
 const ROOT = `${canonicalTmpRoot()}/e2e-${NAME}-${STAMP}`;
 const DIR = `${ROOT}/${NAME}`;
 
+// `__dirname`, not `import.meta.url`: Playwright transpiles the specs to CJS.
+const UI_AUDIT_JS = readFileSync(resolve(__dirname, "helpers/ui-audit.js"), "utf8");
 const SHOTS = process.env.DASH_SHOTS ?? join(process.cwd(), "test-results", "dispatch-dashboard");
 const topicIds: string[] = [];
 /** A 12-core machine at rest, with `running` agents in flight on a recommended 4. */
@@ -284,6 +286,42 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
       await expect(drawer).toBeVisible();
       await expect(drawer).toContainText(QUEUED[0]!);
       await expect(menu).toBeHidden();
+    });
+  }
+  for (const width of [400, 1100]) {
+    test(`DISPATCHDASH-04: spento con un guasto, «Accendi» c'è e funziona; la coda si legge senza sforare a ${width} px`, async ({ page, request }) => {
+      await stubMachine(page, 0);
+      await stubQueue(page);
+      const r = await request.post(`${E2E_BASE}/api/test/tasks/${created[0]}/dispatch-state`, { data: { state: "failed", error: "Avvio agent fallito" } });
+      expect(r.ok(), "dispatch-state failed").toBe(true);
+      await page.setViewportSize({ width, height: 1800 });
+      await page.goto("/");
+      await openBoard(page);
+      await gear(page).click();
+      const menu = page.getByTestId("board-settings-menu");
+      // The test env starts with Auto-dispatch off: the red box keeps the fault, the amber one says it is off.
+      await expect(menu.getByTestId("dispatch-dashboard-answer")).toContainText("1 card è ferma per un guasto");
+      const off = menu.getByTestId("dispatch-dashboard-off");
+      await expect(off).toContainText("Auto-dispatch spento");
+      await expect(off.getByTestId("dispatch-dashboard-turn-on")).toHaveCount(1);
+      // DOM measure (helpers/ui-audit.js) of the whole panel, plus the queue rows cut by nothing.
+      const audit = JSON.parse(await page.evaluate(`${UI_AUDIT_JS}\n__uiAudit({ scope: '[data-testid="board-settings-menu"]' })`) as string);
+      mkdirSync(join(process.cwd(), "test-results", "ui-audit"), { recursive: true });
+      writeFileSync(join(process.cwd(), "test-results", "ui-audit", `dispatch-panel-${width}.json`), JSON.stringify(audit, null, 2));
+      expect(audit.overflowX.present, `overflow-X a ${width} px: ${JSON.stringify(audit.overflowX.offenders)}`).toBe(false);
+      const cut = await page.evaluate(() => [...document.querySelectorAll('[data-testid="dispatch-dashboard-queue-row"] span, [data-testid^="dispatch-dashboard-"][data-testid$="-text"], [data-testid="dispatch-dashboard-answer"]')]
+        .filter((el) => el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).display !== "inline").map((el) => el.getAttribute("data-testid") ?? el.textContent));
+      expect(cut, "testo tagliato").toEqual([]);
+      await menu.screenshot({ path: join(SHOTS, `spento-guasto-${width}.png`) });
+      // The button does something: auto-dispatch goes on, and the "off" box goes away.
+      const toggle = page.locator("label", { hasText: "Auto-dispatch" }).getByRole("checkbox");
+      await expect(toggle).not.toBeChecked();
+      await off.getByTestId("dispatch-dashboard-turn-on").click();
+      await expect(menu.getByTestId("dispatch-dashboard-off")).toHaveCount(0);
+      await expect(toggle).toBeChecked();
+      // The switch is a server setting: put it back, the other tests start from "off".
+      await toggle.click();
+      await expect(toggle).not.toBeChecked();
     });
   }
 });
