@@ -68,6 +68,20 @@ describe("nodeRunDescription", () => {
     expect(capped.length).toBeLessThan(MAX_REVIEW_CHARS + 1_500);
   });
 
+  it("la revisione più recente non consuma il budget: la consegna precedente resta anche con una revisione lunga", () => {
+    // A 10.000-character review used to spend the thread budget and push the previous delivery out.
+    const review = `REVISIONE-INIZIO\n${"difetto riga\n".repeat(700)}REVISIONE-FINE`;
+    expect(review.length).toBeGreaterThan(MAX_THREAD_CHARS);
+    expect(review.length).toBeLessThan(MAX_REVIEW_CHARS);
+    const out = nodeRunDescription("d", [
+      comment({ author: "agent", kind: "delivery", content: "CONSEGNA PRECEDENTE" }),
+      comment({ content: review }),
+    ]);
+    expect(out).toContain("CONSEGNA PRECEDENTE");
+    expect(out).toContain("REVISIONE-INIZIO");
+    expect(out).toContain("REVISIONE-FINE");
+  });
+
   it("un commento più vecchio di quello di revisione resta tagliato, e i più vecchi cadono prima dei nuovi", () => {
     const huge = comment({ content: `${"A".repeat(MAX_COMMENT_CHARS * 3)}\nLA RICHIESTA IN CODA` });
     const cut = nodeRunDescription("", [huge, comment({ content: "feedback nuovo" })]);

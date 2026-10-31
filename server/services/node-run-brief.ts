@@ -83,11 +83,17 @@ export function nodeRunDescription(description: string | null | undefined, threa
     }
   }
   // Newest first until the budget is spent, so what falls off is the oldest talk.
+  // The newest review is carried whole and does NOT count against the budget: otherwise a long review
+  // pushes the previous delivery out of the brief.
   const kept: string[] = [];
   let size = 0;
   for (let i = said.length - 1; i >= 0; i--) {
-    const e = entry(said[i]!, i === newestReview ? MAX_REVIEW_CHARS : MAX_COMMENT_CHARS);
-    if (kept.length > 0 && size + e.length > MAX_THREAD_CHARS) break;
+    if (i === newestReview) {
+      kept.push(entry(said[i]!, MAX_REVIEW_CHARS));
+      continue;
+    }
+    const e = entry(said[i]!, MAX_COMMENT_CHARS);
+    if (size + e.length > MAX_THREAD_CHARS) break;
     kept.push(e);
     size += e.length;
   }
