@@ -37,6 +37,13 @@
         "severity": "high",
         "title": "source-map-js allows event-loop denial of service through indexed source-map section offsets",
         "url": "https://github.com/advisories/GHSA-68fv-2mgg-jv7q"
+      },
+      {
+        "package": "minimatch",
+        "id": 1244012,
+        "severity": "moderate",
+        "title": "minimatch has potential denial of service via globparts amplification",
+        "url": "https://github.com/advisories/GHSA-g3hv-75wg-m249"
       }
     ],
     "landing": [
