@@ -1727,7 +1727,7 @@ const IT: Dict = {
   // The memory floor in front of a check command. The hint names the most
   // expensive MEASURED command: without that figure the number is a threshold
   // nobody dares touch, which is how the previous 6 GB stayed up for so long.
-  'board.checksFloor.fold': 'Avanzate: spazio per i controlli',
+  'board.checksFloor.fold': 'Spazio per i controlli',
   'board.checksFloor.title': 'Memoria per i controlli',
   'board.checksFloor.field': 'Memoria libera richiesta (GB)',
   'board.checksFloor.hint': 'Un controllo della consegna parte solo se la macchina ha almeno questa memoria libera da 2 minuti. Il comando più caro misurato qui è lint a freddo: 1,9 GB. A 0 il freno è spento.',

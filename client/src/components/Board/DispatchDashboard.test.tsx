@@ -15,6 +15,7 @@ import { isValidElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DispatchDashboardView, DispatchDetailsView, DispatchSummaryView, MemoryChart } from './DispatchDashboard';
 import { GlobalSettingsSection } from './BoardSettingsSections';
+import { GlobalCapControl } from './GlobalCapControl';
 import { adoptDispatchCapacity, adoptGlobalCap } from '../../state/globalDispatchCap';
 import { rowReason, brokenCards, chartMax, overflowedCards, queuedCards, waitingLabel, type QueuedCard } from './dispatchDashboardModel';
 import type { BoardTask, DispatchCapacity } from '../../lib/board';
@@ -119,6 +120,13 @@ describe('cruscotto auto-dispatch', () => {
     const busy = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queue} now={NOW} onStartNow={() => {}} />);
     expect(busy).toMatch(/data-testid="dispatch-dashboard-start-now"[^>]*disabled=""/);
     expect(busy).toContain('C’è già una card al lavoro sul Mac');
+    // The button has its OWN row under the text: beside it, it took ~200 px of a 400 px panel and
+    // the project chip, reason and wait wrapped onto two lines.
+    expect(busy).toMatch(/<div class="basis-full pl-\[26px\]"><button[^>]*dispatch-dashboard-start-now|<div class="basis-full pl-\[26px\]"><button type="button" data-testid="dispatch-dashboard-start-now"/);
+    const sub = busy.match(/data-testid="dispatch-dashboard-queue-sub">(.*?)<\/span><\/span><\/span>/)?.[1] ?? '';
+    expect(sub).toContain('dispatch-dashboard-queue-project');
+    expect(sub).toContain('dispatch-dashboard-queue-reason');
+    expect(sub).not.toContain('dispatch-dashboard-start-now');
   });
   test('un rifiuto si dice in italiano dal code, sotto la card giusta, e sparisce se la card è uscita', () => {
     const idle = { ...capacity, running: 0 } as DispatchCapacity;
@@ -412,6 +420,17 @@ describe('regressioni della verifica avversaria', () => {
     const advancedSrc = src.slice(at('data-testid="settings-advanced"'));
     expect(advancedSrc.indexOf('<SpendCapControl')).toBeGreaterThan(0);
     expect(advancedSrc.indexOf('<DispatchHolders')).toBeGreaterThan(0);
+    // ONE «Advanced»: the checks floor lives inside it, under Spend, and not under «how many together».
+    expect(advancedSrc.indexOf('<ChecksFloorField')).toBeGreaterThan(advancedSrc.indexOf('<SpendCapControl'));
+    expect(advancedSrc.indexOf('<ChecksFloorField')).toBeLessThan(advancedSrc.indexOf('<DispatchHolders'));
+    const cap = readFileSync(join(import.meta.dir, 'GlobalCapControl.tsx'), 'utf8');
+    expect(cap).toContain('{!quiet && <ChecksFloorField />}');
+    expect(renderToStaticMarkup(<GlobalCapControl quiet />)).not.toContain('checks-floor-control');
+    expect(renderToStaticMarkup(<GlobalCapControl />)).toContain('checks-floor-control');
+    for (const f of ['i18n-it.ts', 'i18n-en.ts']) {
+      const line = readFileSync(join(import.meta.dir, '../../lib', f), 'utf8').split('\n').find((l) => l.includes("'board.checksFloor.fold'"))!;
+      expect(line).not.toMatch(/Avanzate|Advanced/);
+    }
     expect(src.slice(at('data-testid="settings-advanced"') - 40, at('data-testid="settings-advanced"'))).not.toContain(' open');
   });
   test('quante card insieme: nel cruscotto il secondo livello è dentro un blocco chiuso', () => {

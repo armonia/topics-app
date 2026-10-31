@@ -14,7 +14,7 @@
  */
 import { Bot, ChevronRight, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import { GlobalCapControl } from './GlobalCapControl';
+import { ChecksFloorField, GlobalCapControl } from './GlobalCapControl';
 import { SpendCapControl } from './SpendCapControl';
 import { DispatchDetails, DispatchHolders, DispatchSummary } from './DispatchDashboard';
 import type { BoardTask } from '../../lib/board';
@@ -90,6 +90,7 @@ export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks, onO
           </summary>
           <div className="space-y-2 pt-1.5">
             <SpendCapControl />
+            <ChecksFloorField />
             <DispatchHolders />
           </div>
         </details>

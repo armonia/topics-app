@@ -183,6 +183,9 @@ async function writeFloor(page: Page, gb: string) {
 }
 /** The checks floor speaks in GB, so it sits folded (24/09): open it first. */
 async function openFloor(page: Page) {
+  // With the dashboard the fold lives inside Advanced (closed by default): open that first.
+  const advanced = page.getByTestId("settings-advanced");
+  if ((await advanced.count()) > 0 && (await advanced.getAttribute("open")) === null) await advanced.locator("summary").first().click();
   const fold = page.getByTestId("checks-floor-control");
   if ((await fold.getAttribute("open")) === null) await fold.locator("summary").click();
 }

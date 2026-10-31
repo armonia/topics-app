@@ -1537,7 +1537,7 @@ const EN = {
   'board.dispatch.capFull': 'Cap is full: tasks in Todo are waiting for a slot.',
   'board.dispatch.capOver': 'Over the cap: no turn is cut short, it comes back down as the running ones finish.',
   'board.dispatch.oneMachine': 'One cap for the whole machine: it applies to every board.',
-  'board.checksFloor.fold': 'Advanced: room for the checks',
+  'board.checksFloor.fold': 'Room for the checks',
   'board.checksFloor.title': 'Memory for the checks',
   'board.checksFloor.field': 'Free memory required (GB)',
   'board.checksFloor.hint': 'A delivery check starts only if the machine has had at least this much free memory for 2 minutes. The most expensive command measured here is lint from cold: 1.9 GB. At 0 the brake is off.',

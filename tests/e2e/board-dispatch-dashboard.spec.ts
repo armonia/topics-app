@@ -225,6 +225,25 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     expect(started).toHaveLength(0);
   });
 
+  test("DISPATCHDASH-05: a 400 px le 3 card in attesa di memoria hanno chip, motivo e attesa su una riga, anche quella con «Avvia comunque»", async ({ page }) => {
+    await stubMachine(page, 0);
+    await stubQueue(page);
+    await page.setViewportSize({ width: 400, height: 1800 });
+    await page.goto("/");
+    await openBoard(page);
+    await gear(page).click();
+    const menu = page.getByTestId("board-settings-menu");
+    await expect(menu.getByTestId("dispatch-dashboard-queue-row")).toHaveCount(3);
+    await expect(menu.getByTestId("dispatch-dashboard-start-now")).toBeVisible();
+    const m = await page.evaluate(() => [...document.querySelectorAll('[data-testid="dispatch-dashboard-queue-row"]')].map((row) => {
+      const sub = row.querySelector('[data-testid="dispatch-dashboard-queue-sub"]')!;
+      return { subLines: new Set([...sub.children].map((c) => Math.round(c.getBoundingClientRect().top))).size, textW: Math.round(row.querySelector('[data-testid="dispatch-dashboard-queue-text"]')!.getBoundingClientRect().width) };
+    }));
+    expect(m.map((r) => r.subLines), JSON.stringify(m)).toEqual([1, 1, 1]);
+    // The button does not take width from the text of the first row.
+    expect(m[0]!.textW).toBeGreaterThanOrEqual(m[1]!.textW - 2);
+  });
+
   test("DISPATCHDASH-02: Mac libero, «Avvia comunque» chiama start-anyway per la prima; un rifiuto si legge in italiano", async ({ page }) => {
     await stubMachine(page, 0);
     await stubQueue(page);
@@ -315,6 +334,11 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
       const cut = await page.evaluate(() => [...document.querySelectorAll('[data-testid="dispatch-dashboard-queue-row"] span, [data-testid^="dispatch-dashboard-"][data-testid$="-text"], [data-testid="dispatch-dashboard-answer"]')]
         .filter((el) => el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).display !== "inline").map((el) => el.getAttribute("data-testid") ?? el.textContent));
       expect(cut, "testo tagliato").toEqual([]);
+      // Project chip, reason and wait share ONE line in every queue row (also the one with Start anyway).
+      const subLines = await page.evaluate(() => [...document.querySelectorAll('[data-testid="dispatch-dashboard-queue-sub"]')]
+        .map((sub) => new Set([...sub.children].map((c) => Math.round(c.getBoundingClientRect().top))).size));
+      expect(subLines.length).toBeGreaterThan(0);
+      expect(subLines.every((n) => n === 1), `righe della sottoriga per card: ${subLines}`).toBe(true);
       await menu.screenshot({ path: join(SHOTS, `spento-guasto-${width}.png`) });
       // The button does something: auto-dispatch goes on, and the "off" box goes away.
       const toggle = menu.getByTestId("dispatch-dashboard-switch");

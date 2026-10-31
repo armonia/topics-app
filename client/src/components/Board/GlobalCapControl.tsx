@@ -115,7 +115,7 @@ export function GlobalCapControl({ quiet = false }: { quiet?: boolean } = {}) {
       {/* OUTSIDE the two brakes on purpose: this one does not gate agents, it
           gates the check COMMANDS a delivery runs before review, and it applies
           whichever question the brake above is asking. */}
-      <ChecksFloorField />
+      {!quiet && <ChecksFloorField />}
     </div>
   );
 }
@@ -135,7 +135,7 @@ export function GlobalCapControl({ quiet = false }: { quiet?: boolean } = {}) {
  * names the most expensive measured command and its cost, which is the one fact
  * that lets somebody move this knob on purpose instead of by feel.
  */
-function ChecksFloorField() {
+export function ChecksFloorField() {
   const tr = useT();
   const s = useGlobalDispatchCap();
   const [draft, setDraft] = useState<string | undefined>(undefined);

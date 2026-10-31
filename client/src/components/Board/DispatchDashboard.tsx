@@ -403,17 +403,20 @@ export function DispatchDetailsView({ capacity, snapshot, queue, moved = [], now
             {queue.map((q, i) => (
               <li key={q.id} className="flex flex-wrap items-start gap-x-1.5 gap-y-1" data-testid="dispatch-dashboard-queue-row">
                 <span className="w-5 shrink-0 text-mini text-app-text-secondary">{i + 1}ª</span>
-                <span className="min-w-0 flex-1 basis-40">
+                <span className="min-w-0 flex-1 basis-40" data-testid="dispatch-dashboard-queue-text">
                   {/* At 400 px (and on the phone) nothing is cut: title and reason wrap. */}
                   <span className="block break-words" title={q.title}>{q.title}</span>
-                  <span className="flex flex-wrap items-center gap-x-1 text-mini text-app-text-secondary">
+                  <span className="flex flex-wrap items-center gap-x-1 text-mini text-app-text-secondary" data-testid="dispatch-dashboard-queue-sub">
                     {q.project && <span className="min-w-0 [overflow-wrap:anywhere] rounded bg-white/5 px-1" data-testid="dispatch-dashboard-queue-project">{q.project}</span>}
                     {/* ONE reason per card, one line under the title; the detail is the tooltip. */}
                     <span className="min-w-0 [overflow-wrap:anywhere]" data-testid="dispatch-dashboard-queue-reason" title={q.detail ?? undefined}>{q.reason ? rowReason(q.reason) : tr('board.dash.waiting')}</span>
                     <span>· {tr('board.dash.since', { time: waitingLabel(q.waitingMs) })}</span>
                   </span>
                 </span>
+                {/* Own row under the text (indented past the number): beside the text it took
+                    ~200 px of the 400 px panel and pushed the sub-line to two rows. */}
                 {i === 0 && onStartNow && q.memoryWaiter && (
+                  <div className="basis-full pl-[26px]">
                   <button
                     type="button"
                     data-testid="dispatch-dashboard-start-now"
@@ -422,6 +425,7 @@ export function DispatchDetailsView({ capacity, snapshot, queue, moved = [], now
                     onClick={() => onStartNow(q)}
                     className="inline-flex shrink-0 items-center gap-1 rounded-md border border-app-border-light bg-surface px-2 py-0.5 text-mini font-medium text-app-text-secondary enabled:hover:bg-app-hover disabled:opacity-50 coarse:min-h-11"
                   ><Play className="h-3 w-3" aria-hidden />{tr('board.dash.startNow')}</button>
+                  </div>
                 )}
                 {failure?.id === q.id && (
                   <p className={`basis-full text-mini ${DANGER_TEXT}`} role="alert" data-testid="dispatch-dashboard-start-error">
