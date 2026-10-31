@@ -36,9 +36,9 @@ import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
 import { readChecksMemFloorGB, readGlobalCap, readSpendCaps } from "./dispatch-capacity";
 import { checksMemFloorGB } from "../../shared/checks-memory-floor";
 import { parseCreatedBy, UNOWNED_BACKLOG_MS } from "../../shared/created-by";
-import { AI_REVIEW_REMIND_MS, AI_REVIEW_RETRY_MS, STAGE_AI_REVIEW, STAGE_HUMAN_REVIEW, agentAskInThread, defaultColumnFor, stageAtBirth, stageForDelivery, type WorkflowColumn, type WorkflowPresetId } from "../../shared/workflow";
+import { STAGE_AI_REVIEW, STAGE_HUMAN_REVIEW, agentAskInThread, defaultColumnFor, namesHumanReviewWithoutAsk, stageAtBirth, stageForDelivery, stageForStatusChange, type WorkflowColumn, type WorkflowPresetId } from "../../shared/workflow";
 import { requestAiReviewNotice } from "./ai-review-notice";
-import { clearStagesOutsideWorkflow, readBoardWorkflow, routeAskOutOfAiReview, stampStaleAiReview, writeBoardWorkflow } from "./board-workflow";
+import { checkStage, clearStagesOutsideWorkflow, dropStageOutsideTarget, readBoardWorkflow, routeAskOutOfAiReview, stampStaleAiReview, unstampAiReviewReminder, writeBoardWorkflow } from "./board-workflow";
 import { currentDispatchBlock, currentMemoryWait, heldResumeBlock } from "./dispatch-block-signal";
 import { readElsewhere } from "./task-elsewhere";
 import { liveAgentCount, RUNS_HERE_SQL } from "./agent-census";
@@ -685,9 +685,8 @@ export interface TaskService {
    * Cards left in AI review past `AI_REVIEW_REMIND_MS` since their last touch:
    * the coordinator is reminded of each (`services/ai-review-notice.ts`), once
    * per touch, with the same dedupe as `sweepUnownedBacklog`
-   * (`ai_review_reminded_at`, `updated_at` left alone). A reminder that
-   * reached nobody takes its stamp back and is sent again at a sweep at least
-   * `AI_REVIEW_RETRY_MS` later. Returns the cards reminded now.
+   * (`ai_review_reminded_at`, `updated_at` left alone); one that reached
+   * nobody is sent again (`stampStaleAiReview`). Returns the cards reminded.
    */
   sweepStaleAiReview(): Task[];
   /**
@@ -3683,30 +3682,21 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     } catch { return null; } // reduced schema without the column: no rule
   }
 
-  /**
-   * A stage named by a caller, checked against the board's workflow: it must
-   * be one of its columns, and agree with the status the card is getting.
-   * Returns what to store (`null` for a plain column, whose id is its status).
-   */
+  /** `checkStage` (board-workflow.ts), its refusal as the service's error. */
   function checkedStage(columns: readonly WorkflowColumn[], stage: string, status: TaskStatus | undefined): string | null {
-    const col = columns.find((c) => c.id === stage);
-    if (!col) {
-      throw new TaskServiceError("invalid_input", `stage "${stage}" is not a column of this board's workflow (${columns.map((c) => c.id).join(", ")})`);
-    }
-    if (status !== undefined && status !== col.base) {
-      throw new TaskServiceError("invalid_input", `stage "${stage}" holds cards in status "${col.base}", not "${status}"`);
-    }
-    return col.id === col.base ? null : col.id;
+    const r = checkStage(columns, stage, status);
+    if ("error" in r) throw new TaskServiceError("invalid_input", r.error);
+    return r.stage;
   }
+
+  /** A reminder that reached nobody: card → when (ms); a later sweep sends it again. */
+  const failedAiReviewReminders = new Map<string, number>();
 
   /**
    * A card just entered AI review: whoever has to close it is told
    * (`services/ai-review-notice.ts`), and the thread keeps a line of who that
    * is. `service`, not `comment`: the card's last word stays the delivery.
    */
-  /** Cards whose last reminder reached nobody → when it failed (ms), for the retry floor. */
-  const failedAiReviewReminders = new Map<string, number>();
-
   function announceAiReview(taskId: string, reminder = false, stampIso?: string): void {
     const row = getTaskRow(taskId);
     if (!row) return;
@@ -3721,17 +3711,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     requestAiReviewNotice({
       taskId, projectId: row.project_id, title: row.text ?? "",
       createdBy: row.created_by ?? null, openerTopicId: row.created_by_topic_id ?? null, reminder,
-      // A REMINDER THAT REACHED NOBODY IS NOT DONE: its stamp is taken back
-      // (only the one this sweep wrote), so a later sweep sends it again.
-      ...(reminder && stampIso ? {
-        onUndelivered: () => {
-          try {
-            db.prepare("UPDATE tasks SET ai_review_reminded_at = NULL WHERE id = ? AND ai_review_reminded_at = ?").run(taskId, stampIso);
-          } catch { /* a schema without the column has no reminder to retry */ }
-          failedAiReviewReminders.set(taskId, Date.parse(now()));
-        },
-      } : {}),
+      ...(reminder && stampIso ? { onUndelivered: () => {
+        unstampAiReviewReminder(db, taskId, stampIso);
+        failedAiReviewReminders.set(taskId, Date.parse(now()));
+      } } : {}),
     });
+  }
+
+  /** `agentAskInThread` (shared/workflow.ts) on this card's thread. */
+  function agentAskOnThread(taskId: string): string | null {
+    try { return agentAskInThread(service.get(taskId)?.comments ?? []); } catch { return null; }
   }
 
   /**
@@ -3740,11 +3729,6 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * `humanAsk` the question the thread or the system asks the person. Written
    * only when it changes something, like `update()`.
    */
-  /** `agentAskInThread` (shared/workflow.ts) on this card's thread. */
-  function agentAskOnThread(taskId: string): string | null {
-    try { return agentAskInThread(service.get(taskId)?.comments ?? []); } catch { return null; }
-  }
-
   function routeSystemDelivery(taskId: string, humanAsk: string | null): void {
     const row = getTaskRow(taskId);
     if (!row || row.parent_task_id) return;
@@ -3808,32 +3792,17 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const bornAsk = (input.humanAsk ?? "").trim() || null;
       if (!input.parentTaskId) {
         const columns = readBoardWorkflow(db, input.projectId).columns;
-        const createdBy = parseCreatedBy(input.createdBy);
-        // A CARD BORN IN REVIEW IS A DELIVERY, and goes where a delivery goes
-        // (`stageForDelivery`). A card an agent or a schedule opens reaches
-        // Human review only with a question for the person (KANBAN-102):
-        // without one it is born in AI review, back to whoever opened it, and
-        // naming Human review (or its default column, `stage: null`) is refused
-        // as it is on `update`.
-        const routed = status === "review" ? stageForDelivery(columns, { createdBy, humanAsk: bornAsk }) : null;
-        if (routed === STAGE_AI_REVIEW) {
-          const named = input.stage === undefined ? undefined
-            : input.stage ? input.stage
-            : defaultColumnFor(columns, "review")?.id ?? null;
-          if (named === STAGE_HUMAN_REVIEW) {
-            throw new TaskServiceError("human_review_needs_ask", "a card reaches Human review with a question for the person: send `human_ask` with what they have to look at or decide.");
-          }
-          if (named === undefined) birthStage = STAGE_AI_REVIEW;
+        if (namesHumanReviewWithoutAsk(columns, { status, createdBy: parseCreatedBy(input.createdBy), humanAsk: bornAsk, stage: input.stage })) {
+          throw new TaskServiceError("human_review_needs_ask", "a card reaches Human review with a question for the person: send `human_ask` with what they have to look at or decide.");
         }
-        if (birthStage) {
-          // Routed above.
-        } else if (input.stage) {
+        if (input.stage) {
           birthStage = checkedStage(columns, input.stage, status);
         } else if (input.stage === undefined) {
           birthStage = stageAtBirth(columns, {
             status,
             createdBy: parseCreatedBy(input.createdBy),
             complete: input.priority !== undefined && !!(input.description ?? "").trim(),
+            humanAsk: bornAsk,
           });
         }
       }
@@ -4044,15 +4013,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           if (patch.status === undefined && col.base !== current) patch = { ...patch, status: col.base };
         } else if (wantsStage === null) {
           nextStage = null;
-        } else if (patch.status === "review" && current === "done" && actor !== "agent") {
-          // A CLOSED CARD TAKEN BACK INTO REVIEW is not a delivery: it is the
-          // land withdrawing a card the person (or its closer) had already
-          // accepted, and the comment it leaves asks the PERSON to fix and land
-          // again. Routing it like a delivery sent a machine card back to AI
-          // review, out of the tray and of the waiting-on-you list.
-          nextStage = null;
         } else {
-          nextStage = patch.status === "review" ? stageForDelivery(columns, { createdBy: row.created_by, humanAsk }) : null;
+          nextStage = stageForStatusChange(columns, { from: current, to: patch.status!, byAgent: actor === "agent", createdBy: row.created_by, humanAsk });
         }
       }
 
@@ -4482,12 +4444,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // ricomincia ad aspettare da capo, e mostrare l'attesa precedente sarebbe
       // una misura vera di una domanda sbagliata.
       if (patch.status === "review" && current !== "review") put("review_at", now());
-      // The column. Written only when it changes something: a card that never
-      // had a stage keeps the column untouched (and a reduced schema without
-      // it keeps working on the default workflow).
+      // The column, written only when it changes something (a reduced schema
+      // without it keeps working on the default workflow).
       if (nextStage !== undefined && (nextStage !== null || row.stage != null)) put("stage", nextStage);
-      // The question for the person belongs to one delivery: a card that goes
-      // back to work drops it, the next delivery says its own.
+      // The question for the person belongs to one delivery: back to work drops it.
       if (patch.humanAsk !== undefined || askFromThread) put("human_ask", humanAsk);
       else if (row.human_ask != null && patch.status !== undefined && patch.status !== "review" && patch.status !== "done") put("human_ask", null);
       put("updated_at", now());
@@ -4881,9 +4841,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             "reopened_at = NULL, reopened_by = NULL, reopened_actor = NULL, updated_at = ? WHERE id = ?",
         ).run(target, ts, ts, taskId);
       }
-      // The human decision ends the review round, and its column with it: a
-      // stage left behind (`ai_review`) would decide where the NEXT delivery
-      // lands, including a system one, which writes the status in raw SQL.
+      // The human decision ends the review round and its column: a stage left
+      // behind would decide where the NEXT delivery lands (even a system one).
       if (row.stage != null || row.human_ask != null) db.prepare("UPDATE tasks SET stage = NULL, human_ask = NULL WHERE id = ?").run(taskId);
       logStatus(taskId, "review", target, by, null, origin);
       // As in `update()`: this door writes the status in raw SQL and does not
@@ -5203,18 +5162,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // Re-append the root at the end of the target board; children keep their
       // relative order (kanban_order is just a per-board sort key).
       db.prepare("UPDATE tasks SET kanban_order = ? WHERE id = ?").run((maxRow?.m ?? 0) + 1, taskId);
-      // THE COLUMN BELONGS TO THE SOURCE BOARD'S WORKFLOW. A stage the target
-      // board does not have (or that disagrees with the status there) goes back
-      // to the default column of the status, as `applyBoardWorkflow` does when
-      // a board changes preset: an `ai_review` carried onto a `default` board
-      // drew the card in Review while the tray and the waiting-on-you list,
-      // which read the stage, left it out.
-      if (row.stage != null) {
-        const columns = readBoardWorkflow(db, target).columns;
-        if (!columns.some((c) => c.id === row.stage && c.base === row.status)) {
-          db.prepare("UPDATE tasks SET stage = NULL WHERE id = ?").run(taskId);
-        }
-      }
+      dropStageOutsideTarget(db, taskId, target);
       return rowToTask(getTaskRow(taskId));
     },
 
@@ -5573,12 +5521,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       ).run(ts, typeof uncommittedFiles === "number" ? uncommittedFiles : null, cause ?? null, ts, taskId);
       if (row.status !== "review") logStatus(taskId, row.status, "review", "dispatcher");
       markReopened(taskId, row.status, "review", "system", "dispatcher");
-      // THE BOARD'S WORKFLOW ROUTES THIS DELIVERY TOO. Nobody declared it, but
-      // the card still belongs to whoever opened it: one an agent or a
-      // schedule opened goes back to them (AI review), unless the agent's last
-      // word is a question for the person, which is what Human review is for.
-      // The AGENT's last word, not the thread's: this door writes its own
-      // notes under it, and they would hide the question.
+      // THE BOARD'S WORKFLOW ROUTES THIS DELIVERY TOO: a machine card goes
+      // back to whoever opened it unless the AGENT's last word (not the
+      // thread's: this door writes its own notes under it) asks the person.
       routeSystemDelivery(taskId, agentAskOnThread(taskId));
       // Open the pending review approval so the review decision flow works, just
       // like an agent-initiated hand-off would.
@@ -5960,9 +5905,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
 
     sweepStaleAiReview(): Task[] {
       const ts = now();
-      const nowMs = Date.parse(ts);
-      for (const [id, at] of failedAiReviewReminders) if (nowMs - at >= AI_REVIEW_RETRY_MS) failedAiReviewReminders.delete(id);
-      return stampStaleAiReview(db, new Date(nowMs - AI_REVIEW_REMIND_MS).toISOString(), ts, failedAiReviewReminders).map((id) => {
+      return stampStaleAiReview(db, ts, failedAiReviewReminders).map((id) => {
         announceAiReview(id, true, ts);
         return rowToTask(getTaskRow(id));
       });

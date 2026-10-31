@@ -137,8 +137,11 @@ export function awaitsHuman(task: { status: string; stage?: string | null }): bo
  */
 export function stageAtBirth(
   columns: readonly WorkflowColumn[],
-  card: { status: TaskStatus; createdBy?: string | null; complete?: boolean },
+  card: { status: TaskStatus; createdBy?: string | null; complete?: boolean; humanAsk?: string | null },
 ): string | null {
+  // Born in review it is a delivery: a machine card without a question is
+  // born in AI review, back to whoever opened it (KANBAN-102).
+  if (card.status === 'review') return stageForDelivery(columns, card) === STAGE_AI_REVIEW ? STAGE_AI_REVIEW : null;
   if (card.status !== 'backlog' || !workflowHasStage(columns, STAGE_TRIAGE)) return null;
   const who = splitCreatedBy(card.createdBy ?? null);
   if (!who || who.kind === 'human') return STAGE_TRIAGE;
@@ -161,6 +164,37 @@ export function stageForDelivery(
   const openedByMachine = !!who && who.kind !== 'human';
   if (openedByMachine && !(card.humanAsk ?? '').trim()) return STAGE_AI_REVIEW;
   return workflowHasStage(columns, STAGE_HUMAN_REVIEW) ? STAGE_HUMAN_REVIEW : null;
+}
+
+/**
+ * The stage a status change WITHOUT a named column lands in: a move into
+ * review is a delivery (`stageForDelivery`), any other the default column.
+ * Except a CLOSED card taken back into review by anyone but an agent: that is
+ * the land withdrawing a card already accepted, and the comment it leaves asks
+ * the PERSON to fix and land again. Routed like a delivery, a machine card
+ * went back to AI review, out of the tray and of the waiting-on-you list.
+ */
+export function stageForStatusChange(
+  columns: readonly WorkflowColumn[],
+  move: { from: TaskStatus; to: TaskStatus; byAgent: boolean; createdBy?: string | null; humanAsk?: string | null },
+): string | null {
+  if (move.to !== 'review') return null;
+  if (move.from === 'done' && !move.byAgent) return null;
+  return stageForDelivery(columns, move);
+}
+
+/**
+ * A card born in review that NAMES Human review (or its default column,
+ * `stage: null`) while the routing above would send it to AI review: a
+ * machine card with no question for the person. Refused, as on `update`.
+ */
+export function namesHumanReviewWithoutAsk(
+  columns: readonly WorkflowColumn[],
+  card: { status: TaskStatus; createdBy?: string | null; humanAsk?: string | null; stage?: string | null },
+): boolean {
+  if (card.status !== 'review' || card.stage === undefined) return false;
+  if (stageForDelivery(columns, card) !== STAGE_AI_REVIEW) return false;
+  return (card.stage || defaultColumnFor(columns, 'review')?.id) === STAGE_HUMAN_REVIEW;
 }
 
 /**

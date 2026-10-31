@@ -2,6 +2,8 @@ import type { Database } from "bun:sqlite";
 import { commentAuthorLabel } from "../../shared/comment-author";
 import { parseQuestionBlock, questionAsksHuman } from "../../shared/board";
 import {
+  AI_REVIEW_REMIND_MS,
+  AI_REVIEW_RETRY_MS,
   GLOBAL_WORKFLOW_SCOPE,
   STAGE_AI_REVIEW,
   isWorkflowPresetId,
@@ -84,13 +86,20 @@ export function clearStagesOutsideWorkflow(db: Database, scope: string, nowIso: 
 }
 
 /**
- * The cards left in AI review, untouched since `cutoffIso`, that the
+ * The cards left in AI review, untouched for `AI_REVIEW_REMIND_MS`, that the
  * coordinator was not reminded of since their last touch: each is stamped
  * (`ai_review_reminded_at`, `updated_at` left alone) in the statement that
- * re-checks it, so two passes cannot both return it. `skip`: cards held back
- * this pass (a failed reminder waiting for its retry). Returns their ids.
+ * re-checks it, so two passes cannot both return it. Returns their ids.
+ *
+ * `failed`: cards whose last reminder reached nobody (id → when, ms). Their
+ * stamp was taken back (`unstampAiReviewReminder`), so they come back here; a
+ * card is held back until `AI_REVIEW_RETRY_MS` after its failure, so a board
+ * with nobody to wake does not log the same failure at every reconcile.
  */
-export function stampStaleAiReview(db: Database, cutoffIso: string, nowIso: string, skip?: ReadonlyMap<string, unknown>): string[] {
+export function stampStaleAiReview(db: Database, nowIso: string, failed?: Map<string, number>): string[] {
+  const nowMs = Date.parse(nowIso);
+  for (const [id, at] of failed ?? []) if (nowMs - at >= AI_REVIEW_RETRY_MS) failed!.delete(id);
+  const cutoffIso = new Date(nowMs - AI_REVIEW_REMIND_MS).toISOString();
   const fresh = "(ai_review_reminded_at IS NULL OR ai_review_reminded_at < updated_at)";
   let ids: Array<{ id: string }> = [];
   try {
@@ -98,7 +107,7 @@ export function stampStaleAiReview(db: Database, cutoffIso: string, nowIso: stri
       `SELECT id FROM tasks WHERE archived = 0 AND status = 'review' AND stage = ? AND updated_at < ? AND ${fresh} ORDER BY updated_at`,
     ).all(STAGE_AI_REVIEW, cutoffIso) as Array<{ id: string }>;
   } catch { return []; }
-  return ids.filter(({ id }) => !skip?.has(id) && db.prepare(
+  return ids.filter(({ id }) => !failed?.has(id) && db.prepare(
     `UPDATE tasks SET ai_review_reminded_at = ? WHERE id = ? AND status = 'review' AND stage = ? AND ${fresh}`,
   ).run(nowIso, id, STAGE_AI_REVIEW).changes > 0).map(({ id }) => id);
 }
@@ -123,4 +132,44 @@ export function routeAskOutOfAiReview(
   if (stage === STAGE_AI_REVIEW) return false;
   return db.prepare("UPDATE tasks SET stage = ?, human_ask = ? WHERE id = ? AND status = 'review' AND stage = ?")
     .run(stage, q.question, card.id, STAGE_AI_REVIEW).changes > 0;
+}
+
+/**
+ * A card moved to another board: its stage belongs to the source board's
+ * workflow. One the target does not have (or that disagrees with the status
+ * there) goes back to the default column of the status, as
+ * `clearStagesOutsideWorkflow` does when a board changes preset: an
+ * `ai_review` carried onto a `default` board drew the card in Review while
+ * the tray and the waiting-on-you list, which read the stage, left it out.
+ */
+export function dropStageOutsideTarget(db: Database, taskId: string, targetProjectId: string): void {
+  const r = db.prepare("SELECT stage, status FROM tasks WHERE id = ?").get(taskId) as { stage: string | null; status: string } | null;
+  if (!r?.stage) return;
+  if (readBoardWorkflow(db, targetProjectId).columns.some((c) => c.id === r.stage && c.base === r.status)) return;
+  db.prepare("UPDATE tasks SET stage = NULL WHERE id = ?").run(taskId);
+}
+
+/**
+ * A reminder that reached nobody takes back the stamp `stampStaleAiReview`
+ * wrote (only that one: a newer stamp is another reminder's), so a later
+ * sweep sends it again. A schema without the column has nothing to retry.
+ */
+export function unstampAiReviewReminder(db: Database, taskId: string, stampIso: string): void {
+  try {
+    db.prepare("UPDATE tasks SET ai_review_reminded_at = NULL WHERE id = ? AND ai_review_reminded_at = ?").run(taskId, stampIso);
+  } catch { /* no column, no reminder */ }
+}
+
+/**
+ * A stage named by a caller, checked against the board's workflow: it must be
+ * one of its columns, and agree with the status the card is getting. `stage`
+ * is what to store (`null` for a plain column, whose id is its status).
+ */
+export function checkStage(
+  columns: BoardWorkflow["columns"], stage: string, status: string | undefined,
+): { stage: string | null } | { error: string } {
+  const col = columns.find((c) => c.id === stage);
+  if (!col) return { error: `stage "${stage}" is not a column of this board's workflow (${columns.map((c) => c.id).join(", ")})` };
+  if (status !== undefined && status !== col.base) return { error: `stage "${stage}" holds cards in status "${col.base}", not "${status}"` };
+  return { stage: col.id === col.base ? null : col.id };
 }
