@@ -34,21 +34,29 @@ const THREAD_OPENING = [
   "Your checkout is clean. A previous delivery described below is NOT in it, so do the whole task again with the feedback applied; do not assume the files already contain it.",
 ].join("\n");
 
+/**
+ * The newest review comment is the one a node must follow to the letter: a reviewer's list of defects
+ * can run past 2.000 characters, and cutting its middle left the node fixing only the first two points
+ * (three empty rounds on 31/10). It is carried whole up to this cap.
+ */
+export const MAX_REVIEW_CHARS = 20_000;
+
 /** A cut comment keeps its END too: the request a reviewer closes on is usually the last paragraph. */
 const CLIP_TAIL_CHARS = 600;
 
-function clip(text: string): string {
+function clip(text: string, limit: number): string {
   const t = text.trim();
-  if (t.length <= MAX_COMMENT_CHARS) return t;
-  const head = MAX_COMMENT_CHARS - CLIP_TAIL_CHARS;
-  return `${t.slice(0, head)}\n[...cut: ${t.length - MAX_COMMENT_CHARS} characters of the middle are on the card...]\n${t.slice(-CLIP_TAIL_CHARS)}`;
+  if (t.length <= limit) return t;
+  const head = limit - CLIP_TAIL_CHARS;
+  // A node cannot open the card: say plainly that the middle is out of reach, and that it can ask for it.
+  return `${t.slice(0, head)}\n[...cut: ${t.length - limit} characters of the middle are NOT reachable from this machine; if you need them, ask the reviewer...]\n${t.slice(-CLIP_TAIL_CHARS)}`;
 }
 
-function entry(c: TaskComment): string {
+function entry(c: TaskComment, limit: number): string {
   const who = c.kind === "delivery" ? `${c.author}, previous delivery` : c.author;
   // Files live on this machine: the node cannot open them, but it must know they exist.
   const files = c.media?.length ? `\n[+${c.media.length} attached file(s), not carried to this machine]` : "";
-  return `[${who}, ${c.createdAt}]\n${clip(c.content)}${files}`;
+  return `[${who}, ${c.createdAt}]\n${clip(c.content, limit)}${files}`;
 }
 
 /**
@@ -66,11 +74,19 @@ export function nodeRunDescription(description: string | null | undefined, threa
   const own = description ?? "";
   const said = thread.filter((c) => c.content.trim() && (c.kind === "delivery" || (c.kind === "comment" && c.author !== "system")));
   if (said.length === 0) return own;
+  // The newest review comment (not a delivery) is the one carried whole.
+  let newestReview = -1;
+  for (let i = said.length - 1; i >= 0; i--) {
+    if (said[i]!.kind === "comment") {
+      newestReview = i;
+      break;
+    }
+  }
   // Newest first until the budget is spent, so what falls off is the oldest talk.
   const kept: string[] = [];
   let size = 0;
   for (let i = said.length - 1; i >= 0; i--) {
-    const e = entry(said[i]!);
+    const e = entry(said[i]!, i === newestReview ? MAX_REVIEW_CHARS : MAX_COMMENT_CHARS);
     if (kept.length > 0 && size + e.length > MAX_THREAD_CHARS) break;
     kept.push(e);
     size += e.length;
