@@ -66,10 +66,11 @@ describe("the gate slot, against a stopped holder", () => {
     holdAs(nameFile(d, "typecheck"), holder);
     holdAs(join(d, "0.pid"), holder);
     const heard: string[] = [];
-    const started = Date.now();
     const release = acquireSlot(1, "typecheck", { maxWaitMs: WAIT_MS, onWait: (m) => heard.push(m) });
     expect(release).not.toBeNull();
-    expect(Date.now() - started).toBeLessThan(WAIT_MS);
+    // Not a single wait notice: it got in on the first pass. Said by what it
+    // heard, not by a wall clock, which a loaded machine stretches past any
+    // bound (review of 31/10, fourth round, point 7).
     expect(heard).toEqual([]);
     expect(readFileSync(nameFile(d, "typecheck"), "utf8")).toBe(String(process.pid));
     expect(readFileSync(join(d, "0.pid"), "utf8")).toBe(String(process.pid));
@@ -109,6 +110,16 @@ describe("the gate slot, against a stopped holder", () => {
     marked!();
     expect(existsSync(nameFile(d, "typecheck") + ".requeue")).toBe(false);
     expect(existsSync(join(d, "0.pid.requeue"))).toBe(false);
+  });
+
+  it("an output claim stays with a stopped writer, even beside a mark: it will write again", () => {
+    const d = fresh([holder]);
+    const claim = join(d, "out-0123456789abcdef.pid");
+    holdAs(claim, holder);
+    const release = acquireSlot(1, "lint", { maxWaitMs: WAIT_MS, onWait: () => {} });
+    expect(release).not.toBeNull();
+    expect(readFileSync(claim, "utf8")).toBe(String(holder));
+    release!();
   });
 
   it("a running holder still holds: the next run waits, as before", () => {
@@ -168,6 +179,27 @@ describe("the gate slot, against a stopped holder", () => {
 
 describe("a run continued after a freeze", () => {
   const goneSoon = (): number => Bun.spawnSync(["true"]).pid;
+
+  it("has lost its place when its numbered slot was taken, its name still its own", () => {
+    const d = fresh();
+    const hold = acquireSlot(1, "lint", { maxWaitMs: WAIT_MS, queuesAgainOnContinue: true });
+    expect(hold!.lost()).toBe(false);
+    writeFileSync(join(d, "0.pid"), String(holder));
+    expect(readFileSync(nameFile(d, "lint"), "utf8")).toBe(String(process.pid));
+    expect(hold!.lost()).toBe(true);
+    hold!();
+  });
+
+  it("has lost its place when its numbered slot was taken, holding no name (it ran alongside)", () => {
+    const d = fresh();
+    writeFileSync(nameFile(d, "lint"), String(holder));
+    const hold = acquireSlot(1, "lint", { maxWaitMs: WAIT_MS, onWait: () => {}, queuesAgainOnContinue: true });
+    expect(hold).not.toBeNull();
+    expect(hold!.lost()).toBe(false);
+    writeFileSync(join(d, "0.pid"), String(holder));
+    expect(hold!.lost()).toBe(true);
+    hold!();
+  });
 
   it("still holding its place, goes on untouched", async () => {
     fresh();

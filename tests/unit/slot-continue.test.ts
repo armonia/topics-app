@@ -20,7 +20,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { slotAcquiredLine, slotWaitingLine } from "../../shared/slot-acquired";
+import { parseSlotRun, slotAcquiredLine, SLOT_WAITING_PREFIX } from "../../shared/slot-acquired";
 import { acquireSlot } from "../../scripts/gate-slot.ts";
 
 const SLOT_SCRIPT = join(import.meta.dir, "../../scripts/slot.ts");
@@ -40,6 +40,9 @@ const poll = setInterval(() => {
   clearInterval(poll);
   writeFileSync(nameFile, process.env.FAKE_TAKER);
   process.emit("SIGCONT");
+  // Frozen and continued again during the new wait: the real SIGCONT reaches
+  // the command too, the fake one only the handler.
+  if (process.env.FAKE_MODE === "refreeze") setTimeout(() => { console.error("[fake] continued again"); process.emit("SIGCONT"); }, 500);
   setTimeout(() => {
     if (process.env.FAKE_MODE === "term") { console.error("[fake] SIGTERM in"); process.emit("SIGTERM"); }
     else { console.error("[fake] taker done"); unlinkSync(nameFile); }
@@ -57,7 +60,7 @@ afterEach(() => { if (dir) rmSync(dir, { recursive: true, force: true }); dir = 
 const nameFile = (d: string, label: string) =>
   join(d, `name-${createHash("sha1").update(label.trim().toLowerCase()).digest("hex").slice(0, 12)}.pid`);
 
-async function runSlot(mode: "free" | "term", extra: NodeJS.ProcessEnv = {}, cmd = "sleep 4; echo cmd-done"): Promise<{ code: number | null; stderr: string; stdout: string; ms: number; d: string }> {
+async function runSlot(mode: "free" | "term" | "refreeze", extra: NodeJS.ProcessEnv = {}, cmd = "sleep 4; echo cmd-done"): Promise<{ code: number | null; stderr: string; stdout: string; ms: number; d: string }> {
   dir = mkdtempSync(join(tmpdir(), "topics-slot-continue-"));
   const slots = join(dir, "slots");
   mkdirSync(slots);
@@ -117,10 +120,11 @@ done
     process.env.TOPICS_GATE_SLOT_DIR = slots;
     process.env.TOPICS_GATE_PS = join(dir, "ps");
     try {
-      const started = Date.now();
-      const release = acquireSlot(1, "typecheck", { maxWaitMs: 2_000, onWait: () => {} });
+      const heard: string[] = [];
+      const release = acquireSlot(1, "typecheck", { maxWaitMs: 2_000, onWait: (m) => heard.push(m) });
       expect(release).not.toBeNull();
-      expect(Date.now() - started).toBeLessThan(1_000);
+      // In on the first pass, said without a wall clock (review of 31/10, fourth round, point 7).
+      expect(heard).toEqual([]);
       release!();
     } finally {
       process.env.TOPICS_GATE_SLOT_DIR = prev.dir;
@@ -135,15 +139,32 @@ done
 describe("slot.ts continued after a freeze", () => {
   it("whose name was taken: says it waits, stops its command, and goes on once it holds the name again", async () => {
     const r = await runSlot("free");
-    const waiting = slotWaitingLine("typecheck");
+    const waiting = `${SLOT_WAITING_PREFIX} typecheck: its place was taken`;
     const acquired = slotAcquiredLine("typecheck", 0).split(":")[0]!;
     expect(sequence(r.stderr, [acquired, waiting, "[fake] SIGSTOP", "[fake] taker done", "[fake] SIGCONT"])).toEqual([
       acquired, waiting, "[fake] SIGSTOP", "[fake] taker done", "[fake] SIGCONT", acquired,
     ]);
+    // The three slot lines carry the run's token, which the command is not told.
+    const run = parseSlotRun(r.stderr)!.run;
+    const lines = r.stderr.split("\n").filter((l) => l.startsWith(acquired) || l.startsWith(waiting));
+    expect(lines.every((l) => l.includes(`(run ${run}`))).toBe(true);
+    expect(r.stdout).not.toContain(run);
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("cmd-done");
     // The place taken back is given back at the end.
     expect(existsSync(nameFile(r.d, "typecheck"))).toBe(false);
+  }, 30_000);
+
+  it("frozen and continued again during the new wait, stops its command again (review of 31/10, fourth round)", async () => {
+    // Before: the handler returned while the wait was on, and the command
+    // continued by the freezer ran beside the run holding the name.
+    const r = await runSlot("refreeze", { FAKE_TAKER_MS: "1500" });
+    const acquired = slotAcquiredLine("typecheck", 0).split(":")[0]!;
+    expect(sequence(r.stderr, ["[fake] SIGSTOP", "[fake] continued again", "[fake] taker done", "[fake] SIGCONT", acquired]).slice(1)).toEqual([
+      "[fake] SIGSTOP", "[fake] continued again", "[fake] SIGSTOP", "[fake] taker done", "[fake] SIGCONT", acquired,
+    ]);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("cmd-done");
   }, 30_000);
 
   it("the wall-clock cap does not run while the command waits in the queue again (review of 31/10, third round)", async () => {
