@@ -2118,7 +2118,7 @@ function ChatPaneComponent({
             overlaid strip would cover the one control a person can still use
             while the command is stopped, and writing in the chat is exactly
             what stays possible. */}
-        {swapFreeze && <SwapFreezeLabel freeze={swapFreeze} className="mx-3 mb-1 self-start" />}
+        {swapFreeze && <SwapFreezeLabel freeze={swapFreeze} className="mx-2 mb-1 self-start" />}
         {/* What this chat wrote and never reached the server: in flow, right
             above the composer that would send it again, never over it. */}
         <UnsentStrip sessionKey={topic.sessionKey} />
