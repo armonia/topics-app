@@ -28,8 +28,7 @@ import { useProvidersSnapshot } from '@/hooks/useProvidersSnapshot';
 import {
   EFFORT_TIERS,
   effortIndex,
-  providerEffortTier,
-  resolveEffectiveProvider,
+  resolveShownEffortTier,
   type ProviderSelection,
 } from '@/lib/effortTiers';
 
@@ -75,10 +74,10 @@ export function SessionConfigPopover({
   // l'override per-topic.
   const { snapshot } = useProvidersSnapshot();
   const entries = useMemo(() => snapshot?.providers ?? [], [snapshot]);
-  const defaultTier = useMemo(() => {
-    const effective = resolveEffectiveProvider(entries, providerOverride ?? null, defaultProviderLabel);
-    return providerEffortTier(entries, effective, providerOverride ?? null);
-  }, [entries, providerOverride, defaultProviderLabel]);
+  const defaultTier = useMemo(
+    () => resolveShownEffortTier(entries, null, providerOverride ?? null, defaultProviderLabel),
+    [entries, providerOverride, defaultProviderLabel],
+  );
 
   // Il pollice sta SEMPRE da qualche parte: sull'override se c'è, altrimenti
   // sul default del provider. Se nemmeno quello si conosce (provider senza
@@ -94,7 +93,7 @@ export function SessionConfigPopover({
   // cosa governava. `null` solo quando l'effort in forza non si conosce davvero,
   // ed è l'unico caso in cui si torna all'icona: meglio nessun numero che uno
   // inventato.
-  const shownTier = effort ?? defaultTier ?? null;
+  const shownTier = resolveShownEffortTier(entries, effort, providerOverride ?? null, defaultProviderLabel);
 
   // Opens ABOVE the composer (it sits at the bottom of the pane), so the
   // anchor is the button's top edge. Clamped on both axes.

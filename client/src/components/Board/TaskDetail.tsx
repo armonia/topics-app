@@ -1,4 +1,7 @@
 import { pickPlanComment } from './planPanel';
+import { useTopics as useTopicMap } from '../../contexts/TopicsContext';
+import { useProvidersSnapshot } from '@/hooks/useProvidersSnapshot';
+import { resolveShownEffortTier } from '@/lib/effortTiers';
 import { effortBadgeLabel } from '../../lib/effortBadgeLabel';
 import { EffortBadge } from '../Chat/EffortBadge';
 import { reconcileAcknowledgedComments } from './acknowledgedComments';
@@ -1424,6 +1427,16 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
   const modelBtnRef = useRef<HTMLButtonElement>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const drawerRouting = surfaceTopicsRoutingEnabled(task ?? {}, boardTopicsRoutingDefault, boardDispatchModel);
+  // Same value the chat bar shows: topic override, else the tier its provider imposes.
+  const topicMap = useTopicMap();
+  const { snapshot: providersSnapshot } = useProvidersSnapshot();
+  const sessionTopic = task?.assignedTopicId ? topicMap[task.assignedTopicId] : undefined;
+  const shownEffort = resolveShownEffortTier(
+    providersSnapshot?.providers ?? [],
+    sessionTopic?.effort ?? task?.effort ?? null,
+    sessionTopic?.provider && sessionTopic.model ? { provider: sessionTopic.provider, model: sessionTopic.model } : null,
+    sessionTopic?.provider ?? undefined,
+  );
   const modelTrigger = useTaskModelTrigger(task?.model || null, drawerRouting, 'task', boardDispatchModel);
   // Le etichette del drawer: toggle, e una sola visibilita' per volta (accendere
   // `invisibile` spegne `visibile`, che e' cio' che fa `normalizeLabels` anche
@@ -2363,7 +2376,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
             >
               <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />
               <span className="truncate">{modelTrigger.line}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)} tok` : ''}`}</span>
-              <span data-testid="task-effort-badge" className="shrink-0 rounded bg-app-hover/60 px-1 text-mini font-semibold uppercase tracking-wide text-app-text-muted">{effortBadgeLabel(task.effort)}</span>
+              <span data-testid="task-effort-badge" className="shrink-0 rounded bg-app-hover/60 px-1 text-mini font-semibold uppercase tracking-wide text-app-text-muted">{effortBadgeLabel(shownEffort)}</span>
               {!task.assignedTopicId && <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />}
             </button>
             <TaskModelSelector
@@ -3261,7 +3274,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
             </div>
             {/* Effort in force, under the field like the chat bar (card 067a1f5b). */}
             <div className="mt-1 flex items-center justify-end gap-2">
-              <EffortBadge tier={task.effort} overridden={!!task.effort} testId="task-composer-effort-badge" />
+              <EffortBadge tier={shownEffort} overridden={!!(sessionTopic?.effort ?? task.effort)} testId="task-composer-effort-badge" />
               {isAgentReview && (
                 <button type="button" onClick={() => void send({ quiet: true })}
                   disabled={busy || sending || uploading || (!draft.trim() && attachments.length === 0)}
