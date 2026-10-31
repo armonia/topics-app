@@ -15,6 +15,7 @@
 // azione" selezionato su ogni topic mentre lo spawn usa `bypassPermissions`.
 // Non è collegabile finché il server non gestisce il canale di permesso della
 // CLI — vedi openspec/changes/autonomy-level-needs-permission-channel/.
+import { effortBadgeLabel } from '../../lib/effortBadgeLabel';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
@@ -180,7 +181,7 @@ export function SessionConfigPopover({
               effort ? 'bg-primary/30 text-primary' : 'bg-app-hover/60 text-app-text-muted'
             }`}
           >
-            {shownTier ?? 'auto'}
+            {effortBadgeLabel(shownTier)}
           </span>
         </span>
       </button>
