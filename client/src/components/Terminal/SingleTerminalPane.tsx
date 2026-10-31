@@ -6,6 +6,7 @@ import { SearchAddon } from '@xterm/addon-search';
 import '@xterm/xterm/css/xterm.css';
 import { Copy, Check, RotateCw, Clock, AlertTriangle } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
+import { MONO_FONT_FAMILY, TERMINAL_FONT_SIZE, TERMINAL_LINE_HEIGHT, TERMINAL_PADDING_PX } from './terminalTypography';
 import { touchKeysForSessionInfo } from './touchKeys';
 import { createWriteCoalescer, BACKGROUND_FLUSH_MS, VISIBLE_FLUSH_MS, type WriteCoalescer } from './writeCoalescer';
 import { TerminalInputQueue, nextInputBands, INPUT_LOSS_MESSAGE_KEY, type InputLossReason } from './inputQueue';
@@ -437,8 +438,9 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
 
     const term = new Terminal({
       theme: getTerminalTheme(isDarkRef.current),
-      fontSize: 13,
-      fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace",
+      fontSize: TERMINAL_FONT_SIZE,
+      fontFamily: MONO_FONT_FAMILY,
+      lineHeight: TERMINAL_LINE_HEIGHT,
       cursorBlink: true,
       cursorStyle: 'bar',
       scrollback: 5000,
@@ -1352,13 +1354,18 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           contain: 'layout paint',
         }}
       >
-        <div
-          ref={containerRef}
-          className="absolute inset-0"
-          onClick={() => termRef.current?.term.focus()}
-        />
-        {/* The last screen, or the skeleton, until xterm has drawn the replay. */}
-        {!replayDrawn && (scrollbackSeed || !stale) && <TerminalCover ref={seedRef} copy={scrollbackSeed} />}
+        {/* The padding lives on this box, never on xterm's parent: FitAddon reads
+            the parent's border box, so padding there counts the rows as if the
+            padding were not there and the last row is cut. */}
+        <div className="absolute overflow-hidden" style={{ inset: TERMINAL_PADDING_PX }}>
+          <div
+            ref={containerRef}
+            className="absolute inset-0"
+            onClick={() => termRef.current?.term.focus()}
+          />
+          {/* The last screen, or the skeleton, until xterm has drawn the replay. */}
+          {!replayDrawn && (scrollbackSeed || !stale) && <TerminalCover ref={seedRef} copy={scrollbackSeed} />}
+        </div>
         {/* Copy button for non-touch */}
         {!isTouchDevice && !stale && (
           <button

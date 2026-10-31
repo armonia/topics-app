@@ -1,6 +1,7 @@
 import type { Ref } from 'react';
 import { SkeletonRows } from '../Shared/Skeleton';
 import type { TerminalScreenCopy } from '../../lib/terminalScrollbackCache';
+import { MONO_FONT_FAMILY } from './terminalTypography';
 
 /** xterm's row height at this font size with JetBrains Mono, for a copy
  *  written before the row height was kept with it. */
@@ -40,7 +41,7 @@ export function TerminalCover({ copy, ref }: { copy: TerminalScreenCopy | null; 
       aria-hidden="true"
       className="pointer-events-none absolute inset-x-0 top-0 bottom-0 flex flex-col justify-end px-[1px] overflow-hidden whitespace-pre text-prose text-app-text-muted"
       style={{
-        fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace",
+        fontFamily: MONO_FONT_FAMILY,
         lineHeight: `${rowPx}px`,
         height: `round(down, 100%, ${rowPx}px)`,
       }}
