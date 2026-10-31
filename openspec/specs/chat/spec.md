@@ -6194,13 +6194,27 @@ Il chevron di una riga tool con corpo SHALL essere visibile solo con hover o foc
 sulla riga, e sempre su touch (`coarse:`). La sua colonna da 12 px SHALL restare
 riservata in ogni stato, così che l'etichetta non si sposti quando compare.
 La riga di un sotto-agente SHALL NON ripetere nel corpo il tipo e la descrizione
-già mostrati dalla riga.
+già mostrati dalla riga. La descrizione SHALL comparire nel corpo solo quando lo
+span del riassunto è davvero troncato sullo schermo (`scrollWidth > clientWidth`,
+misurato al mount, a ogni cambio di testo e a ogni resize con `ResizeObserver`),
+mai dalla sua lunghezza in caratteri: la stessa frase sta intera in una riga
+larga e si tronca in una stretta. Il corpo, quando c'è, mostra il testo intero
+senza classe `truncate`. Il tooltip della riga resta com'è.
 
 #### Scenario: chevron nascosto senza hover, colonna riservata
 
 - DATO una riga tool con corpo e il puntatore fuori
 - QUANDO la riga è a riposo
 - ALLORA il chevron ha opacità 0 e la colonna da 12 px è presente
+
+#### Scenario: descrizione del sotto-agente nel corpo solo se la riga la tronca
+
+- DATO una riga di sotto-agente con una descrizione diversa dal tipo
+- QUANDO la descrizione sta intera nella riga (90 caratteri a 1440 px)
+- ALLORA il corpo non la ripete
+- QUANDO la riga la tronca (90 caratteri a 900 px, 45 caratteri a 390 px)
+- ALLORA il corpo mostra il testo intero, senza classe `truncate`
+- E una descrizione uguale al tipo non compare mai nel corpo
 
 
 ### Requirement: CHAT-RUN-01 — Il blocco shell di una risposta finita offre Esegui, e niente gira da solo

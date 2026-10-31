@@ -331,7 +331,7 @@ export function SubAgentCard({ actions, result, isRunning, description }: {
       {/* No type/description header here: the row above already shows them,
           and repeating them in the body printed the same label twice. */}
       {description && (
-        <div className="text-compact text-app-text whitespace-pre-wrap break-words">{description}</div>
+        <div data-testid="sub-agent-description" className="text-compact text-app-text whitespace-pre-wrap break-words">{description}</div>
       )}
       {actions.length === 0 ? (
         <div className="text-mini italic text-app-text-muted">
@@ -704,13 +704,15 @@ export function UnknownCard({ args, result }: { args?: Record<string, unknown>; 
 // ── Dispatcher ──────────────────────────────────────────────────────────────
 
 
-export function ToolCardBody({ detail, isError, error, isRunning, sessionKey, liveResult }: {
+export function ToolCardBody({ detail, isError, error, isRunning, sessionKey, liveResult, summaryCut }: {
   detail: ToolCallDetail; isError?: boolean; error?: string; isRunning?: boolean;
   /** Serve alle sole card delle shell in background: è la metà della chiave
    *  con cui la shell sta nel registro dei processi. */
   sessionKey?: string;
   /** A running shell's partial output (CHAT-TOOL-08); every other card ignores it. */
   liveResult?: string;
+  /** The row's one-line summary is really clipped on screen (measured in ToolCallRow). */
+  summaryCut?: boolean;
 }) {
   switch (detail.type) {
     case 'shell':
@@ -730,7 +732,7 @@ export function ToolCardBody({ detail, isError, error, isRunning, sessionKey, li
     case 'sub_agent':
       // Topics' `spawn_agent`: a child with a pane, a live state and results of its own.
       if (detail.via === 'spawn_agent') return <SpawnAgentCard detail={detail} sessionKey={sessionKey} isRunning={isRunning} isError={isError} error={error} />;
-      return <SubAgentCard actions={detail.actions} result={detail.result} isRunning={isRunning} description={subAgentBodyDescription(detail)} />;
+      return <SubAgentCard actions={detail.actions} result={detail.result} isRunning={isRunning} description={subAgentBodyDescription(detail, !!summaryCut)} />;
     case 'plan':
       return <PlanCard text={detail.text} />;
     case 'mcp':
