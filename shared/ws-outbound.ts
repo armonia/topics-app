@@ -994,6 +994,21 @@ const taskUnownedSchema = z.looseObject({
   waitedMinutes: z.number(),
 });
 
+// A card entered AI review (board workflows, `shared/workflow.ts`), or sat
+// there untouched long enough for a reminder: it goes back to whoever opened
+// it, and `notified` says whose chat was woken for it (`opener`, the
+// `coordinator`, or nobody). The coordinator's event, like `task:unowned`; the
+// durable trace is the activity_log row of the same moment.
+const taskAiReviewSchema = z.looseObject({
+  type: z.literal('task:ai-review'),
+  projectId: z.string(),
+  taskId: z.string(),
+  taskTitle: z.string(),
+  createdBy: z.nullable(z.string()),
+  reminder: z.boolean(),
+  notified: z.nullable(z.union([z.literal('opener'), z.literal('coordinator')])),
+});
+
 // Anteprima LIVE del consumo mentre il turno gira (ogni 4s, mai persistita): la
 // card somma `baseMs` + (adesso − turnStartedAt), quindi il tempo mostrato è
 // solo ESECUZIONE — le pause tra un turno e l'altro non entrano mai nel conto.
@@ -1531,6 +1546,7 @@ const OUTBOUND_SCHEMAS = {
   'task:review-ready': taskReviewReadySchema,
   'task:parked': taskParkedSchema,
   'task:unowned': taskUnownedSchema,
+  'task:ai-review': taskAiReviewSchema,
   'task:usage-live': taskUsageLiveSchema,
   'task:awaiting-human': taskAwaitingHumanSchema,
   'board:dispatch': boardDispatchSchema,
@@ -1665,6 +1681,7 @@ export const OUTBOUND_FRAME_CLASSES: Record<OutboundType, OutboundFrameClass> = 
   'task:deleted': 'board',
   'task:parked': 'board',
   'task:unowned': 'board',
+  'task:ai-review': 'board',
   'task:review-ready': 'board',
   'task:updated': 'board',
   'task:usage-live': 'board',

@@ -25,6 +25,7 @@
  *    requeues (bounded by the retry cap) or parks a task that ended without
  *    reaching `review`.
  */
+import { awaitsHuman } from "../../shared/workflow";
 import { LAND_ACTION_LABEL, UNASSIGNED_PROJECT_ID, commentAsksHuman, type Task, type TaskService } from "./tasks";
 import { type SessionUsage } from "./transcript-usage";
 import { onHumanHoldChange } from "../lib/human-hold-events";
@@ -3796,15 +3797,19 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         cause: "fanout",
       });
       emit(delivered);
-      try {
-        deps.broadcast({
-          type: "task:review-ready",
-          projectId: delivered.projectId,
-          taskId: delivered.id,
-          taskTitle: delivered.text || "Task",
-          reason: "system-delivered",
-        });
-      } catch { /* best-effort */ }
+      // Only a card that waits on a PERSON rings: one routed to AI review goes
+      // back to whoever opened it (`awaitsHuman`, shared/workflow.ts).
+      if (awaitsHuman(delivered)) {
+        try {
+          deps.broadcast({
+            type: "task:review-ready",
+            projectId: delivered.projectId,
+            taskId: delivered.id,
+            taskTitle: delivered.text || "Task",
+            reason: "system-delivered",
+          });
+        } catch { /* best-effort */ }
+      }
       // Niente preview qui: il worktree del task è quello del tentativo 1, che
       // può NON essere il vincitore. La preview parte alla scelta (route select).
     } catch (err) { log(`fan-out: consegna in review fallita per ${taskId}`, err); }
@@ -4440,15 +4445,19 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             // notification (OS banner + web-push) would never fire. Emit it here:
             // this is exactly the "task waiting for review after a timeout" case
             // that was previously silent.
-            try {
-              deps.broadcast({
-                type: "task:review-ready",
-                projectId: delivered.projectId,
-                taskId: delivered.id,
-                taskTitle: delivered.text || "Task",
-                reason: "system-delivered",
-              });
-            } catch { /* best-effort */ }
+            // Only a card that waits on a PERSON rings: one routed to AI review goes
+            // back to whoever opened it (`awaitsHuman`, shared/workflow.ts).
+            if (awaitsHuman(delivered)) {
+              try {
+                deps.broadcast({
+                  type: "task:review-ready",
+                  projectId: delivered.projectId,
+                  taskId: delivered.id,
+                  taskTitle: delivered.text || "Task",
+                  reason: "system-delivered",
+                });
+              } catch { /* best-effort */ }
+            }
             // Stessa catena della consegna volontaria: anteprima prima, snellimento
             // dopo. Una consegna forzata dal sistema è una consegna a tutti gli
             // effetti, e il suo worktree costa gli stessi ~260 MB.
@@ -6472,6 +6481,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         });
       }
     } catch (err) { log("avviso card senza padrone fallito", err); }
+    // 1-sexies) A CARD LEFT IN AI REVIEW: whoever opened it was told when it
+    //    entered the column (`services/ai-review-notice.ts`); one still there,
+    //    untouched, past `AI_REVIEW_REMIND_MS` is the coordinator's. The
+    //    service sends the reminder and stamps the card. Its own `try`, like
+    //    the one above, and before the auto-dispatch gate for the same reason.
+    try { deps.svc.sweepStaleAiReview?.(); }
+    catch (err) { log("AI review reminder failed", err); }
     // 1-bis) LE CHECKLIST FERME CHE NESSUNO STA GUARDANDO. La domanda sui figli
     //    fermi si arma su due EVENTI (un figlio che si ferma, il turno del padre
     //    che finisce), e una card che si era fermata prima non ne vedrà mai un

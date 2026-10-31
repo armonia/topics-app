@@ -29,6 +29,8 @@ import { invalidateProbeCache } from "../services/url-probe-cache";
 import { STALE_TASK_MODEL_ERROR, isStaleModelChange, taskModelIsCurrent } from "../services/task-model-catalog";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import { resolveCreatedBy } from "../lib/created-by";
+import { readBoardWorkflow, readOwnWorkflowPreset } from "../services/board-workflow";
+import { WORKFLOW_PRESET_IDS, isWorkflowPresetId } from "../../shared/workflow";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
 
 /**
@@ -259,6 +261,36 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       catch (e) { return fail(e); }
     }
 
+    // THE BOARD'S WORKFLOW (`shared/workflow.ts`): GET resolves it (project row,
+    // else the global '*' row, else `default`); PUT { preset } writes this
+    // scope's row, `preset: null` removes it. `/api/boards/*/workflow` is the
+    // global default. `own` is the row of exactly this scope, so the picker can
+    // tell «inherited» from «chosen here».
+    const bWorkflow = matchRoute(pathname, "/api/boards/:projectId/workflow");
+    if (bWorkflow) {
+      const scope = bWorkflow.projectId;
+      if (method === "GET") {
+        try { return json({ ...readBoardWorkflow(ctx.db, scope), own: readOwnWorkflowPreset(ctx.db, scope) }); }
+        catch (e) { return fail(e); }
+      }
+      if (method === "PUT") {
+        const body = (await readJSON(req)) as { preset?: unknown } | null;
+        const preset = body?.preset;
+        if (preset !== null && !isWorkflowPresetId(preset)) {
+          return json({ error: `preset must be one of ${WORKFLOW_PRESET_IDS.join(", ")}, or null`, code: "invalid_input" }, 400);
+        }
+        try {
+          // Through the service: the cards whose column the new workflow does
+          // not have go back to the default one, and the attention state reads
+          // them again (a card in review there waits on the person).
+          for (const task of svc.applyBoardWorkflow({ scope, preset })) {
+            broadcastToAll({ type: "task:updated", projectId: task.projectId, task });
+          }
+          return json({ ...readBoardWorkflow(ctx.db, scope), own: readOwnWorkflowPreset(ctx.db, scope) });
+        } catch (e) { return fail(e); }
+      }
+    }
+
     const bSettings = matchRoute(pathname, "/api/boards/:projectId/settings");
     if (bSettings) {
       const projectId = bSettings.projectId;
@@ -479,6 +511,8 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             machineId: bornMachine,
             // Who opened it: the interface marks itself, anyone else is automation.
             createdBy: resolveCreatedBy(req, body),
+            // The workflow column it is born in; absent = the server decides.
+            stage: typeof body?.stage === "string" ? body.stage : undefined,
           });
           // THE BIRTH ATTACHMENTS, BEFORE THE DISPATCH.
           //
@@ -1273,7 +1307,8 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           }
         }
         try {
-          const prevStatus = svc.get(taskId, { projectId })?.task.status;
+          const prevTask = svc.get(taskId, { projectId })?.task;
+          const prevStatus = prevTask?.status;
           // Invalidate probe cache when output_url changes (new URL needs a fresh probe).
           if (parsed.patch.outputUrl !== undefined) {
             const old = svc.get(taskId, { projectId })?.task.outputUrl;
@@ -1287,7 +1322,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           task = await captureDelivery(task, prevStatus);
           broadcastToAll({ type: "task:updated", projectId, task });
           emitReviewReadyEdge(broadcastToAll, projectId, task, prevStatus, undefined,
-            () => svc.get(taskId)?.comments);
+            () => svc.get(taskId)?.comments, prevTask?.stage ?? null);
           triggerUrlProbe(taskId, task.outputUrl ?? null, projectId);
           // Auto-dispatch trigger: the human dragging a task INTO todo is the
           // "vai" signal; dragging it back OUT while still queued cancels it.

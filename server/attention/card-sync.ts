@@ -9,6 +9,7 @@
  * is read back from its row and handed to `setCard`. The store decides the
  * epoch, the announce and the row.
  */
+import { awaitsHuman } from "../../shared/workflow";
 import type { Database } from "bun:sqlite";
 import { setCard } from "./store";
 import { taskSubject } from "../../shared/attention";
@@ -25,7 +26,7 @@ import type { TaskService } from "../services/tasks";
 const CARD_MOVING_METHODS: ReadonlyArray<keyof TaskService> = [
   "create", "update", "reviewDecision", "merge", "archive", "restore", "moveToProject", "claim", "release",
   "deferForWait", "deliverToReviewBySystem", "askParkedChildren", "sweepParkedChildren", "waitedOutIfCapped",
-  "sweepWaitedOut", "resolveParkedChildren", "setDispatchState", "settleLanded", "bindTopic",
+  "sweepWaitedOut", "resolveParkedChildren", "setDispatchState", "settleLanded", "bindTopic", "applyBoardWorkflow",
 ];
 
 /** The dispatch states of a card parked in backlog that the person must look at (they announce `task:parked`). */
@@ -42,6 +43,17 @@ export function withCardAttention(db: Database, service: TaskService, commentAsk
      )
      SELECT id FROM descendants`;
   const readSql = "SELECT text, project_id, status, dispatch_state, dispatch_error, archived, review_at, updated_at FROM tasks WHERE id = ?";
+  // The workflow column (migration 20261030225403), read only where it exists:
+  // a card in AI review waits on whoever opened it, not on a person, so it is
+  // not announced (`awaitsHuman`). A schema without the column has no stages.
+  let readSqlCache: string | null = null;
+  const cardSql = (): string => {
+    if (readSqlCache) return readSqlCache;
+    let hasStage = false;
+    try { hasStage = (db.query("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).some((c) => c.name === "stage"); } catch { /* no table: the plain read */ }
+    readSqlCache = hasStage ? readSql.replace(" FROM tasks", ", stage FROM tasks") : readSql;
+    return readSqlCache;
+  };
   /**
    * The words of the card's announce (PUSH-04): its title and project, and for
    * a review its pending question, whose options become the buttons, and
@@ -64,10 +76,10 @@ export function withCardAttention(db: Database, service: TaskService, commentAsk
   }
   function sync(taskId: string): void {
     try {
-      const row = db.query(readSql).get(taskId) as { text: string | null; project_id: string; status: string; dispatch_state: string | null; dispatch_error: string | null; archived: number; review_at: string | null; updated_at: string } | null;
+      const row = db.query(cardSql()).get(taskId) as { text: string | null; project_id: string; status: string; dispatch_state: string | null; dispatch_error: string | null; archived: number; review_at: string | null; updated_at: string; stage?: string | null } | null;
       const subject = taskSubject(taskId);
       if (!row || row.archived) { setCard(subject, null); return; }
-      if (row.status === "review") { setCard(subject, { status: "review", since: row.review_at ?? row.updated_at, words: words(taskId, row, true) }); return; }
+      if (awaitsHuman(row)) { setCard(subject, { status: "review", since: row.review_at ?? row.updated_at, words: words(taskId, row, true) }); return; }
       if (row.status === "backlog" && row.dispatch_state && ANNOUNCED_PARK_STATES.has(row.dispatch_state)) {
         setCard(subject, { status: "parked", since: row.updated_at, detail: row.dispatch_error, words: words(taskId, row, false) });
         return;

@@ -55,7 +55,9 @@ import { buildRouteTable, dispatchRouteTable } from "./server/route-table";
 import { createOrchestratorSessionsRouter } from "./server/routes/orchestrator-sessions";
 import { archiveTopicFully, reopenTopicFully } from "./server/services/archive-topic";
 import { applyPaneCascade, clearRetirement, reconcile, recordRetirement, retiredIds, type ReconcileDeps } from "./server/services/retirement";
-import { isGlobalOrchestratorTopic } from "./server/services/global-orchestrator-session";
+import { eligibleGlobalOrchestratorSessionKey, isGlobalOrchestratorTopic } from "./server/services/global-orchestrator-session";
+import { startAiReviewNotices } from "./server/services/ai-review-notice";
+import { logActivity } from "./server/db/activity-log";
 import { computeCascade } from "./server/services/pane-retirement-cascade";
 import { createOpenRouter } from "./server/routes/open";
 import { configureSessionParkingForTracker, parkTopicSession } from "./server/lib/session-parking";
@@ -6100,6 +6102,24 @@ void survivingTurnsAdopted
       return isProviderHeld(topic.provider || getDefaultProviderName() || "claude-code") ? "wait" : "wake";
     },
     log: (m) => console.log(`[subagent-wake] ${m}`),
+  }));
+// A card that enters AI review wakes whoever has to close it (its opener's
+// chat, or the coordinator), on the same condition as the two above.
+void survivingTurnsAdopted
+  .catch(() => { /* logged by the chain below */ })
+  .then(() => startAiReviewNotices({
+    route: topicsRouter,
+    isBusy: (sk) => activeStreams.has(sk),
+    sessionKeyOfTopic: (id) => ctx.getTopicById(id)?.sessionKey ?? null,
+    canWake: (sk) => {
+      const topic = ctx.getTopicBySessionKey(sk);
+      if (!topic || wakeVerdict({ id: topic.id, archived: topic.archived }, (id) => runningTaskOwnsTopic(ctx.db, id), (id) => stoppedSubagentChat(ctx.db, id)) !== "adopt") return "row";
+      return isProviderHeld(topic.provider || getDefaultProviderName() || "claude-code") ? "wait" : "wake";
+    },
+    coordinatorSessionKey: () => eligibleGlobalOrchestratorSessionKey(ctx.db),
+    broadcast: (msg) => ctx.broadcastToAll(msg),
+    recordActivity: logActivity,
+    log: (m) => console.log(`[ai-review] ${m}`),
   }));
 // Native children still `running` after the restart: their turn may have been
 // resumed with their chat, or lost with the process. Watched, then reported.

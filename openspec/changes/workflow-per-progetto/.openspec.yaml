@@ -1,0 +1,6 @@
+schema: spec-driven
+skip_specs: true
+x-deciso:
+  da: Attilio
+  il: 2026-10-28
+  risposta: "1, 2 e 3 come consigliate"
