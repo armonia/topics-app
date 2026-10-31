@@ -131,7 +131,9 @@ for (const device of [
         expect((await request.post(`/api/test/tasks/${task.id}/bind-topic`, { data: { topicId: topic.id } })).ok()).toBe(true);
         await page.reload();
         await details.click();
-        await expect(chip).toHaveText('GPT-5.5 · via Codex');
+        await expect(chip.locator('span.truncate')).toHaveText('GPT-5.5 · via Codex');
+        // Details never shows "auto" for an unknown tier: that label lives only next to input fields (card 067a1f5b).
+        await expect(chip.getByTestId('task-effort-badge').filter({ hasText: /^auto$/i })).toHaveCount(0);
         await expect(chip).toHaveAttribute('aria-disabled', 'true');
         await expect(chip).toHaveAttribute('title', /GPT-5\.5/);
         await chip.click({ force: true });

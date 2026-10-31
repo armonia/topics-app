@@ -1,4 +1,8 @@
 import { pickPlanComment } from './planPanel';
+import { useTopics as useTopicMap } from '../../contexts/TopicsContext';
+import { useProvidersSnapshot } from '@/hooks/useProvidersSnapshot';
+import { resolveShownEffortTier } from '@/lib/effortTiers';
+import { EffortBadge } from '../Chat/EffortBadge';
 import { reconcileAcknowledgedComments } from './acknowledgedComments';
 import type { TaskCommentAcknowledgement } from '../../../../shared/task-comment-ack';
 import { memo, useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, useSyncExternalStore, type TouchEvent as ReactTouchEvent } from 'react';
@@ -1422,6 +1426,16 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
   const modelBtnRef = useRef<HTMLButtonElement>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const drawerRouting = surfaceTopicsRoutingEnabled(task ?? {}, boardTopicsRoutingDefault, boardDispatchModel);
+  // Same value the chat bar shows: topic override, else the tier its provider imposes.
+  const topicMap = useTopicMap();
+  const { snapshot: providersSnapshot } = useProvidersSnapshot();
+  const sessionTopic = task?.assignedTopicId ? topicMap[task.assignedTopicId] : undefined;
+  const shownEffort = resolveShownEffortTier(
+    providersSnapshot?.providers ?? [],
+    sessionTopic?.effort ?? task?.effort ?? null,
+    sessionTopic?.provider && sessionTopic.model ? { provider: sessionTopic.provider, model: sessionTopic.model } : null,
+    sessionTopic?.provider ?? undefined,
+  );
   const modelTrigger = useTaskModelTrigger(task?.model || null, drawerRouting, 'task', boardDispatchModel);
   // Le etichette del drawer: toggle, e una sola visibilita' per volta (accendere
   // `invisibile` spegne `visibile`, che e' cio' che fa `normalizeLabels` anche
@@ -2360,7 +2374,9 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
               className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/20"
             >
               <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />
-              <span className="truncate">{modelTrigger.line}{task.effort ? ` · ${task.effort}` : ''}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)} tok` : ''}`}</span>
+              <span className="truncate">{modelTrigger.line}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)} tok` : ''}`}</span>
+              {/* Unknown tier shows nothing here: "auto" lives only next to the input fields (card 067a1f5b). */}
+              {shownEffort && <span data-testid="task-effort-badge" className="shrink-0 rounded bg-app-hover/60 px-1 text-mini font-semibold uppercase tracking-wide text-app-text-muted">{shownEffort}</span>}
               {!task.assignedTopicId && <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />}
             </button>
             <TaskModelSelector
@@ -3256,16 +3272,18 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
               </button>
             </div>
             </div>
-            {isAgentReview && (
-              <div className="mt-1 flex justify-end">
+            {/* Effort in force, under the field like the chat bar (card 067a1f5b). */}
+            <div className="mt-1 flex items-center justify-end gap-2">
+              <EffortBadge tier={shownEffort} overridden={!!(sessionTopic?.effort ?? task.effort)} testId="task-composer-effort-badge" />
+              {isAgentReview && (
                 <button type="button" onClick={() => void send({ quiet: true })}
                   disabled={busy || sending || uploading || (!draft.trim() && attachments.length === 0)}
                   title={tr('board.task.quietNoteTitle')} data-testid="task-reply-quiet-note"
                   className="flex items-center gap-1.5 rounded px-2 py-1 text-compact leading-4 text-app-text-secondary hover:bg-app-hover disabled:opacity-50">
                   <StickyNote className="h-3.5 w-3.5" />{tr('board.task.quietNote')}
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
         {/* COLONNA DESTRA (solo in modo largo): «quello che devo vedere», a
