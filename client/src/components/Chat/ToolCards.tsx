@@ -35,6 +35,7 @@ import { skillInstructions } from './toolCardBody';
 import { useBackgroundShell, parseShellIdFromStartResult } from '../../hooks/useBackgroundShell';
 import { useWaitedProcess } from '../../hooks/useWaitedProcess';
 import { LaunchedProcessTail, LiveShellTail } from './LiveShellTail';
+import { SparkLoader } from '../Layout/StreamingIndicator';
 import { liveShellTail } from './runningShellTail';
 
 /**
@@ -514,7 +515,9 @@ export function MonitorCard({ description, command, wsUrl, persistent, result, i
       <div className="flex flex-wrap items-center gap-2 text-mini text-app-text-muted">
         {armato && (
           <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
-            <span className={`inline-block w-1.5 h-1.5 rounded-full bg-amber-500 ${isRunning ? 'animate-pulse' : ''}`} />
+            {isRunning
+              ? <SparkLoader state="waiting" className="flex-shrink-0" />
+              : <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500" />}
             {tr('monitor.armed')}
           </span>
         )}
@@ -568,7 +571,9 @@ export function WaitCard({ processId, until, timeoutMs, result, sessionKey }: {
   return (
     <div className="space-y-1">
       <div className="flex flex-wrap items-center gap-2 text-mini text-app-text-muted">
-        <span className={`inline-block w-1.5 h-1.5 rounded-full ${running ? 'bg-green-500 animate-pulse' : live.status === 'error' ? 'bg-red-500' : 'bg-app-text-muted/50'}`} />
+        {running
+          ? <SparkLoader activity="tool" className="flex-shrink-0" />
+          : <span className={`inline-block w-1.5 h-1.5 rounded-full ${live.status === 'error' ? 'bg-red-500' : 'bg-app-text-muted/50'}`} />}
         <span className="font-mono text-app-text-secondary">{live.scriptName || processId}</span>
         {live.known
           ? <span>{running ? 'running' : live.status === 'error' ? 'failed' : 'finished'}{live.exitCode != null ? ` · exit ${live.exitCode}` : ''}</span>

@@ -3,6 +3,7 @@ import { useFindFocusThinking } from '../../state/chatFindFocus';
 import { Brain, ChevronDown, ChevronRight } from 'lucide-react';
 import { useDisclosureToggle } from './transcriptDisclosure';
 import { DisclosureBody } from './DisclosureBody';
+import { SparkLoader } from '../Layout/StreamingIndicator';
 
 interface Props {
   /** Raw thinking text. */
@@ -49,7 +50,7 @@ export function ReasoningRow({ content, partial, defaultCollapsed = true, messag
         <span className="text-app-text">Reasoning</span>
         <span className="text-mini text-app-text-muted">({length.toLocaleString()} chars)</span>
         {partial && (
-          <span className="ml-auto w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse flex-shrink-0" />
+          <SparkLoader className="ml-auto flex-shrink-0" activity="think" />
         )}
       </button>
       <DisclosureBody open={!collapsed} className="ml-5 pb-1.5">

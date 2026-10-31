@@ -1,6 +1,6 @@
 /**
  * Streaming indicators — the canonical "working now" affordance for a row/tab,
- * rendered as a breathing four-pointed star (see SparkLoader), NOT a row of
+ * rendered as a body of 48 sliding squares (see SparkLoader), NOT a row of
  * dots and not a spinning ring. It promises no quantity, so it reads as
  * "alive, computing" rather than as a progress bar about to finish.
  *
@@ -33,44 +33,102 @@
  * from the same loading facade and the same component so they can't drift.
  */
 
-import { Sparkle } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import { useTopicLoading, useTopicAwaitingInput, useTopicInProgress, useTopicBackgroundTasks, useProjectLoading, useProjectAwaitingInput, useTerminalLoading, useTerminalBackgroundTasks, useBrowserLoading } from '../../state/signals';
 import { useT } from '../../hooks/useT';
-import { loaderArcClass, loaderStateFor, type LoaderState } from './loaderState';
+import { loaderInkClass, loaderStateFor, type LoaderState } from './loaderState';
+import { LoaderBody, sharedLoaderClock, type ClockClient, type LoaderActivity } from './squareLoader';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact } from '../../state/workLongevity';
 
 /**
- * THE SPARK: lucide's four-pointed `Sparkle`, breathing (scale 0.85 to 1 with a
- * slight turn, about 1.6s, ease-in-out). It replaced a ring with a turning arc,
- * which read as the old generic "loading" and not as an assistant thinking.
- *
- * It is a lucide component and not an SVG of ours on purpose: every other glyph
- * in this app comes from that set, and a bespoke one drifts in stroke weight
- * the moment the set updates.
+ * THE SQUARE LOADER: 48 rounded squares that slide between shapes (the engine
+ * is `squareLoader.ts`, a port of the approved bench). `activity` picks the
+ * movement where the caller knows what is going on; without it `working` is
+ * `think` and `waiting` is `wait`. The colour is the element's `currentColor`,
+ * so `loaderArcClass` keeps deciding it (primary, amber, the ink of a fill).
  *
  * GEOMETRY: 12x12 inside the 16px slot, so the margin is 2 on both axes, whole
- * pixels (the tab geometry test enforces it). Only `transform` and `opacity`
- * animate. The waiting state is the same star, still and amber. Timings and the
- * `prefers-reduced-motion` branch live in `index.css` (`spark-breathe`).
+ * pixels (the tab geometry test enforces it). At 12-16px the body is a 7x7 grid
+ * on device pixels, at 20px 9x9, above that it is free. `hollow` keeps the
+ * centre of the grid empty (the tab slot draws a count there).
+ *
+ * COST: one shared clock, paused off screen and in a hidden window, 30 fps at
+ * most under 24px, one still frame under `prefers-reduced-motion`.
  */
 /** Glyph size. 12 in a 16px slot leaves an integer 2px margin per side. */
 const GLYPH = 12;
 
+/** The movement a loader plays when the caller does not say. */
+function defaultActivity(state: LoaderState): LoaderActivity {
+  return state === 'waiting' ? 'wait' : 'think';
+}
+
 /** `onFill`: the glyph sits on an attention fill and takes the fill's ink (`loaderArcClass`).
- *  `size`: the tab slot draws the same star at 20 around a count (TABSLOT-02). */
-export function SparkLoader({ className = '', state = 'working', onFill = false, size = GLYPH }: { className?: string; state?: LoaderState; onFill?: boolean; size?: number }) {
+ *  `size`: the tab slot draws the same body at 20 around a count (TABSLOT-02).
+ *  `activity`: which movement to play; `done` and `error` only where a surface already shows that outcome. */
+export function SparkLoader({ className = '', state = 'working', onFill = false, size = GLYPH, activity, hollow = false }: {
+  className?: string;
+  state?: LoaderState;
+  onFill?: boolean;
+  size?: number;
+  activity?: LoaderActivity;
+  hollow?: boolean;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const shown = activity ?? defaultActivity(state);
+  const activityRef = useRef(shown);
+  activityRef.current = shown;
+  const refreshRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    const scale = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = canvas.height = Math.round(size * scale);
+    const body = new LoaderBody(size, ctx, { scale, hollow });
+    let color = getComputedStyle(canvas).color;
+    let draws = 0;
+    const still = !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    refreshRef.current = () => {
+      color = getComputedStyle(canvas).color;
+      if (still) { body.snap(activityRef.current, 2); body.draw(color); }
+    };
+    const client: ClockClient = {
+      body,
+      activity: () => activityRef.current,
+      // The ink can change with the theme: re-read it now and then, not on every frame.
+      color: () => { if (++draws % 45 === 0) color = getComputedStyle(canvas).color; return color; },
+    };
+    if (still) {
+      body.snap(activityRef.current, 2);
+      body.draw(color);
+      return;
+    }
+    const clock = sharedLoaderClock();
+    let visible = typeof IntersectionObserver === 'undefined';
+    const io = typeof IntersectionObserver === 'undefined' ? null : new IntersectionObserver((entries) => {
+      const now = entries[entries.length - 1]?.isIntersecting ?? true;
+      if (now === visible) return;
+      visible = now;
+      if (now) { color = getComputedStyle(canvas).color; clock.add(client); } else clock.remove(client);
+    });
+    io?.observe(canvas);
+    if (visible) clock.add(client);
+    return () => { io?.disconnect(); clock.remove(client); };
+  }, [size, hollow]);
+
+  // Lo stato cambia l'inchiostro subito, non al prossimo giro di lettura; il fotogramma fermo si ridisegna.
+  useEffect(() => { refreshRef.current?.(); }, [shown, state, onFill]);
+
   return (
     <span
-      className={`relative inline-flex items-center justify-center ${className}`}
+      className={`relative inline-flex items-center justify-center ${loaderInkClass(state, onFill, activity)} ${className}`}
       style={{ width: size, height: size }}
       aria-hidden="true"
     >
-      <Sparkle
-        size={size}
-        strokeWidth={2}
-        className={`absolute inset-0 fill-current ${loaderArcClass(state, onFill)}`}
-      />
+      <canvas ref={canvasRef} className="absolute inset-0" style={{ width: size, height: size }} />
     </span>
   );
 }
