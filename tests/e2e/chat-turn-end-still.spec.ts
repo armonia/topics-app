@@ -49,6 +49,7 @@ const REASONING = "Let me look at the question first.";
 const ANSWER = "ANSWER-STILL the answer, streamed live after the reasoning.";
 const ANSWER_REDACTED = "ANSWER-REDACTED the answer after a redacted reasoning block.";
 const ANSWER_TOOLS = "ANSWER-TOOLS the answer after a round of tools.";
+const ANSWER_QUICK = "ANSWER-QUICK the answer, and the turn ends right behind its last word.";
 const echo = (word: string) => ({ name: "bash", input: { command: `echo ${word}` } });
 
 const SCRIPTS: Record<string, FakeRound[]> = {
@@ -66,6 +67,10 @@ const SCRIPTS: Record<string, FakeRound[]> = {
     { thinking: REASONING, afterThinkingMs: 500, tools: [echo("one"), echo("two")] },
     { text: ANSWER_TOOLS, holdMs: 3_000 },
   ],
+  // The answer's text and the end of the turn back to back, no pause: on
+  // the wire they reach the client in the same read. The check of 31/10 saw
+  // the text drawn only in the frame the loader went, the row 27 px higher.
+  quick: [{ thinking: REASONING, afterThinkingMs: 1_000, text: ANSWER_QUICK }],
   manytool: [
     { thinking: REASONING, afterThinkingMs: 500, tools: [echo("one"), echo("two"), echo("three")] },
     { text: ANSWER_TOOLS, holdMs: 3_000 },
@@ -105,7 +110,7 @@ async function openChat(page: Page, name: string) {
   await page.getByRole("textbox", { name: /Campo del messaggio|Message input for/ }).waitFor({ state: "visible", timeout: 15_000 });
 }
 
-type Frame = { t: number; loader: boolean; row: number | null; text: number | null; meta: number | null; metaLive: boolean; above: number | null };
+type Frame = { t: number; loader: boolean; row: number | null; text: number | null; meta: number | null; metaLive: boolean; above: number | null; scroll: number | null };
 
 /**
  * Starts, in the page, a per-frame sampler of the LAST assistant bubble: found
@@ -113,10 +118,14 @@ type Frame = { t: number; loader: boolean; row: number | null; text: number | nu
  * the turn. It waits until the answer's text is on screen and every measured
  * top has held for 10 frames, then records until 1.5 s after the loader went.
  * `above` is the prompt's bubble, the last user row: the transcript over the
- * turn, which a bubble that shrank or grew would push.
+ * turn, which a bubble that shrank or grew would push. `scroll` is the
+ * scroller's `scrollTop`.
+ * `settleOn: "row"` starts recording once the reasoning row has held, before
+ * any text: for a turn whose text and end come together, the frame the text
+ * is first drawn in is part of what is judged.
  */
-async function startSampler(page: Page, marker: string): Promise<void> {
-  await page.evaluate((marker) => {
+async function startSampler(page: Page, marker: string, settleOn: "text" | "row" = "text"): Promise<void> {
+  await page.evaluate(({ marker, settleOn }) => {
     const w = window as unknown as { __still: { frames: Frame[]; done: boolean; error?: string } };
     w.__still = { frames: [], done: false };
     const topOf = (el: Element | null) => (el ? el.getBoundingClientRect().top : null);
@@ -142,6 +151,7 @@ async function startSampler(page: Page, marker: string): Promise<void> {
         text: bubble ? textTop(bubble) : null,
         meta: topOf(meta),
         metaLive: meta?.getAttribute("data-live") === "true",
+        scroll: (document.querySelector('[data-testid="chat-message-list"]') as HTMLElement | null)?.scrollTop ?? null,
       };
     };
     let steady = 0;
@@ -153,10 +163,11 @@ async function startSampler(page: Page, marker: string): Promise<void> {
       const s = sample();
       if (!recording) {
         const same = !!previous && previous.row === s.row && previous.text === s.text && previous.meta === s.meta && previous.above === s.above;
-        steady = s.loader && s.text !== null && same ? steady + 1 : 0;
+        const ready = settleOn === "row" ? s.row !== null && s.text === null : s.text !== null;
+        steady = s.loader && ready && same ? steady + 1 : 0;
         previous = s;
         if (steady >= 10) { recording = true; t0 = performance.now(); }
-        else if (!s.loader && previous && s.text !== null) { w.__still.error = "the turn ended before it settled"; w.__still.done = true; return; }
+        else if (!s.loader && s.text !== null) { w.__still.error = "the turn ended before it settled"; w.__still.done = true; return; }
         requestAnimationFrame(tick);
         return;
       }
@@ -167,7 +178,7 @@ async function startSampler(page: Page, marker: string): Promise<void> {
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
-  }, marker);
+  }, { marker, settleOn });
 }
 
 async function framesOf(page: Page): Promise<Frame[]> {
@@ -184,7 +195,7 @@ const spread = (values: Array<number | null>) => {
 
 /** The end of the turn as one window lived it: the loader went, nothing moved. */
 function judge(who: string, frames: Frame[], opts: { row: boolean }) {
-  const report = `${who}: ${frames.length} frames, row ${spread(frames.map((f) => f.row)).toFixed(2)} px, text ${spread(frames.map((f) => f.text)).toFixed(2)} px, meta ${spread(frames.map((f) => f.meta)).toFixed(2)} px, above ${spread(frames.map((f) => f.above)).toFixed(2)} px`;
+  const report = `${who}: ${frames.length} frames, row ${spread(frames.map((f) => f.row)).toFixed(2)} px, text ${spread(frames.map((f) => f.text)).toFixed(2)} px, meta ${spread(frames.map((f) => f.meta)).toFixed(2)} px, above ${spread(frames.map((f) => f.above)).toFixed(2)} px, scroll ${spread(frames.map((f) => f.scroll)).toFixed(2)} px`;
   console.log(`TURN-END ${report}`);
   // The window holds both sides of the end: the loader on, then gone.
   expect(frames.some((f) => f.loader), report).toBe(true);
@@ -200,6 +211,20 @@ function judge(who: string, frames: Frame[], opts: { row: boolean }) {
   expect(spread(frames.map((f) => f.text)), report).toBe(0);
   expect(spread(frames.map((f) => f.meta)), report).toBe(0);
   expect(spread(frames.map((f) => f.above)), report).toBe(0);
+}
+
+/**
+ * A turn whose text and end come together. The text is drawn while the loader
+ * is still on: it grows the bubble and the pin follows it, as with any streamed
+ * text. From the last frame of the loader on, the loader going included,
+ * nothing moves.
+ */
+function judgeFromText(who: string, frames: Frame[]) {
+  const seen = frames.map((f) => `${f.t}:${f.loader ? "L" : "-"}${f.text === null ? "" : "T"}@${f.row?.toFixed(2)}`).join(" ");
+  const lastLoader = frames.map((f) => f.loader).lastIndexOf(true);
+  expect(lastLoader, `${who}: the loader was seen (${seen})`).toBeGreaterThanOrEqual(0);
+  expect(frames[lastLoader]!.text, `${who}: the text is on screen before the loader goes (${seen})`).not.toBeNull();
+  judge(who, frames.slice(lastLoader), { row: true });
 }
 
 test.describe("the end of a turn moves nothing, in the window that sent it and in another", () => {
@@ -258,6 +283,52 @@ test.describe("the end of a turn moves nothing, in the window that sent it and i
     judge("sender", sender, { row: false });
     judge("second window", second, { row: false });
     await viewer.close();
+    await deleteTopic(request, topic.id).catch(() => {});
+  });
+
+  test("an answer that ends right behind its last word is drawn before the loader goes, and nothing moves", async ({ page, request, chatPage, context }) => {
+    const topic = await nativeTopic(request, "turn-end-quick");
+    const viewer = await context.newPage();
+    await openChat(viewer, topic.name);
+    await openChat(page, topic.name);
+
+    await startSampler(page, "ANSWER-QUICK", "row");
+    await startSampler(viewer, "ANSWER-QUICK", "row");
+    await chatPage.sendMessage("SCEN:quick go");
+
+    const sender = await framesOf(page);
+    const second = await framesOf(viewer);
+    judgeFromText("sender", sender);
+    judgeFromText("second window", second);
+    await viewer.close();
+    await deleteTopic(request, topic.id).catch(() => {});
+  });
+
+  test("a reader who scrolled up with the wheel stays where they are when the turn ends", async ({ page, request, chatPage }) => {
+    const topic = await nativeTopic(request, "turn-end-wheel");
+    await openChat(page, topic.name);
+    await chatPage.sendMessage("SCEN:still go");
+
+    // The answer is live; the reader goes up 400 px with a real wheel.
+    await expect(page.getByText("ANSWER-STILL", { exact: false })).toBeVisible({ timeout: 15_000 });
+    const scroller = page.locator('[data-testid="chat-message-list"]:visible');
+    const box = await scroller.boundingBox();
+    if (!box) throw new Error("the chat scroller has no box to wheel over");
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel(0, -400);
+    await expect.poll(() => scroller.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeGreaterThan(300);
+    await expect(page.getByTestId("chat-streaming-indicator")).toBeVisible();
+
+    await startSampler(page, "ANSWER-STILL");
+    const frames = await framesOf(page);
+    const report = `wheel: ${frames.length} frames, scroll ${frames[0]?.scroll} -> ${frames[frames.length - 1]?.scroll}, row ${spread(frames.map((f) => f.row)).toFixed(2)} px, above ${spread(frames.map((f) => f.above)).toFixed(2)} px`;
+    console.log(`TURN-END ${report}`);
+    expect(frames.some((f) => f.loader), report).toBe(true);
+    expect(frames.some((f) => !f.loader), report).toBe(true);
+    expect(frames.filter((f) => f.scroll === null), report).toHaveLength(0);
+    expect(spread(frames.map((f) => f.scroll)), report).toBe(0);
+    expect(spread(frames.map((f) => f.row)), report).toBe(0);
+    expect(spread(frames.map((f) => f.above)), report).toBe(0);
     await deleteTopic(request, topic.id).catch(() => {});
   });
 

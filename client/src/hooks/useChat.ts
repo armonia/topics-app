@@ -101,6 +101,7 @@ import {
 import { flagMapRef, flagSetter, getSessionFlag } from '../state/sessionFlags';
 import { apiFetch } from '../lib/shell/net';
 import { COMMAND_ANSWER_EVENT } from '../lib/commandAnswer';
+import { TextPaintGate } from './textPaintGate';
 
 // The turn flags' setters, readers and live refs: module constants, so every
 // callback that uses them stays stable (see `state/sessionFlags.ts`).
@@ -671,6 +672,13 @@ export function useChat() {
    * bolla morta. Vedi `liveTurn.ts`.
    */
   const streamMessageIdRef = useRef<LiveTurnIds>(new LiveTurnIds());
+  /** Whether a session's last live text is on screen yet (`textPaintGate.ts`). */
+  const textPaintGateRef = useRef(new TextPaintGate());
+  /**
+   * Per session, the WS frames that came behind a `stream:end` held for its
+   * last words to be painted: they run after it, in their order.
+   */
+  const heldBehindEndRef = useRef<Map<string, WSMessage[]>>(new Map());
   // Watchdog per il caso "il server ha finito, il nostro SSE no": vedi
   // scheduleSSEFailsafe.
   const sseFailsafeRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -1104,6 +1112,8 @@ export function useChat() {
   };
 
   const appendToLastMessage = useCallback((sessionKey: string, contentDelta?: string, thinkingDelta?: string, frame?: WSFrameRow) => {
+    // Unpainted until a frame shows it: the end of the turn waits for that frame.
+    if (contentDelta || thinkingDelta) textPaintGateRef.current.markCommitted(sessionKey);
     setMessages(prev => {
       const sessionMessages = prev[sessionKey] || [];
       const lastMessageIndex = frameTargetIndex(sessionMessages, streamMessageIdRef.current.get(sessionKey), frame);
@@ -1347,6 +1357,9 @@ export function useChat() {
     // use `sessionKey` without per-case re-narrowing on each switch arm.
     const sessionKey = 'sessionKey' in event ? (event as { sessionKey?: string }).sessionKey : undefined;
     if (!sessionKey) return;
+    // An end is waiting for its last words to be painted: what follows it waits too.
+    const heldBehindEnd = heldBehindEndRef.current.get(sessionKey);
+    if (heldBehindEnd) { heldBehindEnd.push(event); return; }
 
     // Ordering guarantee: a non-delta event must see buffered text already
     // committed before it reads/mutates the last message (blocks timeline).
@@ -1415,6 +1428,22 @@ export function useChat() {
         endedDuringOwnSseRef.current.add(sessionKey);
         scheduleSSEFailsafe(sessionKey);
       }
+      return;
+    }
+
+    // THE LAST WORDS ARE DRAWN BEFORE THE TURN CLOSES (`textPaintGate.ts`).
+    // A reply that ends right behind its text brings the last chunk and the
+    // end a millisecond apart: closed in the same commit, the text grew the
+    // bubble in the frame the loader went and the turn jumped 27 px (card
+    // 40ea050c). The end, and every frame of the session after it, waits for
+    // the frame that shows those words.
+    if (event.type === 'stream:end' && textPaintGateRef.current.isPending(sessionKey)) {
+      const queue: WSMessage[] = [event];
+      heldBehindEndRef.current.set(sessionKey, queue);
+      textPaintGateRef.current.afterPaint(sessionKey, () => {
+        heldBehindEndRef.current.delete(sessionKey);
+        for (const held of queue) handleStreamEventRef.current(held);
+      });
       return;
     }
 
@@ -1880,6 +1909,8 @@ export function useChat() {
         break;
     }
   }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn, relightSettledTurn, reserveThinkingRow]);
+  // The held frames run through the handler of the moment they are released.
+  const handleStreamEventRef = useRefMirror(handleStreamEvent);
 
   // Register WebSocket handler
   const registerWSHandler = useCallback((handler: (event: WSMessage) => void) => {
@@ -2240,6 +2271,10 @@ export function useChat() {
           // Finalize after flushing so content is up to date
           if (isDone && assistantMessageCreated) {
             flushLiveDeltas(sessionKey); // `partial:false` must not race the last token
+            // A reply that ends right behind its last word: those words are
+            // drawn while the loader is still there, and the loader goes in a
+            // later frame, where it moves nothing (`textPaintGate.ts`).
+            if (textPaintGateRef.current.isPending(sessionKey)) await textPaintGateRef.current.painted(sessionKey);
             if (currentContent.includes('{{BROWSER:') || currentContent.includes('{{TOPIC_SWITCH:') || currentContent.includes('{{TOPIC_NEW:') || currentContent.includes('{{PROJECT_')) {
               currentContent = cleanInvisibleMarkers(currentContent);
               updateLastMessage(sessionKey, { content: currentContent, partial: false });
@@ -3097,16 +3132,6 @@ export function useChat() {
                 if (isInThinking) { thinkingBatch += chunk; }
                 else if (chunk) { contentBatch += chunk; }
               }
-              // The same reasoning frames as the send above.
-              if (parsed.thinking?.open === true) {
-                if (contentBatch || thinkingBatch) bufferLiveDelta(sessionKey, contentBatch || undefined, thinkingBatch || undefined);
-                contentBatch = '';
-                thinkingBatch = '';
-                reserveThinkingRow(sessionKey);
-              } else if (parsed.thinking?.open === false) {
-                setThinking(prev => ({ ...prev, [sessionKey]: false }));
-              }
-              if (typeof delta?.thinking === 'string') thinkingBatch += delta.thinking;
             } catch {}
           }
 
@@ -3118,6 +3143,8 @@ export function useChat() {
           }
           if (isDone) {
             flushLiveDeltas(sessionKey); // `partial:false` must not race the last token
+            // The last words on screen before the loader goes (`textPaintGate.ts`).
+            if (textPaintGateRef.current.isPending(sessionKey)) await textPaintGateRef.current.painted(sessionKey);
             updateLastMessage(sessionKey, { partial: false });
           }
         }
@@ -3154,7 +3181,7 @@ export function useChat() {
       delete abortControllersRef.current[sessionKey];
       if (streamed) void loadHistoryRef.current?.(sessionKey, { fresh: true });
     }
-  }, [addMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, withRowsArrivedDuringOwnSse, reserveThinkingRow]);
+  }, [addMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, withRowsArrivedDuringOwnSse]);
 
   const editMessage = useCallback(
     (sessionKey: string, messageId: string, newContent: string): Promise<boolean> =>
