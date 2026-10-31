@@ -49,6 +49,13 @@ export interface MachineStore {
    * `null` when the row is gone.
    */
   touchNode(id: string): Machine | null;
+  /**
+   * Say a node is offline NOW, whatever its last heartbeat: the cloud row has
+   * no heartbeat of its own, and an account without an active cloud environment
+   * must not read as a machine the overflow can send cards to. `null` = no
+   * flip (gone, or already offline).
+   */
+  markNodeOffline(id: string): Machine | null;
   /** How many tasks still name this machine. Feeds the MACHINE-01 conflict. */
   countTasks(id: string): number;
   delete(id: string): boolean;
@@ -114,6 +121,9 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
     touchNode: db.prepare(`
       UPDATE machines SET status = 'online', last_heartbeat_at = $now, last_seen_at = $now, updated_at = $now
       WHERE id = $id
+    `),
+    markNodeOffline: db.prepare(`
+      UPDATE machines SET status = 'offline', updated_at = $now WHERE id = $id AND status != 'offline'
     `),
     countTopics: db.prepare(`SELECT COUNT(*) as n FROM topics WHERE machine_id = ?`),
     countTasks: db.prepare(`SELECT COUNT(*) as n FROM tasks WHERE machine_id = ?`),
@@ -212,6 +222,12 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
     },
     touchNode(id) {
       stmts.touchNode.run({ $id: id, $now: new Date().toISOString() });
+      const row = stmts.getById.get(id);
+      return row ? rowToMachine(row) : null;
+    },
+    markNodeOffline(id) {
+      const res = stmts.markNodeOffline.run({ $id: id, $now: new Date().toISOString() });
+      if (res.changes === 0) return null;
       const row = stmts.getById.get(id);
       return row ? rowToMachine(row) : null;
     },

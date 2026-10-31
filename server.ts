@@ -255,8 +255,10 @@ import { CloudApi } from "./server/providers/claude-cloud/api";
 import { credentialsFor } from "./server/providers/claude-cloud/creds";
 import {
   CLOUD_NODE_BASE_URL, CLOUD_NODE_HOST, CLOUD_NODE_NAME, CLOUD_NODE_TOKEN,
-  cloudCredentialsPresent, createCloudNodeClient, isCloudBaseUrl,
+  cloudCredentialsPresent, createCloudNodeClient, isCloudBaseUrl, resolveGithubSlug,
 } from "./server/providers/claude-cloud/node";
+import { ensureBranchOnOrigin } from "./server/services/branch-on-origin";
+import { githubOriginFrom, overflowMachinesFrom } from "./server/services/dispatch-overflow";
 import { createDelegatedRevocationRetry } from "./server/services/delegated-revocation-retry";
 import { initVapid } from "./server/push-service";
 import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/lib/dev-bundle-reload";
@@ -2164,8 +2166,8 @@ const taskDispatcher = createTaskDispatcher({
   // da qui in poi la stessa nascita la usa anche un sotto-agente isolato
   // (WORKTREE-14): il corpo sta in `worktree-for-agent.ts`, il perché del
   // ripiego su HEAD in `worktree-base-ref.ts`.
-  createWorktree: (projectStoreId) =>
-    createAgentWorktree(agentWorktreeDeps("dispatch"), projectStoreId, worktreeReadyMs()),
+  createWorktree: (projectStoreId, opts) =>
+    createAgentWorktree(agentWorktreeDeps("dispatch"), projectStoreId, worktreeReadyMs(), opts),
   worktreeSetupResult: (worktreeId) => ctx.worktreeManager.setupResult(worktreeId),
   deleteWorktree: async (worktreeId) => { await ctx.worktreeManager.delete(worktreeId); },
   // C'e' qualcosa da perdere in questo worktree? Serve al dispatcher per NON
@@ -2277,10 +2279,28 @@ const taskDispatcher = createTaskDispatcher({
     localMachineId: () => ctx.machineStore.upsertLocal().id,
     originUrlOf: (projectId) => nodeBranchPlanter.originUrlOf(projectId),
     plantBranch: (input) => nodeBranchPlanter.plantBranch(input),
+    // A card that already has a branch carries it to the node: pushed first,
+    // from this machine's checkout (`branch-on-origin.ts`).
+    ensureBranchOnOrigin: ({ projectId, branch }) => ensureBranchOnOrigin(projectPathForNode(projectId), branch),
     // The `node-run` hook starts in the project's checkout on this machine,
     // the same path the planter reads the origin from and plants into.
     projectPathOf: projectPathForNode,
   },
+  // THE OVERFLOW (`dispatch-overflow.ts`): where a card held by this Mac's
+  // memory floor can go. The cloud has no heartbeat: it is there while its
+  // login is; a paired node only while its heartbeat says online.
+  // Cloud Claude clones only from GitHub: the overflow asks before choosing it.
+  githubOriginOf: async (projectId) => githubOriginFrom(await nodeBranchPlanter.originUrlOf(projectId), resolveGithubSlug),
+  // The cloud row is online only while the account has an active cloud
+  // environment (the heartbeat asks, `tickHeartbeat`); a node asleep is still a
+  // choice when a `node-run` hook is there to wake it.
+  overflowMachines: () => overflowMachinesFrom({
+    rows: ctx.machineStore.list(),
+    isCloud: isCloudBaseUrl,
+    cloudEnabled,
+    environmentOk: cloudNode.environmentReady()?.ok ?? null,
+    wakeable: defaultLifecycleHooks().declares?.("node-run") ?? false,
+  }),
   // Usage consumed by the dispatched session so far, from its Claude Code
   // transcript (jsonl_path is kept fresh by the session tracker). The reader
   // (transcript-usage.ts) is incremental (per-path byte offset — the live
@@ -3180,9 +3200,22 @@ function tickHeartbeat() {
     // rinfreschiamo noi, o dopo 5 minuti la card direbbe «non risponde» su un servizio vivo.
     // Solo se il cloud è acceso QUI: una riga rimasta da un avvio di prima, a cloud spento,
     // deve diventare «non risponde» col giro normale invece di restare in linea.
+    // And only while the account has an active cloud environment: without one the node
+    // answers but can start nothing (30/10: the Keychain login moved to an account with no
+    // environments), and "online" sent cards there. Asked from here, at most every 5 minutes.
     const cloud = cloudEnabled ? ctx.machineStore.getByHostname(CLOUD_NODE_HOST) : null;
     if (cloud && isCloudBaseUrl(cloud.baseUrl)) {
-      ctx.machineStore.upsertNode({ hostname: CLOUD_NODE_HOST, name: cloud.name, baseUrl: CLOUD_NODE_BASE_URL });
+      void cloudNode.probeEnvironment();
+      const env = cloudNode.environmentReady();
+      if (env && !env.ok) {
+        const off = ctx.machineStore.markNodeOffline(cloud.id);
+        if (off) {
+          console.warn(`[claude-cloud] offline: ${env.reason}`);
+          ctx.broadcastToAll({ type: "machine:updated", machine: off, payload_version: 1 });
+        }
+      } else {
+        ctx.machineStore.upsertNode({ hostname: CLOUD_NODE_HOST, name: cloud.name, baseUrl: CLOUD_NODE_BASE_URL });
+      }
     }
     probeNodes();
     const flipped = ctx.machineStore.markStaleOffline(STALE_THRESHOLD_MS);

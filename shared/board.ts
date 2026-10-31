@@ -1884,6 +1884,19 @@ export interface BoardSettings {
    */
   dispatchMachineId: string | null;
   /**
+   * Overflow dispatch, ON by default: a card that would run here and has been
+   * held by this machine's memory floor for more than two minutes moves to the
+   * first online machine (Cloud Claude with credit, else a paired node). See
+   * `server/services/dispatch-overflow.ts`.
+   */
+  dispatchOverflow: boolean;
+  /**
+   * Every card of this board touches this Mac itself (local processes,
+   * OpenClaw, sessions, macOS): the overflow never moves them. The same mark
+   * a single card carries as `stayLocal`.
+   */
+  dispatchStayLocal: boolean;
+  /**
    * Lingua in cui rispondono gli agenti dispatchati su questa board.
    * 'inherit' (il default NULL) → vale la preferenza globale
    * (`app_settings.output_language`), che e' anche quella di chat e terminale:

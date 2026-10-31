@@ -121,6 +121,13 @@ describe("the runner: exit code is the verdict, stderr is the reason", () => {
     expect(out).toEqual({ ok: false, reason: "no rm on fridays" });
   });
 
+  test("declares: only an event with a hook in the file (the overflow asks for node-run)", () => {
+    expect(runner().declares!("node-run")).toBe(false);
+    writeHooks([{ event: "node-run", cmd: "wake-pc" }]);
+    expect(runner().declares!("node-run")).toBe(true);
+    expect(runner().declares!("pre-tool")).toBe(false);
+  });
+
   test("exit zero is silent", async () => {
     writeHooks([{ event: "pre-tool", cmd: "echo chatter >&2; exit 0" }]);
     expect(await runner().run("pre-tool", payload({ tool_name: "bash" }))).toEqual({ ok: true });

@@ -37,3 +37,15 @@ describe("touchNode", () => {
     expect(machines.touchNode("non-esiste")).toBeNull();
   });
 });
+
+describe("markNodeOffline", () => {
+  it("spegne subito un nodo in linea, qualunque sia il suo ultimo battito; una seconda volta non cambia niente", () => {
+    const { machines } = store();
+    const cloud = machines.upsertNode({ hostname: "claude-cloud", name: "Cloud Claude", baseUrl: "claude-cloud://" });
+    expect(cloud.status).toBe("online");
+    expect(machines.markNodeOffline(cloud.id)!.status).toBe("offline");
+    expect(machines.get(cloud.id)!.status).toBe("offline");
+    expect(machines.markNodeOffline(cloud.id)).toBeNull();
+    expect(machines.markNodeOffline("non-esiste")).toBeNull();
+  });
+});

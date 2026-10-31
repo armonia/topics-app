@@ -379,6 +379,9 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
               : (typeof body.dispatchTopicsRouting === "boolean" ? body.dispatchTopicsRouting : null),
             // Absent leaves the rule alone; null or "" clears it (validated above).
             dispatchMachineId: wantedMachine === undefined ? undefined : (wantedMachine ?? ""),
+            // The overflow's switch and the board-wide "this Mac only" mark.
+            dispatchOverflow: typeof body?.dispatchOverflow === "boolean" ? body.dispatchOverflow : undefined,
+            dispatchStayLocal: typeof body?.dispatchStayLocal === "boolean" ? body.dispatchStayLocal : undefined,
             dispatchFanOut: typeof body?.dispatchFanOut === "number" ? body.dispatchFanOut : undefined,
             // I QUATTRO CHE LA ROTTA NON INOLTRAVA. Esistono nel servizio, nella
             // tabella e nel tipo, e due di loro li LEGGE il dispatcher a ogni
@@ -509,6 +512,8 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             blockedByTaskId: typeof body?.blockedByTaskId === "string" ? body.blockedByTaskId : null,
             reuseBlockerContext: body?.reuseBlockerContext === true,
             machineId: bornMachine,
+            // "This Mac only" at birth: the overflow dispatch never moves it.
+            stayLocal: body?.stayLocal === true,
             // Who opened it: the interface marks itself, anyone else is automation.
             createdBy: resolveCreatedBy(req, body),
             // The workflow column it is born in; absent = the server decides.
