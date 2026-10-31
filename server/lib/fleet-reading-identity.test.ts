@@ -2,10 +2,12 @@
  * @covers KANBAN-75
  */
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { EMPTY_FREEZE_STATE, FREEZE_SETTLE_MS, freezePlan } from "../../shared/machine-budget";
 import { budgetSample, computeDispatchCapacity, governorRead, newOtherLoadState, smoothedOther } from "../services/dispatch-capacity";
 import { _resetFreezableRuns, createBudgetGovernor, registerFreezableRun } from "../services/budget-governor";
+import { setActiveSwapFreezer, swapFrozenCount } from "./swap-freeze-hold";
 import { _resetFleetUsageCache, _setMachineCpuSource, fleetLoadSync, getFleetUsage, type FleetLoadReading } from "./fleet-usage";
 
 const targets = [{ id: "a", kind: "check" as const, startedAt: 1 }, { id: "b", kind: "check" as const, startedAt: 2 }];
@@ -177,5 +179,29 @@ describe("card 10469e3e: one CPU budget and every freeze in the capacity payload
     const c = cap({ share: 0.8, frozen: 1, swapFrozen: 2 });
     expect(c.frozen).toBe(3);
     expect(c.frozenBy).toEqual({ governor: 1, swapFreezer: 2 });
+  });
+
+  test("in resources mode recommended and the reason come from the knob's budget", () => {
+    const r = cap({ share: 0.8, frozen: 0, resources: true });
+    const counted = cap({ share: 0.8, frozen: 0 });
+    expect(r.recommended).toBe(3);
+    expect(counted.recommended).toBe(2);
+    expect(r.reason).toContain("utilizzabili");
+    expect(counted.reason).toContain("di quota");
+    expect(counted.reason).not.toContain("utilizzabili");
+  });
+
+  test("swapFrozenCount reads the active freezer and is 0 without one", () => {
+    try {
+      setActiveSwapFreezer({ frozenCount: () => 2 } as unknown as Parameters<typeof setActiveSwapFreezer>[0]);
+      expect(swapFrozenCount()).toBe(2);
+    } finally { setActiveSwapFreezer(null); }
+    expect(swapFrozenCount()).toBe(0);
+  });
+
+  test("the capacity route feeds the knob with the swap freezer and the resources mode", () => {
+    const routes = readFileSync(join(import.meta.dir, "../routes/tasks.ts"), "utf8");
+    expect(routes).toContain("swapFrozen: swapFrozenCount(),");
+    expect(routes).toContain('resources: capMode(svc.getGlobalCap()) === "resources",');
   });
 });
