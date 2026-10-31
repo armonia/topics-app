@@ -1,4 +1,4 @@
-import { createElement, lazy, memo, Suspense, useCallback, useContext, useEffect, useRef, useState, type MouseEvent } from 'react';
+import { createElement, lazy, memo, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type RefObject } from 'react';
 import { useT } from '../../hooks/useT';
 import { ChevronDown, ChevronRight, HelpCircle, Hourglass, PenLine, ShieldOff, X } from 'lucide-react';
 import { SparkLoader } from '../Layout/StreamingIndicator';
@@ -154,6 +154,35 @@ const DETAIL_REVEAL_WAIT_MS = 600;
  * tool cambia — testualmente "so React.memo sees a real prop change" — quindi
  * una riga aggiornata ha davvero una prop diversa e non resta indietro.
  */
+/**
+ * Whether the element's text is clipped by its box right now (`truncate` cuts
+ * it with an ellipsis, so scrollWidth then exceeds clientWidth). Measured after
+ * mount and after every text change (one frame later, so the layout is final),
+ * and on every resize of the box, so it follows the pane width the way the
+ * reader sees the row.
+ */
+function useIsTextCut(ref: RefObject<HTMLElement | null>, text: string | undefined): boolean {
+  const [cut, setCut] = useState(false);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const el = ref.current;
+      setCut(!!el && el.scrollWidth > el.clientWidth);
+    };
+    const frame = requestAnimationFrame(measure);
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') {
+      return () => cancelAnimationFrame(frame);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [ref, text]);
+  return cut;
+}
+
 export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionKey, messageId, onPlanDecision, highlighted }: Props) {
   const tr = useT();
   const rowRef = useRef<HTMLDivElement>(null);
@@ -211,6 +240,8 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   const baseDetail = resolveToolDetail(wholeCall);
   const detail = fetched?.detail ? { ...baseDetail, ...fetched.detail } : baseDetail;
   const display = buildToolDisplayLabel(detail, toolCall.name);
+  const summaryRef = useRef<HTMLSpanElement>(null);
+  const summaryCut = useIsTextCut(summaryRef, display.summary);
   const Icon = iconForDetail(detail);
   const status = toolCall.status ?? 'pending';
   // A call the server marked `pending` has NOT started: the native runtime
@@ -474,7 +505,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           {display.summary && (
             <span className="min-w-0 flex items-baseline text-mini text-app-text-secondary font-mono" title={display.tooltip}>
               <span className="flex-shrink-0">(</span>
-              <span className="truncate">{display.summary}</span>
+              <span ref={summaryRef} className="truncate">{display.summary}</span>
               <span className="flex-shrink-0">)</span>
             </span>
           )}
@@ -695,7 +726,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             <QuestionAnswerCard toolCallId={toolCall.id} asked={askedQuestions} response={answer} schema={toolCall.userInputSchema} />
           ) : (
             <>
-            <ToolCardBody detail={detail} isError={isError} error={toolCall.error} isRunning={isRunning} sessionKey={sessionKey} liveResult={runningShellOutput(toolCall)} />
+            <ToolCardBody detail={detail} isError={isError} error={toolCall.error} isRunning={isRunning} sessionKey={sessionKey} liveResult={runningShellOutput(toolCall)} summaryCut={summaryCut} />
             {/* CHAT-TOOL-13: a running command with nothing printed yet says for how long. */}
             {detail.type === 'shell' && isRunning && !detail.output && !runningShellOutput(toolCall) && typeof toolCall.startedAt === 'number' && (
               <SilentShellStatus since={toolCall.startedAt} command={detail.command} />

@@ -396,12 +396,16 @@ describe('toolDetail — browser openings (CHAT-BROWSER-03)', () => {
     expect(d.tooltip).toBe(long);
   });
 
-  test('the open sub-agent card repeats the description only when the row cuts it', () => {
-    const short = { subAgentType: 'Explore', description: 'Controlla' };
-    expect(subAgentBodyDescription(short)).toBeUndefined();
-    const same = { subAgentType: 'general-purpose', description: 'general-purpose' };
-    expect(subAgentBodyDescription(same)).toBeUndefined();
+  test('the open sub-agent card repeats the description only when the row really cuts it', () => {
     const long = 'Controlla in dettaglio ogni file del modulo di pagamento e riporta le differenze '.repeat(3).trim();
-    expect(subAgentBodyDescription({ subAgentType: 'Explore', description: long })).toBe(long);
+    const detail = { subAgentType: 'Explore', description: long };
+    // Not cut on screen: the row already shows it whole, so no body.
+    expect(subAgentBodyDescription(detail, false)).toBeUndefined();
+    // Cut on screen: the body carries the whole text.
+    expect(subAgentBodyDescription(detail, true)).toBe(long);
+    // A description that only repeats the type is never printed, cut or not.
+    const same = { subAgentType: 'general-purpose', description: 'general-purpose' };
+    expect(subAgentBodyDescription(same, true)).toBeUndefined();
+    expect(subAgentBodyDescription(same, false)).toBeUndefined();
   });
 });
