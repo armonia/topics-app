@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.45 — 2026-10-31
+
+### Sotto il cofano
+- Square loader: shape changes glide instead of jumping
+- Release builds move to macos-15: GitHub retires macos-14 on 2 November
+- Square loader: the ink fade reads the motion token
+
 ## 2.3.44 — 2026-10-31
 
 ### Sotto il cofano
