@@ -308,8 +308,7 @@ export function TodoCard({ items }: { items: Array<{ content: string; status: 'p
 
 // ── Sub-agent (Task) ────────────────────────────────────────────────────────
 
-export function SubAgentCard({ subAgentType, description, actions, result, isRunning }: {
-  subAgentType?: string; description?: string;
+export function SubAgentCard({ actions, result, isRunning }: {
   actions: Array<{ index: number; toolName: string; summary?: string; status?: 'running' | 'success' | 'error' }>;
   result?: string;
   /**
@@ -325,13 +324,8 @@ export function SubAgentCard({ subAgentType, description, actions, result, isRun
   const tr = useT();
   return (
     <div className="space-y-1.5">
-      {(subAgentType || description) && (
-        <div className="text-mini text-app-text-secondary">
-          {subAgentType && <span className="font-mono text-purple-500">{subAgentType}</span>}
-          {subAgentType && description && ' · '}
-          {description}
-        </div>
-      )}
+      {/* No type/description header here: the row above already shows them,
+          and repeating them in the body printed the same label twice. */}
       {actions.length === 0 ? (
         <div className="text-mini italic text-app-text-muted">
           {isRunning ? tr('chat.tool.subAgentStarting') : (result ? null : tr('chat.tool.noActivity'))}
@@ -725,7 +719,7 @@ export function ToolCardBody({ detail, isError, error, isRunning, sessionKey, li
     case 'sub_agent':
       // Topics' `spawn_agent`: a child with a pane, a live state and results of its own.
       if (detail.via === 'spawn_agent') return <SpawnAgentCard detail={detail} sessionKey={sessionKey} isRunning={isRunning} isError={isError} error={error} />;
-      return <SubAgentCard subAgentType={detail.subAgentType} description={detail.description} actions={detail.actions} result={detail.result} isRunning={isRunning} />;
+      return <SubAgentCard actions={detail.actions} result={detail.result} isRunning={isRunning} />;
     case 'plan':
       return <PlanCard text={detail.text} />;
     case 'mcp':
