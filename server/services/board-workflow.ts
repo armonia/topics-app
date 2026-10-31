@@ -92,7 +92,7 @@ export function clearStagesOutsideWorkflow(db: Database, scope: string, nowIso: 
  * re-checks it, so two passes cannot both return it. Returns their ids.
  *
  * `failed`: cards whose last reminder reached nobody (id → when, ms). Their
- * stamp was taken back (`unstampAiReviewReminder`), so they come back here; a
+ * stamp was taken back (`clearAiReviewReminderStamp`), so they come back here; a
  * card is held back until `AI_REVIEW_RETRY_MS` after its failure, so a board
  * with nobody to wake does not log the same failure at every reconcile.
  */
@@ -154,7 +154,7 @@ export function dropStageOutsideTarget(db: Database, taskId: string, targetProje
  * wrote (only that one: a newer stamp is another reminder's), so a later
  * sweep sends it again. A schema without the column has nothing to retry.
  */
-export function unstampAiReviewReminder(db: Database, taskId: string, stampIso: string): void {
+export function clearAiReviewReminderStamp(db: Database, taskId: string, stampIso: string): void {
   try {
     db.prepare("UPDATE tasks SET ai_review_reminded_at = NULL WHERE id = ? AND ai_review_reminded_at = ?").run(taskId, stampIso);
   } catch { /* no column, no reminder */ }

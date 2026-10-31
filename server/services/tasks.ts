@@ -38,7 +38,7 @@ import { checksMemFloorGB } from "../../shared/checks-memory-floor";
 import { parseCreatedBy, UNOWNED_BACKLOG_MS } from "../../shared/created-by";
 import { STAGE_AI_REVIEW, STAGE_HUMAN_REVIEW, agentAskInThread, defaultColumnFor, namesHumanReviewWithoutAsk, stageAtBirth, stageForDelivery, stageForStatusChange, type WorkflowColumn, type WorkflowPresetId } from "../../shared/workflow";
 import { requestAiReviewNotice } from "./ai-review-notice";
-import { checkStage, clearStagesOutsideWorkflow, dropStageOutsideTarget, readBoardWorkflow, routeAskOutOfAiReview, stampStaleAiReview, unstampAiReviewReminder, writeBoardWorkflow } from "./board-workflow";
+import { checkStage, clearStagesOutsideWorkflow, dropStageOutsideTarget, readBoardWorkflow, routeAskOutOfAiReview, stampStaleAiReview, clearAiReviewReminderStamp, writeBoardWorkflow } from "./board-workflow";
 import { currentDispatchBlock, currentMemoryWait, heldResumeBlock } from "./dispatch-block-signal";
 import { readElsewhere } from "./task-elsewhere";
 import { liveAgentCount, RUNS_HERE_SQL } from "./agent-census";
@@ -3712,7 +3712,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       taskId, projectId: row.project_id, title: row.text ?? "",
       createdBy: row.created_by ?? null, openerTopicId: row.created_by_topic_id ?? null, reminder,
       ...(reminder && stampIso ? { onUndelivered: () => {
-        unstampAiReviewReminder(db, taskId, stampIso);
+        clearAiReviewReminderStamp(db, taskId, stampIso);
         failedAiReviewReminders.set(taskId, Date.parse(now()));
       } } : {}),
     });
