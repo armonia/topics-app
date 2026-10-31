@@ -131,7 +131,9 @@ for (const device of [
         expect((await request.post(`/api/test/tasks/${task.id}/bind-topic`, { data: { topicId: topic.id } })).ok()).toBe(true);
         await page.reload();
         await details.click();
-        await expect(chip).toHaveText('GPT-5.5 · via Codex');
+        await expect(chip.locator('span.truncate')).toHaveText('GPT-5.5 · via Codex');
+        // The effort chip is always present in the drawer, "auto" when none is set (card 067a1f5b).
+        await expect(chip.getByTestId('task-effort-badge')).toBeVisible();
         await expect(chip).toHaveAttribute('aria-disabled', 'true');
         await expect(chip).toHaveAttribute('title', /GPT-5\.5/);
         await chip.click({ force: true });
