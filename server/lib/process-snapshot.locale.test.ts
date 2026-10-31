@@ -4,19 +4,24 @@
  *
  * @covers KANBAN-75
  */
-import { afterEach, describe, expect, it, spyOn } from "bun:test";
-import * as capture from "./bounded-capture";
-import { readStartTimes } from "./process-snapshot";
+import { afterAll, describe, expect, it, mock } from "bun:test";
+import { captureWithDeadline } from "./bounded-capture";
 
-afterEach(() => { spyOn(capture, "captureWithDeadline").mockRestore(); });
+const seen: Array<Record<string, string> | undefined> = [];
+const realCapture = { captureWithDeadline };
+
+mock.module("./bounded-capture", () => ({
+  captureWithDeadline: async (_argv: string[], _ms: number, env?: Record<string, string>) => {
+    seen.push(env);
+    return { text: "42 Sat Oct 31 04:20:36 2026\n", exitCode: 0 };
+  },
+}));
+const { readStartTimes } = await import("./process-snapshot");
+
+afterAll(() => { mock.module("./bounded-capture", () => realCapture); });
 
 describe("readStartTimes", () => {
   it("runs ps with LC_ALL=C whatever the server's own locale is", async () => {
-    const seen: Array<Record<string, string> | undefined> = [];
-    spyOn(capture, "captureWithDeadline").mockImplementation(async (_argv, _ms, env) => {
-      seen.push(env);
-      return { text: "42 Sat Oct 31 04:20:36 2026\n", exitCode: 0 };
-    });
     const out = await readStartTimes([42]);
     expect(out?.get(42)).toBe("Sat Oct 31 04:20:36 2026");
     expect(seen.at(-1)?.LC_ALL).toBe("C");
