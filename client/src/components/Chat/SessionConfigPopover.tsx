@@ -15,7 +15,7 @@
 // azione" selezionato su ogni topic mentre lo spawn usa `bypassPermissions`.
 // Non è collegabile finché il server non gestisce il canale di permesso della
 // CLI — vedi openspec/changes/autonomy-level-needs-permission-channel/.
-import { effortBadgeLabel } from '../../lib/effortBadgeLabel';
+import { EffortBadge } from './EffortBadge';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
@@ -169,20 +169,7 @@ export function SessionConfigPopover({
             fisso e il testo centrato non si muove un pixel, in nessuno dei tre
             stati. */}
         <span className="w-[42px] flex items-center justify-center">
-          {/* Always a badge, never the bare icon: with provider Automatic no
-              tier is known yet, and the bar must still say what governs the
-              effort without opening the menu (card 067a1f5b). */}
-          <span
-            data-testid="session-effort-badge"
-            data-effort-source={effort ? 'override' : 'default'}
-            className={`w-full text-center text-mini uppercase tracking-wide px-1 py-0.5 rounded font-semibold tabular-nums ${
-              // An override is YOUR choice and shows; the provider default is a
-              // fact and stays muted.
-              effort ? 'bg-primary/30 text-primary' : 'bg-app-hover/60 text-app-text-muted'
-            }`}
-          >
-            {effortBadgeLabel(shownTier)}
-          </span>
+          <EffortBadge tier={shownTier} overridden={!!effort} className="w-full" />
         </span>
       </button>
 

@@ -1,5 +1,6 @@
 import { pickPlanComment } from './planPanel';
 import { effortBadgeLabel } from '../../lib/effortBadgeLabel';
+import { EffortBadge } from '../Chat/EffortBadge';
 import { reconcileAcknowledgedComments } from './acknowledgedComments';
 import type { TaskCommentAcknowledgement } from '../../../../shared/task-comment-ack';
 import { memo, useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, useSyncExternalStore, type TouchEvent as ReactTouchEvent } from 'react';
@@ -3240,16 +3241,18 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
               </button>
             </div>
             </div>
-            {isAgentReview && (
-              <div className="mt-1 flex justify-end">
+            {/* Effort in force, under the field like the chat bar (card 067a1f5b). */}
+            <div className="mt-1 flex items-center justify-end gap-2">
+              <EffortBadge tier={task.effort} overridden={!!task.effort} testId="task-composer-effort-badge" />
+              {isAgentReview && (
                 <button type="button" onClick={() => void send({ quiet: true })}
                   disabled={busy || sending || uploading || (!draft.trim() && attachments.length === 0)}
                   title={tr('board.task.quietNoteTitle')} data-testid="task-reply-quiet-note"
                   className="flex items-center gap-1.5 rounded px-2 py-1 text-compact leading-4 text-app-text-secondary hover:bg-app-hover disabled:opacity-50">
                   <StickyNote className="h-3.5 w-3.5" />{tr('board.task.quietNote')}
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
         {/* COLONNA DESTRA (solo in modo largo): «quello che devo vedere», a
