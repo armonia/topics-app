@@ -263,6 +263,13 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
   }
 
   /** The DECLARED reason of a failed node call (`NodeError.reason`), when it carries one. */
+  /** The park line for an account the node refuses (`cloud_setup`): the cause, not "not answering". */
+  function cloudSetupParkReason(name: string, err: unknown): string {
+    const why = err instanceof Error ? err.message : String(err);
+    return `«${name}» non può lavorare questa card: ${why}. Non è un nodo muto, è l'account: controlla il login ` +
+      "di Claude Code su questa macchina (o TOPICS_CLAUDE_CLOUD_ACCOUNT) e i suoi ambienti cloud, oppure togli la macchina dalla card.";
+  }
+
   function nodeFailureReason(err: unknown): string | null {
     const r = (err as { reason?: unknown } | null)?.reason;
     return typeof r === "string" ? r : null;
@@ -545,12 +552,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       // it, so the card stops with the cause instead of "not answering" for half an
       // hour (30/10/2026: 7 cards, 31 minutes, a Keychain login switched account).
       if (nodeFailureReason(err) === "cloud_setup") {
-        const why = err instanceof Error ? err.message : String(err);
-        parkNodeCard(
-          task,
-          `«${name}» non può far partire questa card: ${why}. Non è un nodo muto, è l'account: controlla il login ` +
-            "di Claude Code su questa macchina (o TOPICS_CLAUDE_CLOUD_ACCOUNT) e i suoi ambienti cloud, oppure togli la macchina dalla card.",
-        );
+        parkNodeCard(task, cloudSetupParkReason(name, err));
         return;
       }
       log(`nodo: creazione della corsa per ${task.id} fallita`, err);
@@ -857,6 +859,18 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
           baseUrl: node.baseUrl, token: node.token, runId: node.runId, delegation: node.delegation,
         });
       } catch (err) {
+        // The node answered, and what it said is that THIS ACCOUNT cannot reach
+        // the run (no active cloud environment, credentials refused). Counted as
+        // a silent poll, it buried the run after thirty rounds with "did not
+        // answer" and the cause was never written. The run id stays in
+        // `lastNodeRun`: the next dispatch cancels it before starting another.
+        if (nodeFailureReason(err) === "cloud_setup" && task) {
+          const still = inFlight.get(taskId);
+          if (!still || still.runId !== slot.runId) continue;
+          inFlight.delete(taskId);
+          parkNodeCard(task, cloudSetupParkReason(nodeName(node.machineId), err));
+          continue;
+        }
         node.fails++;
         log(`nodo: giro fallito per ${taskId} (${node.fails}/${NODE_DEAD_POLLS})`, err);
         continue;

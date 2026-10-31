@@ -256,6 +256,7 @@ import {
   cloudCredentialsPresent, createCloudNodeClient, isCloudBaseUrl, resolveGithubSlug,
 } from "./server/providers/claude-cloud/node";
 import { ensureBranchOnOrigin } from "./server/services/branch-on-origin";
+import { githubOriginFrom, overflowMachinesFrom } from "./server/services/dispatch-overflow";
 import { createDelegatedRevocationRetry } from "./server/services/delegated-revocation-retry";
 import { initVapid } from "./server/push-service";
 import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/lib/dev-bundle-reload";
@@ -2285,21 +2286,17 @@ const taskDispatcher = createTaskDispatcher({
   // memory floor can go. The cloud has no heartbeat: it is there while its
   // login is; a paired node only while its heartbeat says online.
   // Cloud Claude clones only from GitHub: the overflow asks before choosing it.
-  githubOriginOf: async (projectId) => {
-    const origin = await nodeBranchPlanter.originUrlOf(projectId);
-    return !!origin && !!(await resolveGithubSlug(origin));
-  },
+  githubOriginOf: async (projectId) => githubOriginFrom(await nodeBranchPlanter.originUrlOf(projectId), resolveGithubSlug),
   // The cloud row is online only while the account has an active cloud
   // environment (the heartbeat asks, `tickHeartbeat`); a node asleep is still a
   // choice when a `node-run` hook is there to wake it.
-  overflowMachines: () => {
-    const wakeable = defaultLifecycleHooks().declares?.("node-run") ?? false;
-    return ctx.machineStore.list()
-      .filter((m) => !!m.baseUrl)
-      .map((m) => isCloudBaseUrl(m.baseUrl)
-        ? { id: m.id, name: m.name, kind: "cloud" as const, online: cloudEnabled && m.status === "online" && cloudNode.environmentReady()?.ok !== false }
-        : { id: m.id, name: m.name, kind: "node" as const, online: m.status === "online", wakeable });
-  },
+  overflowMachines: () => overflowMachinesFrom({
+    rows: ctx.machineStore.list(),
+    isCloud: isCloudBaseUrl,
+    cloudEnabled,
+    environmentOk: cloudNode.environmentReady()?.ok ?? null,
+    wakeable: defaultLifecycleHooks().declares?.("node-run") ?? false,
+  }),
   // Usage consumed by the dispatched session so far, from its Claude Code
   // transcript (jsonl_path is kept fresh by the session tracker). The reader
   // (transcript-usage.ts) is incremental (per-path byte offset — the live

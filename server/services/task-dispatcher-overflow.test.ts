@@ -35,6 +35,9 @@ import {
 } from "./dispatch-overflow";
 import { CloudSetupError } from "../providers/claude-cloud/api";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
+import { delegatedPolicyForTask, putAgentStartCapability, queueDelegatedRun } from "../lib/delegated-agent-start";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 const PID = "alpha-abc123";
 const LOCAL = "questo-mac";
@@ -48,10 +51,33 @@ const BLOCKED: ResourceFloorVerdict = {
   memoryFirstCardExempt: false,
 };
 
+/**
+ * The delegated-start tables as the migration creates them (its `ALTER TABLE
+ * tasks` lines are already in `TASKS_DDL`), plus the identity tables the policy
+ * query joins: the delegated card of these tests holds a REAL policy, read by
+ * the real `delegatedPolicyForTask`, not one built by hand.
+ */
+function delegationTables(db: Database): void {
+  db.run("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT, applied_at TEXT)");
+  db.run("CREATE TABLE people (id TEXT PRIMARY KEY, display_name TEXT, revoked_at INTEGER)");
+  db.run("CREATE TABLE devices (id TEXT PRIMARY KEY, name TEXT, person_id TEXT, revoked_at INTEGER)");
+  db.run("CREATE TABLE orgs (id TEXT PRIMARY KEY, revoked_at INTEGER)");
+  db.run("CREATE TABLE org_members (org_id TEXT, person_id TEXT, revoked_at INTEGER, local_blocked_at INTEGER)");
+  db.run("CREATE TABLE projects (id TEXT PRIMARY KEY, path TEXT NOT NULL)");
+  const migration = readFileSync(join(import.meta.dir, "../db/migrations/20260912115225-delegated-agent-start.sql"), "utf8")
+    .split("\n").filter((line) => !line.startsWith("ALTER TABLE tasks")).join("\n");
+  db.exec(migration);
+  db.run("INSERT INTO people VALUES ('owner', 'Owner', NULL), ('person-a', 'Guest', NULL)");
+  db.run("INSERT INTO devices VALUES ('device-a', 'Guest device', 'person-a', NULL)");
+}
+
 function freshDb(): Database {
   const db = new Database(":memory:");
   db.run("PRAGMA foreign_keys = ON");
+  // Before the stubs: the policy query reads the machine's name.
+  db.run("CREATE TABLE machines (id TEXT PRIMARY KEY, name TEXT, base_url TEXT)");
   db.run(TASKS_DDL);
+  delegationTables(db);
   db.run(TASKS_FK_STUBS_DDL);
   db.run(TASK_LABELS_DDL);
   db.run(`CREATE TABLE board_settings (
@@ -64,7 +90,7 @@ function freshDb(): Database {
     dispatch_retry_cap INTEGER, dispatch_retry_backoff_s INTEGER,
     max_agents_auto INTEGER, dispatch_fanout INTEGER,
     dispatch_overflow INTEGER NOT NULL DEFAULT 1, dispatch_stay_local INTEGER NOT NULL DEFAULT 0,
-    dispatch_model TEXT
+    dispatch_model TEXT, dispatch_paused INTEGER NOT NULL DEFAULT 0
   )`);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
@@ -91,6 +117,8 @@ function harness(opts: {
   pcWakeable?: boolean;
   /** What `createRun` throws instead of answering (a cloud account without environments). */
   createRunError?: () => Error;
+  /** What `readRun` throws instead of answering, while set (a live run's account refused). */
+  readRunError?: { current: (() => Error) | null };
   /** The Mac under its memory floor (default) or free. */
   floor?: boolean;
   /** What pushing a card's own branch answers (default: it reaches origin). */
@@ -132,10 +160,14 @@ function harness(opts: {
         nextRun += 1;
         return { runId: `run-${nextRun}` };
       },
-      readRun: async () => ({
+      readRun: async () => {
+        const fail = opts.readRunError?.current;
+        if (fail) throw fail();
+        return {
         status: "in_progress", dispatchState: "working", dispatchError: null, comments: [],
         deliveryBranch: null, deliveryCommit: null, baseSha: null, stat: null,
-      }),
+        };
+      },
       fetchBundle: async () => ({ empty: true as const }),
       cancelRun: async () => {},
       baseUrlOf: (id) => ADDRESS[id] ?? null,
@@ -149,6 +181,8 @@ function harness(opts: {
     overflowMachines: machines,
     githubOriginOf: async () => opts.github ?? true,
     cloudCredit: () => opts.cloudCredit ?? true,
+    // The real policy, read from the real tables (`delegationTables`).
+    delegatedPolicyForTask: (taskId) => delegatedPolicyForTask(db, taskId, now, LOCAL),
     now: () => now,
     graceMs: 0,
     retryBackoffMs: 0,
@@ -182,7 +216,11 @@ function harness(opts: {
   const flush = async (n = 12) => { for (let i = 0; i < n; i++) await Promise.resolve(); };
   const tick = async () => { await dispatcher.tick(PID); await flush(); };
   const advance = (ms: number) => { now += ms; };
-  return { db, svc, created, bodies, pushed, worktrees, turns, seed, sendBack, tick, advance, task: (id: string) => svc.get(id)!.task };
+  const poll = async () => { await dispatcher.reconcile({ reason: "poll" }); await flush(); };
+  return {
+    db, svc, created, bodies, pushed, worktrees, turns, seed, sendBack, tick, poll, advance, now: () => now,
+    task: (id: string) => svc.get(id)!.task, thread: (id: string) => svc.get(id)!.comments.map((c) => c.content).join("\n"),
+  };
 }
 
 /** Held once, then past the two minutes: the round the move must happen in. */
@@ -563,5 +601,170 @@ describe("overflow: le due regole pure", () => {
     expect(overflowEligible({ machineId: null, stayLocal: true }, {}, LOCAL)).toBe(false);
     expect(overflowEligible({ machineId: null }, { dispatchStayLocal: true }, LOCAL)).toBe(false);
     expect(overflowEligible({ machineId: null }, { dispatchOverflow: false }, LOCAL)).toBe(false);
+  });
+});
+
+describe("verifica del 31/10: l'orologio si azzera per ogni giro che non trattiene la card per memoria", () => {
+  /** Held at 0 s, `interrupt` for one round at 90 s, held again at 150 s: the card must stay. */
+  async function brokenAt150(h: ReturnType<typeof harness>, interrupt: () => void, restore: () => void) {
+    h.seed(CARD);
+    await h.tick(); // held by memory: the clock starts
+    h.advance(90_000);
+    interrupt();
+    await h.tick();
+    restore();
+    h.advance(60_000); // 150 s since the first hold, 60 s since the interruption
+    await h.tick();
+    expect(h.task(CARD).machineId).toBeNull();
+    h.advance(OVERFLOW_AFTER_MS + 1_000);
+    await h.tick();
+    expect(h.task(CARD).machineId).toBe(CLOUD);
+  }
+
+  it("un pesante in volo", async () => {
+    const h = harness();
+    const real = h.svc.hasHeavyInFlight;
+    await brokenAt150(h, () => { h.svc.hasHeavyInFlight = () => true; }, () => { h.svc.hasHeavyInFlight = real; });
+  });
+
+  it("un rinvio (dispatch_deferred_until nel futuro)", async () => {
+    const h = harness();
+    await brokenAt150(
+      h,
+      // The deferral gate reads the wall clock, not the injected one.
+      () => { h.db.run("UPDATE tasks SET dispatch_deferred_until = ? WHERE id = ?", [new Date(Date.now() + 3_600_000).toISOString(), CARD]); },
+      () => { h.db.run("UPDATE tasks SET dispatch_deferred_until = NULL WHERE id = ?", [CARD]); },
+    );
+  });
+
+  it("la board in pausa", async () => {
+    const h = harness();
+    await brokenAt150(
+      h,
+      () => { h.svc.updateBoardSettings(PID, { dispatchPaused: true }); },
+      () => { h.svc.updateBoardSettings(PID, { dispatchPaused: false }); },
+    );
+  });
+});
+
+describe("verifica del 31/10: i posti di una macchina contano le card che le sono assegnate", () => {
+  it("PC muto (acceso ma non risponde): 6 card, 2 posti, ne finiscono lì al più 2", async () => {
+    const h = harness({ cloudOnline: false, createRunError: () => new Error("fetch failed") });
+    const ids = ["c-1", "c-2", "c-3", "c-4", "c-5", "c-6"];
+    for (const id of ids) h.seed(id);
+    await holdPastThreshold(h);
+    for (let i = 0; i < 8; i++) { h.advance(6 * 60_000); await h.tick(); }
+    expect(ids.filter((id) => h.task(id).machineId === PC)).toHaveLength(OVERFLOW_SLOTS.node);
+  });
+
+  it("PC addormentato e svegliabile: la sveglia non allarga il danno", async () => {
+    const h = harness({ cloudCredit: false, pcOnline: false, pcWakeable: true, createRunError: () => new Error("fetch failed") });
+    const ids = ["c-1", "c-2", "c-3", "c-4", "c-5", "c-6"];
+    for (const id of ids) h.seed(id);
+    await holdPastThreshold(h);
+    for (let i = 0; i < 8; i++) { h.advance(6 * 60_000); await h.tick(); }
+    expect(ids.filter((id) => h.task(id).machineId === PC)).toHaveLength(OVERFLOW_SLOTS.node);
+  });
+
+  it("il conteggio legge le card in coda o al lavoro su quella macchina, non quelle chiuse o archiviate", () => {
+    const h = harness();
+    h.seed("in-coda", { machineId: PC });
+    h.seed("al-lavoro", { machineId: PC });
+    h.seed("chiusa", { machineId: PC });
+    h.seed("archiviata", { machineId: PC });
+    h.seed("altrove", { machineId: CLOUD });
+    h.db.run("UPDATE tasks SET status = 'in_progress' WHERE id = 'al-lavoro'");
+    h.db.run("UPDATE tasks SET status = 'done' WHERE id = 'chiusa'");
+    h.db.run("UPDATE tasks SET archived = 1 WHERE id = 'archiviata'");
+    expect(h.svc.countOnMachine(PC)).toBe(2);
+  });
+});
+
+describe("verifica del 31/10: le card legate a questa macchina non si spostano", () => {
+  it("una card delegata (policy vera, legata a questo Mac) resta qui e non finisce in backlog", async () => {
+    const h = harness();
+    const capability = putAgentStartCapability(h.db, {
+      subjectType: "person", subjectId: "person-a", projectId: PID, machineId: LOCAL,
+      repositoryKey: "github.com/acme/alpha", model: "claude-code:sonnet", effort: "medium",
+      maxDurationMinutes: 30, grantedByPersonId: "owner", now: h.now(),
+    });
+    const born = h.svc.create({ projectId: PID, text: "card di un ospite", status: "backlog" });
+    queueDelegatedRun(h.db, { taskId: born.id, capability, initiatorPersonId: "person-a", initiatorDeviceId: "device-a", now: h.now() });
+    // The policy is live: the card is a real delegated one, held by the floor here.
+    expect(delegatedPolicyForTask(h.db, born.id, h.now(), LOCAL)?.id).toBe(capability.id);
+    expect(h.task(born.id).machineId).toBe(LOCAL);
+    await holdPastThreshold(h);
+    await h.tick();
+    expect(h.task(born.id).machineId).toBe(LOCAL);
+    expect(h.task(born.id).status).toBe("todo");
+    expect(h.created).toEqual([]);
+    expect(h.thread(born.id)).not.toContain("no longer valid");
+  });
+
+  it("una card con 3 file non committati resta sul Mac", async () => {
+    const h = harness();
+    h.seed(CARD);
+    h.db.run("UPDATE tasks SET delivery_uncommitted_files = 3 WHERE id = ?", [CARD]);
+    await holdPastThreshold(h);
+    await h.tick();
+    expect(h.task(CARD).machineId).toBeNull();
+    expect(h.created).toEqual([]);
+  });
+
+  it("una card specchio (node-run:) resta sulla macchina che la esegue", async () => {
+    const h = harness();
+    h.seed(CARD);
+    h.db.run("UPDATE tasks SET claude_task_id = 'node-run:origin-123' WHERE id = ?", [CARD]);
+    await holdPastThreshold(h);
+    await h.tick();
+    expect(h.task(CARD).machineId).toBeNull();
+    expect(h.created).toEqual([]);
+  });
+
+  it("anche il CAS del servizio rifiuta le tre card", () => {
+    const h = harness();
+    for (const id of ["deleg", "sporca", "specchio", "libera"]) h.seed(id);
+    h.db.run("UPDATE tasks SET delegated_start_capability_id = 'cap-1' WHERE id = 'deleg'");
+    h.db.run("UPDATE tasks SET delivery_uncommitted_files = 3 WHERE id = 'sporca'");
+    h.db.run("UPDATE tasks SET claude_task_id = 'node-run:o-1' WHERE id = 'specchio'");
+    for (const id of ["deleg", "sporca", "specchio"]) {
+      expect(h.svc.overflowToMachine({ taskId: id, machineId: CLOUD, localMachineId: LOCAL })).toBeNull();
+    }
+    expect(h.svc.overflowToMachine({ taskId: "libera", machineId: CLOUD, localMachineId: LOCAL })?.machineId).toBe(CLOUD);
+  });
+
+  it("la regola pura", () => {
+    expect(overflowEligible({ machineId: LOCAL, delegated: true }, {}, LOCAL)).toBe(false);
+    expect(overflowEligible({ machineId: null, claudeTaskId: "node-run:o-1" }, {}, LOCAL)).toBe(false);
+    expect(overflowEligible({ machineId: null, claudeTaskId: "altro-id" }, {}, LOCAL)).toBe(true);
+    expect(overflowEligible({ machineId: null, deliveryUncommittedFiles: 3 }, {}, LOCAL)).toBe(false);
+    expect(overflowEligible({ machineId: null, deliveryUncommittedFiles: 0 }, {}, LOCAL)).toBe(true);
+  });
+});
+
+describe("verifica del 31/10: errore d'account su una corsa viva", () => {
+  it("il primo giro che lo riceve ferma la card con la causa, non dopo 30 giri «non ha risposto»", async () => {
+    const readRunError: { current: (() => Error) | null } = { current: null };
+    const h = harness({ floor: false, readRunError });
+    h.seed(CARD, { machineId: CLOUD });
+    await h.tick();
+    expect(h.task(CARD).status).toBe("in_progress");
+    await h.poll();
+    readRunError.current = () => new CloudSetupError("l'API del cloud rifiuta l'account (401 su /v1/sessions)");
+    await h.poll();
+    const t = h.task(CARD);
+    expect(t.status).not.toBe("in_progress");
+    expect(t.status).not.toBe("todo");
+    expect(h.thread(CARD)).toContain("rifiuta l'account");
+    expect(h.thread(CARD)).not.toContain("non ha risposto");
+  });
+
+  it("un errore di rete su una corsa viva resta un giro fallito: la card resta al lavoro", async () => {
+    const readRunError: { current: (() => Error) | null } = { current: () => new Error("fetch failed") };
+    const h = harness({ floor: false, readRunError });
+    h.seed(CARD, { machineId: CLOUD });
+    await h.tick();
+    await h.poll();
+    expect(h.task(CARD).status).toBe("in_progress");
   });
 });

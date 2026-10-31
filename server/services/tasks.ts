@@ -840,6 +840,12 @@ export interface TaskService {
    */
   overflowToMachine(args: { taskId: string; machineId: string; localMachineId: string | null }): Task | null;
   /**
+   * How many live cards name `machineId` (Todo or in progress, not archived),
+   * across every board: what the overflow counts against a machine's slots.
+   * A card waiting for a silent node is in Todo, so it counts.
+   */
+  countOnMachine(machineId: string): number;
+  /**
    * C'è un task `heavy` con un agente vivo su questa macchina adesso?
    *
    * Lo stesso predicato che il CAS di `claim` applica, esposto perché il filtro
@@ -5017,11 +5023,21 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const res = db.prepare(
         `UPDATE tasks SET machine_id = ?, overflowed_at = ?, updated_at = ?
           WHERE id = ? AND status = 'todo' AND assigned_topic_id IS NULL AND archived = 0
-            AND stay_local = 0 AND (machine_id IS NULL OR machine_id = ?)`,
+            AND stay_local = 0 AND (machine_id IS NULL OR machine_id = ?)
+            AND delegated_start_capability_id IS NULL
+            AND (claude_task_id IS NULL OR claude_task_id NOT LIKE 'node-run:%')
+            AND COALESCE(delivery_uncommitted_files, 0) = 0`,
       ).run(machineId, ts, ts, taskId, localMachineId ?? "");
       if (res.changes === 0) return null;
       const row = getTaskRow(taskId);
       return row ? rowToTask(row) : null;
+    },
+
+    countOnMachine(machineId: string): number {
+      const row = db.prepare(
+        "SELECT COUNT(*) AS n FROM tasks WHERE machine_id = ? AND status IN ('todo', 'in_progress') AND archived = 0",
+      ).get(machineId) as { n: number } | null;
+      return row?.n ?? 0;
     },
 
     claim({ taskId, cap, maxAttempts, agentId, scope, machineIdle, noCheckExemption, remote }): Task | null {

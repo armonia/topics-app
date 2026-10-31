@@ -12,10 +12,12 @@
  *
  * WHAT MOVES: a card that would run here (no machine, or this machine's own
  * row - the board default meaning "here") and has been held by the memory floor
- * for more than `OVERFLOW_AFTER_MS`. WHAT STAYS: a card or a board explicitly
- * marked "this Mac only" (`stayLocal` / `dispatchStayLocal`) - local processes,
- * OpenClaw, sessions, macOS. A mark and not a guess on the text: a heuristic
- * that sends a macOS card to the cloud fails over there, after the wait.
+ * for more than `OVERFLOW_AFTER_MS`, in consecutive rounds. WHAT STAYS: a card or
+ * a board explicitly marked "this Mac only" (`stayLocal` / `dispatchStayLocal`) -
+ * local processes, OpenClaw, sessions, macOS. A mark and not a guess on the
+ * text: a heuristic that sends a macOS card to the cloud fails over there,
+ * after the wait. Also a delegated card, a node's mirror card and a card with
+ * uncommitted work: their run is bound to this machine (`overflowEligible`).
  *
  * WHERE: Cloud Claude while the Claude plan has credit (no provider hold), the
  * project's origin is on GitHub (the only host a cloud session clones from) and
@@ -25,7 +27,8 @@
  * the same path a person's choice takes. A PC asleep goes offline five minutes
  * after its last heartbeat, and refusing it left the card on the full Mac, the
  * very problem this file exists for. A machine already carrying its share
- * (`OVERFLOW_SLOTS`) takes nothing more, and one round moves at most
+ * (`OVERFLOW_SLOTS`, counted on every live card that names it, not only on the
+ * runs alive here) takes nothing more, and one round moves at most
  * `OVERFLOW_MAX_PER_ROUND` cards: a full Mac must not empty its queue onto a PC
  * that has its own floor.
  *
@@ -71,7 +74,7 @@ export interface OverflowChoice {
   githubOrigin: boolean;
   /** The card's model, or the board's: the cloud runs only Claude models. */
   model: string | null;
-  /** Remote runs live on that machine right now (this round's moves included). */
+  /** Live cards on that machine (Todo or in progress, this round's moves included). */
   load: (machineId: string) => number;
 }
 
@@ -113,17 +116,36 @@ export function pickOverflowMachine(
     ?? null;
 }
 
+/** The idempotency key of a node's MIRROR card (`routes/nodes.ts`): it already runs where its origin sent it. */
+const MIRROR_KEY_PREFIX = "node-run:";
+
 /**
  * Whether a card may leave this machine at all, before any clock: the board's
- * switch, the two "this Mac only" marks, and where the card runs today.
+ * switch, the two "this Mac only" marks, where the card runs today, and the
+ * three cards whose run is bound to this machine:
+ *  - a DELEGATED card: its authority names this machine (`policy.machineId`),
+ *    and over there it would be parked as no longer valid;
+ *  - a MIRROR card (`node-run:`): this machine is already the node another
+ *    one sent it to, and sending it on would hand a third machine a run the
+ *    origin is polling here;
+ *  - a card with work never committed (`deliveryUncommittedFiles`): what is
+ *    not committed cannot be pushed, so the run over there would start without it.
  */
 export function overflowEligible(
-  task: { machineId: string | null; stayLocal?: boolean },
+  task: {
+    machineId: string | null;
+    stayLocal?: boolean;
+    delegated?: boolean;
+    claudeTaskId?: string | null;
+    deliveryUncommittedFiles?: number | null;
+  },
   board: { dispatchOverflow?: boolean; dispatchStayLocal?: boolean },
   localMachineId: string | null,
 ): boolean {
   if (board.dispatchOverflow === false || board.dispatchStayLocal) return false;
-  if (task.stayLocal) return false;
+  if (task.stayLocal || task.delegated) return false;
+  if (task.claudeTaskId?.startsWith(MIRROR_KEY_PREFIX)) return false;
+  if ((task.deliveryUncommittedFiles ?? 0) > 0) return false;
   return task.machineId == null || (localMachineId != null && task.machineId === localMachineId);
 }
 
@@ -131,4 +153,50 @@ export function overflowEligible(
 export function overflowNote(machineName: string): string {
   return `Spostata su ${machineName}: Mac pieno. La memoria di questa macchina è rimasta sotto il pavimento per più di 2 minuti, ` +
     `e lì il pavimento non vale. Per tenerla sul Mac segnala «solo Mac», o rimetti la macchina a mano.`;
+}
+
+/** What the overflow reads of one row of the machine store. */
+export interface OverflowMachineRow {
+  id: string;
+  name: string;
+  baseUrl: string | null;
+  status: string;
+}
+
+/**
+ * THE WIRING of `DispatcherDeps.overflowMachines` (server.ts): the store's rows
+ * with an address, as overflow targets. The cloud row has no heartbeat of its
+ * own: it is online only while the cloud is enabled here, its row says so and
+ * the account has an active cloud environment (`environmentOk` false = known to
+ * have none; `null` = not asked yet). A paired node is online by its heartbeat,
+ * and a sleeping one is wakeable while a `node-run` hook is declared.
+ */
+export function overflowMachinesFrom(input: {
+  rows: readonly OverflowMachineRow[];
+  isCloud: (baseUrl: string) => boolean;
+  cloudEnabled: boolean;
+  environmentOk: boolean | null;
+  wakeable: boolean;
+}): OverflowMachine[] {
+  const out: OverflowMachine[] = [];
+  for (const m of input.rows) {
+    if (!m.baseUrl) continue;
+    out.push(input.isCloud(m.baseUrl)
+      ? { id: m.id, name: m.name, kind: "cloud", online: input.cloudEnabled && m.status === "online" && input.environmentOk !== false }
+      : { id: m.id, name: m.name, kind: "node", online: m.status === "online", wakeable: input.wakeable });
+  }
+  return out;
+}
+
+/**
+ * THE WIRING of `DispatcherDeps.githubOriginOf` (server.ts): the project's
+ * origin resolves to a GitHub `owner/repo`. No origin, or a lookup that throws,
+ * is "no": Cloud is then never chosen for it.
+ */
+export async function githubOriginFrom(
+  origin: string | null,
+  resolveSlug: (origin: string) => Promise<string | null> | string | null,
+): Promise<boolean> {
+  if (!origin) return false;
+  try { return !!(await resolveSlug(origin)); } catch { return false; }
 }
