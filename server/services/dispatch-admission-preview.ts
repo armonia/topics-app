@@ -38,7 +38,7 @@ export function buildDispatchAdmissionPreview(deps: {
       admit: verdict.admit && !frozen,
       blockedBy: frozen ? "frozen" : verdict.blockedBy,
       ...(frozen ? { reason: "prima ripartono i check congelati" } : {}),
-      firstAgentExempt: verdict.firstAgentExempt || exempt,
+      firstAgentExempt: !frozen && (verdict.firstAgentExempt || exempt),
       costCoreUnits: verdict.costCoreUnits,
       usedCoreUnits: verdict.usedCoreUnits,
       usableCoreUnits: verdict.usableCoreUnits,

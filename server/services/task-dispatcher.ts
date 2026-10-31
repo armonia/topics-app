@@ -1572,6 +1572,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     let gcap: GlobalDispatchCap;
     try { gcap = deps.svc.getGlobalCap(); } catch { return { needed: false, allowed: true }; }
     if (capMode(gcap) !== "resources") return { needed: false, allowed: true };
+    // Frozen checks restart before any new card: the no-check exemption does not skip that line.
+    if (activeFrozenCount() > 0) return { needed: false, allowed: false };
     const sample = deps.budgetSample?.() ?? null;
     const normal = budgetVerdict(gcap, undefined, sample);
     const candidate = budgetVerdict(gcap, reservationGB, sample);
@@ -1628,7 +1630,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (!computed) return null;
       const { verdict, sample, share, mem } = computed;
       budgetGate = verdict.state;
-      if (verdict.firstAgentExempt) {
+      // Frozen checks come back first: the room the freeze made is theirs, not a new agent's.
+      const frozenHold = verdict.admit && activeFrozenCount() > 0;
+      if (verdict.firstAgentExempt && !frozenHold) {
         // Not a block, but not a free machine either: the log says why the
         // first one went through, once, or the next "why did that start on a
         // loaded Mac" costs somebody a read of the shared contract.
@@ -1637,8 +1641,6 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       } else {
         firstAgentExemptNoted = false;
       }
-      // Frozen checks come back first: the room the freeze made is theirs, not a new agent's.
-      const frozenHold = verdict.admit && activeFrozenCount() > 0;
       const axis = frozenHold ? "frozen" : verdict.blockedBy;
       const reason = frozenHold
         ? "prima ripartono i check congelati"

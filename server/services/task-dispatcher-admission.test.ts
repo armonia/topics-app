@@ -302,6 +302,21 @@ describe("the exemption and the floor", () => {
     } finally { setActiveBudgetGovernor(null); }
   });
 
+  it("card 10469e3e: a frozen hold does not log \"the first starts anyway\" and the preview is not exempt", async () => {
+    setActiveBudgetGovernor({ frozenCount: () => 1 } as unknown as BudgetGovernor);
+    try {
+      const h = harness({ agentCostSamples: () => [1] });
+      h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.5 });
+      h.machine.sample = () => ({ ...QUIET, otherCoreUnits: 11, running: 0 });
+      seedTodo(h.db, "frozen-first");
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.startedAt).toHaveLength(0);
+      expect(h.lines("il primo parte comunque")).toHaveLength(0);
+      expect(h.dispatcher.admissionPreview?.()).toMatchObject({ admit: false, blockedBy: "frozen", firstAgentExempt: false });
+    } finally { setActiveBudgetGovernor(null); }
+  });
+
   it("card 10469e3e: the queue log tells the truth across CPU hold, frozen hold and release", async () => {
     let frozen = 0;
     setActiveBudgetGovernor({ frozenCount: () => frozen } as unknown as BudgetGovernor);
