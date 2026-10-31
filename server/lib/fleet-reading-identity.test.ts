@@ -182,17 +182,26 @@ describe("card 10469e3e: one CPU budget and every freeze in the capacity payload
   });
 
   test("in resources mode recommended and the reason come from the knob's budget", () => {
-    // 8 running agents = MAX_AUTO_CAP: the resources formula (running + free slots) is 8 on any machine,
-    // while the count-mode formula is capped by the 2-6 core band, so they differ whatever the core count.
-    const knobBase = { share: 0.8, frozen: 0 };
-    const run = (resources: boolean) => computeDispatchCapacity(8, quiet, true, () => 20, { ...knobBase, resources }, undefined, () => 10);
-    const r = run(true);
-    const counted = run(false);
-    expect(r.recommended).toBe(8);
-    expect(counted.recommended).toBeLessThan(8);
-    expect(r.reason).toContain("utilizzabili");
-    expect(counted.reason).toContain("di quota");
-    expect(counted.reason).not.toContain("utilizzabili");
+    // Nothing running and our own CPU at 0, so the slots are the knob's usable CPU over a fixed price per agent.
+    // The price is derived from the machine's own usable figure (clamped to the price list's band), so a high and a
+    // low knob land on different slot counts on any core count.
+    const idle = { ...reading(1, 999_002), coreUnits: 0 };
+    const run = (share: number, price: number, resources: boolean) =>
+      computeDispatchCapacity(0, () => idle, true, () => 20, { share, frozen: 0, resources }, { coreUnits: () => [price], memGB: () => [] }, () => 10);
+    const price = Math.min(4, Math.max(0.5, run(0.8, 1, true).usableCoreUnits / 4));
+    const hi = run(0.8, price, true);
+    const lo = run(0.1, price, true);
+    const slots = (c: { usableCoreUnits: number }) => Math.min(8, Math.max(1, Math.floor(c.usableCoreUnits / price)));
+    expect(hi.recommended).toBe(slots(hi));
+    expect(lo.recommended).toBe(slots(lo));
+    expect(hi.recommended).toBeGreaterThan(lo.recommended);
+    expect(hi.reason).toContain("utilizzabili");
+    // Count mode ignores the knob: same answer for both values, and the quota phrase instead.
+    const c1 = run(0.8, price, false);
+    const c2 = run(0.1, price, false);
+    expect(c1.recommended).toBe(c2.recommended);
+    expect(c1.reason).toContain("di quota");
+    expect(c1.reason).not.toContain("utilizzabili");
   });
 
   test("swapFrozenCount reads the active freezer and is 0 without one", () => {
