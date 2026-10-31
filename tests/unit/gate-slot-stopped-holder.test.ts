@@ -53,13 +53,18 @@ const nameFile = (d: string, label: string) =>
   join(d, `name-${createHash("sha1").update(label.trim().toLowerCase()).digest("hex").slice(0, 12)}.pid`);
 
 const holder = process.ppid;
+/** A lock file held by `pid`, with the mark of a holder that queues again when continued. */
+const holdAs = (path: string, pid: number, queuesAgain = true): void => {
+  writeFileSync(path, String(pid));
+  if (queuesAgain) writeFileSync(path + ".requeue", String(pid));
+};
 const WAIT_MS = 250;
 
 describe("the gate slot, against a stopped holder", () => {
   it("a stopped holder of the name and of the only slot lets the next run in at once", () => {
     const d = fresh([holder]);
-    writeFileSync(nameFile(d, "typecheck"), String(holder));
-    writeFileSync(join(d, "0.pid"), String(holder));
+    holdAs(nameFile(d, "typecheck"), holder);
+    holdAs(join(d, "0.pid"), holder);
     const heard: string[] = [];
     const started = Date.now();
     const release = acquireSlot(1, "typecheck", { maxWaitMs: WAIT_MS, onWait: (m) => heard.push(m) });
@@ -69,6 +74,41 @@ describe("the gate slot, against a stopped holder", () => {
     expect(readFileSync(nameFile(d, "typecheck"), "utf8")).toBe(String(process.pid));
     expect(readFileSync(join(d, "0.pid"), "utf8")).toBe(String(process.pid));
     release!();
+  });
+
+  it("a stopped holder that does not queue again keeps its place (review of 31/10, third round)", () => {
+    // The bun-test preload and the e2e shards: nothing stops their work again
+    // when they are continued, so reaping them put two runs side by side.
+    const d = fresh([holder]);
+    holdAs(nameFile(d, "bun test"), holder, false);
+    const heard: string[] = [];
+    const release = acquireSlot(1, "bun test", { maxWaitMs: WAIT_MS, onWait: (m) => heard.push(m) });
+    expect(heard.some((m) => m.includes("running alongside"))).toBe(true);
+    expect(readFileSync(nameFile(d, "bun test"), "utf8")).toBe(String(holder));
+    release?.();
+  });
+
+  it("a mark left by another pid does not make a stopped holder reapable", () => {
+    const d = fresh([holder]);
+    holdAs(nameFile(d, "lint"), holder, false);
+    writeFileSync(nameFile(d, "lint") + ".requeue", String(process.pid));
+    const release = acquireSlot(1, "lint", { maxWaitMs: WAIT_MS, onWait: () => {} });
+    expect(readFileSync(nameFile(d, "lint"), "utf8")).toBe(String(holder));
+    release?.();
+  });
+
+  it("only a run that queues again marks its places, and takes the marks back with them", () => {
+    const d = fresh();
+    const plain = acquireSlot(1, "bun test", { maxWaitMs: WAIT_MS });
+    expect(existsSync(nameFile(d, "bun test") + ".requeue")).toBe(false);
+    expect(existsSync(join(d, "0.pid.requeue"))).toBe(false);
+    plain!();
+    const marked = acquireSlot(1, "typecheck", { maxWaitMs: WAIT_MS, queuesAgainOnContinue: true });
+    expect(readFileSync(nameFile(d, "typecheck") + ".requeue", "utf8")).toBe(String(process.pid));
+    expect(readFileSync(join(d, "0.pid.requeue"), "utf8")).toBe(String(process.pid));
+    marked!();
+    expect(existsSync(nameFile(d, "typecheck") + ".requeue")).toBe(false);
+    expect(existsSync(join(d, "0.pid.requeue"))).toBe(false);
   });
 
   it("a running holder still holds: the next run waits, as before", () => {
@@ -97,7 +137,7 @@ describe("the gate slot, against a stopped holder", () => {
     // Review of 30/10: every waiter read the stopped pid, ran its `ps`, then
     // unlinked - the file the previous waiter had just taken. Up to four at once.
     const d = fresh([process.pid]);
-    writeFileSync(nameFile(d, "typecheck"), String(process.pid));
+    holdAs(nameFile(d, "typecheck"), process.pid);
     const log = join(d, "runs.log");
     const module = join(import.meta.dir, "../../scripts/gate-slot.ts");
     // The fake `ps` answers after a while, as the real one does, and "stopped"

@@ -92,6 +92,7 @@ let waitingSaid = false;
 if (slots > 0) {
   release = acquireSlot(slots, label, {
     nameMaxWaitMs: defaultNameMaxWaitMs(),
+    queuesAgainOnContinue: true,
     onWait: (message) => {
       if (!waitingSaid) { waitingSaid = true; console.error(slotWaitingLine(label)); }
       console.error(message);
@@ -162,23 +163,39 @@ process.on("exit", () => release?.());
 // command again until this run holds one (see `reclaimAfterStop`). The two
 // lines around the wait are the ones of the first queue: whoever times the
 // command from outside stops its clock again while it is stopped.
+// The wall-clock cap stops for that wait too, as it never ran during the first
+// one: a command stopped in the queue is not hung, and killing it there was a
+// fake red (review of 31/10, third round).
 let reclaiming = false;
 process.on("SIGCONT", () => {
   if (done || stopping || reclaiming || !release?.lost()) return;
   reclaiming = true;
   const since = Date.now();
+  pauseCap();
   console.error(slotWaitingLine(label));
   void reclaimAfterStop(release, slots, label, (sig) => { paused = sig === "SIGSTOP"; signalTree(sig); }, {
     nameMaxWaitMs: defaultNameMaxWaitMs(),
+    queuesAgainOnContinue: true,
     aborted: () => done || stopping,
     onWait: (message) => console.error(`${message} (continued after a freeze, its place was taken)`),
   }).then((hold) => {
     release = hold;
     if (!done && !stopping) console.error(slotAcquiredLine(label, Date.now() - since));
-  }).finally(() => { reclaiming = false; });
+  }).finally(() => { reclaiming = false; if (!done) armCap(); });
 });
 
-if (MAX_RUN_MS > 0) {
+/** What is left of the cap, and since when it is running (null: stopped). */
+let capLeftMs = MAX_RUN_MS;
+let capSince: number | null = null;
+function pauseCap(): void {
+  if (timer) clearTimeout(timer);
+  timer = null;
+  if (capSince != null) capLeftMs -= Date.now() - capSince;
+  capSince = null;
+}
+function armCap(): void {
+  if (MAX_RUN_MS <= 0 || timedOut || capSince != null) return;
+  capSince = Date.now();
   timer = setTimeout(() => {
     timedOut = true;
     console.error(
@@ -188,9 +205,10 @@ if (MAX_RUN_MS > 0) {
     // Chi ignora SIGTERM è esattamente chi è appeso: la seconda mossa non è
     // negoziabile, e non deve tenere sveglio il processo se il comando cede prima.
     setTimeout(() => signalTree("SIGKILL"), KILL_GRACE_MS).unref();
-  }, MAX_RUN_MS);
+  }, Math.max(0, capLeftMs));
   timer.unref();
 }
+armCap();
 
 child.on("error", (e) => { console.error(`[slot] ${label}: ${e.message}`); finish(1); });
 child.on("exit", (code, signal) => finish(timedOut ? TIMEOUT_EXIT_CODE : signal ? 1 : (code ?? 0)));

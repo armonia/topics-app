@@ -28,7 +28,7 @@
  */
 import { cpus } from "node:os";
 import { createHash } from "node:crypto";
-import { mkdirSync, openSync, closeSync, writeSync, readFileSync, unlinkSync, readdirSync } from "node:fs";
+import { mkdirSync, openSync, closeSync, writeSync, writeFileSync, readFileSync, unlinkSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -130,6 +130,8 @@ function alive(pid: number): boolean {
  * goes to the next run, and when it is continued it queues again for it before
  * its command goes on (`reclaimAfterStop`).
  *
+ * Only a holder that DOES queue again is reaped this way: see `QUEUE_AGAIN_SUFFIX`.
+ *
  * Fails toward the old reading: if `ps` does not answer, nobody is stopped.
  * `TOPICS_GATE_PS` names another `ps` (a test's script that prints the states
  * it is given), so the whole probe runs in the tests, no signal sent.
@@ -160,9 +162,28 @@ export function parsePsStates(out: string): Map<number, string> {
 }
 
 /**
+ * THE MARK OF A HOLDER THAT QUEUES AGAIN WHEN CONTINUED, next to its lock file
+ * and holding the same pid.
+ *
+ * Only `slot.ts` has that handler. The bun-test preload and the e2e shards take
+ * their place from inside the process that runs the work, so nothing stops them
+ * again on SIGCONT: reaping them while stopped let the next run in, and the
+ * continued one then ran beside it, "one per name" broken (review of 31/10,
+ * third round: two `bun test` side by side). Their place stays theirs while
+ * stopped, as before. A side file, not a change of the lock file: other
+ * worktrees run older copies of this module, which read the lock as a bare pid
+ * and skip any name that does not end in `.pid`.
+ */
+const QUEUE_AGAIN_SUFFIX = ".requeue";
+
+function marksQueueAgain(path: string, raw: string): boolean {
+  try { return readFileSync(path + QUEUE_AGAIN_SUFFIX, "utf8").trim() === raw; } catch { return false; }
+}
+
+/**
  * A slot whose holder is gone is free: a killed run must not park a slot
- * forever. Nor must a STOPPED one (see `stoppedByPs`): one `ps` per pass, for
- * the live holders only.
+ * forever. Nor must a STOPPED one that will queue again (see `stoppedByPs`
+ * and `QUEUE_AGAIN_SUFFIX`): one `ps` per pass, for the live holders only.
  */
 function reapStale(dir: string): void {
   const live: { path: string; raw: string; pid: number }[] = [];
@@ -172,14 +193,14 @@ function reapStale(dir: string): void {
     try {
       const raw = readFileSync(p, "utf8").trim();
       const pid = Number(raw);
-      if (!Number.isFinite(pid) || !alive(pid)) unlinkIfStill(p, raw);
+      if (!Number.isFinite(pid) || !alive(pid)) { unlinkIfStill(p, raw); unlinkIfStill(p + QUEUE_AGAIN_SUFFIX, raw); }
       // An output claim stays with a stopped writer: it will write again.
       else if (pid !== process.pid && !name.startsWith("out-")) live.push({ path: p, raw, pid });
     } catch { /* someone else reaped it first */ }
   }
   if (live.length === 0) return;
   const frozen = stoppedByPs(live.map((l) => l.pid));
-  for (const l of live) if (frozen.has(l.pid)) unlinkIfStill(l.path, l.raw);
+  for (const l of live) if (frozen.has(l.pid) && marksQueueAgain(l.path, l.raw)) unlinkIfStill(l.path, l.raw);
 }
 
 /**
@@ -200,11 +221,14 @@ function unlinkIfStill(path: string, raw: string): void {
  * process that is still alive. `wx` is the whole mutual exclusion: exclusive
  * create is atomic, so two callers racing for the same name cannot both win.
  */
-function takeFile(path: string): (() => void) | null {
+function takeFile(path: string, queuesAgain = false): (() => void) | null {
   try {
     const fd = openSync(path, "wx");
     writeSync(fd, String(process.pid));
     closeSync(fd);
+    // Without the mark the place is simply not reaped while stopped: failing
+    // to write it only brings back the old reading.
+    if (queuesAgain) try { writeFileSync(path + QUEUE_AGAIN_SUFFIX, String(process.pid)); } catch { /* unmarked */ }
     let released = false;
     return () => {
       if (released) return;
@@ -212,6 +236,7 @@ function takeFile(path: string): (() => void) | null {
       // Only OUR file: a holder that was stopped had its file reaped and taken
       // by the next run, and unlinking that one would let a third run in.
       try { if (ours(path)) unlinkSync(path); } catch { /* already reaped */ }
+      try { if (queuesAgain && ours(path + QUEUE_AGAIN_SUFFIX)) unlinkSync(path + QUEUE_AGAIN_SUFFIX); } catch { /* already gone */ }
     };
   } catch { return null; }
 }
@@ -254,6 +279,9 @@ interface AcquireOptions {
   onWait?: (message: string) => void;
   /** Checked between two polls: true gives up the wait, releasing what it took. */
   aborted?: () => boolean;
+  /** This run queues again when continued after a freeze (`reclaimAfterStop`),
+   *  so its place may go to the next run while it is stopped. Only `slot.ts`. */
+  queuesAgainOnContinue?: boolean;
 }
 
 /** What `acquireSlot` hands back: the release, plus whether the place is still this run's. */
@@ -308,7 +336,7 @@ function* acquireSteps(slots: number, label: string, opts: AcquireOptions): Gene
     const namePath = nameLockPath(dir, label);
     for (;;) {
       reapStale(dir);
-      releaseName = takeFile(namePath);
+      releaseName = takeFile(namePath, opts.queuesAgainOnContinue);
       if (releaseName) break;
       if (Date.now() >= nameDeadline) {
         notify(`[slot] ${label}: another ${label} has been running for ${Math.round((opts.nameMaxWaitMs ?? maxWaitMs) / 60_000)} min, running alongside it.`);
@@ -334,7 +362,7 @@ function* acquireSteps(slots: number, label: string, opts: AcquireOptions): Gene
       reapStale(dir);
       for (let i = 0; i < slots; i++) {
         const slotPath = join(dir, `${i}.pid`);
-        const release = takeFile(slotPath);
+        const release = takeFile(slotPath, opts.queuesAgainOnContinue);
         if (release) return withName(release, slotPath);
       }
       if (Date.now() >= deadline) {
