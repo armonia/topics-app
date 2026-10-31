@@ -967,6 +967,9 @@ interface PersistentProcess {
    *  or announced directly with full args). Keeps the late-args path
    *  idempotent across block stop + every cumulative snapshot re-emission. */
   argsFinalized?: Set<string>;
+  /** Content-block indexes of the reasoning blocks open right now (partial
+   *  stream_events), so the block stop can close the right one. */
+  streamingThinking?: Set<number>;
   /** Le chiamate al tool `Skill`, per nome. Serve a riconoscere, quando arriva
    *  il loro `tool_result`, che il prossimo testo iniettato dalla CLI è il
    *  corpo di QUELLA skill e non una risposta del modello. */
@@ -4408,7 +4411,8 @@ export class ClaudeCodeProvider implements AIProvider {
    * `input_json_delta` accumulates the input, and `content_block_stop`
    * parses the complete input and upserts it via onToolArgsUpdate.
    * Text/thinking deltas are ignored — the cumulative snapshots remain their
-   * single source, so nothing double-counts. Sidechain (sub-agent) partials
+   * single source, so nothing double-counts. Only the START and STOP of a
+   * reasoning block are surfaced (no text), so the UI can show it live. Sidechain (sub-agent) partials
    * are skipped: child tools aggregate from the sidechain's own snapshots.
    */
   private handlePartialStreamEvent(pp: PersistentProcess, event: any, handler: StreamHandler | null): void {
@@ -4417,7 +4421,13 @@ export class ClaudeCodeProvider implements AIProvider {
     const partial = decodePartialStreamEvent(event);
     if (!partial) return;
     const index = partial.index;
-    if (partial.kind === "tool_start") {
+    if (partial.kind === "thinking_start") {
+      // The cumulative snapshot skips a thinking block whose text is empty, which
+      // is how the CLI delivers it live: this event is the only live sign that
+      // the model is reasoning.
+      (pp.streamingThinking ??= new Set()).add(index);
+      if (!pp.replaySilent) handler?.onThinkingStart?.();
+    } else if (partial.kind === "tool_start") {
       const toolName = partial.name;
       (pp.streamingToolInputs ??= new Map()).set(index, { id: partial.id, name: toolName, buf: "" });
       if (pp.activeToolCalls.has(partial.id) || pp.settledToolCalls?.has(partial.id)) return;
@@ -4450,6 +4460,10 @@ export class ClaudeCodeProvider implements AIProvider {
         }
       }
     } else if (partial.kind === "block_stop") {
+      if (pp.streamingThinking?.delete(index)) {
+        if (!pp.replaySilent) handler?.onThinkingEnd?.();
+        return;
+      }
       const entry = pp.streamingToolInputs?.get(index);
       if (!entry) return;
       pp.streamingToolInputs?.delete(index);

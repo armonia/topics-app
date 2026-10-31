@@ -13,6 +13,7 @@ import {
   FROZEN_NOTE,
   _resetFreezableRuns,
   createBudgetGovernor,
+  BUDGET_FREEZE_MAX_MS,
   freezableRuns,
   registerFreezableRun,
 } from "./budget-governor";
@@ -118,5 +119,45 @@ describe("freezing", () => {
     await h.governor.thawAll();
     expect(h.signals.filter((s) => s.startsWith("SIGCONT"))).toEqual(["SIGCONT:1", "SIGCONT:2"]);
     expect(h.governor.frozenCount()).toBe(0);
+  });
+});
+
+describe("review defects", () => {
+  it("a run waiting for a gate slot is never the victim: it burns no CPU", async () => {
+    const h = harness({ used: 30, budget: 9.6 });
+    addRun("busy", 1, 1000);
+    const waiting = { id: "waiting", pid: 2, name: "waiting", startedAt: 2000, queued: true };
+    registerFreezableRun(waiting);
+    await h.governor.sampleOnce();
+    await h.governor.sampleOnce();
+    expect(h.signals).toEqual(["SIGSTOP:1"]);
+  });
+
+  it("the card gets one note per run, however many times it is frozen", async () => {
+    const h = harness({ used: 30, budget: 9.6 });
+    addRun("a", 1, 1000, "task-a");
+    await h.governor.sampleOnce(); await h.governor.sampleOnce();
+    h.box.reading = { used: 1, budget: 9.6 };
+    await h.governor.sampleOnce(); await h.governor.sampleOnce();
+    h.box.reading = { used: 30, budget: 9.6 };
+    await h.governor.sampleOnce(); await h.governor.sampleOnce();
+    expect(h.signals).toEqual(["SIGSTOP:1", "SIGCONT:1", "SIGSTOP:1"]);
+    expect(h.notes).toHaveLength(1);
+  });
+
+  it("a run frozen past the cap is continued even if the load never drops, and not frozen again", async () => {
+    const h = harness({ used: 30, budget: 0.0001 });
+    addRun("a", 1, 1000);
+    await h.governor.sampleOnce(); await h.governor.sampleOnce();
+    expect(h.governor.frozenCount()).toBe(1);
+    const real = Date.now;
+    Date.now = () => real() + BUDGET_FREEZE_MAX_MS + 1000;
+    try {
+      await h.governor.sampleOnce();
+    } finally { Date.now = real; }
+    expect(h.signals.at(-1)).toBe("SIGCONT:1");
+    expect(h.governor.frozenCount()).toBe(0);
+    await h.governor.sampleOnce(); await h.governor.sampleOnce(); await h.governor.sampleOnce();
+    expect(h.signals.filter((x) => x.startsWith("SIGSTOP"))).toHaveLength(1);
   });
 });

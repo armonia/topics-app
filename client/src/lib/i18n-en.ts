@@ -334,6 +334,7 @@ const EN = {
   'turn.waitingYou': 'The assistant is waiting for your answer',
   'turn.slow': 'The stream is slow, the provider is still connected',
   'turn.retrying': 'The provider failed temporarily, trying again ({n}/{max})',
+  'turn.running': 'Running:',
   'turn.working': 'The assistant is working',
   'turn.call': 'call',
   'turn.calls': 'calls',
