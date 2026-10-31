@@ -324,13 +324,14 @@ describe("runReviewChecks", () => {
   }, 20_000);
 
   test.concurrent("a command printing a waiting line of its own does not stop its deadline (review of 31/10, fourth round)", async () => {
-    // The real `slot.ts`, its own counter: the line the command prints carries
-    // no token of the run, so the cap still ends a command that hangs after it.
+    // The real `slot.ts`, its own counter (set in the command: the round does
+    // not pass an env through): the line the command prints carries no token
+    // of the run, so the cap still ends a command that hangs after it.
     const slots = mkdtempSync(join(tmpdir(), "topics-review-slots-"));
     try {
       const runs = await runReviewChecks(
-        [{ name: "finta coda", cmd: `bun run ${SLOT_SCRIPT} gx -- "echo '[slot] waiting nested: x' 1>&2; sleep 20"` }],
-        { cwd, timeoutMs: stretched(1500), env: { TOPICS_GATE_SLOTS: "1", TOPICS_GATE_SLOT_DIR: slots } },
+        [{ name: "finta coda", cmd: `TOPICS_GATE_SLOTS=1 TOPICS_GATE_SLOT_DIR=${slots} bun run ${SLOT_SCRIPT} gx -- "echo '[slot] waiting nested: x' 1>&2; sleep 20"` }],
+        { cwd, timeoutMs: stretched(1500) },
       );
       expect(runs[0].timedOut).toBe(true);
       expect(runs[0].ms).toBeLessThan(15_000);
