@@ -25,6 +25,7 @@ import type { BundleResult, CreateRunBody, NodeRunBinding, NodeRunReport } from 
 import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import type { PlantBranchInput, PlantBranchResult } from "./node-branch-plant";
 import type { OutboundMessage } from "../../shared/ws-outbound";
+import { carriedBranch } from "./branch-on-origin";
 import { defaultLifecycleHooks, type HookOutcome, type LifecycleHookRunner } from "./lifecycle-hooks";
 import { nodeRunDescription, withNodeRunLanguage } from "./node-run-brief";
 import type { OutputLanguage } from "../../shared/types";
@@ -73,6 +74,13 @@ export interface NodeDeps {
   /** The git remote the node resolves its own project by (never a path: the ids differ). */
   originUrlOf: (projectId: string) => Promise<string | null>;
   plantBranch: (input: PlantBranchInput) => Promise<PlantBranchResult>;
+  /**
+   * Makes sure a card's own branch is on origin, pushing it when this checkout
+   * is ahead (or origin lacks it). `ok: false` = the branch carries work origin
+   * cannot get, and a run started elsewhere would start without it. Absent = no
+   * card carries its branch to a node, the historical behaviour.
+   */
+  ensureBranchOnOrigin?: (input: { projectId: string; branch: string }) => Promise<{ ok: true } | { ok: false; reason: string }>;
   /** The checkout of a project on THIS machine: the `cwd` the `node-run` hook starts in. */
   projectPathOf?: (projectId: string) => string | null;
   /**
@@ -110,6 +118,8 @@ export interface NodeSlot {
   reviewWithoutBranch?: number;
   /** Rounds in a row in which the old mirror of the previous delivery could not be cancelled. */
   retireFails?: number;
+  /** Consecutive polls answered with a cloud account error (see `NODE_SETUP_POLLS`). Reset by any answer. */
+  setupFails?: number;
 }
 
 /**
@@ -137,6 +147,16 @@ export function isNodeSessionKey(sessionKey: string): boolean {
  * its hysteresis against.
  */
 export const NODE_DEAD_POLLS = 30;
+/**
+ * How many CONSECUTIVE polls of a LIVE run must answer with a cloud account
+ * error (`cloud_setup`) before the card is parked with that cause. Not one: a
+ * credential read is a `security` call with a 10 s timeout, and on a loaded Mac
+ * (load up to 131 on 12 cores) one of them can fail while the account is fine;
+ * parking on it stopped a live cloud run that the next round read again. Not
+ * thirty either (`NODE_DEAD_POLLS`): a login really switched to another account
+ * answers the same every round, and five minutes of "did not answer" hid it.
+ */
+export const NODE_SETUP_POLLS = 3;
 /**
  * A node that answers but will not drop the old mirror of the previous delivery: after this many
  * rounds the card is parked with the fix in words, because re-queueing it would only be handed the
@@ -250,12 +270,28 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    */
   const lastNodeRun = new Map<string, string>();
 
+  /**
+   * Consecutive STARTS of a task answered with a cloud account error
+   * (`cloud_setup`), kept per task because the slot dies with each failed start.
+   * Same hysteresis as the poll (`NODE_SETUP_POLLS`): one credential read that
+   * times out on a loaded Mac defers the card, only a run of them parks it.
+   * Cleared by any start that gets past the account (a run, or another error).
+   */
+  const startSetupFails = new Map<string, number>();
+
   /** The node's name as a person reads it, with the id as the honest fallback. */
   function nodeName(machineId: string): string {
     try { return host.client?.nameOf(machineId) || machineId; } catch { return machineId; }
   }
 
   /** The DECLARED reason of a failed node call (`NodeError.reason`), when it carries one. */
+  /** The park line for an account the node refuses (`cloud_setup`): the cause, not "not answering". */
+  function cloudSetupParkReason(name: string, err: unknown): string {
+    const why = err instanceof Error ? err.message : String(err);
+    return `«${name}» non può lavorare questa card: ${why}. Non è un nodo muto, è l'account: controlla il login ` +
+      "di Claude Code su questa macchina (o TOPICS_CLAUDE_CLOUD_ACCOUNT) e i suoi ambienti cloud, oppure togli la macchina dalla card.";
+  }
+
   function nodeFailureReason(err: unknown): string | null {
     const r = (err as { reason?: unknown } | null)?.reason;
     return typeof r === "string" ? r : null;
@@ -338,6 +374,27 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       );
       return;
     }
+    // A CARD THAT ALREADY HAS A BRANCH STARTS FROM IT over there (a rerun after
+    // a review). Started from main, the delivery lacked that branch's commits and
+    // conflicted with them at the land (df5fd8c5, 30/10/2026: 5 files). The node
+    // can only start from what origin has, so the branch is pushed first; a
+    // branch that cannot reach origin keeps the card from starting at all.
+    let baseBranch: string | null = null;
+    const carried = carriedBranch(task);
+    if (carried && !policy && node.ensureBranchOnOrigin) {
+      const branch = carried;
+      const ready = await Promise.resolve(node.ensureBranchOnOrigin({ projectId: task.projectId, branch }))
+        .catch((err): { ok: false; reason: string } => ({ ok: false, reason: err instanceof Error ? err.message : String(err) }));
+      if (!ready.ok) {
+        parkNodeCard(
+          task,
+          `Questa card ha già il ramo «${branch}», ma su origin non c'è e non si è potuto pusharlo (${ready.reason}). ` +
+            `Il nodo «${name}» partirebbe da main senza i suoi commit: pusha il ramo, oppure togli la macchina dalla card.`,
+        );
+        return;
+      }
+      baseBranch = branch;
+    }
     if (policy) {
       let begun: boolean | number = false;
       try {
@@ -419,8 +476,10 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
           ),
           model: policy?.model ?? task.model ?? settings.model ?? null,
           effort: policy ? settings.effort : (settings.effort && settings.effort !== "auto" ? settings.effort : null),
+          ...(baseBranch ? { baseBranch } : {}),
         },
       });
+      startSetupFails.delete(task.id);
       lastNodeRun.set(task.id, runId);
       if (!host.ownsRun(task.id, runNo)) {
         // Superseded while the node was answering: the run we just created has
@@ -511,6 +570,26 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         );
         return;
       }
+      // The node answered, and what it said is that THIS ACCOUNT cannot run there
+      // (no active cloud environment, credentials refused): waiting does not fix
+      // it, so the card stops with the cause instead of "not answering" for half an
+      // hour (30/10/2026: 7 cards, 31 minutes, a Keychain login switched account).
+      // Parked only after `NODE_SETUP_POLLS` such answers in a row, like the
+      // poll: a single credential read that times out is not the account.
+      if (nodeFailureReason(err) === "cloud_setup") {
+        const fails = (startSetupFails.get(task.id) ?? 0) + 1;
+        if (fails >= NODE_SETUP_POLLS) {
+          startSetupFails.delete(task.id);
+          parkNodeCard(task, cloudSetupParkReason(name, err));
+          return;
+        }
+        startSetupFails.set(task.id, fails);
+        log(`nodo: avvio su «${name}» rifiutato dall'account per ${task.id} (${fails}/${NODE_SETUP_POLLS})`, err);
+        const why = err instanceof Error ? err.message : String(err);
+        deferForSilentNode(task, `«${name}» non ha accettato l'avvio (${why}), riprovo`);
+        return;
+      }
+      startSetupFails.delete(task.id);
       log(`nodo: creazione della corsa per ${task.id} fallita`, err);
       deferForSilentNode(task, `il nodo «${name}» non risponde`);
     }
@@ -819,6 +898,25 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
           baseUrl: node.baseUrl, token: node.token, runId: node.runId, delegation: node.delegation,
         });
       } catch (err) {
+        // The node answered, and what it said is that THIS ACCOUNT cannot reach
+        // the run (no active cloud environment, credentials refused). Counted as
+        // a silent poll, it buried the run after thirty rounds with "did not
+        // answer" and the cause was never written. The run id stays in
+        // `lastNodeRun`: the next dispatch cancels it before starting another.
+        // Parked only after `NODE_SETUP_POLLS` such answers in a row: a single
+        // credential read that times out is not the account.
+        if (nodeFailureReason(err) === "cloud_setup" && task) {
+          node.setupFails = (node.setupFails ?? 0) + 1;
+          if (node.setupFails >= NODE_SETUP_POLLS) {
+            const still = inFlight.get(taskId);
+            if (!still || still.runId !== slot.runId) continue;
+            inFlight.delete(taskId);
+            parkNodeCard(task, cloudSetupParkReason(nodeName(node.machineId), err));
+            continue;
+          }
+        } else {
+          node.setupFails = 0;
+        }
         node.fails++;
         log(`nodo: giro fallito per ${taskId} (${node.fails}/${NODE_DEAD_POLLS})`, err);
         continue;
@@ -830,6 +928,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       const still = inFlight.get(taskId);
       if (!still || still.runId !== slot.runId || still.node?.runId !== node.runId) continue;
       node.fails = 0;
+      node.setupFails = 0;
       if (!node.primed && report.status === "review" && isPreviousDelivery(taskId, report)) {
         if (await retirePreviousMirror(taskId, node)) continue;
         node.retireFails = (node.retireFails ?? 0) + 1;

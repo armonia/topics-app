@@ -203,9 +203,41 @@ export interface Task {
    * WHERE the card runs (KANBAN-76). `null` = this machine, which is every
    * card that exists today. A non-null id names a PAIRED node: the dispatcher
    * mirrors the card onto it instead of opening a worktree here. The choice is
-   * a person's; nothing moves a card to a quieter node by itself.
+   * a person's, with one exception: the overflow moves a card held by this
+   * machine's memory floor (`dispatch-overflow.ts`), and stamps `overflowedAt`.
    */
   machineId: string | null;
+  /**
+   * "This Mac only": the card touches this machine itself (local processes,
+   * OpenClaw, sessions, macOS), so the overflow dispatch never moves it. An
+   * explicit mark set by a person, never guessed from the text.
+   */
+  stayLocal: boolean;
+  /**
+   * ON THE WIRE only when set: when the dispatcher moved the card off this
+   * machine because its memory floor held it (`dispatch-overflow.ts`). With
+   * `runComputerName` it is the chip's «moved to Cloud: Mac full».
+   */
+  overflowedAt?: string;
+  /**
+   * ON THE WIRE only when set: on a node's MIRROR card, the branch its worktree
+   * is born from instead of main (the origin card's own delivery branch, sent
+   * along by `CreateRunBody.baseBranch`).
+   */
+  baseBranch?: string;
+  /**
+   * ON THE WIRE only when set: the delivery branch the card had when it went
+   * back to the queue (review/done -> todo, a reject). Going back clears
+   * `deliveryBranch` with the rest of the snapshot; this is what a run on
+   * another machine starts FROM (`carriedBranch`).
+   */
+  priorBranch?: string;
+  /**
+   * ON THE WIRE only when set: the files the card's worktree held WITHOUT a
+   * commit when it went back to the queue. Going back clears
+   * `deliveryUncommittedFiles`, the files stay here: the overflow keeps the card.
+   */
+  priorUncommittedFiles?: number;
   /** WHO opened the card: `human`, `agent:<name>`, `cron:<name>`; `null` = born before the field. */
   createdBy: string | null;
   /**
@@ -425,6 +457,10 @@ export interface CreateTaskInput {
   topicsRouting?: boolean | null;
   /** Run this card on a paired node (KANBAN-76). Omit/null = this machine. */
   machineId?: string | null;
+  /** The "this Mac only" mark, set at birth: the overflow dispatch never moves the card. */
+  stayLocal?: boolean;
+  /** A node's mirror card: the branch its worktree starts from (default main). */
+  baseBranch?: string | null;
   /** Wait for this task before dispatching (exists, not self, no cycle). */
   blockedByTaskId?: string | null;
   /** Reuse the blocker agent's conversation at dispatch. */
@@ -492,6 +528,8 @@ export interface UpdateTaskPatch {
   topicsRouting?: boolean | null;
   /** Move the card to a paired node; null clears (= this machine). */
   machineId?: string | null;
+  /** The "this Mac only" mark: the overflow dispatch never moves the card. */
+  stayLocal?: boolean;
   /** Dependency; null clears. Validated: exists, not self, no cycle. */
   blockedByTaskId?: string | null;
   reuseBlockerContext?: boolean;

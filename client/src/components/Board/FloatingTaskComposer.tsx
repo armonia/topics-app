@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Check, ChevronDown, ClipboardList, CornerDownRight, Link2, Loader2, Lock, Paperclip, Send, Sparkles, X } from 'lucide-react';
+import { Check, ChevronDown, ClipboardList, CornerDownRight, Laptop, Link2, Loader2, Lock, Paperclip, Send, Sparkles, X } from 'lucide-react';
 import { Menu } from '../Shared/Menu';
 import { useToast } from '../Shared/Toast';
 import { insertAtCaret } from '../../lib/insertAtCaret';
@@ -113,6 +113,8 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [planFirst, setPlanFirst] = useState(false);
+  // "Mac only" at birth: the overflow never moves the card off this Mac.
+  const [stayLocal, setStayLocal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   // Avvio: dove nasce il task (Todo = parte, Backlog = resta ferma) e se prima
   // dell'implementazione vuoi il piano. Un chip solo, due domande vicine.
@@ -407,6 +409,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
       // perché nei thread di entrambe le card.
       const created = await boardApi.create(target, {
         text: title, description, status: birthStatus, planFirst,
+        ...(stayLocal ? { stayLocal: true } : {}),
         model: model ?? undefined, topicsRouting: topicsRouting ?? undefined, priority: prio ?? undefined,
         // Attachments ride INSIDE the create, like the intake link: the server
         // writes them on the card before dispatching it, so the agent that
@@ -419,6 +422,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
       setText('');
       setAttachments([]);
       setPlanFirst(false);
+      setStayLocal(false);
       setBirthStatus('todo');
       setModel(null);
       setTopicsRouting(null);
@@ -711,6 +715,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               {/* Lo stato del piano si legge a menu CHIUSO: dentro il menu ha
                   nome e spiegazione, qui basta il glifo acceso. */}
               {planFirst && <ClipboardList className="h-3 w-3 shrink-0 text-violet-300" />}
+              {stayLocal && <Laptop className="h-3 w-3 shrink-0 text-sky-300" />}
               <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
             </button>
             <Menu open={startOpen} anchorRef={startBtnRef} onClose={() => setStartOpen(false)} minWidth={240} role="menu">
@@ -746,6 +751,19 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
                   <span className="text-mini leading-tight text-app-text-muted">{tr('board.composer.planFirstHint')}</span>
                 </span>
                 {planFirst && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+              </button>
+              <button
+                role="menuitemcheckbox" aria-checked={stayLocal}
+                onClick={() => setStayLocal((v) => !v)}
+                data-testid="composer-stay-local"
+                className={POPOVER_ITEM}
+              >
+                <Laptop className={`h-3 w-3 shrink-0 ${stayLocal ? 'text-sky-300' : 'text-app-text-muted'}`} />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span>{tr('board.task.node.stayLocal')}</span>
+                  <span className="text-mini leading-tight text-app-text-muted">{tr('board.task.node.stayLocalTitle')}</span>
+                </span>
+                {stayLocal && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
               </button>
             </Menu>
           </div>

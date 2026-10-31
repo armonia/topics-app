@@ -61,6 +61,8 @@ import {
   type TurnEndInfo,
 } from "../providers/stop-reason";
 import { createRemoteNodeLane, isNodeSessionKey, type NodeDeps, type NodeSlot } from "./task-dispatcher-remote-node";
+import { carriedBranch } from "./branch-on-origin";
+import { OVERFLOW_AFTER_MS, OVERFLOW_MAX_PER_ROUND, overflowEligible, overflowNote, pickOverflowMachine, type OverflowMachine } from "./dispatch-overflow";
 import { createDispatchMemoryQueuePublisher, createDispatchMemoryQueueSnapshot } from "./dispatch-memory-queue";
 import { createDispatchMemoryStartController } from "./dispatch-memory-start";
 import { buildDispatchAdmissionPreview } from "./dispatch-admission-preview";
@@ -142,9 +144,11 @@ export interface DispatcherDeps {
   /**
    * Create a git worktree for `projectStoreId` and resolve once it's ready to
    * the worktree id, or throw if creation failed. Absent = the host can't
-   * provide worktrees at all (tests / degraded mode).
+   * provide worktrees at all (tests / degraded mode). `baseBranch` = a node's
+   * mirror card born from the origin card's own branch (`Task.baseBranch`),
+   * not from main.
    */
-  createWorktree?: (projectStoreId: string) => Promise<string>;
+  createWorktree?: (projectStoreId: string, opts?: { baseBranch?: string }) => Promise<string>;
   /**
    * Scrive sulla card la fotografia della consegna (ramo, commit, diffstat) e le
    * etichette derivate, leggendo il worktree. Torna `true` se c'e' un ramo.
@@ -540,6 +544,17 @@ export interface DispatcherDeps {
    * Its shape and its whole behaviour live in `task-dispatcher-remote-node.ts`.
    */
   node?: NodeDeps;
+  /**
+   * THE OVERFLOW: the machines a card held by this Mac's memory floor can move
+   * to (`dispatch-overflow.ts`), never this one. Absent = no card ever moves by
+   * itself, the historical behaviour. Needs `node`: the move hands the card to
+   * the remote lane.
+   */
+  overflowMachines?: () => OverflowMachine[];
+  /** Does the Claude plan have credit for a cloud run? Absent = no Claude provider hold. */
+  cloudCredit?: () => boolean;
+  /** Is the project's origin a GitHub repository (the cloud clones nothing else)? Absent = no, Cloud is never chosen. */
+  githubOriginOf?: (projectId: string) => Promise<boolean>;
   /** Live delegated authority. A marked task fails closed when this is absent. */
   delegatedPolicyForTask?: (taskId: string) => DelegatedRunPolicy | null;
   /** Node-local bindings stay delegated even after expiry makes their live policy disappear. */
@@ -2271,6 +2286,176 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const heavyHoldSince = new Map<string, number>();
   /** L'orologio del freno, iniettabile per i test (vedi `DispatcherDeps.now`). */
   const clock = (): number => deps.now?.() ?? Date.now();
+  // Since WHEN a local Todo card has been held by this machine's memory floor
+  // (ms): the overflow's clock (`OVERFLOW_AFTER_MS`). The clock measures an
+  // UNBROKEN hold, counted in ROUNDS of its board (`overflowRounds`): a round
+  // that did not mark the card held breaks it, whatever the reason. A spend
+  // cap, an invalid delegation, a heavy card in flight, a deferral, a paused
+  // board, a trip out of Todo: each of these leaves its board's round without
+  // the mark (many of them return before the loop even starts), so the next
+  // hold starts from zero instead of inheriting the time spent waiting for
+  // something else.
+  const memoryHeldSince = new Map<string, { since: number; projectId: string; round: number }>();
+  /** Per board: how many dispatch rounds have begun. Bumped first thing, before any early return. */
+  const overflowRounds = new Map<string, number>();
+  function beginOverflowRound(projectId: string): number {
+    const n = (overflowRounds.get(projectId) ?? 0) + 1;
+    overflowRounds.set(projectId, n);
+    return n;
+  }
+  /** The hold of `t` counted up to the previous round of its board, unbroken; `null` = none. */
+  function unbrokenHold(t: Task, round: number): { since: number } | null {
+    const held = memoryHeldSince.get(t.id);
+    return held && held.round >= round - 1 ? held : null;
+  }
+  // Per project: does it have the git origin the remote lane finds it by (a card
+  // moved without one would be parked over there), and is that origin on GitHub
+  // (the only host Cloud Claude clones from: elsewhere it refuses the run and the
+  // card lands in review with `cloud_refused`)? Read asynchronously, so the first
+  // tick that asks only starts the lookup; re-read every ten minutes.
+  const overflowOrigin = new Map<string, { ok: boolean; github: boolean; at: number }>();
+  const overflowOriginPending = new Set<string>();
+  function overflowOriginOf(projectId: string): { ok: boolean; github: boolean } {
+    const known = overflowOrigin.get(projectId);
+    if (known && clock() - known.at < 10 * 60_000) return known;
+    const node = deps.node;
+    if (node && !overflowOriginPending.has(projectId)) {
+      overflowOriginPending.add(projectId);
+      Promise.resolve()
+        .then(() => node.originUrlOf(projectId))
+        .then(async (origin) => {
+          const github = !!origin && !!(await Promise.resolve(deps.githubOriginOf?.(projectId)).catch(() => false));
+          overflowOrigin.set(projectId, { ok: !!origin, github, at: clock() });
+        })
+        .catch(() => { overflowOrigin.set(projectId, { ok: false, github: false, at: clock() }); })
+        .finally(() => { overflowOriginPending.delete(projectId); });
+    }
+    return known ?? { ok: false, github: false };
+  }
+  // Per card: is its own delivery branch on origin (pushed now if this checkout
+  // is ahead)? A card that already has a branch runs over there FROM it
+  // (`CreateRunBody.baseBranch`), so a branch origin cannot get keeps the card
+  // here. Asked once the two minutes are up, re-asked after a minute.
+  const overflowBranch = new Map<string, { branch: string; ok: boolean; reason: string; at: number }>();
+  const overflowBranchPending = new Set<string>();
+  function overflowBranchReady(t: Task): boolean | null {
+    const branch = carriedBranch(t);
+    if (!branch) return true;
+    const ensure = deps.node?.ensureBranchOnOrigin;
+    // No way to push: the card cannot carry its branch, so it does not leave.
+    if (!ensure) return false;
+    const known = overflowBranch.get(t.id);
+    if (known && known.branch === branch && clock() - known.at < 60_000) return known.ok;
+    if (!overflowBranchPending.has(t.id)) {
+      overflowBranchPending.add(t.id);
+      Promise.resolve()
+        .then(() => ensure({ projectId: t.projectId, branch }))
+        .then((r) => {
+          overflowBranch.set(t.id, { branch, ok: r.ok, reason: r.ok ? "" : r.reason, at: clock() });
+          if (!r.ok) log(`overflow: ${t.id} stays, its branch ${branch} cannot reach origin: ${r.reason}`);
+        })
+        .catch((err) => { overflowBranch.set(t.id, { branch, ok: false, reason: String(err), at: clock() }); })
+        .finally(() => { overflowBranchPending.delete(t.id); });
+    }
+    return null;
+  }
+  /**
+   * The cards a machine is carrying right now: every live card that names it
+   * (in Todo or in progress), not only the runs alive in this process. A PC
+   * that does not answer, or sleeps, sends its cards back to the queue with a
+   * deferral (`deferForSilentNode`): counted by live runs it read as empty and
+   * took six cards on two slots, and each wake-up only added more.
+   */
+  function machineLoad(machineId: string): number {
+    let n = 0;
+    try { n = deps.svc.countOnMachine(machineId); } catch { n = Number.POSITIVE_INFINITY; }
+    const prefix = `node:${machineId}:`;
+    let live = 0;
+    for (const slot of inFlight.values()) {
+      if (slot.node?.machineId === machineId || slot.sessionKey.startsWith(prefix)) live += 1;
+    }
+    return Math.max(n, live);
+  }
+  /** The memory floor held this card in this round: its clock starts, or keeps running. */
+  function markMemoryHeld(t: Task, round: number): void {
+    const held = unbrokenHold(t, round);
+    memoryHeldSince.set(t.id, { since: held?.since ?? clock(), projectId: t.projectId, round });
+  }
+  /**
+   * A card that leaves Todo (or comes back to it) loses its clock now. A board
+   * with nothing else queued does not tick (`boardsWithQueuedTodos`), so its
+   * round count stops and the end-of-round prune never runs: without this the
+   * card came back to Todo still carrying the old hold, and moved on the first
+   * round after it, with no wait at all.
+   */
+  function forgetOverflowClock(taskId: string): void {
+    memoryHeldSince.delete(taskId);
+    overflowBranch.delete(taskId);
+  }
+  /** Boards that will not tick this pass hold nothing by memory: their clocks go. */
+  function pruneOverflowClocksOutside(ticking: ReadonlySet<string>): void {
+    for (const [id, e] of [...memoryHeldSince]) if (!ticking.has(e.projectId)) forgetOverflowClock(id);
+  }
+  /** End of a round on `projectId`: a card this round did not mark held loses its clock. */
+  function pruneOverflowClocks(projectId: string, round: number): void {
+    for (const [id, e] of [...memoryHeldSince]) {
+      if (e.projectId === projectId && e.round !== round) memoryHeldSince.delete(id);
+    }
+    for (const id of [...overflowBranch.keys()]) if (!memoryHeldSince.has(id)) overflowBranch.delete(id);
+  }
+  /**
+   * THE OVERFLOW'S MOVE for one local card held by the memory floor: past
+   * `OVERFLOW_AFTER_MS` of unbroken hold it hands the card to the first machine
+   * that can take it (`pickOverflowMachine`). `true` = the card now runs
+   * elsewhere, and the caller sends it down the remote lane in this same round.
+   * `round.no` is the board's round (the clock's unit), `round.moved` its moves so far.
+   */
+  function overflowHeldCard(
+    t: Task,
+    settings: { dispatchOverflow?: boolean; dispatchStayLocal?: boolean; dispatchModel?: string | null },
+    round: { no: number; moved: number },
+  ): boolean {
+    if (!deps.overflowMachines || !deps.node) return false;
+    let localId: string | null = null;
+    try { localId = deps.node.localMachineId?.() ?? null; } catch { /* unknown: no move */ }
+    // A delegated card's authority names THIS machine (`policy.machineId`):
+    // moved, it would be parked over there as no longer valid.
+    const delegated = delegatedPolicy(t) !== undefined;
+    if (!localId || !overflowEligible({ ...t, delegated }, settings, localId)) { memoryHeldSince.delete(t.id); return false; }
+    // Asked from the first held round, so the answer is in by the time it matters.
+    const origin = overflowOriginOf(t.projectId);
+    const held = unbrokenHold(t, round.no);
+    if (!held || clock() - held.since < OVERFLOW_AFTER_MS || !origin.ok) return false;
+    if (round.moved >= OVERFLOW_MAX_PER_ROUND) return false;
+    // Its own branch reaches origin first; `null` = the push is under way.
+    if (overflowBranchReady(t) !== true) return false;
+    let machines: OverflowMachine[] = [];
+    try { machines = deps.overflowMachines().filter((m) => m.id !== localId); } catch (err) { log("overflow: machine list failed", err); return false; }
+    let cloudCredit = true;
+    try { cloudCredit = deps.cloudCredit?.() ?? !providerHold(); } catch { cloudCredit = false; }
+    const target = pickOverflowMachine(machines, {
+      cloudCredit,
+      githubOrigin: origin.github,
+      // The model the run would use: the card's, else the board's (`auto` = no choice).
+      model: t.model ?? (settings.dispatchModel && settings.dispatchModel !== "auto" ? settings.dispatchModel : null),
+      // Read after this round's own moves: they are written before the next card is asked.
+      load: machineLoad,
+    });
+    if (!target) return false;
+    let moved: Task | null = null;
+    try { moved = deps.svc.overflowToMachine({ taskId: t.id, machineId: target.id, localMachineId: localId }); }
+    catch (err) { log(`overflow: move of ${t.id} failed`, err); return false; }
+    if (!moved) return false;
+    round.moved += 1;
+    memoryHeldSince.delete(t.id);
+    overflowBranch.delete(t.id);
+    floorBlockSent.delete(t.id);
+    log(`overflow: ${t.id} moved to ${target.name} (${target.kind}), memory floor held it ${Math.round((clock() - held.since) / 1000)} s`);
+    emit(moved);
+    try { deps.svc.addComment({ taskId: t.id, author: "system", kind: "service", content: overflowNote(target.name) }); }
+    catch { /* the move stands without its line */ }
+    return true;
+  }
   // Board a cui si è già detto "il fan-out qui non si applica" (worktree off).
   // È una configurazione, non un evento: ripeterlo a ogni dispatch sarebbe rumore.
   const fanOutBlockedNoted = new Set<string>();
@@ -3297,7 +3482,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           });
           return;
         }
-        worktreeId = await deps.createWorktree(resolved.projectStoreId);
+        worktreeId = await deps.createWorktree(resolved.projectStoreId, task.baseBranch ? { baseBranch: task.baseBranch } : undefined);
         if (deferHeldLaunch(task, chosenModel)) {
           await cleanupWorktree(worktreeId, { preserveWork: true });
           return;
@@ -3682,7 +3867,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     let usage0: SessionUsage | null = null;
     let failure: string | null = null;
     try {
-      worktreeId = await deps.createWorktree!(resolved.projectStoreId);
+      worktreeId = await deps.createWorktree!(resolved.projectStoreId, task.baseBranch ? { baseBranch: task.baseBranch } : undefined);
       const routedModel = opts.provider && opts.model ? taskModelValue(opts.provider, opts.model) : opts.model;
       const wait = taskPlanWait(task, routedModel, true);
       if (wait) {
@@ -4982,6 +5167,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   async function dispatchTick(projectId: string): Promise<void> {
+    // First, before any return: a round that ends early is a round that did not
+    // hold anything by memory, and the overflow's clock must see it.
+    const overflowRoundNo = beginOverflowRound(projectId);
     releaseInactiveNoCheckReservations();
     releaseOrphanMemorySeat();
     // Project-less tasks are never dispatchable (no cwd): they WAIT quietly on
@@ -5403,6 +5591,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // The block has lifted: forget the episode, so the next full disk says it
     // again instead of staying mute forever. It looks at the block and not at
     // the single card, because the block is one per machine.
+    // The overflow's clock measures the MEMORY floor only: a disk or a bill
+    // holding the queue is not a reason to send a card elsewhere. Nor is the
+    // warm-up (`memory_warmup`): the floor has no two minutes of readings yet,
+    // so nothing says this Mac is full.
+    const memoryFloorHolds = resourceFloor != null && floorNow.kind === "memory";
+    if (!memoryFloorHolds) memoryHeldSince.clear();
+    // This round's number for the overflow's clock, and how many cards it moved.
+    const overflowRound = { no: overflowRoundNo, moved: 0 };
     if (!floorBlock) {
       floorHeldNoted.clear();
       // The cards sent with the block learn it lifted, once. No write says it
@@ -5481,6 +5677,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         continue;
       }
       const manualMemoryStartSelected = manualMemoryStart.selectedTask(projectId) === t.id;
+      // THE OVERFLOW: a local card the memory floor has held for two minutes
+      // goes to a machine where the floor does not apply, and goes down the
+      // remote lane in this same round.
+      if (memoryFloorHolds && !remoteCard(t) && !manualMemoryStartSelected && overflowHeldCard(t, settings, overflowRound)) {
+        remoteIds.add(t.id);
+      }
       const remoteTask = remoteCard(t);
       const candidateReservationGB = manualMemoryStartSelected || remoteTask ? null : noCheckReservationFor(t);
       const candidateBudget = candidateReservationGB == null
@@ -5502,6 +5704,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         || floorNow.memoryFirstCardExempt;
       if (!remoteTask && ((!manualMemoryStartSelected && floorNow.memoryFirstCardExempt && t.dispatchWeight === "heavy")
         || (memorySeatTaskId && memorySeatTaskId !== t.id && memoryHold))) {
+        if (memoryFloorHolds) markMemoryHeld(t, overflowRoundNo);
         queueChip(t, WAITING_MEMORY);
         continue;
       }
@@ -5563,6 +5766,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         const stale = !sent || sent.key !== block.key
           || (sent.reason !== block.reason && clock() - sent.at >= HELD_RESUME_REFRESH_MS);
         const memoryWait = resourceFloor != null && (floorNow.kind === "memory" || floorNow.kind === "memory_warmup");
+        if (memoryFloorHolds) markMemoryHeld(t, overflowRoundNo);
         const wrote = queueChip(t, memoryWait ? WAITING_MEMORY : undefined);
         // In attesa di memoria la card legge solo il codice: cifre nuove non cambiano niente.
         if (stale && !wrote && !memoryWait) {
@@ -5932,9 +6136,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       }
       void launch(t.id, { useWorktree: settings.dispatchUseWorktree, ...launchSettings }, resolved);
     }
+    pruneOverflowClocks(projectId, overflowRoundNo);
   }
 
   function onEnterTodo(projectId: string, taskId: string): void {
+    // A fresh entry into Todo is a fresh wait: the overflow's clock starts over.
+    forgetOverflowClock(taskId);
     // No project = no dispatch (and no stranded chip): assign a board first.
     if (projectId === UNASSIGNED_PROJECT_ID) return;
     clearGrace(taskId);
@@ -5968,6 +6175,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
   function onLeaveTodo(taskId: string): void {
     clearGrace(taskId);
+    forgetOverflowClock(taskId);
     // IL CHIP «IN CODA» SI SPEGNE ANCHE FUORI DALLA FINESTRA DI GRAZIA.
     //
     // Prima questa riga viveva dentro `if (graceTimers.has(taskId))`, e quella
@@ -6548,7 +6756,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     //    tutto ciò che segue è lavoro che finisce nel cestino. Chiederla per
     //    board dentro `sweepParkedChildren` e poi rifare il giro dei todo
     //    significava pagare quel cestino ogni 10 secondi.
-    if (!(() => { try { return deps.svc.getGlobalAutoDispatch(); } catch { return false; } })()) return;
+    if (!(() => { try { return deps.svc.getGlobalAutoDispatch(); } catch { return false; } })()) {
+      // The switch is global (a board's `autoDispatch` reads and writes it).
+      // Nothing ticks with it off, so no round breaks a hold: the
+      // overflow's clocks go here, or a card held before the switch went off
+      // moved on the first round after it came back, with no wait at all.
+      for (const id of [...memoryHeldSince.keys()]) forgetOverflowClock(id);
+      return;
+    }
     const acceso = (projectId: string): boolean => {
       try { return deps.svc.getBoardSettings(projectId).autoDispatch; } catch { return false; }
     };
@@ -6612,6 +6827,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const boards = new Set<string>();
     try { for (const projectId of deps.svc.boardsWithQueuedTodos()) boards.add(projectId); }
     catch (err) { log("reconcile todo list failed", err); }
+    // A card that left Todo by a path that calls neither hook (a direct write,
+    // a sweep) on a board with nothing else queued: its clock goes here.
+    pruneOverflowClocksOutside(boards);
     // A TURNO, non sempre nello stesso ordine. Il tetto è globale: la board che
     // tocca per prima riempie i posti, e chi viene dopo non ne trova mai. Con
     // l'ordine fisso della lista, l'11/08 una board ha preso 26 claim su 31 in

@@ -272,6 +272,13 @@ const DELIVERY_SNAPSHOT_COLUMNS = [
   "checks_json",
   "checks_commit",
 ] as const;
+/**
+ * Is a card's delivery branch still work that main lacks? A landed (or
+ * superseded) branch is not a base for the next run: main already has it.
+ */
+function branchStillAhead(row: { landing_state?: string | null }): boolean {
+  return row.landing_state !== "landed" && row.landing_state !== "superseded";
+}
 const clampInt = (n: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, Math.trunc(Number.isFinite(n) ? n : lo)));
 
@@ -848,6 +855,21 @@ export interface TaskService {
      */
     remote?: boolean;
   }): Task | null;
+  /**
+   * The overflow dispatch's move (`dispatch-overflow.ts`): the card goes to
+   * `machineId` and is stamped `overflowed_at`, in ONE compare-and-set. It
+   * applies only to a card still waiting here: in `todo`, unbound, not marked
+   * "this Mac only", and running on this machine (`machine_id` NULL or
+   * `localMachineId`). `null` = it did not apply (it moved, a person picked a
+   * machine meanwhile), and the caller leaves it alone.
+   */
+  overflowToMachine(args: { taskId: string; machineId: string; localMachineId: string | null }): Task | null;
+  /**
+   * How many live cards name `machineId` (Todo or in progress, not archived),
+   * across every board: what the overflow counts against a machine's slots.
+   * A card waiting for a silent node is in Todo, so it counts.
+   */
+  countOnMachine(machineId: string): number;
   /**
    * C'è un task `heavy` con un agente vivo su questa macchina adesso?
    *
@@ -2660,6 +2682,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // WHERE it runs. `null` is «this machine», which is what every card
       // written before the column existed says (KANBAN-76).
       machineId: r.machine_id ?? null,
+      // "This Mac only": absent column (old harness) reads as unmarked.
+      stayLocal: !!r.stay_local,
+      // Only while it still runs where the overflow sent it.
+      ...(r.overflowed_at && r.machine_id ? { overflowedAt: r.overflowed_at } : {}),
+      ...(r.base_branch ? { baseBranch: r.base_branch } : {}),
+      ...(r.prior_branch ? { priorBranch: r.prior_branch } : {}),
+      ...(r.prior_uncommitted_files ? { priorUncommittedFiles: r.prior_uncommitted_files } : {}),
       // WHO opened it; NULL for every card written before the column.
       createdBy: r.created_by ?? null,
       // The workflow column, only when it is not the default one: a board with
@@ -3808,8 +3837,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
 
       db.prepare(
-        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id, topics_routing, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id, topics_routing, created_by, stay_local, base_branch)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id, input.projectId, text, input.description ?? null, status, priority, order,
         input.assignedTo ?? null, input.chatId ?? null, ts, ts, input.idempotencyKey ?? null,
@@ -3823,6 +3852,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         input.machineId === undefined ? boardDispatchMachineId(input.projectId) : input.machineId,
         input.topicsRouting === undefined || input.topicsRouting === null ? null : (input.topicsRouting ? 1 : 0),
         parseCreatedBy(input.createdBy),
+        input.stayLocal ? 1 : 0,
+        input.baseBranch?.trim() || null,
       );
       // Its own statement, and only when there is a stage: a board on the
       // default workflow writes the same row as before.
@@ -4211,7 +4242,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.machineId !== undefined) {
         const node = (patch.machineId ?? "").trim();
         put("machine_id", node || null);
+        // A person chose the machine: the overflow's «moved because the Mac
+        // was full» no longer describes it.
+        put("overflowed_at", null);
       }
+      if (patch.stayLocal !== undefined) put("stay_local", patch.stayLocal ? 1 : 0);
       if (patch.blockedByTaskId !== undefined) {
         if (patch.blockedByTaskId) assertBlockerValid(taskId, patch.blockedByTaskId);
         put("blocked_by_task_id", patch.blockedByTaskId || null);
@@ -4318,6 +4353,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // Stessa lista che azzera `recordDelivery`: la TESTIMONIANZA cade col
         // suo commit, altrimenti il prossimo verdetto nascerebbe già «visto».
         if ((current === "done" || current === "review") && patch.status !== "done" && patch.status !== "review") {
+          // The branch outlives its snapshot: the next run, here or on another
+          // machine, starts FROM it (df5fd8c5 restarted from main without it).
+          // A branch already on main is no base: main itself is newer.
+          if (row.delivery_branch) put("prior_branch", branchStillAhead(row) ? row.delivery_branch : null);
+          // The uncommitted files outlive their count too: they are still in
+          // this machine's worktree, and the overflow must not leave them behind.
+          if (row.delivery_uncommitted_files != null) put("prior_uncommitted_files", row.delivery_uncommitted_files || null);
           for (const col of DELIVERY_SNAPSHOT_COLUMNS) put(col, null);
           put("landing_state", null); put("landing_checked_at", null); put("landing_witnessed", 0);
         }
@@ -4828,6 +4870,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // non ci passa, perché questa porta scrive lo status a SQL grezzo.
         db.prepare(
           "UPDATE tasks SET status = ?, completed_at = NULL, dispatch_state = NULL, dispatch_attempts = 0, " +
+            // Read before the snapshot is cleared (SQLite evaluates SET on the old row).
+            "prior_branch = CASE WHEN delivery_branch IS NULL THEN prior_branch " +
+            "WHEN landing_state IN ('landed', 'superseded') THEN NULL ELSE delivery_branch END, " +
+            "prior_uncommitted_files = CASE WHEN delivery_uncommitted_files IS NULL THEN prior_uncommitted_files " +
+            "ELSE NULLIF(delivery_uncommitted_files, 0) END, " +
             DELIVERY_SNAPSHOT_COLUMNS.map((c) => `${c} = NULL`).join(", ") + ", " +
             "landing_state = NULL, landing_checked_at = NULL, landing_witnessed = 0, updated_at = ? WHERE id = ?",
         ).run(target, ts, taskId);
@@ -5174,6 +5221,28 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return liveAgentCount(db, scope?.projectId ?? null);
     },
 
+    overflowToMachine({ taskId, machineId, localMachineId }): Task | null {
+      const ts = now();
+      const res = db.prepare(
+        `UPDATE tasks SET machine_id = ?, overflowed_at = ?, updated_at = ?
+          WHERE id = ? AND status = 'todo' AND assigned_topic_id IS NULL AND archived = 0
+            AND stay_local = 0 AND (machine_id IS NULL OR machine_id = ?)
+            AND delegated_start_capability_id IS NULL
+            AND (claude_task_id IS NULL OR claude_task_id NOT LIKE 'node-run:%')
+            AND COALESCE(delivery_uncommitted_files, 0) = 0 AND COALESCE(prior_uncommitted_files, 0) = 0`,
+      ).run(machineId, ts, ts, taskId, localMachineId ?? "");
+      if (res.changes === 0) return null;
+      const row = getTaskRow(taskId);
+      return row ? rowToTask(row) : null;
+    },
+
+    countOnMachine(machineId: string): number {
+      const row = db.prepare(
+        "SELECT COUNT(*) AS n FROM tasks WHERE machine_id = ? AND status IN ('todo', 'in_progress') AND archived = 0",
+      ).get(machineId) as { n: number } | null;
+      return row?.n ?? 0;
+    },
+
     claim({ taskId, cap, maxAttempts, agentId, scope, machineIdle, noCheckExemption, remote }): Task | null {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
@@ -5516,7 +5585,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // instant later would be a number that first drawing never saw.
         "UPDATE tasks SET status = 'review', dispatch_state = 'needs_input', dispatch_error = NULL, " +
           "wait_streak = 0, wait_reason = NULL, wait_since = NULL, review_at = ?, " +
-          "delivery_uncommitted_files = ?, " +
+          "delivery_uncommitted_files = ?, prior_uncommitted_files = NULL, " +
           "delivered_by = 'system', delivered_reason = ?, updated_at = ? WHERE id = ?",
       ).run(ts, typeof uncommittedFiles === "number" ? uncommittedFiles : null, cause ?? null, ts, taskId);
       if (row.status !== "review") logStatus(taskId, row.status, "review", "dispatcher");
@@ -6525,7 +6594,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // vecchio: un dato che non si aggiorna insieme al suo soggetto mente.
       db.prepare(
         "UPDATE tasks SET delivery_branch = ?, delivery_commit = ?, landing_state = NULL, " +
-        "landing_checked_at = NULL, landing_witnessed = 0, " +
+        "landing_checked_at = NULL, landing_witnessed = 0, prior_uncommitted_files = NULL, " +
         "delivery_files_changed = ?, delivery_insertions = ?, delivery_deletions = ? WHERE id = ?",
       ).run(
         branch || null, commit || null,
@@ -6819,6 +6888,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // AICTRL-05: default board dello switch; NULL = nessuna scelta su questa board (ordine di risoluzione in shared/board.ts). allow-italian: dice cosa significa NULL in colonna
         dispatchTopicsRouting: r?.dispatch_topics_routing == null ? null : !!r.dispatch_topics_routing,
         dispatchMachineId: r?.dispatch_machine_id ?? null,
+        // ON unless a person switched it off: an absent column or row is the default.
+        dispatchOverflow: r?.dispatch_overflow == null ? true : !!r.dispatch_overflow,
+        dispatchStayLocal: !!r?.dispatch_stay_local,
         language: r?.language ?? "inherit",
         // NULL = 1: una board che non ha mai sentito parlare di fan-out dispaccia
         // un agente per task, com'è sempre stato.
@@ -6891,6 +6963,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         sets.push("dispatch_machine_id = ?");
         params.push((patch.dispatchMachineId ?? "").trim() || null);
       }
+      if (patch.dispatchOverflow !== undefined) { sets.push("dispatch_overflow = ?"); params.push(patch.dispatchOverflow ? 1 : 0); }
+      if (patch.dispatchStayLocal !== undefined) { sets.push("dispatch_stay_local = ?"); params.push(patch.dispatchStayLocal ? 1 : 0); }
       if (patch.language !== undefined) { sets.push("language = ?"); params.push(patch.language && patch.language !== "inherit" ? patch.language : null); }
       // Tetto a 5: oltre, il fan-out non è più "confronto fra alternative" ma un
       // modo di saturare la macchina — e ogni tentativo è un agente vero che

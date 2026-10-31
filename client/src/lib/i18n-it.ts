@@ -1199,8 +1199,12 @@ const IT: Dict = {
   'board.task.node.online': 'in linea',
   'board.task.node.offline': 'non risponde',
   'board.task.node.empty': 'Nessun nodo accoppiato. Se ne aggiunge uno dal menu utente, in Dispositivi → Macchine.',
+  'board.task.node.stayLocal': 'Solo Mac',
+  'board.task.node.stayLocalTitle': 'La card tocca il Mac stesso (processi locali, OpenClaw, sessioni, macOS): resta qui anche col Mac pieno.',
   'board.task.node.on': 'su {node}',
   'board.task.node.onTitle': 'Questa card gira sul nodo {node}, non su questa macchina.',
+  'board.task.node.overflowed': 'spostata su {node}: Mac pieno',
+  'board.task.node.overflowedTitle': 'La memoria di questo Mac è rimasta sotto il pavimento per più di 2 minuti: il dispatch ha spostato la card su {node}, dove il pavimento non vale.',
   // PAIRING A NODE (MACHINE-02). Three failures, three sentences: whoever reads
   // "unreachable" on a refused host goes and looks at the wrong machine.
   'settings.machines.pair.title': 'Nodi',
@@ -1591,6 +1595,10 @@ const IT: Dict = {
   'board.settings.paused': 'Metti in pausa questa board',
   'board.settings.pausedTitle': "Ferma il dispatch di QUESTA board e lascia girare le altre. L'interruttore globale qui sopra vale per tutte: se e' spento, non parte niente comunque.",
   'board.settings.pausedActive': 'In pausa: i task di questa board restano in coda. Le altre board continuano.',
+  'board.settings.overflow': 'Mac pieno: sposta su Cloud o PC',
+  'board.settings.overflowTitle': 'Una card ferma per la memoria di questo Mac da più di 2 minuti va su Cloud Claude (se c\'è credito) o sul PC, dove il pavimento non vale. Restano qui le card «solo Mac» e quelle «prima il piano».',
+  'board.settings.stayLocal': 'Solo Mac: non spostare le card',
+  'board.settings.stayLocalTitle': 'Le card di questa board toccano il Mac stesso (processi locali, OpenClaw, sessioni, macOS): restano qui anche col Mac pieno.',
   'board.settings.effort': 'Effort',
   'board.settings.model': 'Modello',
   'board.settings.modelTitle': 'Auto sceglie per ogni task tra i modelli collegati, disponibili e compatibili, su tutti i provider. Un modello fisso vale per questa board; la scelta esplicita nel task ha la precedenza.',
