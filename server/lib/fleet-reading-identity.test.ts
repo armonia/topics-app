@@ -182,10 +182,14 @@ describe("card 10469e3e: one CPU budget and every freeze in the capacity payload
   });
 
   test("in resources mode recommended and the reason come from the knob's budget", () => {
-    const r = cap({ share: 0.8, frozen: 0, resources: true });
-    const counted = cap({ share: 0.8, frozen: 0 });
-    expect(r.recommended).toBe(3);
-    expect(counted.recommended).toBe(2);
+    // 8 running agents = MAX_AUTO_CAP: the resources formula (running + free slots) is 8 on any machine,
+    // while the count-mode formula is capped by the 2-6 core band, so they differ whatever the core count.
+    const knobBase = { share: 0.8, frozen: 0 };
+    const run = (resources: boolean) => computeDispatchCapacity(8, quiet, true, () => 20, { ...knobBase, resources }, undefined, () => 10);
+    const r = run(true);
+    const counted = run(false);
+    expect(r.recommended).toBe(8);
+    expect(counted.recommended).toBeLessThan(8);
     expect(r.reason).toContain("utilizzabili");
     expect(counted.reason).toContain("di quota");
     expect(counted.reason).not.toContain("utilizzabili");
@@ -201,7 +205,8 @@ describe("card 10469e3e: one CPU budget and every freeze in the capacity payload
 
   test("the capacity route feeds the knob with the swap freezer and the resources mode", () => {
     const routes = readFileSync(join(import.meta.dir, "../routes/tasks.ts"), "utf8");
-    expect(routes).toContain("swapFrozen: swapFrozenCount(),");
-    expect(routes).toContain('resources: capMode(svc.getGlobalCap()) === "resources",');
+    // Match only live lines: a commented-out line must turn this red.
+    expect(routes).toMatch(/^\s*swapFrozen: swapFrozenCount\(\),\s*$/m);
+    expect(routes).toMatch(/^\s*resources: capMode\(svc\.getGlobalCap\(\)\) === "resources",\s*$/m);
   });
 });
