@@ -2327,7 +2327,9 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          -- Same migration: a node mirror's base branch. Same reason as above.
          base_branch = 'topics/endless-calf',
          -- Same migration: the branch kept when the card went back to the queue.
-         prior_branch = 'topics/endless-calf'
+         prior_branch = 'topics/endless-calf',
+         -- Same migration: the uncommitted files kept when it went back to the queue.
+         prior_uncommitted_files = 3
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite
