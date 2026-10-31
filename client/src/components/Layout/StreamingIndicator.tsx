@@ -119,7 +119,7 @@ export function SparkLoader({ className = '', state = 'working', onFill = false,
     return () => { io?.disconnect(); clock.remove(client); };
   }, [size, hollow]);
 
-  // Lo stato cambia l'inchiostro subito, non al prossimo giro di lettura; il fotogramma fermo si ridisegna.
+  // The state changes the ink at once, not at the next periodic read; the still frame redraws.
   useEffect(() => { refreshRef.current?.(); }, [shown, state, onFill]);
 
   return (

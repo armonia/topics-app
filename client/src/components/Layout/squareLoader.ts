@@ -294,7 +294,7 @@ export class LoaderBody {
       let gap = Math.max(1, Math.round(p * 0.14));
       if (p - gap < 1) gap = 0;
       const q = p - gap;
-      // Intero: con uno spazio dispari, gap / 2 metteva ogni quadrato su mezzo pixel, e usciva sfocato.
+      // A whole number: with an odd gap, gap / 2 put every square on half a pixel, and it came out blurred.
       const inset = Math.floor(gap / 2);
       const rr = q < 2 ? 0 : Math.max(0.6, q * 0.3);
       const a = new Float32Array(n * n);
@@ -408,7 +408,7 @@ export function sharedLoaderClock(): ReturnType<typeof createLoaderClock> {
     shared = createLoaderClock({
       raf: (cb) => requestAnimationFrame(cb),
       cancel: (n) => cancelAnimationFrame(n),
-      // Non `document.hidden`: con l'app dietro a un'altra e' falso, e si disegnerebbe per nessuno.
+      // Not `document.hidden`: with the app behind another one it is false, and we would draw for nobody.
       hidden: () => !isWindowAwake(),
     });
     onWindowAwakeChange(() => shared?.visibilityChanged());

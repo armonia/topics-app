@@ -827,12 +827,14 @@
     "Non ho provato altre strade (il pannello perf pigro compreso) prima di alzare. total_assets va al valore misurato in CI, come le altre voci.",
     "",
     "2026-10-23, zod 4.4.3 -> 4.6.7 (avviso GHSA-mrhx-c7xc-m3w5, alta gravita'; dipendenza diretta della root, nell'entry via shared/ws-outbound.ts): entry_eager raw 904.491 -> 909.773 (CI run 40023946430), +5.282 raw / +1.684 gz, oltre il tetto di 909.150 di 623 byte.",
-    "Il fix di sicurezza non e' negoziabile, quindi il tetto segue la misura: entry_eager raw 909.773, total_assets 9.032.356 -> 9.037.638. Il gz dell'entry resta sotto il registrato."
+    "Il fix di sicurezza non e' negoziabile, quindi il tetto segue la misura: entry_eager raw 909.773, total_assets 9.032.356 -> 9.037.638. Il gz dell'entry resta sotto il registrato.",
+    "",
+    "2026-10-31, loader a quadrati: entry_eager raw 909.773 -> 939.270, misura della CI su 12eb4a661. Il loader sta in ogni riga e nel guscio, quindi resta eager."
   ],
-  "updated": "2026-10-23",
+  "updated": "2026-10-31",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 909773,
+    "raw": 939270,
     "gz": 392156
   },
   "critical_path": {
