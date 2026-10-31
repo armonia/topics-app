@@ -44,11 +44,34 @@ test.describe("Terminal font and padding", () => {
     const pane = page.locator('[data-testid="single-terminal-pane"]:visible').first();
     await expect(pane).toBeVisible({ timeout: 20_000 });
 
-    const fontLoaded = await page.evaluate(async () => {
-      await document.fonts.load("13px 'JetBrains Mono'");
-      return document.fonts.check("13px 'JetBrains Mono'");
+    // Both faces must be `loaded`, not merely declared: `document.fonts.check`
+    // answers true for a face that is in `error`, so it proves nothing here.
+    const faces = await page.evaluate(async () => {
+      await document.fonts.ready;
+      return [...document.fonts]
+        .filter((f) => f.family === 'JetBrains Mono')
+        .map((f) => ({ weight: f.weight, status: f.status }));
     });
-    expect(fontLoaded).toBe(true);
+    expect(faces.map((f) => f.status)).toEqual(['loaded', 'loaded']);
+
+    // The rows xterm draws use the bundled face, and at 13 px with a 1.25 line
+    // height JetBrains Mono's cell is 21 px tall (measured, not assumed).
+    const rowMetrics = await page.evaluate(() => {
+      const rows = document.querySelector<HTMLElement>('.xterm-rows');
+      const row = rows?.firstElementChild as HTMLElement | null;
+      return {
+        family: rows ? getComputedStyle(rows).fontFamily : '',
+        rowPx: row ? row.getBoundingClientRect().height : 0,
+      };
+    });
+    expect(rowMetrics.family).toContain('JetBrains Mono');
+    expect(rowMetrics.rowPx).toBe(21);
+
+    // The shade blocks are drawn by the face, so they must reach the rows.
+    await terminalPage.waitForReady();
+    await terminalPage.focus();
+    await terminalPage.typeCommand('echo ░▒▓');
+    await terminalPage.waitForOutput('░▒▓');
 
     // The gap is measured from the box that holds xterm to xterm's screen, at
     // several pane heights: FitAddon rounds the rows down, so the gap below the

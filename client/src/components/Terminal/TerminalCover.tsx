@@ -30,8 +30,13 @@ const DEFAULT_ROW_PX = 21;
 export function TerminalCover({ copy, ref }: { copy: TerminalScreenCopy | null; ref?: Ref<HTMLDivElement> }) {
   if (!copy) {
     return (
-      <div data-testid="terminal-skeleton" aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-        <SkeletonRows count={6} rowClassName="flex h-[21px] items-center px-2" glyph={0} />
+      <div
+        data-testid="terminal-skeleton"
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 overflow-hidden"
+        style={{ padding: TERMINAL_PADDING_PX }}
+      >
+        <SkeletonRows count={6} rowClassName="flex h-[21px] items-center" glyph={0} />
       </div>
     );
   }
