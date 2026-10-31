@@ -171,10 +171,69 @@ describe('the progress word', () => {
   });
 
   test('la nota di sistema e\' ripiegata sotto «mostra», mai sola nel corpo', () => {
-    const block = src.slice(src.indexOf('data-testid="card-progress-word"'));
-    const note = block.slice(block.indexOf('card-system-note-toggle'));
-    expect(note.slice(0, 900)).toContain('notaAperta');
-    expect(src).toContain("tr('board.card.noteShow')");
+    const fold = src.slice(src.indexOf('function SystemNoteFold'), src.indexOf('const CardBody = memo'));
+    expect(fold).toContain('data-testid="card-system-note-toggle"');
+    expect(fold).toContain("tr('board.card.noteShow')");
+    expect(fold).toContain('{aperta && (');
+    // Progress and review both use it: one implementation, two call sites.
+    expect(src.split('<SystemNoteFold note={lastComment} />').length - 1).toBe(2);
+  });
+});
+
+/**
+ * ONE LINE OF TEXT FOR THE MEASURE: model with its provider, time and tokens.
+ *
+ * It sits on the card in progress and in review, always visible, and never as
+ * a pill. At 300 px it is cut from the tail: tokens go before the model does.
+ */
+describe('la misura del turno sulla card', () => {
+  test('in lavorazione la riga viva c\'e\': niente chip, solo testo e un punto', () => {
+    expect(src).not.toContain("task.status === 'in_progress' ? null");
+    expect(src).toContain('<LiveEffortChip usage={live} label={modelLine} />');
+    expect(live).toContain('data-testid="card-measure"');
+    expect(live).not.toContain('bg-sky-500/15');
+  });
+
+  test('il modello e il provider sono nel CONTENUTO della riga, non solo nel titolo', () => {
+    // Guard against the model moving into `title` alone: the visible text must carry it.
+    expect(src).toContain('>{modelLine}{(task.agentMs > 0 || costo > 0)');
+    expect(live).toContain('{label ?? fmtModel(usage.model)} · ⏱ {fmtLive(ms)}');
+  });
+
+  test('a 300 px non va in overflow: si accorcia dalla coda, prima i token', () => {
+    const start = src.indexOf('data-testid="card-measure"');
+    expect(start).toBeGreaterThan(-1);
+    const span = src.slice(start, start + 400);
+    expect(span).toContain('min-w-0');
+    expect(span).toContain('max-w-full');
+    expect(span).toContain('truncate');
+    // Tokens come AFTER the time in the text, so truncation drops them first.
+    const content = src.slice(src.indexOf('>{modelLine}{(task.agentMs > 0'), src.indexOf('{/* THE DOLLARS'));
+    expect(content.indexOf('fmtMs(task.agentMs)')).toBeLessThan(content.indexOf('fmtTok(costo)'));
+    expect(live).toContain('min-w-0 truncate');
+  });
+
+  test('il piede non ha pillole impilate: la misura non porta sfondo', () => {
+    const start = src.indexOf('data-testid="card-measure"');
+    expect(src.slice(start, start + 400)).not.toContain('bg-white/10');
+  });
+});
+
+/**
+ * IN REVIEW THE BODY HOLDS THE AGENT'S WORD; THE NOTE STAYS FOLDED.
+ *
+ * The card's last voice is often the dispatcher's note ("Live preview ready").
+ * The body must not draw it with its tag: it keeps the agent's last sentence,
+ * and the note waits behind a show toggle.
+ */
+describe('la review: parola dell\'agente nel corpo', () => {
+  test('il corpo usa la parola dell\'agente quando l\'ultima voce è di sistema', () => {
+    expect(src).toContain('const bodyWord = notesOfMachine ? agentWord : lastComment;');
+    expect(src).toContain('<ChatMarkdown components={{}}>{questionToProse(bodyWord.content)}</ChatMarkdown>');
+  });
+
+  test('il tag «SISTEMA» in chiaro nel corpo e\' stato tolto', () => {
+    expect(src).not.toContain('card-comment-system-tag');
   });
 });
 
@@ -212,11 +271,5 @@ describe('the card is the containing block of its frost', () => {
     expect(root, 'the card root className moved: this test guards nothing').not.toBeNull();
     expect(root![1]!.split(/\s+/)).toContain('relative');
     expect(src).toContain('<SwapIce freeze={swapFreeze} size="card" />');
-  });
-});
-
-describe('modello e durata fuori dalla card in lavorazione', () => {
-  test('il piede non disegna il chip di modello e tempo su una card in_progress', () => {
-    expect(src).toContain("task.status === 'in_progress' ? null : live && !live.retry");
   });
 });

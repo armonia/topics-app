@@ -56,7 +56,10 @@ Limite onesto: la CLI finta non chiama mai `update_task`, quindi le card arrivat
 
 **Oggi.** La card in review porta: titolo, chip «Niente consegnato», «NOTA DI SISTEMA» con il testo della macchina, chip «serve te», «Sonnet 5 · via Claude Code · 35s», tre bottoni e un campo di commento (`04-board-anteprime.png`). La card in lavorazione mostra «ferma · nessun agente da 6 min» (uno stato di coda) e la card dispatchata «modifiche git ▾», «Triage», «Sonnet 5 · via Claude…». Quello che manca è la cosa che chiedi: *cosa sta facendo e a che punto è*. Cosa funziona già: quando l'ultima parola è dell'agente (la card «Stati vuoti nelle liste», KANBAN-71/`board-card-last-exchange`) la card mostra la sua frase, non la cronaca.
 **Coperto?** In parte da `conversazione-unica-della-card` (ultima parola = domanda, stato di consegna come chip). Non copre la riga di avanzamento.
-**Correzione.** Una riga di avanzamento nel corpo (ultimo passo del tool in corso, o l'ultima frase dell'agente), modello e durata solo nel dettaglio; la nota di sistema ripiegata sotto un «mostra» e mai sola nel corpo.
+**Correzione.** Una riga di avanzamento nel corpo, in chiaro, sotto il titolo (ultimo passo del tool in corso, o l'ultima frase dell'agente). La nota di sistema è ripiegata sotto un «mostra» e mai sola nel corpo.
+**Modello e durata sulla card (decisione di Attilio, 31/10).** Non più solo nel dettaglio: il modello con il provider, la durata e i token stanno in una sola riga secondaria discreta, in lavorazione e in review. Niente pillole impilate. Sta sulla stessa riga dello stato quando ci sta; il tempo dall'ultimo aggiornamento resta in fondo, a destra. A 300 px la riga non va in overflow: si accorcia dalla coda, prima i token e poi il resto.
+**In review.** Il corpo tiene l'ultima frase dell'agente, anche quando l'ultima voce del thread è una nota di sistema; la nota sta ripiegata sotto «mostra». Sotto, la stessa riga secondaria con modello e durata.
+**Prova.** `client/src/components/Board/Card.test.ts` (misura e review, più il controllo a 300 px come contratto di classi) e `cardComments.test.ts` (campo `agentWord`). Una mutazione che toglie il modello dal contenuto della riga rende rossi due test; ripristinata, il set torna verde. L'affiancamento prima/dopo non è ancora fatto: lo porta la card di Jarvis.
 
 ## 8. Il task come chat pulita (verifica tecnica)
 

@@ -92,7 +92,7 @@ export function LiveToolLine({ tool, frozen = false }: { tool: LiveTool; frozen?
  * anchors turnStartedAt at the actual turn start). Falls back to the static
  * agent_ms/agent_tokens chip the instant the turn ends.
  */
-export function LiveEffortChip({ usage }: { usage: LiveUsage }) {
+export function LiveEffortChip({ usage, label }: { usage: LiveUsage; label?: string }) {
   const tr = useT();
   const locale = useLocale();
   const [, force] = useState(0);
@@ -102,16 +102,20 @@ export function LiveEffortChip({ usage }: { usage: LiveUsage }) {
   // eslint-disable-next-line react-hooks/purity -- live effort chip: force-re-renders every 1s (interval above) and reads the clock each render on purpose
   const ms = usage.baseMs + Math.max(0, Date.now() - usage.turnStartedAt);
   return (
+    // One muted line, not a pill: the card's foot keeps a single measure
+    // line. The dot alone says it is running. The model label carries the
+    // provider (`label`), the same text the static line shows.
     <span
+      data-testid="card-measure"
       title={tr('board.card.liveEffortTitle', {
         model: fmtModel(usage.model),
         work: fmtLive(ms),
         tokens: usage.liveTokens ? tr('board.card.liveEffortTokens', { n: usage.liveTokens.toLocaleString(locale) }) : '',
       })}
-      className="flex min-w-0 max-w-full items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-800 dark:text-sky-300 tabular-nums"
+      className="flex min-w-0 max-w-full items-center gap-1 text-compact leading-4 md:text-mini text-app-text-muted tabular-nums"
     >
       <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-sky-400" />
-      <span className="truncate">{fmtModel(usage.model)} · ⏱ {fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)}`}</span>
+      <span className="min-w-0 truncate">{label ?? fmtModel(usage.model)} · ⏱ {fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)}`}</span>
     </span>
   );
 }
