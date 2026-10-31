@@ -987,3 +987,16 @@ coda è vuota e rifiuta i tasti, quindi la fascia della perdita resta.
 - **WHEN** l'avviso compare
 - **THEN** NON SHALL invitare a riscrivere
 - **AND** SHALL invitare a riscrivere solo dopo che l'aggancio è tornato
+
+### Requirement: TERM-FONT-01 — Il terminale disegna in JetBrains Mono, dal bundle, con 12 px di respiro
+
+The terminal SHALL draw in JetBrains Mono shipped with the client bundle (`font-display: swap`), using the same monospace stack as the chat code, with 12 px of inner padding and a 1.25 line height. The shade blocks (░▒▓) SHALL come from that face, not from a system fallback.
+
+Monospace text SHALL show the real characters: ligatures SHALL stay off on `code`, `pre`, `kbd`, `samp`, `.font-mono` and `.xterm` (decided by Attilio on 31/10, JetBrains Mono without ligatures).
+
+#### Scenario: Il font è caricato e il padding è 12 px
+- **GIVEN** a terminal pane is open
+- **WHEN** the page has loaded
+- **THEN** `document.fonts` reports both JetBrains Mono faces as `loaded`
+- **AND** the rows xterm draws are 21 px tall, also when the face arrives after xterm has opened (xterm measures its cell again once the face is in)
+- **AND** the gap between the terminal box and xterm's screen is 12 px on the top and the left, and at least 12 px on the bottom and the right, at every pane height: the last row (the prompt) stays inside the pane
