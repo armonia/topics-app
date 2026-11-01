@@ -44,16 +44,30 @@ describe('sub-agent card body', () => {
     expect(render(same, false)).not.toContain('sub-agent-description');
   });
 
-  test('the open body has no box: no tint, no border, and the final answer is plain text', () => {
+  test('the open body has no box: rows and description carry no tint or border', () => {
     const detail = {
       type: 'sub_agent', subAgentType: 'Explore', description: 'Controlla',
       actions: [{ index: 0, toolName: 'Read', summary: 'a.ts', status: 'success' }],
       result: 'ok',
     } as ToolCallDetail;
     const html = render(detail, false);
-    expect(html).not.toMatch(/\bbg-/);
     expect(html).not.toMatch(/\bborder/);
     expect(html).not.toContain('tool-card-code');
     expect(html).toContain('data-testid="sub-agent-result"');
+  });
+
+  test('the final answer is the only band: soft tint and rounded corners, in both themes', () => {
+    const detail = {
+      type: 'sub_agent', subAgentType: 'Explore', description: 'Controlla',
+      actions: [{ index: 0, toolName: 'Read', summary: 'a.ts', status: 'success' }],
+      result: 'ok',
+    } as ToolCallDetail;
+    const html = render(detail, false);
+    const band = html.match(/<div data-testid="sub-agent-result" class="([^"]*)"/);
+    expect(band).not.toBeNull();
+    expect(band![1]).toContain('bg-app-hover/40');
+    expect(band![1]).toContain('rounded-lg');
+    expect(band![1]).not.toContain('dark:');
+    expect(html.match(/\bbg-/g)?.length).toBe(1);
   });
 });

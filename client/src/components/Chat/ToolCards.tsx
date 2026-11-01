@@ -364,10 +364,10 @@ export function SubAgentCard({ actions, result, isRunning, description }: {
           </ul>
         </div>
       )}
-      {/* The final answer is plain text, not a grey `<pre>` box: the box is what
-          made it read as a square inside the chat. */}
+      {/* The final answer sits in a soft band, same tint and corners as the
+          other tool results, full column width. Rows and description stay bare. */}
       {result && (
-        <div data-testid="sub-agent-result" className="text-compact text-app-text whitespace-pre-wrap break-words">{result}</div>
+        <div data-testid="sub-agent-result" className="text-compact text-app-text whitespace-pre-wrap break-words bg-app-hover/40 rounded-lg px-3 py-2">{result}</div>
       )}
     </div>
   );
