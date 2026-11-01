@@ -21,7 +21,7 @@
 import { awaitsHuman } from "../../shared/workflow";
 import { NODE_UNREACHABLE_ERROR } from "../../shared/board";
 import type { Task, TaskService } from "./tasks";
-import type { BundleResult, CreateRunBody, NodeRunBinding, NodeRunReport } from "./node-client";
+import { isNodeError, type BundleResult, type CreateRunBody, type NodeRunBinding, type NodeRunReport } from "./node-client";
 import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import type { PlantBranchInput, PlantBranchResult } from "./node-branch-plant";
 import type { OutboundMessage } from "../../shared/ws-outbound";
@@ -83,6 +83,11 @@ export interface NodeDeps {
    * card carries its branch to a node, the historical behaviour.
    */
   ensureBranchOnOrigin?: (input: { projectId: string; branch: string }) => Promise<{ ok: true } | { ok: false; reason: string }>;
+  /**
+   * The card's branch as a git bundle, for a node that cannot reach origin
+   * (it answered `branch_unreachable`). `null` = no local branch to send.
+   */
+  bundleBranch?: (input: { projectId: string; branch: string }) => Promise<Uint8Array | null>;
   /** The checkout of a project on THIS machine: the `cwd` the `node-run` hook starts in. */
   projectPathOf?: (projectId: string) => string | null;
   /**
@@ -456,7 +461,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         catch (err) { log(`nodo: la corsa ${previous} non si è cancellata`, err); }
         lastNodeRun.delete(task.id);
       }
-      const { runId } = await node.createRun({
+      const runInput: Parameters<typeof node.createRun>[0] = {
         baseUrl,
         token,
         ...(policy ? { delegation: {
@@ -480,7 +485,19 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
           effort: policy ? settings.effort : (settings.effort && settings.effort !== "auto" ? settings.effort : null),
           ...(baseBranch ? { baseBranch } : {}),
         },
-      });
+      };
+      let created: { runId: string };
+      try {
+        created = await node.createRun(runInput);
+      } catch (err) {
+        // The node cannot reach origin (it does not talk to GitHub by choice): the
+        // carried branch rides with the run as a bundle, as the delivery rides back.
+        if (!baseBranch || !(isNodeError(err) && err.reason === "branch_unreachable") || !node.bundleBranch) throw err;
+        const bytes = await node.bundleBranch({ projectId: task.projectId, branch: baseBranch });
+        if (!bytes) throw err;
+        created = await node.createRun({ ...runInput, body: { ...runInput.body, branchBundle: Buffer.from(bytes).toString("base64") } });
+      }
+      const { runId } = created;
       startSetupFails.delete(task.id);
       lastNodeRun.set(task.id, runId);
       if (!host.ownsRun(task.id, runNo)) {

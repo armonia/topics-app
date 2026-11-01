@@ -15,6 +15,7 @@
 
 import { defaultRunGit, fetchRemoteBase, resolveWorktreeBaseRef, type WorktreeBaseRef } from "./worktree-base-ref";
 import type { GitRunner } from "./own-commits";
+import { carriedRef } from "./branch-on-origin";
 import type { Worktree } from "../types";
 
 /**
@@ -99,6 +100,11 @@ export async function resolveBranchBaseRef(
   runGit: GitRunner = defaultRunGit,
 ): Promise<WorktreeBaseRef> {
   if (!repoPath) throw new Error(`base branch '${branch}': the project has no repo path`);
+  // A branch that travelled as a bundle (the node cannot reach origin) is the base itself.
+  const carried = carriedRef(branch);
+  if ((await runGit(repoPath, ["rev-parse", "--verify", "--quiet", carried])).code === 0) {
+    return { baseRef: carried, fallback: false, reason: "" };
+  }
   // A failed fetch is a failure here, not a stale copy: the origin card has
   // just pushed, and an older `origin/<branch>` would miss exactly that.
   const { ref, fetchError } = await fetchRemoteBase(runGit, repoPath, branch);
