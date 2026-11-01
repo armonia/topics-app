@@ -252,18 +252,18 @@ describe('la misura del turno sulla card', () => {
  * deve esserci. Contratto sul sorgente: il rendering sta nel test del componente.
  */
 describe('la review: faccia, menu e campo', () => {
-  test('sulla faccia escono tutte le scelte tranne quella verde', () => {
-    expect(src).toContain('const faceExclude = reviewChoices.map((c) => c.id).filter((id) => id !== reviewPrimaryId);');
+  test('sulla faccia restano le uscite, tranne «Rifai così» e «Archivia»', () => {
+    expect(src).toContain("const faceExclude: TaskChoiceId[] = ['redo', 'drop'];");
     expect(src).toContain('<TaskChoiceRow\n              task={task} disabled={busy} exclude={faceExclude}');
   });
 
-  test('«Rifai così» e «Archivia» non stanno sulla faccia: il menu «…» li prende in carico', () => {
-    expect(src).toContain("const menuExclude: TaskChoiceId[] = [...(reviewPrimaryId ? [reviewPrimaryId] : []), 'redo'];");
+  test('«Archivia» sta nel menu «…», e «Rifai così» non compare da nessuna parte', () => {
+    expect(src).toContain("const menuExclude: TaskChoiceId[] = reviewChoices.map((c) => c.id).filter((id) => id !== 'drop');");
     expect(src).toContain('<TaskChoiceMenu\n              task={task} exclude={menuExclude}');
   });
 
   test('il menu «…» esiste in review, accanto al campo', () => {
-    expect(src).toContain('{/* The rest of the exits, and «Archivia», behind the «…». */}');
+    expect(src).toContain("{/* The rest of the exits, and «Archivia», behind the «…». */}");
   });
 
   test('il campo in review rimanda indietro col testo: l\'agente riparte davvero', () => {

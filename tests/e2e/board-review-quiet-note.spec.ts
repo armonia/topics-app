@@ -150,18 +150,18 @@ test.describe("Una nota su una card in review non la rigetta", () => {
     // stessa `review('reject', testo)` di «Rimandalo avanti» nella riga qui
     // sopra — due bottoni per una porta sola, a due centimetri di distanza.
     await expect(card.getByTestId("card-reply-send-back")).toHaveCount(0);
-    // IL GESTO CHE RISVEGLIA RESTA RAGGIUNGIBILE, ed e' nella riga delle scelte.
-    // Qui e' «Rifai cosi'…» (`redo`, che prende il testo) e non «Rimandalo
-    // avanti»: questa card e' `review-plain`, perche' `taskChoiceState` sceglie
+    // 01/11: «Rifai così» is no longer a card button. The field below is the
+    // gesture that wakes the agent: write and send, and it restarts.
+    // This card is `review-plain`, because `taskChoiceState` picks
     // `review-branch` solo con un RAMO e `review-unfinished` solo con
     // `delivered_by = 'system'`, e questa l'ha portata in review una PATCH
     // umana. La riga di prima pretendeva `send-back`, che in `review-plain` non
     // c'e' mai stato: era verde per un'altra ragione, non perche' misurasse
     // questo.
-    await expect(card.getByTestId("task-choice-redo")).toBeVisible();
+    await expect(card.getByTestId("task-choice-redo")).toHaveCount(0);
     // E il campo resta, e dice cosa fa PRIMA che uno scriva: il testo lo
     // raccoglie la scelta principale, non un bottone tutto suo.
-    await expect(card.getByPlaceholder(/Una nota, che resta qui/)).toBeVisible();
+    await expect(card.getByPlaceholder("Commenta o chiedi una correzione…")).toBeVisible();
     await beat(page);
 
     // (2) Si apre il drawer e si scrive li' la nota, col gesto quieto.

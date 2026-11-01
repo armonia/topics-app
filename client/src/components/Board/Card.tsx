@@ -1049,13 +1049,13 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // The send button names the action IT PERFORMS — the text's one, not the
   // first in the row: with `[0]` it promised «Landa su main» and sent back.
   const primaChoice = useMemo(() => choiceForText(taskChoices(task, { t: tr })), [task, tr]);
-  // THE REVIEW FACE: only the green exit. Every other choice, «Archivia»
-  // included, lives in the «…» menu. «Rifai così» is not a choice here at all:
-  // the field below sends the text back to the agent (see `primaryChoiceWithText`).
+  // THE REVIEW FACE, as Attilio decided on 01/11: «Rifai così» is gone (the
+  // field below sends the text back, see `primaryChoiceWithText`) and
+  // «Archivia» moves to the «…» menu. Every other exit stays on the face.
+  const faceExclude: TaskChoiceId[] = ['redo', 'drop'];
+  // The «…» menu holds the archive alone: the rest is already on the face.
   const reviewChoices = useMemo(() => taskChoices(task, { t: tr }), [task, tr]);
-  const reviewPrimaryId = reviewChoices.find((c) => c.tone === 'primary')?.id;
-  const faceExclude = reviewChoices.map((c) => c.id).filter((id) => id !== reviewPrimaryId);
-  const menuExclude: TaskChoiceId[] = [...(reviewPrimaryId ? [reviewPrimaryId] : []), 'redo'];
+  const menuExclude: TaskChoiceId[] = reviewChoices.map((c) => c.id).filter((id) => id !== 'drop');
   // …e l'altra metà, che è il verso OPPOSTO: quanti aspettano QUESTA card.
   // Anche questo numero è un fatto del DB, non della lista fetchata — un
   // dipendente che è un sottotask o sta in un altro progetto non è fra le card,
