@@ -1,7 +1,7 @@
 /**
- * La richiesta che diventa card si conferma nella chat d'origine: una riga
- * d'assistente con titolo e link, in coda alla catena, e una riga nel log per il
- * coordinatore. Nessun turno dell'agente parte da qui.
+ * A request that becomes a card is confirmed in the origin chat: an assistant
+ * line with title and link at the end of the chain, and a log row for the
+ * coordinator. No agent turn starts from here.
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

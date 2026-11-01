@@ -1,31 +1,30 @@
 /**
- * LA RICHIESTA CHE DIVENTA CARD SI CONFERMA NELLA CHAT CHE L'HA CHIESTA.
+ * A REQUEST THAT BECOMES A CARD IS CONFIRMED IN THE CHAT THAT ASKED FOR IT.
  *
- * Una card aperta da una chat (`created_by_topic_id`) era muta: chi aveva
- * chiesto non vedeva da nessuna parte che la richiesta era diventata lavoro, e
- * il coordinatore non sapeva da quale chat fosse arrivata. Qui si scrive una
- * riga d'assistente nella chat d'origine, con il titolo e il link alla card, e
- * una riga nel log attività (categoria `board`), che il coordinatore legge anche
- * quando non è collegato.
+ * A card opened from a chat (`created_by_topic_id`) used to be silent: the
+ * person never saw that the request had become work, and the coordinator did
+ * not know which chat it came from. Here an assistant line with the title and
+ * a link to the card is written into the origin chat, plus a `board` activity
+ * log row the coordinator reads even when not connected.
  *
- * La riga NON sveglia nessun turno: è una nota, come quella del boot e quella
- * di `goal-continuation`, scritta direttamente sulla catena dei messaggi. Il
- * controllo «card senza padrone oltre dieci minuti» è già in
- * `task-dispatcher` (`task:unowned`) e non va qui.
+ * The line wakes NO turn: it is a note written straight onto the message
+ * chain, like the boot note and the one from `goal-continuation`. The "card
+ * without an owner for ten minutes" check already lives in `task-dispatcher`
+ * (`task:unowned`) and does not belong here.
  */
 
 import type { Database } from "bun:sqlite";
 import type { ActivityLogEntry } from "../db/activity-log";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 
-/** Quanti caratteri del titolo finiscono nella riga: la chat non è il posto del testo intero. */
+/** How many title characters go in the line: the chat is not the place for the full text. */
 const TITLE_MAX_CHARS = 120;
 
 export interface CardOriginInput {
   taskId: string;
   projectId: string;
   title: string;
-  /** `agent:session`, `agent:coordinator`: chi l'ha aperta. */
+  /** `agent:session`, `agent:coordinator`: who opened it. */
   createdBy: string;
   sessionKey: string;
   topicId: string;
@@ -37,7 +36,7 @@ export interface CardOriginDeps {
   recordActivity(entry: ActivityLogEntry): void;
 }
 
-/** Il testo della riga: una frase, il titolo fra «» e il link alla card. */
+/** The line text: one sentence, the title between « » and the link to the card. */
 export function cardOriginText(taskId: string, title: string): string {
   const oneLine = title.replace(/\s+/g, " ").trim();
   const short = oneLine.length > TITLE_MAX_CHARS ? `${oneLine.slice(0, TITLE_MAX_CHARS - 1)}…` : oneLine;
@@ -45,9 +44,9 @@ export function cardOriginText(taskId: string, title: string): string {
 }
 
 /**
- * Scrive la conferma nella chat d'origine e la registra per il coordinatore.
- * Non lancia: la conferma è informazione, e una card creata non deve fallire
- * perché la chat non si è lasciata scrivere.
+ * Writes the confirmation into the origin chat and records it for the
+ * coordinator. Never throws: the confirmation is information, and a created
+ * card must not fail because the chat could not be written to.
  */
 export function confirmCardOrigin(deps: CardOriginDeps, input: CardOriginInput): string | null {
   const { db } = deps;

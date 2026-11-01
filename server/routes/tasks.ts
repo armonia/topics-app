@@ -3816,8 +3816,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             createdBy: "agent:session",
           });
           broadcastToAll({ type: "task:created", projectId: sess.projectId, task });
-          // La richiesta della chat diventa card: la chat lo sa, il coordinatore
-          // lo legge nel log (`services/card-origin-notice.ts`).
+          // The chat's request became a card: the chat is told, the coordinator
+          // reads it in the log (`services/card-origin-notice.ts`).
           if (sess.topicId) {
             confirmCardOrigin({ db, broadcast: broadcastToAll, recordActivity: logActivity }, {
               taskId: task.id, projectId: sess.projectId, title: task.text, createdBy: "agent:session",
