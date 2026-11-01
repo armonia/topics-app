@@ -36,4 +36,20 @@ describe('ToolCallRow chevron', () => {
     const html = renderToStaticMarkup(createElement(ToolCallRow, { toolCall: failedBash }));
     expect(html).toContain('coarse:opacity-100');
   });
+
+  test('a sub-agent row shows no chevron, no command name and no parentheses', () => {
+    const subAgent: ToolCall = {
+      id: 'chevron-sub',
+      name: 'Task',
+      args: { subagent_type: 'Explore', description: 'Controlla il modulo di pagamento' },
+      status: 'success',
+      result: 'ok',
+    };
+    const html = renderToStaticMarkup(createElement(ToolCallRow, { toolCall: subAgent }));
+    expect(html).toContain('Controlla il modulo di pagamento');
+    expect(html).not.toContain('data-testid="tool-call-name"');
+    expect(html).not.toContain('group-hover/tool:opacity-100');
+    expect(html).not.toContain('>(<');
+    expect(html).toContain('title="Explore');
+  });
 });

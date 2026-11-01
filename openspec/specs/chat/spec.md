@@ -6200,6 +6200,11 @@ misurato al mount, a ogni cambio di testo e a ogni resize con `ResizeObserver`),
 mai dalla sua lunghezza in caratteri: la stessa frase sta intera in una riga
 larga e si tronca in una stretta. Il corpo, quando c'è, mostra il testo intero
 senza classe `truncate`. Il tooltip della riga resta com'è.
+La riga di un sotto-agente SHALL essere icona, descrizione e tempo: niente parentesi
+attorno alla descrizione, niente chevron (né a riposo né in hover, né colonna
+riservata) e niente nome del comando (`Explore`), che resta nel `title` della riga.
+La riga resta cliccabile e si apre come prima (cursore a mano, sfondo in hover,
+`aria-expanded`). Le righe degli altri tool non cambiano.
 
 #### Scenario: chevron nascosto senza hover, colonna riservata
 

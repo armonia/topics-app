@@ -456,6 +456,9 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
 
   // The header's content, the same in the button (a row with a body) and in
   // the plain row (nothing to open).
+  // Sub-agent rows drop the chevron column and the command name (`Explore`):
+  // the row is icon + description + time, and the type stays in its title.
+  const isSubAgent = detail.type === 'sub_agent';
   const headerInner = (
         <>
         {/* Il posto del chevron c'è sempre — occupato o vuoto — o le righe con
@@ -467,7 +470,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             and always shows. */}
         {hasBody && revealing ? (
           <SparkLoader className="flex-shrink-0" activity={loaderActivityForTool(toolCall.name)} />
-        ) : hasBody ? (
+        ) : isSubAgent ? null : hasBody ? (
           <span className="w-3 flex-shrink-0 inline-flex justify-center" aria-hidden="true">
             {effectiveOpen
               ? <ChevronDown size={12} className="text-app-text-muted opacity-0 transition-opacity group-hover/tool:opacity-100 group-focus-within/tool:opacity-100 coarse:opacity-100" />
@@ -495,13 +498,23 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               cioè non diceva niente — e teneva occupata una colonna a destra
               per tutte le righe pur di servirne una su cento. */}
           {isError && <X size={11} className="flex-shrink-0 text-red-500 self-center" aria-label={tr('tool.failed')} />}
-          <span
-            data-testid="tool-call-name"
-            className={`flex-shrink-0 max-w-[55%] truncate font-medium ${isRunning ? 'text-primary' : isError ? 'text-red-500' : 'text-app-text'}`}
-          >
-            {label ?? display.name}
-          </span>
-          {display.summary && (
+          {!isSubAgent && (
+            <span
+              data-testid="tool-call-name"
+              className={`flex-shrink-0 max-w-[55%] truncate font-medium ${isRunning ? 'text-primary' : isError ? 'text-red-500' : 'text-app-text'}`}
+            >
+              {label ?? display.name}
+            </span>
+          )}
+          {display.summary && isSubAgent && (
+            <span
+              className="min-w-0 flex items-baseline text-mini text-app-text-secondary"
+              title={`${display.name}${display.tooltip ? ` · ${display.tooltip}` : ''}`}
+            >
+              <span ref={summaryRef} className="truncate">{display.summary}</span>
+            </span>
+          )}
+          {display.summary && !isSubAgent && (
             <span className="min-w-0 flex items-baseline text-mini text-app-text-secondary font-mono" title={display.tooltip}>
               <span className="flex-shrink-0">(</span>
               <span ref={summaryRef} className="truncate">{display.summary}</span>
