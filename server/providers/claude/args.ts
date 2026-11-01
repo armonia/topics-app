@@ -22,6 +22,7 @@
  */
 
 import { mergeHooks, topicsHooksSettings, type HooksBlock } from "../../lib/topics-hooks";
+import { LIVE_CHECKOUT_GUARD_SETTINGS } from "../../lib/live-checkout-branch-guard";
 
 /** Ciò che serve per montare l'argv di una sessione di chat persistente. */
 export interface ClaudeSpawnArgsOptions {
@@ -84,6 +85,11 @@ export interface ClaudeSpawnArgsOptions {
    * disattivarlo dal disco per sbaglio.
    */
   blockImageReads?: boolean;
+  /**
+   * Refuse `git checkout`/`switch` that moves HEAD in a live (main working
+   * tree) checkout. Dispatched sessions only; see `lib/live-checkout-branch-guard.ts`.
+   */
+  guardLiveCheckout?: boolean;
   /**
    * The path of Topics' hook script (`lib/topics-hook-script.ts`). Set, the
    * session gets the hooks that drive its phase, its live tool label and the
@@ -412,15 +418,18 @@ export function buildClaudeArgs(opts: ClaudeSpawnArgsOptions): string[] {
     // farebbe sparire in silenzio il primo dei due (il deferral degli schemi
     // vale −71,5% di prefisso: perderlo per l'elenco delle skill sarebbe uno
     // scambio in perdita). Chi aggiunge una leva la aggiunge QUI DENTRO.
-    ...(opts.toolSearch || opts.slimSkillListing || opts.mcpOutputTokens || opts.blockImageReads || opts.hooksScriptPath
+    ...(opts.toolSearch || opts.slimSkillListing || opts.mcpOutputTokens || opts.blockImageReads || opts.guardLiveCheckout || opts.hooksScriptPath
       ? ["--settings", JSON.stringify({
           // The two `hooks` blocks MERGED event by event: the guard and ours
           // both sit on `PreToolUse`, and a spread would keep only one.
-          ...(opts.blockImageReads || opts.hooksScriptPath
+          ...(opts.blockImageReads || opts.guardLiveCheckout || opts.hooksScriptPath
             ? {
                 hooks: mergeHooks(
                   opts.hooksScriptPath ? topicsHooksSettings(opts.hooksScriptPath).hooks : undefined,
-                  opts.blockImageReads ? IMAGE_READ_GUARD_SETTINGS.hooks : undefined,
+                  mergeHooks(
+                    opts.blockImageReads ? IMAGE_READ_GUARD_SETTINGS.hooks : undefined,
+                    opts.guardLiveCheckout ? LIVE_CHECKOUT_GUARD_SETTINGS.hooks : undefined,
+                  ),
                 ),
               }
             : {}),
