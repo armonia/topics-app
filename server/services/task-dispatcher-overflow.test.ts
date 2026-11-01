@@ -48,6 +48,7 @@ import { resolveBranchBaseRef } from "./worktree-for-agent";
 import { delegatedPolicyForTask, putAgentStartCapability, queueDelegatedRun } from "../lib/delegated-agent-start";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 const PID = "alpha-abc123";
 const LOCAL = "questo-mac";
@@ -182,7 +183,7 @@ function harness(opts: {
           const planted = await plantCarriedBranch(opts.noOrigin.node, body.baseBranch, new Uint8Array(Buffer.from(body.branchBundle, "base64")));
           if (!planted.ok) throw new Error(planted.reason);
           const base = await resolveBranchBaseRef(opts.noOrigin.node, body.baseBranch);
-          const tip = Bun.spawnSync(["git", "-C", opts.noOrigin.node, "rev-parse", base.baseRef]).stdout.toString().trim();
+          const tip = Bun.spawnSync(["git", "-C", opts.noOrigin.node, "rev-parse", base.baseRef], { env: gitEnv() }).stdout.toString().trim();
           opts.noOrigin.startedFrom.push(tip);
         }
         created.push({ baseUrl, originTaskId: body.originTaskId });
