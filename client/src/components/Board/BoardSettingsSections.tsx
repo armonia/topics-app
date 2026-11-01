@@ -100,7 +100,11 @@ export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks, onO
 
       {/* THE CAP stays in the panel (a tooltip does not exist on a phone). It is the
           SAME component the header menu mounts, on the same store. */}
-      <div className={tasks ? 'rounded-md bg-white/5 p-2.5' : 'border-y border-app-border-subtle py-2'}>
+      {/* The dashboard card is outlined, not tinted: a `bg-white/5` fill lifts the dark panel
+          to #343638, where the muted labels (3.91) and the unselected segment (4.08, on a
+          track lifted the same way) fall under AA 4.5. The ring keeps the card readable on
+          the panel's own background, which these tokens were measured on. */}
+      <div className={tasks ? 'rounded-md p-2.5 ring-1 ring-inset ring-white/10' : 'border-y border-app-border-subtle py-2'}>
         <GlobalCapControl quiet={!!tasks} />
       </div>
 

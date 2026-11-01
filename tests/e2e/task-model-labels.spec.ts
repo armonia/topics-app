@@ -10,6 +10,7 @@ import { projectIdForPath } from '../../shared/board';
 import { hermetic } from './fixtures/hermetic';
 import { createTopic, deleteTask, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectInnerPanes, seedProjectPane } from './helpers/api-fixtures';
 import { canonicalTmpDir, removeTmpDir } from './helpers/file-project';
+import { openThisBoard } from './helpers/open-this-board';
 
 hermetic(test);
 const projectPath = canonicalTmpDir('e2e-task-model-labels');
@@ -169,6 +170,8 @@ for (const device of [
         await settingsButton.scrollIntoViewIfNeeded();
         await settingsButton.click();
         await expect(settingsButton).toHaveAttribute('aria-expanded', 'true');
+        // The per-board rows (the model among them) sit under «This board», closed by default.
+        await openThisBoard(page);
         const projectModel = page.getByTestId('board-model-selector');
         await expect(projectModel).toBeVisible();
         await projectModel.scrollIntoViewIfNeeded();
