@@ -101,11 +101,11 @@ describe("a change of shape", () => {
   const FLOOR = 0.3;
 
   function minAlphaDuringChange(size: number, from: LoaderActivity, to: LoaderActivity): number {
-    let lowest = 1;
+    let minAlpha = 1;
     const ctx: LoaderContext = {
       clearRect: () => {},
       beginPath: () => {},
-      roundRect: () => { lowest = Math.min(lowest, ctx.globalAlpha); },
+      roundRect: () => { minAlpha = Math.min(minAlpha, ctx.globalAlpha); },
       fill: () => {},
       fillStyle: "",
       globalAlpha: 1,
@@ -114,7 +114,7 @@ describe("a change of shape", () => {
     let t = 5;
     for (let i = 0; i < 120; i++) { body.step(from, t, 1 / 30); t += 1 / 30; }
     for (let i = 0; i < 30; i++) { body.step(to, t, 1 / 30); t += 1 / 30; body.draw("black"); }
-    return lowest;
+    return minAlpha;
   }
 
   // Before, the squares left over faded out on the way, all the way down to nothing.
