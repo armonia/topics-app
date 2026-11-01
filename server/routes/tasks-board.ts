@@ -1230,6 +1230,26 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         // the main task's. Best-effort: the comment above is already saved.
         try {
           const root = dispatcher ? svc.boundRootOf(bComments.taskId) : null;
+          // A CARD DELIVERED BY A NODE IS NEVER RESUMED HERE. Its run on the node
+          // is over, so there is no live session to hand the words to: the old
+          // path either found no topic (the comment stayed a note while the
+          // caller read "delivered") or resumed a LOCAL turn, which a remote card
+          // must never get. The honest move is the one a review rejection makes
+          // for an unbound card: back to todo, where the dispatcher sends it to
+          // the node again with the thread (this comment included).
+          const nodeCard = dispatcher ? (root ?? svc.get(bComments.taskId, { projectId: bComments.projectId })?.task ?? null) : null;
+          if (dispatcher && nodeCard && nodeCard.machineId && nodeCard.status === "review" && !isLandedWork(nodeCard)) {
+            svc.reviewDecision({
+              taskId: nodeCard.id, by: HUMAN, decision: "reject", projectId: bComments.projectId, origin: actionOrigin,
+            });
+            const backInQueue = svc.update({
+              taskId: nodeCard.id, actor: "human", by: HUMAN, projectId: bComments.projectId,
+              patch: { status: "todo" }, origin: actionOrigin,
+            });
+            broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task: backInQueue });
+            if (backInQueue.status === "todo") dispatcher.onEnterTodo(bComments.projectId, nodeCard.id);
+            return json({ ...comment, delivery: backInQueue.status === "todo" ? 'queued' : 'note' }, 201);
+          }
           // A human comment on a dispatched task is DELIVERED to the agent, not
           // left as an unread note. Two live cases, both through resume():
           //  • review       → the agent is waiting: reject-with-text re-kicks it;
