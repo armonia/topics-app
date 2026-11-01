@@ -203,8 +203,9 @@ describe('la misura del turno sulla card', () => {
 
   test('il modello e il provider sono nel CONTENUTO della riga, non solo nel titolo', () => {
     // Guard against the model moving into `title` alone: the visible text must carry it.
-    expect(src).toContain('>{modelLine}{(task.agentMs > 0 || costo > 0)');
-    expect(live).toContain('{label ?? fmtModel(usage.model)} · ⏱ {fmtLive(ms)}');
+    expect(src).toContain('<span className="min-w-0 truncate">{modelLine}</span>');
+    expect(live).toContain('<span className="min-w-0 truncate">{label ?? fmtModel(usage.model)}</span>');
+    expect(live).toContain('⏱ {fmtLive(ms)}');
   });
 
   test('a 300 px non va in overflow: si accorcia dalla coda, prima i token', () => {
@@ -215,14 +216,59 @@ describe('la misura del turno sulla card', () => {
     expect(span).toContain('max-w-full');
     expect(span).toContain('truncate');
     // Tokens come AFTER the time in the text, so truncation drops them first.
-    const content = src.slice(src.indexOf('>{modelLine}{(task.agentMs > 0'), src.indexOf('{/* THE DOLLARS'));
+    const content = src.slice(src.indexOf('<span className="min-w-0 truncate">{modelLine}</span>'), src.indexOf('<span data-testid="card-spend">'));
     expect(content.indexOf('fmtMs(task.agentMs)')).toBeLessThan(content.indexOf('fmtTok(costo)'));
     expect(live).toContain('min-w-0 truncate');
   });
 
-  test('il piede non ha pillole impilate: la misura non porta sfondo', () => {
+  test('il piede non ha pillole impilate: la misura non porta sfondo pieno', () => {
     const start = src.indexOf('data-testid="card-measure"');
     expect(src.slice(start, start + 400)).not.toContain('bg-white/10');
+  });
+
+  // Attilio, 01/11: una fascia avvolta, larga quanto la card, distinta dal testo.
+  // Stessa fascia in lavorazione (LiveEffortChip) e in review (la misura statica).
+  test('la misura è una fascia avvolta, larga quanto la card, uguale nei due stati', () => {
+    expect(live).toContain('w-full min-w-0 max-w-full items-center justify-between');
+    expect(live).toContain('rounded-md bg-white/5');
+    const start = src.indexOf('data-testid="card-measure"');
+    expect(src.slice(start, start + 300)).toContain('rounded-md bg-white/5');
+    expect(src.slice(start, start + 300)).toContain('w-full');
+  });
+
+  // Il lato destro (durata e consumo) non va mai a capo né si taglia: si accorcia il sinistro.
+  test('a 300 px durata e consumo restano interi: il lato destro non va a capo né si taglia', () => {
+    expect(live).toContain('<span className="shrink-0 whitespace-nowrap">⏱ {fmtLive(ms)}');
+    const start = src.indexOf('data-testid="card-measure"');
+    expect(src.slice(start, start + 1200)).toContain('<span className="shrink-0 whitespace-nowrap">');
+  });
+});
+
+/**
+ * LA REVIEW: SULLA FACCIA SOLO «APPROVA», IL RESTO NEL «…», «RIFAI COSÌ» NON C'È PIÙ.
+ *
+ * Attilio, 01/11: «Approva» ben visibile; «Rifai così» sparisce (rimandare indietro
+ * si fa dal campo, scrivendo e inviando); «Archivia» nel menu «…», che in review
+ * deve esserci. Contratto sul sorgente: il rendering sta nel test del componente.
+ */
+describe('la review: faccia, menu e campo', () => {
+  test('sulla faccia escono tutte le scelte tranne quella verde', () => {
+    expect(src).toContain('const faceExclude = reviewChoices.map((c) => c.id).filter((id) => id !== reviewPrimaryId);');
+    expect(src).toContain('<TaskChoiceRow\n              task={task} disabled={busy} exclude={faceExclude}');
+  });
+
+  test('«Rifai così» e «Archivia» non stanno sulla faccia: il menu «…» li prende in carico', () => {
+    expect(src).toContain("const menuExclude: TaskChoiceId[] = [...(reviewPrimaryId ? [reviewPrimaryId] : []), 'redo'];");
+    expect(src).toContain('<TaskChoiceMenu\n              task={task} exclude={menuExclude}');
+  });
+
+  test('il menu «…» esiste in review, accanto al campo', () => {
+    expect(src).toContain('{/* The rest of the exits, and «Archivia», behind the «…». */}');
+  });
+
+  test('il campo in review rimanda indietro col testo: l\'agente riparte davvero', () => {
+    expect(src).toContain("const sendsBackWithText = !!prima && (prima.id === 'send-back' || (prima.id === 'redo' && !!task.assignedTopicId));");
+    expect(src).toContain("if (sendsBackWithText) await boardApi.review(task.projectId, task.id, 'reject', v);");
   });
 });
 

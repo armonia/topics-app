@@ -61,7 +61,11 @@ Limite onesto: la CLI finta non chiama mai `update_task`, quindi le card arrivat
 **In review.** Il corpo tiene l'ultima frase dell'agente, anche quando l'ultima voce del thread è una nota di sistema; la nota sta ripiegata sotto «mostra». Sotto, la stessa riga secondaria con modello e durata.
 **Tool una volta sola.** Il tool in corso compare solo nella riga di avanzamento in alto (`name · input`). La riga separata «Bash · …» sotto la misura è tolta, insieme al tempo trascorso sul tool: il tempo totale resta nella misura. Un test fallisce se `<LiveToolLine>` torna nella card.
 **Pallino.** Il punto di lavorazione è il caricamento `SparkLoader` di main, non più il pallino sky.
-**Prova.** `client/src/components/Board/Card.test.ts` (misura e review, più il controllo a 300 px come contratto di classi) e `cardComments.test.ts` (campo `agentWord`). Una mutazione che toglie il modello dal contenuto della riga rende rosso il test del contenuto (exit 1); ripristinata, il set torna verde (82/82). L'affiancamento prima/dopo non è ancora fatto: lo porta la card di Jarvis.
+**Decisione di Attilio (01/11), sostituisce i punti sulla misura e sui tasti di review sopra.**
+- **Misura in fascia avvolta.** Una fascia larga quanto la card, sfondo tenue (`bg-white/5`), angoli arrotondati. A sinistra caricamento e «modello · provider» (il caricamento solo in lavorazione); a destra «⏱ durata · token» in cifre tabellari, mai a capo né tagliate. A 300 px si accorcia solo il lato sinistro.
+- **Review: faccia = solo la scelta verde** (di norma «Approva»). «Rifai così» esce dalla faccia e dal menu: rimandare indietro si fa dal campo, che invia il testo all'agente (`sendsBackWithText`, la card 38b78eba non resta più ferma). «Archivia» e le altre uscite stanno nel menu «…», che in review c'è sempre.
+- **Non fatto:** il tempo «ora» resta in fondo alla card, non è ancora spostato sulla riga di sotto con le modifiche git.
+- **Prova.** `Card.test.ts` 29/29 (contratto della fascia, di faccia e menu, dell'invio che rimanda indietro); `cardComments.test.ts` e `taskChoices.test.ts`: 155/155 con `Card.test.ts`, exit 0. Mutazione: tolto `'redo'` dall'esclusione del menu, il test di faccia e menu va rosso (exit 1); ripristinato, `cmp` identico, verde. Typecheck del client exit 0. L'affiancamento prima/dopo lo porta Jarvis.
 
 ## 8. Il task come chat pulita (verifica tecnica)
 

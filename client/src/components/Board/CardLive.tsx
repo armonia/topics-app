@@ -106,17 +106,23 @@ export function LiveEffortChip({ usage, label }: { usage: LiveUsage; label?: str
     // One muted line, not a pill: the card's foot keeps a single measure
     // line. The dot alone says it is running. The model label carries the
     // provider (`label`), the same text the static line shows.
-    <span
+    // A wrapped band, full card width: loader and model on the left (the left
+    // side is the one that gets cut at 300 px), time and tokens on the right,
+    // in tabular figures and never wrapped.
+    <div
       data-testid="card-measure"
       title={tr('board.card.liveEffortTitle', {
         model: fmtModel(usage.model),
         work: fmtLive(ms),
         tokens: usage.liveTokens ? tr('board.card.liveEffortTokens', { n: usage.liveTokens.toLocaleString(locale) }) : '',
       })}
-      className="flex min-w-0 max-w-full items-center gap-1 text-compact leading-4 md:text-mini text-app-text-muted tabular-nums"
+      className="flex w-full min-w-0 max-w-full items-center justify-between gap-2 rounded-md bg-white/5 px-2 py-1 text-compact leading-4 md:text-mini text-app-text-muted tabular-nums"
     >
-      <SparkLoader className="shrink-0" />
-      <span className="min-w-0 truncate">{label ?? fmtModel(usage.model)} · ⏱ {fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)}`}</span>
-    </span>
+      <span className="flex min-w-0 items-center gap-1.5">
+        <SparkLoader className="shrink-0" />
+        <span className="min-w-0 truncate">{label ?? fmtModel(usage.model)}</span>
+      </span>
+      <span className="shrink-0 whitespace-nowrap">⏱ {fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)}`}</span>
+    </div>
   );
 }

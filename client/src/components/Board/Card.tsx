@@ -32,11 +32,11 @@ import { DispatchLoadGauge } from './DispatchLoadGauge';
 import { landingBand } from './landingBand';
 import { useLandingTicket } from './useLandingTicket';
 import { taskActionErrorMessage } from './taskActionError';
-import { choiceForText, taskChoices, usableQuestionOptions } from './taskChoices';
+import { choiceForText, taskChoices, usableQuestionOptions, type TaskChoiceId } from './taskChoices';
 import { taskChoiceState } from './taskChoices';
 import { checklistWindow } from './checklistWindow';
 import { showsStoppedChip } from './stoppedChip';
-import { sendBackDest, sendBackWord, taskActionWord } from './taskActionWords';
+import { taskActionWord } from './taskActionWords';
 import { useT, useLocale } from '../../hooks/useT';
 import { taskTriggerLine } from '../../lib/modelLabel';
 import { machineLabel, useMachines } from '../../state/machinesStore';
@@ -622,7 +622,6 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // le due risposte scritte in un commento e nessun bottone per darle.
   // Entrambi i rami stanno in `showsCardThread`, che è anche il predicato con
   // cui il server decide a quali schede attaccare i commenti.
-  const isAgentReview = task.status === 'review' && !!task.assignedTopicId;
   /**
    * Topics is holding this card's heaviest background command STOPped because
    * the Mac is in sustained swap. The card frosts over, says which command and
@@ -804,11 +803,15 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
     // No choice takes it (or the one that does only wants the focus in the
     // field, where we already are): then the text is a note, and that is the
     // only sensible thing to do with it.
-    if (!prima || prima.needsText) { void steer(v, { quiet: true }); return; }
+    // «Rifai così» is no longer a button on the card: the field IS that
+    // choice. With an agent behind the task it sends the text back, so the
+    // agent restarts for real (card 38b78eba stayed parked in review before).
+    const sendsBackWithText = !!prima && (prima.id === 'send-back' || (prima.id === 'redo' && !!task.assignedTopicId));
+    if (!prima || (prima.needsText && !sendsBackWithText)) { void steer(v, { quiet: true }); return; }
     setBusy(true); clearError();
     try {
-      // `send-back` carries the instruction with it, the way the button does.
-      if (prima.id === 'send-back') await boardApi.review(task.projectId, task.id, 'reject', v);
+      // `send-back` and `redo` carry the instruction with them, the way the button does.
+      if (sendsBackWithText) await boardApi.review(task.projectId, task.id, 'reject', v);
       else {
         // The others have no field to put a sentence in: it is left on the
         // card BEFORE acting, so the why stays written next to the effect
@@ -1046,6 +1049,13 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // The send button names the action IT PERFORMS — the text's one, not the
   // first in the row: with `[0]` it promised «Landa su main» and sent back.
   const primaChoice = useMemo(() => choiceForText(taskChoices(task, { t: tr })), [task, tr]);
+  // THE REVIEW FACE: only the green exit. Every other choice, «Archivia»
+  // included, lives in the «…» menu. «Rifai così» is not a choice here at all:
+  // the field below sends the text back to the agent (see `primaryChoiceWithText`).
+  const reviewChoices = useMemo(() => taskChoices(task, { t: tr }), [task, tr]);
+  const reviewPrimaryId = reviewChoices.find((c) => c.tone === 'primary')?.id;
+  const faceExclude = reviewChoices.map((c) => c.id).filter((id) => id !== reviewPrimaryId);
+  const menuExclude: TaskChoiceId[] = [...(reviewPrimaryId ? [reviewPrimaryId] : []), 'redo'];
   // …e l'altra metà, che è il verso OPPOSTO: quanti aspettano QUESTA card.
   // Anche questo numero è un fatto del DB, non della lista fetchata — un
   // dipendente che è un sottotask o sta in un altro progetto non è fra le card,
@@ -1901,9 +1911,9 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               })
               : tr('board.card.modelTitle', { model: modelLine })}
             data-testid="card-measure"
-            className="min-w-0 max-w-full truncate text-compact leading-4 md:text-mini text-app-text-muted tabular-nums"
-          >{modelLine}{(task.agentMs > 0 || costo > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{/* THE DOLLARS, when the card has a priced spend: the token figure is the
-              cost-weighted volume, this is what it came to. */}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>
+            className="flex w-full min-w-0 max-w-full items-center justify-between gap-2 rounded-md bg-white/5 px-2 py-1 text-compact leading-4 md:text-mini text-app-text-muted tabular-nums"
+          ><span className="min-w-0 truncate">{modelLine}</span>{/* THE DOLLARS, when the card has a priced spend: the token figure is the
+              cost-weighted volume, this is what it came to. Right side: never wrapped, never cut. */}<span className="shrink-0 whitespace-nowrap">{(task.agentMs > 0 || costo > 0) && `⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span></span>
         ) : null}
         {/* WHICH MACHINE it runs on, next to the model it runs with. Only when
             a node is named: an absent one means "here", and saying that on
@@ -2030,7 +2040,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               riga di codice che lo causava (`review(reject)` senza commento). */}
           <div onClick={(e) => e.stopPropagation()}>
             <TaskChoiceRow
-              task={task} disabled={busy}
+              task={task} disabled={busy} exclude={faceExclude}
               onDone={choiceDone} onError={choiceFailed}
               onNeedText={() => freeTextRef.current?.focus()}
               pendingText={() => freeText}
@@ -2069,9 +2079,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               // sopra: su una card che nessuno ha consegnato non si chiama
               // «Rimanda indietro» ma «Rimandalo avanti», e un placeholder che
               // nomina un bottone inesistente e' peggio di uno generico.
-              placeholder={isAgentReview
-                ? tr('board.task.replyPlaceholderShort', { sendBack: sendBackWord(sendBackDest(task), tr).label })
-                : tr('board.card.commentPlaceholder')}
+              placeholder={tr('board.card.commentPlaceholder')}
               className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-compact leading-4 text-app-text outline-none placeholder:text-app-placeholder coarse:min-h-11"
             />
             {/* L'INVIO SI VEDE. È la stessa azione del primo bottone qui sopra,
@@ -2091,6 +2099,11 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
                 : tr('board.card.steerSendTitle')}
               className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-compact leading-4 text-white hover:bg-sky-500 disabled:opacity-50 coarse:min-h-11 coarse:min-w-11 coarse:justify-center"
             ><Send className="h-3.5 w-3.5" /></button>
+            {/* The rest of the exits, and «Archivia», behind the «…». */}
+            <TaskChoiceMenu
+              task={task} exclude={menuExclude} disabled={busy} onDone={choiceDone} onError={choiceFailed}
+              ariaLabel={tr('board.card.turnActions')}
+            />
           </div>
         </div>
       )}

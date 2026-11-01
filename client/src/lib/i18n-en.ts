@@ -1779,7 +1779,7 @@ const EN = {
   'board.card.turnActions': 'Actions on this turn',
   'board.card.blockedActions': 'Ways out of the wait',
   'board.card.yourRequest': 'Your request: {text}',
-  'board.card.commentPlaceholder': '…or comment',
+  'board.card.commentPlaceholder': 'Comment or ask for a fix…',
   'board.card.comment': 'Comment',
   'board.card.copyTask': 'Copy task',
   'board.preview.label': 'Preview',
