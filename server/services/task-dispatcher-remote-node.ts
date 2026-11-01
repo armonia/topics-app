@@ -904,7 +904,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     log(`nodo: ${taskId} tornata in coda, limite settimanale del cloud fino a ${new Date(limit.untilMs).toISOString()}`);
     try { releaseAndEmit({ taskId, requeue: true, rollbackAttempt: true }); }
     catch (err) { log(`nodo: la card ${taskId} non è tornata in coda dopo il limite`, err); return true; }
-    try { emit(svc.update({ taskId, actor: "system", by: "dispatcher", patch: { machineId: null } })); }
+    try { emit(svc.update({ taskId, actor: "agent", by: "dispatcher", patch: { machineId: null } })); }
     catch (err) { log(`nodo: la card ${taskId} non è tornata sulla macchina locale`, err); }
     try {
       svc.addComment({
