@@ -511,7 +511,9 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               className="min-w-0 flex items-baseline text-mini text-app-text-secondary"
               title={`${display.name}${display.tooltip ? ` · ${display.tooltip}` : ''}`}
             >
-              <span ref={summaryRef} className="truncate">{display.summary}</span>
+              {/* min-w-0: as a flex item it must be allowed to shrink, or it
+                  never overflows and the cut measurement always reads false. */}
+              <span ref={summaryRef} className="min-w-0 truncate">{display.summary}</span>
             </span>
           )}
           {display.summary && !isSubAgent && (
