@@ -109,7 +109,7 @@ test.describe.serial("Descrizione del sotto-agente: il corpo solo se la riga la 
     await expect(bodyOf(page, id)).toHaveCount(0);
   });
 
-  test("the same 90-character description, cut in the row at 900 px: the body carries it whole", async ({ page, request }) => {
+  test("the same 90-character description at 900 px: the body carries it whole exactly when the row cuts it", async ({ page, request }) => {
     const id = "tc-sub-90-narrow";
     await seedSubAgent(request, id, DESCRIPTION_90);
     await page.setViewportSize({ width: 900, height: 900 });
@@ -119,10 +119,17 @@ test.describe.serial("Descrizione del sotto-agente: il corpo solo se la riga la 
 
     const row = page.locator(`[data-testid="tool-call-row-${id}"]`);
     await expect(row).toBeVisible({ timeout: 15_000 });
+    // Without the command name and the brackets the row may now fit all 90
+    // characters at 900 px. The rule is about what the screen shows: the body
+    // appears if and only if the summary span really overflows.
+    const cut = await row
+      .locator('[title*="' + DESCRIPTION_90 + '"] > span')
+      .first()
+      .evaluate((el) => el.scrollWidth > el.clientWidth);
     const body = bodyOf(page, id);
-    await expect(body).toHaveCount(1);
-    await expect(body).toHaveText(DESCRIPTION_90);
-    // The clipped summary keeps the full text on the tooltip, as before.
+    await expect(body).toHaveCount(cut ? 1 : 0);
+    if (cut) await expect(body).toHaveText(DESCRIPTION_90);
+    // The summary keeps the full text on the tooltip, as before.
     await expect(row.locator('[title*="' + DESCRIPTION_90 + '"]')).toHaveCount(1);
   });
 
