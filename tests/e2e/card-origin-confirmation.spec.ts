@@ -11,8 +11,8 @@ hermetic(test);
 
 /**
  * A request that becomes a card is confirmed in the chat that asked for it:
- * the agent opens a card through the session door and the chat gets a line
- * "È diventata una card" with the title and a link, with no turn started.
+ * the agent opens a card through the session door and the chat gets the "became a card" line
+ * with the title and a link, with no turn started.
  * Two states, so a clip: the chat before, and the chat with the line.
  */
 const BASE = E2E_BASE;
