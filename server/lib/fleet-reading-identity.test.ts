@@ -8,7 +8,7 @@ import { EMPTY_FREEZE_STATE, FREEZE_SETTLE_MS, freezePlan } from "../../shared/m
 import { budgetSample, computeDispatchCapacity, governorRead, newOtherLoadState, smoothedOther } from "../services/dispatch-capacity";
 import { _resetFreezableRuns, createBudgetGovernor, registerFreezableRun } from "../services/budget-governor";
 import { setActiveSwapFreezer, swapFrozenCount } from "./swap-freeze-hold";
-import { _resetFleetUsageCache, _setMachineCpuSource, fleetLoadSync, getFleetUsage, type FleetLoadReading } from "./fleet-usage";
+import { _resetFleetUsageCache, _setChildrenCpuSource, _setMachineCpuSource, shortLivedCpuPercent, fleetLoadSync, getFleetUsage, type FleetLoadReading } from "./fleet-usage";
 
 const targets = [{ id: "a", kind: "check" as const, startedAt: 1 }, { id: "b", kind: "check" as const, startedAt: 2 }];
 const over = { used: 10, budget: 5, targets };
@@ -161,6 +161,41 @@ describe("card 10469e3e: the fleet reading stamp and the kernel floor", () => {
       const r = fleetLoadSync()!;
       expect(r.otherCoreUnits).toBeGreaterThan(0.5);
       _setMachineCpuSource(() => null);
+    } finally { Date.now = realNow; }
+  });
+});
+
+describe("card d0dec91e: our short-lived children count as ours", () => {
+  const rows = (own: number) => [{ pid: process.pid, ppid: 1, cpu: 0, cpuSeconds: own, rssKB: 1000, command: "bun server.ts" }] as never;
+
+  afterEach(() => { _setChildrenCpuSource(null); _setMachineCpuSource(null); _resetFleetUsageCache(); });
+
+  test("the delta of the children counter over the window is a percent of the whole machine", () => {
+    let seconds = 100;
+    _setChildrenCpuSource(() => seconds);
+    expect(shortLivedCpuPercent(1000, 10)).toBe(0); // no base yet
+    seconds += 15;
+    expect(shortLivedCpuPercent(31_000, 10)).toBeCloseTo(5, 5); // half a core of ten
+    expect(shortLivedCpuPercent(61_000, 10)).toBe(0); // nothing new since
+  });
+
+  // The fleet reading is unsupported on Windows, so the end-to-end case runs where the server samples.
+  test.skipIf(process.platform === "win32")("CPU burned by children born and reaped between two readings lands in coreUnits, not in others", async () => {
+    _resetFleetUsageCache();
+    const realNow = Date.now;
+    let clock = realNow();
+    let childSeconds = 100;
+    try {
+      Date.now = () => clock;
+      _setChildrenCpuSource(() => childSeconds);
+      _setMachineCpuSource(() => null);
+      await getFleetUsage(async () => rows(1));
+      clock += 30_000;
+      childSeconds += 15; // half a core for 30 s, in processes `ps` never saw
+      await getFleetUsage(async () => rows(1));
+      const r = fleetLoadSync()!;
+      expect(r.coreUnits).toBeCloseTo(0.5, 1);
+      expect(r.otherCoreUnits).toBe(0);
     } finally { Date.now = realNow; }
   });
 });
