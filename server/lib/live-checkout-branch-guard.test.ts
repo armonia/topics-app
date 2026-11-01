@@ -1,5 +1,5 @@
 /**
- * @covers LAND-06
+ * @covers KANBAN-07
  */
 import { describe, expect, it, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync, realpathSync } from "node:fs";
