@@ -12,14 +12,14 @@
  * `window.innerWidth < 768`, exactly Tailwind's `md` breakpoint, and a class
  * need not travel from component to component to know the window's width.
  *
- * The margin follows the COMPOSER (`m-2` / `m-3`), the edge the eye aligns to:
+ * The margin follows the COMPOSER (`m-2`), the edge the eye aligns to:
  * the goal, todo, live work, checkpoint and changed-files strips sit at the end
  * of the transcript right above it (chat-strips-in-transcript), the others in
  * the composer's block.
  */
 
 /** Geometria condivisa: margini, distanza dalla striscia sotto, raggio. */
-export const CHAT_STRIP = 'mx-2 md:mx-3 mb-1 rounded-lg';
+export const CHAT_STRIP = 'mx-2 mb-1 rounded-lg';
 
 /**
  * …più la superficie neutra, per le strisce che non hanno un colore proprio.
