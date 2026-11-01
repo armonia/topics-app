@@ -37,9 +37,9 @@ export async function findAttributionViolations(
   exclude: readonly string[],
   runGit: RunGit,
 ): Promise<AttributionViolation[] | null> {
-  const email = await runGit(repoPath, ["config", "user.email"]);
+  const userMail = await runGit(repoPath, ["config", "user.email"]);
   const name = await runGit(repoPath, ["config", "user.name"]);
-  const identity = { email: norm(email.stdout), name: norm(name.stdout) };
+  const identity = { email: norm(userMail.stdout), name: norm(name.stdout) };
 
   const log = await runGit(repoPath, [
     "log", `--format=%H${FIELD}%an${FIELD}%ae${FIELD}%B${RECORD}`, range,
@@ -48,17 +48,17 @@ export async function findAttributionViolations(
   if (log.code !== 0) return null;
 
   const out: AttributionViolation[] = [];
-  for (const rec of log.stdout.split(RECORD)) {
-    const [sha, an, ae, body] = rec.trim().split(FIELD);
+  for (const entry of log.stdout.split(RECORD)) {
+    const [sha, an, ae, body] = entry.trim().split(FIELD);
     if (!sha) continue;
     const short = sha.slice(0, 9);
     if (ASSISTANT_TRAILER.test(body ?? "")) {
       out.push({ sha: short, why: "il messaggio porta la riga di attribuzione a un assistente (Co-Authored-By)" });
       continue;
     }
-    const foreignEmail = identity.email !== "" && norm(ae ?? "") !== identity.email;
+    const foreignMail = identity.email !== "" && norm(ae ?? "") !== identity.email;
     const foreignName = identity.email === "" && identity.name !== "" && norm(an ?? "") !== identity.name;
-    if (foreignEmail || foreignName) {
+    if (foreignMail || foreignName) {
       out.push({ sha: short, why: `l'autore è '${an} <${ae}>', non l'identità del repo` });
     }
   }

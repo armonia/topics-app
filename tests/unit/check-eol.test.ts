@@ -8,6 +8,7 @@ import { execFileSync } from "child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { gitEnv } from "../setup/bun-test-preload";
 import { findCrlfRewrites } from "../../scripts/check-eol";
 import { gitEnv } from "../setup/bun-test-preload";
 

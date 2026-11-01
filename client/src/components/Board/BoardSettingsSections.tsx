@@ -14,7 +14,7 @@
  */
 import { Bot, ChevronRight, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import { ChecksFloorField, GlobalCapControl } from './GlobalCapControl';
+import { ChecksFloorField, GlobalCapAdvanced, GlobalCapControl, type OverflowSwitch } from './GlobalCapControl';
 import { SpendCapControl } from './SpendCapControl';
 import { DispatchDetails, DispatchHolders, DispatchSummary } from './DispatchDashboard';
 import type { BoardTask } from '../../lib/board';
@@ -72,7 +72,9 @@ export function SettingsPanelHead({ onClose, dispatchOn, onToggleDispatch }: {
  * mounted behind `hasProject`, so on the board without a project the only
  * surface left was the ▾, the very surface this change exists to stop relying on.
  */
-export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks, onOpenTask }: {
+export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks, onOpenTask, overflow }: {
+  /** Send heavy work to the PC / Cloud when this Mac is full (per board). */
+  overflow?: OverflowSwitch;
   /** Opens a card's drawer (the stopped cards the red box names). */
   onOpenTask?: (id: string) => void;
   dispatchOn: boolean | null;
@@ -101,7 +103,7 @@ export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks, onO
       {/* THE CAP stays in the panel (a tooltip does not exist on a phone). It is the
           SAME component the header menu mounts, on the same store. */}
       <div className={tasks ? 'rounded-md bg-white/5 p-2.5' : 'border-y border-app-border-subtle py-2'}>
-        <GlobalCapControl quiet={!!tasks} />
+        <GlobalCapControl quiet={!!tasks} overflow={overflow} />
       </div>
 
       {/* Spend and caps are born empty (= unlimited) and are not the daily question:
@@ -113,6 +115,7 @@ export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks, onO
             {tr('board.dash.advanced')}
           </summary>
           <div className="space-y-2 pt-1.5">
+            <GlobalCapAdvanced />
             <SpendCapControl />
             <ChecksFloorField />
             <DispatchHolders />
@@ -139,7 +142,7 @@ export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks, onO
  * `Menu` becomes a full-width sheet this must not narrow.
  */
 export const SETTINGS_PANEL_SHELL =
-  'mx-auto w-full max-w-[400px] space-y-2 overflow-y-auto overscroll-contain px-3 py-2.5 text-compact leading-4 text-app-text-heading max-h-[min(70vh,640px)]';
+  'mx-auto w-full max-w-[650px] space-y-2 overflow-y-auto overscroll-contain px-3 py-2.5 text-compact leading-4 text-app-text-heading max-h-[min(70vh,640px)]';
 
 /**
  * The settings panel for the GENERAL board, which has no project and therefore

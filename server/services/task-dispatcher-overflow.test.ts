@@ -23,6 +23,7 @@
  *
  * @covers KANBAN-76
  */
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 import { describe, it, expect } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
