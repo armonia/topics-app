@@ -137,12 +137,12 @@ function harness(opts: {
   floor?: boolean;
   /** The floor's verdict while it holds (default `BLOCKED`, a memory floor). */
   verdict?: ResourceFloorVerdict;
-  /** What pushing a card's own branch answers (default: it reaches origin). */
   /**
    * A node that cannot reach origin (the PC does not talk to GitHub): `repos.mac` holds the
    * card's branch, `repos.node` is the node's checkout. The node starts from what it holds.
    */
   noOrigin?: { mac: string; node: string; startedFrom: string[] };
+  /** What pushing a card's own branch answers (default: it reaches origin). */
   ensure?: (branch: string) => { ok: true } | { ok: false; reason: string };
 } = {}) {
   const db = freshDb();
@@ -493,6 +493,8 @@ describe("a node that cannot reach origin: the carried branch rides with the run
     git(mac, "add", ".");
     git(mac, "commit", "-q", "-m", "base");
     git(root, "clone", "-q", mac, node);
+    // The node cannot reach origin: without a remote the fetch fallback is gone, so only the bundle can carry the branch.
+    git(node, "remote", "remove", "origin");
     git(mac, "switch", "-q", "-c", "topics/endless-calf");
     for (const f of ["b", "c", "d"]) {
       writeFileSync(join(mac, `${f}.txt`), `${f}\n`);
