@@ -1082,6 +1082,19 @@ describe("limite settimanale del Cloud", () => {
     } finally { clean(); }
   });
 
+  it("una card messa a mano sul Cloud non torna in coda all'infinito: resta in review col messaggio", async () => {
+    clean();
+    try {
+      const h = harness({ realCredit: true, runReport: () => ({ status: "review", dispatchError: resetsIn(3) }) });
+      h.seed(CARD, { machineId: CLOUD });
+      await h.tick();
+      await h.poll();
+      expect(providerHold(Date.now(), CLOUD_HOLD_KEY)).not.toBeNull();
+      expect(h.task(CARD).status).toBe("review");
+      expect(h.task(CARD).machineId).toBe(CLOUD);
+    } finally { clean(); }
+  });
+
   it("una consegna vera col limite nel messaggio non si perde: arriva in review", async () => {
     clean();
     try {

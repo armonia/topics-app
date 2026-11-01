@@ -883,7 +883,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    * The cloud answered with its weekly-limit wall: the plan is spent until the
    * reset the message names. The hold is set, so the overflow picks the PC while
    * it lasts. A run that brought no branch did no work: the card goes back to
-   * the queue (and off the cloud, when the overflow put it there) instead of
+   * the queue and off the cloud, when the overflow put it there, instead of
    * landing in review as an empty delivery. A run that DID deliver a branch
    * still lands: the work is not lost, only the hold is recorded.
    * Returns true when the card was requeued.
@@ -897,15 +897,15 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     if (!limit) return false;
     try { setProviderHold({ untilMs: limit.untilMs, window: "seven_day", reason: limit.reason, provider: CLOUD_HOLD_KEY }); }
     catch (err) { log("nodo: fermo del limite settimanale non registrato", err); }
-    if (report.deliveryBranch || !task) return false;
+    // A card put on the cloud by hand would come straight back here until the
+    // reset: it stays in review with the message, where a person sees why.
+    if (report.deliveryBranch || !task || !task.overflowedAt) return false;
     inFlight.delete(taskId);
     log(`nodo: ${taskId} tornata in coda, limite settimanale del cloud fino a ${new Date(limit.untilMs).toISOString()}`);
     try { releaseAndEmit({ taskId, requeue: true, rollbackAttempt: true }); }
     catch (err) { log(`nodo: la card ${taskId} non è tornata in coda dopo il limite`, err); return true; }
-    if (task.overflowedAt) {
-      try { emit(svc.update({ taskId, actor: "system", by: "dispatcher", patch: { machineId: null } })); }
-      catch (err) { log(`nodo: la card ${taskId} non è tornata sulla macchina locale`, err); }
-    }
+    try { emit(svc.update({ taskId, actor: "system", by: "dispatcher", patch: { machineId: null } })); }
+    catch (err) { log(`nodo: la card ${taskId} non è tornata sulla macchina locale`, err); }
     try {
       svc.addComment({
         taskId, author: "system", kind: "service",
