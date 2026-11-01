@@ -138,4 +138,20 @@ describe("hollow body", () => {
     // 20px at 2x is 40px: every square keeps out of the middle half of the slot.
     for (const [x, y] of rects) expect(Math.max(Math.abs(x - 20), Math.abs(y - 20))).toBeGreaterThan(10);
   });
+
+  test("a 16px and a 20px body in the same frame each keep their own shape", () => {
+    const tinyCount = { fills: 0, clears: 0 };
+    const fineCount = { fills: 0, clears: 0 };
+    const tiny = new LoaderBody(16, fakeContext(tinyCount), { scale: 2 });
+    const fine = new LoaderBody(20, fakeContext(fineCount), { scale: 2 });
+    for (let i = 0; i < 40; i++) {
+      const cache = new Map();
+      tiny.step("think", 5 + i * 0.05, 0.05, cache);
+      fine.step("think", 5 + i * 0.05, 0.05, cache);
+    }
+    tiny.draw("black");
+    fine.draw("black");
+    expect(tinyCount.fills).toBeLessThanOrEqual(5);
+    expect(fineCount.fills).toBeGreaterThan(10);
+  });
 });
