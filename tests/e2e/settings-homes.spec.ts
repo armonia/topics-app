@@ -712,6 +712,7 @@ test.describe("i predefiniti della board aprono i provider accanto al loro selet
       await board.getByRole("button", { name: /Impostazioni auto-dispatch/ }).click();
       const settings = page.getByTestId("board-settings-menu");
       await expect(settings).toBeVisible();
+      await settings.getByTestId("settings-this-board").locator("summary").first().click();
       const selector = page.getByTestId("board-model-selector");
       await selector.click();
       const footer = page.getByTestId("ai-selector-providers");

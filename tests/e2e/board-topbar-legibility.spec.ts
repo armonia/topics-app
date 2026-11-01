@@ -437,6 +437,7 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     await page.getByTitle("Impostazioni auto-dispatch").click();
     const pannello = page.getByTestId("board-settings-panel");
     await expect(pannello).toBeVisible();
+    await pannello.getByTestId("settings-this-board").locator("summary").first().click();
     for (const titolo of ["Vale per tutte le board", "Come lavora l'agente", "Dove lavora", "Quando parte", "Alla consegna"]) {
       await expect(pannello.getByText(titolo, { exact: true })).toBeVisible();
     }
@@ -559,6 +560,7 @@ test.describe("Top bar della kanban — si legge da sola", () => {
 
     const pannello = page.getByTestId("board-settings-panel");
     await expect(pannello).toBeVisible();
+    await pannello.getByTestId("settings-this-board").locator("summary").first().click();
     const pausa = page.getByTestId("board-dispatch-paused");
     await expect(pausa).toBeVisible();
 

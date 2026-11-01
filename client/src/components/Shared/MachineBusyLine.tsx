@@ -11,20 +11,23 @@
 import { useT, useActiveLocale } from '../../hooks/useT';
 import { busyBarClass, busyTextClass, busyTone, pctPlaceholders, type MachineShares, machineBusyPct, machineMemPct } from '../../lib/machineBusy';
 
-export function MachineBusyLine({ shares, bar = true, className = '' }: {
+export function MachineBusyLine({ shares, bar = true, className = '', calm = false }: {
   shares: MachineShares | null | undefined;
   /** The thin bar under the sentence; off where the line sits in running text. */
   bar?: boolean;
   className?: string;
+  /** A busy Mac is a wait, not a fault: paint the top band amber instead of red (the settings panel). */
+  calm?: boolean;
 }) {
   const tr = useT();
   const locale = useActiveLocale();
   const pct = machineBusyPct(shares);
   const tone = busyTone(pct);
+  const paint = calm && tone === 'critical' ? 'busy' : tone;
   return (
     <div className={className}>
       <p
-        className={`text-compact font-semibold tabular-nums ${busyTextClass(tone)}`}
+        className={`text-compact font-semibold tabular-nums ${busyTextClass(paint)}`}
         data-testid="machine-busy-pct"
         data-tone={tone}
         data-pct={pct ?? ''}
@@ -33,7 +36,7 @@ export function MachineBusyLine({ shares, bar = true, className = '' }: {
       </p>
       {bar && (
         <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-white/10" aria-hidden="true">
-          <div className={`h-full rounded-full transition-[width] ${busyBarClass(tone)}`} style={{ width: `${pct ?? 0}%` }} />
+          <div className={`h-full rounded-full transition-[width] ${busyBarClass(paint)}`} style={{ width: `${pct ?? 0}%` }} />
         </div>
       )}
     </div>

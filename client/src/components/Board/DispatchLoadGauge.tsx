@@ -260,15 +260,22 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
  * the word, nothing else. The numbers are already on the line it sits on, and
  * repeating them underneath is what made the panel read three times the same.
  */
-export function DispatchLoadSummary() {
+export function DispatchLoadSummary({ calm = false, hideHold = false }: {
+  /** A wait is not a fault: the 'over' red becomes amber (the settings panel). */
+  calm?: boolean;
+  /** Hide the hold word ('stopped: no room') where the panel's top answer already says it. */
+  hideHold?: boolean;
+} = {}) {
   const tr = useT();
   const locale = useActiveLocale();
   const s = useGlobalDispatchCap();
   const reading = dispatchLoadReading(s);
+  if (hideHold && reading.heldBy) return null;
+  const tone = calm && reading.tone === 'over' && !reading.loading ? 'text-amber-800 dark:text-amber-300' : loadToneClass(reading);
 
   return (
     <span
-      className={`flex shrink-0 items-center gap-1 text-mini font-medium tabular-nums ${loadToneClass(reading)}`}
+      className={`flex shrink-0 items-center gap-1 text-mini font-medium tabular-nums ${tone}`}
       data-testid="dispatch-load-summary"
       data-tone={toneAttr(reading)}
       data-held={reading.heldBy ?? 'none'}

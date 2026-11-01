@@ -50,6 +50,7 @@ import { projectRow } from "./helpers/project-row";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { hermetic } from "./fixtures/hermetic";
+import { openCapMode } from "./helpers/open-cap-mode";
 
 hermetic(test);
 
@@ -257,6 +258,7 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     await popover.getByTestId("dispatch-load-settings").click();
     await expect(popover).toHaveCount(0);
     await expect(page.getByTestId("board-settings-menu")).toBeVisible();
+    await openCapMode(page);
     await expect(page.getByTestId("global-cap-mode-auto")).toBeVisible();
   });
 
@@ -333,6 +335,7 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     await page.keyboard.press("Escape");
     await gear(page).click();
     await page.getByTestId("global-cap-brake-count").click();
+    await openCapMode(page);
     await expect(page.getByTestId("global-cap-mode-auto")).toBeVisible();
   });
 
@@ -367,7 +370,8 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     // Mac is and nothing about where the gate reopens: the gate reads Topics'
     // share, the number is the whole Mac, and no point on it is a promise.
     const WAIT = "In attesa: il Mac è occupato al 79%";
-    await expect(page.getByTestId("global-cap-verdict")).toHaveText(WAIT);
+    // The panel says it once, in the answer on top (when cards wait); the old line at the bottom is gone.
+    await expect(page.getByTestId("global-cap-verdict")).toHaveCount(0);
     await page.keyboard.press("Escape");
 
     const g = gauge(page);
@@ -388,6 +392,7 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     await page.keyboard.press("Escape");
     await gear(page).click();
     await page.getByTestId("global-cap-brake-count").click();
+    await openCapMode(page);
     await expect(page.getByTestId("global-cap-mode-auto")).toBeVisible();
   });
 

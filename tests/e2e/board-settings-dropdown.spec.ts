@@ -49,6 +49,7 @@ import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { hermetic } from "./fixtures/hermetic";
 import { removeTmpDir } from "./helpers/file-project";
+import { openCapMode } from "./helpers/open-cap-mode";
 
 hermetic(test);
 
@@ -181,7 +182,16 @@ async function writeFloor(page: Page, gb: string) {
   await expect(box).toBeEnabled();
 }
 /** The checks floor speaks in GB, so it sits folded (24/09): open it first. */
+/** The per-board rows sit under a divider that is closed by default. */
+async function openThisBoard(page: Page) {
+  const fold = page.getByTestId("settings-this-board");
+  if (!(await fold.evaluate((el) => (el as HTMLDetailsElement).open))) await fold.locator("summary").first().click();
+}
+
 async function openFloor(page: Page) {
+  // With the dashboard the fold lives inside Advanced (closed by default): open that first.
+  const advanced = page.getByTestId("settings-advanced");
+  if ((await advanced.count()) > 0 && (await advanced.getAttribute("open")) === null) await advanced.locator("summary").first().click();
   const fold = page.getByTestId("checks-floor-control");
   if ((await fold.getAttribute("open")) === null) await fold.locator("summary").click();
 }
@@ -245,6 +255,7 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await page.screenshot({ path: join(SHOTS, "dropdown-aperto.png"), clip: { x: 0, y: 0, width: 1280, height: 700 } });
 
     // Scrollable body: the last section is reachable by scrolling the panel.
+    await openThisBoard(page);
     await panel(page).evaluate((el) => { el.scrollTop = el.scrollHeight; });
     await expect(panel(page).getByText("Alla consegna", { exact: true })).toBeInViewport();
   });
@@ -261,6 +272,7 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     const m = (await menu(page).boundingBox())!;
     expect(m.y + m.height, "il pannello esce dal fondo della finestra").toBeLessThanOrEqual(560);
     expect(m.y, "il pannello esce dall'alto").toBeGreaterThanOrEqual(0);
+    await openThisBoard(page);
     const last = panel(page).getByText("Alla consegna", { exact: true });
     await expect(last).not.toBeInViewport();
     await panel(page).evaluate((el) => { el.scrollTop = el.scrollHeight; });
@@ -287,6 +299,7 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await page.goto("/");
     await openBoard(page);
     await gear(page).click();
+    await openThisBoard(page);
     const language = page.getByTestId("board-language");
     await expect(language).toBeVisible();
 
@@ -319,6 +332,7 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await expect(control).toBeVisible();
     // Born "by count", with the number box.
     await expect(page.getByTestId("global-cap-brake-count")).toHaveAttribute("aria-checked", "true");
+    await openCapMode(page);
     await expect(page.getByTestId("global-cap-mode-auto")).toBeVisible();
 
     await page.getByTestId("global-cap-brake-resources").click();
@@ -345,13 +359,11 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await expect(live).toHaveAttribute("data-band", "red");
     await expect(live).toHaveText("Topics usa il 62% del Mac, può arrivare al 50%");
 
-    // The verdict, on the same line, in the same percentage: one more agent
-    // would not fit even under the ceiling, so there is no honest resume point
-    // and none is printed.
-    const verdict = page.getByTestId("global-cap-verdict");
-    await expect(verdict).toHaveAttribute("data-admit", "false");
-    await expect(verdict).toHaveAttribute("data-blocked-by", "cpu");
-    await expect(verdict).toHaveText("In attesa: il Mac è occupato all'88%");
+    // The verdict is no longer repeated at the bottom of the panel: the one answer
+    // sits on top (and speaks only when a card waits). The busy line is a wait,
+    // so amber, never red.
+    await expect(page.getByTestId("global-cap-verdict")).toHaveCount(0);
+    await expect(busy).not.toHaveClass(/(?:red|rose)-/);
 
     // No technical word in the text a person reads without opening anything.
     const visible = await control.evaluate((node) => {
@@ -407,6 +419,7 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
 
     // Back to "by count": the three states and the number are back.
     await page.getByTestId("global-cap-brake-count").click();
+    await openCapMode(page);
     await expect(page.getByTestId("global-cap-mode-auto")).toBeVisible();
     await expect(page.getByTestId("global-cap-budget-slider")).toHaveCount(0);
   });
@@ -466,6 +479,7 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await openBoard(page);
     await gear(page).click();
     await expect(panel(page)).toBeVisible();
+    await openThisBoard(page);
     const worktree = panel(page).getByRole("checkbox", { name: /Isola ogni agent in un git worktree/ });
     const line = panel(page).getByTestId("board-settings-needs-worktree");
     // The box is controlled: it flips when the PATCH answers, so it is
