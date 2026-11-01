@@ -25,20 +25,15 @@ const STRIDE = 4;
 /** Under this size a body steps at most 30 times a second. */
 const SMALL_PX = 24;
 const SMALL_FRAME_MS = 1000 / 30;
-/** A change of shape takes this long to settle back onto the grid (seconds). */
+/** A change of shape takes this long to settle (seconds). */
 const SETTLE_S = 1;
-/** How long the body takes to loosen at the start of a change: no pop on the first frame. */
-const LOOSEN_S = 0.12;
-/** Half the width of the crossfade between two cells: at rest, and at the height of a change. */
-const BLUR_REST = 0.18;
-const BLUR_CHANGE = 0.5;
 /** How fast a small body follows its shape: slow while changing, tight once settled. Alpha keeps the slow pace. */
 const RATE_FREE = 6.5;
 /** A small body crosses cells: any faster and a point lands on the next cell in one frame. */
 const RATE_SMALL_CHANGE = 4;
 /** A change starts from standing: the pace ramps up over this long (seconds). */
 const RAMP_S = 0.3;
-const RATE_SETTLED = 16;
+const RATE_SETTLED = 10;
 
 type Particle = [number, number, number, number];
 type Shape = (t: number, n: number, pixel: boolean, age: number) => Particle[];
@@ -210,8 +205,6 @@ export class LoaderBody {
   private since = 0;
   /** 0 right after a change of shape, 1 once settled. */
   private settled = 0;
-  /** Half width of the crossfade between two cells, see `BLUR_REST`. */
-  private blur = BLUR_REST;
   /** Last time this body stepped (seconds), for dt and the 30 fps cap. */
   lastStep = -1;
   readonly pixel: boolean;
@@ -228,7 +221,8 @@ export class LoaderBody {
     this.pixel = size <= 20;
     this.grid = size <= 16 ? 7 : 9;
     this.hollow = !!opts.hollow && this.pixel && this.grid === 9;
-    for (let j = 0; j < PARTICLES; j++) this.pos[j * STRIDE + 3] = 0.2;
+    // A new body grows out of its centre: full ink, no size.
+    for (let j = 0; j < PARTICLES; j++) this.pos[j * STRIDE + 2] = 1;
   }
 
   /** Particles sit on the border of the grid, the centre stays free (the tab number sits there). */
@@ -269,11 +263,22 @@ export class LoaderBody {
       let bd = 1e9;
       free.forEach((j) => {
         const b = j * STRIDE;
-        const d = (this.pos[b] - g[0]) ** 2 + (this.pos[b + 1] - g[1]) ** 2 + (this.pos[b + 2] < 0.05 ? 0.5 : 0);
+        const d = (this.pos[b] - g[0]) ** 2 + (this.pos[b + 1] - g[1]) ** 2 + (this.pos[b + 3] < 0.05 ? 0.5 : 0);
         if (d < bd) { bd = d; best = j; }
       });
       free.delete(best);
       this.mapping[best] = i;
+    });
+    // The squares left over never fade: each one shrinks away into its nearest neighbour.
+    free.forEach((j) => {
+      const b = j * STRIDE;
+      let near = 0;
+      let nd = 1e9;
+      raw.forEach((g, i) => {
+        const d = (this.pos[b] - g[0]) ** 2 + (this.pos[b + 1] - g[1]) ** 2;
+        if (d < nd) { nd = d; near = i; }
+      });
+      this.mapping[j] = -1 - near;
     });
     this.mapLen = raw.length;
   }
@@ -284,8 +289,6 @@ export class LoaderBody {
     if (this.mapLen !== raw.length) this.assign(raw);
     const age = t - this.since;
     this.settled = Math.min(1, age / SETTLE_S);
-    const loose = age < LOOSEN_S ? age / LOOSEN_S : Math.max(0, 1 - (age - LOOSEN_S) / (SETTLE_S - LOOSEN_S));
-    this.blur = BLUR_REST + (BLUR_CHANGE - BLUR_REST) * loose;
     const ramp = Math.min(1, age / RAMP_S);
     const pace = this.pixel ? RATE_SMALL_CHANGE + (RATE_SETTLED - RATE_SMALL_CHANGE) * this.settled ** 4 : RATE_FREE;
     const posRate = 1 - Math.exp(-dt * pace * ramp * ramp);
@@ -293,9 +296,10 @@ export class LoaderBody {
     for (let j = 0; j < PARTICLES; j++) {
       const b = j * STRIDE;
       const i = this.mapping[j];
-      const g = i >= 0 ? raw[i] : null;
+      const leaving = i < 0;
+      const g = raw[leaving ? -1 - i : i];
       for (let k = 0; k < STRIDE; k++) {
-        const goal = g ? g[k] : k === 2 ? 0 : this.pos[b + k];
+        const goal = !g || (leaving && k === 2) ? this.pos[b + k] : leaving && k === 3 ? 0 : g[k];
         this.pos[b + k] += (goal - this.pos[b + k]) * (k === 2 ? alphaRate : posRate);
       }
     }
@@ -308,7 +312,6 @@ export class LoaderBody {
     this.since = t - SETTLE_S;
     this.step(activity, t, 10);
     this.settled = 1;
-    this.blur = BLUR_REST;
   }
 
   draw(color: string): void {
@@ -317,63 +320,18 @@ export class LoaderBody {
     c.clearRect(0, 0, W, W);
     c.fillStyle = color;
     const pos = this.pos;
-    if (this.pixel) {
-      const n = this.grid;
-      const p = Math.floor(W / n);
-      const m = Math.floor((W - n * p) / 2);
-      let gap = Math.max(1, Math.round(p * 0.14));
-      if (p - gap < 1) gap = 0;
-      const q = p - gap;
-      // A whole number: with an odd gap, gap / 2 put every square on half a pixel, and it came out blurred.
-      const inset = Math.floor(gap / 2);
-      const rr = q < 2 ? 0 : Math.max(0.6, q * 0.3);
-      const a = new Float32Array(n * n);
-      // Small: a point near the middle of a cell is that cell, crisp, on device pixels.
-      // Near the edge it crossfades into the next one, so it never jumps; during a
-      // change of shape the crossfade widens and the point glides across the grid.
-      const put = (x: number, y: number, v: number): void => {
-        if (x >= 0 && y >= 0 && x < n && y < n) a[y * n + x] = Math.max(a[y * n + x], v);
-      };
-      const crisp = (f: number): number => {
-        const e = Math.min(1, Math.max(0, (f - 0.5 + this.blur) / (2 * this.blur)));
-        return e * e * (3 - 2 * e);
-      };
-      for (let j = 0; j < PARTICLES; j++) {
-        const b = j * STRIDE;
-        const gx = ((pos[b] / 0.92 + 1) / 2) * (n - 1);
-        const gy = ((pos[b + 1] / 0.92 + 1) / 2) * (n - 1);
-        const x0 = Math.floor(gx);
-        const y0 = Math.floor(gy);
-        const fx = crisp(gx - x0);
-        const fy = crisp(gy - y0);
-        const v = pos[b + 2];
-        put(x0, y0, v * (1 - fx) * (1 - fy));
-        put(x0 + 1, y0, v * fx * (1 - fy));
-        put(x0, y0 + 1, v * (1 - fx) * fy);
-        put(x0 + 1, y0 + 1, v * fx * fy);
-      }
-      for (let y = 0; y < n; y++) {
-        for (let x = 0; x < n; x++) {
-          const v = a[y * n + x];
-          if (v < 0.06) continue;
-          c.globalAlpha = Math.sqrt(v);
-          c.beginPath();
-          c.roundRect(m + x * p + inset, m + y * p + inset, q, q, rr);
-          c.fill();
-        }
-      }
-    } else {
-      const R = W * 0.4;
-      const base = (W / 9) * 0.58;
-      for (let j = 0; j < PARTICLES; j++) {
-        const b = j * STRIDE;
-        if (pos[b + 2] < 0.02) continue;
-        const q = base * pos[b + 3];
-        c.globalAlpha = Math.min(1, pos[b + 2]);
-        c.beginPath();
-        c.roundRect(W / 2 + pos[b] * R - q / 2, W / 2 + pos[b + 1] * R - q / 2, q, q, q * 0.28);
-        c.fill();
-      }
+    // Small bodies draw fewer, larger squares; none of them is tied to a pixel grid.
+    const base = this.pixel ? (W / this.grid) * 0.74 : (W / 9) * 0.58;
+    const R = this.pixel ? W / 2 - base / 2 : W * 0.4;
+    for (let j = 0; j < PARTICLES; j++) {
+      const b = j * STRIDE;
+      // Small squares read too faint at their true light, and too thin at their true size.
+      const q = base * (this.pixel ? Math.min(1, pos[b + 3] * 1.3) : pos[b + 3]);
+      if (pos[b + 2] < 0.02 || q < 0.25) continue;
+      c.globalAlpha = this.pixel ? Math.sqrt(Math.min(1, pos[b + 2])) : Math.min(1, pos[b + 2]);
+      c.beginPath();
+      c.roundRect(W / 2 + pos[b] * R - q / 2, W / 2 + pos[b + 1] * R - q / 2, q, q, q * 0.28);
+      c.fill();
     }
     c.globalAlpha = 1;
   }

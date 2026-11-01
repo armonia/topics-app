@@ -39,6 +39,7 @@ import { openTopicInApp } from '../../lib/deepLinkEntry';
 import { TERMINAL_INPUT_DROPPED, TERMINAL_WS_CLOSE_DORMANT } from '../../../../shared/terminal-messages';
 import { useSwapFreeze } from '../../state/swapFreeze';
 import { TerminalCover } from './TerminalCover';
+import { TERMINAL_FONT_FAMILY, TERMINAL_LINE_HEIGHT, TERMINAL_PADDING_PX } from '../../lib/terminalFont';
 
 // The toolbar keys live in ./touchKeys so the set can vary by session type:
 // Ctrl+Z freezes a Claude Code pane, so Claude sessions get Ctrl+_ instead.
@@ -438,7 +439,8 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     const term = new Terminal({
       theme: getTerminalTheme(isDarkRef.current),
       fontSize: 13,
-      fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace",
+      fontFamily: TERMINAL_FONT_FAMILY,
+      lineHeight: TERMINAL_LINE_HEIGHT,
       cursorBlink: true,
       cursorStyle: 'bar',
       scrollback: 5000,
@@ -609,6 +611,18 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     setTimeout(doFit, 200);
     setTimeout(doFit, 500);
     setTimeout(() => { doFit(); term.focus(); }, 600);
+
+    // xterm measures its character cell once, when it opens. JetBrains Mono
+    // arrives later (font-display: swap), so a cold open measures the fallback
+    // (18 px rows instead of 21) and every fit after it uses that cell. Once the
+    // face is in, set the family again: a changed value makes xterm measure again.
+    let fontSettled = false;
+    void document.fonts.load(`13px 'JetBrains Mono'`).then(() => {
+      if (fontSettled) return;
+      term.options.fontFamily = 'monospace';
+      term.options.fontFamily = TERMINAL_FONT_FAMILY;
+      doFit();
+    }, () => { /* no face: xterm keeps the fallback it measured */ });
 
     // How long an unproven attach stays silent before the pane says so. Under
     // it, a normal mount would flash a warning at every pane you open; over it,
@@ -927,6 +941,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
 
     return () => {
       intentionalClose = true;
+      fontSettled = true;
       captureRef.current();
       clearTimeout(retryTimer);
       if (pasteFallback) clearTimeout(pasteFallback);
@@ -1352,11 +1367,18 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           contain: 'layout paint',
         }}
       >
+        {/* xterm mounts into an absolutely positioned box inset by the gap, not into
+            a padded or `h-full` one. FitAddon reads the mount's computed height: while
+            the pane is hidden (display: none) a `height: 100%` reads back as "100%",
+            parses to 100 rows and sends a real 11x4 resize to the PTY. An inset box
+            reads "auto" there, and FitAddon proposes nothing. */}
         <div
-          ref={containerRef}
+          data-testid="terminal-gap-box"
           className="absolute inset-0"
           onClick={() => termRef.current?.term.focus()}
-        />
+        >
+          <div ref={containerRef} className="absolute" style={{ inset: TERMINAL_PADDING_PX }} />
+        </div>
         {/* The last screen, or the skeleton, until xterm has drawn the replay. */}
         {!replayDrawn && (scrollbackSeed || !stale) && <TerminalCover ref={seedRef} copy={scrollbackSeed} />}
         {/* Copy button for non-touch */}
