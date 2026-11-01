@@ -81,3 +81,10 @@ Codice dell'interfaccia (lo scrive la card di ogni difetto, dopo il tuo ok); il 
 ## Barra di questo studio
 
 PR di sola documentazione aperta su `armonia/topics-app`; gli otto file `~/.topics/media/ui-task-topic-*` esistono (`ls -la`). Le barre delle card future: misura DOM (`scripts/ui-audit.js`) per gli spazi, `toHaveScreenshot` per la resa, e il tuo occhio per loader e font.
+
+### Giro del 01/11 (fascia, tasti, placeholder)
+- La misura sta in una fascia `rounded-lg bg-app-user-bubble`, larga quanto la card, uguale in lavorazione e in review.
+- Il provider «via» esce dalla riga di misura (`measureLine`): a 300 px modello e provider restano interi; il tooltip conserva la riga piena.
+- Placeholder del campo di commento: «Commenta o correggi…» (IT), «Comment or fix…» (EN); le spec e2e allineate.
+- Il tempo «ora» resta a destra sulla riga dello stato (`shrink-0`, `whitespace-nowrap`). La soglia «0m fa» → «ora» NON è cambiata: la spec `board-card-updated-ago` la codifica di proposito; decisione aperta.
+- Limite: il contrasto fra fascia e card non è misurato da un test; la prova visiva è l'affiancamento di Jarvis.
