@@ -31,6 +31,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { createHash } from "crypto";
 import { worktreeRegistrationLost } from "./worktree-registration";
+import { findAttributionViolations } from "./land-attribution-gate";
 import { commitIsIn, countOwnCommits, otherLocalBranches } from "./own-commits";
 import { branchContentIsOnMain, commitStatusFromRepo } from "./branch-status";
 import { landedMergeRange } from "./task-diff-range";
@@ -121,6 +122,8 @@ export type LandSkipCode =
    * un conflitto: nessuno ha ancora tentato una fusione.
    */
   | "realign-blocked"
+  /** A commit of the branch credits an assistant, or has an author other than the repo identity (LAND-13). */
+  | "attribution"
   /** Eccezione durante il land. */
   | "internal-error";
 
@@ -149,6 +152,13 @@ export interface LandFallout {
    */
   resume?: string;
 }
+
+/** What the agent does when the land refused its branch for an attribution line. */
+const ATTRIBUTION_INSTRUCTION =
+  "Il land ha rifiutato il tuo ramo: un commit porta una riga Co-Authored-By a un assistente, o un autore diverso " +
+  "dall'identità del repo. Ricrea SOLO i commit tuoi, senza quella riga e con l'autore del repo (`git config user.name` / " +
+  "`user.email`), sul tuo ramo (`git rebase` con `git commit --amend --reset-author` o un reword). Non scrivere mai " +
+  "quella riga nei messaggi. Poi rimetti in review con update_task(status=\"review\"). Resta vietato toccare main.";
 
 /** L'istruzione per l'agente quando è il suo ramo a non essere pubblicabile. */
 const REBASE_INSTRUCTION =
@@ -190,6 +200,8 @@ export function landFallout(code: LandSkipCode | undefined, ctx: { deliveryCommi
       return { status: "in_progress", reason: "il land non ha saputo isolare i commit della card", resume: REBASE_INSTRUCTION };
     case "foreign-commits":
       return { status: "in_progress", reason: "il ramo porta anche commit di un'altra sessione", resume: REBASE_INSTRUCTION };
+    case "attribution":
+      return { status: "in_progress", reason: "un commit del ramo porta un'attribuzione non voluta", resume: ATTRIBUTION_INSTRUCTION };
     case "repo-unresolved":
       return { status: "review", reason: "non si trova il checkout del progetto su cui atterrare il ramo consegnato" };
     case "dirty-checkout":
@@ -1310,6 +1322,25 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
             // lo fa. Si portano i suoi e basta.
             onlyOwn = { total, mine, others };
           }
+        }
+
+        // Attribution gate (LAND-13): the commits this card would publish must
+        // not credit an assistant nor carry a foreign author.
+        const violations = await findAttributionViolations(
+          repoPath, `${base}..${branch}`, others.map((o) => (o.startsWith("refs/") ? o : `refs/heads/${o}`)), runGit,
+        );
+        if (violations === null) {
+          return {
+            status: "skipped", code: "unisolable",
+            reason: `git non ha saputo leggere gli autori e i messaggi dei commit di '${branch}': non pubblico un ramo che non so leggere`,
+          };
+        }
+        if (violations.length > 0) {
+          const list = violations.slice(0, 5).map((v) => `${v.sha}: ${v.why}`).join("; ");
+          return {
+            status: "skipped", code: "attribution",
+            reason: `${violations.length} commit di '${branch}' con attribuzione non voluta (${list}). Nessuna riscrittura automatica: ricrea quei commit sul ramo`,
+          };
         }
 
         // Fast path: the shared checkout is ALREADY on main → merge in place, so a

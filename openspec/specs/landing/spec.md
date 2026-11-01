@@ -542,3 +542,19 @@ in memoria, quindi il processo sembra sano mentre una finestra nuova prende un
 - **THEN** SHALL comparire una riga d'errore che dice cosa manca, e
   `healthz` SHALL dichiararlo
 
+### Requirement: LAND-13 — Un ramo che firma come un assistente non atterra
+
+Il land SHALL rifiutare un ramo se uno dei commit che porterebbe contiene una
+riga `Co-Authored-By` verso un assistente, o ha un autore diverso
+dall'identita' (`user.email`) del repo, e SHALL dirlo sulla card con lo sha e il
+motivo. Gli agenti del board SHALL partire con l'attribuzione di commit e PR
+spenta (`attribution` vuota nei settings passati con `--settings`). Il land NON
+SHALL riscrivere la storia: il ramo si corregge dall'agente.
+
+#### Scenario: un commit con la riga di attribuzione
+- **GIVEN** un ramo con un commit che termina con `Co-Authored-By: Claude`
+- **THEN** il land SHALL rifiutarlo con codice `attribution`, senza toccare main
+
+#### Scenario: un ramo pulito
+- **GIVEN** un ramo i cui commit hanno l'autore del repo e nessuna riga di attribuzione
+- **THEN** il land SHALL atterrarlo
