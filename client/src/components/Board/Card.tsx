@@ -523,6 +523,10 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
     snapshot: getProvidersSnapshotState().snapshot, tr: tm, surface: 'task', viaTopics: runsThroughTopics,
   });
   const modelLine = useSyncExternalStore(subscribeProvidersSnapshot, getModelLine, getModelLine);
+  // The measure row is 300 px wide at its narrowest: the provider is dropped
+  // from it («Sonnet 5 · via Claude Code» → «Sonnet 5 · Claude Code») so model
+  // and provider stay whole; the tooltip keeps the full line.
+  const measureLine = modelLine.replace(' · via ', ' · ');
 
   // Review context. The comment PAIR (`selectCardComments`) — the thread's last
   // word as a quick-reply with option buttons when it's a question block and
@@ -1884,7 +1888,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
             from its tail (tokens first) when it does not. The last update
             still closes the row, on the right. */}
         {live && !live.retry && task.dispatchState === 'working' ? (
-          <LiveEffortChip usage={live} label={modelLine} />
+          <LiveEffortChip usage={live} label={measureLine} />
         ) : (task.model || task.agentMs > 0 || task.agentTokens > 0) ? (
           // The model always lives here, in the time/effort chip — never as a
           // second standalone chip. Before the agent has logged any time we
@@ -1911,8 +1915,8 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               })
               : tr('board.card.modelTitle', { model: modelLine })}
             data-testid="card-measure"
-            className="flex w-full min-w-0 max-w-full items-center justify-between gap-2 rounded-md bg-white/5 px-2 py-1 text-compact leading-4 md:text-mini text-app-text-muted tabular-nums"
-          ><span className="min-w-0 truncate">{modelLine}</span>{/* THE DOLLARS, when the card has a priced spend: the token figure is the
+            className="flex w-full min-w-0 max-w-full items-center justify-between gap-2 rounded-lg bg-app-user-bubble px-2.5 py-1.5 text-compact leading-4 md:text-mini text-app-text-muted tabular-nums"
+          ><span className="min-w-0 truncate">{measureLine}</span>{/* THE DOLLARS, when the card has a priced spend: the token figure is the
               cost-weighted volume, this is what it came to. Right side: never wrapped, never cut. */}<span className="shrink-0 whitespace-nowrap">{(task.agentMs > 0 || costo > 0) && `⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span></span>
         ) : null}
         {/* WHICH MACHINE it runs on, next to the model it runs with. Only when
@@ -1945,7 +1949,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
         {/* The last update closes the row, on the right: it is the weakest of
             the four measures and does not belong among the others. */}
         <span
-          className="ml-auto text-compact leading-4 md:text-mini text-app-text-muted"
+          className="ml-auto shrink-0 whitespace-nowrap text-compact leading-4 md:text-mini text-app-text-muted"
           title={tr('board.card.lastUpdate', { when: new Date(task.updatedAt).toLocaleString(locale) })}
         ><UpdatedAgo iso={task.updatedAt} /></span>
       </div>

@@ -191,7 +191,7 @@ describe('the progress word', () => {
 describe('la misura del turno sulla card', () => {
   test('in lavorazione la riga viva c\'e\': niente chip, solo testo e il caricamento di main', () => {
     expect(src).not.toContain("task.status === 'in_progress' ? null");
-    expect(src).toContain('<LiveEffortChip usage={live} label={modelLine} />');
+    expect(src).toContain('<LiveEffortChip usage={live} label={measureLine} />');
     expect(live).toContain('data-testid="card-measure"');
     // The live dot is main's SparkLoader now, not a sky pulse dot.
     expect(live).toContain("import { SparkLoader } from '../Layout/StreamingIndicator';");
@@ -203,7 +203,7 @@ describe('la misura del turno sulla card', () => {
 
   test('il modello e il provider sono nel CONTENUTO della riga, non solo nel titolo', () => {
     // Guard against the model moving into `title` alone: the visible text must carry it.
-    expect(src).toContain('<span className="min-w-0 truncate">{modelLine}</span>');
+    expect(src).toContain('<span className="min-w-0 truncate">{measureLine}</span>');
     expect(live).toContain('<span className="min-w-0 truncate">{label ?? fmtModel(usage.model)}</span>');
     expect(live).toContain('⏱ {fmtLive(ms)}');
   });
@@ -216,7 +216,7 @@ describe('la misura del turno sulla card', () => {
     expect(span).toContain('max-w-full');
     expect(span).toContain('truncate');
     // Tokens come AFTER the time in the text, so truncation drops them first.
-    const content = src.slice(src.indexOf('<span className="min-w-0 truncate">{modelLine}</span>'), src.indexOf('<span data-testid="card-spend">'));
+    const content = src.slice(src.indexOf('<span className="min-w-0 truncate">{measureLine}</span>'), src.indexOf('<span data-testid="card-spend">'));
     expect(content.indexOf('fmtMs(task.agentMs)')).toBeLessThan(content.indexOf('fmtTok(costo)'));
     expect(live).toContain('min-w-0 truncate');
   });
@@ -230,10 +230,16 @@ describe('la misura del turno sulla card', () => {
   // Stessa fascia in lavorazione (LiveEffortChip) e in review (la misura statica).
   test('la misura è una fascia avvolta, larga quanto la card, uguale nei due stati', () => {
     expect(live).toContain('w-full min-w-0 max-w-full items-center justify-between');
-    expect(live).toContain('rounded-md bg-white/5');
+    expect(live).toContain('rounded-lg bg-app-user-bubble');
     const start = src.indexOf('data-testid="card-measure"');
-    expect(src.slice(start, start + 300)).toContain('rounded-md bg-white/5');
+    expect(src.slice(start, start + 300)).toContain('rounded-lg bg-app-user-bubble');
     expect(src.slice(start, start + 300)).toContain('w-full');
+  });
+
+  // La riga a 300 px porta modello e provider interi: il provider "via" esce dalla misura, resta nel tooltip.
+  test('la misura in card non dice «via» e non tronca il modello a 300 px', () => {
+    expect(src).toContain('const measureLine = modelLine.replace');
+    expect(src).toContain('{measureLine}</span>');
   });
 
   // Il lato destro (durata e consumo) non va mai a capo né si taglia: si accorcia il sinistro.

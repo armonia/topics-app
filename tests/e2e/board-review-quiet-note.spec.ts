@@ -161,7 +161,7 @@ test.describe("Una nota su una card in review non la rigetta", () => {
     await expect(card.getByTestId("task-choice-redo")).toHaveCount(0);
     // E il campo resta, e dice cosa fa PRIMA che uno scriva: il testo lo
     // raccoglie la scelta principale, non un bottone tutto suo.
-    await expect(card.getByPlaceholder("Commenta o chiedi una correzione…")).toBeVisible();
+    await expect(card.getByPlaceholder("Commenta o correggi…")).toBeVisible();
     await beat(page);
 
     // (2) Si apre il drawer e si scrive li' la nota, col gesto quieto.

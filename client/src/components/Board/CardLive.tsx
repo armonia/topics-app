@@ -116,9 +116,9 @@ export function LiveEffortChip({ usage, label }: { usage: LiveUsage; label?: str
         work: fmtLive(ms),
         tokens: usage.liveTokens ? tr('board.card.liveEffortTokens', { n: usage.liveTokens.toLocaleString(locale) }) : '',
       })}
-      className="flex w-full min-w-0 max-w-full items-center justify-between gap-2 rounded-md bg-white/5 px-2 py-1 text-compact leading-4 md:text-mini text-app-text-muted tabular-nums"
+      className="flex w-full min-w-0 max-w-full items-center justify-between gap-2 rounded-lg bg-app-user-bubble px-2.5 py-1.5 text-compact leading-4 md:text-mini text-app-text-muted tabular-nums"
     >
-      <span className="flex min-w-0 items-center gap-1.5">
+      <span className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
         <SparkLoader className="shrink-0" />
         <span className="min-w-0 truncate">{label ?? fmtModel(usage.model)}</span>
       </span>

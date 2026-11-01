@@ -222,7 +222,7 @@ test.describe("Scelte sempre presenti sulla card", () => {
     await expect(page.getByTestId("task-choices-panel").getByTestId("task-choice-drop")).toHaveText("Archivia");
     await page.keyboard.press("Escape");
     // The free comment stays: it is how the card goes back to the agent.
-    await expect(piano.getByPlaceholder("Commenta o chiedi una correzione…")).toBeVisible();
+    await expect(piano.getByPlaceholder("Commenta o correggi…")).toBeVisible();
     await beat(page);
     await choice(taskIds.piano, "accept").click();
     await expect(page.getByTestId("kanban-column-body-done").locator(`[data-task-card="${taskIds.piano}"]`))
