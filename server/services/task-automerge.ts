@@ -34,6 +34,7 @@ import { worktreeRegistrationLost } from "./worktree-registration";
 import { commitIsIn, countOwnCommits, otherLocalBranches } from "./own-commits";
 import { branchContentIsOnMain, commitStatusFromRepo } from "./branch-status";
 import { landedMergeRange } from "./task-diff-range";
+import { attributionViolation } from "./land-attribution";
 import { fetchRemoteBase } from "./worktree-base-ref";
 import { gitEnvFor } from "../lib/git-identity";
 import { missingPackageManager, runScriptArgv } from "../lib/project-scripts";
@@ -121,6 +122,8 @@ export type LandSkipCode =
    * un conflitto: nessuno ha ancora tentato una fusione.
    */
   | "realign-blocked"
+  /** A commit carries a Claude `Co-Authored-By` trailer or an author other than the repo identity. */
+  | "attribution"
   /** Eccezione durante il land. */
   | "internal-error";
 
@@ -159,6 +162,11 @@ const REBASE_INSTRUCTION =
   "il ramo deve portare SOLO i tuoi commit. Poi rimetti in review con update_task(status=\"review\"). " +
   "Resta vietato toccare main: niente push, niente merge verso main.";
 
+const ATTRIBUTION_INSTRUCTION =
+  "Il land è stato rifiutato: un commit del tuo ramo porta la riga Co-Authored-By di Claude o un autore diverso " +
+  "dall'identità del repo. Riscrivi SOLO i tuoi commit non ancora pubblicati (rebase con reword, e `git commit --amend " +
+  "--reset-author` dove serve), senza trailer di attribuzione, poi rimetti in review con update_task(status=\"review\").";
+
 /**
  * Dal perché-non-è-atterrato a dove-finisce-la-card. Pura, così la regola si
  * prova senza un repo e senza una board.
@@ -190,6 +198,8 @@ export function landFallout(code: LandSkipCode | undefined, ctx: { deliveryCommi
       return { status: "in_progress", reason: "il land non ha saputo isolare i commit della card", resume: REBASE_INSTRUCTION };
     case "foreign-commits":
       return { status: "in_progress", reason: "il ramo porta anche commit di un'altra sessione", resume: REBASE_INSTRUCTION };
+    case "attribution":
+      return { status: "in_progress", reason: "il ramo porta commit con attribuzione Claude o un autore diverso dall'identità del repo", resume: ATTRIBUTION_INSTRUCTION };
     case "repo-unresolved":
       return { status: "review", reason: "non si trova il checkout del progetto su cui atterrare il ramo consegnato" };
     case "dirty-checkout":
@@ -1221,6 +1231,10 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         // memoria di chi rivede.
         const collision = await migrationCollision();
         if (collision) return { status: "skipped", reason: collision };
+
+        // Claude attribution and foreign authors never reach main (card a54f26b1).
+        const attribution = await attributionViolation(runGit, repoPath, [`${base}..${branch}`, `^${defaultBranch}`]);
+        if (attribution) return { status: "skipped", code: "attribution", reason: attribution };
 
         // ── Il branch porta SOLO il lavoro di questo task? ──────────────────
         //

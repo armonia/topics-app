@@ -420,6 +420,10 @@ export function buildClaudeArgs(opts: ClaudeSpawnArgsOptions): string[] {
     // scambio in perdita). Chi aggiunge una leva la aggiunge QUI DENTRO.
     ...(opts.toolSearch || opts.slimSkillListing || opts.mcpOutputTokens || opts.blockImageReads || opts.guardLiveCheckout || opts.hooksScriptPath
       ? ["--settings", JSON.stringify({
+          // Board agents (the ones guarded against the live checkout) commit with
+          // attribution off: empty strings drop the `Co-Authored-By` trailer on
+          // commits and the "Generated with" line on pull requests (card a54f26b1).
+          ...(opts.guardLiveCheckout ? { attribution: { commit: "", pr: "" } } : {}),
           // The two `hooks` blocks MERGED event by event: the guard and ours
           // both sit on `PreToolUse`, and a spread would keep only one.
           ...(opts.blockImageReads || opts.guardLiveCheckout || opts.hooksScriptPath

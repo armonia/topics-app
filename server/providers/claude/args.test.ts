@@ -583,3 +583,21 @@ describe("buildCodexArgs — la fotografia", () => {
     expect(buildCodexOneshotArgs({})).toEqual(["exec", "--json"]);
   });
 });
+
+describe("buildClaudeArgs: attribution off for board agents", () => {
+  const settingsOf = (opts: Record<string, unknown>) => {
+    const args = buildClaudeArgs({ ...BASE, ...opts } as never);
+    const i = args.indexOf("--settings");
+    return i < 0 ? null : JSON.parse(args[i + 1]!);
+  };
+
+  test("a board agent carries an empty attribution, next to its other levers", () => {
+    const s = settingsOf({ guardLiveCheckout: true, toolSearch: "1" });
+    expect(s.attribution).toEqual({ commit: "", pr: "" });
+    expect(s.env.ENABLE_TOOL_SEARCH).toBe("1");
+  });
+
+  test("a plain chat leaves the attribution to the CLI", () => {
+    expect(settingsOf({ toolSearch: "1" }).attribution).toBeUndefined();
+  });
+});
