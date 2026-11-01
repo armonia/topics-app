@@ -236,8 +236,8 @@ describe('la misura del turno sulla card', () => {
     expect(src.slice(start, start + 300)).toContain('w-full');
   });
 
-  // La riga a 300 px porta modello e provider interi: il provider "via" esce dalla misura, resta nel tooltip.
-  test('la misura in card non dice «via» e non tronca il modello a 300 px', () => {
+  // La riga a 300 px porta modello e provider interi: solo «via Claude Code» si accorcia; Codex e Topics restano come sono.
+  test('la misura in card accorcia solo «via Claude Code»', () => {
     expect(src).toContain('const measureLine = modelLine.replace');
     expect(src).toContain('{measureLine}</span>');
   });

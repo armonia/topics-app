@@ -523,10 +523,10 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
     snapshot: getProvidersSnapshotState().snapshot, tr: tm, surface: 'task', viaTopics: runsThroughTopics,
   });
   const modelLine = useSyncExternalStore(subscribeProvidersSnapshot, getModelLine, getModelLine);
-  // The measure row is 300 px wide at its narrowest: the provider is dropped
-  // from it («Sonnet 5 · via Claude Code» → «Sonnet 5 · Claude Code») so model
-  // and provider stay whole; the tooltip keeps the full line.
-  const measureLine = modelLine.replace(' · via ', ' · ');
+  // The measure row is 300 px wide at its narrowest: only the Claude Code provider
+  // is shortened ("via Claude Code" -> "Claude Code"), so model and provider stay whole;
+  // the tooltip keeps the full line. Other providers stay as the specs pin them.
+  const measureLine = modelLine.replace(' · via Claude Code', ' · Claude Code');
 
   // Review context. The comment PAIR (`selectCardComments`) — the thread's last
   // word as a quick-reply with option buttons when it's a question block and
