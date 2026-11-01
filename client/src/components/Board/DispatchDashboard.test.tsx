@@ -7,10 +7,17 @@
  *
  * @covers KANBAN-79
  */
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, beforeEach } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import type { ReactElement, ReactNode } from 'react';
+import { isValidElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { DispatchDashboardView, MemoryChart } from './DispatchDashboard';
-import { chartMax, overflowedCards, queuedCards, waitingLabel, type QueuedCard } from './dispatchDashboardModel';
+import { DispatchDashboardView, DispatchDetailsView, DispatchSummaryView, MemoryChart } from './DispatchDashboard';
+import { GlobalSettingsSection, SettingsPanelHead } from './BoardSettingsSections';
+import { GlobalCapControl } from './GlobalCapControl';
+import { adoptDispatchCapacity, adoptGlobalCap } from '../../state/globalDispatchCap';
+import { rowReason, brokenCards, chartMax, overflowedCards, queuedCards, waitingLabel, type QueuedCard } from './dispatchDashboardModel';
 import type { BoardTask, DispatchCapacity } from '../../lib/board';
 import type { DispatchMemoryQueueSnapshot } from '../../../../shared/board';
 
@@ -26,10 +33,24 @@ const snapshot: DispatchMemoryQueueSnapshot = {
 const NOW = Date.parse('2026-10-28T12:00:00Z');
 const card = (over: Partial<QueuedCard>): QueuedCard => ({ id: 'x', title: 't', project: null, waitingMs: 60_000, reason: null, memoryWaiter: true, stalled: false, projectId: 'p-1', ...over });
 const queue: QueuedCard[] = [
-  card({ id: 'a', title: 'Comando usage-hub', project: 'attilio', waitingMs: 19 * 60_000, reason: 'In coda · aspetta memoria libera' }),
+  card({ id: 'a', title: 'Comando usage-hub', project: 'attilio', waitingMs: 19 * 60_000, reason: 'aspetta memoria libera', detail: 'Il Mac ha poca memoria libera adesso' }),
   card({ id: 'b', title: 'Tray del PC', project: 'topics-app', waitingMs: 4 * 60_000 }),
 ];
 const text = (html: string) => html.replace(/<[^>]+>/g, '');
+/** The element tree a component returns, captured inside a real render (hooks work); there is no DOM to click in bun test. */
+function treeOf(render: () => ReactElement): ReactNode {
+  let out: ReactNode = null;
+  const Probe = () => { out = render(); return null; };
+  renderToStaticMarkup(<Probe />);
+  return out;
+}
+/** The props of the first element carrying this data-testid. */
+function propsByTestId(node: ReactNode, id: string): Record<string, unknown> | null {
+  if (Array.isArray(node)) { for (const n of node) { const f = propsByTestId(n, id); if (f) return f; } return null; }
+  if (!isValidElement(node)) return null;
+  const props = node.props as Record<string, unknown>;
+  return props['data-testid'] === id ? props : propsByTestId(props.children as ReactNode, id);
+}
 
 describe('cruscotto auto-dispatch', () => {
   test('la prima versione resta: riepilogo, memoria, coda, chi tiene la memoria', () => {
@@ -38,19 +59,25 @@ describe('cruscotto auto-dispatch', () => {
     expect(text(html)).toContain('Ne parte un’altra quando il Mac ha 3,5 GB liberi (adesso 2,8 GB).');
     expect(text(html)).toContain('Chi tiene la memoria del Mac · 32 GB');
     expect(html).toContain('data-testid="dispatch-dashboard-holders"');
+    // «Chi tiene la memoria» is closed until asked for.
+    expect(html).toMatch(/<details class="group" data-testid="dispatch-dashboard-holders-fold">/);
+    expect(html).not.toMatch(/<details[^>]*data-testid="dispatch-dashboard-holders-fold"[^>]*\bopen/);
     expect(html.indexOf('Comando usage-hub')).toBeLessThan(html.indexOf('Tray del PC'));
-    expect(html).toContain('title="In coda · aspetta memoria libera"');
+    expect(html).toContain('title="Il Mac ha poca memoria libera adesso"');
     expect(html).not.toMatch(/ferma · la macchina|0x[0-9a-f]+|Sonnet 4/i);
   });
-  test('l\'ordine: riepilogo, grafico, coda, chi tiene la memoria', () => {
+  test('l\'ordine: riepilogo, risposta, grafico, coda, chi tiene la memoria', () => {
     const html = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queue} now={NOW} />);
     const at = (s: string) => html.indexOf(s);
-    expect(at('dispatch-dashboard-memory')).toBeLessThan(at('dispatch-chart-block'));
+    expect(at('dispatch-dashboard-hero')).toBeLessThan(at('dispatch-dashboard-answer'));
+    expect(at('dispatch-dashboard-answer')).toBeLessThan(at('dispatch-chart-block'));
     expect(at('dispatch-chart-block')).toBeLessThan(at('dispatch-dashboard-queue"'));
     expect(at('dispatch-dashboard-queue"')).toBeLessThan(at('dispatch-dashboard-holders'));
   });
   test('riga di stato dal vivo: nessun guasto, o quante ferme per un guasto', () => {
-    const ok = text(renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queue} dispatchOn now={NOW} />));
+    // With room in memory the answer is the all-well sentence (below the start line it is a wait).
+    const roomy = { ...capacity, availableMemGB: 8 } as DispatchCapacity;
+    const ok = text(renderToStaticMarkup(<DispatchDashboardView capacity={roomy} snapshot={snapshot} queue={queue} dispatchOn now={NOW} />));
     expect(ok).toContain('dal vivo');
     expect(ok).toContain('Nessuna card è ferma per un guasto: le 2 in coda partono da sole.');
     const ko = text(renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queue} broken={1} now={NOW} />));
@@ -61,6 +88,10 @@ describe('cruscotto auto-dispatch', () => {
     const st = text(renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={[{ ...queue[0]!, stalled: true }, queue[1]!]} dispatchOn now={NOW} />));
     expect(st).toContain('1 card in coda non parte da sola');
     expect(st).not.toContain('partono da sole');
+    // Below the start line the answer is the memory wait, in amber.
+    const mem = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queue} dispatchOn now={NOW} />);
+    expect(text(mem)).toContain('Ne parte un’altra quando il Mac ha 3,5 GB liberi (adesso 2,8 GB).');
+    expect(mem).toContain('data-tone="warn"');
     // With the switch still unread it promises nothing.
     const unknown = text(renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queue} dispatchOn={null} now={NOW} />));
     expect(unknown).not.toContain('partono da sole');
@@ -69,6 +100,8 @@ describe('cruscotto auto-dispatch', () => {
     expect(off).not.toContain('partono da sole');
     // and with dispatch off the memory row does not promise that another one starts
     expect(off).not.toContain('Ne parte un’altra');
+    // Off with an empty queue still says so: the switch is what to turn back on.
+    expect(text(renderToStaticMarkup(<DispatchSummaryView capacity={capacity} snapshot={snapshot} queue={[]} dispatchOn={false} />))).toContain('Auto-dispatch spento');
     const none = text(renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={[]} now={NOW} />));
     expect(none).toContain('Nessuna card è ferma per un guasto.');
   });
@@ -87,6 +120,13 @@ describe('cruscotto auto-dispatch', () => {
     const busy = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queue} now={NOW} onStartNow={() => {}} />);
     expect(busy).toMatch(/data-testid="dispatch-dashboard-start-now"[^>]*disabled=""/);
     expect(busy).toContain('C’è già una card al lavoro sul Mac');
+    // One row per card: the button is the right end of the FIRST row, never a row of its own.
+    const rows = busy.split('data-testid="dispatch-dashboard-queue-row"').slice(1);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toContain('dispatch-dashboard-queue-project');
+    expect(rows[0]).toContain('dispatch-dashboard-queue-sub');
+    expect(rows[0]).toMatch(/<button[^>]*dispatch-dashboard-start-now[^>]*ml-auto/);
+    expect(rows[1]).not.toContain('dispatch-dashboard-start-now');
   });
   test('un rifiuto si dice in italiano dal code, sotto la card giusta, e sparisce se la card è uscita', () => {
     const idle = { ...capacity, running: 0 } as DispatchCapacity;
@@ -117,11 +157,20 @@ describe('cruscotto auto-dispatch', () => {
     expect(order).toEqual(['new-high', 'older-low', 'old-low']);
     const [named] = queuedCards([{ ...base, id: 'n', text: 'n', status: 'todo', dispatchState: 'queued', dispatchError: null } as BoardTask], tr, NOW, () => 'attilio');
     expect(named!.project).toBe('attilio');
+    // One reason per state, in plain words: the row says state AND why ("head: detail"), the long text is the tooltip.
+    const withReason = { ...base, id: 'r', text: 'r', status: 'todo', dispatchState: 'queued', queueReason: { key: 'k', tone: 'waiting' } } as unknown as BoardTask;
+    const [why] = queuedCards([withReason], (k: string) => k.split('.').pop()!, NOW);
+    expect(why!.reason).toBe('head: detail');
+    expect(why!.detail).toBe('title');
+    // A head with nothing after it stays the head alone (no dangling colon).
+    const [bare] = queuedCards([withReason], (k: string) => (k.endsWith('.detail') ? '' : k.split('.').pop()!), NOW);
+    expect(bare!.reason).toBe('head');
   });
   test('se frena la CPU non dice «parte a 3,5 GB»', () => {
     const cpu = { ...capacity, admission: { admit: false, blockedBy: 'cpu' } } as unknown as DispatchCapacity;
     const html = renderToStaticMarkup(<DispatchDashboardView capacity={cpu} snapshot={snapshot} queue={queue} now={NOW} />);
-    expect(html).toContain('meno occupato');
+    // One answer: the gate's verdict, not the memory threshold.
+    expect(text(html)).toContain('In attesa: il Mac è occupato');
     expect(text(html)).not.toContain('Ne parte un’altra');
   });
   test('senza coda lo dice, senza memoria misurata non inventa numeri', () => {
@@ -154,6 +203,246 @@ describe('cruscotto auto-dispatch', () => {
   test('quanto aspetta', () => {
     expect(waitingLabel(10_000)).toBe('1 min');
     expect(waitingLabel(125 * 60_000)).toBe('2 h 5 min');
+  });
+
+  test('«Accendi» sta nella riga gialla solo quando l\'auto-dispatch è spento', () => {
+    let turned = 0;
+    const off = renderToStaticMarkup(<DispatchSummaryView capacity={capacity} snapshot={snapshot} queue={queue} dispatchOn={false} onTurnOn={() => { turned++; }} />);
+    expect(off).toContain('data-testid="dispatch-dashboard-turn-on"');
+    expect(text(off)).toContain('Accendi');
+    expect(off).toContain('data-tone="warn"');
+    // the button is INSIDE the warning box, not a row of its own
+    expect(off.indexOf('dispatch-dashboard-turn-on')).toBeGreaterThan(off.indexOf('dispatch-dashboard-answer'));
+    expect(off.match(/data-testid="dispatch-dashboard-ok"/g)?.length).toBe(1);
+    expect(turned).toBe(0);
+    for (const dispatchOn of [true, null] as const) {
+      expect(renderToStaticMarkup(<DispatchSummaryView capacity={capacity} snapshot={snapshot} queue={queue} dispatchOn={dispatchOn} onTurnOn={() => {}} />)).not.toContain('dispatch-dashboard-turn-on');
+    }
+    // no handler = no dead button
+    expect(renderToStaticMarkup(<DispatchSummaryView capacity={capacity} snapshot={snapshot} queue={queue} dispatchOn={false} />)).not.toContain('dispatch-dashboard-turn-on');
+  });
+  test('un solo motivo per stato: uguale per tutte sta nell\'intestazione, diverso sta sulla riga', () => {
+    const mk = (id: string, reason: string) => card({ id, title: `Card ${id}`, reason, detail: 'Idonea, ma l\'auto-dispatch è spento' });
+    const same = renderToStaticMarkup(<DispatchDetailsView capacity={capacity} snapshot={snapshot} queue={[mk('1', 'ferma: dispatch spento'), mk('2', 'ferma: dispatch spento')]} now={NOW} />);
+    // the generic state word is dropped and the reason is written ONCE, not on every row
+    expect(same.match(/dispatch spento/g)?.length).toBe(1);
+    expect(same).not.toContain('dispatch-dashboard-queue-reason');
+    expect(text(same)).not.toContain('Idonea, ma');
+    const mixed = renderToStaticMarkup(<DispatchDetailsView capacity={capacity} snapshot={snapshot} queue={[mk('1', 'ferma: dispatch spento'), mk('2', 'aspetta memoria libera')]} now={NOW} />);
+    expect(mixed.match(/data-testid="dispatch-dashboard-queue-reason"/g)?.length).toBe(2);
+    expect(mixed).toContain('title="Idonea, ma l&#x27;auto-dispatch è spento"');
+  });
+  test('nessuna riga della coda resta alla sola testa generica («ferma», «in coda», «rinviata», «in attesa»)', () => {
+    const it = readFileSync(join(import.meta.dir, '../../lib/i18n-it.ts'), 'utf8');
+    const GENERIC = new Set(['ferma', 'in coda', 'rinviata', 'in attesa']);
+    const heads = [...it.matchAll(/'(board\.queue\.[^']+)\.head': '([^']*)'/g)].filter((m) => GENERIC.has(m[2]!));
+    expect(heads.length).toBeGreaterThan(10);
+    const tr = (k: string) => it.match(new RegExp(`'${k.replace(/\./g, '\\.')}': '([^']*)'`))?.[1] ?? '';
+    for (const [, key] of heads) {
+      const [c] = queuedCards([{ id: 'g', text: 'g', status: 'todo', dispatchState: 'queued', parentTaskId: null, priority: 1, createdAt: '2026-10-28T10:00:00Z', updatedAt: '2026-10-28T11:00:00Z', projectId: 'p', queueReason: { key, tone: 'waiting' } } as unknown as BoardTask], tr, NOW);
+      expect(GENERIC.has(c!.reason ?? ''), `${key}: la riga dice solo «${c!.reason}»`).toBe(false);
+    }
+  });
+  test('«Accendi» è cablato: il clic chiama onTurnOn, anche con un guasto', () => {
+    const b = brokenCards([{ id: 'f0', text: 'rotta', status: 'todo', dispatchState: 'failed', projectId: 'p-1' } as unknown as BoardTask]);
+    for (const withFault of [false, true]) {
+      let turned = 0;
+      const tree = treeOf(() => DispatchSummaryView({ capacity, snapshot, queue, broken: withFault ? b.total : 0, brokenList: withFault ? b : undefined, dispatchOn: false, onTurnOn: () => { turned++; } }));
+      const btn = propsByTestId(tree, 'dispatch-dashboard-turn-on');
+      expect(btn, withFault ? 'con guasto' : 'senza guasto').not.toBeNull();
+      (btn!.onClick as () => void)();
+      expect(turned).toBe(1);
+    }
+  });
+  test('spento + guasto: il riquadro rosso resta, e un riquadro giallo dice che è spento con «Accendi»', () => {
+    const b = brokenCards([{ id: 'f0', text: 'rotta', status: 'todo', dispatchState: 'failed', projectId: 'p-1' } as unknown as BoardTask]);
+    const html = renderToStaticMarkup(<DispatchSummaryView capacity={capacity} snapshot={snapshot} queue={queue} broken={b.total} brokenList={b} dispatchOn={false} onTurnOn={() => {}} />);
+    expect(html).toContain('data-testid="dispatch-dashboard-ok" data-tone="bad"');
+    expect(html).toContain('data-testid="dispatch-dashboard-off" data-tone="warn"');
+    expect(text(html)).toContain('Auto-dispatch spento: le 2 in coda partono quando lo accendi.');
+    expect(html.indexOf('dispatch-dashboard-turn-on')).toBeGreaterThan(html.indexOf('dispatch-dashboard-off'));
+    expect(html.match(/dispatch-dashboard-turn-on/g)?.length).toBe(1);
+    // on, or state unknown: no amber box
+    for (const dispatchOn of [true, null] as const) {
+      expect(renderToStaticMarkup(<DispatchSummaryView capacity={capacity} snapshot={snapshot} queue={queue} broken={b.total} brokenList={b} dispatchOn={dispatchOn} onTurnOn={() => {}} />)).not.toContain('dispatch-dashboard-off');
+    }
+  });
+  test('la coda va a capo: niente troncamenti con il pannello stretto', () => {
+    const html = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queue} now={NOW} onStartNow={() => {}} />);
+    const rows = html.slice(html.indexOf('dispatch-dashboard-queue"'), html.indexOf('dispatch-dashboard-holders-fold'));
+    expect(rows).not.toMatch(/\btruncate\b/);
+    expect(rows).toContain('break-words');
+    expect(rows).toContain('flex-wrap');
+  });
+
+  describe('Mac pieno, nessun guasto: il rosso è solo dei guasti', () => {
+    const RED = /\b(?:dark:)?(?:text|bg|border)-(?:red|rose)-\d+/;
+    const tasks = [
+      { id: 'q1', text: 'Una card', status: 'todo', dispatchState: 'queued', priority: 2, parentTaskId: null, projectId: 'attilio-1a2b3c', createdAt: '2026-10-28T10:00:00Z', updatedAt: '2026-10-28T11:41:00Z', queueReason: null },
+    ] as unknown as BoardTask[];
+    const full = (over: Partial<DispatchCapacity> = {}) => ({ ...capacity, running: 1, machineCpuPct: 87, machineMemPct: 87, cores: 12, recommended: 1,
+      admission: { admit: false, blockedBy: 'floor', firstAgentExempt: false }, ...over }) as unknown as DispatchCapacity;
+    beforeEach(() => {
+      adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 1, maxAgentsMode: 'count' });
+      adoptDispatchCapacity(full());
+    });
+    const panel = () => renderToStaticMarkup(<GlobalSettingsSection dispatchOn tasks={tasks} onToggleDispatch={() => {}} />);
+    test('barra, scritta, chip e frase sono ambra, mai rossi', () => {
+      const html = panel();
+      expect(text(html).replace(/&#x27;/g, '’')).toMatch(/occupato all.87%/);
+      expect(html).toContain('bg-amber-400');
+      expect(html).not.toMatch(RED);
+      expect(html).not.toContain('bg-rose-400');
+    });
+    test('anche sopra il tetto (a numero e a risorse) nessun rosso e nessun verdetto ripetuto', () => {
+      // Count brake, over the cap but the gate admits: the chip is an 'over' wait.
+      adoptDispatchCapacity(full({ running: 3, admission: { admit: true, blockedBy: null, firstAgentExempt: false } as never }));
+      let html = panel();
+      expect(html).not.toMatch(RED);
+      expect(html).not.toContain('global-cap-verdict');
+      // Resources brake, Topics over its ceiling: the live band is red on the wire, amber on screen.
+      adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 1, maxAgentsMode: 'resources' });
+      adoptDispatchCapacity(full({ cores: 12, usedCoreUnits: 7.4, usableCoreUnits: 6, budgetCoreUnits: 7.2, running: 2,
+        admission: { admit: false, blockedBy: 'cpu', firstAgentExempt: false } as never }));
+      html = panel();
+      expect(html).toContain('data-band="red"');
+      expect(html).not.toMatch(RED);
+      expect(html).not.toContain('global-cap-verdict');
+    });
+    test('una sola frase in cima, la stessa non si ripete in fondo', () => {
+      const html = panel();
+      expect(text(html).match(/In attesa: il Mac è quasi pieno/g)?.length).toBe(1);
+      expect(text(html)).not.toContain('fermo: niente spazio');
+      expect(html.indexOf('dispatch-dashboard-answer')).toBeLessThan(html.indexOf('global-cap-control'));
+    });
+    test('con un guasto il rosso c\'è, ed è solo il riquadro', () => {
+      const html = renderToStaticMarkup(<DispatchSummaryView capacity={full()} snapshot={snapshot} queue={queue} broken={2} dispatchOn />);
+      expect(html).toMatch(RED);
+      expect(html).toContain('data-tone="bad"');
+      expect(text(html)).toContain('2 card sono ferme per un guasto');
+    });
+    test('ordine: risposta, coda, grafico, quante card insieme, Avanzate', () => {
+      const html = panel();
+      const at = (s: string) => html.indexOf(s);
+      expect(at('dispatch-dashboard-answer')).toBeLessThan(at('dispatch-dashboard-details'));
+      expect(at('dispatch-dashboard-details')).toBeLessThan(at('global-cap-control'));
+      expect(at('global-cap-control')).toBeLessThan(at('settings-advanced'));
+    });
+  });
+});
+
+describe('le card ferme per un guasto nel riquadro rosso', () => {
+  const failed = (n: number): BoardTask[] => Array.from({ length: n }, (_, i) => ({
+    id: `f${i}`, text: `Card guasta numero ${i + 1}`, status: 'todo', dispatchState: 'failed', projectId: 'p-1',
+  })) as unknown as BoardTask[];
+  test('2 guasti → 2 titoli, nessun «+N»', () => {
+    const b = brokenCards(failed(2));
+    expect(b.listed.map((c) => c.title)).toEqual(['Card guasta numero 1', 'Card guasta numero 2']);
+    expect(b.total).toBe(2);
+    expect(b.more).toBe(0);
+  });
+  test('5 guasti → 3 titoli + «+2»', () => {
+    const b = brokenCards(failed(5));
+    expect(b.listed).toHaveLength(3);
+    expect(b.total).toBe(5);
+    expect(b.more).toBe(2);
+    const html = renderToStaticMarkup(<DispatchSummaryView capacity={capacity} snapshot={snapshot} queue={queue} broken={b.total} brokenList={b} dispatchOn />);
+    expect(html.match(/dispatch-dashboard-broken-card/g)).toHaveLength(3);
+    expect(text(html)).toContain('+2');
+  });
+  test('un titolo lungo è accorciato su una riga', () => {
+    const [c] = brokenCards([{ ...failed(1)[0]!, text: 'x'.repeat(80) + '\n seconda riga' } as BoardTask]).listed;
+    expect(c!.title.length).toBeLessThanOrEqual(40);
+    expect(c!.title.endsWith('…')).toBe(true);
+  });
+  test('le card finite o figlie non contano', () => {
+    const t = failed(2);
+    (t[0] as { status: string }).status = 'done';
+    (t[1] as { parentTaskId?: string }).parentTaskId = 'p';
+    expect(brokenCards(t).total).toBe(0);
+  });
+});
+
+describe('regressioni della verifica avversaria', () => {
+  test('la lista del riquadro rosso può restringersi (min-w-0): un titolo lungo non sfora', () => {
+    const b = brokenCards([{ id: 'f0', text: 'x'.repeat(200), status: 'todo', dispatchState: 'failed', projectId: 'p-1' } as unknown as BoardTask]);
+    const html = renderToStaticMarkup(<DispatchSummaryView capacity={capacity} snapshot={snapshot} queue={queue} broken={b.total} brokenList={b} dispatchOn />);
+    const ul = html.match(/<ul[^>]*dispatch-dashboard-broken-list[^>]*>/)?.[0] ?? '';
+    expect(ul).toMatch(/class="[^"]*\bmin-w-0\b/);
+  });
+  test('card in coda senza motivo dal server: la riga dice perché e il tooltip non è vuoto', () => {
+    const it = readFileSync(join(import.meta.dir, '../../lib/i18n-it.ts'), 'utf8');
+    const tr = (k: string) => it.match(new RegExp(`'${k.replace(/\./g, '\\.')}': '([^']*)'`))?.[1] ?? '';
+    const [c] = queuedCards([{ id: 'n', text: 'n', status: 'in_progress', dispatchState: 'queued', parentTaskId: null, priority: 1, createdAt: '2026-10-28T10:00:00Z', updatedAt: '2026-10-28T11:00:00Z', projectId: 'p', queueReason: null } as unknown as BoardTask], tr, NOW);
+    expect(c!.reason).toBe('in coda: aspetta un posto libero');
+    expect(c!.detail).toBeTruthy();
+  });
+  test('chip progetto e motivo possono restringersi e spezzare una parola lunga (min-w-0 overflow-wrap:anywhere)', () => {
+    const long = card({ id: 'w', title: 'Una card', project: 'p'.repeat(90), reason: 'r'.repeat(90), detail: 'd' });
+    const html = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={[long, card({ id: 'v', reason: 'aspetta memoria libera' })]} now={NOW} />);
+    for (const id of ['dispatch-dashboard-queue-project', 'dispatch-dashboard-queue-reason']) {
+      const tag = html.match(new RegExp(`<span[^>]*${id}[^>]*>`))?.[0] ?? '';
+      expect(tag, id).toMatch(/class="[^"]*\bmin-w-0\b/);
+      expect(tag, id).toContain('[overflow-wrap:anywhere]');
+      expect(tag, id).not.toMatch(/\bbreak-all\b/);
+    }
+  });
+  test('il titolo è un bottone cablato su onOpenTask con l\'id della card', () => {
+    const src = readFileSync(join(import.meta.dir, 'DispatchDashboard.tsx'), 'utf8');
+    expect(src).toMatch(/data-testid="dispatch-dashboard-broken-card"[\s\S]{0,120}onClick=\{\(\) => onOpenTask\?\.\(c\.id\)\}/);
+  });
+  test.each(['it', 'en'])('i18n-%s: nessuna chiave duplicata (TS1117 rompe tsc -b)', (loc) => {
+    const src = readFileSync(join(import.meta.dir, '../../lib', `i18n-${loc}.ts`), 'utf8');
+    const keys = [...src.matchAll(/^\s*'([^']+)':/gm)].map((m) => m[1]!);
+    const dup = keys.filter((k, i) => keys.indexOf(k) !== i);
+    expect(dup).toEqual([]);
+  });
+  test('riga della coda: titolo e sotto una sola riga, senza clessidra e senza «ferma:» ripetuto', () => {
+    expect(rowReason('ferma: dispatch spento')).toBe('dispatch spento');
+    expect(rowReason('aspetta memoria: servono 3,5 GB')).toBe('aspetta memoria: servono 3,5 GB');
+    const html = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={[card({ id: 'z', reason: 'ferma: dispatch spento' })]} now={NOW} />);
+    expect(html).not.toContain('lucide-hourglass');
+    expect(html).not.toContain('ferma:');
+  });
+  test('un solo interruttore vero nella testata; i dettagli sono nell\'ordine grafico, coda', () => {
+    const html = renderToStaticMarkup(<SettingsPanelHead onClose={() => {}} dispatchOn onToggleDispatch={() => {}} />);
+    expect(html.match(/dispatch-dashboard-switch/g)?.length).toBe(1);
+    expect(html).toContain('role="switch"');
+    expect(html).toContain('aria-checked="true"');
+    expect(text(html)).toContain('Come partono le card');
+    expect(text(html)).toContain('Vale per tutte le board');
+    expect(text(html)).toContain('Le card partono da sole');
+    expect(renderToStaticMarkup(<SettingsPanelHead onClose={() => {}} />)).not.toContain('dispatch-dashboard-switch');
+    expect(renderToStaticMarkup(<DispatchSummaryView capacity={capacity} snapshot={snapshot} queue={queue} dispatchOn />)).not.toContain('dispatch-dashboard-switch');
+    const d = renderToStaticMarkup(<DispatchDetailsView capacity={capacity} snapshot={snapshot} queue={queue} now={NOW} withHolders={false} />);
+    expect(d.indexOf('dispatch-chart')).toBeLessThan(d.indexOf('dispatch-dashboard-queue"'));
+    expect(d).not.toContain('dispatch-dashboard-holders-fold');
+  });
+  test('il pannello: ordine unico e Avanzate chiuso con spesa e memoria', () => {
+    const src = readFileSync(join(import.meta.dir, 'BoardSettingsSections.tsx'), 'utf8');
+    const at = (k: string) => src.indexOf(k);
+    expect(at('<DispatchSummary ')).toBeLessThan(at('<DispatchDetails '));
+    expect(at('<DispatchDetails ')).toBeLessThan(at('<GlobalCapControl quiet'));
+    expect(at('<GlobalCapControl quiet')).toBeLessThan(at('data-testid="settings-advanced"'));
+    const advancedSrc = src.slice(at('data-testid="settings-advanced"'));
+    expect(advancedSrc.indexOf('<SpendCapControl')).toBeGreaterThan(0);
+    expect(advancedSrc.indexOf('<DispatchHolders')).toBeGreaterThan(0);
+    // ONE «Advanced»: the checks floor lives inside it, under Spend, and not under «how many together».
+    expect(advancedSrc.indexOf('<ChecksFloorField')).toBeGreaterThan(advancedSrc.indexOf('<SpendCapControl'));
+    expect(advancedSrc.indexOf('<ChecksFloorField')).toBeLessThan(advancedSrc.indexOf('<DispatchHolders'));
+    const cap = readFileSync(join(import.meta.dir, 'GlobalCapControl.tsx'), 'utf8');
+    expect(cap).toContain('{!quiet && <ChecksFloorField />}');
+    expect(renderToStaticMarkup(<GlobalCapControl quiet />)).not.toContain('checks-floor-control');
+    expect(renderToStaticMarkup(<GlobalCapControl />)).toContain('checks-floor-control');
+    for (const f of ['i18n-it.ts', 'i18n-en.ts']) {
+      const line = readFileSync(join(import.meta.dir, '../../lib', f), 'utf8').split('\n').find((l) => l.includes("'board.checksFloor.fold'"))!;
+      expect(line).not.toMatch(/Avanzate|Advanced/);
+    }
+    expect(src.slice(at('data-testid="settings-advanced"') - 40, at('data-testid="settings-advanced"'))).not.toContain(' open');
+  });
+  test('quante card insieme: nel cruscotto il secondo livello è dentro un blocco chiuso', () => {
+    const src = readFileSync(join(import.meta.dir, 'GlobalCapControl.tsx'), 'utf8');
+    expect(src).toMatch(/quiet \? \(\s*<details className="group" data-testid="global-cap-mode-fold">/);
   });
 });
 

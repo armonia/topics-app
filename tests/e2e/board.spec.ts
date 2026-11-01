@@ -198,7 +198,7 @@ test.describe("Kanban board", () => {
     const dispatchMenu = page.getByTitle(/Impostazioni auto-dispatch/);
     await expect(dispatchMenu).toBeVisible();
     await dispatchMenu.click();
-    const autoDispatch = page.locator("label", { hasText: "Auto-dispatch" }).getByRole("checkbox");
+    const autoDispatch = page.getByTestId("dispatch-dashboard-switch").or(page.locator("label", { hasText: "Auto-dispatch" }).getByRole("checkbox"));
     await expect(autoDispatch).toBeVisible();
     await expect(autoDispatch).not.toBeChecked();
   });
@@ -321,7 +321,7 @@ test.describe("Kanban board", () => {
     const dispatchMenu = page.getByTitle(/Impostazioni auto-dispatch/);
     await expect(dispatchMenu).toBeVisible({ timeout: 10000 });
     await dispatchMenu.click();
-    const autoDispatch = page.locator("label", { hasText: "Auto-dispatch" }).getByRole("checkbox");
+    const autoDispatch = page.getByTestId("dispatch-dashboard-switch").or(page.locator("label", { hasText: "Auto-dispatch" }).getByRole("checkbox"));
     await expect(autoDispatch).toBeVisible({ timeout: 5000 });
     await expect(autoDispatch, "the test env starts manual").not.toBeChecked();
 

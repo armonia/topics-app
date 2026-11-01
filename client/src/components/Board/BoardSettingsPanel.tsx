@@ -14,7 +14,7 @@
  * questo file tiene la struttura e le sezioni, non i singoli interruttori.
  */
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, Laptop, PauseCircle, Server, Sparkles } from 'lucide-react';
+import { ChevronDown, ChevronRight, Laptop, PauseCircle, Server, Sparkles } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { Select } from '../Shared/Select';
 import { MAX_CHECKS, WORKFLOW_PRESET_IDS, boardApi, type BoardSettings, type BoardSettingsPatch, type BoardTask, type BoardWorkflowView, type ReviewCheck, type WorkflowPresetId } from '../../lib/board';
@@ -29,7 +29,8 @@ import {
   SETTINGS_PANEL_SHELL,
 } from './BoardSettingsSections';
 
-export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models, onToggleDispatch, onChanged, onClose, onError, tasks, workflow, onWorkflowChanged }: {
+export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models, onToggleDispatch, onChanged, onClose, onError, tasks, onOpenTask, workflow, onWorkflowChanged }: {
+  onOpenTask?: (id: string) => void;
   projectId: string;
   /** Owned by the board (per-project config) — this panel only renders and patches it. */
   settings: BoardSettings | null;
@@ -61,7 +62,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
   const topicsRoutingSwitch = boardTopicsRoutingSwitch(s, (p) => { void patch(p); });
   return (
     <div className={SETTINGS_PANEL_SHELL} data-testid="board-settings-panel">
-      <SettingsPanelHead onClose={onClose} />
+      <SettingsPanelHead onClose={onClose} dispatchOn={tasks ? dispatchOn : undefined} onToggleDispatch={tasks ? onToggleDispatch : undefined} />
 
       {/* PRIMA sezione, e la sola che NON è di questa board: l'interruttore e il
           tetto sono quelli globali, gli stessi del ▾ in testata. Senza il titolo
@@ -69,14 +70,21 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           di questo progetto» — cioè come un'impostazione che qui non esiste.
           Le righe stanno in `BoardSettingsSections.tsx` perché il pannello della
           board generale monta le STESSE: un blocco, due pannelli. */}
-      <SettingsSection label={tr('board.settings.sec.global')} first>
-        <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} tasks={tasks} />
+      <div className="space-y-2" data-testid="settings-global">
+        <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} tasks={tasks} onOpenTask={onOpenTask} />
         {dispatchOn && (
           <p className="text-mini text-amber-300/80">{tr('board.settings.dispatchOnActive')}</p>
         )}
-      </SettingsSection>
+      </div>
 
-      <SettingsSection label={tr('board.settings.sec.agent')}>
+      {/* The per-board rows sit under their own divider, closed by default. */}
+      <details className="group border-t border-app-border-subtle pt-2" data-testid="settings-this-board">
+      <summary className="mb-2 flex min-h-6 cursor-pointer list-none items-center gap-1 text-mini font-semibold uppercase tracking-wide text-app-text-muted coarse:min-h-11">
+        <ChevronRight size={10} className="shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
+        {tr('board.settings.sec.thisBoard')}
+      </summary>
+      <div className="space-y-2">
+      <SettingsSection label={tr('board.settings.sec.agent')} first>
       {/* IL FRENO DI QUESTA BOARD, e sta nella sezione «di questa board» e non
           in quella globale di proposito: sono due leve diverse, e metterle
           vicine senza dirlo sarebbe il «due nomi per la stessa cosa» che questo
@@ -299,6 +307,8 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           onSave={(deployCommand) => patch({ deployCommand })}
         />
       </SettingsSection>
+      </div>
+      </details>
     </div>
   );
 }

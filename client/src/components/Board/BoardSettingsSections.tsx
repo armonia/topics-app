@@ -12,29 +12,53 @@
  * is little enough to render for real with `renderToStaticMarkup`, so the test
  * asserts on painted output instead of on the presence of a string.
  */
-import { Bot, X } from 'lucide-react';
+import { Bot, ChevronRight, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import { GlobalCapControl } from './GlobalCapControl';
+import { ChecksFloorField, GlobalCapControl } from './GlobalCapControl';
 import { SpendCapControl } from './SpendCapControl';
-import { DispatchDashboard } from './DispatchDashboard';
+import { DispatchDetails, DispatchHolders, DispatchSummary } from './DispatchDashboard';
 import type { BoardTask } from '../../lib/board';
 
 /** The panel is not "Auto-dispatch": it holds effort, model, language, worktree,
  *  fan-out, night mode, auto-merge, MCP. Naming it after its first row made that
  *  name look like a title AND a switch at the same time. */
-export function SettingsPanelHead({ onClose }: { onClose: () => void }) {
+export function SettingsPanelHead({ onClose, dispatchOn, onToggleDispatch }: {
+  onClose: () => void;
+  /** With the dashboard: the title is the global block's and the real switch sits on its right. */
+  dispatchOn?: boolean | null;
+  onToggleDispatch?: () => void;
+}) {
   const tr = useT();
+  const withSwitch = !!onToggleDispatch;
   return (
-    <div className="flex items-center justify-between">
-      <span className="font-semibold text-app-text">{tr('board.settings.title')}</span>
-      <button
-        aria-label={tr('board.settings.close')}
-        onClick={onClose}
-        // 24 with the mouse (`tap-expand`), a real 44 box under a finger: a
-        // projected 44 here would reach into the first row of the panel and
-        // take its taps (usability audit, 04/10).
-        className="tap-expand rounded p-0.5 text-app-text-secondary hover:bg-white/10 coarse:flex coarse:h-11 coarse:w-11 coarse:items-center coarse:justify-center"
-      ><X className="h-3.5 w-3.5" /></button>
+    <div className="flex items-start justify-between gap-2">
+      <div className="min-w-0">
+        <div className="font-semibold text-app-text" data-testid="settings-panel-title">{tr(withSwitch ? 'board.dash.title' : 'board.settings.title')}</div>
+        {withSwitch && <div className="text-mini text-app-text-secondary">{tr('board.settings.sec.global')}</div>}
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {withSwitch && (
+          <label className="flex min-h-6 cursor-pointer items-center gap-2 coarse:min-h-11" title={tr('board.settings.dispatchOnTitle')}>
+            <span className="text-mini font-medium text-app-text">{tr('board.dash.autoStart')}</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={dispatchOn === true}
+              data-testid="dispatch-dashboard-switch"
+              onClick={onToggleDispatch}
+              className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${dispatchOn === true ? 'bg-emerald-500' : 'bg-white/20'}`}
+            ><i className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${dispatchOn === true ? 'left-3.5' : 'left-0.5'}`} /></button>
+          </label>
+        )}
+        <button
+          aria-label={tr('board.settings.close')}
+          onClick={onClose}
+          // 24 with the mouse (`tap-expand`), a real 44 box under a finger: a
+          // projected 44 here would reach into the first row of the panel and
+          // take its taps (usability audit, 04/10).
+          className="tap-expand rounded p-0.5 text-app-text-secondary hover:bg-white/10 coarse:flex coarse:h-11 coarse:w-11 coarse:items-center coarse:justify-center"
+        ><X className="h-3.5 w-3.5" /></button>
+      </div>
     </div>
   );
 }
@@ -48,7 +72,9 @@ export function SettingsPanelHead({ onClose }: { onClose: () => void }) {
  * mounted behind `hasProject`, so on the board without a project the only
  * surface left was the ▾, the very surface this change exists to stop relying on.
  */
-export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks }: {
+export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks, onOpenTask }: {
+  /** Opens a card's drawer (the stopped cards the red box names). */
+  onOpenTask?: (id: string) => void;
   dispatchOn: boolean | null;
   onToggleDispatch: () => void;
   /** The board's cards, from which the dashboard derives the queue. Absent = no dashboard. */
@@ -57,37 +83,46 @@ export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks }: {
   const tr = useT();
   return (
     <>
-      {tasks && <DispatchDashboard tasks={tasks} dispatchOn={dispatchOn} />}
-      {/* The whole row is the checkbox's label, and it is the target: 24 tall
-          with the mouse, 44 under a finger (usability audit, 04/10: 16). */}
-      <label
-        className="flex min-h-6 cursor-pointer items-center justify-between gap-3 coarse:min-h-11"
-        title={tr('board.settings.dispatchOnTitle')}
-      >
-        {/* SAME label as the ▾ in the header: it is the same global switch, and
-            two different names for one value make it look like two settings.
-            What it does lives in the `title`, not in the name. */}
-        <span className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.settings.autoDispatch')}</span>
-        <input type="checkbox" checked={!!dispatchOn} onChange={onToggleDispatch} className="h-3.5 w-3.5 shrink-0 accent-emerald-500" />
-      </label>
+      {/* ONE ORDER: summary card (the single switch is in the panel head), the memory
+          chart, the queue, how many cards together, then Advanced (closed). */}
+      {tasks && <DispatchSummary tasks={tasks} dispatchOn={dispatchOn} onTurnOn={onToggleDispatch} onOpenTask={onOpenTask} />}
+      {tasks && <DispatchDetails tasks={tasks} withHolders={false} />}
+      {/* Without the dashboard (no tasks) the switch keeps its own row. */}
+      {!tasks && (
+        <label
+          className="flex min-h-6 cursor-pointer items-center justify-between gap-3 coarse:min-h-11"
+          title={tr('board.settings.dispatchOnTitle')}
+        >
+          <span className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.settings.autoDispatch')}</span>
+          <input type="checkbox" checked={!!dispatchOn} onChange={onToggleDispatch} className="h-3.5 w-3.5 shrink-0 accent-emerald-500" />
+        </label>
+      )}
 
-      {/* THE CAP, IN HERE. It used to live only in the ▾ menu next to the title,
-          and this panel merely named it in a `title` — a tooltip, which does not
-          exist on a phone. Whoever opened the settings saw no limit at all. It
-          is the SAME component the menu mounts, on the same store: what you
-          change here shows up there without a reload, and the other way round. */}
-      <div className="border-y border-app-border-subtle py-2">
-        <GlobalCapControl />
+      {/* THE CAP stays in the panel (a tooltip does not exist on a phone). It is the
+          SAME component the header menu mounts, on the same store. */}
+      <div className={tasks ? 'rounded-md bg-white/5 p-2.5' : 'border-y border-app-border-subtle py-2'}>
+        <GlobalCapControl quiet={!!tasks} />
       </div>
 
-      {/* THE SPEND, and the spend caps, in the same place and for the same
-          reason: they belong to the MACHINE and live on the same reserved row.
-          The dollars are always visible; the two caps are born empty, and empty
-          means unlimited. Whoever looks for "how much am I spending" finds it
-          next to "how many agents at once", the other question about the same tap. */}
-      <div className="border-b border-app-border-subtle pb-2">
-        <SpendCapControl />
-      </div>
+      {/* Spend and caps are born empty (= unlimited) and are not the daily question:
+          closed by default, with who holds the Mac's memory. */}
+      {tasks ? (
+        <details className="group" data-testid="settings-advanced">
+          <summary className="flex min-h-6 cursor-pointer list-none items-center gap-1 text-mini font-medium uppercase tracking-wide text-app-text-secondary coarse:min-h-11">
+            <ChevronRight size={10} className="shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
+            {tr('board.dash.advanced')}
+          </summary>
+          <div className="space-y-2 pt-1.5">
+            <SpendCapControl />
+            <ChecksFloorField />
+            <DispatchHolders />
+          </div>
+        </details>
+      ) : (
+        <div className="border-b border-app-border-subtle pb-2">
+          <SpendCapControl />
+        </div>
+      )}
     </>
   );
 }
@@ -111,7 +146,8 @@ export const SETTINGS_PANEL_SHELL =
  * no per-board rows: the machine-wide block, alone, behind the same ⚙ and in the
  * same place as on a project board. One gesture finds the cap on every board.
  */
-export function GlobalOnlySettingsPanel({ dispatchOn, onToggleDispatch, onClose, tasks }: {
+export function GlobalOnlySettingsPanel({ dispatchOn, onToggleDispatch, onClose, tasks, onOpenTask }: {
+  onOpenTask?: (id: string) => void;
   dispatchOn: boolean | null;
   onToggleDispatch: () => void;
   onClose: () => void;
@@ -119,8 +155,8 @@ export function GlobalOnlySettingsPanel({ dispatchOn, onToggleDispatch, onClose,
 }) {
   return (
     <div className={SETTINGS_PANEL_SHELL}>
-      <SettingsPanelHead onClose={onClose} />
-      <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} tasks={tasks} />
+      <SettingsPanelHead onClose={onClose} dispatchOn={tasks ? dispatchOn : undefined} onToggleDispatch={tasks ? onToggleDispatch : undefined} />
+      <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} tasks={tasks} onOpenTask={onOpenTask} />
     </div>
   );
 }
