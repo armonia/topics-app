@@ -6205,6 +6205,9 @@ attorno alla descrizione, niente chevron (né a riposo né in hover, né colonna
 riservata) e niente nome del comando (`Explore`), che resta nel `title` della riga.
 La riga resta cliccabile e si apre come prima (cursore a mano, sfondo in hover,
 `aria-expanded`). Le righe degli altri tool non cambiano.
+Il corpo di un sotto-agente SHALL stare nella cronologia come testo della chat: niente
+fondo, niente bordo, niente box attorno alla lista delle azioni né al risultato finale
+(testo semplice, a tutta larghezza sotto la riga).
 
 #### Scenario: chevron nascosto senza hover, colonna riservata
 

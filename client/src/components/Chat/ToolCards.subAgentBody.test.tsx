@@ -43,4 +43,17 @@ describe('sub-agent card body', () => {
     expect(render(same, true)).not.toContain('sub-agent-description');
     expect(render(same, false)).not.toContain('sub-agent-description');
   });
+
+  test('the open body has no box: no tint, no border, and the final answer is plain text', () => {
+    const detail = {
+      type: 'sub_agent', subAgentType: 'Explore', description: 'Controlla',
+      actions: [{ index: 0, toolName: 'Read', summary: 'a.ts', status: 'success' }],
+      result: 'ok',
+    } as ToolCallDetail;
+    const html = render(detail, false);
+    expect(html).not.toMatch(/\bbg-/);
+    expect(html).not.toMatch(/\bborder/);
+    expect(html).not.toContain('tool-card-code');
+    expect(html).toContain('data-testid="sub-agent-result"');
+  });
 });

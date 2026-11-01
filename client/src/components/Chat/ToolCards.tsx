@@ -342,7 +342,9 @@ export function SubAgentCard({ actions, result, isRunning, description }: {
           <div className="text-mini uppercase tracking-wide text-app-text-muted mb-0.5">
             {tr(actions.length === 1 ? 'chat.tool.activityOne' : 'chat.tool.activityMany', { n: actions.length })}
           </div>
-          <ul className="space-y-0.5 max-h-72 overflow-auto bg-app-hover/40 rounded px-2 py-1.5 border-l-2 border-purple-500/40">
+          {/* No box and no tint: the sub-agent body flows in the transcript
+              like chat text, under the row. */}
+          <ul className="space-y-0.5 max-h-72 overflow-auto">
             {actions.map((a) => (
               <li key={a.index} className="flex items-start gap-2 text-mini font-mono leading-snug">
                 {/* `w-6`: al decimo passo «10.» non ci stava più in `w-4` e
@@ -362,11 +364,10 @@ export function SubAgentCard({ actions, result, isRunning, description }: {
           </ul>
         </div>
       )}
+      {/* The final answer is plain text, not a grey `<pre>` box: the box is what
+          made it read as a square inside the chat. */}
       {result && (
-        <div>
-          <div className="text-mini uppercase tracking-wide text-app-text-muted mb-0.5">{tr('chat.tool.finalResult')}</div>
-          <ClampedPre text={result} />
-        </div>
+        <div data-testid="sub-agent-result" className="text-compact text-app-text whitespace-pre-wrap break-words">{result}</div>
       )}
     </div>
   );
