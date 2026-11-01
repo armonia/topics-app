@@ -296,13 +296,14 @@
   })();
 
   /* ---- 1c-bis. Load the terminal's first-choice mono webfont ------------- *
-   * The xterm panes ask for 'JetBrains Mono' first, but the app bundles no
-   * webfont, so a browser without it installed falls back to Menlo — whose
+   * The xterm panes ask for 'JetBrains Mono' first (terminalFont.ts). The app
+   * bundles that face as an @font-face in index.css; this demo page also pulls
+   * it from Google Fonts. Without the face, the browser falls back to Menlo, whose
    * block glyphs (the Claude Code logo ▐▛███▜▌) don't fully tile against
-   * xterm's cell metrics, leaving thin "grid" lines through the logo. Pull
-   * JetBrains Mono from Google Fonts so the demo terminal renders the logo
-   * solid, then nudge a resize once it's ready so FitAddon re-measures the
-   * cell to the real font (otherwise xterm keeps the fallback metrics). */
+   * xterm's cell metrics, leaving thin "grid" lines through the logo. Load
+   * the face here so the demo terminal renders the logo solid, then nudge a
+   * resize once it's ready so FitAddon re-measures the cell to the real font
+   * (otherwise xterm keeps the fallback metrics). */
   (function loadTerminalFont() {
     try {
       var pre1 = document.createElement("link"); pre1.rel = "preconnect"; pre1.href = "https://fonts.googleapis.com";

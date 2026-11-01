@@ -15,10 +15,11 @@
 // azione" selezionato su ogni topic mentre lo spawn usa `bypassPermissions`.
 // Non è collegabile finché il server non gestisce il canale di permesso della
 // CLI — vedi openspec/changes/autonomy-level-needs-permission-channel/.
+import { EffortBadge } from './EffortBadge';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
-import { SlidersHorizontal, RotateCcw } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 import { useDismissable } from '@/hooks/useDismissable';
 import { POPOVER_PANEL, POPOVER_MARGIN, Z_POPOVER } from '@/lib/popoverStyles';
 import { useExitGhost } from '@/lib/exitGhost';
@@ -27,8 +28,7 @@ import { useProvidersSnapshot } from '@/hooks/useProvidersSnapshot';
 import {
   EFFORT_TIERS,
   effortIndex,
-  providerEffortTier,
-  resolveEffectiveProvider,
+  resolveShownEffortTier,
   type ProviderSelection,
 } from '@/lib/effortTiers';
 
@@ -74,10 +74,10 @@ export function SessionConfigPopover({
   // l'override per-topic.
   const { snapshot } = useProvidersSnapshot();
   const entries = useMemo(() => snapshot?.providers ?? [], [snapshot]);
-  const defaultTier = useMemo(() => {
-    const effective = resolveEffectiveProvider(entries, providerOverride ?? null, defaultProviderLabel);
-    return providerEffortTier(entries, effective, providerOverride ?? null);
-  }, [entries, providerOverride, defaultProviderLabel]);
+  const defaultTier = useMemo(
+    () => resolveShownEffortTier(entries, null, providerOverride ?? null, defaultProviderLabel),
+    [entries, providerOverride, defaultProviderLabel],
+  );
 
   // Il pollice sta SEMPRE da qualche parte: sull'override se c'è, altrimenti
   // sul default del provider. Se nemmeno quello si conosce (provider senza
@@ -93,7 +93,7 @@ export function SessionConfigPopover({
   // cosa governava. `null` solo quando l'effort in forza non si conosce davvero,
   // ed è l'unico caso in cui si torna all'icona: meglio nessun numero che uno
   // inventato.
-  const shownTier = effort ?? defaultTier ?? null;
+  const shownTier = resolveShownEffortTier(entries, effort, providerOverride ?? null, defaultProviderLabel);
 
   // Opens ABOVE the composer (it sits at the bottom of the pane), so the
   // anchor is the button's top edge. Clamped on both axes.
@@ -168,22 +168,7 @@ export function SessionConfigPopover({
             fisso e il testo centrato non si muove un pixel, in nessuno dei tre
             stati. */}
         <span className="w-[42px] flex items-center justify-center">
-          {shownTier ? (
-            <span
-              data-testid="session-effort-badge"
-              data-effort-source={effort ? 'override' : 'default'}
-              className={`w-full text-center text-mini uppercase tracking-wide px-1 py-0.5 rounded font-semibold tabular-nums ${
-                // L'override è una scelta TUA e si vede; il default del provider
-                // è un fatto, e sta smorzato. Due pesi diversi per due cose
-                // diverse, senza bisogno di leggere il pannello per distinguerle.
-                effort ? 'bg-primary/30 text-primary' : 'bg-app-hover/60 text-app-text-muted'
-              }`}
-            >
-              {shownTier}
-            </span>
-          ) : (
-            <SlidersHorizontal size={16} />
-          )}
+          <EffortBadge tier={shownTier} overridden={!!effort} className="w-full" />
         </span>
       </button>
 

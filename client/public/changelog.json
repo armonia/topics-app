@@ -1,5 +1,31 @@
 [
   {
+    "version": "2.3.45",
+    "date": "2026-10-31",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Square loader: shape changes glide instead of jumping",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Release builds move to macos-15: GitHub retires macos-14 on 2 November",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Square loader: the ink fade reads the motion token",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.44",
     "date": "2026-10-31",
     "sections": {

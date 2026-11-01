@@ -30,7 +30,7 @@ export function CommandAnswerCard({ answer, isMobile, onDismiss }: {
       data-kind={answer.kind}
       role={answer.kind === 'running' ? 'status' : 'region'}
       aria-label={answer.kind === 'running' ? undefined : answer.title}
-      className={`mx-3 mb-1.5 rounded-lg border ${tone} px-3 py-2 flex items-start gap-2`}
+      className={`mx-2 mb-1.5 rounded-lg border ${tone} px-3 py-2 flex items-start gap-2`}
     >
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 text-mini font-medium text-app-text-secondary">
