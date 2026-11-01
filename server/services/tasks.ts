@@ -4003,13 +4003,23 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         ? ((patch.humanAsk ?? "").trim() || null)
         : (row.human_ask ?? null);
       let askFromThread = false;
+      // The question for the person is written by the card's own side only: an
+      // agent that is neither bound to the card, nor opened it, nor owns it as
+      // a step could plant an ask that the owner's next delivery inherits.
+      if (patch.humanAsk !== undefined && actor === "agent" && agentTopicId
+        && row.assigned_topic_id !== agentTopicId && row.created_by_topic_id !== agentTopicId
+        && !isOwnStep(taskId, agentTopicId) && !asCoordinator) {
+        throw new TaskServiceError("task_not_yours", "this card is not yours: you cannot write the question for the person on it. Write a comment instead.");
+      }
       // WHO MAY TAKE A CARD OUT OF AI REVIEW: the one that opened it, or the
       // coordinator in its place (a card from the board API or a schedule has
       // no chat that could). It is the rule of 28/10 (whoever opens a card closes it), and
       // the only exception to `agent_cannot_complete` below.
       const closesAiReview = actor === "agent" && current === "review" && row.stage === STAGE_AI_REVIEW
         && (!!asCoordinator || (!!agentTopicId && row.created_by_topic_id === agentTopicId));
-      if (wantsStage !== undefined || (patch.status !== undefined && patch.status !== current)) {
+      // A subtask has no column (like at creation and in the system delivery):
+      // its status moves, its stage and the AI review notice never do.
+      if (!row.parent_task_id && (wantsStage !== undefined || (patch.status !== undefined && patch.status !== current))) {
         const columns = readBoardWorkflow(db, row.project_id).columns;
         // An agent asking for «no stage» asks for the default column of the
         // status, and goes through the same gates as naming it: `stage: null`
