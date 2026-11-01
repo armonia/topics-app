@@ -41,6 +41,8 @@ import { createBoardRoutes } from "./tasks-board";
 import { applySpendCapPatch, hasSpendCapPatch, spendCapFields, spendSnapshot } from "./task-spend-caps";
 import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
+import { confirmCardOrigin } from "../services/card-origin-notice";
+import { logActivity } from "../db/activity-log";
 
 /**
  * The global cap as the client reads it, in ONE place for the GET, the PATCH
@@ -3639,6 +3641,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             createdBy: "agent:coordinator",
           });
           broadcastToAll({ type: "task:created", projectId, task });
+          confirmCardOrigin({ db, broadcast: broadcastToAll, recordActivity: logActivity }, {
+            taskId: task.id, projectId, title: task.text, createdBy: "agent:coordinator",
+            sessionKey: sk, topicId: globalSession.topicId,
+          });
           titoloInSottofondo(task, projectId);
           return json(task, 201);
         } catch (e) { return fail(e); }
@@ -3810,6 +3816,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             createdBy: "agent:session",
           });
           broadcastToAll({ type: "task:created", projectId: sess.projectId, task });
+          // La richiesta della chat diventa card: la chat lo sa, il coordinatore
+          // lo legge nel log (`services/card-origin-notice.ts`).
+          if (sess.topicId) {
+            confirmCardOrigin({ db, broadcast: broadcastToAll, recordActivity: logActivity }, {
+              taskId: task.id, projectId: sess.projectId, title: task.text, createdBy: "agent:session",
+              sessionKey: sk, topicId: sess.topicId,
+            });
+          }
           // ANCHE QUI, ed e' la meta' che la prima versione aveva scordato.
           // `create_task` (MCP) e' l'altro creatore di card: lo schema chiede
           // «Task title / one-line description» e di solito viene rispettato,
