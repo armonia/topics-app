@@ -49,8 +49,8 @@ import { deriveWorkLongevity, formatElapsedCompact } from '../../state/workLonge
  * so `loaderArcClass` keeps deciding it (primary, amber, the ink of a fill).
  *
  * GEOMETRY: 12x12 inside the 16px slot, so the margin is 2 on both axes, whole
- * pixels (the tab geometry test enforces it). At 12-16px the body is a 7x7 grid
- * on device pixels, at 20px 9x9, above that it is free. `hollow` keeps the
+ * pixels (the tab geometry test enforces it). Up to 20px the body draws fewer,
+ * larger squares; at no size is it tied to a pixel grid. `hollow` keeps the
  * centre of the grid empty (the tab slot draws a count there).
  *
  * COST: one shared clock, paused off screen and in a hidden window, 30 fps at
