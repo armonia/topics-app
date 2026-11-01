@@ -24,6 +24,8 @@
  * @covers KANBAN-76
  */
 import { describe, it, expect } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
@@ -37,6 +39,9 @@ import { CloudSetupError } from "../providers/claude-cloud/api";
 import { NODE_DEAD_POLLS, NODE_SETUP_POLLS } from "./task-dispatcher-remote-node";
 import { overflowNote } from "./dispatch-overflow";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
+import { NodeError } from "./node-client";
+import { bundleBranch, plantCarriedBranch } from "./branch-on-origin";
+import { resolveBranchBaseRef } from "./worktree-for-agent";
 import { delegatedPolicyForTask, putAgentStartCapability, queueDelegatedRun } from "../lib/delegated-agent-start";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -126,6 +131,11 @@ function harness(opts: {
   /** The floor's verdict while it holds (default `BLOCKED`, a memory floor). */
   verdict?: ResourceFloorVerdict;
   /** What pushing a card's own branch answers (default: it reaches origin). */
+  /**
+   * A node that cannot reach origin (the PC does not talk to GitHub): `repos.mac` holds the
+   * card's branch, `repos.node` is the node's checkout. The node starts from what it holds.
+   */
+  noOrigin?: { mac: string; node: string; startedFrom: string[] };
   ensure?: (branch: string) => { ok: true } | { ok: false; reason: string };
 } = {}) {
   const db = freshDb();
@@ -160,6 +170,14 @@ function harness(opts: {
       createRun: async ({ baseUrl, body }) => {
         const startError = opts.createRunError?.();
         if (startError) throw startError;
+        if (opts.noOrigin && body.baseBranch) {
+          if (!body.branchBundle) throw new NodeError("branch_unreachable", "create run answered 409", 409);
+          const planted = await plantCarriedBranch(opts.noOrigin.node, body.baseBranch, new Uint8Array(Buffer.from(body.branchBundle, "base64")));
+          if (!planted.ok) throw new Error(planted.reason);
+          const base = await resolveBranchBaseRef(opts.noOrigin.node, body.baseBranch);
+          const tip = Bun.spawnSync(["git", "-C", opts.noOrigin.node, "rev-parse", base.baseRef]).stdout.toString().trim();
+          opts.noOrigin.startedFrom.push(tip);
+        }
         created.push({ baseUrl, originTaskId: body.originTaskId });
         bodies.push({ originTaskId: body.originTaskId, baseBranch: body.baseBranch });
         nextRun += 1;
@@ -181,6 +199,7 @@ function harness(opts: {
       localMachineId: () => LOCAL,
       originUrlOf: async () => "git@github.com:acme/alpha.git",
       plantBranch: async () => ({ planted: true, commit: "c0ffeec0ffee", reason: null }),
+      bundleBranch: async ({ branch }) => (opts.noOrigin ? bundleBranch(opts.noOrigin.mac, branch) : null),
       ensureBranchOnOrigin: async ({ branch }) => { pushed.push(branch); return opts.ensure?.(branch) ?? { ok: true }; },
     },
     overflowMachines: machines,
@@ -448,6 +467,47 @@ describe("overflow: una card rimandata in coda dopo la review porta il suo ramo"
     expect(h.task(CARD).priorBranch).toBeUndefined();
     await h.tick();
     expect(h.bodies).toEqual([{ originTaskId: CARD, baseBranch: undefined }]);
+  });
+});
+
+describe("a node that cannot reach origin: the carried branch rides with the run", () => {
+  const git = (cwd: string, ...args: string[]) => {
+    const r = Bun.spawnSync(["git", "-C", cwd, ...args], { env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" } });
+    if (r.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
+    return r.stdout.toString().trim();
+  };
+  const repos = () => {
+    const root = mkdtempSync(join(tmpdir(), "no-origin-"));
+    const mac = join(root, "mac");
+    const node = join(root, "node");
+    git(root, "init", "-q", "-b", "main", mac);
+    writeFileSync(join(mac, "a.txt"), "base\n");
+    git(mac, "add", ".");
+    git(mac, "commit", "-q", "-m", "base");
+    git(root, "clone", "-q", mac, node);
+    git(mac, "switch", "-q", "-c", "topics/endless-calf");
+    for (const f of ["b", "c", "d"]) {
+      writeFileSync(join(mac, `${f}.txt`), `${f}\n`);
+      git(mac, "add", ".");
+      git(mac, "commit", "-q", "-m", f);
+    }
+    return { root, mac, node, tip: git(mac, "rev-parse", "HEAD") };
+  };
+
+  it("origin unreachable from the node: the run starts from the branch commit, shipped as a bundle", async () => {
+    const r = repos();
+    try {
+      const startedFrom: string[] = [];
+      const h = harness({ floor: false, noOrigin: { mac: r.mac, node: r.node, startedFrom } });
+      h.sendBack(CARD, "topics/endless-calf", { machineId: PC });
+      await h.tick();
+      // The launch is not awaited by the tick and real git takes a moment.
+      for (let i = 0; i < 100 && startedFrom.length === 0; i++) await new Promise((res) => setTimeout(res, 50));
+      expect(startedFrom).toEqual([r.tip]);
+      expect(h.bodies).toHaveLength(1);
+    } finally {
+      rmSync(r.root, { recursive: true, force: true });
+    }
   });
 });
 

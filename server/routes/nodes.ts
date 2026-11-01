@@ -18,7 +18,7 @@
  */
 import type { AppContext, RouteHandler } from "../types";
 import type { ProvidersSnapshot } from "../../shared/types";
-import { isPlainBranchName } from "../services/branch-on-origin";
+import { carriedRef, isPlainBranchName, plantCarriedBranch } from "../services/branch-on-origin";
 import { createTaskService, TaskServiceError, type Task } from "../services/tasks";
 import { STALE_TASK_MODEL_ERROR, isStaleMirroredModel } from "../services/task-model-catalog";
 import { deliveryFacts } from "../services/delivery-facts";
@@ -626,6 +626,22 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       // ref name and nothing else, since it ends up as `origin/<name>` in git.
       const baseBranch = nodeRunBaseBranch(body.baseBranch);
       if (baseBranch === undefined) return errorResponse(400, "baseBranch must be a branch name");
+
+      // A node that cannot reach origin (no GitHub access, by choice) cannot start from
+      // the branch by itself: the origin board sends it as a bundle, or is told to.
+      if (baseBranch) {
+        if (typeof body.branchBundle === "string" && body.branchBundle) {
+          const planted = await plantCarriedBranch(project.path, baseBranch, new Uint8Array(Buffer.from(body.branchBundle, "base64")), runGit);
+          if (!planted.ok) return errorResponse(400, `branchBundle: ${planted.reason}`);
+        } else {
+          const fetched = await runGit(project.path, ["fetch", "--no-tags", "origin", baseBranch]);
+          if (fetched.code !== 0) {
+            return json({ error: "branch_unreachable", code: "branch_unreachable", baseBranch }, 409);
+          }
+          // Origin answered: a copy planted by an earlier bundle must not shadow it.
+          await runGit(project.path, ["update-ref", "-d", carriedRef(baseBranch)]);
+        }
+      }
 
       // On the BOARD, not the store UUID: see the delegated route above.
       const boardId = projectIdForPath(project.path);
