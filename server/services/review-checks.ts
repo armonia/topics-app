@@ -164,6 +164,7 @@ export const STATIC_RAILS_CHECK: ReviewCheck = {
     "bun run check:ui-language",
     "bun run check:bloat",
     "bun run check:security --only=data,home,secrets",
+    "bun run check:eol",
     // The two slowest of the eight, last: by here everything cheap is green.
     "bun run check:nul",
     "bun run check:typography",

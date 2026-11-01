@@ -130,7 +130,7 @@ esegui() {
 
 # I cancelli statici, in ordine di costo crescente. `check:deadcode-blindspots`
 # non e' qui: scrive nei sorgenti e gira da solo, sotto.
-STATICI=(check:any check:any-budget check:ref-callbacks check:nul check:eslint-disable
+STATICI=(check:any check:any-budget check:ref-callbacks check:nul check:eol check:eslint-disable
          check:test-skips check:emdash check:bloat check:route-shadowing check:typography check:ui-language check:comment-language
          check:identifier-language check:sleeps check:tmp-canonical
          check:api-door
