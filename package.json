@@ -48,6 +48,7 @@
     "check:any-budget": "bun run scripts/check-any-budget.ts",
     "check:ref-callbacks": "bun run scripts/check-ref-callbacks.ts",
     "check:nul": "bun run scripts/check-nul-bytes.ts",
+    "check:eol": "bun run scripts/check-eol.ts",
     "check:api-door": "bun run scripts/check-api-door.ts",
     "check:quality-bar": "bun run scripts/quality-bar.ts",
     "check:emdash": "bun run scripts/check-emdash.ts",
