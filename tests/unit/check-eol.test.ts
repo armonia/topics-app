@@ -8,11 +8,12 @@ import { execFileSync } from "child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { gitEnv } from "../setup/bun-test-preload";
 import { findCrlfRewrites } from "../../scripts/check-eol";
 
 const REPO_ROOT = join(import.meta.dir, "../..");
 const git = (cwd: string, ...args: string[]) =>
-  execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "core.autocrlf=false", ...args], { cwd, stdio: "pipe" }).toString();
+  execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "core.autocrlf=false", ...args], { cwd, stdio: "pipe", env: gitEnv() }).toString();
 
 // Real commits in a temp repo: slow under load, so each test gets an explicit budget.
 const TEST_TIMEOUT_MS = 120_000;

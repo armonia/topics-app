@@ -23,6 +23,7 @@
  *
  * @covers KANBAN-76
  */
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 import { describe, it, expect } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -182,7 +183,7 @@ function harness(opts: {
           const planted = await plantCarriedBranch(opts.noOrigin.node, body.baseBranch, new Uint8Array(Buffer.from(body.branchBundle, "base64")));
           if (!planted.ok) throw new Error(planted.reason);
           const base = await resolveBranchBaseRef(opts.noOrigin.node, body.baseBranch);
-          const tip = Bun.spawnSync(["git", "-C", opts.noOrigin.node, "rev-parse", base.baseRef]).stdout.toString().trim();
+          const tip = Bun.spawnSync(["git", "-C", opts.noOrigin.node, "rev-parse", base.baseRef], { env: gitEnv() }).stdout.toString().trim();
           opts.noOrigin.startedFrom.push(tip);
         }
         created.push({ baseUrl, originTaskId: body.originTaskId });
