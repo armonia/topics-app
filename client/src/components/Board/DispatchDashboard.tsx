@@ -286,7 +286,7 @@ export function DispatchSummaryView({ capacity, snapshot, queue, broken = 0, bro
       className={`space-y-1 rounded-md px-2.5 py-2 ${TONE_BOX[answer.tone]}`}
     >
       <div className="flex items-baseline justify-between gap-2" data-testid="dispatch-dashboard-ok" data-tone={answer.tone}>
-        <div className="min-w-0 text-base font-semibold text-app-text" data-testid="dispatch-dashboard-hero">
+        <div className="min-w-0 text-title font-semibold text-app-text" data-testid="dispatch-dashboard-hero">
           {tr('board.dash.hero', { running, queued: queue.length })}
         </div>
         {isLive && (
