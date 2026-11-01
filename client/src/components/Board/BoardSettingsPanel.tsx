@@ -14,7 +14,7 @@
  * questo file tiene la struttura e le sezioni, non i singoli interruttori.
  */
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Laptop, PauseCircle, Server, Sparkles } from 'lucide-react';
+import { ChevronDown, ChevronRight, Laptop, PauseCircle, Sparkles } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { Select } from '../Shared/Select';
 import { MAX_CHECKS, WORKFLOW_PRESET_IDS, boardApi, type BoardSettings, type BoardSettingsPatch, type BoardTask, type BoardWorkflowView, type ReviewCheck, type WorkflowPresetId } from '../../lib/board';
@@ -71,7 +71,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           Le righe stanno in `BoardSettingsSections.tsx` perché il pannello della
           board generale monta le STESSE: un blocco, due pannelli. */}
       <div className="space-y-2" data-testid="settings-global">
-        <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} tasks={tasks} onOpenTask={onOpenTask} />
+        <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} tasks={tasks} onOpenTask={onOpenTask} overflow={{ checked: s.dispatchOverflow !== false, onChange: (v) => { void patch({ dispatchOverflow: v }); } }} />
         {dispatchOn && (
           <p className="text-mini text-amber-300/80">{tr('board.settings.dispatchOnActive')}</p>
         )}
@@ -110,24 +110,6 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
       {s.dispatchPaused && (
         <p className="text-mini text-amber-300/80">{tr('board.settings.pausedActive')}</p>
       )}
-      {/* THE OVERFLOW: a card held by this Mac's memory floor for two minutes
-          moves to Cloud Claude or the PC. ON unless switched off here; an
-          older server that does not send the field reads as ON. */}
-      <label
-        className="flex min-h-6 cursor-pointer items-center justify-between gap-3 coarse:min-h-11"
-        title={tr('board.settings.overflowTitle')}
-      >
-        <span className="flex items-center gap-1.5">
-          <Server className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.settings.overflow')}
-        </span>
-        <input
-          type="checkbox"
-          data-testid="board-dispatch-overflow"
-          checked={s.dispatchOverflow !== false}
-          onChange={(e) => patch({ dispatchOverflow: e.target.checked })}
-          className="h-3.5 w-3.5 shrink-0 accent-emerald-500"
-        />
-      </label>
       <label
         className="flex min-h-6 cursor-pointer items-center justify-between gap-3 coarse:min-h-11"
         title={tr('board.settings.stayLocalTitle')}
