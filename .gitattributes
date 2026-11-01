@@ -11,3 +11,9 @@ server/db/migrations-embedded.ts merge=union
 # The vendored English word list is data, not source: keep it out of diffs and
 # out of language stats. Regenerating it means copying a system word list.
 scripts/english-words.txt linguist-generated=true -diff
+# Line endings are LF everywhere, whatever the machine that committed them.
+# A checkout from a Windows PC with core.autocrlf=true used to turn a whole
+# file into CRLF (9848 changed lines for 2 real ones, card a16396bd). With
+# eol=lf git normalizes on add, and scripts/check-eol.ts refuses a delivery
+# that still carries a file going from LF to CRLF.
+* text=auto eol=lf

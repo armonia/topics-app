@@ -341,6 +341,7 @@ jobs:
           # spec — dipende dal carico — ma la sua CAUSA si legge nel JSX.
           bun run check:ref-callbacks
           bun run check:nul
+          bun run check:eol
           # Every `/api` request of the client goes through `apiFetch`
           # (client/src/lib/shell/net.ts), which owns the server origin and the
           # identity refusal. This rejects a literal `fetch('/api...')` outside
