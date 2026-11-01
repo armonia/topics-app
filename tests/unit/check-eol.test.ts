@@ -10,7 +10,6 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { gitEnv } from "../setup/bun-test-preload";
 import { findCrlfRewrites } from "../../scripts/check-eol";
-import { gitEnv } from "../setup/bun-test-preload";
 
 const REPO_ROOT = join(import.meta.dir, "../..");
 const git = (cwd: string, ...args: string[]) =>

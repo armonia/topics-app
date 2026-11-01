@@ -49,7 +49,6 @@ import { resolveBranchBaseRef } from "./worktree-for-agent";
 import { delegatedPolicyForTask, putAgentStartCapability, queueDelegatedRun } from "../lib/delegated-agent-start";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 const PID = "alpha-abc123";
 const LOCAL = "questo-mac";
