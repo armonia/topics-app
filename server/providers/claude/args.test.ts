@@ -583,3 +583,25 @@ describe("buildCodexArgs — la fotografia", () => {
     expect(buildCodexOneshotArgs({})).toEqual(["exec", "--json"]);
   });
 });
+
+describe("buildClaudeArgs: attribution off for card agents", () => {
+  test("`--settings` carries an empty commit and PR attribution", () => {
+    const args = buildClaudeArgs({ ...BASE, noAttribution: true });
+    const i = args.indexOf("--settings");
+    expect(i).toBeGreaterThan(-1);
+    expect(JSON.parse(args[i + 1]).attribution).toEqual({ commit: "", pr: "" });
+  });
+
+  test("it rides the single `--settings` next to the other levers", () => {
+    const args = buildClaudeArgs({ ...BASE, noAttribution: true, toolSearch: "1" });
+    expect(args.filter((a) => a === "--settings")).toHaveLength(1);
+    const settings = JSON.parse(args[args.indexOf("--settings") + 1]);
+    expect(settings.env).toEqual({ ENABLE_TOOL_SEARCH: "1" });
+    expect(settings.attribution).toEqual({ commit: "", pr: "" });
+  });
+
+  test("a chat (no flag) leaves the attribution to the user's settings", () => {
+    const args = buildClaudeArgs({ ...BASE });
+    expect(args).not.toContain("--settings");
+  });
+});

@@ -91,6 +91,13 @@ export interface ClaudeSpawnArgsOptions {
    */
   guardLiveCheckout?: boolean;
   /**
+   * Start the session with Claude's commit/PR attribution EMPTY (`attribution`
+   * in `--settings`), so no `Co-Authored-By` line is ever added to a commit.
+   * Dispatched sessions only; the land refuses a branch that has one anyway
+   * (LAND-13).
+   */
+  noAttribution?: boolean;
+  /**
    * The path of Topics' hook script (`lib/topics-hook-script.ts`). Set, the
    * session gets the hooks that drive its phase, its live tool label and the
    * swap freezer's foreground list (`lib/topics-hooks.ts`), inside the ONE
@@ -418,7 +425,7 @@ export function buildClaudeArgs(opts: ClaudeSpawnArgsOptions): string[] {
     // farebbe sparire in silenzio il primo dei due (il deferral degli schemi
     // vale −71,5% di prefisso: perderlo per l'elenco delle skill sarebbe uno
     // scambio in perdita). Chi aggiunge una leva la aggiunge QUI DENTRO.
-    ...(opts.toolSearch || opts.slimSkillListing || opts.mcpOutputTokens || opts.blockImageReads || opts.guardLiveCheckout || opts.hooksScriptPath
+    ...(opts.toolSearch || opts.slimSkillListing || opts.mcpOutputTokens || opts.blockImageReads || opts.guardLiveCheckout || opts.hooksScriptPath || opts.noAttribution
       ? ["--settings", JSON.stringify({
           // The two `hooks` blocks MERGED event by event: the guard and ours
           // both sit on `PreToolUse`, and a spread would keep only one.
@@ -451,6 +458,7 @@ export function buildClaudeArgs(opts: ClaudeSpawnArgsOptions): string[] {
           // 1 e non 0: lo zero non è un valore che la CLI accetta come «nessuna
           // descrizione» (misurato — l'elenco resta intero), 1 tronca a `…`.
           ...(opts.slimSkillListing ? { skillListingMaxDescChars: 1 } : {}),
+          ...(opts.noAttribution ? { attribution: { commit: "", pr: "" } } : {}),
         })]
       : []),
     "--append-system-prompt", opts.appendSystemPrompt,

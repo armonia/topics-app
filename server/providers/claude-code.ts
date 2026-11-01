@@ -2659,6 +2659,8 @@ export class ClaudeCodeProvider implements AIProvider {
       blockImageReads: overrides.dispatched,
       // A card agent never moves HEAD of a live checkout (lib/live-checkout-branch-guard.ts).
       guardLiveCheckout: overrides.dispatched,
+      // Card agents never sign their commits (LAND-13).
+      noAttribution: overrides.dispatched,
       // Topics' hooks travel with the spawn, no longer from the user's global
       // file: phase, tool label and foreground command list for EVERY session
       // launched from here, and for no other.
