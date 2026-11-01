@@ -4,6 +4,8 @@ const ITEM_ROWS = '[data-testid="virtuoso-item-list"] > [data-index]';
 /** Frames the list waits for Virtuoso's measure before handing it the scroll anyway. */
 const MEASURE_WAIT_FRAMES = 10;
 const USER_INPUT = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const;
+/** The most Virtuoso's whole-pixel sizes leave a pinned bottom short by, in its first measure. */
+const ROUNDING_SHORTFALL_PX = 2;
 
 /**
  * How much taller the rendered rows are than the sizes Virtuoso keeps for them
@@ -72,7 +74,8 @@ export function useHiddenTurnReturn(deps: ReturnPinDeps): void {
       const el = scrollerElRef.current;
       if (!el || el.clientHeight === 0) return;
       const last = itemsRef.current.length - 1;
-      if (last < 0 || !el.querySelector(`[data-testid="virtuoso-item-list"] > [data-index="${last}"]`)) return;
+      const lastRow = last < 0 ? null : el.querySelector(`[data-testid="virtuoso-item-list"] > [data-index="${last}"]`);
+      if (!lastRow) return;
       const force = !userTouchedRef.current;
       if (unmeasuredGrowth(el) > 1) {
         const from = el.scrollTop;
@@ -83,14 +86,41 @@ export function useHiddenTurnReturn(deps: ReturnPinDeps): void {
         return;
       }
       for (let pass = 0; pass < 3; pass++) {
-        if (el.scrollHeight - el.scrollTop - el.clientHeight <= 0.5) return;
+        if (el.scrollHeight - el.scrollTop - el.clientHeight <= 0.5) break;
         pinToBottom({ now: true, force, settleFrames: 0 });
         el.dispatchEvent(new Event('scroll'));
       }
+      if (el.scrollHeight - el.scrollTop - el.clientHeight <= 0.5) holdBottomThroughFirstMeasure(el, lastRow);
     });
     // Hidden again or unmounted: no scroll to send to a list without a box.
     return () => drop?.();
   }, [paneAlive, pinToBottom, scrollerElRef, itemsRef, restoreAnchorRef, userTouchedRef]);
+}
+
+/**
+ * THE PIXEL VIRTUOSO TAKES BACK. Its first measure after the return runs in
+ * its own ResizeObserver, in the first frame, and re-aims the offset at the
+ * bottom of the sizes it keeps: whole pixels, while the rows on screen are
+ * fractional (80.25, 127.17, 143.63 px with JetBrains Mono in the tool rows,
+ * Linux runner). The fractions add up past a pixel: the first frame painted one
+ * pixel short of the bottom the pin had reached (`scrollTo` 286455 of 286456),
+ * and the list's pin closed it on the second (TABSWITCH-01, card d10bf79f).
+ *
+ * Observers run in the order they were created. One the list created at mount
+ * ran before Virtuoso's and saw nothing to finish (measured); created here, at
+ * the return, its first notification (the last row, observed for the first
+ * time) lands after that measure and before the paint, and finishes a
+ * shortfall of up to
+ * {@link ROUNDING_SHORTFALL_PX}. One notification, then it is gone.
+ */
+function holdBottomThroughFirstMeasure(el: HTMLElement, lastRow: Element): void {
+  const observer = new ResizeObserver(() => {
+    observer.disconnect();
+    if (el.clientHeight === 0) return;
+    const short = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (short > 0.5 && short <= ROUNDING_SHORTFALL_PX) el.scrollTop = el.scrollHeight;
+  });
+  observer.observe(lastRow);
 }
 
 /**

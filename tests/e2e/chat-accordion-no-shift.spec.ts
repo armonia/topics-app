@@ -685,9 +685,14 @@ test.describe("a fold opened by hand: at the true end of the chat", () => {
     await waitAtBottom(page, header, fold);
     await act(page, "tool-group", { header, fold, docked: false }, "open", () => page.locator(header).click(), 900);
     // Down to the end, then up until the header is near the top of the view:
-    // closing it there leaves most of the view below the last row.
+    // closing it there leaves most of the view below the last row. Near, not
+    // under the pane's tab bar: the scroller runs under that 40 px glass strip,
+    // and a header parked at 16-40 px is covered there. Playwright's click then
+    // scrolls it into view first, and that scroll (750 px on Linux once the
+    // transcript took JetBrains Mono, card d10bf79f) was measured as the fold's
+    // own jump. From 7% (56 px of the 800 px view) the header is in the clear.
     await wheelDown(page, 12);
-    await wheelToMiddle(page, header, { lo: 0.02, hi: 0.2, down: 40, up: 40 });
+    await wheelToMiddle(page, header, { lo: 0.07, hi: 0.2, down: 40, up: 40 });
     const close = await act(page, "tool-group", { header, fold, docked: false }, "close", () => page.locator(header).click(), 1200);
     expect(faults(close, false), "closing holds the header").toEqual([]);
     const geometry = () => page.evaluate(() => {
