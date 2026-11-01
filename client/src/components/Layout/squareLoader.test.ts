@@ -58,7 +58,8 @@ describe("square loader clock", () => {
   test("a hidden window draws nothing and stops asking for frames", () => {
     const { clients, clock, frame, counter, setHidden, isScheduled } = setup(50);
     clients.forEach((c) => clock.add(c));
-    frame(1000);
+    // A new body grows out of nothing, so the first frames may draw no square yet.
+    for (let i = 0; i < 20; i++) frame(1000 + i * 34);
     expect(counter.fills).toBeGreaterThan(0);
     setHidden(true);
     const before = counter.clears;
@@ -96,54 +97,45 @@ describe("square loader clock", () => {
 
 describe("a change of shape", () => {
   const ALL: LoaderActivity[] = ["rest", "think", "search", "write", "tool", "sync", "wait", "done", "error"];
+  /** The faintest square a small body draws for any shape: 0.1 of light, drawn at its root. */
+  const FLOOR = 0.3;
 
-  /** The largest change of light of a single cell in one frame, during the second after a change. */
-  function worstJump(size: number, from: LoaderActivity, to: LoaderActivity): number {
-    const cells = new Map<string, number>();
-    let cell = "";
+  function faintestDuringChange(size: number, from: LoaderActivity, to: LoaderActivity): number {
+    let lowest = 1;
     const ctx: LoaderContext = {
-      clearRect: () => { cells.clear(); },
+      clearRect: () => {},
       beginPath: () => {},
-      roundRect: (x: number, y: number) => { cell = `${x},${y}`; },
-      fill: () => { cells.set(cell, ctx.globalAlpha); },
+      roundRect: () => { lowest = Math.min(lowest, ctx.globalAlpha); },
+      fill: () => {},
       fillStyle: "",
       globalAlpha: 1,
     };
     const body = new LoaderBody(size, ctx, { scale: 2 });
     let t = 5;
-    for (let i = 0; i < 90; i++) { body.step(from, t, 1 / 30); t += 1 / 30; }
-    body.draw("black");
-    let before = new Map(cells);
-    let worst = 0;
-    for (let i = 0; i < 24; i++) {
-      body.step(to, t, 1 / 30);
-      t += 1 / 30;
-      body.draw("black");
-      for (const k of new Set([...cells.keys(), ...before.keys()])) worst = Math.max(worst, Math.abs((cells.get(k) ?? 0) - (before.get(k) ?? 0)));
-      before = new Map(cells);
-    }
-    return worst;
+    for (let i = 0; i < 120; i++) { body.step(from, t, 1 / 30); t += 1 / 30; }
+    for (let i = 0; i < 30; i++) { body.step(to, t, 1 / 30); t += 1 / 30; body.draw("black"); }
+    return lowest;
   }
 
-  // Before the glide every pair reached 1: a cell went from off to full in one frame.
-  test("no cell goes from off to full in one frame", () => {
+  // Before, the squares left over faded out on the way, all the way down to nothing.
+  test("no square fades away: leftovers shrink instead", () => {
     for (const size of [12, 20]) {
       for (const from of ALL) for (const to of ALL) {
-        if (from !== to) expect(worstJump(size, from, to), `${size}px ${from} to ${to}`).toBeLessThan(0.8);
+        if (from !== to) expect(faintestDuringChange(size, from, to), `${size}px ${from} to ${to}`).toBeGreaterThanOrEqual(FLOOR);
       }
     }
   });
 });
 
 describe("hollow body", () => {
-  test("keeps the centre of the 9x9 grid free", () => {
+  test("keeps the centre free for the number", () => {
     const rects: Array<[number, number]> = [];
-    const ctx = { ...fakeContext({ fills: 0, clears: 0 }), roundRect: (x: number, y: number) => { rects.push([x, y]); } };
+    const ctx = { ...fakeContext({ fills: 0, clears: 0 }), roundRect: (x: number, y: number, w: number) => { rects.push([x + w / 2, y + w / 2]); } };
     const body = new LoaderBody(20, ctx, { scale: 2, hollow: true });
     body.snap("think", 2);
     body.draw("black");
     expect(rects.length).toBeGreaterThan(0);
-    // 20px at 2x is 40px, cells of 4px: edge cells sit at 0.5 and 32.5, inner ones between.
-    for (const [x, y] of rects) expect(x < 3 || x > 30 || y < 3 || y > 30).toBe(true);
+    // 20px at 2x is 40px: every square keeps out of the middle half of the slot.
+    for (const [x, y] of rects) expect(Math.max(Math.abs(x - 20), Math.abs(y - 20))).toBeGreaterThan(10);
   });
 });
