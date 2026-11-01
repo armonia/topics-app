@@ -1,6 +1,6 @@
 /**
- * THE SQUARE LOADER ENGINE: 48 rounded squares that slide from one shape to the
- * next. A faithful port of the approved reference bench: same
+ * THE SQUARE LOADER ENGINE: up to 48 rounded squares that slide from one shape to the
+ * next; the smallest bodies use only a few. A faithful port of the approved reference bench: same
  * shapes, same movements, same easing. Nothing here knows about React; the
  * component lives in `StreamingIndicator`.
  *
@@ -38,12 +38,7 @@ const RATE_SETTLED = 10;
 type Particle = [number, number, number, number];
 type Shape = (t: number, n: number, pixel: boolean, age: number) => Particle[];
 
-const OK_CELLS: Record<number, string[]> = {
-  7: ['.......', '......#', '.....#.', '#...#..', '.#.#...', '..#....', '.......'],
-  9: ['.........', '.........', '........#', '.......#.', '#.....#..', '.#...#...', '..#.#....', '...#.....', '.........'],
-};
 const KO_CELLS: Record<number, string[]> = {
-  7: ['...#...', '...#...', '...#...', '...#...', '.......', '...#...', '.......'],
   9: ['....#....', '....#....', '....#....', '....#....', '....#....', '.........', '....#....', '.........', '.........'],
 };
 
@@ -158,8 +153,7 @@ const SHAPES: Record<LoaderActivity, { hold: number; fn: Shape }> = {
   },
   done: {
     hold: 2.4,
-    fn(_t, n, pixel, age) {
-      if (pixel) return cells(OK_CELLS[n]);
+    fn(_t, _n, _pixel, age) {
       // Geometric tick: two strokes at 45 degrees, equal-step squares, drawn from the bottom left.
       const P = [[-0.66, 0.04], [-0.2, 0.5], [0.68, -0.38]];
       const step = 0.217;
@@ -187,6 +181,61 @@ const SHAPES: Record<LoaderActivity, { hold: number; fn: Shape }> = {
   },
 };
 
+/** Three squares across, on every whole cell of the small body. */
+const THREE = [-1, 0, 1];
+
+function threeByThree(sizeAt: (x: number, y: number, i: number) => number): Particle[] {
+  return THREE.flatMap((y, r) => THREE.map((x, c) => [x, y, 1, sizeAt(x, y, r * 3 + c)] as Particle));
+}
+
+/** A line of touching squares: at small sizes they merge into one clean stroke. */
+function stroke(points: number[][], count: number, size: number): Particle[] {
+  return Array.from({ length: count }, (_, i) => {
+    const u = (i / (count - 1)) * (points.length - 1);
+    const k = Math.min(points.length - 2, Math.floor(u));
+    const q = u - k;
+    return [points[k][0] + (points[k + 1][0] - points[k][0]) * q, points[k][1] + (points[k + 1][1] - points[k][1]) * q, 1, size] as Particle;
+  });
+}
+
+/**
+ * THE SHAPES UP TO 16PX. At that size a dozen squares cannot exist: there is no room, they blur into
+ * a smudge. So few large squares, always at full ink: what moves is their place and their size.
+ * A 20px body keeps the fine shapes and borrows only the two signs, drawn as a thicker, denser stroke.
+ */
+const SMALL_SHAPES: Record<LoaderActivity, Shape> = {
+  rest: (t) => threeByThree((_x, _y, i) => 0.6 + 0.4 * Math.sin(t * (0.9 + i * 0.13) + i * 2.1) ** 2),
+  think: (t) => Array.from({ length: 4 }, (_, i) => {
+    const a = t * 1.5 + (i * TAU) / 4;
+    return [Math.cos(a) * 0.86, Math.sin(a) * 0.86, 1, 0.62 + 0.38 * (0.5 + 0.5 * Math.sin(a))] as Particle;
+  }),
+  search: (t) => {
+    const beam = Math.sin(t * 2.2) * 1.15;
+    return threeByThree((x) => 0.4 + 0.6 * Math.max(0, 1 - Math.abs(x - beam) * 1.3));
+  },
+  write: (t) => {
+    const progress = (t * 3.2) % 11;
+    return threeByThree((_x, _y, i) => (i < progress ? 1 : 0.4)).slice(0, 8);
+  },
+  tool: (t) => Array.from({ length: 3 }, (_, i) => {
+    const a = t * 3.6 - i * 1.05;
+    return [Math.cos(a) * 0.92, Math.sin(a) * 0.92, 1, 1 - i * 0.28] as Particle;
+  }),
+  sync: (t) => [0, 1].map((i) => {
+    const a = t * 2.6 + i * Math.PI;
+    return [Math.cos(a) * 0.9, Math.sin(a) * 0.9, 1, 1] as Particle;
+  }),
+  wait: (t) => {
+    const b = 0.5 + 0.5 * Math.sin(t * 2.2);
+    return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, y]) => [x * (0.62 + 0.3 * b), y * (0.62 + 0.3 * b), 1, 0.8 + 0.2 * b] as Particle);
+  },
+  done: (_t, n) => stroke([[-1, 0.02], [-0.32, 0.72], [1, -0.72]], n === 7 ? 16 : 9, n === 7 ? 1.1 : 0.62),
+  error: (t, n) => {
+    const shake = Math.sin(t * 22) * 0.05 * Math.max(0, 1 - (t % 3) * 2.5);
+    return [...stroke([[0, -1], [0, 0.32]], n === 7 ? 8 : 4, n === 7 ? 1.1 : 0.62), [0, 1, 1, n === 7 ? 1.2 : 0.66]].map((p) => [p[0] + shake, p[1], p[2], p[3]] as Particle);
+  },
+};
+
 /** The minimal canvas surface the body draws on, so a test can count calls. */
 export interface LoaderContext {
   clearRect(x: number, y: number, w: number, h: number): void;
@@ -209,6 +258,8 @@ export class LoaderBody {
   lastStep = -1;
   readonly pixel: boolean;
   readonly grid: 7 | 9;
+  /** Up to 16px: few large squares on whole device pixels. */
+  readonly tiny: boolean;
   /** Pixel density the canvas was sized for. */
   readonly scale: number;
 
@@ -219,8 +270,9 @@ export class LoaderBody {
   ) {
     this.scale = opts.scale ?? 1;
     this.pixel = size <= 20;
-    this.grid = size <= 16 ? 7 : 9;
-    this.hollow = !!opts.hollow && this.pixel && this.grid === 9;
+    this.grid = this.pixel ? 7 : 9;
+    this.tiny = size <= 16;
+    this.hollow = !!opts.hollow && this.pixel && !this.tiny;
     // A new body grows out of its centre: full ink, no size.
     for (let j = 0; j < PARTICLES; j++) this.pos[j * STRIDE + 2] = 1;
   }
@@ -234,13 +286,15 @@ export class LoaderBody {
   }
 
   private target(activity: LoaderActivity, t: number, cache?: Map<string, Particle[]>): Particle[] {
-    const shape = SHAPES[activity];
+    const sign = activity === 'done' || activity === 'error';
+    const shape = this.tiny || (this.pixel && sign) ? SMALL_SHAPES[activity] : SHAPES[activity].fn;
     let raw: Particle[];
     if (activity === 'done' && !this.pixel) {
-      raw = shape.fn(t, this.grid, this.pixel, Math.max(0, t - this.since));
+      raw = shape(t, this.grid, this.pixel, Math.max(0, t - this.since));
     } else {
-      const key = `${activity}|${this.grid}|${this.pixel}`;
-      raw = cache?.get(key) ?? shape.fn(t, this.grid, this.pixel, 0);
+      // The tiny flag is part of the key: 16px and 20px bodies share a grid but not their shapes.
+      const key = `${activity}|${this.grid}|${this.pixel}|${this.tiny}`;
+      raw = cache?.get(key) ?? shape(t, this.tiny ? 3 : this.grid, this.pixel, 0);
       cache?.set(key, raw);
     }
     raw = raw.length > PARTICLES ? raw.slice(0, PARTICLES) : raw;
@@ -248,7 +302,7 @@ export class LoaderBody {
     // Push every point out onto the border of the square, so none lands in the centre.
     return raw.map((p) => {
       const m = Math.max(Math.abs(p[0]), Math.abs(p[1]));
-      if (m < 1e-3) return [0, 0, 0, p[3]] as Particle;
+      if (m < 1e-3) return [0, 0, p[2], 0] as Particle;
       return [(p[0] / m) * 0.92, (p[1] / m) * 0.92, p[2], p[3]] as Particle;
     });
   }
@@ -320,17 +374,20 @@ export class LoaderBody {
     c.clearRect(0, 0, W, W);
     c.fillStyle = color;
     const pos = this.pos;
-    // Small bodies draw fewer, larger squares; none of them is tied to a pixel grid.
-    const base = this.pixel ? (W / this.grid) * 0.74 : (W / 9) * 0.58;
+    // The tiniest bodies sit on whole device pixels: an edge between two pixels reads as a smudge there.
+    const tiny = this.tiny;
+    const base = tiny ? Math.round(W * 0.27) : this.pixel ? (W / this.grid) * 0.74 : (W / 9) * 0.58;
     const R = this.pixel ? W / 2 - base / 2 : W * 0.4;
     for (let j = 0; j < PARTICLES; j++) {
       const b = j * STRIDE;
-      // Small squares read too faint at their true light, and too thin at their true size.
-      const q = base * (this.pixel ? Math.min(1, pos[b + 3] * 1.3) : pos[b + 3]);
-      if (pos[b + 2] < 0.02 || q < 0.25) continue;
+      const q = tiny ? Math.round(base * pos[b + 3]) : base * pos[b + 3];
+      if (pos[b + 2] < 0.02 || q < (tiny ? 1 : 0.25)) continue;
+      // A fine body reads too faint at its true light.
       c.globalAlpha = this.pixel ? Math.sqrt(Math.min(1, pos[b + 2])) : Math.min(1, pos[b + 2]);
+      const x = W / 2 + pos[b] * R - q / 2;
+      const y = W / 2 + pos[b + 1] * R - q / 2;
       c.beginPath();
-      c.roundRect(W / 2 + pos[b] * R - q / 2, W / 2 + pos[b + 1] * R - q / 2, q, q, q * 0.28);
+      c.roundRect(tiny ? Math.round(x) : x, tiny ? Math.round(y) : y, q, q, q * 0.28);
       c.fill();
     }
     c.globalAlpha = 1;
