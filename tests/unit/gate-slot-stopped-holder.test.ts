@@ -144,6 +144,26 @@ describe("the gate slot, against a stopped holder", () => {
     expect(existsSync(join(d, "0.pid"))).toBe(true);
   });
 
+  it("a holder continued while a waiter is inside ps keeps its place (card fe575aef)", () => {
+    const d = fresh([holder]);
+    // The first answer is a snapshot taken before the holder is continued, as a
+    // slow `ps` gives it; the holder is continued as that answer is on its way.
+    writeFileSync(join(psDir, "ps"), `#!/bin/sh
+here="$(dirname "$0")"
+snapshot="$(cat "$here/stopped")"
+if [ ! -e "$here/seen" ]; then : > "$here/seen"; : > "$here/stopped"; fi
+for p in $(echo "$4" | tr , ' '); do
+  if echo "$snapshot" | grep -qx "$p"; then echo "  $p T+"; else echo "  $p S+"; fi
+done
+`, { mode: 0o755 });
+    holdAs(nameFile(d, "typecheck"), holder);
+    const heard: string[] = [];
+    const release = acquireSlot(1, "typecheck", { maxWaitMs: WAIT_MS, onWait: (m) => heard.push(m) });
+    expect(heard.some((m) => m.includes("running alongside"))).toBe(true);
+    expect(readFileSync(nameFile(d, "typecheck"), "utf8")).toBe(String(holder));
+    release?.();
+  });
+
   it("several waiters behind the same stopped holder take its name one at a time", async () => {
     // Review of 30/10: every waiter read the stopped pid, ran its `ps`, then
     // unlinked - the file the previous waiter had just taken. Up to four at once.

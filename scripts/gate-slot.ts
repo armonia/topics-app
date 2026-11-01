@@ -200,7 +200,13 @@ function reapStale(dir: string): void {
   }
   if (live.length === 0) return;
   const frozen = stoppedByPs(live.map((l) => l.pid));
-  for (const l of live) if (frozen.has(l.pid) && marksQueueAgain(l.path, l.raw)) unlinkIfStill(l.path, l.raw);
+  const candidates = live.filter((l) => frozen.has(l.pid) && marksQueueAgain(l.path, l.raw));
+  if (candidates.length === 0) return;
+  // The first `ps` can be slow, and a holder continued meanwhile has already
+  // had its SIGCONT: taking its file now would leave it unaware it lost it.
+  // Ask again just before unlinking, so the window is the second answer's age.
+  const still = stoppedByPs(candidates.map((l) => l.pid));
+  for (const l of candidates) if (still.has(l.pid)) unlinkIfStill(l.path, l.raw);
 }
 
 /**
