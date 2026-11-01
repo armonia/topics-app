@@ -60,7 +60,7 @@ const echo = (word: string) => ({ name: "bash", input: { command: `echo ${word}`
  * wheel test on other commits). A longer hold changes nothing that is judged:
  * recording still ends 1.5 s after the loader goes.
  */
-const LIVE_HOLD_MS = 8_000;
+const LIVE_HOLD_MS = 20_000;
 
 const SCRIPTS: Record<string, FakeRound[]> = {
   // The reasoning alone for a while, then the answer, then the turn stays

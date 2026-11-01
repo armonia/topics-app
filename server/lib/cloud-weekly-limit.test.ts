@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-07
+ */
 import { describe, it, expect } from "bun:test";
 import { parseCloudWeeklyLimit, CLOUD_WEEKLY_LIMIT_FALLBACK_MS } from "./cloud-weekly-limit";
 
