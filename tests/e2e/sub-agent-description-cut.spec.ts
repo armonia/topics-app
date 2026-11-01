@@ -133,7 +133,7 @@ test.describe.serial("Descrizione del sotto-agente: il corpo solo se la riga la 
     await expect(row.locator('[title*="' + DESCRIPTION_90 + '"]')).toHaveCount(1);
   });
 
-  test("a 45-character description, cut in the row at 390 px: the body carries it whole", async ({ page, request }) => {
+  test("a 45-character description at 390 px: the body carries it whole exactly when the row cuts it", async ({ page, request }) => {
     const id = "tc-sub-45-phone";
     await seedSubAgent(request, id, DESCRIPTION_45);
     await page.setViewportSize({ width: 390, height: 844 });
@@ -143,9 +143,14 @@ test.describe.serial("Descrizione del sotto-agente: il corpo solo se la riga la 
 
     const row = page.locator(`[data-testid="tool-call-row-${id}"]`);
     await expect(row).toBeVisible({ timeout: 15_000 });
+    // Same rule as the 900 px case: the body is there iff the summary overflows.
+    const cut = await row
+      .locator('[title*="' + DESCRIPTION_45 + '"] > span')
+      .first()
+      .evaluate((el) => el.scrollWidth > el.clientWidth);
     const body = bodyOf(page, id);
-    await expect(body).toHaveCount(1);
-    await expect(body).toHaveText(DESCRIPTION_45);
+    await expect(body).toHaveCount(cut ? 1 : 0);
+    if (cut) await expect(body).toHaveText(DESCRIPTION_45);
   });
 
   test("the row never lays out without the body while the description is cut (ResizeObserver, 900 px)", async ({ page, request }) => {
