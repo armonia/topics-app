@@ -1,5 +1,98 @@
 [
   {
+    "version": "2.3.46",
+    "date": "2026-11-01",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Square loader: small sizes drop the grid, leaving squares shrink instead of fading",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Square loader test: English names the identifier gate knows",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Square loader test: last name the identifier gate did not know",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-01 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Fleet usage: count our short-lived children as ours via getrusage(RUSAGE_CHILDREN)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Gate slot: confirm a stopped holder with a second ps before taking its file",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "human_ask only from the card's own side, subtasks never get a workflow column in update()",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Capacity tests: resources formula terms, core-count independent, route wiring scoped to the capacity route",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Accordion e2e: the header is closed near the top of the view, not under the pane's tab bar",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A chat whose turn ran while it was hidden stays at its bottom through Virtuoso's first measure",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Square loader: up to 16px few sharp squares, 20px stays fine and soft",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Board agents can no longer move HEAD of a live checkout",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "claude-code.ts back to LF: the Windows node's edit had rewritten every line",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cloud weekly limit: record the hold, requeue the card, overflow picks the PC",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cloud weekly limit: a card put on the cloud by hand stays in review instead of looping back into the queue",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "CI back to green after the batch: server types, listed sync spawn, declared coverage, longer fake turn for WebKit",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.45",
     "date": "2026-10-31",
     "sections": {
@@ -13,7 +106,17 @@
           "scope": null
         },
         {
+          "it": "Terminal and chat share one monospace stack: JetBrains Mono in the bundle, no ligatures, 12 px of padding, line height 1.25",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Release builds move to macos-15: GitHub retires macos-14 on 2 November",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "e2e turn-end-still: keep the fake turn live 8 s so the sampler can settle on a loaded runner",
           "en": "",
           "scope": null
         },
@@ -39,6 +142,26 @@
           "scope": null
         },
         {
+          "it": "Effort sempre visibile nel drawer del task e testo AUTO protetto da unit test (card 067a1f5b)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dichiara @covers sul test del chip effort (card 067a1f5b)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Baseline sicurezza: accettato avviso minimatch moderate, dev-only (card 067a1f5b)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Spec etichette modello: testo del chip senza il badge effort (card 067a1f5b)",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Feedback di revisione intero ai nodi Cloud",
           "en": "",
           "scope": null
@@ -50,6 +173,26 @@
         },
         {
           "it": "Load brakes: stopped slot holders, lone card, thaw that lands",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli le modifiche a security-baseline non di questa card (card 067a1f5b)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chip effort sempre presente: componente EffortBadge e chip sotto il campo del drawer (card 067a1f5b)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test del chip effort: regex mirata (card 067a1f5b)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Baseline sicurezza: accettato l'avviso minimatch che blocca il job gates di ogni ramo (card 067a1f5b)",
           "en": "",
           "scope": null
         },
@@ -78,9 +221,45 @@
           "breaking": false
         },
         {
+          "it": "Effort chip: the drawer reads the same tier as the chat, and the AUTO case is rendered by a real test (card 067a1f5b)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Migrations manifest: restore version order (dispatch-overflow before board-workflows), main was red on three unit tests",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test schema: tasks columns follow migration application order",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Re-run CI: unit failure was a load-timing flake in late-scan-past-cap, outside this card",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Re-run CI: chat-turn-end-still webkit case is flaky and outside this card",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Re-run CI after a push timeout",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "aggiorna durate shard dal nightly del 2026-10-31 [skip ci]",
           "en": "",
           "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "effort chip reads AUTO when the provider snapshot has no tier; fix bar comment",
+          "en": "",
+          "scope": null,
           "breaking": false
         },
         {
@@ -141,6 +320,39 @@
           "breaking": false
         },
         {
+          "it": "devreap REAP-NOCLIENT per astro/vite senza browser (card 50bf1f38)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "OpenClaw AGENTS.md size analysis and cut proposals",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "barra dei controlli dentro la card sotto il campo, margine del form a 8 px (card 067a1f5b)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Spec barra controlli: dichiara il requisito che copre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Spec chat: requisito COMPOSER-BAR-01",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Strisce sopra il composer: stesso margine da 8 px del form",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Budget governor: frozen check keeps its deadline stopped, freeze cap, FIFO thaw, group signals",
           "en": "",
           "scope": null
@@ -159,6 +371,12 @@
           "it": "aggiorna durate shard dal nightly del 2026-10-30 [skip ci]",
           "en": "",
           "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "barra controlli fuori dal riquadro e piu' bassa, effort sempre visibile (card 067a1f5b)",
+          "en": "",
+          "scope": null,
           "breaking": false
         },
         {
@@ -190,6 +408,16 @@
         },
         {
           "it": "Ragionamento riservato da un segnale vero; stellina anche su righe tool e strisce (card 045ef721)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rilancia la CI sul commit (card 067a1f5b)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nuovo giro di CI sul ramo (card 067a1f5b)",
           "en": "",
           "scope": null
         },
