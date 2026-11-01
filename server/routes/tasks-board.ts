@@ -1082,6 +1082,14 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       return json({ ok: true, text: migliore, before: t.text });
     }
 
+    const isNodeCard = (card: { machineId?: string | null }): boolean => {
+      if (!card.machineId) return false;
+      try {
+        const localId = ctx.machineStore?.upsertLocal().id ?? null;
+        return localId !== null && card.machineId !== localId && !!ctx.machineStore?.get(card.machineId)?.baseUrl;
+      } catch { return false; }
+    };
+
     const bComments = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/comments");
     if (bComments && method === "POST") {
       const body = (await readJSON(req)) as any;
@@ -1244,7 +1252,23 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           // content AND made the card stop saying it had landed. The comment
           // is already saved and broadcast above: on a landed card it stays a
           // note, and the card stays in review, where it is approvable.
-          if (dispatcher && root && root.assignedTopicId && !isLandedWork(root)
+          // A card DELIVERED BY A NODE has no live session on this Mac: the run
+          // on the node is already closed, so reject+resume would report
+          // «queued» and restart nobody (card 6290d85d). It goes back to todo
+          // and the node launches it again with the thread. The criterion is
+          // the dispatcher's `isRemoteTask`: another machine, with an address
+          // (this Mac's own row is the default «here» and has none).
+          if (dispatcher && root && root.status === "review" && !isLandedWork(root) && isNodeCard(root)) {
+            const backInQueue = svc.update({
+              taskId: root.id, actor: "human", by: HUMAN, projectId: bComments.projectId,
+              patch: { status: "todo" }, origin: actionOrigin,
+            });
+            broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task: backInQueue });
+            if (backInQueue.status === "todo") {
+              dispatcher.onEnterTodo(bComments.projectId, root.id);
+              delivery = 'queued';
+            }
+          } else if (dispatcher && root && root.assignedTopicId && !isLandedWork(root)
               && (root.status === "review" || root.status === "in_progress")) {
             if (root.status === "review") {
               const rejected = svc.reviewDecision({

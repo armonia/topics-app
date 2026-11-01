@@ -1,0 +1,66 @@
+/**
+ * A human comment on a card in review that a NODE delivered. The run on the
+ * node is already closed, so reject+resume restarted nobody while the answer
+ * said «queued» (card 6290d85d). Such a card goes back to todo, where the node
+ * launches it again with the thread; a card on this Mac keeps the old path.
+ *
+ * @covers KANBAN-76
+ */
+import { test, expect, describe, beforeEach } from "bun:test";
+import { Database } from "bun:sqlite";
+import type { AppContext, RouteHandler } from "../types";
+import { EMBEDDED_MIGRATIONS } from "../db/migrations-embedded";
+import { createMachineStore } from "../services/machine-store";
+import { createTasksRouter } from "./tasks";
+import { call, makeCtx } from "./tasks-test-support";
+
+const BOARD = "node-board-abc123";
+
+describe("comment on a card in review", () => {
+  let db: Database; let nodeId: string; let localId: string;
+  let entered: Array<[string, string]>; let resumed: string[]; let router: RouteHandler;
+  beforeEach(() => {
+    db = new Database(":memory:");
+    db.run("PRAGMA foreign_keys = ON");
+    for (const m of EMBEDDED_MIGRATIONS) db.run(m.sql);
+    const machines = createMachineStore(db, process.cwd());
+    nodeId = machines.upsertNode({ hostname: "pc:3333", name: "PC", baseUrl: "http://127.0.0.1:9443" }).id;
+    localId = machines.upsertLocal().id;
+    db.run("INSERT INTO topics (id, name, slug, session_key, created_at, updated_at) VALUES ('top-x', 'x', 'x', 'sk-x', 'now', 'now')");
+    entered = []; resumed = [];
+    const fakeDispatcher = {
+      onEnterTodo: (pid: string, tid: string) => entered.push([pid, tid]),
+      onLeaveTodo() {},
+      resume: async (id: string) => { resumed.push(id); },
+    } as any;
+    const ctx = Object.assign(makeCtx(db, []), { machineStore: machines }) as unknown as AppContext;
+    router = createTasksRouter(ctx, fakeDispatcher);
+  });
+
+  async function cardInReview(machineId: string): Promise<string> {
+    const t = await (await call(router, "POST", `/api/boards/${BOARD}/tasks`, { text: "deliver", status: "in_progress", machineId }))!.json();
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-x' WHERE id = ?").run(t.id);
+    await call(router, "PATCH", `/api/boards/${BOARD}/tasks/${t.id}`, { status: "review" });
+    return t.id;
+  }
+  const statusOf = (id: string) => (db.query("SELECT status FROM tasks WHERE id = ?").get(id) as { status: string }).status;
+
+  test("a card delivered by a node goes back to todo and the node launches it again", async () => {
+    const id = await cardInReview(nodeId);
+    const resp = (await call(router, "POST", `/api/boards/${BOARD}/tasks/${id}/comments`, { content: "rispondo alla tua domanda" }))!;
+    expect(resp.status).toBe(201);
+    expect((await resp.json()).delivery).toBe("queued");
+    expect(statusOf(id)).toBe("todo");
+    expect(entered).toEqual([[BOARD, id]]);
+    expect(resumed).toEqual([]);
+  });
+
+  test("a card on this Mac (its own machine row is the default «here») keeps reject+resume", async () => {
+    const id = await cardInReview(localId);
+    const resp = (await call(router, "POST", `/api/boards/${BOARD}/tasks/${id}/comments`, { content: "continua" }))!;
+    expect((await resp.json()).delivery).toBe("queued");
+    expect(statusOf(id)).toBe("in_progress");
+    expect(resumed).toEqual([id]);
+    expect(entered).toEqual([]);
+  });
+});
