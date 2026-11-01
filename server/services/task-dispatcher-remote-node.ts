@@ -25,6 +25,8 @@ import type { BundleResult, CreateRunBody, NodeRunBinding, NodeRunReport } from 
 import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import type { PlantBranchInput, PlantBranchResult } from "./node-branch-plant";
 import type { OutboundMessage } from "../../shared/ws-outbound";
+import { CLOUD_HOLD_KEY, parseCloudWeeklyLimit, type CloudWeeklyLimit } from "../lib/cloud-weekly-limit";
+import { setProviderHold } from "../lib/provider-hold";
 import { carriedBranch } from "./branch-on-origin";
 import { defaultLifecycleHooks, type HookOutcome, type LifecycleHookRunner } from "./lifecycle-hooks";
 import { nodeRunDescription, withNodeRunLanguage } from "./node-run-brief";
@@ -877,6 +879,43 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    * signal of a remote run: there is no promise to await and no process to
    * probe (KANBAN-76, KANBAN-77).
    */
+  /**
+   * The cloud answered with its weekly-limit wall: the plan is spent until the
+   * reset the message names. The hold is set, so the overflow picks the PC while
+   * it lasts. A run that brought no branch did no work: the card goes back to
+   * the queue and off the cloud, when the overflow put it there, instead of
+   * landing in review as an empty delivery. A run that DID deliver a branch
+   * still lands: the work is not lost, only the hold is recorded.
+   * Returns true when the card was requeued.
+   */
+  function stopOnWeeklyLimit(taskId: string, report: NodeRunReport, task: Task | undefined): boolean {
+    let limit: CloudWeeklyLimit | null = null;
+    for (const text of [report.reason, report.dispatchError, ...report.comments.map((c) => c.content)]) {
+      limit = text ? parseCloudWeeklyLimit(text) : null;
+      if (limit) break;
+    }
+    if (!limit) return false;
+    try { setProviderHold({ untilMs: limit.untilMs, window: "seven_day", reason: limit.reason, provider: CLOUD_HOLD_KEY }); }
+    catch (err) { log("nodo: fermo del limite settimanale non registrato", err); }
+    // A card put on the cloud by hand would come straight back here until the
+    // reset: it stays in review with the message, where a person sees why.
+    if (report.deliveryBranch || !task || !task.overflowedAt) return false;
+    inFlight.delete(taskId);
+    log(`nodo: ${taskId} tornata in coda, limite settimanale del cloud fino a ${new Date(limit.untilMs).toISOString()}`);
+    try { releaseAndEmit({ taskId, requeue: true, rollbackAttempt: true }); }
+    catch (err) { log(`nodo: la card ${taskId} non è tornata in coda dopo il limite`, err); return true; }
+    try { emit(svc.update({ taskId, actor: "system", by: "dispatcher", patch: { machineId: null } })); }
+    catch (err) { log(`nodo: la card ${taskId} non è tornata sulla macchina locale`, err); }
+    try {
+      svc.addComment({
+        taskId, author: "system", kind: "service",
+        content: `Il Cloud ha risposto col limite settimanale del piano Claude (riprende ${new Date(limit.untilMs).toISOString().slice(0, 16).replace("T", " ")} UTC). ` +
+          "Rimetto la card in coda: finché dura il fermo va sul PC o sul Mac.",
+      });
+    } catch { /* the requeue stands without its line */ }
+    return true;
+  }
+
   async function poll(): Promise<void> {
     const client = host.client;
     if (!client) return;
@@ -944,6 +983,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       }
       mirrorNodeReport(taskId, node, report);
       if (report.status !== "review") continue;
+      if (stopOnWeeklyLimit(taskId, report, task)) continue;
       // A paired node never sends `reason`: review with no branch and no error may be
       // the half second between the node's two writes, so give it a few polls.
       if (!report.deliveryBranch && !report.reason && !report.dispatchError) {

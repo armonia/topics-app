@@ -69,6 +69,7 @@ import { createDispatchMemoryStartController } from "./dispatch-memory-start";
 import { buildDispatchAdmissionPreview } from "./dispatch-admission-preview";
 import { WorktreeRefusalError } from "./worktree-manager";
 import { providerHold, holdAsksAPerson, holdUntilLabel, planUsage } from "../lib/provider-hold";
+import { CLOUD_HOLD_KEY } from "../lib/cloud-weekly-limit";
 import { PLAN_DISPATCH_HOLD_AT, providerHoldKey, providerHoldLabel } from "../../shared/provider-hold";
 import { languageDirective } from "../lib/topics-agent-prompt";
 import { resolveOutputLanguage } from "./app-settings";
@@ -2444,7 +2445,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     let machines: OverflowMachine[] = [];
     try { machines = deps.overflowMachines().filter((m) => m.id !== localId); } catch (err) { log("overflow: machine list failed", err); return false; }
     let cloudCredit = true;
-    try { cloudCredit = deps.cloudCredit?.() ?? !providerHold(); } catch { cloudCredit = false; }
+    try { cloudCredit = deps.cloudCredit?.() ?? (!providerHold() && !providerHold(Date.now(), CLOUD_HOLD_KEY)); } catch { cloudCredit = false; }
     const target = pickOverflowMachine(machines, {
       cloudCredit,
       githubOrigin: origin.github,
