@@ -100,7 +100,7 @@ describe("a change of shape", () => {
   /** The faintest square a small body draws for any shape: 0.1 of light, drawn at its root. */
   const FLOOR = 0.3;
 
-  function faintestDuringChange(size: number, from: LoaderActivity, to: LoaderActivity): number {
+  function minAlphaDuringChange(size: number, from: LoaderActivity, to: LoaderActivity): number {
     let lowest = 1;
     const ctx: LoaderContext = {
       clearRect: () => {},
@@ -121,7 +121,7 @@ describe("a change of shape", () => {
   test("no square fades away: leftovers shrink instead", () => {
     for (const size of [12, 20]) {
       for (const from of ALL) for (const to of ALL) {
-        if (from !== to) expect(faintestDuringChange(size, from, to), `${size}px ${from} to ${to}`).toBeGreaterThanOrEqual(FLOOR);
+        if (from !== to) expect(minAlphaDuringChange(size, from, to), `${size}px ${from} to ${to}`).toBeGreaterThanOrEqual(FLOOR);
       }
     }
   });
