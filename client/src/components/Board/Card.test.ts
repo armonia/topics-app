@@ -230,9 +230,13 @@ describe('la misura del turno sulla card', () => {
   // Stessa fascia in lavorazione (LiveEffortChip) e in review (la misura statica).
   test('la misura è una fascia avvolta, larga quanto la card, uguale nei due stati', () => {
     expect(live).toContain('w-full min-w-0 max-w-full items-center justify-between');
-    expect(live).toContain('rounded-lg bg-app-user-bubble');
+    // The band has its own tint, visibly apart from the card in both themes
+    // («bg-app-user-bubble» was too close to the card to be seen).
+    expect(live).toContain('rounded-lg bg-black/[0.07]');
+    expect(live).toContain('dark:bg-white/[0.09]');
     const start = src.indexOf('data-testid="card-measure"');
-    expect(src.slice(start, start + 300)).toContain('rounded-lg bg-app-user-bubble');
+    expect(src.slice(start, start + 300)).toContain('rounded-lg bg-black/[0.07]');
+    expect(src.slice(start, start + 300)).toContain('dark:bg-white/[0.09]');
     expect(src.slice(start, start + 300)).toContain('w-full');
   });
 
