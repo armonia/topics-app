@@ -51,6 +51,13 @@ export interface CardComments<T extends CardComment = CardComment> {
    * riavvio. Con questo campo la card smette di indovinare e dice cos'è.
    */
   latestIsPlumbing: boolean;
+  /**
+   * The agent's last word in the thread, whatever came after it. A card in
+   * review whose last word is a machine note (`review-note`, the dispatcher's
+   * line) draws THIS in its body and folds the note behind a show toggle, so
+   * the body never holds a machine voice alone. Null when no agent has spoken.
+   */
+  agentWord: T | null;
 }
 
 /**
@@ -217,6 +224,26 @@ export function selectCardComments<T extends CardComment>(
   comments: readonly T[],
   ctx?: CardThreadContext | null,
 ): CardComments<T> | null {
+  const picked = pickCardComments(comments, ctx);
+  return picked ? { ...picked, agentWord: lastAgentWord(comments) } : null;
+}
+
+/** The agent's last word, skipping the machine's and the person's voices. */
+function lastAgentWord<T extends CardComment>(comments: readonly T[]): T | null {
+  const speech = comments.filter(isThreadSpeech);
+  for (let i = speech.length - 1; i >= 0; i--) {
+    const c = speech[i]!;
+    if (commentAuthorLabel(c.author).kind !== 'agent') continue;
+    if (isMachineVoice(c) || !c.content.trim()) continue;
+    return c;
+  }
+  return null;
+}
+
+function pickCardComments<T extends CardComment>(
+  comments: readonly T[],
+  ctx?: CardThreadContext | null,
+): Omit<CardComments<T>, 'agentWord'> | null {
   const speech = comments.filter(isThreadSpeech);
   // LA NOTA DEL SISTEMA NON E' LA PAROLA DELLA CONSEGNA.
   //
@@ -423,7 +450,7 @@ export function progressWord(comments: readonly CardComment[] | undefined): Card
 export function cardCommentsFromRow(task: CardThreadRow): CardComments | null {
   if (task.status === 'in_progress') {
     const latest = progressWord(task.recentComments);
-    return latest ? { latest, questionComment: pendingQuestionComment([latest]), humanContext: null, latestIsPlumbing: false } : null;
+    return latest ? { latest, questionComment: pendingQuestionComment([latest]), humanContext: null, latestIsPlumbing: false, agentWord: latest } : null;
   }
   if (!showsCardThread(task) || !task.recentComments) return null;
   // I due numeri che la riga porta sempre: bastano a riconoscere una domanda
