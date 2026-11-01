@@ -20,6 +20,8 @@ import { resolveDelegatedCredential } from "../../server/lib/identity";
 import { createNodeClient, readDelegatedNodeToken } from "../../server/services/node-client";
 import { setupTestDataDir, cleanupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 import { projectIdForPath } from "../../shared/board";
+import { bundleBranch, carriedRef } from "../../server/services/branch-on-origin";
+import { resolveBranchBaseRef } from "../../server/services/worktree-for-agent";
 
 const ROOT = testTmpDir("nodes-routes");
 const REPO = join(ROOT, "repo");
@@ -323,12 +325,14 @@ describe("nodes routes: ingress of a mirrored card", () => {
 
   // df5fd8c5, 30/10: a card with a branch of its own restarted from main on the other machine.
   test("il ramo base della card d'origine arriva sulla card specchio; un nome non valido è rifiutato", async () => {
+    // Origin is unreachable from this checkout (a fake ssh URL): the branch rides as a bundle.
+    const branchBundle = Buffer.from((await bundleBranch(REPO, DELIVERY_BRANCH))!).toString("base64");
     const ok = await call("POST", "/api/nodes/runs", {
-      originTaskId: "origin-task-base", originUrl: ORIGIN_HTTPS, text: "mirror with base", baseBranch: "topics/endless-calf",
+      originTaskId: "origin-task-base", originUrl: ORIGIN_HTTPS, text: "mirror with base", baseBranch: DELIVERY_BRANCH, branchBundle,
     });
     expect(ok.status).toBe(201);
     const { createTaskService } = await import("../../server/services/tasks");
-    expect(createTaskService(ctx.db).get((await ok.json() as any).runId)!.task.baseBranch).toBe("topics/endless-calf");
+    expect(createTaskService(ctx.db).get((await ok.json() as any).runId)!.task.baseBranch).toBe(DELIVERY_BRANCH);
 
     const bad = await call("POST", "/api/nodes/runs", {
       originTaskId: "origin-task-bad-base", originUrl: ORIGIN_HTTPS, text: "mirror with bad base", baseBranch: "--upload-pack=x",
@@ -337,6 +341,23 @@ describe("nodes routes: ingress of a mirrored card", () => {
 
     const none = await mirror("origin-task-no-base");
     expect(createTaskService(ctx.db).get(none.body.runId as string)!.task.baseBranch).toBeUndefined();
+  });
+
+  test("a node that cannot reach origin: no bundle is a 409 branch_unreachable, a bundle plants the branch as the base", async () => {
+    const body = { originUrl: ORIGIN_HTTPS, text: "mirror without origin", baseBranch: EMPTY_BRANCH };
+    const refused = await call("POST", "/api/nodes/runs", { ...body, originTaskId: "origin-task-unreachable" });
+    expect(refused.status).toBe(409);
+    expect((await refused.json() as any).code).toBe("branch_unreachable");
+
+    const tip = git(REPO, "rev-parse", DELIVERY_BRANCH);
+    const bundle = await bundleBranch(REPO, DELIVERY_BRANCH);
+    const planted = await call("POST", "/api/nodes/runs", {
+      ...body, originTaskId: "origin-task-planted", baseBranch: DELIVERY_BRANCH, branchBundle: Buffer.from(bundle!).toString("base64"),
+    });
+    expect(planted.status).toBe(201);
+    expect(git(REPO, "rev-parse", carriedRef(DELIVERY_BRANCH))).toBe(tip);
+    const base = await resolveBranchBaseRef(REPO, DELIVERY_BRANCH);
+    expect(git(REPO, "rev-parse", base.baseRef)).toBe(tip);
   });
 
   test("a mirror runs on THIS machine even when its board has a default machine", async () => {

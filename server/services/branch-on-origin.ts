@@ -14,6 +14,9 @@
  * has at the same tip is a no-op, one this checkout is ahead on is
  * fast-forwarded, one that diverged is refused, and the card stays here.
  */
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runBounded, SPAWN_TIMEOUT } from "../lib/bounded-spawn";
 import type { GitRunner } from "./own-commits";
 
@@ -59,4 +62,50 @@ export async function ensureBranchOnOrigin(
   if (push.code === 0) return { ok: true };
   const why = (push.stderr || push.stdout).trim().split("\n").filter(Boolean).at(-1)?.slice(0, 160) ?? `exit ${push.code}`;
   return { ok: false, reason: `push rifiutato: ${why}` };
+}
+
+/**
+ * Where a branch that came as a bundle lives on the node. Not `origin/<name>`:
+ * that ref belongs to fetch, and a bundle must never pass for what origin said.
+ */
+export function carriedRef(branch: string): string {
+  return `refs/topics/carried/${branch}`;
+}
+
+/** The branch as a git bundle (whole history: no prerequisite the node could lack). `null` = no such local branch. */
+export async function bundleBranch(
+  repoPath: string | null | undefined,
+  branch: string,
+  run: GitRunner = branchGit,
+): Promise<Uint8Array | null> {
+  if (!repoPath || !isPlainBranchName(branch)) return null;
+  const dir = await mkdtemp(join(tmpdir(), "topics-carry-"));
+  try {
+    const file = join(dir, "branch.bundle");
+    const made = await run(repoPath, ["bundle", "create", file, `refs/heads/${branch}`]);
+    return made.code === 0 ? new Uint8Array(await readFile(file)) : null;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/** Plants a carried bundle as `carriedRef(branch)` in the node's checkout. */
+export async function plantCarriedBranch(
+  repoPath: string,
+  branch: string,
+  bytes: Uint8Array,
+  run: GitRunner = branchGit,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (!isPlainBranchName(branch)) return { ok: false, reason: "not a valid branch name" };
+  const dir = await mkdtemp(join(tmpdir(), "topics-carry-"));
+  try {
+    const file = join(dir, "branch.bundle");
+    await writeFile(file, bytes);
+    const verified = await run(repoPath, ["bundle", "verify", file]);
+    if (verified.code !== 0) return { ok: false, reason: `invalid bundle: ${(verified.stderr ?? "").trim().slice(-120)}` };
+    const fetched = await run(repoPath, ["fetch", "--no-tags", file, `+refs/heads/${branch}:${carriedRef(branch)}`]);
+    return fetched.code === 0 ? { ok: true } : { ok: false, reason: `fetch from bundle failed: ${(fetched.stderr ?? "").trim().slice(-120)}` };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }

@@ -26,6 +26,7 @@ export type NodeFailureReason =
   | "tls_untrusted"
   | "unauthorized"
   | "no_such_repo"
+  | "branch_unreachable"
   | "not_found"
   | "server_error";
 
@@ -113,6 +114,12 @@ export interface CreateRunBody {
    * which for such a card throws its commits away (df5fd8c5, 30/10/2026).
    */
   baseBranch?: string | null;
+  /**
+   * `baseBranch` itself as a base64 git bundle, for a node that cannot reach
+   * origin (answered `branch_unreachable`): the branch travels with the run, the
+   * way `BundleResult` brings the delivery back.
+   */
+  branchBundle?: string;
 }
 
 /** Immutable authority envelope for the confined delegated-node path. */
@@ -297,6 +304,8 @@ async function nodeErrorFromResponse(res: Response, what: string): Promise<NodeE
   }
   // A released 2.3.30 node answers `{ error: "no_such_repo" }` with no `code`.
   if (body.code === "no_such_repo" || body.error === "no_such_repo") return new NodeError("no_such_repo", msg, res.status);
+  // The node cannot get the carried branch from origin: the caller retries with the branch as a bundle.
+  if (body.code === "branch_unreachable") return new NodeError("branch_unreachable", msg, res.status);
   if (res.status === 401 || res.status === 403) return new NodeError("unauthorized", msg, res.status);
   if (res.status === 404) return new NodeError("not_found", msg, res.status);
   return new NodeError("server_error", msg, res.status);

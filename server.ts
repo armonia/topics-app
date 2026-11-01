@@ -257,7 +257,7 @@ import {
   CLOUD_NODE_BASE_URL, CLOUD_NODE_HOST, CLOUD_NODE_NAME, CLOUD_NODE_TOKEN,
   cloudCredentialsPresent, createCloudNodeClient, isCloudBaseUrl, resolveGithubSlug,
 } from "./server/providers/claude-cloud/node";
-import { ensureBranchOnOrigin } from "./server/services/branch-on-origin";
+import { bundleBranch, ensureBranchOnOrigin } from "./server/services/branch-on-origin";
 import { githubOriginFrom, overflowMachinesFrom } from "./server/services/dispatch-overflow";
 import { createDelegatedRevocationRetry } from "./server/services/delegated-revocation-retry";
 import { initVapid } from "./server/push-service";
@@ -2282,6 +2282,8 @@ const taskDispatcher = createTaskDispatcher({
     // A card that already has a branch carries it to the node: pushed first,
     // from this machine's checkout (`branch-on-origin.ts`).
     ensureBranchOnOrigin: ({ projectId, branch }) => ensureBranchOnOrigin(projectPathForNode(projectId), branch),
+    // A node that cannot reach origin gets the same branch as a bundle with the run.
+    bundleBranch: ({ projectId, branch }) => bundleBranch(projectPathForNode(projectId), branch),
     // The `node-run` hook starts in the project's checkout on this machine,
     // the same path the planter reads the origin from and plants into.
     projectPathOf: projectPathForNode,
