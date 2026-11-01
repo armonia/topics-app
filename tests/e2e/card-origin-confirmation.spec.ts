@@ -20,6 +20,7 @@ const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-card-origin-${Date.now()}`;
 const TITLE = "Conferma di origine: la card nasce dalla chat";
 
 test("the chat that asked is told the request became a card", async ({ page, request }) => {
+  test.info().annotations.push({ type: "spec", description: "KANBAN-103" });
   mkdirSync(PROJECT_PATH, { recursive: true });
   const topic = await createTopic(request, `card-origin-${Date.now()}`, { projectPath: PROJECT_PATH });
   let taskId: string | null = null;

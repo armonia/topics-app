@@ -1,4 +1,6 @@
 /**
+ * @covers KANBAN-102
+ *
  * Review of card b3fa8223, deferred: `human_ask` is written only by the card's
  * own side, and a subtask has no workflow column whichever door moves it.
  */

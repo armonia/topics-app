@@ -1,4 +1,6 @@
 /**
+ * @covers KANBAN-103
+ *
  * A request that becomes a card is confirmed in the origin chat: an assistant
  * line with title and link at the end of the chain, and a log row for the
  * coordinator. No agent turn starts from here.
