@@ -123,7 +123,7 @@ test.describe.serial("Descrizione del sotto-agente: il corpo solo se la riga la 
     await expect(body).toHaveCount(1);
     await expect(body).toHaveText(DESCRIPTION_90);
     // The clipped summary keeps the full text on the tooltip, as before.
-    await expect(row.locator('[title="' + DESCRIPTION_90 + '"]')).toHaveCount(1);
+    await expect(row.locator('[title*="' + DESCRIPTION_90 + '"]')).toHaveCount(1);
   });
 
   test("a 45-character description, cut in the row at 390 px: the body carries it whole", async ({ page, request }) => {

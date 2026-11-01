@@ -119,7 +119,7 @@ test.describe.serial("La card del sotto-agente", () => {
     // The call whose prompt never arrived: the sub-agent card, with that state.
     const call = page.getByTestId("tool-call-row-spawn-undelivered");
     await expect(call).toBeVisible();
-    await expect(call).toContainText("Sub-agent");
+    // A sub-agent row shows no command name (CHAT-TOOL-14): the card below says who.
     // A sub-agent row is open by default, and its first click CLOSES it
     // (CHAT-FOLD-01: what is shown flips, not the stored click). No click.
     await expect(call.locator("button").first()).toHaveAttribute("aria-expanded", "true");
