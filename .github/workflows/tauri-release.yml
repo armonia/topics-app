@@ -117,7 +117,7 @@ jobs:
           # ONE Universal macOS build (arm64 + x86_64) on Apple Silicon, mirroring
           # the Electron job — a single universal .app/.dmg → one correct
           # latest.json updater manifest (two arch jobs would race to clobber it).
-          - { os: macos-14, args: '--target universal-apple-darwin' }
+          - { os: macos-15, args: '--target universal-apple-darwin' }
           - { os: windows-latest, args: '' }
           # deb + rpm only: AppImage bundling runs linuxdeploy, which fails
           # opaquely on the ~100MB bun server sidecar even with NO_STRIP
