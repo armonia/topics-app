@@ -1411,6 +1411,7 @@ const EN = {
   'board.card.systemNote': 'System note',
   'board.card.noSummary': 'No summary: what follows is machine bookkeeping',
   'board.card.commentMore': 'Show all',
+  'board.card.noteShow': 'show',
   'board.card.commentLess': 'Show less',
   'board.card.uncommitted': 'branch with no commit',
   // THE WORK IS THERE, IT IS JUST NOT ON A COMMIT. The chip said the same thing
@@ -1778,7 +1779,7 @@ const EN = {
   'board.card.turnActions': 'Actions on this turn',
   'board.card.blockedActions': 'Ways out of the wait',
   'board.card.yourRequest': 'Your request: {text}',
-  'board.card.commentPlaceholder': '…or comment',
+  'board.card.commentPlaceholder': 'Comment or fix…',
   'board.card.comment': 'Comment',
   'board.card.copyTask': 'Copy task',
   'board.preview.label': 'Preview',
