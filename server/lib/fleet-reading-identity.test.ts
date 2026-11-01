@@ -8,7 +8,7 @@ import { EMPTY_FREEZE_STATE, FREEZE_SETTLE_MS, freezePlan } from "../../shared/m
 import { budgetSample, computeDispatchCapacity, governorRead, newOtherLoadState, smoothedOther } from "../services/dispatch-capacity";
 import { _resetFreezableRuns, createBudgetGovernor, registerFreezableRun } from "../services/budget-governor";
 import { setActiveSwapFreezer, swapFrozenCount } from "./swap-freeze-hold";
-import { _resetFleetUsageCache, _setMachineCpuSource, fleetLoadSync, getFleetUsage, type FleetLoadReading } from "./fleet-usage";
+import { _resetFleetUsageCache, _setChildrenCpuSource, _setMachineCpuSource, shortLivedCpuPercent, fleetLoadSync, getFleetUsage, type FleetLoadReading } from "./fleet-usage";
 
 const targets = [{ id: "a", kind: "check" as const, startedAt: 1 }, { id: "b", kind: "check" as const, startedAt: 2 }];
 const over = { used: 10, budget: 5, targets };
@@ -165,6 +165,41 @@ describe("card 10469e3e: the fleet reading stamp and the kernel floor", () => {
   });
 });
 
+describe("card d0dec91e: our short-lived children count as ours", () => {
+  const rows = (own: number) => [{ pid: process.pid, ppid: 1, cpu: 0, cpuSeconds: own, rssKB: 1000, command: "bun server.ts" }] as never;
+
+  afterEach(() => { _setChildrenCpuSource(null); _setMachineCpuSource(null); _resetFleetUsageCache(); });
+
+  test("the delta of the children counter over the window is a percent of the whole machine", () => {
+    let seconds = 100;
+    _setChildrenCpuSource(() => seconds);
+    expect(shortLivedCpuPercent(1000, 10)).toBe(0); // no base yet
+    seconds += 15;
+    expect(shortLivedCpuPercent(31_000, 10)).toBeCloseTo(5, 5); // half a core of ten
+    expect(shortLivedCpuPercent(61_000, 10)).toBe(0); // nothing new since
+  });
+
+  // The fleet reading is unsupported on Windows, so the end-to-end case runs where the server samples.
+  test.skipIf(process.platform === "win32")("CPU burned by children born and reaped between two readings lands in coreUnits, not in others", async () => {
+    _resetFleetUsageCache();
+    const realNow = Date.now;
+    let clock = realNow();
+    let childSeconds = 100;
+    try {
+      Date.now = () => clock;
+      _setChildrenCpuSource(() => childSeconds);
+      _setMachineCpuSource(() => null);
+      await getFleetUsage(async () => rows(1));
+      clock += 30_000;
+      childSeconds += 15; // half a core for 30 s, in processes `ps` never saw
+      await getFleetUsage(async () => rows(1));
+      const r = fleetLoadSync()!;
+      expect(r.coreUnits).toBeCloseTo(0.5, 1);
+      expect(r.otherCoreUnits).toBe(0);
+    } finally { Date.now = realNow; }
+  });
+});
+
 describe("card 10469e3e: one CPU budget and every freeze in the capacity payload", () => {
   const quiet = () => reading(1, 999_001);
   const cap = (knob: { share: number; frozen: number; swapFrozen?: number; resources?: boolean }) =>
@@ -184,19 +219,30 @@ describe("card 10469e3e: one CPU budget and every freeze in the capacity payload
   });
 
   test("in resources mode recommended and the reason come from the knob's budget", () => {
-    // Nothing running and our own CPU at 0, so the slots are the knob's usable CPU over a fixed price per agent.
-    // The price is derived from the machine's own usable figure (clamped to the price list's band), so a high and a
-    // low knob land on different slot counts on any core count.
-    const idle = { ...reading(1, 999_002), coreUnits: 0 };
-    const run = (share: number, price: number, resources: boolean) =>
-      computeDispatchCapacity(0, () => idle, true, () => 20, { share, frozen: 0, resources }, { coreUnits: () => [price], memGB: () => [] }, () => 10);
-    const price = Math.min(4, Math.max(0.5, run(0.8, 1, true).usableCoreUnits / 4));
-    const hi = run(0.8, price, true);
+    // Nothing running, our own CPU at 0 and nobody else on the machine, so the slots are the knob's usable CPU over a
+    // fixed price per agent. The machine's core count is read from the payload, and the expectations are computed
+    // from it: a machine with one core has a single slot whatever the knob says, so there the two knobs can only tie.
+    const idle = { ...reading(0, 999_002), coreUnits: 0 };
+    // Somebody else's CPU is smoothed over a window shared by the whole process: read past it, so earlier readings do not count.
+    const realNow = Date.now;
+    const shared = globalThis as { __otherClock?: number };
+    const run = (share: number, price: number, resources: boolean) => {
+      // One clock for every test file in the process, always ahead of the last reading anybody took.
+      const clock = shared.__otherClock = Math.max(shared.__otherClock ?? 0, realNow()) + 100_000;
+      Date.now = () => clock;
+      try {
+        return computeDispatchCapacity(0, () => ({ ...idle, at: clock }), true, () => 20, { share, frozen: 0, resources }, { coreUnits: () => [price], memGB: () => [] }, () => 10);
+      } finally { Date.now = realNow; }
+    };
+    const price = Math.min(4, Math.max(0.5, (computeDispatchCapacity(0, () => null).cores * 0.95) / 4));
+    const hi = run(0.95, price, true);
     const lo = run(0.1, price, true);
-    const slots = (c: { usableCoreUnits: number }) => Math.min(8, Math.max(1, Math.floor(c.usableCoreUnits / price)));
-    expect(hi.recommended).toBe(slots(hi));
-    expect(lo.recommended).toBe(slots(lo));
-    expect(hi.recommended).toBeGreaterThan(lo.recommended);
+    // The payload rounds the usable figure to a tenth: the expectation comes from the share and the cores themselves.
+    const slots = (share: number) => Math.min(8, Math.max(1, Math.floor((hi.cores * share) / price)));
+    expect(hi.recommended).toBe(slots(0.95));
+    expect(lo.recommended).toBe(slots(0.1));
+    if (hi.cores >= 2) expect(hi.recommended).toBeGreaterThan(lo.recommended);
+    else expect(hi.recommended).toBeGreaterThanOrEqual(lo.recommended);
     expect(hi.reason).toContain("utilizzabili");
     // Count mode ignores the knob: same answer for both values, and the quota phrase instead.
     const c1 = run(0.8, price, false);
@@ -215,9 +261,13 @@ describe("card 10469e3e: one CPU budget and every freeze in the capacity payload
   });
 
   test("the capacity route feeds the knob with the swap freezer and the resources mode", () => {
-    const routes = readFileSync(join(import.meta.dir, "../routes/tasks.ts"), "utf8");
-    // Match only live lines: a commented-out line must turn this red.
-    expect(routes).toMatch(/^\s*swapFrozen: swapFrozenCount\(\),\s*$/m);
-    expect(routes).toMatch(/^\s*resources: capMode\(svc\.getGlobalCap\(\)\) === "resources",\s*$/m);
+    const src = readFileSync(join(import.meta.dir, "../routes/tasks.ts"), "utf8");
+    const start = src.indexOf('if (pathname === "/api/system/dispatch-capacity" && method === "GET")');
+    expect(start).toBeGreaterThan(-1);
+    // Only the capacity route, with its comments stripped (block and line): a commented-out line must turn this red.
+    const rest = src.slice(start);
+    const route = rest.slice(0, rest.indexOf("admission,")).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    expect(route).toMatch(/^\s*swapFrozen: swapFrozenCount\(\),\s*$/m);
+    expect(route).toMatch(/^\s*resources: capMode\(svc\.getGlobalCap\(\)\) === "resources",\s*$/m);
   });
 });

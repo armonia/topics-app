@@ -347,7 +347,11 @@ function finish(
     ),
     supported: true,
   };
-  const usage = { ...summary, otherCpuPercent: otherFloorFromTicks(summary) };
+  // Short-lived children of ours are in no `ps` row at either end of the window:
+  // add what the kernel billed to the server's reaped children, as OUR cpu.
+  const shortLived = shortLivedCpuPercent(nowMs, summary.cpuCores);
+  const ours = { ...summary, cpuPercent: summary.cpuPercent + shortLived };
+  const usage = { ...ours, otherCpuPercent: otherFloorFromTicks(ours) };
   cached = usage;
   cachedAt = Date.now();
   return usage;
@@ -365,11 +369,73 @@ export function _setMachineCpuSource(fn: (() => number | null) | null): void {
 }
 
 /**
+ * Cumulative user+system CPU seconds of every child the server has waited for
+ * (`getrusage(RUSAGE_CHILDREN)`), through FFI like the other kernel readers in
+ * this file. Neither Bun nor Node expose it, but libc does. `null` where there
+ * is no FFI (Windows, a runtime without `bun:ffi`).
+ *
+ * struct rusage starts with two timevals (utime at 0, stime at 16). The usec
+ * field is read as an int32 at +8, which is right for the 32-bit darwin field
+ * and for the low half of the 64-bit linux one (little endian).
+ */
+const readChildrenCpuSeconds: () => number | null = (() => {
+  if (isWindows) return () => null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- bun:ffi loaded inside the try, so a runtime without it reads null instead of failing the module load
+    const { dlopen, FFIType } = require("bun:ffi") as typeof import("bun:ffi");
+    const lib = dlopen(process.platform === "darwin" ? "/usr/lib/libSystem.dylib" : "libc.so.6", {
+      getrusage: { args: [FFIType.i32, FFIType.ptr], returns: FFIType.i32 },
+    });
+    const buf = new BigUint64Array(32);
+    const view = new DataView(buf.buffer);
+    const RUSAGE_CHILDREN = -1;
+    return (): number | null => {
+      try {
+        if (lib.symbols.getrusage(RUSAGE_CHILDREN, buf) !== 0) return null;
+        const at = (o: number) => Number(view.getBigInt64(o, true)) + view.getInt32(o + 8, true) / 1e6;
+        return at(0) + at(16);
+      } catch { return null; }
+    };
+  } catch {
+    return () => null;
+  }
+})();
+
+/** Where the children's CPU seconds come from, injectable for a test. */
+let childrenCpuSource: () => number | null = readChildrenCpuSeconds;
+export function _setChildrenCpuSource(fn: (() => number | null) | null): void {
+  childrenCpuSource = fn ?? readChildrenCpuSeconds;
+  prevChildren = null;
+}
+
+let prevChildren: { at: number; seconds: number } | null = null;
+
+/**
+ * CPU of our own processes that were born AND reaped between two readings (a
+ * `tsc`, a git call, a test shard): the `ps time` delta counts them as zero,
+ * because no row exists at either end. The kernel keeps their time in the
+ * server's RUSAGE_CHILDREN, so the delta of that counter over the window, as a
+ * percent of the whole machine, is what `ps` missed. A child that lived across
+ * the window and exited inside it is counted here for its whole life, not only
+ * for the window: a slight over-count, on the side where the gate is careful.
+ * No base yet (first reading) or no FFI: 0, as before.
+ */
+export function shortLivedCpuPercent(nowMs: number, cores: number): number {
+  const seconds = (() => { try { return childrenCpuSource(); } catch { return null; } })();
+  if (seconds == null || !Number.isFinite(seconds)) return 0;
+  const base = prevChildren;
+  prevChildren = { at: nowMs, seconds };
+  if (!base) return 0;
+  const dt = (nowMs - base.at) / 1000;
+  const d = seconds - base.seconds;
+  if (dt <= 0 || d <= 0) return 0;
+  return (d / dt / Math.max(1, cores)) * 100;
+}
+
+/**
  * THE OTHERS' CPU, never lower than what the kernel says is left once ours is
- * taken off: `machine - ours`. A short-lived process of ours is not in our
- * `ps` sum either, so it lands in "others" here: the safe side, the gate only
- * becomes more careful, never more generous. (`getrusage(RUSAGE_CHILDREN)`
- * would attribute it back, but neither Bun nor Node expose it.)
+ * taken off: `machine - ours`. Ours includes the short-lived children of the
+ * server (see `shortLivedCpuPercent`), so they are no longer billed to "others".
  */
 function otherFloorFromTicks(u: { cpuPercent: number; scriptsCpuPercent: number; otherCpuPercent: number }): number {
   const machine = machineCpuSource();
@@ -456,6 +522,7 @@ export function _resetFleetUsageCache(): void {
   cached = null;
   cachedAt = 0;
   prevSample = null;
+  prevChildren = null;
   inFlight = null;
 }
 

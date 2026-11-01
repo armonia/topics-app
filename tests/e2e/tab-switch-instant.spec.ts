@@ -178,7 +178,7 @@ async function installMeter(page: Page): Promise<void> {
         pending = 0;
         if (frame && sample(frame)) finish();
       };
-      const observer = new ResizeObserver(() => {
+      let observer = new ResizeObserver(() => {
         if (!finished) readPending();
       });
       observer.observe(sentinel);
@@ -186,6 +186,17 @@ async function installMeter(page: Page): Promise<void> {
         if (finished) return;
         readPending();
         if (finished) return;
+        // Created again in the first frame after the input: the app may create
+        // an observer of its own while it handles that input (the return pin's,
+        // useHiddenTurnReturn), and observers run in the order they were created.
+        // The meter's must stay the last one, as in helpers/fold-probe.ts.
+        if (frame === 1) {
+          observer.disconnect();
+          observer = new ResizeObserver(() => {
+            if (!finished) readPending();
+          });
+          observer.observe(sentinel);
+        }
         pending = frame;
         sentinel.style.width = `${(frame % 2) + 1}px`;
         requestAnimationFrame(() => tick(frame + 1));
