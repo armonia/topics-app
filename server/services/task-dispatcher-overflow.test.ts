@@ -28,6 +28,9 @@ import { Database } from "bun:sqlite";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import type { ResourceFloorVerdict } from "./dispatch-capacity";
+import { CLOUD_HOLD_KEY } from "../lib/cloud-weekly-limit";
+import type { NodeRunReport } from "./node-client";
+import { clearProviderHold, providerHold, resetProviderHoldStore } from "../lib/provider-hold";
 import type { TurnEndInfo } from "../providers/stop-reason";
 import {
   OVERFLOW_AFTER_MS, OVERFLOW_MAX_PER_ROUND, OVERFLOW_SLOTS, cloudRunsModel, overflowEligible, pickOverflowMachine,
@@ -121,6 +124,10 @@ function harness(opts: {
   createRunError?: () => Error | null;
   /** What `readRun` throws instead of answering, while set (a live run's account refused). */
   readRunError?: { current: (() => Error) | null };
+  /** The run report `readRun` answers instead of an idle run. */
+  runReport?: () => Partial<NodeRunReport>;
+  /** Leave `cloudCredit` to the real provider hold. */
+  realCredit?: boolean;
   /** The Mac under its memory floor (default) or free. */
   floor?: boolean;
   /** The floor's verdict while it holds (default `BLOCKED`, a memory floor). */
@@ -171,6 +178,7 @@ function harness(opts: {
         return {
         status: "in_progress", dispatchState: "working", dispatchError: null, comments: [],
         deliveryBranch: null, deliveryCommit: null, baseSha: null, stat: null,
+        ...opts.runReport?.(),
         };
       },
       fetchBundle: async () => ({ empty: true as const }),
@@ -185,7 +193,7 @@ function harness(opts: {
     },
     overflowMachines: machines,
     githubOriginOf: async () => opts.github ?? true,
-    cloudCredit: () => opts.cloudCredit ?? true,
+    ...(opts.realCredit ? {} : { cloudCredit: () => opts.cloudCredit ?? true }),
     // The real policy, read from the real tables (`delegationTables`).
     delegatedPolicyForTask: (taskId) => delegatedPolicyForTask(db, taskId, now, LOCAL),
     now: () => now,
@@ -1035,5 +1043,71 @@ describe("verifica del 31/10 (quarto giro)", () => {
     h.advance(OVERFLOW_AFTER_MS + 1_000);
     await h.poll();
     expect(h.task(CARD).machineId).toBe(CLOUD);
+  });
+});
+
+describe("limite settimanale del Cloud", () => {
+  const resetsIn = (days: number) => {
+    const d = new Date(Date.now() + days * 86_400_000);
+    return `You've hit your weekly limit · resets ${d.toLocaleString("en-US", { month: "short", timeZone: "UTC" })} ${d.getUTCDate()}, 4am (UTC)`;
+  };
+  const clean = () => { resetProviderHoldStore(); clearProviderHold(CLOUD_HOLD_KEY); };
+
+  it("la corsa Cloud torna col limite: fermo registrato, card in coda sul Mac, il turno dopo va sul PC", async () => {
+    clean();
+    try {
+      const limitHit = { current: false };
+      const h = harness({
+        realCredit: true,
+        runReport: () => (limitHit.current
+          ? { status: "review", dispatchError: resetsIn(3) }
+          : {}),
+      });
+      h.seed(CARD);
+      await holdPastThreshold(h);
+      expect(h.task(CARD).machineId).toBe(CLOUD);
+      expect(h.created).toHaveLength(1);
+
+      limitHit.current = true;
+      await h.poll();
+      expect(providerHold(Date.now(), CLOUD_HOLD_KEY)?.window).toBe("seven_day");
+      expect(providerHold(Date.now(), CLOUD_HOLD_KEY)!.untilMs).toBeGreaterThan(Date.now() + 86_400_000);
+      expect(h.task(CARD).status).toBe("todo");
+      expect(h.task(CARD).machineId).toBeNull();
+      expect(h.thread(CARD)).not.toContain("Consegna senza riassunto");
+
+      // The next turn: the Mac is still under its floor, the hold is on, so the PC takes it.
+      await holdPastThreshold(h);
+      expect(h.task(CARD).machineId).toBe(PC);
+    } finally { clean(); }
+  });
+
+  it("una card messa a mano sul Cloud non torna in coda all'infinito: resta in review col messaggio", async () => {
+    clean();
+    try {
+      const h = harness({ realCredit: true, runReport: () => ({ status: "review", dispatchError: resetsIn(3) }) });
+      h.seed(CARD, { machineId: CLOUD });
+      await h.tick();
+      await h.poll();
+      expect(providerHold(Date.now(), CLOUD_HOLD_KEY)).not.toBeNull();
+      expect(h.task(CARD).status).toBe("review");
+      expect(h.task(CARD).machineId).toBe(CLOUD);
+    } finally { clean(); }
+  });
+
+  it("una consegna vera col limite nel messaggio non si perde: arriva in review", async () => {
+    clean();
+    try {
+      const h = harness({
+        realCredit: true,
+        runReport: () => ({ status: "review", deliveryBranch: "topics/x", deliveryCommit: "abc1234", dispatchError: resetsIn(2) }),
+      });
+      h.seed(CARD, { machineId: CLOUD });
+      await h.tick();
+      await h.poll();
+      expect(providerHold(Date.now(), CLOUD_HOLD_KEY)).not.toBeNull();
+      expect(h.task(CARD).status).toBe("review");
+      expect(h.task(CARD).deliveryBranch).toBe("topics/x");
+    } finally { clean(); }
   });
 });

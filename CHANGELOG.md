@@ -2,25 +2,62 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.46 — 2026-11-01
+
+### Sotto il cofano
+- Square loader: small sizes drop the grid, leaving squares shrink instead of fading
+- Square loader test: English names the identifier gate knows
+- Square loader test: last name the identifier gate did not know
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-01 [skip ci]
+- Fleet usage: count our short-lived children as ours via getrusage(RUSAGE_CHILDREN)
+- Gate slot: confirm a stopped holder with a second ps before taking its file
+- human_ask only from the card's own side, subtasks never get a workflow column in update()
+- Capacity tests: resources formula terms, core-count independent, route wiring scoped to the capacity route
+- Accordion e2e: the header is closed near the top of the view, not under the pane's tab bar
+- A chat whose turn ran while it was hidden stays at its bottom through Virtuoso's first measure
+- Square loader: up to 16px few sharp squares, 20px stays fine and soft
+- Board agents can no longer move HEAD of a live checkout
+- claude-code.ts back to LF: the Windows node's edit had rewritten every line
+- Cloud weekly limit: record the hold, requeue the card, overflow picks the PC
+- Cloud weekly limit: a card put on the cloud by hand stays in review instead of looping back into the queue
+- CI back to green after the batch: server types, listed sync spawn, declared coverage, longer fake turn for WebKit
+
 ## 2.3.45 — 2026-10-31
 
 ### Sotto il cofano
 - Square loader: shape changes glide instead of jumping
+- Terminal and chat share one monospace stack: JetBrains Mono in the bundle, no ligatures, 12 px of padding, line height 1.25
 - Release builds move to macos-15: GitHub retires macos-14 on 2 November
+- e2e turn-end-still: keep the fake turn live 8 s so the sampler can settle on a loaded runner
 - Square loader: the ink fade reads the motion token
 
 ## 2.3.44 — 2026-10-31
 
 ### Sotto il cofano
 - Affiancamento prima/dopo della riga di avanzamento della card (card 91a42e8f)
+- Effort sempre visibile nel drawer del task e testo AUTO protetto da unit test (card 067a1f5b)
+- Dichiara @covers sul test del chip effort (card 067a1f5b)
+- Baseline sicurezza: accettato avviso minimatch moderate, dev-only (card 067a1f5b)
+- Spec etichette modello: testo del chip senza il badge effort (card 067a1f5b)
 - Feedback di revisione intero ai nodi Cloud
 - Revisione più recente fuori dal budget del filo
 - Load brakes: stopped slot holders, lone card, thaw that lands
+- Togli le modifiche a security-baseline non di questa card (card 067a1f5b)
+- Chip effort sempre presente: componente EffortBadge e chip sotto il campo del drawer (card 067a1f5b)
+- Test del chip effort: regex mirata (card 067a1f5b)
+- Baseline sicurezza: accettato l'avviso minimatch che blocca il job gates di ogni ramo (card 067a1f5b)
 - an agent's question reaches Human review, a failed wake retries and falls back, moved and withdrawn cards stay visible
 - the newest arrival is the one frozen, the governor freezes agents' commands with a ledger that survives a crash, the job-quota sweep spares live sub-agents and its own database's folders
 - nothing moves when the loader goes at the end of a turn, in the window you write from too; the tool fold waits, the reader who scrolled up stays there
 - a card waiting on a full Mac moves to the PC or Cloud after two minutes, with the reason written on it
+- Effort chip: the drawer reads the same tier as the chat, and the AUTO case is rendered by a real test (card 067a1f5b)
+- Migrations manifest: restore version order (dispatch-overflow before board-workflows), main was red on three unit tests
+- Test schema: tasks columns follow migration application order
+- Re-run CI: unit failure was a load-timing flake in late-scan-past-cap, outside this card
+- Re-run CI: chat-turn-end-still webkit case is flaky and outside this card
+- Re-run CI after a push timeout
 - **e2e** · aggiorna durate shard dal nightly del 2026-10-31 [skip ci]
+- effort chip reads AUTO when the provider snapshot has no tier; fix bar comment
 - Load management: a cached fleet reading counts as one sample, frozen checks hold new starts, one CPU budget in resources mode
 - Square loader replaces the Sparkle star across the app
 - App icon: steel spinning top, small-size design for 16-64 px, regenerated PWA and -dev icons
@@ -34,16 +71,25 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - **e2e** · aggiorna durate shard dal nightly del 2026-10-29 [skip ci]
+- devreap REAP-NOCLIENT per astro/vite senza browser (card 50bf1f38)
+- OpenClaw AGENTS.md size analysis and cut proposals
+- barra dei controlli dentro la card sotto il campo, margine del form a 8 px (card 067a1f5b)
+- Spec barra controlli: dichiara il requisito che copre
+- Spec chat: requisito COMPOSER-BAR-01
+- Strisce sopra il composer: stesso margine da 8 px del form
 - Budget governor: frozen check keeps its deadline stopped, freeze cap, FIFO thaw, group signals
 - Fix timing of the frozen-deadline probe
 - Drop unrelated files swept into the previous commit
 - **e2e** · aggiorna durate shard dal nightly del 2026-10-30 [skip ci]
+- barra controlli fuori dal riquadro e piu' bassa, effort sempre visibile (card 067a1f5b)
 - Loader unico per chat e drawer: 8 px sopra e sotto, «Esegue: tool», numeri solo al passaggio del mouse (card 045ef721)
 - Test del loader: dichiara cosa copre
 - Riga meta alta quanto il loader: la fine del turno non sposta la chat
 - la riga viva tiene l'ingombro di 14 px della riga finita, il respiro di 8 px sporge
 - stellina Sparkle che respira al posto dell'anello; riga di ragionamento riservata dal primo istante (card 045ef721)
 - Ragionamento riservato da un segnale vero; stellina anche su righe tool e strisce (card 045ef721)
+- Rilancia la CI sul commit (card 067a1f5b)
+- Nuovo giro di CI sul ramo (card 067a1f5b)
 - CI di main: commenti del segnale di ragionamento in inglese; il controllo della demo ignora l'avviso di xterm a qualunque ora
 
 ## 2.3.42 — 2026-10-29
