@@ -214,8 +214,10 @@ export function TaskChoiceRow({ task, exclude, disabled, onDone, onError, onNeed
  * risposta lenta del server lascia sullo schermo un pannello a cui non si può
  * più chiedere niente.
  */
-export function TaskChoiceMenu({ task, disabled, onDone, onError, ariaLabel, className }: {
+export function TaskChoiceMenu({ task, exclude, disabled, onDone, onError, ariaLabel, className }: {
   task: BoardTask;
+  /** Choices the caller already shows on its face, or that must not appear here. */
+  exclude?: TaskChoiceId[];
   disabled?: boolean;
   onDone: () => void;
   onError: (message: string) => void;
@@ -225,7 +227,7 @@ export function TaskChoiceMenu({ task, disabled, onDone, onError, ariaLabel, cla
 }) {
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLButtonElement>(null);
-  const { choices, run } = useTaskChoiceRunner(task, { onDone, onError });
+  const { choices, run } = useTaskChoiceRunner(task, { exclude, onDone, onError });
   if (choices.length === 0) return null;
 
   return (
