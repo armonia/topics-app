@@ -475,6 +475,7 @@ queste regole.
   `human`, per il `agent:api` anonimo, per `done`, per NULL: una card senza chip
   resta alta com'era). Serve a una cosa: sapere chi deve chiuderla
   (`created_by_topic_id` resta il legame col topic).
+- **Conferma della card nata da una chat**: quando la card nasce dalla sessione di un progetto o dal coordinatore globale (`agent:session`, `agent:coordinator`) con una chat d'origine, quella chat riceve una riga d'assistente «È diventata una card: «titolo». [Apri la card](/task/<id>)» (`services/card-origin-notice.ts`). La riga non sveglia nessun turno. Il coordinatore la legge nel log attività (`category=board`, «card aperta da una chat»). L'avviso dopo 10 minuti in backlog è quello sotto, invariato.
 - **`task:unowned`**: una card in backlog da oltre 10 minuti (`UNOWNED_BACKLOG_MS`)
   senza assegnatario, senza topic dell'agente, senza padre, senza bloccante e
   senza chip di dispatch, aperta da un agente o da una pianificazione (le card

@@ -5395,3 +5395,14 @@ card chiusa che il land riporta in review SHALL aspettare la persona.
 - **GIVEN** una card in AI review
 - **WHEN** la board torna al preset `default`
 - **THEN** la card SHALL stare in Review e l'attenzione SHALL contarla
+
+### Requirement: KANBAN-103 - La richiesta che diventa card si conferma nella chat che l'ha chiesta
+
+Quando una card è aperta da una chat o dal coordinatore, la chat d'origine SHALL ricevere una riga
+d'assistente «È diventata una card» con titolo e link, senza avviare nessun turno, e il log attività
+SHALL registrare da quale chat è arrivata.
+
+#### Scenario: la chat che ha chiesto lo sa
+- **GIVEN** una chat di un progetto aperta
+- **WHEN** l'agente apre una card dalla sessione di quella chat
+- **THEN** la chat SHALL mostrare la riga con il titolo e il link alla card, e SHALL NOT partire nessun turno

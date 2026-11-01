@@ -23,6 +23,7 @@ const SERVER = join(ROOT, "server");
 const SYNC_CALL = /(?<![\w])(Bun\.spawnSync|spawnSync|execSync|execFileSync)\(/;
 
 const ALLOWED: Array<{ file: string; snippet: string; why: string }> = [
+  { file: "server/lib/live-checkout-branch-guard.ts", snippet: "spawnSync(\"git\"", why: "the live checkout branch guard: a short local git read that must answer before the agent's command is allowed to run" },
   { file: "server/routes/processes.ts", snippet: `Bun.spawnSync(["ps", "-o", "lstart="`, why: "pidStartTime: the identity stamp of a re-adopted row at boot, and of a row at its launch, which must be on disk before the launch answers (a server that exits right after a launch must still re-adopt it: CMDRUN-03). Never on a timer." },
   { file: "server/utils/path-env.ts", snippet: "execFileSync(shell", why: "the login shell's PATH, read once at boot" },
   { file: "server/lib/nome-installazione.ts", snippet: "execFileSync(\"/usr/sbin/scutil\"", why: "the computer name, memoized after the first read" },
