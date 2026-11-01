@@ -52,12 +52,22 @@ const ANSWER_TOOLS = "ANSWER-TOOLS the answer after a round of tools.";
 const ANSWER_QUICK = "ANSWER-QUICK the answer, and the turn ends right behind its last word.";
 const echo = (word: string) => ({ name: "bash", input: { command: `echo ${word}` } });
 
+/**
+ * How long the fake model keeps a turn live after its answer. The sampler
+ * needs the answer on screen and 10 still frames WHILE the turn is live
+ * ("the turn ended before it settled" otherwise); with 3 s, two WebKit pages
+ * on a loaded CI runner did not always get there (the fold tests, and the
+ * wheel test on other commits). A longer hold changes nothing that is judged:
+ * recording still ends 1.5 s after the loader goes.
+ */
+const LIVE_HOLD_MS = 8_000;
+
 const SCRIPTS: Record<string, FakeRound[]> = {
   // The reasoning alone for a while, then the answer, then the turn stays
   // live long enough to settle before it ends.
-  still: [{ thinking: REASONING, afterThinkingMs: 1_000, text: ANSWER, holdMs: 3_000 }],
+  still: [{ thinking: REASONING, afterThinkingMs: 1_000, text: ANSWER, holdMs: LIVE_HOLD_MS }],
   // A block that never carries text: nothing to reserve, nothing to vanish.
-  redacted: [{ redactedThinking: true, afterThinkingMs: 1_000, text: ANSWER_REDACTED, holdMs: 3_000 }],
+  redacted: [{ redactedThinking: true, afterThinkingMs: 1_000, text: ANSWER_REDACTED, holdMs: LIVE_HOLD_MS }],
   // Work enough to fold (`turnFold.ts`, two tools or more), then a last round
   // with the answer alone. The turn this window watched must not fold when
   // its reload renames it: the check of 31/10 saw the reasoning row vanish
@@ -65,7 +75,7 @@ const SCRIPTS: Record<string, FakeRound[]> = {
   // transcript above jump 107 px (2 tools) and 218 px (3 tools).
   twotool: [
     { thinking: REASONING, afterThinkingMs: 500, tools: [echo("one"), echo("two")] },
-    { text: ANSWER_TOOLS, holdMs: 3_000 },
+    { text: ANSWER_TOOLS, holdMs: LIVE_HOLD_MS },
   ],
   // The answer's text and the end of the turn back to back, no pause: on
   // the wire they reach the client in the same read. The check of 31/10 saw
@@ -73,7 +83,7 @@ const SCRIPTS: Record<string, FakeRound[]> = {
   quick: [{ thinking: REASONING, afterThinkingMs: 2_000, text: ANSWER_QUICK }],
   manytool: [
     { thinking: REASONING, afterThinkingMs: 500, tools: [echo("one"), echo("two"), echo("three")] },
-    { text: ANSWER_TOOLS, holdMs: 3_000 },
+    { text: ANSWER_TOOLS, holdMs: LIVE_HOLD_MS },
   ],
 };
 
