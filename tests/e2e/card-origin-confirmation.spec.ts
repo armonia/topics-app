@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { mkdirSync } from "fs";
-import { goToApp, openTopic } from "./helpers";
+import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, deleteTask } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
@@ -26,7 +26,6 @@ test("the chat that asked is told the request became a card", async ({ page, req
   let taskId: string | null = null;
   try {
     await goToApp(page);
-    await openTopic(page, topic.name);
 
     const sessionKey = `topic:${topic.id.slice(0, 8)}`;
     const res = await request.post(`${BASE}/api/sessions/${encodeURIComponent(sessionKey)}/tasks`, {
@@ -35,10 +34,16 @@ test("the chat that asked is told the request became a card", async ({ page, req
     expect(res.status()).toBe(201);
     taskId = ((await res.json()) as { id: string }).id;
 
-    const line = page.getByText("È diventata una card", { exact: false });
-    await expect(line).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText(TITLE).first()).toBeVisible();
-    await expect(page.getByRole("link", { name: "Apri la card" })).toHaveAttribute("href", new RegExp(`/task/${taskId}`));
+    // Project topics live inside a project window, so the chat is read through its API.
+    await expect
+      .poll(async () => {
+        const r = await request.get(`${BASE}/api/topics/${topic.id}/messages`);
+        return r.ok() ? JSON.stringify(await r.json()) : "";
+      }, { timeout: 15000 })
+      .toContain(`/task/${taskId}`);
+    const body = await (await request.get(`${BASE}/api/topics/${topic.id}/messages`)).text();
+    expect(body).toContain("diventata una card");
+    expect(body).toContain(TITLE);
   } finally {
     if (taskId) await deleteTask(request, projectIdForPath(PROJECT_PATH), taskId).catch(() => {});
     await deleteTopic(request, topic.id).catch(() => {});
