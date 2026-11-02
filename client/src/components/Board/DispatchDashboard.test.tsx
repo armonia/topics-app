@@ -56,7 +56,7 @@ describe('cruscotto auto-dispatch', () => {
   test('la prima versione resta: riepilogo, memoria, coda, chi tiene la memoria', () => {
     const html = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queue} now={NOW} />);
     expect(text(html)).toContain('2 al lavoro · 2 in coda');
-    expect(text(html)).toContain('Ne parte un’altra quando il Mac ha 3,5 GB liberi (adesso 2,8 GB).');
+    expect(text(html)).toContain('Ne parte un’altra quando il Mac ha 3,5 GB liberi (adesso 2,8 GB): 3 GB restano alle tue app.');
     expect(text(html)).toContain('Chi tiene la memoria del Mac · 32 GB');
     expect(html).toContain('data-testid="dispatch-dashboard-holders"');
     // «Chi tiene la memoria» is closed until asked for.
@@ -88,10 +88,10 @@ describe('cruscotto auto-dispatch', () => {
     const st = text(renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={[{ ...queue[0]!, stalled: true }, queue[1]!]} dispatchOn now={NOW} />));
     expect(st).toContain('1 card in coda non parte da sola');
     expect(st).not.toContain('partono da sole');
-    // Below the start line the answer is the memory wait, in amber.
+    // A wait for memory is not a fault: the box stays calm and a line under it says when the next one starts.
     const mem = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queue} dispatchOn now={NOW} />);
-    expect(text(mem)).toContain('Ne parte un’altra quando il Mac ha 3,5 GB liberi (adesso 2,8 GB).');
-    expect(mem).toContain('data-tone="warn"');
+    expect(text(mem)).toContain('Ne parte un’altra quando il Mac ha 3,5 GB liberi (adesso 2,8 GB): 3 GB restano alle tue app.');
+    expect(mem).toContain('data-tone="ok"');
     // With the switch still unread it promises nothing.
     const unknown = text(renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queue} dispatchOn={null} now={NOW} />));
     expect(unknown).not.toContain('partono da sole');
@@ -289,8 +289,7 @@ describe('cruscotto auto-dispatch', () => {
     const panel = () => renderToStaticMarkup(<GlobalSettingsSection dispatchOn tasks={tasks} onToggleDispatch={() => {}} />);
     test('barra, scritta, chip e frase sono ambra, mai rossi', () => {
       const html = panel();
-      expect(text(html).replace(/&#x27;/g, '’')).toMatch(/occupato all.87%/);
-      expect(html).toContain('bg-amber-400');
+      expect(text(html)).not.toMatch(/occupato all/);
       expect(html).not.toMatch(RED);
       expect(html).not.toContain('bg-rose-400');
     });
@@ -431,7 +430,8 @@ describe('regressioni della verifica avversaria', () => {
     expect(advancedSrc.indexOf('<ChecksFloorField')).toBeGreaterThan(advancedSrc.indexOf('<SpendCapControl'));
     expect(advancedSrc.indexOf('<ChecksFloorField')).toBeLessThan(advancedSrc.indexOf('<DispatchHolders'));
     const cap = readFileSync(join(import.meta.dir, 'GlobalCapControl.tsx'), 'utf8');
-    expect(cap).toContain('{!quiet && <ChecksFloorField />}');
+    expect(cap).toContain('<ChecksFloorField />');
+    expect(cap).toContain('if (quiet) return <CapChoice');
     expect(renderToStaticMarkup(<GlobalCapControl quiet />)).not.toContain('checks-floor-control');
     expect(renderToStaticMarkup(<GlobalCapControl />)).toContain('checks-floor-control');
     for (const f of ['i18n-it.ts', 'i18n-en.ts']) {
