@@ -282,9 +282,8 @@ describe("decodePartialStreamEvent", () => {
     expect(decodePartialStreamEvent(F.PARTIAL_THINKING_START)).toEqual({ kind: "thinking_start", index: 0 });
   });
 
-  test("i delta di TESTO si ignorano: la loro sorgente sono gli snapshot", () => {
-    // Leggerli anche da qui li conterebbe due volte.
-    expect(decodePartialStreamEvent(F.PARTIAL_TEXT_DELTA)).toBeNull();
+  test("a text delta is decoded; the snapshot adds only what was not streamed", () => {
+    expect(decodePartialStreamEvent(F.PARTIAL_TEXT_DELTA)).toMatchObject({ kind: "text_delta" });
   });
 
   test("i parziali di una sotto-sessione si ignorano", () => {
