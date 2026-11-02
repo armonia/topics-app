@@ -104,7 +104,8 @@ export function fmtUpdatedAt(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   const ms = Date.now() - d.getTime();
-  if (ms < 45_000) return 'ora';
+  // Under a minute reads «ora», never «0m fa» (a 45-60 s age used to round to 0).
+  if (ms < 60_000) return 'ora';
   const m = Math.floor(ms / 60_000);
   if (m < 60) return `${m}m fa`;
   const sameDay = d.toDateString() === new Date().toDateString();
