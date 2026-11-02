@@ -1637,7 +1637,6 @@ const IT: Dict = {
   'board.dispatch.preset.pushed': 'Spinto',
   'board.dispatch.atMost': 'Al massimo {n} card insieme',
   'board.dispatch.leavesGB': 'Lascia {gb} GB alle tue app',
-  'board.dispatch.leavesEstimate': 'stima sugli ultimi giorni',
   'board.dispatch.toPc': 'Manda al PC i lavori pesanti delle card',
   'board.dispatch.presetByResources': 'Deciso dalle risorse, vedi Avanzate',
   'board.dispatch.presetNoLimit': 'Nessun limite impostato, vedi Avanzate',

@@ -151,16 +151,22 @@ function CapChoice({ overflow }: { overflow?: OverflowSwitch }) {
   const bounded = limit !== null && Number.isFinite(limit);
   const resources = s.cap ? capMode(s.cap) === 'resources' : false;
   const capacity = s.capacity;
-  const gbLeft = bounded && capacity && capacity.totalMemGB > 0 && Number.isFinite(capacity.agentCostMemGB)
-    ? gbLeftFor(capacity.totalMemGB, capacity.agentCostMemGB, limit)
-    : null;
+  const snapshot = useMemoryQueueSnapshot();
+  const startGB = snapshot?.threshold.startGB ?? null;
+  // One threshold everywhere: the line the chart draws is the one the box quotes,
+  // and what stays to the apps is that line minus the cost of the card that starts.
+  const costOk = !!capacity && Number.isFinite(capacity.agentCostMemGB);
+  const gbLeft = bounded && costOk && startGB !== null
+    ? Math.max(0, Math.round(startGB - capacity!.agentCostMemGB))
+    : bounded && capacity && capacity.totalMemGB > 0 && costOk
+      ? gbLeftFor(capacity.totalMemGB, capacity.agentCostMemGB, limit)
+      : null;
   const atMost = resources
     ? tr('board.dispatch.presetByResources')
     : bounded
       ? tr('board.dispatch.atMostShort', { n: limit })
       : limit === null ? tr('board.dispatch.runningLoading') : tr('board.dispatch.presetNoLimit');
-  const needGB = capacity && Number.isFinite(capacity.agentCostMemGB) ? Math.max(0.5, Math.round(capacity.agentCostMemGB * 10) / 10) : null;
-  const snapshot = useMemoryQueueSnapshot();
+  const needGB = startGB ?? (costOk ? Math.max(0.5, Math.round(capacity!.agentCostMemGB * 10) / 10) : null);
   const replay = gbLeft !== null && capacity && limit !== null && Number.isFinite(capacity.agentCostMemGB)
     ? replayCap(snapshot?.history ?? [], capacity.agentCostMemGB, Math.max(0, (snapshot?.threshold.startGB ?? capacity.agentCostMemGB) - capacity.agentCostMemGB), limit)
     : null;
@@ -183,12 +189,11 @@ function CapChoice({ overflow }: { overflow?: OverflowSwitch }) {
         disabled={s.saving || !s.cap}
       />
       {gbLeft !== null && !resources && (
-        <div className="space-y-0.5 rounded-md bg-sky-500/10 px-2.5 py-2 text-mini text-sky-800 dark:text-sky-300" data-testid="global-cap-leaves">
-          <p className="font-medium">
+        <div className="space-y-0.5 rounded-md bg-sky-500/10 px-2.5 py-2 text-mini text-app-text-secondary" data-testid="global-cap-leaves">
+          <p className="font-semibold text-app-text">
             {tr('board.dispatch.leavesGB', { gb: gbLeft })}
-            <span className="font-normal"> · {tr('board.dispatch.leavesEstimate')}</span>
           </p>
-          {needGB !== null && <p data-testid="global-cap-next-starts">{tr('board.dispatch.nextStarts', { gb: needGB })}</p>}
+          {needGB !== null && <p data-testid="global-cap-next-starts">{tr('board.dispatch.nextStarts', { gb: fmt(needGB) })}</p>}
           {replay && <p data-testid="global-cap-replay">{tr('board.dispatch.replay', { would: fmt(replay.would), actual: fmt(replay.actual) })}</p>}
         </div>
       )}
