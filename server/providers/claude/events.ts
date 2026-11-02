@@ -516,7 +516,9 @@ export type PartialToolEvent =
   | { kind: "block_stop"; index: number }
   /** The model entered a thinking block. The text comes later (or never, live):
    *  this is the only signal available while it reasons. */
-  | { kind: "thinking_start"; index: number };
+  | { kind: "thinking_start"; index: number }
+  /** A piece of the reply text, as the model writes it (not at block end). */
+  | { kind: "text_delta"; index: number; text: string };
 
 /**
  * Decodifica un `stream_event`. Null per tutto ciò che non riguarda il ciclo di
@@ -541,6 +543,9 @@ export function decodePartialStreamEvent(event: unknown): PartialToolEvent | nul
   }
   if (ev.type === "content_block_delta") {
     const delta = asRecord(ev.delta);
+    if (delta?.type === "text_delta" && typeof delta.text === "string") {
+      return delta.text ? { kind: "text_delta", index, text: delta.text } : null;
+    }
     if (delta?.type !== "input_json_delta" || typeof delta.partial_json !== "string") return null;
     return { kind: "input_delta", index, chunk: delta.partial_json };
   }

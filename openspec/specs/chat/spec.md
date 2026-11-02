@@ -6587,3 +6587,14 @@ current effort next to the model, with provider Automatic too.
 - **THEN** the controls bar SHALL start at or below the card's bottom edge
 - **AND** the band from the card bottom to the input area bottom SHALL be at most 44px
 - **AND** the effort badge SHALL be visible in the bar without opening a menu
+
+### Requirement: CHAT-LIVE-TEXT-01 — Live text and tool commands arrive as written, with no added delay
+
+The Claude CLI provider SHALL forward each `text_delta` partial to the chat the moment it arrives, and the complete-block snapshot that follows SHALL add only the part not already streamed. A still-streaming tool command SHALL be surfaced at most every 50 ms while its `partial_json` arrives. The client SHALL NOT add a timed reveal on top of what arrives.
+
+#### Scenario: text is not delivered in one lump per block
+
+- **GIVEN** a turn on the Claude CLI that writes a reply
+- **WHEN** the CLI emits text_delta partials
+- **THEN** each piece SHALL reach the handler synchronously
+- **AND** the snapshot of the finished block SHALL emit only the remainder
