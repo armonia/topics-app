@@ -2526,7 +2526,6 @@
       "buf"
     ],
     "server/browser-focused-field.test.ts": [
-      "email",
       "otp",
       "readonly"
     ],
@@ -2730,11 +2729,9 @@
       "chiediCodice",
       "collegaAccount",
       "dato",
-      "email",
       "indirizzo",
       "leggiAccountUrl",
       "normalizzaEmail",
-      "perEmail",
       "scollegaAccount",
       "statoAccount",
       "verificaCodice",
@@ -3773,7 +3770,6 @@
       "proj"
     ],
     "server/routes/account.test.ts": [
-      "EMAIL",
       "MIGRAZIONI",
       "RADICE",
       "Rotta",
@@ -3802,7 +3798,6 @@
       "adesso",
       "agganciato",
       "codice",
-      "email",
       "rifiuto",
       "servizio",
       "stato"
@@ -3815,7 +3810,6 @@
       "dimenticaPush",
       "dispositivi",
       "dispositiviDelSoggetto",
-      "email",
       "esito",
       "ident",
       "installazione",
@@ -5853,7 +5847,6 @@
       "evalABody"
     ],
     "tests/e2e/browser-mobile-keyboard.spec.ts": [
-      "email",
       "kbd",
       "otp"
     ],
@@ -7569,7 +7562,6 @@
       "spiega"
     ],
     "tests/unit/no-third-party-emails.test.ts": [
-      "EMAIL",
       "RADICE",
       "TESTABILE",
       "colpevoli",

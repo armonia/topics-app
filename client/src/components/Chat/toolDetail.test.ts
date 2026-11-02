@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { buildToolDisplayLabel, resolveToolDetail } from './toolDetail';
+import { buildToolDisplayLabel, resolveToolDetail, subAgentBodyDescription } from './toolDetail';
 import { deriveToolDetail } from '../../../../shared/tool-detail';
 import type { ToolCall } from '../../types';
 
@@ -379,5 +379,33 @@ describe('toolDetail — browser openings (CHAT-BROWSER-03)', () => {
     const d = { type: 'browser', url: 'http://localhost:5173/x', title: 'Vite App' } as const;
     expect(buildToolDisplayLabel(d)).toEqual({ name: 'Browser', summary: 'Vite App', tooltip: 'http://localhost:5173/x' });
     expect(buildToolDisplayLabel({ type: 'browser', url: 'http://localhost:5173/x' }).summary).toBe('localhost:5173');
+  });
+
+  test('a sub-agent row does not repeat its type when the description is just the type', () => {
+    const repeated = buildToolDisplayLabel({ type: 'sub_agent', via: 'task', subAgentType: 'general-purpose', description: 'general-purpose' } as never);
+    expect(repeated.name).toBe('general-purpose');
+    expect(repeated.summary).toBeUndefined();
+    const described = buildToolDisplayLabel({ type: 'sub_agent', via: 'task', subAgentType: 'Explore', description: 'cerca il bug' } as never);
+    expect(described.summary).toBe('cerca il bug');
+  });
+
+  test('a long sub-agent description keeps its full text on the tooltip', () => {
+    const long = 'Controlla in dettaglio ogni file del modulo di pagamento e riporta le differenze '.repeat(3).trim();
+    const d = buildToolDisplayLabel({ type: 'sub_agent', via: 'task', subAgentType: 'Explore', description: long } as never);
+    expect(d.summary).toBe(long);
+    expect(d.tooltip).toBe(long);
+  });
+
+  test('the open sub-agent card repeats the description only when the row really cuts it', () => {
+    const long = 'Controlla in dettaglio ogni file del modulo di pagamento e riporta le differenze '.repeat(3).trim();
+    const detail = { subAgentType: 'Explore', description: long };
+    // Not cut on screen: the row already shows it whole, so no body.
+    expect(subAgentBodyDescription(detail, false)).toBeUndefined();
+    // Cut on screen: the body carries the whole text.
+    expect(subAgentBodyDescription(detail, true)).toBe(long);
+    // A description that only repeats the type is never printed, cut or not.
+    const same = { subAgentType: 'general-purpose', description: 'general-purpose' };
+    expect(subAgentBodyDescription(same, true)).toBeUndefined();
+    expect(subAgentBodyDescription(same, false)).toBeUndefined();
   });
 });
