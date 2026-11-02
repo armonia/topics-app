@@ -5406,3 +5406,14 @@ SHALL registrare da quale chat è arrivata.
 - **GIVEN** una chat di un progetto aperta
 - **WHEN** l'agente apre una card dalla sessione di quella chat
 - **THEN** la chat SHALL mostrare la riga con il titolo e il link alla card, e SHALL NOT partire nessun turno
+
+### Requirement: KANBAN-104 — The drawer column carries words and one status line
+
+The column of a task drawer SHALL show only words (the person, the agent, the
+questions) and ONE status line that rewrites itself while the agent works. The
+dispatcher's system chronicle SHALL live under «Details», never in the column.
+
+#### Scenario: a working task
+- **WHEN** the drawer of a working task is open
+- **THEN** the column SHALL show zero system chronicle rows and one live status line
+- **AND** the chronicle SHALL be readable under «Details»
