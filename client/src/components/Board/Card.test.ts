@@ -232,11 +232,11 @@ describe('la misura del turno sulla card', () => {
     expect(live).toContain('w-full min-w-0 max-w-full items-center justify-between');
     // The band has its own tint, visibly apart from the card in both themes
     // («bg-app-user-bubble» was too close to the card to be seen).
-    expect(live).toContain('rounded-lg bg-black/[0.07]');
-    expect(live).toContain('dark:bg-white/[0.09]');
+    expect(live).toContain('rounded-lg bg-black/[0.12]');
+    expect(live).toContain('dark:bg-white/[0.16]');
     const start = src.indexOf('data-testid="card-measure"');
-    expect(src.slice(start, start + 300)).toContain('rounded-lg bg-black/[0.07]');
-    expect(src.slice(start, start + 300)).toContain('dark:bg-white/[0.09]');
+    expect(src.slice(start, start + 300)).toContain('rounded-lg bg-black/[0.12]');
+    expect(src.slice(start, start + 300)).toContain('dark:bg-white/[0.16]');
     expect(src.slice(start, start + 300)).toContain('w-full');
   });
 
