@@ -29,6 +29,8 @@ import { invalidateProbeCache } from "../services/url-probe-cache";
 import { STALE_TASK_MODEL_ERROR, isStaleModelChange, taskModelIsCurrent } from "../services/task-model-catalog";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import { resolveCreatedBy } from "../lib/created-by";
+import { contractApplies, missingForAgentCard } from "../lib/agent-card-contract";
+import { CREATED_BY_HUMAN } from "../../shared/created-by";
 import { readBoardWorkflow, readOwnWorkflowPreset } from "../services/board-workflow";
 import { WORKFLOW_PRESET_IDS, isWorkflowPresetId } from "../../shared/workflow";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
@@ -498,10 +500,27 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           if (typeof bornMachine === "string" && !ctx.machineStore.get(bornMachine)) {
             return json({ error: `machineId "${bornMachine}" is not a known machine`, code: "unknown_machine" }, 400);
           }
+          const createdBy = resolveCreatedBy(req, body);
+          // An agent's card must be able to finish by itself: refused, with the list, when it cannot.
+          let description: string | null = body?.description ?? null;
+          if (createdBy !== CREATED_BY_HUMAN && !body?.parentTaskId && contractApplies(req)) {
+            const missing = missingForAgentCard({
+              createdBy: body?.createdBy, description, bar: body?.bar, source: body?.source,
+              originTopicId: body?.originTopicId, projectId: effectiveProjectId,
+            });
+            if (missing.length) {
+              return json({ error: `card refused, missing: ${missing.join("; ")}`, code: "agent_card_incomplete", missing }, 400);
+            }
+            const extra: string[] = [];
+            if (typeof body?.bar === "string" && body.bar.trim()) extra.push(`BARRA: ${body.bar.trim()}`);
+            if (typeof body?.source === "string" && body.source.trim()) extra.push(`ORIGINE: ${body.source.trim()}`);
+            if (extra.length) description = `${description}\n\n${extra.join("\n")}`;
+          }
           const task = svc.create({
             projectId: effectiveProjectId,
             text: body?.text,
-            description: body?.description ?? null,
+            description,
+            createdByTopicId: typeof body?.originTopicId === "string" && body.originTopicId.trim() ? body.originTopicId.trim() : undefined,
             priority: typeof body?.priority === "number" ? body.priority : undefined,
             assignedTo: typeof body?.assignee === "string" ? body.assignee : null,
             status: typeof body?.status === "string" ? body.status : undefined,
@@ -515,7 +534,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             // "This Mac only" at birth: the overflow dispatch never moves it.
             stayLocal: body?.stayLocal === true,
             // Who opened it: the interface marks itself, anyone else is automation.
-            createdBy: resolveCreatedBy(req, body),
+            createdBy,
             // The workflow column it is born in; absent = the server decides.
             stage: typeof body?.stage === "string" ? body.stage : undefined,
             // A card born in review: the question that lets it be born in Human review.

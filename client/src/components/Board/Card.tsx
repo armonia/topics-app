@@ -58,7 +58,7 @@ import { SwapFreezeLabel } from '../Shared/SwapFreezeLabel';
 import { useSwapFreeze } from '../../state/swapFreeze';
 import { taskHasWork, uncommittedChipCount } from './chipKey';
 import { runInitiatorName } from './taskFilter';
-import { openedByLabel } from './createdByLabel';
+import { creatorKind, openedByLabel } from './createdByLabel';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '../../lib/popoverStyles';
 import { BoardCommandHint } from './BoardCommandHint';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
@@ -1471,11 +1471,18 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
             >{task.lastActorPersonName}</span>
           )}
           {openedBy && (
-            <span
+            <a
               data-testid="card-created-by"
+              data-creator={creatorKind(task.createdBy) ?? undefined}
+              href={task.openerTopicId ? `/topic/${task.openerTopicId}` : undefined}
+              onClick={(e) => e.stopPropagation()}
               title={tr('board.card.createdByTitle', { who: openedBy })}
-              className="flex items-center gap-1 rounded bg-slate-500/15 px-1.5 py-0.5 text-compact leading-4 text-slate-700 dark:text-slate-300 md:text-mini"
-            >{openedBy}</span>
+              className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${
+                creatorKind(task.createdBy) === 'human'
+                  ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
+                  : 'bg-slate-500/15 text-slate-700 dark:text-slate-300'
+              } ${task.openerTopicId ? 'underline decoration-dotted underline-offset-2' : ''}`}
+            >{openedBy}</a>
           )}
           {runInitiator && (
             <span

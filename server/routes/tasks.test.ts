@@ -443,6 +443,16 @@ describe("board router (human, project-scoped)", () => {
     expect(got.comments[0].origin).toBe("api");
   });
 
+  const FULL = { source: "test session", description: "A complete card: context long enough to be read cold.", bar: "bun test" };
+
+  test("agent card without context, bar or origin is refused and says what is missing", async () => {
+    const res = await call(router, "POST", "/api/boards/pX/tasks", { text: "thin", createdBy: "agent:jarvis" });
+    expect(res!.status).toBe(400);
+    const j = await res!.json();
+    expect(j.code).toBe("agent_card_incomplete");
+    expect(j.missing.join(" ")).toMatch(/source[\s\S]*description[\s\S]*bar/);
+  });
+
   test("created_by: the interface is human, a direct caller is automation and may name itself", async () => {
     const ui = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "from the ui", createdBy: "agent:spoof" }, {
       "X-Topics-Action-Origin": "interface",
@@ -450,16 +460,17 @@ describe("board router (human, project-scoped)", () => {
     // The interface cannot be talked out of being a person, whatever the body says.
     expect(ui.createdBy).toBe("human");
 
-    const named = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "from jarvis", createdBy: "agent:jarvis" }))!.json();
+    const named = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "from jarvis", createdBy: "agent:jarvis", ...FULL }))!.json();
     expect(named.createdBy).toBe("agent:jarvis");
-    const cron = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "from a cron", createdBy: "cron:nightly" }))!.json();
+    const cron = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "from a cron", createdBy: "cron:nightly", ...FULL }))!.json();
     expect(cron.createdBy).toBe("cron:nightly");
 
-    // Nobody named, or a malformed name: still automation, never an empty label.
-    const anon = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "from curl" }))!.json();
-    expect(anon.createdBy).toBe("agent:api");
-    const bad = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "bad name", createdBy: "x; DROP" }))!.json();
-    expect(bad.createdBy).toBe("agent:api");
+    // Nobody named, or a malformed name: refused with the list, never an anonymous card.
+    const anon = await call(router, "POST", "/api/boards/pX/tasks", { text: "from curl" }, { "X-Test": "bare" });
+    expect(anon!.status).toBe(400);
+    expect((await anon!.json()).code).toBe("agent_card_incomplete");
+    const bad = await call(router, "POST", "/api/boards/pX/tasks", { text: "bad name", createdBy: "x; DROP", ...FULL });
+    expect(bad!.status).toBe(400);
 
     // And it is on the card when read back.
     const got = await (await call(router, "GET", `/api/boards/pX/tasks/${named.id}`))!.json();

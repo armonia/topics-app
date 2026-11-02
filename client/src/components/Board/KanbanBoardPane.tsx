@@ -591,7 +591,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   const initiators = Array.from(new Set(tasks.map(runInitiatorName).filter(Boolean))).sort();
   const runComputers = Array.from(new Set(tasks.map((t) => t.runComputerName).filter(Boolean) as string[])).sort();
 
-  const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + filters.labels.length + filters.person.length + filters.computer.length + filters.initiator.length + filters.runComputer.length + (filters.text ? 1 : 0) > 0;
+  const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + filters.labels.length + filters.person.length + filters.computer.length + filters.initiator.length + filters.runComputer.length + (filters.text ? 1 : 0) + (filters.creator ? 1 : 0) > 0;
 
   // The shell of every filter control lives in `constants.ts`: the search box
   // here, the labels chip below, the token field and the project picker all
@@ -618,6 +618,24 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
         initiators={initiators}
         runComputers={runComputers}
       />
+
+      {/* WHO OPENED IT: all / mine / others, one click, so a person's own cards
+          are told apart from the agents' at a glance. */}
+      <div role="group" data-testid="filter-creator" className="flex shrink-0 items-center overflow-hidden rounded border border-white/10 text-mini">
+        {([['', 'all'], ['mine', 'mine'], ['others', 'others']] as const).map(([value, key]) => {
+          const on = (filters.creator ?? '') === value;
+          return (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={on}
+              data-testid={`filter-creator-${key}`}
+              onClick={() => onFiltersChange({ ...filters, creator: value || undefined })}
+              className={`px-2 ${TOOLBAR_CONTROL_H} ${on ? 'bg-white/15 text-app-text' : 'text-app-text-muted hover:bg-white/10'}`}
+            >{tr(`board.filter.creator.${key}`)}</button>
+          );
+        })}
+      </div>
 
       {/* Reset — only when something is active */}
       {anyActive && (
