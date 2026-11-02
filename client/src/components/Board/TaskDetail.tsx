@@ -88,7 +88,8 @@ import { addBoardProject, projectNameFromId, useBoardProjects, UNKNOWN_PROJECT_N
 import { GroupLayout } from '../Layout/GroupLayout';
 import { useTaskBrowserGroupLayout, type TaskBrowserGroupLayout, type RenderSurface } from './useTaskBrowserGroupLayout';
 import { POPOVER_DIVIDER, POPOVER_ITEM } from '@/lib/popoverStyles';
-import { machineStopOf } from '../Chat/machineRow';
+import { machineStopOf, subagentResultOf } from '../Chat/machineRow';
+import { SubAgentResultRow } from '../Chat/SubAgentResultCard';
 import { MachineStopLine } from '../Chat/MachineStopLine';
 import { backgroundNoticeOf } from '../Chat/machineRow';
 import { BackgroundNoticeLine } from '../Chat/BackgroundNoticeLine';
@@ -3556,8 +3557,15 @@ const SessionRun = memo(function SessionRun({ items, sessionKey }: {
         else result.push({ folded: segment.folded, parts: [part] });
       }
     }
+    // One «Session details» row per run: later folded groups join the first.
+    const firstFold = result.find((group) => group.folded);
+    const merged = result.filter((group) => {
+      if (!group.folded || group === firstFold) return true;
+      firstFold!.parts.push(...group.parts);
+      return false;
+    });
     let hasFold = false;
-    return result.map((group) => {
+    return merged.map((group) => {
       // The first disclosure belongs to the run. Earlier prose can join it
       // when the first tool arrives, without closing details the reader opened.
       const key = group.folded && !hasFold ? `${items[0].id}:work` : group.parts[0].message.id;
@@ -3570,7 +3578,9 @@ const SessionRun = memo(function SessionRun({ items, sessionKey }: {
   }, [items]);
   return <div className={`text-body-lg leading-5 text-app-text ${COMPACT_MD_CLS}`} data-testid="task-session-item" data-message-id={items[0].msg.id}>
     {groups.map(({ folded, parts, summary, key }) => {
-      const content = parts.map(({ message, originalId }) => machineStopOf(message.blocks)
+      const content = parts.map(({ message, originalId }) => subagentResultOf(message.blocks)
+        ? <SubAgentResultRow key={message.id} messageId={message.id} block={subagentResultOf(message.blocks)!} />
+        : machineStopOf(message.blocks)
         ? <MachineStopLine key={message.id} cause={machineStopOf(message.blocks)!} closed={backgroundNoticeOf(message.blocks)} />
         : backgroundNoticeOf(message.blocks)
         ? <BackgroundNoticeLine key={message.id} notice={backgroundNoticeOf(message.blocks)!} />

@@ -81,7 +81,10 @@ export function TaskWorkAccordion({ msg, tools, children, label, testId = 'task-
       {/* The pages opened in the stretch sit on the same line as chips
           (CHAT-BROWSER-01): commands of their own, so beside the toggle and
           not inside it, a button in a button being invalid HTML. */}
-      <div className="flex items-center gap-1 rounded border border-app-border/60 bg-app-bg-secondary/40 pr-1 transition-colors hover:bg-app-bg-secondary/80">
+      <div className={label
+        // Board task: a light line, no frame (same look as the sub-agent row).
+        ? 'flex items-center gap-1 pr-1'
+        : 'flex items-center gap-1 rounded border border-app-border/60 bg-app-bg-secondary/40 pr-1 transition-colors hover:bg-app-bg-secondary/80'}>
       <button
         type="button"
         aria-expanded={open}
@@ -89,7 +92,7 @@ export function TaskWorkAccordion({ msg, tools, children, label, testId = 'task-
         onClick={(e) => { disclose(e.currentTarget); setOpen((v) => !v); }}
         title={tr('chat.taskWork.summaryTitle')}
         data-testid="task-work-summary"
-        className="min-w-0 flex-1 px-2 py-1 text-left text-app-text-secondary transition-colors hover:text-app-text coarse:min-h-11"
+        className={`min-w-0 flex-1 ${label ? 'px-0 py-0.5' : 'px-2 py-1'} text-left text-app-text-secondary transition-colors hover:text-app-text coarse:min-h-11`}
       >
         <span className="flex items-center gap-2">
           <span className="flex-shrink-0 inline-flex">

@@ -51,7 +51,7 @@ export function SubAgentResultView({ card }: { card: SubagentResultCard }) {
       data-testid="subagent-result-card"
       data-agent-id={card.agentId}
       data-status={card.status}
-      className="space-y-1 rounded border border-app-border bg-app-surface/60 px-2.5 py-1.5 text-mini"
+      className="space-y-1 text-mini"
     >
       <div className="flex min-w-0 items-center gap-1.5">
         <Bot size={12} className="flex-shrink-0 text-app-text-muted" />
@@ -64,7 +64,7 @@ export function SubAgentResultView({ card }: { card: SubagentResultCard }) {
       </div>
       {reason && <div className="italic text-app-text-muted">{reason}</div>}
       {card.status === 'completed'
-        ? <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words text-app-text-secondary">{text || tr('chat.subagent.noOutput')}</pre>
+        ? <div data-testid="sub-agent-result" className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-app-hover/40 px-3 py-2 text-compact text-app-text">{text || tr('chat.subagent.noOutput')}</div>
         : text && (
           <div>
             <div className="text-app-text-muted">{tr('chat.subagent.lastSeen')}</div>
