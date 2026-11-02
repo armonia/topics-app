@@ -6587,3 +6587,27 @@ current effort next to the model, with provider Automatic too.
 - **THEN** the controls bar SHALL start at or below the card's bottom edge
 - **AND** the band from the card bottom to the input area bottom SHALL be at most 44px
 - **AND** the effort badge SHALL be visible in the bar without opening a menu
+
+### Requirement: CHAT-REVEAL-01 — Live text is revealed a few characters per frame, never more than 600 ms behind
+
+Text that has just arrived in a live turn SHALL be written 2-3 characters per
+frame, and the written text SHALL NOT trail the arrived text by more than 600 ms
+whatever the size of the burst. The reveal SHALL be off for history, for finished
+turns and under `prefers-reduced-motion`. A block that remounts mid-turn SHALL
+show the text already arrived at once and animate only what comes after.
+
+#### Scenario: A burst drains within the ceiling
+- **GIVEN** a live block with a large backlog of unwritten text
+- **WHEN** frames pass at 8 to 50 ms
+- **THEN** all the text SHALL be written within 600 ms
+
+### Requirement: CHAT-REVEAL-02 — A tool command is written into its row while the partial input arrives
+
+For the `claude-code` provider the primary argument of a tool call (the command,
+file name or url) SHALL be surfaced as a partial update as soon as its value starts,
+including a string value that is not closed yet.
+
+#### Scenario: An unfinished command is surfaced
+- **GIVEN** a tool input streaming as partial JSON with an unclosed command string
+- **WHEN** the next chunk is processed
+- **THEN** the row SHALL receive the command so far, flagged as partial
