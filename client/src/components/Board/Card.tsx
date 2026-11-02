@@ -1475,7 +1475,8 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               data-testid="card-created-by"
               data-creator={creatorKind(task.createdBy) ?? undefined}
               href={task.openerTopicId ? `/topic/${task.openerTopicId}` : undefined}
-              onClick={(e) => e.stopPropagation()}
+              // Only a real link keeps the click to itself: a plain chip must let the card open.
+              onClick={task.openerTopicId ? (e) => e.stopPropagation() : undefined}
               title={tr('board.card.createdByTitle', { who: task.createdSource ? `${openedBy} (${task.createdSource})` : openedBy })}
               className={`flex max-w-[7rem] items-center gap-1 truncate rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${
                 creatorKind(task.createdBy) === 'human'
