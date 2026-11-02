@@ -723,3 +723,33 @@ describe('la card preferisce la consegna dichiarata', () => {
     expect(out?.latest.content).toContain('turno 2');
   });
 });
+
+describe('la parola dell\'agente quando l\'ultima voce è di sistema', () => {
+  const c = (author: string, kind: string, content: string, i: number) =>
+    ({ id: String(i), taskId: 't', author, kind, content, createdAt: `2026-10-31T10:${10 + i}:00Z` }) as CardComment;
+
+  test('con una nota di sistema dopo l\'agente, agentWord è la parola dell\'agente, non la nota', () => {
+    const out = selectCardComments([
+      c('agent:x', 'comment', 'Ho sistemato il parser: i test passano.', 1),
+      c('system', 'comment', 'Turno concluso dall\'agente senza portare il task in review', 2),
+    ], { status: 'review' } as never);
+    expect(isMachineVoice(c('system', 'comment', 'x', 0))).toBe(true);
+    expect(out?.agentWord?.content).toContain('parser');
+    expect(out?.agentWord?.author).toBe('agent:x');
+  });
+
+  test('senza nessuna parola dell\'agente, agentWord è null: il corpo non ripiega sulla macchina', () => {
+    const out = selectCardComments([
+      c('system', 'review-note', 'Consegna senza anteprima', 1),
+    ], { status: 'review' } as never);
+    expect(out?.agentWord).toBeNull();
+  });
+
+  test('la voce della persona non diventa la parola dell\'agente', () => {
+    const out = selectCardComments([
+      c('agent:x', 'comment', 'Serve un controllo sul formato date.', 1),
+      c('user', 'comment', 'ok, procedi', 2),
+    ], { status: 'review' } as never);
+    expect(out?.agentWord?.content).toContain('formato date');
+  });
+});
