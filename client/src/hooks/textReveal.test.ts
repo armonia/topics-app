@@ -1,3 +1,7 @@
+/**
+ * Gradual reveal of streamed text: lag ceiling, reduced motion, remount.
+ * @covers CHAT-REVEAL-01
+ */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { resetReducedMotionCache } from '../lib/reducedMotion';
 import { MAX_REVEAL_LAG_MS, isRevealOff, nextRevealLength, stepReveal, type RevealState } from './textReveal';

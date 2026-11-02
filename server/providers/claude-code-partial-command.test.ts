@@ -1,6 +1,7 @@
 /**
  * The command of a tool is written into its row while the partial_json
  * arrives, not once it is complete.
+ * @covers CHAT-REVEAL-02
  */
 import { describe, test, expect } from "bun:test";
 import { ClaudeCodeProvider } from "./claude-code";
