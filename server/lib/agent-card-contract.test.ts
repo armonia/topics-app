@@ -1,3 +1,7 @@
+/**
+ * The contract an agent card must meet to finish by itself.
+ * @covers KANBAN-05
+ */
 import { test, expect } from "bun:test";
 import { missingForAgentCard } from "./agent-card-contract";
 
