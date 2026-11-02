@@ -540,7 +540,7 @@ describe("an empty turn the machine stopped offers no retry, after a reload too"
       },
     } as never);
     const created = await tasks(new Request("http://localhost/api/boards/pR/tasks", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "delega", status: "in_progress" }),
+      method: "POST", headers: { "content-type": "application/json", "X-Topics-Action-Origin": "interface" }, body: JSON.stringify({ text: "delega", status: "in_progress" }),
     }), new URL("http://localhost/api/boards/pR/tasks"), "/api/boards/pR/tasks", "POST");
     const card = await created!.json() as { id: string };
     c.ctx.db.run("UPDATE tasks SET assigned_topic_id = ?, dispatch_state = 'working' WHERE id = ?", ["revoke01-0000-4000-8000-000000000000", card.id]);

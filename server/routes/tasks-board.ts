@@ -29,7 +29,7 @@ import { invalidateProbeCache } from "../services/url-probe-cache";
 import { STALE_TASK_MODEL_ERROR, isStaleModelChange, taskModelIsCurrent } from "../services/task-model-catalog";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import { resolveCreatedBy } from "../lib/created-by";
-import { contractApplies, missingForAgentCard } from "../lib/agent-card-contract";
+import { isContractEnforced, missingForAgentCard } from "../lib/agent-card-contract";
 import { CREATED_BY_HUMAN } from "../../shared/created-by";
 import { readBoardWorkflow, readOwnWorkflowPreset } from "../services/board-workflow";
 import { WORKFLOW_PRESET_IDS, isWorkflowPresetId } from "../../shared/workflow";
@@ -503,7 +503,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           const createdBy = resolveCreatedBy(req, body);
           // An agent's card must be able to finish by itself: refused, with the list, when it cannot.
           let description: string | null = body?.description ?? null;
-          if (createdBy !== CREATED_BY_HUMAN && !body?.parentTaskId && contractApplies(req)) {
+          if (createdBy !== CREATED_BY_HUMAN && !body?.parentTaskId && isContractEnforced(req)) {
             const missing = missingForAgentCard({
               createdBy: body?.createdBy, description, bar: body?.bar, source: body?.source,
               originTopicId: body?.originTopicId, projectId: effectiveProjectId,

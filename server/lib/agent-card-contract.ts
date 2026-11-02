@@ -33,12 +33,12 @@ export function missingForAgentCard(i: AgentCardInput): string[] {
   }
   const hasSource = (typeof i.source === "string" && i.source.trim()) || (typeof i.originTopicId === "string" && i.originTopicId.trim());
   if (!hasSource) missing.push("source: the session or channel the request came from (or originTopicId, the chat to link back to)");
-  const desc = typeof i.description === "string" ? i.description.trim() : "";
-  if (desc.length < MIN_CONTEXT_CHARS) missing.push(`description: the context, at least ${MIN_CONTEXT_CHARS} characters`);
+  const descriptionText = typeof i.description === "string" ? i.description.trim() : "";
+  if (descriptionText.length < MIN_CONTEXT_CHARS) missing.push(`description: the context, at least ${MIN_CONTEXT_CHARS} characters`);
   if (i.projectId === AUTO_PROJECT_ID || i.projectId === UNASSIGNED_PROJECT_ID) {
     missing.push("board: a real board (its folder), not auto or unassigned");
   }
-  const hasBar = (typeof i.bar === "string" && i.bar.trim()) || BAR_LINE_RE.test(desc);
+  const hasBar = (typeof i.bar === "string" && i.bar.trim()) || BAR_LINE_RE.test(descriptionText);
   if (!hasBar) missing.push("bar: an executable bar (field `bar`, or a `BARRA:` line in the description)");
   return missing;
 }
@@ -49,6 +49,6 @@ export function missingForAgentCard(i: AgentCardInput): string[] {
  * request asks for it with `X-Topics-Enforce-Card-Contract: 1` (the spec that
  * proves the contract does). Everywhere else it always applies.
  */
-export function contractApplies(req: Request): boolean {
+export function isContractEnforced(req: Request): boolean {
   return process.env.TOPICS_E2E !== "1" || req.headers.get("X-Topics-Enforce-Card-Contract") === "1";
 }
