@@ -37,6 +37,7 @@ import { useWaitedProcess } from '../../hooks/useWaitedProcess';
 import { LaunchedProcessTail, LiveShellTail } from './LiveShellTail';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { liveShellTail } from './runningShellTail';
+import { subAgentBodyDescription } from './toolDetail';
 
 /**
  * Monospace block with lazy syntax highlighting. hljs ESCAPES the source and
@@ -309,10 +310,11 @@ export function TodoCard({ items }: { items: Array<{ content: string; status: 'p
 
 // ── Sub-agent (Task) ────────────────────────────────────────────────────────
 
-export function SubAgentCard({ subAgentType, description, actions, result, isRunning }: {
-  subAgentType?: string; description?: string;
+export function SubAgentCard({ actions, result, isRunning, description }: {
   actions: Array<{ index: number; toolName: string; summary?: string; status?: 'running' | 'success' | 'error' }>;
   result?: string;
+  /** Full task description: the row shows it cut to one line. */
+  description?: string;
   /**
    * From the parent ToolCall's own status, not derived from actions[].
    * Background/async agent runs finalize (success/error) without ever
@@ -326,12 +328,10 @@ export function SubAgentCard({ subAgentType, description, actions, result, isRun
   const tr = useT();
   return (
     <div className="space-y-1.5">
-      {(subAgentType || description) && (
-        <div className="text-mini text-app-text-secondary">
-          {subAgentType && <span className="font-mono text-purple-500">{subAgentType}</span>}
-          {subAgentType && description && ' · '}
-          {description}
-        </div>
+      {/* No type/description header here: the row above already shows them,
+          and repeating them in the body printed the same label twice. */}
+      {description && (
+        <div data-testid="sub-agent-description" className="text-compact text-app-text whitespace-pre-wrap break-words">{description}</div>
       )}
       {actions.length === 0 ? (
         <div className="text-mini italic text-app-text-muted">
@@ -342,7 +342,9 @@ export function SubAgentCard({ subAgentType, description, actions, result, isRun
           <div className="text-mini uppercase tracking-wide text-app-text-muted mb-0.5">
             {tr(actions.length === 1 ? 'chat.tool.activityOne' : 'chat.tool.activityMany', { n: actions.length })}
           </div>
-          <ul className="space-y-0.5 max-h-72 overflow-auto bg-app-hover/40 rounded px-2 py-1.5 border-l-2 border-purple-500/40">
+          {/* No box and no tint: the sub-agent body flows in the transcript
+              like chat text, under the row. */}
+          <ul className="space-y-0.5 max-h-72 overflow-auto">
             {actions.map((a) => (
               <li key={a.index} className="flex items-start gap-2 text-mini font-mono leading-snug">
                 {/* `w-6`: al decimo passo «10.» non ci stava più in `w-4` e
@@ -362,11 +364,10 @@ export function SubAgentCard({ subAgentType, description, actions, result, isRun
           </ul>
         </div>
       )}
+      {/* The final answer sits in a soft band, same tint and corners as the
+          other tool results, full column width. Rows and description stay bare. */}
       {result && (
-        <div>
-          <div className="text-mini uppercase tracking-wide text-app-text-muted mb-0.5">{tr('chat.tool.finalResult')}</div>
-          <ClampedPre text={result} />
-        </div>
+        <div data-testid="sub-agent-result" className="text-compact text-app-text whitespace-pre-wrap break-words bg-app-hover/40 rounded-lg px-3 py-2">{result}</div>
       )}
     </div>
   );
@@ -714,13 +715,15 @@ export function ToolCardBody(props: Parameters<typeof ToolCardBodyDetail>[0]) {
   );
 }
 
-function ToolCardBodyDetail({ detail, isError, error, isRunning, sessionKey, liveResult }: {
+function ToolCardBodyDetail({ detail, isError, error, isRunning, sessionKey, liveResult, summaryCut }: {
   detail: ToolCallDetail; isError?: boolean; error?: string; isRunning?: boolean;
   /** Serve alle sole card delle shell in background: è la metà della chiave
    *  con cui la shell sta nel registro dei processi. */
   sessionKey?: string;
   /** A running shell's partial output (CHAT-TOOL-08); every other card ignores it. */
   liveResult?: string;
+  /** The row's one-line summary is really clipped on screen (measured in ToolCallRow). */
+  summaryCut?: boolean;
 }) {
   switch (detail.type) {
     case 'shell':
@@ -740,7 +743,7 @@ function ToolCardBodyDetail({ detail, isError, error, isRunning, sessionKey, liv
     case 'sub_agent':
       // Topics' `spawn_agent`: a child with a pane, a live state and results of its own.
       if (detail.via === 'spawn_agent') return <SpawnAgentCard detail={detail} sessionKey={sessionKey} isRunning={isRunning} isError={isError} error={error} />;
-      return <SubAgentCard subAgentType={detail.subAgentType} description={detail.description} actions={detail.actions} result={detail.result} isRunning={isRunning} />;
+      return <SubAgentCard actions={detail.actions} result={detail.result} isRunning={isRunning} description={subAgentBodyDescription(detail, !!summaryCut)} />;
     case 'plan':
       return <PlanCard text={detail.text} />;
     case 'mcp':
