@@ -63,7 +63,7 @@ test.describe("who opened the card", () => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-05" });
     const url = `${E2E_BASE}/api/boards/${PROJECT_ID}/tasks`;
 
-    const thin = await request.post(url, { headers: ENFORCE, data: { text: "thin agent card", createdBy: "agent:jarvis" } });
+    const thin = await request.post(url, { headers: ENFORCE, data: { text: "thin agent card", createdBy: "agent:thinbot" } });
     expect(thin.status()).toBe(201);
     const born = (await thin.json()) as { id: string; createdMissing: string[] };
     created.push(born.id);
@@ -86,6 +86,9 @@ test.describe("who opened the card", () => {
     const chips = page.getByTestId("card-created-by");
     await expect(chips.filter({ hasText: /jarvis/ })).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-creator="human"]')).toBeVisible();
+    // The thin card is on the board too, flagged, never hidden or refused.
+    await expect(chips.filter({ hasText: /thinbot/ })).toBeVisible();
+    await expect(page.getByTestId("card-incomplete")).toHaveCount(1);
 
     await page.getByTestId("filter-creator").click();
     await expect(page.getByText("Card from the person")).toBeVisible();

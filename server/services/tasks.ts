@@ -2406,7 +2406,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     const openerIds = [...new Set(rows.map((r) => r.created_by_topic_id).filter(Boolean) as string[])];
     if (openerIds.length) {
       try {
-        for (const t of db.query("SELECT id, name FROM topics WHERE id IN (SELECT value FROM json_each(?))").all(idParam(openerIds)) as any[]) {
+        for (const t of db.query("SELECT id, name FROM topics WHERE id IN (SELECT value FROM json_each(?))").all(idParam(openerIds)) as Array<{ id: string; name: string | null }>) {
           if (t.name) b.openerNames.set(t.id, t.name);
         }
       } catch { /* reduced `topics` table: the chip falls back to the agent name */ }
