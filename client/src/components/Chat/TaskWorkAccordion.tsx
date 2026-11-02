@@ -22,6 +22,7 @@ import { formatDurationMs, formatToolCounts, isWhollyFailed } from './toolGroupi
 import { useDisclosureToggle } from './transcriptDisclosure';
 import { DisclosureBody } from './DisclosureBody';
 import { baseName, summarizeTools, summarizeWork } from './taskWorkFold';
+import { CHAT_STRIP_NEUTRAL } from '../../lib/chatStripStyles';
 import { BrowserMarkerChip } from './BrowserOpenMarker';
 import { useFindFocusInFold } from '../../state/chatFindFocus';
 
@@ -147,7 +148,11 @@ export function TaskWorkAccordion({ msg, tools, children, label, testId = 'task-
           them up. Mounted only when open (or closing), so a closed transcript
           does not pay for the tool bodies it is not showing. */}
       <DisclosureBody open={open} id={bodyId} testId="task-work-body" className="ml-[9px] mt-0.5 border-l border-app-border/50 pl-3">
-        {children}
+        {label
+          // «Session details» of a board task opens onto the steps as ONE strip
+          // (a single soft band, rows flat inside), not a stack of boxed tool cards.
+          ? <div data-testid="session-steps-strip" className={`${CHAT_STRIP_NEUTRAL} mx-0 px-1 py-0.5 [&_[data-testid^=tool-call-row-]]:rounded-none [&_[data-testid^=tool-call-row-]]:border-0 [&_[data-testid^=tool-call-row-]]:bg-transparent [&_[data-testid^=tool-call-row-]]:shadow-none`}>{children}</div>
+          : children}
       </DisclosureBody>
     </div>
   );

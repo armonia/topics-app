@@ -18,6 +18,8 @@ const STAMP = Date.now();
 const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-words-only-${STAMP}`;
 const PROJECT_ID = projectIdForPath(PROJECT_PATH);
 const SYSTEM_LINE = `SYSTEM-CHRONICLE-${STAMP}`;
+const REVIEW_NOTE = `REVIEW-NOTE-${STAMP}`;
+const EXIT_LABEL = `EXIT-LINE-${STAMP}`;
 const AGENT_WORDS = `AGENT-WORDS-${STAMP}`;
 
 test.describe("Task drawer: words and one status line", () => {
@@ -41,6 +43,10 @@ test.describe("Task drawer: words and one status line", () => {
     expect(spoken.ok()).toBe(true);
     spokenId = ((await spoken.json()) as { message: { id: string } }).message.id;
     await row({
+      role: "user", content: EXIT_LABEL,
+      blocks: [{ kind: "process-exit", processId: `p-${STAMP}`, exitCode: 0, label: EXIT_LABEL }],
+    });
+    await row({
       role: "assistant", content: "",
       blocks: [{ kind: "tool", toolCall: { id: `wo-${STAMP}`, name: "Bash", args: { command: "bun test" }, status: "running" } }],
     });
@@ -57,6 +63,10 @@ test.describe("Task drawer: words and one status line", () => {
       data: { content: SYSTEM_LINE, author: "system", messageId: "m-system" },
     });
     expect(note.ok()).toBe(true);
+    const review = await request.post(`${E2E_BASE}/api/test/tasks/${taskId}/anchored-comment`, {
+      data: { content: REVIEW_NOTE, author: "system", messageId: "m-review", kind: "review-note" },
+    });
+    expect(review.ok()).toBe(true);
   });
 
   test.afterAll(async ({ request }) => {
@@ -72,11 +82,20 @@ test.describe("Task drawer: words and one status line", () => {
     await expect(column).toBeVisible({ timeout: 20_000 });
     await expect(column.getByText(AGENT_WORDS)).toBeVisible();
     await expect(column.getByText(SYSTEM_LINE)).toHaveCount(0);
+    await expect(column.getByText(REVIEW_NOTE)).toHaveCount(0);
+    await expect(column.getByText(EXIT_LABEL)).toHaveCount(0);
     await expect(column.getByTestId("task-service-fold")).toHaveCount(0);
     await expect(page.getByTestId("task-session-live")).toHaveCount(1);
     await expect(page.getByTestId("turn-running-tool")).toContainText("bun test");
 
     await page.getByTestId("task-details-toggle").click();
-    await expect(page.getByTestId("task-chronicle").getByText(SYSTEM_LINE)).toBeVisible();
+    const chronicle = page.getByTestId("task-chronicle");
+    await expect(chronicle.getByText(SYSTEM_LINE)).toBeVisible();
+    await expect(chronicle.getByText(REVIEW_NOTE)).toBeVisible();
+    await expect(chronicle.getByText(EXIT_LABEL)).toBeVisible();
+
+    // «Session details» opens onto the steps as one strip, not boxed cards.
+    await column.getByTestId("task-work-summary").first().click();
+    await expect(column.getByTestId("session-steps-strip")).toHaveCount(1);
   });
 });
