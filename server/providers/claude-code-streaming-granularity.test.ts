@@ -1,7 +1,7 @@
 /**
  * Text and tool commands reach the handler as the model writes them, with no
  * artificial delay and no lump per block (card cd66c3bd).
- * @covers CHAT-STREAM-01
+ * @covers CHAT-LIVE-TEXT-01
  */
 import { describe, test, expect } from "bun:test";
 import { ClaudeCodeProvider } from "./claude-code";
