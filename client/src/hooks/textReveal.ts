@@ -78,7 +78,7 @@ export function useRevealedText(text: string, enabled: boolean): string {
 
   useEffect(() => {
     if (off) return;
-    let raf = 0;
+    let frameId = 0;
     let state: RevealState = { shown: shownRef.current, last: performance.now(), deadline: 0 };
     const tick = (now: number) => {
       state = stepReveal(state, textRef.current.length, now);
@@ -86,10 +86,10 @@ export function useRevealedText(text: string, enabled: boolean): string {
         shownRef.current = state.shown;
         setShown(state.shown);
       }
-      raf = requestAnimationFrame(tick);
+      frameId = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    frameId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frameId);
   }, [off]);
 
   if (off) return text;
