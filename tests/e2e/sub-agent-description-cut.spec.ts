@@ -23,6 +23,8 @@ hermetic(test);
  */
 
 const DESCRIPTION_90 = "Controlla ogni file del modulo di pagamento e riporta le differenze trovate, riga per riga";
+// The 90 characters can fit one row at 900 px: where a test needs a row that is really cut, it uses twice the text.
+const DESCRIPTION_CUT = `${DESCRIPTION_90} ${DESCRIPTION_90}`;
 const DESCRIPTION_45 = "Riassumi il log della build: cosa è fallito e";
 
 test.describe.serial("Descrizione del sotto-agente: il corpo solo se la riga la tronca", () => {
@@ -155,8 +157,7 @@ test.describe.serial("Descrizione del sotto-agente: il corpo solo se la riga la 
 
   test("the row never lays out without the body while the description is cut (ResizeObserver, 900 px)", async ({ page, request }) => {
     const id = "tc-sub-90-observer";
-    // Twice the text: the 90 characters now fit one row at 900 px, and this test needs a row that is cut.
-    await seedSubAgent(request, id, `${DESCRIPTION_90} ${DESCRIPTION_90}`);
+    await seedSubAgent(request, id, DESCRIPTION_CUT);
     // Record, at every resize callback, whether the body is in the row.
     await page.addInitScript(() => {
       const seen: boolean[] = [];
@@ -184,17 +185,17 @@ test.describe.serial("Descrizione del sotto-agente: il corpo solo se la riga la 
 
   test("a Task with a permission and a cut row carries the whole text in the body (900 px)", async ({ page, request }) => {
     const id = "tc-sub-90-permission";
-    await seedSubAgent(request, id, DESCRIPTION_90, true);
+    await seedSubAgent(request, id, DESCRIPTION_CUT, true);
     await page.setViewportSize({ width: 900, height: 900 });
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
     const body = bodyOf(page, id);
     await expect(body).toHaveCount(1, { timeout: 15_000 });
-    await expect(body).toHaveText(DESCRIPTION_90);
+    await expect(body).toHaveText(DESCRIPTION_CUT);
   });
 
-  test("resize 1440 -> 900 -> 1440: the body appears and goes away with the cut", async ({ page, request }) => {
+  test("resize 1440 -> 390 -> 1440: the body appears and goes away with the cut", async ({ page, request }) => {
     const id = "tc-sub-90-resize";
     await seedSubAgent(request, id, DESCRIPTION_90);
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -204,7 +205,7 @@ test.describe.serial("Descrizione del sotto-agente: il corpo solo se la riga la 
     const row = page.locator(`[data-testid="tool-call-row-${id}"]`);
     await expect(row).toBeVisible({ timeout: 15_000 });
     await expect(bodyOf(page, id)).toHaveCount(0);
-    await page.setViewportSize({ width: 900, height: 900 });
+    await page.setViewportSize({ width: 390, height: 844 });
     await expect(bodyOf(page, id)).toHaveCount(1);
     await page.setViewportSize({ width: 1440, height: 900 });
     await expect(bodyOf(page, id)).toHaveCount(0);
@@ -212,7 +213,7 @@ test.describe.serial("Descrizione del sotto-agente: il corpo solo se la riga la 
 
   test("back from another topic the row keeps its height, and the description stays at a hidden pane", async ({ page, request }) => {
     const id = "tc-sub-90-return";
-    await seedSubAgent(request, id, DESCRIPTION_90);
+    await seedSubAgent(request, id, DESCRIPTION_CUT);
     const other = await createTopic(request, "Sub-agent other " + Date.now());
     await page.setViewportSize({ width: 900, height: 900 });
     await goToApp(page);
