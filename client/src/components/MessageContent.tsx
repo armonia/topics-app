@@ -1,6 +1,7 @@
 // VoiceMessagePlayer v2 - custom player for voice messages
 import React, { createContext, lazy, Suspense, useContext, useDeferredValue, useEffect, useMemo, useState, useCallback, useRef, useSyncExternalStore, memo } from 'react';
 import { useT } from '../hooks/useT';
+import { useRevealedText } from '../hooks/textReveal';
 import { copyText } from '../lib/clipboard';
 import { type Components, type ExtraProps } from 'react-markdown';
 import { ChatMarkdown } from './ChatMarkdown';
@@ -953,9 +954,11 @@ function ProseBlock({ text, components, streaming = false }: { text: string; com
   // The divider right above this message already hoisted the recap into its own
   // expander — rendering the fold too would announce the same boundary twice.
   const hoisted = useContext(CompactionHoistContext);
+  // Live text is written a few characters per frame; history shows whole.
+  const revealed = useRevealedText(before, streaming);
   return (
     <>
-      {before ? <ChatMarkdown components={components} streaming={streaming && !summary}>{before}</ChatMarkdown> : null}
+      {revealed ? <ChatMarkdown components={components} streaming={streaming && !summary}>{revealed}</ChatMarkdown> : null}
       {summary && !hoisted ? <CompactionSummaryFold summary={summary} components={components} /> : null}
     </>
   );

@@ -4456,10 +4456,11 @@ export class ClaudeCodeProvider implements AIProvider {
         if (!entry.lastEmitAt || now - entry.lastEmitAt >= PARTIAL_ARGS_EMIT_MS) {
           entry.lastEmitAt = now;
           handler.onToolActivity?.(entry.id);
-          const primary = extractPrimaryToolArg(entry.buf);
+          // Open values count: the command is written into the row as it arrives.
+          const primary = extractPrimaryToolArg(entry.buf, { open: true });
           if (primary && primary.value !== entry.emittedPrimary) {
             entry.emittedPrimary = primary.value;
-            handler.onToolArgsUpdate?.(entry.id, { [primary.key]: primary.value });
+            handler.onToolArgsUpdate?.(entry.id, { [primary.key]: primary.value }, { partial: true });
           }
         }
       }
