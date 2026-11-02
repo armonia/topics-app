@@ -26,7 +26,7 @@ test("the card names a named agent or schedule on an open card, and nothing else
   expect(openedByLabel("cron:nightly", "backlog", tr)).toBe("board.card.createdByCron|nightly");
   // A person's card, the anonymous fallback and a chat agent are named too.
   expect(openedByLabel("human", "review", tr)).toBe("board.card.createdByHuman|");
-  expect(openedByLabel("agent:api", "review", tr)).toBe("board.card.createdByApi|");
+  expect(openedByLabel("agent:api", "review", tr)).toBeNull();
   expect(openedByLabel("agent:session", "review", tr)).toBe("board.card.createdBySession|");
   // A closed card and no author: no chip.
   expect(openedByLabel("agent:jarvis", "done", tr)).toBeNull();

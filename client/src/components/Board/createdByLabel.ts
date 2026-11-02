@@ -12,8 +12,7 @@ export function creatorKind(createdBy: string | null | undefined): CreatorKind |
 
 /**
  * The words on the card for `Task.createdBy`, always: "opened by you" for a
- * person, "opened by jarvis" for a named agent, "opened by an unnamed script"
- * for the anonymous API fallback (`agent:api`), "opened from a session" for a
+ * person, "opened by jarvis" for a named agent, "opened from a session" for a
  * chat agent (`agent:session`; the chip links to that chat). Nothing for a
  * closed card or when there is no author (cards born before the field stay
  * readable and carry no made-up chip).
@@ -23,7 +22,8 @@ export function openedByLabel(createdBy: string | null | undefined, status: stri
   const parts = splitCreatedBy(createdBy);
   if (!parts) return null;
   if (parts.kind === 'human') return tr('board.card.createdByHuman');
-  if (createdBy === API_CALLER_CREATED_BY) return tr('board.card.createdByApi');
+  // The anonymous fallback names nobody: no chip beats a made-up one.
+  if (createdBy === API_CALLER_CREATED_BY) return null;
   if (parts.kind === 'cron') return tr('board.card.createdByCron', { name: parts.name ?? '' });
   if (parts.name === 'session') return tr('board.card.createdBySession');
   return tr('board.card.createdByAgent', { name: parts.name ?? '' });

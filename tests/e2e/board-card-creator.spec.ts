@@ -87,7 +87,7 @@ test.describe("who opened the card", () => {
     await expect(chips.filter({ hasText: /jarvis/ })).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-creator="human"]')).toBeVisible();
 
-    await page.getByTestId("filter-creator-mine").click();
+    await page.getByTestId("filter-creator").click();
     await expect(page.getByText("Card from the person")).toBeVisible();
     await expect(page.getByText("Card from an agent")).toHaveCount(0);
   });

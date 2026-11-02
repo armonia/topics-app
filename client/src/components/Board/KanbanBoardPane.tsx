@@ -621,21 +621,14 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
 
       {/* WHO OPENED IT: all / mine / others, one click, so a person's own cards
           are told apart from the agents' at a glance. */}
-      <div role="group" data-testid="filter-creator" className="flex shrink-0 items-center overflow-hidden rounded border border-white/10 text-mini">
-        {([['', 'all'], ['mine', 'mine'], ['others', 'others']] as const).map(([value, key]) => {
-          const on = (filters.creator ?? '') === value;
-          return (
-            <button
-              key={key}
-              type="button"
-              aria-pressed={on}
-              data-testid={`filter-creator-${key}`}
-              onClick={() => onFiltersChange({ ...filters, creator: value || undefined })}
-              className={`px-2 ${TOOLBAR_CONTROL_H} ${on ? 'bg-white/15 text-app-text' : 'text-app-text-muted hover:bg-white/10'}`}
-            >{tr(`board.filter.creator.${key}`)}</button>
-          );
-        })}
-      </div>
+      <button
+        type="button"
+        data-testid="filter-creator"
+        aria-label={tr('board.filter.creator.title')}
+        title={tr('board.filter.creator.title')}
+        onClick={() => onFiltersChange({ ...filters, creator: filters.creator === undefined ? 'mine' : filters.creator === 'mine' ? 'others' : undefined })}
+        className={`${TOOLBAR_CONTROL_H} shrink-0 rounded px-2 text-mini ${filters.creator ? 'bg-white/15 text-app-text' : 'text-app-text-muted hover:bg-white/10'}`}
+      >{tr(`board.filter.creator.${filters.creator ?? 'all'}`)}</button>
 
       {/* Reset — only when something is active */}
       {anyActive && (
