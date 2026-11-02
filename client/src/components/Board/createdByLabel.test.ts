@@ -1,3 +1,7 @@
+/**
+ * The chip words for who opened a card.
+ * @covers KANBAN-05
+ */
 import { describe, expect, test } from 'bun:test';
 import { openedByLabel } from './createdByLabel';
 
