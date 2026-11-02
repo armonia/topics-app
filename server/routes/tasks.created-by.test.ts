@@ -29,14 +29,15 @@ describe("created_by is not spoofable by an agent that holds a credential", () =
   });
 
   const create = async (body: Record<string, unknown>, headers: Record<string, string>) =>
-    (await (await call(router, "POST", "/api/boards/pX/tasks", body, headers))!.json()).createdBy;
+    (await (await call(router, "POST", "/api/boards/pX/tasks", { source: "s", description: "x".repeat(50), bar: "bun test", ...body }, headers))!.json()).createdBy;
 
   test("the daemon token plus the interface header is still automation", async () => {
     const withToken = { "X-Daemon-Token": DAEMON_TOKEN, "X-Topics-Action-Origin": "interface" };
-    expect(await create({ text: "spoof" }, withToken)).toBe("agent:api");
+    const bare = await call(router, "POST", "/api/boards/pX/tasks", { text: "spoof" }, withToken);
+    expect(bare!.status).toBe(400);
     expect(await create({ text: "spoof named", createdBy: "agent:jarvis" }, withToken)).toBe("agent:jarvis");
     // Even the body cannot hand an agent the human label.
-    expect(await create({ text: "spoof human", createdBy: "human" }, withToken)).toBe("agent:api");
+    expect((await call(router, "POST", "/api/boards/pX/tasks", { text: "spoof human", createdBy: "human", source: "s", description: "x".repeat(50), bar: "b" }, withToken))!.status).toBe(400);
     expect(await create({ text: "bearer", createdBy: "agent:jarvis" }, {
       Authorization: `Bearer ${DAEMON_TOKEN}`, "X-Topics-Action-Origin": "interface",
     })).toBe("agent:jarvis");

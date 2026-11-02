@@ -24,9 +24,11 @@ test("the card names a named agent or schedule on an open card, and nothing else
   const tr = (key: string, p?: Record<string, string | number>) => `${key}|${p?.name ?? ""}`;
   expect(openedByLabel("agent:jarvis", "review", tr)).toBe("board.card.createdByAgent|jarvis");
   expect(openedByLabel("cron:nightly", "backlog", tr)).toBe("board.card.createdByCron|nightly");
-  // A person's own card, the anonymous API fallback, a closed card, no author: no chip.
-  expect(openedByLabel("human", "review", tr)).toBeNull();
+  // A person's card, the anonymous fallback and a chat agent are named too.
+  expect(openedByLabel("human", "review", tr)).toBe("board.card.createdByHuman|");
   expect(openedByLabel("agent:api", "review", tr)).toBeNull();
+  expect(openedByLabel("agent:session", "review", tr)).toBe("board.card.createdBySession|");
+  // A closed card and no author: no chip.
   expect(openedByLabel("agent:jarvis", "done", tr)).toBeNull();
   expect(openedByLabel(null, "review", tr)).toBeNull();
   expect(openedByLabel("garbage", "review", tr)).toBeNull();

@@ -40,3 +40,18 @@ describe('delegated-run board filters', () => {
     expect(taskMatchesFilters(deviceRun, deviceFilters)).toBe(true);
   });
 });
+
+describe('creator filter', () => {
+  const mk = (createdBy: string | null, status = 'backlog', stage: string | null = null) => ({ createdBy, status, stage } as never);
+  const none = { priority: [], assignedTo: [], text: '', projectId: [], labels: [], person: [], computer: [], initiator: [], runComputer: [] };
+  test('mine keeps a person\'s cards, and in review only those waiting for a person', () => {
+    expect(taskMatchesFilters(mk('human'), { ...none, creator: 'mine' })).toBe(true);
+    expect(taskMatchesFilters(mk('agent:x'), { ...none, creator: 'mine' })).toBe(false);
+    expect(taskMatchesFilters(mk('human', 'review', 'ai_review'), { ...none, creator: 'mine' })).toBe(false);
+    expect(taskMatchesFilters(mk('human', 'review', 'human_review'), { ...none, creator: 'mine' })).toBe(true);
+  });
+  test('others keeps agents, schedules and old cards', () => {
+    expect(taskMatchesFilters(mk(null), { ...none, creator: 'others' })).toBe(true);
+    expect(taskMatchesFilters(mk('human'), { ...none, creator: 'others' })).toBe(false);
+  });
+});
