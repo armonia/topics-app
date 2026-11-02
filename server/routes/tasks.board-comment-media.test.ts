@@ -1,10 +1,11 @@
 /**
- * Il contratto su cui `board_comment` (gateway topics-board) fa affidamento:
- * un commento di board con due allegati li salva entrambi e il filo li
- * riporta. Il 400 per i path fuori allowlist lo dà il gateway PRIMA di
- * scrivere; questa rotta continua a scartarli in silenzio (fissato dal test
- * "DROPPED at write time" in tasks.test.ts), quindi qui non si testa nessun
- * 400.
+ * The contract `board_comment` (topics-board gateway) relies on: a board
+ * comment with two attachments stores both and the thread returns them. The
+ * 400 for paths outside the allowlist comes from the gateway BEFORE writing;
+ * this route keeps dropping them silently (pinned by the "DROPPED at write
+ * time" test in tasks.test.ts), so no 400 is tested here.
+ *
+ * @covers KANBAN-79
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
