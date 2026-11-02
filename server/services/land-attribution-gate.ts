@@ -48,8 +48,8 @@ export async function findAttributionViolations(
   if (log.code !== 0) return null;
 
   const out: AttributionViolation[] = [];
-  for (const rec of log.stdout.split(RECORD)) {
-    const [sha, an, ae, body] = rec.trim().split(FIELD);
+  for (const record of log.stdout.split(RECORD)) {
+    const [sha, an, ae, body] = record.trim().split(FIELD);
     if (!sha) continue;
     const short = sha.slice(0, 9);
     if (ASSISTANT_TRAILER.test(body ?? "")) {
