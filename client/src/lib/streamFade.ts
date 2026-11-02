@@ -13,7 +13,14 @@
  * focus (`.anims-paused`) turn the animation off in index.css.
  */
 import { useRef } from 'react';
-import type { ElementContent, Root, RootContent, Text } from 'hast';
+
+// The few hast shapes the plugin touches, written here so the client does not
+// depend on the hast types package directly.
+interface Text { type: 'text'; value: string; position?: { start: { offset?: number }; end: { offset?: number } } }
+interface Element { type: 'element'; tagName: string; properties: Record<string, unknown>; children: ElementContent[] }
+type ElementContent = Text | Element | { type: 'comment' | 'raw'; value: string };
+type RootContent = ElementContent | { type: 'doctype' };
+interface Root { type: 'root'; children: RootContent[] }
 
 export const STREAM_FADE_MS = 150;
 
