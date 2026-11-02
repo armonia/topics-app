@@ -1,5 +1,82 @@
 [
   {
+    "version": "2.3.47",
+    "date": "2026-11-02",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "A card restarted on a node that cannot reach origin carries its branch as a bundle",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Delivery refuses a file that goes from LF to CRLF; .gitattributes normalizes to LF",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Carried-branch tests: the node has no origin at all, and the real /api/nodes/runs route is covered",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Land refuses assistant attribution and foreign authors; card agents start with attribution off",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Auto-dispatch panel follows the approved reference: summary card, chart before queue, one-line queue, closed Advanced and This board",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Guard file back to LF: it had entered main in CRLF",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "test git spawns carry the isolated env, bloat baseline records what the last merges added",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Fix the e2e reds the auto-dispatch panel redesign left on main",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Panel hero on the type scale and chart labels at the 11 px floor: text-base generates nothing here, 10 px fails the audit once the chart has history",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sub-agent row reads as free text, only the final result sits in a soft band; chevron on hover and focus without shifts",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Identifier gate: email is a project word, rec spelled out in the land attribution gate",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Two e2e reds after the sub-agent landing: the observer test needs a row that is really cut, and the known sidebar chevron exception matches axe's longer selector",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sub-agent cut spec: tests that need a cut row use text that cannot fit, the resize goes down to 390 px",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.46",
     "date": "2026-11-01",
     "sections": {
@@ -80,12 +157,51 @@
           "scope": null
         },
         {
+          "it": "la richiesta che diventa card si conferma nella chat che l'ha chiesta. Una card aperta dalla sessione di un progetto o dal coordinatore scrive nella chat d'origine una riga «È diventata una card» con titolo e link, senza svegliare nessun turno, e lascia una riga nel log attività per il coordinatore. L'avviso dopo dieci minuti in backlog c'era già (task:unowned) e non cambia.",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "commenti in inglese e spec e2e della conferma d'origine",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "commento dello spec in inglese, spawn sincrono del guard elencato",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "requisito KANBAN-103 e tracciamento dei test (anche due ereditati senza @covers)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Cloud weekly limit: a card put on the cloud by hand stays in review instead of looping back into the queue",
           "en": "",
           "scope": null
         },
         {
+          "it": "Comment on a review card delivered by a node requeues it instead of a dead resume",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fix two reds inherited from main: dispatcher actor type, covers tag on the weekly-limit test",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "CI back to green after the batch: server types, listed sync spawn, declared coverage, longer fake turn for WebKit",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Card origin e2e: read the chat through its API, project topics are not in the global sidebar",
           "en": "",
           "scope": null
         }
