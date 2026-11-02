@@ -1477,7 +1477,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               href={task.openerTopicId ? `/topic/${task.openerTopicId}` : undefined}
               onClick={(e) => e.stopPropagation()}
               title={tr('board.card.createdByTitle', { who: task.createdSource ? `${openedBy} (${task.createdSource})` : openedBy })}
-              className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${
+              className={`flex max-w-[7rem] items-center gap-1 truncate rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${
                 creatorKind(task.createdBy) === 'human'
                   ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
                   : 'bg-slate-500/15 text-slate-700 dark:text-slate-300'
