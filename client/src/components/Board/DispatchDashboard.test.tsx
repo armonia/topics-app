@@ -431,7 +431,8 @@ describe('regressioni della verifica avversaria', () => {
     expect(advancedSrc.indexOf('<ChecksFloorField')).toBeGreaterThan(advancedSrc.indexOf('<SpendCapControl'));
     expect(advancedSrc.indexOf('<ChecksFloorField')).toBeLessThan(advancedSrc.indexOf('<DispatchHolders'));
     const cap = readFileSync(join(import.meta.dir, 'GlobalCapControl.tsx'), 'utf8');
-    expect(cap).toContain('{!quiet && <ChecksFloorField />}');
+    expect(cap).toContain('<ChecksFloorField />');
+    expect(cap).toContain('if (quiet) return <CapChoice');
     expect(renderToStaticMarkup(<GlobalCapControl quiet />)).not.toContain('checks-floor-control');
     expect(renderToStaticMarkup(<GlobalCapControl />)).toContain('checks-floor-control');
     for (const f of ['i18n-it.ts', 'i18n-en.ts']) {

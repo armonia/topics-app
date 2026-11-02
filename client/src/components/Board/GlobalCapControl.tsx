@@ -61,6 +61,7 @@ import type { DispatchAdmission, DispatchCapacity, DispatchCapMode, ThresholdBan
 import { SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { DispatchLoadSummary } from './DispatchLoadGauge';
 import { admissionVerdictText, checksFloorBoxValue, gateCoreNumbers, verdictSentence, type VerdictText } from './dispatchLoad';
+import { CAP_PRESETS, gbLeftFor, presetOf, presetPatch, type CapPreset } from './capPresets';
 import { MachineBusyLine } from '../Shared/MachineBusyLine';
 import { pctPlaceholders } from '../../lib/machineBusy';
 import {
@@ -81,26 +82,47 @@ const BAND_TEXT: Record<ThresholdBand, string> = {
 
 /** Deliberately propless: every surface mounts THE SAME thing, and a per-surface
  *  variant is the first step towards two controls that drift apart. */
-export function GlobalCapControl({ quiet = false }: { quiet?: boolean } = {}) {
+export function GlobalCapControl({ quiet = false, overflow }: { quiet?: boolean; overflow?: OverflowSwitch } = {}) {
   const tr = useT();
   const s = useGlobalDispatchCap();
-  const brake: DispatchCapMode = s.cap ? capMode(s.cap) : 'count';
+  if (quiet) return <CapChoice overflow={overflow} />;
 
   return (
     <div className="space-y-1" data-testid="global-cap-control">
       <p className="text-mini font-semibold uppercase tracking-wide text-app-text-muted">
-        {tr(quiet ? 'board.dash.together' : 'board.dispatch.parallel')}
+        {tr('board.dispatch.parallel')}
       </p>
-
-      {/* THE SAME ONE NUMBER AS THE COLUMN HEADER'S POPOVER, not a second
-          reading of the machine: whichever brake the radios below apply, this
-          is what it is limiting. */}
       <MachineBusyLine shares={s.capacity} calm />
+      <BrakeControls quiet={false} />
+      {/* OUTSIDE the two brakes on purpose: this one does not gate agents, it
+          gates the check COMMANDS a delivery runs before review, and it applies
+          whichever question the brake above is asking. */}
+      <ChecksFloorField />
+    </div>
+  );
+}
 
-      {/* WHICH QUESTION the brake asks, before any answer to it. Two radios and
-          not a checkbox "measure the machine instead": a checkbox has an implied
-          default that reads as the normal case, and here neither is "normal" —
-          they are two policies, and the second is opt-in on purpose. */}
+/** The by-number / by-resources controls. In the dashboard panel they live under Advanced. */
+export function GlobalCapAdvanced() {
+  const tr = useT();
+  return (
+    <div className="space-y-1" data-testid="global-cap-advanced">
+      <p className="text-mini font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.dispatch.brake')}</p>
+      <BrakeControls quiet />
+    </div>
+  );
+}
+
+/** The switch that sends heavy work to another machine; owned by whoever knows the board. */
+export interface OverflowSwitch { checked: boolean; onChange: (next: boolean) => void }
+
+function BrakeControls({ quiet }: { quiet: boolean }) {
+  const tr = useT();
+  const s = useGlobalDispatchCap();
+  const brake: DispatchCapMode = s.cap ? capMode(s.cap) : 'count';
+  return (
+    <>
+      {/* Two radios and not a checkbox: neither policy is "normal", the second is opt-in on purpose. */}
       <Segmented
         value={brake}
         options={(['count', 'resources'] as const).map((m) => ({ value: m, label: tr(m === 'count' ? 'board.dispatch.brakeCount' : 'board.dispatch.brakeResources') }))}
@@ -109,13 +131,79 @@ export function GlobalCapControl({ quiet = false }: { quiet?: boolean } = {}) {
         testId="global-cap-brake"
         disabled={s.saving || !s.cap}
       />
-
       {brake === 'count' ? <CountBrake quiet={quiet} /> : <ResourcesBrake quiet={quiet} />}
+    </>
+  );
+}
 
-      {/* OUTSIDE the two brakes on purpose: this one does not gate agents, it
-          gates the check COMMANDS a delivery runs before review, and it applies
-          whichever question the brake above is asking. */}
-      {!quiet && <ChecksFloorField />}
+/**
+ * The everyday choice: Cautious / Balanced / Pushed with "at most N", the memory
+ * left to the person's apps, and the switch for the PC. The choice writes the
+ * very same cap the Advanced controls write (`capPresets.ts`), so there is one
+ * limit and two ways to set it.
+ */
+function CapChoice({ overflow }: { overflow?: OverflowSwitch }) {
+  const tr = useT();
+  const s = useGlobalDispatchCap();
+  const limit = currentCapLimit(s);
+  const picked = presetOf(s.cap);
+  const bounded = limit !== null && Number.isFinite(limit);
+  const resources = s.cap ? capMode(s.cap) === 'resources' : false;
+  const capacity = s.capacity;
+  const running = capacity?.running ?? 0;
+  const gbLeft = bounded && capacity && capacity.totalMemGB > 0 && Number.isFinite(capacity.agentCostMemGB)
+    ? gbLeftFor(capacity.totalMemGB, capacity.agentCostMemGB, limit)
+    : null;
+  return (
+    <div className="space-y-1.5" data-testid="global-cap-control">
+      <p className="text-mini font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.dash.together')}</p>
+      <MachineBusyLine shares={s.capacity} calm />
+      {/* The live count stays in the open: it is the line people come to read. */}
+      <RunningLine quiet className={bounded && running >= limit ? 'text-amber-300' : 'text-app-text-heading'}>
+        {resources
+          ? tr('board.dispatch.runningResources', { running })
+          : limit === null
+          ? tr('board.dispatch.runningLoading')
+          : !bounded
+            ? tr('board.dispatch.runningNoLimit', { running })
+            : running > limit
+              ? tr('board.dispatch.runningOver', { running, cap: limit })
+              : tr('board.dispatch.running', { running, cap: limit })}
+      </RunningLine>
+      <Segmented
+        value={picked ?? ('' as CapPreset)}
+        options={CAP_PRESETS.map((p) => ({ value: p, label: tr(`board.dispatch.preset.${p}`) }))}
+        onChange={(p) => { void saveGlobalCap({ mode: 'count', ...presetPatch(p) }); }}
+        ariaLabel={tr('board.dash.together')}
+        testId="global-cap-preset"
+        disabled={s.saving || !s.cap}
+      />
+      <p className="text-mini text-app-text-muted" data-testid="global-cap-atmost">
+        {resources
+          ? tr('board.dispatch.presetByResources')
+          : bounded
+            ? tr('board.dispatch.atMost', { n: limit })
+            : limit === null ? tr('board.dispatch.runningLoading') : tr('board.dispatch.presetNoLimit')}
+        {!resources && picked === null && bounded && ` · ${tr('board.dispatch.presetCustom')}`}
+      </p>
+      {gbLeft !== null && !resources && (
+        <p className="rounded-md bg-sky-500/10 px-2 py-1.5 text-mini text-sky-800 dark:text-sky-300" data-testid="global-cap-leaves">
+          {tr('board.dispatch.leavesGB', { gb: gbLeft })}
+          <span> · {tr('board.dispatch.leavesEstimate')}</span>
+        </p>
+      )}
+      {overflow && (
+        <label className="flex min-h-6 cursor-pointer items-center justify-between gap-3 coarse:min-h-11" title={tr('board.settings.overflowTitle')}>
+          <span>{tr('board.dispatch.toPc')}</span>
+          <input
+            type="checkbox"
+            data-testid="board-dispatch-overflow"
+            checked={overflow.checked}
+            onChange={(e) => overflow.onChange(e.target.checked)}
+            className="h-3.5 w-3.5 shrink-0 accent-emerald-500"
+          />
+        </label>
+      )}
     </div>
   );
 }
@@ -283,7 +371,7 @@ function CountBrake({ quiet }: { quiet: boolean }) {
     <>
       {/* The live line comes before the controls: it is the one people come to
           read. */}
-      <RunningLine quiet={quiet} className={full ? 'text-amber-300' : 'text-app-text-heading'}>
+      {!quiet && <RunningLine quiet={quiet} className={full ? 'text-amber-300' : 'text-app-text-heading'}>
         {limit === null
           ? tr('board.dispatch.runningLoading')
           : !bounded
@@ -292,7 +380,7 @@ function CountBrake({ quiet }: { quiet: boolean }) {
             : over
               ? tr('board.dispatch.runningOver', { running, cap: limit })
               : tr('board.dispatch.running', { running, cap: limit })}
-      </RunningLine>
+      </RunningLine>}
       {/* THE FLOOR HOLDS IN THIS MODE TOO, and it was said nowhere: "3 di 4"
           reads as a free slot while no agent can start. The capacity reading
           carries a verdict here only when the floor or a drain holds. */}
@@ -389,9 +477,9 @@ function ResourcesBrake({ quiet }: { quiet: boolean }) {
 
   return (
     <>
-      <RunningLine quiet={quiet} className="text-app-text-heading">
+      {!quiet && <RunningLine quiet={quiet} className="text-app-text-heading">
         {s.cap ? tr('board.dispatch.runningResources', { running: cap?.running ?? 0 }) : tr('board.dispatch.runningLoading')}
-      </RunningLine>
+      </RunningLine>}
 
       <BudgetSlider share={share} onDraft={setShownShare} onCommit={(next) => { void saveGlobalCap({ budgetShare: next }); }} />
 
