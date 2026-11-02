@@ -155,7 +155,8 @@ test.describe.serial("Descrizione del sotto-agente: il corpo solo se la riga la 
 
   test("the row never lays out without the body while the description is cut (ResizeObserver, 900 px)", async ({ page, request }) => {
     const id = "tc-sub-90-observer";
-    await seedSubAgent(request, id, DESCRIPTION_90);
+    // Twice the text: the 90 characters now fit one row at 900 px, and this test needs a row that is cut.
+    await seedSubAgent(request, id, `${DESCRIPTION_90} ${DESCRIPTION_90}`);
     // Record, at every resize callback, whether the body is in the row.
     await page.addInitScript(() => {
       const seen: boolean[] = [];
