@@ -211,8 +211,8 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     await expect(rows.first()).toContainText("da 1 min");
     await expect(menu.getByTestId("dispatch-dashboard-start-now")).toHaveCount(1);
     await expect(rows.first().getByTestId("dispatch-dashboard-start-now")).toBeVisible();
-    // The order: summary, queue, chart, how many cards together, Advanced (spend, who holds the memory).
-    const ys = await Promise.all(["dispatch-dashboard-answer", "dispatch-dashboard-queue", "dispatch-chart-block", "global-cap-control", "dispatch-dashboard-holders-fold"]
+    // The order of the approved reference: summary, chart, queue, how many cards together, Advanced (spend, who holds the memory).
+    const ys = await Promise.all(["dispatch-dashboard-answer", "dispatch-chart-block", "dispatch-dashboard-queue", "global-cap-control", "dispatch-dashboard-holders-fold"]
       .map(async (id) => (await menu.getByTestId(id).boundingBox())!.y));
     expect([...ys].sort((p, q) => p - q), `ordine dei blocchi ${ys.join(",")}`).toEqual(ys);
     await menu.screenshot({ path: join(SHOTS, "pannello.png") });

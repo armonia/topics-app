@@ -24,6 +24,7 @@ import { recordAttentionFrames, sessionKeyOf } from "./helpers/attention";
 import { mkdirSync, writeFileSync } from "fs";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
+import { openThisBoard } from "./helpers/open-this-board";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath } from "../../shared/board";
 import { taskSubject } from "../../shared/attention";
@@ -119,8 +120,8 @@ test.describe("Board workflows · triage, AI review, human review", () => {
 
     // ── 1. The preset is chosen in the board's settings ────────────────────
     await page.getByTestId("kanban-board").getByTitle("Impostazioni auto-dispatch").click();
-    // "This board" is a closed fold since the panel follows the approved reference.
-    await page.getByTestId("settings-this-board").locator("summary").first().click();
+    // The preset picker is a per-board row: under «This board», closed by default.
+    await openThisBoard(page);
     await expect(page.getByTestId("board-workflow-picker")).toBeVisible({ timeout: 10000 });
     await page.getByTestId("board-workflow-armonia").click();
     await expect(page.getByTestId("kanban-column-triage")).toBeVisible({ timeout: 10000 });
@@ -202,6 +203,7 @@ test.describe("Board workflows · triage, AI review, human review", () => {
     expect(frames.rows().get(taskSubject(left))?.lit ?? false).toBe(false);
     // The person switches the board back from its settings, the real path.
     await page.getByTestId("kanban-board").getByTitle("Impostazioni auto-dispatch").click();
+    await openThisBoard(page);
     await page.getByTestId("board-workflow-default").click();
     await expect(page.getByTestId("kanban-column-triage")).toHaveCount(0, { timeout: 10000 });
     await page.keyboard.press("Escape");

@@ -50,6 +50,7 @@ import { join } from "path";
 import { hermetic } from "./fixtures/hermetic";
 import { removeTmpDir } from "./helpers/file-project";
 import { openAdvanced, openCapMode } from "./helpers/open-cap-mode";
+import { openThisBoard } from "./helpers/open-this-board";
 
 hermetic(test);
 
@@ -182,12 +183,6 @@ async function writeFloor(page: Page, gb: string) {
   await expect(box).toBeEnabled();
 }
 /** The checks floor speaks in GB, so it sits folded (24/09): open it first. */
-/** The per-board rows sit under a divider that is closed by default. */
-async function openThisBoard(page: Page) {
-  const fold = page.getByTestId("settings-this-board");
-  if (!(await fold.evaluate((el) => (el as HTMLDetailsElement).open))) await fold.locator("summary").first().click();
-}
-
 async function openFloor(page: Page) {
   // With the dashboard the fold lives inside Advanced (closed by default): open that first.
   const advanced = page.getByTestId("settings-advanced");
