@@ -56,7 +56,16 @@ Limite onesto: la CLI finta non chiama mai `update_task`, quindi le card arrivat
 
 **Oggi.** La card in review porta: titolo, chip «Niente consegnato», «NOTA DI SISTEMA» con il testo della macchina, chip «serve te», «Sonnet 5 · via Claude Code · 35s», tre bottoni e un campo di commento (`04-board-anteprime.png`). La card in lavorazione mostra «ferma · nessun agente da 6 min» (uno stato di coda) e la card dispatchata «modifiche git ▾», «Triage», «Sonnet 5 · via Claude…». Quello che manca è la cosa che chiedi: *cosa sta facendo e a che punto è*. Cosa funziona già: quando l'ultima parola è dell'agente (la card «Stati vuoti nelle liste», KANBAN-71/`board-card-last-exchange`) la card mostra la sua frase, non la cronaca.
 **Coperto?** In parte da `conversazione-unica-della-card` (ultima parola = domanda, stato di consegna come chip). Non copre la riga di avanzamento.
-**Correzione.** Una riga di avanzamento nel corpo (ultimo passo del tool in corso, o l'ultima frase dell'agente), modello e durata solo nel dettaglio; la nota di sistema ripiegata sotto un «mostra» e mai sola nel corpo.
+**Correzione.** Una riga di avanzamento nel corpo, in chiaro, sotto il titolo (ultimo passo del tool in corso, o l'ultima frase dell'agente). La nota di sistema è ripiegata sotto un «mostra» e mai sola nel corpo.
+**Modello e durata sulla card (decisione di Attilio, 31/10).** Non più solo nel dettaglio: il modello con il provider, la durata e i token stanno in una sola riga secondaria discreta, in lavorazione e in review. Niente pillole impilate. Sta sulla stessa riga dello stato quando ci sta; il tempo dall'ultimo aggiornamento resta in fondo, a destra. A 300 px la riga non va in overflow: si accorcia dalla coda, prima i token e poi il resto.
+**In review.** Il corpo tiene l'ultima frase dell'agente, anche quando l'ultima voce del thread è una nota di sistema; la nota sta ripiegata sotto «mostra». Sotto, la stessa riga secondaria con modello e durata.
+**Tool una volta sola.** Il tool in corso compare solo nella riga di avanzamento in alto (`name · input`). La riga separata «Bash · …» sotto la misura è tolta, insieme al tempo trascorso sul tool: il tempo totale resta nella misura. Un test fallisce se `<LiveToolLine>` torna nella card.
+**Pallino.** Il punto di lavorazione è il caricamento `SparkLoader` di main, non più il pallino sky.
+**Decisione di Attilio (01/11), sostituisce i punti sulla misura e sui tasti di review sopra.**
+- **Misura in fascia avvolta.** Una fascia larga quanto la card, sfondo tenue (`bg-white/5`), angoli arrotondati. A sinistra caricamento e «modello · provider» (il caricamento solo in lavorazione); a destra «⏱ durata · token» in cifre tabellari, mai a capo né tagliate. A 300 px si accorcia solo il lato sinistro.
+- **Review: sulla faccia restano le uscite, tranne due.** «Rifai così» esce da faccia e menu: rimandare indietro si fa dal campo, che invia il testo all'agente (`sendsBackWithText`, la card 38b78eba non resta più ferma). «Archivia» sta da solo nel menu «…», che in review c'è sempre. Il verde resta quello che è (di norma «Approva»). Una prima versione aveva nascosto anche le altre uscite nel menu: era più di quanto Attilio aveva chiesto, e la correzione l'ha riportate sulla faccia.
+- **Non fatto:** il tempo «ora» resta in fondo alla card, non è ancora spostato sulla riga di sotto con le modifiche git.
+- **Prova.** `Card.test.ts` 29/29 (contratto della fascia, di faccia e menu, dell'invio che rimanda indietro); `cardComments.test.ts` e `taskChoices.test.ts`: 155/155 con `Card.test.ts`, exit 0. Mutazione: tolto `'redo'` dall'esclusione del menu, il test di faccia e menu va rosso (exit 1); ripristinato, `cmp` identico, verde. Typecheck del client exit 0. L'affiancamento prima/dopo lo porta Jarvis.
 
 ## 8. Il task come chat pulita (verifica tecnica)
 
@@ -72,3 +81,10 @@ Codice dell'interfaccia (lo scrive la card di ogni difetto, dopo il tuo ok); il 
 ## Barra di questo studio
 
 PR di sola documentazione aperta su `armonia/topics-app`; gli otto file `~/.topics/media/ui-task-topic-*` esistono (`ls -la`). Le barre delle card future: misura DOM (`scripts/ui-audit.js`) per gli spazi, `toHaveScreenshot` per la resa, e il tuo occhio per loader e font.
+
+### Giro del 01/11 (fascia, tasti, placeholder)
+- La misura sta in una fascia `rounded-lg bg-app-user-bubble`, larga quanto la card, uguale in lavorazione e in review.
+- Il provider «via» esce dalla riga di misura (`measureLine`): a 300 px modello e provider restano interi; il tooltip conserva la riga piena.
+- Placeholder del campo di commento: «Commenta o correggi…» (IT), «Comment or fix…» (EN); le spec e2e allineate.
+- Il tempo «ora» resta a destra sulla riga dello stato (`shrink-0`, `whitespace-nowrap`). La soglia «0m fa» → «ora» NON è cambiata: la spec `board-card-updated-ago` la codifica di proposito; decisione aperta.
+- Limite: il contrasto fra fascia e card non è misurato da un test; la prova visiva è l'affiancamento di Jarvis.
