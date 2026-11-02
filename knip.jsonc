@@ -409,7 +409,7 @@
       // quindi nessun analizzatore di import puo' vederlo. Toglierlo dal
       // package.json romperebbe l'audit a11y, che e' l'unica misura di contrasto
       // che il repo ha.
-      "ignoreDependencies": ["ws", "@types/ws", "axe-core"],
+      "ignoreDependencies": ["ws", "@types/ws", "axe-core", "typescript7"], // typescript7: alias del TS nativo, gli script lo usano per percorso
 
       // Niente `ignore`. C'era `tests/e2e/**`, ed era il motivo per cui questo
       // check dava falsi positivi a raffica: un export usato SOLO da uno spec
