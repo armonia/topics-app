@@ -17,13 +17,18 @@ export interface AgentCardInput {
   /** The chat the card was asked in, when the caller knows it. */
   originTopicId: unknown;
   projectId: string;
+  /** A checklist step: its parent carries the bar and the folder. */
+  isStep?: boolean;
 }
 
 /**
  * What a card opened by an AGENT must carry to be finished without anyone
  * asking: who it is, where the request came from, the context, the folder
  * (a real board, because an agent needs a cwd) and a bar it can run.
- * Returns the missing pieces, empty when the card is complete.
+ * Returns the missing pieces, empty when the card is complete. Nothing is
+ * refused: external callers (scripts, the gateway) still send bare cards, so
+ * an incomplete one is born with the list written on it (`createdMissing`)
+ * until they are updated and the refusal can turn on.
  */
 export function missingForAgentCard(i: AgentCardInput): string[] {
   const missing: string[] = [];
@@ -35,11 +40,11 @@ export function missingForAgentCard(i: AgentCardInput): string[] {
   if (!hasSource) missing.push("source: the session or channel the request came from (or originTopicId, the chat to link back to)");
   const descriptionText = typeof i.description === "string" ? i.description.trim() : "";
   if (descriptionText.length < MIN_CONTEXT_CHARS) missing.push(`description: the context, at least ${MIN_CONTEXT_CHARS} characters`);
-  if (i.projectId === AUTO_PROJECT_ID || i.projectId === UNASSIGNED_PROJECT_ID) {
+  if (!i.isStep && (i.projectId === AUTO_PROJECT_ID || i.projectId === UNASSIGNED_PROJECT_ID)) {
     missing.push("board: a real board (its folder), not auto or unassigned");
   }
   const hasBar = (typeof i.bar === "string" && i.bar.trim()) || BAR_LINE_RE.test(descriptionText);
-  if (!hasBar) missing.push("bar: an executable bar (field `bar`, or a `BARRA:` line in the description)");
+  if (!hasBar && !i.isStep) missing.push("bar: an executable bar (field `bar`, or a `BARRA:` line in the description)");
   return missing;
 }
 
@@ -51,4 +56,12 @@ export function missingForAgentCard(i: AgentCardInput): string[] {
  */
 export function isContractEnforced(req: Request): boolean {
   return process.env.TOPICS_E2E !== "1" || req.headers.get("X-Topics-Enforce-Card-Contract") === "1";
+}
+
+/** `BARRA:` and `ORIGINE:` lines appended to the description when the caller sent them as fields. */
+export function withContractLines(description: string | null, bar: unknown, source: unknown): string | null {
+  const extra: string[] = [];
+  if (typeof bar === "string" && bar.trim() && !BAR_LINE_RE.test(description ?? "")) extra.push(`BARRA: ${bar.trim()}`);
+  if (typeof source === "string" && source.trim()) extra.push(`ORIGINE: ${source.trim()}`);
+  return extra.length ? `${description ?? ""}\n\n${extra.join("\n")}`.trim() : description;
 }

@@ -20,3 +20,7 @@ test("a BARRA line in the description counts as the bar, a chat id as the source
   expect(missingForAgentCard({ ...full, bar: undefined, description: `${"x".repeat(50)}\nBARRA: bun test` })).toEqual([]);
   expect(missingForAgentCard({ ...full, source: undefined, originTopicId: "t1" })).toEqual([]);
 });
+
+test("a checklist step does not need its own bar or folder", () => {
+  expect(missingForAgentCard({ ...full, bar: undefined, projectId: "_auto", isStep: true })).toEqual([]);
+});

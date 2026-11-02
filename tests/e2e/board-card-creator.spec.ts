@@ -59,15 +59,15 @@ test.describe("who opened the card", () => {
     await seedProjectPane(page.request, PROJECT_PATH);
   });
 
-  test("an agent card without context is refused; a complete one shows its creator; Mine filters", async ({ page, request }) => {
+  test("an agent card without context is born flagged incomplete; a complete one shows its creator; Mine filters", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-05" });
     const url = `${E2E_BASE}/api/boards/${PROJECT_ID}/tasks`;
 
     const thin = await request.post(url, { headers: ENFORCE, data: { text: "thin agent card", createdBy: "agent:jarvis" } });
-    expect(thin.status()).toBe(400);
-    const refusal = (await thin.json()) as { code: string; missing: string[] };
-    expect(refusal.code).toBe("agent_card_incomplete");
-    expect(refusal.missing.length).toBeGreaterThanOrEqual(3);
+    expect(thin.status()).toBe(201);
+    const born = (await thin.json()) as { id: string; createdMissing: string[] };
+    created.push(born.id);
+    expect(born.createdMissing.length).toBeGreaterThanOrEqual(3);
 
     const agent = await request.post(url, {
       headers: ENFORCE,

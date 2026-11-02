@@ -2004,6 +2004,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     labels: Map<string, TaskLabelRow[]>;
     waitingOn: Map<string, number>;
     topics: Map<string, { model: string | null; effort: string | null }>;
+    /** Names of the chats that opened cards in this batch (`created_by_topic_id`). */
+    openerNames: Map<string, string>;
     blockers: Map<string, BlockerRef>;
     parentStatus: Map<string, string>;
     retryCap: Map<string, number>;
@@ -2357,6 +2359,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       labels: labelsFor(ids),
       waitingOn: new Map(),
       topics: new Map(),
+      openerNames: new Map(),
       blockers: new Map(),
       parentStatus: new Map(),
       retryCap: new Map(),
@@ -2398,6 +2401,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       ).all(idParam(blockerIds)) as any[]) {
         b.blockers.set(r.id, { id: r.id, text: r.text, status: r.status, archived: !!r.archived });
       }
+    }
+
+    const openerIds = [...new Set(rows.map((r) => r.created_by_topic_id).filter(Boolean) as string[])];
+    if (openerIds.length) {
+      try {
+        for (const t of db.query("SELECT id, name FROM topics WHERE id IN (SELECT value FROM json_each(?))").all(idParam(openerIds)) as any[]) {
+          if (t.name) b.openerNames.set(t.id, t.name);
+        }
+      } catch { /* reduced `topics` table: the chip falls back to the agent name */ }
     }
 
     const topicIds = rows.map((r) => r.assigned_topic_id).filter(Boolean) as string[];
@@ -2691,6 +2703,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       ...(r.prior_uncommitted_files ? { priorUncommittedFiles: r.prior_uncommitted_files } : {}),
       // WHO opened it; NULL for every card written before the column.
       createdBy: r.created_by ?? null,
+      // Where it came from, the chat to go back to (with its name) and what it lacked at birth.
+      ...(r.created_source ? { createdSource: r.created_source } : {}),
+      ...(r.created_by_topic_id ? { openerTopicId: r.created_by_topic_id, openerName: b.openerNames.get(r.created_by_topic_id) ?? null } : {}),
+      ...(r.created_missing ? { createdMissing: String(r.created_missing).split("\n") } : {}),
       // The workflow column, only when it is not the default one: a board with
       // the default workflow sends the same row as before.
       ...(r.stage ? { stage: r.stage } : {}),
@@ -3837,8 +3853,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
 
       db.prepare(
-        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id, topics_routing, created_by, stay_local, base_branch)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id, topics_routing, created_by, stay_local, base_branch, created_source, created_missing)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id, input.projectId, text, input.description ?? null, status, priority, order,
         input.assignedTo ?? null, input.chatId ?? null, ts, ts, input.idempotencyKey ?? null,
@@ -3854,6 +3870,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         parseCreatedBy(input.createdBy),
         input.stayLocal ? 1 : 0,
         input.baseBranch?.trim() || null,
+        input.createdSource?.trim() || null,
+        input.createdMissing?.length ? input.createdMissing.join("\n") : null,
       );
       // Its own statement, and only when there is a stage: a board on the
       // default workflow writes the same row as before.
@@ -3861,6 +3879,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (bornAsk && status === "review") db.prepare("UPDATE tasks SET human_ask = ? WHERE id = ?").run(bornAsk, id);
       // Born in AI review: whoever opened it is told, as on any other entry.
       if (birthStage === STAGE_AI_REVIEW && status === "review") announceAiReview(id);
+      // An agent's card that cannot finish by itself is born anyway; the thread says what is missing.
+      if (input.createdMissing?.length) {
+        try {
+          service.addComment({
+            taskId: id, author: "system", kind: "service",
+            content: `Incomplete card: ${input.createdMissing.join("; ")}. Whoever opened it should add this with a comment or a PATCH.`,
+          });
+        } catch { /* best effort: the row already carries createdMissing */ }
+      }
       return rowToTask(getTaskRow(id));
     },
 

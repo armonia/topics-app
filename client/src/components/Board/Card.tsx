@@ -1018,7 +1018,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   const waitingOnThis = waitingOnThisChip(task, tr);
   const runInitiator = runInitiatorName(task);
   // WHO opened the card (`createdBy`): the answer to "whose is this, who closes it".
-  const openedBy = openedByLabel(task.createdBy, task.status, tr);
+  const openedBy = openedByLabel(task.createdBy, task.status, tr, task.openerName);
   // LA RIGA DEI CHIP ESISTE SE C'È ALMENO UN CHIP, e questo elenco è la lista
   // di quelli possibili: chi ne aggiunge uno e non lo scrive qui ottiene un
   // chip che non si monta MAI, con il dato giusto nel DB, giusto nella rotta e
@@ -1027,7 +1027,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // `card-meta-row-completeness.test.ts` confronta questa riga con i chip
   // davvero disegnati sotto, così la prossima dimenticanza è un rosso e non
   // un'ora di indagine.
-  const hasMetaRow = !!(openedBy || blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
+  const hasMetaRow = !!(openedBy || task.createdMissing?.length || blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
 
   return (
     <div
@@ -1476,13 +1476,20 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               data-creator={creatorKind(task.createdBy) ?? undefined}
               href={task.openerTopicId ? `/topic/${task.openerTopicId}` : undefined}
               onClick={(e) => e.stopPropagation()}
-              title={tr('board.card.createdByTitle', { who: openedBy })}
+              title={tr('board.card.createdByTitle', { who: task.createdSource ? `${openedBy} (${task.createdSource})` : openedBy })}
               className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${
                 creatorKind(task.createdBy) === 'human'
                   ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
                   : 'bg-slate-500/15 text-slate-700 dark:text-slate-300'
               } ${task.openerTopicId ? 'underline decoration-dotted underline-offset-2' : ''}`}
             >{openedBy}</a>
+          )}
+          {task.createdMissing && task.createdMissing.length > 0 && task.status !== 'done' && (
+            <span
+              data-testid="card-incomplete"
+              title={tr('board.card.incompleteTitle', { missing: task.createdMissing.join('; ') })}
+              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
+            >{tr('board.card.incomplete')}</span>
           )}
           {runInitiator && (
             <span

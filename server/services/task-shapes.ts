@@ -240,6 +240,13 @@ export interface Task {
   priorUncommittedFiles?: number;
   /** WHO opened the card: `human`, `agent:<name>`, `cron:<name>`; `null` = born before the field. */
   createdBy: string | null;
+  /** The session or channel the request came from, as the caller declared it; `null` when not said. */
+  createdSource?: string | null;
+  /** The chat the card was opened from, and its name (the chip says it). */
+  openerTopicId?: string | null;
+  openerName?: string | null;
+  /** What an agent's card lacked at birth; absent = complete (or not an agent's). */
+  createdMissing?: string[];
   /**
    * The workflow column the card sits in when it is not the default one of its
    * status (`triage`, `ai_review`, `human_review`; `shared/workflow.ts`).
@@ -479,6 +486,10 @@ export interface CreateTaskInput {
    * it from the request; omitted = NULL, a card from an internal path.
    */
   createdBy?: string | null;
+  /** Where the request came from, free text. */
+  createdSource?: string | null;
+  /** What the card lacked at birth, one item per entry; empty/omitted = complete. */
+  createdMissing?: string[];
   /**
    * The workflow column to be born in. Omitted = the server decides
    * (`stageAtBirth`: triage for a card from a person on a board that has it).

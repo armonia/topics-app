@@ -34,10 +34,11 @@ describe("created_by is not spoofable by an agent that holds a credential", () =
   test("the daemon token plus the interface header is still automation", async () => {
     const withToken = { "X-Daemon-Token": DAEMON_TOKEN, "X-Topics-Action-Origin": "interface" };
     const bare = await call(router, "POST", "/api/boards/pX/tasks", { text: "spoof" }, withToken);
-    expect(bare!.status).toBe(400);
+    expect(bare!.status).toBe(201);
     expect(await create({ text: "spoof named", createdBy: "agent:jarvis" }, withToken)).toBe("agent:jarvis");
     // Even the body cannot hand an agent the human label.
-    expect((await call(router, "POST", "/api/boards/pX/tasks", { text: "spoof human", createdBy: "human", source: "s", description: "x".repeat(50), bar: "b" }, withToken))!.status).toBe(400);
+    const spoof = await call(router, "POST", "/api/boards/pX/tasks", { text: "spoof human", createdBy: "human", source: "s", description: "x".repeat(50), bar: "b" }, withToken);
+    expect((await spoof!.json()).createdBy).toBe("agent:api");
     expect(await create({ text: "bearer", createdBy: "agent:jarvis" }, {
       Authorization: `Bearer ${DAEMON_TOKEN}`, "X-Topics-Action-Origin": "interface",
     })).toBe("agent:jarvis");

@@ -17,7 +17,7 @@ export function creatorKind(createdBy: string | null | undefined): CreatorKind |
  * closed card or when there is no author (cards born before the field stay
  * readable and carry no made-up chip).
  */
-export function openedByLabel(createdBy: string | null | undefined, status: string, tr: Translate): string | null {
+export function openedByLabel(createdBy: string | null | undefined, status: string, tr: Translate, openerName?: string | null): string | null {
   if (status === 'done') return null;
   const parts = splitCreatedBy(createdBy);
   if (!parts) return null;
@@ -25,6 +25,8 @@ export function openedByLabel(createdBy: string | null | undefined, status: stri
   // The anonymous fallback names nobody: no chip beats a made-up one.
   if (createdBy === API_CALLER_CREATED_BY) return null;
   if (parts.kind === 'cron') return tr('board.card.createdByCron', { name: parts.name ?? '' });
+  // The chat's own name beats «a chat»: it says WHICH one.
+  if (parts.name === 'session' && openerName) return tr('board.card.createdByChat', { name: openerName });
   if (parts.name === 'session') return tr('board.card.createdBySession');
   return tr('board.card.createdByAgent', { name: parts.name ?? '' });
 }
