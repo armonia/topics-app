@@ -1,4 +1,4 @@
-import { createElement, lazy, memo, Suspense, useCallback, useContext, useEffect, useRef, useState, type MouseEvent } from 'react';
+import { createElement, lazy, memo, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type RefObject } from 'react';
 import { useT } from '../../hooks/useT';
 import { ChevronDown, ChevronRight, HelpCircle, Hourglass, PenLine, ShieldOff, X } from 'lucide-react';
 import { SparkLoader } from '../Layout/StreamingIndicator';
@@ -155,6 +155,33 @@ const DETAIL_REVEAL_WAIT_MS = 600;
  * tool cambia — testualmente "so React.memo sees a real prop change" — quindi
  * una riga aggiornata ha davvero una prop diversa e non resta indietro.
  */
+/**
+ * Whether the element's text is clipped by its box right now (`truncate` cuts
+ * it with an ellipsis, so scrollWidth then exceeds clientWidth). Measured after
+ * mount and after every text change (one frame later, so the layout is final),
+ * and on every resize of the box, so it follows the pane width the way the
+ * reader sees the row.
+ */
+function useIsTextCut(ref: RefObject<HTMLElement | null>, text: string | undefined): boolean {
+  const [cut, setCut] = useState(false);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const el = ref.current;
+      // A hidden pane has clientWidth 0: nothing is measurable there, so keep
+      // the last answer instead of reading 0 > 0 as "not cut".
+      if (!el || el.clientWidth === 0) return;
+      setCut(el.scrollWidth > el.clientWidth);
+    };
+    measure();
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref, text]);
+  return cut;
+}
+
 export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionKey, messageId, onPlanDecision, highlighted }: Props) {
   const tr = useT();
   const rowRef = useRef<HTMLDivElement>(null);
@@ -212,6 +239,8 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   const baseDetail = resolveToolDetail(wholeCall);
   const detail = fetched?.detail ? { ...baseDetail, ...fetched.detail } : baseDetail;
   const display = buildToolDisplayLabel(detail, toolCall.name);
+  const summaryRef = useRef<HTMLSpanElement>(null);
+  const summaryCut = useIsTextCut(summaryRef, display.summary);
   const Icon = iconForDetail(detail);
   const status = toolCall.status ?? 'pending';
   // A call the server marked `pending` has NOT started: the native runtime
@@ -427,13 +456,26 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
 
   // The header's content, the same in the button (a row with a body) and in
   // the plain row (nothing to open).
+  // Sub-agent rows drop the chevron column and the command name (`Explore`):
+  // the row is icon + description + time, and the type stays in its title.
+  const isSubAgent = detail.type === 'sub_agent';
   const headerInner = (
         <>
         {/* Il posto del chevron c'è sempre — occupato o vuoto — o le righe con
             corpo e quelle senza partirebbero da due colonne diverse. */}
-        {hasBody ? (
-          revealing ? <SparkLoader className="flex-shrink-0" activity={loaderActivityForTool(toolCall.name)} />
-            : effectiveOpen ? <ChevronDown size={12} className="text-app-text-muted flex-shrink-0" /> : <ChevronRight size={12} className="text-app-text-muted flex-shrink-0" />
+        {/* The chevron is a hover/focus cue: hidden until the row is hovered
+            or focused, but its 12px column is always reserved so nothing
+            shifts when it appears. Touch (`coarse:`) shows it always, since
+            there is no hover to wait for. The `revealing` spinner is a state
+            and always shows. */}
+        {hasBody && revealing ? (
+          <SparkLoader className="flex-shrink-0" activity={loaderActivityForTool(toolCall.name)} />
+        ) : isSubAgent ? null : hasBody ? (
+          <span className="w-3 flex-shrink-0 inline-flex justify-center" aria-hidden="true">
+            {effectiveOpen
+              ? <ChevronDown size={12} className="text-app-text-muted opacity-0 transition-opacity group-hover/tool:opacity-100 group-focus-within/tool:opacity-100 coarse:opacity-100" />
+              : <ChevronRight size={12} className="text-app-text-muted opacity-0 transition-opacity group-hover/tool:opacity-100 group-focus-within/tool:opacity-100 coarse:opacity-100" />}
+          </span>
         ) : (
           <span className="w-3 flex-shrink-0" aria-hidden="true" />
         )}
@@ -456,16 +498,28 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               cioè non diceva niente — e teneva occupata una colonna a destra
               per tutte le righe pur di servirne una su cento. */}
           {isError && <X size={11} className="flex-shrink-0 text-red-500 self-center" aria-label={tr('tool.failed')} />}
-          <span
-            data-testid="tool-call-name"
-            className={`flex-shrink-0 max-w-[55%] truncate font-medium ${isRunning ? 'text-primary' : isError ? 'text-red-500' : 'text-app-text'}`}
-          >
-            {label ?? display.name}
-          </span>
-          {display.summary && (
+          {!isSubAgent && (
+            <span
+              data-testid="tool-call-name"
+              className={`flex-shrink-0 max-w-[55%] truncate font-medium ${isRunning ? 'text-primary' : isError ? 'text-red-500' : 'text-app-text'}`}
+            >
+              {label ?? display.name}
+            </span>
+          )}
+          {display.summary && isSubAgent && (
+            <span
+              className="min-w-0 flex items-baseline text-mini text-app-text-secondary"
+              title={`${display.name}${display.tooltip ? ` · ${display.tooltip}` : ''}`}
+            >
+              {/* min-w-0: as a flex item it must be allowed to shrink, or it
+                  never overflows and the cut measurement always reads false. */}
+              <span ref={summaryRef} className="min-w-0 truncate">{display.summary}</span>
+            </span>
+          )}
+          {display.summary && !isSubAgent && (
             <span className="min-w-0 flex items-baseline text-mini text-app-text-secondary font-mono" title={display.tooltip}>
               <span className="flex-shrink-0">(</span>
-              <span className="truncate">{display.summary}</span>
+              <span ref={summaryRef} className="truncate">{display.summary}</span>
               <span className="flex-shrink-0">)</span>
             </span>
           )}
@@ -639,7 +693,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               che si va a rileggere sei mesi dopo. */}
           {toolCall.permissionRequest && (isAwaitingPermission || toolCall.permissionOutcome) && sessionKey ? (
             <>
-            <ToolCardBody detail={detail} isError={isError} isRunning={false} sessionKey={sessionKey} />
+            <ToolCardBody detail={detail} isError={isError} isRunning={false} sessionKey={sessionKey} summaryCut={summaryCut} />
             <ToolPermissionRow
               request={toolCall.permissionRequest}
               outcome={toolCall.permissionOutcome}
@@ -649,7 +703,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             </>
           ) : isWaiting && toolCall.userInputSchema && sessionKey ? (
             <>
-            {!askIsTheWholeCall && <ToolCardBody detail={detail} isError={isError} isRunning={false} sessionKey={sessionKey} />}
+            {!askIsTheWholeCall && <ToolCardBody detail={detail} isError={isError} isRunning={false} sessionKey={sessionKey} summaryCut={summaryCut} />}
             <ErrorBoundary fallbackMessageKey="crash.toolInput">
             <Suspense fallback={<SpinnerFallback />}>
             <ToolInputForm
@@ -686,7 +740,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             <QuestionAnswerCard toolCallId={toolCall.id} asked={askedQuestions} response={answer} schema={toolCall.userInputSchema} />
           ) : (
             <>
-            <ToolCardBody detail={detail} isError={isError} error={toolCall.error} isRunning={isRunning} sessionKey={sessionKey} liveResult={runningShellOutput(toolCall)} />
+            <ToolCardBody detail={detail} isError={isError} error={toolCall.error} isRunning={isRunning} sessionKey={sessionKey} liveResult={runningShellOutput(toolCall)} summaryCut={summaryCut} />
             {/* CHAT-TOOL-13: a running command with nothing printed yet says for how long. */}
             {detail.type === 'shell' && isRunning && !detail.output && !runningShellOutput(toolCall) && typeof toolCall.startedAt === 'number' && (
               <SilentShellStatus since={toolCall.startedAt} command={detail.command} />

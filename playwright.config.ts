@@ -669,6 +669,9 @@ export default defineConfig({
         // second one: the independent check of card 40ea050c measured it in
         // WebKit, where the product ships.
         "**/chat-turn-end-still.spec.ts",
+        // A sub-agent's description is printed once, in the row or in the body, by
+        // the measured truncation of the summary: the layout is read where it ships.
+        "**/sub-agent-description-cut.spec.ts",
         "**/prompt-history.spec.ts",
         "**/goal-send-and-rate.spec.ts",
         // The goal bar starts closed, agent goal included, and opens on click.
