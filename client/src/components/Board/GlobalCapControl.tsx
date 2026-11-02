@@ -187,9 +187,9 @@ function CapChoice({ overflow }: { overflow?: OverflowSwitch }) {
         {!resources && picked === null && bounded && ` · ${tr('board.dispatch.presetCustom')}`}
       </p>
       {gbLeft !== null && !resources && (
-        <p className="rounded-md bg-sky-500/10 px-2 py-1.5 text-mini text-sky-300" data-testid="global-cap-leaves">
+        <p className="rounded-md bg-sky-500/10 px-2 py-1.5 text-mini text-sky-800 dark:text-sky-300" data-testid="global-cap-leaves">
           {tr('board.dispatch.leavesGB', { gb: gbLeft })}
-          <span className="text-app-text-faint"> · {tr('board.dispatch.leavesEstimate')}</span>
+          <span> · {tr('board.dispatch.leavesEstimate')}</span>
         </p>
       )}
       {overflow && (
