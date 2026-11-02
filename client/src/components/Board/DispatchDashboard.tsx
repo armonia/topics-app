@@ -16,13 +16,14 @@
  * the panel recomputes nothing. The waiting texts are the server's neutral
  * ones (`queueReason`), not a phrase of ours.
  */
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ChevronRight, Play } from 'lucide-react';
 import { useActiveLocale, useT } from '../../hooks/useT';
-import { boardApi, isProjectlessId, req } from '../../lib/board';
+import { boardApi, isProjectlessId } from '../../lib/board';
 import { projectNameFromId } from '../../lib/boardProjectsStore';
 import type { BoardTask, DispatchCapacity } from '../../lib/board';
 import type { DispatchMemoryQueueSnapshot } from '../../../../shared/board';
+import { snapshotIsLive, useMemoryQueueSnapshot } from './dispatchSnapshot';
 import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
 import { brokenCards, chartMax, overflowedCards, queuedCards, rowReason, waitingLabel, type BrokenCard, type MovedCard, type QueuedCard } from './dispatchDashboardModel';
 import { DANGER_TEXT } from '../../lib/popoverStyles';
@@ -30,32 +31,6 @@ import { admissionVerdictText, verdictSentence } from './dispatchLoad';
 
 const LOCALE = 'it-IT';
 const gb = (n: number) => `${n.toLocaleString(LOCALE, { maximumFractionDigits: 1 })} GB`;
-
-// ── the memory-queue snapshot: ONE read every 15 s for every surface ──
-let snap: DispatchMemoryQueueSnapshot | null = null;
-/** When the last good read arrived: without it, the live dot would be a promise. */
-let snapAt = 0;
-const listeners = new Set<() => void>();
-let timer: ReturnType<typeof setInterval> | null = null;
-function loadSnapshot() {
-  req<DispatchMemoryQueueSnapshot>('/dispatch/memory-queue').then(
-    (s) => { snap = s; snapAt = Date.now(); listeners.forEach((l) => l()); },
-    () => { /* without a dispatcher the dashboard shows capacity only */ },
-  );
-}
-function subscribeSnapshot(l: () => void) {
-  listeners.add(l);
-  if (listeners.size === 1) { loadSnapshot(); timer = setInterval(loadSnapshot, 15_000); }
-  return () => {
-    listeners.delete(l);
-    if (listeners.size === 0 && timer) { clearInterval(timer); timer = null; }
-  };
-}
-/** The read is live if it arrived within the last two rounds (15 s each) plus margin. */
-const snapshotIsLive = (now: number) => snap !== null && now - snapAt < 45_000;
-function useMemoryQueueSnapshot(): DispatchMemoryQueueSnapshot | null {
-  return useSyncExternalStore(subscribeSnapshot, () => snap, () => null);
-}
 
 /** Section title, the same small caps as the panel's other sections. */
 function SectionLabel({ children, right }: { children: React.ReactNode; right?: string }) {
@@ -405,7 +380,8 @@ export function DispatchDetailsView({ capacity, snapshot, queue, moved = [], now
       </div>
       <div data-testid="dispatch-dashboard-queue-block">
         <SectionLabel right={tr('board.dash.queueOrder')}>{tr('board.dash.queue', { n: queue.length })}</SectionLabel>
-        {sharedReason && <p className="mb-1 text-mini text-app-text-secondary" data-testid="dispatch-dashboard-queue-shared">{sharedReason}</p>}
+        {/* The memory wait is already said once in the summary card at the top. */}
+        {sharedReason && !queue.every((q) => q.memoryWaiter) && <p className="mb-1 text-mini text-app-text-secondary" data-testid="dispatch-dashboard-queue-shared">{sharedReason}</p>}
         {queue.length === 0 ? (
           <p className="text-mini text-app-text-secondary" data-testid="dispatch-dashboard-queue-empty">{tr('board.dash.queueEmpty')}</p>
         ) : (

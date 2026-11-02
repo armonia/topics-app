@@ -61,7 +61,8 @@ import type { DispatchAdmission, DispatchCapacity, DispatchCapMode, ThresholdBan
 import { SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { DispatchLoadSummary } from './DispatchLoadGauge';
 import { admissionVerdictText, checksFloorBoxValue, gateCoreNumbers, verdictSentence, type VerdictText } from './dispatchLoad';
-import { CAP_PRESETS, gbLeftFor, presetOf, presetPatch, type CapPreset } from './capPresets';
+import { CAP_PRESETS, gbLeftFor, replayCap, presetOf, presetPatch, type CapPreset } from './capPresets';
+import { useMemoryQueueSnapshot } from './dispatchSnapshot';
 import { MachineBusyLine } from '../Shared/MachineBusyLine';
 import { pctPlaceholders } from '../../lib/machineBusy';
 import {
@@ -159,6 +160,11 @@ function CapChoice({ overflow }: { overflow?: OverflowSwitch }) {
       ? tr('board.dispatch.atMostShort', { n: limit })
       : limit === null ? tr('board.dispatch.runningLoading') : tr('board.dispatch.presetNoLimit');
   const needGB = capacity && Number.isFinite(capacity.agentCostMemGB) ? Math.max(0.5, Math.round(capacity.agentCostMemGB * 10) / 10) : null;
+  const snapshot = useMemoryQueueSnapshot();
+  const replay = gbLeft !== null && capacity && limit !== null && Number.isFinite(capacity.agentCostMemGB)
+    ? replayCap(snapshot?.history ?? [], capacity.agentCostMemGB, gbLeft, limit)
+    : null;
+  const fmt = (n: number) => n.toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   return (
     <div className="space-y-2" data-testid="global-cap-control">
       <div className="flex items-baseline justify-between gap-2">
@@ -183,6 +189,7 @@ function CapChoice({ overflow }: { overflow?: OverflowSwitch }) {
             <span className="font-normal"> · {tr('board.dispatch.leavesEstimate')}</span>
           </p>
           {needGB !== null && <p data-testid="global-cap-next-starts">{tr('board.dispatch.nextStarts', { gb: needGB })}</p>}
+          {replay && <p data-testid="global-cap-replay">{tr('board.dispatch.replay', { would: fmt(replay.would), actual: fmt(replay.actual) })}</p>}
         </div>
       )}
       {overflow && (

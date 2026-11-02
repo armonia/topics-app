@@ -1472,6 +1472,7 @@ const EN = {
   'board.dispatch.presetNoLimit': 'No limit set, see Advanced',
   'board.dispatch.presetCustom': 'custom number set in Advanced',
   'board.dispatch.nextStarts': 'A new one starts when the Mac has at least {gb} GB free.',
+  'board.dispatch.replay': "Over the recent history it would have run {would} cards at once on average, instead of {actual} with today's rule.",
   'board.dispatch.atMostShort': 'at most {n}',
   'board.dispatch.toPcDesc': 'When the Mac is full, heavy cards go to the PC.',
   'board.dash.advanced': 'Advanced',

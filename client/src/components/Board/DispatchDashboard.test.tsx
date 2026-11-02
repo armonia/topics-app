@@ -222,7 +222,7 @@ describe('cruscotto auto-dispatch', () => {
     expect(renderToStaticMarkup(<DispatchSummaryView capacity={capacity} snapshot={snapshot} queue={queue} dispatchOn={false} />)).not.toContain('dispatch-dashboard-turn-on');
   });
   test('un solo motivo per stato: uguale per tutte sta nell\'intestazione, diverso sta sulla riga', () => {
-    const mk = (id: string, reason: string) => card({ id, title: `Card ${id}`, reason, detail: 'Idonea, ma l\'auto-dispatch è spento' });
+    const mk = (id: string, reason: string) => card({ id, title: `Card ${id}`, reason, memoryWaiter: false, detail: 'Idonea, ma l\'auto-dispatch è spento' });
     const same = renderToStaticMarkup(<DispatchDetailsView capacity={capacity} snapshot={snapshot} queue={[mk('1', 'ferma: dispatch spento'), mk('2', 'ferma: dispatch spento')]} now={NOW} />);
     // the generic state word is dropped and the reason is written ONCE, not on every row
     expect(same.match(/dispatch spento/g)?.length).toBe(1);

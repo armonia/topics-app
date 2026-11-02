@@ -44,3 +44,29 @@ export function presetOf(cap: GlobalDispatchCap | null): CapPreset | null {
 export function gbLeftFor(totalMemGB: number, agentCostMemGB: number, limit: number): number {
   return Math.max(0, Math.round(totalMemGB - limit * agentCostMemGB));
 }
+
+/**
+ * What the chosen limit would have done over the recorded memory history: at
+ * each sample, how many cards fit once the GB left to the person's apps are
+ * kept back (never above the limit), against the cards that really ran.
+ * Null while the history has no sample that says how many ran.
+ */
+export function replayCap(
+  history: ReadonlyArray<{ freeGB: number; running?: number }>,
+  agentCostMemGB: number,
+  keepGB: number,
+  limit: number,
+): { would: number; actual: number } | null {
+  if (!(agentCostMemGB > 0) || !Number.isFinite(limit)) return null;
+  const samples = history.filter((h) => typeof h.running === 'number');
+  if (samples.length === 0) return null;
+  let would = 0;
+  let actual = 0;
+  for (const h of samples) {
+    const running = h.running ?? 0;
+    const fit = Math.floor((h.freeGB + running * agentCostMemGB - keepGB) / agentCostMemGB);
+    would += Math.max(0, Math.min(limit, fit));
+    actual += running;
+  }
+  return { would: would / samples.length, actual: actual / samples.length };
+}

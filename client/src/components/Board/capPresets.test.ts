@@ -8,7 +8,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { Database } from 'bun:sqlite';
-import { CAP_PRESETS, CAUTIOUS_CAP, PUSHED_CAP, gbLeftFor, presetOf, presetPatch } from './capPresets';
+import { CAP_PRESETS, CAUTIOUS_CAP, PUSHED_CAP, gbLeftFor, replayCap, presetOf, presetPatch } from './capPresets';
 import { effectiveDispatchCap } from '../../lib/board';
 import { readGlobalCap } from '../../../../server/services/dispatch-capacity';
 
@@ -47,5 +47,16 @@ describe('cap presets', () => {
     expect(gbLeftFor(32, 1.5, 2)).toBe(29);
     expect(gbLeftFor(32, 1.5, 8)).toBe(20);
     expect(gbLeftFor(8, 3, 8)).toBe(0);
+  });
+});
+
+describe('replayCap', () => {
+  test('replays the limit over the history and compares it with what ran', () => {
+    const history = [{ freeGB: 4, running: 1 }, { freeGB: 2, running: 2 }];
+    const r = replayCap(history, 1, 2, 8);
+    expect(r).toEqual({ would: 2.5, actual: 1.5 });
+  });
+  test('is null without a sample that says how many ran', () => {
+    expect(replayCap([{ freeGB: 4 }], 1, 2, 8)).toBeNull();
   });
 });

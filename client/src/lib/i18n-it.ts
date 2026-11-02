@@ -1643,6 +1643,7 @@ const IT: Dict = {
   'board.dispatch.presetNoLimit': 'Nessun limite impostato, vedi Avanzate',
   'board.dispatch.presetCustom': 'numero scelto in Avanzate',
   'board.dispatch.nextStarts': 'Ne parte una nuova quando il Mac ha almeno {gb} GB liberi.',
+  'board.dispatch.replay': "Sugli ultimi giorni avrebbe fatto {would} card insieme in media, invece di {actual} con la regola di oggi.",
   'board.dispatch.atMostShort': 'al massimo {n}',
   'board.dispatch.toPcDesc': 'Se il Mac è pieno, le card pesanti vanno sul PC.',
   'board.dash.advanced': 'Avanzate',
