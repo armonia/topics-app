@@ -1,4 +1,5 @@
 /**
+ * @covers KANBAN-104
  * The contract `board_comment` (topics-board gateway) relies on: a board
  * comment with two attachments saves both and the thread returns them. The
  * 400 for paths outside the allowlist comes from the gateway BEFORE writing;

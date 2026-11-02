@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-104
+ */
 import { describe, expect, test } from 'bun:test';
 import { isChronicleRow, liveToolRow, type ChronicleDeps } from './columnFilter';
 import type { TimelineItem } from './taskTimeline';
