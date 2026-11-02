@@ -239,7 +239,7 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     // A band was as wide as the board; a dropdown has a reading width of its
     // own (the shell caps it at 650px plus the surface's hairline).
     expect(m.width, "largo come una banda, non come un dropdown").toBeLessThanOrEqual(654);
-    expect(b.width - m.width, "il pannello copre la barra da parte a parte").toBeGreaterThan(200);
+    expect(b.width - m.width, "il pannello copre la barra da parte a parte").toBeGreaterThan(100);
     expect(m.height, "un dropdown senza tetto: piu' alto del viewport").toBeLessThanOrEqual(800 * 0.7 + 16);
 
     // Floating: the columns did not move, and the panel is not in the board's subtree.

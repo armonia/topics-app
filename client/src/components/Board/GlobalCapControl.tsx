@@ -160,7 +160,9 @@ function CapChoice({ overflow }: { overflow?: OverflowSwitch }) {
       <MachineBusyLine shares={s.capacity} calm />
       {/* The live count stays in the open: it is the line people come to read. */}
       <RunningLine quiet className={bounded && running >= limit ? 'text-amber-300' : 'text-app-text-heading'}>
-        {limit === null
+        {resources
+          ? tr('board.dispatch.runningResources', { running })
+          : limit === null
           ? tr('board.dispatch.runningLoading')
           : !bounded
             ? tr('board.dispatch.runningNoLimit', { running })
@@ -369,7 +371,7 @@ function CountBrake({ quiet }: { quiet: boolean }) {
     <>
       {/* The live line comes before the controls: it is the one people come to
           read. */}
-      <RunningLine quiet={quiet} className={full ? 'text-amber-300' : 'text-app-text-heading'}>
+      {!quiet && <RunningLine quiet={quiet} className={full ? 'text-amber-300' : 'text-app-text-heading'}>
         {limit === null
           ? tr('board.dispatch.runningLoading')
           : !bounded
@@ -378,7 +380,7 @@ function CountBrake({ quiet }: { quiet: boolean }) {
             : over
               ? tr('board.dispatch.runningOver', { running, cap: limit })
               : tr('board.dispatch.running', { running, cap: limit })}
-      </RunningLine>
+      </RunningLine>}
       {/* THE FLOOR HOLDS IN THIS MODE TOO, and it was said nowhere: "3 di 4"
           reads as a free slot while no agent can start. The capacity reading
           carries a verdict here only when the floor or a drain holds. */}
@@ -475,9 +477,9 @@ function ResourcesBrake({ quiet }: { quiet: boolean }) {
 
   return (
     <>
-      <RunningLine quiet={quiet} className="text-app-text-heading">
+      {!quiet && <RunningLine quiet={quiet} className="text-app-text-heading">
         {s.cap ? tr('board.dispatch.runningResources', { running: cap?.running ?? 0 }) : tr('board.dispatch.runningLoading')}
-      </RunningLine>
+      </RunningLine>}
 
       <BudgetSlider share={share} onDraft={setShownShare} onCommit={(next) => { void saveGlobalCap({ budgetShare: next }); }} />
 
