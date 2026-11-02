@@ -192,7 +192,7 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     await expect(menu.getByText("Chi tiene la memoria del Mac · 32 GB")).toBeVisible();
     await fold.locator("summary").click();
     await expect(menu.getByTestId("dispatch-dashboard-switch")).toBeVisible();
-    await expect(menu.getByText("Quante card insieme", { exact: true })).toBeVisible();
+    await expect(menu.getByText("Quante card insieme sul Mac", { exact: true })).toBeVisible();
     await expect(menu.getByTestId("global-cap-preset")).toBeVisible();
     // The three improvements.
     await expect(dash.getByTestId("dispatch-dashboard-live")).toHaveText("dal vivo");

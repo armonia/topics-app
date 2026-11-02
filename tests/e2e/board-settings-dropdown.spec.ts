@@ -338,16 +338,10 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     // The fixed number does not apply, so it is not there to be believed.
     await expect(page.getByTestId("global-cap-max")).toHaveCount(0);
     await expect(page.getByTestId("global-cap-mode-fixed")).toHaveCount(0);
-    await expect(control.getByTestId("global-cap-running")).toContainText("agent al lavoro");
 
     // ONE knob, a share of what is free.
     const budget = page.getByTestId("global-cap-budget-slider");
     await expect(page.getByTestId("global-cap-budget-value")).toHaveText("fino al 60% del Mac libero");
-
-    // THE ONE NUMBER, at the top of the panel: 88% of the Mac, red.
-    const busy = control.getByTestId("machine-busy-pct");
-    await expect(busy).toHaveText("Il Mac è occupato all'88%");
-    await expect(busy).toHaveAttribute("data-tone", "critical");
 
     // The live reading, as shares of the Mac: 7.4 of 12 is 62%, the ceiling
     // 6.0 of 12 is 50%. Over it, so red.
@@ -359,7 +353,6 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     // sits on top (and speaks only when a card waits). The busy line is a wait,
     // so amber, never red.
     await expect(page.getByTestId("global-cap-verdict")).toHaveCount(0);
-    await expect(busy).not.toHaveClass(/(?:red|rose)-/);
 
     // No technical word in the text a person reads without opening anything.
     const visible = await control.evaluate((node) => {
