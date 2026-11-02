@@ -11,7 +11,8 @@
  * imports through the `@/` alias, which `bun test` does not resolve.
  */
 import { ChatMarkdown } from '../ChatMarkdown';
-import { processExitOf } from '../Chat/machineRow';
+import { processExitOf, subagentResultOf } from '../Chat/machineRow';
+import { SubAgentResultRow } from '../Chat/SubAgentResultCard';
 import { ProcessExitRow } from '../Chat/ProcessExitRow';
 import { COMPACT_MD_CLS } from './constants';
 import type { ChatMessage } from '../../types';
@@ -19,6 +20,8 @@ import type { ChatMessage } from '../../types';
 export function TaskSessionUserRow({ message }: { message: Pick<ChatMessage, 'id' | 'content' | 'blocks'> }) {
   const exit = processExitOf(message.blocks);
   if (exit) return <ProcessExitRow messageId={message.id} block={exit} content={message.content} />;
+  const result = subagentResultOf(message.blocks);
+  if (result) return <SubAgentResultRow messageId={message.id} block={result} />;
   return (
     <div className="flex justify-end">
       <div className="user-bubble max-w-[88%] rounded-lg bg-app-user-bubble px-2.5 py-1.5 text-body-lg leading-5 text-app-text">

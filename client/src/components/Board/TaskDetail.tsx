@@ -78,7 +78,7 @@ import { SessionLiveRow } from './SessionLiveRow';
 import { mergeTaskTimeline, type TimelineItem } from './taskTimeline';
 import { commentChip, commentChipTestId } from './chipKey';
 import { deliveryNotesToFold } from './taskDeliveryNotes';
-import { processExitOf } from '../Chat/machineRow';
+import { isChronicleRow, liveToolRow } from './columnFilter';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { followChoiceMayChange } from '../../lib/taskConversationFollow';
 import { DispatchEnvelopeRow } from '../Chat/DispatchEnvelopeRow';
@@ -1984,14 +1984,12 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
     const isService = (item: TimelineItem) => item.source === 'comment' && folds(item);
     // The column keeps WORDS only: the dispatcher's chronicle (service notes,
     // transitions, envelopes, system lines) sits in the «Details» panel.
-    const isChronicle = (item: TimelineItem) => item.source === 'comment'
-      ? item.kind === 'status' || item.kind === 'review-note' || isService(item) || (item.comment.author === 'system' && item.comment.kind === 'comment' && !parseQuestionBlock(item.comment.content))
-      : !!item.envelope || (item.msg.role === 'user' && processExitOf(item.msg.blocks) !== null);
+    const isChronicle = (item: TimelineItem) => isChronicleRow(item, { isService, hasQuestion: (c) => !!parseQuestionBlock(c) });
     const at = new Map(timeline.map((t, i) => [t.id, i]));
     const words = timeline.filter((t) => !isChronicle(t));
     const chronicle = timeline.filter(isChronicle);
     const wordRow = (item: TimelineItem) => row(item, at.get(item.id) ?? 0);
-    const liveTool = [...timeline].reverse().find((t) => t.source === 'session' && !t.envelope && t.msg.role === 'assistant');
+    const liveTool = liveToolRow(timeline);
     return (
       <div
         ref={threadScrollRef}
