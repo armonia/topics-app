@@ -49,7 +49,7 @@
  */
 import { useRef, useState, type ReactNode } from 'react';
 import { Segmented } from '../Shared/Segmented';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Monitor } from 'lucide-react';
 import { useActiveLocale, useT } from '../../hooks/useT';
 import {
   GLOBAL_CAP_MAX, GLOBAL_CAP_MIN, GLOBAL_CAP_OFF,
@@ -150,26 +150,24 @@ function CapChoice({ overflow }: { overflow?: OverflowSwitch }) {
   const bounded = limit !== null && Number.isFinite(limit);
   const resources = s.cap ? capMode(s.cap) === 'resources' : false;
   const capacity = s.capacity;
-  const running = capacity?.running ?? 0;
   const gbLeft = bounded && capacity && capacity.totalMemGB > 0 && Number.isFinite(capacity.agentCostMemGB)
     ? gbLeftFor(capacity.totalMemGB, capacity.agentCostMemGB, limit)
     : null;
+  const atMost = resources
+    ? tr('board.dispatch.presetByResources')
+    : bounded
+      ? tr('board.dispatch.atMostShort', { n: limit })
+      : limit === null ? tr('board.dispatch.runningLoading') : tr('board.dispatch.presetNoLimit');
+  const needGB = capacity && Number.isFinite(capacity.agentCostMemGB) ? Math.max(0.5, Math.round(capacity.agentCostMemGB * 10) / 10) : null;
   return (
-    <div className="space-y-1.5" data-testid="global-cap-control">
-      <p className="text-mini font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.dash.together')}</p>
-      <MachineBusyLine shares={s.capacity} calm />
-      {/* The live count stays in the open: it is the line people come to read. */}
-      <RunningLine quiet className={bounded && running >= limit ? 'text-amber-300' : 'text-app-text-heading'}>
-        {resources
-          ? tr('board.dispatch.runningResources', { running })
-          : limit === null
-          ? tr('board.dispatch.runningLoading')
-          : !bounded
-            ? tr('board.dispatch.runningNoLimit', { running })
-            : running > limit
-              ? tr('board.dispatch.runningOver', { running, cap: limit })
-              : tr('board.dispatch.running', { running, cap: limit })}
-      </RunningLine>
+    <div className="space-y-2" data-testid="global-cap-control">
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-mini font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.dash.together')}</p>
+        <p className="text-mini text-app-text-secondary" data-testid="global-cap-atmost">
+          {atMost}
+          {!resources && picked === null && bounded && ` · ${tr('board.dispatch.presetCustom')}`}
+        </p>
+      </div>
       <Segmented
         value={picked ?? ('' as CapPreset)}
         options={CAP_PRESETS.map((p) => ({ value: p, label: tr(`board.dispatch.preset.${p}`) }))}
@@ -178,30 +176,32 @@ function CapChoice({ overflow }: { overflow?: OverflowSwitch }) {
         testId="global-cap-preset"
         disabled={s.saving || !s.cap}
       />
-      <p className="text-mini text-app-text-muted" data-testid="global-cap-atmost">
-        {resources
-          ? tr('board.dispatch.presetByResources')
-          : bounded
-            ? tr('board.dispatch.atMost', { n: limit })
-            : limit === null ? tr('board.dispatch.runningLoading') : tr('board.dispatch.presetNoLimit')}
-        {!resources && picked === null && bounded && ` · ${tr('board.dispatch.presetCustom')}`}
-      </p>
       {gbLeft !== null && !resources && (
-        <p className="rounded-md bg-sky-500/10 px-2 py-1.5 text-mini text-sky-800 dark:text-sky-300" data-testid="global-cap-leaves">
-          {tr('board.dispatch.leavesGB', { gb: gbLeft })}
-          <span> · {tr('board.dispatch.leavesEstimate')}</span>
-        </p>
+        <div className="space-y-0.5 rounded-md bg-sky-500/10 px-2.5 py-2 text-mini text-sky-800 dark:text-sky-300" data-testid="global-cap-leaves">
+          <p className="font-medium">
+            {tr('board.dispatch.leavesGB', { gb: gbLeft })}
+            <span className="font-normal"> · {tr('board.dispatch.leavesEstimate')}</span>
+          </p>
+          {needGB !== null && <p data-testid="global-cap-next-starts">{tr('board.dispatch.nextStarts', { gb: needGB })}</p>}
+        </div>
       )}
       {overflow && (
         <label className="flex min-h-6 cursor-pointer items-center justify-between gap-3 coarse:min-h-11" title={tr('board.settings.overflowTitle')}>
-          <span>{tr('board.dispatch.toPc')}</span>
-          <input
-            type="checkbox"
+          <span className="flex min-w-0 items-start gap-2">
+            <Monitor className="mt-0.5 h-3.5 w-3.5 shrink-0 text-app-text-secondary" aria-hidden="true" />
+            <span className="min-w-0">
+              <span className="block text-app-text">{tr('board.dispatch.toPc')}</span>
+              <span className="block text-mini text-app-text-secondary">{tr('board.dispatch.toPcDesc')}</span>
+            </span>
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={overflow.checked}
             data-testid="board-dispatch-overflow"
-            checked={overflow.checked}
-            onChange={(e) => overflow.onChange(e.target.checked)}
-            className="h-3.5 w-3.5 shrink-0 accent-emerald-500"
-          />
+            onClick={() => overflow.onChange(!overflow.checked)}
+            className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${overflow.checked ? 'bg-emerald-500' : 'bg-white/20'}`}
+          ><i className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${overflow.checked ? 'left-3.5' : 'left-0.5'}`} /></button>
         </label>
       )}
     </div>

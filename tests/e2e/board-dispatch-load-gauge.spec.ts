@@ -270,13 +270,9 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
 
     await gear(page).click();
     const menu = page.getByTestId("board-settings-menu");
-    const summary = menu.getByTestId("dispatch-load-summary");
-    await expect(summary).toBeVisible();
-    // The count is said once, on the running line the ring sits beside.
-    await expect(menu.getByTestId("global-cap-running")).toContainText("2 di 4");
-    await expect(summary).toHaveText("leggero");
-    await expect(summary).toHaveAttribute("data-tone", "idle");
-    await expect(summary).toHaveAttribute("data-fill", "0.50");
+    // The panel states the limit once ("al massimo 4"); the busy reading stays on the header ring.
+    await expect(menu.getByTestId("global-cap-atmost")).toContainText("al massimo 4");
+    await expect(menu.getByTestId("dispatch-load-summary")).toHaveCount(0);
   });
 
   test("GAUGE-06: a budget, l'anello si riempie sul budget e il popover dice il Mac in %", async ({ page }) => {
