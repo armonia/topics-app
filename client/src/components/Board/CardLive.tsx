@@ -108,7 +108,8 @@ export function LiveEffortChip({ usage, label }: { usage: LiveUsage; label?: str
     // provider (`label`), the same text the static line shows.
     // A wrapped band, full card width: loader and model on the left (the left
     // side is the one that gets cut at 300 px), time and tokens on the right,
-    // in tabular figures and never wrapped.
+    // in tabular figures and never wrapped. The model label is never cut: at
+    // 300 px it wraps on its own line instead of losing the provider.
     <div
       data-testid="card-measure"
       title={tr('board.card.liveEffortTitle', {
@@ -120,7 +121,7 @@ export function LiveEffortChip({ usage, label }: { usage: LiveUsage; label?: str
     >
       <span className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
         <SparkLoader className="shrink-0" />
-        <span className="min-w-0 truncate">{label ?? fmtModel(usage.model)}</span>
+        <span className="min-w-0">{label ?? fmtModel(usage.model)}</span>
       </span>
       <span className="shrink-0 whitespace-nowrap">⏱ {fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)}`}</span>
     </div>
