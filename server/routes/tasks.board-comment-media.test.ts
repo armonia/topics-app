@@ -4,6 +4,7 @@
  * for paths outside the allowlist comes from the gateway BEFORE writing; this
  * route still drops them silently (pinned by the "DROPPED at write time" test
  * in tasks.test.ts), so no 400 is tested here.
+ * @covers MEDIA-01
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
