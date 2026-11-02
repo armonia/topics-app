@@ -2,6 +2,23 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.47 — 2026-11-02
+
+### Sotto il cofano
+- A card restarted on a node that cannot reach origin carries its branch as a bundle
+- Delivery refuses a file that goes from LF to CRLF; .gitattributes normalizes to LF
+- Carried-branch tests: the node has no origin at all, and the real /api/nodes/runs route is covered
+- Land refuses assistant attribution and foreign authors; card agents start with attribution off
+- Auto-dispatch panel follows the approved reference: summary card, chart before queue, one-line queue, closed Advanced and This board
+- Guard file back to LF: it had entered main in CRLF
+- test git spawns carry the isolated env, bloat baseline records what the last merges added
+- Fix the e2e reds the auto-dispatch panel redesign left on main
+- Panel hero on the type scale and chart labels at the 11 px floor: text-base generates nothing here, 10 px fails the audit once the chart has history
+- Sub-agent row reads as free text, only the final result sits in a soft band; chevron on hover and focus without shifts
+- Identifier gate: email is a project word, rec spelled out in the land attribution gate
+- Two e2e reds after the sub-agent landing: the observer test needs a row that is really cut, and the known sidebar chevron exception matches axe's longer selector
+- Sub-agent cut spec: tests that need a cut row use text that cannot fit, the resize goes down to 390 px
+
 ## 2.3.46 — 2026-11-01
 
 ### Sotto il cofano
@@ -19,8 +36,15 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Board agents can no longer move HEAD of a live checkout
 - claude-code.ts back to LF: the Windows node's edit had rewritten every line
 - Cloud weekly limit: record the hold, requeue the card, overflow picks the PC
+- la richiesta che diventa card si conferma nella chat che l'ha chiesta. Una card aperta dalla sessione di un progetto o dal coordinatore scrive nella chat d'origine una riga «È diventata una card» con titolo e link, senza svegliare nessun turno, e lascia una riga nel log attività per il coordinatore. L'avviso dopo dieci minuti in backlog c'era già (task:unowned) e non cambia.
+- commenti in inglese e spec e2e della conferma d'origine
+- commento dello spec in inglese, spawn sincrono del guard elencato
+- requisito KANBAN-103 e tracciamento dei test (anche due ereditati senza @covers)
 - Cloud weekly limit: a card put on the cloud by hand stays in review instead of looping back into the queue
+- Comment on a review card delivered by a node requeues it instead of a dead resume
+- Fix two reds inherited from main: dispatcher actor type, covers tag on the weekly-limit test
 - CI back to green after the batch: server types, listed sync spawn, declared coverage, longer fake turn for WebKit
+- Card origin e2e: read the chat through its API, project topics are not in the global sidebar
 
 ## 2.3.45 — 2026-10-31
 
