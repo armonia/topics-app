@@ -162,7 +162,7 @@ function CapChoice({ overflow }: { overflow?: OverflowSwitch }) {
   const needGB = capacity && Number.isFinite(capacity.agentCostMemGB) ? Math.max(0.5, Math.round(capacity.agentCostMemGB * 10) / 10) : null;
   const snapshot = useMemoryQueueSnapshot();
   const replay = gbLeft !== null && capacity && limit !== null && Number.isFinite(capacity.agentCostMemGB)
-    ? replayCap(snapshot?.history ?? [], capacity.agentCostMemGB, gbLeft, limit)
+    ? replayCap(snapshot?.history ?? [], capacity.agentCostMemGB, Math.max(0, (snapshot?.threshold.startGB ?? capacity.agentCostMemGB) - capacity.agentCostMemGB), limit)
     : null;
   const fmt = (n: number) => n.toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   return (

@@ -54,7 +54,7 @@ export function gbLeftFor(totalMemGB: number, agentCostMemGB: number, limit: num
 export function replayCap(
   history: ReadonlyArray<{ freeGB: number; running?: number }>,
   agentCostMemGB: number,
-  keepGB: number,
+  floorGB: number,
   limit: number,
 ): { would: number; actual: number } | null {
   if (!(agentCostMemGB > 0) || !Number.isFinite(limit)) return null;
@@ -64,7 +64,7 @@ export function replayCap(
   let actual = 0;
   for (const h of samples) {
     const running = h.running ?? 0;
-    const fit = Math.floor((h.freeGB + running * agentCostMemGB - keepGB) / agentCostMemGB);
+    const fit = Math.floor((h.freeGB + running * agentCostMemGB - floorGB) / agentCostMemGB);
     would += Math.max(0, Math.min(limit, fit));
     actual += running;
   }

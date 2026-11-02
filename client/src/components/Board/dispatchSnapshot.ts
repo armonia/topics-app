@@ -8,7 +8,7 @@ let snap: DispatchMemoryQueueSnapshot | null = null;
 let snapAt = 0;
 const listeners = new Set<() => void>();
 let timer: ReturnType<typeof setInterval> | null = null;
-function loadSnapshot() {
+export function loadSnapshot() {
   req<DispatchMemoryQueueSnapshot>('/dispatch/memory-queue').then(
     (s) => { snap = s; snapAt = Date.now(); listeners.forEach((l) => l()); },
     () => { /* without a dispatcher the dashboard shows capacity only */ },

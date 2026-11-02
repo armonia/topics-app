@@ -23,7 +23,7 @@ import { boardApi, isProjectlessId } from '../../lib/board';
 import { projectNameFromId } from '../../lib/boardProjectsStore';
 import type { BoardTask, DispatchCapacity } from '../../lib/board';
 import type { DispatchMemoryQueueSnapshot } from '../../../../shared/board';
-import { snapshotIsLive, useMemoryQueueSnapshot } from './dispatchSnapshot';
+import { loadSnapshot, snapshotIsLive, useMemoryQueueSnapshot } from './dispatchSnapshot';
 import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
 import { brokenCards, chartMax, overflowedCards, queuedCards, rowReason, waitingLabel, type BrokenCard, type MovedCard, type QueuedCard } from './dispatchDashboardModel';
 import { DANGER_TEXT } from '../../lib/popoverStyles';
