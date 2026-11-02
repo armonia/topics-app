@@ -1565,6 +1565,7 @@ const IT: Dict = {
   'board.card.systemNote': 'Nota di sistema',
   'board.card.noSummary': 'Nessun riassunto della consegna: sotto c’è solo la cronaca della macchina',
   'board.card.commentMore': 'Mostra tutto',
+  'board.card.noteShow': 'mostra',
   'board.card.commentLess': 'Mostra meno',
   /**
    * NIENTE CONSEGNATO, detto dalla colonna.
@@ -2007,7 +2008,7 @@ const IT: Dict = {
   'board.card.turnActions': 'Azioni su questo turno',
   'board.card.blockedActions': 'Uscite dall\'attesa',
   'board.card.yourRequest': 'La tua richiesta: {text}',
-  'board.card.commentPlaceholder': '…oppure commenta',
+  'board.card.commentPlaceholder': 'Commenta o correggi…',
   'board.card.comment': 'Commenta',
   'board.card.copyTask': 'Copia task',
   'board.preview.label': 'Anteprima',
