@@ -490,8 +490,8 @@ describe("board router (human, project-scoped)", () => {
     expect((await anon!.json()).createdMissing.join(" ")).toMatch(/createdBy/);
     const bad = await call(router, "POST", "/api/boards/pX/tasks", { text: "bad name", createdBy: "x; DROP", ...FULL });
     expect(bad!.status).toBe(201);
-    // A caller that names nobody but identifies itself by User-Agent gets a readable name.
-    const ua = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "ua", ...FULL }, { "User-Agent": "board-card/1.0" }))!.json();
+    // A caller that names nobody but sends the agent header gets a readable name.
+    const ua = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "ua", ...FULL }, { "X-Topics-Agent": "board-card" }))!.json();
     expect(ua.createdBy).toBe("agent:board-card");
     expect(ua.createdSource).toBe("test session");
 
