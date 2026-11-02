@@ -50,7 +50,7 @@ import { projectRow } from "./helpers/project-row";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { hermetic } from "./fixtures/hermetic";
-import { openCapMode } from "./helpers/open-cap-mode";
+import { openAdvanced, openCapMode } from "./helpers/open-cap-mode";
 
 hermetic(test);
 
@@ -302,6 +302,7 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     await page.goto("/");
     await openBoard(page);
     await gear(page).click();
+    await openAdvanced(page);
     await page.getByTestId("global-cap-brake-resources").click();
     await page.keyboard.press("Escape");
 
@@ -334,6 +335,7 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     // the server.
     await page.keyboard.press("Escape");
     await gear(page).click();
+    await openAdvanced(page);
     await page.getByTestId("global-cap-brake-count").click();
     await openCapMode(page);
     await expect(page.getByTestId("global-cap-mode-auto")).toBeVisible();
@@ -365,6 +367,7 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     await page.goto("/");
     await openBoard(page);
     await gear(page).click();
+    await openAdvanced(page);
     await page.getByTestId("global-cap-brake-resources").click();
     // Topics holds 22.0 GB over a 20.4 GB ceiling. The wait says how busy the
     // Mac is and nothing about where the gate reopens: the gate reads Topics'
@@ -391,6 +394,7 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     // Back to count, for the same reason as GAUGE-06.
     await page.keyboard.press("Escape");
     await gear(page).click();
+    await openAdvanced(page);
     await page.getByTestId("global-cap-brake-count").click();
     await openCapMode(page);
     await expect(page.getByTestId("global-cap-mode-auto")).toBeVisible();

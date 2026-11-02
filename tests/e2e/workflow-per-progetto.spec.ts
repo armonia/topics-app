@@ -119,6 +119,8 @@ test.describe("Board workflows · triage, AI review, human review", () => {
 
     // ── 1. The preset is chosen in the board's settings ────────────────────
     await page.getByTestId("kanban-board").getByTitle("Impostazioni auto-dispatch").click();
+    // "This board" is a closed fold since the panel follows the approved reference.
+    await page.getByTestId("settings-this-board").locator("summary").first().click();
     await expect(page.getByTestId("board-workflow-picker")).toBeVisible({ timeout: 10000 });
     await page.getByTestId("board-workflow-armonia").click();
     await expect(page.getByTestId("kanban-column-triage")).toBeVisible({ timeout: 10000 });

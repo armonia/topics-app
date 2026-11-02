@@ -150,6 +150,7 @@ function CapChoice({ overflow }: { overflow?: OverflowSwitch }) {
   const bounded = limit !== null && Number.isFinite(limit);
   const resources = s.cap ? capMode(s.cap) === 'resources' : false;
   const capacity = s.capacity;
+  const running = capacity?.running ?? 0;
   const gbLeft = bounded && capacity && capacity.totalMemGB > 0 && Number.isFinite(capacity.agentCostMemGB)
     ? gbLeftFor(capacity.totalMemGB, capacity.agentCostMemGB, limit)
     : null;
@@ -157,6 +158,16 @@ function CapChoice({ overflow }: { overflow?: OverflowSwitch }) {
     <div className="space-y-1.5" data-testid="global-cap-control">
       <p className="text-mini font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.dash.together')}</p>
       <MachineBusyLine shares={s.capacity} calm />
+      {/* The live count stays in the open: it is the line people come to read. */}
+      <RunningLine quiet className={bounded && running >= limit ? 'text-amber-300' : 'text-app-text-heading'}>
+        {limit === null
+          ? tr('board.dispatch.runningLoading')
+          : !bounded
+            ? tr('board.dispatch.runningNoLimit', { running })
+            : running > limit
+              ? tr('board.dispatch.runningOver', { running, cap: limit })
+              : tr('board.dispatch.running', { running, cap: limit })}
+      </RunningLine>
       <Segmented
         value={picked ?? ('' as CapPreset)}
         options={CAP_PRESETS.map((p) => ({ value: p, label: tr(`board.dispatch.preset.${p}`) }))}
