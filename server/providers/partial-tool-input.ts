@@ -12,10 +12,11 @@
  */
 
 /**
- * How often a still-streaming input is looked at. 500 ms is imperceptible to
- * the reader and bounds the broadcast rate on a large input to about 2/s.
+ * How often a still-streaming input is looked at. 50 ms is one tick of the
+ * reader's eye, not a delay they can feel (it was 500 ms, which wrote a
+ * command in lumps), and bounds the broadcast rate on a large input to 20/s.
  */
-export const PARTIAL_ARGS_EMIT_MS = 500;
+export const PARTIAL_ARGS_EMIT_MS = 50;
 
 /** Primary input fields, in priority order. */
 const PARTIAL_PRIMARY_KEYS = ["file_path", "filePath", "path", "command", "cmd", "url", "pattern", "query"] as const;
