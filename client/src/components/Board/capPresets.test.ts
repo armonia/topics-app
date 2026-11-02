@@ -3,6 +3,8 @@
  * "Real limit" = `effectiveDispatchCap`, the function the dispatcher reads;
  * "restart" = the cap written to the settings row and read back by the
  * server's own reader (`readGlobalCap`), then mapped back to a choice.
+ *
+ * @covers AICTRL-05
  */
 import { describe, expect, test } from 'bun:test';
 import { Database } from 'bun:sqlite';
