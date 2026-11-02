@@ -204,7 +204,9 @@ describe('la misura del turno sulla card', () => {
   test('il modello e il provider sono nel CONTENUTO della riga, non solo nel titolo', () => {
     // Guard against the model moving into `title` alone: the visible text must carry it.
     expect(src).toContain('<span className="min-w-0 truncate">{measureLine}</span>');
-    expect(live).toContain('<span className="min-w-0 truncate">{label ?? fmtModel(usage.model)}</span>');
+    expect(live).toContain('<span className="min-w-0">{label ?? fmtModel(usage.model)}</span>');
+    // The model label must never be cut: no truncate on it.
+    expect(live).not.toContain('min-w-0 truncate">{label');
     expect(live).toContain('⏱ {fmtLive(ms)}');
   });
 
@@ -218,7 +220,7 @@ describe('la misura del turno sulla card', () => {
     // Tokens come AFTER the time in the text, so truncation drops them first.
     const content = src.slice(src.indexOf('<span className="min-w-0 truncate">{measureLine}</span>'), src.indexOf('<span data-testid="card-spend">'));
     expect(content.indexOf('fmtMs(task.agentMs)')).toBeLessThan(content.indexOf('fmtTok(costo)'));
-    expect(live).toContain('min-w-0 truncate');
+    expect(live).toContain('<span className="min-w-0">{label');
   });
 
   test('il piede non ha pillole impilate: la misura non porta sfondo pieno', () => {
