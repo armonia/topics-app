@@ -30,6 +30,7 @@ import { DisclosureBody } from './DisclosureBody';
 import { FindToolIdContext, useFindFocusTool } from '../../state/chatFindFocus';
 import { CHAT_BOTTOM_GUTTER_PX, COMPOSER_HEIGHT_PROPERTY } from './useComposerDock';
 import { startVisibleInterval } from '../../state/documentVisibility';
+import { FadedText } from './FadedText';
 
 /**
  * Where a `scrollIntoView` of the row lands (the row a failure badge opened):
@@ -250,6 +251,9 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   // ran. A row with no status at all (old rows) keeps reading as running.
   const isQueued = toolCall.status === 'pending';
   const isRunning = status === 'running' || toolCall.status === undefined;
+  // A row born during the live turn fades in where it stands; a row from the
+  // history (already settled when it mounts) just is there.
+  const [enteredLive] = useState(() => isQueued || (status === 'running' && !!toolCall.startedAt));
   const isWaiting = status === 'waiting_for_input';
   // Un PERMESSO non è una domanda: stato suo, pannello suo, decisione
   // tipizzata. Ma per tutto ciò che chiede «la palla è dell'umano?» — la
@@ -519,7 +523,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           {display.summary && !isSubAgent && (
             <span className="min-w-0 flex items-baseline text-mini text-app-text-secondary font-mono" title={display.tooltip}>
               <span className="flex-shrink-0">(</span>
-              <span ref={summaryRef} className="truncate">{display.summary}</span>
+              <span ref={summaryRef} className="truncate"><FadedText text={display.summary} live={!!toolCall.inputStreaming} /></span>
               <span className="flex-shrink-0">)</span>
             </span>
           )}
@@ -597,7 +601,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
       // riga, e adesso è scritto dove vive davvero.
       data-status={status}
       data-highlighted={highlighted ? 'true' : undefined}
-      className={`text-compact rounded-md transition-colors ${
+      className={`text-compact rounded-md transition-colors ${enteredLive ? 'stream-fade' : ''} ${
         // "In use" state must be unmissable: the active tool gets a soft
         // primary tint + hairline ring (negative margin keeps the text
         // column aligned with settled rows). Settled rows stay flat.

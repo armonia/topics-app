@@ -6598,3 +6598,14 @@ The Claude CLI provider SHALL forward each `text_delta` partial to the chat the 
 - **WHEN** the CLI emits text_delta partials
 - **THEN** each piece SHALL reach the handler synchronously
 - **AND** the snapshot of the finished block SHALL emit only the remainder
+
+### Requirement: CHAT-LIVE-TEXT-02 — Live pieces fade in where they stand, with no delay
+
+Each piece of text that arrives while a turn is being written, each piece of a tool command written live, and each tool row born during the live turn SHALL fade from transparent to opaque in 150 ms, already in its final place. The text SHALL be in the DOM from the render it arrives in; only its opacity SHALL change, never its layout. Text already present when the message mounts (history, a remount mid-turn) SHALL NOT fade; a piece SHALL fade once, from the frame it first appears, and never again; `prefers-reduced-motion` and a window without focus SHALL turn the fade off.
+
+#### Scenario: the fade never holds text back
+
+- **GIVEN** a reply streaming in pieces
+- **WHEN** a piece arrives
+- **THEN** the rendered text SHALL contain it in the same render
+- **AND** each piece SHALL be its own span in arrival order, and only the pieces younger than 150 ms SHALL animate
