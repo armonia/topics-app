@@ -968,8 +968,8 @@ describe("pendingQuestion, la contabilita' non e' l'ultima parola", () => {
   });
 
   test("una domanda del sistema (deploy, sottotask parcheggiati) tiene i suoi tasti", () => {
-    // 03/11: una regola che saltava ogni riga di sistema per far passare la consegna del nodo
-    // si mangiava anche queste, e la domanda vecchia dell'agente tornava al loro posto.
+    // 03/11: a rule that skipped every system row to let the node's hand-over through
+    // swallowed these too, and the agent's old question came back in their place.
     const sys = ["```question", "Pubblico in produzione?", "- Si'", "- Non ora", "```"].join("\n");
     const q = pendingQuestionComment([
       { content: question, kind: "comment", author: "agent:x" },
