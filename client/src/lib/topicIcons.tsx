@@ -5,9 +5,10 @@ import {
   Music, Music4, Home, Heart, Lock, BarChart3, Globe,
   Flower2, Code, Terminal, Briefcase, Camera,
   Shield, Coffee, Bug, Cpu, Brain, Megaphone,
-  Search,
+  Search, Clock,
   type LucideIcon,
 } from 'lucide-react';
+import { WhatsAppIcon, DiscordIcon, TelegramIcon } from './brandIcons';
 
 export const DEFAULT_TOPIC_ICON = 'MessageSquare';
 
@@ -51,6 +52,12 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Brain,
   Megaphone,
   Search,
+  // i lavori programmati di Jarvis
+  Clock,
+  // le chat dei canali di Jarvis: il marchio vero, nel colore del canale (il colore del topic)
+  WhatsApp: WhatsAppIcon,
+  Discord: DiscordIcon,
+  Telegram: TelegramIcon,
 };
 
 /** Get a Lucide component by icon name. Falls back to MessageSquare for unknown names (including legacy emoji). */
