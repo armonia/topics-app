@@ -177,6 +177,15 @@ describe('the progress line', () => {
     expect(src).toContain('data-testid="card-spend"');
     expect(src).toContain("tr('board.card.effortTitle'");
   });
+
+  // Card.tsx imports `@/lib/popoverStyles`, which bun test cannot resolve, so the
+  // face is read as source. The model must be the TEXT of the foot chip, not
+  // only its title: a title alone let the model vanish from the face unnoticed.
+  test('the model is written on the face, not only in a title', () => {
+    const foot = src.slice(src.indexOf('data-testid="card-foot"'));
+    const chip = foot.slice(0, foot.indexOf('data-testid="card-spend"'));
+    expect(chip).toContain('>{modelLine}');
+  });
 });
 
 describe('il chip del triage', () => {

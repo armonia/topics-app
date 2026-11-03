@@ -8,7 +8,7 @@ export function progressLine(content: string): string {
 }
 
 /** A machine note (system, dispatcher, verifier) is never the card's progress:
- *  it is folded under «mostra». The user is not a machine, and neither is the agent. */
+ *  it is folded under a disclosure toggle. The user is not a machine, and neither is the agent. */
 export function isSystemNote(author: string | null | undefined): boolean {
   return !!author && author !== 'user' && (RESERVED_AUTHORS as readonly string[]).includes(author);
 }

@@ -56,7 +56,8 @@ Limite onesto: la CLI finta non chiama mai `update_task`, quindi le card arrivat
 
 **Oggi.** La card in review porta: titolo, chip «Niente consegnato», «NOTA DI SISTEMA» con il testo della macchina, chip «serve te», «Sonnet 5 · via Claude Code · 35s», tre bottoni e un campo di commento (`04-board-anteprime.png`). La card in lavorazione mostra «ferma · nessun agente da 6 min» (uno stato di coda) e la card dispatchata «modifiche git ▾», «Triage», «Sonnet 5 · via Claude…». Quello che manca è la cosa che chiedi: *cosa sta facendo e a che punto è*. Cosa funziona già: quando l'ultima parola è dell'agente (la card «Stati vuoti nelle liste», KANBAN-71/`board-card-last-exchange`) la card mostra la sua frase, non la cronaca.
 **Coperto?** In parte da `conversazione-unica-della-card` (ultima parola = domanda, stato di consegna come chip). Non copre la riga di avanzamento.
-**Correzione.** Una riga di avanzamento nel corpo (ultimo passo del tool in corso, o l'ultima frase dell'agente), modello e durata solo nel dettaglio; la nota di sistema ripiegata sotto un «mostra» e mai sola nel corpo.
+**Correzione.** Una riga di avanzamento nel corpo (ultimo passo del tool in corso, o l'ultima frase dell'agente), troncata a una riga; la nota di sistema ripiegata sotto un «mostra» e mai sola nel corpo.
+**Aggiornamento (31/10 e 01/11, feedback di Attilio).** Il modello non si toglie dalla card: sul piede restano modello, provider, durata, token e costo, e un test rosso se il modello sparisce dalla faccia. La fascia è avvolta con la misura; sulla faccia resta solo «Approva», «Archivia» va nel menu. La card in review e quella in lavorazione si giudicano con la foto WebKit prima/dopo.
 
 ## 8. Il task come chat pulita (verifica tecnica)
 
