@@ -108,6 +108,8 @@ interface NodeFakeOptions {
   /** The `node-run` hook runner; absent = the lane's own default. */
   hooks?: LifecycleHookRunner;
   projectPathOf?: (projectId: string) => string | null;
+  /** The origin lookup; absent = an immediate answer. */
+  originUrlOf?: () => Promise<string | null>;
 }
 
 function nodeFake(o: NodeFakeOptions = {}) {
@@ -140,7 +142,7 @@ function nodeFake(o: NodeFakeOptions = {}) {
     delegatedTokenOf: () => (o.paired === false ? null : "tok-confined"),
     nameOf: () => "Portatile",
     localMachineId: () => "questa-macchina",
-    originUrlOf: async () => "git@github.com:acme/alpha.git",
+    originUrlOf: o.originUrlOf ?? (async () => "git@github.com:acme/alpha.git"),
     ...(o.hooks ? { hooks: o.hooks } : {}),
     ...(o.projectPathOf ? { projectPathOf: o.projectPathOf } : {}),
     plantBranch: async ({ branch, baseSha, bundle }) => {
@@ -414,6 +416,30 @@ describe("la card parte sul nodo, non qui", () => {
     await dispatch(h);
 
     expect((h.created[0].body as { description: string }).description).toBe("con il ramo");
+  });
+});
+
+describe("a launch still on its way to the node is not a restart orphan", () => {
+  it("a reconcile during the slow part of the launch leaves the card alone, and the node gets ONE run", async () => {
+    // 2026-11-03: the push of the card's branch held the launch for seconds
+    // before `beginRun`; the reconcile read "in_progress, no slot", requeued
+    // with the server-restart note, and the card was launched twice.
+    let release: (v: string) => void = () => {};
+    const gate = new Promise<string>((r) => { release = r; });
+    const h = harness({ originUrlOf: () => gate });
+    h.seed();
+    await dispatch(h);
+    expect(h.task().status).toBe("in_progress");
+
+    await poll(h);
+    expect(h.comments().some((c) => c.content.includes("Il server è ripartito"))).toBe(false);
+    expect(h.task().status).toBe("in_progress");
+    await dispatch(h);
+
+    release("git@github.com:acme/alpha.git");
+    await flush(40);
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
+    expect(h.task().status).toBe("in_progress");
   });
 });
 
@@ -902,6 +928,38 @@ describe("lo specchio: stato, commenti e il ramo che torna", () => {
     expect(mirrored).toHaveLength(1);
     // Dedup goes through the ANCHOR (KANBAN-72), never through the text.
     expect(mirrored[0].messageId).toBe("nc-1");
+  });
+
+  it("an agent signing agent:<id> on the node keeps its comment, so the review does not say there was no summary", async () => {
+    // 2026-11-03, every PC delivery: the node's agent wrote a question and a
+    // delivery, the mirror turned both into system notes, and the review door
+    // added its no-summary note under a summary that was there.
+    let current = report({ comments: [] });
+    const h = harness({ bundle: new Uint8Array([1]), readRun: () => Promise.resolve(current) });
+    h.seed();
+    await dispatch(h);
+    await poll(h); // seeds
+
+    const ask = "```question\nFatta la parte sbloccata, resta la fascia.\n- Procedo\n- Mi fermo\n```";
+    current = report({
+      status: "review",
+      deliveryBranch: "topics/corsa-remota",
+      baseSha: "abcdef0123456789",
+      comments: [
+        { id: "nc-ask", author: "agent:e88f046b", content: ask, kind: "comment", createdAt: "2026-11-03T14:36:09.912Z" },
+        { id: "nc-del", author: "agent:e88f046b", content: "Fatto: base e test.", kind: "delivery", createdAt: "2026-11-03T14:36:09.913Z" },
+        { id: "nc-sys", author: "system", content: "in_progress→review", kind: "comment", createdAt: "2026-11-03T14:36:09.914Z" },
+      ],
+    });
+    await poll(h);
+
+    expect(h.task().status).toBe("review");
+    const mirroredAsk = h.comments().find((c) => c.messageId === "nc-ask");
+    expect(mirroredAsk?.author).toBe("agent:e88f046b");
+    expect(mirroredAsk?.kind).toBe("comment");
+    // The node's own machinery stays bookkeeping, whatever kind it carried.
+    expect(h.comments().find((c) => c.messageId === "nc-sys")?.kind).toBe("service");
+    expect(h.comments().some((c) => c.content.startsWith("Consegna senza riassunto"))).toBe(false);
   });
 
   it("la card del nodo in review pianta il ramo e registra la consegna", async () => {
