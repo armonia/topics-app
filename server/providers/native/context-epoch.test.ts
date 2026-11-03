@@ -5,7 +5,7 @@
  * @covers CTX-DEDUP-02
  *
  * Drives the REAL provider against a stubbed API, and moves the clock instead
- * of waiting the 15 minutes of the eviction.
+ * of waiting the 60 minutes of the eviction.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
@@ -72,8 +72,8 @@ describe("the native context epoch", () => {
     await p.sendChat(key, "two", quiet);
     expect(p.contextEpoch(key)).toBe(first);
 
-    // Idle past the 15-minute TTL: the sweep evicts it, the next turn rebuilds it.
-    offsetMs = 16 * MIN;
+    // Idle past the 60-minute TTL: the sweep evicts it, the next turn rebuilds it.
+    offsetMs = 61 * MIN;
     expect(sweep(p)).toBe(1);
     const next = p.contextEpoch(key);
     expect(next).toBe(first + 1);
@@ -88,11 +88,11 @@ describe("the native context epoch", () => {
     await p.sendChat(key, "one", quiet);
     const epoch = p.contextEpoch(key);
 
-    // The route composes the turn at minute 10, the sweep runs at minute 16:
+    // The route composes the turn at minute 55, the sweep runs at minute 61:
     // the session has been idle 6 minutes since the route read the epoch.
-    offsetMs = 10 * MIN;
+    offsetMs = 55 * MIN;
     expect(p.contextEpoch(key)).toBe(epoch);
-    offsetMs = 16 * MIN;
+    offsetMs = 61 * MIN;
     expect(sweep(p)).toBe(0);
     expect(p.contextEpoch(key)).toBe(epoch);
   });
