@@ -130,6 +130,7 @@ const HUMAN_FIELDS: Record<string, FieldSpec> = {
   assignee: { to: "assignedTo", read: asStringOrNull },
   text: { to: "text", read: asTitle },
   description: { to: "description", read: asStringOrNull },
+  bar: { to: "bar", read: asStringOrNull },
   kanbanOrder: { to: "kanbanOrder", read: asNumber },
   dueDate: { to: "dueDate", read: asStringOrNull },
   outputUrl: { to: "outputUrl", read: asStringOrNull },
@@ -176,6 +177,7 @@ const AGENT_FIELDS: Record<string, FieldSpec> = {
   assignee: { to: "assignedTo", read: asStringOrNull },
   text: { to: "text", read: asTitle },
   description: { to: "description", read: asStringOrNull },
+  bar: { to: "bar", read: asStringOrNull },
   outputUrl: { to: "outputUrl", read: asStringOrNull },
   output_url: { to: "outputUrl", read: asStringOrNull },
   // THE DELIVERY IN WORDS, which the agent sends together with

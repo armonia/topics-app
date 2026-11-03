@@ -28,7 +28,7 @@ import { ScheduledCardsError, type ScheduledCardsService } from "../services/sch
 import { invalidateProbeCache } from "../services/url-probe-cache";
 import { STALE_TASK_MODEL_ERROR, isStaleModelChange, taskModelIsCurrent } from "../services/task-model-catalog";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
-import { resolveCreatedBy } from "../lib/created-by";
+import { knownTopicId, resolveCreatedBy, resolveCreatedSource } from "../lib/created-by";
 import { readBoardWorkflow, readOwnWorkflowPreset } from "../services/board-workflow";
 import { WORKFLOW_PRESET_IDS, isWorkflowPresetId } from "../../shared/workflow";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
@@ -516,6 +516,12 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             stayLocal: body?.stayLocal === true,
             // Who opened it: the interface marks itself, anyone else is automation.
             createdBy: resolveCreatedBy(req, body),
+            // Channel and acceptance bar as the caller declares them; the chat
+            // it came from is DISPLAY only (a caller can name any id, so it
+            // must never grant closing power: that stays server-set).
+            createdSource: resolveCreatedSource(req, body),
+            bar: typeof body?.bar === "string" ? body.bar : null,
+            originTopicId: knownTopicId(ctx.db, body?.originTopicId ?? body?.origin_topic_id),
             // The workflow column it is born in; absent = the server decides.
             stage: typeof body?.stage === "string" ? body.stage : undefined,
             // A card born in review: the question that lets it be born in Human review.

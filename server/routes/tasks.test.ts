@@ -16,7 +16,7 @@ import { topicSessionKey } from "../services/agent-census";
 import { imageShape } from "../services/image-shape";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import { ARCHIVE_PARKED_LABEL, createTaskService, LAND_ACTION_LABEL, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL } from "../services/tasks";
-import { freshDb, makeCtx, call } from "./tasks-test-support";
+import { freshDb, makeCtx, call, rawCall } from "./tasks-test-support";
 
 describe("tasks router (session-scoped)", () => {
   let db: Database; let broadcasts: any[]; let router: any;
@@ -58,13 +58,13 @@ describe("tasks router (session-scoped)", () => {
     expect(resp.status).toBe(201);
     expect(broadcasts.some(b => b.type === "task:updated")).toBe(true);
     const got = await (await call(router, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
-    expect(got.comments[0].content).toBe("note");
+    expect(got.comments.find((c: { content: string }) => c.content === "note")).toBeDefined();
     // Signed server-side from the session, and the signature is an IDENTITY.
     // It used to be the topic NAME, which for a dispatched agent is the task
     // title cut at 60 chars: every card in review showed half a word where the
     // speaker's name belongs. Now it is the same shape the status row already
     // writes, so one reader resolves both.
-    expect(got.comments[0].author).toBe("agent:top-s1");
+    expect(got.comments.find((c: { author: string }) => c.author !== "system").author).toBe("agent:top-s1");
     expect(got.comments[0].author).not.toBe("topic-one");
   });
 
@@ -450,15 +450,15 @@ describe("board router (human, project-scoped)", () => {
     // The interface cannot be talked out of being a person, whatever the body says.
     expect(ui.createdBy).toBe("human");
 
-    const named = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "from jarvis", createdBy: "agent:jarvis" }))!.json();
+    const named = await (await rawCall(router, "POST", "/api/boards/pX/tasks", { text: "from jarvis", createdBy: "agent:jarvis" }))!.json();
     expect(named.createdBy).toBe("agent:jarvis");
-    const cron = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "from a cron", createdBy: "cron:nightly" }))!.json();
+    const cron = await (await rawCall(router, "POST", "/api/boards/pX/tasks", { text: "from a cron", createdBy: "cron:nightly" }))!.json();
     expect(cron.createdBy).toBe("cron:nightly");
 
     // Nobody named, or a malformed name: still automation, never an empty label.
-    const anon = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "from curl" }))!.json();
+    const anon = await (await rawCall(router, "POST", "/api/boards/pX/tasks", { text: "from curl" }))!.json();
     expect(anon.createdBy).toBe("agent:api");
-    const bad = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "bad name", createdBy: "x; DROP" }))!.json();
+    const bad = await (await rawCall(router, "POST", "/api/boards/pX/tasks", { text: "bad name", createdBy: "x; DROP" }))!.json();
     expect(bad.createdBy).toBe("agent:api");
 
     // And it is on the card when read back.
@@ -495,7 +495,7 @@ describe("board router (human, project-scoped)", () => {
       "X-Topics-Action-Origin": "mcp",
     });
     const agent = await (await call(router, "GET", `/api/sessions/s1/tasks/${agentTask.id}`))!.json();
-    expect(agent.comments.map((comment: { origin: string | null }) => comment.origin)).toEqual(["api", "mcp"]);
+    expect(agent.comments.filter((comment: { author: string }) => comment.author !== "system").map((comment: { origin: string | null }) => comment.origin)).toEqual(["api", "mcp"]);
   });
 
   test("review with bad decision → 400", async () => {

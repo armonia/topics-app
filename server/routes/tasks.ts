@@ -67,6 +67,7 @@ function globalCapFields(cap: GlobalDispatchCap): {
 const checksFloorFields = (svc: TaskService): { checksMemFloorGB: number } =>
   ({ checksMemFloorGB: svc.getChecksMemFloorGB() });
 import { deliverAnswer } from "../lib/ask-user-bridge";
+import { resolveCreatedSource } from "../lib/created-by";
 import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "../services/tasks";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { activeFrozenCount } from "../services/budget-governor";
@@ -3586,10 +3587,16 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           assignee?: unknown;
           idempotency_key?: unknown;
           allow_duplicate?: unknown;
+          bar?: unknown;
         } | null;
+        // Tolerant on purpose: the contract fields a caller may send (who,
+        // where from, the bar) are accepted or ignored, never a 400, because a
+        // card born incomplete is flagged, not refused. The identity is the
+        // session's, so `createdBy`-like fields are dropped, not believed.
         const unexpected = rejectUnexpectedGlobalFields(
           body,
-          ["board_id", "text", "description", "priority", "assignee", "idempotency_key", "allow_duplicate"],
+          ["board_id", "text", "description", "priority", "assignee", "idempotency_key", "allow_duplicate",
+            "bar", "source", "createdSource", "created_source", "origin_topic_id", "originTopicId", "createdBy", "created_by"],
         );
         if (unexpected) return unexpected;
         if (typeof body?.board_id !== "string" || !body.board_id.trim()) {
@@ -3638,6 +3645,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             status: "backlog",
             idempotencyKey: typeof body?.idempotency_key === "string" ? body.idempotency_key : null,
             createdByTopicId: globalSession.topicId,
+            createdSource: resolveCreatedSource(req, body as Record<string, unknown> | null) ?? "coordinator",
+            originTopicId: globalSession.topicId,
+            bar: typeof body?.bar === "string" ? body.bar : null,
             createdBy: "agent:coordinator",
           });
           broadcastToAll({ type: "task:created", projectId, task });
@@ -3814,6 +3824,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             // che azzera `assigned_topic_id` mentre il turno gira.
             createdByTopicId: sess.topicId,
             createdBy: "agent:session",
+            // The session is the source, resolved server-side; the chat is
+            // shown on the card (display only, same id as the provenance).
+            createdSource: resolveCreatedSource(req, body) ?? `session:${sk}`,
+            originTopicId: sess.topicId,
+            bar: typeof body?.bar === "string" ? body.bar : null,
           });
           broadcastToAll({ type: "task:created", projectId: sess.projectId, task });
           // The chat's request became a card: the chat is told, the coordinator
