@@ -854,6 +854,8 @@ export type { LinkProposal } from '../../../shared/board';
 import type { LinkProposal } from '../../../shared/board';
 
 export interface UpdateTaskBody {
+  /** Move under this task; null = back to the root. Same board only. */
+  parentTaskId?: string | null;
   status?: TaskStatus;
   priority?: number;
   assignee?: string | null;
