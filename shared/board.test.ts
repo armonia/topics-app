@@ -970,12 +970,12 @@ describe("pendingQuestion, la contabilita' non e' l'ultima parola", () => {
   test("una domanda del sistema (deploy, sottotask parcheggiati) tiene i suoi tasti", () => {
     // 03/11: a rule that skipped every system row to let the node's hand-over through
     // swallowed these too, and the agent's old question came back in their place.
-    const sys = ["```question", "Pubblico in produzione?", "- Si'", "- Non ora", "```"].join("\n");
+    const systemQuestion = ["```question", "Pubblico in produzione?", "- Si'", "- Non ora", "```"].join("\n");
     const q = pendingQuestionComment([
       { content: question, kind: "comment", author: "agent:x" },
-      { content: sys, kind: "comment", author: "system" },
+      { content: systemQuestion, kind: "comment", author: "system" },
     ]);
-    expect(q?.content).toBe(sys);
+    expect(q?.content).toBe(systemQuestion);
   });
 
   test("la riga di consegna del nodo è una nota quieta: la domanda dell'agente sopra resta", () => {

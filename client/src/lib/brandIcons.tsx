@@ -1,4 +1,5 @@
-import { createElement, forwardRef, type CSSProperties } from 'react';
+import { createElement, forwardRef } from 'react';
+import type { CSSProperties } from 'react';
 import type { LucideIcon } from 'lucide-react';
 
 // The brand marks of Jarvis' channels (WhatsApp, Discord, Telegram), from Simple Icons 13.21.0 (CC0).
