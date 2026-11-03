@@ -51,7 +51,7 @@ test("the worker still writes its own human_ask", () => {
 
 test("a subtask moved to review through update() gets no stage", () => {
   const { svc, id } = workedCard();
-  const sub = svc.create({ projectId: PID, text: "step", status: "in_progress", createdBy: "agent:api", parentTaskId: id } as never);
+  const sub = svc.create({ projectId: PID, text: "step", description: "A complete step card, so only the review move is measured.", bar: "bun test", createdSource: "session:test", status: "in_progress", createdBy: "agent:api", parentTaskId: id } as never);
   const t = svc.update({ taskId: sub.id, actor: "agent", by: "worker", agentTopicId: "topic-worker", patch: { status: "review", summary: "step done" } });
   expect(t.status).toBe("review");
   expect(t.stage ?? null).toBeNull();

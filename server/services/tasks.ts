@@ -2784,7 +2784,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * the card is completed. Only a card born subject to the contract
    * (`created_missing` not NULL) is ever flagged: old cards stay as they were.
    */
-  function liveCardGaps(r: any): { createdMissing?: string[] } {
+  function liveCardGaps(r: { created_missing?: unknown; description?: string | null; description_preview?: string | null; bar?: string | null; created_source?: string | null; project_id?: string }): { createdMissing?: string[] } {
     if (r.created_missing == null) return {};
     const gaps = agentCardGaps({
       // The lean list carries the 800-char SQL preview instead of the body: enough to judge context.
@@ -2799,7 +2799,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * deleted chat would open a ghost tab). Display only.
    */
   let openerNameQuery: ReturnType<typeof db.prepare> | null = null;
-  function openerOf(r: any): { openerTopicId?: string; openerName?: string } {
+  function openerOf(r: { origin_topic_id?: string | null; created_by_topic_id?: string | null }): { openerTopicId?: string; openerName?: string } {
     const id = r.origin_topic_id ?? r.created_by_topic_id;
     if (!id) return {};
     try {
