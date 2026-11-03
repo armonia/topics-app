@@ -303,6 +303,7 @@ const TOOLS = [
         assignee: { type: "string", description: "Optional agent/person to assign." },
         idempotency_key: { type: "string", description: "Optional dedupe key for safe retries." },
         parent_task_id: { type: "string", description: "Optional parent task id — nests this task as its subtask." },
+        bar: { type: "string", description: "Executable acceptance bar: the check that says the work is done (a command or a test). A card without it is flagged incomplete." },
         allow_duplicate: { type: "boolean", description: "Set true to open the card even though an existing one says the same thing (the board answers 409 with the twin's id otherwise). Only after reading that card and deciding it is a different job." },
       },
       required: ["text"],
@@ -397,6 +398,8 @@ const TOOLS = [
         assignee: { type: "string", description: "Agent/person to assign." },
         output_url: { type: "string", description: "LEGACY — seeds the task's first browser tab; prefer open_browser_pane, which opens the tab directly. Empty string clears it." },
         text: { type: "string", description: "Rewrite the task title (clear + concise) — use it to polish a raw composer-born title." },
+        bar: { type: "string", description: "Executable acceptance bar (a command or a test); add it to a card that was flagged incomplete." },
+        source: { type: "string", description: "Where the card comes from (the session or channel opening it); add it to a card that was flagged incomplete." },
         description: { type: "string", description: "Rewrite/fill the task description." },
         // La descrizione È `PREVIEW_RULE`, verbatim: lo schema del tool è uno
         // dei posti in cui l'agente legge la regola, e finché era un riassunto
@@ -508,6 +511,7 @@ const TOOLS = [
         priority: { type: "number", description: "0–4 (default 2)." },
         assignee: { type: "string", description: "Optional agent/person to assign." },
         idempotency_key: { type: "string", description: "Optional dedupe key for safe retries." },
+        bar: { type: "string", description: "Executable acceptance bar: the check that says the work is done (a command or a test). A card without it is flagged incomplete." },
         allow_duplicate: { type: "boolean", description: "Only set true after inspecting the matching existing task returned by the duplicate gate." },
       },
       required: ["board_id", "text"],
@@ -537,6 +541,8 @@ const TOOLS = [
           type: "string",
           description: "The question for the PERSON that sends a card to Human review (with stage='human_review' or a delivery).",
         },
+        bar: { type: "string", description: "Executable acceptance bar (a command or a test); add it to a card that was flagged incomplete." },
+        source: { type: "string", description: "Where the card comes from (the session or channel opening it); add it to a card that was flagged incomplete." },
       },
       required: ["task_id"],
     },
@@ -2113,7 +2119,7 @@ export async function callListTasks(
 
 export async function callUpdateTask(
   args: ParsedArgs,
-  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown; preview_image?: unknown; previewImage?: unknown; summary?: unknown; stage?: unknown; human_ask?: unknown },
+  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown; preview_image?: unknown; previewImage?: unknown; summary?: unknown; stage?: unknown; human_ask?: unknown; bar?: unknown; source?: unknown },
   fetchImpl: typeof fetch = fetch,
   /**
    * Le manopole del ciclo a gambe: servono quando la consegna fa girare i check
@@ -2144,6 +2150,8 @@ export async function callUpdateTask(
   if (typeof toolArgs.output_url === "string") patch.output_url = toolArgs.output_url;
   if (typeof toolArgs.text === "string" && toolArgs.text.trim()) patch.text = toolArgs.text;
   if (typeof toolArgs.description === "string") patch.description = toolArgs.description;
+  if (typeof toolArgs.bar === "string") patch.bar = toolArgs.bar;
+  if (typeof toolArgs.source === "string") patch.source = toolArgs.source;
   // L'ANTEPRIMA. Mancava, e il protocollo la documentava: `docs/board-protocol.md`
   // dice `update_task(previewImage=…)` e l'envelope di dispatch porta quel testo a
   // ogni agente — ma lo schema di questo tool non aveva il campo, quindi il
@@ -2176,7 +2184,7 @@ export async function callUpdateTask(
   if (typeof toolArgs.stage === "string" && toolArgs.stage) patch.stage = toolArgs.stage;
   if (typeof toolArgs.human_ask === "string") patch.humanAsk = toolArgs.human_ask;
   if (Object.keys(patch).length === 0) {
-    throw new Error("update_task: provide at least one of 'status', 'priority', 'assignee', 'output_url', 'text', 'description', 'preview_image'");
+    throw new Error("update_task: provide at least one of 'status', 'priority', 'assignee', 'output_url', 'text', 'description', 'bar', 'source', 'preview_image'");
   }
   const path = endpointPath
     ?? `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks/${encodeURIComponent(toolArgs.task_id)}`;
@@ -2251,7 +2259,7 @@ export const CHECKS_MAX_LEGS = 240;
 
 export async function callCreateTask(
   args: ParsedArgs,
-  toolArgs: { text?: unknown; description?: unknown; priority?: unknown; assignee?: unknown; idempotency_key?: unknown; parent_task_id?: unknown; allow_duplicate?: unknown },
+  toolArgs: { text?: unknown; description?: unknown; priority?: unknown; assignee?: unknown; idempotency_key?: unknown; parent_task_id?: unknown; allow_duplicate?: unknown; bar?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   if (typeof toolArgs?.text !== "string" || !toolArgs.text.trim()) {
@@ -2267,6 +2275,7 @@ export async function callCreateTask(
   // porta da cui gli agenti aprono le card, e senza inoltro l'unico modo di
   // scavalcare un falso positivo è riscrivere il titolo storto finché passa,
   // cioè esattamente il guasto che il cancello doveva impedire.
+  if (typeof toolArgs.bar === "string" && toolArgs.bar.trim()) reqBody.bar = toolArgs.bar;
   if (toolArgs.allow_duplicate === true) reqBody.allow_duplicate = true;
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks`;
   const res = await httpJson<CreateTaskResp>(args, "POST", path, reqBody, fetchImpl);
@@ -2457,7 +2466,7 @@ export async function callGetGlobalTask(
 
 export async function callCreateGlobalTask(
   args: ParsedArgs,
-  toolArgs: { board_id?: unknown; text?: unknown; description?: unknown; priority?: unknown; assignee?: unknown; idempotency_key?: unknown; allow_duplicate?: unknown },
+  toolArgs: { board_id?: unknown; text?: unknown; description?: unknown; priority?: unknown; assignee?: unknown; idempotency_key?: unknown; allow_duplicate?: unknown; bar?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   if (typeof toolArgs?.board_id !== "string" || !toolArgs.board_id.trim()) {
@@ -2471,6 +2480,7 @@ export async function callCreateGlobalTask(
   if (typeof toolArgs.priority === "number") body.priority = toolArgs.priority;
   if (typeof toolArgs.assignee === "string") body.assignee = toolArgs.assignee;
   if (typeof toolArgs.idempotency_key === "string") body.idempotency_key = toolArgs.idempotency_key;
+  if (typeof toolArgs.bar === "string" && toolArgs.bar.trim()) body.bar = toolArgs.bar;
   if (toolArgs.allow_duplicate === true) body.allow_duplicate = true;
   const result = await httpJson<CreateTaskResp>(args, "POST", globalTasksCollectionPath(args), body, fetchImpl);
   return `created task ${result?.id ?? "?"} [${result?.status ?? "backlog"}] on board ${toolArgs.board_id}: ${toolArgs.text}`;
@@ -2478,7 +2488,7 @@ export async function callCreateGlobalTask(
 
 export async function callUpdateGlobalTask(
   args: ParsedArgs,
-  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; text?: unknown; description?: unknown; summary?: unknown; stage?: unknown; human_ask?: unknown },
+  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; text?: unknown; description?: unknown; summary?: unknown; stage?: unknown; human_ask?: unknown; bar?: unknown; source?: unknown },
   fetchImpl: typeof fetch = fetch,
   opts: {
     legMs?: number;
@@ -2505,6 +2515,8 @@ export async function callUpdateGlobalTask(
     ...(typeof toolArgs.summary === "string" ? { summary: toolArgs.summary } : {}),
     ...(typeof toolArgs.stage === "string" ? { stage: toolArgs.stage } : {}),
     ...(typeof toolArgs.human_ask === "string" ? { human_ask: toolArgs.human_ask } : {}),
+    ...(typeof toolArgs.bar === "string" ? { bar: toolArgs.bar } : {}),
+    ...(typeof toolArgs.source === "string" ? { source: toolArgs.source } : {}),
   };
   const result = await callUpdateTask(
     args,

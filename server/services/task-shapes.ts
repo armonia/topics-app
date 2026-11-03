@@ -240,6 +240,19 @@ export interface Task {
   priorUncommittedFiles?: number;
   /** WHO opened the card: `human`, `agent:<name>`, `cron:<name>`; `null` = born before the field. */
   createdBy: string | null;
+  /** Channel or session the card was opened from; absent = born before the field or an internal path. */
+  createdSource?: string;
+  /** The executable acceptance bar, when the card has one. */
+  bar?: string;
+  /**
+   * What an agent's card still lacks to finish on its own (`shared/agent-card-contract.ts`),
+   * recomputed on read. Absent = complete, or not subject to the contract.
+   */
+  createdMissing?: string[];
+  /** The chat the card came from, only while that chat still exists. Display only: it grants nothing. */
+  openerTopicId?: string;
+  /** That chat's name. */
+  openerName?: string;
   /**
    * The workflow column the card sits in when it is not the default one of its
    * status (`triage`, `ai_review`, `human_review`; `shared/workflow.ts`).
@@ -479,6 +492,15 @@ export interface CreateTaskInput {
    * it from the request; omitted = NULL, a card from an internal path.
    */
   createdBy?: string | null;
+  /** Channel or session the card is opened from (stored as `created_source`). */
+  createdSource?: string | null;
+  /**
+   * The chat the card came from, for DISPLAY only (`origin_topic_id`). Unlike
+   * `createdByTopicId` it carries no power, so a caller may name it.
+   */
+  originTopicId?: string | null;
+  /** The executable acceptance bar. */
+  bar?: string | null;
   /**
    * The workflow column to be born in. Omitted = the server decides
    * (`stageAtBirth`: triage for a card from a person on a board that has it).
@@ -530,6 +552,10 @@ export interface UpdateTaskPatch {
   machineId?: string | null;
   /** The "this Mac only" mark: the overflow dispatch never moves the card. */
   stayLocal?: boolean;
+  /** The executable acceptance bar; null clears. */
+  bar?: string | null;
+  /** Where the card comes from (session or channel), added after birth to clear the incomplete flag. */
+  createdSource?: string | null;
   /** Dependency; null clears. Validated: exists, not self, no cycle. */
   blockedByTaskId?: string | null;
   reuseBlockerContext?: boolean;

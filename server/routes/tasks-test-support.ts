@@ -19,6 +19,7 @@ export function freshDb(): Database {
   db.run("PRAGMA foreign_keys = ON");
   db.run(`CREATE TABLE topics (
     id TEXT PRIMARY KEY,
+    name TEXT,
     session_key TEXT UNIQUE,
     project_path TEXT,
     worktree_id TEXT,
@@ -135,7 +136,18 @@ export function makeCtx(
   } as unknown as AppContext;
 }
 
+/**
+ * The board interface marks the card creations it makes, so by default a test
+ * that creates a card on a board route plays the person; pass `headers` (even
+ * `{}`) or use `rawCall` to play an automation.
+ */
 export function call(router: RouteHandler, method: string, path: string, body?: unknown, headers?: HeadersInit) {
+  const fromInterface = headers === undefined && method === "POST" && /^\/api\/boards\/[^/]+\/tasks$/.test(path);
+  return rawCall(router, method, path, body, fromInterface ? { "X-Topics-Action-Origin": "interface" } : headers);
+}
+
+/** The request exactly as given: no interface marker, as a script would send it. */
+export function rawCall(router: RouteHandler, method: string, path: string, body?: unknown, headers?: HeadersInit) {
   const init: RequestInit = { method, headers };
   if (body !== undefined) init.body = JSON.stringify(body);
   const req = new Request(`http://x${path}`, init);

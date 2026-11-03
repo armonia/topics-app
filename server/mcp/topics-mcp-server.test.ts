@@ -32,6 +32,7 @@ import {
   callSetGoal,
   callUpdateGoalSteps,
   callUpdateTask,
+  callUpdateGlobalTask,
   callCommentTask,
   callWaitForCondition,
   callAskUserQuestion,
@@ -1430,6 +1431,32 @@ describe("callListTasks", () => {
 });
 
 describe("callUpdateTask", () => {
+  test("`source` travels in the body, so a card flagged incomplete can get its source later", async () => {
+    const seen: { init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (_url, init) => {
+      seen.init = init;
+      return new Response(JSON.stringify({ id: "t1", status: "in_progress" }), { status: 200 });
+    });
+    await callUpdateTask({ baseUrl: "http://x", sessionKey: "s" }, { task_id: "t1", source: "session:s1" }, fetchImpl);
+    expect(JSON.parse(String(seen.init?.body))).toEqual({ source: "session:s1" });
+  });
+
+  test("update_global_task forwards `bar` and `source` to the global door", async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url);
+      seen.init = init;
+      return new Response(JSON.stringify({ id: "t1", status: "todo" }), { status: 200 });
+    });
+    await callUpdateGlobalTask(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { task_id: "t1", bar: "bun test", source: "channel:wa" },
+      fetchImpl,
+    );
+    expect(seen.url).toContain("/tasks/t1");
+    expect(JSON.parse(String(seen.init?.body))).toEqual({ bar: "bun test", source: "channel:wa" });
+  });
+
   test("PATCHes to the session-scoped task endpoint (no project_id)", async () => {
     const seen: { url?: string; init?: RequestInit } = {};
     const fetchImpl = stubFetch(async (url, init) => {

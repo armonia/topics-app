@@ -1,4 +1,5 @@
 import { API_CALLER_CREATED_BY, CREATED_BY_HUMAN, parseCreatedBy } from "../../shared/created-by";
+import type { Database } from "bun:sqlite";
 import { agentAuthOk } from "./agent-auth";
 
 /**
@@ -23,6 +24,32 @@ export function resolveCreatedBy(req: Request, body: { createdBy?: unknown } | n
   if (!agentAuthOk(req) && req.headers.get("X-Topics-Action-Origin") === "interface") return CREATED_BY_HUMAN;
   // The body can name an agent or a schedule, never a person: «human» is
   // reserved to the interface branch above.
-  const named = parseCreatedBy(body?.createdBy);
+  const named = parseCreatedBy(body?.createdBy) ?? parseCreatedBy(headerName(req));
   return named && named !== CREATED_BY_HUMAN ? named : API_CALLER_CREATED_BY;
+}
+
+/**
+ * A caller may name itself in a header (`X-Topics-Agent: <name>`) instead of
+ * the body: a script that cannot change its payload still gets a readable name.
+ */
+function headerName(req: Request): string | null {
+  const raw = req.headers.get("X-Topics-Agent")?.trim();
+  return raw ? `agent:${raw}` : null;
+}
+
+/**
+ * Where a card was opened from, as the caller declares it: `source` in the
+ * body (or `createdSource`), else the `X-Topics-Source` header. Free text,
+ * trimmed and bounded; a person's card from the interface carries none.
+ */
+export function resolveCreatedSource(req: Request, body: Record<string, unknown> | null | undefined): string | null {
+  const raw = body?.source ?? body?.createdSource ?? req.headers.get("X-Topics-Source");
+  return typeof raw === "string" && raw.trim() ? raw.trim().slice(0, 160) : null;
+}
+
+/** The id when it names an existing chat, else `null` (a ghost id would open a ghost tab). */
+export function knownTopicId(db: Database, value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try { return db.prepare("SELECT 1 FROM topics WHERE id = ?").get(value.trim()) ? value.trim() : null; }
+  catch { return null; }
 }
