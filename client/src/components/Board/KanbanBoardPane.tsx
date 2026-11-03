@@ -627,7 +627,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
         aria-label={tr('board.filter.creator.title')}
         title={tr('board.filter.creator.title')}
         onClick={() => onFiltersChange({ ...filters, creator: filters.creator === undefined ? 'mine' : filters.creator === 'mine' ? 'others' : undefined })}
-        className={`${TOOLBAR_CONTROL_H} coarse:min-w-11 shrink-0 rounded px-2 text-mini ${filters.creator ? 'bg-white/15 text-app-text' : 'text-app-text-muted hover:bg-white/10'}`}
+        className={`${TOOLBAR_CONTROL_H} coarse:min-w-11 ml-1.5 shrink-0 whitespace-nowrap rounded px-2 text-mini ${filters.creator ? 'bg-white/15 text-app-text' : 'text-app-text-muted hover:bg-white/10'}`}
       >{tr(`board.filter.creator.${filters.creator ?? 'all'}`)}</button>
 
       {/* Reset — only when something is active */}

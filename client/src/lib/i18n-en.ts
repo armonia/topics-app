@@ -2797,6 +2797,7 @@ const EN = {
   'share.agentStart.catalogState.revoked': 'Verification revoked',
   'share.agentStart.catalogState.failed': 'Verification not completed',
   'board.card.createdByAgent': 'opened by {name}',
+  'board.card.createdByYouShort': 'you',
   'board.card.createdByHuman': 'opened by you',
   'board.card.createdByChat': 'opened from {name}',
   'board.card.incomplete': 'incomplete',

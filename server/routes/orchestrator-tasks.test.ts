@@ -177,6 +177,16 @@ describe("global orchestrator task routes", () => {
     }
   });
 
+  test("source and origin fields are tolerated: the card is born, flagged, with no chat rights granted", async () => {
+    registerGlobalOrchestrator(db);
+    const res = (await call(
+      router, "POST", `/api/orchestrator-sessions/${encodeURIComponent(GLOBAL_SESSION_KEY)}/tasks`,
+      { board_id: projectIdForPath(PROJECT_TWO), text: "with source", source: "x", origin_topic_id: "victim", originTopicId: "victim" },
+    ))!;
+    expect(res.status).toBe(201);
+    expect((await res.json()).openerTopicId).not.toBe("victim");
+  });
+
   /**
    * The global PATCH shares the session route's checks gate, so it must share
    * its self-completion too: a delivery answered 202 is remembered and the

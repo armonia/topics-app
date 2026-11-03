@@ -461,15 +461,21 @@ describe("board router (human, project-scoped)", () => {
       { text: "board-card style" },
       { text: "task-sync style", description: "synced from a reminder", priority: 2, status: "todo" },
       { text: "gateway style", description: "a gateway card", createdBy: "agent:jarvis", assignee: "x" },
-      { text: "a step", parentTaskId: "nope-not-real", createdBy: "agent:jarvis" },
-    ]) {
+          ]) {
       const res = await call(router, "POST", "/api/boards/pX/tasks", body, bare);
-      expect([201, 404, 400]).toContain(res!.status);
+      expect(res!.status).toBe(201);
       if (res!.status === 201) expect(["agent:api"].concat(["agent:jarvis"])).toContain((await res!.json()).createdBy);
     }
     const plain = await call(router, "POST", "/api/boards/pX/tasks", { text: "board-card style" }, bare);
     expect(plain!.status).toBe(201);
     expect((await plain!.json()).createdMissing.length).toBeGreaterThan(0);
+  });
+
+  test("a body originTopicId cannot grant close rights to a chat", async () => {
+    const res = await call(router, "POST", "/api/boards/pX/tasks", { text: "forged origin", createdBy: "agent:jarvis", originTopicId: "victim", ...FULL }, { "X-Test": "bare" });
+    expect(res!.status).toBe(201);
+    const got = await (await call(router, "GET", `/api/boards/pX/tasks/${(await res!.json()).id}`))!.json();
+    expect(got.openerTopicId ?? null).toBeNull();
   });
 
   test("created_by: the interface is human, a direct caller is automation and may name itself", async () => {

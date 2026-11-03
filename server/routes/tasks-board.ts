@@ -516,7 +516,8 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             projectId: effectiveProjectId,
             text: body?.text,
             description,
-            createdByTopicId: typeof body?.originTopicId === "string" && body.originTopicId.trim() ? body.originTopicId.trim() : undefined,
+            // Never from the body: this column grants close rights to the chat it
+            // names, so only the server may set it (session and coordinator routes).
             priority: typeof body?.priority === "number" ? body.priority : undefined,
             assignedTo: typeof body?.assignee === "string" ? body.assignee : null,
             status: typeof body?.status === "string" ? body.status : undefined,

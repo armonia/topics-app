@@ -3149,6 +3149,7 @@ const IT: Dict = {
   'share.agentStart.catalogState.revoked': 'Verifica revocata',
   'share.agentStart.catalogState.failed': 'Verifica non completata',
   'board.card.createdByAgent': 'aperta da {name}',
+  'board.card.createdByYouShort': 'te',
   'board.card.createdByHuman': 'aperta da te',
   'board.card.createdByChat': 'aperta da {name}',
   'board.card.incomplete': 'incompleta',

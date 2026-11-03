@@ -3591,7 +3591,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         } | null;
         const unexpected = rejectUnexpectedGlobalFields(
           body,
-          ["board_id", "text", "description", "priority", "assignee", "idempotency_key", "allow_duplicate", "bar"],
+          ["board_id", "text", "description", "priority", "assignee", "idempotency_key", "allow_duplicate", "bar", "source", "originTopicId", "origin_topic_id"],
         );
         if (unexpected) return unexpected;
         if (typeof body?.board_id !== "string" || !body.board_id.trim()) {

@@ -3,6 +3,7 @@ import { memo, useState, useEffect, useCallback, useMemo, useRef, useSyncExterna
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { reviewEvidence } from '../../lib/reviewEvidence';
+import { splitCreatedBy } from '../../../../shared/created-by';
 import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CircleSlash, ClipboardList, Copy, Cpu, GitBranch, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, Server, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
@@ -1470,21 +1471,34 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-800 dark:text-sky-300"
             >{task.lastActorPersonName}</span>
           )}
-          {openedBy && (
-            <a
-              data-testid="card-created-by"
-              data-creator={creatorKind(task.createdBy) ?? undefined}
-              href={task.openerTopicId ? `/topic/${task.openerTopicId}` : undefined}
-              // Only a real link keeps the click to itself: a plain chip must let the card open.
-              onClick={task.openerTopicId ? (e) => e.stopPropagation() : undefined}
-              title={tr('board.card.createdByTitle', { who: task.createdSource ? `${openedBy} (${task.createdSource})` : openedBy })}
-              className={`flex max-w-[7rem] items-center gap-1 truncate rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${
-                creatorKind(task.createdBy) === 'human'
-                  ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
-                  : 'bg-slate-500/15 text-slate-700 dark:text-slate-300'
-              } ${task.openerTopicId ? 'underline decoration-dotted underline-offset-2' : ''}`}
-            >{openedBy}</a>
-          )}
+          {openedBy && (() => {
+            const kind = creatorKind(task.createdBy);
+            const parts = splitCreatedBy(task.createdBy);
+            // Short text: the words «opened by» live in the tooltip, the chip keeps the name.
+            const shortName = kind === 'human' ? tr('board.card.createdByYouShort') : (task.openerName || parts?.name || openedBy);
+            const CreatorIcon = kind === 'human' ? UserRound : task.openerTopicId ? MessageSquare : Cpu;
+            const open = task.openerTopicId && onOpenTopic ? () => onOpenTopic(task.openerTopicId!) : undefined;
+            return (
+              <span
+                data-testid="card-created-by"
+                data-creator={kind ?? undefined}
+                role={open ? 'link' : undefined}
+                tabIndex={open ? 0 : undefined}
+                // Only a real link keeps the click to itself: a plain chip must let the card open.
+                onClick={open ? (e) => { e.stopPropagation(); open(); } : undefined}
+                onKeyDown={open ? (e) => { if (e.key === 'Enter') { e.stopPropagation(); open(); } } : undefined}
+                title={tr('board.card.createdByTitle', { who: task.createdSource ? `${openedBy} (${task.createdSource})` : openedBy })}
+                className={`flex min-w-0 max-w-[8rem] items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${
+                  kind === 'human'
+                    ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
+                    : 'bg-slate-500/15 text-slate-700 dark:text-slate-300'
+                } ${open ? 'cursor-pointer underline decoration-dotted underline-offset-2' : ''}`}
+              >
+                <CreatorIcon size={11} className="shrink-0" aria-hidden />
+                <span className="min-w-0 truncate">{shortName}</span>
+              </span>
+            );
+          })()}
           {task.createdMissing && task.createdMissing.length > 0 && task.status !== 'done' && (
             <span
               data-testid="card-incomplete"
