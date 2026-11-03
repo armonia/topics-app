@@ -34,6 +34,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLifecycleHooks, type LifecycleHookPayload, type LifecycleHookRunner } from "./lifecycle-hooks";
+import { pendingQuestionComment } from "../../shared/board";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { NODE_BRANCH_GRACE_POLLS, NODE_DEAD_POLLS, NODE_RETIRE_TRIES } from "./task-dispatcher-remote-node";
@@ -64,7 +65,9 @@ function freshDb(): Database {
     content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
     kind TEXT NOT NULL DEFAULT 'comment',
     -- migration 20260904190855: l'ancora di KANBAN-72, qui è l'id del commento SUL NODO.
-    message_id TEXT
+    message_id TEXT,
+    -- migration 20260912081500: la nota quieta (la riga di consegna del nodo lo è).
+    quiet INTEGER CHECK (quiet IN (0, 1))
   )`);
   db.run(`CREATE TABLE approvals (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, requested_by TEXT NOT NULL,
@@ -960,6 +963,49 @@ describe("lo specchio: stato, commenti e il ramo che torna", () => {
     // The node's own machinery stays bookkeeping, whatever kind it carried.
     expect(h.comments().find((c) => c.messageId === "nc-sys")?.kind).toBe("service");
     expect(h.comments().some((c) => c.content.startsWith("Consegna senza riassunto"))).toBe(false);
+  });
+
+  async function deliverFromNode(comments: NodeRunReport["comments"]) {
+    let current = report({ comments: [] });
+    const h = harness({ bundle: new Uint8Array([1]), readRun: () => Promise.resolve(current) });
+    h.seed();
+    await dispatch(h);
+    await poll(h); // seeds
+    current = report({ status: "review", deliveryBranch: "topics/corsa-remota", baseSha: "abcdef0123456789", comments });
+    await poll(h);
+    return h;
+  }
+
+  it("a delivery alone counts as the agent's word: no no-summary note", async () => {
+    const h = await deliverFromNode([
+      { id: "nc-del", author: "agent:e88f046b", content: "Fatto: base e test.", kind: "delivery", createdAt: "2026-11-03T14:36:09.913Z" },
+    ]);
+    expect(h.task().status).toBe("review");
+    expect(h.comments().some((c) => c.content.startsWith("Consegna senza riassunto"))).toBe(false);
+  });
+
+  it("a plain comment alone, promoted to the delivery, still counts as the agent's word", async () => {
+    const h = await deliverFromNode([
+      { id: "nc-1", author: "agent:e88f046b", content: "Fatto: base e test.", kind: "comment", createdAt: "2026-11-03T14:36:09.913Z" },
+    ]);
+    expect(h.task().status).toBe("review");
+    expect(h.comments().some((c) => c.content.startsWith("Consegna senza riassunto"))).toBe(false);
+  });
+
+  it("a question followed by the node's hand-over line keeps its buttons", async () => {
+    const ask = ["```question", "Resta la fascia.", "- Procedo", "- Mi fermo", "```"].join("\n");
+    const h = await deliverFromNode([
+      { id: "nc-ask", author: "agent:e88f046b", content: ask, kind: "comment", createdAt: "2026-11-03T14:36:09.912Z" },
+    ]);
+    expect(h.comments().some((c) => c.content.startsWith("Consegnato dal nodo"))).toBe(true);
+    expect(pendingQuestionComment(h.comments() as never)).not.toBeNull();
+  });
+
+  it("an agent signature that is not a plain id collapses to the bare agent", async () => {
+    const h = await deliverFromNode([
+      { id: "nc-x", author: "agent:../etc/x y", content: "Fatto.", kind: "delivery", createdAt: "2026-11-03T14:36:09.913Z" },
+    ]);
+    expect(h.comments().find((c) => c.messageId === "nc-x")?.author).toBe("agent");
   });
 
   it("la card del nodo in review pianta il ramo e registra la consegna", async () => {
