@@ -8,7 +8,7 @@ import { useT } from '../../hooks/useT';
  * project, sub-cards indented under their parent. The writer ticks, retitles
  * or moves a row to another project; only "Create" touches the boards.
  */
-export function IntakePlanPanel({ rows: input, projects, busy, failures, onChange, loadTasks, onConfirm, onCancel }: {
+export function IntakePlanPanel({ rows: input, projects, busy, failures, onChange, loadTasks, onConfirm, onSingle, onCancel }: {
   rows: IntakeRow[];
   projects: IntakeProject[];
   busy: boolean;
@@ -18,6 +18,8 @@ export function IntakePlanPanel({ rows: input, projects, busy, failures, onChang
   /** Open cards of a board, for the "under / above an existing card" pick. */
   loadTasks: (projectId: string) => Promise<{ id: string; text: string }[]>;
   onConfirm: () => void;
+  /** Send the whole text as ONE card instead of the proposal. */
+  onSingle: () => void;
   onCancel: () => void;
 }) {
   const tr = useT();
@@ -38,7 +40,7 @@ export function IntakePlanPanel({ rows: input, projects, busy, failures, onChang
     return depth;
   };
   const ticked = rows.filter((r) => r.checked).length;
-  const blocked = blockingReason(rows) !== null;
+  const blocked = blockingReason(rows, projects) !== null;
 
   return (
     <div
@@ -120,6 +122,14 @@ export function IntakePlanPanel({ rows: input, projects, busy, failures, onChang
         >
           {busy && <Loader2 className="h-3 w-3 animate-spin" />}
           {tr('board.intakePlan.create').replace('{n}', String(ticked))}
+        </button>
+        <button
+          onClick={onSingle}
+          disabled={busy}
+          data-testid="intake-plan-single"
+          className="rounded-md bg-black/5 px-2 py-1 text-app-text-secondary hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
+        >
+          {tr('board.intakePlan.single')}
         </button>
         <button
           onClick={onCancel}

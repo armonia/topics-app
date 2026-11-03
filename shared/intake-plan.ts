@@ -131,12 +131,16 @@ export function followParents(rows: IntakeRow[]): IntakeRow[] {
   });
 }
 
-/** Why the proposal cannot be confirmed yet, or null when it can. */
-export function blockingReason(input: IntakeRow[]): string | null {
+/**
+ * Why the proposal cannot be confirmed yet, or null when it can. With `projects`
+ * given, a ticked row on a project that is not among them blocks too.
+ */
+export function blockingReason(input: IntakeRow[], projects?: IntakeProject[]): string | null {
   const rows = followParents(input);
   const ticked = rows.filter((r) => r.checked);
   if (!ticked.length) return 'nothing ticked';
   if (ticked.some((r) => !r.projectId)) return 'a ticked row has no project';
+  if (projects && ticked.some((r) => !projects.some((p) => p.projectId === r.projectId))) return 'a ticked row is on an unknown project';
   return null;
 }
 
@@ -223,10 +227,55 @@ export type SubmitAction = 'confirm-plan' | 'propose' | 'create';
 
 /**
  * What Enter and the send button do. With the panel open they CONFIRM it and
- * never create a card of their own; only a list request opens the panel.
+ * never create a card of their own; only a list request opens the panel, and
+ * `asSingle` (the writer chose "one card") skips the proposal.
  */
-export function submitAction(planOpen: boolean, request: string, hasAttachments: boolean, projects: IntakeProject[] | null): SubmitAction {
+export function submitAction(planOpen: boolean, request: string, hasAttachments: boolean, projects: IntakeProject[] | null, asSingle = false): SubmitAction {
   if (planOpen) return 'confirm-plan';
-  if (!hasAttachments && projects && shouldPropose(request, projects)) return 'propose';
+  if (!asSingle && !hasAttachments && projects && shouldPropose(request, projects)) return 'propose';
   return 'create';
+}
+
+export type IntakeSubmit =
+  | { kind: 'single' }
+  | { kind: 'propose'; rows: IntakeRow[] }
+  | { kind: 'blocked'; reason: string }
+  | { kind: 'planned'; result: IntakeCreateResult };
+
+export interface IntakeSubmitInput {
+  /** The open proposal, or null when none is open. */
+  planRows: IntakeRow[] | null;
+  request: string;
+  hasAttachments: boolean;
+  projects: IntakeProject[] | null;
+  /** Where an unnamed top-level line lands. */
+  defaultProjectId: string | null;
+  /** The writer chose to send the whole text as ONE card. */
+  asSingle?: boolean;
+  /** Rows already created by an earlier, partly failed confirm. */
+  done?: IntakeCreateResult['created'];
+  create: (row: IntakeRow, parentTaskId: string | null) => Promise<string>;
+  adopt?: (row: IntakeRow, newTaskId: string) => Promise<void>;
+}
+
+/**
+ * The single decision behind Enter and the send button. Nothing is created
+ * until the writer confirmed a valid proposal: with the panel open it confirms
+ * (and a proposal that cannot be confirmed creates nothing and says why), a
+ * list request only OPENS the panel, and 'single' hands the one-card path back
+ * to the caller.
+ */
+export async function submitIntake(i: IntakeSubmitInput): Promise<IntakeSubmit> {
+  const action = submitAction(i.planRows !== null, i.request, i.hasAttachments, i.projects, i.asSingle);
+  if (action === 'confirm-plan') {
+    const rows = i.planRows ?? [];
+    const reason = blockingReason(rows, i.projects ?? undefined);
+    if (reason) return { kind: 'blocked', reason };
+    return { kind: 'planned', result: await createRows(rows, i.create, i.done, i.adopt) };
+  }
+  if (action === 'propose' && i.projects) {
+    const rows = proposeCards(i.request, i.projects, i.defaultProjectId);
+    if (rows.length) return { kind: 'propose', rows };
+  }
+  return { kind: 'single' };
 }

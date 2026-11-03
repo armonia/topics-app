@@ -1,7 +1,8 @@
 /**
- * The composer cannot be mounted under `bun test` (it imports the `@/` alias), so the wiring is
- * proved on its source: every entry point goes through `submit`, which defers to the open plan.
- * Turn the gate off in the composer and these go red.
+ * The composer cannot be mounted under `bun test` (it imports the `@/` alias and there is no DOM), so the
+ * decision behind Enter and the send button lives in `submitIntake` (behaviour tested in
+ * `shared/intake-plan.test.ts`, counting creates). Here the composer is proved to route EVERY entry point
+ * through it, and to carry the options chosen in the composer onto each card of a confirmed plan.
  */
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -13,23 +14,27 @@ const composer = readFileSync(join(here, 'FloatingTaskComposer.tsx'), 'utf8');
 const panel = readFileSync(join(here, 'IntakePlanPanel.tsx'), 'utf8');
 
 describe('composer wiring of the intake plan', () => {
-  test('Enter and the send button both call submit', () => {
-    expect(composer).toContain("e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }");
-    expect(composer).toContain('onClick={submit}');
-  });
-
-  test('submit confirms the open plan before it can create a card', () => {
+  test('Enter, the send button and the panel all go through submit, which calls submitIntake first', () => {
+    expect(composer).toContain("e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void submit(); }");
+    expect(composer).toContain('onClick={() => { void submit(); }}');
+    expect(composer).toContain('onConfirm={() => { void submit(); }}');
     const body = composer.slice(composer.indexOf('const submit = async'));
-    const gate = body.indexOf('if (planRows) {');
-    expect(gate).toBeGreaterThan(-1);
-    expect(body.slice(gate, gate + 120)).toContain('confirmPlan()');
-    expect(gate).toBeLessThan(body.indexOf('boardApi.create'));
+    expect(body.indexOf('submitIntake(')).toBeGreaterThan(-1);
+    expect(body.indexOf('submitIntake(')).toBeLessThan(body.indexOf('boardApi.create'));
+    expect(composer).not.toContain('confirmPlan');
   });
 
-  test('the proposal opens only through submitAction, and cancel clears the rows', () => {
-    expect(composer).toContain("submitAction(false, raw, attachments.length > 0, planProjects) === 'propose'");
+  test('a blocked proposal is reported and keeps the text; cancel clears only the rows', () => {
+    expect(composer).toContain("outcome.kind === 'blocked'");
     expect(composer).toMatch(/const cancelPlan = \(\) => \{ setPlanRows\(null\)/);
     expect(composer).toContain('onCancel={cancelPlan}');
+    expect(composer).toContain('onSingle={() => { void submit(true); }}');
+    expect(panel).toContain('intake-plan-single');
+  });
+
+  test('each card of a confirmed plan keeps the composer options and the link', () => {
+    const row = composer.slice(composer.indexOf('const createPlanRow'), composer.indexOf('const adoptExisting'));
+    for (const opt of ['stayLocal', 'model', 'topicsRouting', 'priority', 'intakeLink']) expect(row).toContain(opt);
   });
 
   test('moving a row re-applies the parent rule and the panel offers existing cards', () => {

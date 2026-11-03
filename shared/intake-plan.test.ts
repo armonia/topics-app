@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { blockingReason, createRows, followParents, proposeCards, shouldPropose, submitAction } from './intake-plan';
+import { blockingReason, createRows, followParents, proposeCards, shouldPropose, submitAction, submitIntake } from './intake-plan';
 
 const PROJECTS = [
   { projectId: 'p-app', name: 'topics-app' },
@@ -149,5 +149,68 @@ describe('submitAction', () => {
     expect(submitAction(false, list, true, PROJECTS)).toBe('create');
     expect(submitAction(false, '@topics-app single', false, PROJECTS)).toBe('create');
     expect(submitAction(false, list, false, null)).toBe('create');
+  });
+});
+
+describe('submitIntake: nothing is created before a valid confirmation', () => {
+  const base = { hasAttachments: false, projects: PROJECTS, defaultProjectId: 'p-app' };
+  const counter = () => {
+    const made: string[] = [];
+    return { made, create: async (r: { title: string }) => { made.push(r.title); return `id-${made.length}`; } };
+  };
+
+  test('a list request only opens the proposal', async () => {
+    const c = counter();
+    const out = await submitIntake({ ...base, planRows: null, request: '@topics-app fix relay\n- [landing] doc it', create: c.create });
+    expect(out.kind).toBe('propose');
+    expect(c.made).toEqual([]);
+  });
+
+  test('Enter with the panel open confirms: one card per row, none for the request itself', async () => {
+    const c = counter();
+    const planRows = proposeCards('@topics-app fix relay\n[landing] doc it', PROJECTS, 'p-app');
+    const out = await submitIntake({ ...base, planRows, request: '@topics-app fix relay\n[landing] doc it', create: c.create });
+    expect(out.kind).toBe('planned');
+    expect(c.made).toEqual(['fix relay', 'doc it']);
+  });
+
+  test('a row with no project blocks the confirm and creates nothing', async () => {
+    const c = counter();
+    const request = '@topics-app fix relay\n- ask @marco about the retry';
+    const planRows = proposeCards(request, PROJECTS, 'p-app');
+    expect(planRows[1].projectId).toBeNull();
+    const out = await submitIntake({ ...base, planRows, request, create: c.create });
+    expect(out.kind).toBe('blocked');
+    expect(c.made).toEqual([]);
+  });
+
+  test('every row unticked blocks, creates nothing and keeps the proposal', async () => {
+    const c = counter();
+    const planRows = proposeCards('@topics-app a\n[landing] b', PROJECTS, 'p-app').map((r) => ({ ...r, checked: false }));
+    const out = await submitIntake({ ...base, planRows, request: 'a\nb', create: c.create });
+    expect(out).toEqual({ kind: 'blocked', reason: 'nothing ticked' });
+    expect(c.made).toEqual([]);
+  });
+
+  test('a row on a project that is not in the list is blocked (no board "null")', async () => {
+    const c = counter();
+    const planRows = proposeCards('@topics-app a\n[landing] b', PROJECTS, 'p-app').map((r) => ({ ...r, projectId: 'null' }));
+    const out = await submitIntake({ ...base, planRows, request: 'a\nb', create: c.create });
+    expect(out.kind).toBe('blocked');
+    expect(c.made).toEqual([]);
+  });
+
+  test('a one-project list sent as one card skips the proposal and is left to the single path', async () => {
+    const c = counter();
+    const request = 'topics-app: fix the composer\n- Enter should confirm\n- add tests';
+    expect((await submitIntake({ ...base, planRows: null, request, create: c.create })).kind).toBe('propose');
+    expect((await submitIntake({ ...base, planRows: null, request, asSingle: true, create: c.create })).kind).toBe('single');
+    expect(c.made).toEqual([]);
+  });
+
+  test('a plain request stays a single card', async () => {
+    const c = counter();
+    expect((await submitIntake({ ...base, planRows: null, request: 'fix the relay timeout', create: c.create })).kind).toBe('single');
+    expect(c.made).toEqual([]);
   });
 });

@@ -2104,6 +2104,7 @@ const IT: Dict = {
   'board.intakePlan.under': 'sotto',
   'board.intakePlan.above': 'sopra',
   'board.intakePlan.cancel': 'Annulla',
+  'board.intakePlan.single': 'Manda come una card sola',
   'board.composer.unlinkTitle': 'Togli il collegamento: il task nasce libero',
   'board.composer.looksLinkedTo': 'Sembra legato a',
   'board.composer.chain': 'Incatena',

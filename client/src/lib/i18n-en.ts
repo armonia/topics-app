@@ -1885,6 +1885,7 @@ const EN = {
   'board.intakePlan.under': 'under',
   'board.intakePlan.above': 'above',
   'board.intakePlan.cancel': 'Cancel',
+  'board.intakePlan.single': 'Send as one card',
   'board.composer.unlinkTitle': 'Drop the link: the task is born free',
   'board.composer.looksLinkedTo': 'Looks linked to',
   'board.composer.chain': 'Chain it',

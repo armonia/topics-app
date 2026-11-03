@@ -20,7 +20,7 @@ import { getMediaUrl } from '../../lib/api';
 import { dragCarriesFiles, filesFromDrop, imagesFromClipboard, uploadAttachment, MAX_ATTACHMENTS, type StagedAttachment } from '../../lib/attachments';
 import { titoloDaTesto } from '../../../../shared/task-title';
 import { IntakePlanPanel } from './IntakePlanPanel';
-import { createRows, followParents, proposeCards, submitAction, type IntakeRow } from '../../../../shared/intake-plan';
+import { followParents, submitIntake, type IntakeCreateResult, type IntakeRow } from '../../../../shared/intake-plan';
 import { draftPreviewOf, type DraftPreview } from './draftPreview';
 import { TaskModelSelector } from '../Shared/ModelSelector/TaskModelSelector';
 import { surfaceTopicsRoutingEnabled } from '../../lib/topicsRoutingGate';
@@ -390,13 +390,30 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
     finally { setProjBusy(false); }
   };
 
-  const submit = async () => {
+  const submit = async (asSingle = false) => {
     const raw = text.trim();
-    // With the proposal open, Enter and the send button confirm it: they never
-    // create a card of their own (that was a duplicate at confirm time).
-    if (planRows) { if (!submitting) void confirmPlan(); return; }
-    if (!raw || submitting) return;
-    if (!target) { onError('Scegli il progetto del task.'); setProjOpen(true); return; }
+    if (submitting) return;
+    // "One card" closes the proposal and sends the whole text as it is.
+    if (planRows && asSingle) cancelPlan();
+    const openPlan = asSingle ? null : planRows;
+    if (!openPlan && !raw) return;
+    if (!openPlan && !target) { onError('Scegli il progetto del task.'); setProjOpen(true); return; }
+    // Nothing is created before the proposal is confirmed: with the panel open
+    // Enter and the send button confirm it and never create a card of their own.
+    setSubmitting(true);
+    let outcome: Awaited<ReturnType<typeof submitIntake>>;
+    try {
+      outcome = await submitIntake({
+        planRows: openPlan, request: raw, hasAttachments: attachments.length > 0, projects: planProjects,
+        defaultProjectId: target === UNASSIGNED_PROJECT_ID ? null : target, asSingle,
+        done: planDoneRef.current, create: createPlanRow, adopt: adoptExisting,
+      });
+    } catch (e) { onError(e instanceof Error ? e.message : 'create failed'); setSubmitting(false); return; }
+    setSubmitting(false);
+    if (outcome.kind === 'blocked') { onError(`Proposal not confirmed: ${outcome.reason}`); return; }
+    if (outcome.kind === 'propose') { setPlanRows(outcome.rows); setPlanFailures({}); planDoneRef.current = []; return; }
+    if (outcome.kind === 'planned') { finishPlan(outcome.result, openPlan ?? []); return; }
+    if (!target) return;
     // IL TAGLIO STA IN `shared/task-title.ts`, e taglia su PAROLA.
     //
     // Qui c'era `firstLine.slice(0, 77) + '…'`: un taglio al carattere,
@@ -411,11 +428,6 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
     // (`services/task-title.ts`). Quando quello non c'e' — nessun modello
     // configurato, rete assente — resta questo, che almeno non spezza le
     // parole a meta'.
-    // A request that names a known project is proposed first, never created.
-    if (submitAction(false, raw, attachments.length > 0, planProjects) === 'propose' && planProjects) {
-      const rows = proposeCards(raw, planProjects, target === UNASSIGNED_PROJECT_ID ? null : target);
-      if (rows.length) { setPlanRows(rows); setPlanFailures({}); planDoneRef.current = []; return; }
-    }
     const { title, description } = titoloDaTesto(raw);
     setSubmitting(true);
     try {
@@ -454,36 +466,44 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   };
 
   const cancelPlan = () => { setPlanRows(null); setPlanFailures({}); planDoneRef.current = []; };
-  const confirmPlan = async () => {
-    if (!planRows || submitting) return;
-    setSubmitting(true);
-    try {
-      const out = await createRows(planRows, async (row, parentTaskId) => {
-        const { title, description } = titoloDaTesto(row.title);
-        const created = await boardApi.create(row.projectId!, {
-          text: title, description, status: birthStatus, planFirst,
-          ...(parentTaskId ? { parentTaskId } : {}),
-        });
-        return created.id;
-      }, planDoneRef.current, async (row, newTaskId) => {
-        // "Above": the existing card moves under the one just created.
-        await boardApi.update(row.projectId!, row.existingChildTaskId!, { parentTaskId: newTaskId });
-      });
-      planDoneRef.current = out.created;
-      if (out.adoptFailed.length) onError(`${out.adoptFailed.length} existing card not moved under its new parent`);
-      if (out.failed.length || out.skipped.length) {
-        // Created rows stay listed as done; the failed ones can be retried.
-        setPlanFailures(Object.fromEntries([...out.failed.map((f) => [f.key, f.error]), ...out.skipped.map((k) => [k, 'parent failed'])]));
-        setPlanRows(planRows.map((r) => (out.created.some((c) => c.key === r.key) ? { ...r, checked: false } : r)));
-        onError(`${out.failed.length + out.skipped.length} card not created: retry`);
-      } else {
-        setPlanRows(null);
-        setText('');
-        boardDrafts.clearComposer();
-        if (taRef.current) taRef.current.style.height = 'auto';
-        onCreated(out.created[0]?.taskId ?? '');
-      }
-    } finally { setSubmitting(false); }
+  /** One card of a confirmed proposal: it carries the options chosen in the composer. */
+  const createPlanRow = async (row: IntakeRow, parentTaskId: string | null) => {
+    const { title, description } = titoloDaTesto(row.title);
+    // The pending intake link belongs to the first top-level card of the plan.
+    const first = (planRows ?? []).find((r) => r.checked && !r.parentKey);
+    const withLink = link && first?.key === row.key && !parentTaskId;
+    const created = await boardApi.create(row.projectId!, {
+      text: title, description, status: birthStatus, planFirst,
+      ...(stayLocal ? { stayLocal: true } : {}),
+      model: model ?? undefined, topicsRouting: topicsRouting ?? undefined, priority: prio ?? undefined,
+      ...(parentTaskId ? { parentTaskId } : {}),
+      ...(withLink && link.kind === 'subtask' ? { parentTaskId: link.proposal.targetTaskId } : {}),
+      ...(withLink && link.kind === 'chain' ? { blockedByTaskId: link.proposal.targetTaskId, reuseBlockerContext: true } : {}),
+      ...(withLink ? { intakeLink: true, intakeReason: link.proposal.reason } : {}),
+    });
+    return created.id;
+  };
+  // "Above": the existing card moves under the one just created.
+  const adoptExisting = async (row: IntakeRow, newTaskId: string) => {
+    await boardApi.update(row.projectId!, row.existingChildTaskId!, { parentTaskId: newTaskId });
+  };
+  const finishPlan = (out: IntakeCreateResult, rows: IntakeRow[]) => {
+    planDoneRef.current = out.created;
+    if (out.adoptFailed.length) onError(`${out.adoptFailed.length} existing card not moved under its new parent`);
+    if (out.failed.length || out.skipped.length) {
+      // Created rows stay listed as done; the failed ones can be retried.
+      setPlanFailures(Object.fromEntries([...out.failed.map((f) => [f.key, f.error]), ...out.skipped.map((k) => [k, 'parent failed'])]));
+      setPlanRows(rows.map((r) => (out.created.some((c) => c.key === r.key) ? { ...r, checked: false } : r)));
+      onError(`${out.failed.length + out.skipped.length} card not created: retry`);
+      return;
+    }
+    setPlanRows(null);
+    setText('');
+    setLink(null);
+    setProposal(null);
+    boardDrafts.clearComposer();
+    if (taRef.current) taRef.current.style.height = 'auto';
+    onCreated(out.created[0]?.taskId ?? '');
   };
 
   return (
@@ -538,7 +558,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
           onSelect={saveCursor}
           onKeyUp={saveCursor}
           onClick={saveCursor}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void submit(); } }}
           // A pasted image becomes an attachment and NOT text: without this,
           // pasting a screenshot into the field did nothing at all. Every other
           // paste (text, a link) behaves exactly as before.
@@ -589,7 +609,8 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
             failures={planFailures}
             onChange={(next) => setPlanRows(followParents(next))}
             loadTasks={(pid) => boardApi.list(pid).then((ts) => ts.filter((t) => t.status !== 'done').map((t) => ({ id: t.id, text: t.text })))}
-            onConfirm={() => { void confirmPlan(); }}
+            onConfirm={() => { void submit(); }}
+            onSingle={() => { void submit(true); }}
             onCancel={cancelPlan}
           />
         )}
@@ -857,7 +878,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
             onNotice={dictationNotice}
           />
           <button
-            onClick={submit} disabled={(!text.trim() && !planRows) || submitting}
+            onClick={() => { void submit(); }} disabled={(!text.trim() && !planRows) || submitting}
             title={tr(todo ? 'board.composer.sendTodoTitle' : 'board.composer.sendBacklogTitle')}
             data-testid="composer-send"
             className="shrink-0 rounded-lg bg-emerald-500/80 p-1.5 text-white hover:bg-emerald-500 disabled:opacity-40"

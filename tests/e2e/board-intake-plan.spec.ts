@@ -133,4 +133,53 @@ test.describe("Multi-project intake proposal", () => {
     await expect.poll(async () => (await boardTasks(request)).length, { timeout: 15000 }).toBe(1);
     await expect(page.getByTestId("intake-plan")).toHaveCount(0);
   });
+
+  test("a row with no project is not created on Enter, and the text survives", async ({ page, request }) => {
+    await page.goto("/");
+    await openProjectBoard(page);
+    const composer = page.getByTestId("board-task-composer").locator("textarea");
+    await composer.click();
+    const text = `@${PROJECT_NAME} Delta task
+- ask @nobody about the retry`;
+    await composer.fill(text);
+    await composer.press("Enter");
+    await expect(page.getByTestId("intake-plan")).toBeVisible({ timeout: 10000 });
+    await composer.press("Enter");
+    await page.getByTestId("intake-plan").waitFor();
+    expect(await boardTasks(request)).toHaveLength(0);
+    const stray = await request.get(`${BASE}/api/boards/null/tasks`);
+    expect(JSON.stringify(await stray.json().catch(() => []))).not.toContain("Delta");
+    await expect(composer).toHaveValue(text);
+  });
+
+  test("all rows unticked then Enter creates nothing and keeps the request", async ({ page, request }) => {
+    await page.goto("/");
+    await openProjectBoard(page);
+    const composer = page.getByTestId("board-task-composer").locator("textarea");
+    await composer.click();
+    const text = `@${PROJECT_NAME} Epsilon task
+- Zeta task`;
+    await composer.fill(text);
+    await composer.press("Enter");
+    const checks = page.getByTestId("intake-plan-check");
+    for (let n = (await checks.count()) - 1; n >= 0; n--) await checks.nth(n).uncheck();
+    await composer.press("Enter");
+    await expect(page.getByTestId("intake-plan")).toBeVisible();
+    expect(await boardTasks(request)).toHaveLength(0);
+    await expect(composer).toHaveValue(text);
+  });
+
+  test("a list for one project can be sent as ONE card", async ({ page, request }) => {
+    await page.goto("/");
+    await openProjectBoard(page);
+    const composer = page.getByTestId("board-task-composer").locator("textarea");
+    await composer.click();
+    await composer.fill(`${PROJECT_NAME}: fix the composer
+- Enter should confirm
+- add tests`);
+    await composer.press("Enter");
+    await page.getByTestId("intake-plan-single").click();
+    await expect.poll(async () => (await boardTasks(request)).length, { timeout: 15000 }).toBe(1);
+    await expect(page.getByTestId("intake-plan")).toHaveCount(0);
+  });
 });
