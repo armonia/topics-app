@@ -2781,7 +2781,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   function liveCardGaps(r: any): { createdMissing?: string[] } {
     if (r.created_missing == null) return {};
     const gaps = agentCardGaps({
-      description: r.description, bar: r.bar, source: r.created_source,
+      // The lean list carries the 800-char SQL preview instead of the body: enough to judge context.
+      description: r.description ?? r.description_preview, bar: r.bar, source: r.created_source,
       hasDirectory: r.project_id !== AUTO_PROJECT_ID && r.project_id !== UNASSIGNED_PROJECT_ID,
     });
     return gaps.length ? { createdMissing: gaps } : {};
