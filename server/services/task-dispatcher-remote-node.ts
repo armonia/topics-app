@@ -719,6 +719,15 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
   }
 
   /**
+   * The signature an agent row gets on THIS card. The id after `agent:` is the
+   * node's own word: only a plain id survives, anything else collapses to the
+   * bare `agent`, so a hostile or garbled signature never reaches the thread.
+   */
+  function boundAgentAuthor(author: string): string {
+    return /^agent:[\w-]{1,64}$/.test(author) ? author : "agent";
+  }
+
+  /**
    * The node's state and its service comments, copied onto the local card
    * (KANBAN-76).
    *
@@ -758,7 +767,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
           // wrote its no-summary note under a summary that was there,
           // and the agent's question lost its buttons (91a42e8f, a5906c31,
           // 841c6eac on 2026-11-03, every PC delivery of that day).
-          author: fromAgent ? c.author : "system",
+          author: fromAgent ? boundAgentAuthor(c.author) : "system",
           // Only the thread: the node's CHAT never travels here, and the report
           // carries none by construction (`/api/nodes/runs/:id` returns task
           // comments and nothing else). An agent's comment stays a comment;
@@ -840,7 +849,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       ? "Da qui l'atterraggio è quello di sempre: guarda il diff e approva, oppure rimandala indietro."
       : "Il lavoro è sul nodo, non qui: sistema quello che manca e rimanda indietro la card per farla riconsegnare.";
     try {
-      const delivered = svc.deliverToReviewBySystem({ taskId, reason, nextMove });
+      const delivered = svc.deliverToReviewBySystem({ taskId, reason, nextMove, quietReason: true });
       if (node.delegation) {
         try { host.recordDelegatedPhase?.({ taskId, phase: "completed", outcome: "review" }); }
         catch { /* audit never blocks delivery */ }
