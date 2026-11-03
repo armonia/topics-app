@@ -60,8 +60,21 @@ export async function ensureBranchOnOrigin(
   }
   const push = await run(repoPath, ["push", "origin", `refs/heads/${branch}:refs/heads/${branch}`]);
   if (push.code === 0) return { ok: true };
-  const why = (push.stderr || push.stdout).trim().split("\n").filter(Boolean).at(-1)?.slice(0, 160) ?? `exit ${push.code}`;
-  return { ok: false, reason: `push rifiutato: ${why}` };
+  return { ok: false, reason: `push rifiutato: ${pushRefusalReason(push.stderr || push.stdout, push.code)}` };
+}
+
+/**
+ * The line of a refused push that says WHY. git closes every refusal with the
+ * same "error: failed to push some refs to <remote>" and then its hints, so
+ * the last line named nothing: the PC cards of 2026-11-03 were parked with that
+ * sentence and no way to tell a non-fast-forward from a hook from a lock. The
+ * reason is the last line that is neither that closing line, a hint, nor the
+ * "To <remote>" header.
+ */
+export function pushRefusalReason(output: string, code: number): string {
+  const lines = output.split("\n").map((l) => l.trim()).filter(Boolean);
+  const telling = lines.filter((l) => !/^error: failed to push some refs/.test(l) && !/^hint:/.test(l) && !/^To /.test(l));
+  return (telling.at(-1) ?? lines.at(-1) ?? `exit ${code}`).slice(0, 160);
 }
 
 /**

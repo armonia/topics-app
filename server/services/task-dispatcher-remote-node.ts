@@ -255,7 +255,8 @@ export interface RemoteNodeLane {
   poll(): Promise<void>;
   /**
    * The restart orphan pass, for a card that names a node: `true` requeued,
-   * `false` tried and failed, `null` not this lane's card.
+   * `false` left alone (failed to requeue, or a launch of this process is still
+   * on its way to the node), `null` not this lane's card.
    */
   queueAfterRestart(task: Task): boolean | null;
   /** Cancel one confined remote run without touching another slot. */
@@ -276,6 +277,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    * branches.
    */
   const lastNodeRun = new Map<string, string>();
+
+  /** Cards whose launch this process started and has not finished yet (see `remoteLaunch`). */
+  const launching = new Set<string>();
 
   /**
    * Consecutive STARTS of a task answered with a cloud account error
@@ -638,7 +642,16 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       );
       return Promise.resolve();
     }
-    return launchOnNode(claimedTask, settings);
+    // THE LAUNCH IS IN FLIGHT BEFORE IT HOLDS A SLOT. `launchOnNode` awaits the
+    // origin lookup and the push of the card's branch before `beginRun`, and a
+    // push takes seconds. In that window the card is `in_progress` with nothing
+    // in `inFlight`, which is exactly what the restart orphan pass looks for:
+    // it requeued the card with the server-restart note (no restart), the tick
+    // launched it a second time, the two pushes of the same ref collided, and
+    // the loser parked the card in backlog while the winner's run went on
+    // working on the node (91a42e8f, a5906c31, 841c6eac on 2026-11-03).
+    launching.add(taskId);
+    return launchOnNode(claimedTask, settings).finally(() => { launching.delete(taskId); });
   }
 
   /**
@@ -700,6 +713,11 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     return { filesChanged: o.filesChanged, insertions: o.insertions, deletions: o.deletions };
   }
 
+  /** An agent's signature on the node: bare `agent` or `agent:<id>`. */
+  function isAgentAuthor(author: string | null | undefined): author is string {
+    return typeof author === "string" && (author === "agent" || author.startsWith("agent:"));
+  }
+
   /**
    * The node's state and its service comments, copied onto the local card
    * (KANBAN-76).
@@ -730,14 +748,22 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     for (const c of got.comments ?? []) if (c.messageId) anchored.add(c.messageId);
     for (const c of report.comments) {
       if (!c.id || node.seen.has(c.id) || anchored.has(c.id)) continue;
+      const fromAgent = isAgentAuthor(c.author);
       try {
         svc.addComment({
           taskId,
-          author: c.author === "agent" ? "agent" : "system",
+          // THE AGENT KEEPS ITS VOICE. On the node an agent signs `agent:<id>`,
+          // and the old exact match on `"agent"` turned every one of its rows
+          // into a system note: the review door then found no agent comment and
+          // wrote its no-summary note under a summary that was there,
+          // and the agent's question lost its buttons (91a42e8f, a5906c31,
+          // 841c6eac on 2026-11-03, every PC delivery of that day).
+          author: fromAgent ? c.author : "system",
           // Only the thread: the node's CHAT never travels here, and the report
           // carries none by construction (`/api/nodes/runs/:id` returns task
-          // comments and nothing else).
-          kind: c.kind === "delivery" ? "delivery" : "service",
+          // comments and nothing else). An agent's comment stays a comment;
+          // what the node's own machinery wrote stays bookkeeping.
+          kind: c.kind === "delivery" ? "delivery" : fromAgent && c.kind === "comment" ? "comment" : "service",
           content: c.content,
           messageId: c.id,
         });
@@ -1021,6 +1047,8 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    */
   function queueAfterRestart(task: Task): boolean | null {
     if (!task.machineId || !host.client) return null;
+    // Still being launched by this process: not an orphan of a restart.
+    if (launching.has(task.id)) return false;
     if (task.delegatedStartCapabilityId && !host.delegatedPolicyForTask?.(task.id)) {
       try {
         releaseAndEmit({
