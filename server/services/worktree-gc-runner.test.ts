@@ -150,6 +150,24 @@ describe("le cartelle vive fermano la potatura", () => {
     expect(toccati).toEqual([]);
   });
 
+  it("a chat topic mid-turn keeps its worktree; without the topic the same one is reaped", async () => {
+    const mk = (withTopic: boolean, active: boolean) => {
+      const f = fakeDeps({
+        worktreeStore: { list: () => [readyRow("w1", "/tmp/wt/w1")] },
+        chatActive: () => active,
+      });
+      if (withTopic) f.db.run("INSERT INTO topics (id, session_key, worktree_id) VALUES ('abcdef12-0000', 'x', 'w1')");
+      return f;
+    };
+    const live = await createWorktreeGcRunner(mk(true, true).deps).runWorktreeGc();
+    expect(live!.kept).toBe(1);
+    expect(live!.keptReasons["sessione viva nella cartella"]).toBe(1);
+    const noTopic = await createWorktreeGcRunner(mk(false, true).deps).runWorktreeGc();
+    expect(noTopic!.keptReasons["sessione viva nella cartella"]).toBeUndefined();
+    const idle = await createWorktreeGcRunner(mk(true, false).deps).runWorktreeGc();
+    expect(idle!.keptReasons["sessione viva nella cartella"]).toBeUndefined();
+  });
+
   it("una cartella che comincia allo stesso modo non e' la stessa cartella", async () => {
     // `/tmp/wt/w1-bis` is not inside `/tmp/wt/w1`: without the trailing
     // separator any session would keep the neighbour's worktree alive.

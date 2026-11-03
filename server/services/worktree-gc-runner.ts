@@ -30,6 +30,7 @@ import { abandonNoticeFromRepo } from "./worktree-abandon-notice";
 import { formatMb, parseSlimSkip, slimWorktree } from "./worktree-slim";
 import { commitWorktreeResidue } from "./worktree-residue";
 import { isTopicsSpawned } from "../lib/ghost-script";
+import { topicSessionKey } from "./agent-census";
 
 /**
  * Tutto cio' che la potatura chiede al resto del server, dichiarato.
@@ -64,6 +65,13 @@ export interface WorktreeGcDeps {
    * `terminal_sessions` after a restart counts like any other.
    */
   liveCwds?: () => string[];
+  /**
+   * Is the chat session addressed by this key mid-turn, or active within the
+   * last few minutes? A chat topic bound to a worktree has no task and no
+   * terminal cwd, so without this answer its worktree reads as an orphan and
+   * is reaped under the agent (card dc31628c).
+   */
+  chatActive?: (sessionKey: string) => boolean;
   /** Il servizio task: card, impostazioni, park, commenti, consegna. */
   svc: any;
   /**
@@ -465,6 +473,10 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
       },
       isBusy: (taskId) => deps.isInFlight(taskId),
       liveInside: (w) => {
+        if (deps.chatActive) {
+          const rows = deps.db.prepare("SELECT id FROM topics WHERE worktree_id = ?").all(w.id) as { id: string }[];
+          if (rows.some((r) => deps.chatActive!(topicSessionKey(r.id)))) return true;
+        }
         const cwds = deps.liveCwds?.() ?? [];
         if (!cwds.length) return false;
         // The directory itself or a descendant of it: a child that did `cd
