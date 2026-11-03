@@ -106,17 +106,17 @@ export const DEFAULT_MODEL = "claude-sonnet-5-5";
  * Una sessione con un TURNO VIVO non si sfratta mai: la guardia è l'`abort`,
  * che esiste per la durata del turno e sparisce alla fine.
  */
-// 60 minuti, quanto la cache dell'API (`CACHE_LIFETIME_MS`). Con 15 la
-// sessione spariva mentre la cache era ancora viva: il turno dopo ricostruiva
-// la storia dal DB, che non è identica a quella mandata (manca il preambolo
-// inline, cambiano i blocchi), e riscriveva tutta la conversazione. Misurato il
-// 03/11: i turni a 15-60 minuti dal precedente leggevano solo i 25.811 token di
-// prompt e strumenti e scrivevano 40k-110k token ciascuno.
+// 60 minutes, as long as the API cache (`CACHE_LIFETIME_MS`). At 15 the
+// session was evicted while its cache was still alive: the next turn rebuilt
+// the history from the database, which is not identical to what was sent (no
+// inline preamble, reshaped blocks), and wrote the whole conversation again.
+// Measured on 03/11: turns 15-60 minutes after the previous one read only the
+// 25,811 tokens of prompt and tools and wrote 40k-110k tokens each.
 const SESSION_TTL_MS = Math.max(1, Number(process.env.TOPICS_NATIVE_SESSION_TTL_MIN) || 60) * 60_000;
 /**
- * Per quanto il keepalive tiene calda una sessione ferma: i primi 15 minuti,
- * come prima. Non segue più la vita della sessione: con la cache a 1h un ping
- * ogni 4 minuti per un'ora intera rileggerebbe tutto il prefisso 15 volte.
+ * How long the keepalive keeps an idle session warm: its first 15 minutes, as
+ * before. It no longer follows the session's life: with the 1h cache, a ping
+ * every 4 minutes for a whole hour would re-read the whole prefix 15 times.
  */
 const KEEP_ALIVE_FOR_MS = 15 * 60_000;
 /** Ogni quanto si passa a guardare. Non serve precisione: serve che accada. */
