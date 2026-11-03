@@ -17,6 +17,7 @@
  * Both go through the service's projectId guard, so a caller can only touch
  * tasks on the project it named/owns (no cross-project IDOR).
  */
+import { missingForAgentCard, withContractLines } from "../lib/agent-card-contract";
 import { STAGE_AI_REVIEW, awaitsHuman } from "../../shared/workflow";
 import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -3586,10 +3587,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           assignee?: unknown;
           idempotency_key?: unknown;
           allow_duplicate?: unknown;
+          bar?: unknown;
         } | null;
         const unexpected = rejectUnexpectedGlobalFields(
           body,
-          ["board_id", "text", "description", "priority", "assignee", "idempotency_key", "allow_duplicate"],
+          ["board_id", "text", "description", "priority", "assignee", "idempotency_key", "allow_duplicate", "bar", "source", "originTopicId", "origin_topic_id"],
         );
         if (unexpected) return unexpected;
         if (typeof body?.board_id !== "string" || !body.board_id.trim()) {
@@ -3630,7 +3632,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             // says "task text is required", and an empty string is how a
             // missing (or non-string) field asks it that question.
             text: typeof body?.text === "string" ? body.text : "",
-            description: typeof body?.description === "string" ? body.description : null,
+            description: withContractLines(typeof body?.description === "string" ? body.description : null, body?.bar, null),
             priority: typeof body?.priority === "number" ? body.priority : undefined,
             assignedTo: typeof body?.assignee === "string" ? body.assignee : null,
             // A coordinator records work; a human still decides when a card is
@@ -3639,6 +3641,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             idempotencyKey: typeof body?.idempotency_key === "string" ? body.idempotency_key : null,
             createdByTopicId: globalSession.topicId,
             createdBy: "agent:coordinator",
+            createdSource: `coordinator:${sk}`,
+            createdMissing: missingForAgentCard({
+              createdBy: "agent:coordinator", description: body?.description, bar: body?.bar,
+              source: `coordinator:${sk}`, originTopicId: globalSession.topicId, projectId,
+            }),
           });
           broadcastToAll({ type: "task:created", projectId, task });
           confirmCardOrigin({ db, broadcast: broadcastToAll, recordActivity: logActivity }, {
@@ -3799,7 +3806,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             // says "task text is required", and an empty string is how a
             // missing (or non-string) field asks it that question.
             text: typeof body?.text === "string" ? body.text : "",
-            description: typeof body?.description === "string" ? body.description : null,
+            description: withContractLines(typeof body?.description === "string" ? body.description : null, body?.bar, null),
             priority: typeof body?.priority === "number" ? body.priority : undefined,
             assignedTo: typeof body?.assignee === "string" ? body.assignee : null,
             // Agents/MCP always create into `backlog` (intake), never straight into
@@ -3814,6 +3821,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             // che azzera `assigned_topic_id` mentre il turno gira.
             createdByTopicId: sess.topicId,
             createdBy: "agent:session",
+            createdSource: `session:${sk}`,
+            createdMissing: missingForAgentCard({
+              createdBy: "agent:session", description: body?.description, bar: body?.bar,
+              source: `session:${sk}`, originTopicId: sess.topicId, projectId: sess.projectId,
+              isStep: typeof body?.parent_task_id === "string" && !!body.parent_task_id,
+            }),
           });
           broadcastToAll({ type: "task:created", projectId: sess.projectId, task });
           // The chat's request became a card: the chat is told, the coordinator

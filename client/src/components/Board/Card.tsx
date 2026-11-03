@@ -3,6 +3,7 @@ import { memo, useState, useEffect, useCallback, useMemo, useRef, useSyncExterna
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { reviewEvidence } from '../../lib/reviewEvidence';
+import { splitCreatedBy } from '../../../../shared/created-by';
 import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CircleSlash, ClipboardList, Copy, Cpu, GitBranch, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, Server, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
@@ -58,7 +59,7 @@ import { SwapFreezeLabel } from '../Shared/SwapFreezeLabel';
 import { useSwapFreeze } from '../../state/swapFreeze';
 import { taskHasWork, uncommittedChipCount } from './chipKey';
 import { runInitiatorName } from './taskFilter';
-import { openedByLabel } from './createdByLabel';
+import { creatorKind, openedByLabel } from './createdByLabel';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '../../lib/popoverStyles';
 import { BoardCommandHint } from './BoardCommandHint';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
@@ -1018,7 +1019,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   const waitingOnThis = waitingOnThisChip(task, tr);
   const runInitiator = runInitiatorName(task);
   // WHO opened the card (`createdBy`): the answer to "whose is this, who closes it".
-  const openedBy = openedByLabel(task.createdBy, task.status, tr);
+  const openedBy = openedByLabel(task.createdBy, task.status, tr, task.openerName);
   // LA RIGA DEI CHIP ESISTE SE C'È ALMENO UN CHIP, e questo elenco è la lista
   // di quelli possibili: chi ne aggiunge uno e non lo scrive qui ottiene un
   // chip che non si monta MAI, con il dato giusto nel DB, giusto nella rotta e
@@ -1027,7 +1028,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // `card-meta-row-completeness.test.ts` confronta questa riga con i chip
   // davvero disegnati sotto, così la prossima dimenticanza è un rosso e non
   // un'ora di indagine.
-  const hasMetaRow = !!(openedBy || blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
+  const hasMetaRow = !!(openedBy || task.createdMissing?.length || blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
 
   return (
     <div
@@ -1470,12 +1471,40 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-800 dark:text-sky-300"
             >{task.lastActorPersonName}</span>
           )}
-          {openedBy && (
+          {openedBy && (() => {
+            const kind = creatorKind(task.createdBy);
+            const parts = splitCreatedBy(task.createdBy);
+            // Short text: the words «opened by» live in the tooltip, the chip keeps the name.
+            const shortName = kind === 'human' ? tr('board.card.createdByYouShort') : (task.openerName || parts?.name || openedBy);
+            const CreatorIcon = kind === 'human' ? UserRound : task.openerTopicId ? MessageSquare : Cpu;
+            const open = task.openerTopicId && onOpenTopic ? () => onOpenTopic(task.openerTopicId!) : undefined;
+            return (
+              <span
+                data-testid="card-created-by"
+                data-creator={kind ?? undefined}
+                role={open ? 'link' : undefined}
+                tabIndex={open ? 0 : undefined}
+                // Only a real link keeps the click to itself: a plain chip must let the card open.
+                onClick={open ? (e) => { e.stopPropagation(); open(); } : undefined}
+                onKeyDown={open ? (e) => { if (e.key === 'Enter') { e.stopPropagation(); open(); } } : undefined}
+                title={tr('board.card.createdByTitle', { who: task.createdSource ? `${openedBy} (${task.createdSource})` : openedBy })}
+                className={`flex min-w-0 max-w-[8rem] items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${
+                  kind === 'human'
+                    ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
+                    : 'bg-slate-500/15 text-slate-700 dark:text-slate-300'
+                } ${open ? 'cursor-pointer underline decoration-dotted underline-offset-2' : ''}`}
+              >
+                <CreatorIcon size={11} className="shrink-0" aria-hidden />
+                <span className="min-w-0 truncate">{shortName}</span>
+              </span>
+            );
+          })()}
+          {task.createdMissing && task.createdMissing.length > 0 && task.status !== 'done' && (
             <span
-              data-testid="card-created-by"
-              title={tr('board.card.createdByTitle', { who: openedBy })}
-              className="flex items-center gap-1 rounded bg-slate-500/15 px-1.5 py-0.5 text-compact leading-4 text-slate-700 dark:text-slate-300 md:text-mini"
-            >{openedBy}</span>
+              data-testid="card-incomplete"
+              title={tr('board.card.incompleteTitle', { missing: task.createdMissing.join('; ') })}
+              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
+            >{tr('board.card.incomplete')}</span>
           )}
           {runInitiator && (
             <span

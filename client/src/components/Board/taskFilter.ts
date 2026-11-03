@@ -17,6 +17,13 @@ export function taskMatchesFilters(task: BoardTask, filters: BoardFilters): bool
   if (filters.runComputer.length > 0 && !filters.runComputer.includes(task.runComputerName || '')) return false;
   if (filters.text && !task.text.toLowerCase().includes(filters.text.toLowerCase())) return false;
   if (filters.projectId.length > 0 && !filters.projectId.includes(task.projectId)) return false;
+  if (filters.creator) {
+    // Cards from before the column have no creator: only «all» shows them.
+    if (!task.createdBy) return false;
+    const mine = task.createdBy === 'human';
+    if (filters.creator === 'mine' && !mine) return false;
+    if (filters.creator === 'others' && mine) return false;
+  }
   if (filters.labels.length > 0) {
     const labels = new Set(task.labels.map((label) => label.label));
     if (!filters.labels.every((label) => labels.has(label))) return false;

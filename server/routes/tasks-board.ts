@@ -29,6 +29,8 @@ import { invalidateProbeCache } from "../services/url-probe-cache";
 import { STALE_TASK_MODEL_ERROR, isStaleModelChange, taskModelIsCurrent } from "../services/task-model-catalog";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import { resolveCreatedBy } from "../lib/created-by";
+import { isContractEnforced, missingForAgentCard, withContractLines } from "../lib/agent-card-contract";
+import { CREATED_BY_HUMAN } from "../../shared/created-by";
 import { readBoardWorkflow, readOwnWorkflowPreset } from "../services/board-workflow";
 import { WORKFLOW_PRESET_IDS, isWorkflowPresetId } from "../../shared/workflow";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
@@ -498,10 +500,24 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           if (typeof bornMachine === "string" && !ctx.machineStore.get(bornMachine)) {
             return json({ error: `machineId "${bornMachine}" is not a known machine`, code: "unknown_machine" }, 400);
           }
+          const createdBy = resolveCreatedBy(req, body);
+          // An agent's card should be able to finish by itself. It is born anyway
+          // (external callers are not updated yet): what it lacks is listed on it.
+          let description: string | null = body?.description ?? null;
+          let missing: string[] = [];
+          if (createdBy !== CREATED_BY_HUMAN && isContractEnforced(req)) {
+            missing = missingForAgentCard({
+              createdBy, description, bar: body?.bar, source: body?.source,
+              originTopicId: body?.originTopicId, projectId: effectiveProjectId, isStep: !!body?.parentTaskId,
+            });
+            description = withContractLines(description, body?.bar, body?.source);
+          }
           const task = svc.create({
             projectId: effectiveProjectId,
             text: body?.text,
-            description: body?.description ?? null,
+            description,
+            // Never from the body: this column grants close rights to the chat it
+            // names, so only the server may set it (session and coordinator routes).
             priority: typeof body?.priority === "number" ? body.priority : undefined,
             assignedTo: typeof body?.assignee === "string" ? body.assignee : null,
             status: typeof body?.status === "string" ? body.status : undefined,
@@ -515,7 +531,9 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             // "This Mac only" at birth: the overflow dispatch never moves it.
             stayLocal: body?.stayLocal === true,
             // Who opened it: the interface marks itself, anyone else is automation.
-            createdBy: resolveCreatedBy(req, body),
+            createdBy,
+            createdSource: typeof body?.source === "string" ? body.source : null,
+            createdMissing: missing,
             // The workflow column it is born in; absent = the server decides.
             stage: typeof body?.stage === "string" ? body.stage : undefined,
             // A card born in review: the question that lets it be born in Human review.

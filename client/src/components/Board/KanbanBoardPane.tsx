@@ -591,7 +591,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   const initiators = Array.from(new Set(tasks.map(runInitiatorName).filter(Boolean))).sort();
   const runComputers = Array.from(new Set(tasks.map((t) => t.runComputerName).filter(Boolean) as string[])).sort();
 
-  const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + filters.labels.length + filters.person.length + filters.computer.length + filters.initiator.length + filters.runComputer.length + (filters.text ? 1 : 0) > 0;
+  const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + filters.labels.length + filters.person.length + filters.computer.length + filters.initiator.length + filters.runComputer.length + (filters.text ? 1 : 0) + (filters.creator ? 1 : 0) > 0;
 
   // The shell of every filter control lives in `constants.ts`: the search box
   // here, the labels chip below, the token field and the project picker all
@@ -618,6 +618,17 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
         initiators={initiators}
         runComputers={runComputers}
       />
+
+      {/* WHO OPENED IT: all / mine / others, one click, so a person's own cards
+          are told apart from the agents' at a glance. */}
+      <button
+        type="button"
+        data-testid="filter-creator"
+        aria-label={tr('board.filter.creator.title')}
+        title={tr('board.filter.creator.title')}
+        onClick={() => onFiltersChange({ ...filters, creator: filters.creator === undefined ? 'mine' : filters.creator === 'mine' ? 'others' : undefined })}
+        className={`${TOOLBAR_CONTROL_H} coarse:min-w-11 ml-1.5 shrink-0 whitespace-nowrap rounded px-2 text-mini ${filters.creator ? 'bg-white/15 text-app-text' : 'text-app-text-muted hover:bg-white/10'}`}
+      >{tr(`board.filter.creator.${filters.creator ?? 'all'}`)}</button>
 
       {/* Reset — only when something is active */}
       {anyActive && (

@@ -95,7 +95,7 @@ test("a question written after the delivery moves the card out of AI review, and
 // Fourth review of 31/10, point 7: the board API cannot open a machine card
 // straight into Human review without a question.
 const born = (body: Record<string, unknown>) =>
-  call("POST", `/api/boards/${PID}/tasks`, { text: "born in review", status: "review", createdBy: "agent:api", ...body });
+  call("POST", `/api/boards/${PID}/tasks`, { text: "born in review", status: "review", createdBy: "agent:tester", source: "test session", description: "A complete card born in review for the test.\nBARRA: bun test", ...body });
 
 test("a machine card born in review: Human review only with human_ask, AI review otherwise", async () => {
   const refused = await born({ stage: "human_review" });
