@@ -23,6 +23,7 @@
  *
  * @covers KANBAN-76
  */
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 import { describe, it, expect } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -48,7 +49,6 @@ import { resolveBranchBaseRef } from "./worktree-for-agent";
 import { delegatedPolicyForTask, putAgentStartCapability, queueDelegatedRun } from "../lib/delegated-agent-start";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 const PID = "alpha-abc123";
 const LOCAL = "questo-mac";

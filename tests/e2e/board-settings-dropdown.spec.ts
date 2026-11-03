@@ -49,7 +49,7 @@ import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { hermetic } from "./fixtures/hermetic";
 import { removeTmpDir } from "./helpers/file-project";
-import { openCapMode } from "./helpers/open-cap-mode";
+import { openAdvanced, openCapMode } from "./helpers/open-cap-mode";
 import { openThisBoard } from "./helpers/open-this-board";
 
 hermetic(test);
@@ -237,9 +237,9 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     expect(Math.abs(m.x + m.width - (g.x + g.width)), "il bordo destro del pannello non sta sul ⚙").toBeLessThanOrEqual(12);
     expect(m.y, "il pannello non sta sotto il ⚙").toBeGreaterThanOrEqual(g.y + g.height - 1);
     // A band was as wide as the board; a dropdown has a reading width of its
-    // own (the shell caps it at 400px plus the surface's hairline).
-    expect(m.width, "largo come una banda, non come un dropdown").toBeLessThanOrEqual(404);
-    expect(b.width - m.width, "il pannello copre la barra da parte a parte").toBeGreaterThan(200);
+    // own (the shell caps it at 650px plus the surface's hairline).
+    expect(m.width, "largo come una banda, non come un dropdown").toBeLessThanOrEqual(654);
+    expect(b.width - m.width, "il pannello copre la barra da parte a parte").toBeGreaterThan(100);
     expect(m.height, "un dropdown senza tetto: piu' alto del viewport").toBeLessThanOrEqual(800 * 0.7 + 16);
 
     // Floating: the columns did not move, and the panel is not in the board's subtree.
@@ -325,6 +325,7 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
 
     const control = page.getByTestId("global-cap-control");
     await expect(control).toBeVisible();
+    await openAdvanced(page);
     // Born "by count", with the number box.
     await expect(page.getByTestId("global-cap-brake-count")).toHaveAttribute("aria-checked", "true");
     await openCapMode(page);
@@ -337,16 +338,10 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     // The fixed number does not apply, so it is not there to be believed.
     await expect(page.getByTestId("global-cap-max")).toHaveCount(0);
     await expect(page.getByTestId("global-cap-mode-fixed")).toHaveCount(0);
-    await expect(control.getByTestId("global-cap-running")).toContainText("agent al lavoro");
 
     // ONE knob, a share of what is free.
     const budget = page.getByTestId("global-cap-budget-slider");
     await expect(page.getByTestId("global-cap-budget-value")).toHaveText("fino al 60% del Mac libero");
-
-    // THE ONE NUMBER, at the top of the panel: 88% of the Mac, red.
-    const busy = control.getByTestId("machine-busy-pct");
-    await expect(busy).toHaveText("Il Mac è occupato all'88%");
-    await expect(busy).toHaveAttribute("data-tone", "critical");
 
     // The live reading, as shares of the Mac: 7.4 of 12 is 62%, the ceiling
     // 6.0 of 12 is 50%. Over it, so red.
@@ -358,7 +353,6 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     // sits on top (and speaks only when a card waits). The busy line is a wait,
     // so amber, never red.
     await expect(page.getByTestId("global-cap-verdict")).toHaveCount(0);
-    await expect(busy).not.toHaveClass(/(?:red|rose)-/);
 
     // No technical word in the text a person reads without opening anything.
     const visible = await control.evaluate((node) => {
@@ -399,6 +393,7 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await page.goto("/");
     await openBoard(page);
     await gear(page).click();
+    await openAdvanced(page);
     await page.getByTestId("global-cap-brake-resources").click();
     const budget = page.getByTestId("global-cap-budget-slider");
     await expect(budget).toBeVisible();
@@ -408,6 +403,7 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await page.reload();
     await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
     await gear(page).click();
+    await openAdvanced(page);
     await expect(page.getByTestId("global-cap-brake-resources")).toHaveAttribute("aria-checked", "true");
     await expect(page.getByTestId("global-cap-budget-value")).toHaveText("fino all'85% del Mac libero");
     await expect(page.getByTestId("global-cap-max")).toHaveCount(0);

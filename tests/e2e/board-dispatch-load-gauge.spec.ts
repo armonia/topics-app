@@ -50,7 +50,7 @@ import { projectRow } from "./helpers/project-row";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { hermetic } from "./fixtures/hermetic";
-import { openCapMode } from "./helpers/open-cap-mode";
+import { openAdvanced, openCapMode } from "./helpers/open-cap-mode";
 
 hermetic(test);
 
@@ -270,13 +270,9 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
 
     await gear(page).click();
     const menu = page.getByTestId("board-settings-menu");
-    const summary = menu.getByTestId("dispatch-load-summary");
-    await expect(summary).toBeVisible();
-    // The count is said once, on the running line the ring sits beside.
-    await expect(menu.getByTestId("global-cap-running")).toContainText("2 di 4");
-    await expect(summary).toHaveText("leggero");
-    await expect(summary).toHaveAttribute("data-tone", "idle");
-    await expect(summary).toHaveAttribute("data-fill", "0.50");
+    // The panel states the limit once ("al massimo 4"); the busy reading stays on the header ring.
+    await expect(menu.getByTestId("global-cap-atmost")).toContainText("al massimo 4");
+    await expect(menu.getByTestId("dispatch-load-summary")).toHaveCount(0);
   });
 
   test("GAUGE-06: a budget, l'anello si riempie sul budget e il popover dice il Mac in %", async ({ page }) => {
@@ -302,6 +298,7 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     await page.goto("/");
     await openBoard(page);
     await gear(page).click();
+    await openAdvanced(page);
     await page.getByTestId("global-cap-brake-resources").click();
     await page.keyboard.press("Escape");
 
@@ -334,6 +331,7 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     // the server.
     await page.keyboard.press("Escape");
     await gear(page).click();
+    await openAdvanced(page);
     await page.getByTestId("global-cap-brake-count").click();
     await openCapMode(page);
     await expect(page.getByTestId("global-cap-mode-auto")).toBeVisible();
@@ -365,6 +363,7 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     await page.goto("/");
     await openBoard(page);
     await gear(page).click();
+    await openAdvanced(page);
     await page.getByTestId("global-cap-brake-resources").click();
     // Topics holds 22.0 GB over a 20.4 GB ceiling. The wait says how busy the
     // Mac is and nothing about where the gate reopens: the gate reads Topics'
@@ -391,6 +390,7 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     // Back to count, for the same reason as GAUGE-06.
     await page.keyboard.press("Escape");
     await gear(page).click();
+    await openAdvanced(page);
     await page.getByTestId("global-cap-brake-count").click();
     await openCapMode(page);
     await expect(page.getByTestId("global-cap-mode-auto")).toBeVisible();

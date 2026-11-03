@@ -16,13 +16,14 @@
  * the panel recomputes nothing. The waiting texts are the server's neutral
  * ones (`queueReason`), not a phrase of ours.
  */
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ChevronRight, Play } from 'lucide-react';
 import { useActiveLocale, useT } from '../../hooks/useT';
-import { boardApi, isProjectlessId, req } from '../../lib/board';
+import { boardApi, isProjectlessId } from '../../lib/board';
 import { projectNameFromId } from '../../lib/boardProjectsStore';
 import type { BoardTask, DispatchCapacity } from '../../lib/board';
 import type { DispatchMemoryQueueSnapshot } from '../../../../shared/board';
+import { loadSnapshot, snapshotIsLive, useMemoryQueueSnapshot } from './dispatchSnapshot';
 import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
 import { brokenCards, chartMax, overflowedCards, queuedCards, rowReason, waitingLabel, type BrokenCard, type MovedCard, type QueuedCard } from './dispatchDashboardModel';
 import { DANGER_TEXT } from '../../lib/popoverStyles';
@@ -30,32 +31,6 @@ import { admissionVerdictText, verdictSentence } from './dispatchLoad';
 
 const LOCALE = 'it-IT';
 const gb = (n: number) => `${n.toLocaleString(LOCALE, { maximumFractionDigits: 1 })} GB`;
-
-// ── the memory-queue snapshot: ONE read every 15 s for every surface ──
-let snap: DispatchMemoryQueueSnapshot | null = null;
-/** When the last good read arrived: without it, the live dot would be a promise. */
-let snapAt = 0;
-const listeners = new Set<() => void>();
-let timer: ReturnType<typeof setInterval> | null = null;
-function loadSnapshot() {
-  req<DispatchMemoryQueueSnapshot>('/dispatch/memory-queue').then(
-    (s) => { snap = s; snapAt = Date.now(); listeners.forEach((l) => l()); },
-    () => { /* without a dispatcher the dashboard shows capacity only */ },
-  );
-}
-function subscribeSnapshot(l: () => void) {
-  listeners.add(l);
-  if (listeners.size === 1) { loadSnapshot(); timer = setInterval(loadSnapshot, 15_000); }
-  return () => {
-    listeners.delete(l);
-    if (listeners.size === 0 && timer) { clearInterval(timer); timer = null; }
-  };
-}
-/** The read is live if it arrived within the last two rounds (15 s each) plus margin. */
-const snapshotIsLive = (now: number) => snap !== null && now - snapAt < 45_000;
-function useMemoryQueueSnapshot(): DispatchMemoryQueueSnapshot | null {
-  return useSyncExternalStore(subscribeSnapshot, () => snap, () => null);
-}
 
 /** Section title, the same small caps as the panel's other sections. */
 function SectionLabel({ children, right }: { children: React.ReactNode; right?: string }) {
@@ -228,7 +203,7 @@ interface DashboardInput {
  * THE ONE ANSWER: a single sentence for the whole panel. A fault wins over a
  * wait, a wait over "all well"; red is for faults only, amber for waits.
  */
-function useAnswer({ capacity, snapshot, queue, broken = 0, dispatchOn }: DashboardInput): { tone: Tone; text: string; off: boolean } {
+function useAnswer({ capacity, snapshot, queue, broken = 0, dispatchOn }: DashboardInput): { tone: Tone; text: string; off: boolean; waitLine?: string } {
   const tr = useT();
   const locale = useActiveLocale();
   const free = capacity?.availableMemGB ?? snapshot?.reading.freeGB ?? null;
@@ -246,7 +221,14 @@ function useAnswer({ capacity, snapshot, queue, broken = 0, dispatchOn }: Dashbo
     return { ...base, tone: 'warn', text: verdictSentence(admissionVerdictText(admission, capacity), tr, locale) };
   }
   if (startGB !== null && free !== null && free < startGB) {
-    return { ...base, tone: 'warn', text: tr('board.dash.memoryWait', { free: gb(free), start: gb(startGB) }) };
+    // A wait for memory is the system working, not a fault: the box stays calm and the line under it says when the next card starts.
+    return {
+      ...base,
+      tone: 'ok',
+      text: dispatchOn === null ? tr('board.dash.noBrokenEmpty') : tr('board.dash.noBroken', { queued: queue.length }),
+      // With the switch still unread nothing is promised.
+      waitLine: dispatchOn === null ? undefined : tr('board.dash.memoryWait', { free: gb(free), start: gb(startGB), keep: Math.round(free) }),
+    };
   }
   if (dispatchOn == null) return { ...base, tone: 'ok', text: tr('board.dash.noBrokenEmpty') };
   return { ...base, tone: 'ok', text: tr('board.dash.noBroken', { queued: queue.length }) };
@@ -323,7 +305,10 @@ export function DispatchSummaryView({ capacity, snapshot, queue, broken = 0, bro
           {turnOnButton}
         </div>
       )}
-      {next && (
+      {answer.waitLine && (
+        <p className="break-words text-mini font-normal text-app-text-secondary" data-testid="dispatch-dashboard-wait">{answer.waitLine}</p>
+      )}
+      {next && !answer.waitLine && (
         <p className="break-words text-mini font-normal text-app-text-secondary" data-testid="dispatch-dashboard-next">
           {tr('board.dash.next', { title: next.title })}
         </p>
@@ -394,7 +379,9 @@ export function DispatchDetailsView({ capacity, snapshot, queue, moved = [], now
         <MemoryChart history={snapshot?.history ?? []} startGB={startGB} now={now} cpuHolds={cpuHolds} />
       </div>
       <div data-testid="dispatch-dashboard-queue-block">
-        <SectionLabel right={sharedReason ?? undefined}>{tr('board.dash.queue', { n: queue.length })}</SectionLabel>
+        <SectionLabel right={tr('board.dash.queueOrder')}>{tr('board.dash.queue', { n: queue.length })}</SectionLabel>
+        {/* The memory wait is already said once in the summary card at the top. */}
+        {sharedReason && !queue.every((q) => q.memoryWaiter) && <p className="mb-1 text-mini text-app-text-secondary" data-testid="dispatch-dashboard-queue-shared">{sharedReason}</p>}
         {queue.length === 0 ? (
           <p className="text-mini text-app-text-secondary" data-testid="dispatch-dashboard-queue-empty">{tr('board.dash.queueEmpty')}</p>
         ) : (

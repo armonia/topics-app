@@ -192,8 +192,8 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     await expect(menu.getByText("Chi tiene la memoria del Mac · 32 GB")).toBeVisible();
     await fold.locator("summary").click();
     await expect(menu.getByTestId("dispatch-dashboard-switch")).toBeVisible();
-    await expect(menu.getByText("Quante card insieme", { exact: true })).toBeVisible();
-    await expect(menu.getByTestId("global-cap-running")).toBeVisible();
+    await expect(menu.getByText("Quante card insieme sul Mac", { exact: true })).toBeVisible();
+    await expect(menu.getByTestId("global-cap-preset")).toBeVisible();
     // The three improvements.
     await expect(dash.getByTestId("dispatch-dashboard-live")).toHaveText("dal vivo");
     // The test env starts with Auto-dispatch off: the row does not promise they start by themselves.
@@ -216,7 +216,7 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
       .map(async (id) => (await menu.getByTestId(id).boundingBox())!.y));
     expect([...ys].sort((p, q) => p - q), `ordine dei blocchi ${ys.join(",")}`).toEqual(ys);
     await menu.screenshot({ path: join(SHOTS, "pannello.png") });
-    await menu.getByTestId("global-cap-running").scrollIntoViewIfNeeded();
+    await menu.getByTestId("global-cap-preset").scrollIntoViewIfNeeded();
     await menu.screenshot({ path: join(SHOTS, "pannello-sotto.png") });
     // Two cards at work: the server would refuse (seat taken), the button is disabled and says why.
     const button = rows.first().getByTestId("dispatch-dashboard-start-now");
