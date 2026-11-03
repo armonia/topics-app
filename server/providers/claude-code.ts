@@ -935,6 +935,8 @@ interface PersistentProcess {
   /** Pending promise resolvers for sendChat */
   pendingResolve: ((result: { runId: string }) => void) | null;
   pendingReject: ((err: Error) => void) | null;
+  /** Text already sent from `text_delta` partials, not yet matched by its snapshot. */
+  streamedText?: string;
   /** Accumulated full text for onTextDelta */
   fullText: string;
   /** The command the message of this turn invokes (`/output-style` → `output-style`), or null. */
@@ -1731,6 +1733,7 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.streamHandler = handler;
     pp.preRegistered = null;
     pp.fullText = "";
+    pp.streamedText = undefined;
     pp.commandTurn = invokedCommandName(message);
     pp.syntheticHeld = undefined;
     pp.commandOutcome = undefined;
@@ -4263,8 +4266,16 @@ export class ClaudeCodeProvider implements AIProvider {
             pp.syntheticHeld = (pp.syntheticHeld ?? "") + block.text;
             continue;
           }
-          pp.fullText += block.text;
-          handler.onTextDelta(block.text, pp.fullText);
+          // Part (or all) of this block may already have gone out as deltas.
+          let rest: string = block.text;
+          const streamed = pp.streamedText;
+          if (streamed && rest.startsWith(streamed)) {
+            rest = rest.slice(streamed.length);
+            pp.streamedText = undefined;
+          }
+          if (!rest) continue;
+          pp.fullText += rest;
+          handler.onTextDelta(rest, pp.fullText);
         } else if (block.type === "thinking" && typeof block.thinking === "string" && block.thinking) {
           if (injected) continue;
           handler.onThinkingDelta?.(block.thinking);
@@ -4425,6 +4436,17 @@ export class ClaudeCodeProvider implements AIProvider {
     const partial = decodePartialStreamEvent(event);
     if (!partial) return;
     const index = partial.index;
+    if (partial.kind === "text_delta") {
+      // The CLI's assistant snapshot carries a text block only once it is
+      // COMPLETE, so text used to land in one lump per block. The piece goes
+      // out now and is remembered in `streamedText`, so the snapshot that
+      // follows adds only what was not streamed.
+      if (!handler || pp.replaySilent || pp.commandTurn) return;
+      pp.streamedText = (pp.streamedText ?? "") + partial.text;
+      pp.fullText += partial.text;
+      handler.onTextDelta(partial.text, pp.fullText);
+      return;
+    }
     if (partial.kind === "thinking_start") {
       // The cumulative snapshot skips a thinking block whose text is empty, which
       // is how the CLI delivers it live: this event is the only live sign that
@@ -4456,10 +4478,11 @@ export class ClaudeCodeProvider implements AIProvider {
         if (!entry.lastEmitAt || now - entry.lastEmitAt >= PARTIAL_ARGS_EMIT_MS) {
           entry.lastEmitAt = now;
           handler.onToolActivity?.(entry.id);
-          const primary = extractPrimaryToolArg(entry.buf);
+          // Open values count: the command is written into the row as it arrives.
+          const primary = extractPrimaryToolArg(entry.buf, { open: true });
           if (primary && primary.value !== entry.emittedPrimary) {
             entry.emittedPrimary = primary.value;
-            handler.onToolArgsUpdate?.(entry.id, { [primary.key]: primary.value });
+            handler.onToolArgsUpdate?.(entry.id, { [primary.key]: primary.value }, { partial: true });
           }
         }
       }

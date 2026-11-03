@@ -24,6 +24,7 @@ import { openTaskInApp } from '../lib/openTaskLink';
 import { deepLinkClickRoute, openTabInApp } from '../lib/tabLink';
 import { openDeepLinkFromClick } from '../lib/deepLinkClick';
 import { completePartialMarkdown, createTailGate, openFenceStart, splitMarkdownBlocks } from '../lib/markdownBlocks';
+import { rehypeStreamFade, useStreamArrivals } from '../lib/streamFade';
 import { MarkdownBlockContext } from './Chat/markdownBlockContext';
 import { useToast } from './Shared/Toast';
 
@@ -236,6 +237,26 @@ export const ChatMarkdown = memo(function ChatMarkdown({ components, children, s
     return () => clearTimeout(timer);
   }, [behind, children]);
 
+  // Pieces that arrived during this turn fade in (see lib/streamFade). Only a
+  // block holding one gets the plugin, and its plugin list is reused while the
+  // pieces inside the DRAWN source stay the same: a finished block stays
+  // memoized, and a tail the gate is holding back is not parsed again for nothing.
+  const { arrivals, now } = useStreamArrivals(children, streaming);
+  const fadeRehype = useRef(new Map<number, { key: string; base: PluggableList; list: PluggableList }>());
+  const rehypeFor = (at: number, drawnLength: number): PluggableList => {
+    const inside = arrivals.filter((a) => a.to > at && a.from < at + drawnLength);
+    if (inside.length === 0) {
+      fadeRehype.current.delete(at);
+      return extensions.rehype;
+    }
+    const key = `${drawnLength}|${inside.map((a) => `${a.from}-${a.to}`).join(',')}`;
+    const held = fadeRehype.current.get(at);
+    if (held?.key === key && held.base === extensions.rehype) return held.list;
+    const list: PluggableList = [...extensions.rehype, [rehypeStreamFade, { base: at, arrivals: inside, t: now }]];
+    fadeRehype.current.set(at, { key, base: extensions.rehype, list });
+    return list;
+  };
+
   return (
     <>
       {blocks.map((block, i) => {
@@ -248,7 +269,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({ components, children, s
             offset={block.at}
             openFenceFrom={tail ? openFenceStart(source) : null}
             remarkPlugins={extensions.remark}
-            rehypePlugins={extensions.rehype}
+            rehypePlugins={streaming ? rehypeFor(block.at, source.length) : extensions.rehype}
             components={merged}
           />
         );

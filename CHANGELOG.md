@@ -2,6 +2,17 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.48 — 2026-11-03
+
+### Sotto il cofano
+- Board comments: lock the two-attachment thread contract board_comment relies on
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-02 [skip ci]
+- Board comment media test: English header and the requirement it covers, so main's gates pass
+- Chat text and tool commands stream as written: no client reveal delay, CLI text_delta passed through, command updates every 50 ms; real CLI stream test guards the snapshot dedup and the throttle
+- Live chat pieces fade in where they stand: each piece that arrives while a turn is written gets its own span and a 150 ms opacity entrance, with no delay on the text and no layout shift; tool rows born live and the live command fade too. Off under reduced motion and in a window without focus; text present at mount never fades; the tail gate still skips parses (card cd66c3bd)
+- Fade-in: the live command recomputes its pieces each render instead of reading a ref during render, and the rehype plugin types its few hast shapes locally instead of importing an unlisted package (CI lint and dead-code gates)
+- Identifier gate: rehype is a project word (the markdown pipeline's HTML stage, the live-text fade is a rehype plugin); baseline lowered for the debt it clears
+
 ## 2.3.47 — 2026-11-02
 
 ### Sotto il cofano

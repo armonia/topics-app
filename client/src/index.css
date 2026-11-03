@@ -3185,6 +3185,23 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
   }
 }
 
+/* Live text and tool rows (lib/streamFade.ts): each piece that just arrived
+   fades in where it already stands. Opacity only, so the layout never moves and
+   the text is there from the frame it arrives in. Switched off under
+   `.anims-paused` too (see below). */
+@keyframes streamFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.stream-fade {
+  animation: streamFadeIn var(--motion-fast) ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stream-fade {
+    animation: none;
+  }
+}
+
 /* Subtle hover lift for interactive cards */
 .hover-lift {
   transition: transform 0.15s ease, box-shadow 0.15s ease;
@@ -3512,7 +3529,10 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
 /* The frost's glint is the same shape (one-shot, first frame at opacity 0) and
    it is pure decoration: switched off it is simply absent, which is what a
    window nobody is looking at should cost. */
-.anims-paused .swap-ice-glint {
+.anims-paused .swap-ice-glint,
+/* Live text (lib/streamFade.ts): a piece born while the window is away must be
+   readable when it comes back, not pinned at opacity 0. */
+.anims-paused .stream-fade {
   animation: none !important;
 }
 
