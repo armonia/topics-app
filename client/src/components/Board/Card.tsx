@@ -1,5 +1,4 @@
-import { contextTokens, costTokens, partsFromTask } from '../../../../shared/token-cost';
-import { memo, useState, useEffect, useCallback, useMemo, useRef, useSyncExternalStore } from 'react';
+import { memo, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { reviewEvidence } from '../../lib/reviewEvidence';
@@ -38,19 +37,20 @@ import { checklistWindow } from './checklistWindow';
 import { showsStoppedChip } from './stoppedChip';
 import { sendBackDest, sendBackWord, taskActionWord } from './taskActionWords';
 import { useT, useLocale } from '../../hooks/useT';
-import { taskTriggerLine } from '../../lib/modelLabel';
+
 import { machineLabel, useMachines } from '../../state/machinesStore';
 import { stripMarkdown } from '../../lib/stripMarkdown';
+import { progressSentence } from '../../lib/progressLine';
 import { EASE, MOTION } from '../../lib/motion';
 import { COLUMN_FRAME, columnWidthClass } from './boardGeometry';
 import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, COMMENTO_PIEGA_CHARS, RICHIESTA_PIEGA_CHARS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { copyText } from '../../lib/clipboard';
 import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState } from '../../lib/taskSession';
-import { fmtMs, fmtTok, fmtAttesa, fmtUsd, taskCopyText } from './format';
+import { fmtAttesa, taskCopyText } from './format';
 import { UpdatedAgo } from './UpdatedAgo';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
-import { LiveEffortChip, LiveToolLine, RETRY_NOW_MESSAGE, RetryWaitChip } from './CardLive';
+import { LiveToolLine, RETRY_NOW_MESSAGE, RetryWaitChip } from './CardLive';
 import { SessionPeek } from './SessionPeek';
 import { createSessionPeekIntent } from './sessionPeekIntent';
 import { SwapIce } from '../Shared/SwapIce';
@@ -61,8 +61,6 @@ import { runInitiatorName } from './taskFilter';
 import { openedByLabel } from './createdByLabel';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '../../lib/popoverStyles';
 import { BoardCommandHint } from './BoardCommandHint';
-import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
-import { cardRunsThroughTopics } from '../../lib/topicsRoutingGate';
 import { useCardBoardSettings } from '../../hooks/useCardBoardSettings';
 import { readVirtualViewport, scrollParentOf } from '../../lib/boardVirtualViewport';
 import { VirtualizedCards } from './VirtualizedCards';
@@ -486,19 +484,26 @@ type CardProps = {
   paneSettings: BoardSettings | null;
 };
 
-const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, paneBoardId: _paneBoardId, paneSettings: _paneSettings, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition, boardTopicsRoutingDefault }: CardProps & CardDragProps & { boardTopicsRoutingDefault: boolean | null }) {
-  // MSEL-01: subscribed, so a snapshot that lands after the first paint adds
-  // «· via Topics»; the boolean re-renders the card only when it flips.
-  const getRunsThroughTopics = () => cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot, boardTopicsRoutingDefault);
-  const runsThroughTopics = useSyncExternalStore(subscribeProvidersSnapshot, getRunsThroughTopics, getRunsThroughTopics);
-  // The chip's model in the one closed format, «label · who» (model selector
-  // revision §3.8): a string, so the card re-renders only when it changes.
-  const tm = useT();
-  const getModelLine = () => taskTriggerLine(task.model, {
-    snapshot: getProvidersSnapshotState().snapshot, tr: tm, surface: 'task', viaTopics: runsThroughTopics,
-  });
-  const modelLine = useSyncExternalStore(subscribeProvidersSnapshot, getModelLine, getModelLine);
+/**
+ * A system note is never printed bare: it reads like the summary of a delivery,
+ * so it sits under «mostra», with its tag, and opens on a click.
+ */
+function SystemNoteFold({ content }: { content: string }) {
+  const tr = useT();
+  const [aperta, setAperta] = useState(false);
+  return (
+    <div data-testid="card-comment-system-tag">
+      <button
+        data-testid="card-system-note-toggle"
+        onClick={(e) => { e.stopPropagation(); setAperta((v) => !v); }}
+        className="inline-flex items-center gap-1 rounded bg-white/10 px-1 py-px text-mini uppercase tracking-wide text-app-text-muted hover:text-app-text"
+      ><Cpu className="h-2.5 w-2.5 shrink-0" /> {tr('board.card.systemNote')} · {aperta ? tr('board.card.commentLess') : tr('board.card.commentMore')}</button>
+      {aperta && <ChatMarkdown components={{}}>{questionToProse(content)}</ChatMarkdown>}
+    </div>
+  );
+}
 
+const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, paneBoardId: _paneBoardId, paneSettings: _paneSettings, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition, boardTopicsRoutingDefault: _boardTopicsRoutingDefault }: CardProps & CardDragProps & { boardTopicsRoutingDefault: boolean | null }) {
   // Review context. The comment PAIR (`selectCardComments`) — the thread's last
   // word as a quick-reply with option buttons when it's a question block and
   // plain text otherwise, plus the human request it answers (the human must
@@ -855,11 +860,6 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // scheda), quindi qui si offre solo ciò che esiste davvero: la sessione viva
   // si apre, la sessione finita si DICE e non si apre. Vedi `lib/taskSession.ts`.
   const canOpenSession = !!onOpenTopic && canOpenTaskSession(sessionState);
-  // Le due domande, una volta sola: quanto e' COSTATO (il chip) e quanto
-  // CONTESTO e' passato (il tooltip). La regola sta in `shared/token-cost.ts`.
-  const parti = partsFromTask(task);
-  const costo = costTokens(parti);
-  const contesto = contextTokens(parti);
   const sessionEnded = shouldExplainMissingSession(sessionState);
   // The eyebrow row is now IDENTITY only: which project this card belongs to,
   // and the door to its session. Everything about the turn (state, model,
@@ -1729,12 +1729,6 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
                   Resta `latestIsPlumbing` in `cardComments.ts`: la decisione e'
                   giusta e provata, e serve a chi vorra' disegnarla meglio. Qui
                   si toglie solo il modo in cui la disegnavo io. */}
-              {notesOfMachine && (
-                <span
-                  data-testid="card-comment-system-tag"
-                  className="mr-1 inline-flex items-center gap-1 rounded bg-white/10 px-1 py-px align-middle text-mini uppercase tracking-wide text-app-text-muted"
-                ><Cpu className="h-2.5 w-2.5 shrink-0" /> {tr('board.card.systemNote')}</span>
-              )}
               {/* IL RECINTO ```question NON ARRIVA MAI CRUDO AL MARKDOWN.
                   Qui ci finisce ogni parola che non e' «la domanda in fondo al
                   thread» (`pending`), e fra quelle c'e' anche una domanda che
@@ -1742,14 +1736,16 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
                   BLOCCO DI CODICE, quindi 300 caratteri di italiano diventavano
                   una riga sola con `overflow-x-auto`, da leggere scorrendo di
                   lato. Vedi `shared/question-prose.ts`. */}
-              <ChatMarkdown components={{}}>{questionToProse(lastComment.content)}</ChatMarkdown>
+              {notesOfMachine
+                ? <SystemNoteFold content={lastComment.content} />
+                : <ChatMarkdown components={{}}>{questionToProse(lastComment.content)}</ChatMarkdown>}
             </div>
           ) : null}
           {/* Il pieghevole compare SOLO se c'e' davvero da ripiegare: la
               soglia guarda il testo, non l'altezza resa, perche' un'altezza
               misurata dopo il render farebbe saltare la card di un fotogramma.
               620 caratteri sono circa dieci righe nella colonna della board. */}
-          {showsQuestion && !questionIsLatest && lastComment && lastComment.content.length > COMMENTO_PIEGA_CHARS && (
+          {showsQuestion && !questionIsLatest && !notesOfMachine && lastComment && lastComment.content.length > COMMENTO_PIEGA_CHARS && (
             <button
               data-testid="card-comment-toggle"
               onClick={(e) => { e.stopPropagation(); setCommentoAperto((v) => !v); }}
@@ -1760,35 +1756,30 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           )}
         </div>
       )}
-      {/* THE AGENT'S PROGRESS NOTE on a card still in progress. The kickoff
-          asks for a comment as soon as the work is framed, and the agent
-          writes it; the card showed a stopwatch and the words stayed in the
-          thread. Same clamp and fold as the review's word, no request pair:
-          there is no answer to pair a request with yet. */}
-      {task.status === 'in_progress' && showsQuestion && lastComment && (
-        <div className="mt-2" data-testid="card-progress-word">
-          <div
-            className={`text-compact leading-relaxed text-app-text-heading ${COMPACT_MD_CLS} ${commentoAperto ? '' : 'line-clamp-[10]'}`}
+      {/* THE PROGRESS LINE of a card in progress: ONE line, under the title.
+          While a tool runs it is the tool and how long it has run; between
+          tools it is the last sentence the agent wrote. A system note is never
+          printed bare: it sits under «mostra», like in the review. The model
+          and the time are not here: they live in the detail. */}
+      {task.status === 'in_progress' && (
+        live?.lastTool && !live.retry && task.dispatchState === 'working' ? (
+          <LiveToolLine tool={live.lastTool} frozen={!!swapFreeze} />
+        ) : showsQuestion && lastComment && (notesOfMachine ? (
+          <div className="mt-1"><SystemNoteFold content={lastComment.content} /></div>
+        ) : (
+          <p
+            data-testid="card-progress-line"
+            className="mt-1 truncate text-compact leading-4 md:text-mini text-app-text-heading"
             title={`${commentAuthorLabel(lastComment.author).label}: ${stripMarkdown(lastComment.content)}`}
-          >
-            <ChatMarkdown components={{}}>{questionToProse(lastComment.content)}</ChatMarkdown>
-          </div>
-          {lastComment.content.length > COMMENTO_PIEGA_CHARS && (
-            <button
-              data-testid="card-comment-toggle"
-              onClick={(e) => { e.stopPropagation(); setCommentoAperto((v) => !v); }}
-              className="text-compact leading-4 md:text-mini text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
-            >
-              {commentoAperto ? tr('board.card.commentLess') : tr('board.card.commentMore')}
-            </button>
-          )}
-        </div>
+          >{progressSentence(lastComment.content)}</p>
+        ))
       )}
       {/* THE CARD'S FOOT: what is happening to the turn, and what it has cost
           so far. The same place in every column.
           ═══════════════════════════════════════════════════════════════════
-          Dispatch state, model with time and tokens, git changes, last update:
-          they are all measures OF THE TURN, and they were scattered. Two chips
+          Dispatch state, git changes, last update: they are the measures OF
+          THE TURN that the card keeps. The model and the time are not among
+          them any more: they belong to the detail. Two chips
           on top, the diff at the bottom, the date in two different spots
           depending on whether the card was in review. The same fact had to be
           hunted in a different place on every column.
@@ -1840,40 +1831,9 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
         {live?.retry && task.dispatchState === 'working' && (
           <RetryWaitChip retry={live.retry} disabled={busy} onRetryNow={() => steer(RETRY_NOW_MESSAGE)} />
         )}
-        {live && !live.retry && task.dispatchState === 'working' ? (
-          <LiveEffortChip usage={live} />
-        ) : (task.model || task.agentMs > 0 || task.agentTokens > 0) ? (
-          // The model always lives here, in the time/effort chip — never as a
-          // second standalone chip. Before the agent has logged any time we
-          // show just the model; once it runs we prepend it to the ⏱ effort,
-          // matching the live chip (`Opus · ⏱ 2m · 1.2k tok`).
-          <span
-            // IL NUMERO E' QUANTO E' COSTATO, non quanti token sono passati.
-            // `agentTokens` da solo lascia fuori la RILETTURA di cache, che e'
-            // la quota dominante del consumo: il chip mostrava circa il 2,8%
-            // del vero. La rilettura non vale nemmeno uno, pero': costa un
-            // decimo, e sommarla intera farebbe sembrare enorme un turno che
-            // e' stato economico. La regola sta in `shared/token-cost.ts`, e
-            // la stessa la usano la dashboard e il piede di un messaggio.
-            // «Quanto contesto e' passato» resta qui sotto, nel tooltip.
-            title={(task.agentMs > 0 || costo > 0)
-              ? tr('board.card.effortTitle', {
-                work: fmtMs(task.agentMs),
-                cost: costo ? tr('board.card.effortCost', { cost: costo.toLocaleString(locale) }) : '',
-                spent: task.agentCostCents > 0 ? tr('board.card.effortSpent', { usd: fmtUsd(task.agentCostCents, locale) }) : '',
-                cache: task.agentCacheReadTokens > 0
-                  ? tr('board.card.effortCache', { context: fmtTok(contesto), cache: fmtTok(task.agentCacheReadTokens) })
-                  : '',
-                model: modelLine,
-              })
-              : tr('board.card.modelTitle', { model: modelLine })}
-            className="max-w-full truncate rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
-          >{modelLine}{(task.agentMs > 0 || costo > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{/* THE DOLLARS, when the card has a priced spend: the token figure is the
-              cost-weighted volume, this is what it came to. */}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>
-        ) : null}
-        {/* WHICH MACHINE it runs on, next to the model it runs with. Only when
-            a node is named: an absent one means "here", and saying that on
-            every card would be noise on all of them to inform one. */}
+        {/* WHICH MACHINE it runs on. Only when a node is named: an absent one
+            means "here", and saying that on every card would be noise on all
+            of them to inform one. */}
         {/* Moved by the overflow, it says where and why in the same one line. */}
         {task.machineId && (
           <span
@@ -1905,14 +1865,6 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           title={tr('board.card.lastUpdate', { when: new Date(task.updatedAt).toLocaleString(locale) })}
         ><UpdatedAgo iso={task.updatedAt} /></span>
       </div>
-      {/* WHAT IT IS DOING RIGHT NOW: the tool the session is running and for
-          how long. A 14-minute stopwatch did not tell a unit suite that has
-          been running nine minutes from an agent that is stuck; the answer was
-          in the chat, which is what the board was meant to spare. One line,
-          under the measures, muted: a fact about the minute, not the card. */}
-      {live?.lastTool && !live.retry && task.dispatchState === 'working' && (
-        <LiveToolLine tool={live.lastTool} frozen={!!swapFreeze} />
-      )}
       {/* WHAT THE FROST MEANS, in words: which command, how much it held, and
           that it comes back by itself. A texture alone would only say that
           something is wrong with this card. */}

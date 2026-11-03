@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useT, useLocale } from '../../hooks/useT';
-import { fmtLive, fmtModel, fmtTok, liveToolLabel } from './format';
-import type { LiveTool, LiveUsage, RetryWait } from './constants';
-import { SparkLoader } from '../Layout/StreamingIndicator';
+import { useT } from '../../hooks/useT';
+import { fmtLive, liveToolLabel } from './format';
+import type { LiveTool, RetryWait } from './constants';
 import { startVisibleInterval } from '../../state/documentVisibility';
 
 // ── The live chips of a working card ──────────────────────────────────────
@@ -85,34 +84,3 @@ export function LiveToolLine({ tool, frozen = false }: { tool: LiveTool; frozen?
   );
 }
 
-/**
- * Live effort chip shown while a turn runs: model · execution-time · tokens,
- * ticking every second. The time is EXECUTION-ONLY: `baseMs` is the agent_ms
- * accumulated over PRIOR turns and we add only (now − turnStartedAt) for the
- * current turn — never the idle/queued/asleep gaps between turns (the server
- * anchors turnStartedAt at the actual turn start). Falls back to the static
- * agent_ms/agent_tokens chip the instant the turn ends.
- */
-export function LiveEffortChip({ usage }: { usage: LiveUsage }) {
-  const tr = useT();
-  const locale = useLocale();
-  const [, force] = useState(0);
-  useEffect(() => {
-    return startVisibleInterval(() => force((n) => n + 1), 1000);
-  }, []);
-  // eslint-disable-next-line react-hooks/purity -- live effort chip: force-re-renders every 1s (interval above) and reads the clock each render on purpose
-  const ms = usage.baseMs + Math.max(0, Date.now() - usage.turnStartedAt);
-  return (
-    <span
-      title={tr('board.card.liveEffortTitle', {
-        model: fmtModel(usage.model),
-        work: fmtLive(ms),
-        tokens: usage.liveTokens ? tr('board.card.liveEffortTokens', { n: usage.liveTokens.toLocaleString(locale) }) : '',
-      })}
-      className="flex min-w-0 max-w-full items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-800 dark:text-sky-300 tabular-nums"
-    >
-      <SparkLoader className="shrink-0" />
-      <span className="truncate">{fmtModel(usage.model)} · ⏱ {fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)}`}</span>
-    </span>
-  );
-}

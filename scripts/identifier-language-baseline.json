@@ -46,11 +46,8 @@
     ],
     "client/src/components/Board/Card.tsx": [
       "attesa",
-      "contesto",
-      "costo",
       "evidenza",
       "lavoroInPlace",
-      "parti",
       "scelte",
       "senzaCommit",
       "senzaConsegna",

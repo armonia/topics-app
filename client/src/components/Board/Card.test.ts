@@ -119,11 +119,11 @@ describe('il chip dei checks distingue rosso da non-misurato', () => {
  * and the card must mount them, or a chip that exists is a chip nobody sees.
  */
 describe('the wait before a retry and the running tool', () => {
-  test('the stopwatch does NOT run during a retry wait: the live chip excludes `retry`', () => {
-    expect(src).toContain("live && !live.retry && task.dispatchState === 'working' ? (");
+  test('the retry wait is the only live chip left on the card: no stopwatch, no model', () => {
     expect(src).toContain("live?.retry && task.dispatchState === 'working' && (");
     expect(src).toContain('<RetryWaitChip retry={live.retry}');
     expect(live).toContain('data-testid="card-retry-wait"');
+    expect(src).not.toContain('LiveEffortChip');
   });
 
   test('"Retry now" goes through the comments door, which is the existing resume', () => {
@@ -132,8 +132,8 @@ describe('the wait before a retry and the running tool', () => {
     expect(src).toContain('onRetryNow={() => steer(RETRY_NOW_MESSAGE)}');
   });
 
-  test('the "what is it doing" line sits under the foot and goes out with the retry wait', () => {
-    expect(src).toContain("live?.lastTool && !live.retry && task.dispatchState === 'working' && (");
+  test('the "what is it doing" line sits in the body and goes out with the retry wait', () => {
+    expect(src).toContain("live?.lastTool && !live.retry && task.dispatchState === 'working' ? (");
     // `frozen`: while the swap freezer holds the session's command STOPped the
     // line stops ticking and says so (KANBAN-85), so the pin travels with it.
     expect(src).toContain('<LiveToolLine tool={live.lastTool} frozen={!!swapFreeze} />');
@@ -162,11 +162,28 @@ describe('the parked card', () => {
  * with the review's fold. The block used to be gated on `status === 'review'`,
  * and in progress the card was a stopwatch.
  */
-describe('the progress word', () => {
-  test('draws in in_progress with the same clamp as the review', () => {
-    expect(src).toContain("task.status === 'in_progress' && showsQuestion && lastComment && (");
-    const block = src.slice(src.indexOf('data-testid="card-progress-word"'));
-    expect(block.slice(0, 600)).toContain("line-clamp-[10]");
+/**
+ * THE PROGRESS LINE: ONE line under the title on a card in progress, and a
+ * system note is folded under «mostra» everywhere it appears on a card.
+ */
+describe('the progress line', () => {
+  test('draws one truncated line in in_progress, the last sentence of the agent', () => {
+    expect(src).toContain("task.status === 'in_progress' && (");
+    const block = src.slice(src.indexOf('data-testid="card-progress-line"'));
+    expect(block.slice(0, 400)).toContain('truncate');
+    expect(block.slice(0, 400)).toContain('progressSentence(lastComment.content)');
+    expect(src).not.toContain('card-progress-word');
+  });
+
+  test('a system note never shows bare: it goes through the fold, on the progress line and in the review', () => {
+    expect(src).toContain('<SystemNoteFold content={lastComment.content} />');
+    expect(src).toContain('data-testid="card-system-note-toggle"');
+    expect(src).toContain("!notesOfMachine && lastComment && lastComment.content.length > COMMENTO_PIEGA_CHARS");
+  });
+
+  test('the model and the time are not on the card: they belong to the detail', () => {
+    expect(src).not.toContain('modelLine');
+    expect(src).not.toContain('card-spend');
   });
 });
 
@@ -180,16 +197,6 @@ describe('il chip del triage', () => {
     const chip = src.slice(src.indexOf('data-testid="card-triage"'));
     expect(chip.slice(0, 400)).toContain("tr('board.card.triage')");
     expect(chip.slice(0, 400)).toContain("tr('board.card.triageTitle')");
-  });
-});
-
-/** MSEL-01: «· via Topics» reads the providers snapshot. Read with
- *  `getProvidersSnapshotState()` inside the memo'd card, a cold load into the
- *  board judged a snapshot still null and the label stayed missing until the
- *  card happened to re-render. The card subscribes to the boolean it draws. */
-describe('the card route label', () => {
-  test('subscribes to the snapshot instead of reading it once during render', () => {
-    expect(src).toContain('useSyncExternalStore(subscribeProvidersSnapshot,');
   });
 });
 

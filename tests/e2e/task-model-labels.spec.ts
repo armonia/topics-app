@@ -194,7 +194,7 @@ for (const device of [
         await expect(page.getByTestId('board-settings-panel')).toBeHidden();
 
         const card = projectWindow.locator(`[data-task-card="${task.id}"]`);
-        await expect(card.getByTestId('card-foot')).toContainText('GPT-5.5');
+        await expect(card.getByTestId('card-foot')).not.toContainText('GPT-5.5'); // the model is in the detail, not on the card
         const longModel = 'codex:project-model-with-a-long-release-identifier-2026';
         const longResponse = await request.post(`/api/boards/${projectId}/tasks`, {
           data: { text: `Long model ${device.name}`, status: 'review', model: longModel },
@@ -203,11 +203,7 @@ for (const device of [
         longTaskId = (await longResponse.json()).id;
         const longCard = projectWindow.locator(`[data-task-card="${longTaskId}"]`);
         const longLabel = 'Project Model With A Long Release Identifier 2026';
-        const longChip = longCard.getByTestId('card-foot').getByText(`${longLabel} · via Codex`, { exact: true });
-        await expect(longChip).toBeVisible();
-        expect(await longChip.evaluate((element) => element.getBoundingClientRect().width
-          <= element.parentElement!.getBoundingClientRect().width + 1)).toBe(true);
-        await expect(longChip).toHaveAttribute('title', new RegExp(longLabel));
+        await expect(longCard.getByTestId('card-foot')).not.toContainText(longLabel); // the label lives in the detail chip now
         await page.screenshot({ path: testInfo.outputPath('resolved-card-model.png') });
         // MSEL-01, variant `chip`: a card whose choice runs through Topics says so.
         // The id is the current Opus on purpose: the server refuses a retired
@@ -219,7 +215,7 @@ for (const device of [
         expect(routedResponse.ok()).toBe(true);
         routedTaskId = (await routedResponse.json()).id;
         const routedCard = projectWindow.locator(`[data-task-card="${routedTaskId}"]`);
-        await expect(routedCard.getByTestId('card-foot')).toContainText('Opus 5 · via Topics');
+        await expect(routedCard.getByTestId('card-foot')).not.toContainText('Opus 5 · via Topics'); // the model is in the detail, not on the card
         await expect(card.getByTestId('card-foot')).not.toContainText('via Topics');
 
         await page.goto(`/topic/${chatTopic.id}`);
