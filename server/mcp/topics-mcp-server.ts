@@ -398,6 +398,8 @@ const TOOLS = [
         assignee: { type: "string", description: "Agent/person to assign." },
         output_url: { type: "string", description: "LEGACY — seeds the task's first browser tab; prefer open_browser_pane, which opens the tab directly. Empty string clears it." },
         text: { type: "string", description: "Rewrite the task title (clear + concise) — use it to polish a raw composer-born title." },
+        bar: { type: "string", description: "Executable acceptance bar (a command or a test); add it to a card that was flagged incomplete." },
+        source: { type: "string", description: "Where the card comes from (the session or channel opening it); add it to a card that was flagged incomplete." },
         description: { type: "string", description: "Rewrite/fill the task description." },
         // La descrizione È `PREVIEW_RULE`, verbatim: lo schema del tool è uno
         // dei posti in cui l'agente legge la regola, e finché era un riassunto
@@ -2115,7 +2117,7 @@ export async function callListTasks(
 
 export async function callUpdateTask(
   args: ParsedArgs,
-  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown; preview_image?: unknown; previewImage?: unknown; summary?: unknown; stage?: unknown; human_ask?: unknown },
+  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown; preview_image?: unknown; previewImage?: unknown; summary?: unknown; stage?: unknown; human_ask?: unknown; bar?: unknown; source?: unknown },
   fetchImpl: typeof fetch = fetch,
   /**
    * Le manopole del ciclo a gambe: servono quando la consegna fa girare i check
@@ -2146,6 +2148,8 @@ export async function callUpdateTask(
   if (typeof toolArgs.output_url === "string") patch.output_url = toolArgs.output_url;
   if (typeof toolArgs.text === "string" && toolArgs.text.trim()) patch.text = toolArgs.text;
   if (typeof toolArgs.description === "string") patch.description = toolArgs.description;
+  if (typeof toolArgs.bar === "string") patch.bar = toolArgs.bar;
+  if (typeof toolArgs.source === "string") patch.source = toolArgs.source;
   // L'ANTEPRIMA. Mancava, e il protocollo la documentava: `docs/board-protocol.md`
   // dice `update_task(previewImage=…)` e l'envelope di dispatch porta quel testo a
   // ogni agente — ma lo schema di questo tool non aveva il campo, quindi il
@@ -2178,7 +2182,7 @@ export async function callUpdateTask(
   if (typeof toolArgs.stage === "string" && toolArgs.stage) patch.stage = toolArgs.stage;
   if (typeof toolArgs.human_ask === "string") patch.humanAsk = toolArgs.human_ask;
   if (Object.keys(patch).length === 0) {
-    throw new Error("update_task: provide at least one of 'status', 'priority', 'assignee', 'output_url', 'text', 'description', 'preview_image'");
+    throw new Error("update_task: provide at least one of 'status', 'priority', 'assignee', 'output_url', 'text', 'description', 'bar', 'source', 'preview_image'");
   }
   const path = endpointPath
     ?? `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks/${encodeURIComponent(toolArgs.task_id)}`;

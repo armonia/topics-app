@@ -554,6 +554,8 @@ export interface UpdateTaskPatch {
   stayLocal?: boolean;
   /** The executable acceptance bar; null clears. */
   bar?: string | null;
+  /** Where the card comes from (session or channel), added after birth to clear the incomplete flag. */
+  createdSource?: string | null;
   /** Dependency; null clears. Validated: exists, not self, no cycle. */
   blockedByTaskId?: string | null;
   reuseBlockerContext?: boolean;

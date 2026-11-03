@@ -2,14 +2,18 @@
  * The creator chip, the incomplete line and the Mine/Others filter (card a7ba2d05).
  * @covers KANBAN-01
  */
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, mock, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { isValidElement, type ReactElement, type ReactNode } from 'react';
 import { creatorChip, creatorKind, incompleteChip } from './createdByLabel';
-import { CreatorChipView, IncompleteChipView } from './CreatorChipView';
 import { taskMatchesFilters } from './taskFilter';
 import type { BoardTask } from '../../lib/board';
 import type { BoardFilters } from './constants';
+
+// The chip must go through the single in-app door (it checks the chat exists), so the door is stubbed.
+const routed: unknown[] = [];
+mock.module('../../lib/tabLink', () => ({ openTabInApp: (target: unknown) => { routed.push(target); } }));
+const { CreatorChipView, IncompleteChipView } = await import('./CreatorChipView');
 
 const tr = (key: string, params?: Record<string, string | number>) =>
   `${key}${params ? JSON.stringify(params) : ''}`;
@@ -59,14 +63,13 @@ describe('creator chip', () => {
     expect(html).toContain('title="');
   });
 
-  test('clicking the chip opens the chat through onOpenTopic, with no bare link', () => {
+  test('clicking the chip opens the chat through openTabInApp, with no bare link', () => {
     const chip = creatorChip({ createdBy: 'agent:session', openerName: 'Riunione', openerTopicId: 'top-1' }, tr)!;
-    const opened: string[] = [];
     let stopped = false;
-    const tree = CreatorChipView({ chip, onOpenTopic: (id) => opened.push(id) });
+    const tree = CreatorChipView({ chip });
     const button = find(tree, (el) => el.props['data-testid'] === 'card-created-by-open')!;
     button.props.onClick({ stopPropagation: () => { stopped = true; } });
-    expect(opened).toEqual(['top-1']);
+    expect(routed).toEqual([{ kind: 'chat', key: 'top-1' }]);
     expect(stopped).toBe(true);
     expect(renderToStaticMarkup(tree)).not.toContain('<a ');
     expect(renderToStaticMarkup(tree)).not.toContain('href');
@@ -74,7 +77,7 @@ describe('creator chip', () => {
 
   test('a chat that no longer exists is plain text, not a button', () => {
     const chip = creatorChip({ createdBy: 'agent:session', openerName: undefined }, tr)!;
-    const html = renderToStaticMarkup(<CreatorChipView chip={chip} onOpenTopic={() => {}} />);
+    const html = renderToStaticMarkup(<CreatorChipView chip={chip} />);
     expect(html).not.toContain('card-created-by-open');
   });
 });

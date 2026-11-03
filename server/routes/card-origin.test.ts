@@ -150,4 +150,30 @@ describe("card origin and agent-card contract", () => {
     const row = db.query("SELECT origin_topic_id FROM tasks WHERE id = ?").get(t.body.id) as any;
     expect(row.origin_topic_id).toBeNull();
   });
+
+  test("a forged originTopicId on a STEP with a parent gives no right to close it either", async () => {
+    const pid = projectIdForPath("/proj/one");
+    const parent = await post(`/api/boards/${pid}/tasks`, { text: "parent" });
+    const step = await post(`/api/boards/${pid}/tasks`, { text: "step", parentTaskId: parent.body.id, originTopicId: "victim" });
+    expect(step.status).toBe(201);
+    const row = db.query("SELECT created_by_topic_id, parent_task_id FROM tasks WHERE id = ?").get(step.body.id) as any;
+    expect(row.parent_task_id).toBe(parent.body.id);
+    expect(row.created_by_topic_id).toBeNull();
+    db.run("UPDATE tasks SET status = 'in_progress' WHERE id = ?", [step.body.id]);
+    const done = (await call(router, "PATCH", `/api/sessions/sv/tasks/${step.body.id}`, { status: "done" }))!;
+    expect(done.status).toBeGreaterThanOrEqual(400);
+    expect(db.query("SELECT status FROM tasks WHERE id = ?").get(step.body.id)).toEqual({ status: "in_progress" });
+  });
+
+  test("source can be added after birth (PATCH) and clears the incomplete flag", async () => {
+    const t = await post(`/api/boards/${projectIdForPath("/proj/one")}/tasks`, { text: "late", description: LONG, bar: "bun test" });
+    expect(t.body.createdMissing).toEqual(["source"]);
+    for (const field of ["source", "createdSource", "created_source"]) {
+      const res = (await call(router, "PATCH", `/api/sessions/sv/tasks/${t.body.id}`, { [field]: `session:${field}` }))!;
+      expect(res.status).toBe(200);
+    }
+    const got = await (await call(router, "GET", `/api/sessions/sv/tasks/${t.body.id}`))!.json();
+    expect(got.task.createdSource).toBe("session:created_source");
+    expect(got.task.createdMissing).toBeUndefined();
+  });
 });

@@ -4258,6 +4258,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.text !== undefined) put("text", patch.text);
       if (patch.description !== undefined) put("description", patch.description);
       if (patch.bar !== undefined) put("bar", patch.bar?.trim() || null);
+      if (patch.createdSource !== undefined) put("created_source", patch.createdSource?.trim().slice(0, 160) || null);
       if (patch.priority !== undefined) {
         put("priority", patch.priority);
         // An explicit write (human OR the agent fulfilling "auto") settles it.

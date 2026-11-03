@@ -1472,7 +1472,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-800 dark:text-sky-300"
             >{task.lastActorPersonName}</span>
           )}
-          {creator && <CreatorChipView chip={creator} onOpenTopic={onOpenTopic} />}
+          {creator && <CreatorChipView chip={creator} />}
           {incomplete && <IncompleteChipView chip={incomplete} />}
           {runInitiator && (
             <span

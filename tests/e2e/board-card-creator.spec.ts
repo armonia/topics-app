@@ -3,8 +3,8 @@
  *
  * A person's card says «tu», an agent's card names the chat it came from, an
  * agent's card born without context is flagged «incompleta», an old card with no
- * author stays open and readable (no chip), and the Mie/Altri filter cuts the
- * board by creator.   allow-italian: quoted UI strings
+ * author stays open and readable (no chip), and the Mine/Others filter cuts the
+ * board by creator.
  */
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";
@@ -108,13 +108,13 @@ test.describe("Creatore sulla card", () => {
     await expect(page.locator(`[data-task-card="${full.id}"]`).getByTestId("card-incomplete")).toHaveCount(0);
 
     const filter = page.getByTestId("filter-creator");
-    await filter.click(); // Mie
+    await filter.click(); // Mine
     await expect(page.locator(`[data-task-card="${mine.id}"]`)).toBeVisible();
     await expect(page.locator(`[data-task-card="${bare.id}"]`)).toHaveCount(0);
-    await filter.click(); // Altri
+    await filter.click(); // Others
     await expect(page.locator(`[data-task-card="${mine.id}"]`)).toHaveCount(0);
     await expect(page.locator(`[data-task-card="${bare.id}"]`)).toBeVisible();
-    await filter.click(); // Tutte
+    await filter.click(); // All
     await expect(page.locator(`[data-task-card="${mine.id}"]`)).toBeVisible();
   });
 });

@@ -11,8 +11,6 @@
 
 export type AgentCardGap = "context" | "directory" | "bar" | "source";
 
-const AGENT_CARD_GAPS: readonly AgentCardGap[] = ["context", "directory", "bar", "source"];
-
 /** Fewer characters than this is a title restated, not context. */
 const MIN_CONTEXT_CHARS = 20;
 
