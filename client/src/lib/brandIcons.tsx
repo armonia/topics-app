@@ -1,9 +1,9 @@
 import { createElement, forwardRef, type CSSProperties } from 'react';
 import type { LucideIcon } from 'lucide-react';
 
-// I marchi dei canali di Jarvis (WhatsApp, Discord, Telegram), da Simple Icons 13.21.0 (CC0).
-// Lucide non ha marchi: le chat dei canali avevano tutte la nuvoletta generica (03/11).
-// Stessa forma di un'icona Lucide (size, style, className), così TopicIcon li tratta uguale.
+// The brand marks of Jarvis' channels (WhatsApp, Discord, Telegram), from Simple Icons 13.21.0 (CC0).
+// Lucide has no brand marks: every channel chat showed the generic bubble (03/11).
+// Same shape as a Lucide icon (size, style, className), so TopicIcon treats them alike.
 type BrandProps = { size?: number | string; style?: CSSProperties; className?: string; color?: string };
 
 function brand(name: string, d: string): LucideIcon {

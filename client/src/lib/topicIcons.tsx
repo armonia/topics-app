@@ -52,9 +52,9 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Brain,
   Megaphone,
   Search,
-  // i lavori programmati di Jarvis
+  // Jarvis' scheduled jobs
   Clock,
-  // le chat dei canali di Jarvis: il marchio vero, nel colore del canale (il colore del topic)
+  // Jarvis' channel chats: the real brand mark, in the channel's colour (the topic colour)
   WhatsApp: WhatsAppIcon,
   Discord: DiscordIcon,
   Telegram: TelegramIcon,
