@@ -849,7 +849,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       ? "Da qui l'atterraggio è quello di sempre: guarda il diff e approva, oppure rimandala indietro."
       : "Il lavoro è sul nodo, non qui: sistema quello che manca e rimanda indietro la card per farla riconsegnare.";
     try {
-      const delivered = svc.deliverToReviewBySystem({ taskId, reason, nextMove });
+      const delivered = svc.deliverToReviewBySystem({ taskId, reason, nextMove, quietReason: true });
       if (node.delegation) {
         try { host.recordDelegatedPhase?.({ taskId, phase: "completed", outcome: "review" }); }
         catch { /* audit never blocks delivery */ }

@@ -966,6 +966,25 @@ describe("pendingQuestion, la contabilita' non e' l'ultima parola", () => {
       { content: "ok, fatto", kind: "comment" },
     ])).toBeNull();
   });
+
+  test("una domanda del sistema (deploy, sottotask parcheggiati) tiene i suoi tasti", () => {
+    // 03/11: una regola che saltava ogni riga di sistema per far passare la consegna del nodo
+    // si mangiava anche queste, e la domanda vecchia dell'agente tornava al loro posto.
+    const sys = ["```question", "Pubblico in produzione?", "- Si'", "- Non ora", "```"].join("\n");
+    const q = pendingQuestionComment([
+      { content: question, kind: "comment", author: "agent:x" },
+      { content: sys, kind: "comment", author: "system" },
+    ]);
+    expect(q?.content).toBe(sys);
+  });
+
+  test("la riga di consegna del nodo è una nota quieta: la domanda dell'agente sopra resta", () => {
+    const q = pendingQuestionComment([
+      { content: question, kind: "comment", author: "agent:x" },
+      { content: "Consegnato dal nodo «PC Windows»: il ramo `topics/x` è stato piantato", kind: "comment", author: "system", quiet: true },
+    ]);
+    expect(q?.content).toBe(question);
+  });
 });
 
 /**

@@ -65,7 +65,9 @@ function freshDb(): Database {
     content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
     kind TEXT NOT NULL DEFAULT 'comment',
     -- migration 20260904190855: l'ancora di KANBAN-72, qui è l'id del commento SUL NODO.
-    message_id TEXT
+    message_id TEXT,
+    -- migration 20260912081500: la nota quieta (la riga di consegna del nodo lo è).
+    quiet INTEGER CHECK (quiet IN (0, 1))
   )`);
   db.run(`CREATE TABLE approvals (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, requested_by TEXT NOT NULL,

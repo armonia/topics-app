@@ -597,6 +597,12 @@ export interface TaskService {
      */
     nextMove?: string;
     /**
+     * The reason line is a quiet note: a hand-over written by the plumbing after
+     * the agent spoke (the node lane) must not end the scan for the agent's
+     * question, or its buttons vanish. System questions stay loud elsewhere.
+     */
+    quietReason?: boolean;
+    /**
      * How many files the worktree changed WITHOUT committing them, counted now.
      * `undefined`/`null` = nobody could measure it, which the sheet reads
      * differently from zero: zero is "there is nothing to save", null is "I do
@@ -5435,7 +5441,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    deliverToReviewBySystem({ taskId, reason, cause, nextMove, uncommittedFiles, messageId }): Task {
+    deliverToReviewBySystem({ taskId, reason, cause, nextMove, uncommittedFiles, messageId, quietReason }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       const ts = now();
@@ -5539,7 +5545,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // sta scritto sul blocco stesso piu' sotto.
       if (reason && reason.trim()) {
         const testo = nextMove && nextMove.trim() ? `${reason}\n\n${nextMove.trim()}` : reason;
-        try { this.addComment({ taskId, author: "system", content: testo, messageId: messageId ?? null }); } catch { /* best-effort */ }
+        try { this.addComment({ taskId, author: "system", content: testo, messageId: messageId ?? null, quiet: quietReason === true }); } catch { /* best-effort */ }
       }
       // QUESTA NOTA VA SCRITTA PER ULTIMA, ed è il motivo per cui sta sotto
       // `reason` e non sopra.
