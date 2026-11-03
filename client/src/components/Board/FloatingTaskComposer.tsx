@@ -19,6 +19,8 @@ import { DictationButton } from '../Shared/DictationButton';
 import { getMediaUrl } from '../../lib/api';
 import { dragCarriesFiles, filesFromDrop, imagesFromClipboard, uploadAttachment, MAX_ATTACHMENTS, type StagedAttachment } from '../../lib/attachments';
 import { titoloDaTesto } from '../../../../shared/task-title';
+import { IntakePlanPanel } from './IntakePlanPanel';
+import { createRows, namesKnownProject, proposeCards, type IntakeRow } from '../../../../shared/intake-plan';
 import { draftPreviewOf, type DraftPreview } from './draftPreview';
 import { TaskModelSelector } from '../Shared/ModelSelector/TaskModelSelector';
 import { surfaceTopicsRoutingEnabled } from '../../lib/topicsRoutingGate';
@@ -129,6 +131,12 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   // l'aveva. Stesso progetto, due superfici, due risposte.
   const projects = useBoardProjects(global);
   const newProjectDir = useNewProjectDir(global);
+  // The plan needs the project names even on a single-board composer.
+  const planProjects = useBoardProjects(true);
+  // Multi-project intake: the proposal waits here until the writer confirms.
+  const [planRows, setPlanRows] = useState<IntakeRow[] | null>(null);
+  const [planFailures, setPlanFailures] = useState<Record<string, string>>({});
+  const planDoneRef = useRef<{ key: string; taskId: string; projectId: string }[]>([]);
   const [targetProject, setTargetProject] = useState<string>(() => {
     try {
       const stored = localStorage.getItem('board:composerProject');
@@ -400,6 +408,11 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
     // (`services/task-title.ts`). Quando quello non c'e' — nessun modello
     // configurato, rete assente — resta questo, che almeno non spezza le
     // parole a meta'.
+    // A request that names a known project is proposed first, never created.
+    if (!planRows && !attachments.length && planProjects && namesKnownProject(raw, planProjects)) {
+      const rows = proposeCards(raw, planProjects, target === UNASSIGNED_PROJECT_ID ? null : target);
+      if (rows.length) { setPlanRows(rows); setPlanFailures({}); planDoneRef.current = []; return; }
+    }
     const { title, description } = titoloDaTesto(raw);
     setSubmitting(true);
     try {
@@ -435,6 +448,35 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
       onCreated(created.id);
     } catch (e) { onError(e instanceof Error ? e.message : 'create failed'); }
     finally { setSubmitting(false); }
+  };
+
+  const cancelPlan = () => { setPlanRows(null); setPlanFailures({}); planDoneRef.current = []; };
+  const confirmPlan = async () => {
+    if (!planRows || submitting) return;
+    setSubmitting(true);
+    try {
+      const out = await createRows(planRows, async (row, parentTaskId) => {
+        const { title, description } = titoloDaTesto(row.title);
+        const created = await boardApi.create(row.projectId!, {
+          text: title, description, status: birthStatus, planFirst,
+          ...(parentTaskId ? { parentTaskId } : {}),
+        });
+        return created.id;
+      }, planDoneRef.current);
+      planDoneRef.current = out.created;
+      if (out.failed.length || out.skipped.length) {
+        // Created rows stay listed as done; the failed ones can be retried.
+        setPlanFailures(Object.fromEntries([...out.failed.map((f) => [f.key, f.error]), ...out.skipped.map((k) => [k, 'parent failed'])]));
+        setPlanRows(planRows.map((r) => (out.created.some((c) => c.key === r.key) ? { ...r, checked: false } : r)));
+        onError(`${out.failed.length + out.skipped.length} card not created: retry`);
+      } else {
+        setPlanRows(null);
+        setText('');
+        boardDrafts.clearComposer();
+        if (taRef.current) taRef.current.style.height = 'auto';
+        onCreated(out.created[0]?.taskId ?? '');
+      }
+    } finally { setSubmitting(false); }
   };
 
   return (
@@ -532,6 +574,17 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
             portata di occhio (title = la frase intera), e due bottoni — quello
             consigliato acceso, l'altro a un click. Il terzo bottone è "no": il
             task nasce libero, che è anche ciò che succede se non tocchi niente. */}
+        {planRows && planProjects && (
+          <IntakePlanPanel
+            rows={planRows}
+            projects={planProjects}
+            busy={submitting}
+            failures={planFailures}
+            onChange={setPlanRows}
+            onConfirm={() => { void confirmPlan(); }}
+            onCancel={cancelPlan}
+          />
+        )}
         {expanded && (proposal || link) && (
           <div
             data-testid="composer-intake"
