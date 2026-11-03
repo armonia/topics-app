@@ -134,8 +134,9 @@ describe('the wait before a retry and the running tool', () => {
 
   test('the running tool is drawn ONCE: the progress line carries it, and the card has no second tool line', () => {
     // The progress line is the only place the tool's name and input are printed.
-    expect(src).toContain("const progressLine = live?.lastTool && !live.retry && task.dispatchState === 'working'");
-    expect(src).toContain('`${live.lastTool.name}');
+    // The text itself is checked as a value in `cardProgressLine.test.ts`.
+    expect(src).toContain("import { cardProgressLine } from './cardProgressLine';");
+    expect(src).toContain('const progressLine = cardProgressLine({');
     // A second `<LiveToolLine>` in the card would print «Bash · bun run test:unit» twice.
     expect(src).not.toContain('<LiveToolLine');
     expect(src).not.toContain('card-live-tool');
@@ -170,6 +171,9 @@ describe('the progress word', () => {
     const block = src.slice(src.indexOf('data-testid="card-progress-word"'));
     expect(block.slice(0, 500)).toContain('truncate');
     expect(block.slice(0, 500)).not.toContain('line-clamp-[10]');
+    // The line is the text that is drawn: emptying it in the render breaks this.
+    expect(block.slice(0, 500)).toContain('>{progressLine}</p>');
+    expect(src).toContain('title={progressLine}');
   });
 
   test('la nota di sistema e\' ripiegata sotto «mostra», mai sola nel corpo', () => {
@@ -191,7 +195,7 @@ describe('the progress word', () => {
 describe('la misura del turno sulla card', () => {
   test('in lavorazione la riga viva c\'e\': niente chip, solo testo e il caricamento di main', () => {
     expect(src).not.toContain("task.status === 'in_progress' ? null");
-    expect(src).toContain('<LiveEffortChip usage={live} label={measureLine} />');
+    expect(src).toContain('<LiveEffortChip usage={live} label={measureLine} trailing={updatedAgo(\'\')} />');
     expect(live).toContain('data-testid="card-measure"');
     // The live dot is main's SparkLoader now, not a sky pulse dot.
     expect(live).toContain("import { SparkLoader } from '../Layout/StreamingIndicator';");
@@ -203,8 +207,8 @@ describe('la misura del turno sulla card', () => {
 
   test('il modello e il provider sono nel CONTENUTO della riga, non solo nel titolo', () => {
     // Guard against the model moving into `title` alone: the visible text must carry it.
-    expect(src).toContain('<span className="min-w-0 truncate">{measureLine}</span>');
-    expect(live).toContain('<span className="min-w-0">{label ?? fmtModel(usage.model)}</span>');
+    expect(src).toContain('<span className="min-w-0 break-words">{measureLine}</span>');
+    expect(live).toContain('<span className="min-w-0 break-words">{label ?? fmtModel(usage.model)}</span>');
     // The model label must never be cut: no truncate on it.
     expect(live).not.toContain('min-w-0 truncate">{label');
     expect(live).toContain('⏱ {fmtLive(ms)}');
@@ -216,11 +220,14 @@ describe('la misura del turno sulla card', () => {
     const span = src.slice(start, start + 400);
     expect(span).toContain('min-w-0');
     expect(span).toContain('max-w-full');
-    expect(span).toContain('truncate');
+    // The model WRAPS (no truncate, no nowrap on its side): «Sonnet 5 · Claude …» was the cut.
+    expect(src).not.toContain('<span className="min-w-0 truncate">{measureLine}</span>');
+    expect(live).not.toContain('min-w-0 truncate">{label');
+    expect(src.slice(start, start + 1200)).toContain('<span className="min-w-0 break-words">{measureLine}</span>');
     // Tokens come AFTER the time in the text, so truncation drops them first.
-    const content = src.slice(src.indexOf('<span className="min-w-0 truncate">{measureLine}</span>'), src.indexOf('<span data-testid="card-spend">'));
+    const content = src.slice(src.indexOf('<span className="min-w-0 break-words">{measureLine}</span>'), src.indexOf('<span data-testid="card-spend">'));
     expect(content.indexOf('fmtMs(task.agentMs)')).toBeLessThan(content.indexOf('fmtTok(costo)'));
-    expect(live).toContain('<span className="min-w-0">{label');
+    expect(live).toContain('<span className="min-w-0 break-words">{label');
   });
 
   test('il piede non ha pillole impilate: la misura non porta sfondo pieno', () => {
@@ -250,9 +257,25 @@ describe('la misura del turno sulla card', () => {
 
   // Il lato destro (durata e consumo) non va mai a capo né si taglia: si accorcia il sinistro.
   test('a 300 px durata e consumo restano interi: il lato destro non va a capo né si taglia', () => {
-    expect(live).toContain('<span className="shrink-0 whitespace-nowrap">⏱ {fmtLive(ms)}');
+    expect(live).toContain('<span>⏱ {fmtLive(ms)}');
     const start = src.indexOf('data-testid="card-measure"');
-    expect(src.slice(start, start + 1200)).toContain('<span className="shrink-0 whitespace-nowrap">');
+    expect(src.slice(start, start + 1200)).toContain('<span className="flex shrink-0 items-center gap-2 whitespace-nowrap">');
+  });
+
+  // The last update sits INSIDE the band («ora» on a line of its own under it was a second row).
+  test('«ora» sta dentro la fascia, in lavorazione e in review; fuori solo se non c\'è fascia', () => {
+    expect(live).toContain('{trailing}');
+    const start = src.indexOf('data-testid="card-measure"');
+    const band = src.slice(start, src.indexOf('{updatedAgo(\'\')}', start) + 20);
+    expect(band).toContain("{updatedAgo('')}");
+    expect(src).toContain("{!measureShown && updatedAgo('ml-auto text-app-text-muted')}");
+  });
+
+  // The band text is the secondary token: the muted one falls under 4.5:1 on the band
+  // (checked as numbers in `cardMeasureBand.test.ts`).
+  test('il testo della fascia è text-app-text-secondary, non muted', () => {
+    expect(live).toContain('text-app-text-secondary dark:bg-white/[0.16]');
+    expect(live).not.toContain('text-app-text-muted dark:bg-white/[0.16]');
   });
 });
 
@@ -264,18 +287,30 @@ describe('la misura del turno sulla card', () => {
  * deve esserci. Contratto sul sorgente: il rendering sta nel test del componente.
  */
 describe('la review: faccia, menu e campo', () => {
-  test('sulla faccia restano le uscite, tranne «Rifai così» e «Archivia»', () => {
-    expect(src).toContain("const faceExclude: TaskChoiceId[] = ['redo', 'drop'];");
+  // The split itself is behaviour: `taskChoices.test.ts` («la review: faccia e menu») checks which
+  // ids land where. Here only the wiring: the face row and the menu read those lists.
+  test('sulla faccia resta solo «Approva»: la riga legge la lista della faccia', () => {
+    expect(src).toContain('const faceExclude = useMemo(() => reviewFaceExclude(task, tr), [task, tr]);');
     expect(src).toContain('<TaskChoiceRow\n              task={task} disabled={busy} exclude={faceExclude}');
   });
 
-  test('«Archivia» sta nel menu «…», e «Rifai così» non compare da nessuna parte', () => {
-    expect(src).toContain("const menuExclude: TaskChoiceId[] = reviewChoices.map((c) => c.id).filter((id) => id !== 'drop');");
+  test('«Archivia» e le altre uscite stanno nel menu «…», che legge la lista del menu', () => {
+    expect(src).toContain('const menuExclude = useMemo(() => reviewMenuExclude(task, tr), [task, tr]);');
     expect(src).toContain('<TaskChoiceMenu\n              task={task} exclude={menuExclude}');
   });
 
+  // The menu runs the same choices as the row, so it must carry the same wiring:
+  // «Rimanda indietro» from the menu takes the field's text, a queued land shows its receipt.
+  test('il menu riceve il testo del campo e la ricevuta del land, come la riga', () => {
+    const menu = src.slice(src.indexOf('<TaskChoiceMenu\n              task={task} exclude={menuExclude}'));
+    const menuTag = menu.slice(0, menu.indexOf('/>'));
+    expect(menuTag).toContain('pendingText={() => freeText}');
+    expect(menuTag).toContain('onLanding={setLanding}');
+    expect(menuTag).toContain('onNeedText={() => freeTextRef.current?.focus()}');
+  });
+
   test('il menu «…» esiste in review, accanto al campo', () => {
-    expect(src).toContain("{/* The rest of the exits, and «Archivia», behind the «…». */}");
+    expect(src).toContain("{/* The rest of the exits, and «Archivia», behind the «…».");
   });
 
   test('il campo in review rimanda indietro col testo: l\'agente riparte davvero', () => {
@@ -345,5 +380,22 @@ describe('the card is the containing block of its frost', () => {
     expect(root, 'the card root className moved: this test guards nothing').not.toBeNull();
     expect(root![1]!.split(/\s+/)).toContain('relative');
     expect(src).toContain('<SwapIce freeze={swapFreeze} size="card" />');
+  });
+});
+
+/**
+ * THE CHOICE ROW AND THE MENU OBEY `exclude`, AND PASS THE SAME WIRING.
+ *
+ * Both lists only show what they are given: if the runner stopped reading
+ * `exclude`, «Approva» would stand twice on the card, and if the menu stopped
+ * taking the field's text, «Rimanda indietro» from the «…» would send the card
+ * back mute.
+ */
+describe('la riga delle scelte e il menu', () => {
+  const row = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'TaskChoiceRow.tsx'), 'utf8');
+
+  test('il runner legge exclude, e lo passano sia la riga sia il menu', () => {
+    expect(row).toContain('const choices = taskChoices(task, { exclude, t: tr });');
+    expect(row.split('useTaskChoiceRunner(task, { exclude, onDone, onError, onNeedText, pendingText, onLanding })').length - 1).toBe(2);
   });
 });

@@ -1330,7 +1330,6 @@ const IT: Dict = {
    * riga sopra, chiamando il bottone col suo nome vero, che su una card mai
    * consegnata e' «Rimandalo avanti».
    */
-  'board.task.replyPlaceholderShort': 'Una nota, che resta qui: «{sendBack}» qui sopra la porta all\'agent.',
   'board.task.sendBackReply': 'Rimanda',
   'board.task.sendBackReplyTitle': "Rimanda il task all'agent con questa nota. Riparte e la card torna In Progress.",
   'board.task.quietNote': 'Nota',

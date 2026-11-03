@@ -214,20 +214,24 @@ export function TaskChoiceRow({ task, exclude, disabled, onDone, onError, onNeed
  * risposta lenta del server lascia sullo schermo un pannello a cui non si può
  * più chiedere niente.
  */
-export function TaskChoiceMenu({ task, exclude, disabled, onDone, onError, ariaLabel, className }: {
+export function TaskChoiceMenu({ task, exclude, disabled, onDone, onError, onNeedText, pendingText, onLanding, ariaLabel, className }: {
   task: BoardTask;
   /** Choices the caller already shows on its face, or that must not appear here. */
   exclude?: TaskChoiceId[];
   disabled?: boolean;
   onDone: () => void;
   onError: (message: string) => void;
+  /** As the row: the field's text travels with «Rimanda indietro» from the menu too. */
+  onNeedText?: () => void;
+  pendingText?: () => string;
+  onLanding?: (ticket: LandingTicket) => void;
   /** Cosa apre questo tasto, detto a chi non vede l'icona. */
   ariaLabel: string;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLButtonElement>(null);
-  const { choices, run } = useTaskChoiceRunner(task, { exclude, onDone, onError });
+  const { choices, run } = useTaskChoiceRunner(task, { exclude, onDone, onError, onNeedText, pendingText, onLanding });
   if (choices.length === 0) return null;
 
   return (
