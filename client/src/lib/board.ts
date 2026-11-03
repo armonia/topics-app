@@ -611,6 +611,16 @@ export interface BoardTask {
   overflowedAt?: string;
   /** Who opened the card: `human`, `agent:<name>`, `cron:<name>` (`shared/created-by.ts`); absent/null = born before the field. */
   createdBy?: string | null;
+  /** Channel or session the card was opened from; absent on old cards. */
+  createdSource?: string;
+  /** The executable acceptance bar. */
+  bar?: string;
+  /** What an agent's card still lacks to finish by itself (`shared/agent-card-contract.ts`); absent = complete or not subject. */
+  createdMissing?: string[];
+  /** The chat the card came from, only while it exists. */
+  openerTopicId?: string;
+  /** That chat's name. */
+  openerName?: string;
   /** The workflow column when it is not the default one of the status (`shared/workflow.ts`); absent/null = the default column. */
   stage?: string | null;
   /** The question for the person the delivery carried (Human review). */

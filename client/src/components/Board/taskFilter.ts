@@ -1,5 +1,6 @@
 import type { BoardTask } from '../../lib/board';
 import type { BoardFilters } from './constants';
+import { creatorKind } from './createdByLabel';
 
 export function runInitiatorName(
   task: Pick<BoardTask, 'runInitiatorPersonName' | 'runInitiatorDeviceName'>,
@@ -17,6 +18,10 @@ export function taskMatchesFilters(task: BoardTask, filters: BoardFilters): bool
   if (filters.runComputer.length > 0 && !filters.runComputer.includes(task.runComputerName || '')) return false;
   if (filters.text && !task.text.toLowerCase().includes(filters.text.toLowerCase())) return false;
   if (filters.projectId.length > 0 && !filters.projectId.includes(task.projectId)) return false;
+  // `mine` is a person's cards; `others` is what an agent or a schedule opened.
+  // A card with no author (born before the field) is neither: only `all` shows it.
+  if (filters.creator === 'mine' && creatorKind(task.createdBy) !== 'human') return false;
+  if (filters.creator === 'others' && creatorKind(task.createdBy) !== 'other') return false;
   if (filters.labels.length > 0) {
     const labels = new Set(task.labels.map((label) => label.label));
     if (!filters.labels.every((label) => labels.has(label))) return false;

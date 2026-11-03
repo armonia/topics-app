@@ -303,6 +303,7 @@ const TOOLS = [
         assignee: { type: "string", description: "Optional agent/person to assign." },
         idempotency_key: { type: "string", description: "Optional dedupe key for safe retries." },
         parent_task_id: { type: "string", description: "Optional parent task id — nests this task as its subtask." },
+        bar: { type: "string", description: "Executable acceptance bar: the check that says the work is done (a command or a test). A card without it is flagged incomplete." },
         allow_duplicate: { type: "boolean", description: "Set true to open the card even though an existing one says the same thing (the board answers 409 with the twin's id otherwise). Only after reading that card and deciding it is a different job." },
       },
       required: ["text"],
@@ -508,6 +509,7 @@ const TOOLS = [
         priority: { type: "number", description: "0–4 (default 2)." },
         assignee: { type: "string", description: "Optional agent/person to assign." },
         idempotency_key: { type: "string", description: "Optional dedupe key for safe retries." },
+        bar: { type: "string", description: "Executable acceptance bar: the check that says the work is done (a command or a test). A card without it is flagged incomplete." },
         allow_duplicate: { type: "boolean", description: "Only set true after inspecting the matching existing task returned by the duplicate gate." },
       },
       required: ["board_id", "text"],
@@ -2251,7 +2253,7 @@ export const CHECKS_MAX_LEGS = 240;
 
 export async function callCreateTask(
   args: ParsedArgs,
-  toolArgs: { text?: unknown; description?: unknown; priority?: unknown; assignee?: unknown; idempotency_key?: unknown; parent_task_id?: unknown; allow_duplicate?: unknown },
+  toolArgs: { text?: unknown; description?: unknown; priority?: unknown; assignee?: unknown; idempotency_key?: unknown; parent_task_id?: unknown; allow_duplicate?: unknown; bar?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   if (typeof toolArgs?.text !== "string" || !toolArgs.text.trim()) {
@@ -2267,6 +2269,7 @@ export async function callCreateTask(
   // porta da cui gli agenti aprono le card, e senza inoltro l'unico modo di
   // scavalcare un falso positivo è riscrivere il titolo storto finché passa,
   // cioè esattamente il guasto che il cancello doveva impedire.
+  if (typeof toolArgs.bar === "string" && toolArgs.bar.trim()) reqBody.bar = toolArgs.bar;
   if (toolArgs.allow_duplicate === true) reqBody.allow_duplicate = true;
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks`;
   const res = await httpJson<CreateTaskResp>(args, "POST", path, reqBody, fetchImpl);
@@ -2457,7 +2460,7 @@ export async function callGetGlobalTask(
 
 export async function callCreateGlobalTask(
   args: ParsedArgs,
-  toolArgs: { board_id?: unknown; text?: unknown; description?: unknown; priority?: unknown; assignee?: unknown; idempotency_key?: unknown; allow_duplicate?: unknown },
+  toolArgs: { board_id?: unknown; text?: unknown; description?: unknown; priority?: unknown; assignee?: unknown; idempotency_key?: unknown; allow_duplicate?: unknown; bar?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   if (typeof toolArgs?.board_id !== "string" || !toolArgs.board_id.trim()) {
@@ -2471,6 +2474,7 @@ export async function callCreateGlobalTask(
   if (typeof toolArgs.priority === "number") body.priority = toolArgs.priority;
   if (typeof toolArgs.assignee === "string") body.assignee = toolArgs.assignee;
   if (typeof toolArgs.idempotency_key === "string") body.idempotency_key = toolArgs.idempotency_key;
+  if (typeof toolArgs.bar === "string" && toolArgs.bar.trim()) body.bar = toolArgs.bar;
   if (toolArgs.allow_duplicate === true) body.allow_duplicate = true;
   const result = await httpJson<CreateTaskResp>(args, "POST", globalTasksCollectionPath(args), body, fetchImpl);
   return `created task ${result?.id ?? "?"} [${result?.status ?? "backlog"}] on board ${toolArgs.board_id}: ${toolArgs.text}`;

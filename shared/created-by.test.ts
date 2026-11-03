@@ -1,10 +1,10 @@
 /**
- * The created_by grammar and the «aperta da ...» label read from it.
+ * The created_by grammar and the creator chip read from it.
  * @covers KANBAN-05
  */
 import { test, expect } from "bun:test";
 import { parseCreatedBy, splitCreatedBy } from "./created-by";
-import { openedByLabel } from "../client/src/components/Board/createdByLabel";
+import { creatorChip } from "../client/src/components/Board/createdByLabel";
 
 test("parseCreatedBy accepts the three shapes and nothing else", () => {
   for (const ok of ["human", "agent:jarvis", "cron:scheduled-card", "agent:a.b_c-1"]) expect(parseCreatedBy(ok)).toBe(ok);
@@ -20,14 +20,12 @@ test("splitCreatedBy returns kind and name", () => {
   expect(splitCreatedBy(null)).toBeNull();
 });
 
-test("the card names a named agent or schedule on an open card, and nothing else", () => {
+test("the card names who opened it: a named agent or schedule, «you» for a person, nothing without an author", () => {
   const tr = (key: string, p?: Record<string, string | number>) => `${key}|${p?.name ?? ""}`;
-  expect(openedByLabel("agent:jarvis", "review", tr)).toBe("board.card.createdByAgent|jarvis");
-  expect(openedByLabel("cron:nightly", "backlog", tr)).toBe("board.card.createdByCron|nightly");
-  // A person's own card, the anonymous API fallback, a closed card, no author: no chip.
-  expect(openedByLabel("human", "review", tr)).toBeNull();
-  expect(openedByLabel("agent:api", "review", tr)).toBeNull();
-  expect(openedByLabel("agent:jarvis", "done", tr)).toBeNull();
-  expect(openedByLabel(null, "review", tr)).toBeNull();
-  expect(openedByLabel("garbage", "review", tr)).toBeNull();
+  expect(creatorChip({ createdBy: "agent:jarvis" }, tr)?.label).toBe("jarvis");
+  expect(creatorChip({ createdBy: "cron:nightly" }, tr)?.label).toBe("board.card.createdByCron|nightly");
+  expect(creatorChip({ createdBy: "human" }, tr)?.label).toBe("board.card.createdByMe|");
+  expect(creatorChip({ createdBy: "agent:api" }, tr)?.label).toBe("board.card.createdByApi|");
+  expect(creatorChip({ createdBy: null }, tr)).toBeNull();
+  expect(creatorChip({ createdBy: "garbage" }, tr)).toBeNull();
 });

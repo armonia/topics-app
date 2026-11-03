@@ -578,7 +578,7 @@ interface FilterPanelProps {
  *  "let the agent decide" makes no sense, so it's dropped. */
 function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelProps) {
   const tr = useT();
-  const reset = () => onFiltersChange({ priority: [], assignedTo: [], text: '', projectId: [], labels: [], person: [], computer: [], initiator: [], runComputer: [] });
+  const reset = () => onFiltersChange({ priority: [], assignedTo: [], text: '', projectId: [], labels: [], person: [], computer: [], initiator: [], runComputer: [], creator: 'all' });
 
   const assignees = Array.from(new Set(tasks.map((t) => t.assignedTo).filter(Boolean) as string[])).sort();
   // Built from `lastActorPersonName`/`lastActorDeviceName` — the same
@@ -591,7 +591,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   const initiators = Array.from(new Set(tasks.map(runInitiatorName).filter(Boolean))).sort();
   const runComputers = Array.from(new Set(tasks.map((t) => t.runComputerName).filter(Boolean) as string[])).sort();
 
-  const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + filters.labels.length + filters.person.length + filters.computer.length + filters.initiator.length + filters.runComputer.length + (filters.text ? 1 : 0) > 0;
+  const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + filters.labels.length + filters.person.length + filters.computer.length + filters.initiator.length + filters.runComputer.length + (filters.text ? 1 : 0) + (filters.creator && filters.creator !== 'all' ? 1 : 0) > 0;
 
   // The shell of every filter control lives in `constants.ts`: the search box
   // here, the labels chip below, the token field and the project picker all
@@ -618,6 +618,17 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
         initiators={initiators}
         runComputers={runComputers}
       />
+
+      {/* WHO OPENED THE CARDS: one button that cycles all, mine, others. The
+          margin keeps it off the search field when the row is narrow. */}
+      <button
+        type="button"
+        data-testid="filter-creator"
+        data-creator={filters.creator ?? 'all'}
+        title={tr('board.filter.creatorTitle')}
+        onClick={() => onFiltersChange({ ...filters, creator: (filters.creator ?? 'all') === 'all' ? 'mine' : filters.creator === 'mine' ? 'others' : 'all' })}
+        className={`ml-1 flex ${TOOLBAR_CONTROL_H} shrink-0 items-center gap-1 whitespace-nowrap rounded px-2 text-mini ${filterFocusRingClass} ${(filters.creator ?? 'all') === 'all' ? 'text-app-text-muted' : 'bg-white/10 text-app-text'} hover:bg-white/10 hover:text-app-text`}
+      >{tr(`board.filter.creator.${filters.creator ?? 'all'}`)}</button>
 
       {/* Reset — only when something is active */}
       {anyActive && (

@@ -36,6 +36,7 @@ import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
 import { readChecksMemFloorGB, readGlobalCap, readSpendCaps } from "./dispatch-capacity";
 import { checksMemFloorGB } from "../../shared/checks-memory-floor";
 import { parseCreatedBy, UNOWNED_BACKLOG_MS } from "../../shared/created-by";
+import { agentCardGaps, incompleteCardNotice } from "../../shared/agent-card-contract";
 import { STAGE_AI_REVIEW, STAGE_HUMAN_REVIEW, agentAskInThread, defaultColumnFor, namesHumanReviewWithoutAsk, stageAtBirth, stageForDelivery, stageForStatusChange, type WorkflowColumn, type WorkflowPresetId } from "../../shared/workflow";
 import { requestAiReviewNotice } from "./ai-review-notice";
 import { checkStage, clearStagesOutsideWorkflow, dropStageOutsideTarget, readBoardWorkflow, routeAskOutOfAiReview, stampStaleAiReview, clearAiReviewReminderStamp, writeBoardWorkflow } from "./board-workflow";
@@ -2691,6 +2692,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       ...(r.prior_uncommitted_files ? { priorUncommittedFiles: r.prior_uncommitted_files } : {}),
       // WHO opened it; NULL for every card written before the column.
       createdBy: r.created_by ?? null,
+      ...(r.created_source ? { createdSource: r.created_source } : {}),
+      ...(r.bar ? { bar: r.bar } : {}),
+      ...liveCardGaps(r),
+      ...openerOf(r),
       // The workflow column, only when it is not the default one: a board with
       // the default workflow sends the same row as before.
       ...(r.stage ? { stage: r.stage } : {}),
@@ -2766,6 +2771,34 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     if (rows.length === 0) return [];
     const b = buildBatch(rows);
     return rows.map((r) => mapRow(r, b));
+  }
+
+  /**
+   * What an agent's card still lacks, recomputed from the row so it shrinks as
+   * the card is completed. Only a card born subject to the contract
+   * (`created_missing` not NULL) is ever flagged: old cards stay as they were.
+   */
+  function liveCardGaps(r: any): { createdMissing?: string[] } {
+    if (r.created_missing == null) return {};
+    const gaps = agentCardGaps({
+      description: r.description, bar: r.bar, source: r.created_source,
+      hasDirectory: r.project_id !== AUTO_PROJECT_ID && r.project_id !== UNASSIGNED_PROJECT_ID,
+    });
+    return gaps.length ? { createdMissing: gaps } : {};
+  }
+
+  /**
+   * The chat a card came from: id and name, only while the topic exists (a
+   * deleted chat would open a ghost tab). Display only.
+   */
+  function openerOf(r: any): { openerTopicId?: string; openerName?: string } {
+    const id = r.origin_topic_id ?? r.created_by_topic_id;
+    if (!id) return {};
+    try {
+      const t = db.prepare("SELECT name FROM topics WHERE id = ?").get(id) as { name?: string | null } | null;
+      if (!t) return {};
+      return { openerTopicId: id, ...(t.name ? { openerName: t.name } : {}) };
+    } catch { return {}; }
   }
 
   function rowToTask(r: any): Task {
@@ -3836,9 +3869,22 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         }
       }
 
+      // THE AGENT-CARD CONTRACT, in the one place every door goes through
+      // (board, coordinator, session, steps). A card an agent opens without
+      // what it needs is born flagged, not refused.
+      const bornSource = input.createdSource?.trim().slice(0, 160) || null;
+      const bornBar = input.bar?.trim() || null;
+      const bornBy = parseCreatedBy(input.createdBy);
+      const bornGaps = bornBy?.startsWith("agent:")
+        ? agentCardGaps({
+            description: input.description, bar: bornBar, source: bornSource,
+            hasDirectory: input.projectId !== AUTO_PROJECT_ID && input.projectId !== UNASSIGNED_PROJECT_ID,
+          })
+        : null;
+
       db.prepare(
-        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id, topics_routing, created_by, stay_local, base_branch)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id, topics_routing, created_by, stay_local, base_branch, created_source, origin_topic_id, bar, created_missing)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id, input.projectId, text, input.description ?? null, status, priority, order,
         input.assignedTo ?? null, input.chatId ?? null, ts, ts, input.idempotencyKey ?? null,
@@ -3854,7 +3900,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         parseCreatedBy(input.createdBy),
         input.stayLocal ? 1 : 0,
         input.baseBranch?.trim() || null,
+        bornSource, input.originTopicId?.trim() || null, bornBar, bornGaps ? bornGaps.join(",") : null,
       );
+      if (bornGaps?.length) {
+        try {
+          service.addComment({ taskId: id, author: "system", content: incompleteCardNotice(bornGaps), projectId: input.projectId });
+        } catch { /* best-effort: the flag on the card is what matters */ }
+      }
       // Its own statement, and only when there is a stage: a board on the
       // default workflow writes the same row as before.
       if (birthStage) db.prepare("UPDATE tasks SET stage = ? WHERE id = ?").run(birthStage, id);
@@ -4204,6 +4256,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
 
       if (patch.text !== undefined) put("text", patch.text);
       if (patch.description !== undefined) put("description", patch.description);
+      if (patch.bar !== undefined) put("bar", patch.bar?.trim() || null);
       if (patch.priority !== undefined) {
         put("priority", patch.priority);
         // An explicit write (human OR the agent fulfilling "auto") settles it.
