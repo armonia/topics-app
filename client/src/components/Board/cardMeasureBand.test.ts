@@ -36,8 +36,8 @@ function block(selector: RegExp): string {
   throw new Error(`block ${selector} not closed`);
 }
 
-/** A token's colour in a block, as written: hex or `hsl(H S% L%)`. */
-function colour(css: string, name: string): RGB {
+/** A token's color in a block, as written: hex or `hsl(H S% L%)`. */
+function color(css: string, name: string): RGB {
   const m = css.match(new RegExp(`--${name}:\\s*([^;]+);`));
   if (!m) throw new Error(`token --${name} not found`);
   const v = m[1].trim();
@@ -88,8 +88,8 @@ function theme(selector: RegExp, layerClass: RegExp) {
   // The static band in Card.tsx draws the same layer, so the number holds there too.
   expect(CARD).toContain(layer[0]);
   return {
-    surface: colour(css, 'bg-surface'),
-    token: (name: string) => colour(css, name),
+    surface: color(css, 'bg-surface'),
+    token: (name: string) => color(css, name),
     layer: { base: layer[1] as 'black' | 'white', alpha: Number(layer[2]) },
   };
 }
@@ -99,10 +99,10 @@ const THEMES = {
   dark: theme(/^\.dark\s*\{/m, /dark:bg-(black|white)\/\[(0?\.\d+)\]/),
 };
 
-/** The band text colour: the `text-app-text-*` class in the band's own className. */
+/** The band text color: the `text-app-text-*` class in the band's own className. */
 function bandText(): string {
   const text = LIVE.match(/rounded-lg bg-black\/\[0\.12\] [^"`]*?text-app-text-(\w[\w-]*)/);
-  if (!text) throw new Error('the band text colour is not read from CardLive.tsx');
+  if (!text) throw new Error('the band text color is not read from CardLive.tsx');
   return text[1];
 }
 
