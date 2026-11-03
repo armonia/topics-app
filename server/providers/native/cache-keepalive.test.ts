@@ -207,6 +207,25 @@ describe("the native prompt-cache keep-alive", () => {
     p.stop();
   });
 
+  test("a turn 30 minutes later still sends the same prefix: the session outlives the keepalive, as long as the 1h cache", async () => {
+    // 03/11: the session was evicted at 15 minutes and rebuilt from the
+    // database, a different prefix, while the cache was still alive: each
+    // turn 15-60 minutes after the last one wrote the whole conversation again.
+    const p = provider();
+    await p.sendChat("topic:keepalive-30min", "first", quiet);
+    const restore = wallClockAhead(30 * MIN);
+    try {
+      expect(sweep(p)).toBe(0);
+      await p.sendChat("topic:keepalive-30min", "second", quiet);
+    } finally {
+      restore();
+    }
+    const [one, two] = [turns[0]!, turns[1]!];
+    expect(two.messages.length).toBe(one.messages.length + 2);
+    expect(unmarked(two.messages.slice(0, one.messages.length))).toEqual(unmarked(one.messages));
+    p.stop();
+  });
+
   test("TOPICS_CACHE_KEEPALIVE=off: no pings", async () => {
     process.env.TOPICS_CACHE_KEEPALIVE = "off";
     const p = provider();

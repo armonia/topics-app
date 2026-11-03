@@ -106,7 +106,19 @@ export const DEFAULT_MODEL = "claude-sonnet-5-5";
  * Una sessione con un TURNO VIVO non si sfratta mai: la guardia è l'`abort`,
  * che esiste per la durata del turno e sparisce alla fine.
  */
-const SESSION_TTL_MS = Math.max(1, Number(process.env.TOPICS_NATIVE_SESSION_TTL_MIN) || 15) * 60_000;
+// 60 minuti, quanto la cache dell'API (`CACHE_LIFETIME_MS`). Con 15 la
+// sessione spariva mentre la cache era ancora viva: il turno dopo ricostruiva
+// la storia dal DB, che non è identica a quella mandata (manca il preambolo
+// inline, cambiano i blocchi), e riscriveva tutta la conversazione. Misurato il
+// 03/11: i turni a 15-60 minuti dal precedente leggevano solo i 25.811 token di
+// prompt e strumenti e scrivevano 40k-110k token ciascuno.
+const SESSION_TTL_MS = Math.max(1, Number(process.env.TOPICS_NATIVE_SESSION_TTL_MIN) || 60) * 60_000;
+/**
+ * Per quanto il keepalive tiene calda una sessione ferma: i primi 15 minuti,
+ * come prima. Non segue più la vita della sessione: con la cache a 1h un ping
+ * ogni 4 minuti per un'ora intera rileggerebbe tutto il prefisso 15 volte.
+ */
+const KEEP_ALIVE_FOR_MS = 15 * 60_000;
 /** Ogni quanto si passa a guardare. Non serve precisione: serve che accada. */
 const SESSION_SWEEP_MS = 60_000;
 
@@ -1025,9 +1037,9 @@ export class NativeProvider implements AIProvider {
   /**
    * Keeps a session's prompt cache warm while the person reads its answer: a
    * ping every {@link KEEP_ALIVE_EVERY_MS}, for as long as the session itself
-   * lives ({@link SESSION_TTL_MS}). Past that the session is evicted and the
-   * next turn rebuilds it from the database, a different prefix, so the cached
-   * one is worth nothing. A new turn, an eviction, a reset or a stop ends it:
+   * is idle up to {@link KEEP_ALIVE_FOR_MS}. Past that the 1h cache still holds
+   * the prefix on its own, and the session stays in memory as long
+   * ({@link SESSION_TTL_MS}), so the next turn sends the same prefix. A new turn, an eviction, a reset or a stop ends it:
    * each tick checks, so no other path has to remember to clear the timer.
    *
    * Each ping is due {@link KEEP_ALIVE_EVERY_MS} after the START of the
@@ -1052,7 +1064,7 @@ export class NativeProvider implements AIProvider {
     const expired = () => {
       const now = Date.now();
       if (now - touchedAt >= CACHE_LIFETIME_MS) return true;
-      return now - endedAt > SESSION_TTL_MS;
+      return now - endedAt > KEEP_ALIVE_FOR_MS;
     };
     const schedule = () => {
       const now = Date.now();
@@ -1060,7 +1072,7 @@ export class NativeProvider implements AIProvider {
       // would write the prefix again, not read it.
       if (now - touchedAt >= CACHE_LIFETIME_MS) return;
       const due = touchedAt + KEEP_ALIVE_EVERY_MS;
-      if (due - endedAt > SESSION_TTL_MS) return;
+      if (due - endedAt > KEEP_ALIVE_FOR_MS) return;
       session.keepAlive = setTimeout(() => { void tick(); }, Math.max(0, due - now));
       (session.keepAlive as unknown as { unref?: () => void }).unref?.();
     };
