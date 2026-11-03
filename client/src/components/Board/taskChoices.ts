@@ -244,7 +244,7 @@ export function taskChoices(
  * The review card's face and its «…» menu, split by the decision of 01/11 and 03/11.
  *
  * On the face only «Approva» stays. Every other exit, «Archivia» included, goes
- * behind the «…», also on a card with a branch. «Rifai così» is in neither: the
+ * behind the «…», also on a card with a branch. «Rifai così» is in neither: the (allow-italian: quoted button labels)
  * field sends the text back. The two helpers return the `exclude` lists that the
  * row and the menu already read, so the face and the menu cannot drift from the
  * real choices of the card.

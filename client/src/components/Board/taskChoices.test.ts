@@ -783,34 +783,34 @@ describe('una frase scritta non e\' mai un verdetto', () => {
  * the row and the menu, so an exit that moves place turns these tests red.
  */
 describe('la review: faccia e menu', () => {
-  const conRamo = task({ status: 'review', assignedTopicId: 't', deliveryBranch: 'task/abc' });
+  const withBranch = task({ status: 'review', assignedTopicId: 't', deliveryBranch: 'task/abc' });
   const aMano = task({ status: 'review' });
-  const nessunaConsegna = task({ status: 'review', assignedTopicId: 't' });
-  const visibili = (t: ChoiceInput, exclude: TaskChoiceId[]) => ids(t, { exclude });
+  const noDelivery = task({ status: 'review', assignedTopicId: 't' });
+  const shown = (t: ChoiceInput, exclude: TaskChoiceId[]) => ids(t, { exclude });
 
   it('sulla faccia resta solo «Approva», con o senza ramo', () => {
-    expect(visibili(conRamo, reviewFaceExclude(conRamo))).toEqual(['accept']);
-    expect(visibili(aMano, reviewFaceExclude(aMano))).toEqual(['accept']);
-    expect(visibili(nessunaConsegna, reviewFaceExclude(nessunaConsegna))).toEqual(['accept']);
+    expect(shown(withBranch, reviewFaceExclude(withBranch))).toEqual(['accept']);
+    expect(shown(aMano, reviewFaceExclude(aMano))).toEqual(['accept']);
+    expect(shown(noDelivery, reviewFaceExclude(noDelivery))).toEqual(['accept']);
   });
 
   it('«Archivia» sta nel menu, anche sulle card con un ramo', () => {
-    expect(visibili(conRamo, reviewMenuExclude(conRamo))).toEqual(['land', 'send-back', 'take-over', 'drop']);
-    expect(visibili(aMano, reviewMenuExclude(aMano))).toEqual(['drop']);
+    expect(shown(withBranch, reviewMenuExclude(withBranch))).toEqual(['land', 'send-back', 'take-over', 'drop']);
+    expect(shown(aMano, reviewMenuExclude(aMano))).toEqual(['drop']);
   });
 
   it('«Rifai così» non compare né in faccia né nel menu: lo fa il campo', () => {
-    for (const t of [conRamo, aMano, nessunaConsegna]) {
-      expect(visibili(t, reviewFaceExclude(t))).not.toContain('redo');
-      expect(visibili(t, reviewMenuExclude(t))).not.toContain('redo');
+    for (const t of [withBranch, aMano, noDelivery]) {
+      expect(shown(t, reviewFaceExclude(t))).not.toContain('redo');
+      expect(shown(t, reviewMenuExclude(t))).not.toContain('redo');
     }
   });
 
   it('nessuna uscita sparisce: faccia e menu coprono tutte le scelte della card', () => {
-    for (const t of [conRamo, aMano, nessunaConsegna]) {
-      const tutte = ids(t).filter((id) => id !== 'redo');
-      const facciaEMenu = [...visibili(t, reviewFaceExclude(t)), ...visibili(t, reviewMenuExclude(t))];
-      expect(facciaEMenu.sort()).toEqual([...tutte].sort());
+    for (const t of [withBranch, aMano, noDelivery]) {
+      const allIds = ids(t).filter((id) => id !== 'redo');
+      const faceAndMenu = [...shown(t, reviewFaceExclude(t)), ...shown(t, reviewMenuExclude(t))];
+      expect(faceAndMenu.sort()).toEqual([...allIds].sort());
     }
   });
 });
