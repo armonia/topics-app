@@ -207,7 +207,7 @@ for (const device of [
         await expect(longChip).toBeVisible();
         expect(await longChip.evaluate((element) => element.getBoundingClientRect().width
           <= element.parentElement!.getBoundingClientRect().width + 1)).toBe(true);
-        await expect(longChip).toHaveAttribute('title', new RegExp(longLabel));
+        await expect(longCard.getByTestId('card-measure')).toHaveAttribute('title', new RegExp(longLabel));
         await page.screenshot({ path: testInfo.outputPath('resolved-card-model.png') });
         // MSEL-01, variant `chip`: a card whose choice runs through Topics says so.
         // The id is the current Opus on purpose: the server refuses a retired
