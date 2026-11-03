@@ -58,14 +58,15 @@ describe("tasks router (session-scoped)", () => {
     expect(resp.status).toBe(201);
     expect(broadcasts.some(b => b.type === "task:updated")).toBe(true);
     const got = await (await call(router, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
-    expect(got.comments[0].content).toBe("note");
+    expect(got.comments.find((c: { author: string }) => c.author !== "system").content).toBe("note");
     // Signed server-side from the session, and the signature is an IDENTITY.
     // It used to be the topic NAME, which for a dispatched agent is the task
     // title cut at 60 chars: every card in review showed half a word where the
     // speaker's name belongs. Now it is the same shape the status row already
     // writes, so one reader resolves both.
-    expect(got.comments[0].author).toBe("agent:top-s1");
-    expect(got.comments[0].author).not.toBe("topic-one");
+    const spoken = got.comments.find((c: { author: string }) => c.author !== "system");
+    expect(spoken.author).toBe("agent:top-s1");
+    expect(spoken.author).not.toBe("topic-one");
   });
 
   test("POST comment with options → server-composed question block", async () => {
@@ -443,6 +444,34 @@ describe("board router (human, project-scoped)", () => {
     expect(got.comments[0].origin).toBe("api");
   });
 
+  const FULL = { source: "test session", description: "A complete card: context long enough to be read cold.", bar: "bun test" };
+
+  test("agent card without context, bar or origin is born anyway, with what is missing written on it", async () => {
+    const res = await call(router, "POST", "/api/boards/pX/tasks", { text: "thin", createdBy: "agent:jarvis" });
+    expect(res!.status).toBe(201);
+    const t = await res!.json();
+    expect(t.createdMissing.join(" ")).toMatch(/source[\s\S]*description[\s\S]*bar/);
+    const got = await (await call(router, "GET", `/api/boards/pX/tasks/${t.id}`))!.json();
+    expect(got.comments.some((c: any) => c.author === "system" && /Incomplete card/.test(c.content))).toBe(true);
+  });
+
+  test("raw POSTs of the existing callers still create the card (board-card, task-sync, board_create)", async () => {
+    const bare = { "X-Test": "bare" };
+    for (const body of [
+      { text: "board-card style" },
+      { text: "task-sync style", description: "synced from a reminder", priority: 2, status: "todo" },
+      { text: "gateway style", description: "a gateway card", createdBy: "agent:jarvis", assignee: "x" },
+      { text: "a step", parentTaskId: "nope-not-real", createdBy: "agent:jarvis" },
+    ]) {
+      const res = await call(router, "POST", "/api/boards/pX/tasks", body, bare);
+      expect([201, 404, 400]).toContain(res!.status);
+      if (res!.status === 201) expect(["agent:api"].concat(["agent:jarvis"])).toContain((await res!.json()).createdBy);
+    }
+    const plain = await call(router, "POST", "/api/boards/pX/tasks", { text: "board-card style" }, bare);
+    expect(plain!.status).toBe(201);
+    expect((await plain!.json()).createdMissing.length).toBeGreaterThan(0);
+  });
+
   test("created_by: the interface is human, a direct caller is automation and may name itself", async () => {
     const ui = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "from the ui", createdBy: "agent:spoof" }, {
       "X-Topics-Action-Origin": "interface",
@@ -450,16 +479,21 @@ describe("board router (human, project-scoped)", () => {
     // The interface cannot be talked out of being a person, whatever the body says.
     expect(ui.createdBy).toBe("human");
 
-    const named = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "from jarvis", createdBy: "agent:jarvis" }))!.json();
+    const named = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "from jarvis", createdBy: "agent:jarvis", ...FULL }))!.json();
     expect(named.createdBy).toBe("agent:jarvis");
-    const cron = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "from a cron", createdBy: "cron:nightly" }))!.json();
+    const cron = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "from a cron", createdBy: "cron:nightly", ...FULL }))!.json();
     expect(cron.createdBy).toBe("cron:nightly");
 
-    // Nobody named, or a malformed name: still automation, never an empty label.
-    const anon = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "from curl" }))!.json();
-    expect(anon.createdBy).toBe("agent:api");
-    const bad = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "bad name", createdBy: "x; DROP" }))!.json();
-    expect(bad.createdBy).toBe("agent:api");
+    // Nobody named, or a malformed name: born anyway, anonymous, with the gap listed.
+    const anon = await call(router, "POST", "/api/boards/pX/tasks", { text: "from curl" }, { "X-Test": "bare" });
+    expect(anon!.status).toBe(201);
+    expect((await anon!.json()).createdMissing.join(" ")).toMatch(/createdBy/);
+    const bad = await call(router, "POST", "/api/boards/pX/tasks", { text: "bad name", createdBy: "x; DROP", ...FULL });
+    expect(bad!.status).toBe(201);
+    // A caller that names nobody but sends the agent header gets a readable name.
+    const ua = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "ua", ...FULL }, { "X-Topics-Agent": "board-card" }))!.json();
+    expect(ua.createdBy).toBe("agent:board-card");
+    expect(ua.createdSource).toBe("test session");
 
     // And it is on the card when read back.
     const got = await (await call(router, "GET", `/api/boards/pX/tasks/${named.id}`))!.json();
@@ -495,7 +529,7 @@ describe("board router (human, project-scoped)", () => {
       "X-Topics-Action-Origin": "mcp",
     });
     const agent = await (await call(router, "GET", `/api/sessions/s1/tasks/${agentTask.id}`))!.json();
-    expect(agent.comments.map((comment: { origin: string | null }) => comment.origin)).toEqual(["api", "mcp"]);
+    expect(agent.comments.filter((comment: { author: string }) => comment.author !== "system").map((comment: { origin: string | null }) => comment.origin)).toEqual(["api", "mcp"]);
   });
 
   test("review with bad decision → 400", async () => {

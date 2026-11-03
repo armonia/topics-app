@@ -2320,7 +2320,7 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          topics_routing = 1,
          -- 20261028163640: who opened the card, and when the coordinator was
          -- last told it sat unowned. Same reason as the columns above.
-         created_by = 'agent:jarvis', unowned_alerted_at = '2020-01-01T00:00:00.000Z',
+         created_by = 'agent:jarvis', created_source = 'a session', created_missing = 'bar', unowned_alerted_at = '2020-01-01T00:00:00.000Z',
          -- 20261030225403: the workflow column, the question for the person,
          -- and when the coordinator was last reminded of a card left in AI
          -- review. Same reason as the columns above.

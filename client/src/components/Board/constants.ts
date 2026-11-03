@@ -444,6 +444,8 @@ export interface BoardFilters {
   initiator: string[];
   /** `Task.runComputerName` - where that delegated run executed. */
   runComputer: string[];
+  /** Who opened the card: `mine` = a person from the interface, `others` = agents and schedules. Absent = all. */
+  creator?: 'mine' | 'others';
 }
 
 /** What the ONE field owns: every axis except the project, which keeps its own

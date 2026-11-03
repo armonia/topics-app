@@ -136,7 +136,11 @@ export function makeCtx(
 }
 
 export function call(router: RouteHandler, method: string, path: string, body?: unknown, headers?: HeadersInit) {
-  const init: RequestInit = { method, headers };
+  // A bare board create is the interface unless the test names an agent or sets
+  // headers itself: automation must now send a complete card (agent-card-contract).
+  const bareBoardCreate = method === "POST" && !headers && /^\/api\/boards\/[^/]+\/tasks$/.test(path)
+    && !(body && typeof body === "object" && "createdBy" in body);
+  const init: RequestInit = { method, headers: bareBoardCreate ? { "X-Topics-Action-Origin": "interface" } : headers };
   if (body !== undefined) init.body = JSON.stringify(body);
   const req = new Request(`http://x${path}`, init);
   return Promise.resolve(router(req, new URL(req.url), new URL(req.url).pathname, method));

@@ -59,7 +59,7 @@ async function call(router: Router, method: string, path: string, body?: unknown
     method,
     ...(body === undefined
       ? {}
-      : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+      : { headers: { "content-type": "application/json", "X-Topics-Action-Origin": "interface" }, body: JSON.stringify(body) }),
   });
   const res = await router(req, url, url.pathname, method);
   if (!res) throw new Error(`no route handled ${method} ${path}`);

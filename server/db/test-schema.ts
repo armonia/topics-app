@@ -178,7 +178,10 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   prior_uncommitted_files INTEGER,
   stage TEXT,
   human_ask TEXT,
-  ai_review_reminded_at TEXT
+  ai_review_reminded_at TEXT,
+  -- 20261102152526: where the request came from, and what an agent's card lacked at birth.
+  created_source TEXT,
+  created_missing TEXT
 )`;
 
 /**

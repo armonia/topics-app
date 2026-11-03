@@ -24,5 +24,17 @@ export function resolveCreatedBy(req: Request, body: { createdBy?: unknown } | n
   // The body can name an agent or a schedule, never a person: «human» is
   // reserved to the interface branch above.
   const named = parseCreatedBy(body?.createdBy);
-  return named && named !== CREATED_BY_HUMAN ? named : API_CALLER_CREATED_BY;
+  if (named && named !== CREATED_BY_HUMAN) return named;
+  return callerFallbackName(req) ?? API_CALLER_CREATED_BY;
+}
+
+/**
+ * A caller that names nobody can still say who it is with the `X-Topics-Agent`
+ * header (`board-card` -> `agent:board-card`). The User-Agent is not used: bare
+ * runtimes and test clients put noise there, and it would turn every fixture
+ * card into a named one.
+ */
+function callerFallbackName(req: Request): string | null {
+  const t = (req.headers.get("X-Topics-Agent") ?? "").trim().toLowerCase().replace(/[^a-z0-9._-]/g, "");
+  return t ? parseCreatedBy(`agent:${t}`) : null;
 }
