@@ -2433,6 +2433,9 @@ export function pendingQuestionComment<T extends PendingQuestionComment>(
     // silently removed the buttons from the question above. Same collision the
     // flag was introduced to end, one surface further along.
     if (comment.quiet) continue;
+    // The system's own hand-over line («Consegnato dal nodo...») is plumbing
+    // written after the agent spoke; it must not take the question's place.
+    if (comment.author === 'system' && comment.kind !== 'delivery') continue;
     if (delivery && (comment.author !== delivery.author || comment.messageId !== delivery.messageId)) return null;
     if (parseQuestionBlock(comment.content)) return comment;
     if (comment.kind !== 'delivery'

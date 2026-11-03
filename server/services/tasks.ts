@@ -3463,7 +3463,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     const turnStart = lastTurnStart(taskId);
     const c = (db.prepare(
       `SELECT COUNT(*) AS c FROM task_comments
-        WHERE task_id = ? AND author NOT IN ('user', 'system') AND kind = 'comment'
+        WHERE task_id = ? AND author NOT IN ('user', 'system') AND kind IN ('comment', 'delivery')
           AND (? IS NULL OR created_at >= ?)`,
     ).get(taskId, turnStart, turnStart) as any).c as number;
     return c > 0;
