@@ -90,6 +90,9 @@ export const PROJECT_WORDS = new Set([
   "email",
   // crlf: the Windows line ending (carriage return + line feed), the subject of `scripts/check-eol.ts`.
   "crlf",
+  // rehype: the HTML-tree stage of the markdown pipeline (react-markdown's
+  // `rehypePlugins`, rehype-katex); the live-text fade is a rehype plugin, `client/src/lib/streamFade.ts`.
+  "rehype",
   // `inbox` is what the design names the «To look at» panel (notifications-
   // redesign, design section 9): one list of the subjects that want a look,
   // with the dictionary meaning of the word. `lucide` is the icon library the

@@ -3238,7 +3238,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // useChat's addToolCallToLastMessage).
               const block = findToolBlock(toolCallId);
               if (!block) return; // never announced (shouldn't happen)
-              // A PARTIAL update (the native runtime, every 500 ms while the
+              // A PARTIAL update (the native runtime, every PARTIAL_ARGS_EMIT_MS while the
               // model writes the call) marks the row as still being written,
               // and the complete one clears the mark. `false`, not a missing
               // key: a client merges by spread, and an absent key would leave

@@ -167,6 +167,8 @@ test.describe("Intake che collega", () => {
     // finché» in due frasi. Il regex era rimasto minuscolo e la spec era rossa
     // da allora, per una lettera: quello che deve reggere è la PROMESSA, non
     // come inizia il periodo che la contiene.
+    // The system explanation is chronicle (card e6e4d61d): it reads under Details.
+    await page.getByTestId("task-details-toggle").click();
     await expect(page.getByTestId("task-detail-drawer")).toContainText(/[Nn]on parte finché/);
     await beat(page, 2600);
   });

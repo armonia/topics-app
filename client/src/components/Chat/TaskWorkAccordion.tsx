@@ -22,6 +22,7 @@ import { formatDurationMs, formatToolCounts, isWhollyFailed } from './toolGroupi
 import { useDisclosureToggle } from './transcriptDisclosure';
 import { DisclosureBody } from './DisclosureBody';
 import { baseName, summarizeTools, summarizeWork } from './taskWorkFold';
+import { CHAT_STRIP_NEUTRAL } from '../../lib/chatStripStyles';
 import { BrowserMarkerChip } from './BrowserOpenMarker';
 import { useFindFocusInFold } from '../../state/chatFindFocus';
 
@@ -80,7 +81,10 @@ export function TaskWorkAccordion({ msg, tools, children, label, testId = 'task-
       {/* The pages opened in the stretch sit on the same line as chips
           (CHAT-BROWSER-01): commands of their own, so beside the toggle and
           not inside it, a button in a button being invalid HTML. */}
-      <div className="flex items-center gap-1 rounded border border-app-border/60 bg-app-bg-secondary/40 pr-1 transition-colors hover:bg-app-bg-secondary/80">
+      <div className={label
+        // Board task: a light line, no frame (same look as the sub-agent row).
+        ? 'flex items-center gap-1 pr-1'
+        : 'flex items-center gap-1 rounded border border-app-border/60 bg-app-bg-secondary/40 pr-1 transition-colors hover:bg-app-bg-secondary/80'}>
       <button
         type="button"
         aria-expanded={open}
@@ -88,7 +92,7 @@ export function TaskWorkAccordion({ msg, tools, children, label, testId = 'task-
         onClick={(e) => { disclose(e.currentTarget); setOpen((v) => !v); }}
         title={tr('chat.taskWork.summaryTitle')}
         data-testid="task-work-summary"
-        className="min-w-0 flex-1 px-2 py-1 text-left text-app-text-secondary transition-colors hover:text-app-text coarse:min-h-11"
+        className={`min-w-0 flex-1 ${label ? 'px-0 py-0.5' : 'px-2 py-1'} text-left text-app-text-secondary transition-colors hover:text-app-text coarse:min-h-11`}
       >
         <span className="flex items-center gap-2">
           <span className="flex-shrink-0 inline-flex">
@@ -147,7 +151,11 @@ export function TaskWorkAccordion({ msg, tools, children, label, testId = 'task-
           them up. Mounted only when open (or closing), so a closed transcript
           does not pay for the tool bodies it is not showing. */}
       <DisclosureBody open={open} id={bodyId} testId="task-work-body" className="ml-[9px] mt-0.5 border-l border-app-border/50 pl-3">
-        {children}
+        {label
+          // «Session details» of a board task opens onto the steps as ONE strip
+          // (a single soft band, rows flat inside), not a stack of boxed tool cards.
+          ? <div data-testid="session-steps-strip" className={`${CHAT_STRIP_NEUTRAL} mx-0 px-1 py-0.5 [&_[data-testid^=tool-call-row-]]:rounded-none [&_[data-testid^=tool-call-row-]]:border-0 [&_[data-testid^=tool-call-row-]]:bg-transparent [&_[data-testid^=tool-call-row-]]:shadow-none`}>{children}</div>
+          : children}
       </DisclosureBody>
     </div>
   );

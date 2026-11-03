@@ -352,6 +352,8 @@ test.describe("Board · «Ricattura evidenza» su una card in review", () => {
     await drawer.getByTestId("task-recapture-preview").click();
 
     // La nota col motivo compare nel thread: è la risposta a chi ha cliccato.
+    // System notes live under Details, not in the words column.
+    await drawer.getByTestId("task-details-toggle").click();
     await expect(drawer.getByText(/nessuna anteprima possibile/i)).toBeVisible({ timeout: 60_000 });
     await beat(page, 2200);
 

@@ -228,7 +228,10 @@ test.describe("run_command: a command of the topic, seen, surviving and reportin
     await expect(drawer).toBeVisible({ timeout: 10_000 });
 
     // The session's wake is one service line, with its outcome, and no bubble says it.
-    const session = drawer.getByTestId("task-session-column");
+    // The machine's line is chronicle: zero in the column, readable under Details.
+    await expect(drawer.getByTestId("task-session-column").locator('[data-testid="process-exit-row"]', { hasText: marker })).toHaveCount(0);
+    await drawer.getByTestId("task-details-toggle").click();
+    const session = drawer.getByTestId("task-chronicle");
     const line = session.locator('[data-testid="process-exit-row"]', { hasText: marker });
     await expect(line).toHaveCount(1, { timeout: 15_000 });
     await expect(line).toHaveAttribute("data-exit-code", "0");

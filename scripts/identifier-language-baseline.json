@@ -353,9 +353,6 @@
       "SondaLivello",
       "sondaRef"
     ],
-    "client/src/components/ChatMarkdown.tsx": [
-      "BASE_REHYPE"
-    ],
     "client/src/components/Context/CostProbePanel.tsx": [
       "dollari",
       "milioni"

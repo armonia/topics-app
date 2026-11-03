@@ -622,6 +622,8 @@ test('the current question is actionable once; history and centered status stay 
   expect(inputBox!.height).toBeGreaterThan(60);
   expect(inputBox!.height).toBeLessThanOrEqual(140);
   expect(await drawer.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+  // Status events are chronicle now: they live under Details, not in the column.
+  if (await drawer.getByTestId('task-status-trail').count() === 0) await drawer.getByTestId('task-details-toggle').click();
   await expect(drawer.getByTestId('task-status-trail').first()).toHaveCSS('justify-content', 'center');
   const status = drawer.getByTestId('task-status-event').first();
   await expect(status).toContainText(reason);
