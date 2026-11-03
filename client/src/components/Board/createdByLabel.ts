@@ -15,6 +15,8 @@ export interface CreatorChip {
   kind: 'human' | 'other';
   /** The short text on the chip: the chat or agent name, or «you». */
   label: string;
+  /** The avatar letter for an agent that has a name; null means draw the icon. */
+  initial: string | null;
   /** The whole sentence, for the tooltip. */
   title: string;
   /** The chat to open on click, only when it exists and is an ordinary chat. */
@@ -35,7 +37,7 @@ export function creatorChip(
   if (!parts) return null;
   if (parts.kind === 'human') {
     const label = tr('board.card.createdByMe');
-    return { kind: 'human', label, title: tr('board.card.createdByTitle', { who: label }), openTopicId: null };
+    return { kind: 'human', label, title: tr('board.card.createdByTitle', { who: label }), initial: null, openTopicId: null };
   }
   const fallback = task.createdBy === API_CALLER_CREATED_BY
     ? tr('board.card.createdByApi')
@@ -43,10 +45,12 @@ export function creatorChip(
       ? tr('board.card.createdByCron', { name: parts.name ?? '' })
       : (parts.name ?? '');
   const label = task.openerName || fallback;
+  const named = task.openerName || (task.createdBy === API_CALLER_CREATED_BY ? '' : fallback);
+  const initial = named ? Array.from(named.trim())[0]?.toUpperCase() ?? null : null;
   const who = task.createdSource ? `${label} (${task.createdSource})` : label;
   // The coordinator lives in a drawer, not in a tab a click could open.
   const openTopicId = task.openerTopicId && task.createdBy !== 'agent:coordinator' ? task.openerTopicId : null;
-  return { kind: 'other', label, title: tr('board.card.createdByTitle', { who }), openTopicId };
+  return { kind: 'other', label, title: tr('board.card.createdByTitle', { who }), initial, openTopicId };
 }
 
 /** The chip for a card still open that lacks what lets it finish by itself. */
