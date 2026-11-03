@@ -2,6 +2,19 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.50 — 2026-11-03
+
+### Sotto il cofano
+- GC keeps a worktree whose chat topic is mid-turn or recently active (card dc31628c)
+- Node cards: the agent keeps its voice in the mirror, and a slow launch is not a restart orphan
+- the topic switch directory can be switched off like the other blocks
+- Node deliveries: a lone delivery or comment counts as the agent's summary, agent ids are sanitized, and the node's hand-over line is a quiet note so the agent's question above keeps its buttons (system questions like deploy and parked sub-cards keep theirs: no blanket skip of system rows) (card 02cb1e52)
+- Le chat dei canali di Jarvis col marchio vero: WhatsApp, Discord e Telegram (Simple Icons, CC0) e l'orologio per i lavori programmati (#592)
+- Board test: the system-question comment in English (comment-language gate)
+- Channel brand icons: comments in English (comment-language gate)
+- a channel chat (WhatsApp, Discord, Telegram) shows the channel's mark in its colour before the name (#593)
+- Identifier gate: systemQuestion in the board test, CSSProperties as a type-only import in the brand icons
+
 ## 2.3.49 — 2026-11-03
 
 ### Sotto il cofano
