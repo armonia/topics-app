@@ -51,6 +51,7 @@ import { fmtMs, fmtTok, fmtAttesa, fmtUsd, taskCopyText } from './format';
 import { UpdatedAgo } from './UpdatedAgo';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
 import { LiveEffortChip, LiveToolLine, RETRY_NOW_MESSAGE, RetryWaitChip } from './CardLive';
+import { isSystemNote, progressLine } from './progressLine';
 import { SessionPeek } from './SessionPeek';
 import { createSessionPeekIntent } from './sessionPeekIntent';
 import { SwapIce } from '../Shared/SwapIce';
@@ -1766,23 +1767,23 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           thread. Same clamp and fold as the review's word, no request pair:
           there is no answer to pair a request with yet. */}
       {task.status === 'in_progress' && showsQuestion && lastComment && (
-        <div className="mt-2" data-testid="card-progress-word">
-          <div
-            className={`text-compact leading-relaxed text-app-text-heading ${COMPACT_MD_CLS} ${commentoAperto ? '' : 'line-clamp-[10]'}`}
+        // UNA riga di avanzamento. La parola dell'agente per intero sta nel
+        // tooltip e nel thread; la nota di sistema non e' mai il corpo della
+        // card, sta sotto «mostra».
+        isSystemNote(lastComment.author) ? (
+          <details className="mt-1 text-compact leading-4 md:text-mini text-app-text-muted" data-testid="card-progress-note">
+            <summary className="cursor-pointer underline-offset-2 hover:text-app-text hover:underline">{tr('board.card.progressShow')}</summary>
+            <div className={`mt-1 leading-relaxed text-app-text-secondary ${COMPACT_MD_CLS}`}>
+              <ChatMarkdown components={{}}>{questionToProse(lastComment.content)}</ChatMarkdown>
+            </div>
+          </details>
+        ) : (
+          <p
+            data-testid="card-progress-line"
+            className="mt-1 truncate text-compact leading-4 md:text-mini text-app-text-heading"
             title={`${commentAuthorLabel(lastComment.author).label}: ${stripMarkdown(lastComment.content)}`}
-          >
-            <ChatMarkdown components={{}}>{questionToProse(lastComment.content)}</ChatMarkdown>
-          </div>
-          {lastComment.content.length > COMMENTO_PIEGA_CHARS && (
-            <button
-              data-testid="card-comment-toggle"
-              onClick={(e) => { e.stopPropagation(); setCommentoAperto((v) => !v); }}
-              className="text-compact leading-4 md:text-mini text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
-            >
-              {commentoAperto ? tr('board.card.commentLess') : tr('board.card.commentMore')}
-            </button>
-          )}
-        </div>
+          >{progressLine(lastComment.content)}</p>
+        )
       )}
       {/* THE CARD'S FOOT: what is happening to the turn, and what it has cost
           so far. The same place in every column.

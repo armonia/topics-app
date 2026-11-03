@@ -158,15 +158,24 @@ describe('the parked card', () => {
 });
 
 /**
- * THE AGENT'S WORD ON A CARD IN PROGRESS: the last one, under the checklist,
- * with the review's fold. The block used to be gated on `status === 'review'`,
- * and in progress the card was a stopwatch.
+ * THE AGENT'S WORD ON A CARD IN PROGRESS: ONE line in the body. A machine note
+ * (system, dispatcher, verifier) is never the body: it is folded under «mostra».
  */
-describe('the progress word', () => {
-  test('draws in in_progress with the same clamp as the review', () => {
+describe('the progress line', () => {
+  test('draws one truncated line in in_progress, and folds a system note under «mostra»', () => {
     expect(src).toContain("task.status === 'in_progress' && showsQuestion && lastComment && (");
-    const block = src.slice(src.indexOf('data-testid="card-progress-word"'));
-    expect(block.slice(0, 600)).toContain("line-clamp-[10]");
+    expect(src).toContain('isSystemNote(lastComment.author) ? (');
+    const line = src.slice(src.indexOf('data-testid="card-progress-line"'));
+    expect(line.slice(0, 400)).toContain('truncate');
+    expect(line.slice(0, 400)).toContain('progressLine(lastComment.content)');
+    const note = src.slice(src.indexOf('data-testid="card-progress-note"'));
+    expect(note.slice(0, 400)).toContain("tr('board.card.progressShow')");
+  });
+
+  test('the foot keeps model, time, tokens and cost untouched', () => {
+    expect(src).toContain('data-testid="card-foot"');
+    expect(src).toContain('data-testid="card-spend"');
+    expect(src).toContain("tr('board.card.effortTitle'");
   });
 });
 
