@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { carriedBranch, ensureBranchOnOrigin, isPlainBranchName } from "./branch-on-origin";
+import { carriedBranch, ensureBranchOnOrigin, isPlainBranchName, pushRefusalReason } from "./branch-on-origin";
 import { resolveBranchBaseRef } from "./worktree-for-agent";
 import { nodeRunBaseBranch } from "../routes/nodes";
 
@@ -74,6 +74,20 @@ describe("il ramo della card su origin", () => {
 
     const r = await ensureBranchOnOrigin(mac, "topics/endless-calf");
     expect(r.ok).toBe(false);
+    // The reason names the refusal, not git's closing "failed to push some refs".
+    expect(r).toMatchObject({ reason: expect.stringContaining("[rejected]") });
+  });
+
+  test("the refusal reason skips git's closing line and its hints", () => {
+    const out = [
+      "To github.com:acme/alpha.git",
+      " ! [remote rejected] topics/x -> topics/x (cannot lock ref 'refs/heads/topics/x')",
+      "error: failed to push some refs to 'github.com:acme/alpha.git'",
+      "hint: Updates were rejected",
+    ].join("\n");
+    expect(pushRefusalReason(out, 1)).toContain("cannot lock ref");
+    expect(pushRefusalReason("error: failed to push some refs to 'x'", 1)).toBe("error: failed to push some refs to 'x'");
+    expect(pushRefusalReason("", 128)).toBe("exit 128");
   });
 
   test("un ramo che non c'è né qui né su origin", async () => {
