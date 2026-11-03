@@ -263,8 +263,6 @@ export interface TasksRouterOpts {
   landings?: LandingQueue;
   /** All project dirs the server knows (same union the dispatcher resolves against). */
   listProjectDirs?: () => string[];
-  /** The real server turns this on: a card is born only on a board some project owns (or that already holds cards). */
-  requireKnownBoard?: boolean;
   /** Workspace root for scaffolding a NEW project from the board. */
   workspaceDir?: string;
   /** Abort a running headless turn (human "stop" on a dispatched task). */
@@ -630,7 +628,6 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     repoRootFor: opts?.repoRootFor,
     listRepoRoots: opts?.listRepoRoots,
     listProjectDirs: opts?.listProjectDirs,
-    requireKnownBoard: opts?.requireKnownBoard,
     probeFor: opts?.probeFor,
     // The delivery note that waited on git lands after the PATCH broadcast:
     // the same second emit every other late `addComment` in this file makes.
