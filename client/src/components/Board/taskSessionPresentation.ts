@@ -6,7 +6,7 @@ import { isActiveTool } from '../Chat/toolGrouping';
 import { LEGACY_ERROR_PREFIX, turnErrorOf } from '../Chat/turnError';
 import { extractMediaPaths, splitBlockMedia } from '../messageMedia';
 import { parseQuestionBlock } from '../../../../shared/board';
-import { backgroundNoticeOf, machineStopOf } from '../Chat/machineRow';
+import { backgroundNoticeOf, machineStopOf, subagentResultOf } from '../Chat/machineRow';
 
 export interface SessionSegment {
   message: ChatMessage;
@@ -43,6 +43,9 @@ export function taskSessionSegments(message: ChatMessage, hasThreadReply = false
   // The service line about the chat's background work: nothing to fold, and
   // folded it was an empty «session details» row.
   if (backgroundNoticeOf(message.blocks)) return visible();
+  // A sub-agent result written as an assistant row (the chat did not wake):
+  // it is drawn by its own row, never folded into an empty details line.
+  if (subagentResultOf(message.blocks)) return visible();
   const tools = toolsOf(message);
   const inFlight = activeRun || !!message.partial || tools.some(isActiveTool);
 

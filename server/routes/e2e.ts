@@ -549,7 +549,7 @@ export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): Ro
     const anchored = /^\/api\/test\/tasks\/([^/]+)\/anchored-comment$/.exec(pathname);
     if (method === "POST" && anchored) {
       const body = (await req.json().catch(() => null)) as
-        { content?: string; author?: string; messageId?: string } | null;
+        { content?: string; author?: string; messageId?: string; kind?: "comment" | "review-note" | "service" } | null;
       if (!body?.content || !body?.messageId) return json({ error: "content and messageId required" }, 400);
       try {
         const comment = createTaskService(db).addComment({
@@ -557,6 +557,7 @@ export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): Ro
           author: body.author ?? "agent",
           content: body.content,
           messageId: body.messageId,
+          ...(body.kind ? { kind: body.kind } : {}),
         });
         return json({ ok: true, comment });
       } catch (e) {
