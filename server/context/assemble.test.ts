@@ -310,6 +310,17 @@ describe("assembleTopicContext — topic switch directory", () => {
     expect(directory).not.toContain("[id:arch-");
   });
 
+  it("is left out when the topic switched it off", () => {
+    const off = assembleTopicContext(ctx, {
+      sessionKey: topic.sessionKey,
+      providerName: "claude",
+      providerStrategy: "history-aware",
+      disabledSources: ["synthetic:topic-switch-directory"],
+    } as Parameters<typeof assembleTopicContext>[1]);
+    expect(off.systemBlocks.find((b) => b.id === "synthetic:topic-switch-directory")?.enabled).toBe(false);
+    expect(env.systemBlocks.find((b) => b.id === "synthetic:topic-switch-directory")?.enabled).toBe(true);
+  });
+
   it("does not load the archived topics to build it", () => {
     expect(loadedCounts.length).toBeGreaterThan(0);
     expect(Math.max(...loadedCounts)).toBe(3);

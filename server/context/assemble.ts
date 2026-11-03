@@ -311,7 +311,7 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
       if (providerHasControlTools(providerName)) {
         pushBrowserInstructionBlock(systemBlocks);
         pushProjectMarkersBlock(systemBlocks);
-        pushTopicSwitchDirectoryBlock(systemBlocks, topic, ctx);
+        pushTopicSwitchDirectoryBlock(systemBlocks, topic, ctx, isEnabled);
       } else if (!controlToolWarningLogged.has(providerName)) {
         controlToolWarningLogged.add(providerName);
         console.warn(
@@ -822,16 +822,21 @@ function pushTopicSwitchDirectoryBlock(
   blocks: SystemBlock[],
   topic: Topic,
   ctx: AppContext,
+  isEnabled: (id: string) => boolean,
 ): void {
+  const id = "synthetic:topic-switch-directory";
   const directory = buildTopicDirectory(ctx, topic.id);
   const content = topicSwitchContent(topic, directory);
   blocks.push({
-    id: "synthetic:topic-switch-directory",
+    id,
     label: "Topic switch directory",
     category: "synthetic",
     content,
     tokens: estimateTokens(content),
-    enabled: true,
+    // Spegnibile come gli altri blocchi. L'elenco cambia a ogni chat creata o rinominata e sta prima della
+    // cronologia: dove è sempre acceso rompe la cache di tutta la cronologia a ogni turno. Il 03/11, sulle chat
+    // dei canali che lo avevano spento, ha fatto riscrivere 10,6 milioni di token, metà dai keepalive.
+    enabled: isEnabled(id),
     countInBudget: true,
     editable: false,
     injectedByTopicsApp: true,
