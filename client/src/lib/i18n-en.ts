@@ -1231,7 +1231,6 @@ const EN = {
   'board.task.recapturePreviewTitle': "Rebuild this card's preview: reboot the server from its worktree and shoot it again. It does NOT wake the agent and burns no attempt. If it can't be done, the reason lands in the thread.",
   'board.task.replyPlaceholder': 'Reply or send a correction to the agent…',
   'board.task.sendToAgent': 'Send to agent',
-  'board.task.replyPlaceholderShort': 'A note that stays here: «{sendBack}» above sends it to the agent.',
   'board.task.sendBackReply': 'Send back',
   'board.task.sendBackReplyTitle': 'Send the task back to the agent with this note. It restarts and the card returns to In Progress.',
   'board.task.quietNote': 'Note',

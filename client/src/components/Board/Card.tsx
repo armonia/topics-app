@@ -32,7 +32,8 @@ import { DispatchLoadGauge } from './DispatchLoadGauge';
 import { landingBand } from './landingBand';
 import { useLandingTicket } from './useLandingTicket';
 import { taskActionErrorMessage } from './taskActionError';
-import { choiceForText, taskChoices, usableQuestionOptions, type TaskChoiceId } from './taskChoices';
+import { cardProgressLine } from './cardProgressLine';
+import { choiceForText, reviewFaceExclude, reviewMenuExclude, taskChoices, usableQuestionOptions } from './taskChoices';
 import { taskChoiceState } from './taskChoices';
 import { checklistWindow } from './checklistWindow';
 import { showsStoppedChip } from './stoppedChip';
@@ -702,11 +703,20 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // Riga di avanzamento per una card in lavorazione: l'ultimo passo del tool,
   // o la prima riga dell'agente. Una sola riga, mai il testo intero. Una nota
   // della macchina non diventa mai la riga: va sotto «mostra».
-  const progressLine = live?.lastTool && !live.retry && task.dispatchState === 'working'
-    ? `${live.lastTool.name}${live.lastTool.input ? ` · ${live.lastTool.input}` : ''}`
-    : showsQuestion && bodyWord
-      ? (stripMarkdown(bodyWord.content).split('\n').find((l) => l.trim()) ?? '').trim()
-      : '';
+  const progressLine = cardProgressLine({
+    lastTool: live?.lastTool, retry: live?.retry, working: task.dispatchState === 'working',
+    showsQuestion, bodyText: bodyWord?.content,
+  });
+  // THE MEASURE BAND is drawn in progress (live) or whenever the turn has a
+  // model or a time. «ora» lives inside it then, and alone on the foot otherwise.
+  const measureShown = (!!live && !live.retry && task.dispatchState === 'working')
+    || !!(task.model || task.agentMs > 0 || task.agentTokens > 0);
+  const updatedAgo = (tone: string) => (
+    <span
+      className={`shrink-0 whitespace-nowrap text-compact leading-4 md:text-mini ${tone}`}
+      title={tr('board.card.lastUpdate', { when: new Date(task.updatedAt).toLocaleString(locale) })}
+    ><UpdatedAgo iso={task.updatedAt} /></span>
+  );
   const humanContext = rowThread ? rowThread.humanContext : thread?.humanContext ?? null;
   // Plain text: the context row is a single clamped line, so markdown blocks
   // would only leak their syntax into it.
@@ -1054,13 +1064,12 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // The send button names the action IT PERFORMS — the text's one, not the
   // first in the row: with `[0]` it promised «Landa su main» and sent back.
   const primaChoice = useMemo(() => choiceForText(taskChoices(task, { t: tr })), [task, tr]);
-  // THE REVIEW FACE, as Attilio decided on 01/11: «Rifai così» is gone (the
-  // field below sends the text back, see `primaryChoiceWithText`) and
-  // «Archivia» moves to the «…» menu. Every other exit stays on the face.
-  const faceExclude: TaskChoiceId[] = ['redo', 'drop'];
-  // The «…» menu holds the archive alone: the rest is already on the face.
-  const reviewChoices = useMemo(() => taskChoices(task, { t: tr }), [task, tr]);
-  const menuExclude: TaskChoiceId[] = reviewChoices.map((c) => c.id).filter((id) => id !== 'drop');
+  // THE REVIEW FACE, as Attilio decided on 01/11 and 03/11: only «Approva» on
+  // the face; «Rifai così» is in neither place (the field below sends the text
+  // back, see `primaryChoiceWithText`); every other exit, «Archivia» included,
+  // is behind the «…». See `reviewFaceExclude` in `taskChoices`.
+  const faceExclude = useMemo(() => reviewFaceExclude(task, tr), [task, tr]);
+  const menuExclude = useMemo(() => reviewMenuExclude(task, tr), [task, tr]);
   // …e l'altra metà, che è il verso OPPOSTO: quanti aspettano QUESTA card.
   // Anche questo numero è un fatto del DB, non della lista fetchata — un
   // dipendente che è un sottotask o sta in un altro progetto non è fra le card,
@@ -1885,7 +1894,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
             from its tail (tokens first) when it does not. The last update
             still closes the row, on the right. */}
         {live && !live.retry && task.dispatchState === 'working' ? (
-          <LiveEffortChip usage={live} label={measureLine} />
+          <LiveEffortChip usage={live} label={measureLine} trailing={updatedAgo('')} />
         ) : (task.model || task.agentMs > 0 || task.agentTokens > 0) ? (
           // The model always lives here, in the time/effort chip — never as a
           // second standalone chip. Before the agent has logged any time we
@@ -1912,9 +1921,10 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               })
               : tr('board.card.modelTitle', { model: modelLine })}
             data-testid="card-measure"
-            className="flex w-full min-w-0 max-w-full items-center justify-between gap-2 rounded-lg bg-black/[0.12] px-2.5 py-1.5 text-compact leading-4 md:text-mini text-app-text-muted dark:bg-white/[0.16] tabular-nums"
-          ><span className="min-w-0 truncate">{measureLine}</span>{/* THE DOLLARS, when the card has a priced spend: the token figure is the
-              cost-weighted volume, this is what it came to. Right side: never wrapped, never cut. */}<span className="shrink-0 whitespace-nowrap">{(task.agentMs > 0 || costo > 0) && `⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span></span>
+            className="flex w-full min-w-0 max-w-full items-center justify-between gap-2 rounded-lg bg-black/[0.12] px-2.5 py-1.5 text-compact leading-4 md:text-mini text-app-text-secondary dark:bg-white/[0.16] tabular-nums"
+          ><span className="min-w-0 break-words">{measureLine}</span>{/* THE DOLLARS, when the card has a priced spend: the token figure is the
+              cost-weighted volume, this is what it came to. Right side: never wrapped, never cut. The
+              last update closes the band too: «ora» on a line of its own under it was a second row. */}<span className="flex shrink-0 items-center gap-2 whitespace-nowrap"><span>{(task.agentMs > 0 || costo > 0) && `⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>{updatedAgo('')}</span></span>
         ) : null}
         {/* WHICH MACHINE it runs on, next to the model it runs with. Only when
             a node is named: an absent one means "here", and saying that on
@@ -1944,11 +1954,9 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           />
         )}
         {/* The last update closes the row, on the right: it is the weakest of
-            the four measures and does not belong among the others. */}
-        <span
-          className="ml-auto shrink-0 whitespace-nowrap text-compact leading-4 md:text-mini text-app-text-muted"
-          title={tr('board.card.lastUpdate', { when: new Date(task.updatedAt).toLocaleString(locale) })}
-        ><UpdatedAgo iso={task.updatedAt} /></span>
+            the four measures and does not belong among the others. With a
+            measure band it sits inside the band instead (above). */}
+        {!measureShown && updatedAgo('ml-auto text-app-text-muted')}
       </div>
       {/* The tool the session is running is NOT drawn again here: the progress
           line under the title already says `name · input`. Drawing it twice
@@ -2100,9 +2108,14 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
                 : tr('board.card.steerSendTitle')}
               className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-compact leading-4 text-white hover:bg-sky-500 disabled:opacity-50 coarse:min-h-11 coarse:min-w-11 coarse:justify-center"
             ><Send className="h-3.5 w-3.5" /></button>
-            {/* The rest of the exits, and «Archivia», behind the «…». */}
+            {/* The rest of the exits, and «Archivia», behind the «…». The same
+                wiring as the face row: the field's text goes with «Rimanda
+                indietro» from here too, and a queued land shows its receipt. */}
             <TaskChoiceMenu
               task={task} exclude={menuExclude} disabled={busy} onDone={choiceDone} onError={choiceFailed}
+              onNeedText={() => freeTextRef.current?.focus()}
+              pendingText={() => freeText}
+              onLanding={setLanding}
               ariaLabel={tr('board.card.turnActions')}
             />
           </div>
