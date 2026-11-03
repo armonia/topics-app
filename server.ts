@@ -2689,6 +2689,14 @@ const worktreeGc = createWorktreeGcRunner({
   // WORKTREE-14: chi sta DENTRO una cartella, che e' l'unica cosa che tiene in
   // piedi il worktree di un sotto-agente isolato (nessun task lo protegge).
   liveCwds: () => liveTerminalCwds(),
+  // A chat topic bound to the worktree: mid-turn, or a message in the last 10 minutes.
+  chatActive: (sessionKey) => {
+    if (activeStreams.has(sessionKey)) return true;
+    const row = ctx.db.query("SELECT timestamp, streamed_at FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1")
+      .get(sessionKey) as { timestamp?: string | null; streamed_at?: string | null } | null;
+    const times = [row?.timestamp, row?.streamed_at].map((v) => Date.parse(v ?? "")).filter(Number.isFinite);
+    return times.length > 0 && Date.now() - Math.max(...times) < 10 * 60_000;
+  },
 });
 
 
