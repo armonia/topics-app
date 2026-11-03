@@ -2,13 +2,31 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.49 — 2026-11-03
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-03 [skip ci]
+
 ## 2.3.48 — 2026-11-03
 
 ### Sotto il cofano
+- Drawer spec covers KANBAN-104
+- Drawer column: review notes and process-exit lines go under Details, session details open as one strip; spec seeds all chronicle kinds (card e6e4d61d)
+- wake line and recapture note are read under Details (card e6e4d61d)
+- Cap panel follows the approved reference: title with at-most, sky box with next-start line, PC switch with icon, calm wait box, queue order hint
+- E2E follows the approved cap panel: new title, no busy line or running row in the budget view
+- Re-run CI: chat-turn-end-still red in an area this card does not touch
 - Board comments: lock the two-attachment thread contract board_comment relies on
+- Capacity choice: replay line in the blue box, no memory-wait line under the queue
+- Capacity replay: count cards that fit above the memory floor, not above the apps' share
+- Board comment media test: English docblock and a @covers line
+- Task column: chronicle filter in its own module with a test per row kind, sub-agent result as in chat, live tool only for the current turn (card e6e4d61d)
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-02 [skip ci]
+- Declare what the new tests cover (KANBAN-104)
 - Board comment media test: English header and the requirement it covers, so main's gates pass
+- Task drawer: Session details as a light single row per run, sub-agent result as a free row with a soft band, assistant-written results drawn by the same row
 - Chat text and tool commands stream as written: no client reveal delay, CLI text_delta passed through, command updates every 50 ms; real CLI stream test guards the snapshot dedup and the throttle
+- Cap choice box: one threshold shared with chart and header, comma decimals, title in normal text colour
 - Live chat pieces fade in where they stand: each piece that arrives while a turn is written gets its own span and a 150 ms opacity entrance, with no delay on the text and no layout shift; tool rows born live and the live command fade too. Off under reduced motion and in a window without focus; text present at mount never fades; the tail gate still skips parses (card cd66c3bd)
 - Fade-in: the live command recomputes its pieces each render instead of reading a ref during render, and the rehype plugin types its few hast shapes locally instead of importing an unlisted package (CI lint and dead-code gates)
 - Identifier gate: rehype is a project word (the markdown pipeline's HTML stage, the live-text fade is a rehype plugin); baseline lowered for the debt it clears
@@ -21,13 +39,23 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Carried-branch tests: the node has no origin at all, and the real /api/nodes/runs route is covered
 - Land refuses assistant attribution and foreign authors; card agents start with attribution off
 - Auto-dispatch panel follows the approved reference: summary card, chart before queue, one-line queue, closed Advanced and This board
+- Board settings: panel widened to 650px, Cautious/Balanced/Pushed cap choice with GB left and PC switch; by number/by resources moved under Advanced
+- Cap choice: keep the busy line, guard the GB estimate, update the source test
+- Rails back to green: bloat baseline for the files main grew, isolated git env in two test spawns
+- Hero line of the dispatch summary uses a named type step
 - Guard file back to LF: it had entered main in CRLF
+- Identifier names in the land attribution gate are plain English words
 - test git spawns carry the isolated env, bloat baseline records what the last merges added
 - Fix the e2e reds the auto-dispatch panel redesign left on main
+- Drop duplicate gitEnv imports left by the merge
+- Cap presets test declares the requirement it covers
 - Panel hero on the type scale and chart labels at the 11 px floor: text-base generates nothing here, 10 px fails the audit once the chart has history
+- E2E specs follow the new panel: Advanced and This board folds, 650 px width, live count in the choice
 - Sub-agent row reads as free text, only the final result sits in a soft band; chevron on hover and focus without shifts
 - Identifier gate: email is a project word, rec spelled out in the land attribution gate
+- Cap choice shows the live count once; panel width assertion follows 650 px
 - Two e2e reds after the sub-agent landing: the observer test needs a row that is really cut, and the known sidebar chevron exception matches axe's longer selector
+- GB-left box keeps AA contrast on both themes
 - Sub-agent cut spec: tests that need a cut row use text that cannot fit, the resize goes down to 390 px
 
 ## 2.3.46 — 2026-11-01
@@ -123,8 +151,14 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - la riga viva tiene l'ingombro di 14 px della riga finita, il respiro di 8 px sporge
 - stellina Sparkle che respira al posto dell'anello; riga di ragionamento riservata dal primo istante (card 045ef721)
 - Ragionamento riservato da un segnale vero; stellina anche su righe tool e strisce (card 045ef721)
+- Task drawer column: words only, one live status line, system chronicle under Details (card e6e4d61d)
 - Rilancia la CI sul commit (card 067a1f5b)
 - Nuovo giro di CI sul ramo (card 067a1f5b)
+- Translate new reasoning comments to English (card e6e4d61d)
+- Declare KANBAN-102 requirement covered by the drawer words-only spec (card e6e4d61d)
+- Drawer specs: seed the task session rows, read status trail under Details (card e6e4d61d)
+- Land-conflict spec: read the status event under Details (card e6e4d61d)
+- agent words as an anchored comment, system explanation read under Details (card e6e4d61d)
 - CI di main: commenti del segnale di ragionamento in inglese; il controllo della demo ignora l'avviso di xterm a qualunque ora
 
 ## 2.3.42 — 2026-10-29

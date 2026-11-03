@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.3.49",
+    "date": "2026-11-03",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-03 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.48",
     "date": "2026-11-03",
     "sections": {
@@ -8,7 +25,58 @@
       "perf": [],
       "internal": [
         {
+          "it": "Drawer spec covers KANBAN-104",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Drawer column: review notes and process-exit lines go under Details, session details open as one strip; spec seeds all chronicle kinds (card e6e4d61d)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "wake line and recapture note are read under Details (card e6e4d61d)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Cap panel follows the approved reference: title with at-most, sky box with next-start line, PC switch with icon, calm wait box, queue order hint",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "E2E follows the approved cap panel: new title, no busy line or running row in the budget view",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Re-run CI: chat-turn-end-still red in an area this card does not touch",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Board comments: lock the two-attachment thread contract board_comment relies on",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Capacity choice: replay line in the blue box, no memory-wait line under the queue",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Capacity replay: count cards that fit above the memory floor, not above the apps' share",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Board comment media test: English docblock and a @covers line",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Task column: chronicle filter in its own module with a test per row kind, sub-agent result as in chat, live tool only for the current turn (card e6e4d61d)",
           "en": "",
           "scope": null
         },
@@ -19,12 +87,27 @@
           "breaking": false
         },
         {
+          "it": "Declare what the new tests cover (KANBAN-104)",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Board comment media test: English header and the requirement it covers, so main's gates pass",
           "en": "",
           "scope": null
         },
         {
+          "it": "Task drawer: Session details as a light single row per run, sub-agent result as a free row with a soft band, assistant-written results drawn by the same row",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Chat text and tool commands stream as written: no client reveal delay, CLI text_delta passed through, command updates every 50 ms; real CLI stream test guards the snapshot dedup and the throttle",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cap choice box: one threshold shared with chart and header, comma decimals, title in normal text colour",
           "en": "",
           "scope": null
         },
@@ -80,7 +163,32 @@
           "scope": null
         },
         {
+          "it": "Board settings: panel widened to 650px, Cautious/Balanced/Pushed cap choice with GB left and PC switch; by number/by resources moved under Advanced",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cap choice: keep the busy line, guard the GB estimate, update the source test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rails back to green: bloat baseline for the files main grew, isolated git env in two test spawns",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Hero line of the dispatch summary uses a named type step",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Guard file back to LF: it had entered main in CRLF",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Identifier names in the land attribution gate are plain English words",
           "en": "",
           "scope": null
         },
@@ -96,7 +204,22 @@
           "scope": null
         },
         {
+          "it": "Drop duplicate gitEnv imports left by the merge",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cap presets test declares the requirement it covers",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Panel hero on the type scale and chart labels at the 11 px floor: text-base generates nothing here, 10 px fails the audit once the chart has history",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "E2E specs follow the new panel: Advanced and This board folds, 650 px width, live count in the choice",
           "en": "",
           "scope": null
         },
@@ -111,7 +234,17 @@
           "scope": null
         },
         {
+          "it": "Cap choice shows the live count once; panel width assertion follows 650 px",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Two e2e reds after the sub-agent landing: the observer test needs a row that is really cut, and the known sidebar chevron exception matches axe's longer selector",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "GB-left box keeps AA contrast on both themes",
           "en": "",
           "scope": null
         },
@@ -575,6 +708,11 @@
           "scope": null
         },
         {
+          "it": "Task drawer column: words only, one live status line, system chronicle under Details (card e6e4d61d)",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Rilancia la CI sul commit (card 067a1f5b)",
           "en": "",
           "scope": null
@@ -583,6 +721,32 @@
           "it": "Nuovo giro di CI sul ramo (card 067a1f5b)",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Translate new reasoning comments to English (card e6e4d61d)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Declare KANBAN-102 requirement covered by the drawer words-only spec (card e6e4d61d)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Drawer specs: seed the task session rows, read status trail under Details (card e6e4d61d)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Land-conflict spec: read the status event under Details (card e6e4d61d)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "agent words as an anchored comment, system explanation read under Details (card e6e4d61d)",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "CI di main: commenti del segnale di ragionamento in inglese; il controllo della demo ignora l'avviso di xterm a qualunque ora",
