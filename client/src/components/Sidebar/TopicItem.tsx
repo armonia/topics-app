@@ -1,4 +1,4 @@
-import { useCallback, memo } from 'react';
+import { useCallback, memo, createElement } from 'react';
 import { ChevronRight, Cloud, Pin, AppWindow } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Topic } from '@/types';
@@ -28,6 +28,7 @@ import { useTouchDrag } from '@/hooks/useTouchDrag';
 import { useT } from '@/hooks/useT';
 import { WorktreeChip } from './WorktreeChip';
 import { TopicColorDot } from '@/components/Shared/TopicColorDot';
+import { CHANNEL_MARKS } from '@/lib/brandIcons';
 import { topicColorInk } from '@/lib/topicColor';
 import type { WorktreeLabel } from '@/lib/sidebarWorktrees';
 
@@ -154,6 +155,7 @@ export const TopicItem = memo(function TopicItem({
   // (`useSeenFocusedPane`).
   const attentionTier = useTopicAttentionFill(topic.id);
   const onFill = attentionTier !== null;
+  const channelMark = CHANNEL_MARKS[topic.icon];
   // `data-attention` and `data-attention-fill` say the same thing now: the
   // tier is lit or it is not. Both stay, so a test reads one state on the row
   // and on the tab (PaneTabBar exposes the pair).
@@ -435,6 +437,16 @@ export const TopicItem = memo(function TopicItem({
           up to an even number of pixels (see its note in `index.css`), and the
           gap follows. With the old 13 + 3 + 11 = 27 the name started at 1.5px
           from the top of the row, measured on 28/08. */}
+      {/* THE ONE EXCEPTION to "a chat draws no glyph" (request of 03/11): a chat
+          that arrives from WhatsApp, Discord or Telegram through jarvis-channels
+          shows the channel's own mark in the channel's colour, so the channel
+          is read before the name. Any other chat keeps starting at the padding. */}
+      {channelMark && createElement(channelMark, {
+        size: 14,
+        'aria-label': topic.icon,
+        className: cn('flex-shrink-0', onFill && ON_FILL_TEXT),
+        style: onFill ? undefined : { color: topic.color },
+      })}
       <div className="flex-1 min-w-0 flex flex-col justify-center gap-1">
         <span data-row-name="chat" title={topic.name} className={cn(
           "truncate-tight",
