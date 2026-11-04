@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1440">
+<title>Topics — System mode · Cockpit strip</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0c0c0d; --panel:#111112; --panel-2:#151517; --raise:#1a1a1d;
+    --line:#232326; --line-2:#2c2c30; --line-soft:#1b1b1e;
+    --ink:#e8e8ea; --ink-2:#b4b4b9; --muted:#7c7c84; --faint:#55555c;
+    --ok:#3ecf8e; --warn:#e8b14a; --bad:#f0604d; --info:#6aa6ff; --accent:#f16724;
+    --sans:Inter,ui-sans-serif,system-ui,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:#050506;color:var(--ink);font-family:var(--sans);font-size:12px;line-height:1.45;-webkit-font-smoothing:antialiased}
+  body{display:flex;align-items:center;justify-content:center;min-height:100vh}
+  .num,.mono{font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:0}
+  button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+  svg.i{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+  svg.i.s{width:12px;height:12px}
+
+  .frame{width:1440px;height:900px;background:var(--bg);border:1px solid var(--line);display:grid;grid-template-columns:256px 1fr;overflow:hidden;position:relative}
+
+  /* ---------- window chrome ---------- */
+  .side{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  .titlebar{height:38px;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--line)}
+  .lights{display:flex;gap:6px;margin-right:6px}
+  .lights i{width:10px;height:10px;border-radius:50%;background:#2a2a2e;display:block}
+  .brand{font-weight:600;font-size:12.5px;letter-spacing:-.1px}
+  .modeswitch{margin-left:auto;display:flex;border:1px solid var(--line-2);height:22px}
+  .modeswitch button{padding:0 8px;font-size:11px;color:var(--muted);display:flex;align-items:center;gap:5px}
+  .modeswitch button.on{background:var(--raise);color:var(--ink)}
+  .modeswitch button+button{border-left:1px solid var(--line-2)}
+
+  .search{margin:10px 10px 6px;height:26px;border:1px solid var(--line);display:flex;align-items:center;gap:7px;padding:0 8px;color:var(--muted)}
+  .search kbd{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--faint);border:1px solid var(--line);padding:0 4px}
+
+  .nav{flex:1;overflow:auto;padding:4px 6px 8px}
+  .nav h6{font-size:10px;font-weight:500;letter-spacing:.8px;text-transform:uppercase;color:var(--faint);padding:10px 8px 4px;font-family:var(--mono)}
+  .ni{display:flex;align-items:center;gap:8px;height:26px;padding:0 8px;color:var(--ink-2);border-left:2px solid transparent;transition:background .12s,color .12s}
+  .ni:hover{background:var(--panel-2);color:var(--ink)}
+  .ni.on{background:var(--raise);color:var(--ink);border-left-color:var(--accent)}
+  .ni .c{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--faint)}
+  .ni .c.bad{color:var(--bad)} .ni .c.warn{color:var(--warn)}
+  .sub{margin-left:15px;border-left:1px solid var(--line);padding-left:2px}
+  .sub .ni{height:23px;font-size:11.5px;color:var(--muted)}
+  .dot{width:6px;height:6px;border-radius:50%;flex:none;background:var(--ok)}
+  .dot.warn{background:var(--warn)} .dot.bad{background:var(--bad)} .dot.off{background:var(--faint)}
+
+  /* ---------- status strip ---------- */
+  .strip{border-top:1px solid var(--line);background:#0e0e0f;padding:7px 10px 8px;display:block;width:100%;text-align:left;position:relative;transition:background .12s}
+  .strip:hover{background:#121214}
+  .strip.on::before{content:"";position:absolute;left:0;top:-1px;right:0;height:1px;background:var(--accent)}
+  .srow{display:flex;align-items:center;gap:10px;height:18px;font-size:10.5px}
+  .srow + .srow{margin-top:4px}
+  .k{color:var(--faint);font-family:var(--mono);font-size:9.5px;letter-spacing:.4px;text-transform:uppercase}
+  .v{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink)}
+  .v.warn{color:var(--warn)} .v.bad{color:var(--bad)}
+  .spark{display:inline-flex;align-items:flex-end;gap:1px;height:10px}
+  .spark i{width:2px;background:var(--line-2);display:block}
+  .spark i.h{background:var(--ink-2)}
+  .fail{margin-left:auto;display:flex;align-items:center;gap:4px;color:var(--bad);font-family:var(--mono);font-size:10.5px}
+  .qgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:5px}
+  .q{min-width:0}
+  .qh{display:flex;justify-content:space-between;font-size:9.5px;line-height:12px}
+  .qh .k{font-size:9px}
+  .meter{position:relative;height:3px;background:var(--line);margin-top:2px}
+  .meter b{position:absolute;left:0;top:0;bottom:0;background:var(--ink-2)}
+  .meter b.warn{background:var(--warn)} .meter b.bad{background:var(--bad)} .meter b.ok{background:var(--ok)}
+  .meter .pace{position:absolute;top:-2px;width:1px;height:7px;background:var(--ink)}
+  .strip .hint{position:absolute;right:8px;top:6px;color:var(--faint);opacity:0;transition:opacity .12s}
+  .strip:hover .hint{opacity:1}
+
+  /* ---------- main ---------- */
+  .main{display:flex;flex-direction:column;min-width:0;min-height:0}
+  .topbar{height:38px;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 14px;gap:10px;background:var(--panel)}
+  .crumb{display:flex;align-items:center;gap:6px;color:var(--muted)}
+  .crumb b{color:var(--ink);font-weight:500}
+  .live{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:11px;margin-left:12px}
+  .live .dot{animation:pulse 2.4s ease-in-out infinite}
+  @keyframes pulse{50%{opacity:.35}}
+  .tb-r{margin-left:auto;display:flex;align-items:center;gap:6px}
+  .btn{height:24px;padding:0 9px;border:1px solid var(--line-2);display:inline-flex;align-items:center;gap:6px;color:var(--ink-2);font-size:11.5px;transition:border-color .12s,background .12s,color .12s}
+  .btn:hover{border-color:#3a3a40;color:var(--ink);background:var(--panel-2)}
+  .btn.pri{background:var(--ink);color:#0c0c0d;border-color:var(--ink);font-weight:500}
+  .btn.pri:hover{background:#fff}
+  .btn.ghost{border-color:transparent}
+  .seg{display:flex;border:1px solid var(--line-2);height:24px}
+  .seg button{padding:0 8px;font-size:11px;color:var(--muted)}
+  .seg button.on{background:var(--raise);color:var(--ink)}
+  .seg button+button{border-left:1px solid var(--line-2)}
+
+  .content{flex:1;min-height:0;display:flex;flex-direction:column;padding:12px;gap:12px}
+
+  /* tiles */
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid var(--line);background:var(--panel)}
+  .tile{padding:10px 12px 10px;position:relative;transition:background .12s}
+  .tile:hover{background:var(--panel-2)}
+  .tile+.tile{border-left:1px solid var(--line)}
+  .th{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:11px}
+  .th .r{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--faint)}
+  .big{display:flex;align-items:baseline;gap:6px;margin-top:6px}
+  .big .n{font-family:var(--mono);font-size:22px;font-weight:500;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+  .big .u{color:var(--muted);font-family:var(--mono);font-size:11px}
+  .big .d{margin-left:auto;font-family:var(--mono);font-size:10.5px}
+  .up{color:var(--bad)} .dn{color:var(--ok)}
+  .tsub{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px;padding-top:7px;border-top:1px dashed var(--line)}
+  .tsub div{display:flex;flex-direction:column;gap:1px}
+  .tsub .k{font-size:9px}
+  .tsub .v{font-size:11px}
+  .chart{height:26px;margin-top:6px;display:flex;align-items:flex-end;gap:2px}
+  .chart i{flex:1;background:var(--line-2);display:block;transition:background .12s}
+  .chart i.h{background:var(--ink-2)}
+  .chart i.w{background:var(--warn)}
+  .tile:hover .chart i{background:#3a3a40}
+  .tile:hover .chart i.h{background:var(--ink)}
+  .tile:hover .chart i.w{background:var(--warn)}
+  .qrows{margin-top:7px;display:flex;flex-direction:column;gap:5px}
+  .qr{display:grid;grid-template-columns:62px 1fr 34px 44px;align-items:center;gap:8px;font-size:10.5px}
+  .qr .meter{height:4px;margin:0}
+  .qr .meter .pace{top:-2px;height:8px}
+  .qr .p{font-family:var(--mono);color:var(--ink);text-align:right}
+  .qr .pc{font-family:var(--mono);font-size:9.5px;text-align:right}
+
+  /* split */
+  .split{flex:1;min-height:0;display:grid;grid-template-columns:60fr 1px 40fr;border:1px solid var(--line);background:var(--panel)}
+  .gutter{background:var(--line);position:relative;cursor:col-resize}
+  .gutter::after{content:"";position:absolute;left:-2px;right:-2px;top:50%;height:22px;margin-top:-11px;border-left:1px solid var(--line-2);border-right:1px solid var(--line-2);transition:border-color .12s}
+  .gutter:hover::after{border-color:var(--muted)}
+  .pane{display:flex;flex-direction:column;min-width:0;min-height:0}
+  .ph{height:34px;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid var(--line)}
+  .ph h2{font-size:12px;font-weight:600;letter-spacing:-.1px}
+  .ph .cnt{font-family:var(--mono);font-size:10.5px;color:var(--faint)}
+  .ph .r{margin-left:auto;display:flex;gap:6px;align-items:center}
+
+  /* board */
+  .board{flex:1;min-height:0;display:grid;grid-template-columns:repeat(4,1fr)}
+  .col{display:flex;flex-direction:column;min-width:0;min-height:0}
+  .col+.col{border-left:1px solid var(--line)}
+  .colh{height:28px;display:flex;align-items:center;gap:6px;padding:0 9px;border-bottom:1px solid var(--line-soft);font-size:11px;color:var(--ink-2);font-weight:500}
+  .colh .cnt{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--faint)}
+  .cards{flex:1;overflow:auto;padding:6px;display:flex;flex-direction:column;gap:6px}
+  .card{border:1px solid var(--line);background:var(--panel-2);padding:7px 8px 6px;transition:border-color .12s,background .12s;position:relative}
+  .card:hover{border-color:var(--line-2);background:#18181a}
+  .card.failed{border-left:2px solid var(--bad)}
+  .card.running{border-left:2px solid var(--info)}
+  .card.review{border-left:2px solid var(--warn)}
+  .cn{font-size:11.5px;font-weight:500;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:16px}
+  .cm{display:flex;align-items:center;gap:5px;margin-top:3px;color:var(--muted);font-size:10.5px}
+  .cm .mono{font-size:10px;color:var(--ink-2)}
+  .cm .sep{color:var(--faint)}
+  .cf{display:flex;align-items:center;gap:6px;margin-top:6px;padding-top:5px;border-top:1px solid var(--line-soft)}
+  .pill{font-family:var(--mono);font-size:9.5px;padding:0 4px;height:15px;line-height:13px;border:1px solid var(--line-2);color:var(--ink-2);display:inline-flex;align-items:center;gap:3px}
+  .pill.ok{color:var(--ok);border-color:rgba(62,207,142,.3)}
+  .pill.bad{color:var(--bad);border-color:rgba(240,96,77,.35)}
+  .pill.warn{color:var(--warn);border-color:rgba(232,177,74,.35)}
+  .pill.info{color:var(--info);border-color:rgba(106,166,255,.35)}
+  .vote{margin-left:auto;display:flex;align-items:center;border:1px solid var(--line)}
+  .vote button{width:20px;height:16px;display:grid;place-items:center;color:var(--faint);transition:color .12s,background .12s}
+  .vote button+button{border-left:1px solid var(--line)}
+  .vote button:hover{color:var(--ink);background:var(--raise)}
+  .vote button.on.up{color:var(--ok)} .vote button.on.dn{color:var(--bad)}
+  .vote svg.i{width:10px;height:10px}
+  .card .more{position:absolute;right:4px;top:5px;color:var(--faint);opacity:0;transition:opacity .12s}
+  .card:hover .more{opacity:1}
+  .prog{height:2px;background:var(--line);margin-top:5px;position:relative;overflow:hidden}
+  .prog b{position:absolute;left:0;top:0;bottom:0;background:var(--info)}
+  .err{margin-top:5px;font-family:var(--mono);font-size:9.5px;color:#d98a7f;background:rgba(240,96,77,.06);border:1px solid rgba(240,96,77,.15);padding:3px 5px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .spin{animation:spin 1.6s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* inbox */
+  .tabs{display:flex;height:28px;border-bottom:1px solid var(--line-soft);padding:0 6px}
+  .tabs button{padding:0 8px;font-size:11px;color:var(--muted);border-bottom:1px solid transparent;margin-bottom:-1px;display:flex;align-items:center;gap:5px}
+  .tabs button.on{color:var(--ink);border-bottom-color:var(--ink)}
+  .tabs .num{font-size:10px;color:var(--faint)}
+  .ib{flex:1;overflow:auto}
+  .grp{display:flex;align-items:center;gap:6px;padding:8px 10px 4px;font-family:var(--mono);font-size:9.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--faint)}
+  .grp .ln{flex:1;height:1px;background:var(--line-soft)}
+  .grp.hot{color:var(--accent)}
+  .it{display:grid;grid-template-columns:18px 1fr auto;gap:8px;padding:7px 10px;border-bottom:1px solid var(--line-soft);transition:background .12s;align-items:start}
+  .it:hover{background:var(--panel-2)}
+  .ico{width:18px;height:18px;border:1px solid var(--line-2);display:grid;place-items:center;color:var(--ink-2);margin-top:1px}
+  .ico svg.i{width:11px;height:11px}
+  .ico.bad{color:var(--bad);border-color:rgba(240,96,77,.35)}
+  .ico.warn{color:var(--warn);border-color:rgba(232,177,74,.35)}
+  .it .t{font-size:11.5px;color:var(--ink);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .it .m{display:flex;align-items:center;gap:5px;margin-top:2px;font-size:10.5px;color:var(--muted);white-space:nowrap}
+  .it .m .mono{font-size:10px}
+  .typ{font-family:var(--mono);font-size:9px;letter-spacing:.4px;text-transform:uppercase;padding:0 4px;height:14px;line-height:12px;border:1px solid var(--line-2);color:var(--ink-2)}
+  .typ.decision{color:#c7b6ff;border-color:rgba(199,182,255,.3)}
+  .typ.spend{color:var(--warn);border-color:rgba(232,177,74,.35)}
+  .typ.public{color:var(--info);border-color:rgba(106,166,255,.35)}
+  .typ.visual{color:var(--ok);border-color:rgba(62,207,142,.3)}
+  .due{font-family:var(--mono);font-size:10px;color:var(--ink-2)}
+  .due.soon{color:var(--bad)}
+  .act{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+  .act .btn{height:22px;font-size:11px;padding:0 8px}
+  .it .why{font-size:10.5px;color:var(--muted);margin-top:3px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+  .gate{font-family:var(--mono);font-size:10px;color:var(--ink-2)}
+  .ago{font-family:var(--mono);font-size:10px;color:var(--faint)}
+
+  .foot{height:24px;border-top:1px solid var(--line);display:flex;align-items:center;gap:14px;padding:0 10px;color:var(--faint);font-size:10.5px;font-family:var(--mono)}
+  .foot .r{margin-left:auto}
+
+  .tip{position:absolute;pointer-events:none;background:#1f1f22;border:1px solid var(--line-2);padding:5px 7px;font-size:10.5px;color:var(--ink-2);opacity:0;transform:translateY(2px);transition:opacity .1s,transform .1s;z-index:5;white-space:nowrap}
+  .tip.on{opacity:1;transform:none}
+  .tip b{color:var(--ink);font-family:var(--mono);font-weight:500}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/></symbol>
+    <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="7"/><rect x="3" y="14" width="18" height="7"/><path d="M7 6.5h.01M7 17.5h.01"/></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14"/><path d="M8 21h8M12 17v4"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 2l10 5-10 5L2 7z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3L21 2M16 7l3 3M18 5l2 2"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-brain" viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13"/></symbol>
+    <symbol id="i-flag" viewBox="0 0 24 24"><path d="M4 22V4M4 4h13l-2 4 2 4H4"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></symbol>
+    <symbol id="i-msg" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol>
+    <symbol id="i-chevd" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M7 10v12M15 5.9L14 10h5.8a2 2 0 0 1 2 2.3l-1.4 8A2 2 0 0 1 18.5 22H7V10l4-8a3 3 0 0 1 4 3.9z"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M17 14V2M9 18.1L10 14H4.2a2 2 0 0 1-2-2.3l1.4-8A2 2 0 0 1 5.5 2H17v12l-4 8a3 3 0 0 1-4-3.9z"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+    <symbol id="i-loader" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-split" viewBox="0 0 24 24"><path d="M16 3h5v5M8 3H3v5M21 3l-7 7M3 3l7 7M12 22v-8"/></symbol>
+    <symbol id="i-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15 9.5c-.5-1-1.6-1.5-3-1.5-1.7 0-3 .8-3 2s1.3 1.7 3 2 3 .8 3 2-1.3 2-3 2c-1.4 0-2.5-.5-3-1.5M12 6v2M12 16v2"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9.5 9.5l5 5M14.5 9.5l-5 5"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M3 5h18M6 12h12M10 19h4"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.3L3 16M3 12a9 9 0 0 1 15.5-6.3L21 8M21 3v5h-5M3 21v-5h5"/></symbol>
+    <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/></symbol>
+    <symbol id="i-git" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="9" r="2.5"/><path d="M6 8.5v7M18 11.5c0 3-4 3-9.5 5"/></symbol>
+    <symbol id="i-bot" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12"/><path d="M12 8V4M9 13v2M15 13v2"/></symbol>
+  </defs>
+</svg>
+
+<div class="frame">
+  <!-- ============ SYSTEM SIDEBAR ============ -->
+  <aside class="side">
+    <div class="titlebar">
+      <div class="lights"><i></i><i></i><i></i></div>
+      <span class="brand">Topics</span>
+      <div class="modeswitch">
+        <button><svg class="i s"><use href="#i-msg"/></svg>Chats</button>
+        <button class="on"><svg class="i s"><use href="#i-activity"/></svg>System</button>
+      </div>
+    </div>
+    <div class="search"><svg class="i s"><use href="#i-search"/></svg>Jump to job, service, host<kbd>⌘K</kbd></div>
+
+    <nav class="nav">
+      <h6>System</h6>
+      <a class="ni on"><svg class="i"><use href="#i-grid"/></svg>Overview</a>
+      <a class="ni"><svg class="i"><use href="#i-monitor"/></svg>Machines<span class="c">2</span></a>
+      <div class="sub">
+        <a class="ni"><span class="dot warn"></span>MacBook Pro M3 Max<span class="c warn">swap</span></a>
+        <a class="ni"><span class="dot off"></span>PC Windows · RTX 4090<span class="c">asleep</span></a>
+      </div>
+      <a class="ni"><svg class="i"><use href="#i-server"/></svg>Services<span class="c bad">2 / 31</span></a>
+      <div class="sub">
+        <a class="ni"><span class="dot bad"></span>oc-gateway :18789<span class="c bad">503</span></a>
+        <a class="ni"><span class="dot bad"></span>docs-index :3342<span class="c bad">down</span></a>
+      </div>
+      <a class="ni"><svg class="i"><use href="#i-key"/></svg>Quotas &amp; accounts<span class="c warn">1</span></a>
+      <a class="ni"><svg class="i"><use href="#i-clock"/></svg>Automations<span class="c">48</span></a>
+      <a class="ni"><svg class="i"><use href="#i-layers"/></svg>Context<span class="c">214k</span></a>
+      <a class="ni"><svg class="i"><use href="#i-flag"/></svg>Features<span class="c">17</span></a>
+
+      <h6>Pinned</h6>
+      <a class="ni"><svg class="i"><use href="#i-inbox"/></svg>Inbox<span class="c bad">4</span></a>
+      <a class="ni"><svg class="i"><use href="#i-git"/></svg>Gates on main<span class="c bad">2 red</span></a>
+      <a class="ni"><svg class="i"><use href="#i-bot"/></svg>Agents in flight<span class="c">6</span></a>
+    </nav>
+
+    <!-- ============ STATUS STRIP ============ -->
+    <button class="strip on" title="Open System mode">
+      <span class="hint"><svg class="i s"><use href="#i-split"/></svg></span>
+      <div class="srow">
+        <span class="k">CPU</span>
+        <span class="v">2.84</span>
+        <span class="spark" aria-hidden="true">
+          <i style="height:30%"></i><i style="height:40%"></i><i style="height:35%"></i><i style="height:55%"></i><i style="height:70%"></i><i style="height:60%"></i><i style="height:80%"></i><i class="h" style="height:72%"></i>
+        </span>
+        <span class="k">SWAP</span>
+        <span class="v warn">4.1G</span>
+        <span class="fail"><span class="dot bad"></span>2 fail</span>
+      </div>
+      <div class="qgrid">
+        <div class="q" data-tip="Claude 5h · <b>68%</b> used · pace 54% · resets 19:40">
+          <div class="qh"><span class="k">CL5h</span><span class="v warn">68</span></div>
+          <div class="meter"><b class="warn" style="width:68%"></b><span class="pace" style="left:54%"></span></div>
+        </div>
+        <div class="q" data-tip="Claude week · <b>41%</b> used · pace 47% · resets Mon 09:00">
+          <div class="qh"><span class="k">CLwk</span><span class="v">41</span></div>
+          <div class="meter"><b style="width:41%"></b><span class="pace" style="left:47%"></span></div>
+        </div>
+        <div class="q" data-tip="Codex 5h · <b>23%</b> used · pace 60% · cap 80%">
+          <div class="qh"><span class="k">CDX</span><span class="v">23</span></div>
+          <div class="meter"><b style="width:23%"></b><span class="pace" style="left:60%"></span></div>
+        </div>
+        <div class="q" data-tip="Muse monthly · <b>12%</b> used · pace 13%">
+          <div class="qh"><span class="k">MUSE</span><span class="v">12</span></div>
+          <div class="meter"><b class="ok" style="width:12%"></b><span class="pace" style="left:13%"></span></div>
+        </div>
+      </div>
+    </button>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+    <div class="topbar">
+      <div class="crumb"><svg class="i s"><use href="#i-activity"/></svg>System<svg class="i s"><use href="#i-chev"/></svg><b>Overview</b></div>
+      <div class="live"><span class="dot"></span><span class="mono">live · 4s</span></div>
+      <div class="tb-r">
+        <div class="seg"><button>1h</button><button class="on">24h</button><button>7d</button></div>
+        <button class="btn"><svg class="i s"><use href="#i-refresh"/></svg>Re-probe</button>
+        <button class="btn"><svg class="i s"><use href="#i-plus"/></svg>Automation</button>
+      </div>
+    </div>
+
+    <div class="content">
+      <!-- tiles -->
+      <section class="tiles">
+        <div class="tile">
+          <div class="th"><svg class="i s"><use href="#i-cpu"/></svg>MacBook Pro<span class="r">16 cores</span></div>
+          <div class="big"><span class="n">2.84</span><span class="u">load/core</span><span class="d up">+0.62</span></div>
+          <div class="chart" aria-hidden="true">
+            <i style="height:20%"></i><i style="height:25%"></i><i style="height:22%"></i><i style="height:30%"></i><i style="height:28%"></i><i style="height:35%"></i><i style="height:40%"></i><i style="height:38%"></i><i style="height:52%"></i><i style="height:48%"></i><i style="height:60%"></i><i style="height:58%"></i><i style="height:66%"></i><i style="height:72%"></i><i style="height:69%"></i><i style="height:78%"></i><i class="w" style="height:88%"></i><i class="w" style="height:84%"></i><i class="h" style="height:75%"></i><i class="h" style="height:71%"></i>
+          </div>
+          <div class="tsub"><div><span class="k">swap</span><span class="v warn">4.1 GB</span></div><div><span class="k">mem free</span><span class="v">38%</span></div><div><span class="k">gpu</span><span class="v">17%</span></div></div>
+        </div>
+
+        <div class="tile">
+          <div class="th"><svg class="i s"><use href="#i-gauge"/></svg>Quota windows<span class="r">pace tick = even burn</span></div>
+          <div class="qrows">
+            <div class="qr"><span class="k">Claude 5h</span><div class="meter"><b class="warn" style="width:68%"></b><span class="pace" style="left:54%"></span></div><span class="p">68%</span><span class="pc up">+14</span></div>
+            <div class="qr"><span class="k">Claude wk</span><div class="meter"><b style="width:41%"></b><span class="pace" style="left:47%"></span></div><span class="p">41%</span><span class="pc dn">−6</span></div>
+            <div class="qr"><span class="k">Codex 5h</span><div class="meter"><b style="width:23%"></b><span class="pace" style="left:60%"></span></div><span class="p">23%</span><span class="pc dn">−37</span></div>
+            <div class="qr"><span class="k">Muse mo</span><div class="meter"><b class="ok" style="width:12%"></b><span class="pace" style="left:13%"></span></div><span class="p">12%</span><span class="pc dn">−1</span></div>
+          </div>
+        </div>
+
+        <div class="tile">
+          <div class="th"><svg class="i s"><use href="#i-server"/></svg>Services<span class="r">probe 30s</span></div>
+          <div class="big"><span class="n">29</span><span class="u">/ 31 up</span><span class="d up">2 failing</span></div>
+          <div class="chart" aria-hidden="true">
+            <i class="h" style="height:100%"></i><i class="h" style="height:100%"></i><i class="h" style="height:100%"></i><i class="h" style="height:100%"></i><i class="h" style="height:100%"></i><i class="h" style="height:100%"></i><i class="h" style="height:100%"></i><i class="h" style="height:97%"></i><i class="h" style="height:100%"></i><i class="h" style="height:100%"></i><i class="h" style="height:100%"></i><i class="h" style="height:100%"></i><i class="h" style="height:100%"></i><i class="h" style="height:100%"></i><i class="h" style="height:97%"></i><i class="h" style="height:97%"></i><i class="w" style="height:94%"></i><i class="w" style="height:94%"></i><i class="w" style="height:94%"></i><i class="w" style="height:94%"></i>
+          </div>
+          <div class="tsub"><div><span class="k">p50</span><span class="v">38 ms</span></div><div><span class="k">uptime 24h</span><span class="v">99.2%</span></div><div><span class="k">restarts</span><span class="v">3</span></div></div>
+        </div>
+
+        <div class="tile">
+          <div class="th"><svg class="i s"><use href="#i-clock"/></svg>Automations<span class="r">OpenClaw · launchd · CI</span></div>
+          <div class="big"><span class="n">48</span><span class="u">jobs</span><span class="d up">3 failed 24h</span></div>
+          <div class="chart" aria-hidden="true">
+            <i class="h" style="height:40%"></i><i class="h" style="height:55%"></i><i class="h" style="height:30%"></i><i class="h" style="height:62%"></i><i class="h" style="height:44%"></i><i class="h" style="height:35%"></i><i class="w" style="height:58%"></i><i class="h" style="height:66%"></i><i class="h" style="height:48%"></i><i class="h" style="height:52%"></i><i class="h" style="height:38%"></i><i class="h" style="height:70%"></i><i class="w" style="height:64%"></i><i class="h" style="height:42%"></i><i class="h" style="height:46%"></i><i class="h" style="height:57%"></i><i class="h" style="height:61%"></i><i class="w" style="height:50%"></i><i class="h" style="height:45%"></i><i class="h" style="height:36%"></i>
+          </div>
+          <div class="tsub"><div><span class="k">runs 24h</span><span class="v">1,286</span></div><div><span class="k">success</span><span class="v">99.8%</span></div><div><span class="k">to review</span><span class="v warn">3</span></div></div>
+        </div>
+      </section>
+
+      <!-- split -->
+      <section class="split">
+        <!-- AUTOMATIONS BOARD -->
+        <div class="pane">
+          <div class="ph">
+            <svg class="i"><use href="#i-clock"/></svg><h2>Automations</h2><span class="cnt">48 · 12 shown</span>
+            <div class="r">
+              <div class="seg"><button class="on">All</button><button>OpenClaw</button><button>launchd</button><button>CI</button></div>
+              <button class="btn ghost"><svg class="i s"><use href="#i-filter"/></svg></button>
+            </div>
+          </div>
+          <div class="board">
+            <div class="col">
+              <div class="colh"><svg class="i s"><use href="#i-clock"/></svg>Scheduled<span class="cnt">37</span></div>
+              <div class="cards">
+                <div class="card">
+                  <span class="more"><svg class="i s"><use href="#i-more"/></svg></span>
+                  <div class="cn">Morning brief → WhatsApp</div>
+                  <div class="cm"><span class="mono">0 8 * * 1-5</span><span class="sep">·</span>next 08:00</div>
+                  <div class="cf"><span class="pill ok"><svg class="i s"><use href="#i-check"/></svg>ok 11s</span><span class="ago">16h ago</span>
+                    <div class="vote"><button class="up on"><svg class="i"><use href="#i-up"/></svg></button><button class="dn"><svg class="i"><use href="#i-down"/></svg></button></div></div>
+                </div>
+                <div class="card">
+                  <span class="more"><svg class="i s"><use href="#i-more"/></svg></span>
+                  <div class="cn">backup-mac · restic to iCloud</div>
+                  <div class="cm"><span class="mono">05:00 daily</span><span class="sep">·</span>in 11h 18m</div>
+                  <div class="cf"><span class="pill ok"><svg class="i s"><use href="#i-check"/></svg>ok 6m 42s</span><span class="ago">12h ago</span>
+                    <div class="vote"><button class="up"><svg class="i"><use href="#i-up"/></svg></button><button class="dn"><svg class="i"><use href="#i-down"/></svg></button></div></div>
+                </div>
+                <div class="card">
+                  <span class="more"><svg class="i s"><use href="#i-more"/></svg></span>
+                  <div class="cn">mac-health weekly</div>
+                  <div class="cm"><span class="mono">Mon 10:00</span><span class="sep">·</span>in 5d</div>
+                  <div class="cf"><span class="pill warn">2 notes</span><span class="ago">2d ago</span>
+                    <div class="vote"><button class="up"><svg class="i"><use href="#i-up"/></svg></button><button class="dn"><svg class="i"><use href="#i-down"/></svg></button></div></div>
+                </div>
+                <div class="card">
+                  <span class="more"><svg class="i s"><use href="#i-more"/></svg></span>
+                  <div class="cn">repo-ff · fast-forward checkouts</div>
+                  <div class="cm"><span class="mono">*/15</span><span class="sep">·</span>in 6m</div>
+                  <div class="cf"><span class="pill ok"><svg class="i s"><use href="#i-check"/></svg>ok 2s</span><span class="ago">9m ago</span>
+                    <div class="vote"><button class="up on"><svg class="i"><use href="#i-up"/></svg></button><button class="dn"><svg class="i"><use href="#i-down"/></svg></button></div></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="col">
+              <div class="colh"><svg class="i s spin"><use href="#i-loader"/></svg>Running<span class="cnt">3</span></div>
+              <div class="cards">
+                <div class="card running">
+                  <span class="more"><svg class="i s"><use href="#i-more"/></svg></span>
+                  <div class="cn">board-notte · night queue</div>
+                  <div class="cm"><span class="mono">01–07</span><span class="sep">·</span>card 4 / 9</div>
+                  <div class="prog"><b style="width:44%"></b></div>
+                  <div class="cf"><span class="pill info">running 42m</span><span class="ago">PC</span>
+                    <div class="vote"><button class="up"><svg class="i"><use href="#i-up"/></svg></button><button class="dn"><svg class="i"><use href="#i-down"/></svg></button></div></div>
+                </div>
+                <div class="card running">
+                  <span class="more"><svg class="i s"><use href="#i-more"/></svg></span>
+                  <div class="cn">Work day → calendar</div>
+                  <div class="cm"><span class="mono">*/30</span><span class="sep">·</span>reconcile</div>
+                  <div class="prog"><b style="width:78%"></b></div>
+                  <div class="cf"><span class="pill info">running 18s</span><span class="ago">Mac</span>
+                    <div class="vote"><button class="up on"><svg class="i"><use href="#i-up"/></svg></button><button class="dn"><svg class="i"><use href="#i-down"/></svg></button></div></div>
+                </div>
+                <div class="card running">
+                  <span class="more"><svg class="i s"><use href="#i-more"/></svg></span>
+                  <div class="cn">e2e nightly · shard 3/6</div>
+                  <div class="cm"><span class="mono">ci.yml</span><span class="sep">·</span>pw-remote</div>
+                  <div class="prog"><b style="width:23%"></b></div>
+                  <div class="cf"><span class="pill info">running 4m</span><span class="ago">GH</span>
+                    <div class="vote"><button class="up"><svg class="i"><use href="#i-up"/></svg></button><button class="dn"><svg class="i"><use href="#i-down"/></svg></button></div></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="col">
+              <div class="colh" style="color:var(--bad)"><svg class="i s"><use href="#i-x"/></svg>Failed<span class="cnt">3</span></div>
+              <div class="cards">
+                <div class="card failed">
+                  <span class="more"><svg class="i s"><use href="#i-more"/></svg></span>
+                  <div class="cn">docs-index reindex</div>
+                  <div class="cm"><span class="mono">*/10</span><span class="sep">·</span>3 in a row</div>
+                  <div class="err">ECONNREFUSED 127.0.0.1:3342</div>
+                  <div class="cf"><span class="pill bad">exit 1</span><span class="ago">2m ago</span>
+                    <div class="vote"><button class="up"><svg class="i"><use href="#i-up"/></svg></button><button class="dn"><svg class="i"><use href="#i-down"/></svg></button></div></div>
+                </div>
+                <div class="card failed">
+                  <span class="more"><svg class="i s"><use href="#i-more"/></svg></span>
+                  <div class="cn">AI invoices · monthly</div>
+                  <div class="cm"><span class="mono">1st 09:00</span><span class="sep">·</span>2025-10</div>
+                  <div class="err">gmail +triage: 0 receipts for Codex</div>
+                  <div class="cf"><span class="pill bad">exit 3</span><span class="ago">3d ago</span>
+                    <div class="vote"><button class="up"><svg class="i"><use href="#i-up"/></svg></button><button class="dn on"><svg class="i"><use href="#i-down"/></svg></button></div></div>
+                </div>
+                <div class="card failed">
+                  <span class="more"><svg class="i s"><use href="#i-more"/></svg></span>
+                  <div class="cn">oc-unstick · channel watch</div>
+                  <div class="cm"><span class="mono">*/1</span><span class="sep">·</span>discord</div>
+                  <div class="err">gateway 503 · restart held (busy)</div>
+                  <div class="cf"><span class="pill bad">timeout 60s</span><span class="ago">40s ago</span>
+                    <div class="vote"><button class="up"><svg class="i"><use href="#i-up"/></svg></button><button class="dn"><svg class="i"><use href="#i-down"/></svg></button></div></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="col">
+              <div class="colh" style="color:var(--warn)"><svg class="i s"><use href="#i-eye"/></svg>To review<span class="cnt">3</span></div>
+              <div class="cards">
+                <div class="card review">
+                  <span class="more"><svg class="i s"><use href="#i-more"/></svg></span>
+                  <div class="cn">mailwatch · important mail</div>
+                  <div class="cm"><span class="mono">*/1</span><span class="sep">·</span>Haiku on candidates</div>
+                  <div class="cf"><span class="pill warn">14 pings / 24h</span>
+                    <div class="vote"><button class="up"><svg class="i"><use href="#i-up"/></svg></button><button class="dn"><svg class="i"><use href="#i-down"/></svg></button></div></div>
+                </div>
+                <div class="card review">
+                  <span class="more"><svg class="i s"><use href="#i-more"/></svg></span>
+                  <div class="cn">oc-memwatch · restart rule</div>
+                  <div class="cm"><span class="mono">*/10</span><span class="sep">·</span>&gt;3.5 GB for 30m</div>
+                  <div class="cf"><span class="pill warn">changed 2h ago</span>
+                    <div class="vote"><button class="up"><svg class="i"><use href="#i-up"/></svg></button><button class="dn"><svg class="i"><use href="#i-down"/></svg></button></div></div>
+                </div>
+                <div class="card review">
+                  <span class="more"><svg class="i s"><use href="#i-more"/></svg></span>
+                  <div class="cn">memlog · 5 min sampler</div>
+                  <div class="cm"><span class="mono">*/5</span><span class="sep">·</span>migrated launchd</div>
+                  <div class="cf"><span class="pill">new id</span>
+                    <div class="vote"><button class="up"><svg class="i"><use href="#i-up"/></svg></button><button class="dn"><svg class="i"><use href="#i-down"/></svg></button></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="gutter" title="Drag to resize"></div>
+
+        <!-- INBOX -->
+        <div class="pane">
+          <div class="ph">
+            <svg class="i"><use href="#i-inbox"/></svg><h2>Inbox</h2><span class="cnt">9</span>
+            <div class="r"><button class="btn ghost">Mark all seen</button></div>
+          </div>
+          <div class="tabs">
+            <button class="on">All<span class="num">9</span></button>
+            <button>Waiting<span class="num">4</span></button>
+            <button>Alerts<span class="num">3</span></button>
+            <button>Gates<span class="num">2</span></button>
+          </div>
+          <div class="ib">
+            <div class="grp hot">Waiting for you<span class="ln"></span><span>4</span></div>
+
+            <div class="it">
+              <span class="ico"><svg class="i"><use href="#i-split"/></svg></span>
+              <div style="min-width:0">
+                <div class="t">Agent engine: keep OpenClaw core or ship own runtime</div>
+                <div class="m"><span class="typ decision">decision</span><span class="due soon">due today 18:00</span><span class="sep">·</span>from oracle</div>
+              </div>
+              <div class="act"><button class="btn pri">Decide</button></div>
+            </div>
+
+            <div class="it">
+              <span class="ico"><svg class="i"><use href="#i-coin"/></svg></span>
+              <div style="min-width:0">
+                <div class="t">Neon: Launch plan for Acme CRM</div>
+                <div class="m"><span class="typ spend">spend</span><span class="mono" style="color:var(--ink-2)">$19.00/mo</span><span class="sep">·</span><span class="due">Fri 08 Nov</span><span class="sep">·</span>from Jarvis</div>
+              </div>
+              <div class="act"><button class="btn pri">Approve</button></div>
+            </div>
+
+            <div class="it">
+              <span class="ico"><svg class="i"><use href="#i-globe"/></svg></span>
+              <div style="min-width:0">
+                <div class="t">Publish landing v3 to topics.app</div>
+                <div class="m"><span class="typ public">public</span><span class="due">Thu 07 Nov</span><span class="sep">·</span>from card a5906c31</div>
+              </div>
+              <div class="act"><button class="btn pri">Review</button></div>
+            </div>
+
+            <div class="it">
+              <span class="ico"><svg class="i"><use href="#i-eye"/></svg></span>
+              <div style="min-width:0">
+                <div class="t">Course slides, lesson 4: mobile check</div>
+                <div class="m"><span class="typ visual">visual check</span><span class="due">Wed 13 Nov</span><span class="sep">·</span>from Muse</div>
+              </div>
+              <div class="act"><button class="btn pri">Look</button></div>
+            </div>
+
+            <div class="grp">Alerts<span class="ln"></span><span>3</span></div>
+
+            <div class="it">
+              <span class="ico warn"><svg class="i"><use href="#i-alert"/></svg></span>
+              <div style="min-width:0">
+                <div class="t">Swap sustained above 4 GB for 22 min</div>
+                <div class="why">4 Bun dev servers idle &gt; 1h hold 2.3 GB footprint</div>
+              </div>
+              <div class="act"><span class="ago">6m</span><button class="btn">Reap</button></div>
+            </div>
+            <div class="it">
+              <span class="ico bad"><svg class="i"><use href="#i-server"/></svg></span>
+              <div style="min-width:0">
+                <div class="t">oc-gateway answering 503 on Discord</div>
+                <div class="why">SESSION_WORK_START_CHANGED · 7 messages in dead-letters</div>
+              </div>
+              <div class="act"><span class="ago">40s</span><button class="btn">Resubmit</button></div>
+            </div>
+            <div class="it">
+              <span class="ico warn"><svg class="i"><use href="#i-key"/></svg></span>
+              <div style="min-width:0">
+                <div class="t">Claude 5h ahead of pace by 14 pts</div>
+                <div class="why">At this rate the window caps at 18:52, 48 min before reset</div>
+              </div>
+              <div class="act"><span class="ago">12m</span><button class="btn">Shift to Muse</button></div>
+            </div>
+
+            <div class="grp" style="color:var(--bad)">Red gates<span class="ln"></span><span>2</span></div>
+
+            <div class="it">
+              <span class="ico bad"><svg class="i"><use href="#i-shield"/></svg></span>
+              <div style="min-width:0">
+                <div class="t">ci.yml · e2e shard 3 red on main</div>
+                <div class="m"><span class="gate">f2908fe · tab-strip.spec.ts:118</span></div>
+              </div>
+              <div class="act"><span class="ago">1h</span><button class="btn">Open run</button></div>
+            </div>
+            <div class="it">
+              <span class="ico bad"><svg class="i"><use href="#i-shield"/></svg></span>
+              <div style="min-width:0">
+                <div class="t">push-guard held a push to jarvis</div>
+                <div class="m"><span class="gate">1 email in docs/brief.md</span></div>
+              </div>
+              <div class="act"><span class="ago">3h</span><button class="btn">Inspect</button></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="foot">
+      <span>hub :3360 ok</span><span>6 agents · 214k ctx</span><span>PC asleep 34m</span>
+      <span class="r">Wed 04 Nov 17:52 CET</span>
+    </div>
+  </main>
+
+  <div class="tip" id="tip"></div>
+</div>
+
+<script>
+  // voti: toggle esclusivo su/giù per card
+  document.querySelectorAll('.vote').forEach(v=>{
+    v.querySelectorAll('button').forEach(b=>b.addEventListener('click',e=>{
+      e.stopPropagation();
+      const was=b.classList.contains('on');
+      v.querySelectorAll('button').forEach(x=>x.classList.remove('on'));
+      if(!was) b.classList.add('on');
+    }));
+  });
+  // segmented e tab: selezione singola
+  document.querySelectorAll('.seg,.tabs,.modeswitch').forEach(g=>{
+    g.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{
+      g.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+    }));
+  });
+  // tooltip dei misuratori nella strip
+  const tip=document.getElementById('tip'), frame=document.querySelector('.frame');
+  document.querySelectorAll('[data-tip]').forEach(el=>{
+    el.addEventListener('mouseenter',()=>{
+      tip.innerHTML=el.dataset.tip;
+      const r=el.getBoundingClientRect(), f=frame.getBoundingClientRect();
+      tip.style.left=Math.max(6,r.left-f.left-10)+'px';
+      tip.style.top=(r.top-f.top-30)+'px';
+      tip.classList.add('on');
+    });
+    el.addEventListener('mouseleave',()=>tip.classList.remove('on'));
+  });
+</script>
+</body>
+</html>
