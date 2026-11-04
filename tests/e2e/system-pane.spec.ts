@@ -24,7 +24,9 @@ import { defaultFakeHubItems, startFakeHub, type FakeHub } from "./helpers/fake-
 import { E2E_BASE } from "./helpers/test-server";
 
 hermetic(test);
-test.use({ video: "on" });
+// The streaming route is faked with page.route: a service worker would answer
+// it before the route sees it.
+test.use({ video: "on", serviceWorkers: "block" });
 test.describe.configure({ mode: "serial", timeout: 120_000 });
 
 const SECTIONS = ["waiting", "agents", "alerts", "gates", "automations"];
@@ -53,6 +55,7 @@ test.describe("System pane beside the work", () => {
   test("desktop: the strip opens the pane beside the chat, the sections are there, an item closes through the hub", async ({ page, request }, testInfo) => {
     // One chat mid-reply, said by the route the app reads for exactly this:
     // the Agents section is today's list of who works, not a second drawing.
+    test.setTimeout(120_000);
     const worker = await createTopic(request, "E2E System Agent");
     await page.route("**/api/topics/streaming", (r) => r.fulfill({
       status: 200,
@@ -64,7 +67,8 @@ test.describe("System pane beside the work", () => {
       await page.emulateMedia({ colorScheme: "dark" });
       await goToApp(page);
       await openTestChat(page);
-      const chat = page.getByTestId("chat-panel").first();
+      // The worker chat has a (hidden) panel too: the work is the one on screen.
+      const chat = page.getByTestId("chat-panel").filter({ visible: true }).first();
       await expect(chat).toBeVisible();
       const tabsBefore = await page.getByTestId("pane-tab-slot").count();
 
