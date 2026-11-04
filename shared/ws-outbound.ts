@@ -776,6 +776,16 @@ const cronUpdatedSchema = z.looseObject({
   jobs: z.array(z.unknown()),
 });
 
+// Live hub data (server/lib/hub-live.ts): one topic per frame, either the
+// hub's JSON or the reason it could not be read. Never both.
+const hubLiveSchema = z.looseObject({
+  type: z.literal('hub:live'),
+  topic: z.enum(['pace', 'mac', 'services']),
+  data: z.optional(z.unknown()),
+  error: z.optional(z.string()),
+  at: z.number(),
+});
+
 const gatewayStatusSchema = z.looseObject({
   type: z.literal('gateway:status'),
 });
@@ -1525,6 +1535,7 @@ const OUTBOUND_SCHEMAS = {
   'pane:focus-suggest': paneFocusSuggestSchema,
   'clear': clearSchema,
   'cron:updated': cronUpdatedSchema,
+  'hub:live': hubLiveSchema,
   'gateway:status': gatewayStatusSchema,
   'machine:updated': machineUpdatedSchema,
   'machine:upserted': machineUpsertedSchema,
@@ -1619,6 +1630,7 @@ export const OUTBOUND_FRAME_CLASSES: Record<OutboundType, OutboundFrameClass> = 
   'command-run:updated': 'topic',
   'connected': 'global',
   'cron:updated': 'global',
+  'hub:live': 'global',
   'dashboard:updated': 'global',
   'drag:accepted': 'topic',
   'drag:end': 'topic',

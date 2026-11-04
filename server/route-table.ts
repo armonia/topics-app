@@ -62,6 +62,7 @@ export const API_ROUTER_ORDER = [
   "viewsRouter",
   "claudeHooksRouter",
   "e2eRouter",
+  "hubRouter",
 ] as const;
 
 export type ApiRouterName = (typeof API_ROUTER_ORDER)[number];

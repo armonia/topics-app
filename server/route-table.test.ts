@@ -65,6 +65,7 @@ const GOLDEN_ORDER = [
   "viewsRouter",
   "claudeHooksRouter",
   "e2eRouter",
+  "hubRouter",
 ];
 
 const req = new Request("http://localhost/api/x");

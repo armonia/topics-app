@@ -87,6 +87,8 @@ import { createBrowserRouter } from "./server/routes/browser";
 import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
 import { createUsageRouter } from "./server/routes/usage";
+import { createHubRouter, upstreamBase, HUB_DEFAULT_URL } from "./server/routes/hub";
+import { createHubLive } from "./server/lib/hub-live";
 import { createOrphanCensusRunner } from "./server/services/orphan-census";
 import { createTerminalRouter, setTerminalMemPressure, setChildAdmissionPreview, handleTerminalWebSocket, disconnectBridge, getAgentPtyCliPids, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, countBusyAgentTerminals, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession, liveTerminalCwds, listTopicsLiveTerminals, readTopicsTerminalScreen, writeTopicsTerminal } from "./server/routes/terminal";
 import { createLiveTerminals } from "./server/lib/live-terminals";
@@ -1053,6 +1055,15 @@ const openclawContextRouter = aiProvider.name === 'openclaw' ? createOpenClawCon
 const contextPreviewRouter = createContextPreviewRouter(ctx);
 const dashboardRouter = createDashboardRouter(ctx);
 const usageRouter = createUsageRouter(ctx);
+// The usage hub's quotas, Mac and services, read by ONE reader while a window
+// is connected and pushed as `hub:live` (server/lib/hub-live.ts).
+const hubLive = createHubLive({
+  base: () => upstreamBase("TOPICS_HUB_URL", HUB_DEFAULT_URL),
+  broadcast: (frame) => broadcastToAll(frame),
+  hasClients: () => wsClients.size > 0,
+});
+hubLive.start();
+const hubRouter = createHubRouter(ctx, { live: hubLive });
 const authRouter = createAuthRouter(ctx, {
   onCapabilityRevoked: async (capabilityId) => {
     const canceled = await taskDispatcher.revokeDelegatedCapability(capabilityId);
@@ -3644,6 +3655,7 @@ const apiRouteTable = buildRouteTable({
   viewsRouter,
   claudeHooksRouter,
   e2eRouter,
+  hubRouter,
 });
 
 const opzioniServer = {

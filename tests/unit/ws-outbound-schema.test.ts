@@ -217,6 +217,7 @@ describe('outbound registry contract', () => {
       'gateway:status',
       'git:status',
       'goal:updated',
+      'hub:live',
       'machine:deleted',
       'machine:updated',
       'machine:upserted',
@@ -431,8 +432,11 @@ describe('outbound registry contract', () => {
   // (`recordHistoryRow`), listener `useNotificationHistory`.
   // 105 -> 106: `task:unowned`, the coordinator's event for a card nobody owns.
   // 106 -> 107: `task:ai-review`, the coordinator's event for a card in AI review.
+  // 107 -> 108: `hub:live`, the usage hub's quotas, Mac and services pushed by
+  // ONE server-side reader instead of every hub tab polling. Owner-only.
+  // Sender `server/lib/hub-live.ts`, listener `client/src/state/hubLive.ts`.
   test('all 104 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(107);
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(108);
   });
 });
 
@@ -546,6 +550,13 @@ describe('validateOutbound — misc domain (browser/cron/machine/memory/open-pro
   test('cron:updated requires jobs array', () => {
     expect(validateOutbound({ type: 'cron:updated', jobs: [] }).ok).toBe(true);
     expect(validateOutbound({ type: 'cron:updated' }).ok).toBe(false);
+  });
+
+  test('hub:live requires a known topic and a timestamp', () => {
+    expect(validateOutbound({ type: 'hub:live', topic: 'pace', data: [], at: 1 }).ok).toBe(true);
+    expect(validateOutbound({ type: 'hub:live', topic: 'mac', error: 'hub down', at: 1 }).ok).toBe(true);
+    expect(validateOutbound({ type: 'hub:live', topic: 'board', data: [], at: 1 }).ok).toBe(false);
+    expect(validateOutbound({ type: 'hub:live', topic: 'pace', data: [] }).ok).toBe(false);
   });
 
   test('machine:upserted/updated require machine.id', () => {
