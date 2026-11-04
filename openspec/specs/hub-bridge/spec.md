@@ -63,7 +63,7 @@ The client SHALL keep the latest `hub:live` reading per topic, seed it from `GET
 
 ### Requirement: HUBBR-04 — Status strip at the foot of the sidebar
 
-The client SHALL show the system at a glance at the foot of the sidebar on the desktop (above the identity band, below the transport alarms) and above the bottom row on the phone: a dot and one sentence (calm, or something to look at), the number of services down, and a line of numbers (cpu, swap, the quota of the accounts in use). A click or tap SHALL open the System pane.
+The client SHALL show the system at a glance at the foot of the sidebar on the desktop (above the identity band, below the transport alarms) and above the bottom row on the phone: a dot and one sentence, the number of services down, and a line of numbers (cpu, swap, the quota of the accounts in use). The sentence SHALL be "calm" only when services, alerts, gates and the Mac were all read and none asks for attention. A click or tap SHALL open the System pane.
 
 #### Scenario: No hub, no strip
 - **GIVEN** no topic was ever read in this window
@@ -75,21 +75,36 @@ The client SHALL show the system at a glance at the foot of the sidebar on the d
 - **WHEN** the strip renders
 - **THEN** it SHALL say the hub is not reachable and show no number
 
+#### Scenario: Hub answering in part is not calm
+- **GIVEN** one of services, alerts, gates or the Mac is in error and what did read asks for no attention
+- **WHEN** the strip renders
+- **THEN** it SHALL say the hub answers in part, never "calm", and show only the numbers of the topics that read
+
 ### Requirement: HUBBR-05 — The System pane beside the work
 
-The client SHALL open the System pane as one more column beside the work area, from the strip and from the command palette entry «Sistema»: the tab in front, the top-level tabs and the sidebar SHALL stay as they are. The pane SHALL show, in order: waiting for you (type, title, why, due, from, open link, close), agents (the same rows as the user menu's agents level) with one line of quotas, alerts, red gates, automations (counters, next run, failed jobs). "Open full view" SHALL widen the same pane over the work area and back. Below 768px the same content SHALL open in the bottom sheet.
+The client SHALL register the System pane as a pane kind (`system`, utility id `__system__`) and open it from the strip and from the command palette entry «Sistema» as one more split cell beside the work: the tab in front, the tabs of its cell and the sidebar SHALL stay as they are, the cell SHALL resize like any split and the pane SHALL survive a reload with the pane store. The pane SHALL show, in order: a lede (how many things wait, whether the rest is handled) with when the newest reading arrived, waiting for you (type, title, why, due, from, open link, close), agents (the same rows as the user menu's agents level) with one line of quotas, alerts, red gates, automations (counters, next run, failed jobs). "Open full view" SHALL be the grid's zoom on the System cell and back, so the other cells keep their size. A `#page` link of an item SHALL open only where the window runs on the hub's own machine. Below 768px the same content SHALL open in the bottom sheet over the chat, leaving the top of the chat visible.
 
 #### Scenario: Beside, not instead
 - **GIVEN** a chat open in the work area
 - **WHEN** the strip is clicked
-- **THEN** the System pane SHALL appear to the right of the chat, the chat SHALL stay visible, and the number of top-level tabs SHALL not change
+- **THEN** the System pane SHALL appear in its own cell to the right of the chat, the chat SHALL stay visible, the chat's cell SHALL keep its tabs, and after a reload the System cell SHALL still be there
+
+#### Scenario: Open full view
+- **GIVEN** the System pane beside a chat
+- **WHEN** "open full view" is pressed, and pressed again
+- **THEN** the grid SHALL zoom on the System cell, then come back with the chat visible
 
 #### Scenario: Closing a waiting item
 - **GIVEN** an item in "waiting for you"
 - **WHEN** its close action is pressed
 - **THEN** the client SHALL `POST /api/hub/attesa` with `{"kind":"chiudi","ref":<id>}`, hide the row at once, read the snapshot again once the hub accepted, and bring the row back with the reason if the hub refuses
 
+#### Scenario: Failed jobs follow the summary
+- **GIVEN** the automations summary changes while its failed count stays the same
+- **WHEN** the new reading arrives
+- **THEN** the pane SHALL ask the failed jobs again
+
 #### Scenario: Phone
 - **GIVEN** a window narrower than 768px
 - **WHEN** the strip above the bottom row is tapped
-- **THEN** the pane content SHALL open in the bottom sheet over the chat
+- **THEN** the pane content SHALL open in the bottom sheet over the chat, at most about three quarters of the screen high

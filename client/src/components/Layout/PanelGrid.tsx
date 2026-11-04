@@ -40,7 +40,7 @@ import { draggedPaneId } from '../../lib/dragPayload';
 import { notifyPaneReflow } from './paneReflow';
 import { applyZoomWeights, cellKeysForPanes, liveCellKeys } from './paneZoom';
 import { computeZoomPaneIds, resolveEntryScope, resolveZoomAnchor, resolveZoomCells, type ZoomPane, type ZoomScope } from './zoomScope';
-import { paneZoomActions, usePaneZoomStore } from '../../state/paneZoom';
+import { paneZoomActions, usePaneZoomStore, STANDALONE_ZOOM_SURFACE_ID } from '../../state/paneZoom';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
@@ -66,7 +66,7 @@ import { shortcut } from '../../lib/shortcutLabel';
  * leaves the zoom. Leaving it there is intended, not a side effect: the store's
  * docstring says so.
  */
-const ZOOM_SURFACE_ID = 'standalone-grid';
+const ZOOM_SURFACE_ID = STANDALONE_ZOOM_SURFACE_ID;
 
 /** No cell revealed: the resting state, and a stable ref so the memo
  *  downstream does not invalidate on every render while there is no zoom. */

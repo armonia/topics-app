@@ -30,17 +30,33 @@ export interface WaitingItem {
 }
 
 /** Where the hub's own pages live: a `#page` link of an item points there. */
-export const HUB_PAGES_BASE = 'http://127.0.0.1:3360/';
+const HUB_PAGES_BASE = 'http://127.0.0.1:3360/';
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+
+/**
+ * The hub's dashboard listens on the Mac's loopback only, so a `#page` link
+ * opens only where this window runs on that same machine. From the phone or a
+ * remote session the same address would be the DEVICE's own localhost, a dead
+ * link: there the item keeps its close action and no open action.
+ */
+export function hubPageLink(hash: string, windowHost: string): string | null {
+  return LOOPBACK_HOSTS.has(windowHost) ? HUB_PAGES_BASE + hash : null;
+}
+
+function currentHost(): string {
+  return typeof window === 'undefined' ? '' : window.location.hostname;
+}
 
 /**
  * The three link forms the hub accepts on an item (its `validateAttesa`):
  * http(s), `#page` of the hub's dashboard, and `claude://`. Anything else is
  * dropped, so the primary action never opens a scheme nobody vetted.
  */
-function safeLink(v: unknown): string | null {
+function safeLink(v: unknown, windowHost: string): string | null {
   const s = str(v);
   if (!s) return null;
-  if (s.startsWith('#')) return HUB_PAGES_BASE + s;
+  if (s.startsWith('#')) return hubPageLink(s, windowHost);
   try {
     const u = new URL(s);
     return u.protocol === 'https:' || u.protocol === 'http:' || u.protocol === 'claude:' ? u.toString() : null;
@@ -50,7 +66,7 @@ function safeLink(v: unknown): string | null {
 }
 
 /** The open items, in the hub's own order (most urgent first). */
-export function waitingItems(data: unknown): WaitingItem[] {
+export function waitingItems(data: unknown, windowHost: string = currentHost()): WaitingItem[] {
   const items = isObject(data) && Array.isArray(data.items) ? data.items : [];
   const out: WaitingItem[] = [];
   for (const raw of items) {
@@ -59,7 +75,7 @@ export function waitingItems(data: unknown): WaitingItem[] {
     const title = str(raw.title);
     if (!id || !title) continue;
     const kind = (WAITING_KINDS as readonly string[]).includes(String(raw.tipo)) ? (raw.tipo as WaitingKind) : 'decisione'; // allow-italian: the hub's wire value
-    out.push({ id, kind, title, why: str(raw.why), link: safeLink(raw.link), from: str(raw.from), due: num(raw.due) });
+    out.push({ id, kind, title, why: str(raw.why), link: safeLink(raw.link, windowHost), from: str(raw.from), due: num(raw.due) });
   }
   return out;
 }
@@ -242,7 +258,7 @@ export function macGlance(data: unknown): MacGlance | null {
 
 // ── The strip ────────────────────────────────────────────────────────────────
 
-export type StripState = 'hidden' | 'down' | 'calm' | 'attention';
+export type StripState = 'hidden' | 'down' | 'partial' | 'calm' | 'attention';
 
 export interface StripModel {
   state: StripState;
@@ -253,11 +269,17 @@ export interface StripModel {
 
 const HIDDEN: StripModel = { state: 'hidden', servicesDown: 0, mac: null, quotas: [] };
 
+/** The topics the calm sentence is a claim about: calm only once all of them read. */
+const CALM_RESTS_ON = ['services', 'alerts', 'gates', 'mac'] as const;
+
 /**
  * One glance at the system. Hidden while the hub was never readable (an
  * installation without it); `down` once it was and no topic answers now, so
  * the strip says so instead of keeping numbers that stopped being true. A
- * topic in error contributes nothing: its numbers were already dropped.
+ * topic in error contributes nothing: its numbers were already dropped. And
+ * "calm" is said only when every topic it speaks for was read: with one of
+ * them unreadable the strip says the hub answers in part (`partial`), unless
+ * what did read already asks for attention.
  */
 export function stripModel(state: HubLiveState, everRead: boolean): StripModel {
   if (!everRead) return HIDDEN;
@@ -270,5 +292,6 @@ export function stripModel(state: HubLiveState, everRead: boolean): StripModel {
     || firingAlerts(state.alerts?.data).length > 0
     || redGates(state.gates?.data).length > 0
     || mac?.strained === true;
-  return { state: attention ? 'attention' : 'calm', servicesDown: down, mac, quotas };
+  const unread = CALM_RESTS_ON.some((topic) => state[topic]?.data === undefined);
+  return { state: attention ? 'attention' : unread ? 'partial' : 'calm', servicesDown: down, mac, quotas };
 }

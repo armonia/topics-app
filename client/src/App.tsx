@@ -125,7 +125,7 @@ import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar, MobileTransportBand } from './components/Sidebar/SidebarStatusBar';
 import { UnsentContext, useUnsentController } from './state/unsentMessages';
 import { MobileChromeBar } from './components/Sidebar/MobileChromeBar';
-import { useSystemPane } from './state/systemPane';
+import { useSystemSheetOpen } from './state/systemPane';
 import { shortcut, usesCtrl } from './lib/shortcutLabel';
 import { useSidebarHandleInsets } from './hooks/useSidebarBottomInset';
 
@@ -205,12 +205,8 @@ const PushEnrollPrompt = lazy(retryingChunk('PushEnrollPrompt', async () => {
   const { PushEnrollPrompt: Component } = await import('./components/Notifications/PushEnrollPrompt');
   return { default: Component };
 }));
-// The System pane (usage hub) beside the work, and its phone sheet: loaded when
-// the pane opens, never in the entry chunk.
-const SystemDock = lazy(retryingChunk('SystemPane', async () => {
-  const { SystemDock: Component } = await import('./components/System/SystemPane');
-  return { default: Component };
-}));
+// The System pane's phone sheet (usage hub): loaded when the sheet opens,
+// never in the entry chunk. On the desktop the pane is a grid cell.
 const SystemSheet = lazy(retryingChunk('SystemPane', async () => {
   const { SystemSheet: Component } = await import('./components/System/SystemPane');
   return { default: Component };
@@ -429,8 +425,8 @@ function App() {
     viewportTop,
     windowId,
   } = layout.state;
-  // The System pane (usage hub): a column beside the work, a sheet on the phone.
-  const systemPane = useSystemPane();
+  // The System pane on the phone (usage hub): the bottom sheet over the chat.
+  const systemSheetOpen = useSystemSheetOpen();
   // «Un comando compare dove ha effetto»: sotto i 768px PanelGrid non disegna
   // affatto gli split, quindi i comandi che li governano non si mostrano.
   // La regola — e la misura che la giustifica — sta nell'hook, non qui.
@@ -2195,7 +2191,7 @@ function App() {
       />
 
       {/* The System pane on the phone: the same content in the bottom sheet. */}
-      {isMobile && systemPane.open && (
+      {isMobile && systemSheetOpen && (
         <ErrorBoundary fallbackMessageKey="crash.panel">
           <Suspense fallback={null}>
             <SystemSheet />
@@ -2323,14 +2319,7 @@ function App() {
             che la sidebar disegna attorno alle tab, qui attorno al lavoro. C'è
             solo quando i gruppi esistono; keyed su activeSpaceId come la
             griglia, così cambiare gruppo rigioca l'ingresso. */}
-        {/* THE SYSTEM PANE SITS BESIDE THE WORK, as one more column: the grid
-            keeps its tabs and its width minus the column. «Open full view»
-            folds the grid to zero width instead of covering it, so a native
-            browser pane follows the rectangle rather than drawing over the
-            System pane. */}
-        <div className="flex-1 flex min-h-0 min-w-0">
-        <div key={activeSpaceId} className={`flex-1 flex flex-col min-h-0 min-w-0 ${spaceScoped ? 'space-frame' : ''}`}
-          style={!isMobile && systemPane.open && systemPane.maximized ? { flex: '0 0 0px', overflow: 'hidden' } : undefined}>
+        <div key={activeSpaceId} className={`flex-1 flex flex-col min-h-0 min-w-0 ${spaceScoped ? 'space-frame' : ''}`}>
         {activeSpaceWindow ? (
           <SpaceElsewherePanel spaceId={activeSpaceId} windowLabel={activeSpaceWindow} />
         ) : (
@@ -2385,12 +2374,6 @@ function App() {
         </Suspense>
         )}
         </div>{/* /space-frame */}
-        {!isMobile && systemPane.open && (
-          <Suspense fallback={null}>
-            <SystemDock />
-          </Suspense>
-        )}
-        </div>
         </ErrorBoundary>
         </div>{/* /content-flip-layer */}
         {/* The version banner's second slot, for a collapsed sidebar (whose own

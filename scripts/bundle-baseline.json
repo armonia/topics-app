@@ -829,9 +829,13 @@
     "2026-10-23, zod 4.4.3 -> 4.6.7 (avviso GHSA-mrhx-c7xc-m3w5, alta gravita'; dipendenza diretta della root, nell'entry via shared/ws-outbound.ts): entry_eager raw 904.491 -> 909.773 (CI run 40023946430), +5.282 raw / +1.684 gz, oltre il tetto di 909.150 di 623 byte.",
     "Il fix di sicurezza non e' negoziabile, quindi il tetto segue la misura: entry_eager raw 909.773, total_assets 9.032.356 -> 9.037.638. Il gz dell'entry resta sotto il registrato.",
     "",
-    "2026-10-31, loader a quadrati: entry_eager raw 909.773 -> 939.270, misura della CI su 12eb4a661. Il loader sta in ogni riga e nel guscio, quindi resta eager."
+    "2026-10-31, loader a quadrati: entry_eager raw 909.773 -> 939.270, misura della CI su 12eb4a661. Il loader sta in ogni riga e nel guscio, quindi resta eager.",
+    "",
+    "2026-11-04, Hub in Topics (striscia di stato e pannello Sistema): total_assets +30.289 raw, misurato con lo stesso comando sul PC (`bun run build:client && bun run check:bundle`): origin/main 9.218.337, questo ramo 9.248.626, cioè 54 byte sotto il tetto prima e 30 KB sopra dopo.",
+    "Cosa compra: il chunk pigro SystemPane (le sezioni del pannello), i dizionari IT+EN del Sistema, la striscia in fondo alla sidebar, lo store hub:live e le letture pure di lib/hubSystem. Il pannello resta un chunk suo: nell'entry ci sono solo la striscia e lo store, che devono esserci al primo frame.",
+    "Il tetto segue la misura: total_assets 9.037.638 -> 9.067.927. entry_eager resta dov'era (958.011 contro un tetto di 958.055)."
   ],
-  "updated": "2026-10-31",
+  "updated": "2026-11-04",
   "tolerance_pct": 2,
   "entry_eager": {
     "raw": 939270,
@@ -843,6 +847,6 @@
     "files": 5
   },
   "total_assets": {
-    "raw": 9037638
+    "raw": 9067927
   }
 }

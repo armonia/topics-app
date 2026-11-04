@@ -60,6 +60,11 @@ interface PaneZoomState {
   exitTop: () => boolean;
 }
 
+/** The zoom surface of the app's standalone grid (PanelGrid). Named here so a
+ *  pane that zooms its own cell (the System pane's «open full view») reads the
+ *  same key as the grid, not a second spelling of it. */
+export const STANDALONE_ZOOM_SURFACE_ID = 'standalone-grid';
+
 let openedSeq = 0;
 
 function withoutSurface(

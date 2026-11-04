@@ -1,24 +1,50 @@
 /**
- * Whether the System pane is open in this window, and whether it fills the
- * work area. Device-local on purpose: the pane sits BESIDE the work, it is not
- * one of the synced tabs (pane-store), so opening it on the phone does not
- * reshape the desktop and it never becomes a top-level tab.
+ * The System pane (usage hub) as a PANE KIND: `system`, the utility id
+ * `__system__`, registered like Dashboard and Board (state/pane/types.ts,
+ * adapters/utilityPanelId.ts). On the desktop it opens as one more split cell
+ * beside the work, through the same `topics:open-utility` door every utility
+ * pane uses (usePanelLifecycle decides the split), so it is resizable like any
+ * cell and survives a reload with the pane store. «Open full view» is the
+ * grid's own zoom on that cell.
+ *
+ * On the phone the grid draws no splits, so the same content opens in the
+ * bottom sheet instead; that sheet is device-local state, kept here.
  */
 import { useSyncExternalStore } from 'react';
+import { usePaneStore } from './pane/store';
+import { utilityPanelId } from './pane/adapters/utilityPanelId';
+import { paneZoomActions, usePaneZoomStore, STANDALONE_ZOOM_SURFACE_ID } from './paneZoom';
 
-export interface SystemPaneState {
-  open: boolean;
-  maximized: boolean;
+export const SYSTEM_PANE_ID = utilityPanelId('system');
+
+/** Open the System pane: a split cell beside the work, or the sheet on the phone. */
+export function openSystemPane(): void {
+  window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'system' } }));
 }
 
-const CLOSED: SystemPaneState = { open: false, maximized: false };
+/** Whether the pane is open in this window's grid. */
+export function useSystemPaneOpen(): boolean {
+  return usePaneStore((s) => s.panes[SYSTEM_PANE_ID] !== undefined);
+}
 
-let current: SystemPaneState = CLOSED;
+/** Whether the grid's zoom shows the System cell alone («open full view»). */
+export function useSystemPaneMaximized(): boolean {
+  return usePaneZoomStore((s) => s.bySurface[STANDALONE_ZOOM_SURFACE_ID]?.anchorPaneId === SYSTEM_PANE_ID);
+}
+
+/** «Open full view» and back: the same zoom as a double click on the tab. */
+export function toggleSystemPaneMaximized(): void {
+  paneZoomActions.toggle(STANDALONE_ZOOM_SURFACE_ID, SYSTEM_PANE_ID, 'cell');
+}
+
+// ── The phone sheet ──────────────────────────────────────────────────────────
+
+let sheetOpen = false;
 const listeners = new Set<() => void>();
 
-function set(next: SystemPaneState): void {
-  if (next.open === current.open && next.maximized === current.maximized) return;
-  current = next;
+function setSheet(next: boolean): void {
+  if (next === sheetOpen) return;
+  sheetOpen = next;
   for (const cb of listeners) cb();
 }
 
@@ -27,29 +53,17 @@ function subscribe(cb: () => void): () => void {
   return () => { listeners.delete(cb); };
 }
 
-export function useSystemPane(): SystemPaneState {
-  return useSyncExternalStore(subscribe, () => current, () => current);
+export function useSystemSheetOpen(): boolean {
+  return useSyncExternalStore(subscribe, () => sheetOpen, () => sheetOpen);
 }
 
-/** Open beside the work (a second open keeps the current size). */
-export function openSystemPane(): void {
-  set({ open: true, maximized: current.open ? current.maximized : false });
+export function openSystemSheet(): void {
+  setSheet(true);
 }
 
-export function closeSystemPane(): void {
-  set(CLOSED);
+export function closeSystemSheet(): void {
+  setSheet(false);
 }
 
-/** The strip is a toggle: a click on it while open closes the pane. */
-export function toggleSystemPane(): void {
-  if (current.open) closeSystemPane();
-  else openSystemPane();
-}
-
-/** "Open full view": the same pane over the whole work area, and back. */
-export function toggleSystemPaneMaximized(): void {
-  set({ open: true, maximized: !(current.open && current.maximized) });
-}
-
-/** Test seam: the state without React. */
-export const _readSystemPaneForTests = (): SystemPaneState => current;
+/** Test seam: the sheet state without React. */
+export const _readSystemSheetForTests = (): boolean => sheetOpen;

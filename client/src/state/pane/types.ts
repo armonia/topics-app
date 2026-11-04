@@ -30,6 +30,9 @@ export const PANE_TYPES = [
   'board',
   'project',
   'process-log',
+  // The usage hub's System pane (`__system__`): a utility pane that opens as
+  // a split cell beside the work (state/systemPane.ts).
+  'system',
   // Reserved for future panes — keep so code paths that opt in don't get
   // silently sanitized away the moment they land.
   'context',

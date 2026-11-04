@@ -44,4 +44,15 @@ describe('HUBBR-04: the status strip', () => {
     expect(html).not.toContain('system-strip-numbers');
     expect(html).not.toContain('>34<');
   });
+
+  test('most topics unreadable: not calm, the hub answers in part, no number of a topic in error', () => {
+    _adoptForTests({ type: 'hub:live', topic: 'pace', data: [{ provider: 'claude', account: 'a', active: true, used: 62 }], at: 1 });
+    for (const topic of ['mac', 'services', 'alerts', 'gates', 'attesa', 'automations']) { // allow-italian: hub topic names
+      _adoptForTests({ type: 'hub:live', topic, error: 'hub not reachable', at: 1 });
+    }
+    const html = render();
+    expect(html).toContain('data-state="partial"');
+    expect(html).toContain('Hub');
+    expect(html).not.toContain('cpu');
+  });
 });

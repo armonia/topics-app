@@ -1,33 +1,36 @@
 /**
  * THE SYSTEM PANE: what the usage hub knows, beside the work.
  *
- * Desktop: one more column to the right of the work area (`SystemDock`). It
- * never takes the place of the tab in front and never becomes a top-level
- * tab; "open full view" widens the same pane over the work area and back.
- * Phone: the same body in the client's bottom sheet (`SystemSheet`, the
- * shared `Menu` primitive), over the chat.
+ * Desktop: a pane kind of its own (`system`, id `__system__`) that opens as
+ * one more split cell beside the work (state/systemPane.ts), with the grid's
+ * own tab, resize and persistence. It never takes the place of the tab in
+ * front. «Open full view» is the grid's zoom on its cell: the other cells keep
+ * their size and are only hidden, so no terminal is ever fitted to zero width.
+ * Phone: the same body in the client's bottom sheet (`SystemSheet`, the shared
+ * `Menu` primitive), over the chat.
  *
- * Sections, in the order Attilio approved (the small editorial mockup):
- * waiting for you, agents with one line of quotas, alerts, red gates,
+ * Sections, in the order Attilio approved (the small editorial mockup): the
+ * lede, waiting for you, agents with one line of quotas, alerts, red gates,
  * automations. Everything arrives on the socket (state/hubLive.ts); the only
- * request this file makes is the close of a waiting item, and the list of
- * failed jobs when the summary says there are some.
+ * requests this file makes are the close of a waiting item, and the list of
+ * failed jobs whenever the summary changes and says there are some.
  *
  * Lazy: the module is imported only when the pane opens.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  AlertTriangle, Bot, CheckCircle2, ExternalLink, Gauge, Hourglass, Maximize2, Minimize2, ShieldX, Workflow, X, XCircle,
+  AlertTriangle, ArrowRight, Bot, CheckCircle2, ExternalLink, Gauge, Hourglass, Minimize2, ShieldX, Workflow, XCircle,
 } from 'lucide-react';
 import { useT, useLocale } from '../../hooks/useT';
 import { refreshHubLive, useHubLive, type HubLiveEntry } from '../../state/hubLive';
-import { closeSystemPane, toggleSystemPaneMaximized, useSystemPane } from '../../state/systemPane';
+import { closeSystemSheet, toggleSystemPaneMaximized, useSystemPaneMaximized, useSystemSheetOpen } from '../../state/systemPane';
 import {
   automationSummary, closeWaitingBody, failedJobs, firingAlerts, quotaLines, redGates, waitingItems,
   type FailedJob, type WaitingItem, type WaitingKind,
 } from '../../lib/hubSystem';
 import { apiFetch } from '../../lib/shell/net';
 import { useSharedNow } from '../../state/useSharedNow';
+import { shortcut } from '../../lib/shortcutLabel';
 import { AgentLines } from '../Sidebar/AgentLines';
 import { Menu } from '../Shared/Menu';
 
@@ -59,7 +62,7 @@ function Section({ id, icon, title, count, warm = false, children }: {
       <h3 className={`flex h-7 items-center gap-2 text-mini font-semibold uppercase tracking-wide ${warm ? 'text-amber-700 dark:text-amber-300' : 'text-app-text-muted'}`}>
         {icon}
         {title}
-        {count !== undefined && <span className="font-medium normal-case tracking-normal text-app-text-muted">{count}</span>}
+        {count !== undefined && <span data-testid={`system-section-${id}-count`} className="font-medium normal-case tracking-normal text-app-text-muted">{count}</span>}
       </h3>
       {children}
     </section>
@@ -253,10 +256,12 @@ function GatesSection({ entry, t }: { entry: HubLiveEntry | undefined; t: Transl
 
 /**
  * The failed jobs. The summary only counts them; their names are in the full
- * `/api/automations` answer, which is large, so it is asked once per change of
- * the count and only while this pane is open.
+ * `/api/automations` answer, which is large, so it is asked only while this
+ * pane is open and once per NEW reading of the summary (`readAt`): the server
+ * pushes a reading only when the summary changed, so a failed job replaced by
+ * another one with the same count is still read again.
  */
-function useFailedJobs(broken: number | null): FailedJob[] | null {
+function useFailedJobs(broken: number | null, readAt: number | null): FailedJob[] | null {
   const [jobs, setJobs] = useState<FailedJob[] | null>(null);
   useEffect(() => {
     if (broken === null || broken === 0) return;
@@ -266,13 +271,13 @@ function useFailedJobs(broken: number | null): FailedJob[] | null {
       .then((body: unknown) => { if (live) setJobs(body === null ? null : failedJobs(body)); })
       .catch(() => { if (live) setJobs(null); });
     return () => { live = false; };
-  }, [broken]);
+  }, [broken, readAt]);
   return broken === 0 ? [] : jobs;
 }
 
 function AutomationSection({ entry, t, locale }: { entry: HubLiveEntry | undefined; t: Translate; locale: string }) {
   const summary = entry?.data !== undefined ? automationSummary(entry.data) : null;
-  const jobs = useFailedJobs(summary ? summary.broken : null);
+  const jobs = useFailedJobs(summary ? summary.broken : null, summary ? entry?.at ?? null : null);
   const counters: Array<{ key: string; label: string; value: number; bad?: boolean }> = summary ? [
     { key: 'needsYou', label: t('hubSystem.automations.needsYou'), value: summary.needsYou },
     { key: 'broken', label: t('hubSystem.automations.broken'), value: summary.broken, bad: summary.broken > 0 },
@@ -309,7 +314,61 @@ function AutomationSection({ entry, t, locale }: { entry: HubLiveEntry | undefin
   );
 }
 
-/** The sections, shared by the desktop column and the phone sheet. */
+function waitingCount(entry: HubLiveEntry | undefined): number {
+  return entry?.data !== undefined ? waitingItems(entry.data).length : 0;
+}
+
+function plural(n: number): 'zero' | 'one' | 'other' {
+  return n === 0 ? 'zero' : n === 1 ? 'one' : 'other';
+}
+
+/**
+ * THE LEDE, the line that makes this the editorial variant: how many things
+ * wait for you, and whether everything else is handled. "Handled" is said only
+ * when no alert fires, no gate is red and no automation failed; otherwise the
+ * line counts what else is below.
+ */
+function Lede({ live, t }: { live: ReturnType<typeof useHubLive>; t: Translate }) {
+  if (live.attesa?.data === undefined) return null;
+  const n = waitingCount(live.attesa);
+  const summary = live.automations?.data !== undefined ? automationSummary(live.automations.data) : null;
+  const issues = (live.alerts?.data !== undefined ? firingAlerts(live.alerts.data).length : 0)
+    + (live.gates?.data !== undefined ? redGates(live.gates.data).length : 0)
+    + (summary?.broken ?? 0);
+  const runs = summary?.runsToday ?? 0;
+  const form = plural(n);
+  return (
+    <div data-testid="system-lede" className="mb-1.5">
+      <h2 className="text-[17px] font-semibold leading-[22px] tracking-[-0.015em] text-app-text-heading">
+        <b className="font-semibold">{t(`hubSystem.lede.count.${form}`, { n })}</b>
+        <span className="font-medium text-app-text-muted">{t(form === 'other' ? 'hubSystem.lede.verb.other' : 'hubSystem.lede.verb.one')}</span>
+      </h2>
+      {summary && (
+        <p className="mt-0.5 text-compact text-app-text-secondary">
+          {issues === 0
+            ? t('hubSystem.lede.handled', { runs })
+            : t(issues === 1 ? 'hubSystem.lede.issues.one' : 'hubSystem.lede.issues.other', { n: issues, runs })}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** «live · 17:52»: when the newest reading arrived, so a quiet pane reads as current. */
+function LiveStamp({ live, locale, t }: { live: ReturnType<typeof useHubLive>; locale: string; t: Translate }) {
+  const readings = Object.values(live).filter((e): e is HubLiveEntry => !!e && e.data !== undefined);
+  if (readings.length === 0) return null;
+  const at = Math.max(...readings.map((e) => e.at));
+  const time = new Date(at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+  return (
+    <span data-testid="system-live" className="inline-flex shrink-0 items-center gap-1.5 font-mono text-mini text-app-text-muted">
+      <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+      {t('hubSystem.pane.live', { time })}
+    </span>
+  );
+}
+
+/** The sections, shared by the desktop pane and the phone sheet. */
 function SystemPaneBody() {
   const t = useT();
   const locale = useLocale();
@@ -317,67 +376,40 @@ function SystemPaneBody() {
   const hubDown = Object.keys(live).length > 0 && Object.values(live).every((e) => !e || e.data === undefined);
   return (
     <div className="flex flex-col">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1"><Lede live={live} t={t} /></div>
+        <LiveStamp live={live} locale={locale} t={t} />
+      </div>
       {hubDown && (
         <div data-testid="system-hub-down" role="status" className={`${SURFACE} mb-3.5 ${QUIET}`}>{t('hubSystem.pane.hubDown')}</div>
       )}
-      <WaitingSection entry={live.attesa} t={t} locale={locale} />
-      <AgentsSection pace={live.pace} t={t} />
-      <AlertsSection entry={live.alerts} t={t} />
-      <GatesSection entry={live.gates} t={t} />
-      <AutomationSection entry={live.automations} t={t} locale={locale} />
+      <div className="mt-2">
+        <WaitingSection entry={live.attesa} t={t} locale={locale} />
+        <AgentsSection pace={live.pace} t={t} />
+        <AlertsSection entry={live.alerts} t={t} />
+        <GatesSection entry={live.gates} t={t} />
+        <AutomationSection entry={live.automations} t={t} locale={locale} />
+      </div>
     </div>
   );
 }
 
-function waitingCount(entry: HubLiveEntry | undefined): number {
-  return entry?.data !== undefined ? waitingItems(entry.data).length : 0;
-}
-
-/** Desktop: the pane as a column beside the work, with the chrome of a pane. */
-export function SystemDock() {
+/**
+ * Desktop: the body of the `system` pane, inside the grid cell (the tab, its
+ * close and the resize are the grid's). The foot opens the full view: the
+ * grid's zoom on this cell, and back.
+ */
+export function SystemPane() {
   const t = useT();
-  const { maximized } = useSystemPane();
-  const live = useHubLive();
-  const count = waitingCount(live.attesa);
-  const ExpandIcon = maximized ? Minimize2 : Maximize2;
+  const maximized = useSystemPaneMaximized();
+  const FootIcon = maximized ? Minimize2 : ArrowRight;
   return (
-    <aside
+    <div
       data-testid="system-pane"
       data-maximized={maximized ? 'true' : 'false'}
       aria-label={t('hubSystem.pane.label')}
-      className={`flex min-h-0 min-w-0 flex-col border-l border-app-border bg-app-bg ${maximized ? 'flex-1' : 'shrink-0'}`}
-      style={maximized ? undefined : { width: 'min(452px, 45%)' }}
+      className="flex h-full min-h-0 min-w-0 flex-col bg-app-bg"
     >
-      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-app-border px-1.5">
-        <div data-testid="system-pane-tab" className="edge-lit inline-flex h-7 min-w-0 max-w-[200px] items-center gap-[7px] rounded-lg bg-elevated pl-2.5 pr-1 text-compact text-app-text">
-          <Gauge size={13} aria-hidden="true" className="shrink-0 text-app-text-secondary" />
-          <span className="truncate">{t('hubSystem.title')}</span>
-          {count > 0 && (
-            <span data-testid="system-pane-count" className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold tabular-nums text-white">{count}</span>
-          )}
-          <button
-            type="button"
-            data-testid="system-pane-close"
-            aria-label={t('hubSystem.pane.close')}
-            title={t('hubSystem.pane.close')}
-            onClick={closeSystemPane}
-            className="ml-auto inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded text-app-text-faint hover:bg-app-hover hover:text-app-text"
-          >
-            <X size={12} aria-hidden="true" />
-          </button>
-        </div>
-        <span className="flex-1" />
-        <button
-          type="button"
-          data-testid="system-pane-maximize"
-          aria-label={t(maximized ? 'hubSystem.pane.restore' : 'hubSystem.pane.openFull')}
-          title={t(maximized ? 'hubSystem.pane.restore' : 'hubSystem.pane.openFull')}
-          onClick={toggleSystemPaneMaximized}
-          className="inline-flex h-6 w-6 items-center justify-center rounded-lg text-app-text-secondary hover:bg-app-hover hover:text-app-text"
-        >
-          <ExpandIcon size={13} aria-hidden="true" />
-        </button>
-      </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-3.5 pb-4 pt-3.5">
         <div className={maximized ? 'mx-auto max-w-[760px]' : undefined}>
           <SystemPaneBody />
@@ -388,37 +420,49 @@ export function SystemDock() {
           type="button"
           data-testid="system-pane-open-full"
           onClick={toggleSystemPaneMaximized}
-          className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-compact font-medium text-primary transition-colors hover:bg-app-hover dark:text-primary-dark"
+          className="group flex h-8 w-full items-center gap-2 rounded-lg px-2 text-compact font-medium text-primary transition-colors hover:bg-app-hover dark:text-primary-dark"
         >
           {t(maximized ? 'hubSystem.pane.restore' : 'hubSystem.pane.openFull')}
-          {maximized ? <Minimize2 size={12} aria-hidden="true" /> : <Maximize2 size={12} aria-hidden="true" />}
+          <FootIcon size={12} aria-hidden="true" className="transition-transform group-hover:translate-x-0.5" />
+          <span className="ml-auto inline-flex items-center gap-1.5 text-mini font-normal text-app-text-muted">
+            <kbd className="rounded border border-app-border px-1 font-mono text-[10px] text-app-text-secondary">{shortcut('K')}</kbd>
+            {t('hubSystem.pane.paletteHint')}
+          </span>
         </button>
       </div>
-    </aside>
+    </div>
   );
 }
 
-/** Phone: the same body in the client's bottom sheet. */
+/** Phone: the same body in the client's bottom sheet, three quarters of the screen. */
 export function SystemSheet() {
   const t = useT();
-  const { open } = useSystemPane();
+  const open = useSystemSheetOpen();
   // The sheet has no trigger to anchor to on the phone (it is a sheet, not a
   // card): `Menu` only uses the ref to tell an inside press from an outside one.
   const anchorRef = useRef<HTMLElement | null>(null);
+  const live = useHubLive();
+  const count = waitingCount(live.attesa);
   return (
     <Menu
       open={open}
       anchorRef={anchorRef}
-      onClose={closeSystemPane}
+      onClose={closeSystemSheet}
       role="dialog"
       unmanagedFocus
       ariaLabel={t('hubSystem.pane.label')}
       testId="system-sheet"
     >
-      <div className="px-3.5 pb-2 pt-1">
+      {/* The cap is on the content and not on the sheet: the sheet's own
+          inline cap is the screen, and the approved mockup leaves the top
+          quarter to the chat. */}
+      <div className="overflow-y-auto overscroll-contain px-3.5 pb-2 pt-1" style={{ maxHeight: '72dvh' }}>
         <div className="mb-2 flex items-center gap-2 text-body-lg font-semibold text-app-text-heading">
           <Gauge size={15} aria-hidden="true" className="text-app-text-secondary" />
           {t('hubSystem.title')}
+          {count > 0 && (
+            <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold tabular-nums text-white">{count}</span>
+          )}
         </div>
         <SystemPaneBody />
       </div>

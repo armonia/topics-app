@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  HUB_PAGES_BASE, automationSummary, closeWaitingBody, failedJobs, firingAlerts, macGlance, quotaLines, redGates, servicesDown, stripModel, waitingItems,
+  automationSummary, hubPageLink, closeWaitingBody, failedJobs, firingAlerts, macGlance, quotaLines, redGates, servicesDown, stripModel, waitingItems,
 } from './hubSystem';
 
 const SERVICES = { at: 1, services: [
@@ -33,7 +33,10 @@ describe('HUBBR-04: the strip', () => {
   });
 
   test('calm with everything fine, attention with a service down, an alert, a red gate or a strained Mac', () => {
-    const fine = { mac: { data: MAC, at: 1 }, services: { data: { services: [SERVICES.services[0]] }, at: 1 } };
+    const fine = {
+      mac: { data: MAC, at: 1 }, services: { data: { services: [SERVICES.services[0]] }, at: 1 },
+      alerts: { data: { firing: [] }, at: 1 }, gates: { data: { classes: {} }, at: 1 },
+    };
     expect(stripModel(fine, true).state).toBe('calm');
     const m = stripModel({ ...fine, services: { data: SERVICES, at: 1 } }, true);
     expect(m.state).toBe('attention');
@@ -44,10 +47,23 @@ describe('HUBBR-04: the strip', () => {
   });
 
   test('a topic in error adds nothing, the others still show', () => {
-    const m = stripModel({ mac: { data: MAC, at: 1 }, pace: { error: 'down', at: 1 } }, true);
+    const read = { services: { data: { services: [] }, at: 1 }, alerts: { data: { firing: [] }, at: 1 }, gates: { data: {}, at: 1 } };
+    const m = stripModel({ ...read, mac: { data: MAC, at: 1 }, pace: { error: 'down', at: 1 } }, true);
     expect(m.state).toBe('calm');
     expect(m.quotas).toEqual([]);
     expect(m.mac?.cpu).toBe(34);
+  });
+
+  test('calm is never said over an unread topic it speaks for: most topics in error read as partial', () => {
+    const err = { error: 'down', at: 2 };
+    const m = stripModel({
+      pace: { data: PACE, at: 2 }, services: err, alerts: err, gates: err, mac: err, attesa: err, automations: err,
+    }, true);
+    expect(m.state).toBe('partial');
+    expect(m.servicesDown).toBe(0);
+    expect(m.mac).toBeNull();
+    // What did read and asks for attention still says so.
+    expect(stripModel({ services: { data: SERVICES, at: 1 }, mac: err }, true).state).toBe('attention');
   });
 
   test('numbers: cpu from the effort parts, swap in GB, the active accounts only', () => {
@@ -83,8 +99,17 @@ describe('HUBBR-05: the System pane sections', () => {
       { id: 'p', title: 'Page', link: '#automations/x' },
       { id: 'c', title: 'Claude', link: 'claude://resume/abc' },
       { id: 'f', title: 'File', link: 'file:///etc/passwd' },
-    ] }).map((i) => i.link);
-    expect(links).toEqual([`${HUB_PAGES_BASE}#automations/x`, 'claude://resume/abc', null]);
+    ] }, '127.0.0.1').map((i) => i.link);
+    expect(links).toEqual(['http://127.0.0.1:3360/#automations/x', 'claude://resume/abc', null]);
+  });
+
+  test('a hub page link opens only on the machine of the hub, never as the phone own localhost', () => {
+    expect(hubPageLink('#automations/k', '127.0.0.1')).toBe('http://127.0.0.1:3360/#automations/k');
+    expect(hubPageLink('#automations/k', 'localhost')).toBe('http://127.0.0.1:3360/#automations/k');
+    expect(hubPageLink('#automations/k', 'mac.tail1234.ts.net')).toBeNull();
+    expect(hubPageLink('#automations/k', '192.168.1.20')).toBeNull();
+    const [remote] = waitingItems({ items: [{ id: 'p', title: 'Page', link: '#automations/x' }] }, 'mac.tail1234.ts.net');
+    expect(remote!.link).toBeNull();
   });
 
   test('the close body is the one the hub expects', () => {

@@ -2,7 +2,8 @@
  * THE SYSTEM AT A GLANCE, at the foot of the sidebar (desktop) or above the
  * bottom row (phone): one sentence and a few numbers from the usage hub,
  * pushed live on the socket (state/hubLive.ts). A click opens the System pane
- * beside the work; it never replaces the tab in front.
+ * as a split cell beside the work (the sheet on the phone); it never replaces
+ * the tab in front.
  *
  * Hidden while the hub was never readable, so an installation without the hub
  * shows nothing. Once read, a hub that stops answering says so in one quiet
@@ -11,13 +12,14 @@
 import { ChevronRight, ChevronUp } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { useHubEverRead, useHubLive } from '../../state/hubLive';
-import { toggleSystemPane, useSystemPane } from '../../state/systemPane';
+import { openSystemPane, useSystemPaneOpen, useSystemSheetOpen } from '../../state/systemPane';
 import { stripModel, type QuotaLine, type StripState } from '../../lib/hubSystem';
 import { ROW_INSET } from '../../lib/selectionStyles';
 
 const DOT: Record<Exclude<StripState, 'hidden'>, string> = {
   calm: 'bg-emerald-500',
   attention: 'bg-amber-500',
+  partial: 'bg-amber-500',
   down: 'bg-app-text-faint',
 };
 
@@ -49,14 +51,16 @@ export function SystemStrip({ variant = 'sidebar' }: { variant?: 'sidebar' | 'ph
   const t = useT();
   const live = useHubLive();
   const everRead = useHubEverRead();
-  const { open } = useSystemPane();
+  const paneOpen = useSystemPaneOpen();
+  const sheetOpen = useSystemSheetOpen();
+  const open = variant === 'phone' ? sheetOpen : paneOpen;
   const model = stripModel(live, everRead);
   if (model.state === 'hidden') return null;
 
   const down = model.state === 'down';
   const sentence = down
     ? t('hubSystem.strip.hubDown')
-    : t(model.state === 'calm' ? 'hubSystem.strip.calm' : 'hubSystem.strip.attention');
+    : t(model.state === 'calm' ? 'hubSystem.strip.calm' : model.state === 'partial' ? 'hubSystem.strip.partial' : 'hubSystem.strip.attention');
   const servicesLine = !down && model.servicesDown > 0
     ? t(model.servicesDown === 1 ? 'hubSystem.strip.servicesDown.one' : 'hubSystem.strip.servicesDown.other', { n: model.servicesDown })
     : null;
@@ -69,9 +73,9 @@ export function SystemStrip({ variant = 'sidebar' }: { variant?: 'sidebar' | 'ph
       data-testid="system-strip"
       data-state={model.state}
       aria-expanded={open}
-      aria-label={t(open ? 'hubSystem.strip.close' : 'hubSystem.strip.open')}
-      title={t(open ? 'hubSystem.strip.close' : 'hubSystem.strip.open')}
-      onClick={toggleSystemPane}
+      aria-label={t('hubSystem.strip.open')}
+      title={t('hubSystem.strip.open')}
+      onClick={openSystemPane}
       className={`group relative block w-full text-left transition-colors hover:bg-app-hover ${open ? 'bg-app-hover' : ''} ${variant === 'sidebar' ? 'border-t border-app-border' : ''}`}
       style={{ paddingInline: variant === 'phone' ? 'max(12px, var(--sal))' : ROW_INSET + 6, paddingBlock: 7 }}
     >
