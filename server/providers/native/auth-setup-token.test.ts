@@ -1,7 +1,9 @@
 /**
- * Il token di `claude setup-token` dura un anno e non ha refresh token.
- * Il 04/11 il parser lo scartava, si ripiegava su `~/.jcode/auth.json` vecchio
- * e ogni turno di Jarvis moriva su `invalid_grant`.
+ * The `claude setup-token` token lasts a year and has no refresh token. On
+ * 04/11 the parser dropped it, fell back to a stale `~/.jcode/auth.json`, and
+ * every Jarvis turn died on `invalid_grant`. Without a refresh token there is
+ * nothing to renew: the token is used as it is, with no network call.
+ * @covers MP-AUTH-01
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
@@ -38,7 +40,7 @@ describe("un login senza refresh token (setup-token)", () => {
     write(".claude/.credentials.json", { claudeAiOauth: { accessToken: "setup", refreshToken: null, expiresAt: Date.now() - 60_000 } });
     const realFetch = globalThis.fetch;
     let called = false;
-    globalThis.fetch = (async () => { called = true; throw new Error("niente rete"); }) as typeof fetch;
+    globalThis.fetch = (async () => { called = true; throw new Error("niente rete"); }) as unknown as typeof fetch;
     try {
       expect(await getAccessToken()).toBe("setup");
       expect(called).toBe(false);

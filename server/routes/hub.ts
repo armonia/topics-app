@@ -39,13 +39,16 @@ export interface HubBridgeDeps {
   hubBase?: () => string | null;
   switchboardBase?: () => string | null;
   headersTimeoutMs?: number;
-  /** The live reader (server/lib/hub-live.ts) behind `GET /api/hub-live`. */
-  live?: { snapshot(): Promise<unknown> };
+  /** The live reader (server/lib/hub-live.ts) behind `GET /api/hub-live`.
+   *  `refresh` runs after a write that the hub accepted, so the change (a
+   *  "waiting for you" item closed) reaches every window without waiting
+   *  for the next tick. */
+  live?: { snapshot(): Promise<unknown>; refresh?(): Promise<void> };
 }
 
 /**
  * Where a service lives. Under e2e (TOPICS_E2E=1) there is no default: a test
- * server talking to the real hub would write real "Ti aspetta" items.
+ * server talking to the real hub would write real "waiting for you" items.
  */
 export function upstreamBase(envName: string, fallback: string, env: Record<string, string | undefined> = process.env): string | null {
   const explicit = env[envName]?.trim();
@@ -124,6 +127,7 @@ export function createHubRouter(ctx: Pick<AppContext, "json">, deps: HubBridgeDe
       await resp.body?.cancel();
       return json({ error: `${upstream} answered a redirect (${resp.status})`, upstream }, 502);
     }
+    if (upstream === "hub" && hasBody && resp.ok) void deps.live?.refresh?.().catch(() => {});
     const out = new Headers({ "cache-control": "no-store" });
     for (const h of FORWARDED_RESPONSE_HEADERS) {
       const v = resp.headers.get(h);

@@ -6,6 +6,7 @@
   * @covers WIRE-07
  */
 import { describe, expect, test } from 'bun:test';
+import { HUB_LIVE_TOPICS } from '../../server/lib/hub-live';
 import {
   validateOutbound,
   isRegisteredOutboundType,
@@ -557,6 +558,12 @@ describe('validateOutbound — misc domain (browser/cron/machine/memory/open-pro
     expect(validateOutbound({ type: 'hub:live', topic: 'mac', error: 'hub down', at: 1 }).ok).toBe(true);
     expect(validateOutbound({ type: 'hub:live', topic: 'board', data: [], at: 1 }).ok).toBe(false);
     expect(validateOutbound({ type: 'hub:live', topic: 'pace', data: [] }).ok).toBe(false);
+  });
+
+  test('hub:live accepts every topic the server reader sends', () => {
+    for (const topic of HUB_LIVE_TOPICS) {
+      expect(validateOutbound({ type: 'hub:live', topic, data: {}, at: 1 }).ok).toBe(true);
+    }
   });
 
   test('machine:upserted/updated require machine.id', () => {

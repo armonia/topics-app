@@ -1,6 +1,9 @@
 /**
  * Live hub data on the Topics WebSocket: quotas (`/api/pace`), the Mac
- * (`/api/mac`) and the launchd services (`/api/services`).
+ * (`/api/mac`), the launchd services (`/api/services`), and what the System
+ * pane shows: the "waiting for you" items (`/api/attesa`), the firing alerts (allow-italian: hub path)
+ * (`/api/alerts`), the quota gates (`/api/gates`) and the automations
+ * counters (`/api/automations/summary`).
  *
  * The hub's own pages poll every 60 s, each tab on its own. Here ONE reader
  * (this server) asks the hub and pushes a `hub:live` frame only when the
@@ -12,8 +15,21 @@
  * can say "hub down" instead of keeping numbers that stopped being true.
  */
 
-export const HUB_LIVE_TOPICS = ["pace", "mac", "services"] as const;
+export const HUB_LIVE_TOPICS = ["pace", "mac", "services", "attesa", "alerts", "gates", "automations"] as const;
 export type HubLiveTopic = (typeof HUB_LIVE_TOPICS)[number];
+
+/** The hub path each topic reads, under `/api/`. Only `automations` differs
+ *  from its name: the full `/api/automations` is close to a megabyte, the
+ *  summary is the part a glance needs. */
+export const HUB_LIVE_PATHS: Readonly<Record<HubLiveTopic, string>> = {
+  pace: "pace",
+  mac: "mac",
+  services: "services",
+  attesa: "attesa",
+  alerts: "alerts",
+  gates: "gates",
+  automations: "automations/summary",
+};
 
 export interface HubLiveEntry {
   data?: unknown;
@@ -53,8 +69,9 @@ export function createHubLive(deps: HubLiveDeps) {
 
   async function readTopic(base: string, topic: HubLiveTopic): Promise<{ body: string } | { error: string }> {
     try {
-      const resp = await fetchImpl(`${base}/api/${topic}`, { signal: AbortSignal.timeout(timeoutMs) });
-      if (!resp.ok) return { error: `hub answered ${resp.status} on /api/${topic}` };
+      const path = HUB_LIVE_PATHS[topic];
+      const resp = await fetchImpl(`${base}/api/${path}`, { signal: AbortSignal.timeout(timeoutMs) });
+      if (!resp.ok) return { error: `hub answered ${resp.status} on /api/${path}` };
       const body = await resp.text();
       JSON.parse(body); // a non-JSON 200 is a broken hub, not data
       return { body };
@@ -86,17 +103,31 @@ export function createHubLive(deps: HubLiveDeps) {
     }
   }
 
-  /** One read of the three topics; concurrent callers share it. */
+  /** One read of every topic; concurrent callers share it. */
   function tick(): Promise<void> {
     if (!inFlight) inFlight = runTick().finally(() => { inFlight = null; });
     return inFlight;
   }
 
+  /**
+   * A read that starts AFTER the caller's write. A tick already in flight may
+   * have asked the hub before the write landed, so sharing it would push the
+   * old list again: wait for it, then read anew.
+   */
+  async function refresh(): Promise<void> {
+    if (inFlight) await inFlight;
+    await tick();
+  }
+
   return {
     tick,
-    /** The last known state per topic, refreshed first if older than a tick. */
+    refresh,
+    /** The last known state per topic, refreshed first if older than a tick,
+     *  or if a topic was unreadable last time: a window opening after the hub
+     *  came back must not wait a whole interval to see it. */
     async snapshot(): Promise<Partial<Record<HubLiveTopic, HubLiveEntry>>> {
-      if (now() - lastTickAt >= intervalMs) await tick();
+      const anyError = [...last.values()].some((v) => v.error !== null);
+      if (now() - lastTickAt >= intervalMs || anyError) await tick();
       return Object.fromEntries([...last].map(([t, v]) => [t, v.entry]));
     },
     start(): void {
@@ -111,4 +142,3 @@ export function createHubLive(deps: HubLiveDeps) {
   };
 }
 
-export type HubLive = ReturnType<typeof createHubLive>;

@@ -125,6 +125,7 @@ import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar, MobileTransportBand } from './components/Sidebar/SidebarStatusBar';
 import { UnsentContext, useUnsentController } from './state/unsentMessages';
 import { MobileChromeBar } from './components/Sidebar/MobileChromeBar';
+import { useSystemPane } from './state/systemPane';
 import { shortcut, usesCtrl } from './lib/shortcutLabel';
 import { useSidebarHandleInsets } from './hooks/useSidebarBottomInset';
 
@@ -202,6 +203,16 @@ const InAppBanners = lazy(retryingChunk('InAppBanners', async () => {
 }));
 const PushEnrollPrompt = lazy(retryingChunk('PushEnrollPrompt', async () => {
   const { PushEnrollPrompt: Component } = await import('./components/Notifications/PushEnrollPrompt');
+  return { default: Component };
+}));
+// The System pane (usage hub) beside the work, and its phone sheet: loaded when
+// the pane opens, never in the entry chunk.
+const SystemDock = lazy(retryingChunk('SystemPane', async () => {
+  const { SystemDock: Component } = await import('./components/System/SystemPane');
+  return { default: Component };
+}));
+const SystemSheet = lazy(retryingChunk('SystemPane', async () => {
+  const { SystemSheet: Component } = await import('./components/System/SystemPane');
   return { default: Component };
 }));
 const TopicContextMenu = lazy(retryingChunk('ContextMenu', async () => {
@@ -418,6 +429,8 @@ function App() {
     viewportTop,
     windowId,
   } = layout.state;
+  // The System pane (usage hub): a column beside the work, a sheet on the phone.
+  const systemPane = useSystemPane();
   // «Un comando compare dove ha effetto»: sotto i 768px PanelGrid non disegna
   // affatto gli split, quindi i comandi che li governano non si mostrano.
   // La regola — e la misura che la giustifica — sta nell'hook, non qui.
@@ -2181,6 +2194,15 @@ function App() {
         onNextWaiting={() => window.dispatchEvent(new CustomEvent(waitingCount === 0 ? OPEN_INBOX_EVENT : NEXT_WAITING_EVENT))}
       />
 
+      {/* The System pane on the phone: the same content in the bottom sheet. */}
+      {isMobile && systemPane.open && (
+        <ErrorBoundary fallbackMessageKey="crash.panel">
+          <Suspense fallback={null}>
+            <SystemSheet />
+          </Suspense>
+        </ErrorBoundary>
+      )}
+
       {/* Sidebar resize handle. The sidebar is position:fixed (FLIP push), so a
           flex divider here would collapse to x=0 under the sidebar's LEFT edge —
           nothing to grab at the real sidebar/content boundary (the bug: "resize
@@ -2301,7 +2323,14 @@ function App() {
             che la sidebar disegna attorno alle tab, qui attorno al lavoro. C'è
             solo quando i gruppi esistono; keyed su activeSpaceId come la
             griglia, così cambiare gruppo rigioca l'ingresso. */}
-        <div key={activeSpaceId} className={`flex-1 flex flex-col min-h-0 min-w-0 ${spaceScoped ? 'space-frame' : ''}`}>
+        {/* THE SYSTEM PANE SITS BESIDE THE WORK, as one more column: the grid
+            keeps its tabs and its width minus the column. «Open full view»
+            folds the grid to zero width instead of covering it, so a native
+            browser pane follows the rectangle rather than drawing over the
+            System pane. */}
+        <div className="flex-1 flex min-h-0 min-w-0">
+        <div key={activeSpaceId} className={`flex-1 flex flex-col min-h-0 min-w-0 ${spaceScoped ? 'space-frame' : ''}`}
+          style={!isMobile && systemPane.open && systemPane.maximized ? { flex: '0 0 0px', overflow: 'hidden' } : undefined}>
         {activeSpaceWindow ? (
           <SpaceElsewherePanel spaceId={activeSpaceId} windowLabel={activeSpaceWindow} />
         ) : (
@@ -2356,6 +2385,12 @@ function App() {
         </Suspense>
         )}
         </div>{/* /space-frame */}
+        {!isMobile && systemPane.open && (
+          <Suspense fallback={null}>
+            <SystemDock />
+          </Suspense>
+        )}
+        </div>
         </ErrorBoundary>
         </div>{/* /content-flip-layer */}
         {/* The version banner's second slot, for a collapsed sidebar (whose own

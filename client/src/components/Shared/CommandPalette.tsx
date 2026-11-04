@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback, useSyncExternalStore
 import {
   Search, Moon, Sun, Monitor, File,
   Loader2, TerminalSquare, RotateCcw, Grid2x2, Link2, ArrowLeft,
+  Gauge,
 } from 'lucide-react';
 import { EmptyState } from './EmptyState';
 import { ClaudeIcon } from './ClaudeIcon';
@@ -38,6 +39,7 @@ import { AddMenuIcon } from './AddMenuIcon';
 import type { PaneType } from '../../types';
 import { shortcut } from '../../lib/shortcutLabel';
 import { homeCommands } from './paletteHomeCommands';
+import { openSystemPane } from '../../state/systemPane';
 
 export interface CommandAction {
   id: string;
@@ -468,6 +470,17 @@ export function CommandPalette({
         action: () => { onAutoTilePanels(); onClose(); },
       });
     }
+    // The System pane (usage hub), beside the work: the same door as the
+    // status strip at the foot of the sidebar.
+    items.push({
+      id: 'system-pane',
+      label: t('hubSystem.palette.label'),
+      description: t('hubSystem.palette.hint'),
+      icon: <Gauge size={14} />,
+      category: 'action' as const,
+      testId: 'palette-system',
+      action: () => { onClose(); openSystemPane(); },
+    });
     // EVERY FORM BY ITS NAME (SETHOME-01): no «Settings» to open.
     items.push(...homeCommands(t, onClose));
     return items;

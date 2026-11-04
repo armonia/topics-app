@@ -36,7 +36,7 @@ beforeAll(() => {
 });
 afterAll(() => upstream.stop(true));
 
-function router(opts: { hub?: string | null; sw?: string | null; timeout?: number; live?: { snapshot(): Promise<unknown> } } = {}) {
+function router(opts: { hub?: string | null; sw?: string | null; timeout?: number; live?: { snapshot(): Promise<unknown>; refresh?(): Promise<void> } } = {}) {
   const r = createHubRouter({ json } as never, {
     hubBase: () => (opts.hub === undefined ? base : opts.hub),
     switchboardBase: () => (opts.sw === undefined ? base : opts.sw),
@@ -138,6 +138,18 @@ describe("HUBBR-01: /api/hub and /api/switchboard proxy", () => {
     expect(resp.status).toBe(200);
     expect(await resp.json()).toEqual(snap);
     expect(((await router()("GET", "/api/hub-live"))!).status).toBe(503);
+  });
+
+  test("a write the hub accepted refreshes the live reader; a read or a refused write does not", async () => {
+    let refreshed = 0;
+    const live = { snapshot: async () => ({}), refresh: async () => { refreshed++; } };
+    const r = router({ live });
+    await r("POST", "/api/hub/attesa", { body: JSON.stringify({ kind: "chiudi", ref: "x" }), headers: { "content-type": "application/json" } });
+    expect(refreshed).toBe(1);
+    await r("GET", "/api/hub/attesa");
+    await r("POST", "/api/hub/broken", { body: "{}" });
+    await r("POST", "/api/switchboard/attesa", { body: "{}" });
+    expect(refreshed).toBe(1);
   });
 
   test("safeRest and upstreamBase", () => {

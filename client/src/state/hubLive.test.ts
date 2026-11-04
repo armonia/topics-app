@@ -7,7 +7,7 @@
  */
 import { afterEach, describe, expect, it } from 'bun:test';
 
-import { _adoptForTests, _readForTests, _resetForTests, _seedForTests } from './hubLive';
+import { _adoptForTests, _everReadForTests, _readForTests, _resetForTests, _seedForTests } from './hubLive';
 
 afterEach(() => {
   _resetForTests();
@@ -47,5 +47,22 @@ describe('HUBBR-03: hub live data in the client', () => {
     await _seedForTests(async () => new Response('{}', { status: 503 }));
     await _seedForTests(async () => { throw new Error('offline'); });
     expect(_readForTests()).toEqual({});
+  });
+
+  it('knows the System topics too', () => {
+    for (const topic of ['attesa', 'alerts', 'gates', 'automations']) {
+      _adoptForTests({ type: 'hub:live', topic, data: { n: 1 }, at: 1 });
+    }
+    expect(Object.keys(_readForTests()).sort()).toEqual(['alerts', 'attesa', 'automations', 'gates']);
+  });
+
+  it('remembers that the hub was read once, even after it goes down', () => {
+    expect(_everReadForTests()).toBe(false);
+    _adoptForTests({ type: 'hub:live', topic: 'mac', error: 'hub down', at: 1 });
+    expect(_everReadForTests()).toBe(false);
+    _adoptForTests({ type: 'hub:live', topic: 'mac', data: { cpu: 1 }, at: 2 });
+    _adoptForTests({ type: 'hub:live', topic: 'mac', error: 'hub down', at: 3 });
+    expect(_everReadForTests()).toBe(true);
+    expect(_readForTests().mac).toEqual({ error: 'hub down', at: 3 });
   });
 });

@@ -81,6 +81,17 @@ export function tunnelPortFor(port: number = E2E_PORT): number {
   return port + 1000;
 }
 
+/**
+ * Where the test server looks for the usage hub. Nobody listens there unless
+ * a spec starts its fake (`helpers/fake-hub.ts`): the server then finds no hub,
+ * as on an installation without one, and never reaches the real :3360, which
+ * holds real "waiting for you" items. `+ 2000` for the reason the tunnel takes
+ * `+ 1000`: no collision with another checkout's main or tunnel port.
+ */
+export function hubPortFor(port: number = E2E_PORT): number {
+  return port + 2000;
+}
+
 export const E2E_TUNNEL_BASE = `http://127.0.0.1:${tunnelPortFor(E2E_PORT)}`;
 export const E2E_TUNNEL_WS_BASE = `ws://127.0.0.1:${tunnelPortFor(E2E_PORT)}`;
 
@@ -311,6 +322,8 @@ export function testServerEnv(port: number = E2E_PORT): Record<string, string> {
     // definizione, ed è l'unico modo di provare il confinamento com'è in
     // produzione invece che con una scorciatoia buona solo per i test.
     TOPICS_TUNNEL_PORT: String(tunnelPortFor(port)),
+    // The usage hub: a port only a spec's fake listens on (see hubPortFor).
+    TOPICS_HUB_URL: `http://127.0.0.1:${hubPortFor(port)}`,
     // THE GATEWAY URL IS DECLARED ONLY IF SOMEONE IS ACTUALLY LISTENING.
     // THE TOKEN, INSTEAD, IS ALWAYS DECLARED — and the difference is the whole
     // point, because getting it wrong breaks the terminal tests.

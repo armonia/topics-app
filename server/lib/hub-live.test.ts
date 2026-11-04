@@ -5,10 +5,15 @@
  * @covers HUBBR-02
  */
 import { describe, expect, test } from "bun:test";
-import { createHubLive, type HubLiveFrame } from "./hub-live";
+import { createHubLive, HUB_LIVE_PATHS, HUB_LIVE_TOPICS, type HubLiveFrame } from "./hub-live";
+
+const N = HUB_LIVE_TOPICS.length;
 
 function harness(opts: { clients?: boolean; base?: string | null } = {}) {
-  const answers: Record<string, unknown> = { pace: [{ provider: "claude", pct: 40 }], mac: { cpu: 10 }, services: [] };
+  const answers: Record<string, unknown> = {
+    pace: [{ provider: "claude", pct: 40 }], mac: { cpu: 10 }, services: [],
+    attesa: { items: [] }, alerts: { firing: [] }, gates: { classes: {} }, "automations/summary": { broken: 0 },
+  };
   let down = false;
   let calls = 0;
   let clock = 1_000;
@@ -38,7 +43,7 @@ describe("HUBBR-02: hub live data on the WebSocket", () => {
   test("the first tick pushes one frame per topic", async () => {
     const h = harness();
     await h.live.tick();
-    expect(h.frames.map((f) => f.topic).sort()).toEqual(["mac", "pace", "services"]);
+    expect(h.frames.map((f) => f.topic).sort()).toEqual([...HUB_LIVE_TOPICS].sort());
     expect(h.frames.find((f) => f.topic === "pace")!.data).toEqual([{ provider: "claude", pct: 40 }]);
     for (const f of h.frames) expect(f.type).toBe("hub:live");
   });
@@ -62,7 +67,7 @@ describe("HUBBR-02: hub live data on the WebSocket", () => {
     h.setDown(true);
     await h.live.tick();
     await h.live.tick();
-    expect(h.frames.length).toBe(3);
+    expect(h.frames.length).toBe(N);
     for (const f of h.frames) {
       expect(f.error).toContain("not reachable");
       expect(f.data).toBeUndefined();
@@ -75,25 +80,59 @@ describe("HUBBR-02: hub live data on the WebSocket", () => {
     h.frames.length = 0;
     h.setDown(false);
     await h.live.tick();
-    expect(h.frames.length).toBe(3);
+    expect(h.frames.length).toBe(N);
   });
 
   test("snapshot reads the hub only when the last tick is older than the interval", async () => {
     const h = harness();
     await h.live.snapshot();
     const after = h.calls();
-    expect(after).toBe(3);
+    expect(after).toBe(N);
     await h.live.snapshot();
     expect(h.calls()).toBe(after);
     h.advance(15_000);
     await h.live.snapshot();
-    expect(h.calls()).toBe(after + 3);
+    expect(h.calls()).toBe(after + N);
+  });
+
+  test("snapshot reads again at once when a topic was unreadable, so a hub that came back shows up", async () => {
+    const h = harness();
+    h.setDown(true);
+    await h.live.tick();
+    h.setDown(false);
+    const snap = await h.live.snapshot();
+    expect(snap.attesa!.data).toEqual({ items: [] });
+    expect(snap.attesa!.error).toBeUndefined();
+  });
+
+  test("each topic reads its own hub path; automations reads the summary, not the full list", async () => {
+    const urls: string[] = [];
+    const live = createHubLive({
+      base: () => "http://hub",
+      broadcast: () => {},
+      hasClients: () => true,
+      fetchImpl: (async (url: string) => { urls.push(String(url)); return new Response("{}"); }) as unknown as typeof fetch,
+    });
+    await live.tick();
+    expect(urls.sort()).toEqual(HUB_LIVE_TOPICS.map((t) => `http://hub/api/${HUB_LIVE_PATHS[t]}`).sort());
+    expect(urls).toContain("http://hub/api/automations/summary");
+  });
+
+  test("refresh after a write reads anew instead of sharing a read already in flight", async () => {
+    const h = harness();
+    const first = h.live.tick();
+    h.answers.attesa = { items: [{ id: "a" }] };
+    const refreshed = h.live.refresh();
+    await Promise.all([first, refreshed]);
+    expect(h.calls()).toBe(2 * N);
+    const snap = await h.live.snapshot();
+    expect(snap.attesa!.data).toEqual({ items: [{ id: "a" }] });
   });
 
   test("concurrent ticks share one read", async () => {
     const h = harness();
     await Promise.all([h.live.tick(), h.live.tick(), h.live.tick()]);
-    expect(h.calls()).toBe(3);
+    expect(h.calls()).toBe(N);
   });
 
   test("no base (e2e) means no read at all", async () => {

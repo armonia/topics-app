@@ -780,7 +780,7 @@ const cronUpdatedSchema = z.looseObject({
 // hub's JSON or the reason it could not be read. Never both.
 const hubLiveSchema = z.looseObject({
   type: z.literal('hub:live'),
-  topic: z.enum(['pace', 'mac', 'services']),
+  topic: z.enum(['pace', 'mac', 'services', 'attesa', 'alerts', 'gates', 'automations']), // allow-italian: hub topic names
   data: z.optional(z.unknown()),
   error: z.optional(z.string()),
   at: z.number(),

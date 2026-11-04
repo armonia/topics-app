@@ -1,5 +1,6 @@
 /**
- * The usage hub's live data (quotas, Mac, services) as the server pushes it
+ * The usage hub's live data (quotas, Mac, services, waiting items, alerts,
+ * gates, automations) as the server pushes it
  * on `hub:live` frames (server/lib/hub-live.ts). No polling here: the first
  * paint reads `GET /api/hub-live` once, every change after that arrives on
  * the socket.
@@ -11,7 +12,7 @@ import { useSyncExternalStore } from 'react';
 import { subscribeFrames } from '../lib/wsFrameBus';
 import { apiFetch } from '../lib/shell/net';
 
-export type HubLiveTopic = 'pace' | 'mac' | 'services';
+export type HubLiveTopic = 'pace' | 'mac' | 'services' | 'attesa' | 'alerts' | 'gates' | 'automations'; // allow-italian: hub topic names, compared by value
 
 export interface HubLiveEntry {
   data?: unknown;
@@ -21,9 +22,13 @@ export interface HubLiveEntry {
 
 export type HubLiveState = Partial<Record<HubLiveTopic, HubLiveEntry>>;
 
-const TOPICS: readonly HubLiveTopic[] = ['pace', 'mac', 'services'];
+const TOPICS: readonly HubLiveTopic[] = ['pace', 'mac', 'services', 'attesa', 'alerts', 'gates', 'automations']; // allow-italian: hub topic names
 
 let current: HubLiveState = {};
+// Whether ANY topic ever carried data in this window. It tells "the hub is not
+// part of this installation" (never read: nothing to show) from "the hub
+// stopped answering" (read once: say so).
+let everRead = false;
 const listeners = new Set<() => void>();
 let wired = false;
 let seeded = false;
@@ -51,6 +56,7 @@ function adopt(frame: unknown): void {
   const prev = current[f.topic];
   if (prev && prev.at > entry.at) return;
   current = { ...current, [f.topic]: entry };
+  if (entry.data !== undefined) everRead = true;
   announce();
 }
 
@@ -89,6 +95,11 @@ export function useHubLive(): HubLiveState {
   return useSyncExternalStore(subscribe, () => current, () => current);
 }
 
+/** True once any topic has carried data in this window. */
+export function useHubEverRead(): boolean {
+  return useSyncExternalStore(subscribe, () => everRead, () => everRead);
+}
+
 /** Test seam: feed a frame as the socket would. */
 export const _adoptForTests = adopt;
 
@@ -102,4 +113,8 @@ export const _readForTests = (): HubLiveState => current;
 export function _resetForTests(): void {
   current = {};
   seeded = false;
+  everRead = false;
 }
+
+/** Test seam: the ever-read flag without React. */
+export const _everReadForTests = (): boolean => everRead;

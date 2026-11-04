@@ -20,6 +20,7 @@ import CHAT_EN from './i18n-chat-en';
 import FIND_EN from './i18n-find-en';
 import ATTENTION_EN from './i18n-attention-en';
 import SYSTEM_HEALTH_EN from './i18n-system-health-en';
+import HUB_SYSTEM_EN from './i18n-hub-system-en';
 
 const EN = {
   ...SPEND_EN,
@@ -27,6 +28,7 @@ const EN = {
   ...FIND_EN,
   ...ATTENTION_EN,
   ...SYSTEM_HEALTH_EN,
+  ...HUB_SYSTEM_EN,
   'toolgroup.cost': 'Summed cost of the actions in the group',
   'ai.selector.routing': 'Run in Topics',
   'ai.selector.routingLine': 'Everything else goes direct.',
