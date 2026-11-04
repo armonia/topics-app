@@ -31,7 +31,7 @@ export const SWITCHBOARD_DEFAULT_URL = "http://127.0.0.1:3335";
  *  log SSE), so the timer stops as soon as the response starts. */
 const HEADERS_TIMEOUT_MS = 10_000;
 /** How long a write waits for the live reader to read the hub back. */
-const WRITE_READBACK_MS = 3_000;
+const WRITE_READ_BACK_MS = 3_000;
 
 const SAFE_REST = /^[A-Za-z0-9._~\-/]*$/;
 
@@ -136,7 +136,7 @@ export function createHubRouter(ctx: Pick<AppContext, "json">, deps: HubBridgeDe
       let cap: ReturnType<typeof setTimeout> | undefined;
       await Promise.race([
         deps.live.refresh().catch(() => {}),
-        new Promise<void>((r) => { cap = setTimeout(r, WRITE_READBACK_MS); }),
+        new Promise<void>((r) => { cap = setTimeout(r, WRITE_READ_BACK_MS); }),
       ]);
       clearTimeout(cap);
     }
