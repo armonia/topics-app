@@ -7,3 +7,5 @@ Static Rivet mockups in the CURRENT Topics visual language (client tokens, sideb
 - `3-board.html`: automations and inbox as kanbans, quotas in a right rail.
 
 Side-by-side images with a screenshot of Topics today (dark, light, phone) are on board card 8d7f0022 (`~/.topics/media/hub-in-topics/v2/`). The choice is Attilio's.
+
+Chosen (2026-11-04): the editorial direction, SMALL version: `2-editoriale-piccola.html`. The work view and its tab stay as they are; the status strip at the bottom of the sidebar opens a compact System pane beside the work (bottom sheet on phone), with waiting items, agents at work (the rows of today's Agents view), alerts, red gates and an automations summary. The full view stays reachable from the command palette. `?theme=light`, `?system=closed`.
