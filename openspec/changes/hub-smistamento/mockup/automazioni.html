@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="it" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Topics · Automazioni sopra la Board</title>
+<script>
+  // Theme from ?theme=light, as useTheme puts .dark on <html>.
+  (function () {
+    var q = new URLSearchParams(location.search);
+    if (q.get('theme') === 'light') document.documentElement.classList.remove('dark');
+  })();
+</script>
+<style>
+:root {
+  color-scheme: light;
+  --motion-fast: 150ms; --ease-standard: cubic-bezier(0.2,0,0,1);
+  --radius: 8px; --radius-sm: 6px; --radius-xs: 4px;
+  --primary: #0066ff; --primary-hover: #0052cc; --primary-light: rgba(0,102,255,0.1); --primary-medium: rgba(0,102,255,0.15);
+  --bg: hsl(220 5.6% 96%); --bg-surface: #ffffff; --chrome-bg: hsl(220 5.6% 93%);
+  --bg-elevated: hsl(220 4.9% 98.1%); --bg-hover: hsl(220 4.9% 94.6%); --bg-inset: hsl(220 4.9% 97.4%); --bg-input: hsl(220 4.9% 98.1%);
+  --text: hsl(220 3.5% 10.6%); --text-secondary: hsl(220 2.8% 36.4%); --text-tertiary: hsl(220 2.8% 42.3%);
+  --text-muted: hsl(220 2.8% 42.5%); --text-heading: hsl(220 3.1% 20.7%); --text-body: hsl(220 3.1% 27.6%); --text-faint: hsl(220 2.8% 42.1%);
+  --border: hsl(220 4.9% 88%); --border-light: hsl(220 4.9% 84%); --border-subtle: hsl(220 4.9% 92%); --border-input: hsl(220 4.9% 84%);
+  --ok: #059669; --ok-cell: #10b981; --warn: #92400e; --warn-cell: #f59e0b; --warn-bg: rgba(245,158,11,0.12);
+  --danger: #b91c1c; --danger-cell: #ef4444; --danger-bg: rgba(239,68,68,0.10);
+  --cell-none: hsl(220 4.9% 88%); --cell-skip: hsl(220 4.9% 78%);
+  --claude: #d97757;
+  --font-ui: -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+}
+.dark {
+  color-scheme: dark;
+  --bg: hsl(222 5.6% 8.5%); --bg-surface: hsl(222 4.9% 11%); --chrome-bg: hsl(224 26% 4.5%);
+  --bg-elevated: hsl(220 4.5% 14%); --bg-hover: hsl(220 4.2% 17%); --bg-inset: hsl(222 5.2% 10%); --bg-input: hsl(220 4.5% 13%);
+  --primary: #4d94ff; --primary-hover: #66a3ff; --primary-light: rgba(77,148,255,0.12); --primary-medium: rgba(77,148,255,0.18);
+  --text: #e6e8ec; --text-secondary: #aab0ba; --text-tertiary: #969ca6; --text-muted: #8d939b; --text-heading: #ccced4; --text-body: #bbbec5; --text-faint: #909296;
+  --border: hsl(220 3.8% 18%); --border-light: hsl(220 3.5% 24%); --border-subtle: hsl(220 4.2% 15%); --border-input: hsl(220 3.5% 21%);
+  --ok: #4ade80; --ok-cell: #34d399; --warn: #fbbf24; --warn-cell: #fbbf24; --warn-bg: rgba(251,191,36,0.10);
+  --danger: #f87171; --danger-cell: #f87171; --danger-bg: rgba(248,113,113,0.10);
+  --cell-none: hsl(220 4% 20%); --cell-skip: hsl(220 4% 30%);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { font-family: var(--font-ui); font-size: 11px; color: var(--text); background: var(--chrome-bg); -webkit-font-smoothing: antialiased; overflow: hidden; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.num { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--font-mono); }
+svg.i { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+svg.i.s12 { width: 12px; height: 12px; } svg.i.s13 { width: 13px; height: 13px; } svg.i.s11 { width: 11px; height: 11px; }
+
+.app { display: flex; height: 100vh; }
+
+/* ---------- Sidebar ---------- */
+.sidebar { width: 256px; flex: none; display: flex; flex-direction: column; background: var(--chrome-bg); border-right: 1px solid var(--border-subtle); }
+.titlebar { height: 40px; display: flex; align-items: center; gap: 6px; padding: 0 8px 0 14px; }
+.titlebar .brand { font-size: 16px; font-weight: 600; color: var(--text); margin-right: 2px; }
+.chromebtn { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-sm); color: var(--text-secondary); background: var(--bg-elevated); border: 1px solid var(--border-subtle); position: relative; }
+.chromebtn:hover { background: var(--bg-hover); }
+.chromebtn .badge { position: absolute; top: -3px; right: -3px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--warn-cell); color: #1a1205; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.spacer { flex: 1; }
+.tree { flex: 1; overflow: hidden; padding: 4px 0; }
+.row { height: 34px; margin: 3px 6px; padding: 0 8px; display: flex; align-items: center; gap: 8px; border-radius: var(--radius); color: var(--text-body); font-size: 12.5px; white-space: nowrap; }
+.row:hover { background: var(--bg-hover); }
+.row .glyph { width: 14px; display: inline-flex; color: var(--text-tertiary); }
+.row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.row .tail { font-size: 11px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 6px; }
+.row.selected { background: var(--bg-elevated); color: var(--text); box-shadow: inset 0 0 0 1px var(--border); }
+.row.selected .glyph { color: var(--text-secondary); }
+.tail .warn { color: var(--warn); font-weight: 500; }
+.dot { width: 6px; height: 6px; border-radius: 3px; display: inline-block; flex: none; }
+.dot.warn { background: var(--warn-cell); } .dot.ok { background: var(--ok-cell); } .dot.danger { background: var(--danger-cell); } .dot.blue { background: var(--primary); }
+.sep { height: 1px; background: var(--border-subtle); margin: 6px 12px; }
+.tile { margin: 4px 6px 8px; padding: 8px 10px; border-radius: var(--radius); background: var(--bg-elevated); border: 1px solid var(--border-subtle); }
+.tile .th { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 11px; margin-bottom: 6px; }
+.tile .th b { color: var(--text); font-weight: 600; }
+.tile .ev { display: flex; gap: 8px; font-size: 11px; color: var(--text-body); line-height: 18px; }
+.tile .ev .t { color: var(--text-muted); width: 34px; }
+.grp { margin: 2px 6px 6px; border-radius: var(--radius); background: var(--bg-inset); border: 1px solid var(--border-subtle); padding: 2px 0; }
+.grp .row { margin: 1px 4px; height: 30px; }
+.grp .row.head { color: var(--text); font-weight: 500; }
+.grp .row.sub { padding-left: 24px; }
+.claude { color: var(--claude) !important; }
+.statusbar { padding: 6px; border-top: 1px solid var(--border-subtle); }
+.idcard { height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: var(--radius); background: var(--bg-elevated); border: 1px solid var(--border-subtle); font-size: 12px; }
+.face { width: 20px; height: 20px; border-radius: 10px; background: var(--primary); color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+
+/* ---------- Main pane ---------- */
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+.tabbar { height: 40px; display: flex; align-items: center; gap: 6px; padding: 0 8px; background: var(--chrome-bg); border-bottom: 1px solid var(--border-subtle); }
+.ptab { height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: var(--radius-sm); color: var(--text-secondary); font-size: 12px; }
+.ptab.active { background: var(--bg-elevated); color: var(--text); box-shadow: inset 0 0 0 1px var(--border); min-width: 180px; }
+.ptab .x { margin-left: auto; color: var(--text-faint); }
+.content { flex: 1; display: flex; min-height: 0; }
+.list { flex: 1; min-width: 0; overflow: auto; padding: 16px 20px 24px; }
+.panel { width: 360px; flex: none; border-left: 1px solid var(--border-subtle); background: var(--bg-surface); overflow: auto; }
+
+.verdict { display: flex; align-items: flex-start; gap: 12px; }
+.verdict h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.01em; color: var(--text); }
+.verdict h1 .soft { color: var(--text-muted); font-weight: 500; }
+.verdict p { margin: 4px 0 0; font-size: 12px; color: var(--text-secondary); }
+.live { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 11px; white-space: nowrap; padding-top: 6px; }
+.seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--radius); background: var(--bg-inset); border: 1px solid var(--border-subtle); margin-top: 14px; }
+.seg button { height: 26px; padding: 0 12px; border-radius: var(--radius-sm); font-size: 12px; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 6px; }
+.seg button.on { background: var(--bg-elevated); color: var(--text); box-shadow: 0 0 0 1px var(--border); }
+.seg .cnt { font-size: 11px; color: var(--text-muted); }
+.toolbar { display: flex; align-items: center; gap: 6px; margin: 12px 0 14px; flex-wrap: nowrap; }
+.chip { height: 26px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); color: var(--text-secondary); display: inline-flex; align-items: center; gap: 6px; font-size: 11px; white-space: nowrap; }
+.chip.on { background: var(--primary-light); border-color: transparent; color: var(--primary); }
+.chip .n { color: var(--text-muted); } .chip.on .n { color: var(--primary); }
+.chip .w { color: var(--warn); }
+.segrow { display: flex; align-items: flex-end; gap: 8px; }
+.search { margin-left: auto; height: 26px; width: 180px; border-radius: var(--radius-sm); border: 1px solid var(--border-input); background: var(--bg-input); color: var(--text-muted); display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; }
+
+.sect { display: flex; align-items: center; gap: 8px; margin: 18px 0 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-tertiary); }
+.sect .n { font-weight: 500; color: var(--text-muted); letter-spacing: 0; }
+.sect .rest { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--text-muted); }
+.sect.you { color: var(--warn); }
+
+/* decide-you cards */
+.decide { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-surface); overflow: hidden; }
+.drow { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--border-subtle); }
+.drow:first-child { border-top: 0; }
+.drow.sel { background: var(--primary-light); box-shadow: inset 2px 0 0 var(--primary); }
+.drow .ic { color: var(--danger); display: inline-flex; }
+.drow .ic.w { color: var(--warn); }
+.drow .ic.q { color: var(--text-secondary); }
+.drow .body { flex: 1; min-width: 0; }
+.drow .t { font-size: 12.5px; color: var(--text); font-weight: 500; }
+.drow .s { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+.drow .acts { display: flex; gap: 6px; align-items: center; }
+.btn { height: 26px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-body); background: var(--bg-elevated); white-space: nowrap; }
+.btn:hover { background: var(--bg-hover); }
+.btn.primary { background: var(--primary); border-color: transparent; color: #fff; }
+.btn.danger { color: var(--danger); }
+.btn.icon { width: 26px; padding: 0; justify-content: center; }
+
+/* table */
+.tbl { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-surface); overflow: hidden; }
+.thead, .tr { display: grid; grid-template-columns: minmax(0,1fr) 116px 160px 74px 44px 82px; align-items: center; gap: 10px; padding: 0 12px; }
+.thead { height: 30px; font-size: 11px; font-weight: 600; color: var(--text-secondary); border-bottom: 1px solid var(--border-subtle); background: var(--bg-inset); }
+.tr { height: 38px; border-top: 1px solid var(--border-subtle); font-size: 12px; }
+.thead + .tr { border-top: 0; }
+.tr:hover { background: var(--bg-hover); }
+.tr.sel { background: var(--primary-light); box-shadow: inset 2px 0 0 var(--primary); }
+.tr .nm { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text); }
+.tr .nm span.l { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr .nm .src { color: var(--text-faint); display: inline-flex; }
+.tr .when { color: var(--text-secondary); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tr .last { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+.tr .last.bad { color: var(--danger); }
+.vote { display: inline-flex; gap: 4px; color: var(--text-faint); align-items: center; }
+.vote .up { color: var(--ok); } .vote .down { color: var(--danger); }
+.vote .note { color: var(--text-secondary); }
+.rowacts { display: flex; align-items: center; gap: 2px; justify-content: flex-end; color: var(--text-muted); }
+.rowacts button { width: 24px; height: 24px; border-radius: var(--radius-xs); display: inline-flex; align-items: center; justify-content: center; }
+.rowacts button:hover { background: var(--bg-hover); color: var(--text); }
+.rowacts .ro { font-size: 11px; color: var(--text-faint); padding-right: 4px; }
+.toggle { width: 24px; height: 14px; border-radius: 7px; background: var(--ok-cell); position: relative; opacity: .9; }
+.toggle::after { content: ''; position: absolute; top: 2px; right: 2px; width: 10px; height: 10px; border-radius: 5px; background: #fff; }
+.toggle.off { background: var(--cell-skip); }
+.toggle.off::after { right: auto; left: 2px; }
+.more { height: 32px; border-top: 1px solid var(--border-subtle); display: flex; align-items: center; gap: 6px; padding: 0 12px; font-size: 11px; color: var(--text-muted); }
+.more b { color: var(--text-secondary); font-weight: 500; }
+.collapsed { display: flex; flex-direction: column; gap: 6px; }
+.crow { height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-surface); font-size: 12px; color: var(--text); }
+.crow .glyph { color: var(--text-tertiary); display: inline-flex; }
+.crow .meta { color: var(--text-muted); font-size: 11px; }
+.crow .r { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 11px; }
+.crow.quiet { background: transparent; border-style: dashed; }
+
+/* 24h strip */
+.strip { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; height: 14px; }
+.strip i { border-radius: 2px; background: var(--cell-none); }
+.strip i.o { background: var(--ok-cell); opacity: .75; }
+.strip i.x { background: var(--danger-cell); }
+.strip i.w { background: var(--warn-cell); }
+.strip i.s { background: var(--cell-skip); }
+.strip i.now { outline: 1px solid var(--text-muted); outline-offset: 1px; }
+
+/* side panel */
+.ph { padding: 14px 16px 12px; border-bottom: 1px solid var(--border-subtle); }
+.ph .top { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 11px; }
+.ph .top .close { margin-left: auto; }
+.ph h2 { margin: 8px 0 2px; font-size: 16px; font-weight: 600; color: var(--text); }
+.ph .st { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--danger); }
+.ph .facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin-top: 10px; font-size: 11px; }
+.ph .facts dt { color: var(--text-muted); } .ph .facts dd { margin: 0; color: var(--text-body); }
+.ph .cmds { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+.ps { padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); }
+.ps h3 { margin: 0 0 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-tertiary); display: flex; align-items: center; gap: 6px; }
+.ps h3 .r { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--text-muted); }
+.votes { display: flex; gap: 6px; }
+.votes .btn.on { background: var(--primary-light); color: var(--primary); border-color: transparent; }
+.decided { margin-top: 8px; font-size: 11px; color: var(--text-secondary); display: flex; gap: 6px; align-items: center; }
+.notebox { border: 1px solid var(--border-input); background: var(--bg-input); border-radius: var(--radius-sm); padding: 8px 10px; font-size: 12px; color: var(--text-body); line-height: 1.45; min-height: 52px; }
+.notebox .by { display: block; margin-top: 4px; font-size: 11px; color: var(--text-muted); }
+.fix { border-radius: var(--radius); background: var(--primary-light); padding: 10px 12px; }
+.fix .t { font-size: 12px; color: var(--text); line-height: 1.45; }
+.fix .t b { font-weight: 600; }
+.fix .row2 { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.fix .hint { font-size: 11px; color: var(--text-muted); }
+.runs { display: flex; flex-direction: column; }
+.run { display: grid; grid-template-columns: 14px 86px 1fr auto; gap: 8px; align-items: center; height: 28px; font-size: 11px; color: var(--text-body); border-top: 1px solid var(--border-subtle); }
+.run:first-child { border-top: 0; }
+.run .when { color: var(--text-muted); }
+.run .ex { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+.run .ex.bad { color: var(--danger); }
+.run .msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run .ok { color: var(--ok); display: inline-flex; } .run .bad { color: var(--danger); display: inline-flex; }
+
+.states { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 22px; }
+.state { border: 1px dashed var(--border-light); border-radius: var(--radius); padding: 8px 10px; font-size: 11px; color: var(--text-secondary); display: flex; gap: 8px; align-items: flex-start; }
+.state .k { font-size: 11px; font-weight: 600; color: var(--text); display: block; margin-bottom: 3px; }
+.state .btn { margin-left: auto; }
+
+/* calendar tab */
+.cal { display: none; }
+body.tab-cal .cal { display: block; }
+body.tab-cal .auto { display: none; }
+.day { margin-top: 16px; }
+.day h4 { margin: 0 0 6px; font-size: 11px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; }
+.crow .time { width: 44px; color: var(--text-secondary); }
+
+/* phone-only chrome */
+.phonebar, .phonetabs { display: none; }
+.sheet { display: none; }
+
+@media (max-width: 767px) {
+  body { overflow: auto; background: var(--chrome-bg); font-size: 12px; }
+  .app { display: block; height: auto; }
+  .sidebar, .tabbar, .panel { display: none; }
+  .main { background: var(--chrome-bg); }
+  .phonetabs { display: flex; gap: 4px; padding: 6px 8px 0; }
+  .phonetabs .ptab { height: 30px; font-size: 12px; }
+  .phonebar { display: flex; align-items: center; gap: 8px; height: 50px; padding: 0 8px; border-bottom: 1px solid var(--border-subtle); }
+  .phonebar .chromebtn { width: 44px; height: 44px; background: transparent; border: 0; }
+  .phonebar .title { font-size: 16px; font-weight: 600; }
+  .content { display: block; }
+  .list { padding: 12px 12px 32px; overflow: visible; }
+  .verdict h1 { font-size: 18px; }
+  .live { display: none; }
+  .segrow { display: block; }
+  .seg { margin-top: 12px; display: flex; width: 100%; }
+  .seg button { flex: 1; justify-content: center; height: 36px; }
+  .toolbar { flex-wrap: wrap; margin: 10px 0 10px; row-gap: 6px; }
+  .toolbar::-webkit-scrollbar { display: none; }
+  .chip { height: 32px; }
+  .search { display: none; }
+  .drow { flex-wrap: wrap; padding: 12px; }
+  .drow .acts { width: 100%; padding-left: 24px; }
+  .drow .acts .btn { height: 36px; flex: 1; justify-content: center; }
+  .thead { display: none; }
+  .tr { grid-template-columns: minmax(0,1fr) auto; grid-template-areas: "nm last" "strip strip" "when vote"; height: auto; row-gap: 6px; padding: 10px 12px; }
+  .tr .nm { grid-area: nm; } .tr .last { grid-area: last; text-align: right; } .tr .strip { grid-area: strip; height: 10px; }
+  .tr .when { grid-area: when; } .tr .vote { grid-area: vote; justify-self: end; }
+  .tr .rowacts { display: none; }
+  .states { grid-template-columns: 1fr; }
+  .state { font-size: 12px; } .state .k { font-size: 12px; }
+  .crow { height: 44px; }
+  .crow .meta.hide-sm { display: none; }
+  body.sheet-open .sheet { display: block; position: fixed; left: 0; right: 0; bottom: 0; max-height: 78vh; overflow: auto; background: var(--bg-surface); border-radius: 14px 14px 0 0; border-top: 1px solid var(--border); box-shadow: 0 -12px 40px rgba(0,0,0,.35); }
+  body.sheet-open::after { content: ''; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: -0; pointer-events: none; }
+  body.sheet-open .sheet { z-index: 2; }
+  .sheet .grab { width: 36px; height: 4px; border-radius: 2px; background: var(--border-light); margin: 8px auto 0; }
+  .sheet .btn { height: 36px; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ============ SIDEBAR ============ -->
+  <nav class="sidebar" aria-label="Topics sidebar">
+    <div class="titlebar">
+      <span class="brand">Topics</span>
+      <button class="chromebtn" title="Notifiche"><svg class="i" data-i="bell"></svg><span class="badge num">3</span></button>
+      <span class="spacer"></span>
+      <button class="chromebtn" title="Cerca"><svg class="i" data-i="search"></svg></button>
+      <button class="chromebtn" title="Nuovo"><svg class="i" data-i="plus"></svg></button>
+    </div>
+    <div class="tree">
+      <div class="row selected" title="Automazioni: 2 da sistemare, 1 da decidere, 83 in ordine"><span class="glyph"><svg class="i" data-i="workflow"></svg></span><span class="name">Automazioni</span><span class="tail num"><span class="warn">2 da sistemare</span></span></div>
+      <div class="row"><span class="glyph"><svg class="i" data-i="kanban"></svg></span><span class="name">Board</span><span class="tail num"><span class="dot blue"></span>3 al lavoro · 2 review</span></div>
+      <div class="sep"></div>
+      <div class="tile">
+        <div class="th"><svg class="i s13" data-i="calendar"></svg><b>Oggi</b><span>gio 5 nov</span><span class="spacer"></span><span class="num">2 appuntamenti</span></div>
+        <div class="ev num"><span class="t">15:00</span><span>Call settimanale studio-x</span></div>
+        <div class="ev num"><span class="t">17:30</span><span>Demo acme-web v1.1</span></div>
+      </div>
+      <div class="grp">
+        <div class="row head"><span class="glyph"><svg class="i s12" data-i="chev-down"></svg></span><span class="name">acme-web</span><span class="tail num">4m</span></div>
+        <div class="row sub"><span class="glyph claude"><svg class="i" data-i="asterisk"></svg></span><span class="name">Firma della release</span><span class="tail num">4m</span></div>
+        <div class="row sub"><span class="glyph"><svg class="i" data-i="terminal"></svg></span><span class="name">zsh</span><span class="tail num">12m</span></div>
+        <div class="row sub"><span class="glyph"><svg class="i" data-i="globe"></svg></span><span class="name">Preview</span></div>
+      </div>
+      <div class="grp">
+        <div class="row head"><span class="glyph"><svg class="i s12" data-i="chev-down"></svg></span><span class="name">studio-x</span><span class="tail num">1h</span></div>
+        <div class="row sub"><span class="glyph claude"><svg class="i" data-i="asterisk"></svg></span><span class="name">Refactor dei tipi</span><span class="tail num">1h</span></div>
+      </div>
+      <div class="row"><span class="glyph"><svg class="i s12" data-i="chev-right"></svg></span><span class="name">acme-api</span><span class="tail num">2h</span></div>
+      <div class="row"><span class="glyph"><svg class="i s12" data-i="chev-right"></svg></span><span class="name">acme-docs</span><span class="tail num">ieri</span></div>
+      <div class="row"><span class="glyph"><svg class="i" data-i="chart"></svg></span><span class="name">Dashboard</span></div>
+    </div>
+    <div class="statusbar">
+      <div class="idcard"><span class="face">A</span><span>Attilio</span><span class="spacer"></span><span class="num" style="color:var(--text-muted)">~144 MB</span><span class="dot ok"></span></div>
+    </div>
+  </nav>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+    <div class="tabbar">
+      <button class="chromebtn" style="background:transparent;border:0"><svg class="i" data-i="panel-left"></svg></button>
+      <div class="ptab active"><svg class="i s13" data-i="workflow"></svg>Automazioni<svg class="i s12 x" data-i="x"></svg></div>
+      <div class="ptab"><span class="claude" style="display:inline-flex"><svg class="i s13" data-i="asterisk"></svg></span>Firma della release</div>
+      <span class="spacer"></span>
+      <button class="chromebtn" style="background:transparent;border:0"><svg class="i" data-i="plus"></svg></button>
+    </div>
+
+    <div class="phonetabs"><div class="ptab active" style="min-width:0">Principale</div><div class="ptab">studio-x</div><div class="ptab">Numeri</div></div>
+    <div class="phonebar">
+      <button class="chromebtn" aria-label="Indietro"><svg class="i" data-i="chev-left" style="width:18px;height:18px"></svg></button>
+      <svg class="i" data-i="workflow" style="width:18px;height:18px;color:var(--text-secondary)"></svg>
+      <span class="title">Automazioni</span>
+      <span class="spacer"></span>
+      <button class="chromebtn" aria-label="Notifiche"><svg class="i" data-i="bell" style="width:18px;height:18px"></svg><span class="badge num" style="top:6px;right:6px">3</span></button>
+    </div>
+
+    <div class="content">
+      <section class="list">
+        <div class="verdict">
+          <div>
+            <h1>2 da sistemare<span class="soft">, il resto gira.</span></h1>
+            <p class="num">1 da decidere · 83 in ordine su 86 · 412 giri nelle ultime 24 ore · prossima: Backup del Mac alle 05:00</p>
+          </div>
+          <span class="live num"><span class="dot ok"></span>dal vivo · 22:26</span>
+        </div>
+
+        <div class="segrow"><div class="seg">
+          <button class="on" data-tab="auto"><svg class="i s13" data-i="workflow"></svg>Automazioni <span class="cnt num">86</span></button>
+          <button data-tab="cal"><svg class="i s13" data-i="alarm"></svg>Calendario <span class="cnt num">5</span></button>
+        </div><span class="search"><svg class="i s12" data-i="search"></svg>cerca un'automazione</span></div>
+
+        <!-- ===== Automazioni tab ===== -->
+        <div class="auto">
+          <div class="toolbar">
+            <span class="chip on">Tutte <span class="n num">86</span></span>
+            <span class="chip"><svg class="i s12" data-i="bot"></svg>Jarvis <span class="n num">34</span><span class="w num">1</span></span>
+            <span class="chip"><svg class="i s12" data-i="cpu"></svg>Mac <span class="n num">28</span><span class="w num">1</span></span>
+            <span class="chip"><svg class="i s12" data-i="moon"></svg>Board di notte <span class="n num">6</span></span>
+            <span class="chip"><svg class="i s12" data-i="branch"></svg>GitHub <span class="n num">9</span></span>
+            <span class="chip"><svg class="i s12" data-i="monitor"></svg>PC <span class="n num">4</span></span>
+            <span class="chip"><svg class="i s12" data-i="list-checks"></svg>Workflow <span class="n num">5</span></span>
+          </div>
+
+          <div class="sect you"><svg class="i s12" data-i="alert"></svg>Decidi tu <span class="n num">3</span><span class="rest">la più vecchia per prima</span></div>
+          <div class="decide">
+            <div class="drow sel">
+              <span class="ic"><svg class="i" data-i="circle-x"></svg></span>
+              <div class="body"><div class="t">Indice dei documenti</div><div class="s num">Fallisce da 2 giri (21:13, 22:13): la cartella acme-docs/notes non esiste più. Jarvis · ogni ora</div></div>
+              <div class="acts"><button class="btn primary"><svg class="i s12" data-i="wand"></svg>Risolvi tu</button><button class="btn"><svg class="i s12" data-i="play"></svg>Riprova</button></div>
+            </div>
+            <div class="drow">
+              <span class="ic w"><svg class="i" data-i="clock"></svg></span>
+              <div class="body"><div class="t">Backup del Mac</div><div class="s num">Stanotte non è partito: il Mac dormiva alle 05:00. Ultimo riuscito mer 4 nov, 05:02</div></div>
+              <div class="acts"><button class="btn"><svg class="i s12" data-i="play"></svg>Fallo ora</button><button class="btn"><svg class="i s12" data-i="wand"></svg>Risolvi tu</button></div>
+            </div>
+            <div class="drow">
+              <span class="ic q"><svg class="i" data-i="thumb-down"></svg></span>
+              <div class="body"><div class="t">Riepilogo settimanale su Discord</div><div class="s">L'hai votata «non serve» il 28/10, è ancora accesa e nessuno la legge da 30 giorni. Spegnerla?</div></div>
+              <div class="acts"><button class="btn">Tienila</button><button class="btn danger"><svg class="i s12" data-i="power"></svg>Spegni</button></div>
+            </div>
+          </div>
+
+          <div class="sect"><svg class="i s12" data-i="bot"></svg>Jarvis <span class="n num">34</span><span class="rest">job di OpenClaw: esegui, accendi, elimina da qui</span></div>
+          <div class="tbl">
+            <div class="thead"><span>Nome</span><span>Quando</span><span>Ultime 24 ore</span><span>Ultimo giro</span><span>Voto</span><span style="text-align:right">Comandi</span></div>
+            <div class="tr sel"><span class="nm"><span class="dot danger"></span><span class="l">Indice dei documenti</span></span><span class="when">ogni ora</span><span class="strip" data-s="ooooooooooooooooooooooxx"></span><span class="last bad num">22:13 · exit 1</span><span class="vote"><span class="up"><svg class="i s12" data-i="thumb-up"></svg></span><span class="note"><svg class="i s12" data-i="note"></svg></span></span><span class="rowacts"><button title="Esegui ora"><svg class="i s12" data-i="play"></svg></button><button title="Disattiva"><span class="toggle"></span></button><button title="Elimina"><svg class="i s12" data-i="trash"></svg></button></span></div>
+            <div class="tr"><span class="nm"><span class="dot ok"></span><span class="l">Avviso mail importanti</span></span><span class="when">ogni minuto</span><span class="strip" data-s="oooooooooooooooooooooooo"></span><span class="last num">22:26</span><span class="vote"><span class="up"><svg class="i s12" data-i="thumb-up"></svg></span></span><span class="rowacts"><button title="Esegui ora"><svg class="i s12" data-i="play"></svg></button><button title="Disattiva"><span class="toggle"></span></button><button title="Elimina"><svg class="i s12" data-i="trash"></svg></button></span></div>
+            <div class="tr"><span class="nm"><span class="dot ok"></span><span class="l">Giornata di lavoro nel calendario</span></span><span class="when">ogni 30 min</span><span class="strip" data-s="ssssssssoooooooooooooooo"></span><span class="last num">22:00</span><span class="vote"><svg class="i s12" data-i="thumb-up"></svg></span><span class="rowacts"><button title="Esegui ora"><svg class="i s12" data-i="play"></svg></button><button title="Disattiva"><span class="toggle"></span></button><button title="Elimina"><svg class="i s12" data-i="trash"></svg></button></span></div>
+            <div class="tr"><span class="nm"><span class="dot ok"></span><span class="l">Brief del mattino</span></span><span class="when">ogni giorno 07:30</span><span class="strip" data-s="-------o----------------"></span><span class="last num">07:30</span><span class="vote"><span class="up"><svg class="i s12" data-i="thumb-up"></svg></span><span class="note"><svg class="i s12" data-i="note"></svg></span></span><span class="rowacts"><button title="Esegui ora"><svg class="i s12" data-i="play"></svg></button><button title="Disattiva"><span class="toggle"></span></button><button title="Elimina"><svg class="i s12" data-i="trash"></svg></button></span></div>
+            <div class="tr"><span class="nm"><span class="dot" style="background:var(--text-muted)"></span><span class="l">Riepilogo settimanale su Discord</span></span><span class="when">lunedì 09:00</span><span class="strip" data-s="------------------------"></span><span class="last num">lun 09:00</span><span class="vote"><span class="down"><svg class="i s12" data-i="thumb-down"></svg></span></span><span class="rowacts"><button title="Esegui ora"><svg class="i s12" data-i="play"></svg></button><button title="Disattiva"><span class="toggle"></span></button><button title="Elimina"><svg class="i s12" data-i="trash"></svg></button></span></div>
+            <div class="more"><svg class="i s12" data-i="check"></svg><b class="num">altre 29 in ordine</b> · mostra</div>
+          </div>
+
+          <div class="sect"><svg class="i s12" data-i="cpu"></svg>Mac <span class="n num">28</span><span class="rest">launchd: sola lettura, si cambia dal file</span></div>
+          <div class="tbl">
+            <div class="tr"><span class="nm"><span class="dot warn"></span><span class="l">Backup del Mac</span></span><span class="when">ogni giorno 05:00</span><span class="strip" data-s="-----w------------------"></span><span class="last num" style="color:var(--warn)">non partito</span><span class="vote"><span class="up"><svg class="i s12" data-i="thumb-up"></svg></span></span><span class="rowacts"><button title="Esegui ora"><svg class="i s12" data-i="play"></svg></button><span class="ro">launchd</span></span></div>
+            <div class="tr"><span class="nm"><span class="dot ok"></span><span class="l">Memoria del Mac nel tempo</span></span><span class="when">ogni 5 min</span><span class="strip" data-s="oooooooooooooooooooooooo"></span><span class="last num">22:25</span><span class="vote"><svg class="i s12" data-i="thumb-up"></svg></span><span class="rowacts"><button title="Esegui ora"><svg class="i s12" data-i="play"></svg></button><span class="ro">launchd</span></span></div>
+            <div class="tr"><span class="nm"><span class="dot ok"></span><span class="l">Manutenzione notturna</span></span><span class="when">ogni giorno 02:30</span><span class="strip" data-s="--o---------------------"></span><span class="last num">02:41</span><span class="vote"><svg class="i s12" data-i="thumb-up"></svg></span><span class="rowacts"><button title="Esegui ora"><svg class="i s12" data-i="play"></svg></button><span class="ro">launchd</span></span></div>
+            <div class="more"><svg class="i s12" data-i="check"></svg><b class="num">altre 25 in ordine</b> · mostra</div>
+          </div>
+
+          <div class="sect"><span>Le altre aree</span><span class="rest">tutte in ordine, chiuse</span></div>
+          <div class="collapsed">
+            <div class="crow"><span class="glyph"><svg class="i" data-i="moon"></svg></span>Board di notte<span class="meta num hide-sm">6 · acme-web e2e alle 01:00, studio-x tipi alle 03:00</span><span class="r"><span class="strip" style="width:96px" data-s="-o-o--------------------"></span><svg class="i s12" data-i="chev-right"></svg></span></div>
+            <div class="crow"><span class="glyph"><svg class="i" data-i="branch"></svg></span>GitHub<span class="meta num hide-sm">9 · nightly di acme-web verde alle 04:12</span><span class="r"><span class="strip" style="width:96px" data-s="----o-------o-------o---"></span><svg class="i s12" data-i="chev-right"></svg></span></div>
+            <div class="crow quiet"><span class="glyph"><svg class="i" data-i="monitor"></svg></span>PC<span class="meta num">4 · il PC dorme, dati delle 02:10</span><span class="r"><svg class="i s12" data-i="chev-right"></svg></span></div>
+            <div class="crow"><span class="glyph"><svg class="i" data-i="list-checks"></svg></span>Workflow<span class="meta num hide-sm">5 · nessun giro oggi</span><span class="r"><svg class="i s12" data-i="chev-right"></svg></span></div>
+          </div>
+
+          <div class="states">
+            <div class="state"><svg class="i s13" data-i="cloud-off"></svg><div><span class="k">Se l'hub non risponde</span>Hub fermo dalle 22:10: numeri di allora, comandi spenti. In sidebar la riga resta con «hub fermo».</div><button class="btn"><svg class="i s12" data-i="refresh"></svg>Riprova</button></div>
+            <div class="state"><svg class="i s13" data-i="check"></svg><div><span class="k">Se è tutto in ordine</span>«86 automazioni, tutte in ordine.» In sidebar la riga non ha coda.</div></div>
+          </div>
+        </div>
+
+        <!-- ===== Calendario tab ===== -->
+        <div class="cal">
+          <div class="toolbar">
+            <span class="chip on">Tutto <span class="n num">5</span></span>
+            <span class="chip"><svg class="i s12" data-i="alarm"></svg>Promemoria <span class="n num">3</span></span>
+            <span class="chip"><svg class="i s12" data-i="list-checks"></svg>Lavori in calendario <span class="n num">2</span></span>
+          </div>
+          <div class="day"><h4>Oggi · gio 5 nov</h4>
+            <div class="collapsed">
+              <div class="crow"><span class="time num">23:00</span><span class="glyph"><svg class="i" data-i="alarm"></svg></span>Ricordami di chiudere la PR di acme-api<span class="r">Jarvis · WhatsApp<svg class="i s12" data-i="trash"></svg></span></div>
+            </div></div>
+          <div class="day"><h4>Domani · ven 6 nov</h4>
+            <div class="collapsed">
+              <div class="crow"><span class="time num">01:00</span><span class="glyph"><svg class="i" data-i="list-checks"></svg></span>studio-x: migrazione dei tipi, card notturna<span class="r">board di notte<svg class="i s12" data-i="chev-right"></svg></span></div>
+              <div class="crow"><span class="time num">10:00</span><span class="glyph"><svg class="i" data-i="alarm"></svg></span>Rinnovo del dominio acme-web.example<span class="r">Jarvis<svg class="i s12" data-i="trash"></svg></span></div>
+            </div></div>
+          <div class="day"><h4>Lun 9 nov</h4>
+            <div class="collapsed">
+              <div class="crow"><span class="time num">09:00</span><span class="glyph"><svg class="i" data-i="list-checks"></svg></span>Rilettura delle previsioni settimanali<span class="r">sessione autonoma<svg class="i s12" data-i="chev-right"></svg></span></div>
+              <div class="crow"><span class="time num">18:00</span><span class="glyph"><svg class="i" data-i="alarm"></svg></span>Chiedere il preventivo a studio-x<span class="r">Jarvis<svg class="i s12" data-i="trash"></svg></span></div>
+            </div></div>
+          <div class="states"><div class="state"><svg class="i s13" data-i="calendar"></svg><div><span class="k">Gli appuntamenti</span>Restano nella tessera «Oggi» della sidebar: qui solo promemoria e lavori con una data.</div></div></div>
+        </div>
+      </section>
+
+      <!-- ============ SIDE PANEL ============ -->
+      <aside class="panel" id="panel">
+        <div class="ph">
+          <div class="top"><svg class="i s12" data-i="bot"></svg>Jarvis · job di OpenClaw<button class="close chromebtn" style="width:24px;height:24px;background:transparent;border:0"><svg class="i s12" data-i="x"></svg></button></div>
+          <h2>Indice dei documenti</h2>
+          <div class="st num"><svg class="i s12" data-i="circle-x"></svg>Fallisce da 2 giri, dalle 21:13</div>
+          <dl class="facts num">
+            <dt>Quando</dt><dd>ogni ora, al minuto 13</dd>
+            <dt>Fa</dt><dd>reindicizza le note di acme-docs per la ricerca</dd>
+            <dt>Prossimo</dt><dd>23:13, fra 47 min</dd>
+          </dl>
+          <div class="cmds"><button class="btn"><svg class="i s12" data-i="play"></svg>Esegui ora</button><button class="btn"><span class="toggle"></span>Accesa</button><button class="btn danger"><svg class="i s12" data-i="trash"></svg>Elimina</button></div>
+        </div>
+        <div class="ps">
+          <h3><svg class="i s12" data-i="wand"></svg>Risolvi tu</h3>
+          <div class="fix">
+            <div class="t">La cartella <b class="mono" style="font-size:11px">acme-docs/notes</b> è stata spostata in <b class="mono" style="font-size:11px">docs/notes</b> il 4/11. Aggiorno il percorso del job e lo rilancio.</div>
+            <div class="row2"><button class="btn primary"><svg class="i s12" data-i="wand"></svg>Risolvi tu</button><span class="hint">l'esito arriva qui e nello Storico</span></div>
+          </div>
+        </div>
+        <div class="ps">
+          <h3>Il tuo voto<span class="r num">dato il 21/10</span></h3>
+          <div class="votes"><button class="btn on"><svg class="i s12" data-i="thumb-up"></svg>Serve</button><button class="btn"><svg class="i s12" data-i="thumb-down"></svg>Non serve</button></div>
+        </div>
+        <div class="ps">
+          <h3><svg class="i s12" data-i="note"></svg>Note<span class="r">1</span></h3>
+          <div class="notebox">Tienila anche quando acme-docs è fermo: la ricerca delle schede ci conta.<span class="by num">Attilio · 21/10</span></div>
+        </div>
+        <div class="ps" style="border-bottom:0">
+          <h3>Giri<span class="r num">24 oggi · 22 riusciti</span></h3>
+          <div class="runs num">
+            <div class="run"><span class="bad"><svg class="i s12" data-i="circle-x"></svg></span><span class="when">oggi 22:13</span><span class="msg">cartella non trovata</span><span class="ex bad">exit 1 · 0,4 s</span></div>
+            <div class="run"><span class="bad"><svg class="i s12" data-i="circle-x"></svg></span><span class="when">oggi 21:13</span><span class="msg">cartella non trovata</span><span class="ex bad">exit 1 · 0,3 s</span></div>
+            <div class="run"><span class="ok"><svg class="i s12" data-i="circle-check"></svg></span><span class="when">oggi 20:13</span><span class="msg">412 schede, 3 nuove</span><span class="ex">exit 0 · 6,1 s</span></div>
+            <div class="run"><span class="ok"><svg class="i s12" data-i="circle-check"></svg></span><span class="when">oggi 19:13</span><span class="msg">409 schede</span><span class="ex">exit 0 · 5,8 s</span></div>
+            <div class="run"><span class="ok"><svg class="i s12" data-i="circle-check"></svg></span><span class="when">oggi 18:13</span><span class="msg">409 schede</span><span class="ex">exit 0 · 5,9 s</span></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+
+<!-- phone detail sheet (open with ?sheet=1) -->
+<div class="sheet" id="sheet"><div class="grab"></div></div>
+
+<script>
+var P = {
+  bell: '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  kanban: '<path d="M6 5v11"/><path d="M12 5v6"/><path d="M18 5v14"/>',
+  workflow: '<rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/>',
+  calendar: '<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>',
+  'chev-down': '<path d="m6 9 6 6 6-6"/>', 'chev-right': '<path d="m9 18 6-6-6-6"/>', 'chev-left': '<path d="m15 18-6-6 6-6"/>',
+  asterisk: '<path d="M12 6v12"/><path d="M17.196 9 6.804 15"/><path d="m6.804 9 10.392 6"/>',
+  terminal: '<path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2"/>',
+  globe: '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
+  chart: '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+  'panel-left': '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  play: '<polygon points="6 3 20 12 6 21 6 3"/>',
+  trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
+  'thumb-up': '<path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/>',
+  'thumb-down': '<path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/>',
+  wand: '<path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M19 14v4"/><path d="M10 2v2"/><path d="M7 8H3"/><path d="M21 16h-4"/><path d="M11 3H9"/>',
+  'circle-x': '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
+  'circle-check': '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  power: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/>',
+  note: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
+  cpu: '<rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/>',
+  moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+  branch: '<path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+  monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
+  'list-checks': '<path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/>',
+  alarm: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/><path d="M5 3 2 6"/><path d="m22 6-3-3"/>',
+  'cloud-off': '<path d="m2 2 20 20"/><path d="M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193"/><path d="M21.532 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7.008 7.008 0 0 0 10 5.07"/>',
+  refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>'
+};
+document.querySelectorAll('svg[data-i]').forEach(function (s) {
+  s.setAttribute('viewBox', '0 0 24 24');
+  s.setAttribute('aria-hidden', 'true');
+  s.innerHTML = P[s.dataset.i] || '';
+});
+// 24h strip: one cell per hour, last cell is the current hour.
+document.querySelectorAll('.strip[data-s]').forEach(function (el) {
+  var m = { o: 'o', x: 'x', w: 'w', s: 's', '-': '' };
+  el.innerHTML = el.dataset.s.split('').map(function (c, i, a) {
+    return '<i class="' + (m[c] || '') + (i === a.length - 1 ? ' now' : '') + '"></i>';
+  }).join('');
+});
+var q = new URLSearchParams(location.search);
+function setTab(t) {
+  document.body.classList.toggle('tab-cal', t === 'cal');
+  document.querySelectorAll('.seg button').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === t); });
+}
+document.querySelectorAll('.seg button').forEach(function (b) { b.onclick = function () { setTab(b.dataset.tab); }; });
+if (q.get('tab') === 'calendario') setTab('cal');
+// Phone: the side panel becomes a bottom sheet.
+var sheet = document.getElementById('sheet');
+sheet.insertAdjacentHTML('beforeend', document.getElementById('panel').innerHTML);
+if (q.get('sheet') === '1') document.body.classList.add('sheet-open');
+</script>
+</body>
+</html>

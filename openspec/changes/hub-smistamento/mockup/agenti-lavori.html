@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="it" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Topics · Agenti e lavori (mockup)</title>
+<script>
+  // ?theme=light | ?f=corso|attesa|finiti | ?hub=down
+  (function () {
+    var q = new URLSearchParams(location.search);
+    if (q.get('theme') === 'light') document.documentElement.classList.remove('dark');
+    window.__F = q.get('f') || 'attesa';
+    window.__HUB_DOWN = q.get('hub') === 'down';
+  })();
+</script>
+<style>
+/* Token copiati da client/src/index.css (oggi/topics-tokens.css) */
+:root{
+  color-scheme: light;
+  --motion-fast:150ms; --ease-standard:cubic-bezier(0.2,0,0,1);
+  --radius:8px; --radius-sm:6px; --radius-xs:4px;
+  --primary:#0066ff; --primary-hover:#0052cc; --primary-light:rgba(0,102,255,.1); --primary-medium:rgba(0,102,255,.15); --primary-ink:#1447e6;
+  --bg:hsl(220 5.6% 96%); --bg-surface:#fff; --chrome-bg:hsl(220 5.6% 93%); --bg-elevated:hsl(220 4.9% 98.1%);
+  --bg-hover:hsl(220 4.9% 94.3%); --bg-inset:hsl(220 4.9% 97.4%); --popover-bg:hsl(220 4.9% 99%);
+  --text:hsl(220 3.5% 10.6%); --text-secondary:hsl(220 2.8% 36.4%); --text-tertiary:hsl(220 2.8% 42.3%);
+  --text-muted:hsl(220 2.8% 42.5%); --text-faint:hsl(220 2.8% 42.1%); --text-heading:hsl(220 3.1% 20.7%); --text-body:hsl(220 3.1% 27.6%);
+  --border:hsl(220 4.9% 91.4%); --border-light:hsl(220 4.9% 88.5%); --border-subtle:hsl(220 4.9% 94.4%);
+  --success:#059669; --success-bg:rgba(16,185,129,.12); --warning:#b45309; --warning-dot:#f59e0b; --warning-bg:rgba(245,158,11,.12);
+  --danger:#dc2626; --danger-bg:rgba(239,68,68,.1);
+  --shadow: 0 12px 32px -8px rgba(15,20,30,.18), 0 2px 6px rgba(15,20,30,.06);
+  --font-ui:-apple-system,BlinkMacSystemFont,system-ui,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;
+}
+.dark{
+  color-scheme: dark;
+  --bg:hsl(222 5.6% 8.5%); --bg-surface:hsl(222 4.9% 11%); --chrome-bg:hsl(224 26% 4.5%); --bg-elevated:hsl(220 4.5% 14%);
+  --bg-hover:hsl(220 4.2% 17%); --bg-inset:hsl(222 5.2% 10%); --popover-bg:hsl(220 4.5% 12.5%);
+  --text:#e6e8ec; --text-secondary:#aab0ba; --text-tertiary:#969ca6; --text-muted:#8d939b; --text-faint:#909296; --text-heading:#ccced4; --text-body:#bbbec5;
+  --border:hsl(220 3.8% 18%); --border-light:hsl(220 3.5% 24%); --border-subtle:hsl(220 4.2% 15%);
+  --primary-ink:#4d94ff;
+  --success:#34d399; --success-bg:rgba(52,211,153,.12); --warning:#fbbf24; --warning-dot:#fbbf24; --warning-bg:rgba(251,191,36,.12);
+  --danger:#f87171; --danger-bg:rgba(248,113,113,.12);
+  --shadow: 0 16px 40px -8px rgba(0,0,0,.6), 0 2px 8px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:var(--font-ui);font-size:11px;color:var(--text);background:var(--chrome-bg);-webkit-font-smoothing:antialiased;overflow:hidden}
+.num{font-variant-numeric:tabular-nums}
+svg.i{width:14px;height:14px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+svg.i.s12{width:12px;height:12px} svg.i.s13{width:13px;height:13px} svg.i.s16{width:16px;height:16px} svg.i.s18{width:18px;height:18px}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+
+/* ---------- desktop shell ---------- */
+.app{display:flex;height:100vh}
+.sidebar{width:256px;flex:none;display:flex;flex-direction:column;background:var(--chrome-bg);border-right:1px solid var(--border-subtle)}
+.titlebar{height:40px;display:flex;align-items:center;gap:6px;padding:0 8px 0 14px}
+.titlebar .brand{font-size:16px;font-weight:600;color:var(--text)}
+.cbtn{width:28px;height:28px;border-radius:var(--radius);display:grid;place-items:center;color:var(--text-secondary);position:relative}
+.cbtn.box{background:var(--bg-hover)}
+.badge{position:absolute;top:2px;right:1px;min-width:14px;height:14px;padding:0 3px;border-radius:7px;font-size:9px;font-weight:600;display:grid;place-items:center;background:var(--warning-dot);color:#1a1300}
+.rows{padding:2px 6px;display:flex;flex-direction:column;gap:0}
+.row{height:34px;display:flex;align-items:center;gap:8px;padding:0 8px;border-radius:var(--radius);color:var(--text-body);font-size:13px;white-space:nowrap}
+.row .tail{margin-left:auto;font-size:11px;color:var(--text-tertiary);display:flex;gap:6px;align-items:center}
+.row.sel{background:var(--bg-hover);color:var(--text)}
+.row .g{color:var(--text-tertiary)}
+.sub{padding-left:26px;font-size:12px}
+.dot{width:6px;height:6px;border-radius:50%;flex:none}
+.dot.ok{background:var(--success)} .dot.warn{background:var(--warning-dot)} .dot.bad{background:var(--danger)} .dot.blue{background:var(--primary)}
+.grp{margin:6px 6px 0;border:1px solid var(--border-subtle);border-radius:10px;padding:2px 0 4px;background:color-mix(in srgb,var(--bg-surface) 40%,transparent)}
+.grp-h{height:28px;display:flex;align-items:center;gap:6px;padding:0 10px;font-size:11px;color:var(--text-tertiary);font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.spacer{flex:1}
+.identity{margin:6px;height:36px;border-radius:var(--radius);display:flex;align-items:center;gap:8px;padding:0 8px;background:var(--bg-hover);border:1px solid var(--border-light)}
+.avatar{width:20px;height:20px;border-radius:50%;background:var(--primary);color:#fff;font-size:10px;font-weight:600;display:grid;place-items:center}
+.main{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg)}
+.tabbar{height:40px;display:flex;align-items:center;gap:6px;padding:0 8px;background:var(--chrome-bg);border-bottom:1px solid var(--border-subtle)}
+.tab{height:28px;display:flex;align-items:center;gap:6px;padding:0 10px;border-radius:var(--radius-sm);font-size:12px;color:var(--text-secondary);min-width:150px}
+.tab.on{background:var(--bg-hover);color:var(--text)}
+.chat{flex:1;padding:28px 0 0 0;display:flex;justify-content:center;overflow:hidden}
+.chat .col{width:620px;max-width:100%;padding:0 24px;font-size:13px;line-height:1.6;color:var(--text-body)}
+.chat .day{font-size:11px;color:var(--text-tertiary);text-align:center;margin-bottom:16px;letter-spacing:.06em}
+.chat .bub{margin-left:auto;width:max-content;max-width:80%;background:var(--bg-hover);border-radius:12px;padding:8px 12px;margin-bottom:14px;color:var(--text)}
+.chat p{margin-bottom:12px}
+.tool{display:flex;gap:6px;align-items:center;color:var(--text-tertiary);font-size:12px;margin:-4px 0 12px}
+.composer{margin:0 auto 14px;width:620px;max-width:calc(100% - 48px);height:44px;border:1px solid var(--border-light);border-radius:12px;background:var(--bg-surface);display:flex;align-items:center;padding:0 14px;color:var(--text-faint);font-size:13px}
+
+/* ---------- menu primitive (glass panels) ---------- */
+.menu{position:fixed;background:var(--popover-bg);border:1px solid var(--border-light);border-radius:10px;box-shadow:var(--shadow);padding:4px;display:flex;flex-direction:column}
+.mi{height:30px;display:flex;align-items:center;gap:8px;padding:0 8px;border-radius:var(--radius-sm);font-size:12px;color:var(--text-body);white-space:nowrap}
+.mi .g{color:var(--text-tertiary)}
+.mi .tail{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-tertiary)}
+.mi.on{background:var(--bg-hover);color:var(--text)}
+.mi.on .chev{color:var(--text-secondary)}
+.msep{height:1px;background:var(--border-subtle);margin:4px 6px}
+.mhead{display:flex;align-items:center;gap:8px;padding:8px 8px 6px}
+.mhead b{font-size:13px;font-weight:600;color:var(--text)}
+.mhead span{color:var(--text-tertiary)}
+
+/* ---------- livello Agenti e lavori ---------- */
+.lvl{width:420px;padding:0}
+.lvl-h{display:flex;align-items:center;gap:8px;padding:10px 12px 8px}
+.lvl-h .t{font-size:13px;font-weight:600;color:var(--text-heading)}
+.lvl-h .tail{margin-left:auto;display:flex;align-items:center;gap:6px;color:var(--text-tertiary)}
+.seg{display:flex;gap:2px;margin:0 10px 6px;padding:2px;border-radius:var(--radius);background:var(--bg-inset);border:1px solid var(--border-subtle)}
+.seg button{flex:1;height:26px;border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;gap:6px;font-size:12px;color:var(--text-secondary)}
+.seg button .n{font-size:11px;color:var(--text-tertiary)}
+.seg button.on{background:var(--bg-hover);color:var(--text);box-shadow:0 0 0 1px var(--border-light) inset}
+.seg button.on .n{color:var(--text-secondary)}
+.seg .amb{width:6px;height:6px;border-radius:50%;background:var(--warning-dot)}
+.lvl-body{overflow:auto;padding:0 6px 6px;flex:1;min-height:0}
+.lvl-body::-webkit-scrollbar{width:0}
+.sec{margin-top:8px}
+.sec-h{height:24px;display:flex;align-items:center;gap:6px;padding:0 8px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary)}
+.sec-h .c{font-weight:500;letter-spacing:0}
+.sec-h .hint{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:400;color:var(--text-faint)}
+.sec-h.you{color:var(--warning)}
+.it{display:flex;gap:8px;padding:7px 8px;border-radius:var(--radius);align-items:flex-start;position:relative}
+.it:hover{background:var(--bg-hover)}
+.it .lead{width:20px;height:18px;display:grid;place-items:center;color:var(--text-tertiary);flex:none;position:relative}
+.it .lead .live{position:absolute;right:-1px;bottom:0;width:6px;height:6px;border-radius:50%;background:var(--success);box-shadow:0 0 0 2px var(--popover-bg)}
+.it .lead .live.idle{background:var(--warning-dot)}
+.it .tx{flex:1;min-width:0}
+.it .t1{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);line-height:18px}
+.it .t1 .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.it .t2{font-size:11.5px;color:var(--text-secondary);line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.it .r{flex:none;font-size:11px;color:var(--text-tertiary);line-height:18px;display:flex;align-items:center;gap:6px}
+.chip{flex:none;height:16px;padding:0 5px;border-radius:var(--radius-xs);font-size:10.5px;font-weight:500;display:inline-flex;align-items:center;gap:3px;line-height:1}
+.chip.amb{background:var(--warning-bg);color:var(--warning)}
+.chip.mut{background:var(--bg-hover);color:var(--text-secondary)}
+.chip.red{background:var(--danger-bg);color:var(--danger)}
+.chip.ok{background:var(--success-bg);color:var(--success)}
+.fold{flex:none;height:16px;padding:0 5px;border-radius:var(--radius-xs);font-size:10.5px;font-weight:600;background:var(--bg-hover);color:var(--text-secondary);border:1px solid var(--border-light);display:inline-flex;align-items:center}
+.prog{height:3px;border-radius:2px;background:var(--border-light);margin-top:5px;overflow:hidden;width:100%}
+.prog i{display:block;height:100%;background:var(--primary)}
+.steps{display:flex;gap:3px;margin-top:5px}
+.steps i{flex:1;height:3px;border-radius:2px;background:var(--border-light)}
+.steps i.d{background:var(--success)} .steps i.a{background:var(--primary)}
+.you-card{border:1px solid color-mix(in srgb,var(--warning-dot) 35%,var(--border-light));background:color-mix(in srgb,var(--warning-dot) 6%,var(--popover-bg));border-radius:var(--radius);margin:2px 0 6px;padding:8px 8px 8px}
+.you-card .it{padding:0}
+.you-card .it:hover{background:none}
+.q{margin:6px 0 0 28px;font-size:12px;color:var(--text-body);line-height:17px}
+.acts{display:flex;gap:6px;margin:8px 0 0 28px;flex-wrap:wrap}
+.bt{height:24px;padding:0 10px;border-radius:var(--radius-sm);font-size:11px;font-weight:500;display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border-light);color:var(--text-body);background:var(--bg-surface)}
+.bt.p{background:var(--primary);border-color:var(--primary);color:#fff}
+.bt.ghost{background:none;border-color:transparent;color:var(--text-secondary)}
+.quiet{display:flex;align-items:center;gap:8px;padding:5px 8px;font-size:11px;color:var(--text-faint)}
+.quiet.down{color:var(--warning)}
+.quiet .lnk{margin-left:auto;color:var(--primary-ink)}
+.band{display:flex;align-items:center;gap:8px;margin:0 4px 2px;padding:7px 8px;border-radius:var(--radius);background:var(--warning-bg);color:var(--text);font-size:12px}
+.band .lnk{margin-left:auto;color:var(--primary-ink);font-size:11px;display:flex;align-items:center;gap:2px;white-space:nowrap}
+.band .sm{color:var(--text-secondary);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.ok-ic{color:var(--success)} .bad-ic{color:var(--danger)} .amb-ic{color:var(--warning)} .blue-ic{color:var(--primary-ink)}
+.lvl-f{display:flex;align-items:center;gap:6px;padding:7px 12px;border-top:1px solid var(--border-subtle);font-size:11px;color:var(--text-faint)}
+.lvl-f span{flex:1;min-width:0}
+.lvl-f .short{display:none}
+.sec-h.bad{color:var(--danger)}
+.lvl-f a{color:var(--primary-ink);text-decoration:none}
+.spin{width:12px;height:12px;border-radius:50%;border:2px solid var(--border-light);border-top-color:var(--primary);flex:none}
+.expanded{margin:0 0 4px 36px;border-left:1px solid var(--border-light);padding-left:8px}
+.expanded div{font-size:11px;color:var(--text-tertiary);line-height:18px;display:flex;gap:8px}
+.expanded div span:first-child{width:34px}
+
+/* ---------- telefono ---------- */
+.phone{display:none}
+@media (max-width:767px){
+  body{background:var(--bg)}
+  .app,.menu{display:none!important}
+  .phone{display:flex;flex-direction:column;height:100vh;position:relative;overflow:hidden}
+  .ph-bar{height:48px;display:flex;align-items:center;gap:6px;padding:0 6px;background:var(--chrome-bg);opacity:.5}
+  .ph-bar .tab{min-width:0;flex:1}
+  .ph-dim{position:absolute;inset:0;background:rgba(0,0,0,.45)}
+  html:not(.dark) .ph-dim{background:rgba(20,24,32,.28)}
+  .sheet{position:absolute;left:0;right:0;bottom:0;top:44px;background:var(--popover-bg);border-radius:14px 14px 0 0;border-top:1px solid var(--border-light);display:flex;flex-direction:column;box-shadow:var(--shadow)}
+  .grab{width:36px;height:4px;border-radius:2px;background:var(--border-light);margin:6px auto 0}
+  .sh-h{height:44px;display:flex;align-items:center;padding:0 4px}
+  .sh-h .back{height:44px;display:flex;align-items:center;gap:2px;padding:0 8px;color:var(--primary-ink);font-size:14px}
+  .sh-h .t{position:absolute;left:0;right:0;text-align:center;font-size:15px;font-weight:600;pointer-events:none;color:var(--text-heading)}
+  .sh-h .x{margin-left:auto;width:44px;height:44px;display:grid;place-items:center;color:var(--text-secondary)}
+  .sh-sub{display:flex;align-items:center;gap:6px;justify-content:center;font-size:12px;color:var(--text-tertiary);margin:-4px 0 8px}
+  .phone .seg{margin:0 12px 6px}
+  .phone .seg button{height:36px;font-size:14px}
+  .phone .seg button .n{font-size:12px}
+  .phone .lvl-body{padding:0 8px 24px;-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 56px),transparent);mask-image:linear-gradient(to bottom,#000 calc(100% - 56px),transparent)}
+  .phone .it{padding:10px 8px;gap:10px}
+  .phone .it .t1{font-size:15px;line-height:20px;align-items:flex-start}
+  .phone .it .t1 .nm{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+  .phone .it .t1 .chip,.phone .it .t1 .fold{margin-top:1px}
+  .phone .it .t2{font-size:13px;line-height:18px;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+  .phone .it .r{font-size:13px;line-height:20px}
+  .phone .it .lead{height:20px}
+  .phone .it .lead svg.i{width:18px;height:18px}
+  .phone .sec-h{height:32px;font-size:12px}
+  .phone .band{font-size:14px;padding:10px;min-height:44px}
+  .phone .band .sm{display:none}
+  .phone .band .lnk{font-size:13px}
+  .phone .quiet{font-size:13px;padding:8px}
+  .phone .q{font-size:14px;line-height:20px;margin-left:30px}
+  .phone .acts{margin-left:30px}
+  .phone .bt{height:36px;padding:0 14px;font-size:13px}
+  .phone .chip{height:18px;font-size:11px}
+  .phone .fold{height:18px;font-size:11px}
+  .phone .lvl-f{font-size:13px;padding:10px 14px calc(10px + env(safe-area-inset-bottom));white-space:nowrap;background:var(--popover-bg)}
+  .phone .lvl-f .long{display:none}
+  .phone .lvl-f .short{display:inline;overflow:hidden;text-overflow:ellipsis}
+  .phone .you-card{padding:10px}
+}
+</style>
+</head>
+<body>
+
+<!-- ============ DESKTOP ============ -->
+<div class="app">
+  <aside class="sidebar" role="navigation" aria-label="Topics sidebar">
+    <div class="titlebar">
+      <span class="brand">Topics</span>
+      <button class="cbtn" title="Notifiche"><svg class="i"><use href="#bell"/></svg><span class="badge num">2</span></button>
+      <span class="spacer"></span>
+      <button class="cbtn box"><svg class="i"><use href="#search"/></svg></button>
+      <button class="cbtn box"><svg class="i"><use href="#plus"/></svg></button>
+    </div>
+    <div class="rows">
+      <div class="row"><svg class="i g"><use href="#kanban"/></svg>Board<span class="tail num">3 al lavoro · 2 review</span></div>
+      <div class="row"><svg class="i g"><use href="#workflow"/></svg>Automazioni<span class="tail num"><span class="dot bad"></span>1 rotta · 24 ok</span></div>
+    </div>
+    <div class="grp">
+      <div class="grp-h"><svg class="i s12"><use href="#layers"/></svg>Principale</div>
+      <div class="row"><svg class="i g"><use href="#folder"/></svg>acme-web<span class="tail num">12m</span></div>
+      <div class="row sub sel"><svg class="i g"><use href="#msg"/></svg>Firma della release v1.1<span class="tail"><span class="spin"></span></span></div>
+      <div class="row sub"><svg class="i g"><use href="#msg"/></svg>Rilegge la PR #142<span class="tail"><span class="spin"></span></span></div>
+      <div class="row"><svg class="i g"><use href="#folder"/></svg>acme-api<span class="tail num">6m</span></div>
+      <div class="row sub"><svg class="i g"><use href="#msg"/></svg>Fix del rate limit<span class="tail"><span class="dot warn"></span></span></div>
+      <div class="row sub"><svg class="i g"><use href="#term"/></svg>npm run test:e2e<span class="tail"><span class="spin"></span></span></div>
+      <div class="row"><svg class="i g"><use href="#folder"/></svg>studio-x<span class="tail num">18m</span></div>
+      <div class="row"><svg class="i g"><use href="#folder"/></svg>acme-docs<span class="tail num">2h</span></div>
+    </div>
+    <div class="rows" style="margin-top:6px">
+      <div class="row"><svg class="i g"><use href="#msg"/></svg>Note del rilascio<span class="tail num">1h</span></div>
+      <div class="row"><svg class="i g"><use href="#msg"/></svg>bug triage<span class="tail num">3h</span></div>
+    </div>
+    <div class="spacer"></div>
+    <div class="identity"><span class="avatar">U</span><span style="font-size:12px;color:var(--text)">Utente demo</span><span class="spacer"></span><span class="num" style="color:var(--text-tertiary)">~144 MB</span><span class="dot ok"></span></div>
+  </aside>
+  <main class="main">
+    <div class="tabbar">
+      <button class="cbtn"><svg class="i"><use href="#panel"/></svg></button>
+      <div class="tab on"><svg class="i s13"><use href="#msg"/></svg>Firma della release v1.1</div>
+      <div class="tab"><svg class="i s13"><use href="#msg"/></svg>Rilegge la PR #142</div>
+      <span class="spacer"></span>
+      <button class="cbtn"><svg class="i"><use href="#plus"/></svg></button>
+    </div>
+    <div class="chat"><div class="col">
+      <div class="day">OGGI</div>
+      <div class="bub">Aggiungi la firma alla release v1.1 e lancia lo smoke test</div>
+      <p>Aggiungo il passo di firma allo script di release, poi verifico.</p>
+      <div class="tool"><svg class="i s12"><use href="#check"/></svg>Letto scripts/release.ts · 84 righe</div>
+      <div class="tool"><svg class="i s12"><use href="#check"/></svg>Modificato scripts/release.ts · +12 −2</div>
+      <div class="tool"><svg class="i s12"><use href="#check"/></svg>npm run build && npm run release:sign · exit 0</div>
+      <p>La firma funziona da capo a fondo. Lancio lo smoke test della release, poi ti riporto l'esito con il log.</p>
+      <div class="tool"><span class="spin"></span>npm run smoke · 1 min</div>
+    </div></div>
+    <div class="composer">Messaggio…</div>
+  </main>
+</div>
+
+<!-- menu della card utente -->
+<div class="menu" style="left:8px;bottom:46px;width:260px">
+  <div class="mhead"><span class="avatar">U</span><div><b>Utente demo</b><br><span>Max · 2 account</span></div></div>
+  <div class="msep"></div>
+  <div class="mi"><svg class="i g"><use href="#gauge"/></svg>Account e quote<span class="tail num">5h 62%<svg class="i s12 chev"><use href="#cr"/></svg></span></div>
+  <div class="mi"><svg class="i g"><use href="#chart"/></svg>Consumi<span class="tail"><svg class="i s12 chev"><use href="#cr"/></svg></span></div>
+  <div class="mi"><svg class="i g"><use href="#monitor"/></svg>Dispositivi<span class="tail num">3<svg class="i s12 chev"><use href="#cr"/></svg></span></div>
+  <div class="mi"><svg class="i g"><use href="#bell"/></svg>Notifiche<span class="tail"><svg class="i s12 chev"><use href="#cr"/></svg></span></div>
+  <div class="msep"></div>
+  <div class="mi"><svg class="i g"><use href="#archive"/></svg>Archiviati</div>
+  <div class="mi"><svg class="i g"><use href="#panel"/></svg>Vista e pannelli<span class="tail"><svg class="i s12 chev"><use href="#cr"/></svg></span></div>
+  <div class="msep"></div>
+  <div class="mi on"><svg class="i g"><use href="#cpu"/></svg>Sistema<span class="tail num"><span class="dot warn"></span>7 al lavoro<svg class="i s12 chev"><use href="#cr"/></svg></span></div>
+  <div class="mi"><svg class="i g"><use href="#info"/></svg>Versione<span class="tail num">0.48.2</span></div>
+</div>
+
+<!-- livello Sistema -->
+<div class="menu" style="left:272px;bottom:46px;width:260px">
+  <div class="mi"><svg class="i g"><use href="#activity"/></svg>Prestazioni<span class="tail num">144 MB<svg class="i s12 chev"><use href="#cr"/></svg></span></div>
+  <div class="mi on"><svg class="i g"><use href="#bot"/></svg>Agenti e lavori<span class="tail num" id="sysTail"><span class="dot warn"></span>2 aspettano te<svg class="i s12 chev"><use href="#cr"/></svg></span></div>
+  <div class="mi"><svg class="i g"><use href="#cpu"/></svg>Processi<span class="tail num">1 servizio giù<svg class="i s12 chev"><use href="#cr"/></svg></span></div>
+  <div class="mi"><svg class="i g"><use href="#coins"/></svg>Uso per progetto<span class="tail"><svg class="i s12 chev"><use href="#cr"/></svg></span></div>
+  <div class="mi"><svg class="i g"><use href="#brain"/></svg>Contesto degli agenti<span class="tail num">38K tok<svg class="i s12 chev"><use href="#cr"/></svg></span></div>
+  <div class="mi"><svg class="i g"><use href="#grid"/></svg>Funzionalità<span class="tail"><svg class="i s12 chev"><use href="#cr"/></svg></span></div>
+</div>
+
+<!-- livello Agenti e lavori (desktop) -->
+<div class="menu lvl" id="lvlDesk" style="left:536px;bottom:46px;max-height:calc(100vh - 90px)"></div>
+
+<!-- ============ TELEFONO ============ -->
+<div class="phone">
+  <div class="ph-bar">
+    <button class="cbtn"><svg class="i s18"><use href="#panel"/></svg></button>
+    <div class="tab on"><svg class="i s13"><use href="#msg"/></svg>Firma della release v1.1</div>
+    <button class="cbtn"><svg class="i s18"><use href="#bell"/></svg></button>
+  </div>
+  <div class="ph-dim"></div>
+  <div class="sheet" id="lvlPhone"></div>
+</div>
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="bell" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></symbol>
+    <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+    <symbol id="plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+    <symbol id="kanban" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M8 7v7"/><path d="M12 7v4"/><path d="M16 7v9"/></symbol>
+    <symbol id="workflow" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></symbol>
+    <symbol id="folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+    <symbol id="msg" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="term" viewBox="0 0 24 24"><path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2"/></symbol>
+    <symbol id="cr" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="cl" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+    <symbol id="cd" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="ok" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="ko" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></symbol>
+    <symbol id="clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+    <symbol id="hourglass" viewBox="0 0 24 24"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></symbol>
+    <symbol id="pause" viewBox="0 0 24 24"><rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/></symbol>
+    <symbol id="route" viewBox="0 0 24 24"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></symbol>
+    <symbol id="todo" viewBox="0 0 24 24"><rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></symbol>
+    <symbol id="wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></symbol>
+    <symbol id="ask" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol>
+    <symbol id="gauge" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
+    <symbol id="activity" viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></symbol>
+    <symbol id="panel" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></symbol>
+    <symbol id="ext" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+    <symbol id="bot" viewBox="0 0 24 24"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></symbol>
+    <symbol id="layers" viewBox="0 0 24 24"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+    <symbol id="cal" viewBox="0 0 24 24"><path d="M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h5"/><path d="M17.5 17.5 16 16.3V14"/><circle cx="16" cy="16" r="6"/></symbol>
+    <symbol id="cloudoff" viewBox="0 0 24 24"><path d="m2 2 20 20"/><path d="M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193"/><path d="M21.532 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7.008 7.008 0 0 0 10 5.07"/></symbol>
+    <symbol id="check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="cpu" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></symbol>
+    <symbol id="archive" viewBox="0 0 24 24"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></symbol>
+    <symbol id="chart" viewBox="0 0 24 24"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></symbol>
+    <symbol id="info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+    <symbol id="monitor" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></symbol>
+    <symbol id="coins" viewBox="0 0 24 24"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/></symbol>
+    <symbol id="brain" viewBox="0 0 24 24"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M12 5v13"/></symbol>
+    <symbol id="grid" viewBox="0 0 24 24"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></symbol>
+    <symbol id="x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+    <symbol id="stop" viewBox="0 0 24 24"><rect width="12" height="12" x="6" y="6" rx="1"/></symbol>
+    <symbol id="rotate" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></symbol>
+  </defs>
+</svg>
+
+<script>
+// Dati finti e plausibili. Fonti: sessioni Topics, sessioni del proxy degli account, coda dell'hub («Risolvi tu»), workflow.
+const ic = (id, cls = '') => `<svg class="i ${cls}"><use href="#${id}"/></svg>`;
+const HUB_DOWN = window.__HUB_DOWN;
+
+const SRC = {
+  topics:  { icon: 'msg',      label: 'Topics' },
+  term:    { icon: 'term',     label: 'Terminale' },
+  proxy:   { icon: 'route',    label: 'Proxy' },
+  hub:     { icon: 'wrench',   label: 'Coda dell’hub' },
+  flow:    { icon: 'workflow', label: 'Workflow' },
+};
+
+function item(o) {
+  const s = SRC[o.src];
+  const lead = o.leadIcon ? ic(o.leadIcon, o.leadCls || '') : ic(s.icon);
+  const live = o.live ? `<span class="live ${o.live === 'idle' ? 'idle' : ''}"></span>` : '';
+  const fold = o.fold ? `<span class="fold num">×${o.fold}</span>` : '';
+  const chip = o.chip ? `<span class="chip ${o.chip[0]}">${o.chip[1]}</span>` : '';
+  const bar = o.steps ? `<div class="steps">${o.steps.map(x => `<i class="${x}"></i>`).join('')}</div>` : '';
+  const right = o.spin ? `<span class="num">${o.r}</span><span class="spin"></span>` : `<span class="num">${o.r || ''}</span>`;
+  const exp = o.expanded ? `<div class="expanded">${o.expanded.map(e => `<div><span class="num">${e[0]}</span><span>${e[1]}</span></div>`).join('')}</div>` : '';
+  return `<div class="it"><span class="lead">${lead}${live}</span><div class="tx"><div class="t1"><span class="nm">${o.t}</span>${fold}${chip}</div><div class="t2">${o.m}</div>${bar}</div><span class="r">${right}</span></div>${exp}`;
+}
+function sec(title, count, hint, body, cls = '', icon = '') {
+  return `<div class="sec"><div class="sec-h ${cls}">${icon ? ic(icon, 's12') : ''}${title}<span class="c num">${count}</span>${hint ? `<span class="hint">${hint}</span>` : ''}</div>${body}</div>`;
+}
+const quiet = (t, icon = 'check', cls = '', lnk = '') => `<div class="quiet ${cls}">${ic(icon, 's12')}<span>${t}</span>${lnk ? `<span class="lnk">${lnk}</span>` : ''}</div>`;
+const hubDown = () => quiet('Hub fermo da 3 min · dati delle 22:31', 'cloudoff', 'down', 'Riprova');
+
+const VIEWS = {
+  corso: () => {
+    let h = `<div class="band"><span class="dot warn"></span><b style="font-weight:600;flex:none">2 aspettano te</b><span class="sm">Scout chiede su acme-api · la landing vuole l’ok</span><span class="lnk" data-go="attesa">In attesa${ic('cr', 's12')}</span></div>`;
+    h += sec('Sessioni Topics', 3, 'qui dentro', [
+      item({ src: 'topics', t: 'Firma della release v1.1', m: 'Builder · acme-web · Claude Code · 84K&nbsp;tok', r: '12 min', live: 1, spin: 1 }),
+      item({ src: 'topics', t: 'Rilegge la PR #142', m: 'Reviewer · acme-web · Claude Code · 51K&nbsp;tok', r: '7 min', live: 1, spin: 1 }),
+      item({ src: 'term', t: 'npm run test:e2e', m: 'zsh · acme-api · browser sul PC', r: '4 min', live: 1, spin: 1 }),
+    ].join(''), '', '');
+    h += sec('Sessioni del proxy', 2, 'fuori da Topics', [
+      item({ src: 'proxy', t: 'Refactor del router', m: 'Codex · studio-x · account lavoro · 31K&nbsp;tok', r: '18 min', live: 1, spin: 1 }),
+      item({ src: 'proxy', t: 'Indice della documentazione', m: 'jcode · acme-docs · riserva API', r: '3 min', live: 'idle' }),
+    ].join(''));
+    if (HUB_DOWN) {
+      h += sec('Coda dell’hub e workflow', '', '', hubDown());
+    } else {
+      h += sec('Coda dell’hub', 1, 'Risolvi tu', item({ src: 'hub', t: 'Backup del Mac fallito', m: 'Muse · da Automazioni › Backup del Mac · passo 2 di 3', r: '2 min', live: 1, spin: 1, chip: ['mut', 'Risolvi tu'] }));
+      h += sec('Workflow', 1, '', item({ src: 'flow', t: 'Revisione notturna di acme-web', m: 'Passo 3 di 5 · Verifica · 2 agenti', r: '26 min', live: 1, spin: 1, steps: ['d', 'd', 'a', '', ''] }));
+    }
+    return h;
+  },
+  attesa: () => {
+    let h = `<div class="sec" style="margin-top:2px"><div class="sec-h you">${ic('hourglass', 's12')}Decidi tu<span class="c num">2</span><span class="hint">prima la più vecchia</span></div>`;
+    h += `<div class="you-card">${item({ src: 'topics', leadIcon: 'ask', leadCls: 'amb-ic', t: 'Scout · acme-api ti chiede', m: 'Sessione Topics · Fix del rate limit · ferma da 6 min', r: '6 min' })}
+      <div class="q">“Porto la fix del rate limit sul main o la lascio su release/1.1?”</div>
+      <div class="acts"><button class="bt p">Sul main</button><button class="bt">Resta su release/1.1</button><button class="bt ghost">Apri la chat${ic('cr', 's12')}</button></div></div>`;
+    h += `<div class="you-card">${item({ src: 'flow', leadIcon: 'workflow', leadCls: 'amb-ic', t: 'Pubblica la landing di acme-web', m: 'Workflow · passo 4 di 5 aspetta il tuo ok · 3 file', r: '14 min', steps: ['d', 'd', 'd', 'a', ''] })}
+      <div class="acts"><button class="bt p">${ic('check', 's12')}Approva</button><button class="bt">Vedi il diff</button><button class="bt ghost">Ferma</button></div></div></div>`;
+    if (HUB_DOWN) {
+      h += sec('In coda', '', '', hubDown());
+    } else {
+      h += sec('In coda', 3, 'partono da soli', [
+        item({ src: 'hub', t: 'Docs index non risponde', m: 'Risolvi tu · stessa voce 3 volte, dalle 21:40 alle 22:31', r: '1°', fold: 3 }),
+        item({ src: 'flow', leadIcon: 'clock', t: 'Test unit di studio-x', m: 'Workflow · parte a Mac libero (ora 3,4 per core)', r: '2°' }),
+        item({ src: 'hub', leadIcon: 'todo', t: 'Rigenera gli screenshot della landing', m: 'Coda dell’hub · dopo il backup del Mac', r: '3°' }),
+      ].join(''));
+    }
+    h += sec('Ferme per quota', 1, '', item({ src: 'proxy', leadIcon: 'pause', t: 'Refactor del router, seconda passata', m: 'Codex · studio-x · 5h al 100% · riparte da sola', r: '23:40', chip: ['amb', 'quota'] }));
+    h += quiet('Sessioni Topics: nessuna ferma oltre a quella sopra');
+    return h;
+  },
+  finiti: () => {
+    let h = '';
+    if (HUB_DOWN) h += hubDown();
+    h += sec('Falliti', 1, 'da guardare', item({ src: 'flow', leadIcon: 'ko', leadCls: 'bad-ic', t: 'Backup del Mac', m: 'Workflow · passo 3 di 5: iCloud pieno · oggi', r: '20:40', chip: ['red', 'fallito'] }), 'bad', 'ko');
+    h += sec('Oggi', 8, 'ultimo alle 21:58', [
+      item({ src: 'topics', leadIcon: 'ok', leadCls: 'ok-ic', t: 'Migrazione 089 su acme-api', m: 'Builder · Claude Code · 1 h 02 · 212K&nbsp;tok', r: '21:58' }),
+      item({ src: 'hub', leadIcon: 'ok', leadCls: 'ok-ic', t: 'Docs index reindex', m: 'Risolvi tu · stesso esito 2 volte · 40 s ciascuna', r: '21:12', fold: 2 }),
+      item({ src: 'topics', leadIcon: 'ok', leadCls: 'ok-ic', t: 'Rilettura della PR #139', m: 'Reviewer · acme-web · 18 min · 44K&nbsp;tok', r: '19:21' }),
+      item({ src: 'term', leadIcon: 'ok', leadCls: 'ok-ic', t: 'npm run smoke', m: 'zsh · acme-web · exit 0 · 2 min', r: '18:45' }),
+      item({ src: 'proxy', leadIcon: 'ok', leadCls: 'ok-ic', t: 'Riassunto della settimana', m: 'jcode · proxy · account lavoro · 9 min', r: '17:10' }),
+    ].join('') + `<div class="quiet">${ic('cd', 's12')}<span>Altri 3 di oggi</span></div>`);
+    h += sec('Ieri', 3, '', [
+      item({ src: 'flow', leadIcon: 'ok', leadCls: 'ok-ic', t: 'Revisione notturna di acme-web', m: 'Workflow · 5 passi · 41 min', r: '03:12', steps: ['d', 'd', 'd', 'd', 'd'] }),
+      item({ src: 'proxy', leadIcon: 'ok', leadCls: 'ok-ic', t: 'Bozza del preventivo studio-x', m: 'Codex · account lavoro · 22 min', r: '19:05' }),
+      item({ src: 'topics', leadIcon: 'ok', leadCls: 'ok-ic', t: 'Pulizia dei rami di acme-docs', m: 'Lead · acme-docs · Claude Code · 11 min', r: '16:30' }),
+    ].join(''));
+    return h;
+  },
+};
+const COUNTS = { corso: 7, attesa: 6, finiti: 12 };
+
+function level(f, phone) {
+  const hubTail = HUB_DOWN
+    ? `<span class="dot warn"></span><span>hub giù da 3 min</span>`
+    : `<span class="dot ok"></span><span class="num">aggiornato ora</span>`;
+  const seg = `<div class="seg">${[['corso', 'In corso'], ['attesa', 'In attesa'], ['finiti', 'Finiti']].map(([k, l]) =>
+    `<button data-go="${k}" class="${k === f ? 'on' : ''}">${k === 'attesa' ? '<span class="amb"></span>' : ''}${l}<span class="n num">${COUNTS[k]}</span></button>`).join('')}</div>`;
+  const head = phone
+    ? `<div class="grab"></div><div class="sh-h" style="position:relative"><button class="back">${ic('cl', 's18')}Sistema</button><div class="t">Agenti e lavori</div><button class="x">${ic('x', 's18')}</button></div><div class="sh-sub">${hubTail}</div>`
+    : `<div class="lvl-h"><span class="t">Agenti e lavori</span><span class="tail">${hubTail}</span></div>`;
+  const foot = `<div class="lvl-f">${ic('kanban', 's12')}<span class="long">Le card della notte restano sulla <a href="#">Board</a> · in calendario: <a href="#">Automazioni</a></span><span class="short">Notte sulla <a href="#">Board</a> · calendario in <a href="#">Automazioni</a></span></div>`;
+  return head + seg + `<div class="lvl-body">${VIEWS[f]()}</div>` + foot;
+}
+function render(f) {
+  document.getElementById('lvlDesk').innerHTML = level(f, false);
+  document.getElementById('lvlPhone').innerHTML = level(f, true);
+  document.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => render(b.dataset.go)));
+}
+render(window.__F);
+</script>
+</body>
+</html>

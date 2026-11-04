@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="it" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Topics · Consumi nella Dashboard (mockup)</title>
+<script>
+  if (new URLSearchParams(location.search).get('theme') === 'light') document.documentElement.classList.remove('dark');
+</script>
+<style>
+:root{
+  color-scheme: light;
+  --motion-fast:150ms; --ease-standard:cubic-bezier(0.2,0,0,1);
+  --radius:8px; --radius-sm:6px; --radius-xs:4px;
+  --primary:#0066ff; --primary-light:rgba(0,102,255,.1); --primary-medium:rgba(0,102,255,.15); --primary-ink:#0066ff;
+  --bg: hsl(220 5.6% 96%); --bg-surface:#fff; --chrome-bg:hsl(220 5.6% 93%); --bg-elevated:hsl(220 4.9% 98.1%);
+  --bg-hover:hsl(220 4.9% 96.3%); --bg-inset:hsl(220 4.9% 97.4%);
+  --text:hsl(220 3.5% 10.6%); --text-secondary:hsl(220 2.8% 36.4%); --text-tertiary:hsl(220 2.8% 42.3%);
+  --text-muted:hsl(220 2.8% 42.5%); --text-heading:hsl(220 3.1% 20.7%); --text-faint:hsl(220 2.8% 42.1%);
+  --border:hsl(220 4.9% 91.4%); --border-light:hsl(220 4.9% 88.5%); --border-subtle:hsl(220 4.9% 94.4%);
+  --success:#10b981; --warning:#f59e0b; --warning-text:#b45309; --danger-text:#dc2626;
+  --m1:#0066ff; --m2:#8b5cf6; --m3:#d97706; --m4:#10b981; --m5:#db2777;
+  --font-ui:-apple-system,BlinkMacSystemFont,system-ui,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;
+}
+.dark{
+  color-scheme: dark;
+  --primary-ink:#4d94ff; --primary-light:rgba(77,148,255,.12); --primary-medium:rgba(77,148,255,.2);
+  --bg:hsl(222 5.6% 8.5%); --bg-surface:hsl(222 4.9% 11%); --chrome-bg:hsl(224 26% 4.5%); --bg-elevated:hsl(220 4.5% 14%);
+  --bg-hover:hsl(220 4.2% 17%); --bg-inset:hsl(222 5.2% 10%);
+  --text:#e6e8ec; --text-secondary:#aab0ba; --text-tertiary:#969ca6; --text-muted:#8d939b; --text-heading:#ccced4; --text-faint:#909296;
+  --border:hsl(220 3.8% 18%); --border-light:hsl(220 3.5% 24%); --border-subtle:hsl(220 4.2% 15%);
+  --success:#34d399; --warning:#fbbf24; --warning-text:#fbbf24; --danger-text:#f87171;
+  --m1:#4d94ff; --m2:#a78bfa; --m3:#fbbf24; --m4:#34d399; --m5:#f472b6;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:var(--font-ui);font-size:11px;color:var(--text);background:var(--chrome-bg);-webkit-font-smoothing:antialiased;overflow:hidden}
+.num{font-variant-numeric:tabular-nums}
+svg.i{width:14px;height:14px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+svg.i.s12{width:12px;height:12px} svg.i.s13{width:13px;height:13px} svg.i.s11{width:11px;height:11px}
+.app{display:flex;height:100vh}
+/* ---------- sidebar ---------- */
+.side{width:256px;flex:none;display:flex;flex-direction:column;background:var(--chrome-bg);border-right:1px solid var(--border)}
+.titlebar{height:40px;display:flex;align-items:center;gap:4px;padding:0 8px 0 12px;border-bottom:1px solid var(--border-subtle)}
+.titlebar .brand{font-size:14px;font-weight:600;flex:1}
+.cbtn{height:28px;min-width:28px;padding:0 7px;display:inline-flex;align-items:center;justify-content:center;gap:5px;border-radius:var(--radius-sm);color:var(--text-muted);position:relative}
+.cbtn:hover{background:var(--bg-hover)}
+.cbtn kbd{font:inherit;font-size:11px;color:var(--text-muted)}
+.badge{position:absolute;top:3px;right:2px;min-width:14px;height:14px;padding:0 3px;border-radius:7px;background:var(--warning);color:#1a1300;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.tree{flex:1;overflow:hidden;padding:6px}
+.row{height:34px;display:flex;align-items:center;gap:8px;padding:0 8px;border-radius:var(--radius);color:var(--text-secondary);margin:3px 0;position:relative}
+.row:hover{background:var(--bg-hover)}
+.row .name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;color:var(--text)}
+.row .tail{color:var(--text-muted);font-size:11px;display:flex;align-items:center;gap:6px;white-space:nowrap}
+.row.sel{background:var(--bg-hover);box-shadow:inset 0 0 0 1px var(--border-light)}
+.row.sel .name{font-weight:600}
+.row.ind{padding-left:24px}
+.sec{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--text-muted);padding:10px 8px 4px;font-weight:600}
+.dot{width:6px;height:6px;border-radius:3px;background:var(--warning);flex:none}
+.brake{color:var(--warning-text)}
+.hint{display:none}
+.row.hov .hint{display:inline}
+.divider{height:1px;background:var(--border-subtle);margin:6px 4px}
+.ident{border-top:1px solid var(--border-subtle);padding:6px}
+.ident .row{height:40px}
+.face{width:22px;height:22px;border-radius:11px;background:var(--primary-medium);color:var(--primary-ink);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;flex:none}
+/* ---------- main ---------- */
+.main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg)}
+.groups{height:32px;display:flex;align-items:center;gap:2px;padding:0 6px;background:var(--chrome-bg)}
+.gtab{height:24px;padding:0 10px;display:flex;align-items:center;border-radius:var(--radius-sm);color:var(--text-muted);font-size:12px}
+.gtab.on{background:var(--bg-hover);color:var(--text)}
+.panes{height:40px;display:flex;align-items:center;gap:4px;padding:0 6px;background:var(--chrome-bg);border-bottom:1px solid var(--border)}
+.ptab{height:28px;width:150px;padding:0 10px;display:flex;align-items:center;gap:7px;border-radius:var(--radius-sm);color:var(--text-muted);font-size:11px}
+.ptab.on{background:var(--bg-hover);color:var(--text);box-shadow:inset 0 0 0 1px var(--border-light)}
+.ptab .x{margin-left:auto;opacity:.5}
+.pane{flex:1;overflow:auto;background:var(--bg)}
+.phead{display:flex;align-items:center;gap:8px;padding:0 16px;height:38px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:2}
+.phead .t{font-size:13px;font-weight:600}
+.crumb{color:var(--text-muted);font-size:11px;display:flex;align-items:center;gap:4px}
+.crumb kbd{font:inherit;border:1px solid var(--border-light);border-radius:4px;padding:0 4px;line-height:15px}
+.sp{flex:1}
+.pill{height:22px;padding:0 8px;border-radius:11px;border:1px solid var(--border);display:inline-flex;align-items:center;gap:5px;color:var(--text-muted);white-space:nowrap}
+.pill .live{width:6px;height:6px;border-radius:3px;background:var(--success)}
+.seg{display:inline-flex;gap:2px;padding:2px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-surface)}
+.seg b{font-weight:500;padding:2px 8px;border-radius:4px;color:var(--text-muted)}
+.seg b.on{background:var(--primary);color:#fff}
+.body{padding:14px 16px 24px;display:flex;flex-direction:column;gap:12px;max-width:1240px}
+.card{background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius)}
+/* decide strip */
+.decide{border-color:color-mix(in srgb,var(--warning) 45%,var(--border));}
+.decide .h{display:flex;align-items:center;gap:6px;padding:8px 12px 0;font-weight:600;color:var(--warning-text);font-size:11px}
+.drow{display:flex;align-items:center;gap:10px;padding:8px 12px}
+.drow + .drow{border-top:1px solid var(--border-subtle)}
+.drow .what{flex:1;min-width:0}
+.drow .what .l1{font-size:12px;color:var(--text)}
+.drow .what .l2{color:var(--text-muted);margin-top:2px}
+.btn{height:26px;padding:0 10px;border-radius:var(--radius-sm);border:1px solid var(--border-light);background:var(--bg-elevated);color:var(--text);font:inherit;font-size:11px;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.btn.pri{background:var(--primary);border-color:var(--primary);color:#fff}
+.due{font-size:11px;color:var(--warning-text);white-space:nowrap}
+/* kpi */
+.kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.kpi{padding:10px 12px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.kpi .top{display:flex;align-items:center;justify-content:space-between;color:var(--text-muted)}
+.kpi .v{font-size:20px;font-weight:600;white-space:nowrap}
+.kpi .v small{font-size:11px;font-weight:400;color:var(--text-muted);margin-left:3px}
+.kpi .l{color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi .d{font-size:11px;color:var(--text-muted)}
+.good{color:var(--success)} .warn{color:var(--warning-text)}
+/* chart */
+.chart{padding:10px 12px 8px}
+.ch-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.mt{padding:2px 8px;border-radius:4px;color:var(--text-muted)}
+.mt.on{background:var(--primary-light);color:var(--primary-ink);font-weight:500}
+.legend{display:flex;gap:12px;flex-wrap:wrap;color:var(--text-muted);margin-top:8px}
+.legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+#chart{width:100%;height:190px;display:block;margin-top:6px}
+/* grid of breakdowns */
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.box .bh{display:flex;align-items:center;gap:7px;padding:9px 12px;border-bottom:1px solid var(--border-subtle)}
+.box .bh .t{font-size:12px;font-weight:600;flex:1}
+.box .bh .m{color:var(--text-muted)}
+.line{display:flex;align-items:center;gap:8px;padding:0 12px;height:34px}
+.line + .line{border-top:1px solid var(--border-subtle)}
+.line .n{width:112px;flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);display:flex;align-items:center;gap:6px}
+.line .n span{overflow:hidden;text-overflow:ellipsis}
+.bar{flex:1;height:6px;border-radius:3px;background:var(--bg-hover);position:relative;overflow:visible;min-width:30px}
+.bar > i{position:absolute;left:0;top:0;bottom:0;border-radius:3px;background:var(--m1)}
+.bar > u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--text-secondary);border-radius:1px}
+.line .v{width:74px;flex:none;text-align:right;color:var(--text-secondary);white-space:nowrap}
+.line .v b{color:var(--text);font-weight:600}
+.sub{color:var(--text-muted);font-size:11px}
+.foot{padding:8px 12px;border-top:1px solid var(--border-subtle);color:var(--text-muted);display:flex;align-items:center;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 6px;border-radius:9px;background:var(--bg-hover);color:var(--text-secondary);font-size:11px;white-space:nowrap}
+.chip.me{background:var(--primary-light);color:var(--primary-ink)}
+.acc{padding:8px 12px}
+.acc + .acc{border-top:1px solid var(--border-subtle)}
+.acc .r1{display:flex;align-items:center;gap:6px}
+.acc .r1 .nm{flex:1;font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qrow{display:flex;align-items:center;gap:8px;margin-top:6px;color:var(--text-muted)}
+.qrow .k{width:44px;flex:none}
+.qrow .p{width:34px;text-align:right;flex:none}
+.hot > i{background:var(--warning)!important}
+.save{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0}
+.save > div{padding:10px 12px}
+.save > div + div{border-left:1px solid var(--border-subtle)}
+.save .big{font-size:16px;font-weight:600;margin-top:2px}
+.work{display:flex;flex-wrap:wrap;gap:0}
+.work > div{flex:1;min-width:120px;padding:8px 12px;display:flex;flex-direction:column;gap:2px}
+.work > div + div{border-left:1px solid var(--border-subtle)}
+.work b{font-size:14px;font-weight:600}
+.empty{color:var(--text-muted);font-style:normal}
+.down{display:flex;align-items:center;gap:6px;color:var(--warning-text)}
+.mob-only{display:none}
+/* ---------- phone ---------- */
+@media (max-width:767px){
+  body{overflow:auto}
+  .app{display:block;height:auto;min-height:100vh}
+  .side{display:none}
+  .mob-only{display:flex}
+  .main{min-height:100vh}
+  .groups{height:40px;padding:0 8px}
+  .gtab{height:30px}
+  .panes{height:44px;padding:0 8px}
+  .ptab{width:auto;flex:1;height:32px}
+  .pane{overflow:visible}
+  .phead{padding:0 12px;height:44px}
+  .phead .crumb{display:none}
+  .body{padding:12px;gap:10px}
+  .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .kpis .kpi:last-child{grid-column:span 2}
+  .grid3{grid-template-columns:1fr}
+  .drow{flex-wrap:wrap}
+  .drow .acts{width:100%;display:flex;gap:8px}
+  .drow .acts .btn{flex:1;justify-content:center;height:36px}
+  .save{grid-template-columns:1fr}
+  .save > div + div{border-left:0;border-top:1px solid var(--border-subtle)}
+  .work > div{min-width:50%;border-left:0!important;border-top:1px solid var(--border-subtle)}
+  .work > div:nth-child(-n+2){border-top:0}
+  .line{height:40px}
+  .line .n{width:96px}
+  .hide-m{display:none}
+  #chart{height:160px}
+  .mbar{position:sticky;bottom:0;height:52px;display:flex;align-items:center;gap:8px;padding:0 12px;background:var(--chrome-bg);border-top:1px solid var(--border)}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ============ SIDEBAR ============ -->
+  <nav class="side" role="navigation" aria-label="Topics sidebar">
+    <div class="titlebar">
+      <span class="brand">Topics</span>
+      <span class="cbtn" title="Notifiche"><svg class="i"><use href="#bell"/></svg><span class="badge">2</span></span>
+      <span class="cbtn"><svg class="i s13"><use href="#search"/></svg><kbd>⌘K</kbd></span>
+      <span class="cbtn"><svg class="i s13"><use href="#plus"/></svg></span>
+    </div>
+    <div class="tree">
+      <div class="row"><svg class="i"><use href="#kanban"/></svg><span class="name">Board</span><span class="tail num">3 in review · 5 al lavoro</span></div>
+      <div class="row"><svg class="i"><use href="#workflow"/></svg><span class="name">Automazioni</span><span class="tail num"><span class="dot"></span>1 rotta · 23 ok</span></div>
+      <div class="divider"></div>
+      <div class="sec">Principale</div>
+      <div class="row hov"><svg class="i"><use href="#folder"/></svg><span class="name">acme-web</span><span class="tail num"><span class="hint">38% della settimana</span></span></div>
+      <div class="row ind"><svg class="i"><use href="#msg"/></svg><span class="name">rilascio v1.1</span><span class="tail num">4m</span></div>
+      <div class="row ind"><svg class="i"><use href="#term"/></svg><span class="name">zsh</span><span class="tail num">4m</span></div>
+      <div class="row"><svg class="i"><use href="#folder"/></svg><span class="name">studio-x</span><span class="tail"><span class="dot" title="Oltre il tetto della settimana"></span><svg class="i s13 brake"><use href="#pause"/></svg></span></div>
+      <div class="row ind"><svg class="i"><use href="#msg"/></svg><span class="name">migrazione listino</span><span class="tail num">12m</span></div>
+      <div class="row"><svg class="i"><use href="#folder"/></svg><span class="name">acme-api</span><span class="tail num">1h</span></div>
+      <div class="row"><svg class="i"><use href="#folder"/></svg><span class="name">acme-docs</span><span class="tail num">3h</span></div>
+      <div class="sec">Numeri</div>
+      <div class="row"><svg class="i"><use href="#kanban"/></svg><span class="name">Board generale</span></div>
+      <div class="row sel"><svg class="i"><use href="#ic-chart"/></svg><span class="name">Consumi</span><span class="tail num">$1.284 sett.</span></div>
+    </div>
+    <div class="ident">
+      <div class="row"><span class="face">A</span><span class="name">Attilio</span><span class="tail num">41 MB · 6%</span><svg class="i s12" style="color:var(--text-muted)"><use href="#chev-up"/></svg></div>
+    </div>
+  </nav>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+    <div class="groups">
+      <span class="gtab mob-only" style="padding:0 6px"><svg class="i"><use href="#panel"/></svg></span>
+      <span class="gtab">Principale</span><span class="gtab">Progetti</span><span class="gtab on">Numeri</span>
+      <span class="gtab"><svg class="i s12"><use href="#plus"/></svg></span>
+    </div>
+    <div class="panes">
+      <span class="ptab"><svg class="i s13"><use href="#kanban"/></svg>Board generale</span>
+      <span class="ptab on"><svg class="i s13"><use href="#ic-chart"/></svg>Consumi<svg class="i s11 x"><use href="#x"/></svg></span>
+    </div>
+
+    <section class="pane">
+      <div class="phead">
+        <svg class="i" style="color:var(--text-muted)"><use href="#ic-chart"/></svg>
+        <span class="t">Consumi</span>
+        <span class="crumb">Attilio <svg class="i s11"><use href="#chev-r"/></svg> Consumi · anche da <kbd>⌘K</kbd></span>
+        <span class="sp"></span>
+        <span class="pill num hide-m"><span class="live"></span>hub vivo · 12 s fa</span>
+        <span class="seg num"><b>Oggi</b><b class="on">Settimana</b><b>30 g</b></span>
+      </div>
+
+      <div class="body">
+        <!-- Decidi tu: solo ciò che spetta ad Attilio, in cima -->
+        <div class="card decide">
+          <div class="h"><svg class="i s12"><use href="#alert"/></svg>Decidi tu · 1</div>
+          <div class="drow">
+            <div class="what">
+              <div class="l1"><b>studio-x</b> ha passato il tetto che hai messo: <b class="num">27%</b> della settimana su <span class="num">25%</span></div>
+              <div class="l2 num">Freno automatico acceso alle 11:40 · nuove card in coda, le chat vanno avanti · si azzera lunedì</div>
+            </div>
+            <div class="acts">
+              <span class="btn pri"><svg class="i s12"><use href="#pause"/></svg>Tieni il freno</span>
+              <span class="btn">Alza a 35%</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- KPI della settimana -->
+        <div class="kpis">
+          <div class="card kpi"><div class="top"><svg class="i"><use href="#coins"/></svg><span class="d num">+12% sett. prima</span></div><div class="v num">182<small>M token</small></div><div class="l">Token della settimana</div></div>
+          <div class="card kpi"><div class="top"><svg class="i"><use href="#wallet"/></svg><span class="d">a listino</span></div><div class="v num">$1.284</div><div class="l">Costo se fosse API</div></div>
+          <div class="card kpi"><div class="top"><svg class="i"><use href="#key"/></svg><span class="d">2 abbonamenti + API</span></div><div class="v num">$104</div><div class="l">Pagato davvero</div></div>
+          <div class="card kpi"><div class="top"><svg class="i"><use href="#piggy"/></svg><span class="d good num">×12,3</span></div><div class="v num good">$1.180</div><div class="l">Risparmio rispetto alle API</div></div>
+          <div class="card kpi"><div class="top"><svg class="i"><use href="#bot"/></svg><span class="d">quota fissa</span></div><div class="v num">46<small>lavori</small></div><div class="l">Delegati a Muse · 0 token Claude</div></div>
+        </div>
+
+        <!-- Grafico: token per modello nel tempo -->
+        <div class="card chart">
+          <div class="ch-head">
+            <span class="mt on">Token per modello</span><span class="mt">Costo API</span><span class="mt">Risparmio</span><span class="mt hide-m">Errori</span>
+          </div>
+          <svg id="chart" aria-label="Token per giorno, impilati per modello"></svg>
+          <div class="legend num" id="legend"></div>
+        </div>
+
+        <div class="grid3">
+          <!-- Per modello -->
+          <div class="card box">
+            <div class="bh"><svg class="i s13" style="color:var(--text-muted)"><use href="#cpu"/></svg><span class="t">Per modello</span><span class="m">quota dei token</span></div>
+            <div id="models"></div>
+            <div class="foot"><span class="sub">Gemini 3: nessun uso questa settimana</span></div>
+          </div>
+
+          <!-- Per account -->
+          <div class="card box">
+            <div class="bh"><svg class="i s13" style="color:var(--text-muted)"><use href="#user"/></svg><span class="t">Per account</span><span class="m">5 h · settimana</span></div>
+            <div class="acc">
+              <div class="r1"><span class="nm">Max principale</span><span class="chip me">in uso</span><span class="sub num">58%</span></div>
+              <div class="qrow num"><span class="k">5 h</span><span class="bar"><i style="width:41%"></i></span><span class="p">41%</span></div>
+              <div class="qrow num"><span class="k">sett.</span><span class="bar hot"><i style="width:84%"></i></span><span class="p warn">84%</span></div>
+            </div>
+            <div class="acc">
+              <div class="r1"><span class="nm">Max riserva</span><span class="sub num">31%</span></div>
+              <div class="qrow num"><span class="k">5 h</span><span class="bar"><i style="width:6%"></i></span><span class="p">6%</span></div>
+              <div class="qrow num"><span class="k">sett.</span><span class="bar"><i style="width:47%"></i></span><span class="p">47%</span></div>
+            </div>
+            <div class="acc">
+              <div class="r1"><span class="nm">ChatGPT Pro</span><span class="sub num">8%</span></div>
+              <div class="qrow num"><span class="k">sett.</span><span class="bar"><i style="width:22%"></i></span><span class="p">22%</span></div>
+            </div>
+            <div class="acc">
+              <div class="r1"><span class="nm">API di riserva</span><span class="chip">dopo il 95%</span><span class="sub num">3% · $12</span></div>
+            </div>
+            <div class="foot"><span class="sub">Rotazione e tetti in</span><span class="chip">Account e quote</span></div>
+          </div>
+
+          <!-- Per progetto -->
+          <div class="card box">
+            <div class="bh"><svg class="i s13" style="color:var(--text-muted)"><use href="#folder"/></svg><span class="t">Per progetto</span><span class="m">% della settimana</span></div>
+            <div id="projects"></div>
+            <div class="foot"><span class="bar" style="flex:none;width:14px;height:6px;background:none"><u style="left:6px"></u></span><span class="sub">= tetto deciso da te</span></div>
+          </div>
+        </div>
+
+        <!-- Risparmio e Muse -->
+        <div class="card box">
+          <div class="bh"><svg class="i s13" style="color:var(--text-muted)"><use href="#piggy"/></svg><span class="t">Risparmio rispetto alle API</span><span class="m hide-m">stessi token, prezzi di listino</span></div>
+          <div class="save num">
+            <div><div class="sub">Abbonamenti Claude</div><div class="big">$1.071 <span class="sub">risparmiati</span></div><div class="sub">$1.163 a listino · $92 pagati</div></div>
+            <div><div class="sub">ChatGPT Pro (Codex)</div><div class="big">$97 <span class="sub">risparmiati</span></div><div class="sub">$109 a listino · $12 pagati</div></div>
+            <div><div class="sub">Muse</div><div class="big">9,1<span class="sub">M token tolti a Claude</span></div><div class="down"><svg class="i s12"><use href="#cloud-off"/></svg>hub non raggiungibile · dato delle 14:02</div></div>
+          </div>
+        </div>
+
+        <!-- Lavoro della board: i KPI di oggi, compatti -->
+        <div class="card box">
+          <div class="bh"><svg class="i s13" style="color:var(--text-muted)"><use href="#list"/></svg><span class="t">Lavoro della board</span><span class="m">settimana</span></div>
+          <div class="work num">
+            <div><span class="sub">Finiti</span><b>64</b></div>
+            <div><span class="sub">Ciclo medio</span><b>3,2 h</b></div>
+            <div><span class="sub">Al lavoro</span><b>4</b></div>
+            <div><span class="sub">Errori</span><b>2,0%</b></div>
+            <div><span class="sub">Costo per card</span><b>$0,14</b></div>
+            <div><span class="sub">Approvazioni in attesa</span><b class="empty">nessuna</b></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="bell" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></symbol>
+    <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+    <symbol id="plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+    <symbol id="x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+    <symbol id="kanban" viewBox="0 0 24 24"><path d="M6 5v11"/><path d="M12 5v6"/><path d="M18 5v14"/></symbol>
+    <symbol id="workflow" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></symbol>
+    <symbol id="folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+    <symbol id="msg" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="term" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></symbol>
+    <symbol id="ic-chart" viewBox="0 0 24 24"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></symbol>
+    <symbol id="pause" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M10 15V9"/><path d="M14 15V9"/></symbol>
+    <symbol id="chev-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol>
+    <symbol id="chev-r" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="panel" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></symbol>
+    <symbol id="alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+    <symbol id="coins" viewBox="0 0 24 24"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/></symbol>
+    <symbol id="wallet" viewBox="0 0 24 24"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></symbol>
+    <symbol id="key" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5"/></symbol>
+    <symbol id="piggy" viewBox="0 0 24 24"><path d="M11 17h3v2a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-3a3.16 3.16 0 0 0 2-2h1a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1h-1a5 5 0 0 0-2-4V3a4 4 0 0 0-3.2 1.6l-.3.4H11a6 6 0 0 0-6 6v1a5 5 0 0 0 2 4v3a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1z"/><path d="M16 10h.01"/><path d="M2 8v1a2 2 0 0 0 2 2h1"/></symbol>
+    <symbol id="bot" viewBox="0 0 24 24"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></symbol>
+    <symbol id="cpu" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></symbol>
+    <symbol id="user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></symbol>
+    <symbol id="cloud-off" viewBox="0 0 24 24"><path d="m2 2 20 20"/><path d="M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193"/><path d="M21.532 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7.008 7.008 0 0 0 10 5.07"/></symbol>
+    <symbol id="list" viewBox="0 0 24 24"><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></symbol>
+  </defs>
+</svg>
+
+<script>
+// Fake data: tokens per day (M) per model, last 7 days.
+const MODELS = [
+  {k:'Opus 5.5', c:'--m1', d:[13,17,15,19,14,18,15]},
+  {k:'Sonnet 5', c:'--m2', d:[6,7,5,8,6,7,5]},
+  {k:'Haiku 5.5', c:'--m3', d:[2,2,1,2,2,2,2]},
+  {k:'Muse', c:'--m4', d:[1,2,1,1,2,1,1]},
+  {k:'GPT-5.5', c:'--m5', d:[1,1,2,1,1,1,1]},
+];
+const DAYS = ['gio 30','ven 31','sab 1','dom 2','lun 3','mar 4','mer 5'];
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const NS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs, parent){ const e=document.createElementNS(NS,tag); for(const k in attrs) e.setAttribute(k,attrs[k]); parent.appendChild(e); return e; }
+
+function drawChart(){
+  const svg=document.getElementById('chart'); svg.innerHTML='';
+  const W=svg.clientWidth, H=svg.clientHeight, P={l:34,r:8,t:8,b:20};
+  const cw=W-P.l-P.r, ch=H-P.t-P.b;
+  const tot=DAYS.map((_,i)=>MODELS.reduce((s,m)=>s+m.d[i],0));
+  const max=Math.ceil(Math.max(...tot)/10)*10;
+  const x=i=>P.l+cw*i/(DAYS.length-1), y=v=>P.t+ch-ch*v/max;
+  for(let t=0;t<=4;t++){ const v=max*t/4; el('line',{x1:P.l,x2:W-P.r,y1:y(v),y2:y(v),stroke:css('--border'),'stroke-width':1},svg);
+    const tx=el('text',{x:P.l-6,y:y(v)+3,'text-anchor':'end','font-size':10,fill:css('--text-muted')},svg); tx.textContent=v+'M'; }
+  const narrow = W<500;
+  DAYS.forEach((d,i)=>{ if(narrow && i%2) return; const tx=el('text',{x:x(i),y:H-5,'text-anchor':i===0?'start':i===DAYS.length-1?'end':'middle','font-size':10,fill:css('--text-muted')},svg); tx.textContent=d; });
+  let base=DAYS.map(()=>0);
+  MODELS.forEach(m=>{
+    const top=base.map((b,i)=>b+m.d[i]);
+    const pts=top.map((v,i)=>`${x(i)},${y(v)}`).join(' L');
+    const back=base.map((v,i)=>`${x(i)},${y(v)}`).reverse().join(' L');
+    el('path',{d:`M${pts} L${back} Z`,fill:css(m.c),'fill-opacity':.9,stroke:css('--bg-surface')||css('--bg'),'stroke-width':1},svg);
+    base=top;
+  });
+  el('path',{d:'M'+base.map((v,i)=>`${x(i)},${y(v)}`).join(' L'),fill:'none',stroke:css('--m1'),'stroke-width':1.5},svg);
+}
+function legend(){
+  const total=MODELS.reduce((s,m)=>s+m.d.reduce((a,b)=>a+b,0),0);
+  document.getElementById('legend').innerHTML=MODELS.map(m=>`<span><i style="background:var(${m.c})"></i>${m.k}</span>`).join('');
+  document.getElementById('models').innerHTML=MODELS.map(m=>{const s=m.d.reduce((a,b)=>a+b,0);const p=Math.round(100*s/total);
+    return `<div class="line num"><span class="n"><i style="width:8px;height:8px;border-radius:2px;background:var(${m.c});flex:none"></i><span>${m.k}</span></span><span class="bar"><i style="width:${p}%;background:var(${m.c})"></i></span><span class="v"><b>${p}%</b> · ${s}M</span></div>`}).join('');
+}
+const PROJECTS=[
+  {k:'acme-web', p:38, cap:40},
+  {k:'studio-x', p:27, cap:25, brake:true},
+  {k:'acme-api', p:14},
+  {k:'acme-docs', p:6},
+  {k:'altri 5', p:15, muted:true},
+];
+function projects(){
+  document.getElementById('projects').innerHTML=PROJECTS.map(r=>{
+    const over=r.cap&&r.p>r.cap;
+    return `<div class="line num"><span class="n" style="${r.muted?'color:var(--text-muted)':''}"><span>${r.k}</span>${r.brake?'<svg class="i s12 brake" style="flex:none"><use href="#pause"/></svg>':''}</span>
+      <span class="bar ${over?'hot':''}"><i style="width:${r.p}%"></i>${r.cap?`<u style="left:${r.cap}%"></u>`:''}</span>
+      <span class="v"><b class="${over?'warn':''}">${r.p}%</b>${r.cap?` / ${r.cap}%`:''}</span></div>`}).join('');
+}
+legend(); projects(); drawChart();
+addEventListener('resize', drawChart);
+</script>
+</body>
+</html>

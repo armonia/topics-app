@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="it" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Topics · Processi della macchina (mockup)</title>
+<script>
+  // ?theme=light switches the mockup to the light tokens
+  if (new URLSearchParams(location.search).get('theme') === 'light') document.documentElement.classList.remove('dark');
+</script>
+<style>
+/* Topics tokens (client/src/index.css), light then .dark */
+:root{
+  color-scheme:light;
+  --motion-fast:150ms; --ease-standard:cubic-bezier(0.2,0,0,1);
+  --radius:8px; --radius-sm:6px; --radius-xs:4px;
+  --primary:#0066ff; --primary-light:rgba(0,102,255,.1); --primary-medium:rgba(0,102,255,.15); --primary-ink:#1447e6;
+  --bg:hsl(220 5.6% 96%); --bg-surface:#fff; --chrome-bg:hsl(220 5.6% 93%); --bg-elevated:hsl(220 4.9% 98.1%);
+  --bg-hover:hsl(220 4.9% 96.3%); --bg-inset:hsl(220 4.9% 97.4%); --bg-code:hsl(220 4.2% 13%);
+  --text:hsl(220 3.5% 10.6%); --text-secondary:hsl(220 2.8% 36.4%); --text-tertiary:hsl(220 2.8% 42.3%);
+  --text-muted:hsl(220 2.8% 42.5%); --text-faint:hsl(220 2.8% 42.1%); --text-heading:hsl(220 3.1% 20.7%); --text-body:hsl(220 3.1% 27.6%);
+  --border:hsl(220 4.9% 91.4%); --border-light:hsl(220 4.9% 88.5%); --border-subtle:hsl(220 4.9% 94.4%);
+  --success:#059669; --success-dot:#10b981; --warning-text:#b45309; --warning:#f59e0b; --danger-text:#dc2626; --danger:#ef4444;
+  --sel:rgba(0,0,0,.06); --rest:rgba(0,0,0,.035); --track:rgba(0,0,0,.07);
+  --font-ui:-apple-system,BlinkMacSystemFont,system-ui,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;
+}
+.dark{
+  color-scheme:dark;
+  --primary:#4d94ff; --primary-light:rgba(77,148,255,.12); --primary-medium:rgba(77,148,255,.18); --primary-ink:#7fb2ff;
+  --bg:hsl(222 5.6% 8.5%); --bg-surface:hsl(222 4.9% 11%); --chrome-bg:hsl(224 26% 4.5%); --bg-elevated:hsl(220 4.5% 14%);
+  --bg-hover:hsl(220 4.2% 17%); --bg-inset:hsl(222 5.2% 10%); --bg-code:hsl(220 4.2% 9%);
+  --text:#e6e8ec; --text-secondary:#aab0ba; --text-tertiary:#969ca6; --text-muted:#8d939b; --text-faint:#909296;
+  --text-heading:#ccced4; --text-body:#bbbec5;
+  --border:hsl(220 3.8% 18%); --border-light:hsl(220 3.5% 24%); --border-subtle:hsl(220 4.2% 15%);
+  --success:#34d399; --success-dot:#34d399; --warning-text:#fbbf24; --warning:#fbbf24; --danger-text:#f87171; --danger:#f87171;
+  --sel:rgba(255,255,255,.14); --rest:rgba(255,255,255,.05); --track:rgba(255,255,255,.08);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font-ui);font-size:11px;color:var(--text);background:var(--chrome-bg);-webkit-font-smoothing:antialiased;overflow:hidden}
+.num{font-variant-numeric:tabular-nums}
+.mono{font-family:var(--font-mono)}
+svg.i{width:14px;height:14px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+svg.s12{width:12px;height:12px} svg.s13{width:13px;height:13px} svg.s11{width:11px;height:11px}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+
+.app{display:flex;height:100vh}
+/* ---------- sidebar ---------- */
+.side{width:260px;flex:none;display:flex;flex-direction:column;background:var(--chrome-bg);border-right:1px solid var(--border);padding:0 6px}
+.titlerow{height:40px;display:flex;align-items:center;gap:4px;padding:0 2px 0 6px}
+.titlerow .brand{font-size:14px;font-weight:600;flex:1;color:var(--text)}
+.cbtn{height:28px;min-width:28px;padding:0 7px;border-radius:var(--radius-sm);display:inline-flex;align-items:center;justify-content:center;gap:5px;background:var(--rest);color:var(--text-secondary);font-size:11px}
+.cbtn:hover{background:var(--sel)}
+.kbd{color:var(--text-faint);font-size:10px}
+.badge{min-width:15px;height:15px;padding:0 4px;border-radius:var(--radius);background:var(--warning);color:#111;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;margin-left:-9px;margin-top:-12px}
+.srow{height:34px;display:flex;align-items:center;gap:8px;padding:0 8px;margin:3px 0;border-radius:var(--radius);color:var(--text-body);font-size:12px;white-space:nowrap}
+.srow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.srow .tail{color:var(--text-faint);font-size:11px;display:flex;gap:6px;align-items:center}
+.srow.card{background:var(--rest)}
+.srow.sel{background:var(--sel);color:var(--text)}
+.srow.child{padding-left:28px;height:30px;margin:1px 0}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--success-dot);flex:none}
+.dot.warn{background:var(--warning)} .dot.bad{background:var(--danger)} .dot.off{background:var(--text-faint);opacity:.5}
+.glabel{font-size:10px;letter-spacing:.04em;color:var(--text-faint);padding:10px 8px 2px;text-transform:uppercase}
+.sfill{flex:1}
+.idcard{display:flex;align-items:center;gap:8px;margin:6px 0 8px;padding:6px 8px;border-radius:var(--radius);background:var(--rest)}
+.face{width:22px;height:22px;border-radius:50%;background:var(--primary-medium);color:var(--primary-ink);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600}
+.idcard .who{flex:1;font-size:12px;color:var(--text)}
+.idcard .load{color:var(--text-faint);font-size:11px}
+.orange{color:#e8825a}
+
+/* ---------- main ---------- */
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.spaces{height:32px;display:flex;align-items:center;gap:4px;padding:0 6px}
+.chip{height:24px;padding:0 9px;border-radius:var(--radius-sm);display:inline-flex;align-items:center;gap:6px;color:var(--text-secondary);font-size:12px}
+.chip.on{background:var(--sel);color:var(--text)}
+.panebox{flex:1;min-height:0;margin:0;border:0;border-radius:0;background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+.tabbar{height:40px;flex:none;display:flex;align-items:center;gap:4px;padding:0 6px;border-top:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--chrome-bg)}
+.tab{height:28px;padding:0 10px;border-radius:var(--radius-sm);display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--text-secondary);background:var(--rest);max-width:220px}
+.tab.on{background:var(--sel);color:var(--text)}
+.tab .x{color:var(--text-faint)}
+.scroll{flex:1;min-height:0;overflow:auto}
+.wrap{max-width:1180px;margin:0 auto;padding:14px 18px 22px}
+
+/* header of the pane */
+.phead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.phead h1{font-size:16px;font-weight:600;margin:0;color:var(--text-heading)}
+.phead .meta{color:var(--text-faint);font-size:11px;display:flex;align-items:center;gap:6px}
+.phead .sp{flex:1}
+.seg{display:inline-flex;padding:2px;border-radius:var(--radius-sm);background:var(--rest);gap:2px}
+.seg button{height:22px;padding:0 9px;border-radius:var(--radius-xs);color:var(--text-secondary);font-size:11px}
+.seg button.on{background:var(--bg-surface);color:var(--text);box-shadow:0 0 0 1px var(--border)}
+
+/* decide-first band */
+.decide{border:1px solid color-mix(in srgb,var(--warning) 35%,transparent);background:color-mix(in srgb,var(--warning) 7%,var(--bg-surface));border-radius:var(--radius);padding:4px 4px 4px 10px;margin-bottom:14px}
+.decide .lbl{display:flex;align-items:center;gap:6px;color:var(--warning-text);font-weight:600;font-size:11px;padding:6px 0 4px}
+.drow{display:flex;align-items:center;gap:10px;min-height:34px;padding:2px 2px 2px 0;border-top:1px solid var(--border-subtle)}
+.drow:first-of-type{border-top:0}
+.drow .t{flex:1;min-width:0;font-size:12px;color:var(--text-body)}
+.drow .t b{color:var(--text);font-weight:600}
+.drow .t .why{color:var(--text-faint);font-size:11px;margin-left:4px}
+.acts{display:flex;gap:4px;flex:none}
+.btn{height:26px;padding:0 10px;border-radius:var(--radius-sm);font-size:11px;display:inline-flex;align-items:center;gap:5px;background:var(--rest);color:var(--text-secondary)}
+.btn.pri{background:var(--primary);color:#fff}
+.dark .btn.pri{color:#0b1220}
+
+/* layout of groups */
+.cols{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:14px;align-items:start}
+.colstack{display:flex;flex-direction:column;gap:14px;min-width:0}
+.sec{border:1px solid var(--border);background:var(--bg-surface);border-radius:var(--radius);overflow:hidden;min-width:0}
+.shead{height:38px;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid var(--border-subtle)}
+.shead .ttl{font-size:12px;font-weight:600;color:var(--text-heading)}
+.shead .sum{flex:1;min-width:0;color:var(--text-faint);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.shead .ghost{height:24px;padding:0 6px;border-radius:var(--radius-xs);color:var(--text-faint);display:inline-flex;align-items:center;gap:4px}
+.shead .ghost:hover{background:var(--rest)}
+
+/* mac gauges */
+.gauges{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border-bottom:1px solid var(--border-subtle)}
+.g{padding:9px 10px 10px;border-right:1px solid var(--border-subtle);min-width:0}
+.g:last-child{border-right:0}
+.g .k{color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:.04em}
+.g .v{font-size:14px;color:var(--text);margin-top:2px;white-space:nowrap}
+.g .v small{font-size:11px;color:var(--text-faint)}
+.g .bar{height:3px;border-radius:2px;background:var(--track);margin-top:6px;overflow:hidden}
+.g .bar i{display:block;height:100%;background:var(--text-tertiary);border-radius:2px}
+.g .bar i.warn{background:var(--warning)}
+
+/* process table */
+.pgrid{display:grid;grid-template-columns:minmax(0,1fr) 46px 118px 42px 108px 64px;align-items:center;column-gap:10px}
+.thead{height:28px;padding:0 10px;color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border-subtle)}
+.thead .r{text-align:right}
+.thead .sorted{color:var(--text-secondary);display:inline-flex;align-items:center;gap:3px;justify-content:flex-end}
+.prow{min-height:36px;padding:3px 10px;border-bottom:1px solid var(--border-subtle)}
+.prow:last-child{border-bottom:0}
+.prow:hover{background:var(--bg-hover)}
+.pname{display:flex;align-items:center;gap:8px;min-width:0}
+.pname .ic{width:22px;height:22px;border-radius:var(--radius-xs);background:var(--rest);color:var(--text-secondary);display:flex;align-items:center;justify-content:center;flex:none}
+.pname .txt{min-width:0;display:flex;flex-direction:column}
+.pname .n{font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pname .d{font-size:10.5px;color:var(--text-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:4px}
+.plink{display:inline-flex;align-items:center;gap:3px;color:var(--primary);border-radius:var(--radius-xs);padding:0 4px;margin-left:-4px;background:var(--primary-light)}
+.r{text-align:right}
+.mcell{display:flex;align-items:center;gap:6px;justify-content:flex-end}
+.mcell .mb{flex:1;height:4px;border-radius:2px;background:var(--track);overflow:hidden;max-width:52px}
+.mcell .mb i{display:block;height:100%;background:var(--text-tertiary)}
+.mcell .mb i.warn{background:var(--warning)}
+.faint{color:var(--text-faint)}
+.net{display:flex;flex-direction:column;align-items:flex-end;line-height:1.25;font-size:10.5px;color:var(--text-secondary)}
+.net span{white-space:nowrap}
+.mini{width:26px;height:26px;border-radius:var(--radius-xs);display:flex;align-items:center;justify-content:center;color:var(--text-faint)}
+.mini:hover{background:var(--rest);color:var(--text)}
+.mlab{display:none}
+.more{height:32px;display:flex;align-items:center;justify-content:center;gap:6px;color:var(--text-faint);font-size:11px;border-top:1px solid var(--border-subtle)}
+
+/* PC + services rows */
+.lrow{display:flex;align-items:center;gap:10px;min-height:38px;padding:4px 10px;border-bottom:1px solid var(--border-subtle)}
+.lrow:last-child{border-bottom:0}
+.lrow .main2{flex:1;min-width:0}
+.lrow .n{font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lrow .d{font-size:10.5px;color:var(--text-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lrow .val{font-size:11px;color:var(--text-secondary);white-space:nowrap}
+.port{font-family:var(--font-mono);font-size:10.5px;color:var(--primary)}
+.state{font-size:11px;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.state.ok{color:var(--success)} .state.bad{color:var(--danger-text)} .state.warn{color:var(--warning-text)}
+.prog{width:70px;height:4px;border-radius:2px;background:var(--track);overflow:hidden}
+.prog i{display:block;height:100%;background:var(--primary)}
+.lrow.bad{background:color-mix(in srgb,var(--danger) 6%,transparent)}
+.lrow.open{background:var(--bg-hover)}
+.quiet{display:flex;align-items:center;gap:6px;color:var(--text-faint);font-size:11px;padding:8px 10px}
+
+/* log */
+.log{background:var(--bg-inset);font-family:var(--font-mono);font-size:10.5px;line-height:1.7;padding:6px 10px 8px;max-height:206px;overflow:auto;border-top:1px solid var(--border-subtle)}
+.log div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-secondary)}
+.log .ts{color:var(--text-faint);margin-right:8px}
+.log .e{color:var(--danger-text)} .log .w{color:var(--warning-text)} .log .ok{color:var(--success)}
+.logbar{display:flex;align-items:center;gap:6px;padding:6px 10px;border-top:1px solid var(--border-subtle)}
+.logbar .live{display:inline-flex;align-items:center;gap:5px;color:var(--success);font-size:11px}
+.logbar .sp{flex:1}
+.pill{height:22px;padding:0 8px;border-radius:var(--radius-sm);background:var(--rest);color:var(--text-secondary);font-size:11px;display:inline-flex;align-items:center;gap:4px}
+.pill.on{background:var(--primary-light);color:var(--primary)}
+
+/* small states */
+.states{display:flex;gap:8px;flex-direction:column}
+.st{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--text-faint);padding:6px 10px;border:1px dashed var(--border-light);border-radius:var(--radius);min-width:0}
+.st b{color:var(--text-secondary);font-weight:500}
+.st .lnk{color:var(--primary)}
+
+/* phone chrome */
+.mtop{display:none}
+
+@media (max-width:767px){
+  body{background:var(--chrome-bg)}
+  .side,.spaces{display:none}
+  .main{width:100%}
+  .mtop{display:flex;align-items:center;gap:6px;height:48px;padding:0 8px;flex:none}
+  .mtop .cbtn{height:36px;min-width:36px}
+  .mtop .ttl{flex:1;font-size:14px;font-weight:600;display:flex;align-items:center;gap:7px;min-width:0}
+  .panebox{margin:0;border-radius:0;border-left:0;border-right:0;border-bottom:0;background:var(--chrome-bg)}
+  .tabbar{display:none}
+  .wrap{padding:10px 10px 28px}
+  .phead{gap:8px}
+  .phead h1{display:none}
+  .phead .sp{display:none}
+  .phead .meta{width:100%;order:3}
+  .cols{grid-template-columns:minmax(0,1fr)}
+  .sec{background:var(--bg-surface)}
+  .gauges{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .g:nth-child(3){border-right:0}
+  .g:nth-child(n+4){border-top:1px solid var(--border-subtle)}
+  .g:nth-child(5){grid-column:span 2}
+  .g .v{font-size:13px}
+  .thead{display:none}
+  .prow.pgrid{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"name act" "met met";row-gap:4px;padding:7px 10px}
+  .prow .c-name{grid-area:name}
+  .prow .c-act{grid-area:act}
+  .prow .c-cpu,.prow .c-mem,.prow .c-gpu,.prow .c-net{display:none}
+  .prow .mline{grid-area:met;display:flex !important;gap:4px 10px;white-space:nowrap;padding-left:30px;font-size:10.5px;color:var(--text-secondary);flex-wrap:wrap}
+  .mline .faint{margin-right:3px}
+  .drow{flex-wrap:wrap;padding:6px 2px 6px 0}
+  .drow .t{flex-basis:100%}
+  .drow > .dot{display:none}
+  .acts .btn{height:32px}
+  .srow{height:44px}
+  .mini{width:36px;height:36px}
+  .log{max-height:none}
+  .log div{white-space:normal}
+  .states{flex-direction:column}
+}
+.mline{display:none}
+
+/* sidebar as in Topics today: flat tree */
+.srow{font-size:13px}
+.srow.grow{height:30px;margin:1px 0;font-size:13px;color:var(--text)}
+.srow.grow.on{background:var(--sel)}
+.srow.leaf{height:26px;margin:0;padding-left:26px;font-size:12px;color:var(--text-secondary)}
+.srow.proj{height:30px;margin:1px 0;color:var(--text)}
+.srow.proj.on{background:var(--sel)}
+.srow.kid{height:30px;margin:1px 0;padding-left:30px;font-size:12px}
+.srow .cnt{color:var(--text-faint);font-size:11px}
+.sdiv{height:1px;background:var(--border);margin:8px 2px}
+.shdr{height:30px;display:flex;align-items:center;gap:8px;padding:0 8px;font-size:13px;font-weight:600;color:var(--text)}
+.shdr .tail{margin-left:auto;color:var(--text-faint);font-size:11px;font-weight:400}
+.sstrip{height:28px;display:flex;align-items:center;gap:8px;padding:0 6px;border-top:1px solid var(--border);color:var(--text-faint);font-size:11px;margin:0 -6px;padding-left:12px}
+.wtab{height:28px;padding:0 10px;border-radius:var(--radius-sm);display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--text-secondary);background:var(--rest)}
+.wtab.on{background:var(--sel);color:var(--text)}
+.stop{height:24px;padding:0 7px;border-radius:var(--radius-sm);display:inline-flex;align-items:center;gap:4px;background:var(--rest);color:var(--text-secondary);font-size:11px;justify-self:end}
+.stop:hover{background:var(--sel);color:var(--text)}
+.rule{display:flex;align-items:center;gap:6px;color:var(--text-faint);font-size:11px;padding:7px 10px;border-top:1px solid var(--border-subtle)}
+.svclink{text-decoration:none;display:inline-flex;align-items:center;gap:3px;color:var(--primary);border-radius:var(--radius-xs);padding:0 4px;margin-left:-4px;background:var(--primary-light)}
+.lrow.hl{box-shadow:inset 2px 0 0 var(--primary)}
+/* variants strip: not live */
+.variants{margin-top:18px;border-top:1px dashed var(--border-light);padding-top:12px}
+.variants .vh{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.variants .vh b{font-size:12px;color:var(--text-heading);font-weight:600}
+.variants .vh span{color:var(--text-faint);font-size:11px}
+.vgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.vcard .cap{font-size:11px;color:var(--text-faint);margin-bottom:5px;display:flex;align-items:center;gap:5px}
+.vcard .cap .tag{height:18px;padding:0 6px;border-radius:var(--radius-xs);background:var(--rest);color:var(--text-secondary);display:inline-flex;align-items:center}
+.vcard .sec{opacity:.96}
+@media (max-width:767px){
+  .vgrid{grid-template-columns:minmax(0,1fr)}
+  .badge{min-width:18px;height:18px;font-size:11px}
+  .pname .d,.lrow .d{font-size:12px}
+  .lrow .d{white-space:normal}
+  .pname .n,.lrow .n{font-size:13px}
+  .g .k{font-size:11px}
+  .prow .mline{font-size:12px}
+  .net{font-size:12px}
+  .port{font-size:12px}
+  .log{font-size:11px}
+  .stop{height:36px;padding:0 10px;font-size:12px}
+  .rule,.quiet,.more,.st,.shead .sum,.drow .t .why,.phead .meta,.vcard .cap,.variants .vh span{font-size:12px}
+  .seg button{font-size:12px;height:28px}
+  .pill{font-size:12px;height:28px}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="bell" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></symbol>
+  <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="kanban" viewBox="0 0 24 24"><path d="M6 5v11"/><path d="M12 5v6"/><path d="M18 5v14"/></symbol>
+  <symbol id="workflow" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></symbol>
+  <symbol id="folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+  <symbol id="chev-d" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="chev-r" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="term" viewBox="0 0 24 24"><path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2"/></symbol>
+  <symbol id="cpu" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2"/></symbol>
+  <symbol id="monitor" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+  <symbol id="server" viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 6h.01M6 18h.01"/></symbol>
+  <symbol id="scroll" viewBox="0 0 24 24"><path d="M15 12h-5M15 8h-5M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></symbol>
+  <symbol id="activity" viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></symbol>
+  <symbol id="square" viewBox="0 0 24 24"><rect width="14" height="14" x="5" y="5" rx="2"/></symbol>
+  <symbol id="rotate" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+  <symbol id="pause" viewBox="0 0 24 24"><rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/></symbol>
+  <symbol id="arrow-ur" viewBox="0 0 24 24"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></symbol>
+  <symbol id="alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></symbol>
+  <symbol id="zap" viewBox="0 0 24 24"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></symbol>
+  <symbol id="layers" viewBox="0 0 24 24"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/></symbol>
+  <symbol id="globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+  <symbol id="asterisk" viewBox="0 0 24 24"><path d="M12 6v12M17.196 9 6.804 15M6.804 9l10.392 6"/></symbol>
+  <symbol id="moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+  <symbol id="cloud-off" viewBox="0 0 24 24"><path d="m2 2 20 20"/><path d="M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193"/><path d="M21.532 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7.008 7.008 0 0 0 10 5.07"/></symbol>
+  <symbol id="panel" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></symbol>
+  <symbol id="x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="gauge" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
+  <symbol id="box" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></symbol>
+  <symbol id="layout" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18M9 21V9"/></symbol>
+  <symbol id="clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+  <symbol id="chart" viewBox="0 0 24 24"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9M13 17V5M8 17v-3"/></symbol>
+  <symbol id="filter" viewBox="0 0 24 24"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></symbol>
+</svg>
+
+<div class="app">
+  <!-- ============ SIDEBAR (as in Topics today; only the Processi row is new) ============ -->
+  <nav class="side" aria-label="Topics sidebar">
+    <div class="titlerow">
+      <span class="brand">Topics <svg class="i s12 faint" style="vertical-align:-2px"><use href="#chev-d"/></svg></span>
+      <button class="cbtn" aria-label="Notifiche" title="Notifiche"><svg class="i"><use href="#bell"/></svg></button><span class="badge num">2</span>
+      <button class="cbtn"><svg class="i s13"><use href="#search"/></svg><span class="kbd">⌘K</span></button>
+      <button class="cbtn" aria-label="Nuovo"><svg class="i s13"><use href="#plus"/></svg><span class="kbd">⌘N</span></button>
+    </div>
+    <div class="glabel">Gruppi</div>
+    <div class="srow grow on"><svg class="i s12 faint"><use href="#chev-d"/></svg><svg class="i"><use href="#layers"/></svg><span class="nm">Principale</span><span class="cnt num">1</span></div>
+    <div class="srow leaf"><svg class="i s13"><use href="#folder"/></svg><span class="nm">acme-web</span></div>
+    <div class="srow grow"><svg class="i s12 faint"><use href="#chev-d"/></svg><svg class="i"><use href="#layers"/></svg><span class="nm">Progetti</span><span class="cnt num">3</span></div>
+    <div class="srow leaf"><svg class="i s13"><use href="#folder"/></svg><span class="nm">acme-api</span></div>
+    <div class="srow leaf"><svg class="i s13"><use href="#folder"/></svg><span class="nm">studio-x</span></div>
+    <div class="srow leaf"><svg class="i s13"><use href="#folder"/></svg><span class="nm">acme-docs</span></div>
+    <div class="sdiv"></div>
+    <div class="shdr">ship v1.1<span class="tail num">4m</span></div>
+    <div class="srow proj"><svg class="i s12 faint"><use href="#chev-d"/></svg><span class="nm">acme-web</span><span class="tail num">4m</span></div>
+    <div class="srow kid"><svg class="i orange"><use href="#asterisk"/></svg><span class="nm">Claude Code</span><span class="tail num">4m</span></div>
+    <div class="srow kid"><svg class="i"><use href="#term"/></svg><span class="nm">zsh</span><span class="tail num">4m</span></div>
+    <div class="srow kid"><svg class="i"><use href="#globe"/></svg><span class="nm">Preview</span></div>
+    <div class="srow proj"><svg class="i s12 faint"><use href="#chev-d"/></svg><span class="nm">studio-x</span><span class="tail num">9m</span></div>
+    <div class="srow kid"><svg class="i orange"><use href="#asterisk"/></svg><span class="nm">Claude Code</span><span class="tail num">9m</span></div>
+    <div class="srow proj"><svg class="i s12 faint"><use href="#chev-r"/></svg><span class="nm">acme-api</span><span class="tail num">1h</span></div>
+    <div class="srow proj"><span class="nm">auth flow</span><span class="tail num">4m</span></div>
+    <div class="sfill"></div>
+    <div class="srow"><svg class="i"><use href="#chart"/></svg><span class="nm">Dashboard</span></div>
+    <div class="srow sel" title="Nuova: Processi della macchina"><svg class="i"><use href="#activity"/></svg><span class="nm">Processi</span><span class="tail num"><span class="dot bad"></span>1 fermo</span></div>
+    <div class="sstrip num"><span class="dot"></span>41MB 34fps</div>
+  </nav>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+    <div class="spaces">
+      <span class="chip on">Principale</span><span class="chip">Progetti</span><span class="chip">Agenti</span>
+      <span class="chip"><svg class="i s12"><use href="#plus"/></svg></span>
+    </div>
+
+    <!-- phone chrome -->
+    <div class="mtop">
+      <button class="cbtn" aria-label="Colonna"><svg class="i"><use href="#panel"/></svg></button>
+      <div class="ttl"><svg class="i"><use href="#activity"/></svg>Processi della macchina</div>
+      <button class="cbtn" aria-label="Notifiche"><svg class="i"><use href="#bell"/></svg></button><span class="badge num">2</span>
+    </div>
+
+    <div class="panebox">
+      <div class="tabbar">
+        <button class="cbtn" aria-label="Colonna" style="background:none"><svg class="i s13"><use href="#panel"/></svg></button>
+        <span class="wtab">acme-web</span>
+        <span class="wtab on"><svg class="i s13"><use href="#activity"/></svg>Processi<svg class="i s12 x faint"><use href="#x"/></svg></span>
+        <span class="wtab" style="background:none"><svg class="i s13"><use href="#plus"/></svg></span>
+      </div>
+
+      <div class="scroll">
+        <div class="wrap">
+          <div class="phead">
+            <h1>Processi della macchina</h1>
+            <div class="seg" role="tablist" aria-label="Finestra di misura">
+              <button>Ora</button><button class="on">5 min</button><button>1 h</button>
+            </div>
+            <span class="sp"></span>
+            <span class="meta num"><span class="dot"></span>Media degli ultimi 5 min · aggiornato 2 s fa</span>
+          </div>
+
+          <!-- Decidi tu: first, actions on the row -->
+          <section class="decide" aria-label="Decidi tu">
+            <div class="lbl"><svg class="i s13"><use href="#alert"/></svg>Decidi tu · 2</div>
+            <div class="drow">
+              <span class="dot bad"></span>
+              <div class="t"><b>Router dei modelli gratis è fermo da 12 min</b><span class="why">gli scout ripiegano su Muse, a quota</span></div>
+              <div class="acts"><button class="btn pri"><svg class="i s12"><use href="#rotate"/></svg>Riavvia</button><button class="btn">Lascia fermo</button></div>
+            </div>
+            <div class="drow">
+              <span class="dot warn"></span>
+              <div class="t"><b>Il dev server di acme-web pesa 1,6 GB da 3 h</b><span class="why">nessuna richiesta dalle 11:02</span></div>
+              <div class="acts"><button class="btn pri"><svg class="i s12"><use href="#square"/></svg>Ferma</button><button class="btn">Tienilo</button></div>
+            </div>
+          </section>
+
+          <div class="cols">
+            <div class="colstack">
+            <!-- ================= MAC ================= -->
+            <section class="sec" aria-label="Mac">
+              <div class="shead">
+                <svg class="i"><use href="#monitor"/></svg><span class="ttl">Mac</span>
+                <span class="sum num">10 core · 32 GB · pressione normale</span>
+                <button class="ghost" aria-label="Ordina" title="Ordina per"><svg class="i s12"><use href="#filter"/></svg></button>
+              </div>
+              <div class="gauges num">
+                <div class="g"><div class="k">CPU</div><div class="v">31%</div><div class="bar"><i style="width:31%"></i></div></div>
+                <div class="g"><div class="k">Memoria</div><div class="v">26,8 <small>/ 32 GB</small></div><div class="bar"><i class="warn" style="width:84%"></i></div></div>
+                <div class="g"><div class="k">Swap</div><div class="v">1,2 <small>GB</small></div><div class="bar"><i style="width:12%"></i></div></div>
+                <div class="g"><div class="k">GPU</div><div class="v">38%</div><div class="bar"><i style="width:38%"></i></div></div>
+                <div class="g"><div class="k">Rete</div><div class="v">↓2,3 <small>MB/s</small></div><div class="bar"><i style="width:46%"></i></div></div>
+              </div>
+              <div class="pgrid thead">
+                <span>Processo</span><span class="r">CPU</span><span class="sorted">Memoria <svg class="i s11"><use href="#chev-d"/></svg></span><span class="r">GPU</span><span class="r">Rete</span><span></span>
+              </div>
+
+              <div class="pgrid prow">
+                <div class="pname c-name"><span class="ic"><svg class="i s13"><use href="#server"/></svg></span><span class="txt"><span class="n">Gateway di Jarvis</span><span class="d"><a class="svclink" href="#svc-gateway" title="Apri il servizio in Servizi"><svg class="i s11"><use href="#server"/></svg>Servizi › Gateway <span class="mono">:18789</span></a></span></span></div>
+                <span class="r num c-cpu">2%</span>
+                <span class="mcell num c-mem"><span class="mb"><i class="warn" style="width:82%"></i></span><span style="color:var(--warning-text)">2,9 GB</span></span>
+                <span class="r num faint c-gpu">—</span>
+                <span class="net num c-net"><span>↓ 14 KB/s</span><span class="faint">↑ 6 KB/s</span></span>
+                <button class="stop c-act" title="Ferma il servizio: chiede conferma, poi lo spegne"><svg class="i s11"><use href="#square"/></svg>Ferma</button>
+                <div class="mline num"><span><span class="faint">CPU</span>2%</span><span style="color:var(--warning-text)"><span class="faint">Mem</span>2,9 GB</span><span><span class="faint">GPU</span>—</span><span><span class="faint">Rete</span>↓14 ↑6 KB/s</span></div>
+              </div>
+
+              <div class="pgrid prow">
+                <div class="pname c-name"><span class="ic"><svg class="i s13"><use href="#layout"/></svg></span><span class="txt"><span class="n">Topics</span><span class="d">app · ponte terminali, 4 webview</span></span></div>
+                <span class="r num c-cpu">18%</span>
+                <span class="mcell num c-mem"><span class="mb"><i style="width:68%"></i></span>2,4 GB</span>
+                <span class="r num c-gpu">12%</span>
+                <span class="net num c-net"><span>↓ 120 KB/s</span><span class="faint">↑ 40 KB/s</span></span>
+                <span class="c-act"></span>
+                <div class="mline num"><span><span class="faint">CPU</span>18%</span><span><span class="faint">Mem</span>2,4 GB</span><span><span class="faint">GPU</span>12%</span><span><span class="faint">Rete</span>↓120 ↑40 KB/s</span></div>
+              </div>
+
+              <div class="pgrid prow">
+                <div class="pname c-name"><span class="ic"><svg class="i s13"><use href="#zap"/></svg></span><span class="txt"><span class="n">node · vite</span><span class="d"><span class="plink" title="Apri nella sezione Processi del progetto"><svg class="i s11"><use href="#folder"/></svg>acme-web › dev <span class="mono">:5173</span><svg class="i s11"><use href="#arrow-ur"/></svg></span></span></span></div>
+                <span class="r num c-cpu">9%</span>
+                <span class="mcell num c-mem"><span class="mb"><i class="warn" style="width:46%"></i></span><span style="color:var(--warning-text)">1,6 GB</span></span>
+                <span class="r num faint c-gpu">—</span>
+                <span class="net num c-net"><span>↓ 8 KB/s</span><span class="faint">↑ 2 KB/s</span></span>
+                <button class="stop c-act" title="Ferma lo script dev di acme-web"><svg class="i s11"><use href="#square"/></svg>Ferma</button>
+                <div class="mline num"><span><span class="faint">CPU</span>9%</span><span style="color:var(--warning-text)"><span class="faint">Mem</span>1,6 GB</span><span><span class="faint">GPU</span>—</span><span><span class="faint">Rete</span>↓8 ↑2 KB/s</span></div>
+              </div>
+
+              <div class="pgrid prow">
+                <div class="pname c-name"><span class="ic orange"><svg class="i s13"><use href="#asterisk"/></svg></span><span class="txt"><span class="n">claude · 3 sessioni</span><span class="d">app · acme-web, studio-x, board</span></span></div>
+                <span class="r num c-cpu">6%</span>
+                <span class="mcell num c-mem"><span class="mb"><i style="width:32%"></i></span>1,1 GB</span>
+                <span class="r num faint c-gpu">—</span>
+                <span class="net num c-net"><span>↓ 310 KB/s</span><span class="faint">↑ 95 KB/s</span></span>
+                <span class="c-act"></span>
+                <div class="mline num"><span><span class="faint">CPU</span>6%</span><span><span class="faint">Mem</span>1,1 GB</span><span><span class="faint">GPU</span>—</span><span><span class="faint">Rete</span>↓310 ↑95 KB/s</span></div>
+              </div>
+
+              <div class="pgrid prow">
+                <div class="pname c-name"><span class="ic"><svg class="i s13"><use href="#globe"/></svg></span><span class="txt"><span class="n">Browser</span><span class="d">app · 9 schede</span></span></div>
+                <span class="r num c-cpu">4%</span>
+                <span class="mcell num c-mem"><span class="mb"><i style="width:28%"></i></span>980 MB</span>
+                <span class="r num c-gpu">21%</span>
+                <span class="net num c-net"><span>↓ 1,8 MB/s</span><span class="faint">↑ 30 KB/s</span></span>
+                <span class="c-act"></span>
+                <div class="mline num"><span><span class="faint">CPU</span>4%</span><span><span class="faint">Mem</span>980 MB</span><span><span class="faint">GPU</span>21%</span><span><span class="faint">Rete</span>↓1,8 MB/s ↑30 KB/s</span></div>
+              </div>
+
+              <div class="pgrid prow">
+                <div class="pname c-name"><span class="ic"><svg class="i s13"><use href="#box"/></svg></span><span class="txt"><span class="n">Container locali</span><span class="d">container · postgres, redis</span></span></div>
+                <span class="r num c-cpu">3%</span>
+                <span class="mcell num c-mem"><span class="mb"><i style="width:25%"></i></span>870 MB</span>
+                <span class="r num faint c-gpu">—</span>
+                <span class="net num c-net"><span>↓ 2 KB/s</span><span class="faint">↑ 1 KB/s</span></span>
+                <button class="stop c-act" title="Ferma i 2 container"><svg class="i s11"><use href="#square"/></svg>Ferma</button>
+                <div class="mline num"><span><span class="faint">CPU</span>3%</span><span><span class="faint">Mem</span>870 MB</span><span><span class="faint">GPU</span>—</span><span><span class="faint">Rete</span>↓2 ↑1 KB/s</span></div>
+              </div>
+
+              <div class="pgrid prow">
+                <div class="pname c-name"><span class="ic"><svg class="i s13"><use href="#zap"/></svg></span><span class="txt"><span class="n">bun · server</span><span class="d"><span class="plink" title="Apri nella sezione Processi del progetto"><svg class="i s11"><use href="#folder"/></svg>studio-x › server <span class="mono">:3333</span><svg class="i s11"><use href="#arrow-ur"/></svg></span></span></span></div>
+                <span class="r num c-cpu">2%</span>
+                <span class="mcell num c-mem"><span class="mb"><i style="width:18%"></i></span>640 MB</span>
+                <span class="r num faint c-gpu">—</span>
+                <span class="net num c-net"><span>↓ 22 KB/s</span><span class="faint">↑ 18 KB/s</span></span>
+                <button class="stop c-act" title="Ferma lo script server di studio-x"><svg class="i s11"><use href="#square"/></svg>Ferma</button>
+                <div class="mline num"><span><span class="faint">CPU</span>2%</span><span><span class="faint">Mem</span>640 MB</span><span><span class="faint">GPU</span>—</span><span><span class="faint">Rete</span>↓22 ↑18 KB/s</span></div>
+              </div>
+
+              <div class="pgrid prow">
+                <div class="pname c-name"><span class="ic"><svg class="i s13"><use href="#monitor"/></svg></span><span class="txt"><span class="n">WindowServer</span><span class="d">sistema · disegna lo schermo</span></span></div>
+                <span class="r num c-cpu">7%</span>
+                <span class="mcell num c-mem"><span class="mb"><i style="width:14%"></i></span>510 MB</span>
+                <span class="r num c-gpu">30%</span>
+                <span class="net num faint c-net"><span>—</span></span>
+                <span class="c-act"></span>
+                <div class="mline num"><span><span class="faint">CPU</span>7%</span><span><span class="faint">Mem</span>510 MB</span><span><span class="faint">GPU</span>30%</span><span><span class="faint">Rete</span>—</span></div>
+              </div>
+              <div class="more"><svg class="i s12"><use href="#chev-d"/></svg>Altri 214 processi · 4,1 GB</div>
+              <div class="rule"><svg class="i s12"><use href="#square"/></svg>«Ferma» c'è su servizi, script dei progetti e container. App e sistema si chiudono dalla loro finestra.</div>
+            </section>
+            </div>
+
+            <div class="colstack">
+              <!-- ================= PC ================= -->
+              <section class="sec" aria-label="PC">
+                <div class="shead">
+                  <svg class="i"><use href="#cpu"/></svg><span class="ttl">PC</span>
+                  <span class="sum num"><span class="state ok"><span class="dot"></span>Acceso, lavora</span> · 2 lavori</span>
+                </div>
+                <div class="lrow">
+                  <svg class="i s13 faint"><use href="#activity"/></svg>
+                  <div class="main2"><div class="n">Suite e2e · acme-web</div><div class="d num">da 6 min · mandata dal Mac carico</div></div>
+                  <span class="prog"><i style="width:62%"></i></span><span class="val num">62%</span>
+                </div>
+                <div class="lrow">
+                  <svg class="i s13 faint"><use href="#clock"/></svg>
+                  <div class="main2"><div class="n">Build · studio-x</div><div class="d">in coda, parte dopo la suite</div></div>
+                  <span class="val faint">in coda</span>
+                </div>
+                <div class="quiet"><svg class="i s12"><use href="#moon"/></svg>Dorme da solo dopo 20 min senza lavoro</div>
+              </section>
+              <!-- ================= SERVIZI ================= -->
+              <section class="sec" aria-label="Servizi">
+                <div class="shead">
+                  <svg class="i"><use href="#server"/></svg><span class="ttl">Servizi</span>
+                  <span class="sum num">4 attivi · <span style="color:var(--danger-text)">1 fermo</span></span>
+                </div>
+                <div class="lrow bad">
+                  <span class="dot bad"></span>
+                  <div class="main2"><div class="n">Router dei modelli gratis</div><div class="d num">fermo dalle 13:54 · avviso in campanella</div></div>
+                  <span class="port">:18791</span>
+                  <button class="stop" title="Riavvia il servizio"><svg class="i s11"><use href="#rotate"/></svg>Riavvia</button>
+                </div>
+                <div class="lrow open">
+                  <span class="dot"></span>
+                  <div class="main2"><div class="n">Proxy degli account</div><div class="d num">attivo da 2 g · 180 MB · log aperto sotto</div></div>
+                  <span class="port">:3360</span>
+                  <button class="mini" aria-label="Chiudi log" title="Chiudi il log"><svg class="i s12"><use href="#chev-d"/></svg></button>
+                </div>
+                <div class="lrow hl" id="svc-gateway">
+                  <span class="dot warn"></span>
+                  <div class="main2"><div class="n">Gateway di Jarvis</div><div class="d num">attivo da 6 h · <span style="color:var(--warning-text)">2,9 GB, primo nel Mac</span> · riavvio a 3,5 GB</div></div>
+                  <span class="port">:18789</span>
+                  <button class="mini" aria-label="Apri log" title="Apri il log"><svg class="i s12"><use href="#chev-r"/></svg></button>
+                </div>
+                <div class="lrow">
+                  <span class="dot"></span>
+                  <div class="main2"><div class="n">Indice dei documenti</div><div class="d num">attivo da 2 g · 95 MB</div></div>
+                  <span class="port">:3342</span>
+                  <button class="mini" aria-label="Apri log" title="Apri il log"><svg class="i s12"><use href="#chev-r"/></svg></button>
+                </div>
+                <div class="lrow">
+                  <span class="dot"></span>
+                  <div class="main2"><div class="n">Registro della memoria</div><div class="d num">ogni 5 min · ultimo giro 14:05 · nessuna porta</div></div>
+                  <span class="val num faint">1 s CPU</span>
+                  <button class="mini" aria-label="Apri log" title="Apri il log"><svg class="i s12"><use href="#chev-r"/></svg></button>
+                </div>
+              </section>
+
+              <!-- ================= LOG ================= -->
+              <section class="sec" aria-label="Log">
+                <div class="shead">
+                  <svg class="i"><use href="#scroll"/></svg><span class="ttl">Log</span>
+                  <span class="sum">Proxy degli account, dal vivo</span>
+                </div>
+                <div class="logbar">
+                  <span class="live"><span class="dot"></span>Dal vivo</span>
+                  <span class="sp"></span>
+                  <span class="pill on">Tutto</span><span class="pill">Solo errori</span>
+                  <button class="mini" aria-label="Pausa" title="Metti in pausa"><svg class="i s12"><use href="#pause"/></svg></button>
+                </div>
+                <div class="log num">
+                  <div><span class="ts">14:06:12</span><span class="ok">200</span> claude · acme-web → account principale · 1,2 s</div>
+                  <div><span class="ts">14:06:09</span><span class="w">rotazione</span> secondo account al 91% della 5h, passa al terzo</div>
+                  <div><span class="ts">14:05:58</span><span class="ok">200</span> codex · studio-x → account lavoro · 3,4 s</div>
+                  <div><span class="ts">14:05:41</span><span class="e">429</span> limite del provider, ritento fra 20 s</div>
+                  <div><span class="ts">14:05:30</span><span class="ok">200</span> claude · board → account principale · 0,8 s</div>
+                  <div><span class="ts">14:05:12</span><span class="ok">200</span> muse · acme-api → quota fissa · 2,1 s</div>
+                  <div><span class="ts">14:04:57</span><span class="w">freno</span> studio-x al 70% della settimana, ritmo ridotto</div>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <!-- ================= VARIANTS (not live) ================= -->
+          <section class="variants" aria-label="Varianti di stato">
+            <div class="vh"><b>Varianti di stato</b><span>esempi, non dal vivo: come si mostrano i gruppi quando qualcosa manca</span></div>
+            <div class="vgrid">
+              <div class="vcard">
+                <div class="cap"><span class="tag">Variante</span>Hub non raggiungibile</div>
+                <section class="sec">
+                  <div class="shead"><svg class="i"><use href="#server"/></svg><span class="ttl">Servizi</span><span class="sum num">dati delle 14:02</span></div>
+                  <div class="quiet"><svg class="i s12"><use href="#cloud-off"/></svg><span>Hub non risponde: Servizi e Log fermi alle 14:02 · <span style="color:var(--primary)">Riprova</span></span></div>
+                </section>
+              </div>
+              <div class="vcard">
+                <div class="cap"><span class="tag">Variante</span>PC addormentato</div>
+                <section class="sec">
+                  <div class="shead"><svg class="i"><use href="#cpu"/></svg><span class="ttl">PC</span><span class="sum"><span class="state" style="color:var(--text-faint)"><span class="dot off"></span>Dorme</span> · nessun lavoro</span></div>
+                  <div class="quiet"><svg class="i s12"><use href="#moon"/></svg>Si sveglia da solo al primo lavoro mandato dal Mac</div>
+                </section>
+              </div>
+              <div class="vcard">
+                <div class="cap"><span class="tag">Variante</span>Nessun servizio fermo</div>
+                <section class="sec">
+                  <div class="shead"><svg class="i"><use href="#server"/></svg><span class="ttl">Servizi</span><span class="sum num">5 attivi</span></div>
+                  <div class="quiet"><span class="dot"></span>Tutto acceso · la campanella avvisa se uno si ferma</div>
+                </section>
+              </div>
+            </div>
+          </section>
+
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>
