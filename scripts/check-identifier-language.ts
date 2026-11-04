@@ -86,6 +86,9 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // automation: a scheduled job of the usage hub (cron, launchd, workflow), the
+  // hub's own word for its jobs page; `client/src/lib/hubSystem.ts` reads its summary.
+  "automation",
   // email: a commit author's address, the subject of `server/services/land-attribution-gate.ts`.
   "email",
   // crlf: the Windows line ending (carriage return + line feed), the subject of `scripts/check-eol.ts`.

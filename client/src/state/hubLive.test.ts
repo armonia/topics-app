@@ -7,10 +7,14 @@
  */
 import { afterEach, describe, expect, it } from 'bun:test';
 
-import { _adoptForTests, _everReadForTests, _readForTests, _resetForTests, _seedForTests } from './hubLive';
+import { dispatchLifecycle } from '../lib/wsFrameBus';
+import {
+  _adoptForTests, _everReadForTests, _readForTests, _resetForTests, _seedForTests, _setSnapshotFetchForTests, _subscribeForTests, refreshHubLive,
+} from './hubLive';
 
 afterEach(() => {
   _resetForTests();
+  _setSnapshotFetchForTests(null);
 });
 
 describe('HUBBR-03: hub live data in the client', () => {
@@ -64,5 +68,29 @@ describe('HUBBR-03: hub live data in the client', () => {
     _adoptForTests({ type: 'hub:live', topic: 'mac', error: 'hub down', at: 3 });
     expect(_everReadForTests()).toBe(true);
     expect(_readForTests().mac).toEqual({ error: 'hub down', at: 3 });
+  });
+
+  it('reads the snapshot again on a socket RE-open and after a write, so a missed push is not a stale list', async () => {
+    let asks = 0;
+    let list = ['a', 'b'];
+    _setSnapshotFetchForTests(async () => {
+      asks++;
+      return new Response(JSON.stringify({ attesa: { data: { items: list }, at: asks } })); // allow-italian: hub topic name
+    });
+    // The first open of the page is not a reconnect: nothing re-reads.
+    dispatchLifecycle('open');
+    const off = _subscribeForTests(() => {});
+    await new Promise((r) => setTimeout(r, 0));
+    const afterBoot = asks;
+    list = ['b'];
+    dispatchLifecycle('close');
+    dispatchLifecycle('open');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(asks).toBe(afterBoot + 1);
+    expect(_readForTests().attesa?.data).toEqual({ items: ['b'] }); // allow-italian: hub topic name
+    list = [];
+    await refreshHubLive();
+    expect(_readForTests().attesa?.data).toEqual({ items: [] }); // allow-italian: hub topic name
+    off();
   });
 });

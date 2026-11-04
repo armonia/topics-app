@@ -4,7 +4,7 @@ import type { Dict } from './i18n-types';
 const HUB_SYSTEM_EN: Dict = {
   'hubSystem.title': 'System',
   'hubSystem.strip.calm': 'All calm',
-  'hubSystem.strip.attention': 'Something to look at',
+  'hubSystem.strip.attention': 'Mostly calm',
   'hubSystem.strip.servicesDown.one': '{n} service down',
   'hubSystem.strip.servicesDown.other': '{n} services down',
   'hubSystem.strip.hubDown': 'Hub not reachable',

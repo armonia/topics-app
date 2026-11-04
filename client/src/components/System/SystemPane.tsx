@@ -7,7 +7,7 @@
  * Phone: the same body in the client's bottom sheet (`SystemSheet`, the
  * shared `Menu` primitive), over the chat.
  *
- * Sections, in the order Attilio approved (varianti/2-editoriale-piccola.html):
+ * Sections, in the order Attilio approved (the small editorial mockup):
  * waiting for you, agents with one line of quotas, alerts, red gates,
  * automations. Everything arrives on the socket (state/hubLive.ts); the only
  * request this file makes is the close of a waiting item, and the list of
@@ -20,10 +20,10 @@ import {
   AlertTriangle, Bot, CheckCircle2, ExternalLink, Gauge, Hourglass, Maximize2, Minimize2, ShieldX, Workflow, X, XCircle,
 } from 'lucide-react';
 import { useT, useLocale } from '../../hooks/useT';
-import { useHubLive, type HubLiveEntry } from '../../state/hubLive';
+import { refreshHubLive, useHubLive, type HubLiveEntry } from '../../state/hubLive';
 import { closeSystemPane, toggleSystemPaneMaximized, useSystemPane } from '../../state/systemPane';
 import {
-  automationsSummary, closeWaitingBody, failedJobs, firingAlerts, quotaLines, redGates, waitingItems,
+  automationSummary, closeWaitingBody, failedJobs, firingAlerts, quotaLines, redGates, waitingItems,
   type FailedJob, type WaitingItem, type WaitingKind,
 } from '../../lib/hubSystem';
 import { apiFetch } from '../../lib/shell/net';
@@ -142,7 +142,7 @@ function WaitingSection({ entry, t, locale }: { entry: HubLiveEntry | undefined;
     setErrors((e) => { if (!(id in e)) return e; const n = { ...e }; delete n[id]; return n; });
     let failure: string | null = null;
     try {
-      const resp = await apiFetch('/api/hub/attesa', {
+      const resp = await apiFetch('/api/hub/attesa', { // allow-italian: the hub's own path
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(closeWaitingBody(id)),
@@ -150,6 +150,10 @@ function WaitingSection({ entry, t, locale }: { entry: HubLiveEntry | undefined;
       if (!resp.ok) {
         const body = (await resp.json().catch(() => null)) as { error?: string } | null;
         failure = body?.error ?? `HTTP ${resp.status}`;
+      } else {
+        await refreshHubLive();
+        // From here the list on screen is the hub's: drop the optimistic hide.
+        setClosing((s) => { const n = new Set(s); n.delete(id); return n; });
       }
     } catch (err) {
       failure = err instanceof Error ? err.message : String(err);
@@ -266,8 +270,8 @@ function useFailedJobs(broken: number | null): FailedJob[] | null {
   return broken === 0 ? [] : jobs;
 }
 
-function AutomationsSection({ entry, t, locale }: { entry: HubLiveEntry | undefined; t: Translate; locale: string }) {
-  const summary = entry?.data !== undefined ? automationsSummary(entry.data) : null;
+function AutomationSection({ entry, t, locale }: { entry: HubLiveEntry | undefined; t: Translate; locale: string }) {
+  const summary = entry?.data !== undefined ? automationSummary(entry.data) : null;
   const jobs = useFailedJobs(summary ? summary.broken : null);
   const counters: Array<{ key: string; label: string; value: number; bad?: boolean }> = summary ? [
     { key: 'needsYou', label: t('hubSystem.automations.needsYou'), value: summary.needsYou },
@@ -320,7 +324,7 @@ function SystemPaneBody() {
       <AgentsSection pace={live.pace} t={t} />
       <AlertsSection entry={live.alerts} t={t} />
       <GatesSection entry={live.gates} t={t} />
-      <AutomationsSection entry={live.automations} t={t} locale={locale} />
+      <AutomationSection entry={live.automations} t={t} locale={locale} />
     </div>
   );
 }

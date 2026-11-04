@@ -37,7 +37,9 @@ function Quota({ q }: { q: QuotaLine }) {
   return (
     <span className="inline-flex items-center gap-1" data-testid="system-strip-quota">
       {q.provider}
-      <Meter pct={shown} hot={q.hot} />
+      {/* As in the mockup: a meter only where the number is warm, so three
+          accounts still fit the sidebar's width. */}
+      {q.hot && <Meter pct={shown} hot />}
       <em className={`not-italic ${q.hot ? WARM : 'text-app-text-secondary'}`}>{shown}</em>
     </span>
   );

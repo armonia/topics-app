@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  automationsSummary, closeWaitingBody, failedJobs, firingAlerts, macGlance, quotaLines, redGates, servicesDown, stripModel, waitingItems,
+  HUB_PAGES_BASE, automationSummary, closeWaitingBody, failedJobs, firingAlerts, macGlance, quotaLines, redGates, servicesDown, stripModel, waitingItems,
 } from './hubSystem';
 
 const SERVICES = { at: 1, services: [
@@ -66,7 +66,7 @@ describe('HUBBR-04: the strip', () => {
 });
 
 describe('HUBBR-05: the System pane sections', () => {
-  test('waiting items keep the hub order, drop the malformed, accept only http(s) links', () => {
+  test('waiting items keep the hub order, drop the malformed, accept only the three link forms of the hub', () => {
     const items = waitingItems({ at: 1, items: [
       { id: 'a', tipo: 'decisione', title: 'Ship it?', why: 'because', link: 'https://example.com/x', from: 'guardiano', due: 10 },
       { id: 'b', tipo: 'vista', title: 'Look', link: 'javascript:alert(1)' },
@@ -79,6 +79,12 @@ describe('HUBBR-05: the System pane sections', () => {
     expect(items[1]!.link).toBeNull();
     expect(items[2]!.kind).toBe('decisione');
     expect(waitingItems(null)).toEqual([]);
+    const links = waitingItems({ items: [
+      { id: 'p', title: 'Page', link: '#automations/x' },
+      { id: 'c', title: 'Claude', link: 'claude://resume/abc' },
+      { id: 'f', title: 'File', link: 'file:///etc/passwd' },
+    ] }).map((i) => i.link);
+    expect(links).toEqual([`${HUB_PAGES_BASE}#automations/x`, 'claude://resume/abc', null]);
   });
 
   test('the close body is the one the hub expects', () => {
@@ -104,10 +110,10 @@ describe('HUBBR-05: the System pane sections', () => {
   });
 
   test('automations: counters and the next run from the summary, failed jobs from the full list', () => {
-    expect(automationsSummary({ needsYou: 1, broken: 4, ok: 81, runsToday: 9209, calendar: { count: 3, next: { title: 'Backup', at: 50 } } }))
+    expect(automationSummary({ needsYou: 1, broken: 4, ok: 81, runsToday: 9209, calendar: { count: 3, next: { title: 'Backup', at: 50 } } }))
       .toEqual({ needsYou: 1, broken: 4, ok: 81, runsToday: 9209, next: { title: 'Backup', at: 50 } });
-    expect(automationsSummary({})).toEqual({ needsYou: 0, broken: 0, ok: 0, runsToday: 0, next: null });
-    expect(automationsSummary(null)).toBeNull();
+    expect(automationSummary({})).toEqual({ needsYou: 0, broken: 0, ok: 0, runsToday: 0, next: null });
+    expect(automationSummary(null)).toBeNull();
     expect(failedJobs({ broken: [{ key: 'gh:x', title: 'Parametri paghe', last: { at: 9, outcome: 'error' } }, { key: 'k' }] }))
       .toEqual([{ key: 'gh:x', title: 'Parametri paghe', at: 9 }]);
   });

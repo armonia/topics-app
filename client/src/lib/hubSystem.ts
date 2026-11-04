@@ -13,9 +13,9 @@ const isObject = (v: unknown): v is Raw => typeof v === 'object' && v !== null &
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v : null);
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
-// ── Waiting for you (/api/attesa) ────────────────────────────────────────────
+// ── Waiting for you (the hub's waiting list) ─────────────────────────────────
 
-export const WAITING_KINDS = ['decisione', 'spesa', 'pubblico', 'vista'] as const;
+export const WAITING_KINDS = ['decisione', 'spesa', 'pubblico', 'vista'] as const; // allow-italian: the hub's wire values, compared by value
 export type WaitingKind = (typeof WAITING_KINDS)[number];
 
 export interface WaitingItem {
@@ -23,18 +23,27 @@ export interface WaitingItem {
   kind: WaitingKind;
   title: string;
   why: string | null;
-  /** Only http(s): the primary action opens it in a new tab. */
+  /** http(s), a hub page or `claude://`: the primary action opens it in a new tab. */
   link: string | null;
   from: string | null;
   due: number | null;
 }
 
+/** Where the hub's own pages live: a `#page` link of an item points there. */
+export const HUB_PAGES_BASE = 'http://127.0.0.1:3360/';
+
+/**
+ * The three link forms the hub accepts on an item (its `validateAttesa`):
+ * http(s), `#page` of the hub's dashboard, and `claude://`. Anything else is
+ * dropped, so the primary action never opens a scheme nobody vetted.
+ */
 function safeLink(v: unknown): string | null {
   const s = str(v);
   if (!s) return null;
+  if (s.startsWith('#')) return HUB_PAGES_BASE + s;
   try {
     const u = new URL(s);
-    return u.protocol === 'https:' || u.protocol === 'http:' ? u.toString() : null;
+    return u.protocol === 'https:' || u.protocol === 'http:' || u.protocol === 'claude:' ? u.toString() : null;
   } catch {
     return null;
   }
@@ -49,15 +58,15 @@ export function waitingItems(data: unknown): WaitingItem[] {
     const id = str(raw.id);
     const title = str(raw.title);
     if (!id || !title) continue;
-    const kind = (WAITING_KINDS as readonly string[]).includes(String(raw.tipo)) ? (raw.tipo as WaitingKind) : 'decisione';
+    const kind = (WAITING_KINDS as readonly string[]).includes(String(raw.tipo)) ? (raw.tipo as WaitingKind) : 'decisione'; // allow-italian: the hub's wire value
     out.push({ id, kind, title, why: str(raw.why), link: safeLink(raw.link), from: str(raw.from), due: num(raw.due) });
   }
   return out;
 }
 
 /** The body the hub expects to close an item. */
-export function closeWaitingBody(id: string): { kind: 'chiudi'; ref: string } {
-  return { kind: 'chiudi', ref: id };
+export function closeWaitingBody(id: string): { kind: 'chiudi'; ref: string } { // allow-italian: the hub's wire verb
+  return { kind: 'chiudi', ref: id }; // allow-italian: the hub's wire verb
 }
 
 // ── Alerts (/api/alerts) ─────────────────────────────────────────────────────
@@ -111,7 +120,7 @@ export function redGates(data: unknown): RedGate[] {
 
 // ── Automations (/api/automations/summary) ───────────────────────────────────
 
-export interface AutomationsSummary {
+export interface AutomationSummary {
   needsYou: number;
   broken: number;
   ok: number;
@@ -119,7 +128,7 @@ export interface AutomationsSummary {
   next: { title: string; at: number } | null;
 }
 
-export function automationsSummary(data: unknown): AutomationsSummary | null {
+export function automationSummary(data: unknown): AutomationSummary | null {
   if (!isObject(data)) return null;
   const cal = isObject(data.calendar) && isObject(data.calendar.next) ? data.calendar.next : null;
   const nextTitle = cal ? str(cal.title) : null;
@@ -166,7 +175,7 @@ export function servicesDown(data: unknown): ServiceDown[] {
   const out: ServiceDown[] = [];
   for (const raw of list) {
     if (!isObject(raw)) continue;
-    const bad = raw.problem != null || raw.state === 'fermo' || raw.state === 'spento';
+    const bad = raw.problem != null || raw.state === 'fermo' || raw.state === 'spento'; // allow-italian: the hub's service states
     if (!bad) continue;
     out.push({ id: str(raw.id) ?? String(out.length), name: str(raw.name) ?? str(raw.id) ?? '' });
   }

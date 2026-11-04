@@ -3,8 +3,8 @@ import type { Dict } from './i18n-types';
 /** The System pane and the status strip at the foot of the sidebar. */
 const HUB_SYSTEM_IT: Dict = {
   'hubSystem.title': 'Sistema',
-  'hubSystem.strip.calm': 'Tutto tranquillo',
-  'hubSystem.strip.attention': 'Qualcosa da guardare',
+  'hubSystem.strip.calm': 'Tutto ok',
+  'hubSystem.strip.attention': 'Quasi tutto ok',
   'hubSystem.strip.servicesDown.one': '{n} servizio giù',
   'hubSystem.strip.servicesDown.other': '{n} servizi giù',
   'hubSystem.strip.hubDown': 'Hub non raggiungibile',

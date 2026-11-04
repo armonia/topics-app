@@ -3,8 +3,9 @@
  * told to look at (`hubPortFor`, `TOPICS_HUB_URL` in `testServerEnv`). It
  * answers the paths the live reader asks (server/lib/hub-live.ts) with trimmed
  * copies of the real hub's shapes, and closes a "waiting for you" item on
- * `POST /api/attesa {kind:'chiudi', ref}` the way the real hub does. Nothing
- * here ever reaches :3360.
+ * the close request the way the real hub does (same path and body as
+ * `closeWaitingBody` in client/src/lib/hubSystem.ts). Nothing here ever
+ * reaches :3360.
  */
 import { createServer, type Server } from "node:http";
 import { hubPortFor } from "./test-server";
@@ -80,6 +81,15 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems())
         send(200, { ok: true });
       });
       return;
+    }
+    // A retry must start from the default items, and the Topics live reader
+    // must see them at once: a write through the Topics proxy is read back
+    // before it answers (server/routes/hub.ts), so the reset goes that way.
+    if (req.method === "POST" && path === "e2e-reset") {
+      hub.items = defaultFakeHubItems();
+      hub.posts.length = 0;
+      req.resume();
+      return send(200, { ok: true });
     }
     const all = answers(hub.items);
     if (req.method === "GET" && path in all) return send(200, all[path]);

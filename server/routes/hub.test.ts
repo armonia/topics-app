@@ -152,6 +152,18 @@ describe("HUBBR-01: /api/hub and /api/switchboard proxy", () => {
     expect(refreshed).toBe(1);
   });
 
+  test("the answer to an accepted write leaves only after the live reader read the hub back", async () => {
+    const order: string[] = [];
+    const live = {
+      snapshot: async () => ({}),
+      refresh: async () => { await new Promise((r) => setTimeout(r, 20)); order.push("refreshed"); },
+    };
+    const resp = await router({ live })("POST", "/api/hub/attesa", { body: JSON.stringify({ kind: "chiudi", ref: "x" }), headers: { "content-type": "application/json" } }); // allow-italian: the hub's wire format
+    order.push("answered");
+    expect(resp!.status).toBe(200);
+    expect(order).toEqual(["refreshed", "answered"]);
+  });
+
   test("safeRest and upstreamBase", () => {
     expect(safeRest("")).toBe("");
     expect(safeRest("automations/runs")).toBe("automations/runs");

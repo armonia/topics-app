@@ -35,7 +35,7 @@ The server SHALL read `/api/pace`, `/api/mac`, `/api/services`, `/api/attesa`, `
 #### Scenario: A write is visible at once
 - **GIVEN** a "waiting for you" item closed with `POST /api/hub/attesa` and the hub answered 2xx
 - **WHEN** the bridge returns
-- **THEN** the reader SHALL read again after any read already in flight, and push the list without the item
+- **THEN** the reader SHALL read again after any read already in flight, push the list without the item, and the bridge SHALL answer only after that read (bounded), so a `GET /api/hub-live` right after already holds the new list
 
 #### Scenario: A window opening after the hub came back
 - **GIVEN** the last read of a topic failed
@@ -49,12 +49,17 @@ The server SHALL read `/api/pace`, `/api/mac`, `/api/services`, `/api/attesa`, `
 
 ### Requirement: HUBBR-03 — Live hub data in the client
 
-The client SHALL keep the latest `hub:live` reading per topic, seed it once from `GET /api/hub-live`, and never let an older reading replace a newer one.
+The client SHALL keep the latest `hub:live` reading per topic, seed it from `GET /api/hub-live` on the first subscription, on every socket re-open and after a write of its own, and never let an older reading replace a newer one.
 
 #### Scenario: Seed after a frame
 - **GIVEN** a frame at time 20 was adopted
 - **WHEN** a seed reading at time 10 arrives
 - **THEN** the store SHALL keep the reading at time 20
+
+#### Scenario: A push missed while disconnected
+- **GIVEN** the list changed while this window's socket was closed
+- **WHEN** the socket opens again
+- **THEN** the store SHALL read the snapshot again and hold the new list
 
 ### Requirement: HUBBR-04 — Status strip at the foot of the sidebar
 
@@ -82,7 +87,7 @@ The client SHALL open the System pane as one more column beside the work area, f
 #### Scenario: Closing a waiting item
 - **GIVEN** an item in "waiting for you"
 - **WHEN** its close action is pressed
-- **THEN** the client SHALL `POST /api/hub/attesa` with `{"kind":"chiudi","ref":<id>}`, hide the row at once, and bring it back with the reason if the hub refuses
+- **THEN** the client SHALL `POST /api/hub/attesa` with `{"kind":"chiudi","ref":<id>}`, hide the row at once, read the snapshot again once the hub accepted, and bring the row back with the reason if the hub refuses
 
 #### Scenario: Phone
 - **GIVEN** a window narrower than 768px

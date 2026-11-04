@@ -30,6 +30,8 @@ export const SWITCHBOARD_DEFAULT_URL = "http://127.0.0.1:3335";
 /** Time allowed for the response headers. The body may last (switchboard's
  *  log SSE), so the timer stops as soon as the response starts. */
 const HEADERS_TIMEOUT_MS = 10_000;
+/** How long a write waits for the live reader to read the hub back. */
+const WRITE_READBACK_MS = 3_000;
 
 const SAFE_REST = /^[A-Za-z0-9._~\-/]*$/;
 
@@ -127,7 +129,17 @@ export function createHubRouter(ctx: Pick<AppContext, "json">, deps: HubBridgeDe
       await resp.body?.cancel();
       return json({ error: `${upstream} answered a redirect (${resp.status})`, upstream }, 502);
     }
-    if (upstream === "hub" && hasBody && resp.ok) void deps.live?.refresh?.().catch(() => {});
+    // A write the hub accepted is read back BEFORE the answer leaves: the
+    // client re-reads `/api/hub-live` right after, and must not get the list
+    // from before its own close. Bounded, so a slow hub cannot hold the write.
+    if (upstream === "hub" && hasBody && resp.ok && deps.live?.refresh) {
+      let cap: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        deps.live.refresh().catch(() => {}),
+        new Promise<void>((r) => { cap = setTimeout(r, WRITE_READBACK_MS); }),
+      ]);
+      clearTimeout(cap);
+    }
     const out = new Headers({ "cache-control": "no-store" });
     for (const h of FORWARDED_RESPONSE_HEADERS) {
       const v = resp.headers.get(h);
