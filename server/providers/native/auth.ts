@@ -366,10 +366,12 @@ function parseAnyFormat(raw: unknown): OAuthCredentials | null {
 
   // Formato Claude Code: { claudeAiOauth: { accessToken, refreshToken, expiresAt } }
   const cc = o.claudeAiOauth;
-  if (cc?.accessToken && cc?.refreshToken) {
+  // Il token di `claude setup-token` (un anno, per i servizi) non ha refresh token: vale lo stesso.
+  // Scartarlo faceva ripiegare su un file vecchio, e il 04/11 ogni turno di Jarvis moriva su invalid_grant.
+  if (cc?.accessToken && (cc?.refreshToken || cc?.refreshToken === null)) {
     return {
       accessToken: cc.accessToken,
-      refreshToken: cc.refreshToken,
+      refreshToken: cc.refreshToken ?? "",
       expiresAt: Number(cc.expiresAt) || 0,
       scopes: cc.scopes,
       subscriptionType: cc.subscriptionType,
@@ -682,6 +684,8 @@ export async function getAccessToken(): Promise<string | null> {
 
   const fresh = creds.expiresAt - Date.now() > REFRESH_MARGIN_MS;
   if (fresh) return creds.accessToken;
+  // Senza refresh token non c'è niente da rinnovare: si usa il token, e se è morto lo dice l'API.
+  if (!creds.refreshToken) return creds.accessToken;
 
   const next = await renewSerialized(creds, (c) => c.expiresAt - Date.now() <= REFRESH_MARGIN_MS);
   return next.accessToken;
