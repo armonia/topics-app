@@ -366,8 +366,7 @@ function parseAnyFormat(raw: unknown): OAuthCredentials | null {
 
   // Formato Claude Code: { claudeAiOauth: { accessToken, refreshToken, expiresAt } }
   const cc = o.claudeAiOauth;
-  // Il token di `claude setup-token` (un anno, per i servizi) non ha refresh token: vale lo stesso.
-  // Scartarlo faceva ripiegare su un file vecchio, e il 04/11 ogni turno di Jarvis moriva su invalid_grant.
+  // Il token di `claude setup-token` non ha refresh token ma vale (scartarlo: invalid_grant su Jarvis, 04/11).
   if (cc?.accessToken && (cc?.refreshToken || cc?.refreshToken === null)) {
     return {
       accessToken: cc.accessToken,

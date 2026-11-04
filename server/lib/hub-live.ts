@@ -15,8 +15,9 @@
  * can say "hub down" instead of keeping numbers that stopped being true.
  */
 
-export const HUB_LIVE_TOPICS = ["pace", "mac", "services", "attesa", "alerts", "gates", "automations"] as const;
-export type HubLiveTopic = (typeof HUB_LIVE_TOPICS)[number];
+import { HUB_LIVE_TOPICS, type HubLiveTopic, type HubLiveEntry } from "../../shared/hub-live";
+export { HUB_LIVE_TOPICS };
+export type { HubLiveTopic, HubLiveEntry };
 
 /** The hub path each topic reads, under `/api/`. Only `automations` differs
  *  from its name: the full `/api/automations` is close to a megabyte, the
@@ -30,12 +31,6 @@ export const HUB_LIVE_PATHS: Readonly<Record<HubLiveTopic, string>> = {
   gates: "gates",
   automations: "automations/summary",
 };
-
-export interface HubLiveEntry {
-  data?: unknown;
-  error?: string;
-  at: number;
-}
 
 export type HubLiveFrame = {
   type: "hub:live";

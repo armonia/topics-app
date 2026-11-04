@@ -15,13 +15,8 @@ import { useSyncExternalStore } from 'react';
 import { subscribeFrames, subscribeReconnect } from '../lib/wsFrameBus';
 import { apiFetch } from '../lib/shell/net';
 
-export type HubLiveTopic = 'pace' | 'mac' | 'services' | 'attesa' | 'alerts' | 'gates' | 'automations'; // allow-italian: hub topic names, compared by value
-
-export interface HubLiveEntry {
-  data?: unknown;
-  error?: string;
-  at: number;
-}
+import type { HubLiveTopic, HubLiveEntry } from '../../../shared/hub-live';
+export type { HubLiveTopic, HubLiveEntry };
 
 export type HubLiveState = Partial<Record<HubLiveTopic, HubLiveEntry>>;
 
