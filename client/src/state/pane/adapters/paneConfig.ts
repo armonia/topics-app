@@ -69,7 +69,7 @@ export const PANE_CONFIG: Partial<Record<PaneType, PaneConfig>> = {
   // chiamavano «Statistics» e «Cron Jobs» — due nomi che nessun'altra
   // superficie usava (la tab, la sidebar e i permalink leggono di qui). Ora
   // stanno nel «+» come ogni altra pane, col nome che hanno davvero.
-  dashboard:     { icon: 'BarChart3',     label: 'Dashboard',    color: '#f59e0b', singleton: true, addableScopes: ['standalone'] },
+  dashboard:     { icon: 'BarChart3',     label: 'Consumi',      color: '#f59e0b', singleton: true, addableScopes: ['standalone'] },
   kanban:        { icon: 'Kanban',        label: 'Board',        color: '#10b981', singleton: true, addableScopes: ['project'] },
   // 'Board' secca anche qui: il gemello di progetto (`kanban`) porta lo stesso
   // nome, ma i due non compaiono mai nello stesso menu — `addableScopes` li

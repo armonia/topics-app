@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback, useSyncExternalStore } from 'react';
 import {
   Search, Moon, Sun, Monitor, File,
-  Loader2, TerminalSquare, RotateCcw, Grid2x2, Link2, ArrowLeft, MonitorCog, Gauge,
+  Loader2, TerminalSquare, RotateCcw, Grid2x2, Link2, ArrowLeft, MonitorCog, Gauge, BarChart3,
 } from 'lucide-react';
 import { useHubEverRead } from '../../state/hubLive';
 import { EmptyState } from './EmptyState';
@@ -489,6 +489,15 @@ export function CommandPalette({
         category: 'action' as const,
         testId: 'palette-accounts',
         action: () => { onClose(); window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'accounts' } })); },
+      });
+      items.push({
+        id: 'usage',
+        label: t('usage.open'),
+        description: t('usage.openHint'),
+        icon: <BarChart3 size={14} />,
+        category: 'action' as const,
+        testId: 'palette-usage',
+        action: () => { onClose(); window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'dashboard' } })); },
       });
     }
     // EVERY FORM BY ITS NAME (SETHOME-01): no «Settings» to open.

@@ -35,6 +35,10 @@ const EN = {
   'accounts.openHint': 'Plans, API reserve, rotation and brake',
   'accounts.count': '{n} accounts',
   'accounts.countOne': '1 account',
+  // The row and the palette entry of «Consumi», the Dashboard (HUBBR-12).
+  'usage.open': 'Usage',
+  'usage.openHint': 'Tokens, list price, saving and usage per project',
+  'usage.todayTail': 'today {tokens} tok · {eur}',
   'accounts.hot.week': 'week {pct}%',
   'accounts.hot.fiveH': '5h {pct}%',
   'accounts.hot.title': 'Hottest quota: {who}, {window} {pct}%',

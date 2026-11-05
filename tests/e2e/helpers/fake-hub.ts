@@ -15,6 +15,10 @@
  * `account-enabled`, `remove`, `api-profiles`, `settings`) and the hub's
  * unlock and background stop (`override`, `hold`), so a read after a write
  * shows the change the way the real services do.
+ * For «Consumi» in the Dashboard it answers the proxy's raw rows of the week
+ * (`token-usage`), the projects' share of the week with their caps (`live`),
+ * the queue with Muse's jobs (`queue`) and Muse's tokens (`projects`), and
+ * takes a project's new cap (`project-settings`) into the next `live`.
  * `quiet` answers a hub with nothing to say: no item, no failure, every
  * service up. Nothing here ever reaches :3360 or :3335.
  */
@@ -45,6 +49,8 @@ export interface FakeHub {
   proxy: FakeProxy;
   /** The hub's unlocks and background stops in force. */
   overrides: Array<Record<string, unknown>>;
+  /** The projects' caps, in % of the week, as `project-settings` writes them. */
+  budgets: Record<string, number | null>;
   close(): Promise<void>;
 }
 
@@ -191,7 +197,7 @@ function quietAnswers(): Record<string, unknown> {
   };
 }
 
-function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy = defaultFakeProxy(), overrides: Array<Record<string, unknown>> = []): Record<string, unknown> {
+function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy = defaultFakeProxy(), overrides: Array<Record<string, unknown>> = [], budgets: Record<string, number | null> = defaultFakeBudgets()): Record<string, unknown> {
   const now = Date.now();
   const unlocked = (p: string) => overrides.some((o) => o.provider === p && !o.hold);
   return {
@@ -257,7 +263,49 @@ function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy 
       { type: "upstream-retry", ts: now - 10 * 60_000, account: "prof-a", status: 529 },
     ] },
     profiles: proxyProfiles(proxy, now),
+    "token-usage": proxyRows(now),
+    live: { at: now, projects: liveProjects(budgets) },
+    queue: { items: [
+      { id: "q1", provider: "muse", project: "acme-web", status: "done", createdAt: now - 2 * HOUR },
+      { id: "q2", provider: "muse", project: "studio-x", status: "done", createdAt: now - 26 * HOUR },
+      { id: "q3", provider: "muse", project: "acme-api", status: "running", createdAt: now - 10 * 60_000 },
+      { id: "q4", provider: "codex", project: "acme-web", status: "done", createdAt: now - 3 * HOUR },
+      { id: "q5", provider: "muse", project: "acme-web", status: "done", createdAt: now - 20 * 24 * HOUR },
+    ] },
+    projects: { muse: { projects: [{ name: "acme-web", tokens: 6_000_000 }, { name: "studio-x", tokens: 3_100_000 }] } },
   };
+}
+
+/** The caps the fixture starts from: studio-x is past its own. */
+export function defaultFakeBudgets(): Record<string, number | null> {
+  return { "acme-web": 40, "studio-x": 25 };
+}
+
+/** The hub's live projects: share of the week per provider and the cap; six of them, so two fall in the rest. */
+function liveProjects(budgets: Record<string, number | null>): unknown[] {
+  const row = (name: string, claude: number, codex: number, muse: number) =>
+    ({ name, title: name, label: null, claude, codex, muse, total: Math.round((claude + codex + muse) * 10) / 10, budgetPct: budgets[name] ?? null, state: "attivo", why: "" });
+  return [row("acme-web", 30, 2, 6), row("studio-x", 20, 0, 7), row("acme-api", 10, 1, 3), row("acme-docs", 5, 0, 1), row("misc-a", 2, 0, 0), row("misc-b", 1, 0, 0)];
+}
+
+/**
+ * The Claude proxy's raw rows of the week, in its shape: per day two Opus 5.5
+ * rows, one Sonnet 5.5 and one Haiku 5.5, on two accounts. Each row is a minute
+ * before `now` minus whole days, so it is always inside the window.
+ */
+function proxyRows(now: number): unknown[] {
+  const rows: unknown[] = [];
+  const r = (ts: number, model: string, account: string, inputTokens: number, outputTokens: number, cacheReadTokens: number, cacheCreationTokens: number) =>
+    ({ ts, repo: "/w/acme-web", branch: "main", model, account, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, cwd: "/w/acme-web" });
+  for (let d = 0; d < 7; d++) {
+    const ts = now - d * 24 * HOUR - 60_000;
+    const swing = 1 + (d % 3) * 0.25;
+    rows.push(r(ts, "claude-opus-5-5", "lavoro@example.com", 4_000, Math.round(900_000 * swing), 60_000_000, 1_200_000));
+    rows.push(r(ts - 1000, "claude-opus-5-5", "riserva@example.com", 2_000, 400_000, 30_000_000, 500_000));
+    rows.push(r(ts - 2000, "claude-sonnet-5-5", "lavoro@example.com", 3_000, Math.round(600_000 * swing), 40_000_000, 800_000));
+    rows.push(r(ts - 3000, "claude-haiku-5-5", "lavoro@example.com", 2_000, 300_000, 10_000_000, 300_000));
+  }
+  return rows;
 }
 
 /**
@@ -315,7 +363,7 @@ const LOG_LINES = [
 ];
 
 export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(), opts: { quiet?: boolean } = {}): Promise<FakeHub> {
-  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], close: async () => {} };
+  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), close: async () => {} };
   const server: Server = createServer((req, res) => {
     const path = (req.url ?? "").split("?")[0]!.replace(/^\/api\//, "");
     if (req.method === "GET" && path === "logs/stream") {
@@ -378,6 +426,19 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
       });
       return;
     }
+    // A project's cap, as the tray and the Dashboard write it: {name, budgetPct}.
+    if (req.method === "POST" && path === "project-settings") {
+      let raw = "";
+      req.on("data", (c) => { raw += c; });
+      req.on("end", () => {
+        const body = JSON.parse(raw || "{}") as Record<string, unknown>;
+        hub.posts.push({ path, ...body });
+        if (typeof body.name !== "string") return send(400, { error: "nome progetto mancante" });
+        hub.budgets[body.name] = typeof body.budgetPct === "number" ? body.budgetPct : null;
+        send(200, { ok: true, name: body.name, saved: { budgetPct: body.budgetPct } });
+      });
+      return;
+    }
     if (req.method === "POST" && (path === "fix" || path === "refresh")) {
       let raw = "";
       req.on("data", (c) => { raw += c; });
@@ -396,10 +457,11 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
       hub.posts.length = 0;
       hub.proxy = defaultFakeProxy();
       hub.overrides = [];
+      hub.budgets = defaultFakeBudgets();
       req.resume();
       return send(200, { ok: true });
     }
-    const all = opts.quiet ? quietAnswers() : answers(hub.items, hub.devPids, hub.proxy, hub.overrides);
+    const all = opts.quiet ? quietAnswers() : answers(hub.items, hub.devPids, hub.proxy, hub.overrides, hub.budgets);
     if (req.method === "GET" && path in all) return send(200, all[path]);
     send(404, { error: "not in the fake hub" });
   });

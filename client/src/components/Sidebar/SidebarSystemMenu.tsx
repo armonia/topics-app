@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import { Activity, Coins, Cpu, MonitorCog, Tag } from 'lucide-react';
+import { Activity, Cpu, MonitorCog, Tag } from 'lucide-react';
 import { getVersion, relaunch, reloadAllWindows } from '@/lib/shell/app';
 import { isDesktop } from '@/lib/shell';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
@@ -22,7 +22,6 @@ import { bundleDrift } from './bundleDrift';
 import { reportLoadFailure } from '@/lib/chunkReloadGuard';
 import { busyDotColor, busyTone } from '../../lib/machineBusy';
 import type { WorkSignal } from './workSignals';
-import type { UsageRange } from '@/hooks/useProjectUsage';
 import { apiFetch } from '../../lib/shell/net';
 import { useHubEverRead } from '@/state/hubLive';
 import { menuRowClass } from './menuRow';
@@ -129,11 +128,6 @@ const importVersionPanel = async () => {
   return { default: Component };
 };
 const VersionPanel = lazy(importVersionPanel);
-const importProjectUsagePanel = async () => {
-  const { ProjectUsagePanel: Component } = await import('./ProjectUsagePanel');
-  return { default: Component };
-};
-const ProjectUsagePanel = lazy(importProjectUsagePanel);
 
 export interface SidebarSystemMenuProps {
   /** Apre il changelog. La versione viaggia col gesto perché la modale la
@@ -165,11 +159,6 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
   // reload prompt, a chunk that threw is logged.
   useEffect(() => { void importVersionPanel().catch(reportLoadFailure); }, []);
   const [mostraStato, setMostraStato] = useState(false);
-  // The window the usage level is reading. It lives HERE and not in the panel
-  // so that closing the level and reopening it does not silently snap back to
-  // «all» and re-run the expensive query: the choice is the person's, and it
-  // outlives the panel that shows it.
-  const [usageRange, setUsageRange] = useState<UsageRange>('all');
   const [versioneGuscio, setVersioneGuscio] = useState('');
   const [versioneServer, setVersioneServer] = useState('');
   const [mostraVersione, setMostraVersione] = useState(false);
@@ -368,25 +357,9 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
           </Suspense>
         </SubmenuItem>
 
-        {/* WHAT EACH PROJECT HAS COST, in the third unit.
-            The branch above says megabytes and frames; this says TOKENS and
-            the dollars that have a price, for the same subject. It is a level
-            and not a column because the panel's whole discipline is that two
-            units never share one (`featureWeight.ts`), and because the read
-            behind it is a GROUP BY over the whole message table - 1,2 s cold -
-            which must not happen because a menu opened. Behind its own row it
-            costs nothing until somebody asks. */}
-        <SubmenuItem
-          icon={Coins}
-          label={tr('usage.perProject')}
-          testId="menu-usage-projects"
-          minWidth={320}
-          className="max-h-[min(78vh,560px)] overflow-y-auto"
-        >
-          <Suspense fallback={<div className="p-3 text-center text-mini text-app-text-muted">{tr('common.loading')}</div>}>
-            <ProjectUsagePanel range={usageRange} onRange={setUsageRange} />
-          </Suspense>
-        </SubmenuItem>
+        {/* The usage per project lives in the Dashboard now, opened from the
+            usage row in the menu with your name (HUBBR-12): kept here too it
+            would be the duplicate the hub map removes. */}
 
         {/* THE MACHINE IS A VIEW NOW, not a level. «This computer» listed the
             server, the gateway and the restart in a popover; with the usage hub

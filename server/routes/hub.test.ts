@@ -4,6 +4,7 @@
  * client's identity headers. The upstream is a real Bun server on a random
  * port: nothing reaches :3360 or :3335.
  * @covers HUBBR-01
+ * @covers HUBBR-12
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHubRouter, safeRest, upstreamBase } from "./hub";
@@ -15,6 +16,7 @@ type Seen = { method: string; path: string; search: string; headers: Record<stri
 const seen: Seen[] = [];
 let upstream: ReturnType<typeof Bun.serve>;
 let base = "";
+let tokenUsageReads = 0;
 
 beforeAll(() => {
   upstream = Bun.serve({
@@ -27,6 +29,11 @@ beforeAll(() => {
         headers: Object.fromEntries(req.headers), body: await req.text(),
       });
       if (u.pathname === "/api/redirect") return new Response(null, { status: 302, headers: { location: "http://elsewhere/" } });
+      if (u.pathname === "/api/token-usage") {
+        tokenUsageReads++;
+        const since = Number(u.searchParams.get("since"));
+        return json([{ ts: Date.now() - 1000, model: "claude-opus-5-5", account: "lavoro@example.com", inputTokens: 10, outputTokens: 5 }].filter((r) => r.ts >= since));
+      }
       if (u.pathname === "/api/broken") return json({ error: "boom" }, 500);
       if (u.pathname === "/api/slow") { await Bun.sleep(300); return json({ late: true }); }
       return json({ ok: true, path: u.pathname });
@@ -138,6 +145,22 @@ describe("HUBBR-01: /api/hub and /api/switchboard proxy", () => {
     expect(resp.status).toBe(200);
     expect(await resp.json()).toEqual(snap);
     expect(((await router()("GET", "/api/hub-live"))!).status).toBe(503);
+  });
+
+  test("GET /api/hub-usage sums the proxy's rows from the window's start, once a minute", async () => {
+    tokenUsageReads = 0;
+    seen.length = 0;
+    const r = router();
+    const resp = (await r("GET", "/api/hub-usage?days=1"))!;
+    expect(resp.status).toBe(200);
+    const body = await resp.json() as { days: number; totals: { requests: number; tokens: number } };
+    expect(body.days).toBe(1);
+    expect(body.totals).toMatchObject({ requests: 1, tokens: 15 });
+    expect(seen[0]!.search).toMatch(/^\?since=\d+$/);
+    await r("GET", "/api/hub-usage?days=1");
+    expect(tokenUsageReads).toBe(1);
+    expect(((await router({ sw: null })("GET", "/api/hub-usage"))!).status).toBe(503);
+    expect(((await router({ sw: "http://127.0.0.1:1" })("GET", "/api/hub-usage"))!).status).toBe(502);
   });
 
   test("a write the hub accepted refreshes the live reader; a read or a refused write does not", async () => {

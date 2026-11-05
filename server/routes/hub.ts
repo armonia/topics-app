@@ -23,6 +23,8 @@
  * Guests never get here: `/api/hub` is not in `isGuestAllowedPath`'s allowlist.
  */
 import type { AppContext, RouteHandler } from "../types";
+import { aggregateProxyUsage, localMidnight } from "../usage/proxy-usage";
+import { parseUsageDays, type HubUsage, type HubUsageDays } from "../../shared/hub-usage";
 
 export const HUB_DEFAULT_URL = "http://127.0.0.1:3360";
 export const SWITCHBOARD_DEFAULT_URL = "http://127.0.0.1:3335";
@@ -32,6 +34,11 @@ export const SWITCHBOARD_DEFAULT_URL = "http://127.0.0.1:3335";
 const HEADERS_TIMEOUT_MS = 10_000;
 /** How long a write waits for the live reader to read the hub back. */
 const WRITE_READ_BACK_MS = 3_000;
+
+/** The proxy's rows of a window are summed at most once a minute: the read is about 15 MB. */
+const USAGE_CACHE_MS = 60_000;
+/** The whole body of the proxy's history, not only its headers. */
+const USAGE_TIMEOUT_MS = 20_000;
 
 const SAFE_REST = /^[A-Za-z0-9._~\-/]*$/;
 
@@ -77,6 +84,33 @@ export function createHubRouter(ctx: Pick<AppContext, "json">, deps: HubBridgeDe
   const hubBase = deps.hubBase ?? (() => upstreamBase("TOPICS_HUB_URL", HUB_DEFAULT_URL));
   const swBase = deps.switchboardBase ?? (() => upstreamBase("TOPICS_SWITCHBOARD_URL", SWITCHBOARD_DEFAULT_URL));
   const headersTimeoutMs = deps.headersTimeoutMs ?? HEADERS_TIMEOUT_MS;
+  const usageCache = new Map<HubUsageDays, { at: number; value: HubUsage }>();
+
+  /** `GET /api/hub-usage?days=`: the proxy's rows of the window, summed here (shared/hub-usage.ts). */
+  const hubUsage = async (url: URL) => {
+    const base = swBase();
+    if (!base) return json({ error: "switchboard not available on this server", upstream: "switchboard" }, 503);
+    const days = parseUsageDays(url.searchParams.get("days"));
+    const now = Date.now();
+    const hit = usageCache.get(days);
+    if (hit && now - hit.at < USAGE_CACHE_MS) return json(hit.value);
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), USAGE_TIMEOUT_MS);
+    try {
+      const resp = await fetchImpl(`${base}/api/token-usage?since=${localMidnight(now, days - 1)}`, { signal: ac.signal, redirect: "manual" });
+      if (!resp.ok) return json({ error: `switchboard answered ${resp.status}`, upstream: "switchboard" }, 502);
+      const rows: unknown = await resp.json();
+      if (!Array.isArray(rows)) return json({ error: "switchboard answered no list", upstream: "switchboard" }, 502);
+      const value = aggregateProxyUsage(rows, days, now);
+      usageCache.set(days, { at: now, value });
+      return json(value);
+    } catch (err) {
+      const why = ac.signal.aborted ? `timed out after ${USAGE_TIMEOUT_MS} ms` : (err instanceof Error ? err.message : String(err));
+      return json({ error: `switchboard not reachable at ${base}: ${why}`, upstream: "switchboard" }, 502);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
 
   return async (req, url, pathname, method) => {
     // The first paint of a panel: what the WebSocket would have pushed so far.
@@ -84,6 +118,7 @@ export function createHubRouter(ctx: Pick<AppContext, "json">, deps: HubBridgeDe
       if (!deps.live) return json({ error: "hub live data not available on this server" }, 503);
       return json(await deps.live.snapshot());
     }
+    if (pathname === "/api/hub-usage" && method === "GET") return hubUsage(url);
     let upstream: "hub" | "switchboard";
     let rest: string;
     if (pathname.startsWith("/api/hub/")) { upstream = "hub"; rest = pathname.slice("/api/hub/".length); }

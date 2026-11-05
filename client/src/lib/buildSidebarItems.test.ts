@@ -711,7 +711,7 @@ describe("buildSidebarItems — utility tabs (tab-driven, same rule as everythin
     const dash = items.find((i) => i.id === "__dashboard__");
     expect(dash).toBeTruthy();
     expect(dash!.type).toBe("utility");
-    expect(dash!.name).toBe("Dashboard");
+    expect(dash!.name).toBe("Consumi");
     expect(dash!.icon).toBeTruthy();
   });
 

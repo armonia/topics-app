@@ -154,3 +154,17 @@ The section «Rotazione e tetti» of «Account e quote» SHALL show the Claude p
 - **GIVEN** «Account e quote» open with the proxy's week cap off
 - **WHEN** the week cap of every account is set to 90%
 - **THEN** the proxy SHALL receive the cap, and the row SHALL show 90% as read again from the proxy
+
+### Requirement: HUBBR-12 — Consumi in the Dashboard: hub sections only with the hub, amounts in euro, savings only for Claude
+
+The menu with your name SHALL carry a row «Consumi» that opens the Dashboard; where the hub is part of the installation its tail SHALL say today's Claude tokens and their list price in euro. «Consumo per progetto» SHALL leave the System level and live in the Dashboard. Where the hub is, the Dashboard SHALL be «Consumi» and show, for the window chosen among Oggi, Settimana and 30 g: at the top, under «Decidi tu», a project past the week cap you set, with «Alza a N%» written to the hub and read back; the Claude tokens of the window, their cost at the API list price, what the plans cost for the window, the saving against the list price and the jobs given to Muse; the tokens per model over time; per model, per account (Claude from the proxy with five hours and week, Codex and Muse read-only from the hub) and per project (Claude, Codex and Muse as a share of the week, with your cap as a marker); the saving against the list price, for Claude only, and what Muse took off Claude; the board's work in one compact box. Every amount SHALL be in euro with the proxy's dollar to euro rate. The proxy's rows SHALL be summed by the Topics server (`GET /api/hub-usage`), never sent whole to a window, and a window the proxy's history does not cover SHALL say from when the data starts. Without the hub the Dashboard SHALL be the board's numbers as before, with «Consumo per progetto», and no hub section, no error.
+
+#### Scenario: Consumi with the hub
+- **GIVEN** a hub with a project past its cap and the proxy's rows of the week
+- **WHEN** «Consumi» opens from the menu with your name
+- **THEN** the Dashboard SHALL show «Decidi tu» with that project, the five numbers in euro, per model, per account and per project, and the saving for Claude only; «Alza a N%» SHALL reach the hub as the project's new cap
+
+#### Scenario: No hub
+- **GIVEN** nobody answers on the hub's address
+- **WHEN** «Consumi» opens
+- **THEN** the Dashboard SHALL show the board's numbers and «Consumo per progetto», and no hub section

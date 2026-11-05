@@ -35,6 +35,10 @@ const IT: Dict = {
   'accounts.openHint': 'Abbonamenti, riserva API, rotazione e freno',
   'accounts.count': '{n} account',
   'accounts.countOne': '1 account',
+  // The row and the palette entry of «Consumi», the Dashboard (HUBBR-12).
+  'usage.open': 'Consumi',
+  'usage.openHint': 'Token, costo a listino, risparmio e consumo per progetto',
+  'usage.todayTail': 'oggi {tokens} tok · {eur}',
   'accounts.hot.week': 'sett. {pct}%',
   'accounts.hot.fiveH': '5h {pct}%',
   'accounts.hot.title': 'Quota più calda: {who}, {window} {pct}%',
