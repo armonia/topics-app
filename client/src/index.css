@@ -2241,10 +2241,23 @@ input[type="range"]::-webkit-slider-thumb {
  * direct child of the row (ProjectHub.tsx): hidden at rest, it shows on hover
  * and the quiet rail leaves the flow, so the hint ends where the command rail
  * begins (its own margin clears the rail). Without a pointer that hovers it
- * never shows: the menu says the same in words. */
+ * never shows: the menu says the same in words.
+ * THE NAME COMES FIRST. On hover the name's button sizes to the name and does
+ * not shrink at all: any share of the shrink, even a fraction of a pixel,
+ * draws the ellipsis (an eight-letter name read with its last letters gone).
+ * The hint alone gives way, its words first, down to the number. A name too
+ * long for the row stops at a cap that leaves room for the chevron, the two
+ * gaps, the number and the hint's margin over the command rail (ProjectHub.tsx
+ * `railClear`: one command on a closed project, two on an open one), and only
+ * then is trimmed. */
 .project-hub-hint { display: none; }
+.project-hub-hint-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 @media (hover: hover) {
-  .row-card:hover > .project-hub-hint { display: inline; }
+  /* The floor is the number (up to «100%»): a flex item's own minimum is its
+   * text's width, so without an explicit floor the words never gave way. */
+  .row-card:hover > .project-hub-hint { display: inline-flex; flex: 0 1 auto; min-width: 4.5ch; overflow: hidden; }
+  .row-card:hover:has(> .project-hub-hint) > [data-testid^="project-toggle-"] { flex: 1 0 auto; max-width: calc(100% - 78px); }
+  .row-card:hover:has(> .project-hub-hint[data-open]) > [data-testid^="project-toggle-"] { max-width: calc(100% - 106px); }
   .row-card:hover:has(> .project-hub-hint) > .row-trail { display: none; }
 }
 

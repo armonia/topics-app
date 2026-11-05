@@ -1,25 +1,30 @@
 /**
  * THE PROJECT ROW WITH THE HUB'S DATA (hub-smistamento, HUBBR-16).
  *
- * Four Topics projects, three of which the fake hub knows: acme-web by the
- * same folder (38% of the week on a 40% budget, running), studio-x by name
- * only, the hub knowing no folder for it (27% on 25%, held by the brake),
- * acme-api by name with the hub's folder inside it, one of its worktrees (in
- * line). notes-lab the hub does not know. The rows carry the dot and the
- * pause on studio-x, the clock on acme-api, nothing on acme-web at rest and
- * nothing at all on notes-lab; on hover acme-web says «38% della settimana» (allow-italian: the UI copy asserted)
- * clear of the command rail. The menu says the same in words and writes the
- * priority and the budget to the hub's `project-settings`, showing them as
- * read back; a write the hub refuses shows its reason and keeps the old one.
+ * Four Topics projects, three of which the fake hub knows by their folder's
+ * name, as the hub names a project: acme-web (38% of the week on a 40% budget,
+ * running), studio-x (27% on 25%, held by the brake), acme-api (in line).
+ * The hub's folder for a row is the last agent's, never the project's: the
+ * fixture puts acme-web's in a board worktree, acme-api's in a sibling repo,
+ * and misc-a's (held, a cross-project row) right in notes-lab's folder.
+ * notes-lab the hub does not know by name, so it shows nothing, misc-a's brake
+ * included. The rows carry the dot and the pause on studio-x, the clock on
+ * acme-api, nothing on acme-web at rest; on hover acme-web says «38% della settimana» (allow-italian: the UI copy asserted)
+ * with the name whole, clear of the command rail, and a long name keeps its
+ * letters before the hint keeps its words. The menu says the same in words
+ * and writes the priority and the budget to the hub's `project-settings`,
+ * showing them as read back; a write the hub refuses shows its reason and
+ * keeps the old one.
  *
  * The hub is a fake (helpers/fake-hub.ts with `projects`) on the port the test
  * server reads; the real :3360 is never touched, the names are placeholders.
  *
- * Mutation: with the folder check left out of `matchHubProject`
- * (lib/projectHub.ts), any project named like a hub row takes its data, and
- * «a project the hub knows elsewhere shows nothing» is red; with the menu's
- * choice drawn from the click instead of the hub's answer, «a refused write
- * keeps the old priority» is red.
+ * Mutation: matching by the hub's folder again (`matchHubProject`,
+ * lib/projectHub.ts) puts misc-a's pause on notes-lab and drops acme-web and
+ * acme-api, and the first test is red; with the name's button allowed to
+ * shrink on hover again (index.css), the name check of the first test is red; with the
+ * menu's choice drawn from the click instead of the hub's answer, «a refused
+ * write keeps the old priority» is red.
  *
  * Video on: the recording is the proof. Screenshots of the built surface go to
  * the test's output (`vero-riga-progetto-hub-*.png`, allow-italian: file names the docs expect).
@@ -27,7 +32,7 @@
  * @covers HUBBR-16
  */
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { hermetic } from "./fixtures/hermetic";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
@@ -43,6 +48,8 @@ test.describe.configure({ mode: "serial", timeout: 150_000 });
 const ROOT = `${canonicalTmpRoot()}/e2e-hubrow-${Date.now().toString(36)}`;
 const NAMES = ["acme-web", "studio-x", "acme-api", "notes-lab"] as const;
 const dirOf = (name: string) => `${ROOT}/${name}`;
+/** A real icon, as most projects have: the row then carries its glyph slot, and the name has that much less room. */
+const ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" rx="3" fill="#3b82f6"/></svg>';
 
 async function waitForHub(request: APIRequestContext): Promise<void> {
   await expect.poll(async () => {
@@ -53,6 +60,17 @@ async function waitForHub(request: APIRequestContext): Promise<void> {
 
 /** A tooltip as written: the app's tooltip layer moves `title` to `data-tip` once it is hovered. */
 const tipOf = (l: Locator) => l.evaluate((el) => el.getAttribute("title") ?? el.getAttribute("data-tip"));
+
+/**
+ * Whether a name is drawn whole. Not `scrollWidth <= clientWidth`: both are
+ * rounded to whole pixels, and a box a fraction of a pixel short of its text
+ * passes that check while it draws the ellipsis.
+ */
+const drawnWhole = (l: Locator) => l.evaluate((el) => {
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  return range.getBoundingClientRect().width <= el.getBoundingClientRect().width + 0.01;
+});
 
 const projectRow = (page: Page, name: string) => page.locator(".group\\/proj").filter({ has: page.getByTestId(`project-toggle-${name}`) });
 
@@ -69,10 +87,11 @@ test.describe("project row with the hub", () => {
   test.beforeAll(async ({ request }) => {
     for (const n of NAMES) {
       mkdirSync(dirOf(n), { recursive: true });
+      if (n === "acme-web") writeFileSync(`${dirOf(n)}/favicon.svg`, ICON);
       topicIds.push((await createTopic(request, `Chat ${n}`, { projectPath: dirOf(n) })).id);
     }
     hub = await startFakeHub(undefined, {
-      projects: { dirs: { "acme-web": dirOf("acme-web"), "acme-api": `${dirOf("acme-api")}/.claude/worktrees/fix`, "acme-docs": `${ROOT}/elsewhere/acme-docs` } },
+      projects: { dirs: { "acme-web": `${ROOT}/.topics/worktrees/acme-web/k3f9`, "acme-api": `${ROOT}/acme-api-brand-kit/studio`, "misc-a": dirOf("notes-lab") } },
     });
     await waitForHub(request);
   });
@@ -112,13 +131,21 @@ test.describe("project row with the hub", () => {
     await projectRow(page, "acme-web").hover();
     await expect(week).toBeVisible();
     await expect(week).toHaveText("38% della settimana");
+    // The name stays whole beside the hint, its icon included.
+    await expect(projectRow(page, "acme-web").locator('[data-row-glyph-slot="favicon"] img, [data-row-glyph-slot="favicon"] svg').first()).toBeVisible({ timeout: 20_000 });
+    const name = projectRow(page, "acme-web").locator('[data-row-name="project"]');
+    const nameWhole = () => drawnWhole(name);
+    await expect.poll(nameWhole).toBe(true);
     await expect.poll(() => tipOf(week)).toBe("38% della settimana su 40% di budget");
     // Clear of the command rail that shows on hover, and inside the row.
     const rail = projectRow(page, "acme-web").locator("> .row-actions");
     const [w, r, rowBox] = await Promise.all([week.boundingBox(), rail.boundingBox(), projectRow(page, "acme-web").boundingBox()]);
     expect(w!.x + w!.width).toBeLessThanOrEqual(r!.x);
     expect(w!.x).toBeGreaterThan(rowBox!.x);
+    // The picture is taken on a settled row: the project glyph slot can still land while the page settles.
+    await expect.poll(nameWhole).toBe(true);
     await page.screenshot({ path: testInfo.outputPath("vero-riga-progetto-hub-scuro.png") });
+    expect(await nameWhole()).toBe(true);
   });
 
   test("the menu: the facts in words, the priority written and read back, the budget too", async ({ page }, testInfo) => {
@@ -203,16 +230,31 @@ test.describe("project row with the hub", () => {
     }
   });
 
-  test("a project the hub knows elsewhere shows nothing: same name, another folder", async ({ page, request }) => {
-    const other = `${ROOT}/acme-docs`;
-    mkdirSync(other, { recursive: true });
-    const id = (await createTopic(request, "Chat acme-docs", { projectPath: other })).id;
+  test("a long name keeps its letters before the hint keeps its words", async ({ page, request }, testInfo) => {
+    const long = `${ROOT}/acme-brand-guidelines`;
+    mkdirSync(long, { recursive: true });
+    writeFileSync(`${long}/favicon.svg`, ICON);
+    const id = (await createTopic(request, "Chat acme-brand-guidelines", { projectPath: long })).id;
     try {
       await page.setViewportSize({ width: 1440, height: 900 });
+      await page.emulateMedia({ colorScheme: "dark" });
       await openRows(page);
-      await expect(page.getByTestId("project-toggle-acme-docs")).toBeVisible({ timeout: 20_000 });
-      await projectRow(page, "acme-docs").hover();
-      await expect(projectRow(page, "acme-docs").getByTestId("project-hub-week")).toHaveCount(0);
+      const row = projectRow(page, "acme-brand-guidelines");
+      await expect(page.getByTestId("project-toggle-acme-brand-guidelines")).toBeVisible({ timeout: 20_000 });
+      await row.hover();
+      const week = row.getByTestId("project-hub-week");
+      await expect(week).toBeVisible();
+      await expect(week).toContainText("4%");
+      // Either the name is whole, or the hint's words already gave all their room (an ellipsis at most).
+      const [nameClipped, wordsWidth] = await Promise.all([
+        drawnWhole(row.locator('[data-row-name="project"]')).then((whole) => !whole),
+        week.locator(".project-hub-hint-words").evaluate((el) => el.getBoundingClientRect().width),
+      ]);
+      if (nameClipped) expect(wordsWidth).toBeLessThanOrEqual(14);
+      const rail = row.locator("> .row-actions");
+      const [w, r] = await Promise.all([week.boundingBox(), rail.boundingBox()]);
+      expect(w!.x + w!.width).toBeLessThanOrEqual(r!.x);
+      await page.screenshot({ path: testInfo.outputPath("vero-riga-progetto-hub-nome-lungo.png") });
     } finally {
       await deleteTopic(request, id).catch(() => {});
     }

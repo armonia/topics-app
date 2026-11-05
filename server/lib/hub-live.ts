@@ -40,9 +40,10 @@ export const HUB_LIVE_PATHS: Readonly<Record<HubLiveTopic, string>> = {
  * The hub's `/api/live` carries each project's live agents and the time it was
  * last seen, which change on every read: pushed whole, it would be a frame per
  * tick to every window. The sidebar's project row reads only the fields below,
- * so a frame goes out only when one of them changed.
+ * so a frame goes out only when one of them changed. `dir` stays out too: it
+ * is the folder of whichever agent ran last, so it moves on its own.
  */
-const PROJECT_FIELDS = ["name", "title", "dir", "state", "why", "waitUntil", "budgetPct", "priority", "total"] as const;
+const PROJECT_FIELDS = ["name", "title", "state", "why", "waitUntil", "budgetPct", "priority", "total"] as const;
 
 function pickLiveProjects(data: unknown): unknown {
   const list = (data as { projects?: unknown } | null)?.projects;

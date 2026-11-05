@@ -395,16 +395,20 @@ interface ProjectRows {
 
 /**
  * The live projects as the hub states them: studio-x held by the brake past its
- * budget, acme-api in line, acme-web running inside its budget. A name the spec
- * gives a folder carries it; the others carry none, as a hub that never saw an
- * agent there.
+ * budget, acme-api in line, acme-web running inside its budget, misc-a held
+ * too (a cross-project row, as the hub's own). A name the spec gives a folder
+ * carries it, as the real hub does: the folder of the last agent seen, not the
+ * project's; the others carry none. One more row with a long name,
+ * acme-brand-guidelines, for the row that must keep the name on hover.
  */
 function projectRows(budgets: Record<string, number | null>, rows: ProjectRows, now: number): unknown[] {
   const state: Record<string, { state: string; why: string; waitUntil: number | null }> = {
     "studio-x": { state: "frenato", why: "studio-x: 27% della settimana Claude, budget 25%", waitUntil: now + 3 * HOUR },
     "acme-api": { state: "in coda", why: "2 lavori in attesa di partire", waitUntil: null },
+    "misc-a": { state: "frenato", why: "misc-a: budget finito", waitUntil: null },
   };
-  return (liveProjects(budgets) as Array<Record<string, unknown> & { name: string }>).map((p) => ({
+  const long = { name: "acme-brand-guidelines", title: "acme-brand-guidelines", label: null, claude: 3, codex: 0, muse: 1, total: 4, budgetPct: budgets["acme-brand-guidelines"] ?? null };
+  return ([...liveProjects(budgets), long] as Array<Record<string, unknown> & { name: string }>).map((p) => ({
     ...p,
     ...(state[p.name] ?? { state: "attivo", why: "", waitUntil: null }),
     dir: rows.dirs[p.name] ?? null,

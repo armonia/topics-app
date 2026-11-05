@@ -41,7 +41,8 @@ addCatalogue('en', PROJECT_HUB_EN);
  * Room the hint leaves on its right for the command rail that shows on hover:
  * the rail sits 2px from the edge with a 28px box per command, the row pads
  * 8px, and 4px keep the two apart. One command (archive) on a closed project,
- * two (add and archive) on an open one.
+ * two (add and archive) on an open one. index.css caps the name's width with
+ * the same sums (78px closed, 106px open): change one, change the other.
  */
 const railClear = (expanded: boolean): number => 28 * (expanded ? 2 : 1) + 2 + 4 - 8;
 
@@ -108,11 +109,13 @@ export function ProjectHubMark({ projectPath, expanded, onFill }: { projectPath:
       )}
       <span
         data-testid="project-hub-week"
-        className="project-hub-hint flex-shrink-0 text-mini tabular-nums text-app-text-tertiary whitespace-nowrap"
+        className="project-hub-hint text-mini tabular-nums text-app-text-tertiary whitespace-nowrap"
+        data-open={expanded ? '' : undefined}
         style={{ marginRight: railClear(expanded) }}
         title={[weekWords(p, tr), hold].filter(Boolean).join('\n')}
       >
-        {tr('projectHub.week', { pct: weekShare(p.total) })}
+        <span className="flex-shrink-0">{weekShare(p.total)}%</span>
+        <span className="project-hub-hint-words">{'\u00a0'}{tr('projectHub.weekTail')}</span>
       </span>
     </>
   );

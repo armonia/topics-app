@@ -8,9 +8,9 @@ import { budgetChoices, matchHubProject, overBudget, projectSettingsBody, readHu
 
 const live = {
   projects: [
-    { name: 'acme-web', title: 'Acme web', dir: '~/Projects/acme-web', state: 'attivo', why: '', total: 38.4, budgetPct: 40, priority: 'alta', agents: { count: 2 } },
+    { name: 'acme-web', title: 'Acme web', dir: '~/.topics/worktrees/acme-web/k3f9', state: 'attivo', why: '', total: 38.4, budgetPct: 40, priority: 'alta', agents: { count: 2 } },
     { name: 'studio-x', dir: null, state: 'frenato', why: 'studio-x: 27% della settimana Claude, budget 25%', waitUntil: 1_700_000_000_000, total: 27, budgetPct: 25, priority: 'normale' },
-    { name: 'acme-api', dir: '~/Projects/acme-api/.claude/worktrees/fix', state: 'in coda', why: '2 lavori in attesa di partire', total: 0.4, budgetPct: null, priority: 'bassa' },
+    { name: 'acme-api', dir: '~/Projects/acme-api-brand-kit/studio', state: 'in coda', why: '2 lavori in attesa di partire', total: 0.4, budgetPct: null, priority: 'bassa' },
     { name: 'tmp:/tmp/zgen', dir: '/tmp/zgen', state: 'frenato', total: 3 },
     { name: 'odd', priority: 'urgente', budgetPct: 0, total: 'x' },
     'not a project',
@@ -43,26 +43,24 @@ describe('readHubProjects', () => {
 describe('matchHubProject', () => {
   const rows = readHubProjects(live);
 
-  it('the same folder, with the home written as ~, is the project', () => {
+  it('the folder name is the hub name, wherever the hub last saw an agent', () => {
     expect(matchHubProject(rows, '/Users/someone/Projects/acme-web')?.name).toBe('acme-web');
     expect(matchHubProject(rows, '/home/someone/Projects/acme-web/')?.name).toBe('acme-web');
-  });
-
-  it('the same name counts only when the hub knows no folder or its folder lies inside the project', () => {
     expect(matchHubProject(rows, '/Users/someone/work/studio-x')?.name).toBe('studio-x');
-    expect(matchHubProject(rows, '/Users/someone/Projects/acme-api')?.name).toBe('acme-api');
-    // Same name, a folder somewhere else: another project that happens to share the name.
-    expect(matchHubProject(rows, '/Users/someone/elsewhere/acme-web')).toBeNull();
-    expect(matchHubProject(rows, '/Users/someone/archive/acme-api')).toBeNull();
+    expect(matchHubProject(rows, 'C:\\Work\\acme-api')?.name).toBe('acme-api');
   });
 
-  it('a project the hub does not know shows nothing, and /private/tmp is /tmp', () => {
+  it("another row's agent in the project's own folder does not lend it that row's brake", () => {
+    // The hub's dir is the last agent's cwd: a cross-project row can point at any project's folder.
+    const cross = readHubProjects({ projects: [{ name: 'regia', dir: '/Users/someone/Projects/notes-lab', state: 'frenato' }, ...live.projects] });
+    expect(matchHubProject(cross, '/Users/someone/Projects/notes-lab')).toBeNull();
+    expect(matchHubProject(cross, '/Users/someone/Projects/acme-web')?.name).toBe('acme-web');
+  });
+
+  it('a project the hub does not know shows nothing, and a grouped temporary folder is never one', () => {
     expect(matchHubProject(rows, '/Users/someone/Projects/unknown')).toBeNull();
-    const tmp = readHubProjects({ projects: [{ name: 'p', dir: '/tmp/e2e/p' }] });
-    expect(matchHubProject(tmp, '/private/tmp/e2e/p')?.name).toBe('p');
-    const win = readHubProjects({ projects: [{ name: 'w', dir: 'C:\\Temp\\w' }, { name: 'v', dir: null }] });
-    expect(matchHubProject(win, 'C:\\Temp\\w')?.name).toBe('w');
-    expect(matchHubProject(win, 'C:\\Temp\\v')?.name).toBe('v');
+    expect(matchHubProject(rows, '/tmp/zgen')).toBeNull();
+    expect(matchHubProject(rows, '/')).toBeNull();
   });
 });
 

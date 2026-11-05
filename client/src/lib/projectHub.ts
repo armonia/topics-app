@@ -3,11 +3,13 @@
  * knows of a project, read from the `projects` topic of the live store (the
  * hub's `/api/live`, trimmed by server/lib/hub-live.ts).
  *
- * A Topics project gets the hub's data only when the hub row is recognised as
- * that project: the same folder (the hub writes the home as `~`), or the same
- * name as the folder when the hub's folder is unknown or lies inside the
- * project (an agent working in one of its worktrees). Anything else shows
- * nothing: a wrong project's brake is worse than no brake at all.
+ * A Topics project gets the hub's data only from the hub row that bears its
+ * folder's name: that is how the hub names a project (a worktree is its repo,
+ * the folder's last part is the name). The hub's `dir` is NOT the project's
+ * folder: it is the folder of whichever agent ran there last (a board worktree,
+ * a sibling repo, a cross-project session), so it moves from read to read and a
+ * row matched by it would flicker or take another project's brake. Anything
+ * the name does not pick shows nothing.
  *
  * Pure on purpose: the wire shape and the match are the parts that can be
  * wrong in silence.
@@ -23,7 +25,6 @@ export type HubProjectHold = 'held' | 'queued' | null;
 export interface HubProject {
   name: string;
   title: string;
-  dir: string | null;
   hold: HubProjectHold;
   why: string;
   /** When the brake lets go, in ms; null when nobody knows. */
@@ -60,7 +61,6 @@ export function readHubProjects(data: unknown): HubProject[] {
     out.push({
       name,
       title: str(p.title) || name,
-      dir: str(p.dir) || null,
       hold: holdOf(p.state),
       why: str(p.why),
       waitUntil: num(p.waitUntil),
@@ -72,32 +72,14 @@ export function readHubProjects(data: unknown): HubProject[] {
   return out;
 }
 
-/** `/tmp` is a link to `/private/tmp`: the hub writes one, Topics may hold the other. A Windows server writes `\`. */
-const normDir = (d: string): string => d.replace(/\\/g, '/').replace(/^\/private\/(tmp|var)\//, '/$1/').replace(/\/+$/, '');
-
-/** The hub's folder (home written as `~`) is the project's folder, or lies inside it. */
-function dirRelation(hubDir: string, projectPath: string): 'same' | 'inside' | null {
-  const p = normDir(projectPath);
-  let h = normDir(hubDir);
-  if (h === '~' || h.startsWith('~/')) {
-    // The home is the project's own: /Users/<name> or /home/<name> at the start of its path.
-    const home = /^\/(?:Users|home)\/[^/]+/.exec(p)?.[0];
-    if (!home) return null;
-    h = home + h.slice(1);
-  }
-  if (h === p) return 'same';
-  if (h.startsWith(p + '/')) return 'inside';
-  return null;
-}
-
-const baseName = (p: string): string => normDir(p).split('/').pop() ?? '';
+/** The folder's last part, the name the hub gives it; a Windows server writes `\\`. */
+const baseName = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '').split('/').pop() ?? '';
 
 /** The hub's row for this Topics project, or null when none is recognised as it. */
 export function matchHubProject(projects: readonly HubProject[], projectPath: string): HubProject | null {
-  const same = projects.find((p) => p.dir !== null && dirRelation(p.dir, projectPath) === 'same');
-  if (same) return same;
   const base = baseName(projectPath);
-  return projects.find((p) => p.name === base && (p.dir === null || dirRelation(p.dir, projectPath) === 'inside')) ?? null;
+  if (!base) return null;
+  return projects.find((p) => p.name === base) ?? null;
 }
 
 /** Past your cap: the share of the week went over the budget you set. */

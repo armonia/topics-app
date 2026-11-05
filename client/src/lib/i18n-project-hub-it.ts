@@ -12,6 +12,7 @@ import type { Dict } from './i18n-types';
 
 const PROJECT_HUB_IT: Dict = {
   'projectHub.week': '{pct}% della settimana',
+  'projectHub.weekTail': 'della settimana',
   'projectHub.weekBudget': '{pct}% della settimana su {cap}% di budget',
   'projectHub.held': 'Fermo: {why}',
   'projectHub.heldBare': 'Fermo',
