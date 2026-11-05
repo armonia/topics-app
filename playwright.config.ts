@@ -632,6 +632,9 @@ export default defineConfig({
         "**/dashboard-consumi.spec.ts",
         // The project row with the hub's state and its menu, same reason as the bell.
         "**/project-row-hub.spec.ts",
+        // The palette's entries for the hub's places and the board's brake chip, same reason as the bell.
+        "**/palette-hub.spec.ts",
+        "**/board-frenato.spec.ts",
         // The live-terminals menu: used mostly from remote, i.e. from phone
         // Safari and the WKWebView shell. WebKit is where it lives.
         "**/live-terminals.spec.ts",
