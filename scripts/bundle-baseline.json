@@ -859,7 +859,10 @@
     "Cosa compra: tre chunk pigri, HubSystemRows (10 KB: le righe di Sistema che esistono solo con l'hub, Processi compreso, uscito dall'entry), ContextLevel (15 KB: peso per harness, file col loro testo, doppioni, regole vecchie, controllo delle contraddizioni con conferma) e FeaturesPane (15 KB: verdetto, classifica, voci per area dove Jarvis è indietro), con le letture pure di lib/hubContext e lib/hubFeatures e i dizionari IT+EN via addCatalogue. Nell'entry restano un lazy() in Sistema, la voce di Cmd+K e 2 chiavi. Il tetto segue la misura: total_assets 9.300.000 -> 9.350.000.",
     "",
     "2026-11-05, Funzionalità in italiano e regole leggibili per intero (hub-smistamento, HUBBR-17/18): misurato sul PC con `bun run build:client && bun run check:bundle`, total_assets 9.545.445 contro un tetto di 9.537.000 (9.350.000 +2%), entry_eager raw 956.084 invariato.",
-    "Cosa compra: le parole italiane della mappa delle funzionalità (lib/i18n-features-names-it, 17 KB, nel solo chunk pigro FeaturesPane: l'hub scrive aree, gruppi e voci in inglese) e il testo della regola che si apre al tocco in ContextLevel. Nell'entry non entra niente. Il tetto segue la misura: total_assets 9.350.000 -> 9.370.000."
+    "Cosa compra: le parole italiane della mappa delle funzionalità (lib/i18n-features-names-it, 17 KB, nel solo chunk pigro FeaturesPane: l'hub scrive aree, gruppi e voci in inglese) e il testo della regola che si apre al tocco in ContextLevel. Nell'entry non entra niente. Il tetto segue la misura: total_assets 9.350.000 -> 9.370.000.",
+    "",
+    "2026-11-05, Frenato per card (hub-smistamento, HUBBR-20): misurato sul PC con `bun run build:client && bun run check:bundle`, total_assets 9.563.306 contro un tetto di 9.557.400 (9.370.000 +2%), entry_eager raw 956.690 / gz 309.623 (606 byte raw in più: il tag «Frenato» della riga Board in sidebar, con il suo lettore dei freni e 2 chiavi).",
+    "Cosa compra: nel chunk pigro della Board la striscia della colonna Todo, la riga «Aspetta il freno» sulle card ferme, le righe Codex, Muse e Suite e build del popover con le quote dell'hub, e le loro frasi IT+EN via addCatalogue. Il tetto segue la misura: total_assets 9.370.000 -> 9.390.000."
   ],
   "updated": "2026-11-05",
   "tolerance_pct": 2,
@@ -873,6 +876,6 @@
     "files": 5
   },
   "total_assets": {
-    "raw": 9370000
+    "raw": 9390000
   }
 }
