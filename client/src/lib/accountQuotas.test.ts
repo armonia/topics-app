@@ -12,7 +12,7 @@ import {
   accountCount, backgroundHold, brakeClasses, capInput, commandRequest, elidesArticle, hotDecision, hubProse, keyMove, meteredProviders, oneDecimal,
   paceLines, planName, readProxyAccounts, readProxySettings,
 } from './accountQuotas';
-import { highestQuota } from '../components/Sidebar/hotQuota';
+import { highestQuota, profileDoor } from '../components/Sidebar/hotQuota';
 import { t } from './i18n';
 import ACCOUNTS_IT from './i18n-accounts-it';
 import ACCOUNTS_EN from './i18n-accounts-en';
@@ -276,6 +276,22 @@ describe('highestQuota', () => {
   test('below 80% and without the hub the card says nothing', () => {
     expect(highestQuota([{ provider: 'claude', active: true, used: 79, fiveHour: null }], it)).toBeNull();
     expect(highestQuota(undefined, it)).toBeNull();
+  });
+});
+
+describe('profileDoor', () => {
+  const hot = [{ provider: 'claude', account: 'lavoro@example.com', active: true, used: 86, fiveHour: { used: 42 } }];
+
+  test('from 80% the phone door carries the figure alone, and its name says the rest', () => {
+    expect(profileDoor('Ada Lovelace', hot, it)).toEqual({
+      chip: '86%',
+      title: 'Ada Lovelace. Profilo e statistiche. Quota più calda: Claude lavoro@example.com, settimana 86%',
+    });
+  });
+
+  test('below 80%, without the hub or without a name, no chip and the plain name', () => {
+    expect(profileDoor('Ada Lovelace', [{ ...hot[0], used: 79 }], it)).toEqual({ chip: null, title: 'Ada Lovelace. Profilo e statistiche' });
+    expect(profileDoor(null, undefined, it)).toEqual({ chip: null, title: 'Profilo e statistiche' });
   });
 });
 

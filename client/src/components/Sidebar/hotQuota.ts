@@ -41,3 +41,17 @@ export function highestQuota(pace: unknown, tr: Translate): { text: string; titl
     title: tr('accounts.hot.title', { who: best.who, window: tr(best.week ? 'accounts.window.week' : 'accounts.window.fiveH'), pct }),
   };
 }
+
+/**
+ * THE PROFILE DOOR OF THE PHONE'S BOTTOM ROW, with the same hottest quota the
+ * desktop card carries. The slot is a fifth of a phone wide: the chip holds the
+ * figure alone («86%»), and the window and the account move to the door's
+ * name and tooltip, which is also what a screen reader hears: the figure is
+ * only drawn, so the name has to say it.
+ */
+export function profileDoor(nome: string | null, pace: unknown, tr: Translate): { title: string; chip: string | null } {
+  const base = nome ? tr('sidebar.profileDoorTitleNamed', { nome }) : tr('sidebar.profileDoorTitle');
+  const hot = highestQuota(pace, tr);
+  if (!hot) return { title: base, chip: null };
+  return { title: `${base}. ${hot.title}`, chip: `${hot.pct}%` };
+}

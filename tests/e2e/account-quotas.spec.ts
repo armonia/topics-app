@@ -7,7 +7,8 @@
  * the reserve keys, the proxy's rotation and caps, the brake. Every command reaches the fake service it belongs to
  * (the proxy for the accounts, the hub for the unlock and the background stop)
  * and the view shows what it reads back. The card with your name carries the
- * hottest quota (92% of the week in the fixture), and the row and the view's
+ * hottest quota (92% of the week in the fixture), and so does the profile
+ * door of the phone's bottom row («92%»); the row and the view's
  * header count the same accounts (the proxy has one the hub's pace has not).
  * The Notifications level
  * carries the proxy's own alerts. With the hub gone the bars stay under the
@@ -22,6 +23,9 @@
  * stays ready); with the rules drawn from what was written instead of what was
  * read back, «a cap written and read back» is red (the fake ignores 77).
  *
+ * The shots are taken in the mockups' workspace (helpers/shot-scene.ts):
+ * acme-web and studio-x with their chats in the sidebar, a chat with messages.
+ *
  * Video on: the recording is the proof. The screenshots of the built surface go
  * to the test's output (`vero-account-e-quote-*.png`): the menu with the row
  * and the view, dark and light, and the phone.
@@ -31,10 +35,12 @@
  */
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
+import { resetPaneStore } from "./helpers/api-fixtures";
+import { openMainChat, openSceneInSidebar, seedScene, type Scene } from "./helpers/shot-scene";
 import { goToApp } from "./helpers";
 import { openProfileMenu } from "./helpers/open-perf-panel";
 import { startFakeHub, type FakeHub } from "./helpers/fake-hub";
-import { E2E_BASE } from "./helpers/test-server";
+import { E2E_BASE, canonicalTmpRoot } from "./helpers/test-server";
 
 hermetic(test);
 test.use({ video: "on" });
@@ -67,59 +73,31 @@ const metered = (page: Page, provider: string) => page.getByTestId(PANE).locator
 
 test.describe("accounts and quotas", () => {
   let hub: FakeHub | null = null;
+  let scene: Scene | null = null;
 
   test.beforeAll(async ({ request }) => {
+    scene = await seedScene(request, `${canonicalTmpRoot()}/e2e-account-quotas-${Date.now().toString(36)}`);
     hub = await startFakeHub();
     await waitForHub(request);
   });
-  test.afterAll(async () => {
+  test.afterAll(async ({ request }) => {
     await hub?.close();
+    await scene?.cleanup(request);
   });
 
-  test("phone, 390 px: one column, nothing wider than the screen", async ({ browser }, testInfo) => {
-    const ctx = await browser.newContext({
-      baseURL: E2E_BASE, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, colorScheme: "dark", locale: "it-IT",
-      recordVideo: { dir: testInfo.outputPath("phone-video"), size: { width: 390, height: 844 } },
-    });
-    const page = await ctx.newPage();
-    try {
-      await page.goto("/");
-      await expect(page.getByTestId("mobile-chrome-bar")).toBeVisible({ timeout: 30_000 });
-      // The menu with your name, the row and its tail, on the phone.
-      await openProfileMenu(page);
-      await expect(page.getByTestId("menu-account-quotas-tail")).toHaveText("sett. 92% · 6 account", { timeout: 20_000 });
-      await page.screenshot({ path: testInfo.outputPath("vero-account-e-quote-telefono-menu.png") });
-      await page.keyboard.press("Escape");
-      await expect.poll(() => page.evaluate(() => {
-        window.dispatchEvent(new CustomEvent("topics:open-utility", { detail: { type: "accounts" } }));
-        return document.querySelector('[data-testid="accounts-pane"]') !== null;
-      }), { timeout: 20_000 }).toBe(true);
-      const pane = page.getByTestId(PANE);
-      await expect(pane.getByTestId("account-card")).toHaveCount(4, { timeout: 20_000 });
-      await expect(pane.getByTestId("metered-card")).toHaveCount(2);
-      await expect(pane.getByTestId("accounts-decide")).toBeVisible();
-      const widths = await page.evaluate(() => ({
-        doc: document.documentElement.scrollWidth,
-        pane: document.querySelector<HTMLElement>('[data-testid="accounts-pane"]')!.scrollWidth,
-      }));
-      expect(widths.doc).toBeLessThanOrEqual(390);
-      expect(widths.pane).toBeLessThanOrEqual(390);
-      // One column: the second card sits under the first.
-      const [a, b] = await Promise.all([pane.getByTestId("account-card").nth(0).boundingBox(), pane.getByTestId("account-card").nth(1).boundingBox()]);
-      expect(b!.y).toBeGreaterThan(a!.y + a!.height - 1);
-      // The decision wraps under its text: nothing overflows its box.
-      const decide = await pane.getByTestId("accounts-decide").evaluate((el) => el.scrollWidth <= el.clientWidth);
-      expect(decide).toBe(true);
-      await page.screenshot({ path: testInfo.outputPath("vero-account-e-quote-telefono.png") });
-    } finally {
-      await ctx.close();
-    }
+  // Each test starts on the scene alone: a view opened by the test before
+  // stays a tab, and clicking its row again would only focus that tab.
+  test.beforeEach(async ({ request }) => {
+    if (!scene) return;
+    await resetPaneStore(request, []);
+    await openSceneInSidebar(request, scene);
   });
 
   test("the row with your name opens the view: Claude with the proxy's commands, Codex and Muse read-only", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.emulateMedia({ colorScheme: "dark" });
     await goToApp(page);
+    await openMainChat(page, scene!);
 
     // The card with your name carries the hottest quota of a plan in use.
     await expect(page.getByTestId("identity-hot-quota")).toHaveText("sett. 92%", { timeout: 20_000 });
@@ -251,9 +229,64 @@ test.describe("accounts and quotas", () => {
     expect(hub!.posts).toContainEqual({ path: "settings", notifications: false });
   });
 
+  // The phone after the desktop tests: in WebKit on the Windows runner the
+  // menu row of the desktop test right after a closed phone context does not
+  // open the view (05/11, deterministic there, green alone).
+  test("phone, 390 px: one column, nothing wider than the screen", async ({ browser, request }, testInfo) => {
+    // The desktop tests switched, removed and capped: the phone starts from the fixture's accounts.
+    await request.post(`${E2E_BASE}/api/hub/e2e-reset`);
+    const ctx = await browser.newContext({
+      baseURL: E2E_BASE, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, colorScheme: "dark", locale: "it-IT",
+      recordVideo: { dir: testInfo.outputPath("phone-video"), size: { width: 390, height: 844 } },
+    });
+    const page = await ctx.newPage();
+    try {
+      await page.goto("/");
+      await expect(page.getByTestId("mobile-chrome-bar")).toBeVisible({ timeout: 30_000 });
+      // The profile door carries the hottest quota, as the desktop card does:
+      // the figure alone in the chip, the window and the account in its name.
+      const door = page.getByTestId("mobile-chrome-profile");
+      const chip = door.getByTestId("mobile-chrome-hot-quota");
+      await expect(chip).toHaveText("92%", { timeout: 20_000 });
+      await expect(door).toHaveAttribute("aria-label", /Quota più calda: Claude lavoro@example\.com, settimana 92%$/);
+      const [doorBox, chipBox] = await Promise.all([door.boundingBox(), chip.boundingBox()]);
+      expect(chipBox!.x).toBeGreaterThanOrEqual(doorBox!.x);
+      expect(chipBox!.x + chipBox!.width).toBeLessThanOrEqual(doorBox!.x + doorBox!.width);
+      // The menu with your name, the row and its tail, on the phone.
+      await openProfileMenu(page);
+      await expect(page.getByTestId("menu-account-quotas-tail")).toHaveText("sett. 92% · 6 account", { timeout: 20_000 });
+      await page.screenshot({ path: testInfo.outputPath("vero-account-e-quote-telefono-menu.png") });
+      await page.keyboard.press("Escape");
+      await expect.poll(() => page.evaluate(() => {
+        window.dispatchEvent(new CustomEvent("topics:open-utility", { detail: { type: "accounts" } }));
+        return document.querySelector('[data-testid="accounts-pane"]') !== null;
+      }), { timeout: 20_000 }).toBe(true);
+      const pane = page.getByTestId(PANE);
+      await expect(pane.getByTestId("account-card")).toHaveCount(4, { timeout: 20_000 });
+      await expect(pane.getByTestId("metered-card")).toHaveCount(2);
+      await expect(pane.getByTestId("accounts-decide")).toBeVisible();
+      const widths = await page.evaluate(() => ({
+        doc: document.documentElement.scrollWidth,
+        pane: document.querySelector<HTMLElement>('[data-testid="accounts-pane"]')!.scrollWidth,
+      }));
+      expect(widths.doc).toBeLessThanOrEqual(390);
+      expect(widths.pane).toBeLessThanOrEqual(390);
+      // One column: the second card sits under the first.
+      const [a, b] = await Promise.all([pane.getByTestId("account-card").nth(0).boundingBox(), pane.getByTestId("account-card").nth(1).boundingBox()]);
+      expect(b!.y).toBeGreaterThan(a!.y + a!.height - 1);
+      // The decision wraps under its text: nothing overflows its box.
+      const decide = await pane.getByTestId("accounts-decide").evaluate((el) => el.scrollWidth <= el.clientWidth);
+      expect(decide).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath("vero-account-e-quote-telefono.png") });
+    } finally {
+      await ctx.close();
+    }
+  });
+
   test("hub gone: the bars stay under the band; after a reload no row, no quota on the card", async ({ page, request }, testInfo) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await goToApp(page);
+    await openMainChat(page, scene!);
     await openFromMenu(page);
     const pane = page.getByTestId(PANE);
     await expect(metered(page, "codex").getByTestId("account-bar-week")).toHaveAttribute("data-pct", "28", { timeout: 20_000 });

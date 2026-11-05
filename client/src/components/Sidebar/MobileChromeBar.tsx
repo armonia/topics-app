@@ -7,6 +7,9 @@ import { BAR_LABEL_TOP, RAISED_CONTROL, SIDEBAR_ACTIVE } from '@/lib/selectionSt
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { useT } from '@/hooks/useT';
 import { iniziali, useProfileIdentity } from './useProfileIdentity';
+import { useHubLive } from '@/state/hubLive';
+import { profileDoor } from './hotQuota';
+import { SEGNALE_ATTESA } from './chromeSignals';
 
 /**
  * LE CINQUE PORTE, IN FONDO ALLO SCHERMO — cerca · aggiungi · board · in attesa · profilo.
@@ -365,6 +368,9 @@ function PortaProfilo({ onClick, forma }: { onClick: () => void; forma: FormaSca
   const tr = useT();
   const { nome, avatarUrl } = useProfileIdentity();
   const sigla = nome ? iniziali(nome) : '';
+  // THE HOTTEST QUOTA, as on the desktop card: only from 80%, and only the
+  // figure, since the slot is a fifth of the phone (hub-smistamento).
+  const door = profileDoor(nome, useHubLive().pace?.data, tr);
 
   return (
     <BottoneFila
@@ -372,21 +378,28 @@ function PortaProfilo({ onClick, forma }: { onClick: () => void; forma: FormaSca
       onClick={onClick}
       testId="mobile-chrome-profile"
       forma={forma}
-      titolo={nome ? tr('sidebar.profileDoorTitleNamed', { nome }) : tr('sidebar.profileDoorTitle')}
+      titolo={door.title}
     >
-      {avatarUrl ? (
-        <img src={avatarUrl} alt="" className="h-[22px] w-[22px] flex-shrink-0 rounded-full object-cover" />
-      ) : sigla ? (
-        // Le iniziali stanno nella STESSA scatola da 22 del glifo: se il cerchio
-        // cambiasse misura con la lunghezza del nome, la fila si muoverebbe da
-        // sola al primo login — e le alzate dell'arco si rimisurano su quella
-        // larghezza.
-        <span className="flex h-[22px] w-[22px] flex-shrink-0 items-center justify-center rounded-full bg-primary text-mini font-semibold text-white">
-          {sigla}
-        </span>
-      ) : (
-        <User size={22} aria-hidden="true" />
-      )}
+      <span className="flex min-w-0 items-center gap-1">
+        {avatarUrl ? (
+          <img src={avatarUrl} alt="" className="h-[22px] w-[22px] flex-shrink-0 rounded-full object-cover" />
+        ) : sigla ? (
+          // Le iniziali stanno nella STESSA scatola da 22 del glifo: se il cerchio
+          // cambiasse misura con la lunghezza del nome, la fila si muoverebbe da
+          // sola al primo login — e le alzate dell'arco si rimisurano su quella
+          // larghezza.
+          <span className="flex h-[22px] w-[22px] flex-shrink-0 items-center justify-center rounded-full bg-primary text-mini font-semibold text-white">
+            {sigla}
+          </span>
+        ) : (
+          <User size={22} aria-hidden="true" />
+        )}
+        {door.chip && (
+          <span data-testid="mobile-chrome-hot-quota" className={`flex h-5 flex-shrink-0 items-center rounded-xs bg-amber-500/15 px-1 text-mini font-semibold tabular-nums ${SEGNALE_ATTESA}`}>
+            {door.chip}
+          </span>
+        )}
+      </span>
     </BottoneFila>
   );
 }
