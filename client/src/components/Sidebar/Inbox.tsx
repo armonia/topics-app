@@ -3,10 +3,10 @@
  * design section 9, ATTN-09), and of what the hub asks of the person
  * (hub-smistamento, HUBBR-06). It replaces the history button.
  *
- * The button carries the number: the lit subjects (the Dock's) plus, where the
- * hub is there, its items that wait for you and its warnings. Amber when
- * something waits for you, the blue of the lit subjects otherwise, grey when
- * only warnings are left, nothing at zero (`bellBadge`).
+ * The button carries a number. Without the hub it is the Dock's (the lit
+ * subjects). With the hub it is the figure of one group of the panel: amber
+ * for «Decidi tu», else blue for the finished, else grey for the warnings,
+ * nothing at zero (`bellBadge`).
  *
  * The panel itself (`InboxPanel.tsx`) is a chunk of its own, loaded the first
  * time the pointer or the keyboard comes near the button: the button is on
@@ -25,7 +25,7 @@ import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { useAttentionRows } from '../../state/attention';
 import { bellBadge } from '../../state/attentionTotal';
-import { useHubLive } from '../../state/hubLive';
+import { useHubEverRead, useHubLive } from '../../state/hubLive';
 import { useBoardTasks } from '../../lib/boardTasksStore';
 import { hubBadgeCounts } from '../../lib/bellGroups';
 import { inboxModel } from '../../lib/inboxModel';
@@ -58,9 +58,10 @@ export function Inbox({
   const terminalSessions = useTerminalSessions();
   const cards = useBoardTasks();
   const live = useHubLive();
+  const hubPresent = useHubEverRead();
   const model = useMemo(() => inboxModel(attention, topics, terminalSessions, cards), [attention, topics, terminalSessions, cards]);
   const hubCounts = useMemo(() => hubBadgeCounts(live), [live]);
-  const badge = bellBadge(attentionTotal, model.waiting.length, hubCounts);
+  const badge = bellBadge(attentionTotal, model.waiting.length, hubCounts, hubPresent);
   const decideCount = model.waiting.length + hubCounts.decide;
 
   // ⇧⌘I: the chord announces, the button answers.
@@ -70,9 +71,11 @@ export function Inbox({
     return () => window.removeEventListener(OPEN_INBOX_EVENT, onOpen);
   }, []);
 
-  const label = badge.count > 0
-    ? tr('inbox.button.count', { n: badge.count, m: decideCount })
-    : tr('inbox.title');
+  const label = badge.count === 0
+    ? tr('inbox.title')
+    : hubPresent && decideCount > 0
+      ? tr('bell.button.decide', { n: decideCount })
+      : tr('inbox.button.count', { n: badge.count, m: decideCount });
   const preload = () => { void loadPanel(); };
 
   return (

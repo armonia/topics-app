@@ -5,7 +5,7 @@
  * @covers HUBBR-07
  */
 import { describe, expect, test } from 'bun:test';
-import { BELL_GROUP_ORDER, NO_HUB, bellGroups, hubBadgeCounts, liveBellHub, type BellHub } from './bellGroups';
+import { BELL_GROUP_ORDER, NO_HUB, bellGroups, bellTimeLabel, hubBadgeCounts, liveBellHub, type BellHub } from './bellGroups';
 import { accountEvents, contradictions, diaryForHistory, type WaitingItem } from './hubSystem';
 import { bellBadge } from '../state/attentionTotal';
 import type { InboxItem } from './inboxModel';
@@ -79,14 +79,30 @@ describe('HUBBR-06: the groups of the bell', () => {
     expect(hubBadgeCounts({ attesa: { at: 2, error: 'hub not reachable' }, services: { at: 2, error: 'x' } })).toEqual({ decide: 0, alerts: 0 });
   });
 
-  test('the button: amber only for what waits for you, grey for warnings alone, the blue of the lit subjects otherwise', () => {
+  test('the button says the figure of one group: Decidi tu in amber, else the finished in blue, else the warnings in grey', () => {
     // 1 hub decide; alerts: 2 broken + 1 service + 1 full quota + 2 alerts.
     const counts = hubBadgeCounts(LIVE);
     expect(counts).toEqual({ decide: 1, alerts: 6 });
-    expect(bellBadge(3, 0, counts)).toEqual({ count: 10, tone: 'needs-you' });
-    expect(bellBadge(0, 0, { decide: 0, alerts: 4 })).toEqual({ count: 4, tone: 'quiet' });
-    expect(bellBadge(2, 0, { decide: 0, alerts: 4 })).toEqual({ count: 6, tone: 'lit' });
-    expect(bellBadge(2, 1, { decide: 0, alerts: 0 })).toEqual({ count: 2, tone: 'needs-you' });
+    // 3 lit subjects, 1 of them waiting: the pill is the 2 of Decidi tu, not 3 + 1 + 6.
+    expect(bellBadge(3, 1, counts, true)).toEqual({ count: 2, tone: 'needs-you' });
+    expect(bellBadge(2, 0, { decide: 0, alerts: 4 }, true)).toEqual({ count: 2, tone: 'lit' });
+    expect(bellBadge(0, 0, { decide: 0, alerts: 4 }, true)).toEqual({ count: 4, tone: 'quiet' });
+    expect(bellBadge(0, 0, { decide: 0, alerts: 0 }, true)).toEqual({ count: 0, tone: 'quiet' });
+  });
+
+  test('without the hub the pill is the number of the Dock (ATTN-08)', () => {
+    expect(bellBadge(4, 1, { decide: 0, alerts: 0 }, false)).toEqual({ count: 4, tone: 'needs-you' });
+    expect(bellBadge(2, 0, { decide: 0, alerts: 0 }, false)).toEqual({ count: 2, tone: 'lit' });
+  });
+
+  test('the time of a row reads like the mockup: adesso, 4 min, the clock, ieri, the date', () => {
+    const tr = (key: string, vars?: Record<string, string | number>) => (key === 'bell.time.min' ? `${vars?.n} min` : key === 'bell.time.now' ? 'adesso' : 'ieri');
+    const now = new Date(2026, 10, 5, 22, 0).getTime();
+    expect(bellTimeLabel(now - 20_000, now, tr)).toBe('adesso');
+    expect(bellTimeLabel(now - 4 * 60_000, now, tr)).toBe('4 min');
+    expect(bellTimeLabel(new Date(2026, 10, 5, 20, 26).getTime(), now, tr, 'it-IT')).toBe('20:26');
+    expect(bellTimeLabel(new Date(2026, 10, 4, 9, 0).getTime(), now, tr)).toBe('ieri');
+    expect(bellTimeLabel(new Date(2026, 10, 1, 9, 0).getTime(), now, tr, 'it-IT')).toBe('1 nov');
   });
 
   test('account events: switches, limits and expired tokens of the last day, one row per kind and account', () => {

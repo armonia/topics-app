@@ -79,9 +79,13 @@ export interface SidebarItem {
  * command palette, master strip, chat tab project chip, etc.) reads
  * from one place. Don't reimplement the `.split('/').pop()` dance at
  * a call site — use this.
+ *
+ * A server on Windows sends its paths with backslashes (a terminal's cwd,
+ * seen in the bell on 05/11 as the whole `C:\Users\...` path): they count as
+ * separators here too, so the label is the folder's name there as well.
  */
 export function getProjectLabel(projectPath: string): string {
-  return basename(projectPath) || projectPath;
+  return basename(projectPath.replace(/\\/g, '/')) || projectPath;
 }
 
 /**

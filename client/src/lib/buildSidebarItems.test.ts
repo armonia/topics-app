@@ -13,6 +13,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   buildSidebarItems,
+  getProjectLabel,
   groupSidebarItemsBySpace,
   sidebarItemPaneId,
   sidebarItemSpace,
@@ -1021,5 +1022,13 @@ describe("buildSidebarItems — native sub-agents nest under their parent", () =
       projectOpenPanes: {},
     });
     expect(projectChildren(items).map((c) => c.id)).toEqual(["kid"]);
+  });
+});
+
+describe("getProjectLabel", () => {
+  test("the folder's name, from a POSIX path and from a Windows one", () => {
+    expect(getProjectLabel("/Users/a/acme-web")).toBe("acme-web");
+    expect(getProjectLabel("C:\\Users\\a\\Temp\\acme-web")).toBe("acme-web");
+    expect(getProjectLabel("acme-web")).toBe("acme-web");
   });
 });

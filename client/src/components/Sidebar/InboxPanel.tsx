@@ -22,12 +22,11 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import {
-  Check, CheckCheck, ChevronDown, CircleAlert, CircleCheck, CircleX, ClipboardCheck, Eye, Gauge, GitPullRequest, Hand,
+  Check, ChevronDown, CircleAlert, CircleCheck, CircleX, ClipboardCheck, Eye, Gauge, GitPullRequest, Hand,
   Inbox as InboxIcon, MessageCircleQuestion, MessageSquare, PauseCircle, Server, Settings, ShieldAlert, SquareCheck, TerminalSquare,
   type LucideIcon,
 } from 'lucide-react';
 import type { WSMessage } from '../../types';
-import { RelativeTime } from '../Shared/RelativeTime';
 import { useT } from '../../hooks/useT';
 import { useMobile } from '../../hooks/useMobile';
 import { useNotificationHistory } from '../../hooks/useNotificationHistory';
@@ -42,7 +41,7 @@ import { openUserMenu } from '../../lib/openUserMenu';
 import { WARNING_TEXT, DANGER_TEXT } from '../../lib/popoverStyles';
 import { useSharedNow } from '../../state/useSharedNow';
 import type { NotificationRow } from '../../../../shared/notification-log';
-import { DiaryRow, HubRow } from './BellRows';
+import { BellTime, DiaryRow, HubRow, RowShell, useBellButton } from './BellRows';
 
 const REASON_ICON: Record<string, LucideIcon> = {
   question: MessageCircleQuestion,
@@ -81,7 +80,7 @@ const CHIP_TONE: Partial<Record<BellGroupKey, string>> = {
 };
 
 /** The testids the inbox's specs already read: the two groups of before keep theirs. */
-const GROUP_TESTID: Partial<Record<BellGroupKey, string>> = { decide: 'inbox-waiting', finished: 'inbox-finished' };
+const GROUP_TEST_ID: Partial<Record<BellGroupKey, string>> = { decide: 'inbox-waiting', finished: 'inbox-finished' };
 
 /** Opens a subject where it waits: the chat, the card's drawer, the terminal's pane. */
 function openSubject(item: Pick<InboxItem, 'kind' | 'id' | 'title' | 'url'>): void {
@@ -103,7 +102,7 @@ export default function InboxPanel({ model, onWSMessage, onClose }: {
   const history = useNotificationHistory(onWSMessage);
   const reloadHistory = history.reload;
   useEffect(() => { if (tab === 'history') reloadHistory(); }, [tab, reloadHistory]);
-  const { hub, present } = useBellHub();
+  const { hub, present, answering } = useBellHub();
   const diary = useBellDiary(tab === 'history');
   const groups = useMemo(() => bellGroups(model, hub), [model, hub]);
   const nowCount = groups.reduce((n, g) => n + g.entries.length, 0);
@@ -173,9 +172,9 @@ export default function InboxPanel({ model, onWSMessage, onClose }: {
   };
 
   return (
-    <div className="flex flex-col min-h-0" style={{ maxHeight: 'min(640px, calc(100dvh - 6rem))' }} onKeyDown={onKeyDown}>
+    <div className="flex flex-col min-h-0" style={{ maxHeight: 'min(880px, calc(100dvh - 52px))' }} onKeyDown={onKeyDown}>
       <div className="flex items-center gap-2 px-3 pt-2.5 pb-2 flex-shrink-0">
-        <span className="text-compact font-semibold text-app-text">{tr('inbox.title')}</span>
+        <span className={`${isTouch ? 'text-body-lg' : 'text-compact'} font-semibold text-app-text`}>{tr('inbox.title')}</span>
         <div role="tablist" aria-label={tr('inbox.title')} className="ml-auto flex items-center gap-0.5 rounded-md bg-black/[0.05] dark:bg-white/[0.06] p-0.5">
           {(['now', 'history'] as const).map((t) => (
             <button
@@ -207,6 +206,7 @@ export default function InboxPanel({ model, onWSMessage, onClose }: {
         </button>
       </div>
       <div className="h-px bg-app-border flex-shrink-0" />
+      {tab === 'now' && groups.length > 1 && <GroupChips groups={groups} onPick={jumpTo} />}
 
       <div ref={listRef} tabIndex={-1} role="tabpanel" className="overflow-y-auto overscroll-contain min-h-0 outline-none" data-testid={`inbox-panel-${tab}`}>
         {tab === 'now' ? (
@@ -217,7 +217,6 @@ export default function InboxPanel({ model, onWSMessage, onClose }: {
                 <div className="text-compact text-app-text-secondary">{tr('inbox.empty')}</div>
               </div>
             )}
-            {groups.length > 1 && <GroupChips groups={groups} onPick={jumpTo} />}
             {groups.map((g, gi) => (
               <GroupSection
                 key={g.key}
@@ -226,11 +225,10 @@ export default function InboxPanel({ model, onWSMessage, onClose }: {
                   <button
                     type="button"
                     onClick={markAll}
-                    className={`ml-auto flex items-center gap-1 ${isTouch ? 'h-11 px-2' : 'h-5'} normal-case tracking-normal font-medium text-app-text-secondary hover:text-app-text transition-colors`}
+                    className={`ml-auto flex items-center gap-1 ${isTouch ? 'h-11 px-2 text-prose' : 'h-5 pr-0.5 text-compact'} normal-case tracking-normal font-medium text-app-text-secondary hover:text-app-text transition-colors`}
                     data-testid="inbox-mark-all"
                     title={tr('inbox.markAll.hint')}
                   >
-                    <CheckCheck size={12} aria-hidden="true" />
                     {tr('inbox.markAll')}
                   </button>
                 ) : null}
@@ -238,13 +236,14 @@ export default function InboxPanel({ model, onWSMessage, onClose }: {
                 {(entry, i) => {
                   const first = gi === 0 && i === 0;
                   if (entry.source === 'topics') {
-                    return <Row key={entry.key} item={entry.item} first={first} onOpen={openItem} onMarkSeen={g.key === 'finished' ? markSeen : undefined} />;
+                    return g.key === 'finished'
+                      ? <FinishedRow key={entry.key} item={entry.item} first={first} onOpen={openItem} onMarkSeen={markSeen} />
+                      : <DecideRow key={entry.key} item={entry.item} first={first} onOpen={openItem} />;
                   }
                   return <HubRow key={entry.key} entry={entry} first={first} />;
                 }}
               </GroupSection>
             ))}
-            <QuietLine working={model.working} />
           </>
         ) : (
           <History
@@ -259,6 +258,7 @@ export default function InboxPanel({ model, onWSMessage, onClose }: {
           />
         )}
       </div>
+      <QuietLine working={model.working} hub={present ? (answering ? 'live' : 'down') : null} />
     </div>
   );
 }
@@ -268,19 +268,19 @@ function GroupChips({ groups, onPick }: { groups: BellGroup[]; onPick: (key: Bel
   const tr = useT();
   const { isTouch } = useMobile();
   return (
-    <div className="flex flex-wrap gap-1.5 px-3 pt-2.5 pb-1" data-testid="bell-chips">
+    <div className={`flex gap-1 overflow-x-auto flex-shrink-0 border-b border-app-border/60 ${isTouch ? 'px-2 py-1.5' : 'px-3 py-1.5'}`} style={{ scrollbarWidth: 'none' }} data-testid="bell-chips">
       {groups.map((g) => (
         <button
           key={g.key}
           type="button"
           tabIndex={-1}
           onClick={() => onPick(g.key)}
-          className={`flex items-center gap-1 px-2 ${isTouch ? 'h-9' : 'h-6'} rounded text-mini font-medium transition-colors ${CHIP_TONE[g.key] ?? 'bg-black/[0.05] dark:bg-white/[0.06] text-app-text-secondary hover:text-app-text'}`}
+          className={`flex items-center gap-[5px] whitespace-nowrap flex-shrink-0 ${isTouch ? 'h-8 px-1.5' : 'h-6 px-2'} rounded-xs text-compact font-medium transition-colors ${CHIP_TONE[g.key] ?? 'bg-black/[0.05] dark:bg-white/[0.06] text-app-text-secondary hover:text-app-text'}`}
           data-testid="bell-chip"
           data-group={g.key}
           data-count={g.entries.length}
         >
-          <span className="tabular-nums">{g.entries.length}</span>
+          <span className={`tabular-nums font-semibold ${CHIP_TONE[g.key] ? '' : 'text-app-text'}`}>{g.entries.length}</span>
           {tr(GROUP_CHIP[g.key])}
         </button>
       ))}
@@ -302,11 +302,11 @@ function GroupSection({ group, action, children }: {
   const capped = group.key !== 'finished' && !all && group.entries.length > BELL_GROUP_PREVIEW;
   const shown = capped ? group.entries.slice(0, BELL_GROUP_PREVIEW) : group.entries;
   return (
-    <section className="py-1 border-t border-app-border first:border-t-0" data-testid={GROUP_TESTID[group.key] ?? `bell-group-${group.key}`} data-bell-group={group.key} data-count={group.entries.length}>
-      <h3 className={`flex items-center gap-1.5 px-3 pt-1.5 pb-1 text-mini font-semibold uppercase tracking-wide ${head.tone}`}>
-        <Icon size={12} aria-hidden="true" />
+    <section className="pt-px pb-[3px]" data-testid={GROUP_TEST_ID[group.key] ?? `bell-group-${group.key}`} data-bell-group={group.key} data-count={group.entries.length}>
+      <h3 className={`flex items-center gap-1.5 ${isTouch ? 'h-[34px] px-3.5 pt-1 text-compact' : 'h-[26px] px-3 pt-0.5 text-mini'} font-semibold uppercase tracking-[.04em] ${head.tone}`}>
+        <Icon size={13} aria-hidden="true" />
         {tr(head.label)}
-        <span className="tabular-nums font-medium opacity-80">{group.entries.length}</span>
+        <span className="tabular-nums font-medium tracking-normal">{group.entries.length}</span>
         {action}
       </h3>
       <ul>{shown.map((entry, i) => children(entry, i))}</ul>
@@ -329,20 +329,79 @@ function GroupSection({ group, action, children }: {
 /** The left edge of a row past which a swipe marks it seen. */
 const SWIPE_COMMIT_PX = 72;
 
-function Row({ item, first, onOpen, onMarkSeen }: { item: InboxItem; first: boolean; onOpen: (i: InboxItem) => void; onMarkSeen?: (i: InboxItem) => void }) {
+/** The words of a row of Topics that waits: what it asks on top, where it is under it. */
+function decideText(item: InboxItem, tr: ReturnType<typeof useT>): { title: string; detail: string | null } {
+  switch (item.reason) {
+    case 'question':
+      return item.detail ? { title: item.detail, detail: item.title } : { title: item.title, detail: null };
+    case 'permission':
+      return item.detail ? { title: tr('bell.topics.permission', { tool: item.detail }), detail: item.title } : { title: item.title, detail: null };
+    case 'review':
+      return { title: tr('bell.topics.review', { title: item.title }), detail: item.detail };
+    case 'plan':
+      return { title: tr('bell.topics.plan', { title: item.title }), detail: item.detail };
+    default:
+      return { title: item.title, detail: item.detail };
+  }
+}
+
+/** The button of a row of Topics that waits: the verb of what it asks; every one opens it where it waits. */
+const DECIDE_ACTION: Partial<Record<string, string>> = {
+  question: 'bell.action.answer',
+  plan: 'bell.action.openPlan',
+  review: 'bell.action.openCard',
+};
+
+/** A row of «Decidi tu» from Topics: the same row as the hub's, with the verb of the answer. */
+function DecideRow({ item, first, onOpen }: { item: InboxItem; first: boolean; onOpen: (i: InboxItem) => void }) {
   const tr = useT();
-  const { isTouch } = useMobile();
+  const button = useBellButton();
+  const { title, detail } = decideText(item, tr);
+  const extra = [detail, item.unread > 1 ? tr('inbox.messages', { n: item.unread }) : null].filter(Boolean).join(' · ');
+  return (
+    <RowShell
+      attrs={{ 'data-testid': 'inbox-row', 'data-subject': item.subject, 'data-tier': item.tier }}
+      icon={REASON_ICON[item.reason ?? ''] ?? KIND_ICON[item.kind]}
+      tint={WARNING_TEXT}
+      first={first}
+      onOpen={() => onOpen(item)}
+      title={title}
+      at={item.since}
+      second={(
+        <>
+          {item.project && <span className="flex-shrink-0 font-medium text-app-text-body">{item.project}</span>}
+          {item.project && extra && <span className="flex-shrink-0">·</span>}
+          <span className="truncate">{extra || (item.project ? '' : tr(`inbox.reason.${item.reason ?? item.tier}`))}</span>
+        </>
+      )}
+      actions={(
+        <button type="button" tabIndex={-1} onClick={() => onOpen(item)} className={button.primary} data-testid="bell-answer">
+          {tr(DECIDE_ACTION[item.reason ?? ''] ?? 'bell.open')}
+        </button>
+      )}
+    />
+  );
+}
+
+/**
+ * A row of «Finite»: one line (title, where and what, the time on the right)
+ * and the blue dot of the unseen, which becomes «Mark seen» under the pointer.
+ * With a finger a swipe to the left marks it seen too.
+ */
+function FinishedRow({ item, first, onOpen, onMarkSeen }: { item: InboxItem; first: boolean; onOpen: (i: InboxItem) => void; onMarkSeen: (i: InboxItem) => void }) {
+  const tr = useT();
+  const { isMobile, isTouch } = useMobile();
   const [dx, setDx] = useState(0);
   const start = useRef<{ x: number; y: number; id: number } | null>(null);
-  const Icon = item.tier === 'needs-you' ? (REASON_ICON[item.reason ?? ''] ?? KIND_ICON[item.kind]) : item.tier === 'error' ? CircleAlert : CircleCheck;
-  const tint = item.tier === 'needs-you' ? WARNING_TEXT : item.tier === 'error' ? DANGER_TEXT : 'text-[#0a84ff]';
+  const Icon = item.tier === 'error' ? CircleAlert : item.kind === 'card' ? SquareCheck : item.kind === 'terminal' ? TerminalSquare : CircleCheck;
+  const tint = item.tier === 'error' ? DANGER_TEXT : 'text-app-text-tertiary';
   const second = [
+    item.project,
     item.detail,
     item.unread > 1 ? tr('inbox.messages', { n: item.unread }) : null,
   ].filter(Boolean).join(' · ') || tr(`inbox.reason.${item.reason ?? item.tier}`);
 
-  // The swipe to the left, on a finished row only: nothing destructive on «Waiting for you».
-  const swipe = onMarkSeen ? {
+  const swipe = {
     onPointerDown: (e: ReactPointerEvent) => { if (e.pointerType !== 'mouse') start.current = { x: e.clientX, y: e.clientY, id: e.pointerId }; },
     onPointerMove: (e: ReactPointerEvent) => {
       const s = start.current;
@@ -357,54 +416,43 @@ function Row({ item, first, onOpen, onMarkSeen }: { item: InboxItem; first: bool
       setDx(0);
     },
     onPointerCancel: () => { start.current = null; setDx(0); },
-  } : {};
+  };
 
   return (
     <li className="group/inbox relative" data-testid="inbox-row" data-subject={item.subject} data-tier={item.tier}>
-      {onMarkSeen && dx < 0 && (
-        <div className="absolute inset-y-0 right-0 flex items-center pr-4 text-mini font-medium text-white bg-[#0a84ff]" style={{ width: Math.min(-dx, 160) }} aria-hidden="true">
+      {dx < 0 && (
+        <div className="absolute inset-y-0 right-0 flex items-center pr-4 text-white bg-primary" style={{ width: Math.min(-dx, 160) }} aria-hidden="true">
           <Check size={14} className="ml-auto" />
         </div>
       )}
-      <div className={`relative flex items-center bg-transparent${onMarkSeen ? ' touch-pan-y' : ''}`} style={dx ? { transform: `translateX(${dx}px)` } : undefined} {...swipe}>
+      <div className="relative flex items-center touch-pan-y hover:bg-app-hover focus-within:bg-app-hover transition-colors" style={dx ? { transform: `translateX(${dx}px)` } : undefined} {...swipe}>
         <button
           type="button"
           data-inbox-row=""
           data-subject={item.subject}
           tabIndex={first ? 0 : -1}
           onClick={() => { if (dx === 0) onOpen(item); }}
-          className="flex-1 min-w-0 min-h-14 flex items-center gap-2.5 pl-3 pr-2 py-2 text-left hover:bg-app-hover focus-visible:bg-app-hover outline-none transition-colors"
+          className={`flex-1 min-w-0 flex items-center gap-2.5 text-left outline-none ${isMobile ? 'min-h-11 pl-3.5 pr-1' : 'min-h-[30px] pl-3 pr-1'}`}
         >
-          <Icon size={15} className={`flex-shrink-0 ${tint}`} aria-hidden="true" />
-          <span className="min-w-0 flex-1">
-            <span className="flex items-baseline gap-2">
-              <span className="text-compact font-medium text-app-text truncate min-w-0">{item.title}</span>
-              {/* The project gives way to the title only past 40%: a short
-                  name stays whole instead of shrinking to one letter. */}
-              {item.project && <span className="text-mini text-app-text-muted truncate flex-shrink-0 max-w-[40%]">{item.project}</span>}
-              <RelativeTime at={item.since} className="text-mini text-app-text-muted tabular-nums flex-shrink-0 ml-auto" />
-            </span>
-            <span className="block text-mini text-app-text-secondary truncate">{second}</span>
+          <Icon size={isMobile ? 16 : 15} className={`flex-shrink-0 ${tint}`} aria-hidden="true" />
+          <span className={`min-w-0 flex-1 ${isMobile ? 'block' : 'flex items-baseline gap-1.5'}`}>
+            <span className={`font-medium text-app-text truncate ${isMobile ? 'block text-body-lg leading-[19px]' : 'flex-shrink-0 max-w-[60%] text-compact'}`}>{item.title}</span>
+            <span className={`text-app-text-secondary truncate ${isMobile ? 'block text-prose' : 'flex-[1_1_auto] text-compact'}`}>{second}</span>
           </span>
-          {/* A row with no «Mark seen» keeps the room of that button INSIDE
-              itself (its box, 28 or 44, plus the 6 of margin, minus the gap),
-              so the times of «Waiting for you» and «Finished» stand in one
-              column and the highlight still spans the row. */}
-          {!onMarkSeen && <span aria-hidden="true" className={`flex-shrink-0 ${isTouch ? 'w-10' : 'w-6'}`} />}
+          <BellTime at={item.since} className={`ml-auto text-app-text-muted ${isMobile ? 'text-prose' : 'text-compact'}`} />
         </button>
-        {onMarkSeen && (
-          <button
-            type="button"
-            tabIndex={-1}
-            onClick={() => onMarkSeen(item)}
-            className={`flex-shrink-0 mr-1.5 ${isTouch ? 'w-11 h-11 opacity-100' : 'w-7 h-7 opacity-0 group-hover/inbox:opacity-100 group-focus-within/inbox:opacity-100'} flex items-center justify-center rounded text-app-text-tertiary hover:text-app-text hover:bg-app-hover transition-opacity`}
-            title={tr('inbox.markSeen')}
-            aria-label={tr('inbox.markSeenOf', { name: item.title })}
-            data-testid="inbox-mark-seen"
-          >
-            <Check size={14} aria-hidden="true" />
-          </button>
-        )}
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={() => onMarkSeen(item)}
+          className={`flex-shrink-0 ${isTouch ? 'w-11 h-11 mr-1' : 'w-6 h-6 mr-1.5'} flex items-center justify-center rounded text-app-text-tertiary hover:text-app-text hover:bg-app-hover opacity-100`}
+          title={tr('inbox.markSeen')}
+          aria-label={tr('inbox.markSeenOf', { name: item.title })}
+          data-testid="inbox-mark-seen"
+        >
+          <span className={`w-1.5 h-1.5 rounded-full bg-primary ${isTouch ? '' : 'group-hover/inbox:hidden group-focus-within/inbox:hidden'}`} aria-hidden="true" />
+          {!isTouch && <Check size={14} className="hidden group-hover/inbox:block group-focus-within/inbox:block" aria-hidden="true" />}
+        </button>
       </div>
     </li>
   );
@@ -414,33 +462,25 @@ function Row({ item, first, onOpen, onMarkSeen }: { item: InboxItem; first: bool
 const KNOWN_TASK_KINDS = new Set(['bash', 'agent', 'workflow', 'monitor', 'cron', 'command', 'wake']);
 
 /**
- * «3 at work»: grey, no number on the button, opens in place. A chat waiting
- * on the job it launched is at work like one that answers: one count, and its
- * row names the job.
+ * THE FOOT OF THE PANEL: «3 at work», grey, no number on the button, opens in
+ * place; on its right whether the hub answers («hub live», «hub stopped»).
+ * A chat waiting on the job it launched is at work like one that answers: one
+ * count, and its row names the job. Outside the list, so it stays in view
+ * while the groups scroll. Without anybody at work and without the hub there
+ * is no foot at all.
  */
-function QuietLine({ working }: { working: InboxQuietItem[] }) {
+function QuietLine({ working, hub }: { working: InboxQuietItem[]; hub: 'live' | 'down' | null }) {
   const tr = useT();
   const { isTouch } = useMobile();
   const [open, setOpen] = useState(false);
-  if (working.length === 0) return null;
-  const parts = tr('inbox.quiet.working', { n: working.length });
+  if (working.length === 0 && hub === null) return null;
+  const busy = working.length > 0;
   return (
     // The number as an attribute too: what the line says is copy, and a test
     // that reads copy freezes it (tests/e2e/CONVENTIONS.md).
-    <div className="border-t border-app-border" data-testid="inbox-quiet" data-working={working.length}>
-      <button
-        type="button"
-        data-inbox-row=""
-        tabIndex={-1}
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className={`w-full flex items-center gap-2 px-3 ${isTouch ? 'min-h-11' : 'min-h-9'} text-left text-mini text-app-text-secondary hover:bg-app-hover focus-visible:bg-app-hover outline-none transition-colors`}
-      >
-        <span className="flex-1 truncate">{parts}</span>
-        <ChevronDown size={13} className={`flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
-      </button>
-      {open && (
-        <ul className="pb-1.5">
+    <div className="border-t border-app-border flex-shrink-0" data-testid={busy ? 'inbox-quiet' : 'bell-footer'} data-working={working.length} data-hub={hub ?? undefined}>
+      {open && busy && (
+        <ul className="py-1 border-b border-app-border/60 max-h-48 overflow-y-auto">
           {working.map((q) => {
             const Icon = KIND_ICON[q.kind];
             return (
@@ -454,8 +494,8 @@ function QuietLine({ working }: { working: InboxQuietItem[] }) {
                   data-testid="inbox-quiet-row"
                 >
                   <Icon size={13} className="flex-shrink-0 text-app-text-tertiary" aria-hidden="true" />
-                  <span className="text-mini text-app-text truncate">{q.title}</span>
-                  <span className="text-mini text-app-text-muted truncate ml-auto flex-shrink min-w-0">
+                  <span className="text-compact text-app-text truncate">{q.title}</span>
+                  <span className="text-compact text-app-text-muted truncate ml-auto flex-shrink min-w-0">
                     {q.firstTask
                       ? KNOWN_TASK_KINDS.has(q.firstTask.kind) ? `${tr(`inbox.task.${q.firstTask.kind}`)}: ${q.firstTask.label}` : q.firstTask.label
                       : tr('inbox.quiet.atWork')}
@@ -466,6 +506,20 @@ function QuietLine({ working }: { working: InboxQuietItem[] }) {
           })}
         </ul>
       )}
+      <button
+        type="button"
+        data-inbox-row=""
+        tabIndex={-1}
+        disabled={!busy}
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={busy ? open : undefined}
+        className={`w-full flex items-center gap-2 ${isTouch ? 'min-h-11 px-3.5 text-prose' : 'min-h-[34px] px-3 text-compact'} text-left text-app-text-secondary enabled:hover:bg-app-hover focus-visible:bg-app-hover outline-none transition-colors disabled:cursor-default`}
+      >
+        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${busy ? 'bg-green-500' : 'bg-app-text-muted'}`} aria-hidden="true" />
+        <span className="flex-1 truncate tabular-nums">{busy ? tr('inbox.quiet.working', { n: working.length }) : tr('bell.footer.idle')}</span>
+        {hub && <span className="flex-shrink-0 text-app-text-muted">{tr(hub === 'live' ? 'bell.footer.hubLive' : 'bell.footer.hubDown')}</span>}
+        {busy && <ChevronDown size={13} className={`flex-shrink-0 text-app-text-muted transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />}
+      </button>
     </div>
   );
 }
@@ -512,7 +566,7 @@ function History({ rows, diary, hubPresent, loading, hasMore, loadingMore, loadM
   ].sort((a, b) => b.at - a.at);
 
   const chips = hubPresent && (
-    <div className="flex gap-1.5 px-3 pt-2.5 pb-1" role="group" aria-label={tr('bell.history.filter')} data-testid="bell-history-filter">
+    <div className="flex gap-1 px-3 py-1.5 border-b border-app-border/60 overflow-x-auto" style={{ scrollbarWidth: 'none' }} role="group" aria-label={tr('bell.history.filter')} data-testid="bell-history-filter">
       {HISTORY_FILTERS.map((f) => (
         <button
           key={f.key}
@@ -520,7 +574,7 @@ function History({ rows, diary, hubPresent, loading, hasMore, loadingMore, loadM
           tabIndex={-1}
           aria-pressed={filter === f.key}
           onClick={() => setFilter(f.key)}
-          className={`px-2 ${isTouch ? 'h-9' : 'h-6'} rounded border text-mini font-medium transition-colors ${filter === f.key ? 'border-primary text-primary' : 'border-app-border text-app-text-secondary hover:bg-app-hover'}`}
+          className={`flex items-center gap-[5px] whitespace-nowrap px-2 ${isTouch ? 'h-9 text-prose' : 'h-6 text-compact'} rounded-xs border transition-colors ${filter === f.key ? 'border-primary/40 bg-primary/10 text-primary font-medium' : 'border-black/15 dark:border-white/20 text-app-text-secondary hover:bg-app-hover'}`}
           data-testid={`bell-history-${f.key}`}
         >
           {tr(f.label)}
@@ -550,8 +604,8 @@ function History({ rows, diary, hubPresent, loading, hasMore, loadingMore, loadM
     <div data-testid="inbox-history">
       {chips}
       {days.map((d) => (
-        <section key={d.key} className="py-1">
-          <h3 className="px-3 pt-1.5 pb-1 text-mini font-semibold uppercase tracking-wide text-app-text-muted">
+        <section key={d.key} className="pb-1">
+          <h3 className="px-3 pt-2 pb-0.5 text-mini font-semibold uppercase tracking-[.04em] text-app-text-muted">
             {d.key === 'today' ? tr('inbox.day.today') : d.key === 'yesterday' ? tr('inbox.day.yesterday') : new Date(`${d.key}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}
           </h3>
           <ul>
@@ -570,8 +624,10 @@ function History({ rows, diary, hubPresent, loading, hasMore, loadingMore, loadM
 
 function HistoryRow({ row, lit, onClose }: { row: NotificationRow; lit: boolean; onClose: () => void }) {
   const tr = useT();
+  const { isMobile } = useMobile();
   const system = row.kind === 'system';
   const Icon = system ? Server : row.groupKey?.startsWith('terminal:') ? TerminalSquare : row.targetKind === 'task' ? SquareCheck : MessageSquare;
+  const at = Date.parse(row.createdAt);
   return (
     <li>
       <button
@@ -580,19 +636,20 @@ function HistoryRow({ row, lit, onClose }: { row: NotificationRow; lit: boolean;
         tabIndex={-1}
         disabled={!row.targetUrl}
         onClick={() => { if (row.targetUrl && openDeepLinkInApp(row.targetUrl)) onClose(); }}
-        className="w-full flex items-start gap-2.5 px-3 py-2 min-h-11 text-left enabled:hover:bg-app-hover focus-visible:bg-app-hover outline-none transition-colors disabled:cursor-default"
+        className={`w-full flex items-center gap-2.5 text-left enabled:hover:bg-app-hover focus-visible:bg-app-hover outline-none transition-colors disabled:cursor-default ${isMobile ? 'min-h-11 pl-3.5 pr-3 py-2' : 'min-h-10 pl-3 pr-2.5 py-1'}`}
         data-testid="inbox-history-row"
         data-lit={lit ? 'true' : undefined}
       >
-        <Icon size={13} className="mt-0.5 flex-shrink-0 text-app-text-tertiary" aria-hidden="true" />
+        <Icon size={15} className="self-start mt-[3px] flex-shrink-0 text-app-text-tertiary" aria-hidden="true" />
         <span className="min-w-0 flex-1">
-          <span className="flex items-baseline gap-2">
-            <span className="text-compact font-medium text-app-text truncate">{system ? tr('inbox.system') : row.title}</span>
-            <RelativeTime at={row.createdAt} className="text-mini text-app-text-muted tabular-nums flex-shrink-0 ml-auto" />
+          <span className={`block font-medium text-app-text truncate ${isMobile ? 'text-body-lg' : 'text-compact leading-4'}`}>{system ? tr('inbox.system') : row.title}</span>
+          <span className={`flex items-center gap-[5px] text-app-text-secondary min-w-0 whitespace-nowrap ${isMobile ? 'text-prose' : 'text-compact leading-4'}`}>
+            <span className="truncate">{system ? row.title : row.body}</span>
+            {Number.isFinite(at) && <span className="flex-shrink-0 text-app-text-muted">·</span>}
+            {Number.isFinite(at) && <BellTime at={at} className="text-app-text-muted" />}
           </span>
-          <span className="block text-mini text-app-text-secondary truncate">{system ? row.title : row.body}</span>
         </span>
-        <span className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${lit ? 'bg-primary' : 'bg-transparent'}`} aria-hidden="true" />
+        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${lit ? 'bg-primary' : 'bg-transparent'}`} aria-hidden="true" />
       </button>
     </li>
   );

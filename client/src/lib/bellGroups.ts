@@ -136,3 +136,22 @@ export function bellGroups(model: { waiting: readonly InboxItem[]; finished: rea
   ];
   return groups.filter((g) => g.entries.length > 0);
 }
+
+/** The words a time of the bell needs: the panel passes its `tr`, a test a stub. */
+type Translate = (key: string, vars?: Record<string, string | number>) => string;
+
+const MINUTE = 60_000;
+
+/**
+ * The time of a row, as the mockup writes it: "now" under a minute, "4 min"
+ * under an hour, the clock ("21:26") the same day, "yesterday", then the date.
+ */
+export function bellTimeLabel(at: number, now: number, tr: Translate, locale?: string): string {
+  const ago = now - at;
+  if (ago < MINUTE) return tr('bell.time.now');
+  if (ago < 60 * MINUTE) return tr('bell.time.min', { n: Math.floor(ago / MINUTE) });
+  const day = (t: number) => new Date(t).toDateString();
+  if (day(at) === day(now)) return new Date(at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: false });
+  if (day(at) === day(now - 86_400_000)) return tr('bell.time.yesterday');
+  return new Date(at).toLocaleDateString(locale, { day: 'numeric', month: 'short' });
+}

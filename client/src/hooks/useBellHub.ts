@@ -50,7 +50,12 @@ interface Extras {
 
 const NO_EXTRAS: Extras = { failed: [], accounts: [], contradictions: [] };
 
-export function useBellHub(): { hub: BellHub; present: boolean } {
+/**
+ * The hub's part of the bell. `present`: the hub was read in this window (it
+ * is part of the installation); `answering`: it answers now (some live topic
+ * carries data), what the foot of the panel says.
+ */
+export function useBellHub(): { hub: BellHub; present: boolean; answering: boolean } {
   const live = useHubLive();
   const present = useHubEverRead();
   const [extras, setExtras] = useState<Extras>(NO_EXTRAS);
@@ -73,7 +78,8 @@ export function useBellHub(): { hub: BellHub; present: boolean } {
   }, [present, broken]);
 
   const hub = useMemo((): BellHub => (present ? { ...liveBellHub(live), ...extras } : NO_HUB), [present, live, extras]);
-  return { hub, present };
+  const answering = present && Object.values(live).some((entry) => entry?.data !== undefined);
+  return { hub, present, answering };
 }
 
 /** Two days of the diary, filtered for the History tab; empty without the hub. */

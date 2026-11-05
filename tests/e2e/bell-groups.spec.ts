@@ -1,10 +1,11 @@
 /**
  * THE BELL IN GROUPS (hub-smistamento, HUBBR-06 and HUBBR-07).
  *
- * The bell «Da guardare» > Ora lists, in one order, «Decidi tu» (the waits of
+ * The bell's «Now» tab lists, in one order, the group to decide (the waits of
  * Topics and the hub's «waiting for you» items together, deadlines first),
- * «Si è rotto», «Quote e account», «Da guardare» and «Finite». History merges
- * the hub's diary, without the routine runs that went well.
+ * the broken group, quotas and accounts, the group to look at and the
+ * finished one. History merges the hub's diary, without the routine runs that
+ * went well. The pill says the figure of the group to decide, no sum.
  *
  * The Topics side is real: a Claude Code terminal asks a question and another
  * finishes a turn, through the hooks route. The hub side is a fake (helpers/fake-hub.ts) on the port the test server
@@ -21,6 +22,9 @@
  * @covers HUBBR-06
  * @covers HUBBR-07
  */
+import { mkdirSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
 import { goToApp } from "./helpers";
@@ -67,20 +71,29 @@ interface Scene { question: ClaudeTerminal; done: ClaudeTerminal }
  */
 const socketOn = (project: string) => !(project === "webkit" && process.platform === "win32");
 
+/** A project folder named like the mockup's, so the rows say «acme-web» and not a temporary path. */
+function projectDir(): string {
+  const dir = join(mkdtempSync(join(tmpdir(), "bell-")), "acme-web");
+  mkdirSync(dir);
+  return dir;
+}
+
 async function buildScene(request: APIRequestContext, page: Page, withTopics: boolean): Promise<Scene | null> {
-  const stamp = Date.now();
   await goToApp(page);
   await expect(page.getByTestId("inbox-button")).toBeVisible({ timeout: 15_000 });
   if (!withTopics) {
-    await expect(page.getByTestId("inbox-count")).toHaveAttribute("data-notification-count", "7", { timeout: 20_000 });
+    // The pill is the figure of the group to decide: the hub's 3, no sum with the warnings.
+    await expect(page.getByTestId("inbox-count")).toHaveAttribute("data-notification-count", "3", { timeout: 20_000 });
     return null;
   }
-  const question = await createClaudeTerminal(request, `Certificato ${stamp}`);
-  const done = await createClaudeTerminal(request, `Smoke test ${stamp}`);
+  const cwd = projectDir();
+  const question = await createClaudeTerminal(request, "Claude Code", cwd);
+  const done = await createClaudeTerminal(request, "Smoke test della release", cwd);
   await askQuestion(request, question);
   await finishTurn(request, done);
-  // Both subjects lit, read on the button: 2 of Topics beside the hub's 7.
-  await expect(page.getByTestId("inbox-count")).toHaveAttribute("data-notification-count", "9", { timeout: 20_000 });
+  // Both subjects lit: the pill says the 4 to decide (3 of the hub, 1 of
+  // Topics), not the 2 lit subjects plus the hub's 7.
+  await expect(page.getByTestId("inbox-count")).toHaveAttribute("data-notification-count", "4", { timeout: 20_000 });
   return { question, done };
 }
 
@@ -104,10 +117,11 @@ test.describe("the bell in groups", () => {
     }, { timeout: 30_000 }).toBe("string");
   });
 
-  test("Ora: Decidi tu first with the hub's deadline on top, then Si è rotto, Quote e account, Da guardare, Finite", async ({ page, request }, testInfo) => {
+  test("Now: decide first with the hub's deadline on top, then broken, quotas, to look at, finished", async ({ page, request }, testInfo) => {
     let scene: Scene | null = null;
     try {
-      await page.setViewportSize({ width: 1440, height: 900 });
+      // Tall enough for the five groups at once, as the mockup shows them.
+      await page.setViewportSize({ width: 1440, height: 1000 });
       await page.emulateMedia({ colorScheme: "dark" });
       const withTopics = socketOn(testInfo.project.name);
       scene = await buildScene(request, page, withTopics);
@@ -149,6 +163,17 @@ test.describe("the bell in groups", () => {
       }
       // No file name of the contradiction reaches the screen.
       await expect(panel(page)).not.toContainText("rules-a.md");
+      // The pill and the chip of the group to decide say the same number.
+      await expect(panel(page).locator('[data-testid="bell-chip"][data-group="decide"]')).toHaveAttribute("data-count", (await page.getByTestId("inbox-count").getAttribute("data-notification-count")) ?? "");
+      // The times read as words of the panel (allow-italian: the copy under test): «adesso», «N min», a clock, «ieri».
+      for (const time of await panel(page).getByTestId("bell-time").allTextContents()) {
+        expect(time).toMatch(/^(adesso|\d+ min|\d{2}:\d{2}|ieri|\d{1,2} \S+)$/);
+      }
+      // The foot: who is at work and whether the hub answers.
+      await expect(panel(page).locator('[data-hub="live"]')).toBeVisible();
+      // Every group is on screen at once, the last one included.
+      if (withTopics) await expect(panel(page).getByTestId("inbox-finished")).toBeInViewport();
+      await expect(panel(page).getByTestId("bell-group-look")).toBeInViewport();
 
       await page.screenshot({ path: testInfo.outputPath("vero-campanella-a-gruppi-scuro.png") });
       await page.emulateMedia({ colorScheme: "light" });
@@ -156,7 +181,7 @@ test.describe("the bell in groups", () => {
       await page.screenshot({ path: testInfo.outputPath("vero-campanella-a-gruppi-chiaro.png") });
       await page.emulateMedia({ colorScheme: "dark" });
 
-      // «Risolvi tu» queues the job on the hub, «Fatto» closes the item there.
+      // The fix button queues the job on the hub, the done button closes the item there.
       await broken.getByTestId("bell-fix").click();
       await expect(broken.getByTestId("bell-fix-queued")).toBeVisible();
       expect(hub!.posts).toContainEqual({ path: "fix", key: "gh:docs-reindex" });
@@ -191,12 +216,16 @@ test.describe("the bell in groups", () => {
     try {
       await page.goto("/");
       await expect(page.getByTestId("mobile-chrome-bar")).toBeVisible({ timeout: 30_000 });
-      await expect(page.getByTestId("inbox-count")).toHaveAttribute("data-notification-count", "7");
+      await expect(page.getByTestId("inbox-count")).toHaveAttribute("data-notification-count", "3");
       await page.getByTestId("inbox-button").click();
       await expect(panel(page)).toBeVisible();
       await expect.poll(() => groupKeys(page), { timeout: 15_000 }).toEqual(["decide", "broken", "quota", "look"]);
       await expect(panel(page).getByTestId("inbox-waiting").locator("li").first()).toHaveAttribute("data-source", "waiting");
       await page.screenshot({ path: testInfo.outputPath("vero-campanella-a-gruppi-telefono.png") });
+      // The rest of the list, scrolled to its end: the foot stays in view.
+      await panel(page).getByTestId("inbox-panel-now").evaluate((el) => { el.scrollTop = el.scrollHeight; });
+      await expect(panel(page).locator('[data-hub="live"]')).toBeInViewport();
+      await page.screenshot({ path: testInfo.outputPath("vero-campanella-a-gruppi-telefono-fine.png") });
     } finally {
       await ctx.close();
       await request.post(`${E2E_BASE}/api/hub/e2e-reset`).catch(() => {});

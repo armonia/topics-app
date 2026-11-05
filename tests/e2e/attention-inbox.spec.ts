@@ -58,6 +58,7 @@ interface Scene {
   front: { id: string; name: string };
 }
 
+const PHONE_H = 667;
 const FINISHED = ["Deploy staging", "Fix flaky login test", "Rename the billing module", "Bump dependencies", "Write the migration", "Profile the slow query", "Update the changelog", "Clean old branches"];
 
 async function buildScene(request: APIRequestContext, page: Page, stamp: number): Promise<Scene> {
@@ -177,8 +178,10 @@ test.describe("the inbox: opening marks nothing, the keyboard does the rest", ()
 
   test("phone, 390 px: the inbox is a bottom sheet, and it scrolls", async ({ browser, request }) => {
     test.info().annotations.push({ type: "spec", description: "ATTN-09" });
+    // The short phone (iPhone SE): the rows are 44 to 56 px since the bell in
+    // groups, and nine of them fit a 844 px sheet, so the scroll would go unmeasured.
     const ctx = await browser.newContext({
-      baseURL: E2E_BASE, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, locale: "it-IT",
+      baseURL: E2E_BASE, viewport: { width: 390, height: PHONE_H }, hasTouch: true, isMobile: true, locale: "it-IT",
       reducedMotion: "reduce",
     });
     const page = await ctx.newPage();
@@ -191,7 +194,7 @@ test.describe("the inbox: opening marks nothing, the keyboard does the rest", ()
       await expect(sheet).toBeVisible();
       // A sheet: it rests on the bottom edge and spans the screen.
       const box = (await sheet.boundingBox())!;
-      expect(Math.round(box.y + box.height), "the panel does not rest on the bottom edge").toBeGreaterThanOrEqual(844 - 2);
+      expect(Math.round(box.y + box.height), "the panel does not rest on the bottom edge").toBeGreaterThanOrEqual(PHONE_H - 2);
       expect(box.width, "the panel does not span the phone").toBeGreaterThanOrEqual(390 - 2);
       // Rows are a finger's size.
       const row = (await sheet.locator("[data-inbox-row]").first().boundingBox())!;

@@ -80,23 +80,28 @@ export function chromeAttentionTotal(
 type BellTone = 'needs-you' | 'lit' | 'quiet';
 
 /**
- * THE BELL'S PILL (HUBBR-06). The bell lists the hub's items beside the lit
- * subjects, so its figure adds them: the hub's items that wait for the person
- * and its warnings. The Dock, the tray and the PWA badge keep THE ONE NUMBER
- * above (ATTN-08): the hub is not part of every installation, and a warning
- * of a service on the Mac is not a subject of this app.
+ * THE BELL'S PILL (HUBBR-06). Without the hub it is THE ONE NUMBER above
+ * (ATTN-08): amber when something waits for the person, blue otherwise.
  *
- * Amber only when something waits for the person (a wait of Topics or a
- * «decide» of the hub); grey when the only things left are warnings.
+ * Where the hub is part of the installation the pill says the figure of ONE
+ * group of the panel, the first that applies, so it never reads as a sum the
+ * panel does not show:
+ *   - amber, how many «Decidi tu» (the waits of Topics and the hub's items);
+ *   - else blue, the lit subjects of Topics (the finished ones);
+ *   - else grey, the hub's warnings.
+ * The Dock, the tray and the PWA badge keep THE ONE NUMBER either way.
  */
 export function bellBadge(
   chromeTotal: number,
   topicsWaiting: number,
   hub: { decide: number; alerts: number },
+  hubPresent: boolean,
 ): { count: number; tone: BellTone } {
-  const count = chromeTotal + hub.decide + hub.alerts;
-  const tone: BellTone = topicsWaiting + hub.decide > 0 ? 'needs-you' : chromeTotal > 0 ? 'lit' : 'quiet';
-  return { count, tone };
+  if (!hubPresent) return { count: chromeTotal, tone: topicsWaiting > 0 ? 'needs-you' : 'lit' };
+  const decide = topicsWaiting + hub.decide;
+  if (decide > 0) return { count: decide, tone: 'needs-you' };
+  if (chromeTotal > 0) return { count: chromeTotal, tone: 'lit' };
+  return { count: hub.alerts, tone: 'quiet' };
 }
 
 /** How many chats and terminals the tray menu lists: the menu stays short. */
