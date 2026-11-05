@@ -75,7 +75,8 @@ async function readJson(path: string): Promise<unknown> {
 function useHubReads(enabled: boolean): { reads: HubReads | null; failing: boolean; reread: () => Promise<void> } {
   const [reads, setReads] = useState<HubReads | null>(null);
   const [failing, setFailing] = useState(false);
-  const [round, setRound] = useState<() => Promise<void>>(() => async () => {});
+  const round = useRef<() => Promise<void>>(async () => {});
+  const reread = useCallback(() => round.current(), []);
   useEffect(() => {
     if (!enabled) return;
     let alive = true;
@@ -87,12 +88,12 @@ function useHubReads(enabled: boolean): { reads: HubReads | null; failing: boole
       // A failed read keeps the last good one: the hub-down band says how old it is.
       if (any) setReads((prev) => ({ census: census ?? prev?.census, mac: mac ?? prev?.mac, machines: machines ?? prev?.machines }));
     };
-    setRound(() => read);
+    round.current = read;
     void read();
     const stop = startVisibleInterval(() => { void read(); }, POLL_MS);
     return () => { alive = false; stop(); };
   }, [enabled]);
-  return { reads, failing, reread: round };
+  return { reads, failing, reread };
 }
 
 function useTick(ms: number): number {

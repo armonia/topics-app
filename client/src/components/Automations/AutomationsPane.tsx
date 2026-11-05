@@ -73,6 +73,7 @@ function AutomationsView() {
   const tr = useT();
   const locale = useLocale();
   const now = useNow();
+  // eslint-disable-next-line react-hooks/purity -- the clock is a reader called when a schedule is described, not a value read during render
   const clock = useMemo(() => makeClock(locale, () => Date.now()), [locale]);
   const describe = useCallback((j: CronJob) => scheduleWords(scheduleParts(j), clock, tr), [clock, tr]);
   const data = useAutomationsData(describe);

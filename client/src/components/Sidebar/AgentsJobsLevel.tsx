@@ -112,6 +112,7 @@ function useHubJobs(enabled: boolean): HubReads & { reread: () => void } {
   useEffect(() => {
     alive.current = true;
     if (!enabled) return () => { alive.current = false; };
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- first read on mount, then polling: the state is set after the fetch resolves
     void read();
     const stop = startVisibleInterval(() => { void read(); }, POLL_MS);
     return () => { alive.current = false; stop(); };

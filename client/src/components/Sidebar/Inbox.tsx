@@ -45,6 +45,7 @@ const BADGE_VARIANT = { 'needs-you': 'needsYou', lit: 'default', quiet: 'quiet' 
  * bell that opens this panel (the column's and the phone's header on a pane),
  * so two bells never show different numbers for the same sheet.
  */
+// eslint-disable-next-line react-refresh/only-export-components -- the badge and the bell read the same sheet, kept next to each other
 export function useInboxBadge() {
   const tr = useT();
   const { attentionTotal } = useTabNotifications();

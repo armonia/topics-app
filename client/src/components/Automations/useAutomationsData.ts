@@ -109,6 +109,7 @@ export function useAutomationsData(describe?: (job: CronJob) => string | null): 
 
   useEffect(() => {
     alive.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- first read on mount: the state is set after the fetch resolves, not synchronously
     void readModel();
     void readJobs();
     void readSide();
@@ -121,6 +122,7 @@ export function useAutomationsData(describe?: (job: CronJob) => string | null): 
   useEffect(() => {
     if (summaryData === undefined) return;
     if (firstSummary.current) { firstSummary.current = false; return; }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reread when the hub pushes a new summary: the state is set after the fetch resolves
     void readModel();
   }, [summaryData, readModel]);
 

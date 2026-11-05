@@ -108,6 +108,7 @@ function useReads(days: HubUsageDays): { reads: Reads | null; reread: () => Prom
   }, [days]);
   useEffect(() => {
     alive.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- first read on mount, then polling: the state is set after the fetch resolves
     void read();
     const stop = startVisibleInterval(() => { void read(); void refreshHubLive(); }, POLL_MS);
     return () => { alive.current = false; stop(); };
@@ -327,14 +328,16 @@ function ModelChart({ usage, locale, money, tr }: { usage: HubUsage | null; loca
     ? new Date(ms).toLocaleTimeString(displayLocale, { hour: '2-digit' })
     : new Date(ms).toLocaleDateString(displayLocale, { weekday: 'short', day: 'numeric' }));
   const step = Math.max(1, Math.ceil(n / Math.max(2, Math.floor(cw / 70))));
+  const paths: { key: string; d: string; tone: (typeof TONES)[number] }[] = [];
   let base = new Array<number>(n).fill(0);
-  const paths = layers.map((l, li) => {
-    const top = base.map((b, i) => b + (l.values[i] ?? 0));
+  for (const [li, l] of layers.entries()) {
+    const below = base;
+    const top = below.map((b, i) => b + (l.values[i] ?? 0));
     const up = top.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' L');
-    const down = base.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).reverse().join(' L');
+    const down = below.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).reverse().join(' L');
+    paths.push({ key: l.key, d: `M${up} L${down} Z`, tone: TONES[li % TONES.length]! });
     base = top;
-    return { key: l.key, d: `M${up} L${down} Z`, tone: TONES[li % TONES.length]! };
-  });
+  }
   return (
     <section data-testid="hub-usage-chart" className={`${CARD} px-3 pb-2 pt-2.5`}>
       <div className="flex flex-wrap items-center gap-1.5">

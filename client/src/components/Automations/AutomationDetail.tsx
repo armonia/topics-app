@@ -162,6 +162,7 @@ function VotePart({ row, clock, disabled, feedback }: { row: AutomationRow; cloc
   const mute = row.feedback.mute;
   const pressed = (a: FeedbackAction) => ((a === 'ok' || a === 'cambia') && vote?.v === a) || (a === 'muta' && mute !== null);
   const submit = async (action: FeedbackAction) => {
+    // eslint-disable-next-line react-hooks/purity -- click handler: the clock is read when the vote is sent, never during render
     const body = feedbackBody(action, row, text, Date.now(), days);
     if (!body) return;
     setState({ busy: true, said: tr('auto.saving'), bad: false });

@@ -32,6 +32,7 @@ const PRIMARY = `${BUTTON} bg-primary border-primary text-white hover:bg-primary
 const SECONDARY = `${BUTTON} border-black/15 dark:border-white/20 bg-app-surface text-app-text hover:bg-app-hover`;
 
 /** The two looks of a row's button, sized for the pointer: 24 with a mouse, 36 with a finger (the mockup's). */
+// eslint-disable-next-line react-refresh/only-export-components -- the rows of this file and the bell share the button sizes
 export function useBellButton(): { primary: string; secondary: string } {
   const { isMobile } = useMobile();
   const size = isMobile ? 'h-9 px-3 rounded-md text-prose' : 'h-6 px-2 rounded-sm text-compact';

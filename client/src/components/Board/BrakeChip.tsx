@@ -184,6 +184,7 @@ export function BrakeColumnNote({ todoIds }: { todoIds: readonly string[] }) {
   const locale = useLocale();
   const state = useDispatchBrakes();
   const ids = useMemo(() => new Set(todoIds), [todoIds]);
+  // eslint-disable-next-line react-hooks/purity -- countdown: the brakes store re-renders on every dispatcher tick and the strip reads the clock each render on purpose
   const view = columnNoteView(state, ids, Date.now(), tr, locale);
   if (!view) return null;
   return (
@@ -209,6 +210,7 @@ export function BrakeCardLine({ taskId }: { taskId: string }) {
 }
 
 /** Whether the dispatcher holds this card behind a wall: the card then shows `BrakeCardLine`. */
+// eslint-disable-next-line react-refresh/only-export-components -- the hook reads the same brakes store as the components in this file
 export function useBrakeHeld(taskId: string): boolean {
   return useDispatchBrakes().held.has(taskId);
 }
