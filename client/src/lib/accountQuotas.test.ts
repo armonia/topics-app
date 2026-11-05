@@ -24,9 +24,9 @@ const S = (ms: number) => Math.floor(ms / 1000);
 
 const profiles = {
   profiles: [
-    { name: 'auto-3', label: 'terzo@example.com', subscriptionType: 'max', rateLimitTier: 'default_claude_max_5x', isActive: false, priority: 2, disabled: true, limited: true, refreshFailed: { error: 'Refresh token expired' }, rateLimits: { sevenD: { utilization: 1, reset: S(NOW) } }, cap: { override: {}, effective: {}, over: false } },
+    { name: 'auto-3', label: 'terzo@example.com', subscriptionType: 'max', rateLimitTier: 'default_claude_max_5x', isActive: false, priority: 2, disabled: true, limited: true, refreshFailed: { error: 'Refresh token expired' }, rateLimits: { sevenD: { utilization: 1, reset: S(NOW - 4 * 86_400_000) } }, cap: { override: {}, effective: {}, over: false } },
     { name: 'auto-1', label: 'lavoro@example.com', subscriptionType: 'max', rateLimitTier: 'default_claude_max_20x', isActive: true, priority: 0, rateLimits: { fiveH: { utilization: 0.42, reset: S(NOW + 3_600_000) }, sevenD: { utilization: 0.86, reset: S(NOW + 86_400_000) } }, cap: { override: { fiveH: null, sevenD: null }, effective: { fiveH: null, sevenD: 90 }, over: false } },
-    { name: 'auto-2', label: 'riserva@example.com', subscriptionType: 'pro', isActive: false, priority: 5, expiresAt: NOW + 86_400_000, rateLimits: { sevenD: { utilization: 0.31, reset: S(NOW) } }, cap: { override: { fiveH: 80, sevenD: 60 }, effective: { fiveH: 80, sevenD: 60 }, over: true } },
+    { name: 'auto-2', label: 'riserva@example.com', subscriptionType: 'pro', isActive: false, priority: 5, expiresAt: NOW + 86_400_000, rateLimits: { sevenD: { utilization: 0.31, reset: S(NOW + 2 * 86_400_000) } }, cap: { override: { fiveH: 80, sevenD: 60 }, effective: { fiveH: 80, sevenD: 60 }, over: true } },
     { name: 'auto-4', label: 'scaduto@example.com', subscriptionType: 'max', isActive: false, priority: 1, expiresAt: NOW - 1, rateLimits: null },
     { label: 'senza nome' },
   ],
@@ -54,6 +54,14 @@ describe('readProxyAccounts', () => {
     expect(work.week?.pct).toBe(86);
     expect(expired.fiveH).toBeNull();
     expect(expired.week).toBeNull();
+  });
+
+  test('a window whose reset is past is over: no bar, not an old 100%', () => {
+    // The real proxy keeps the last reading of an account it stopped using:
+    // a week at 100% that reset four days ago.
+    const old = read.accounts.find((a) => a.name === 'auto-3')!;
+    expect(old.week).toBeNull();
+    expect(read.accounts.find((a) => a.name === 'auto-2')!.week?.pct).toBe(31);
   });
 
   test('the plan as a person names it', () => {

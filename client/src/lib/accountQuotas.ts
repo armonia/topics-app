@@ -144,12 +144,19 @@ export function planName(sub: unknown, tier: unknown): string | null {
   return null;
 }
 
-/** A proxy window ({utilization 0..1, reset unix s}) as a share in % and a reset in ms. */
-function proxyWindow(w: unknown): QuotaWindow | null {
+/**
+ * A proxy window ({utilization 0..1, reset unix s}) as a share in % and a reset
+ * in ms. The proxy keeps the last reading of an account it has not used since,
+ * so a window whose reset is already past describes a week (or five hours)
+ * that is over: it is dropped, and the bar says it does not know, rather than
+ * showing an old 100% as if it were today's.
+ */
+function proxyWindow(w: unknown, now: number): QuotaWindow | null {
   if (!isObject(w)) return null;
   const u = num(w.utilization);
   if (u === null) return null;
   const reset = num(w.reset);
+  if (reset !== null && reset * 1000 <= now) return null;
   return { pct: Math.round(u * 100), resetsAtMs: reset === null ? null : reset * 1000 };
 }
 
@@ -187,8 +194,8 @@ export function readProxyAccounts(raw: unknown, now = Date.now()): ProxyAccounts
       disabled: p.disabled === true,
       priority: num(p.priority) ?? 0,
       state: stateOf(p, over, now),
-      fiveH: proxyWindow(rl.fiveH),
-      week: proxyWindow(rl.sevenD),
+      fiveH: proxyWindow(rl.fiveH, now),
+      week: proxyWindow(rl.sevenD, now),
       cap: { ownFiveH: num(own.fiveH), ownWeek: num(own.sevenD), fiveH: num(inForce.fiveH), week: num(inForce.sevenD), over },
     });
   }

@@ -140,6 +140,8 @@ test.describe("accounts and quotas", () => {
     await expect(pane.getByTestId("account-card")).toHaveCount(4, { timeout: 20_000 });
     await expect(pane.getByTestId("accounts-count")).toHaveText("6");
     await expect(card(page, "prof-d")).toHaveAttribute("data-state", "off");
+    // Its last week reading (100%) is from a week already reset: no bar, not an old full one.
+    await expect(card(page, "prof-d").getByTestId("account-bar-week")).toHaveAttribute("data-pct", "");
 
     // The decision first: the account in use is past the board's line, with the switch to the next ready one.
     const decide = pane.getByTestId("accounts-decide");

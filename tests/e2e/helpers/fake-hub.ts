@@ -61,6 +61,8 @@ export interface FakeAccount {
   fiveH: number | null;
   week: number;
   cap: { fiveH: number | null; sevenD: number | null };
+  /** The proxy's last reading of a week that already reset, as the real one keeps for an idle account. */
+  weekResetPast?: boolean;
 }
 
 export interface FakeProxy {
@@ -71,9 +73,10 @@ export interface FakeProxy {
 
 /**
  * Four Claude accounts (one in use near its week, one ready, one with its
- * token expired, one switched off) and two keys. Placeholder names. The hub's
- * `pace` has no row for the switched-off one, as the real hub: the proxy and
- * the hub do not count the same accounts.
+ * token expired, one switched off whose last week reading is already reset)
+ * and two keys. Placeholder names. The hub's `pace` has no row for the
+ * switched-off one, as the real hub: the proxy and the hub do not count the
+ * same accounts.
  */
 export function defaultFakeProxy(): FakeProxy {
   return {
@@ -81,7 +84,7 @@ export function defaultFakeProxy(): FakeProxy {
       { name: "prof-a", label: "lavoro@example.com", tier: "default_claude_max_20x", isActive: true, priority: 0, disabled: false, expired: false, fiveH: 30, week: 92, cap: { fiveH: null, sevenD: null } },
       { name: "prof-b", label: "riserva@example.com", tier: "default_claude_max_5x", isActive: false, priority: 1, disabled: false, expired: false, fiveH: 12, week: 31, cap: { fiveH: null, sevenD: null } },
       { name: "prof-c", label: "terzo@example.com", tier: "default_claude_max_5x", isActive: false, priority: 0, disabled: false, expired: true, fiveH: null, week: 64, cap: { fiveH: null, sevenD: null } },
-      { name: "prof-d", label: "spento@example.com", tier: "default_claude_max_5x", isActive: false, priority: 0, disabled: true, expired: false, fiveH: null, week: 12, cap: { fiveH: null, sevenD: null } },
+      { name: "prof-d", label: "spento@example.com", tier: "default_claude_max_5x", isActive: false, priority: 0, disabled: true, expired: false, fiveH: null, week: 100, cap: { fiveH: null, sevenD: null }, weekResetPast: true },
     ],
     keys: [
       { name: "key-acme", label: "Chiave acme-web", priority: 20, disabled: false },
@@ -110,7 +113,7 @@ function proxyProfiles(proxy: FakeProxy, now: number): Record<string, unknown> {
         rateLimits: {
           status: "allowed",
           fiveH: a.fiveH === null ? null : { status: "allowed", utilization: a.fiveH / 100, reset: Math.floor((now + 2 * HOUR) / 1000) },
-          sevenD: { status: "allowed", utilization: a.week / 100, reset: Math.floor((now + 3 * 24 * HOUR) / 1000) },
+          sevenD: { status: "allowed", utilization: a.week / 100, reset: Math.floor((now + (a.weekResetPast ? -4 : 3) * 24 * HOUR) / 1000) },
         },
         cap: { override: own, effective: effective, over5h, over7d, over: over5h || over7d, freeAt: 0 },
       };

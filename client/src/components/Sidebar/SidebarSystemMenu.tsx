@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import { Activity, Coins, Gauge, MonitorCog, Tag } from 'lucide-react';
+import { Activity, Coins, Cpu, MonitorCog, Tag } from 'lucide-react';
 import { getVersion, relaunch, reloadAllWindows } from '@/lib/shell/app';
 import { isDesktop } from '@/lib/shell';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
@@ -295,7 +295,7 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
           the machine is paying for it. The accordion under this row pushed the
           version and the restart down the panel every time it opened. */}
       <SubmenuItem
-        icon={Gauge}
+        icon={Cpu}
         label={tr('statusBar.system.title')}
         testId="menu-system-status"
         minWidth={312}

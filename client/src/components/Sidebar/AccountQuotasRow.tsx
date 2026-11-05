@@ -9,7 +9,7 @@
  * the hub meters, counted by the same `accountCount` as the view's header.
  */
 import { useEffect, useState } from 'react';
-import { Gauge } from 'lucide-react';
+import { ChevronRight, Gauge } from 'lucide-react';
 import { apiFetch } from '@/lib/shell/net';
 import { useHubEverRead, useHubLive } from '@/state/hubLive';
 import { useMobile } from '@/hooks/useMobile';
@@ -56,6 +56,7 @@ export function AccountQuotasRow({ onClose }: { onClose: () => void }) {
         {hot && count && ' · '}
         {count}
       </span>
+      <ChevronRight size={14} className="flex-shrink-0 text-app-text-tertiary" aria-hidden="true" />
     </button>
   );
 }
