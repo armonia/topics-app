@@ -271,7 +271,6 @@
     "client/src/components/Shared/addMenuItems.ts": 76,
     "client/src/components/Shared/projectIconStore.ts": 64,
     "client/src/components/Sidebar/BoardStatusCounts.tsx": 209,
-    "client/src/components/Sidebar/CronJobsPanel.tsx": 4,
     "client/src/components/Sidebar/MobileChromeBar.tsx": 135,
     "client/src/components/Sidebar/NotificationHistoryButton.tsx": 38,
     "client/src/components/Sidebar/PerfSection.tsx": 54,

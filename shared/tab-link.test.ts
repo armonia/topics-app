@@ -74,6 +74,12 @@ describe('round-trip build → parse', () => {
     expect(parseTabPath('/tab/panel/journal')).toBeNull();
   });
 
+  test('panel: un vecchio link al pannello Cron apre le Automazioni che lo sostituiscono', () => {
+    expect(roundTrip({ kind: 'panel', key: 'automations' })).toEqual({ kind: 'panel', key: 'automations' });
+    expect(parseTabPath('/tab/panel/cron')).toEqual({ kind: 'panel', key: 'automations' });
+    expect(buildTabPath({ kind: 'panel', key: 'cron' })).toBeNull();
+  });
+
   test('browser: il contextId da solo, e con gli hint di proprietà', () => {
     expect(roundTrip({ kind: 'browser', key: 'ctx-9' })).toEqual({ kind: 'browser', key: 'ctx-9' });
     const withProject: TabTarget = { kind: 'browser', key: 'ctx-9', projectPath: '/Users/x/my.app' };

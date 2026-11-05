@@ -46,7 +46,6 @@ export type AddMenuItemId =
   | 'kanban'
   | 'board'
   | 'dashboard'
-  | 'cron'
   | 'profile'
   | 'open-project';
 
@@ -84,7 +83,6 @@ export const ADD_MENU_MNEMONICS: Record<AddMenuItemId, string> = {
   // Nessuna delle due è l'iniziale riservata di un'altra voce, e restano
   // dentro l'etichetta, quindi la sottolineatura resta possibile.
   dashboard: 'A',
-  cron: 'R',
   // Profilo scorre fino alla QUINTA lettera, e ogni salto ha un motivo: P è di
   // «Progetto…», R di Cron, O di opencode — occupate nello stesso menu — e la F
   // è l'iniziale RISERVATA di Files, che qui non compare ma che non si scippa
@@ -109,5 +107,5 @@ export const ADD_MENU_MNEMONICS: Record<AddMenuItemId, string> = {
  *  si calcola sul visibile (invariante 1 in testa al file). */
 export const ADD_MENU_ROWS_BY_SCOPE: Record<'project' | 'standalone', readonly AddMenuItemId[]> = {
   project: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'kimi-code', 'muse', 'browser', 'git', 'files', 'kanban'],
-  standalone: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'kimi-code', 'muse', 'browser', 'board', 'dashboard', 'cron', 'profile', 'open-project'],
+  standalone: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'kimi-code', 'muse', 'browser', 'board', 'dashboard', 'profile', 'open-project'],
 };

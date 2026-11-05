@@ -34,12 +34,12 @@ export const PANE_TYPES = [
   // silently sanitized away the moment they land.
   'context',
   'editor',
-  'cron',
   'profile',
   'remote-access',
   'system-status',
   'processes',
   'accounts',
+  'automations',
 ] as const;
 
 export type PaneType = (typeof PANE_TYPES)[number];

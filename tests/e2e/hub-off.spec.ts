@@ -88,6 +88,8 @@ test.describe("Without the hub, no trace", () => {
     await openTestChat(page);
     await expect(page.getByLabel("Topics sidebar")).toBeVisible();
     await expectNoHubTrace(page);
+    // Automazioni is the hub's: without it, not even the row above the Board.
+    await expect(page.getByTestId("sidebar-automations")).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath("vero-scuro.png") });
 
     await page.emulateMedia({ colorScheme: "light" });
@@ -109,6 +111,7 @@ test.describe("Without the hub, no trace", () => {
       await goToApp(page);
       await openTestChat(page);
       await expectNoHubTrace(page);
+      await expect(page.getByTestId("sidebar-automations")).toBeVisible();
 
       // The hub stops answering: the reader says so, and a reload shows the
       // same sidebar as before.
@@ -117,6 +120,8 @@ test.describe("Without the hub, no trace", () => {
       await page.reload();
       await expect(page.getByLabel("Topics sidebar")).toBeVisible({ timeout: 30_000 });
       await expectNoHubTrace(page);
+      // A page loaded with the hub down has never read it: like every hub surface, no row.
+      await expect(page.getByTestId("sidebar-automations")).toHaveCount(0);
       await expectNoPaletteEntry(page);
       expect(errors).toEqual([]);
     } finally {

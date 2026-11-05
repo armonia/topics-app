@@ -192,3 +192,36 @@ The System level of the menu with your name SHALL carry, below «Prestazioni», 
 - **GIVEN** «Agenti e lavori» open with the hub's list read once
 - **WHEN** the hub stops answering for the queue and the diary
 - **THEN** a band SHALL say «Hub fermo da N min · dati delle HH:MM» with «Riprova», the list read before SHALL stay, and after the hub answers again «Riprova» SHALL take the band away
+
+### Requirement: HUBBR-14 — Automazioni sopra la Board, vista intera senza pannello Cron, comandi solo su OpenClaw
+
+Where the hub is part of the installation, the sidebar SHALL carry a row «Automazioni» above the Board whose tail says «N da sistemare», N being the hub's automations broken plus the ones waiting on you (`needsYou + broken` of `/api/automations/summary`, never the ones in order), and nothing when N is zero; once read, a hub that stops answering leaves the row saying «hub fermo». The row and the command palette SHALL open «Automazioni», a whole view that takes the place of the Cron panel, which SHALL no longer exist (no Cron pane type, no «+» entry; a link to the old panel opens Automazioni). The view SHALL show the verdict (how many to fix, then to decide, broken, in order out of the total, today's runs and the next run), the tabs Automazioni and Calendario, a search, and chips for each system with its count and what needs fixing: Jarvis (the OpenClaw jobs and their health findings), Mac (launchd and the desktop app), GitHub, PC, Workflow. «Decidi tu» SHALL list what is broken or waits on you, oldest first, each with «Risolvi tu» and, on an OpenClaw job, «Riprova». Each system SHALL list its rows with when, the last 24 hours one cell per hour, the last run with its exit, the vote, and the commands: only the OpenClaw jobs the gateway lists carry «Esegui ora», on and off and «Elimina» (after a confirmation), through Topics' `/api/cron/jobs` routes; a job switched off, which the hub leaves out, SHALL be listed so it can be switched back on; launchd, GitHub, PC and workflow rows SHALL be read-only. A gateway that does not answer SHALL turn the commands off and say so; a refused command SHALL show its reason in Italian. A system all in order SHALL fold under «Le altre aree». The Calendario tab SHALL list the hub's dated reminders and jobs by day, never their prompt. A row SHALL open its detail beside the list, or as a sheet on the phone. Without the hub the row and the palette entry SHALL not exist.
+
+#### Scenario: Automazioni with the hub and the gateway
+- **GIVEN** a hub with two broken automations and one waiting on you, OpenClaw jobs listed by the gateway (one of them switched off), and launchd and GitHub jobs
+- **WHEN** the row above the Board opens «Automazioni»
+- **THEN** the row SHALL say «3 da sistemare», «Decidi tu» SHALL list the three oldest first, the Jarvis rows SHALL carry the three commands, the switched-off job SHALL be listed off, the Mac and GitHub rows SHALL be read-only, and no Cron panel SHALL be offered
+
+#### Scenario: A command on an OpenClaw job
+- **GIVEN** «Automazioni» open on a Jarvis job
+- **WHEN** it is run, switched off and deleted after the confirmation
+- **THEN** Topics SHALL receive `POST /api/cron/jobs/<id>/run`, `PATCH` with `enabled: false` and `DELETE`, and the row SHALL say it ran
+
+#### Scenario: No hub
+- **GIVEN** nobody answers on the hub's address
+- **WHEN** the sidebar and the palette open
+- **THEN** neither SHALL offer «Automazioni»
+
+### Requirement: HUBBR-15 — Votes and «Risolvi tu» write the hub's feedback and are read back
+
+The detail of an automation SHALL carry your vote with «Va bene», «Da cambiare» (with a note), «Nota», «Segnala» (with a note) and «Non avvisarmi più» (for 7 days, 30 days or for good, with a why), each written to the hub's `POST /api/feedback` in the hub's row shape (`vote` ok or cambia, `note`, `complaint`, `mute`), the job's fingerprint included, and SHALL then show the vote, the notes and the silence as the hub's model reads them back: a vote that did not land does not look given. A text the hub requires SHALL be asked before writing. On what is broken or waits on you, «Risolvi tu» SHALL send `POST /api/fix` with the job's key and say that an agent has it and where the outcome lands, or that an agent is on it already when the hub's queue has one. The detail SHALL list the job's runs (an OpenClaw job's from the hub's `automations/runs`, a workflow's with its cost read only when asked from `automations/run/<id>`).
+
+#### Scenario: A vote and a note read back
+- **GIVEN** the detail of a broken Jarvis job with no vote
+- **WHEN** «Va bene» is pressed and a note is written
+- **THEN** the hub SHALL receive a `vote` with `v: ok` and a `note` with the text for that key, and the detail SHALL show «Va bene» pressed and the note, as read again from the hub
+
+#### Scenario: Risolvi tu
+- **GIVEN** the detail of a broken automation
+- **WHEN** «Risolvi tu» is pressed
+- **THEN** the hub SHALL receive `fix` with its key and the detail SHALL say an agent has it

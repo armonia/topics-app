@@ -1765,9 +1765,6 @@
     "client/src/state/pane/adapters/hooks/useClosedTabs.ts": [
       "rec"
     ],
-    "client/src/state/pane/adapters/paneConfig.test.ts": [
-      "senza"
-    ],
     "client/src/state/pane/adapters/projectLayoutSync.ts": [
       "__getUnackedProjectSyncKeys",
       "unackedJsonByKey",

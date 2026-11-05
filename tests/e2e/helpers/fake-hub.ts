@@ -25,11 +25,17 @@
  * out of the line (`DELETE queue?id=`) leaves the next read, as in the hub;
  * the automations carry a running workflow's phases and a gate waiting for
  * your ok, and `silent` makes the queue, the diary and the automations fail.
+ * For «Automazioni» (`automations`) the model, its summary, the calendar,
+ * an OpenClaw job's runs and a workflow run's cost come from
+ * fake-hub-automations.ts; a vote, a note or a silence posted to `feedback` is
+ * kept and folded into the next model, and the queue carries an agent already
+ * on the Mac backup.
  * `quiet` answers a hub with nothing to say: no item, no failure, every
  * service up. Nothing here ever reaches :3360 or :3335.
  */
 import { createServer, type Server } from "node:http";
 import { hubPortFor } from "./test-server";
+import { automationsCalendar, automationsModel, automationsRuns, automationsSummary, feedbackRefusal, workflowRunCost, type FeedbackRow } from "./fake-hub-automations";
 
 export interface FakeHubItem {
   id: string;
@@ -61,6 +67,8 @@ export interface FakeHub {
   withdrawn: string[];
   /** True: the queue, the diary and the automations do not answer (503), the rest does. */
   silent: boolean;
+  /** The votes, notes and silences posted to `feedback`, as the hub keeps them. */
+  feedback: FeedbackRow[];
   close(): Promise<void>;
 }
 
@@ -445,8 +453,8 @@ const LOG_LINES = [
   { ts: "14:06:12", tag: "200", msg: "claude · acme-web -> account principale · 1,2 s" },
 ];
 
-export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(), opts: { quiet?: boolean; jobs?: boolean } = {}): Promise<FakeHub> {
-  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), withdrawn: [], silent: false, close: async () => {} };
+export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(), opts: { quiet?: boolean; jobs?: boolean; automations?: boolean } = {}): Promise<FakeHub> {
+  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), withdrawn: [], silent: false, feedback: [], close: async () => {} };
   const server: Server = createServer((req, res) => {
     const path = (req.url ?? "").split("?")[0]!.replace(/^\/api\//, "");
     if (req.method === "GET" && path === "logs/stream") {
@@ -551,11 +559,46 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
       hub.overrides = [];
       hub.budgets = defaultFakeBudgets();
       hub.withdrawn = [];
+      hub.feedback = [];
       req.resume();
       return send(200, { ok: true });
     }
+    // A vote, a note or a silence on an automation, checked the way the hub checks it.
+    if (req.method === "POST" && path === "feedback") {
+      let raw = "";
+      req.on("data", (c) => { raw += c; });
+      req.on("end", () => {
+        const body = JSON.parse(raw || "{}") as Record<string, unknown>;
+        hub.posts.push({ path, ...body });
+        const why = feedbackRefusal(body);
+        if (why) return send(400, { error: why });
+        const row = { ...body, kind: String(body.kind), id: `fb-${hub.feedback.length + 1}`, at: new Date().toISOString() } as FeedbackRow;
+        hub.feedback.push(row);
+        send(200, { ok: true, row, queued: null });
+      });
+      return;
+    }
     if (hub.silent && req.method === "GET" && (path === "queue" || path === "diario" || path === "automations")) return send(503, { error: "silent" });
+    if (opts.automations && req.method === "GET") {
+      const now = Date.now();
+      if (path === "automations/runs") {
+        const r = automationsRuns(now, new URL(req.url ?? "", "http://x").searchParams.get("key") ?? "");
+        return r ? send(200, r) : send(404, { ok: false, error: "cronologia solo per i cron di OpenClaw" });
+      }
+      if (path.startsWith("automations/run/")) {
+        const r = workflowRunCost(decodeURIComponent(path.slice("automations/run/".length)));
+        return r ? send(200, r) : send(404, { ok: false, error: "giro non trovato" });
+      }
+    }
     const all = opts.quiet ? quietAnswers() : answers(hub.items, hub.devPids, hub.proxy, hub.overrides, hub.budgets, { on: !!opts.jobs, withdrawn: hub.withdrawn });
+    if (opts.automations) {
+      const now = Date.now();
+      all.automations = automationsModel(now, hub.feedback);
+      all["automations/summary"] = automationsSummary(now);
+      all.calendar = automationsCalendar(now);
+      const queue = all.queue as { items: unknown[] };
+      all.queue = { items: [...queue.items, { id: "q-fix", ref: "launchd:com.example.backup", status: "running", provider: "codex", project: "acme-web", createdAt: now - 5 * 60_000 }] };
+    }
     if (req.method === "GET" && path in all) return send(200, all[path]);
     send(404, { error: "not in the fake hub" });
   });

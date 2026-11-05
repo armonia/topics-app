@@ -65,10 +65,10 @@ export const PANE_CONFIG: Partial<Record<PaneType, PaneConfig>> = {
   terminal:      { icon: 'Terminal',      label: 'Terminal',     color: '#8b5cf6', addableScopes: ['standalone', 'project'] },
   git:           { icon: 'GitBranch',     label: 'Git',          color: '#ef4444', singleton: true, addableScopes: ['project'] },
   plan:          { icon: 'BookOpen',      label: 'Piano',        color: '#f97316' },
-  // Dashboard e Cron si aprivano SOLO dal dropdown «Topics ▾», e lì si
-  // chiamavano «Statistics» e «Cron Jobs» — due nomi che nessun'altra
-  // superficie usava (la tab, la sidebar e i permalink leggono di qui). Ora
-  // stanno nel «+» come ogni altra pane, col nome che hanno davvero.
+  // Dashboard si apriva SOLO dal dropdown «Topics ▾», e lì si chiamava
+  // «Statistics», un nome che nessun'altra superficie usava (la tab, la
+  // sidebar e i permalink leggono di qui). Ora sta nel «+» come ogni altra
+  // pane, col nome che ha davvero.
   dashboard:     { icon: 'BarChart3',     label: 'Consumi',      color: '#f59e0b', singleton: true, addableScopes: ['standalone'] },
   kanban:        { icon: 'Kanban',        label: 'Board',        color: '#10b981', singleton: true, addableScopes: ['project'] },
   // 'Board' secca anche qui: il gemello di progetto (`kanban`) porta lo stesso
@@ -76,7 +76,6 @@ export const PANE_CONFIG: Partial<Record<PaneType, PaneConfig>> = {
   // tiene su superfici diverse (standalone vs progetto), quindi «generale»
   // distingueva da una cosa che non era mai lì accanto.
   board:         { icon: 'Kanban',        label: 'Board',        color: '#10b981', singleton: true, addableScopes: ['standalone'] },
-  cron:          { icon: 'Clock',         label: 'Cron',         color: '#f59e0b', singleton: true, addableScopes: ['standalone'], requires: 'openclaw' },
   profile:       { icon: 'UserRound',     label: 'Profilo',      color: '#0066ff', singleton: true, addableScopes: ['standalone'] },
   project:       { icon: 'FolderOpen',   label: 'Project',       color: '#10b981', singleton: false },
   'process-log':    { icon: 'Terminal',     label: 'Process',       color: '#8b5cf6' },
@@ -86,6 +85,9 @@ export const PANE_CONFIG: Partial<Record<PaneType, PaneConfig>> = {
   // Accounts and quotas (usage hub and Claude proxy): opened from the row with
   // your name and from the palette, only where the hub is.
   accounts:      { icon: 'Gauge',         label: 'Account e quote', color: '#0066ff', singleton: true },
+  // The hub's automations, which take the place of the Cron panel (HUBBR-14):
+  // opened from the row above the Board and from the palette, only where the hub is.
+  automations:   { icon: 'Workflow',      label: 'Automazioni',  color: '#0066ff', singleton: true },
 };
 
 /**

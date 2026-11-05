@@ -71,7 +71,7 @@ export const loadEditorTabs = retryingChunk('EditorTabs', () => import('../../co
  * never split anything because the module was already in the entry. Measured
  * with `check:bundle`: entry_eager 1.418.177 -> 1.365.938 raw.
  *
- * DESTRUCTURED, like `loadCronJobs` below and for the same reason: a bare
+ * DESTRUCTURED, like `loadProfile` below and for the same reason: a bare
  * `import('…')` handed straight back makes the module OPAQUE to knip, so every
  * export inside it counts as used and a dead one stops being reported. This
  * loader was written in the bare shape and `check:deadcode-blindspots` called
@@ -88,10 +88,6 @@ export const loadProcessLog = retryingChunk('ProcessLogPane', () => import('../.
 // used, and a dead export in there stops being reported (`check:deadcode-
 // blindspots`). The shape was already chosen for ProfilePane at its old `lazy`
 // site — moving the loader here must not lose it.
-export const loadCronJobs = retryingChunk('CronJobsPanel', async () => {
-  const { CronJobsPanel } = await import('../../components/Sidebar/CronJobsPanel');
-  return { CronJobsPanel };
-});
 export const loadProfile = retryingChunk('ProfilePane', async () => {
   const { ProfilePane } = await import('../../components/Profile/ProfilePane');
   return { ProfilePane };
@@ -103,6 +99,10 @@ export const loadMachineProcesses = retryingChunk('MachineProcessesPane', async 
 export const loadAccountQuotas = retryingChunk('AccountQuotasPane', async () => {
   const { AccountQuotasPane } = await import('../../components/Accounts/AccountQuotasPane');
   return { AccountQuotasPane };
+});
+export const loadAutomations = retryingChunk('AutomationsPane', async () => {
+  const { AutomationsPane } = await import('../../components/Automations/AutomationsPane');
+  return { AutomationsPane };
 });
 export const loadTopicTree = retryingChunk('TopicTree', async () => {
   const { TopicTree } = await import('../../components/Sidebar/TopicTree');
@@ -159,13 +159,13 @@ const LOADERS: Partial<Record<PaneType, Loader[]>> = {
   // that is exactly why they were forgotten - but the spinner they draw has
   // nothing to do with their weight: a bare `React.lazy` commits its fallback
   // on the first mount even with the module already in cache (see
-  // `lib/lazyWarm`), so a reload with the Cron tab in front drew the fallback
+  // `lib/lazyWarm`), so a reload with the profile tab in front drew the fallback
   // every time for the length of the boot's own render work. Warming them
   // costs a request that lands in the same burst as the others.
-  cron: [loadCronJobs],
   profile: [loadProfile],
   processes: [loadMachineProcesses],
   accounts: [loadAccountQuotas],
+  automations: [loadAutomations],
   // A project window is a host: what it tiles inside is a file tree and the
   // editor next to it, so its chunk is theirs. The tiles it persisted are
   // added by `paneTypesToWarm`. `GitChanges` is NOT here on purpose: since the

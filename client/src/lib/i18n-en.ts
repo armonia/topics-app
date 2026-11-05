@@ -46,6 +46,10 @@ const EN = {
   'accounts.window.fiveH': '5 hours',
   'accounts.notif': 'Accounts proxy alerts',
   'accounts.notifHint': 'Mac notifications on account switches, limits and errors',
+  'automations.open': 'Automations',
+  'automations.openHint': 'Scheduled jobs of Jarvis, Mac, GitHub, PC and workflows',
+  'automations.toFix': '{n} to fix',
+  'automations.hubDown': 'hub down',
   // The row of «Agenti e lavori» in System (HUBBR-13); the level's own strings
   // come with its chunk (`i18n-agents-jobs-en.ts`).
   'agentsJobs.open': 'Agents and jobs',

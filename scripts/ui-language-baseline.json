@@ -158,7 +158,6 @@
     "client/src/components/Shared/SidebarToggleButton.tsx": 1,
     "client/src/components/Shared/SuggestionMenu.tsx": 1,
     "client/src/components/Shared/WindowControls.tsx": 2,
-    "client/src/components/Sidebar/CronJobsPanel.tsx": 5,
     "client/src/components/Sidebar/PinnedTiles.tsx": 2,
     "client/src/components/Sidebar/TopicItem.tsx": 1,
     "client/src/components/Sidebar/TopicTree.tsx": 5,

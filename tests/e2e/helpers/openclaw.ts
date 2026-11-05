@@ -87,7 +87,7 @@ export async function mockOpenClawAvailable(page: Page) {
  */
 export async function openAddMenuPane(
   page: Page,
-  type: "dashboard" | "cron" | "board",
+  type: "dashboard" | "board",
 ) {
   // By TESTID: the title contains the shortcut, which changes with the platform
   // (⌘N on a Mac, Ctrl+N elsewhere). See the note in dashboard.spec.ts.

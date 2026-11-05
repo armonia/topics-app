@@ -46,6 +46,12 @@ const IT: Dict = {
   'accounts.window.fiveH': '5 ore',
   'accounts.notif': 'Avvisi del proxy degli account',
   'accounts.notifHint': 'Notifiche del Mac su cambi di account, limiti ed errori',
+  // The sidebar row and the palette entry of «Automazioni»; the view's own
+  // strings come with its chunk (`i18n-automations-it.ts`).
+  'automations.open': 'Automazioni',
+  'automations.openHint': 'Lavori a orario di Jarvis, Mac, GitHub, PC e workflow',
+  'automations.toFix': '{n} da sistemare',
+  'automations.hubDown': 'hub fermo',
   // The row of «Agenti e lavori» in System (HUBBR-13); the level's own strings
   // come with its chunk (`i18n-agents-jobs-it.ts`).
   'agentsJobs.open': 'Agenti e lavori',

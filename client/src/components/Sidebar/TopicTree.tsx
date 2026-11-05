@@ -7,7 +7,7 @@ import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { useExitGhost } from '../../lib/exitGhost';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
-import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, UserRound, Hourglass, BellOff, BellRing, CircleCheck, type LucideIcon, Share2, Gauge } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Workflow, Kanban, UserRound, Hourglass, BellOff, BellRing, CircleCheck, type LucideIcon, Share2, Gauge } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -58,6 +58,7 @@ import type { PinnedDropTarget, PinnedSnapshot, SidebarViewMode } from '@/hooks/
 import { useToast } from '@/components/Shared/Toast';
 import type { BoardTask, TaskStatus } from '@/lib/board';
 import { BoardRowSummary } from './BoardStatusCounts';
+import { AutomationsRow } from './AutomationsRow';
 import { utilityPanelId } from '@/state/pane/adapters/utilityPanelId';
 import { getPaneConfig } from '@/state/pane/adapters/paneConfig';
 import { buildSidebarItems, filterSidebarItems, groupSidebarItemsByState, groupSidebarItemsBySpace, sidebarItemSpace, type SidebarItem, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
@@ -129,7 +130,7 @@ function describeChildAttention(children: SidebarItem[] | undefined): string | u
 // PANE_CONFIG — one lookup shared with the tab bar's config, no re-mapping
 // per utility type at the call sites.
 const UTILITY_ROW_ICONS: Record<string, LucideIcon> = {
-  Kanban, BarChart3, Activity, BookOpen, Cpu, Clock, UserRound, LayoutGrid, Gauge,
+  Kanban, BarChart3, Activity, BookOpen, Cpu, Workflow, UserRound, LayoutGrid, Gauge,
 };
 
 /** La pane della Board generale. È anche la sua chiave di fissaggio: al
@@ -362,6 +363,8 @@ export interface TopicTreeProps {
   /** True while the Board generale tab is open — makes the row tab-aware (it is
    *  the ONLY sidebar row for the board, so it must show selection like a tab). */
   boardOpen?: boolean;
+  /** True while the Automations tab is open: its row above the Board shows selection like a tab. */
+  automationsOpen?: boolean;
   /**
    * LA RIGA «BOARD GENERALE» C'È? — una preferenza, e nient'altro.
    *
@@ -452,6 +455,7 @@ export function TopicTree({
   boardTaskCount = 0,
   boardByStatus,
   boardOpen = false,
+  automationsOpen = false,
   showBoardRow = true,
   onOpenBoard,
   spaceScoped = false,
@@ -2084,6 +2088,8 @@ export function TopicTree({
             progetti, non di un gruppo, ed è il primo posto dove si guarda. Se
             la sua tab sta altrove, cliccarla porta prima la finestra là (vedi
             `onOpenBoard` in App). */}
+        {/* Automations sit above the Board, with how many need fixing (HUBBR-14). */}
+        <AutomationsRow open={automationsOpen} />
         {boardRow}
 
         {spaceScoped ? (

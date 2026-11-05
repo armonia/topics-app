@@ -624,6 +624,8 @@ export default defineConfig({
         "**/account-quotas.spec.ts",
         // Agents and jobs: the hub's queue and workflows beside the sessions of Topics, same reason as the bell.
         "**/agents-jobs.spec.ts",
+        // Automazioni: the hub's model with the OpenClaw commands, same reason as the bell.
+        "**/automations.spec.ts",
         // Consumi in the Dashboard: the hub's numbers beside the board's, same reason as the bell.
         "**/dashboard-consumi.spec.ts",
         // The live-terminals menu: used mostly from remote, i.e. from phone

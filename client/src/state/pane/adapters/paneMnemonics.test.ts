@@ -31,7 +31,6 @@ const LABELS: Record<AddMenuItemId, string> = {
   kanban: getPaneConfig('kanban').label,
   board: getPaneConfig('board').label,
   dashboard: getPaneConfig('dashboard').label,
-  cron: getPaneConfig('cron').label,
   profile: getPaneConfig('profile').label,
   'open-project': 'Progetto…',
 };
@@ -98,7 +97,6 @@ describe('mnemonics del menu "New…"', () => {
     // e va pinnata perché la tentazione è dare D a Dashboard (è la sua
     // iniziale) spostando Board, cioè rompere l'invariante 1.
     expect(ADD_MENU_MNEMONICS.dashboard).toBe('A');
-    expect(ADD_MENU_MNEMONICS.cron).toBe('R');
     expect(ADD_MENU_MNEMONICS.board).toBe('D');
     expect(ADD_MENU_MNEMONICS['claude-code']).toBe('C');
   });

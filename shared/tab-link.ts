@@ -15,7 +15,7 @@
 //   /tab/project/<projectPath>       la finestra di progetto (o un task-workspace)
 //   /tab/file/<projectPath>/<file>   un file aperto DENTRO una finestra di progetto
 //   /tab/diff/<projectPath>/<file>   idem, ma la vista diff
-//   /tab/panel/<board|agents|dashboard|activity|cron>   le utility singleton
+//   /tab/panel/<board|dashboard|automations|profile>   le utility singleton
 //   /tab/task/<taskId>               alias in LETTURA di `/task/<id>` (vedi sotto)
 //
 // Alias accettati in lettura (già in circolazione, non li produciamo più noi):
@@ -74,7 +74,7 @@ export type TabKind =
  *  `handleOpenAsPage` (usePanelLifecycle) sa aprire, o il link sarebbe un
  *  evento che non apre niente. `agents`, `activity` e `journal` sono usciti
  *  insieme alle loro pane. */
-export const TAB_PANELS = ['board', 'dashboard', 'cron', 'profile'] as const;
+export const TAB_PANELS = ['board', 'dashboard', 'automations', 'profile'] as const;
 export type TabPanel = (typeof TAB_PANELS)[number];
 
 export interface TabTarget {
@@ -242,7 +242,9 @@ export function parseTabPath(pathname: string, search = ''): TabTarget | null {
     }
     case 'panel': {
       if (parts.length !== 2) return null;
-      const key = decodeTabSegment(parts[1]!);
+      const raw = decodeTabSegment(parts[1]!);
+      // The Cron panel's links still in circulation open the Automations that replaced it.
+      const key = raw === 'cron' ? 'automations' : raw;
       return key && isTabPanel(key) ? { kind, key } : null;
     }
     case 'browser': {

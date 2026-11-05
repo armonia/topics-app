@@ -302,10 +302,10 @@ describe('openTabInApp — un ramo per tipo, tutti su eventi che l’app già ge
 
   test('panel: solo i tipi indirizzabili; un panel morto avvisa e NON emette niente', () => {
     const { events } = stubWindow(`${origin}/`);
-    openTabInApp({ kind: 'panel', key: 'cron' });
+    openTabInApp({ kind: 'panel', key: 'automations' });
     expect(events).toEqual([
-      { type: 'topics:open-tab', detail: { paneId: '__cron__' } },
-      { type: 'topics:open-utility', detail: { type: 'cron' } },
+      { type: 'topics:open-tab', detail: { paneId: '__automations__' } },
+      { type: 'topics:open-utility', detail: { type: 'automations' } },
     ]);
 
     const { events: e2 } = stubWindow(`${origin}/`);
@@ -669,7 +669,7 @@ describe('openTabInAppWhenHydrated — prima lo stato, poi il link', () => {
   test('idratazione già avvenuta: si apre subito, senza aspettare il fallback', async () => {
     markServerHydrated();
     const { events } = stubWindow(`${origin}/`);
-    openTabInAppWhenHydrated({ kind: 'panel', key: 'cron' }, { hydrateTimeoutMs: 10_000 });
+    openTabInAppWhenHydrated({ kind: 'panel', key: 'automations' }, { hydrateTimeoutMs: 10_000 });
     await settle();
     expect(events.map((e) => e.type)).toEqual(['topics:open-tab', 'topics:open-utility']);
   });
@@ -893,18 +893,18 @@ describe('openTabInApp — la guardia rifiuta il NOTO-CATTIVO, non ciò che non 
 describe('openTabInApp — l’ack di apertura (`topics:tab-opened`)', () => {
   test('la pane COMPARE nello store ⇒ ack `dead:false` (l’intento resta, la ri-asserzione no)', async () => {
     const { events } = stubWindow(`${origin}/`);
-    openTabInApp({ kind: 'panel', key: 'cron' }, { settleMs: 5000 });
+    openTabInApp({ kind: 'panel', key: 'automations' }, { settleMs: 5000 });
     // Nessun ack finché la pane non c'è: l'apertura si OSSERVA.
     expect(events.some((e) => e.type === 'topics:tab-opened')).toBe(false);
     // …ed è quello che fa `handleOpenAsPage` quando l'evento atterra.
     usePaneStore.setState((s) => {
-      s.panes = { __cron__: { id: '__cron__', type: 'cron' } };
-      s.groups = { 'group:default': { id: 'group:default', paneIds: ['__cron__'], splitRatio: 0.5, splitAxis: 'horizontal' } };
+      s.panes = { __automations__: { id: '__automations__', type: 'automations' } };
+      s.groups = { 'group:default': { id: 'group:default', paneIds: ['__automations__'], splitRatio: 0.5, splitAxis: 'horizontal' } };
       s.lastSeq = (s.lastSeq ?? 0) + 1;
     });
     await settle();
     expect(events.filter((e) => e.type === 'topics:tab-opened')).toEqual([
-      { type: 'topics:tab-opened', detail: { paneId: '__cron__', dead: false } },
+      { type: 'topics:tab-opened', detail: { paneId: '__automations__', dead: false } },
     ]);
   });
 
@@ -946,7 +946,7 @@ describe('deep-link in una finestra STACCATA (`?topics=`)', () => {
     const { notes, notify } = collectNotes();
     openTabInApp({ kind: 'chat', key: 'topic-1' }, { notify });
     openTabInApp({ kind: 'project', key: '/work/x' }, { notify });
-    openTabInApp({ kind: 'panel', key: 'cron' }, { notify });
+    openTabInApp({ kind: 'panel', key: 'automations' }, { notify });
     await settle();
     expect(events).toEqual([]);
     expect(usePaneStore.getState().panes['topic-1']).toBeUndefined();

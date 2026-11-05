@@ -182,29 +182,25 @@ describe("getAddableTypesForScope — scope + singleton filtering", () => {
     expect(withBrowserExcluded).toContain("browser");
   });
 
-  test("Dashboard e Cron sono nel «+» standalone, non solo in un dropdown", () => {
-    // Prima esistevano SOLO nel menu «Topics ▾», con nomi propri di quel menu
-    // («Statistics», «Cron Jobs») e senza passare da qui. `addableScopes` è
-    // l'unica cosa che serve per farle comparire ovunque si costruisca un
-    // menu di creazione — questo test è il cancello di quella promessa.
+  test("Dashboard è nel «+» standalone, non solo in un dropdown", () => {
+    // Prima esisteva SOLO nel menu «Topics ▾», con un nome proprio di quel
+    // menu («Statistics») e senza passare da qui. `addableScopes` è l'unica
+    // cosa che serve per farla comparire ovunque si costruisca un menu di
+    // creazione: questo test è il cancello di quella promessa.
     const types = getAddableTypesForScope("standalone", new Set(), new Set(["openclaw"]));
     expect(types).toContain("dashboard");
-    expect(types).toContain("cron");
-    // Restano fuori dallo scope progetto: sono pagine dell'APP, non del
-    // progetto — una finestra di progetto non le ha mai offerte.
+    // Resta fuori dallo scope progetto: è una pagina dell'APP, non del progetto.
     const projectTypes = getAddableTypesForScope("project", new Set(), new Set(["openclaw"]));
     expect(projectTypes).not.toContain("dashboard");
-    expect(projectTypes).not.toContain("cron");
   });
 
-  test("Cron sparisce senza OpenClaw: il gate è del TIPO, non della superficie", () => {
-    // Il filtro viveva scritto a mano nel dropdown. Se si perdesse, Cron
-    // comparirebbe nel «+» anche dove OpenClaw non c'è e aprirebbe una pane
-    // vuota. L'insieme di capacità VUOTO è anche il default all'avvio.
-    const senza = getAddableTypesForScope("standalone", new Set(), new Set());
-    expect(senza).not.toContain("cron");
-    // Solo Cron: la Dashboard non dipende da OpenClaw (legge le API di Topics).
-    expect(senza).toContain("dashboard");
+  test("le Automazioni non sono nel «+»: si aprono dalla riga sopra la Board, e il pannello Cron non c'è più", () => {
+    // HUBBR-14: i lavori di OpenClaw vivono in Automazioni, che esiste solo
+    // dove c'è l'hub. Una voce Cron nel «+» sarebbe il secondo posto per gli
+    // stessi lavori.
+    const types = getAddableTypesForScope("standalone", new Set(), new Set(["openclaw"]));
+    expect(types).not.toContain("automations");
+    expect(types as string[]).not.toContain("cron");
   });
 
   test("fixed panes never appear regardless of scope", () => {
@@ -351,7 +347,7 @@ describe("tabTargetForPane — un permalink per tab, o NIENTE", () => {
   });
 
   test("utility → il pannello, ma solo quelli indirizzabili", () => {
-    for (const type of ["board", "dashboard", "cron"] as const) {
+    for (const type of ["board", "dashboard", "automations"] as const) {
       expect(tabTargetForPane(pane({ id: utilityPanelId(type), type })))
         .toEqual({ kind: "panel", key: type });
     }
