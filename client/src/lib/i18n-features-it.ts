@@ -1,5 +1,5 @@
 /**
- * client/src/lib/i18n-features-it.ts - the strings of «Funzionalità»
+ * client/src/lib/i18n-features-it.ts - the strings of the feature map
  * (hub-smistamento, HUBBR-18): the comparison between the agent systems, where
  * Jarvis is behind; in Italian, the mirror of `i18n-features-en.ts`.
  *

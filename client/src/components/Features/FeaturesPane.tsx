@@ -1,5 +1,5 @@
 /**
- * FUNZIONALITÀ (hub-smistamento, HUBBR-18): the usage hub's feature map in a
+ * THE FEATURE MAP (hub-smistamento, HUBBR-18): the usage hub's feature map in a
  * whole view, opened from System and from the palette, never from a row of
  * its own in the sidebar: a map to study, at hand but not in sight.
  *

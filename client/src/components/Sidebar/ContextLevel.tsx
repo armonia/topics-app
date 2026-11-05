@@ -15,7 +15,7 @@
  * On the phone the level is the one sheet in sight, with its own way back to
  * System and its own close.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, CloudOff, FileText, Layers, Loader2, Scale, Sparkles, X } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
 import { useMobile } from '../../hooks/useMobile';
@@ -23,7 +23,7 @@ import { addCatalogue } from '../../lib/i18n';
 import HUB_CONTEXT_IT from '../../lib/i18n-hub-context-it';
 import HUB_CONTEXT_EN from '../../lib/i18n-hub-context-en';
 import { apiFetch } from '../../lib/shell/net';
-import { checkStart, contextView, shortTokens, type ContextFile, type ContextView } from '../../lib/hubContext';
+import { checkStart, contextView, shortTokens, type ContextFile, type ContextView, type UnlistedRef } from '../../lib/hubContext';
 import { HUB_CONTEXT_DOC, useHubDoc } from '../../state/hubDocs';
 import { startVisibleInterval } from '../../state/documentVisibility';
 import { useCloseLevel } from '../Shared/levelClose';
@@ -70,7 +70,12 @@ export function ContextLevel({ onNavigate }: ContextLevelProps) {
   const clock = useClock(locale);
   const closeLevel = useCloseLevel();
   const doc = useHubDoc(HUB_CONTEXT_DOC, true, MAX_AGE_MS);
-  const view = useMemo(() => contextView(doc.data), [doc.data]);
+  const unlisted = useCallback(
+    (u: UnlistedRef) => tr(u.kind === 'other' && !u.owner ? 'hubContext.where.bare' : `hubContext.where.${u.kind}`, { owner: u.owner, name: u.name }),
+    [tr],
+  );
+  // okAt in the deps: each read re-judges a check left running against the clock.
+  const view = useMemo(() => contextView(doc.data, unlisted, Date.now()), [doc.data, doc.okAt, unlisted]);
   const [asking, setAsking] = useState(false);
   const [starting, setStarting] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);

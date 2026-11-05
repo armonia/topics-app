@@ -1,25 +1,25 @@
 /**
  * THE AGENTS' CONTEXT AND THE FEATURE MAP (hub-smistamento, HUBBR-17, HUBBR-18).
  *
- * System carries, after «Agenti e lavori», «Contesto degli agenti» with the
- * weight of Claude Code at start, «Processi», and «Funzionalità» with how many
- * features Jarvis is behind on. The context level lists four harnesses with the
- * home sessions' memory under Claude Code, the files read at start (one opened
- * shows its text), the duplicated lines and the old rules; «Cerca
- * contraddizioni» asks first, sends nothing on «Annulla», sends exactly one
- * check on «Avvia il controllo», says an agent is reading, and shows what the
+ * System carries, after the agents-and-jobs row, the agents' context row with
+ * the weight of Claude Code at start, the processes row, and the feature-map
+ * row with how many features Jarvis is behind on. The context level lists four
+ * harnesses with the home sessions' memory under Claude Code, the files read
+ * at start (one opened shows its text), the duplicated lines and the old
+ * rules; the contradictions button asks first, sends nothing on cancel, sends
+ * exactly one check on confirm, says an agent is reading, and shows what the
  * agent found when the hub says it is over. The feature map opens as a view
  * from System and from the palette, the same single tab, never offered by a
  * row of its own in the sidebar: the verdict, the ranking, the features where
- * Jarvis is behind until «Tutte», one opened with who has it. Without the hub,
+ * Jarvis is behind until the all filter, one opened with who has it. Without the hub,
  * after a reload, System and the palette offer neither.
  *
  * The hub is a fake (helpers/fake-hub.ts with `context`, shapes in
  * fake-hub-context.ts) on the port the test server reads. The real :3360 is
  * never touched, and the files and projects are placeholders.
  *
- * Mutation: with the check sent on «Cerca contraddizioni» instead of on
- * «Avvia il controllo», the count of checks after «Annulla» is 1 and the test
+ * Mutation: with the check sent on the first button instead of on the
+ * confirm, the count of checks after cancel is 1 and the test
  * is red; with the home sessions' loader read as a harness, the level lists
  * five and the test is red.
  *
@@ -116,6 +116,10 @@ test.describe("agents' context and feature map", () => {
     await expect(level.getByTestId("context-contradictions")).toContainText("mai state confrontate");
     await expect(level.getByTestId("context-duplicate")).toContainText("CLAUDE.md globale · CLAUDE.md · acme-web");
     await expect(level.getByTestId("context-old-rule").first()).toContainText("372 giorni fa");
+    // The hub quotes raw markdown lines: bold marks, list dashes and link targets stay off screen.
+    await expect(level.getByTestId("context-old-rule").first()).toContainText("Ultimo aggiornamento: 29 ottobre 2025");
+    await expect(level.getByTestId("context-old-rules")).not.toContainText("**");
+    await expect(level.getByTestId("context-old-rules")).not.toContainText("reference_");
     await expect(level.getByTestId("context-doctor")).toContainText("27 controlli dei collegamenti: tutti verdi");
 
     // A file read at start opens its text.
@@ -123,7 +127,7 @@ test.describe("agents' context and feature map", () => {
     await file.getByRole("button").click();
     await expect(file.getByTestId("context-file-text")).toContainText("Una domanda è una domanda.", { timeout: 10_000 });
 
-    // The check asks first: nothing reaches the hub on «Annulla».
+    // The check asks first: nothing reaches the hub on cancel.
     await level.getByTestId("context-check-ask").click();
     await expect(level.getByTestId("context-check-confirm")).toContainText("Un agente legge tutte le regole");
     await level.getByTestId("context-check-cancel").click();
@@ -139,6 +143,9 @@ test.describe("agents' context and feature map", () => {
     await expect(found).toHaveCount(1, { timeout: 20_000 });
     await expect(found).toContainText("Una chiede i commenti in italiano, l'altra in inglese.");
     await expect(found).toContainText("CLAUDE.md globale");
+    // A file the hub does not list is named by whose it is, not by a bare file name.
+    await expect(found).toContainText("Regole di OpenClaw studio-x");
+    await expect(found).not.toContainText("AGENTS.md");
     await expect(level.getByTestId("context-check-running")).toHaveCount(0);
     await expect(level.getByTestId("context-check-ask")).toHaveText("Controlla di nuovo");
     expect(checks(hub!)).toBe(1);

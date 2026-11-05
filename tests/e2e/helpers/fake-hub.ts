@@ -639,7 +639,7 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
       req.resume();
       hub.posts.push({ path });
       if (hub.contextCheck.running) return send(200, { ok: true, already: true });
-      hub.contextCheck = { ...hub.contextCheck, running: true };
+      hub.contextCheck = { ...hub.contextCheck, running: true, startedAt: Date.now() };
       setTimeout(() => { hub.contextCheck = { at: Date.now(), running: false, items: [FOUND_CONTRADICTION] }; }, hub.checkMs);
       return send(200, { ok: true });
     }

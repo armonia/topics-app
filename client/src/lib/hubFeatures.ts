@@ -131,14 +131,14 @@ export function featuresView(data: unknown): FeaturesView | null {
       const group = str(g.name) ?? '';
       for (const l of list(g.children)) {
         if (!isObject(l)) continue;
-        const lid = str(l.id);
-        const lname = str(l.name);
-        if (!lid || !lname) continue;
+        const leafId = str(l.id);
+        const leafName = str(l.name);
+        if (!leafId || !leafName) continue;
         const status = isObject(l.status) ? l.status : {};
         const others = Object.keys(status).filter((k) => k !== OURS);
         leaves.push({
-          id: lid,
-          name: lname,
+          id: leafId,
+          name: leafName,
           desc: str(l.desc) ?? '',
           group,
           ours: statusOf(l.ours ?? status[OURS]),

@@ -1,6 +1,6 @@
 /**
  * client/src/lib/i18n-hub-context-it.ts - the strings of the hub's rows in
- * System and of «Contesto degli agenti» (hub-smistamento, HUBBR-17): weight
+ * System and of the agents' context level (hub-smistamento, HUBBR-17): weight
  * per harness, files, duplicates, old rules and the contradictions check; in
  * Italian, the mirror of `i18n-hub-context-en.ts`.
  *
@@ -54,6 +54,11 @@ const HUB_CONTEXT_IT: Dict = {
   'hubContext.oldRules': 'Regole vecchie',
   'hubContext.oldRules.hint': 'con una data di oltre 45 giorni',
   'hubContext.oldRules.meta': '{where} · {days} giorni fa',
+  'hubContext.where.rules': 'Regole di {owner}',
+  'hubContext.where.profile': 'Profilo di {owner}',
+  'hubContext.where.memory': 'Memoria di {owner}',
+  'hubContext.where.other': '{name} di {owner}',
+  'hubContext.where.bare': '{name}',
   'hubContext.doctor.ok': '{n} controlli dei collegamenti: tutti verdi',
   'hubContext.doctor.fail': 'Da sistemare',
   'hubContext.text.loading': 'apertura del testo',

@@ -35,7 +35,7 @@ export interface ContextFile {
   tokens: number;
   /** Who reads it at start, by the hub's harness names; empty when it is read on demand. */
   readers: string[];
-  /** The hub's own note («incluso da CLAUDE.md», «letto su richiesta»). */
+  /** The hub's own note, in its words (e.g. included from CLAUDE.md, read on demand). */
   note: string | null;
 }
 
@@ -77,7 +77,7 @@ export interface ContextView {
   doctor: { total: number; failing: string[] } | null;
 }
 
-/** «Claude Code (sessioni nate in ~)» → base «Claude Code», note «sessioni nate in ~». */
+/** "Name (qualifier)" -> base "Name", note "qualifier". */
 function splitLoader(name: string): { base: string; note: string | null } {
   const m = /^(.*?)\s*\((.*)\)\s*$/.exec(name);
   return m && m[1] ? { base: m[1], note: m[2] ?? null } : { base: name, note: null };
@@ -85,7 +85,7 @@ function splitLoader(name: string): { base: string; note: string | null } {
 
 /**
  * One row per harness, heaviest first. A loader that only qualifies another
- * («Claude Code (sessioni nate in ~)») is that harness's extra, not a fifth
+ * (Claude Code for the home sessions) is that harness's extra, not a fifth
  * harness; one that qualifies nothing else («OpenClaw (via claude-cli)») is
  * the harness of its base name.
  */
@@ -131,21 +131,77 @@ function readFile(raw: unknown): ContextFile | null {
   };
 }
 
-/** The label a file id or path stands for; the last piece of it when the hub did not list it. */
-function labeller(files: ContextFile[]): (ref: string) => string {
+/** What an unlisted file is, from its path or id: the caller words it in the person's language. */
+export interface UnlistedRef {
+  kind: 'rules' | 'profile' | 'memory' | 'other';
+  /** Whose file it is (a system or a project), empty when the path says nothing. */
+  owner: string;
+  /** The file's name without its extension, for `other`. */
+  name: string;
+}
+
+const OWNERS: Record<string, string> = { '.claude': 'Claude Code', '.openclaw': 'OpenClaw', '.jcode': 'jcode', '.codex': 'Codex', '.agents': 'Agents' };
+const KINDS: Record<string, UnlistedRef['kind']> = { AGENTS: 'rules', CLAUDE: 'rules', USER: 'profile', MEMORY: 'memory' };
+
+/**
+ * The hub names a contradiction's files by path, and its lists do not hold
+ * every file an agent may cite (OpenClaw's workspaces): those are told apart by
+ * whose they are, not shown as a bare file name that two files can share.
+ */
+export function unlistedRef(ref: string): UnlistedRef {
+  const project = /^project:(.+)$/.exec(ref);
+  if (project?.[1]) return { kind: 'rules', owner: project[1], name: '' };
+  const parts = ref.replace(/^[^:/]*:(?!\/)/, '').split('/').filter((x) => x && x !== '~');
+  const file = parts.pop() ?? ref;
+  const name = file.replace(/\.[a-z0-9]+$/i, '');
+  const root = parts[0] ?? '';
+  let owner = '';
+  if (root === 'Projects' && parts[1]) owner = parts[1];
+  else if (OWNERS[root]) {
+    const ws = parts[1] && /^workspace-(.+)$/.exec(parts[1]);
+    owner = ws && ws[1] ? `${OWNERS[root]} ${ws[1]}` : OWNERS[root];
+  } else owner = parts[parts.length - 1] ?? '';
+  return { kind: KINDS[name.toUpperCase()] ?? 'other', owner, name };
+}
+
+const defaultUnlisted = (u: UnlistedRef): string => [u.kind === 'other' ? u.name : u.kind, u.owner].filter(Boolean).join(' · ');
+
+/** The label a file id or path stands for; `unlisted` words the ones the hub did not list. */
+function labeller(files: ContextFile[], unlisted: (u: UnlistedRef) => string): (ref: string) => string {
   const byKey = new Map<string, string>();
   for (const f of files) { byKey.set(f.id, f.label); byKey.set(f.path, f.label); }
-  return (ref) => byKey.get(ref) ?? ref.split(/[/:]/).filter(Boolean).pop() ?? ref;
+  return (ref) => byKey.get(ref) ?? unlisted(unlistedRef(ref));
 }
+
+/**
+ * A rule line as plain words: the hub quotes the raw markdown line, so list
+ * markers, headings, bold and code marks and a link's target (a file name)
+ * would otherwise be on screen.
+ */
+export function plainRule(text: string): string {
+  return text
+    .replace(/^\s*(?:[-*+>]|\d+[.)]|#{1,6})\s+/, '')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/(\*\*|__)(.+?)\1/g, '$2')
+    // The hub cuts long lines, which can leave a bold mark open.
+    .replace(/\*\*/g, '')
+    .replace(/(^|[\s(])[*_]([^*_\s][^*_]*?)[*_](?=[\s).,:;!?]|$)/g, '$1$2')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** A check marked running for longer than this is a leftover (the hub's own limit before it takes a new one). */
+export const CHECK_STALE_MS = 20 * 60_000;
 
 function readRule(raw: unknown, label: (ref: string) => string): RuleRef | null {
   if (!isObject(raw)) return null;
   const text = str(raw.text);
   const file = str(raw.file);
-  return text ? { where: file ? label(file) : '', text } : null;
+  return text ? { where: file ? label(file) : '', text: plainRule(text) } : null;
 }
 
-export function contextCheck(block: unknown, label: (ref: string) => string = (r) => r): ContextCheck {
+export function contextCheck(block: unknown, label: (ref: string) => string = (r) => r, now: number = Date.now()): ContextCheck {
   const b = isObject(block) ? block : {};
   const items: ContextContradiction[] = [];
   for (const raw of list(b.items)) {
@@ -155,28 +211,31 @@ export function contextCheck(block: unknown, label: (ref: string) => string = (r
     const bb = readRule(raw.b, label);
     if (why && a && bb) items.push({ why, a, b: bb });
   }
-  return { at: num(b.at), running: b.running === true, error: str(b.error), items };
+  // A hub restarted mid-check leaves running forever: like the hub, trust it only for 20 minutes.
+  const startedAt = num(b.startedAt);
+  const running = b.running === true && startedAt !== null && now - startedAt < CHECK_STALE_MS;
+  return { at: num(b.at), running, error: str(b.error), items };
 }
 
-export function contextView(data: unknown): ContextView | null {
+export function contextView(data: unknown, unlisted: (u: UnlistedRef) => string = defaultUnlisted, now: number = Date.now()): ContextView | null {
   if (!isObject(data)) return null;
   const files = list(data.files).map(readFile).filter((f): f is ContextFile => f !== null);
   const onDemand = [...list(data.subagentPrompts), ...list(data.otherSources)]
     .map(readFile).filter((f): f is ContextFile => f !== null);
-  const label = labeller([...files, ...onDemand]);
+  const label = labeller([...files, ...onDemand], unlisted);
   const harnesses = harnessWeights(isObject(data.totals) ? data.totals.byLoader : null);
   const skills = isObject(data.skills) && num(data.skills.count) !== null
     ? { count: num(data.skills.count) ?? 0, tokens: num(data.skills.tokens) ?? 0 }
     : null;
   const duplicates = list(data.duplicates).flatMap((raw) => {
     if (!isObject(raw)) return [];
-    const text = str(raw.text);
+    const text = str(raw.text) && plainRule(str(raw.text) ?? '');
     const where = list(raw.files).map(str).filter((s): s is string => s !== null).map(label);
     return text && where.length > 1 ? [{ text, where }] : [];
   });
   const oldRules = list(data.oldRules).flatMap((raw) => {
     if (!isObject(raw)) return [];
-    const text = str(raw.text);
+    const text = plainRule(str(raw.text) ?? '');
     const days = num(raw.days);
     const file = str(raw.file);
     return text && days !== null ? [{ text, where: file ? label(file) : '', days }] : [];
@@ -195,7 +254,7 @@ export function contextView(data: unknown): ContextView | null {
     skills,
     duplicates,
     oldRules,
-    check: contextCheck(data.contradictions, label),
+    check: contextCheck(data.contradictions, label, now),
     doctor,
   };
 }

@@ -12,6 +12,8 @@ const DAY = 86_400_000;
 export interface FakeContextCheck {
   at: number | null;
   running: boolean;
+  /** When the running check began (ms), as the hub writes it. */
+  startedAt?: number;
   items: Array<{ a: { file: string; text: string }; b: { file: string; text: string }; why: string }>;
 }
 
@@ -23,7 +25,7 @@ export function defaultContextCheck(): FakeContextCheck {
 /** What the agent «finds» when the fake check ends. */
 export const FOUND_CONTRADICTION = {
   a: { file: "~/.claude/CLAUDE.md", text: "Codice in inglese, commenti in italiano." },
-  b: { file: "~/Projects/acme-web/AGENTS.md", text: "Code comments in English only." },
+  b: { file: "~/.openclaw/workspace-studio-x/AGENTS.md", text: "Code comments in English only." },
   why: "Una chiede i commenti in italiano, l'altra in inglese.",
 };
 
@@ -57,14 +59,14 @@ export function contextModel(now: number, check: FakeContextCheck): Record<strin
       { text: "Mai inviare email senza conferma esplicita dell'utente, nemmeno in bozza.", files: ["claude-md", "project:acme-web"] },
     ],
     oldRules: [
-      { file: "project:acme-web", line: 212, text: "Ultimo aggiornamento: 29 ottobre 2025", date: "2025-10-29", days: 372 },
-      { file: "memory-index", line: 77, text: "Sessione bloccata su exec: risposta persa, causa non provata (maggio)", date: "2026-05-01", days: 188 },
+      { file: "project:acme-web", line: 212, text: "**Ultimo aggiornamento**: 29 ottobre 2025", date: "2025-10-29", days: 372 },
+      { file: "memory-index", line: 77, text: "- [Sessione bloccata su exec](reference_exec_stall.md): risposta persa, causa non provata (maggio)", date: "2026-05-01", days: 188 },
       { file: "ops", line: 40, text: "Il router gira su :3340 fino al trasloco", date: "2026-08-02", days: 95 },
       { file: "claude-md", line: 12, text: "Nuovo stile dal 12 settembre", date: "2026-09-12", days: 54 },
     ],
     doctor: { ok: true, checks: Array.from({ length: 27 }, (_, i) => ({ ok: true, text: `controllo ${i + 1}` })), error: null },
     totals: { byLoader: { "Claude Code": 14888, "OpenClaw (via claude-cli)": 11162, Codex: 14890, jcode: 14890, "Claude Code (sessioni nate in ~)": 4907 } },
-    contradictions: { at: check.at, items: check.items, running: check.running },
+    contradictions: { at: check.at, items: check.items, running: check.running, startedAt: check.startedAt },
   };
 }
 

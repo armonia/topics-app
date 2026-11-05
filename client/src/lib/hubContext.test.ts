@@ -7,7 +7,7 @@
  * @covers HUBBR-17
  */
 import { describe, expect, test } from 'bun:test';
-import { checkStart, contextCheck, contextView, harnessWeights, shortTokens } from './hubContext';
+import { CHECK_STALE_MS, checkStart, contextCheck, contextView, harnessWeights, plainRule, shortTokens, unlistedRef } from './hubContext';
 
 const HUB = {
   at: 1_793_901_551_906,
@@ -22,8 +22,8 @@ const HUB = {
   skills: { count: 41, tokens: 1780, loaders: ['Claude Code'], items: [] },
   duplicates: [{ text: 'Mai inviare email senza conferma', files: ['claude-md', 'project:acme-web'] }, { text: 'solo in un file', files: ['claude-md'] }],
   oldRules: [
-    { file: 'memory-index', line: 77, text: 'una scheda di maggio', date: '2026-05-01', days: 188 },
-    { file: 'project:studio-x', line: 212, text: 'Last Updated 2025-10-29', date: '2025-10-29', days: 372 },
+    { file: 'memory-index', line: 77, text: '- [una scheda di maggio](reference_exec_stall.md): causa non provata', date: '2026-05-01', days: 188 },
+    { file: 'project:studio-x', line: 212, text: '**Last Updated**: 2025-10-29', date: '2025-10-29', days: 372 },
   ],
   doctor: { ok: false, checks: [{ ok: true, text: 'nessun link rotto' }, { ok: false, text: 'skill fuori posto: demo' }], error: null },
   totals: { byLoader: { 'Claude Code': 14888, 'OpenClaw (via claude-cli)': 11162, Codex: 14890, jcode: 14890, 'Claude Code (sessioni nate in ~)': 4907 } },
@@ -32,6 +32,7 @@ const HUB = {
     items: [
       { a: { file: '~/.claude/CLAUDE.md', text: 'niente closers' }, b: { file: '~/.claude/output-styles/kind.md', text: 'chiudi con un prossimo passo' }, why: 'una vieta i closers, l\'altra li chiede' },
       { a: { file: '~/x' }, b: { file: '~/y', text: 'y' }, why: 'senza testo da un lato' },
+      { a: { file: '~/.openclaw/AGENTS.md', text: 'a' }, b: { file: '~/.openclaw/workspace-gtm/AGENTS.md', text: '`b`' }, why: 'due AGENTS.md diversi' },
     ],
     running: false,
   },
@@ -73,11 +74,29 @@ describe('contextView', () => {
 
   test('duplicates, old rules and contradictions name files by their label, never by id or path', () => {
     expect(v.duplicates).toEqual([{ text: 'Mai inviare email senza conferma', where: ['CLAUDE.md globale', 'CLAUDE.md · acme-web'] }]);
-    expect(v.oldRules.map((r) => [r.where, r.days])).toEqual([['studio-x', 372], ['Indice della memoria', 188]]);
-    expect(v.check.items).toHaveLength(1);
+    expect(v.oldRules.map((r) => [r.where, r.days])).toEqual([['rules · studio-x', 372], ['Indice della memoria', 188]]);
+    expect(v.check.items).toHaveLength(2);
     expect(v.check.items[0]!.a.where).toBe('CLAUDE.md globale');
-    expect(v.check.items[0]!.b.where).toBe('kind.md');
+    expect(v.check.items[0]!.b.where).toBe('kind · Claude Code');
     expect(v.check.at).toBe(1_792_976_303_647);
+  });
+
+  test('two unlisted files of the same name stay apart, by whose they are', () => {
+    const [a, b] = [v.check.items[1]!.a.where, v.check.items[1]!.b.where];
+    expect(a).toBe('rules · OpenClaw');
+    expect(b).toBe('rules · OpenClaw gtm');
+    expect(v.check.items[1]!.b.text).toBe('b');
+    expect(unlistedRef('~/.openclaw/USER.md')).toEqual({ kind: 'profile', owner: 'OpenClaw', name: 'USER' });
+    expect(unlistedRef('~/Projects/acme-web/AGENTS.md')).toEqual({ kind: 'rules', owner: 'acme-web', name: 'AGENTS' });
+    expect(unlistedRef('subagent:oracle.md')).toEqual({ kind: 'other', owner: '', name: 'oracle' });
+  });
+
+  test('old rules read as words: no bold marks, list dash or link target', () => {
+    expect(v.oldRules.map((r) => r.text)).toEqual(['Last Updated: 2025-10-29', 'una scheda di maggio: causa non provata']);
+    expect(plainRule('## Titolo con `codice` e *enfasi*')).toBe('Titolo con codice e enfasi');
+    expect(plainRule('1. passo __uno__')).toBe('passo uno');
+    expect(plainRule('Giudici: lettori gratuiti (**mai O')).toBe('Giudici: lettori gratuiti (mai O');
+    expect(plainRule('~/.claude/*.md resta com\'è')).toBe('~/.claude/*.md resta com\'è');
   });
 
   test('the failing checks of the agents\' hub', () => {
@@ -92,9 +111,16 @@ describe('contextView', () => {
 
 describe('the check', () => {
   test('running, failed and never run, as the hub writes them', () => {
-    expect(contextCheck({ at: null, items: [], running: true, startedAt: 5 })).toEqual({ at: null, running: true, error: null, items: [] });
+    expect(contextCheck({ at: null, items: [], running: true, startedAt: 5 }, undefined, 6)).toEqual({ at: null, running: true, error: null, items: [] });
     expect(contextCheck({ at: 9, items: [], running: false, error: 'risposta senza JSON' }).error).toBe('risposta senza JSON');
     expect(contextCheck(undefined)).toEqual({ at: null, running: false, error: null, items: [] });
+  });
+
+  test('a check left running by a hub that restarted is over after 20 minutes, so it can start again', () => {
+    const now = 1_000_000_000;
+    expect(contextCheck({ running: true, startedAt: now - CHECK_STALE_MS + 1 }, undefined, now).running).toBe(true);
+    expect(contextCheck({ running: true, startedAt: now - CHECK_STALE_MS }, undefined, now).running).toBe(false);
+    expect(contextCheck({ running: true }, undefined, now).running).toBe(false);
   });
 
   test('the start: taken, already running, refused in demo, refused with an error', () => {

@@ -1,7 +1,7 @@
 /**
  * THE ROWS OF SYSTEM THAT EXIST ONLY WITH THE USAGE HUB (hub-smistamento):
- * «Contesto degli agenti» (a level, HUBBR-17), «Processi» (the machine's view,
- * HUBBR-04) and «Funzionalità» (the feature map, a view, HUBBR-18), in the
+ * the agents' context (a level, HUBBR-17), the processes (the machine's view,
+ * HUBBR-04) and the feature map (a view, HUBBR-18), in the
  * order of the approved mockup.
  *
  * A chunk of their own, loaded by System only where the hub has answered: the
