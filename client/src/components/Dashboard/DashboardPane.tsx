@@ -11,8 +11,14 @@ import type { WSMessage } from '../../types';
 
 // The hub's half of «Consumi» and the usage per project: chunks of their own,
 // fetched only where they are drawn (HUBBR-12).
-const HubUsageSection = lazy(async () => ({ default: (await import('./HubUsageSection')).HubUsageSection }));
-const ProjectUsagePanel = lazy(async () => ({ default: (await import('../Sidebar/ProjectUsagePanel')).ProjectUsagePanel }));
+const HubUsageSection = lazy(async () => {
+  const { HubUsageSection: Section } = await import('./HubUsageSection');
+  return { default: Section };
+});
+const ProjectUsagePanel = lazy(async () => {
+  const { ProjectUsagePanel: Panel } = await import('../Sidebar/ProjectUsagePanel');
+  return { default: Panel };
+});
 
 const METRIC_OPTIONS = [
   { value: 'throughput', label: 'Throughput' },

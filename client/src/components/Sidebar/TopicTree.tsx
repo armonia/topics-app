@@ -156,8 +156,14 @@ const CalendarMenuRow = lazy(async () => {
 
 // The hub's data on a project row (HUBBR-16) exists only where the hub was
 // read: its chunk loads then, never in a window without the hub.
-const ProjectHubMark = lazy(async () => ({ default: (await import('./ProjectHub')).ProjectHubMark }));
-const ProjectHubMenu = lazy(async () => ({ default: (await import('./ProjectHub')).ProjectHubMenu }));
+const ProjectHubMark = lazy(async () => {
+  const { ProjectHubMark: Mark } = await import('./ProjectHub');
+  return { default: Mark };
+});
+const ProjectHubMenu = lazy(async () => {
+  const { ProjectHubMenu: Menu } = await import('./ProjectHub');
+  return { default: Menu };
+});
 
 const BOARD_ID = utilityPanelId('board');
 /** Nome e glifo NON si riscrivono qui: `PANE_CONFIG` li espone già, ed è la

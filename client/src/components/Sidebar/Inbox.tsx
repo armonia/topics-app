@@ -35,7 +35,11 @@ import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 
 const PANEL_W = 420;
 
-const loadPanel = () => import('./InboxPanel');
+// Destructured so knip sees which export is read (check:deadcode-blindspots).
+const loadPanel = async () => {
+  const { default: Panel } = await import('./InboxPanel');
+  return { default: Panel };
+};
 const InboxPanel = lazy(loadPanel);
 
 const BADGE_VARIANT = { 'needs-you': 'needsYou', lit: 'default', quiet: 'quiet' } as const;
