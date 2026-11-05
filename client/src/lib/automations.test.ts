@@ -26,20 +26,36 @@ function card(key: string, provider: string, level: string, extra: Record<string
   };
 }
 
+const JUDGED = {
+  needsYou: [card('cron:job-week', 'openclaw', 'te', { since: NOW - 3 * 24 * HOUR, title: 'Riepilogo settimanale' })],
+  broken: [
+    card('cron:job-docs', 'openclaw', 'rotto', { since: NOW - 70 * MIN, title: 'Indice dei documenti' }),
+    card('launchd:com.example.backup', 'launchd', 'rotto', { since: NOW - 18 * HOUR, title: 'Backup del Mac' }),
+  ],
+  groups: [
+    { id: 'avvisi', cards: [card('cron:job-mail', 'openclaw', 'va', { title: 'Avviso mail importanti', next: NOW + 5 * MIN })] },
+    { id: 'macchine', cards: [
+      card('launchd:com.example.memlog', 'launchd', 'va', { next: NOW + 2 * MIN, title: 'Memoria del Mac' }),
+      card('launchd:com.example.off', 'launchd', 'nascosto'),
+      card('gh:acme/acme-web/nightly.yml', 'github', 'va'),
+      card('health:docs', 'health', 'va'),
+      card('x:unknown', 'altro', 'va'),
+    ] },
+  ],
+};
+
+// The hub's `cards` is an index of everything, the computer's own apps and the
+// tasks included; only the judged lists above make rows.
+const OWN = card('launchd:com.example.darkroom', 'launchd', 'rotto', { own: true, purpose: { area: 'computer-app' } });
+const TASK = card('cron:task-quote', 'openclaw', 'te', { kind: 'compito', title: 'Chiedere il preventivo a studio-x' });
+
 const MODEL = {
   checkedAt: NOW - MIN,
-  verdict: { runsToday: 412 },
-  cards: {
-    'cron:job-docs': card('cron:job-docs', 'openclaw', 'rotto', { since: NOW - 70 * MIN, title: 'Indice dei documenti' }),
-    'cron:job-week': card('cron:job-week', 'openclaw', 'te', { since: NOW - 3 * 24 * HOUR, title: 'Riepilogo settimanale' }),
-    'cron:job-mail': card('cron:job-mail', 'openclaw', 'va', { title: 'Avviso mail importanti', next: NOW + 5 * MIN }),
-    'launchd:com.example.backup': card('launchd:com.example.backup', 'launchd', 'rotto', { since: NOW - 18 * HOUR, title: 'Backup del Mac' }),
-    'launchd:com.example.memlog': card('launchd:com.example.memlog', 'launchd', 'va', { next: NOW + 2 * MIN, title: 'Memoria del Mac' }),
-    'launchd:com.example.off': card('launchd:com.example.off', 'launchd', 'nascosto'),
-    'gh:acme/acme-web/nightly.yml': card('gh:acme/acme-web/nightly.yml', 'github', 'va'),
-    'health:docs': card('health:docs', 'health', 'va'),
-    'x:unknown': card('x:unknown', 'altro', 'va'),
-  },
+  verdict: { needsYou: 1, broken: 2, runsToday: 412 },
+  ...JUDGED,
+  own: [OWN],
+  tasks: [TASK],
+  cards: Object.fromEntries([...JUDGED.needsYou, ...JUDGED.broken, ...JUDGED.groups.flatMap((g) => g.cards), OWN, TASK].map((c) => [c.key, c])),
   workflows: { byName: [{ name: 'audit-dipendenze', runs: [{ runId: 'wf_1', at: NOW - 2 * HOUR, outcome: 'ok', durationMs: 6 * MIN, agents: 2 }, { runId: 'wf_2', at: NOW - HOUR, outcome: 'error', durationMs: MIN, agents: 1 }] }] },
 };
 
@@ -58,6 +74,20 @@ describe('readAutomations: the hub model as rows by system', () => {
     expect(m.runsToday).toBe(412);
   });
 
+  test('the computer\'s own apps and the tasks stay out: «Decidi tu» counts what the sidebar counts', () => {
+    const m = readAutomations(MODEL)!;
+    expect(m.rows.some((r) => r.key === OWN.key || r.key === TASK.key)).toBe(false);
+    expect(verdictOf(m.rows, NOW).toFix).toBe(toFixCount(MODEL.verdict));
+    expect(toDecide(m.rows)).toHaveLength(3);
+  });
+
+  test('a source the hub cannot read stays in, under its system, as the summary counts it', () => {
+    const source = card('source:workflows', 'workflows', 'te', { title: 'Non riesco a leggere Workflow' });
+    const m = readAutomations({ cards: { [source.key]: source }, needsYou: [source], broken: [], groups: [] })!;
+    expect(m.rows.map((r) => [r.key, r.system])).toEqual([['source:workflows', 'workflow']]);
+    expect(verdictOf(m.rows, NOW).toFix).toBe(toFixCount({ needsYou: 1, broken: 0 }));
+  });
+
   test('not the hub answer: null', () => {
     expect(readAutomations({ broken: [] })).toBeNull();
     expect(readAutomations(null)).toBeNull();
@@ -69,6 +99,8 @@ describe('readAutomations: the hub model as rows by system', () => {
     expect(systemOf('launchd')).toBe('mac');
     expect(systemOf('desktop')).toBe('mac');
     expect(systemOf('lobster')).toBe('workflow');
+    expect(systemOf('workflows')).toBe('workflow');
+    expect(systemOf('findings')).toBe('jarvis');
     expect(systemOf('board')).toBeNull();
   });
 });
@@ -197,9 +229,10 @@ describe('votes, notes and silences: the rows the hub feedback log accepts (HUBB
   });
 
   test('the vote and the notes read back from the model', () => {
-    const m = readAutomations({ cards: { 'cron:job-docs': card('cron:job-docs', 'openclaw', 'rotto', {
+    const voted = card('cron:job-docs', 'openclaw', 'rotto', {
       feedback: { vote: { v: 'ok', at: '2026-10-21T10:00:00Z', fp: 'fp1' }, mute: { until: null, why: 'rumore' }, notes: [{ at: '2026-10-21T10:00:00Z', note: 'serve', kind: 'note' }, { at: null, note: '', kind: 'note' }] },
-    }) } })!;
+    });
+    const m = readAutomations({ cards: { [voted.key]: voted }, broken: [voted] })!;
     expect(m.rows[0]!.feedback).toEqual({
       vote: { v: 'ok', at: '2026-10-21T10:00:00Z', note: null },
       mute: { until: null, why: 'rumore' },

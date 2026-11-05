@@ -40,6 +40,32 @@ const InboxPanel = lazy(loadPanel);
 
 const BADGE_VARIANT = { 'needs-you': 'needsYou', lit: 'default', quiet: 'quiet' } as const;
 
+/**
+ * The bell's number and name, and the model behind them: one reading for every
+ * bell that opens this panel (the column's and the phone's header on a pane),
+ * so two bells never show different numbers for the same sheet.
+ */
+export function useInboxBadge() {
+  const tr = useT();
+  const { attentionTotal } = useTabNotifications();
+  const attention = useAttentionRows();
+  const topics = useTopics();
+  const terminalSessions = useTerminalSessions();
+  const cards = useBoardTasks();
+  const live = useHubLive();
+  const hubPresent = useHubEverRead();
+  const model = useMemo(() => inboxModel(attention, topics, terminalSessions, cards), [attention, topics, terminalSessions, cards]);
+  const hubCounts = useMemo(() => hubBadgeCounts(live), [live]);
+  const badge = bellBadge(attentionTotal, model.waiting.length, hubCounts, hubPresent);
+  const decideCount = model.waiting.length + hubCounts.decide;
+  const label = badge.count === 0
+    ? tr('inbox.title')
+    : hubPresent && decideCount > 0
+      ? tr('bell.button.decide', { n: decideCount })
+      : tr('inbox.button.count', { n: badge.count, m: decideCount });
+  return { model, badge, decideCount, label, variant: BADGE_VARIANT[badge.tone] };
+}
+
 export function Inbox({
   onWSMessage,
   isMobile = false,
@@ -52,17 +78,7 @@ export function Inbox({
   const tr = useT();
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const { attentionTotal } = useTabNotifications();
-  const attention = useAttentionRows();
-  const topics = useTopics();
-  const terminalSessions = useTerminalSessions();
-  const cards = useBoardTasks();
-  const live = useHubLive();
-  const hubPresent = useHubEverRead();
-  const model = useMemo(() => inboxModel(attention, topics, terminalSessions, cards), [attention, topics, terminalSessions, cards]);
-  const hubCounts = useMemo(() => hubBadgeCounts(live), [live]);
-  const badge = bellBadge(attentionTotal, model.waiting.length, hubCounts, hubPresent);
-  const decideCount = model.waiting.length + hubCounts.decide;
+  const { model, badge, decideCount, label } = useInboxBadge();
 
   // ⇧⌘I: the chord announces, the button answers.
   useEffect(() => {
@@ -71,11 +87,6 @@ export function Inbox({
     return () => window.removeEventListener(OPEN_INBOX_EVENT, onOpen);
   }, []);
 
-  const label = badge.count === 0
-    ? tr('inbox.title')
-    : hubPresent && decideCount > 0
-      ? tr('bell.button.decide', { n: decideCount })
-      : tr('inbox.button.count', { n: badge.count, m: decideCount });
   const preload = () => { void loadPanel(); };
 
   return (

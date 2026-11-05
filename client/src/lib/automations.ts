@@ -4,8 +4,11 @@
  *
  * - the cards of the hub's model (`/api/hub/automations`), one per job, by
  *   system: Jarvis (the OpenClaw jobs and the health findings on them), Mac
- *   (launchd and the Claude desktop app), GitHub, PC and Workflow; the hidden
- *   ones (switched off, silenced) stay out, as on the hub's page;
+ *   (launchd and the Claude desktop app), GitHub, PC and Workflow. Only the
+ *   cards the hub judges (`needsYou`, `broken` and the groups in order), the
+ *   ones its summary counts: the computer's own apps (`own`) and the tasks
+ *   (`tasks`) sit in its `cards` index too, but outside the verdict, so a row
+ *   of theirs would make «Decidi tu» disagree with the sidebar's number;
  * - the workflows of the last days, from the same model, as read-only rows;
  * - the OpenClaw jobs as Topics reads them (`/api/cron/jobs`): the only ones
  *   with commands (run, on and off, remove), and the only source for the jobs
@@ -119,8 +122,11 @@ export function systemOf(provider: unknown): AutomationSystem | null {
     case 'pc':
       return 'pc';
     case 'workflow':
+    case 'workflows':
     case 'lobster':
       return 'workflow';
+    case 'findings':
+      return 'jarvis';
     default:
       return null;
   }
@@ -228,12 +234,17 @@ function readWorkflow(raw: unknown): AutomationRow | null {
   };
 }
 
+/** The cards the hub judges, the ones its summary counts: to decide, broken, then the groups in order. */
+function judgedCards(m: Raw): unknown[] {
+  const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+  return [...list(m.needsYou), ...list(m.broken), ...list(m.groups).flatMap((g) => list(asRecord(g)?.cards))];
+}
+
 /** The hub's model as rows, or null when the answer is not the hub's. */
 export function readAutomations(raw: unknown): AutomationsModel | null {
   const m = asRecord(raw);
-  const cards = m && asRecord(m.cards);
-  if (!m || !cards) return null;
-  const rows = Object.values(cards).flatMap((c) => {
+  if (!m || !asRecord(m.cards)) return null;
+  const rows = judgedCards(m).flatMap((c) => {
     const r = readCard(c);
     return r ? [r] : [];
   });

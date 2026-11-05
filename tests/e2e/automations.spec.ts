@@ -141,6 +141,10 @@ test.describe("automations", () => {
     const decide = pane.getByTestId("automations-decide-row");
     await expect(decide).toHaveCount(3);
     expect(await decide.evaluateAll((els) => els.map((e) => e.getAttribute("data-key")))).toEqual(["cron:job-week", "launchd:com.example.backup", "cron:job-docs"]);
+    // The hub's index also holds a broken app of the computer and a task waiting
+    // on you, both outside its verdict: they are not rows here either.
+    await expect(row(page, "launchd:com.example.darkroom")).toHaveCount(0);
+    await expect(row(page, "cron:task-quote")).toHaveCount(0);
     // An agent is already on the backup (the hub's queue); the OpenClaw jobs can be run again.
     await expect(decide.nth(1).getByTestId("automations-decide-fixing")).toHaveText("Un agente ci sta già lavorando.");
     await expect(decide.nth(1).getByTestId("automations-decide-run")).toHaveCount(0);
@@ -304,10 +308,15 @@ test.describe("automations", () => {
       }));
       expect(widths.doc).toBeLessThanOrEqual(390);
       expect(widths.pane).toBeLessThanOrEqual(390);
-      // The phone header: the pane's glyph, its name, the bell with how many need fixing.
+      // The phone header: the pane's glyph, its name, the bell. The bell opens
+      // the «Da guardare» sheet, so it carries that sheet's number, the same as
+      // the list's bell, never the automations' own count.
       const bell = page.getByTestId("automations-phone-bell");
       await expect(bell).toBeVisible();
-      await expect(page.getByTestId("automations-phone-bell-count")).toHaveText("3");
+      const bellName = await bell.getAttribute("aria-label");
+      expect(bellName).not.toBeNull();
+      const listBell = page.getByTestId("inbox-button");
+      if (await listBell.count()) expect(await listBell.first().getAttribute("aria-label")).toBe(bellName);
       // The button row at the bottom never covers the view: the pane ends where the row begins.
       const paneBox = (await page.getByTestId("automations-pane").boundingBox())!;
       const barBox = (await page.getByTestId("mobile-chrome-bar").boundingBox())!;

@@ -10,7 +10,9 @@
  * Scene: two broken (the docs index on Jarvis, the Mac backup on launchd) and
  * one waiting on you (the weekly summary, changed after your «va bene»); the
  * rest in order, a hidden one that must not show, a GitHub job, a PC job and
- * a workflow with two runs.
+ * a workflow with two runs. The index also holds a broken app of the computer
+ * and a task waiting on you, which the hub keeps out of its verdict: the view
+ * must leave them out too.
  */
 
 const MIN = 60_000;
@@ -74,6 +76,10 @@ function seeds(now: number): CardSeed[] {
   ];
 }
 
+/** A broken app of the computer and a task waiting on you: in the hub's index, never rows of this view. */
+const OWN_SEED: CardSeed = { key: "launchd:com.example.darkroom", provider: "launchd", title: "App del Mac di prova", level: "rotto", when: "all'avvio", cosa: "Una app del Mac, solo da guardare.", reason: "non risponde" };
+const TASK_SEED: CardSeed = { key: "cron:task-quote", provider: "openclaw", title: "Chiedere il preventivo a studio-x", level: "te", when: "fra 4 giorni", cosa: "Un compito con una scadenza." };
+
 function cardOf(s: CardSeed, now: number, feedback: FeedbackRow[]): Record<string, unknown> {
   const day = s.day ?? [];
   const last = day[0] ?? null;
@@ -89,14 +95,22 @@ function cardOf(s: CardSeed, now: number, feedback: FeedbackRow[]): Record<strin
 }
 
 export function automationsModel(now: number, feedback: FeedbackRow[]): Record<string, unknown> {
+  // As the hub builds it: the hidden ones nowhere, the judged ones in
+  // needsYou, broken and the groups, and the `cards` index holding the
+  // computer's own apps and the tasks too, outside the verdict.
+  const list = seeds(now).filter((s) => s.level !== "nascosto").map((s) => cardOf(s, now, feedback)) as Array<Record<string, unknown> & { key: string; level: string }>;
+  const own = { ...cardOf(OWN_SEED, now, feedback), own: true, purpose: { area: "computer-app", cosaFaPerTe: OWN_SEED.cosa } };
+  const task = { ...cardOf(TASK_SEED, now, feedback), kind: "compito" };
   const cards: Record<string, unknown> = {};
-  for (const s of seeds(now)) cards[s.key] = cardOf(s, now, feedback);
-  const list = Object.values(cards) as Array<{ level: string }>;
+  for (const c of [...list, own, task]) cards[c.key as string] = c;
   return {
     checkedAt: now - 30_000,
-    verdict: { needsYou: 1, broken: 2, ok: 10, hidden: 1, runsToday: 412 },
+    verdict: { needsYou: 1, broken: 2, ok: 10, hidden: 1, tasks: 1, own: 1, runsToday: 412 },
     needsYou: list.filter((c) => c.level === "te"),
     broken: list.filter((c) => c.level === "rotto"),
+    groups: [{ id: "macchine", title: "Macchine", cards: list.filter((c) => c.level === "va") }],
+    own: [own],
+    tasks: [task],
     cards,
     workflows: { days: 7, total: 2, failed: 1, byName: [
       { name: "audit-dipendenze", total: 2, failed: 1, runs: [

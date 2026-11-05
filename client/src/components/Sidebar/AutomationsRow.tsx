@@ -17,6 +17,7 @@ import { useT } from '@/hooks/useT';
 import { toFixCount } from '@/lib/automations';
 import { sidebarRowCard, ROW_ACTION_BOX, ROW_PX, ROW_H, ROW_INSET, ROW_GLYPH, ROW_GLYPH_SLOT, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
 import { SEGNALE_ATTESA } from './chromeSignals';
+import { useInboxBadge } from './Inbox';
 
 export function AutomationsRow({ open }: { open: boolean }) {
   const tr = useT();
@@ -52,9 +53,10 @@ export function AutomationsRow({ open }: { open: boolean }) {
 
 /**
  * The phone's header for the Automations view: the pane's glyph before its
- * name, and the bell on the right with how many need fixing. On the phone the
- * bell lives on the list, which is behind the pane; this one opens the same
- * sheet (the inbox event), so the person never has to go back to read it.
+ * name, and the bell on the right. On the phone the bell lives on the list,
+ * which is behind the pane; this one opens the same sheet (the inbox event)
+ * and carries the same number and name as that bell (`useInboxBadge`), so the
+ * badge always counts what the sheet lists.
  */
 export function AutomationsPhoneGlyph() {
   return <Workflow size={16} className="mr-2 flex-shrink-0 text-app-text-secondary" aria-hidden="true" />;
@@ -62,19 +64,18 @@ export function AutomationsPhoneGlyph() {
 
 export function AutomationsPhoneBell() {
   const tr = useT();
-  const entry = useHubLive().automations;
-  const n = entry?.data !== undefined ? toFixCount(entry.data) ?? 0 : 0;
+  const { badge, label, variant } = useInboxBadge();
   return (
     <button
       type="button"
       data-testid="automations-phone-bell"
-      aria-label={tr('inbox.title')}
+      aria-label={label}
       title={tr('inbox.title')}
       onClick={() => window.dispatchEvent(new CustomEvent(OPEN_INBOX_EVENT))}
       className={`relative ml-auto mr-[6px] ${ROW_ACTION_BOX} tap-expand-y flex-shrink-0 flex items-center justify-center rounded text-app-text-muted hover:text-app-text hover:bg-app-hover transition-colors app-no-drag`}
     >
       <Bell size={16} aria-hidden="true" />
-      <NotificationBadge count={n} variant="needsYou" className="absolute -top-1 -right-1" testId="automations-phone-bell-count" />
+      <NotificationBadge count={badge.count} variant={variant} ariaLabel={label} className="absolute -top-1 -right-1" testId="automations-phone-bell-count" />
     </button>
   );
 }
