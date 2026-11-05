@@ -41,9 +41,22 @@ export const MAX_CACHE_BREAKPOINTS = 4;
  * moltiplica i marker (e non sfonda il limite di quattro).
  */
 export function applyPromptCache(params: Anthropic.MessageCreateParams): void {
+  // I segni si mettono qui e solo qui: quelli arrivati da fuori (storia ripresa, prompt a blocchi, definizioni
+  // dei tool) si tolgono prima. Il 05/11 dalle 02:13 ogni turno di Jarvis su Discord moriva con «A maximum of 4
+  // blocks with cache_control may be provided. Found 5».
+  stripCacheMarks(params);
   markLastTool(params);
   markSystem(params);
   markLastMessage(params);
+}
+
+function stripCacheMarks(params: Anthropic.MessageCreateParams): void {
+  const strip = (b: unknown) => {
+    if (b && typeof b === "object" && "cache_control" in b) delete (b as Record<string, unknown>).cache_control;
+  };
+  if (Array.isArray(params.tools)) params.tools.forEach(strip);
+  if (Array.isArray(params.system)) params.system.forEach(strip);
+  for (const m of params.messages ?? []) if (Array.isArray(m.content)) m.content.forEach(strip);
 }
 
 function markLastTool(params: Anthropic.MessageCreateParams): void {

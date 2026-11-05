@@ -152,3 +152,23 @@ describe("limiti e invarianti", () => {
     expect((last[0] as Anthropic.TextBlockParam).text).toBe("ciao");
   });
 });
+
+describe("applyPromptCache, segni arrivati da fuori", () => {
+  test("cinque segni già presenti diventano i tre suoi, mai oltre il tetto di quattro", () => {
+    const e = { type: "ephemeral" as const };
+    const params = {
+      model: "m", max_tokens: 1,
+      tools: [{ name: "a", input_schema: { type: "object" }, cache_control: e }, { name: "b", input_schema: { type: "object" } }],
+      system: [{ type: "text", text: "uno", cache_control: e }, { type: "text", text: "due", cache_control: e }],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "x", cache_control: e }] },
+        { role: "assistant", content: [{ type: "text", text: "y", cache_control: e }] },
+        { role: "user", content: [{ type: "text", text: "z" }] },
+      ],
+    } as never;
+    applyPromptCache(params);
+    const n = JSON.stringify(params).split('"cache_control"').length - 1;
+    expect(n).toBe(3);
+    expect(n).toBeLessThanOrEqual(MAX_CACHE_BREAKPOINTS);
+  });
+});
