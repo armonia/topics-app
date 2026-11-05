@@ -60,6 +60,7 @@ Tutto ciò che viene dall'hub si vede solo se l'hub c'è: senza hub Topics resta
 
 ## Fuori
 Il motore dell'hub (API, freno, scansioni, misura di GPU e rete) non cambia. Niente pagine nuove sull'hub, e le sue pagine e la tray si toccano dopo il merge. Niente app per il telefono a parte: stessi posti, nel cassetto in basso.
+Le risposte sulle card «Decidi tu» di Agenti e lavori che il mockup mette in riga restano fuori: «Approva», «Vedi il diff» e «Ferma» su un workflow fermo a un cancello vogliono un'API di approvazione che l'hub non ha (ci sono solo le `/api/gate*`, e il motore dell'hub qui non cambia), e «Sul main» / «Resta su…» su una domanda di Topics vogliono le scelte della domanda, che la riga non porta e che nemmeno la campanella offre (lì è «Rispondi», che apre la chat). Le card aprono la chat o le Automazioni dell'hub, come dice HUBBR-13.
 
 ## Non ancora specificato
 - Se la CPU di ogni processo serve davvero anche fuori dai più pesanti: aggiungerla vorrebbe dire cambiare il censimento dell'hub, che qui è fuori.
