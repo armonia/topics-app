@@ -23,7 +23,7 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "
 import { dirname } from "node:path";
 import type { DispatchBrake, PlanUsage, PlanUsageWindow, ProviderHold, UsageWindowKind } from "../../shared/provider-hold";
 import { PLAN_DISPATCH_HOLD_AT, providerHoldKey } from "../../shared/provider-hold";
-export type { DispatchBrake, PlanUsage, ProviderHold, UsageWindowKind };
+export type { PlanUsage, ProviderHold, UsageWindowKind };
 
 /**
  * One hold per provider key ("claude", "codex", …): each hits its own wall on

@@ -14,7 +14,6 @@ import { apiFetch } from '../lib/shell/net';
 import { subscribeFrames } from '../lib/wsFrameBus';
 import type { DispatchBrake } from '../../../shared/provider-hold';
 
-export type { DispatchBrake };
 
 const POLL_MS = 60_000;
 const EMPTY: readonly DispatchBrake[] = [];

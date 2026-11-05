@@ -31,7 +31,7 @@ export function whenLabel(untilMs: number, nowMs: number, tr: Translate, locale:
 }
 
 /** Whether the window is still below its end: the early stop, not a spent plan. */
-export function isEarlyStop(b: DispatchBrake): boolean {
+function isEarlyStop(b: DispatchBrake): boolean {
   return b.utilization !== null && b.utilization < 100;
 }
 
@@ -52,7 +52,7 @@ export function brakeDetail(b: DispatchBrake, nowMs: number, tr: Translate, loca
   return isEarlyStop(b) ? `${sentence} (${tr('brake.threshold', { pct: PLAN_DISPATCH_HOLD_AT })})` : sentence;
 }
 
-export interface BrakeChipView {
+interface BrakeChipView {
   /** «Claude», «Codex», or «Claude e Codex». */
   who: string;
   /** The reason after the name: one provider's own, or the first start again for two. */
