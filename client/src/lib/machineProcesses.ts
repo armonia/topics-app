@@ -74,6 +74,8 @@ export interface ProcessRow {
   memWarn: boolean;
   /** CPU of the unit in % of one core; null where the hub does not measure it. */
   cpuPct: number | null;
+  /** True when the reading covers only some of the unit's processes: the real figure is higher. */
+  cpuPartial: boolean;
   gpuPct: number | null;
   netInBps: number | null;
   netOutBps: number | null;
@@ -86,20 +88,52 @@ const MEM_WARN_MB = 1500;
 // Both separators: a Windows server sends `C:\\work\\acme-web`.
 const baseName = (p: string): string => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p;
 
+/** One CPU reading of the hub: the pid it is keyed to, a fraction of one core, how many processes it covers. */
+interface CpuReading {
+  pid: number;
+  cpu: number;
+  n: number;
+}
+
+function cpuReadings(raw: unknown): CpuReading[] {
+  return list(raw).flatMap((r) => {
+    const pid = num(r.pid), cpu = num(r.cpu);
+    return pid === null || cpu === null ? [] : [{ pid, cpu, n: Math.max(1, num(r.n) ?? 1) }];
+  });
+}
+
 /**
- * The CPU the hub measured, by pid, as a fraction of one core: the heaviest
- * processes (`hogs`) and the agents' trees (`trees`). A pid in both keeps the
- * larger reading, so a tree is not counted twice.
+ * The CPU the hub measured for one process alone, by pid, as a fraction of one
+ * core. The hub groups its heaviest processes (`hogs`) by name and keys the
+ * group's sum to its first pid only, so a group of several says nothing about
+ * that pid: only the hogs of a single process are kept.
  */
 export function cpuByPid(mac: unknown): Map<number, number> {
   const out = new Map<number, number>();
   if (!isRecord(mac)) return out;
-  for (const r of [...list(mac.hogs), ...list(mac.trees)]) {
-    const pid = num(r.pid), cpu = num(r.cpu);
-    if (pid === null || cpu === null) continue;
-    out.set(pid, Math.max(out.get(pid) ?? 0, cpu));
-  }
+  for (const h of cpuReadings(mac.hogs)) if (h.n === 1) out.set(h.pid, h.cpu);
   return out;
+}
+
+/** The CPU of a unit and how many of its processes the reading covers. */
+interface UnitCpu {
+  pct: number | null;
+  measured: number;
+}
+
+/**
+ * An agent's tree (`trees`) covers its root and every descendant, so a unit
+ * holding a tree root takes the trees' sums and nothing else: a single hog in
+ * the same unit may be one of those descendants. Without a tree, the
+ * single-process hogs.
+ */
+function unitCpu(pids: readonly number[], trees: readonly CpuReading[], single: ReadonlyMap<number, number>): UnitCpu {
+  const own = new Set(pids);
+  const mine = trees.filter((t) => own.has(t.pid));
+  const parts = mine.length ? mine : pids.filter((p) => single.has(p)).map((p) => ({ cpu: single.get(p) ?? 0, n: 1 }));
+  if (!parts.length) return { pct: null, measured: 0 };
+  const cpu = parts.reduce((s, x) => s + x.cpu, 0);
+  return { pct: Math.round(cpu * 1000) / 10, measured: Math.min(pids.length, parts.reduce((s, x) => s + x.n, 0)) };
 }
 
 /** The running Topics script behind a unit: same process id, else one of its pids. */
@@ -113,12 +147,13 @@ function scriptForUnit(unit: JsonRecord, scripts: readonly ScriptProcessInfo[]):
 
 export function processRows(census: unknown, mac: unknown, scripts: readonly ScriptProcessInfo[]): ProcessRow[] {
   const units = isRecord(census) ? list(census.units) : [];
-  const cpu = cpuByPid(mac);
+  const single = cpuByPid(mac);
+  const trees = isRecord(mac) ? cpuReadings(mac.trees) : [];
   const top = Math.max(1, ...units.map((u) => num(u.memMB) ?? 0));
   return units.map((u, i) => {
     const kind = (KINDS as readonly string[]).includes(String(u.type)) ? (u.type as UnitKind) : 'altro'; // allow-italian: the census's fallback kind
     const pids = Array.isArray(u.pids) ? u.pids.filter((p): p is number => typeof p === 'number') : [];
-    const measured = pids.filter((p) => cpu.has(p));
+    const cpu = unitCpu(pids, trees, single);
     const memMB = num(u.memMB) ?? 0;
     const use = isRecord(u.use) ? str(u.use.text) : null;
     const owner = isRecord(u.owner) ? str(u.owner.label) : null;
@@ -130,7 +165,8 @@ export function processRows(census: unknown, mac: unknown, scripts: readonly Scr
       memMB,
       memShare: Math.min(1, memMB / top),
       memWarn: memMB >= MEM_WARN_MB,
-      cpuPct: measured.length ? Math.round(measured.reduce((s, p) => s + (cpu.get(p) ?? 0), 0) * 1000) / 10 : null,
+      cpuPct: cpu.pct,
+      cpuPartial: cpu.pct !== null && cpu.measured < pids.length,
       gpuPct: num(u.gpuPct),
       netInBps: num(u.netInBps),
       netOutBps: num(u.netOutBps),
@@ -153,13 +189,19 @@ export interface MacGauges {
   state: string | null;
   cpuPct: number | null;
   memUsedGB: number | null;
+  /** The memory pressure the hub reads (a different measure from the used GB), in %. */
+  memPressurePct: number | null;
   swapUsedGB: number | null;
   swapTotalGB: number | null;
   gpuPct: number | null;
   netInBps: number | null;
   netOutBps: number | null;
-  /** The machine's last 24 h, per gauge, as the hub keeps it; empty where it keeps none (swap, network). */
-  history: { cpu: HistoryPoint[]; mem: HistoryPoint[]; gpu: HistoryPoint[] };
+  /**
+   * The machine's last 24 h, per gauge, as the hub keeps it; empty where it
+   * keeps none (swap, network). Memory has none here: the hub's memory history
+   * is the system's pressure, not the used GB the gauge shows.
+   */
+  history: { cpu: HistoryPoint[]; gpu: HistoryPoint[] };
 }
 
 /** One sample of a machine's history: unix seconds and a percentage. */
@@ -203,12 +245,13 @@ export function macGauges(mac: unknown, machines: unknown, census: unknown): Mac
     state: local ? str(local.state) : null,
     cpuPct: metric(local, 'cpu'),
     memUsedGB: num(mem.usedGB),
+    memPressurePct: metric(local, 'mem'),
     swapUsedGB: num(m.swapUsedGB),
     swapTotalGB: num(m.swapTotalGB),
     gpuPct: metric(local, 'gpu'),
     netInBps: num(summary.netInBps),
     netOutBps: num(summary.netOutBps),
-    history: { cpu: metricHistory(local, 'cpu'), mem: metricHistory(local, 'mem'), gpu: metricHistory(local, 'gpu') },
+    history: { cpu: metricHistory(local, 'cpu'), gpu: metricHistory(local, 'gpu') },
   };
 }
 
@@ -294,8 +337,9 @@ export function parseLogEvent(raw: string): LogLine | null {
   try { v = JSON.parse(raw); } catch { return null; }
   if (!isRecord(v)) return null;
   const msg = str(v.msg);
-  if (!msg) return null;
   const tag = str(v.tag) ?? '';
+  // The stream opens with its own greeting (tag `system`, no time): not a line of the proxy.
+  if (!msg || tag === 'system') return null;
   return { ts: str(v.ts) ?? '', tag, msg, tone: logTone(tag, msg) };
 }
 

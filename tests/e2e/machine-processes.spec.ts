@@ -136,16 +136,20 @@ test.describe("the machine's processes", () => {
     const topics = rows.filter({ has: page.getByText("Topics", { exact: true }) });
     await expect(topics.getByTestId("machine-process-gpu")).toHaveText("12%");
     await expect(topics.getByTestId("machine-process-net")).toContainText("120 KB/s");
-    await expect(topics.getByTestId("machine-process-cpu")).toHaveText("18%");
+    // One of Topics' two processes is measured: a floor, said as one.
+    await expect(topics.getByTestId("machine-process-cpu")).toHaveText("≥18%");
+    // A hog grouped by name under the browser's pid is not that pid's CPU.
+    await expect(rows.filter({ has: page.getByText("Browser", { exact: true }) }).getByTestId("machine-process-cpu")).toHaveText("-");
     const system = rows.filter({ has: page.getByText("macOS", { exact: true }) });
     await expect(system.getByTestId("machine-process-net")).toHaveText("-");
     await expect(rows.filter({ hasText: "Container locali" }).getByTestId("machine-process-cpu")).toHaveText("-");
     await expect(pane.getByTestId("machine-processes-more")).toContainText("Altri 6 processi");
 
-    // The day behind the gauges: a 24 h line on the Mac's CPU, memory and GPU
-    // (none on swap and network, which the hub keeps no history of) and on the
-    // PC's four, with the peak in words.
-    await expect(pane.getByTestId("machine-processes-mac").getByTestId("machine-gauge-history")).toHaveCount(3);
+    // The day behind the gauges: a 24 h line on the Mac's CPU and GPU and on
+    // the PC's four, with the peak in words. Not under the Mac's used GB: the
+    // hub's memory history is the pressure, named in the section's head instead.
+    await expect(pane.getByTestId("machine-processes-mac").getByTestId("machine-gauge-history")).toHaveCount(2);
+    await expect(pane.getByTestId("machine-processes-mac")).toContainText("tranquillo · pressione della memoria 62%");
     await expect(pane.getByTestId("machine-processes-pc").getByTestId("machine-gauge-history")).toHaveCount(4);
     await expect(pane.getByTestId("machine-processes-mac").getByTestId("machine-gauge-history").first()).toHaveAttribute("aria-label", /Ultime 24 ore, picco \d+%/);
 
@@ -159,6 +163,8 @@ test.describe("the machine's processes", () => {
     await expect(pane.getByTestId("machine-processes-services")).toContainText("Proxy degli account");
     const log = pane.getByTestId("machine-log-lines");
     await expect(log).toContainText("limite del provider", { timeout: 15_000 });
+    // The stream's own greeting is not a line of the proxy.
+    await expect(log).not.toContainText("Connected to log stream");
     await expect.poll(() => hub!.streams.opened).toBeGreaterThan(0);
     await page.screenshot({ path: testInfo.outputPath("vero-processi-macchina-scuro.png") });
     await page.emulateMedia({ colorScheme: "light" });
@@ -235,7 +241,11 @@ test.describe("the machine's processes", () => {
     await expect(pane.getByTestId("machine-processes-services")).not.toContainText("Tutto acceso");
     // The census read before the drop is still drawn: stale, and said to be.
     await expect(pane.getByTestId("machine-process-row")).toHaveCount(8);
-    await expect(pane.getByTestId("machine-processes-mac").getByTestId("machine-gauge-history")).toHaveCount(3);
+    await expect(pane.getByTestId("machine-processes-mac").getByTestId("machine-gauge-history")).toHaveCount(2);
+    // The PC's last state is not shown as current either, nor is the header's "now".
+    await expect(pane.getByTestId("machine-processes-pc")).toContainText("Stato non letto");
+    await expect(pane.getByTestId("machine-processes-pc")).not.toContainText("Acceso");
+    await expect(pane.getByTestId("machine-processes-updated")).toContainText("Ultima lettura");
     await page.screenshot({ path: testInfo.outputPath("vero-processi-macchina-hub-fermo.png") });
     hub = null;
   });

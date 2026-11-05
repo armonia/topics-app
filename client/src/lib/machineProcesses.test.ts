@@ -24,11 +24,11 @@ const census = {
 };
 const mac = {
   cores: 12, swapUsedGB: 1.2, swapTotalGB: 8, mem: { totalGB: 32, usedGB: 26.8 },
-  hogs: [{ pid: 10, cpu: 0.04 }],
-  trees: [{ pid: 42, cpu: 0.09 }, { pid: 10, cpu: 0.02 }],
+  hogs: [{ pid: 10, cpu: 0.04, n: 1 }],
+  trees: [{ pid: 42, cpu: 0.09, n: 2 }],
 };
 const machines = [
-  { id: 'local', local: true, state: 'tranquillo', metrics: [{ key: 'cpu', pct: 31, history: [{ t: 200, v: 50 }, { t: 100, v: 90 }] }, { key: 'gpu', pct: 38 }, { key: 'swap', pct: 15, history: [] }] },
+  { id: 'local', local: true, state: 'tranquillo', metrics: [{ key: 'cpu', pct: 31, history: [{ t: 200, v: 50 }, { t: 100, v: 90 }] }, { key: 'gpu', pct: 38 }, { key: 'mem', pct: 55, history: [{ t: 1, v: 60 }] }, { key: 'swap', pct: 15, history: [] }] },
   { id: 'pc', local: false, state: 'lavora', caption: 'dorme dopo 20 min senza lavoro', lines: ['Collegato dal Mac'], metrics: [{ key: 'cpu', name: 'CPU', pct: 25, note: 'adesso', history: [{ t: 1, v: 10 }, { t: 2, v: 25 }] }], procs: [{ name: 'chrome-headless-shell', cores: 1.2 }], offload: 2 },
 ];
 const script = (over: Partial<ScriptProcessInfo>): ScriptProcessInfo => ({
@@ -44,12 +44,26 @@ describe('per process: GPU and network, a dash where not measured', () => {
     expect(formatPct(rows[1]!.gpuPct)).toBe('0%');
   });
 
-  test('CPU only on pids the hub measured, the larger reading when a pid is both a hog and a tree', () => {
+  test('CPU only on pids the hub measured, the tree covering the whole unit', () => {
     expect(cpuByPid(mac).get(10)).toBe(0.04);
     const rows = processRows(census, mac, []);
-    expect(rows[0]!.cpuPct).toBe(4);
-    expect(rows[1]!.cpuPct).toBe(9);
-    expect(rows[2]!.cpuPct).toBeNull();
+    expect(rows[0]).toMatchObject({ cpuPct: 4, cpuPartial: true });
+    expect(rows[1]).toMatchObject({ cpuPct: 9, cpuPartial: false });
+    expect(rows[2]).toMatchObject({ cpuPct: null, cpuPartial: false });
+  });
+
+  test('a hog grouped by name says nothing about its first pid', () => {
+    // The live hub: its Claude Code sessions group sums 8 processes under pid 73098.
+    const grouped = { hogs: [{ pid: 73098, cpu: 0.027, n: 8 }], trees: [] };
+    expect(cpuByPid(grouped).has(73098)).toBe(false);
+    const units = { units: [{ id: 'u', name: 'Claude (app)', type: 'app', memMB: 2000, pids: [73097, 73098] }] };
+    expect(processRows(units, grouped, [])[0]!.cpuPct).toBeNull();
+  });
+
+  test('a unit with a tree takes the tree only: a hog inside it is not counted twice', () => {
+    const both = { hogs: [{ pid: 73098, cpu: 0.05, n: 1 }], trees: [{ pid: 73097, cpu: 0.08, n: 2 }] };
+    const units = { units: [{ id: 'u', name: 'Claude · acme-web', type: 'sessione', memMB: 900, pids: [73097, 73098] }] };
+    expect(processRows(units, both, [])[0]).toMatchObject({ cpuPct: 8, cpuPartial: false });
   });
 
   test('an unknown kind is drawn as a plain process', () => {
@@ -82,8 +96,8 @@ describe('Stop button only on a running Topics script', () => {
 describe('the Mac, the PC and the services', () => {
   test('gauges: memory in GB from /api/mac, CPU and GPU from the machine list, network from the census', () => {
     expect(macGauges(mac, machines, census)).toEqual({
-      cores: 12, totalGB: 32, state: 'tranquillo', cpuPct: 31, memUsedGB: 26.8, swapUsedGB: 1.2, swapTotalGB: 8, gpuPct: 38, netInBps: 2_400_000, netOutBps: 57_000,
-      history: { cpu: [{ t: 100, v: 90 }, { t: 200, v: 50 }], mem: [], gpu: [] },
+      cores: 12, totalGB: 32, state: 'tranquillo', cpuPct: 31, memUsedGB: 26.8, swapUsedGB: 1.2, swapTotalGB: 8, memPressurePct: 55, gpuPct: 38, netInBps: 2_400_000, netOutBps: 57_000,
+      history: { cpu: [{ t: 100, v: 90 }, { t: 200, v: 50 }], gpu: [] },
     });
     expect(macGauges(null, null, null).cpuPct).toBeNull();
   });
@@ -119,6 +133,8 @@ describe('the proxy log', () => {
     expect(l).toEqual({ ts: '14:05:41', tag: 'refresh', msg: 'prof-c: refresh failed after retries', tone: 'error' });
     expect(parseLogEvent('not json')).toBeNull();
     expect(parseLogEvent('{"tag":"system"}')).toBeNull();
+    // The stream's own greeting, sent first by the real proxy, is not a log line.
+    expect(parseLogEvent('{"tag":"system","msg":"Connected to log stream"}')).toBeNull();
     expect(logTone('auto-switch', 'prof-a -> prof-b')).toBe('warn');
     expect(logTone('proxy', '200 claude · acme-web')).toBe('ok');
     expect(logTone('info', 'API proxy on :3336')).toBe('plain');

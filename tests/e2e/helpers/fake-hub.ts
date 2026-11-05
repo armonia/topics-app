@@ -77,8 +77,10 @@ function answers(items: FakeHubItem[], devPids: number[] = []): Record<string, u
       at: now, cores: 12, strained: false, swapUsedGB: 1.26, swapTotalGB: 8, swapSustained: false,
       effort: { parts: [{ key: "cpu", pct: 34 }, { key: "mem", pct: 60 }] },
       mem: { totalGB: 32, usedGB: 26.8 },
-      hogs: [{ pid: 2001, cpu: 0.18 }, { pid: 2101, cpu: 0.04 }],
-      trees: [{ pid: 2301, cpu: 0.06 }, { pid: 4242, cpu: 0.09 }],
+      // Like the real hub: hogs grouped by name, the sum keyed to the first pid
+      // (the browser's group of 4 says nothing about pid 2401); trees count their processes.
+      hogs: [{ pid: 2001, cpu: 0.18, n: 1 }, { pid: 2101, cpu: 0.04, n: 1 }, { pid: 2401, cpu: 0.3, n: 4 }],
+      trees: [{ pid: 2301, cpu: 0.06, n: 1 }, { pid: 4242, cpu: 0.09, n: 1 }],
     },
     "mac/procs": machineCensus(now, devPids),
     machines: machineList(),
@@ -154,7 +156,7 @@ function day(base: number, swing: number, last: number): Array<{ t: number; v: n
 
 function machineList(): unknown[] {
   return [
-    { id: "local", name: "Mac", local: true, state: "pressione normale", level: 0, caption: "12 core · ultime 24 h",
+    { id: "local", name: "Mac", local: true, state: "tranquillo", level: 0, caption: "12 core · ultime 24 h",
       metrics: [{ key: "cpu", name: "CPU", pct: 31, history: day(45, 30, 31) }, { key: "mem", name: "Memoria", pct: 62, history: day(60, 10, 62) }, { key: "swap", name: "Swap", pct: 15, history: [] }, { key: "gpu", name: "GPU", pct: 38, history: day(30, 25, 38) }, { key: "disk", name: "Disco", pct: 70, history: day(70, 1, 70) }] },
     { id: "pc", name: "PC", local: false, state: "lavora", level: 0, caption: "dorme dopo 20 min senza lavoro",
       lines: ["Collegato dal Mac", "Suite e2e di acme-web, mandata dal Mac carico"],

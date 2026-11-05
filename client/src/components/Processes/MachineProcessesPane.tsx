@@ -116,6 +116,8 @@ export function MachineProcessesPane() {
   // reads failing, the last list it pushed is not shown as current.
   const services = useMemo(() => (failing ? [] : serviceRows(live.services?.data)), [live.services, failing]);
   const at = censusAt(reads?.census);
+  // One answer for every section: with the hub gone, nothing reads as current.
+  const stale = !answering || failing;
 
   return (
     <div className="@container h-full overflow-auto bg-app-bg" data-testid="machine-processes">
@@ -124,18 +126,18 @@ export function MachineProcessesPane() {
           <h1 className="m-0 text-title font-semibold text-app-text-heading @max-3xl:hidden">{tr('processes.title')}</h1>
           <span className="flex-1 @max-3xl:hidden" />
           <span className={`flex items-center gap-1.5 text-mini tabular-nums ${FAINT} @max-3xl:text-compact`} data-testid="machine-processes-updated">
-            <span className={`h-[7px] w-[7px] flex-none rounded-full ${answering && !failing ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-amber-500'}`} />
-            {at === null ? tr('processes.reading') : `${tr('processes.now')} · ${updatedLabel(now - at, tr)}`}
+            <span className={`h-[7px] w-[7px] flex-none rounded-full ${!stale ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-amber-500'}`} />
+            {at === null ? tr('processes.reading') : `${tr(stale ? 'processes.lastRead' : 'processes.now')} · ${updatedLabel(now - at, tr)}`}
           </span>
         </header>
 
-        {present && (!answering || failing) && <HubDownBand onRetry={reread} />}
+        {present && stale && <HubDownBand onRetry={reread} />}
 
         {present && (
         <div className="grid items-start gap-3.5 @5xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
           <MacSection gauges={gauges} rows={rows} onStopped={refresh} />
           <div className="flex min-w-0 flex-col gap-3.5">
-            {pc && <PcSection pc={pc} />}
+            {pc && <PcSection pc={pc} stale={stale} />}
             <ServicesAndLog services={services} />
           </div>
         </div>
@@ -206,7 +208,7 @@ function Gauge({ label, value, unit, share, warn = false, history = [] }: { labe
       <div className="mt-0.5 whitespace-nowrap text-body-lg text-app-text @max-3xl:text-prose">
         {value}{unit && <span className={`text-mini ${FAINT}`}> {unit}</span>}
       </div>
-      {/* With a day of samples the line replaces the bar (for memory the hub keeps the pressure, not the GB). */}
+      {/* With a day of samples the line replaces the bar. */}
       {history.length >= 2 ? <Spark points={history} warn={warn} /> : (
         <div className={`mt-1.5 h-[3px] overflow-hidden rounded-sm ${TRACK}`}>
           {share !== null && <i className={`block h-full rounded-sm ${warn ? 'bg-amber-500' : 'bg-app-text-tertiary'}`} style={{ width: `${Math.round(Math.min(1, share) * 100)}%` }} />}
@@ -223,17 +225,23 @@ function MacSection({ gauges: g, rows, onStopped }: { gauges: MacGauges; rows: P
   const rest = rows.slice(TOP_ROWS);
   const restMem = rest.reduce((s, r) => s + r.memMB, 0);
   const memShare = g.memUsedGB !== null && g.totalGB ? g.memUsedGB / g.totalGB : null;
-  const summary = [g.cores !== null ? tr('processes.cores', { n: g.cores }) : null, g.totalGB !== null ? `${Math.round(g.totalGB)} GB` : null, g.state].filter(Boolean).join(' · ');
+  // The pressure is its own measure, so it is named here and not drawn under the used GB.
+  const summary = [
+    g.cores !== null ? tr('processes.cores', { n: g.cores }) : null,
+    g.totalGB !== null ? `${Math.round(g.totalGB)} GB` : null,
+    g.state,
+    g.memPressurePct !== null ? tr('processes.pressure', { n: Math.round(g.memPressurePct) }) : null,
+  ].filter(Boolean).join(' · ');
   return (
     <section aria-label={tr('processes.mac')} className={SECTION} data-testid="machine-processes-mac">
       <div className={SECTION_HEAD}>
         <Monitor size={14} className="flex-none text-app-text-secondary" aria-hidden="true" />
         <span className="text-compact font-semibold text-app-text-heading">{tr('processes.mac')}</span>
-        <span className={`min-w-0 flex-1 truncate text-mini tabular-nums ${FAINT} @max-3xl:text-compact`}>{summary}</span>
+        <span className={`min-w-0 flex-1 truncate text-mini tabular-nums ${FAINT} @max-3xl:whitespace-normal @max-3xl:text-compact`}>{summary}</span>
       </div>
       <div className="grid grid-cols-5 border-b border-app-border-subtle tabular-nums @max-3xl:grid-cols-3">
         <Gauge label={tr('processes.cpu')} value={formatPct(g.cpuPct)} share={g.cpuPct === null ? null : g.cpuPct / 100} history={g.history.cpu} />
-        <Gauge label={tr('processes.memory')} value={g.memUsedGB === null ? NOT_MEASURED : g.memUsedGB.toFixed(1).replace('.', ',')} unit={g.totalGB ? `/ ${Math.round(g.totalGB)} GB` : undefined} share={memShare} warn={memShare !== null && memShare >= 0.8} history={g.history.mem} />
+        <Gauge label={tr('processes.memory')} value={g.memUsedGB === null ? NOT_MEASURED : g.memUsedGB.toFixed(1).replace('.', ',')} unit={g.totalGB ? `/ ${Math.round(g.totalGB)} GB` : undefined} share={memShare} warn={memShare !== null && memShare >= 0.8} />
         <Gauge label={tr('processes.swap')} value={g.swapUsedGB === null ? NOT_MEASURED : g.swapUsedGB.toFixed(1).replace('.', ',')} unit="GB" share={g.swapUsedGB !== null && g.swapTotalGB ? g.swapUsedGB / g.swapTotalGB : null} />
         <Gauge label={tr('processes.gpu')} value={formatPct(g.gpuPct)} share={g.gpuPct === null ? null : g.gpuPct / 100} history={g.history.gpu} />
         <Gauge label={tr('processes.net')} value={g.netInBps === null ? NOT_MEASURED : `↓${formatRate(g.netInBps)}`} unit={g.netOutBps === null ? undefined : `↑${formatRate(g.netOutBps)}`} share={null} />
@@ -279,6 +287,9 @@ function ProcessRowView({ row: r, onStopped }: { row: ProcessRow; onStopped: () 
   const [stopping, setStopping] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const memTone = r.memWarn ? WARNING_TEXT : '';
+  // A reading of only some of the unit's processes is a floor, and says so.
+  const cpu = r.cpuPartial ? `≥${formatPct(r.cpuPct)}` : formatPct(r.cpuPct);
+  const cpuTitle = r.cpuPct === null ? tr('processes.notMeasured') : r.cpuPartial ? tr('processes.cpuPartial') : undefined;
   const stop = useCallback(async () => {
     if (!r.script) return;
     setStopping(true);
@@ -320,7 +331,7 @@ function ProcessRowView({ row: r, onStopped }: { row: ProcessRow; onStopped: () 
           {failure && <span className={`text-mini ${DANGER_TEXT}`}>{tr('processes.stopFailed', { why: failure })}</span>}
         </span>
       </div>
-      <span className={`hidden text-right text-compact tabular-nums @3xl:block ${r.cpuPct === null ? FAINT : ''}`} data-testid="machine-process-cpu" title={r.cpuPct === null ? tr('processes.notMeasured') : undefined}>{formatPct(r.cpuPct)}</span>
+      <span className={`hidden text-right text-compact tabular-nums @3xl:block ${r.cpuPct === null ? FAINT : ''}`} data-testid="machine-process-cpu" title={cpuTitle}>{cpu}</span>
       <span className="hidden items-center justify-end gap-1.5 text-compact tabular-nums @3xl:flex">
         <span className={`h-1 max-w-[52px] flex-1 overflow-hidden rounded-sm ${TRACK}`}><i className={`block h-full ${r.memWarn ? 'bg-amber-500' : 'bg-app-text-tertiary'}`} style={{ width: `${Math.round(r.memShare * 100)}%` }} /></span>
         <span className={memTone}>{formatMem(r.memMB)}</span>
@@ -335,7 +346,7 @@ function ProcessRowView({ row: r, onStopped }: { row: ProcessRow; onStopped: () 
         )}
       </span>
       <div className="col-span-2 flex flex-wrap gap-x-2.5 gap-y-1 whitespace-nowrap pl-[30px] text-compact tabular-nums text-app-text-secondary @3xl:hidden">
-        {metric(tr('processes.cpu'), formatPct(r.cpuPct))}
+        {metric(tr('processes.cpu'), cpu)}
         {metric(tr('processes.memory'), formatMem(r.memMB), memTone)}
         {metric(tr('processes.gpu'), formatPct(r.gpuPct))}
         {metric(tr('processes.net'), r.netInBps === null || r.netOutBps === null ? NOT_MEASURED : `↓${formatRate(r.netInBps)} ↑${formatRate(r.netOutBps)}`)}
@@ -346,8 +357,9 @@ function ProcessRowView({ row: r, onStopped }: { row: ProcessRow; onStopped: () 
 
 // ── PC ───────────────────────────────────────────────────────────────────────
 
-function PcSection({ pc }: { pc: PcView }) {
+function PcSection({ pc, stale }: { pc: PcView; stale: boolean }) {
   const tr = useT();
+  if (stale) return <PcUnread pc={pc} />;
   const dot = pc.state === 'lavora' || pc.state === 'acceso' ? 'bg-emerald-500 dark:bg-emerald-400' : pc.state === 'dorme' ? 'bg-app-text-faint opacity-50' : 'bg-red-500'; // allow-italian: the hub's wire values
   const stateText = pc.state === 'lavora' || pc.state === 'acceso' ? SUCCESS_TEXT : pc.state === 'dorme' ? FAINT : DANGER_TEXT; // allow-italian: the hub's wire values
   return (
@@ -375,6 +387,30 @@ function PcSection({ pc }: { pc: PcView }) {
         <Moon size={12} className="flex-none" aria-hidden="true" />
         {pc.state === 'dorme' ? tr('processes.pc.wakes') : pc.caption}{/* allow-italian: the hub's wire value */}
       </div>
+    </section>
+  );
+}
+
+/**
+ * The PC with the hub gone: its state and jobs are unknown, so neither is
+ * shown; the last numbers stay, under the band that says they are frozen.
+ */
+function PcUnread({ pc }: { pc: PcView }) {
+  const tr = useT();
+  return (
+    <section aria-label={tr('processes.pc')} className={SECTION} data-testid="machine-processes-pc">
+      <div className={SECTION_HEAD}>
+        <Cpu size={14} className="flex-none text-app-text-secondary" aria-hidden="true" />
+        <span className="text-compact font-semibold text-app-text-heading">{tr('processes.pc')}</span>
+        <span className={`inline-flex min-w-0 flex-1 items-center gap-[5px] truncate text-mini ${WARNING_TEXT} @max-3xl:text-compact`}>
+          <span className="h-[7px] w-[7px] flex-none rounded-full bg-amber-500" />{tr('processes.pc.unread')}
+        </span>
+      </div>
+      {pc.metrics.length > 0 && (
+        <div className="grid grid-cols-4 tabular-nums">
+          {pc.metrics.slice(0, 4).map((m) => <Gauge key={m.key} label={m.name} value={formatPct(m.pct)} share={m.pct === null ? null : m.pct / 100} history={m.history} />)}
+        </div>
+      )}
     </section>
   );
 }
