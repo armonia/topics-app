@@ -622,6 +622,8 @@ export default defineConfig({
         "**/machine-processes.spec.ts",
         // Accounts and quotas: the proxy's commands and the hub's brake, same reason as the bell.
         "**/account-quotas.spec.ts",
+        // Agents and jobs: the hub's queue and workflows beside the sessions of Topics, same reason as the bell.
+        "**/agents-jobs.spec.ts",
         // Consumi in the Dashboard: the hub's numbers beside the board's, same reason as the bell.
         "**/dashboard-consumi.spec.ts",
         // The live-terminals menu: used mostly from remote, i.e. from phone

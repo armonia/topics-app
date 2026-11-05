@@ -828,7 +828,8 @@ costa questa macchina» erano due voci una sopra l'altra, e sono la stessa
 domanda a due ingrandimenti: il numero senza i nomi non dice cosa spegnere, i
 nomi senza il numero non dicono se conviene. SHALL essere una voce sola, che in
 coda porta i conteggi e il consumo (memoria e CPU, leggibili senza aprire
-niente) e nel livello, in quest'ordine, i nomi di chi lavora e poi le misure.
+niente) e nel livello i nomi di chi lavora («Agenti e lavori», HUBBR-13, coi
+filtri In corso, In attesa e Finiti) accanto alle misure («Prestazioni»).
 Il dettaglio di QUANTO PESA CIASCUNA SEZIONE (le sessioni, i pannelli browser,
 i task in memoria) SHALL essere leggibile in quel livello, e cio' che e' piu'
 grande di una schermata SHALL scendere di un livello ancora invece di allungare

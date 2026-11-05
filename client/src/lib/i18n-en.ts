@@ -46,6 +46,12 @@ const EN = {
   'accounts.window.fiveH': '5 hours',
   'accounts.notif': 'Accounts proxy alerts',
   'accounts.notifHint': 'Mac notifications on account switches, limits and errors',
+  // The row of «Agenti e lavori» in System (HUBBR-13); the level's own strings
+  // come with its chunk (`i18n-agents-jobs-en.ts`).
+  'agentsJobs.open': 'Agents and jobs',
+  'agentsJobs.tail.waiting': '{n} waiting for you',
+  'agentsJobs.tail.waitingOne': '1 waiting for you',
+  'agentsJobs.tail.working': '{n} at work',
   'toolgroup.cost': 'Summed cost of the actions in the group',
   'ai.selector.routing': 'Run in Topics',
   'ai.selector.routingLine': 'Everything else goes direct.',
@@ -2674,9 +2680,6 @@ const EN = {
   'statusBar.system.loadTitle': 'System load: {n}%',
   'statusBar.system.performance': 'Performance',
   'statusBar.version.title': 'Version',
-  'statusBar.agents.awaitingHeading': 'Waiting for your answer',
-  'statusBar.agents.finishedHeading': 'Turn ended, to look at',
-  'statusBar.agents.none': 'No agent is working right now',
   'statusBar.me.devicesRow': 'Devices',
   'statusBar.me.devicesCount': '{n} of {tot} connected',
   'statusBar.me.devicesNone': 'No other authorised device',

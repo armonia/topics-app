@@ -168,3 +168,22 @@ The menu with your name SHALL carry a row «Consumi» that opens the Dashboard; 
 - **GIVEN** nobody answers on the hub's address
 - **WHEN** «Consumi» opens
 - **THEN** the Dashboard SHALL show the board's numbers and «Consumo per progetto», and no hub section
+
+### Requirement: HUBBR-13 — Agenti e lavori: coda e workflow nei filtri, niente card della Board duplicate, titolo mai il prompt grezzo
+
+The System level of the menu with your name SHALL carry, below «Prestazioni», a level «Agenti e lavori» that takes the list of who is working out of «Prestazioni», with three filters, In corso, In attesa and Finiti, each with the number of its rows. In corso SHALL list the sessions of Topics at work (the same rows the card's badge counts), and where the hub is part of the installation also the Claude proxy's sessions running outside Topics, the hub's queued jobs running and the workflows running. In attesa SHALL list first, under «Decidi tu», the Topics sessions waiting on you with a command that opens them, then the jobs in the hub's line in the hub's order (numbered, the same job in a row folded as ×N, each with a command that takes it out of the line through the hub's `DELETE /api/queue?id=`), then the jobs a quota holds with the time they restart. Finiti SHALL list what failed on top, then today and yesterday. A job of the queue born from a card of the Board (its `ref` a card, or a night job) SHALL NOT be listed: the footer says the night's cards stay on the Board. A title SHALL NEVER be the raw prompt: a delegated job's title is the first readable Italian sentence of its text without paths, commands, parentheses or hashes, at most 64 characters, and otherwise «Lavoro delegato» with its project; a proxy session is named by its repository, otherwise «Sessione Claude fuori da Topics». The level SHALL open on In attesa when something waits on you, otherwise on In corso; the row in System SHALL say how many wait on you. With the hub silent the level SHALL say so and list Topics alone; without the hub it SHALL list Topics alone and nothing of the hub, no error.
+
+#### Scenario: Queue and workflows in the filters
+- **GIVEN** a hub with a job running, two jobs in line (one of them twice), one held by a quota, a job born from a card, a workflow running and one failed, and a proxy session outside Topics
+- **WHEN** «Agenti e lavori» opens
+- **THEN** In corso SHALL list the proxy session, the running job and the running workflow, In attesa the line numbered with the twin folded as ×2 and the held job with its restart time, Finiti the failed workflow on top, and no filter SHALL list the card's job or any raw prompt
+
+#### Scenario: A job taken out of the line
+- **GIVEN** «Agenti e lavori» open on In attesa
+- **WHEN** a job of the line is taken out
+- **THEN** the hub SHALL receive `DELETE /api/queue?id=` with its id and the row SHALL leave the list
+
+#### Scenario: No hub
+- **GIVEN** nobody answers on the hub's address
+- **WHEN** «Agenti e lavori» opens
+- **THEN** it SHALL list the sessions of Topics alone, with no hub section and no error

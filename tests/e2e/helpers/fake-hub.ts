@@ -19,6 +19,10 @@
  * (`token-usage`), the projects' share of the week with their caps (`live`),
  * the queue with Muse's jobs (`queue`) and Muse's tokens (`projects`), and
  * takes a project's new cap (`project-settings`) into the next `live`.
+ * For «Agenti e lavori» (`jobs`) the queue also carries jobs running, in
+ * line, held by a quota, failed and born from a card, the diary carries the
+ * workflows, and the proxy answers its sessions (`sessions`); a job taken
+ * out of the line (`DELETE queue?id=`) leaves the next read, as in the hub.
  * `quiet` answers a hub with nothing to say: no item, no failure, every
  * service up. Nothing here ever reaches :3360 or :3335.
  */
@@ -51,6 +55,8 @@ export interface FakeHub {
   overrides: Array<Record<string, unknown>>;
   /** The projects' caps, in % of the week, as `project-settings` writes them. */
   budgets: Record<string, number | null>;
+  /** Queue ids taken out of the line with `DELETE queue?id=`. */
+  withdrawn: string[];
   close(): Promise<void>;
 }
 
@@ -197,7 +203,7 @@ function quietAnswers(): Record<string, unknown> {
   };
 }
 
-function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy = defaultFakeProxy(), overrides: Array<Record<string, unknown>> = [], budgets: Record<string, number | null> = defaultFakeBudgets()): Record<string, unknown> {
+function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy = defaultFakeProxy(), overrides: Array<Record<string, unknown>> = [], budgets: Record<string, number | null> = defaultFakeBudgets(), jobs: { on: boolean; withdrawn: string[] } = { on: false, withdrawn: [] }): Record<string, unknown> {
   const now = Date.now();
   const unlocked = (p: string) => overrides.some((o) => o.provider === p && !o.hold);
   return {
@@ -256,6 +262,7 @@ function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy 
       { at: now - 50 * 60_000, kind: "auto", who: "GitHub", title: "Reindex dell'indice documenti", outcome: "error", what: "uscito con codice 1" },
       { at: now - 70 * 60_000, kind: "agente", who: "Agente · Muse", title: "Un agente ha sistemato il reindex", outcome: "ok", what: "progetto acme-web" },
       { at: now - 90 * 60_000, kind: "workflow", who: "Workflow", title: "Audit delle dipendenze", outcome: "ok", what: "2 agenti, 6 min" },
+      ...(jobs.on ? jobsDiary(now) : []),
     ] },
     activity: { log: [
       { type: "auto-switch", ts: now - 40 * 60_000, from: "prof-a", to: "prof-b", reason: "429" },
@@ -271,8 +278,47 @@ function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy 
       { id: "q3", provider: "muse", project: "acme-api", status: "running", createdAt: now - 10 * 60_000 },
       { id: "q4", provider: "codex", project: "acme-web", status: "done", createdAt: now - 3 * HOUR },
       { id: "q5", provider: "muse", project: "acme-web", status: "done", createdAt: now - 20 * 24 * HOUR },
+      ...(jobs.on ? jobsQueue(now, jobs.withdrawn) : []),
     ] },
+    sessions: proxySessionsAnswer(now),
     projects: { muse: { projects: [{ name: "acme-web", tokens: 6_000_000 }, { name: "studio-x", tokens: 3_100_000 }] } },
+  };
+}
+
+/**
+ * The queue's jobs and the diary's workflows of «Agenti e lavori», placeholder
+ * names: one running, three in line (two the same job), one held by a quota,
+ * one born from a card (never listed), one failed, one done with a raw
+ * command as its text (its title must not be the prompt).
+ */
+function jobsQueue(now: number, withdrawn: string[]): Array<{ id: string; status: string } & Record<string, unknown>> {
+  const items = [
+    { id: "j-run", task: "Rigenera gli screenshot della landing di acme-web (vedi ~/Projects/acme-web/shots).", status: "running", provider: "codex", project: "acme-web", createdAt: now - 20 * 60_000, startedAt: now - 7 * 60_000 },
+    { id: "j-l1", task: "Docs index non risponde: riparalo.", status: "queued", project: "acme-docs", createdAt: now - 50 * 60_000 },
+    { id: "j-l1b", task: "Docs index non risponde: riparalo.", status: "queued", project: "acme-docs", createdAt: now - 45 * 60_000 },
+    { id: "j-l2", task: "Test unit di studio-x, poi riporta l'esito.", status: "queued", project: "studio-x", priority: "bassa", createdAt: now - 30 * 60_000 },
+    { id: "j-q", task: "Refactor del router di studio-x, seconda passata.", status: "queued", provider: "codex", project: "studio-x", createdAt: now - 60 * 60_000, waitUntil: now + 2 * HOUR },
+    { id: "j-card", task: "Card della board Topics «Rilascio di acme-web». Da fare stasera.", ref: "card:acme/1", status: "queued", createdAt: now - 10 * 60_000 },
+    { id: "j-fail", task: "Esegui ESATTAMENTE questo comando via tool bash con yield_time_ms=300000: npm run build", status: "failed", exit: 1, provider: "codex", project: "acme-api", createdAt: now - 3 * HOUR, startedAt: now - 3 * HOUR, endedAt: now - 2 * HOUR },
+  ];
+  return items.filter((i) => !withdrawn.includes(i.id));
+}
+
+function jobsDiary(now: number): unknown[] {
+  return [
+    { at: now - 26 * 60_000, kind: "workflow", who: "Workflow", title: "Revisione di acme-web", outcome: "running", what: "2 agenti", ref: "wf:rev" },
+    { at: now - 70 * 60_000, kind: "workflow", who: "Workflow", title: "Pubblica la landing di acme-web", outcome: "error", what: "1 agente, 3 min", ref: "wf:land" },
+  ];
+}
+
+/** The proxy's sessions: one at work outside Topics with its raw prompt in the timeline, one ended named by its repo. */
+function proxySessionsAnswer(now: number): Record<string, unknown> {
+  return {
+    enabled: true,
+    active: [{ id: "s-live", account: "lavoro@example.com", model: "claude-sonnet-5-5", cwd: "_sys_1", repo: "", branch: "", startedAt: now - 18 * 60_000, lastActiveAt: now - 60_000, requestCount: 40, totalInputTokens: 1_000, totalOutputTokens: 30_000, timeline: [{ type: "input", text: "PROMPT GREZZO: non mostrarlo mai" }] }],
+    recent: [{ id: "s-done", account: "lavoro@example.com", model: "claude-opus-5-5", cwd: "_sys_2", repo: "/w/acme-docs", branch: "main", startedAt: now - 2 * HOUR, completedAt: now - HOUR, duration: HOUR, requestCount: 12, totalInputTokens: 500, totalOutputTokens: 9_000, timeline: [] }],
+    overhead: { inputTokens: 0, outputTokens: 0 },
+    conflicts: [],
   };
 }
 
@@ -362,8 +408,8 @@ const LOG_LINES = [
   { ts: "14:06:12", tag: "200", msg: "claude · acme-web -> account principale · 1,2 s" },
 ];
 
-export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(), opts: { quiet?: boolean } = {}): Promise<FakeHub> {
-  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), close: async () => {} };
+export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(), opts: { quiet?: boolean; jobs?: boolean } = {}): Promise<FakeHub> {
+  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), withdrawn: [], close: async () => {} };
   const server: Server = createServer((req, res) => {
     const path = (req.url ?? "").split("?")[0]!.replace(/^\/api\//, "");
     if (req.method === "GET" && path === "logs/stream") {
@@ -426,6 +472,15 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
       });
       return;
     }
+    // A job taken out of the line, as the hub's `cancel`: only a queued one goes.
+    if (req.method === "DELETE" && path === "queue") {
+      const id = new URL(req.url ?? "", "http://x").searchParams.get("id") ?? "";
+      hub.posts.push({ path, method: "DELETE", id });
+      const queued = opts.jobs && jobsQueue(Date.now(), hub.withdrawn).some((q) => q.id === id && q.status === "queued");
+      if (queued) hub.withdrawn.push(id);
+      req.resume();
+      return send(200, { ok: !!queued });
+    }
     // A project's cap, as the tray and the Dashboard write it: {name, budgetPct}.
     if (req.method === "POST" && path === "project-settings") {
       let raw = "";
@@ -458,10 +513,11 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
       hub.proxy = defaultFakeProxy();
       hub.overrides = [];
       hub.budgets = defaultFakeBudgets();
+      hub.withdrawn = [];
       req.resume();
       return send(200, { ok: true });
     }
-    const all = opts.quiet ? quietAnswers() : answers(hub.items, hub.devPids, hub.proxy, hub.overrides, hub.budgets);
+    const all = opts.quiet ? quietAnswers() : answers(hub.items, hub.devPids, hub.proxy, hub.overrides, hub.budgets, { on: !!opts.jobs, withdrawn: hub.withdrawn });
     if (req.method === "GET" && path in all) return send(200, all[path]);
     send(404, { error: "not in the fake hub" });
   });

@@ -1,87 +1,20 @@
 /**
- * WHO IS WORKING, one line per agent.
+ * THE COUNTS OF THE WORK on the System row: a glyph and a digit each.
  *
- * These lines used to be a level of their own, opened from an «active agents»
- * row that sat above the commands. There are no two questions there: «what is
- * running» and «what is this machine spending» are the same question asked at
- * two zoom levels, and answering them in two rows meant reading a number in
- * one place and the names that make it up in another. They are one level now
- * (`SidebarSystemMenu`), and this file is the half of it that names the work.
- *
- * ONE COUNT FOR THE ROWS. These rows, the badge on the card and the working
- * digit in the row's tail come from one derivation (`useActiveAgentRows`,
- * `activeAgentCount`), so a row cannot exist without being counted and no
- * digit can name work the list does not (BGVIS-03). The open digit is the
- * INSTALLATION's own count, served by `/api/system/presence`: nothing here
- * lists the open sessions one by one, so it has no rows to agree with.
- *
- * Read-only rows: there is no shared helper to jump from a row to its session
- * yet, and a row that looks like a button and does nothing is worse than text.
+ * The names behind those digits used to be listed here too, one line per
+ * agent, on top of Performance. They are the level «Agenti e lavori» now
+ * (`AgentsJobsLevel`, HUBBR-13), next to the hub's queue and workflows, and
+ * they still come from the same derivation as the card's badge
+ * (`useActiveAgentRows`, `activeAgentCount`), so a row cannot exist without
+ * being counted (BGVIS-03). The open digit is the INSTALLATION's own count,
+ * served by `/api/system/presence`.
  */
 import { Bot, MessagesSquare } from 'lucide-react';
 import { CHIP_INK_DIM } from './identityChip';
-import { SEGNALE_ATTESA, SEGNALE_OK } from './chromeSignals';
+import { SEGNALE_OK } from './chromeSignals';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import type { SignalKind, WorkSignal } from './workSignals';
 import { useT } from '@/hooks/useT';
-import { useActiveAgentRows, type ActiveAgentRow } from '@/state/signals';
-import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
-
-export function AgentLines() {
-  const tr = useT();
-  // A chat waiting on the job its last turn left running is among the working
-  // ones: work in progress, one list (since 2026-10-04).
-  const { working, awaitingInput, finished } = useActiveAgentRows(useTerminalSessions(), useTopics());
-  return (
-    <div className="max-h-[240px] overflow-y-auto py-1">
-      {working.map((r) => <AgentLine key={`${r.kind}:${r.id}`} row={r} testId="active-agent-row" alive />)}
-      {awaitingInput.length > 0 && (
-        <>
-          <div className={`px-3 pb-0.5 pt-1.5 text-mini uppercase tracking-wide ${SEGNALE_ATTESA}`}>
-            {tr('statusBar.agents.awaitingHeading')}
-          </div>
-          {awaitingInput.map((r) => <AgentLine key={`${r.kind}:${r.id}`} row={r} testId="awaiting-agent-row" />)}
-        </>
-      )}
-      {/* THE FINISHED TURNS, BY NAME. They used to be a bare number, in a row
-          of the account panel reading «3 to look at (turn ended or paused)»:
-          the one thing in the whole menu that was counted without being
-          openable, and it sat in a block about your account rather than about
-          the work. Here they stand beside the other two lists under the same
-          rule: the number on the card is the length of these rows. */}
-      {finished.length > 0 && (
-        <>
-          <div className={`px-3 pb-0.5 pt-1.5 text-mini uppercase tracking-wide ${CHIP_INK_DIM}`}>
-            {tr('statusBar.agents.finishedHeading')}
-          </div>
-          {finished.map((r) => <AgentLine key={`${r.kind}:${r.id}`} row={r} testId="finished-agent-row" tone={CHIP_INK_DIM} />)}
-        </>
-      )}
-      {working.length === 0 && awaitingInput.length === 0 && finished.length === 0 && (
-        <div className="px-3 py-2 text-mini text-app-text-secondary">{tr('statusBar.agents.none')}</div>
-      )}
-    </div>
-  );
-}
-
-/** One agent, one line: the glyph says what kind of thing it is, the label
- *  says which. The working glyph pulses, like its digit in the tail.
- *
- *  `tone` overrides the glyph's colour for the third list: a turn that ENDED
- *  is not waiting on you the way an approval prompt is, and painting the two
- *  the same amber is how a colour that means "answer me now" stops meaning
- *  anything. */
-function AgentLine({ row, testId, alive = false, tone = SEGNALE_ATTESA }: { row: ActiveAgentRow; testId: string; alive?: boolean; tone?: string }) {
-  const Icon = row.kind === 'terminal' ? Bot : MessagesSquare;
-  return (
-    <div data-testid={testId} data-kind={row.kind} className="flex items-center gap-2 px-3 py-1 text-mini text-app-text" title={row.label}>
-      {alive
-        ? <SparkLoader className="flex-shrink-0" />
-        : <Icon size={12} className={`flex-shrink-0 ${tone}`} />}
-      <span className="min-w-0 flex-1 truncate">{row.label}</span>
-    </div>
-  );
-}
 
 /**
  * The counts on the row that opens the level: a glyph and a number each.

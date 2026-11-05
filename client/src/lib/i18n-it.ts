@@ -46,6 +46,12 @@ const IT: Dict = {
   'accounts.window.fiveH': '5 ore',
   'accounts.notif': 'Avvisi del proxy degli account',
   'accounts.notifHint': 'Notifiche del Mac su cambi di account, limiti ed errori',
+  // The row of «Agenti e lavori» in System (HUBBR-13); the level's own strings
+  // come with its chunk (`i18n-agents-jobs-it.ts`).
+  'agentsJobs.open': 'Agenti e lavori',
+  'agentsJobs.tail.waiting': '{n} aspettano te',
+  'agentsJobs.tail.waitingOne': '1 aspetta te',
+  'agentsJobs.tail.working': '{n} al lavoro',
   'toolgroup.cost': 'Costo sommato delle azioni del gruppo',
   'ai.selector.routing': 'Esegui in Topics',
   'ai.selector.routingLine': 'Gli altri vanno diretti.',
@@ -3000,9 +3006,6 @@ const IT: Dict = {
   'statusBar.system.loadTitle': 'Carico del sistema: {n}%',
   'statusBar.system.performance': 'Prestazioni',
   'statusBar.version.title': 'Versione',
-  'statusBar.agents.awaitingHeading': 'In attesa di una tua risposta',
-  'statusBar.agents.finishedHeading': 'Turno finito, da guardare',
-  'statusBar.agents.none': 'Nessun agente al lavoro adesso',
   // THE PANELS the three chips open. The chip gives the short answer, the
   // panel shows it in full and carries the actions: these are the only texts
   // that can afford a whole sentence, because in there the space exists.

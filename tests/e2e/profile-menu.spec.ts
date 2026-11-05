@@ -398,14 +398,12 @@ test.describe("il menu utente apre i livelli di lato", () => {
     const status = page.getByTestId("menu-system-status-menu");
     await expect(status).toBeVisible({ timeout: 10_000 });
 
-    // THE NAMES ARE ONE BRANCH DEEPER THAN THEY USED TO BE. Who is working and
-    // what it costs sat flat at the top of this level, the only subject without
-    // a door of its own beside usage and machine, which both had one. Card
-    // 4763a62b branched it, so the three doors now answer the three questions
-    // the level exists for: what is RUNNING, what it has COST, what the MACHINE
-    // is doing.
-    await status.getByTestId("menu-system-performance").click();
-    const level = page.getByTestId("menu-system-performance-menu");
+    // THE NAMES HAVE THEIR OWN LEVEL. Who is working sat on top of
+    // Performance; with the usage hub it is one list with the proxy's
+    // sessions, the hub's queue and the workflows (HUBBR-13), so it moved to
+    // «Agenti e lavori», and the rows are still the badge's.
+    await status.getByTestId("menu-system-agents").click();
+    const level = page.getByTestId("menu-system-agents-menu");
     await expect(level).toBeVisible({ timeout: 10_000 });
 
     const rows = level.getByTestId("active-agent-row");
@@ -492,8 +490,8 @@ test.describe("il menu utente apre i livelli di lato", () => {
       await menu.getByTestId("menu-system-status").click();
       const status = page.getByTestId("menu-system-status-menu");
       await expect(status).toBeVisible({ timeout: 10_000 });
-      await status.getByTestId("menu-system-performance").click();
-      const level = page.getByTestId("menu-system-performance-menu");
+      await status.getByTestId("menu-system-agents").click();
+      const level = page.getByTestId("menu-system-agents-menu");
       await expect(level).toBeVisible({ timeout: 10_000 });
 
       // One row per chat, among the working ones: a job it waits for is work.

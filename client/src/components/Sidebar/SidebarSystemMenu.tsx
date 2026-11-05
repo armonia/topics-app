@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import { Activity, Cpu, MonitorCog, Tag } from 'lucide-react';
+import { Activity, Bot, Cpu, MonitorCog, Tag } from 'lucide-react';
 import { getVersion, relaunch, reloadAllWindows } from '@/lib/shell/app';
 import { isDesktop } from '@/lib/shell';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
@@ -15,7 +15,7 @@ import { useLoad } from '@/state/systemLoad';
 import { useT } from '@/hooks/useT';
 import { formatMemoryMB } from '@/lib/formatMemory';
 import { SubmenuItem } from '../Shared/SubmenuItem';
-import { AgentLines, WorkSignals } from './AgentLines';
+import { WorkSignals } from './AgentLines';
 import { PerfSection } from './PerfSection';
 import { VersionChip } from './VersionChip';
 import { bundleDrift } from './bundleDrift';
@@ -25,6 +25,9 @@ import type { WorkSignal } from './workSignals';
 import { apiFetch } from '../../lib/shell/net';
 import { useHubEverRead } from '@/state/hubLive';
 import { menuRowClass } from './menuRow';
+import { useActiveAgentRows } from '@/state/signals';
+import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
+import { PALLINO_ATTESA } from './chromeSignals';
 
 // The sites kept live are read when the Performance level opens, not before.
 const KeptSites = lazy(async () => {
@@ -61,13 +64,13 @@ declare const __BUILD_SHA__: string;
  * day. This menu shows both: the dot's own colour rides on the first row, so
  * opening the menu after noticing a hot dot lands on the row that explains it.
  *
- * ── CHI SEI NON STA QUI ────────────────────────────────────────────────────
- * L'account ci e' passato per due giorni, in testa al menu. Era comunque dietro
- * un gesto e il profilo non e' una voce di menu, e' una faccia: sul telefono e'
- * la quarta porta della fila in fondo allo schermo (`MobileChromeBar`), sul
- * desktop e' la prima pastiglia della fascia in fondo alla colonna
- * (`IdentityBlock`). Qui NON resta un duplicato: due porte per la stessa stanza
- * sono due posti che un giorno dicono cose diverse.
+ * ── WHO YOU ARE DOES NOT LIVE HERE ─────────────────────────────────────────
+ * The account sat at the top of this menu for two days. It was behind a
+ * gesture all the same, and the profile is not a menu entry, it is a face: on
+ * the phone it is the fourth door of the row at the foot of the screen
+ * (`MobileChromeBar`), on the desktop the first pill of the band at the foot
+ * of the column (`IdentityBlock`). No duplicate stays here: two doors to the
+ * same room are two places that one day say different things.
  */
 
 // WHEN THE CODE LAST CHANGED, so the chip can say whether YOUR change landed.
@@ -128,6 +131,12 @@ const importVersionPanel = async () => {
   return { default: Component };
 };
 const VersionPanel = lazy(importVersionPanel);
+// Who works, with the hub's queue and workflows: its own chunk, read when the level opens.
+const importAgentsJobsLevel = async () => {
+  const { AgentsJobsLevel: Component } = await import('./AgentsJobsLevel');
+  return { default: Component };
+};
+const AgentsJobsLevel = lazy(importAgentsJobsLevel);
 
 export interface SidebarSystemMenuProps {
   /** Apre il changelog. La versione viaggia col gesto perché la modale la
@@ -164,6 +173,10 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
   const [mostraVersione, setMostraVersione] = useState(false);
   const [riavviando, setRiavviando] = useState(false);
   const load = useLoad();
+  // The tail of «Agenti e lavori»: who waits on you, else who works. Same rows as the level and the badge.
+  const agentRows = useActiveAgentRows(useTerminalSessions(), useTopics());
+  const waitingOnYou = agentRows.awaitingInput.length;
+  const atWork = agentRows.working.length;
   const lastChange = useLastChangeTime();
   const { updateAvailable } = useServiceWorkerUpdate();
   // Only while the menu is open, which is the only time this component exists:
@@ -328,13 +341,11 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
           </>
         }
       >
-        {/* PERFORMANCE, ONE BRANCH: who is working, then what it costs in
-            megabytes and frames. It used to sit flat at the top of this level,
-            the one subject without a door of its own next to «usage» and
-            «machine» which both have one - the asymmetry read as a mess more
-            than the content did. Now the three branches answer the three
-            questions this level exists for: what is RUNNING, what it has
-            COST, what the MACHINE itself is doing. */}
+        {/* PERFORMANCE, ONE BRANCH: what the work costs in megabytes and
+            frames. Who is working has its own level right below
+            («Agenti e lavori»): the branches answer the questions this level
+            exists for, what it COSTS, what is RUNNING, what the MACHINE itself
+            is doing. */}
         <SubmenuItem
           icon={Activity}
           label={tr('statusBar.system.performance')}
@@ -342,8 +353,6 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
           minWidth={300}
           className="max-h-[min(78vh,560px)] overflow-y-auto"
         >
-          <AgentLines />
-          <div className="border-t border-app-border" />
           <PerfSection />
           <Suspense fallback={null}>
             <KeptSites />
@@ -354,6 +363,34 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
               the machine's Processes and Automations. */}
           <Suspense fallback={null}>
             <SystemStatusPanel enabled />
+          </Suspense>
+        </SubmenuItem>
+
+        {/* WHO WORKS, ITS OWN LEVEL (HUBBR-13). The names of the sessions at
+            work sat on top of Performance; with the hub they are one list with
+            the proxy's sessions, the hub's queue and the workflows, filtered by
+            In corso, In attesa and Finiti, and that list is too big to stand
+            above the megabytes. Without the hub the level lists Topics alone. */}
+        <SubmenuItem
+          icon={Bot}
+          label={tr('agentsJobs.open')}
+          testId="menu-system-agents"
+          minWidth={400}
+          maxWidth={420}
+          className="max-h-[min(80vh,640px)] overflow-y-auto"
+          tail={waitingOnYou > 0 ? (
+            <span data-testid="menu-system-agents-tail" className="flex flex-shrink-0 items-center gap-1.5 text-app-text-secondary tabular-nums">
+              <span className={`h-1.5 w-1.5 rounded-full ${PALLINO_ATTESA}`} />
+              {waitingOnYou === 1 ? tr('agentsJobs.tail.waitingOne') : tr('agentsJobs.tail.waiting', { n: waitingOnYou })}
+            </span>
+          ) : atWork > 0 ? (
+            <span data-testid="menu-system-agents-tail" className="flex-shrink-0 text-app-text-secondary tabular-nums">
+              {tr('agentsJobs.tail.working', { n: atWork })}
+            </span>
+          ) : undefined}
+        >
+          <Suspense fallback={<div className="min-h-24 px-3 py-2 text-mini text-app-text-muted">{tr('common.loading')}</div>}>
+            <AgentsJobsLevel onNavigate={onNavigate} />
           </Suspense>
         </SubmenuItem>
 

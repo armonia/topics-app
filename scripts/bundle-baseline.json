@@ -847,7 +847,10 @@
     "Cosa compra: il chunk pigro AccountQuotasPane (36 KB: account Claude del proxy coi comandi, Codex e Muse in sola lettura, riserva API, rotazione e tetti, freno) con i suoi dizionari IT+EN, che viaggiano col chunk (addCatalogue in i18n.ts) e non nell'entry. Nell'entry restano la riga del menu, la quota piu' calda sulla card, la voce di Cmd+K e le loro 11 chiavi. Il tetto segue la misura: total_assets 9.110.000 -> 9.160.000.",
     "",
     "2026-11-05, Consumi nella Dashboard (hub-smistamento, HUBBR-12): misurato sul PC con `bun run build:client && bun run check:bundle`, total_assets 9.377.001 contro un tetto di 9.343.200 (9.160.000 +2%), entry_eager raw 954.537 / gz 308.848 (501 byte sotto la misura della traccia prima: il livello «Consumo per progetto» e' uscito da Sistema).",
-    "Cosa compra: il chunk pigro HubUsageSection (decisione sul tetto, cinque numeri in euro, grafico per modello, per modello, per account, per progetto, risparmio e lavoro della board) con i suoi dizionari IT+EN via addCatalogue, le letture pure di lib/hubUsage, e ProjectUsagePanel caricato pigro dalla Dashboard. Nell'entry restano la riga Consumi del menu, la voce di Cmd+K e 4 chiavi. Il tetto segue la misura: total_assets 9.160.000 -> 9.200.000."
+    "Cosa compra: il chunk pigro HubUsageSection (decisione sul tetto, cinque numeri in euro, grafico per modello, per modello, per account, per progetto, risparmio e lavoro della board) con i suoi dizionari IT+EN via addCatalogue, le letture pure di lib/hubUsage, e ProjectUsagePanel caricato pigro dalla Dashboard. Nell'entry restano la riga Consumi del menu, la voce di Cmd+K e 4 chiavi. Il tetto segue la misura: total_assets 9.160.000 -> 9.200.000.",
+    "",
+    "2026-11-05, Agenti e lavori (hub-smistamento, HUBBR-13): misurato sul PC con `bun run build:client && bun run check:bundle`, total_assets 9.401.400 contro un tetto di 9.384.000 (9.200.000 +2%), entry_eager raw 954.304 / gz 308.760 (233 byte sotto la misura della traccia prima: le righe di chi lavora sono uscite da Prestazioni).",
+    "Cosa compra: il chunk pigro AgentsJobsLevel (sessioni di Topics e del proxy, coda dell'hub con «Togli dalla coda», workflow, filtri In corso / In attesa / Finiti) con le letture pure di lib/agentsJobs e i dizionari IT+EN, che viaggiano col chunk (addCatalogue). Nell'entry restano la riga di Sistema e le sue 4 chiavi. Il tetto segue la misura: total_assets 9.200.000 -> 9.250.000."
   ],
   "updated": "2026-11-05",
   "tolerance_pct": 2,
@@ -861,6 +864,6 @@
     "files": 5
   },
   "total_assets": {
-    "raw": 9200000
+    "raw": 9250000
   }
 }
