@@ -17,7 +17,7 @@
  * server sums (`/api/hub-usage`). The real :3360 and :3335 are never touched,
  * and the names are placeholders.
  *
- * Mutation: with `paidForWindow` (lib/hubUsage.ts) spreading the plans over
+ * Mutation: with `planCostForWindow` (lib/hubUsage.ts) spreading the plans over
  * 30 days whatever the window, «107 €» is red; with the raise sent to the
  * proxy instead of the hub, the post never reaches `project-settings`.
  *

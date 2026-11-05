@@ -20,13 +20,13 @@ function todayTail(usage: unknown, settings: unknown, locale: string, tr: Return
   const totals = (usage as { totals?: { tokens?: unknown; listUsd?: unknown } } | null)?.totals;
   if (!totals || typeof totals.tokens !== 'number' || typeof totals.listUsd !== 'number') return null;
   const rate = (settings as { usdEur?: unknown } | null)?.usdEur;
-  const usdEur = typeof rate === 'number' && rate > 0 ? rate : 0.92;
-  const loc = locale === 'it' ? 'it-IT' : 'en-US';
+  const exchangeRate = typeof rate === 'number' && rate > 0 ? rate : 0.92;
+  const displayLocale = locale === 'it' ? 'it-IT' : 'en-US';
   // «4,2 M», as the Dashboard writes it: Intl's compact form says «Mln» in Italian.
   const n = totals.tokens;
-  const tokens = n >= 1e6 ? `${(n / 1e6).toLocaleString(loc, { maximumFractionDigits: n >= 1e8 ? 0 : 1 })} M` : n >= 1e3 ? `${Math.round(n / 1e3)} k` : String(Math.round(n));
-  const eur = new Intl.NumberFormat(loc, { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(totals.listUsd * usdEur);
-  return tr('usage.todayTail', { tokens, eur });
+  const tokens = n >= 1e6 ? `${(n / 1e6).toLocaleString(displayLocale, { maximumFractionDigits: n >= 1e8 ? 0 : 1 })} M` : n >= 1e3 ? `${Math.round(n / 1e3)} k` : String(Math.round(n));
+  const amount = new Intl.NumberFormat(displayLocale, { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(totals.listUsd * exchangeRate);
+  return tr('usage.todayTail', { tokens, eur: amount });
 }
 
 export function UsageRow({ onClose }: { onClose: () => void }) {

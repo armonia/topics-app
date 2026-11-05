@@ -48,7 +48,7 @@ export function planPriceUsd(sub: unknown, tier: unknown): number | null {
   return null;
 }
 
-export interface Paid {
+export interface PlanCost {
   /** What the Claude plans cost for the window, in dollars. */
   usd: number;
   plans: number;
@@ -57,7 +57,7 @@ export interface Paid {
 }
 
 /** The Claude plans of the proxy, their monthly price spread over the window's days. */
-export function paidForWindow(profiles: unknown, days: HubUsageDays): Paid | null {
+export function planCostForWindow(profiles: unknown, days: HubUsageDays): PlanCost | null {
   if (!isObject(profiles) || !Array.isArray(profiles.profiles)) return null;
   let usd = 0;
   let plans = 0;
@@ -78,7 +78,7 @@ export function savingOf(listUsd: number, paidUsd: number): { savedUsd: number; 
 }
 
 /** The proxy's dollar to euro rate; the proxy's own default when it does not answer. */
-export function usdEurOf(settings: unknown): number {
+export function exchangeRateOf(settings: unknown): number {
   const v = isObject(settings) ? num(settings.usdEur) : null;
   return v !== null && v > 0 ? v : 0.92;
 }
@@ -141,7 +141,7 @@ export function projectShares(live: unknown): ProjectShare[] {
   return out.sort((a, b) => b.total - a.total || a.title.localeCompare(b.title));
 }
 
-/** The first rows as they are and the rest summed: «altri N». */
+/** The first rows as they are and the rest summed into one row. */
 export function headAndRest(rows: ProjectShare[], keep = 4): { head: ProjectShare[]; rest: { count: number; total: number } | null } {
   const tail = rows.slice(keep);
   return { head: rows.slice(0, keep), rest: tail.length ? { count: tail.length, total: tail.reduce((s, r) => s + r.total, 0) } : null };
@@ -209,8 +209,8 @@ export function tokenParts(n: number, locale: string): { value: string; unit: st
 }
 
 /** Dollars of the list price as euro at the proxy's rate: whole euro from 100 up, cents below. */
-export function euro(usd: number, usdEur: number, locale: string): string {
-  const v = usd * usdEur;
+export function formatCurrency(usd: number, exchangeRate: number, locale: string): string {
+  const v = usd * exchangeRate;
   return new Intl.NumberFormat(locale === 'it' ? 'it-IT' : 'en-US', {
     style: 'currency', currency: 'EUR', maximumFractionDigits: Math.abs(v) >= 100 ? 0 : 2, minimumFractionDigits: 0,
   }).format(v);

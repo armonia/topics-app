@@ -27,8 +27,8 @@ import { startVisibleInterval } from '../../state/documentVisibility';
 import { friendlyModelLabel } from '../../lib/modelLabel';
 import { meteredProviders, type QuotaWindow } from '../../lib/accountQuotas';
 import {
-  HUB_USAGE_DAYS, accountShares, chartLayers, euro, headAndRest, museJobs, museWeekTokens, overCap, paidForWindow, projectShares,
-  readHubUsage, savingOf, sharePct, tokenParts, usdEurOf, type HubUsage, type HubUsageDays,
+  HUB_USAGE_DAYS, accountShares, chartLayers, formatCurrency, headAndRest, museJobs, museWeekTokens, overCap, planCostForWindow, projectShares,
+  readHubUsage, savingOf, sharePct, tokenParts, exchangeRateOf, type HubUsage, type HubUsageDays,
 } from '../../lib/hubUsage';
 import type { DashboardKPIs } from '../../lib/api';
 import { WARNING_TEXT } from '../../lib/popoverStyles';
@@ -134,11 +134,11 @@ export function HubUsageSection({ kpis, children }: { kpis: DashboardKPIs | null
   const hubAt = answering ? Math.max(live.pace?.at ?? 0, reads?.at ?? 0) || null : (reads?.at || null);
   const [failure, setFailure] = useState<string | null>(null);
 
-  const usdEur = usdEurOf(reads?.settings);
-  const eur = useCallback((usd: number) => euro(usd, usdEur, locale), [usdEur, locale]);
+  const exchangeRate = exchangeRateOf(reads?.settings);
+  const money = useCallback((usd: number) => formatCurrency(usd, exchangeRate, locale), [exchangeRate, locale]);
   const usage = reads?.usage ?? null;
-  const paid = useMemo(() => paidForWindow(reads?.profiles, days), [reads?.profiles, days]);
-  const saving = usage && paid ? savingOf(usage.totals.listUsd, paid.usd) : null;
+  const planCost = useMemo(() => planCostForWindow(reads?.profiles, days), [reads?.profiles, days]);
+  const saving = usage && planCost ? savingOf(usage.totals.listUsd, planCost.usd) : null;
   const projects = useMemo(() => projectShares(reads?.live), [reads?.live]);
   const decision = overCap(projects);
   const jobs = usage ? museJobs(reads?.queue, usage.sinceMs) : null;
@@ -193,13 +193,13 @@ export function HubUsageSection({ kpis, children }: { kpis: DashboardKPIs | null
           <Kpi testId="hub-usage-kpi-tokens" icon={<Coins size={14} />} top={tr('hubUsage.kpi.tokensTop')} label={tr(`hubUsage.kpi.tokens.${days}`)}
             value={usage ? <Tokens n={usage.totals.tokens} locale={locale} unit={tr('hubUsage.kpi.tokensUnit')} /> : null} />
           <Kpi testId="hub-usage-kpi-list" icon={<Receipt size={14} />} top={tr('hubUsage.kpi.listTop')} label={tr('hubUsage.kpi.list')}
-            value={usage ? eur(usage.totals.listUsd) : null} />
+            value={usage ? money(usage.totals.listUsd) : null} />
           <Kpi testId="hub-usage-kpi-paid" icon={<KeyRound size={14} />} label={tr('hubUsage.kpi.paid')}
-            top={paid ? (paid.plans === 1 ? tr('hubUsage.kpi.paidOne') : tr('hubUsage.kpi.paidMany', { n: paid.plans })) : ''}
-            value={paid ? eur(paid.usd) : null} />
+            top={planCost ? (planCost.plans === 1 ? tr('hubUsage.kpi.paidOne') : tr('hubUsage.kpi.paidMany', { n: planCost.plans })) : ''}
+            value={planCost ? money(planCost.usd) : null} />
           <Kpi testId="hub-usage-kpi-saved" icon={<PiggyBank size={14} />} label={tr('hubUsage.kpi.saved')} good
             top={saving?.ratio != null ? tr('hubUsage.kpi.ratio', { ratio: saving.ratio.toLocaleString(locale === 'it' ? 'it-IT' : 'en-US', { maximumFractionDigits: 1 }) }) : ''}
-            value={saving ? eur(saving.savedUsd) : null} />
+            value={saving ? money(saving.savedUsd) : null} />
           <Kpi testId="hub-usage-kpi-muse" icon={<Bot size={14} />} top={tr('hubUsage.kpi.museTop')} label={tr('hubUsage.kpi.muse')} wide
             value={jobs === null ? null : <>{jobs}<small className="ml-[3px] text-mini font-normal text-app-text-muted">{tr('hubUsage.kpi.museUnit')}</small></>} />
         </div>
@@ -210,7 +210,7 @@ export function HubUsageSection({ kpis, children }: { kpis: DashboardKPIs | null
           </p>
         )}
 
-        <ModelChart usage={usage} locale={locale} eur={eur} tr={tr} />
+        <ModelChart usage={usage} locale={locale} money={money} tr={tr} />
 
         <div className="grid grid-cols-3 gap-3 @max-4xl:grid-cols-1">
           <ByModel usage={usage} locale={locale} tr={tr} />
@@ -218,7 +218,7 @@ export function HubUsageSection({ kpis, children }: { kpis: DashboardKPIs | null
           <ByProject live={reads?.live} tr={tr} />
         </div>
 
-        <Saving usage={usage} paid={paid} saved={saving?.savedUsd ?? null} museTokens={museWeekTokens(reads?.projects)} eur={eur} locale={locale} tr={tr} />
+        <Saving usage={usage} planCost={planCost} saved={saving?.savedUsd ?? null} museTokens={museWeekTokens(reads?.projects)} money={money} locale={locale} tr={tr} />
 
         <BoardWork kpis={kpis} locale={locale} tr={tr} />
         {children}
@@ -299,7 +299,7 @@ function modelName(key: string, tr: Tr): string {
 }
 
 /** The Claude tokens (or their list price) per model over the window, stacked. */
-function ModelChart({ usage, locale, eur, tr }: { usage: HubUsage | null; locale: string; eur: (usd: number) => string; tr: Tr }) {
+function ModelChart({ usage, locale, money, tr }: { usage: HubUsage | null; locale: string; money: (usd: number) => string; tr: Tr }) {
   const [metric, setMetric] = useState<'tokens' | 'listUsd'>('tokens');
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(600);
@@ -318,13 +318,14 @@ function ModelChart({ usage, locale, eur, tr }: { usage: HubUsage | null; locale
   const n = usage?.buckets.length ?? 0;
   const totals = usage ? usage.buckets.map((_, i) => layers.reduce((s, l) => s + (l.values[i] ?? 0), 0)) : [];
   const max = niceMax(Math.max(0, ...totals));
-  const x = (i: number) => P.l + (n <= 1 ? cw / 2 : (cw * i) / (n - 1));
+  const xStep = n <= 1 ? 0 : cw / (n - 1);
+  const x = (i: number) => (n <= 1 ? P.l + cw / 2 : P.l + xStep * i);
   const y = (v: number) => P.t + ch - (max > 0 ? (ch * v) / max : 0);
-  const fmtAxis = (v: number) => (metric === 'tokens' ? `${tokenParts(v, locale).value}${tokenParts(v, locale).unit}` : eur(v));
-  const loc = locale === 'it' ? 'it-IT' : 'en-US';
+  const fmtAxis = (v: number) => (metric === 'tokens' ? `${tokenParts(v, locale).value}${tokenParts(v, locale).unit}` : money(v));
+  const displayLocale = locale === 'it' ? 'it-IT' : 'en-US';
   const label = (ms: number) => (usage?.unit === 'hour'
-    ? new Date(ms).toLocaleTimeString(loc, { hour: '2-digit' })
-    : new Date(ms).toLocaleDateString(loc, { weekday: 'short', day: 'numeric' }));
+    ? new Date(ms).toLocaleTimeString(displayLocale, { hour: '2-digit' })
+    : new Date(ms).toLocaleDateString(displayLocale, { weekday: 'short', day: 'numeric' }));
   const step = Math.max(1, Math.ceil(n / Math.max(2, Math.floor(cw / 70))));
   let base = new Array<number>(n).fill(0);
   const paths = layers.map((l, li) => {
@@ -525,8 +526,8 @@ function ByProject({ live, tr }: { live: unknown; tr: Tr }) {
   );
 }
 
-function Saving({ usage, paid, saved, museTokens, eur, locale, tr }: {
-  usage: HubUsage | null; paid: ReturnType<typeof paidForWindow>; saved: number | null; museTokens: number | null; eur: (usd: number) => string; locale: string; tr: Tr;
+function Saving({ usage, planCost, saved, museTokens, money, locale, tr }: {
+  usage: HubUsage | null; planCost: ReturnType<typeof planCostForWindow>; saved: number | null; museTokens: number | null; money: (usd: number) => string; locale: string; tr: Tr;
 }) {
   const m = museTokens === null ? null : tokenParts(museTokens, locale);
   return (
@@ -534,9 +535,9 @@ function Saving({ usage, paid, saved, museTokens, eur, locale, tr }: {
       <div className="grid grid-cols-2 gap-4 px-3 py-2.5 tabular-nums @max-2xl:grid-cols-1">
         <div>
           <div className="text-mini text-app-text-muted">{tr('hubUsage.savingClaude')}</div>
-          <div className="text-title font-semibold text-app-text">{saved === null ? '-' : eur(saved)} <span className="text-mini font-normal text-app-text-muted">{tr('hubUsage.saved')}</span></div>
-          {usage && paid && <div className="text-mini text-app-text-muted">{tr('hubUsage.savingLine', { list: eur(usage.totals.listUsd), paid: eur(paid.usd) })}</div>}
-          {paid && paid.unpriced > 0 && <div className="text-mini text-app-text-muted">{tr('hubUsage.unpriced', { n: paid.unpriced })}</div>}
+          <div className="text-title font-semibold text-app-text">{saved === null ? '-' : money(saved)} <span className="text-mini font-normal text-app-text-muted">{tr('hubUsage.saved')}</span></div>
+          {usage && planCost && <div className="text-mini text-app-text-muted">{tr('hubUsage.savingLine', { list: money(usage.totals.listUsd), paid: money(planCost.usd) })}</div>}
+          {planCost && planCost.unpriced > 0 && <div className="text-mini text-app-text-muted">{tr('hubUsage.unpriced', { n: planCost.unpriced })}</div>}
         </div>
         <div>
           <div className="text-mini text-app-text-muted">{tr('hubUsage.savingMuse')}</div>
@@ -554,13 +555,13 @@ function Saving({ usage, paid, saved, museTokens, eur, locale, tr }: {
 
 /** The board's KPIs of the Dashboard, compact: what the board did, next to what it cost. */
 function BoardWork({ kpis, locale, tr }: { kpis: DashboardKPIs | null; locale: string; tr: Tr }) {
-  const dec = (v: number) => v.toLocaleString(locale === 'it' ? 'it-IT' : 'en-US', { maximumFractionDigits: 1 });
+  const oneDecimal = (v: number) => v.toLocaleString(locale === 'it' ? 'it-IT' : 'en-US', { maximumFractionDigits: 1 });
   const cells: Array<{ key: string; icon: ReactNode; label: string; value: string | null; empty?: boolean }> = [
     { key: 'doneToday', icon: <CheckCircle size={12} />, label: tr('hubUsage.board.doneToday'), value: kpis ? String(kpis.throughputDay) : null },
     { key: 'doneWeek', icon: <CheckCircle size={12} />, label: tr('hubUsage.board.doneWeek'), value: kpis ? String(kpis.throughputWeek) : null },
-    { key: 'cycle', icon: <Clock size={12} />, label: tr('hubUsage.board.cycle'), value: kpis ? tr('hubUsage.hours', { n: dec(kpis.avgCycleTimeHours) }) : null },
+    { key: 'cycle', icon: <Clock size={12} />, label: tr('hubUsage.board.cycle'), value: kpis ? tr('hubUsage.hours', { n: oneDecimal(kpis.avgCycleTimeHours) }) : null },
     { key: 'wip', icon: <Loader size={12} />, label: tr('hubUsage.board.wip'), value: kpis ? String(kpis.wipCount) : null },
-    { key: 'errors', icon: <AlertTriangle size={12} />, label: tr('hubUsage.board.errors'), value: kpis ? `${dec(kpis.errorRate * 100)}%` : null },
+    { key: 'errors', icon: <AlertTriangle size={12} />, label: tr('hubUsage.board.errors'), value: kpis ? `${oneDecimal(kpis.errorRate * 100)}%` : null },
     { key: 'approvals', icon: <Hourglass size={12} />, label: tr('hubUsage.board.approvals'), value: kpis ? (kpis.pendingApprovals > 0 ? String(kpis.pendingApprovals) : tr('hubUsage.board.none')) : null, empty: kpis?.pendingApprovals === 0 },
   ];
   return (

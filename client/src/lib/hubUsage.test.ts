@@ -8,8 +8,8 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  accountShares, chartLayers, euro, headAndRest, museJobs, museWeekTokens, overCap, paidForWindow, planPriceUsd, projectShares,
-  readHubUsage, savingOf, tokenParts, usdEurOf, type HubUsage,
+  accountShares, chartLayers, formatCurrency, headAndRest, museJobs, museWeekTokens, overCap, planCostForWindow, planPriceUsd, projectShares,
+  readHubUsage, savingOf, tokenParts, exchangeRateOf, type HubUsage,
 } from './hubUsage';
 
 const NOW = 1_800_000_000_000;
@@ -49,9 +49,9 @@ describe('HUBBR-12: the hub half of the Dashboard', () => {
       { name: 'b', subscriptionType: 'max', rateLimitTier: 'default_claude_max_5x' },
       { name: 'c', subscriptionType: 'free' },
     ] };
-    expect(paidForWindow(profiles, 30)).toEqual({ usd: 300, plans: 2, unpriced: 1 });
-    expect(paidForWindow(profiles, 7)!.usd).toBeCloseTo(70, 6);
-    expect(paidForWindow({ error: 'down' }, 7)).toBeNull();
+    expect(planCostForWindow(profiles, 30)).toEqual({ usd: 300, plans: 2, unpriced: 1 });
+    expect(planCostForWindow(profiles, 7)!.usd).toBeCloseTo(70, 6);
+    expect(planCostForWindow({ error: 'down' }, 7)).toBeNull();
   });
 
   test('the saving is the list price less what is paid, never below zero', () => {
@@ -61,11 +61,11 @@ describe('HUBBR-12: the hub half of the Dashboard', () => {
   });
 
   test('amounts in euro at the proxy rate, Italian style', () => {
-    expect(usdEurOf({ usdEur: 0.9 })).toBe(0.9);
-    expect(usdEurOf(null)).toBe(0.92);
-    expect(euro(1000, 0.9, 'it')).toBe('900 €');
-    expect(euro(10, 0.9, 'it')).toBe('9 €');
-    expect(euro(1, 0.92, 'it')).toBe('0,92 €');
+    expect(exchangeRateOf({ usdEur: 0.9 })).toBe(0.9);
+    expect(exchangeRateOf(null)).toBe(0.92);
+    expect(formatCurrency(1000, 0.9, 'it')).toBe('900 €');
+    expect(formatCurrency(10, 0.9, 'it')).toBe('9 €');
+    expect(formatCurrency(1, 0.92, 'it')).toBe('0,92 €');
     expect(tokenParts(182_400_000, 'it')).toEqual({ value: '182', unit: 'M' });
     expect(tokenParts(9_140_000, 'it')).toEqual({ value: '9,1', unit: 'M' });
   });
