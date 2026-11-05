@@ -35,8 +35,10 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
 import { startFakeHub, type FakeHub } from "./helpers/fake-hub";
-import { canonicalTmpRoot, E2E_BASE } from "./helpers/test-server";
-import { deleteTask, resetPaneStore } from "./helpers/api-fixtures";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { canonicalTmpRoot, E2E_BASE, E2E_HOME } from "./helpers/test-server";
+import { createTopic, deleteTask, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { projectIdForPath } from "../../shared/board";
 
 hermetic(test);
@@ -45,9 +47,32 @@ test.describe.configure({ mode: "serial", timeout: 150_000 });
 
 const HOUR = 3_600_000;
 const STAMP = `fr${Date.now().toString(36)}`;
-const PROJECT_ID = projectIdForPath(`${canonicalTmpRoot()}/e2e-frenato-${STAMP}`);
+const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-frenato-${STAMP}`;
+const PROJECT_ID = projectIdForPath(PROJECT_PATH);
+let projectTopicId: string | null = null;
 const CARDS = ["Build firmate per la release", "Onboarding tradotto in tre lingue"];
 const made: string[] = [];
+
+/**
+ * The bench as a dispatching board needs it: the project's folder with a topic
+ * on it (the board resolves its directory from there, or the dispatcher parks
+ * the cards in Backlog), and a Claude runtime that reads as ready. The CLI is
+ * the bench's stub; its "session" is the `.claude` folder of the home the
+ * server reads, which the Windows bench does not seed (`HOME` unset there, so
+ * the server looks under its working directory).
+ */
+async function dispatchingBench(request: APIRequestContext): Promise<void> {
+  mkdirSync(PROJECT_PATH, { recursive: true });
+  writeFileSync(join(PROJECT_PATH, "package.json"), JSON.stringify({ name: "e2e-frenato" }));
+  projectTopicId = (await createTopic(request, "E2E-Frenato", { projectPath: PROJECT_PATH })).id;
+  mkdirSync(join(E2E_HOME, ".claude"), { recursive: true });
+  mkdirSync(join(process.cwd(), ".claude"), { recursive: true });
+  await expect.poll(async () => {
+    await request.post(`${E2E_BASE}/api/providers/snapshot/refresh`, { data: { provider: "claude-code" } });
+    const snap = (await (await request.get(`${E2E_BASE}/api/providers/snapshot`)).json()) as { providers: Array<{ name: string; status: string }> };
+    return snap.providers.find((p) => p.name === "claude-code")?.status;
+  }, { timeout: 30_000, message: "the bench's Claude runtime never read as ready" }).toBe("ready");
+}
 
 /** Two Todo cards pinned to the Claude runtime, on a board that dispatches, and the server's word that both are held. */
 async function heldCards(request: APIRequestContext): Promise<string[]> {
@@ -55,16 +80,24 @@ async function heldCards(request: APIRequestContext): Promise<string[]> {
   expect(settings.ok(), await settings.text()).toBe(true);
   const ids: string[] = [];
   for (const text of CARDS) {
-    const res = await request.post(`${E2E_BASE}/api/boards/${PROJECT_ID}/tasks`, { data: { text: `${text} ${STAMP}`, status: "todo", model: "claude-code:auto" } });
+    const res = await request.post(`${E2E_BASE}/api/boards/${PROJECT_ID}/tasks`, { data: { text, status: "todo", model: "claude-code:auto", topicsRouting: false } });
     expect(res.ok(), await res.text()).toBe(true);
     const id = ((await res.json()) as { id: string }).id;
     made.push(id);
     ids.push(id);
   }
-  await expect.poll(async () => {
-    const body = (await (await request.get(`${E2E_BASE}/api/dispatch/brakes`)).json()) as { held?: Array<{ taskId: string; provider: string }> };
-    return (body.held ?? []).filter((h) => ids.includes(h.taskId) && h.provider === "claude").length;
-  }, { timeout: 20_000, message: "the dispatcher never held the two Claude cards" }).toBe(2);
+  try {
+    await expect.poll(async () => {
+      const body = (await (await request.get(`${E2E_BASE}/api/dispatch/brakes`)).json()) as { held?: Array<{ taskId: string; provider: string }> };
+      return (body.held ?? []).filter((h) => ids.includes(h.taskId) && h.provider === "claude").length;
+    }, { timeout: 20_000 }).toBe(2);
+  } catch (err) {
+    // The bench's runtimes and the cards as the server sees them: what a red here needs to be read.
+    const snapshot = await (await request.get(`${E2E_BASE}/api/providers/snapshot`)).text();
+    const brakes = await (await request.get(`${E2E_BASE}/api/dispatch/brakes`)).text();
+    const card = await (await request.get(`${E2E_BASE}/api/boards/${PROJECT_ID}/tasks/${ids[0]}`)).text();
+    throw new Error(`the dispatcher never held the two Claude cards\nbrakes: ${brakes}\nsnapshot: ${snapshot.slice(0, 1500)}\ncard: ${card.slice(0, 800)}\n${String(err)}`);
+  }
   return ids;
 }
 
@@ -115,9 +148,11 @@ test.describe("board: the «Frenato» chip", () => {
   test.beforeAll(async ({ request }) => {
     hub = await startFakeHub();
     await waitForHub(request);
+    await dispatchingBench(request);
   });
   test.afterAll(async ({ request }) => {
     await clearBrakes(request);
+    if (projectTopicId) await deleteTopic(request, projectTopicId).catch(() => {});
     await hub?.close();
   });
   test.beforeEach(async ({ request }) => { await clearBrakes(request); });
