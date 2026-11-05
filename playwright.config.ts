@@ -616,6 +616,8 @@ export default defineConfig({
         // No hub, or the hub down, leaves no trace: the desktop shell and phone
         // Safari are WebKit, and it is the engine this Mac may film on.
         "**/hub-off.spec.ts",
+        // The bell in groups, with the hub's items beside the waits of Topics.
+        "**/bell-groups.spec.ts",
         // The live-terminals menu: used mostly from remote, i.e. from phone
         // Safari and the WKWebView shell. WebKit is where it lives.
         "**/live-terminals.spec.ts",

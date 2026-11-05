@@ -76,6 +76,29 @@ export function chromeAttentionTotal(
   return chromeAttentionSubjects(rows, topics, terminalSessions).length;
 }
 
+/** The tone of the bell's pill: amber, the blue of the lit subjects, or grey. */
+type BellTone = 'needs-you' | 'lit' | 'quiet';
+
+/**
+ * THE BELL'S PILL (HUBBR-06). The bell lists the hub's items beside the lit
+ * subjects, so its figure adds them: the hub's items that wait for the person
+ * and its warnings. The Dock, the tray and the PWA badge keep THE ONE NUMBER
+ * above (ATTN-08): the hub is not part of every installation, and a warning
+ * of a service on the Mac is not a subject of this app.
+ *
+ * Amber only when something waits for the person (a wait of Topics or a
+ * «decide» of the hub); grey when the only things left are warnings.
+ */
+export function bellBadge(
+  chromeTotal: number,
+  topicsWaiting: number,
+  hub: { decide: number; alerts: number },
+): { count: number; tone: BellTone } {
+  const count = chromeTotal + hub.decide + hub.alerts;
+  const tone: BellTone = topicsWaiting + hub.decide > 0 ? 'needs-you' : chromeTotal > 0 ? 'lit' : 'quiet';
+  return { count, tone };
+}
+
 /** How many chats and terminals the tray menu lists: the menu stays short. */
 export const TRAY_CHAT_ROWS = 8;
 

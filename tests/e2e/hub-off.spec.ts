@@ -31,8 +31,11 @@ const RETIRED_TEXT = /Tutto ok|Quasi tutto ok|Hub non raggiungibile|Hub raggiung
 /**
  * What the hub could leave in the console, from the first navigation on: every
  * uncaught page error, every console error that names the hub or the System
- * pane, and every request of the page to the hub's routes (with the strip gone
- * nothing in the client asks them, so one is already a trace). Console errors
+ * pane, and every request of the page to the hub's proxied routes
+ * (`/api/hub/`, `/api/switchboard/`: with the strip gone only the open bell asks
+ * them, so one on load is already a trace). Topics' own snapshot
+ * `/api/hub-live`, which the bell's button reads, asks the hub nothing and may
+ * pass. Console errors
  * of the engine itself stay out: WebKit on the PC logs its own viewport and
  * WebSocket-extension notices on every page, hub or not, and its
  * «ResizeObserver loop completed» reaches the page as an uncaught error: a
@@ -42,7 +45,7 @@ function collectErrors(page: Page): string[] {
   const errors: string[] = [];
   page.on("console", (m) => { if (m.type() === "error" && /hub|sistema|system/i.test(m.text())) errors.push(m.text()); });
   page.on("pageerror", (e) => { if (!e.message.startsWith("ResizeObserver loop")) errors.push(e.message); });
-  page.on("request", (r) => { if (/^\/api\/(hub|switchboard)([-/]|$)/.test(new URL(r.url()).pathname)) errors.push(`request ${r.url()}`); });
+  page.on("request", (r) => { if (/^\/api\/(hub|switchboard)(\/|$)/.test(new URL(r.url()).pathname)) errors.push(`request ${r.url()}`); });
   return errors;
 }
 

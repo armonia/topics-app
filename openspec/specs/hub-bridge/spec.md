@@ -79,3 +79,26 @@ The client SHALL show nothing of the hub where the hub is absent or down: no sta
 - **GIVEN** a pane snapshot holding `__system__` in a split cell beside a chat
 - **WHEN** the pane store hydrates it
 - **THEN** only the chat SHALL remain, and no group SHALL reference `__system__`
+
+### Requirement: HUBBR-06 — The bell in groups, in one order
+
+The bell («Da guardare» > Ora) SHALL list, in this order: «Decidi tu» (the waits of Topics and the hub's «waiting for you» items together), «Si è rotto» (failed automations, services with a problem or stopped), «Quote e account» (a window at 90% or more, the pace alerts, account switched, limit reached, token expired on the Claude proxy in the last 24 hours), «Da guardare» (projects over their budget, contradictions of the agents' rules), «Finite». A group with no row SHALL not render. In «Decidi tu» the items with a deadline SHALL come first, nearest first, then the longest wait; a hub group shows five rows and «Altre N». A service switched off on purpose or waiting on demand SHALL not enter. The pill of the button SHALL add the hub's waiting items and warnings to the Topics count (the Dock, the tray and the PWA badge keep ATTN-08), amber only when something waits for the person, grey when only warnings are left. Without the hub the bell SHALL be the Topics inbox, and the client SHALL ask nothing of `/api/hub/` or `/api/switchboard/`.
+
+#### Scenario: Decide first
+- **GIVEN** a hub with a «waiting for you» item due today, a failed automation, a stopped service, a full week, an account switch, a project over budget and a finished chat
+- **WHEN** the bell opens
+- **THEN** the groups SHALL be Decidi tu, Si è rotto, Quote e account, Da guardare, Finite, with the hub's item at the top of Decidi tu
+
+#### Scenario: No hub
+- **GIVEN** nobody answers on the hub's address
+- **WHEN** the bell opens
+- **THEN** only the groups of Topics SHALL render and no request SHALL go to the hub's routes
+
+### Requirement: HUBBR-07 — History with the filtered diary
+
+The bell's History tab SHALL merge two days of the hub's diary into the Topics log by time, with a filter «Tutto», «Topics», «Automazioni e agenti». The diary SHALL bring failed runs, the agents' work («Risolvi tu» included), workflows and the person's own actions, and SHALL leave out the runs of automations that went well or were skipped: those stay on the automation's card.
+
+#### Scenario: Routine runs stay out
+- **GIVEN** a diary with a successful backup, a skipped brief and a failed reindex
+- **WHEN** History opens
+- **THEN** only the failed reindex SHALL be listed among the automation runs

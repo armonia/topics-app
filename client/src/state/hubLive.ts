@@ -11,6 +11,7 @@
  * A topic carries either `data` or `error`, never both: when the hub stops
  * answering, the old numbers are dropped so nothing shows them as current.
  */
+import { useSyncExternalStore } from 'react';
 import { subscribeFrames, subscribeReconnect } from '../lib/wsFrameBus';
 import { apiFetch } from '../lib/shell/net';
 
@@ -98,6 +99,16 @@ function subscribe(cb: () => void): () => void {
   }
   listeners.add(cb);
   return () => { listeners.delete(cb); };
+}
+
+/** Everything known so far, per topic. Empty until the first reading. */
+export function useHubLive(): HubLiveState {
+  return useSyncExternalStore(subscribe, () => current, () => current);
+}
+
+/** True once any topic has carried data in this window: the hub is part of this installation. */
+export function useHubEverRead(): boolean {
+  return useSyncExternalStore(subscribe, () => everRead, () => everRead);
 }
 
 /** Test seam: subscribe as a mounted component would, without React. */

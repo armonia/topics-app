@@ -324,6 +324,8 @@ export function testServerEnv(port: number = E2E_PORT): Record<string, string> {
     TOPICS_TUNNEL_PORT: String(tunnelPortFor(port)),
     // The usage hub: a port only a spec's fake listens on (see hubPortFor).
     TOPICS_HUB_URL: `http://127.0.0.1:${hubPortFor(port)}`,
+    // The Claude proxy's account log: the same fake answers its paths too.
+    TOPICS_SWITCHBOARD_URL: `http://127.0.0.1:${hubPortFor(port)}`,
     // THE GATEWAY URL IS DECLARED ONLY IF SOMEONE IS ACTUALLY LISTENING.
     // THE TOKEN, INSTEAD, IS ALWAYS DECLARED — and the difference is the whole
     // point, because getting it wrong breaks the terminal tests.

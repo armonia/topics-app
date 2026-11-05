@@ -29,8 +29,12 @@ describe('HUBBR-03: the hub readers', () => {
     expect(quotaLines({ not: 'a list' })).toEqual([]);
   });
 
-  test('services down follow the hub rule: a problem, stopped or not loaded; on demand is not down', () => {
-    expect(servicesDown(SERVICES).map((s) => s.id)).toEqual(['openclaw', 'docs']);
+  test('services down: a problem or stopped; switched off on purpose and on demand are not down', () => {
+    const withStopped = { services: [...SERVICES.services, { id: 'gw', name: 'Gateway', state: 'fermo', problem: null }] };
+    expect(servicesDown(withStopped)).toEqual([
+      { id: 'docs', name: 'Docs index', problem: 'non ascolta su :3342' },
+      { id: 'gw', name: 'Gateway', problem: null },
+    ]);
   });
 
   test('waiting items keep the hub order, drop the malformed, accept only the three link forms of the hub', () => {
@@ -42,7 +46,7 @@ describe('HUBBR-03: the hub readers', () => {
       { id: 'd', tipo: 'boh', title: 'Unknown kind' },
     ] });
     expect(items.map((i) => i.id)).toEqual(['a', 'b', 'd']);
-    expect(items[0]).toEqual({ id: 'a', kind: 'decisione', title: 'Ship it?', why: 'because', link: 'https://example.com/x', from: 'guardiano', due: 10 });
+    expect(items[0]).toEqual({ id: 'a', kind: 'decisione', title: 'Ship it?', why: 'because', link: 'https://example.com/x', from: 'guardiano', due: 10, since: null });
     expect(items[1]!.link).toBeNull();
     expect(items[2]!.kind).toBe('decisione');
     expect(waitingItems(null)).toEqual([]);
@@ -68,8 +72,8 @@ describe('HUBBR-03: the hub readers', () => {
   });
 
   test('alerts are the firing ones, not the rules', () => {
-    const data = { rules: [{ message: 'rule' }], firing: [{ id: 'muse:pace', subject: 'Muse pace', message: 'Ritmo Muse: 71%' }, { id: 'x' }] };
-    expect(firingAlerts(data)).toEqual([{ id: 'muse:pace', subject: 'Muse pace', message: 'Ritmo Muse: 71%' }]);
+    const data = { rules: [{ message: 'rule' }], firing: [{ id: 'muse:pace', subject: 'Muse pace', source: 'ritmo-muse', message: 'Ritmo Muse: 71%' }, { id: 'x' }] };
+    expect(firingAlerts(data)).toEqual([{ id: 'muse:pace', subject: 'Muse pace', message: 'Ritmo Muse: 71%', source: 'ritmo-muse' }]);
   });
 
   test('red gates: classes and brakes that say go false', () => {
@@ -90,7 +94,7 @@ describe('HUBBR-03: the hub readers', () => {
       .toEqual({ needsYou: 1, broken: 4, ok: 81, runsToday: 9209, next: { title: 'Backup', at: 50 } });
     expect(automationSummary({})).toEqual({ needsYou: 0, broken: 0, ok: 0, runsToday: 0, next: null });
     expect(automationSummary(null)).toBeNull();
-    expect(failedJobs({ broken: [{ key: 'gh:x', title: 'Parametri paghe', last: { at: 9, outcome: 'error' } }, { key: 'k' }] }))
-      .toEqual([{ key: 'gh:x', title: 'Parametri paghe', at: 9 }]);
+    expect(failedJobs({ broken: [{ key: 'gh:x', title: 'Parametri paghe', reason: 'ha fallito domenica', last: { at: 9, outcome: 'error' } }, { key: 'k' }] }))
+      .toEqual([{ key: 'gh:x', title: 'Parametri paghe', at: 9, reason: 'ha fallito domenica' }]);
   });
 });

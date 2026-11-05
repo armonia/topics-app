@@ -1,0 +1,138 @@
+/**
+ * THE BELL'S GROUPS (hub-smistamento, «Campanella»; HUBBR-06). Pure: the
+ * inbox model of Topics and the hub's readings in, the groups of the «Now»
+ * tab out, in the one order the person reads them:
+ *
+ *   1. «Decide»: what only the person can do. The waits of Topics
+ *      (questions, permissions, plans, reviews) and the hub's «waiting for
+ *      you» items, in one list: the ones with a deadline first (the nearest
+ *      first), then whoever has waited longest.
+ *   2. «Broken»: failed automations, services with a problem or stopped.
+ *   3. «Quotas and accounts»: a window nearly full, a limit reached, an
+ *      account switched, a token expired.
+ *   4. «To look at»: projects over their budget, contradictions between the
+ *      agents' rules.
+ *   5. «Finished»: as the inbox has always listed them.
+ *
+ * An empty group is not there at all. Without the hub the hub's parts are
+ * empty, so the panel is the Topics inbox of before.
+ */
+import type { InboxItem } from './inboxModel';
+import {
+  automationSummary, firingAlerts, quotaLines, servicesDown, waitingItems,
+  type AccountEvent, type Contradiction, type FailedJob, type FiringAlert, type QuotaLine, type ServiceDown, type WaitingItem,
+} from './hubSystem';
+import type { HubLiveState } from '../state/hubLive';
+
+export const BELL_GROUP_ORDER = ['decide', 'broken', 'quota', 'look', 'finished'] as const;
+export type BellGroupKey = (typeof BELL_GROUP_ORDER)[number];
+
+/** A hub group shows this many rows, then «N more». */
+export const BELL_GROUP_PREVIEW = 5;
+
+/** At or above this share of a window a quota goes in the bell: Topics holds the cards at 90%. */
+const QUOTA_BELL_AT = 90;
+
+/** The alert source of a project over its weekly budget: it goes in «To look at», the others are quotas. */
+const PROJECT_BUDGET_SOURCE = 'soglia-progetto'; // allow-italian: the hub's wire value
+
+export type BellEntry =
+  | { source: 'topics'; key: string; item: InboxItem }
+  | { source: 'waiting'; key: string; item: WaitingItem }
+  | { source: 'failed'; key: string; job: FailedJob }
+  | { source: 'service'; key: string; service: ServiceDown }
+  | { source: 'quota'; key: string; quota: QuotaLine }
+  | { source: 'alert'; key: string; alert: FiringAlert }
+  | { source: 'account'; key: string; event: AccountEvent }
+  | { source: 'contradiction'; key: string; item: Contradiction };
+
+export interface BellGroup {
+  key: BellGroupKey;
+  entries: BellEntry[];
+}
+
+/** What the hub contributes to the bell; every list empty when there is no hub. */
+export interface BellHub {
+  waiting: WaitingItem[];
+  failed: FailedJob[];
+  services: ServiceDown[];
+  quotas: QuotaLine[];
+  alerts: FiringAlert[];
+  accounts: AccountEvent[];
+  contradictions: Contradiction[];
+}
+
+export const NO_HUB: BellHub = { waiting: [], failed: [], services: [], quotas: [], alerts: [], accounts: [], contradictions: [] };
+
+const isFull = (q: QuotaLine) => q.used >= QUOTA_BELL_AT || (q.fiveHour ?? 0) >= QUOTA_BELL_AT;
+
+/** The parts the live topics carry (no request): waiting items, services, quotas, alerts. */
+export function liveBellHub(live: HubLiveState): Pick<BellHub, 'waiting' | 'services' | 'quotas' | 'alerts'> {
+  return {
+    waiting: waitingItems(live.attesa?.data),
+    services: servicesDown(live.services?.data),
+    quotas: quotaLines(live.pace?.data).filter(isFull),
+    alerts: firingAlerts(live.alerts?.data),
+  };
+}
+
+/**
+ * What the hub adds to the bell's button: the items that wait for the person
+ * (they make it amber) and the warnings (grey, with the figure). Read from the
+ * live topics only, so the button never asks the hub anything: the failed
+ * automations are the summary's counter, the list behind it is read when the
+ * panel opens.
+ */
+export function hubBadgeCounts(live: HubLiveState): { decide: number; alerts: number } {
+  const parts = liveBellHub(live);
+  const broken = automationSummary(live.automations?.data)?.broken ?? 0;
+  return { decide: parts.waiting.length, alerts: broken + parts.services.length + parts.quotas.length + parts.alerts.length };
+}
+
+/** «Decide»: deadlines first (nearest first), then the longest wait. */
+function decideEntries(topics: readonly InboxItem[], hub: readonly WaitingItem[]): BellEntry[] {
+  const ranked: { entry: BellEntry; due: number | null; since: number }[] = [
+    ...topics.map((item) => ({ entry: { source: 'topics' as const, key: item.subject, item }, due: null, since: item.since })),
+    ...hub.map((item) => ({ entry: { source: 'waiting' as const, key: `hub:${item.id}`, item }, due: item.due, since: item.since ?? Number.MAX_SAFE_INTEGER })),
+  ];
+  return ranked
+    .sort((a, b) => {
+      if (a.due !== null && b.due !== null) return a.due - b.due;
+      if (a.due !== null) return -1;
+      if (b.due !== null) return 1;
+      return a.since - b.since;
+    })
+    .map((r) => r.entry);
+}
+
+export function bellGroups(model: { waiting: readonly InboxItem[]; finished: readonly InboxItem[] }, hub: BellHub): BellGroup[] {
+  const budget = hub.alerts.filter((a) => a.source === PROJECT_BUDGET_SOURCE);
+  const pace = hub.alerts.filter((a) => a.source !== PROJECT_BUDGET_SOURCE);
+  const groups: BellGroup[] = [
+    { key: 'decide', entries: decideEntries(model.waiting, hub.waiting) },
+    {
+      key: 'broken',
+      entries: [
+        ...hub.failed.map((job): BellEntry => ({ source: 'failed', key: `job:${job.key}`, job })),
+        ...hub.services.map((service): BellEntry => ({ source: 'service', key: `service:${service.id}`, service })),
+      ],
+    },
+    {
+      key: 'quota',
+      entries: [
+        ...hub.quotas.map((quota): BellEntry => ({ source: 'quota', key: `quota:${quota.key}`, quota })),
+        ...pace.map((alert): BellEntry => ({ source: 'alert', key: `alert:${alert.id}`, alert })),
+        ...hub.accounts.map((event): BellEntry => ({ source: 'account', key: `account:${event.key}`, event })),
+      ],
+    },
+    {
+      key: 'look',
+      entries: [
+        ...budget.map((alert): BellEntry => ({ source: 'alert', key: `alert:${alert.id}`, alert })),
+        ...hub.contradictions.map((item): BellEntry => ({ source: 'contradiction', key: item.id, item })),
+      ],
+    },
+    { key: 'finished', entries: model.finished.map((item): BellEntry => ({ source: 'topics', key: item.subject, item })) },
+  ];
+  return groups.filter((g) => g.entries.length > 0);
+}
