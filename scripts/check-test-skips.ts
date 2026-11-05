@@ -157,8 +157,14 @@ const SKIP_DIRS = new Set(["node_modules", "test-results"]);
  * ships), and its clip test films through `clipDiConsegna`, which launches its
  * own Chromium. It skips on `webkit` exactly as `drag-preview.spec.ts` does:
  * the `chromium` project still runs it, and on this Mac Chromium is refused.
+ *
+ * 25 (2026-11-05): `bell-groups.spec.ts` (change hub-smistamento) tests the
+ * bell with the hub down, and what is left under the band is the Topics half,
+ * which comes from the socket. WebKit on the Windows runner has no socket with
+ * the test server (`socketOn`), so that one test skips there only: it still
+ * runs on `chromium` everywhere and on `webkit` on the Mac and in CI (Linux).
  */
-const BASELINE = 24;
+const BASELINE = 25;
 
 /** `test.skip(` e `test.fixme(` — non `test.describe.skip`, che disattiva un blocco intero. */
 const SKIP_CALL = /\btest\.(skip|fixme)\s*\(/g;
