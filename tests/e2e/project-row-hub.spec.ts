@@ -32,7 +32,10 @@
  * first test is red (the hint's 38%, the missing dot on studio-x).
  *
  * Video on: the recording is the proof. Screenshots of the built surface go to
- * the test's output (`vero-riga-progetto-hub-*.png`, allow-italian: file names the docs expect).
+ * the test's output (`vero-riga-progetto-hub-*.png`, allow-italian: file names the docs expect),
+ * taken in the mockups' workspace (helpers/shot-scene.ts): each project open
+ * on its chats, and the Dashboard's Consumi beside the rows, as the mockup
+ * draws them.
  *
  * @covers HUBBR-16
  */
@@ -41,8 +44,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { hermetic } from "./fixtures/hermetic";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { seedScene, type Scene } from "./helpers/shot-scene";
 import { longPress } from "./helpers/long-press";
-import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
+import { canonicalTmpRoot } from "./helpers/file-project";
 import { startFakeHub, type FakeHub } from "./helpers/fake-hub";
 import { E2E_BASE } from "./helpers/test-server";
 
@@ -52,6 +56,13 @@ test.describe.configure({ mode: "serial", timeout: 150_000 });
 
 const ROOT = `${canonicalTmpRoot()}/e2e-hubrow-${Date.now().toString(36)}`;
 const NAMES = ["acme-web", "studio-x", "acme-api", "notes-lab"] as const;
+/** The chats each project is open on, as in the mockup's sidebar. */
+const CHATS: Record<(typeof NAMES)[number], string[]> = {
+  "acme-web": ["Firma della release v1.1", "Revisione checkout"],
+  "studio-x": ["Migrazione listino"],
+  "acme-api": ["Paginazione degli ordini"],
+  "notes-lab": ["Note sparse"],
+};
 const dirOf = (name: string) => `${ROOT}/${name}`;
 /** A real icon, as most projects have: the row then carries its glyph slot, and the name has that much less room. */
 const ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" rx="3" fill="#3b82f6"/></svg>';
@@ -99,6 +110,15 @@ async function expectWordsWholeOrHidden(week: Locator): Promise<void> {
 
 const projectRow = (page: Page, name: string) => page.locator(".group\\/proj").filter({ has: page.getByTestId(`project-toggle-${name}`) });
 
+/** The Dashboard in the main area, as the mockup shows it beside the rows. */
+async function openDashboard(page: Page): Promise<void> {
+  await expect.poll(() => page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent("topics:open-utility", { detail: { type: "dashboard" } }));
+    return document.querySelector('[data-testid="dashboard-pane"]') !== null;
+  }), { timeout: 20_000 }).toBe(true);
+  await expect(page.getByTestId("dashboard-pane").getByTestId("hub-usage-section")).toBeVisible({ timeout: 20_000 });
+}
+
 async function openRows(page: Page): Promise<void> {
   await goToApp(page);
   for (const n of NAMES) await expect(page.getByTestId(`project-toggle-${n}`)).toBeVisible({ timeout: 20_000 });
@@ -107,14 +127,11 @@ async function openRows(page: Page): Promise<void> {
 
 test.describe("project row with the hub", () => {
   let hub: FakeHub | null = null;
-  const topicIds: string[] = [];
+  let scene: Scene | null = null;
 
   test.beforeAll(async ({ request }) => {
-    for (const n of NAMES) {
-      mkdirSync(dirOf(n), { recursive: true });
-      if (n === "acme-web") writeFileSync(`${dirOf(n)}/favicon.svg`, ICON);
-      topicIds.push((await createTopic(request, `Chat ${n}`, { projectPath: dirOf(n) })).id);
-    }
+    scene = await seedScene(request, ROOT, NAMES.map((name) => ({ name, chats: CHATS[name] })));
+    writeFileSync(`${dirOf("acme-web")}/favicon.svg`, ICON);
     hub = await startFakeHub(undefined, {
       projects: { dirs: { "acme-web": `${ROOT}/.topics/worktrees/acme-web/k3f9`, "acme-api": `${ROOT}/acme-api-brand-kit/studio`, "misc-a": dirOf("notes-lab") } },
     });
@@ -122,8 +139,7 @@ test.describe("project row with the hub", () => {
   });
   test.afterAll(async ({ request }) => {
     await hub?.close();
-    for (const id of topicIds) await deleteTopic(request, id).catch(() => {});
-    removeTmpDir(ROOT);
+    await scene?.cleanup(request);
   });
   test.beforeEach(async ({ request }) => {
     await request.post(`${E2E_BASE}/api/hub/e2e-reset`);
@@ -133,6 +149,7 @@ test.describe("project row with the hub", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.emulateMedia({ colorScheme: "dark" });
     await openRows(page);
+    await openDashboard(page);
 
     const studio = projectRow(page, "studio-x").getByTestId("project-hub-mark");
     await expect(studio).toHaveAttribute("data-hold", "held");
@@ -182,6 +199,7 @@ test.describe("project row with the hub", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.emulateMedia({ colorScheme: "light" });
     await openRows(page);
+    await openDashboard(page);
 
     await page.getByTestId("project-toggle-studio-x").click({ button: "right" });
     const studioMenu = page.getByTestId("project-hub-menu");

@@ -32,7 +32,11 @@
  * never shows and the first test is red.
  *
  * Video on: the recording is the proof. The pictures of the built surface go
- * to the test's output (`vero-cmdk-e-frenato-*.png`, allow-italian: file names the docs expect).
+ * to the test's output (`vero-cmdk-e-frenato-*.png`, allow-italian: file names the docs expect),
+ * taken in the mockup's workspace: the held cards are acme-web's, and three
+ * more projects that do not dispatch (helpers/shot-scene.ts) fill the other
+ * columns with cards that never start (backlog, in progress, review) and open
+ * their chats in the sidebar.
  *
  * @covers HUBBR-20
  */
@@ -43,6 +47,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { canonicalTmpRoot, E2E_BASE, E2E_HOME } from "./helpers/test-server";
 import { createTopic, deleteTask, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { openSceneInSidebar, seedScene, type Scene } from "./helpers/shot-scene";
 import { projectIdForPath } from "../../shared/board";
 
 hermetic(test);
@@ -51,11 +56,53 @@ test.describe.configure({ mode: "serial", timeout: 150_000 });
 
 const HOUR = 3_600_000;
 const STAMP = `fr${Date.now().toString(36)}`;
-const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-frenato-${STAMP}`;
+const ROOT = `${canonicalTmpRoot()}/e2e-frenato-${STAMP}`;
+// The board labels a card with its folder's name: the held cards read as acme-web's, as in the mockup.
+const PROJECT_PATH = `${ROOT}/acme-web`;
 const PROJECT_ID = projectIdForPath(PROJECT_PATH);
 let projectTopicId: string | null = null;
 const CARDS = ["Build firmate per la release", "Onboarding tradotto in tre lingue"];
 const made: string[] = [];
+
+/**
+ * The mockup's other columns, on projects whose boards do not dispatch: none
+ * of these cards is in Todo, so none is ever started or held.
+ */
+const SCENE_PROJECTS = [
+  { name: "studio-x", chats: ["Triage dei bug di ottobre", "Piano del rilascio"] },
+  { name: "acme-api", chats: ["Paginazione degli ordini"] },
+  { name: "acme-docs", chats: ["Guida rapida"] },
+];
+const SCENE_CARDS: Array<{ project: string; text: string; status: "backlog" | "in_progress" | "review" }> = [
+  { project: "acme-docs", text: "Guida rapida per il rilascio", status: "backlog" },
+  { project: "studio-x", text: "Telemetria con consenso", status: "backlog" },
+  { project: "acme-api", text: "Paginazione degli ordini", status: "in_progress" },
+  { project: "studio-x", text: "Test del checkout", status: "in_progress" },
+  { project: "studio-x", text: "Banner dei cookie più leggero", status: "review" },
+  { project: "acme-docs", text: "Indice delle API", status: "review" },
+];
+/**
+ * The cards are made as from the interface, as a person makes them in the
+ * mockup: an agent's card without description, bar and source is born flagged
+ * «incompleta» with a system note, which the mockup does not draw.
+ */
+const AS_PERSON = { "X-Topics-Action-Origin": "interface" };
+let scene: Scene | null = null;
+const sceneCards: Array<{ projectId: string; id: string }> = [];
+
+async function seedBoardScene(request: APIRequestContext): Promise<void> {
+  scene = await seedScene(request, ROOT, SCENE_PROJECTS, { open: false });
+  for (const p of SCENE_PROJECTS) {
+    const res = await request.patch(`${E2E_BASE}/api/boards/${projectIdForPath(scene.dirOf(p.name))}/settings`, { data: { autoDispatch: false } });
+    expect(res.ok(), await res.text()).toBe(true);
+  }
+  for (const c of SCENE_CARDS) {
+    const projectId = projectIdForPath(scene.dirOf(c.project));
+    const res = await request.post(`${E2E_BASE}/api/boards/${projectId}/tasks`, { headers: AS_PERSON, data: { text: c.text, status: c.status, topicsRouting: false } });
+    expect(res.ok(), await res.text()).toBe(true);
+    sceneCards.push({ projectId, id: ((await res.json()) as { id: string }).id });
+  }
+}
 
 /**
  * The bench as a dispatching board needs it: the project's folder with a topic
@@ -84,7 +131,7 @@ async function heldCards(request: APIRequestContext): Promise<string[]> {
   expect(settings.ok(), await settings.text()).toBe(true);
   const ids: string[] = [];
   for (const text of CARDS) {
-    const res = await request.post(`${E2E_BASE}/api/boards/${PROJECT_ID}/tasks`, { data: { text, status: "todo", model: "claude-code:auto", topicsRouting: false } });
+    const res = await request.post(`${E2E_BASE}/api/boards/${PROJECT_ID}/tasks`, { headers: AS_PERSON, data: { text, status: "todo", model: "claude-code:auto", topicsRouting: false } });
     expect(res.ok(), await res.text()).toBe(true);
     const id = ((await res.json()) as { id: string }).id;
     made.push(id);
@@ -130,6 +177,7 @@ function clock(page: Page, ms: number): Promise<string> {
  */
 async function openBoard(page: Page, request: APIRequestContext): Promise<void> {
   await resetPaneStore(request, []);
+  if (scene) await openSceneInSidebar(request, scene);
   await page.goto(E2E_BASE);
   await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
   await expect(async () => {
@@ -157,11 +205,14 @@ test.describe("board: the «Frenato» chip", () => {
     hub = await startFakeHub();
     await waitForHub(request);
     await dispatchingBench(request);
+    await seedBoardScene(request);
   });
   test.afterAll(async ({ request }) => {
     await clearBrakes(request);
     if (initialCap) await request.patch(`${E2E_BASE}/api/all-boards/settings`, { data: { maxAgents: initialCap.maxAgents, maxAgentsAuto: initialCap.maxAgentsAuto } });
     if (projectTopicId) await deleteTopic(request, projectTopicId).catch(() => {});
+    for (const c of sceneCards.splice(0)) await deleteTask(request, c.projectId, c.id).catch(() => {});
+    await scene?.cleanup(request);
     await hub?.close();
   });
   test.beforeEach(async ({ request }) => { await clearBrakes(request); });

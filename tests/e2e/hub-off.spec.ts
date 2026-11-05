@@ -13,13 +13,20 @@
  * is the installation without the hub. The real :3360 is never touched. Video
  * on: the recording is the proof.
  *
+ * The pictures (`vero-via-sistema-piccolo-*.png`, allow-italian: file names the docs expect) are taken in
+ * the mockups' workspace (helpers/shot-scene.ts): projects with their chats in
+ * the sidebar and a chat open, so the foot of the sidebar is seen beside the
+ * mockup's. With the hub up the row with the name carries the hot quota and
+ * nothing sits above it; without the hub it is the plain row.
+ *
  * @covers HUBBR-04
  */
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
-import { goToApp, openTestChat } from "./helpers";
+import { goToApp } from "./helpers";
 import { startFakeHub } from "./helpers/fake-hub";
-import { E2E_BASE } from "./helpers/test-server";
+import { canonicalTmpRoot, E2E_BASE } from "./helpers/test-server";
+import { openMainChat, seedScene, type Scene } from "./helpers/shot-scene";
 
 hermetic(test);
 test.use({ video: "on" });
@@ -41,10 +48,17 @@ const RETIRED_TEXT = /Tutto ok|Quasi tutto ok|Hub non raggiungibile|Hub raggiung
  * «ResizeObserver loop completed» reaches the page as an uncaught error: a
  * browser notice about layout, not an exception of the app.
  */
+/**
+ * WebKit's word for Topics' own chat stream cut by a reload: with a chat open
+ * (the mockups' scene) the reload of the second test aborts that fetch, and
+ * WebKit raises it as a page error. It asks the hub nothing.
+ */
+const RELOAD_CUT = /\/api\/topics\/streaming due to access control checks/;
+
 function collectErrors(page: Page): string[] {
   const errors: string[] = [];
   page.on("console", (m) => { if (m.type() === "error" && /hub|sistema|system/i.test(m.text())) errors.push(m.text()); });
-  page.on("pageerror", (e) => { if (!e.message.startsWith("ResizeObserver loop")) errors.push(e.message); });
+  page.on("pageerror", (e) => { if (!e.message.startsWith("ResizeObserver loop") && !RELOAD_CUT.test(e.message)) errors.push(e.message); });
   page.on("request", (r) => { if (/^\/api\/(hub|switchboard)(\/|$)/.test(new URL(r.url()).pathname)) errors.push(`request ${r.url()}`); });
   return errors;
 }
@@ -75,6 +89,14 @@ async function expectNoPaletteEntry(page: Page) {
 }
 
 test.describe("Without the hub, no trace", () => {
+  let scene: Scene | null = null;
+  test.beforeAll(async ({ request }) => {
+    scene = await seedScene(request, `${canonicalTmpRoot()}/e2e-hub-off-${Date.now().toString(36)}`);
+  });
+  test.afterAll(async ({ request }) => {
+    await scene?.cleanup(request);
+  });
+
   test("desktop, no hub: no strip, no palette entry, no console error", async ({ page, request }, testInfo) => {
     // The condition this test claims: nobody answers on the hub's address.
     const snap = await hubLive(request);
@@ -85,23 +107,20 @@ test.describe("Without the hub, no trace", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.emulateMedia({ colorScheme: "dark" });
     await goToApp(page);
-    await openTestChat(page);
+    await openMainChat(page, scene!);
     await expect(page.getByLabel("Topics sidebar")).toBeVisible();
     await expectNoHubTrace(page);
     // Automazioni is the hub's: without it, not even the row above the Board.
     await expect(page.getByTestId("sidebar-automations")).toHaveCount(0);
-    await page.screenshot({ path: testInfo.outputPath("vero-scuro.png") });
-
-    await page.emulateMedia({ colorScheme: "light" });
-    await expect(page.locator("html")).not.toHaveClass(/\bdark\b/);
-    await page.screenshot({ path: testInfo.outputPath("vero-chiaro.png") });
-    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(page.getByTestId("identity-hot-quota")).toHaveCount(0);
+    await page.mouse.move(0, 0);
+    await page.screenshot({ path: testInfo.outputPath("vero-via-sistema-piccolo-senza-hub-scuro.png") });
 
     await expectNoPaletteEntry(page);
     expect(errors).toEqual([]);
   });
 
-  test("desktop, hub up and then down: the sidebar stays the same, no console error", async ({ page, request }) => {
+  test("desktop, hub up and then down: the sidebar stays the same, no console error", async ({ page, request }, testInfo) => {
     const hub = await startFakeHub();
     try {
       // The hub answers: the reader holds its data.
@@ -109,9 +128,18 @@ test.describe("Without the hub, no trace", () => {
       const errors = collectErrors(page);
       await page.setViewportSize({ width: 1440, height: 900 });
       await goToApp(page);
-      await openTestChat(page);
+      await openMainChat(page, scene!);
       await expectNoHubTrace(page);
       await expect(page.getByTestId("sidebar-automations")).toBeVisible();
+      // The row with the name carries the hottest quota, and nothing sits above it.
+      await expect(page.getByTestId("identity-hot-quota")).toBeVisible({ timeout: 20_000 });
+      await page.emulateMedia({ colorScheme: "dark" });
+      await page.mouse.move(0, 0);
+      await page.screenshot({ path: testInfo.outputPath("vero-via-sistema-piccolo-scuro.png") });
+      await page.emulateMedia({ colorScheme: "light" });
+      await expect(page.locator("html")).not.toHaveClass(/\bdark\b/);
+      await page.screenshot({ path: testInfo.outputPath("vero-via-sistema-piccolo-chiaro.png") });
+      await page.emulateMedia({ colorScheme: "dark" });
 
       // The hub stops answering: the reader says so, and a reload shows the
       // same sidebar as before.
@@ -129,6 +157,28 @@ test.describe("Without the hub, no trace", () => {
     }
   });
 
+  test("phone, 390 px, hub up: the chats and the bottom row, nothing above it", async ({ browser, request }, testInfo) => {
+    const hub = await startFakeHub();
+    const ctx = await browser.newContext({
+      baseURL: E2E_BASE, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, colorScheme: "dark", locale: "it-IT",
+      recordVideo: { dir: testInfo.outputPath("phone-video"), size: { width: 390, height: 844 } },
+    });
+    const page = await ctx.newPage();
+    try {
+      await expect.poll(async () => (await hubLive(request)).pace?.data !== undefined, { timeout: 20_000 }).toBe(true);
+      const errors = collectErrors(page);
+      await page.goto("/");
+      await expect(page.getByTestId("mobile-chrome-bar")).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId("project-toggle-acme-web")).toBeVisible({ timeout: 20_000 });
+      await expectNoHubTrace(page);
+      await page.screenshot({ path: testInfo.outputPath("vero-via-sistema-piccolo-telefono.png") });
+      expect(errors).toEqual([]);
+    } finally {
+      await ctx.close();
+      await hub.close().catch(() => {});
+    }
+  });
+
   test("phone, 390 px, no hub: nothing above the bottom row", async ({ browser }, testInfo) => {
     const ctx = await browser.newContext({
       baseURL: E2E_BASE, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, colorScheme: "dark",
@@ -140,7 +190,7 @@ test.describe("Without the hub, no trace", () => {
       await page.goto("/");
       await expect(page.getByTestId("mobile-chrome-bar")).toBeVisible({ timeout: 30_000 });
       await expectNoHubTrace(page);
-      await page.screenshot({ path: testInfo.outputPath("vero-telefono.png") });
+      await page.screenshot({ path: testInfo.outputPath("vero-via-sistema-piccolo-senza-hub-telefono.png") });
       expect(errors).toEqual([]);
     } finally {
       await ctx.close();
