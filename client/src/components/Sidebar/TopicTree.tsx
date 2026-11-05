@@ -59,6 +59,7 @@ import { useToast } from '@/components/Shared/Toast';
 import type { BoardTask, TaskStatus } from '@/lib/board';
 import { BoardRowSummary } from './BoardStatusCounts';
 import { AutomationsRow } from './AutomationsRow';
+import { useHubEverRead } from '@/state/hubLive';
 import { utilityPanelId } from '@/state/pane/adapters/utilityPanelId';
 import { getPaneConfig } from '@/state/pane/adapters/paneConfig';
 import { buildSidebarItems, filterSidebarItems, groupSidebarItemsByState, groupSidebarItemsBySpace, sidebarItemSpace, type SidebarItem, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
@@ -151,6 +152,11 @@ const CalendarMenuRow = lazy(async () => {
   const { CalendarMenuRow: Row } = await import('./CalendarMenuRow');
   return { default: Row };
 });
+
+// The hub's data on a project row (HUBBR-16) exists only where the hub was
+// read: its chunk loads then, never in a window without the hub.
+const ProjectHubMark = lazy(async () => ({ default: (await import('./ProjectHub')).ProjectHubMark }));
+const ProjectHubMenu = lazy(async () => ({ default: (await import('./ProjectHub')).ProjectHubMenu }));
 
 const BOARD_ID = utilityPanelId('board');
 /** Nome e glifo NON si riscrivono qui: `PANE_CONFIG` li espone già, ed è la
@@ -465,6 +471,7 @@ export function TopicTree({
 }: TopicTreeProps) {
   const tr = useT();
   const toast = useToast();
+  const hubPresent = useHubEverRead();
   // Claude "yolo" toggle state lives inside <PaneAddMenu> now (via
   // useClaudeSkipPermissions in PaneAddMenuItems). No longer threaded
   // through here. The legacy `projectAddMenu` / `addBtnRef` state is
@@ -1436,6 +1443,7 @@ export function TopicTree({
               must not be read as the grey "agg. X fa" in the trailing rail,
               which is a receipt. */}
           {!isExpanded && <ProjectElapsed projectPath={pp} onFill={projOnFill} />}
+          {hubPresent && <Suspense fallback={null}><ProjectHubMark projectPath={pp} expanded={isExpanded} onFill={projOnFill} /></Suspense>}
           <div className={`${ROW_TRAIL} flex items-center ${ROW_GAP} flex-shrink-0`}>
             {/* Pin glyph — trailing rail, before the badge (same fixed
                 Pin → … → NotificationBadge order as the chat rows). Inherits
@@ -2367,6 +2375,7 @@ export function TopicTree({
               <span>{projectContextMenu.allArchived ? tr('sidebar.restoreProject') : tr('sidebar.archiveProject')}</span>
             </button>
           )}
+          {hubPresent && <Suspense fallback={null}><ProjectHubMenu projectPath={projectContextMenu.projectPath} /></Suspense>}
         </ContextMenuPortal>
       )}
 

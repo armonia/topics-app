@@ -1,6 +1,6 @@
 /**
  * The usage hub's live data (quotas, Mac, services, waiting items, alerts,
- * gates, automations) as the server pushes it
+ * gates, automations, projects) as the server pushes it
  * on `hub:live` frames (server/lib/hub-live.ts). No polling here: the first
  * paint reads `GET /api/hub-live`, every change after that arrives on the
  * socket. The snapshot is read again on every socket RE-open (a frame sent
@@ -20,7 +20,7 @@ export type { HubLiveTopic, HubLiveEntry };
 
 export type HubLiveState = Partial<Record<HubLiveTopic, HubLiveEntry>>;
 
-const TOPICS: readonly HubLiveTopic[] = ['pace', 'mac', 'services', 'attesa', 'alerts', 'gates', 'automations']; // allow-italian: hub topic names
+const TOPICS: readonly HubLiveTopic[] = ['pace', 'mac', 'services', 'attesa', 'alerts', 'gates', 'automations', 'projects']; // allow-italian: hub topic names
 
 let current: HubLiveState = {};
 // Whether ANY topic ever carried data in this window. It tells "the hub is not

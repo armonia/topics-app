@@ -3,7 +3,8 @@
  * (`/api/mac`), the launchd services (`/api/services`), and what the System
  * pane shows: the "waiting for you" items (`/api/attesa`), the firing alerts (allow-italian: hub path)
  * (`/api/alerts`), the quota gates (`/api/gates`) and the automations
- * counters (`/api/automations/summary`).
+ * counters (`/api/automations/summary`), and the projects' state, share of
+ * the week, cap and priority (`/api/live`) for the sidebar's project row.
  *
  * The hub's own pages poll every 60 s, each tab on its own. Here ONE reader
  * (this server) asks the hub and pushes a `hub:live` frame only when the
@@ -19,9 +20,10 @@ import { HUB_LIVE_TOPICS, type HubLiveTopic, type HubLiveEntry } from "../../sha
 export { HUB_LIVE_TOPICS };
 export type { HubLiveTopic, HubLiveEntry };
 
-/** The hub path each topic reads, under `/api/`. Only `automations` differs
- *  from its name: the full `/api/automations` is close to a megabyte, the
- *  summary is the part a glance needs. */
+/** The hub path each topic reads, under `/api/`. Two differ from their
+ *  names. `automations`: the full `/api/automations` is close to a megabyte, the
+ *  summary is the part a glance needs; `projects` reads `/api/live`, the
+ *  projects with their state and their share of the week. */
 export const HUB_LIVE_PATHS: Readonly<Record<HubLiveTopic, string>> = {
   pace: "pace",
   mac: "mac",
@@ -30,6 +32,31 @@ export const HUB_LIVE_PATHS: Readonly<Record<HubLiveTopic, string>> = {
   alerts: "alerts",
   gates: "gates",
   automations: "automations/summary",
+  projects: "live",
+};
+
+/**
+ * What the reader keeps of a topic's answer, where it is not the whole of it.
+ * The hub's `/api/live` carries each project's live agents and the time it was
+ * last seen, which change on every read: pushed whole, it would be a frame per
+ * tick to every window. The sidebar's project row reads only the fields below,
+ * so a frame goes out only when one of them changed.
+ */
+const PROJECT_FIELDS = ["name", "title", "dir", "state", "why", "waitUntil", "budgetPct", "priority", "total"] as const;
+
+function pickLiveProjects(data: unknown): unknown {
+  const list = (data as { projects?: unknown } | null)?.projects;
+  if (!Array.isArray(list)) return { projects: [] };
+  const projects = list.flatMap((p) => {
+    if (!p || typeof p !== "object") return [];
+    const row = p as Record<string, unknown>;
+    return [Object.fromEntries(PROJECT_FIELDS.filter((k) => row[k] !== undefined).map((k) => [k, row[k]]))];
+  });
+  return { projects };
+}
+
+const HUB_LIVE_SHAPES: Partial<Record<HubLiveTopic, (data: unknown) => unknown>> = {
+  projects: pickLiveProjects,
 };
 
 export type HubLiveFrame = {
@@ -67,9 +94,10 @@ export function createHubLive(deps: HubLiveDeps) {
       const path = HUB_LIVE_PATHS[topic];
       const resp = await fetchImpl(`${base}/api/${path}`, { signal: AbortSignal.timeout(timeoutMs) });
       if (!resp.ok) return { error: `hub answered ${resp.status} on /api/${path}` };
-      const body = await resp.text();
-      JSON.parse(body); // a non-JSON 200 is a broken hub, not data
-      return { body };
+      const raw = await resp.text();
+      const parsed: unknown = JSON.parse(raw); // a non-JSON 200 is a broken hub, not data
+      const shape = HUB_LIVE_SHAPES[topic];
+      return { body: shape ? JSON.stringify(shape(parsed)) : raw };
     } catch (err) {
       return { error: `hub not reachable: ${err instanceof Error ? err.message : String(err)}` };
     }

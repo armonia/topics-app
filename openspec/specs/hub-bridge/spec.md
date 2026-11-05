@@ -25,7 +25,7 @@ The server SHALL forward `/api/hub/<rest>` to `<hub>/api/<rest>` and `/api/switc
 
 ### Requirement: HUBBR-02 — Live hub data on the WebSocket
 
-The server SHALL read `/api/pace`, `/api/mac`, `/api/services`, `/api/attesa`, `/api/alerts`, `/api/gates` and `/api/automations/summary` (topics `pace`, `mac`, `services`, `attesa`, `alerts`, `gates`, `automations`) from the hub while at least one window is connected, and broadcast a `hub:live` frame per topic only when its answer changed, or once when the topic stops being readable. A write the hub accepts through the bridge SHALL trigger a fresh read, so the change reaches every window without waiting for the next tick.
+The server SHALL read `/api/pace`, `/api/mac`, `/api/services`, `/api/attesa`, `/api/alerts`, `/api/gates`, `/api/automations/summary` and `/api/live` (topics `pace`, `mac`, `services`, `attesa`, `alerts`, `gates`, `automations`, `projects`; of `/api/live` only the fields the project row reads: name, title, folder, state, why, until, cap, priority, share of the week) from the hub while at least one window is connected, and broadcast a `hub:live` frame per topic only when its answer changed, or once when the topic stops being readable. A write the hub accepts through the bridge SHALL trigger a fresh read, so the change reaches every window without waiting for the next tick.
 
 #### Scenario: Unchanged data costs no frame
 - **GIVEN** a tick already pushed the three topics
@@ -225,3 +225,22 @@ The detail of an automation SHALL carry your vote with «Va bene», «Da cambiar
 - **GIVEN** the detail of a broken automation
 - **WHEN** «Risolvi tu» is pressed
 - **THEN** the hub SHALL receive `fix` with its key and the detail SHALL say an agent has it
+
+### Requirement: HUBBR-16 — The project row with the hub's data only for a project it recognises, priority and budget written and read back
+
+Where the hub is part of the installation, a project's sidebar row SHALL carry what the hub's `/api/live` (topic `projects`) says of that project, and only when a hub project is recognised as it: the same folder (the hub writing the home as `~`, `/private/tmp` as `/tmp`), or the same name as the folder when the hub knows no folder for it or its folder lies inside the project; the hub's grouped temporary folders (`tmp:`) never match. The row SHALL show an amber dot when the share of the week is past the budget you set, a pause when the hub's brake holds the project (`frenato`) and a clock when its jobs wait in the hub's line (`in coda`), each with the reason, and the time the brake lets go when the hub gives one, as its tooltip; on hover the share of the week («38% della settimana») SHALL take the place of the quiet signals, clear of the command rail. The project's menu SHALL say the share of the week against the budget and the state with its reason, and carry «Priorità» (Alta, Normale, Bassa) and «Budget della settimana» (Nessuno, 10%, 25%, 50%, and the budget in force if it is none of these), each choice written with `POST /api/hub/project-settings` (`{name, priority}` or `{name, budgetPct}`, `null` for none) and shown as the hub reads it back, so a refused write shows its reason and leaves the old choice. A project the hub does not recognise, a hub never read and a hub that stopped answering SHALL leave the row and the menu as Topics alone draws them.
+
+#### Scenario: A recognised project held by the brake
+- **GIVEN** a hub whose `studio-x` is at 27% of the week with a 25% budget and held by the brake, and whose `acme-web` is at 38% with a 40% budget
+- **WHEN** the sidebar draws both projects and a third the hub does not know
+- **THEN** `studio-x` SHALL carry the dot and the pause with the hub's reason, `acme-web` neither, the third nothing of the hub, and hovering `acme-web` SHALL show «38% della settimana»
+
+#### Scenario: Priority written and read back
+- **GIVEN** the menu of `acme-web` at priority Normale
+- **WHEN** «Alta» is chosen
+- **THEN** the hub SHALL receive `{name: "acme-web", priority: "alta"}` and the menu SHALL show Alta as read again from the hub; against a hub that refuses the write the menu SHALL show the reason and keep Normale
+
+#### Scenario: No hub
+- **GIVEN** nobody answers on the hub's address
+- **WHEN** the sidebar and a project's menu open
+- **THEN** neither SHALL carry anything of the hub

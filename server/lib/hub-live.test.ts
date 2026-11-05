@@ -13,6 +13,7 @@ function harness(opts: { clients?: boolean; base?: string | null } = {}) {
   const answers: Record<string, unknown> = {
     pace: [{ provider: "claude", pct: 40 }], mac: { cpu: 10 }, services: [],
     attesa: { items: [] }, alerts: { firing: [] }, gates: { classes: {} }, "automations/summary": { broken: 0 },
+    live: { projects: [{ name: "acme-web", state: "attivo", total: 12, agents: { count: 1 }, lastSeen: { at: 1 } }] },
   };
   let down = false;
   let calls = 0;
@@ -116,6 +117,21 @@ describe("HUBBR-02: hub live data on the WebSocket", () => {
     await live.tick();
     expect(urls.sort()).toEqual(HUB_LIVE_TOPICS.map((t) => `http://hub/api/${HUB_LIVE_PATHS[t]}`).sort());
     expect(urls).toContain("http://hub/api/automations/summary");
+  });
+
+  test("projects keep only what the project row reads: a change of agents alone sends no frame", async () => {
+    const h = harness();
+    await h.live.tick();
+    const first = h.frames.find((f) => f.topic === "projects");
+    expect(first?.data).toEqual({ projects: [{ name: "acme-web", state: "attivo", total: 12 }] });
+    h.answers.live = { projects: [{ name: "acme-web", state: "attivo", total: 12, agents: { count: 3 }, lastSeen: { at: 2 } }] };
+    h.frames.length = 0;
+    h.advance(15_000);
+    await h.live.tick();
+    expect(h.frames.filter((f) => f.topic === "projects")).toEqual([]);
+    h.answers.live = { projects: [{ name: "acme-web", state: "frenato", why: "budget finito", total: 12 }] };
+    await h.live.tick();
+    expect(h.frames.filter((f) => f.topic === "projects").map((f) => f.data)).toEqual([{ projects: [{ name: "acme-web", state: "frenato", why: "budget finito", total: 12 }] }]);
   });
 
   test("refresh after a write reads anew instead of sharing a read already in flight", async () => {

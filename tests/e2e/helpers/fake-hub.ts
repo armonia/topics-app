@@ -30,6 +30,10 @@
  * fake-hub-automations.ts; a vote, a note or a silence posted to `feedback` is
  * kept and folded into the next model, and the queue carries an agent already
  * on the Mac backup.
+ * For the project row (`projects`) the live projects carry the hub's state
+ * (studio-x held by the brake, acme-api in line), a folder for the names the
+ * spec gives one, and a priority that `project-settings` writes; `refuseSettings`
+ * makes that write fail with the hub's reason.
  * `quiet` answers a hub with nothing to say: no item, no failure, every
  * service up. Nothing here ever reaches :3360 or :3335.
  */
@@ -69,6 +73,10 @@ export interface FakeHub {
   silent: boolean;
   /** The votes, notes and silences posted to `feedback`, as the hub keeps them. */
   feedback: FeedbackRow[];
+  /** The projects' priorities, as `project-settings` writes them. */
+  priorities: Record<string, string>;
+  /** Set: `project-settings` answers 500 with this reason, the way the hub refuses. */
+  refuseSettings: string | null;
   close(): Promise<void>;
 }
 
@@ -215,7 +223,7 @@ function quietAnswers(): Record<string, unknown> {
   };
 }
 
-function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy = defaultFakeProxy(), overrides: Array<Record<string, unknown>> = [], budgets: Record<string, number | null> = defaultFakeBudgets(), jobs: { on: boolean; withdrawn: string[] } = { on: false, withdrawn: [] }): Record<string, unknown> {
+function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy = defaultFakeProxy(), overrides: Array<Record<string, unknown>> = [], budgets: Record<string, number | null> = defaultFakeBudgets(), jobs: { on: boolean; withdrawn: string[] } = { on: false, withdrawn: [] }, rows: ProjectRows | null = null): Record<string, unknown> {
   const now = Date.now();
   const unlocked = (p: string) => overrides.some((o) => o.provider === p && !o.hold);
   return {
@@ -286,7 +294,7 @@ function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy 
     ] },
     profiles: proxyProfiles(proxy, now),
     "token-usage": proxyRows(now),
-    live: { at: now, projects: liveProjects(budgets) },
+    live: { at: now, projects: rows ? projectRows(budgets, rows, now) : liveProjects(budgets) },
     queue: { items: [
       { id: "q1", provider: "muse", project: "acme-web", status: "done", createdAt: now - 2 * HOUR },
       { id: "q2", provider: "muse", project: "studio-x", status: "done", createdAt: now - 26 * HOUR },
@@ -379,6 +387,32 @@ function liveProjects(budgets: Record<string, number | null>): unknown[] {
   return [row("acme-web", 30, 2, 6), row("studio-x", 20, 0, 7), row("acme-api", 10, 1, 3), row("acme-docs", 5, 0, 1), row("misc-a", 2, 0, 0), row("misc-b", 1, 0, 0)];
 }
 
+/** The project row's fixture: the folders the spec gives the hub's names, and the priorities written. */
+interface ProjectRows {
+  dirs: Record<string, string>;
+  priorities: Record<string, string>;
+}
+
+/**
+ * The live projects as the hub states them: studio-x held by the brake past its
+ * budget, acme-api in line, acme-web running inside its budget. A name the spec
+ * gives a folder carries it; the others carry none, as a hub that never saw an
+ * agent there.
+ */
+function projectRows(budgets: Record<string, number | null>, rows: ProjectRows, now: number): unknown[] {
+  const state: Record<string, { state: string; why: string; waitUntil: number | null }> = {
+    "studio-x": { state: "frenato", why: "studio-x: 27% della settimana Claude, budget 25%", waitUntil: now + 3 * HOUR },
+    "acme-api": { state: "in coda", why: "2 lavori in attesa di partire", waitUntil: null },
+  };
+  return (liveProjects(budgets) as Array<Record<string, unknown> & { name: string }>).map((p) => ({
+    ...p,
+    ...(state[p.name] ?? { state: "attivo", why: "", waitUntil: null }),
+    dir: rows.dirs[p.name] ?? null,
+    priority: rows.priorities[p.name] ?? "normale",
+    agents: { count: 1, list: [{ at: now }] },
+  }));
+}
+
 /**
  * The Claude proxy's raw rows of the week, in its shape: per day two Opus 5.5
  * rows, one Sonnet 5.5 and one Haiku 5.5, on two accounts. Each row is a minute
@@ -453,8 +487,8 @@ const LOG_LINES = [
   { ts: "14:06:12", tag: "200", msg: "claude · acme-web -> account principale · 1,2 s" },
 ];
 
-export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(), opts: { quiet?: boolean; jobs?: boolean; automations?: boolean } = {}): Promise<FakeHub> {
-  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), withdrawn: [], silent: false, feedback: [], close: async () => {} };
+export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(), opts: { quiet?: boolean; jobs?: boolean; automations?: boolean; projects?: { dirs: Record<string, string> } } = {}): Promise<FakeHub> {
+  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), withdrawn: [], silent: false, feedback: [], priorities: {}, refuseSettings: null, close: async () => {} };
   const server: Server = createServer((req, res) => {
     const path = (req.url ?? "").split("?")[0]!.replace(/^\/api\//, "");
     if (req.method === "GET" && path === "logs/stream") {
@@ -534,8 +568,12 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
         const body = JSON.parse(raw || "{}") as Record<string, unknown>;
         hub.posts.push({ path, ...body });
         if (typeof body.name !== "string") return send(400, { error: "nome progetto mancante" });
-        hub.budgets[body.name] = typeof body.budgetPct === "number" ? body.budgetPct : null;
-        send(200, { ok: true, name: body.name, saved: { budgetPct: body.budgetPct } });
+        if (hub.refuseSettings) return send(500, { error: hub.refuseSettings });
+        if (body.priority !== undefined && !["alta", "normale", "bassa"].includes(String(body.priority))) return send(500, { error: "priorità: alta, normale, bassa" });
+        // Like the hub's saveProjectSetting: a field left out is left as it was.
+        if ("budgetPct" in body) hub.budgets[body.name] = typeof body.budgetPct === "number" ? body.budgetPct : null;
+        if (typeof body.priority === "string") hub.priorities[body.name] = body.priority;
+        send(200, { ok: true, name: body.name, saved: { budgetPct: body.budgetPct, priority: body.priority } });
       });
       return;
     }
@@ -560,6 +598,8 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
       hub.budgets = defaultFakeBudgets();
       hub.withdrawn = [];
       hub.feedback = [];
+      hub.priorities = {};
+      hub.refuseSettings = null;
       req.resume();
       return send(200, { ok: true });
     }
@@ -590,7 +630,8 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
         return r ? send(200, r) : send(404, { ok: false, error: "giro non trovato" });
       }
     }
-    const all = opts.quiet ? quietAnswers() : answers(hub.items, hub.devPids, hub.proxy, hub.overrides, hub.budgets, { on: !!opts.jobs, withdrawn: hub.withdrawn });
+    const rows = opts.projects ? { dirs: opts.projects.dirs, priorities: hub.priorities } : null;
+    const all = opts.quiet ? quietAnswers() : answers(hub.items, hub.devPids, hub.proxy, hub.overrides, hub.budgets, { on: !!opts.jobs, withdrawn: hub.withdrawn }, rows);
     if (opts.automations) {
       const now = Date.now();
       all.automations = automationsModel(now, hub.feedback);

@@ -54,10 +54,10 @@ describe('HUBBR-03: hub live data in the client', () => {
   });
 
   it('knows the System topics too', () => {
-    for (const topic of ['attesa', 'alerts', 'gates', 'automations']) {
+    for (const topic of ['attesa', 'alerts', 'gates', 'automations', 'projects']) {
       _adoptForTests({ type: 'hub:live', topic, data: { n: 1 }, at: 1 });
     }
-    expect(Object.keys(_readForTests()).sort()).toEqual(['alerts', 'attesa', 'automations', 'gates']);
+    expect(Object.keys(_readForTests()).sort()).toEqual(['alerts', 'attesa', 'automations', 'gates', 'projects']);
   });
 
   it('remembers that the hub was read once, even after it goes down', () => {

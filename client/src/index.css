@@ -2237,6 +2237,17 @@ input[type="range"]::-webkit-slider-thumb {
   }
 }
 
+/* THE PROJECT ROW'S SHARE OF THE WEEK, ON HOVER (HUBBR-16). The hint is a
+ * direct child of the row (ProjectHub.tsx): hidden at rest, it shows on hover
+ * and the quiet rail leaves the flow, so the hint ends where the command rail
+ * begins (its own margin clears the rail). Without a pointer that hovers it
+ * never shows: the menu says the same in words. */
+.project-hub-hint { display: none; }
+@media (hover: hover) {
+  .row-card:hover > .project-hub-hint { display: inline; }
+  .row-card:hover:has(> .project-hub-hint) > .row-trail { display: none; }
+}
+
 /* ── ONE TAB, THREE ZONES: the slot is where state lives (TABSLOT-01/02) ─────
  *
  * The tab's last zone is 20px, always reserved, and holds ONE signal at rest
