@@ -11,11 +11,13 @@
  *   - for the History tab, two days of the diary (`/api/hub/diario`).
  *
  * Without the hub (never read in this window) nothing is asked: the bell is
- * the Topics inbox of before and the network stays silent (HUBBR-04).
+ * the Topics inbox of before and the network stays silent (HUBBR-04). With
+ * the hub read once and down now, the panel shows Topics alone: the extras
+ * read at the open go too, and `downSince` says since when.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../lib/shell/net';
-import { refreshHubLive, useHubEverRead, useHubLive } from '../state/hubLive';
+import { refreshHubLive, useHubEverRead, useHubLive, type HubLiveEntry, type HubLiveState } from '../state/hubLive';
 import { NO_HUB, liveBellHub, type BellHub } from '../lib/bellGroups';
 import {
   accountEvents, automationSummary, closeWaitingBody, contradictions, diaryForHistory, failedJobs,
@@ -50,19 +52,28 @@ interface Extras {
 
 const NO_EXTRAS: Extras = { failed: [], accounts: [], contradictions: [] };
 
+/** Since when the hub has not answered: the oldest error of the live topics, null while one answers. */
+function downSinceOf(live: HubLiveState): number | null {
+  const entries = Object.values(live).filter((e): e is HubLiveEntry => !!e);
+  if (entries.length === 0 || entries.some((e) => e.data !== undefined)) return null;
+  return Math.min(...entries.map((e) => e.at));
+}
+
 /**
  * The hub's part of the bell. `present`: the hub was read in this window (it
  * is part of the installation); `answering`: it answers now (some live topic
- * carries data), what the foot of the panel says.
+ * carries data), what the foot of the panel says; `downSince`: when it
+ * stopped, while it does not.
  */
-export function useBellHub(): { hub: BellHub; present: boolean; answering: boolean } {
+export function useBellHub(): { hub: BellHub; present: boolean; answering: boolean; downSince: number | null } {
   const live = useHubLive();
   const present = useHubEverRead();
   const [extras, setExtras] = useState<Extras>(NO_EXTRAS);
   const broken = automationSummary(live.automations?.data)?.broken ?? 0;
+  const answering = present && Object.values(live).some((entry) => entry?.data !== undefined);
 
   useEffect(() => {
-    if (!present) return;
+    if (!answering) return;
     let alive = true;
     void (async () => {
       const [automations, contesto, activity, profiles] = await Promise.all([
@@ -75,11 +86,11 @@ export function useBellHub(): { hub: BellHub; present: boolean; answering: boole
       setExtras({ failed: failedJobs(automations), accounts: accountEvents(activity, profiles, Date.now()), contradictions: contradictions(contesto) });
     })();
     return () => { alive = false; };
-  }, [present, broken]);
+  }, [answering, broken]);
 
-  const hub = useMemo((): BellHub => (present ? { ...liveBellHub(live), ...extras } : NO_HUB), [present, live, extras]);
-  const answering = present && Object.values(live).some((entry) => entry?.data !== undefined);
-  return { hub, present, answering };
+  // Down, the panel is Topics alone: what was read at the open is as old as the hub's silence.
+  const hub = useMemo((): BellHub => (answering ? { ...liveBellHub(live), ...extras } : NO_HUB), [answering, live, extras]);
+  return { hub, present, answering, downSince: present ? downSinceOf(live) : null };
 }
 
 /** Two days of the diary, filtered for the History tab; empty without the hub. */
@@ -96,17 +107,28 @@ export function useBellDiary(enabled: boolean): DiaryEntry[] {
 }
 
 /**
- * The two writes of the bell: «Done» on a hub item (closed on the hub, then
- * the snapshot is read again so every window drops it) and «Fix it» on a
- * failed automation (a job in the hub's queue). Each answers null or the
- * reason of the refusal.
+ * The writes of the bell: «Done» on a hub item (closed on the hub, then
+ * the snapshot is read again so every window drops it), «Fix it» on a
+ * failed automation (a job in the hub's queue) and «Renew» on an expired
+ * token of the Claude proxy. Each answers null or the reason of the refusal.
  */
-export function useBellActions(): { closeWaiting: (id: string) => Promise<string | null>; fix: (key: string) => Promise<string | null> } {
+export function useBellActions(): {
+  closeWaiting: (id: string) => Promise<string | null>;
+  fix: (key: string) => Promise<string | null>;
+  renew: (profile: string) => Promise<string | null>;
+} {
   const closeWaiting = useCallback(async (id: string) => {
     const failure = await post('/api/hub/attesa', closeWaitingBody(id)); // allow-italian: the hub's own path
     if (failure === null) await refreshHubLive();
     return failure;
   }, []);
   const fix = useCallback((key: string) => post('/api/hub/fix', { key }), []);
-  return { closeWaiting, fix };
+  // The proxy renews the account's token now (its dashboard's «Refresh token» button).
+  const renew = useCallback((profile: string) => post('/api/switchboard/refresh', { name: profile }), []);
+  return { closeWaiting, fix, renew };
+}
+
+/** «Retry» of the hub-down band: the snapshot read again, which makes the server ask the hub now. */
+export function retryHub(): Promise<void> {
+  return refreshHubLive();
 }

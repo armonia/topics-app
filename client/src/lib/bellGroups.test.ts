@@ -17,7 +17,7 @@ const NOW = 1_800_000_000_000;
 function topicsItem(subject: string, since: number, tier: InboxItem['tier'] = 'needs-you'): InboxItem {
   return {
     subject, kind: 'chat', id: subject, title: subject, project: 'acme-web', since, tier, reason: tier === 'needs-you' ? 'question' : null,
-    detail: null, unread: 0, seen: { subject, epoch: 1 } as InboxItem['seen'], url: null,
+    detail: null, unread: 0, seen: { subject, epoch: 1 } as InboxItem['seen'], url: null, permission: null,
   };
 }
 
@@ -124,6 +124,8 @@ describe('HUBBR-06: the groups of the bell', () => {
       ['switched', 'work', 'spare', 1],
       ['token', 'spare-2', null, 1],
     ]);
+    // «Renew» sends the proxy's own name for the account, never its label.
+    expect(accountEvents(activity, profiles, NOW).find((e) => e.kind === 'token')?.profile).toBe('prof-c');
     expect(accountEvents(null, null, NOW)).toEqual([]);
   });
 

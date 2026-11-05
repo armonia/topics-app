@@ -277,6 +277,8 @@ export interface AccountEvent {
   kind: AccountEventKind;
   /** The account's label (from /api/profiles), or the proxy's name for it. */
   account: string | null;
+  /** The proxy's own name for the account: what «Renew» sends (`/api/refresh`). */
+  profile: string | null;
   /** The account switched to, for a switch. */
   to: string | null;
   at: number;
@@ -332,9 +334,9 @@ export function accountEvents(activity: unknown, profiles: unknown, now: number)
     const key = `${kind}:${kind === 'switched' ? '' : account ?? ''}`;
     const to = kind === 'switched' ? label(raw.to) : null;
     const prev = byKey.get(key);
-    if (!prev) { byKey.set(key, { key, kind, account, to, at, count: 1 }); continue; }
+    if (!prev) { byKey.set(key, { key, kind, account, profile: rawAccount, to, at, count: 1 }); continue; }
     prev.count += 1;
-    if (at > prev.at) Object.assign(prev, { account, to, at });
+    if (at > prev.at) Object.assign(prev, { account, profile: rawAccount, to, at });
   }
   return [...byKey.values()].sort((a, b) => b.at - a.at);
 }

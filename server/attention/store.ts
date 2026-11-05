@@ -438,7 +438,20 @@ function snapshotOf(e: Entry): AttentionSnapshot {
     turnUnseen: isTurnUnseen(r.lastTurn, r.seenAt),
     lastTurnAt: r.lastTurn?.at ?? null,
     background: taskList(r.background),
+    permissionCall: permissionCallOf(e),
   };
+}
+
+/**
+ * The tool call a chat's permission waits on, when the permission bridge
+ * opened it (`permission:<toolUseId>`): what «Allow» and «Deny» answer from a
+ * list, with no chat open. A terminal's permission is Claude Code's own
+ * prompt, answered in the terminal: null.
+ */
+function permissionCallOf(e: Entry): string | null {
+  if (e.row.reason !== "permission") return null;
+  const id = e.live.holds.permission?.id;
+  return id?.startsWith("permission:") ? id.slice("permission:".length) : null;
 }
 
 /** The state of one subject; an unknown subject is `idle`. */
@@ -559,7 +572,7 @@ function factOf(subject: string, composition: AttentionComposition, row: SavedRo
 // Bash and recognises it a moment later under the same id, and a frame keyed
 // on the ids alone never told the windows it was a Monitor.
 function frameKey(s: AttentionSnapshot): string {
-  return JSON.stringify([s.state, s.reason, s.outcome, s.detail, s.epoch, s.seenEpoch, s.unread, s.turnUnseen, s.background.map((t) => [t.id, t.kind, t.label, t.recurring ? 1 : 0])]);
+  return JSON.stringify([s.state, s.reason, s.outcome, s.detail, s.epoch, s.seenEpoch, s.unread, s.turnUnseen, s.background.map((t) => [t.id, t.kind, t.label, t.recurring ? 1 : 0]), s.permissionCall ?? null]);
 }
 
 function recompose(subject: string, opts: RecomposeOpts): AttentionSnapshot {

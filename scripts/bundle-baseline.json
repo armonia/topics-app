@@ -835,7 +835,10 @@
     "Cosa compra: il chunk pigro SystemPane (le sezioni del pannello), i dizionari IT+EN del Sistema, la striscia in fondo alla sidebar, lo store hub:live e le letture pure di lib/hubSystem. Il pannello resta un chunk suo: nell'entry ci sono solo la striscia e lo store, che devono esserci al primo frame.",
     "Il tetto segue la misura: total_assets 9.037.638 -> 9.067.927. entry_eager resta dov'era (958.011 contro un tetto di 958.055).",
     "",
-    "2026-11-05, tolti pannello Sistema piccolo e striscia (hub-smistamento): misurato sul PC con `bun run build:client && bun run check:bundle`, entry_eager raw 946.360 / gz 306.141, html shell 1.612.253 / 479.351 (5 file), total_assets 9.218.491. Nessun tetto alzato; i numeri non si abbassano qui perche' la misura del PC non e' quella della CI e la prossima traccia rimette pezzi dell'hub nella sidebar."
+    "2026-11-05, tolti pannello Sistema piccolo e striscia (hub-smistamento): misurato sul PC con `bun run build:client && bun run check:bundle`, entry_eager raw 946.360 / gz 306.141, html shell 1.612.253 / 479.351 (5 file), total_assets 9.218.491. Nessun tetto alzato; i numeri non si abbassano qui perche' la misura del PC non e' quella della CI e la prossima traccia rimette pezzi dell'hub nella sidebar.",
+    "",
+    "2026-11-05, campanella a gruppi (seconda passata): total_assets 9.251.215 raw sul PC, 1.929 byte sopra il tetto di 9.249.286. Comprano Consenti/Nega sul permesso di una chat, Rinnova sul token scaduto, la banda dell'hub fermo con Riprova e la riga vuota del mockup, tutti nel chunk pigro del pannello (InboxPanel, BellRows) piu' il campo permissionCall nello store dell'attenzione. entry_eager resta sotto il tetto.",
+    "Il tetto segue la misura: total_assets 9.067.927 -> 9.070.000."
   ],
   "updated": "2026-11-04",
   "tolerance_pct": 2,
@@ -849,6 +852,6 @@
     "files": 5
   },
   "total_assets": {
-    "raw": 9067927
+    "raw": 9070000
   }
 }

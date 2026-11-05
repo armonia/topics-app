@@ -58,6 +58,17 @@ describe('inboxModel: «Waiting for you» and «Finished»', () => {
     expect(model.finished.find((i) => i.subject === 'topic:a')?.url).toBe('/topic/a');
   });
 
+  test("a chat's permission from the bridge is answerable from the row: its session and the call; anything else is not", () => {
+    const m = inboxModel(
+      rowsOf({ ...ask('topic:pc', 3, 'permission'), permissionCall: 'toolu_x' }, ask('topic:p', 2, 'permission'), { ...ask('topic:q', 4), permissionCall: 'toolu_y' }),
+      { pc: topic('pc', { sessionKey: 'sk-pc' }), p: topic('p', { sessionKey: 'sk-p' }), q: topic('q', { sessionKey: 'sk-q' }) },
+      [], [],
+    );
+    expect(m.waiting.find((i) => i.subject === 'topic:pc')?.permission).toEqual({ sessionKey: 'sk-pc', toolCallId: 'toolu_x' });
+    expect(m.waiting.find((i) => i.subject === 'topic:p')?.permission).toBeNull();
+    expect(m.waiting.find((i) => i.subject === 'topic:q')?.permission).toBeNull();
+  });
+
   test('«Mark seen» sends the epoch and the turn the row SHOWS', () => {
     expect(model.finished.find((i) => i.subject === 'topic:a')?.seen).toEqual({ subject: 'topic:a', epoch: 4, turnAt: '2026-10-03T10:04:00.000Z' });
   });

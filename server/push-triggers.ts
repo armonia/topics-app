@@ -182,7 +182,10 @@ export function buildAnnouncement(fact: AnnounceFact): Announcement | null {
       };
     }
     case "waiting": {
-      const prompt = (fact.prompt ?? "").trim();
+      // A chat's permission carries the command it asks for (the bridge's label):
+      // said as a permission. A terminal's carries Claude Code's own sentence.
+      const asked = (fact.prompt ?? "").trim();
+      const prompt = asked && fact.reason === "permission" && !fact.terminalId ? `Permesso: ${asked}` : asked;
       if (fact.taskId) {
         const title = "❓ L'agent ti sta chiedendo una cosa";
         const body = prompt ? prompt.slice(0, 120) : fact.name || "Un agente aspetta una tua risposta";

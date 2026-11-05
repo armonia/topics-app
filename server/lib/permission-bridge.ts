@@ -136,6 +136,8 @@ export function beginPermission(
   toolUseId: string,
   ttlMs = DEFAULT_REQUEST_TTL_MS,
   now = Date.now(),
+  /** What the request asks, for the surfaces that list it («Bash: npm publish»). */
+  text: string | null = null,
 ): boolean {
   const key = permissionKey(sessionKey, toolUseId);
   const open = activeRequests.get(key);
@@ -144,7 +146,7 @@ export function beginPermission(
     activeRequests.set(key, { sessionKey, toolUseId, startedAt: now });
     // Il primo permesso aperto e' quello che ferma il turno agli occhi di chi
     // guarda la board; i successivi non cambiano il fatto.
-    if (!wasHeld) emitHumanHoldChange({ sessionKey, phase: 'held', source: 'permission', id: `permission:${toolUseId}` });
+    if (!wasHeld) emitHumanHoldChange({ sessionKey, phase: 'held', source: 'permission', id: `permission:${toolUseId}`, text });
     return true;
   }
   return now - open.startedAt < ttlMs;

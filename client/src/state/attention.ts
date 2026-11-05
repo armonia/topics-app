@@ -59,6 +59,8 @@ export interface SubjectAttention {
   lastTurnAt: string | null;
   turnUnseen: boolean;
   unread: number;
+  /** A chat's permission from the bridge: the tool call «Allow» and «Deny» answer. */
+  permissionCall: string | null;
 }
 
 /** The rows by subject, as the store keeps them. */
@@ -69,7 +71,7 @@ const NO_TASKS: readonly AttentionTask[] = [];
 function idle(subject: string): SubjectAttention {
   return {
     subject, tier: null, lit: false, count: 0, since: 0, reason: null, detail: null,
-    background: NO_TASKS, epoch: 0, seenEpoch: 0, lastTurnAt: null, turnUnseen: false, unread: 0,
+    background: NO_TASKS, epoch: 0, seenEpoch: 0, lastTurnAt: null, turnUnseen: false, unread: 0, permissionCall: null,
   };
 }
 
@@ -106,6 +108,7 @@ export function attentionOfRow(row: AttentionSnapshot | undefined, subject = row
     lastTurnAt: row.lastTurnAt,
     turnUnseen: row.turnUnseen,
     unread: row.unread || 0,
+    permissionCall: row.permissionCall ?? null,
   };
 }
 
@@ -195,6 +198,7 @@ function sameRow(a: AttentionSnapshot, b: AttentionSnapshot): boolean {
   return a.state === b.state && a.reason === b.reason && a.outcome === b.outcome && a.detail === b.detail
     && a.since === b.since && a.epoch === b.epoch && a.seenEpoch === b.seenEpoch && a.lit === b.lit
     && a.unread === b.unread && a.turnUnseen === b.turnUnseen && a.lastTurnAt === b.lastTurnAt
+    && (a.permissionCall ?? null) === (b.permissionCall ?? null)
     && sameTasks(a.background, b.background);
 }
 
@@ -221,6 +225,7 @@ function asSnapshot(raw: unknown): AttentionSnapshot | null {
     turnUnseen: !!r.turnUnseen,
     lastTurnAt: r.lastTurnAt ?? null,
     background: Array.isArray(r.background) ? r.background : [],
+    permissionCall: typeof r.permissionCall === 'string' ? r.permissionCall : null,
   };
 }
 

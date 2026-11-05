@@ -1345,6 +1345,7 @@ const attentionSnapshotSchema = z.looseObject({
   turnUnseen: z.boolean(),
   lastTurnAt: z.nullable(z.string()),
   background: z.array(attentionTaskSchema),
+  permissionCall: z.optional(z.nullable(z.string())),
 });
 
 /**

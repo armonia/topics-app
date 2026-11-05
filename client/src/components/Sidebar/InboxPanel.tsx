@@ -5,9 +5,10 @@
  *   - «Now»: the groups of `bellGroups`, in their one order: «Decide» (the
  *     waits of Topics and the hub's items together, deadlines first), «Broken»,
  *     «Quotas and accounts», «To look at», «Finished» (each with «Mark seen»,
- *     and «Mark all seen» on its heading). An empty group is not drawn; a hub
- *     group shows five rows and «N more». A row of chips on top jumps to a
- *     group. Then a quiet line «3 at work» that opens in place.
+ *     and «Mark all seen» on its heading). An empty group is not drawn; a
+ *     group of the hub's warnings shows five rows and «N more». A row of chips
+ *     on top jumps to a group, a band says when the hub stopped answering.
+ *     Then a quiet line «3 at work» that opens in place.
  *   - «History»: the log, by day, read only, with the hub's diary merged in
  *     (failed runs, agents, workflows, what you said; never the routine runs
  *     that went well) and a filter: everything, Topics, automations and agents.
@@ -22,7 +23,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import {
-  Check, ChevronDown, CircleAlert, CircleCheck, CircleX, ClipboardCheck, Eye, Gauge, GitPullRequest, Hand,
+  Check, ChevronDown, CircleAlert, CircleCheck, CircleX, ClipboardCheck, CloudOff, Eye, Gauge, GitPullRequest, Hand,
   Inbox as InboxIcon, MessageCircleQuestion, MessageSquare, PauseCircle, Server, Settings, ShieldAlert, SquareCheck, TerminalSquare,
   type LucideIcon,
 } from 'lucide-react';
@@ -31,7 +32,8 @@ import { useT } from '../../hooks/useT';
 import { useMobile } from '../../hooks/useMobile';
 import { useNotificationHistory } from '../../hooks/useNotificationHistory';
 import { useLoadOnReach } from '../../hooks/useLoadOnReach';
-import { useBellDiary, useBellHub } from '../../hooks/useBellHub';
+import { retryHub, useBellDiary, useBellHub } from '../../hooks/useBellHub';
+import { chatApi } from '../../lib/api';
 import { useAttentionRows, sendAttentionSeenItems } from '../../state/attention';
 import { markAllSeenItems, historyDayKey, type InboxItem, type InboxModel, type InboxQuietItem } from '../../lib/inboxModel';
 import { BELL_GROUP_PREVIEW, bellGroups, type BellGroup, type BellGroupKey } from '../../lib/bellGroups';
@@ -102,7 +104,7 @@ export default function InboxPanel({ model, onWSMessage, onClose }: {
   const history = useNotificationHistory(onWSMessage);
   const reloadHistory = history.reload;
   useEffect(() => { if (tab === 'history') reloadHistory(); }, [tab, reloadHistory]);
-  const { hub, present, answering } = useBellHub();
+  const { hub, present, answering, downSince } = useBellHub();
   const diary = useBellDiary(tab === 'history');
   const groups = useMemo(() => bellGroups(model, hub), [model, hub]);
   const nowCount = groups.reduce((n, g) => n + g.entries.length, 0);
@@ -206,15 +208,26 @@ export default function InboxPanel({ model, onWSMessage, onClose }: {
         </button>
       </div>
       <div className="h-px bg-app-border flex-shrink-0" />
+      {tab === 'now' && present && !answering && <HubDownBand />}
       {tab === 'now' && groups.length > 1 && <GroupChips groups={groups} onPick={jumpTo} />}
 
       <div ref={listRef} tabIndex={-1} role="tabpanel" className="overflow-y-auto overscroll-contain min-h-0 outline-none" data-testid={`inbox-panel-${tab}`}>
         {tab === 'now' ? (
           <>
             {groups.length === 0 && (
-              <div className="px-4 py-7 text-center" data-testid="inbox-empty">
-                <InboxIcon size={18} className="mx-auto mb-2 text-app-text-muted" aria-hidden="true" />
-                <div className="text-compact text-app-text-secondary">{tr('inbox.empty')}</div>
+              // The mockup's line: nothing waits, and (with the hub answering) nothing is broken; the log one click away.
+              <div className={`flex items-center gap-2 text-app-text-secondary ${isTouch ? 'py-2 pl-3.5 pr-2 text-prose' : 'p-3 text-compact'}`} data-testid="inbox-empty">
+                <CircleCheck size={14} className="flex-shrink-0 text-green-600 dark:text-green-400" aria-hidden="true" />
+                <span className="min-w-0 flex-1">{tr(answering ? 'bell.empty' : 'inbox.empty')}</span>
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => setTab('history')}
+                  className={`flex-shrink-0 font-medium text-primary hover:underline ${isTouch ? 'min-h-11 px-1.5' : ''}`}
+                  data-testid="inbox-empty-history"
+                >
+                  {tr('inbox.tab.history')}
+                </button>
               </div>
             )}
             {groups.map((g, gi) => (
@@ -258,7 +271,7 @@ export default function InboxPanel({ model, onWSMessage, onClose }: {
           />
         )}
       </div>
-      <QuietLine working={model.working} hub={present ? (answering ? 'live' : 'down') : null} />
+      <QuietLine working={model.working} hub={present ? (answering ? 'live' : 'down') : null} downSince={downSince} />
     </div>
   );
 }
@@ -288,7 +301,7 @@ function GroupChips({ groups, onPick }: { groups: BellGroup[]; onPick: (key: Bel
   );
 }
 
-/** One group: heading with icon and count, the first rows and «N more» for a hub group. */
+/** One group: heading with icon and count, the first rows and «N more» for a group of the hub's warnings. */
 function GroupSection({ group, action, children }: {
   group: BellGroup;
   action: ReactNode;
@@ -299,7 +312,8 @@ function GroupSection({ group, action, children }: {
   const [all, setAll] = useState(false);
   const head = GROUP_HEAD[group.key];
   const Icon = head.icon;
-  const capped = group.key !== 'finished' && !all && group.entries.length > BELL_GROUP_PREVIEW;
+  // Only the hub's own groups fold: a wait for the person is never one click away.
+  const capped = group.key !== 'finished' && group.key !== 'decide' && !all && group.entries.length > BELL_GROUP_PREVIEW;
   const shown = capped ? group.entries.slice(0, BELL_GROUP_PREVIEW) : group.entries;
   return (
     <section className="pt-px pb-[3px]" data-testid={GROUP_TEST_ID[group.key] ?? `bell-group-${group.key}`} data-bell-group={group.key} data-count={group.entries.length}>
@@ -352,12 +366,31 @@ const DECIDE_ACTION: Partial<Record<string, string>> = {
   review: 'bell.action.openCard',
 };
 
-/** A row of «Decidi tu» from Topics: the same row as the hub's, with the verb of the answer. */
+/**
+ * A row of «Decidi tu» from Topics: the same row as the hub's, with the verb
+ * of the answer. A chat's permission is answered in place («Allow», «Deny»),
+ * as its panel in the chat does; a refusal of the server is said on the row.
+ */
 function DecideRow({ item, first, onOpen }: { item: InboxItem; first: boolean; onOpen: (i: InboxItem) => void }) {
   const tr = useT();
   const button = useBellButton();
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
   const { title, detail } = decideText(item, tr);
   const extra = [detail, item.unread > 1 ? tr('inbox.messages', { n: item.unread }) : null].filter(Boolean).join(' · ');
+  const permission = item.permission;
+  const decide = async (decision: 'allow' | 'deny') => {
+    if (!permission) return;
+    setBusy(true);
+    setFailure(null);
+    try {
+      await chatApi.permissionResponse(permission.sessionKey, permission.toolCallId, decision);
+    } catch (err) {
+      setFailure(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <RowShell
       attrs={{ 'data-testid': 'inbox-row', 'data-subject': item.subject, 'data-tier': item.tier }}
@@ -367,14 +400,23 @@ function DecideRow({ item, first, onOpen }: { item: InboxItem; first: boolean; o
       onOpen={() => onOpen(item)}
       title={title}
       at={item.since}
-      second={(
+      second={failure ? <span className={`truncate ${DANGER_TEXT}`} data-testid="bell-row-error">{failure}</span> : (
         <>
           {item.project && <span className="flex-shrink-0 font-medium text-app-text-body">{item.project}</span>}
           {item.project && extra && <span className="flex-shrink-0">·</span>}
           <span className="truncate">{extra || (item.project ? '' : tr(`inbox.reason.${item.reason ?? item.tier}`))}</span>
         </>
       )}
-      actions={(
+      actions={permission ? (
+        <>
+          <button type="button" tabIndex={-1} disabled={busy} onClick={() => void decide('allow')} className={button.primary} data-testid="bell-allow">
+            {tr('bell.action.allow')}
+          </button>
+          <button type="button" tabIndex={-1} disabled={busy} onClick={() => void decide('deny')} className={button.secondary} data-testid="bell-deny">
+            {tr('bell.action.deny')}
+          </button>
+        </>
+      ) : (
         <button type="button" tabIndex={-1} onClick={() => onOpen(item)} className={button.primary} data-testid="bell-answer">
           {tr(DECIDE_ACTION[item.reason ?? ''] ?? 'bell.open')}
         </button>
@@ -469,8 +511,9 @@ const KNOWN_TASK_KINDS = new Set(['bash', 'agent', 'workflow', 'monitor', 'cron'
  * while the groups scroll. Without anybody at work and without the hub there
  * is no foot at all.
  */
-function QuietLine({ working, hub }: { working: InboxQuietItem[]; hub: 'live' | 'down' | null }) {
+function QuietLine({ working, hub, downSince }: { working: InboxQuietItem[]; hub: 'live' | 'down' | null; downSince: number | null }) {
   const tr = useT();
+  const now = useSharedNow();
   const { isTouch } = useMobile();
   const [open, setOpen] = useState(false);
   if (working.length === 0 && hub === null) return null;
@@ -517,8 +560,41 @@ function QuietLine({ working, hub }: { working: InboxQuietItem[]; hub: 'live' | 
       >
         <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${busy ? 'bg-green-500' : 'bg-app-text-muted'}`} aria-hidden="true" />
         <span className="flex-1 truncate tabular-nums">{busy ? tr('inbox.quiet.working', { n: working.length }) : tr('bell.footer.idle')}</span>
-        {hub && <span className="flex-shrink-0 text-app-text-muted">{tr(hub === 'live' ? 'bell.footer.hubLive' : 'bell.footer.hubDown')}</span>}
+        {hub && <span className="flex-shrink-0 text-app-text-muted" data-testid="bell-footer-hub">{hub === 'live' ? tr('bell.footer.hubLive') : hubDownLabel(downSince, now, tr)}</span>}
         {busy && <ChevronDown size={13} className={`flex-shrink-0 text-app-text-muted transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />}
+      </button>
+    </div>
+  );
+}
+
+/** «hub fermo da 4 min»: how long the hub has been silent, in the words of the foot. */
+function hubDownLabel(since: number | null, now: number, tr: ReturnType<typeof useT>): string {
+  if (since === null) return tr('bell.footer.hubDown');
+  const minutes = Math.floor((now - since) / 60_000);
+  if (minutes < 1) return tr('bell.footer.hubDownNow');
+  return tr('bell.footer.hubDownFor', { d: minutes < 60 ? tr('bell.time.min', { n: minutes }) : tr('bell.time.hours', { n: Math.floor(minutes / 60) }) });
+}
+
+/**
+ * THE BAND OF THE HUB DOWN: read once in this window and silent now, the
+ * panel lists Topics alone and says so. «Retry» reads the snapshot again,
+ * which makes the server ask the hub at once instead of at its next tick.
+ */
+function HubDownBand() {
+  const tr = useT();
+  const { isTouch } = useMobile();
+  const button = useBellButton();
+  const [busy, setBusy] = useState(false);
+  const retry = async () => {
+    setBusy(true);
+    try { await retryHub(); } finally { setBusy(false); }
+  };
+  return (
+    <div className={`flex items-center gap-2 flex-shrink-0 bg-amber-500/15 ${WARNING_TEXT} ${isTouch ? 'py-2 pl-3.5 pr-2 text-prose' : 'py-1.5 pl-3 pr-2.5 text-compact'}`} role="status" data-testid="bell-hub-down">
+      <CloudOff size={14} className="flex-shrink-0" aria-hidden="true" />
+      <span className="min-w-0 flex-1">{tr('bell.hubDown')}</span>
+      <button type="button" tabIndex={-1} disabled={busy} onClick={() => void retry()} className={button.secondary} data-testid="bell-hub-retry">
+        {tr('bell.retry')}
       </button>
     </div>
   );

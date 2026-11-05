@@ -20,7 +20,7 @@
   * @covers PERM-06
  */
 import { describe, test, expect } from "bun:test";
-import { createPermissionRouter } from "./permission";
+import { createPermissionRouter, permissionLabel } from "./permission";
 import { beginAsk, deliverAnswer, hasPendingAsk, cancelAsk, waitForAnswer } from "../lib/ask-user-bridge";
 import { cancelPermission, hasPendingPermission, sessionHasPendingPermission } from "../lib/permission-bridge";
 import { _resetRoutedAsks, pendingRoutedAsk, routeAskToTaskThread } from "../services/board-ask-routing";
@@ -426,6 +426,15 @@ describe("POST /api/sessions/:sessionKey/permission", () => {
       expect(frame).toMatchObject({ sessionKey: sk, toolCallId: "tu_np", topicId: `topic-of-${sk}` });
       expect((frame.request as { input: unknown }).input).toEqual({ command: "ls" });
     } finally { cancelPermission(sk, "tu_np"); }
+  });
+});
+
+describe("permissionLabel: what a list says the permission asks", () => {
+  test("a shell call says its command, first line only; another tool says its name", () => {
+    expect(permissionLabel("Bash", { command: "npm publish" })).toBe("npm publish");
+    expect(permissionLabel("Bash", { command: "git push\nrm -rf x" })).toBe("git push");
+    expect(permissionLabel("Bash", {})).toBe("Bash");
+    expect(permissionLabel("mcp__gateway__kiwi__search-flight", { flyFrom: "NAP" })).toBe("gateway kiwi search-flight");
   });
 });
 

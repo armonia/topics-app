@@ -58,6 +58,19 @@ import type { PermissionDecision, ToolPermissionOutcome, ToolPermissionRequest }
  * comunque montato da lì, alla stessa posizione che il blocco aveva nel
  * dispatch — l'ordine fra rotte è comportamento, non stile.
  */
+/**
+ * What a permission asks, in the words a list can show: the command of a
+ * shell call («npm publish»), else the tool's name without the MCP prefix.
+ * The bell's row reads it («Permesso: npm publish»).
+ */
+export function permissionLabel(toolName: string, input: unknown): string {
+  const command = input && typeof input === "object" ? (input as { command?: unknown }).command : undefined;
+  if (toolName === "Bash" && typeof command === "string" && command.trim()) {
+    return command.trim().split("\n")[0]!.slice(0, 120);
+  }
+  return toolName.replace(/^mcp__/, "").replace(/__/g, " ");
+}
+
 export interface PermissionRouterOptions {
   /**
    * The board writer. Defaults to the real task service; injected by the test,
@@ -358,7 +371,7 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
           ? Math.min(Math.max(body.legMs, 100), 60_000)
           : undefined;
 
-        if (!beginPermission(sk, toolUseId)) {
+        if (!beginPermission(sk, toolUseId, undefined, undefined, permissionLabel(toolName, body?.input))) {
           cancelPermission(sk, toolUseId, "no answer: the request expired");
           return json({ cancelled: true, reason: "permission: the request expired with no answer" });
         }

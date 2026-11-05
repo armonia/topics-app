@@ -46,6 +46,8 @@ export interface HumanHoldChange {
    * (`server/attention/wire.ts`). Absent on `released`.
    */
   id?: string;
+  /** What the wait asks, on `held`, when the bridge knows it: the tool and its command. */
+  text?: string | null;
 }
 
 type Listener = (change: HumanHoldChange) => void;

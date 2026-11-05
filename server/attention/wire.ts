@@ -57,13 +57,13 @@ export function wireHumanHolds(): () => void {
   // Where each session's wait went, so the release closes the same subject
   // even if the card's turn ended in between.
   const placed = new Map<string, string>();
-  return onHumanHoldChange(({ sessionKey, phase, source, id }) => {
+  return onHumanHoldChange(({ sessionKey, phase, source, id, text }) => {
     const key = `${source}\u0000${sessionKey}`;
     if (phase === "held") {
       const subject = waitSubjectOfSession(sessionKey);
       if (!subject) return;
       placed.set(key, subject);
-      openHold(subject, source, { kind: source === "ask" ? "question" : "permission", id: id ?? `${source}:${Date.now()}` });
+      openHold(subject, source, { kind: source === "ask" ? "question" : "permission", id: id ?? `${source}:${Date.now()}`, text: text ?? null });
       return;
     }
     const subject = placed.get(key) ?? waitSubjectOfSession(sessionKey);

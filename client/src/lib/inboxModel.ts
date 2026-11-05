@@ -45,6 +45,8 @@ export interface InboxItem {
   seen: AttentionSeenItem;
   /** Where Enter takes you: a deep link (chat, card), or null for a terminal (opened by session). */
   url: string | null;
+  /** A chat's permission the row can answer in place: its session and the tool call. */
+  permission: { sessionKey: string; toolCallId: string } | null;
 }
 
 export interface InboxQuietItem {
@@ -89,6 +91,12 @@ function urlOf(kind: InboxKind, id: string): string | null {
   return kind === 'chat' ? notificationTargetUrl('topic', id) : kind === 'card' ? notificationTargetUrl('task', id) : null;
 }
 
+/** A chat's permission from the bridge, answerable from the row: the chat's session and the call. */
+function permissionOf(kind: InboxKind, id: string, reason: AttentionReason | null, call: string | null, topics: Record<string, Topic>): InboxItem['permission'] {
+  const sessionKey = kind === 'chat' ? topics[id]?.sessionKey : undefined;
+  return reason === 'permission' && call && sessionKey ? { sessionKey, toolCallId: call } : null;
+}
+
 function kindOf(subject: string): { kind: InboxKind; id: string } | null {
   const at = subject.indexOf(':');
   if (at <= 0) return null;
@@ -128,6 +136,7 @@ export function inboxModel(
       unread: a.unread,
       seen: { subject: s.key, epoch: a.epoch, turnAt: a.lastTurnAt },
       url: urlOf(s.kind, s.id),
+      permission: permissionOf(s.kind, s.id, a.reason, a.permissionCall, topics),
     };
     (a.tier === 'needs-you' ? waiting : finished).push(item);
   }

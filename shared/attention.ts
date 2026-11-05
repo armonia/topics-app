@@ -63,6 +63,11 @@ export interface AttentionSnapshot {
   lastTurnAt: string | null;
   /** Every task in flight, recurring crons included. */
   background: AttentionTask[];
+  /**
+   * A chat's permission opened by the permission bridge: the tool call it
+   * waits on, what a list answers with no chat open. Absent or null otherwise.
+   */
+  permissionCall?: string | null;
 }
 
 /** The banner and push of a new epoch, decided once on the server (design §10.1). */

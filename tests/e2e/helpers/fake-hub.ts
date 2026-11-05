@@ -6,8 +6,10 @@
  * the close request the way the real hub does (same path and body as
  * `closeWaitingBody` in client/src/lib/hubSystem.ts). It also stands in for
  * the Claude proxy's account log (`activity`, `profiles`: the test server
- * points `TOPICS_SWITCHBOARD_URL` here) and takes «Fix it» (`fix`). Nothing
- * here ever reaches :3360 or :3335.
+ * points `TOPICS_SWITCHBOARD_URL` here) and takes «Fix it» (`fix`) and the
+ * proxy's token renewal (`refresh`). `quiet` answers a hub with nothing to
+ * say: no item, no failure, every service up. Nothing here ever reaches
+ * :3360 or :3335.
  */
 import { createServer, type Server } from "node:http";
 import { hubPortFor } from "./test-server";
@@ -39,6 +41,23 @@ export function defaultFakeHubItems(now = Date.now()): FakeHubItem[] {
     { id: "e2e-look", tipo: "vista", title: "Slide del corso, lezione 4 sul telefono", from: "sessione corso", due: now + 20 * HOUR, at: now - 3 * HOUR },
     { id: "e2e-spend", tipo: "spesa", title: "Passare studio-x al piano Launch", why: "19 EUR al mese", from: "claude", due: now + 2 * HOUR, at: now - HOUR },
   ];
+}
+
+/** A hub with nothing to say: the same paths, every list empty, every service up. */
+function quietAnswers(): Record<string, unknown> {
+  const now = Date.now();
+  return {
+    pace: [{ provider: "claude", account: "e2e@example.com", active: true, login: "ok", used: 28, fiveHour: { used: 10, resetsAt: now + HOUR }, status: "ok" }],
+    services: { at: now, services: [{ id: "usage-hub", name: "Hub dei consumi", state: "vivo", problem: null }] },
+    attesa: { at: now, items: [] },
+    alerts: { rules: [], firing: [] },
+    "automations/summary": { needsYou: 0, broken: 0, ok: 82, hidden: 0, runsToday: 412 },
+    automations: { broken: [] },
+    contesto: { contradictions: { at: now - HOUR, items: [] } },
+    diario: { at: now, days: 2, items: [] },
+    activity: { log: [] },
+    profiles: { profiles: [] },
+  };
 }
 
 function answers(items: FakeHubItem[]): Record<string, unknown> {
@@ -84,7 +103,7 @@ function answers(items: FakeHubItem[]): Record<string, unknown> {
   };
 }
 
-export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems()): Promise<FakeHub> {
+export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(), opts: { quiet?: boolean } = {}): Promise<FakeHub> {
   const hub: FakeHub = { items, posts: [], close: async () => {} };
   const server: Server = createServer((req, res) => {
     const path = (req.url ?? "").split("?")[0]!.replace(/^\/api\//, "");
@@ -104,13 +123,13 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems())
       });
       return;
     }
-    if (req.method === "POST" && path === "fix") {
+    if (req.method === "POST" && (path === "fix" || path === "refresh")) {
       let raw = "";
       req.on("data", (c) => { raw += c; });
       req.on("end", () => {
         const body = JSON.parse(raw || "{}") as Record<string, unknown>;
         hub.posts.push({ path, ...body });
-        send(200, { ok: true, item: { id: "e2e-fix", status: "queued" } });
+        send(200, path === "fix" ? { ok: true, item: { id: "e2e-fix", status: "queued" } } : { ok: true });
       });
       return;
     }
@@ -123,7 +142,7 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems())
       req.resume();
       return send(200, { ok: true });
     }
-    const all = answers(hub.items);
+    const all = opts.quiet ? quietAnswers() : answers(hub.items);
     if (req.method === "GET" && path in all) return send(200, all[path]);
     send(404, { error: "not in the fake hub" });
   });

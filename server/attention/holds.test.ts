@@ -95,6 +95,18 @@ describe('a question, a permission or a plan is needs-you', () => {
     expect(getAttention('topic:perm').state).toBe('working');
   });
 
+  it('a permission of the bridge carries what it asks and the call a list answers; the question does not', () => {
+    turnStarted('topic:perm-call');
+    beginPermission('topic:perm-call', 'toolu_publish', undefined, undefined, 'npm publish');
+    expect(getAttention('topic:perm-call')).toMatchObject({ reason: 'permission', detail: 'npm publish', permissionCall: 'toolu_publish' });
+    endPermission('topic:perm-call', 'toolu_publish');
+    expect(getAttention('topic:perm-call').permissionCall).toBeNull();
+    turnStarted('topic:ask-call');
+    beginAsk('topic:ask-call');
+    expect(getAttention('topic:ask-call').permissionCall).toBeNull();
+    endAsk('topic:ask-call');
+  });
+
   it('the plan panel is needs-you(plan), and no chat-message row is written', () => {
     turnStarted('topic:plan');
     planApprovalOpened('topic:plan', 'toolu_plan', 'Il piano: tre passi');

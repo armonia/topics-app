@@ -115,7 +115,7 @@ export function HubRow({ entry, first }: { entry: HubEntry; first: boolean }) {
   const tr = useT();
   const now = useSharedNow();
   const button = useBellButton();
-  const { closeWaiting, fix } = useBellActions();
+  const { closeWaiting, fix, renew } = useBellActions();
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -231,9 +231,18 @@ export function HubRow({ entry, first }: { entry: HubEntry; first: boolean }) {
       const title = e.kind === 'switched'
         ? (e.account ? tr('bell.account.switched', { from: e.account, to: e.to ?? '?' }) : tr('bell.account.switchedTo', { to: e.to ?? '?' }))
         : tr(e.kind === 'token' ? 'bell.account.token' : 'bell.account.limit', { account: e.account ?? tr('bell.account.all') });
+      // An expired token is renewed from the row, as the proxy's dashboard does.
+      const profile = e.kind === 'token' ? e.profile : null;
       return (
         <RowShell attrs={attrs} icon={icon} tint="text-app-text-tertiary" first={first} title={title} at={e.at}
-          second={<span className="truncate">{e.count > 1 ? tr('bell.account.times', { n: e.count }) : tr('bell.account.once')}</span>} />
+          second={error || <span className="truncate">{e.count > 1 ? tr('bell.account.times', { n: e.count }) : tr('bell.account.once')}</span>}
+          actions={profile && (done
+            ? <span className="text-compact text-app-text-secondary" data-testid="bell-renewed">{tr('bell.renewed')}</span>
+            : (
+              <button type="button" disabled={busy} onClick={() => void run(() => renew(profile))} className={button.secondary} data-testid="bell-renew">
+                {tr('bell.renew')}
+              </button>
+            ))} />
       );
     }
     case 'contradiction':
