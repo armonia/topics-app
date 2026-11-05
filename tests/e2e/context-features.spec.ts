@@ -23,6 +23,9 @@
  * is red; with the home sessions' loader read as a harness, the level lists
  * five and the test is red.
  *
+ * The shots are taken in the mockups' workspace (helpers/shot-scene.ts):
+ * acme-web and studio-x with their chats in the sidebar, a chat with messages.
+ *
  * Video on: the recording is the proof. The screenshots of the built surface
  * go to the test's output (`vero-contesto-funzionalita-*.png`).
  *
@@ -31,10 +34,12 @@
  */
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
+import { resetPaneStore } from "./helpers/api-fixtures";
+import { openMainChat, openSceneInSidebar, seedScene, type Scene } from "./helpers/shot-scene";
 import { goToApp } from "./helpers";
 import { openProfileMenu } from "./helpers/open-perf-panel";
 import { startFakeHub, type FakeHub } from "./helpers/fake-hub";
-import { E2E_BASE } from "./helpers/test-server";
+import { E2E_BASE, canonicalTmpRoot } from "./helpers/test-server";
 
 hermetic(test);
 test.use({ video: "on" });
@@ -76,17 +81,31 @@ const checks = (hub: FakeHub) => hub.posts.filter((p) => p.path === "contesto/ch
 
 test.describe("agents' context and feature map", () => {
   let hub: FakeHub | null = null;
+  let scene: Scene | null = null;
 
   test.beforeAll(async ({ request }) => {
+    scene = await seedScene(request, `${canonicalTmpRoot()}/e2e-context-features-${Date.now().toString(36)}`);
     hub = await startFakeHub(undefined, { context: true });
     await waitForHub(request);
   });
-  test.afterAll(async () => { await hub?.close(); });
+  test.afterAll(async ({ request }) => {
+    await hub?.close();
+    await scene?.cleanup(request);
+  });
+
+  // Each test starts on the scene alone: a view opened by the test before
+  // stays a tab, and clicking its row again would only focus that tab.
+  test.beforeEach(async ({ request }) => {
+    if (!scene) return;
+    await resetPaneStore(request, []);
+    await openSceneInSidebar(request, scene);
+  });
 
   test("System: the context with the check on confirmation", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.emulateMedia({ colorScheme: "dark" });
     await goToApp(page);
+    await openMainChat(page, scene!);
     const status = await openSystem(page);
 
     // The rows in the mockup's order, each with its number.
@@ -170,6 +189,7 @@ test.describe("agents' context and feature map", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.emulateMedia({ colorScheme: "dark" });
     await goToApp(page);
+    await openMainChat(page, scene!);
     const sidebar = page.locator('[aria-label="Topics sidebar"]').first();
     await expect(sidebar).not.toContainText("Funzionalità");
     const status = await openSystem(page);

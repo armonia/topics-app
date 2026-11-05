@@ -22,23 +22,26 @@
  * no hub), «decidi tu in cima» is red: the first row of «Decidi tu» is the
  * Topics question, not the hub's item due first.
  *
+ * The shots are taken in the mockups' workspace (helpers/shot-scene.ts):
+ * acme-web and studio-x with their chats in the sidebar, a chat with messages.
+ *
  * Video on: the recording is the proof. The screenshots of the built surface go
  * to the test's output (`vero-campanella-a-gruppi-*.png`).
  *
  * @covers HUBBR-06
  * @covers HUBBR-07
  */
-import { mkdirSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { expect, request as playwrightRequest, test, type APIRequestContext, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
+import { openMainChat, seedScene, type Scene as ShotScene } from "./helpers/shot-scene";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTask, deleteTerminalSession, deleteTopic } from "./helpers/api-fixtures";
 import { createClaudeTerminal, postHook, sessionKeyOf, type ClaudeTerminal } from "./helpers/attention";
 import { startFakeHub, type FakeHub } from "./helpers/fake-hub";
 import { seedMessage } from "./helpers/seed-messages";
-import { E2E_BASE } from "./helpers/test-server";
+import { E2E_BASE, canonicalTmpRoot } from "./helpers/test-server";
 import { projectIdForPath } from "../../shared/board";
 import { taskSubject, terminalSubject, topicSubject } from "../../shared/attention";
 
@@ -120,8 +123,8 @@ function projectDir(root: string, name: string): string {
   return dir;
 }
 
-async function buildScene(request: APIRequestContext): Promise<Scene> {
-  const root = mkdtempSync(join(tmpdir(), "bell-"));
+/** In the root of the shot scene: the same acme-web folder, so its chats and its waits are one project row. */
+async function buildScene(request: APIRequestContext, root: string): Promise<Scene> {
   const web = projectDir(root, "acme-web");
   const api = projectDir(root, "acme-api");
   const question = await createClaudeTerminal(request, "Claude Code", web);
@@ -165,6 +168,8 @@ const groupKeys = (page: Page) => panel(page).locator("[data-bell-group]").evalu
 test.describe("the bell in groups", () => {
   let hub: FakeHub | null = null;
   let scene: Scene | null = null;
+  // The mockups' workspace (projects with their chats, a chat with messages) the shots are taken in.
+  let shot: ShotScene | null = null;
   let withTopics = true;
   // The scene's own request context: the bridge's legs run across the tests,
   // and the `request` of a hook is disposed when the hook ends.
@@ -174,13 +179,15 @@ test.describe("the bell in groups", () => {
     await waitForHub(request);
     withTopics = socketOn(testInfo.project.name);
     api = await playwrightRequest.newContext();
-    if (withTopics) scene = await buildScene(api);
+    shot = await seedScene(api, `${canonicalTmpRoot()}/e2e-bell-groups-${Date.now().toString(36)}`);
+    if (withTopics) scene = await buildScene(api, shot.root);
   });
   // The live reader keeps the fake's numbers until its next tick: the next
   // file (hub-off) asserts that nobody answers, so the hub goes down here and
   // the reader is waited on until it says so.
   test.afterAll(async ({ request }) => {
     await dropScene(request, scene);
+    await shot?.cleanup(request);
     await api?.dispose();
     await hub?.close();
     await waitForHubDown(request);
@@ -233,6 +240,7 @@ test.describe("the bell in groups", () => {
       await page.setViewportSize({ width: 1440, height: 1100 });
       await page.emulateMedia({ colorScheme: "dark" });
       await goToApp(page);
+      await openMainChat(page, shot!);
       await expect(page.getByTestId("inbox-button")).toBeVisible({ timeout: 15_000 });
       // The pill is the figure of the group to decide: 3 of the hub, 3 of Topics; never a sum with the warnings.
       await expect(page.getByTestId("inbox-count")).toHaveAttribute("data-notification-count", withTopics ? "6" : "3", { timeout: 20_000 });
@@ -362,6 +370,7 @@ test.describe("the bell in groups", () => {
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.emulateMedia({ colorScheme: "dark" });
     await goToApp(page);
+    await openMainChat(page, shot!);
     await page.getByTestId("inbox-button").click();
     await expect.poll(() => groupKeys(page), { timeout: 15_000 }).toEqual(["decide", "broken", "quota", "look", "finished"]);
 
@@ -405,6 +414,7 @@ test.describe("the bell in groups", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.emulateMedia({ colorScheme: "dark" });
     await goToApp(page);
+    await openMainChat(page, shot!);
     await expect(page.getByTestId("inbox-count")).toHaveCount(0, { timeout: 20_000 });
     await page.getByTestId("inbox-button").click();
     const empty = panel(page).getByTestId("inbox-empty");

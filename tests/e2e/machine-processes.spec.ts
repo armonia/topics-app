@@ -18,6 +18,9 @@
  * red (no row carries a Stop button); with the EventSource left open on unmount,
  * «closed with the view» is red (the fake never sees the stream end).
  *
+ * The shots are taken in the mockups' workspace (helpers/shot-scene.ts):
+ * acme-web and studio-x with their chats in the sidebar, a chat with messages.
+ *
  * Video on: the recording is the proof. The screenshots of the built surface go
  * to the test's output (`vero-processi-macchina-*.png`).
  *
@@ -29,10 +32,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
+import { resetPaneStore } from "./helpers/api-fixtures";
+import { openMainChat, openSceneInSidebar, seedScene, type Scene } from "./helpers/shot-scene";
 import { goToApp } from "./helpers";
 import { openPerfPanel } from "./helpers/open-perf-panel";
 import { startFakeHub, type FakeHub } from "./helpers/fake-hub";
-import { E2E_BASE } from "./helpers/test-server";
+import { E2E_BASE, canonicalTmpRoot } from "./helpers/test-server";
 
 hermetic(test);
 test.use({ video: "on" });
@@ -75,8 +80,10 @@ async function openFromMenu(page: Page): Promise<void> {
 test.describe("the machine's processes", () => {
   let hub: FakeHub | null = null;
   let script: { processId: string; pid: number; dir: string } | null = null;
+  let scene: Scene | null = null;
 
   test.beforeAll(async ({ request }) => {
+    scene = await seedScene(request, `${canonicalTmpRoot()}/e2e-machine-processes-${Date.now().toString(36)}`);
     hub = await startFakeHub();
     await waitForHub(request);
     script = await startScript(request);
@@ -86,6 +93,15 @@ test.describe("the machine's processes", () => {
     if (script) await request.post(`${E2E_BASE}/api/scripts/${script.processId}/stop`).catch(() => {});
     await hub?.close();
     await waitForHubDown(request);
+    await scene?.cleanup(request);
+  });
+
+  // Each test starts on the scene alone: a view opened by the test before
+  // stays a tab, and clicking its row again would only focus that tab.
+  test.beforeEach(async ({ request }) => {
+    if (!scene) return;
+    await resetPaneStore(request, []);
+    await openSceneInSidebar(request, scene);
   });
 
   test("phone, 390 px: one column, the figures under each name, nothing wider than the screen", async ({ browser }, testInfo) => {
@@ -127,6 +143,7 @@ test.describe("the machine's processes", () => {
     await page.setViewportSize({ width: 1440, height: 1100 });
     await page.emulateMedia({ colorScheme: "dark" });
     await goToApp(page);
+    await openMainChat(page, scene!);
     await openFromMenu(page);
     const pane = page.getByTestId(PANE);
     const rows = pane.getByTestId("machine-process-row");
@@ -223,6 +240,7 @@ test.describe("the machine's processes", () => {
   test("hub down while the view is open: the band says so, the last numbers stay, Retry is there", async ({ page, request }, testInfo) => {
     await page.setViewportSize({ width: 1440, height: 1100 });
     await goToApp(page);
+    await openMainChat(page, scene!);
     await openFromMenu(page);
     const pane = page.getByTestId(PANE);
     await expect(pane.getByTestId("machine-process-row")).toHaveCount(8, { timeout: 20_000 });

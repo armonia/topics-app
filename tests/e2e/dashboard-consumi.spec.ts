@@ -21,6 +21,9 @@
  * 30 days whatever the window, «107 €» is red; with the raise sent to the
  * proxy instead of the hub, the post never reaches `project-settings`.
  *
+ * The shots are taken in the mockups' workspace (helpers/shot-scene.ts):
+ * acme-web and studio-x with their chats in the sidebar, a chat with messages.
+ *
  * Video on: the recording is the proof. The screenshots of the built surface go
  * to the test's output (`vero-consumi-in-dashboard-*.png`).
  *
@@ -28,10 +31,12 @@
  */
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
+import { resetPaneStore } from "./helpers/api-fixtures";
+import { openMainChat, openSceneInSidebar, seedScene, type Scene } from "./helpers/shot-scene";
 import { goToApp } from "./helpers";
 import { openPerfPanel, openProfileMenu } from "./helpers/open-perf-panel";
 import { startFakeHub, type FakeHub } from "./helpers/fake-hub";
-import { E2E_BASE } from "./helpers/test-server";
+import { E2E_BASE, canonicalTmpRoot } from "./helpers/test-server";
 
 hermetic(test);
 test.use({ video: "on" });
@@ -62,13 +67,24 @@ async function openDashboard(page: Page): Promise<void> {
 
 test.describe("consumi in the dashboard", () => {
   let hub: FakeHub | null = null;
+  let scene: Scene | null = null;
 
   test.beforeAll(async ({ request }) => {
+    scene = await seedScene(request, `${canonicalTmpRoot()}/e2e-dashboard-consumi-${Date.now().toString(36)}`);
     hub = await startFakeHub();
     await waitForHub(request);
   });
-  test.afterAll(async () => {
+  test.afterAll(async ({ request }) => {
     await hub?.close();
+    await scene?.cleanup(request);
+  });
+
+  // Each test starts on the scene alone: a view opened by the test before
+  // stays a tab, and clicking its row again would only focus that tab.
+  test.beforeEach(async ({ request }) => {
+    if (!scene) return;
+    await resetPaneStore(request, []);
+    await openSceneInSidebar(request, scene);
   });
 
   test("phone, 390 px: one column, nothing wider than the screen", async ({ browser }, testInfo) => {
@@ -108,6 +124,7 @@ test.describe("consumi in the dashboard", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.emulateMedia({ colorScheme: "dark" });
     await goToApp(page);
+    await openMainChat(page, scene!);
 
     // The usage per project is no longer a level of System.
     await openPerfPanel(page);

@@ -20,6 +20,9 @@
  * the cron routes» is red; with the vote drawn from what was clicked instead of
  * the model read back, «Va bene pressed» is red against a hub that refuses it.
  *
+ * The shots are taken in the mockups' workspace (helpers/shot-scene.ts):
+ * acme-web and studio-x with their chats in the sidebar, a chat with messages.
+ *
  * Video on: the recording is the proof. Screenshots of the built surface go to
  * the test's output (`vero-automazioni-vista-*.png`).
  *
@@ -31,9 +34,11 @@
  */
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
+import { resetPaneStore } from "./helpers/api-fixtures";
+import { openMainChat, openSceneInSidebar, seedScene, type Scene } from "./helpers/shot-scene";
 import { goToApp } from "./helpers";
 import { startFakeHub, type FakeHub } from "./helpers/fake-hub";
-import { E2E_BASE } from "./helpers/test-server";
+import { E2E_BASE, canonicalTmpRoot } from "./helpers/test-server";
 
 hermetic(test);
 test.use({ video: "on" });
@@ -102,13 +107,24 @@ const row = (page: Page, key: string) => page.getByTestId(PANE).locator(`[data-t
 
 test.describe("automations", () => {
   let hub: FakeHub | null = null;
+  let scene: Scene | null = null;
 
   test.beforeAll(async ({ request }) => {
+    scene = await seedScene(request, `${canonicalTmpRoot()}/e2e-automations-${Date.now().toString(36)}`);
     hub = await startFakeHub(undefined, { automations: true });
     await waitForHub(request);
   });
-  test.afterAll(async () => {
+  test.afterAll(async ({ request }) => {
     await hub?.close();
+    await scene?.cleanup(request);
+  });
+
+  // Each test starts on the scene alone: a view opened by the test before
+  // stays a tab, and clicking its row again would only focus that tab.
+  test.beforeEach(async ({ request }) => {
+    if (!scene) return;
+    await resetPaneStore(request, []);
+    await openSceneInSidebar(request, scene);
   });
 
   test("the row above the Board opens the view: Decidi tu, Jarvis with its commands, Mac read-only, no Cron panel", async ({ page }, testInfo) => {
@@ -116,6 +132,7 @@ test.describe("automations", () => {
     await page.emulateMedia({ colorScheme: "dark" });
     const cron = await fakeCron(page);
     await goToApp(page);
+    await openMainChat(page, scene!);
 
     const sidebarRow = page.getByTestId("sidebar-automations");
     await expect(page.getByTestId("sidebar-automations-tail")).toHaveText("3 da sistemare", { timeout: 20_000 });
