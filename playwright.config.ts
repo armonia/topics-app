@@ -628,6 +628,8 @@ export default defineConfig({
         "**/automations.spec.ts",
         // Consumi in the Dashboard: the hub's numbers beside the board's, same reason as the bell.
         "**/dashboard-consumi.spec.ts",
+        // The project row with the hub's state and its menu, same reason as the bell.
+        "**/project-row-hub.spec.ts",
         // The live-terminals menu: used mostly from remote, i.e. from phone
         // Safari and the WKWebView shell. WebKit is where it lives.
         "**/live-terminals.spec.ts",

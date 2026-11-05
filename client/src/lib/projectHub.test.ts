@@ -60,6 +60,9 @@ describe('matchHubProject', () => {
     expect(matchHubProject(rows, '/Users/someone/Projects/unknown')).toBeNull();
     const tmp = readHubProjects({ projects: [{ name: 'p', dir: '/tmp/e2e/p' }] });
     expect(matchHubProject(tmp, '/private/tmp/e2e/p')?.name).toBe('p');
+    const win = readHubProjects({ projects: [{ name: 'w', dir: 'C:\\Temp\\w' }, { name: 'v', dir: null }] });
+    expect(matchHubProject(win, 'C:\\Temp\\w')?.name).toBe('w');
+    expect(matchHubProject(win, 'C:\\Temp\\v')?.name).toBe('v');
   });
 });
 

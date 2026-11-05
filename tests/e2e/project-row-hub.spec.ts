@@ -7,7 +7,7 @@
  * acme-api by name with the hub's folder inside it, one of its worktrees (in
  * line). notes-lab the hub does not know. The rows carry the dot and the
  * pause on studio-x, the clock on acme-api, nothing on acme-web at rest and
- * nothing at all on notes-lab; on hover acme-web says «38% della settimana»
+ * nothing at all on notes-lab; on hover acme-web says «38% della settimana» (allow-italian: the UI copy asserted)
  * clear of the command rail. The menu says the same in words and writes the
  * priority and the budget to the hub's `project-settings`, showing them as
  * read back; a write the hub refuses shows its reason and keeps the old one.
@@ -22,7 +22,7 @@
  * keeps the old priority» is red.
  *
  * Video on: the recording is the proof. Screenshots of the built surface go to
- * the test's output (`vero-riga-progetto-hub-*.png`).
+ * the test's output (`vero-riga-progetto-hub-*.png`, allow-italian: file names the docs expect).
  *
  * @covers HUBBR-16
  */
@@ -31,6 +31,7 @@ import { mkdirSync } from "node:fs";
 import { hermetic } from "./fixtures/hermetic";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { longPress } from "./helpers/long-press";
 import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 import { startFakeHub, type FakeHub } from "./helpers/fake-hub";
 import { E2E_BASE } from "./helpers/test-server";
@@ -120,21 +121,6 @@ test.describe("project row with the hub", () => {
     await page.screenshot({ path: testInfo.outputPath("vero-riga-progetto-hub-scuro.png") });
   });
 
-  test("a project the hub knows elsewhere shows nothing: same name, another folder", async ({ page, request }) => {
-    const other = `${ROOT}/acme-docs`;
-    mkdirSync(other, { recursive: true });
-    const id = (await createTopic(request, "Chat acme-docs", { projectPath: other })).id;
-    try {
-      await page.setViewportSize({ width: 1440, height: 900 });
-      await openRows(page);
-      await expect(page.getByTestId("project-toggle-acme-docs")).toBeVisible({ timeout: 20_000 });
-      await projectRow(page, "acme-docs").hover();
-      await expect(projectRow(page, "acme-docs").getByTestId("project-hub-week")).toHaveCount(0);
-    } finally {
-      await deleteTopic(request, id).catch(() => {});
-    }
-  });
-
   test("the menu: the facts in words, the priority written and read back, the budget too", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.emulateMedia({ colorScheme: "light" });
@@ -184,7 +170,7 @@ test.describe("project row with the hub", () => {
     await expect(menu.getByTestId("project-hub-priority-bassa")).toHaveAttribute("aria-checked", "false");
   });
 
-  test("phone, 390 px: the signals on the rows, the menu from a long press", async ({ browser }, testInfo) => {
+  test("phone, 390 px: the signals on the rows, the menu from a long press", async ({ browser, browserName }, testInfo) => {
     const ctx = await browser.newContext({
       baseURL: E2E_BASE, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, colorScheme: "dark", locale: "it-IT",
       recordVideo: { dir: testInfo.outputPath("phone-video"), size: { width: 390, height: 844 } },
@@ -199,14 +185,36 @@ test.describe("project row with the hub", () => {
       await expect(projectRow(page, "acme-web").getByTestId("project-hub-week")).toBeHidden();
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
       await page.screenshot({ path: testInfo.outputPath("vero-riga-progetto-hub-telefono.png") });
-      const box = (await page.getByTestId("project-toggle-studio-x").boundingBox())!;
-      await page.getByTestId("project-toggle-studio-x").dispatchEvent("contextmenu", { clientX: box.x + 20, clientY: box.y + box.height / 2, bubbles: true });
       const menu = page.getByTestId("project-hub-menu");
+      // The finger stays down until the menu is there; WebKit has no `Touch`
+      // constructor, so there the hold is the `contextmenu` the app
+      // synthesises (`openContextMenuAt`), at the finger's point.
+      if (browserName === "webkit") {
+        await page.getByTestId("project-toggle-studio-x").evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 }));
+        });
+      } else await longPress(page, '[data-testid="project-toggle-studio-x"]', { until: menu });
       await expect(menu.getByTestId("project-hub-menu-week")).toHaveText("27% della settimana su 25% di budget");
-      await expect(menu.getByTestId("project-hub-priority")).toBeVisible();
+      await expect(menu.getByTestId("project-hub-priority")).toBeInViewport();
       await page.screenshot({ path: testInfo.outputPath("vero-riga-progetto-hub-telefono-menu.png") });
     } finally {
       await ctx.close();
+    }
+  });
+
+  test("a project the hub knows elsewhere shows nothing: same name, another folder", async ({ page, request }) => {
+    const other = `${ROOT}/acme-docs`;
+    mkdirSync(other, { recursive: true });
+    const id = (await createTopic(request, "Chat acme-docs", { projectPath: other })).id;
+    try {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await openRows(page);
+      await expect(page.getByTestId("project-toggle-acme-docs")).toBeVisible({ timeout: 20_000 });
+      await projectRow(page, "acme-docs").hover();
+      await expect(projectRow(page, "acme-docs").getByTestId("project-hub-week")).toHaveCount(0);
+    } finally {
+      await deleteTopic(request, id).catch(() => {});
     }
   });
 });

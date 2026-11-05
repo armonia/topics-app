@@ -6,7 +6,7 @@
  * the share of the week went past the budget you set, a pause when the hub's
  * brake holds the project, a clock when its jobs wait in the hub's line, each
  * with the reason as its tooltip. On hover the share of the week takes the
- * place of the quiet signals ("38% della settimana"), clear of the command
+ * place of the quiet signals (the share in words), clear of the command
  * rail. In the menu: the same facts in words, and the priority and the budget,
  * written to the hub's `project-settings` and shown as the hub reads them back,
  * so a write that did not land does not look made.
@@ -29,7 +29,7 @@ import { POPOVER_DIVIDER, DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverSty
 import { Segmented } from '../Shared/Segmented';
 import { PALLINO_ATTESA } from './chromeSignals';
 import {
-  HUB_PRIORITIES, budgetChoices, matchHubProject, overBudget, projectSettingsBody, readHubProjects, weekShare,
+  HUB_PRIORITY_LEVELS, budgetChoices, matchHubProject, overBudget, projectSettingsBody, readHubProjects, weekShare,
   type HubPriority, type HubProject,
 } from '../../lib/projectHub';
 
@@ -160,7 +160,7 @@ export function ProjectHubMenu({ projectPath }: { projectPath: string }) {
         <span className="text-mini text-app-text-tertiary">{tr('projectHub.priority')}</span>
         <Segmented
           value={p.priority}
-          options={HUB_PRIORITIES.map((v) => ({ value: v, label: tr(`projectHub.priority.${v}`) }))}
+          options={HUB_PRIORITY_LEVELS.map((v) => ({ value: v, label: tr(`projectHub.priority.${v}`) }))}
           onChange={(v) => { void write({ priority: v }); }}
           ariaLabel={tr('projectHub.priority')}
           testId="project-hub-priority"

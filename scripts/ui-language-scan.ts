@@ -60,6 +60,8 @@ export const I18N_CATALOGUES = new Set([
   "client/src/lib/i18n-attention-en.ts",
   "client/src/lib/i18n-automations-it.ts",
   "client/src/lib/i18n-automations-en.ts",
+  "client/src/lib/i18n-project-hub-it.ts",
+  "client/src/lib/i18n-project-hub-en.ts",
   "client/src/lib/i18n-system-health-it.ts",
   "client/src/lib/i18n-system-health-en.ts",
   "client/src/lib/i18n-processes-it.ts",

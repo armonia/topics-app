@@ -14,8 +14,8 @@
  */
 
 /** The hub's priorities, compared by value. */
-export const HUB_PRIORITIES = ['alta', 'normale', 'bassa'] as const; // allow-italian: the hub's priority values
-export type HubPriority = (typeof HUB_PRIORITIES)[number];
+export const HUB_PRIORITY_LEVELS = ['alta', 'normale', 'bassa'] as const; // allow-italian: the hub's priority values
+export type HubPriority = (typeof HUB_PRIORITY_LEVELS)[number];
 
 /** What the row says of the project's state: held by the brake, waiting in the hub's line, or nothing. */
 export type HubProjectHold = 'held' | 'queued' | null;
@@ -55,7 +55,7 @@ export function readHubProjects(data: unknown): HubProject[] {
     if (!isObject(p)) continue;
     const name = str(p.name);
     if (!name || name.startsWith('tmp:')) continue;
-    const priority = (HUB_PRIORITIES as readonly unknown[]).includes(p.priority) ? (p.priority as HubPriority) : 'normale';
+    const priority = (HUB_PRIORITY_LEVELS as readonly unknown[]).includes(p.priority) ? (p.priority as HubPriority) : 'normale';
     const budget = num(p.budgetPct);
     out.push({
       name,
@@ -72,8 +72,8 @@ export function readHubProjects(data: unknown): HubProject[] {
   return out;
 }
 
-/** `/tmp` is a link to `/private/tmp`: the hub writes one, Topics may hold the other. */
-const normDir = (d: string): string => d.replace(/^\/private\/(tmp|var)\//, '/$1/').replace(/\/+$/, '');
+/** `/tmp` is a link to `/private/tmp`: the hub writes one, Topics may hold the other. A Windows server writes `\`. */
+const normDir = (d: string): string => d.replace(/\\/g, '/').replace(/^\/private\/(tmp|var)\//, '/$1/').replace(/\/+$/, '');
 
 /** The hub's folder (home written as `~`) is the project's folder, or lies inside it. */
 function dirRelation(hubDir: string, projectPath: string): 'same' | 'inside' | null {
