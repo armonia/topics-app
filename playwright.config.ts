@@ -620,6 +620,8 @@ export default defineConfig({
         "**/bell-groups.spec.ts",
         // The machine's Processes, with the proxy's log live: same reason as the bell.
         "**/machine-processes.spec.ts",
+        // Accounts and quotas: the proxy's commands and the hub's brake, same reason as the bell.
+        "**/account-quotas.spec.ts",
         // The live-terminals menu: used mostly from remote, i.e. from phone
         // Safari and the WKWebView shell. WebKit is where it lives.
         "**/live-terminals.spec.ts",

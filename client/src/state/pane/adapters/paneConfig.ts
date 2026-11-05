@@ -83,6 +83,9 @@ export const PANE_CONFIG: Partial<Record<PaneType, PaneConfig>> = {
   // The machine's Processes (usage hub). No `addableScopes`: it opens from
   // Sistema in the Topics menu and from the palette, only where the hub is.
   processes:     { icon: 'Activity',      label: 'Processi',     color: '#0066ff', singleton: true },
+  // Accounts and quotas (usage hub and Claude proxy): opened from the row with
+  // your name and from the palette, only where the hub is.
+  accounts:      { icon: 'Gauge',         label: 'Account e quote', color: '#0066ff', singleton: true },
 };
 
 /**

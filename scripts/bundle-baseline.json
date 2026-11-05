@@ -841,7 +841,10 @@
     "Il tetto segue la misura: total_assets 9.067.927 -> 9.070.000.",
     "",
     "2026-11-05, Processi della macchina (hub-smistamento, HUBBR-08/09): misurato sul PC con `bun run build:client && bun run check:bundle`, total_assets 9.284.954 contro un tetto di 9.251.400 (9.070.000 +2%), entry_eager raw 953.098 / gz 308.271 (sotto il tetto di 958.055).",
-    "Cosa compra: il chunk pigro MachineProcessesPane (Mac, PC, servizi, log del proxy), le letture pure di lib/machineProcesses e i dizionari IT+EN della vista; nell'entry restano solo la riga Processi di Sistema, la voce di Cmd+K e il dizionario italiano. Il tetto segue la misura: total_assets 9.070.000 -> 9.110.000."
+    "Cosa compra: il chunk pigro MachineProcessesPane (Mac, PC, servizi, log del proxy), le letture pure di lib/machineProcesses e i dizionari IT+EN della vista; nell'entry restano solo la riga Processi di Sistema, la voce di Cmd+K e il dizionario italiano. Il tetto segue la misura: total_assets 9.070.000 -> 9.110.000.",
+    "",
+    "2026-11-05, Account e quote (hub-smistamento, HUBBR-10/11): misurato sul PC con `bun run build:client && bun run check:bundle`, total_assets 9.334.539 contro un tetto di 9.292.200 (9.110.000 +2%), entry_eager raw 955.038 / gz 308.846 (sotto il tetto di 958.055, +2.088 sulla misura di HEAD 952.950).",
+    "Cosa compra: il chunk pigro AccountQuotasPane (36 KB: account Claude del proxy coi comandi, Codex e Muse in sola lettura, riserva API, rotazione e tetti, freno) con i suoi dizionari IT+EN, che viaggiano col chunk (addCatalogue in i18n.ts) e non nell'entry. Nell'entry restano la riga del menu, la quota piu' calda sulla card, la voce di Cmd+K e le loro 11 chiavi. Il tetto segue la misura: total_assets 9.110.000 -> 9.160.000."
   ],
   "updated": "2026-11-05",
   "tolerance_pct": 2,
@@ -855,6 +858,6 @@
     "files": 5
   },
   "total_assets": {
-    "raw": 9110000
+    "raw": 9160000
   }
 }

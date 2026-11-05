@@ -7,7 +7,7 @@ import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { useExitGhost } from '../../lib/exitGhost';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
-import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, UserRound, Hourglass, BellOff, BellRing, CircleCheck, type LucideIcon, Share2 } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, UserRound, Hourglass, BellOff, BellRing, CircleCheck, type LucideIcon, Share2, Gauge } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -129,7 +129,7 @@ function describeChildAttention(children: SidebarItem[] | undefined): string | u
 // PANE_CONFIG — one lookup shared with the tab bar's config, no re-mapping
 // per utility type at the call sites.
 const UTILITY_ROW_ICONS: Record<string, LucideIcon> = {
-  Kanban, BarChart3, Activity, BookOpen, Cpu, Clock, UserRound, LayoutGrid,
+  Kanban, BarChart3, Activity, BookOpen, Cpu, Clock, UserRound, LayoutGrid, Gauge,
 };
 
 /** La pane della Board generale. È anche la sua chiave di fissaggio: al

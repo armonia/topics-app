@@ -39,6 +39,7 @@ export const PANE_TYPES = [
   'remote-access',
   'system-status',
   'processes',
+  'accounts',
 ] as const;
 
 export type PaneType = (typeof PANE_TYPES)[number];

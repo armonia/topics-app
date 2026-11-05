@@ -26,6 +26,7 @@ import { FaceStack, MenuAction, PresenceList } from './PresenceList';
 import { AccountPanel } from './accountPanelLazy';
 import { DevicesLevel } from './DevicesLevel';
 import { PlanLevel } from './FormLevels';
+import { AccountQuotasRow } from './AccountQuotasRow';
 import { CHIP_INK_DIM, ORG_MARKS_IN_CHIP } from './identityChip';
 import { SEGNALE_ATTESA, SEGNALE_OK } from './chromeSignals';
 import { mergePeople } from './orgPresence';
@@ -60,6 +61,7 @@ export function IdentityMenuItems({ data, width, onClose, openLevel = null }: {
         {tr('firstRun.reopen')}
       </button>
       <PlanLevel defaultOpen={openLevel === 'plan'} />
+      <AccountQuotasRow onClose={onClose} />
 
       <div className="border-t border-app-border" />
       {/* THE LEVELS OF NAMES ARE AS WIDE AS THE MENU, NOT AS THEIR LONGEST

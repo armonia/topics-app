@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback, useSyncExternalStore } from 'react';
 import {
   Search, Moon, Sun, Monitor, File,
-  Loader2, TerminalSquare, RotateCcw, Grid2x2, Link2, ArrowLeft, MonitorCog,
+  Loader2, TerminalSquare, RotateCcw, Grid2x2, Link2, ArrowLeft, MonitorCog, Gauge,
 } from 'lucide-react';
 import { useHubEverRead } from '../../state/hubLive';
 import { EmptyState } from './EmptyState';
@@ -480,6 +480,15 @@ export function CommandPalette({
         category: 'action' as const,
         testId: 'palette-processes',
         action: () => { onClose(); window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'processes' } })); },
+      });
+      items.push({
+        id: 'account-quotas',
+        label: t('accounts.open'),
+        description: t('accounts.openHint'),
+        icon: <Gauge size={14} />,
+        category: 'action' as const,
+        testId: 'palette-accounts',
+        action: () => { onClose(); window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'accounts' } })); },
       });
     }
     // EVERY FORM BY ITS NAME (SETHOME-01): no «Settings» to open.

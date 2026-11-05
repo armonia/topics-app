@@ -10,6 +10,11 @@
  * proxy's token renewal (`refresh`). For the machine's Processes it answers
  * the census (`mac/procs`), the machine list (`machines`) and the proxy's log
  * stream (`logs/stream`, SSE), counting the streams opened and closed.
+ * For «Account e quote» it keeps the proxy's accounts, keys and settings as
+ * state and applies the proxy's writes (`switch`, `priority`, `account-cap`,
+ * `account-enabled`, `remove`, `api-profiles`, `settings`) and the hub's
+ * unlock and background stop (`override`, `hold`), so a read after a write
+ * shows the change the way the real services do.
  * `quiet` answers a hub with nothing to say: no item, no failure, every
  * service up. Nothing here ever reaches :3360 or :3335.
  */
@@ -36,10 +41,121 @@ export interface FakeHub {
   devPids: number[];
   /** The proxy's log streams: opened, and ended by the reader. */
   streams: { opened: number; closed: number };
+  /** The Claude proxy's state for «Account e quote»: accounts, reserve keys, settings. */
+  proxy: FakeProxy;
+  /** The hub's unlocks and background stops in force. */
+  overrides: Array<Record<string, unknown>>;
   close(): Promise<void>;
 }
 
 const HOUR = 3_600_000;
+
+export interface FakeAccount {
+  name: string;
+  label: string;
+  tier: string;
+  isActive: boolean;
+  priority: number;
+  disabled: boolean;
+  expired: boolean;
+  fiveH: number | null;
+  week: number;
+  cap: { fiveH: number | null; sevenD: number | null };
+}
+
+export interface FakeProxy {
+  accounts: FakeAccount[];
+  keys: Array<{ name: string; label: string; priority: number; disabled: boolean }>;
+  settings: Record<string, unknown>;
+}
+
+/** Three Claude accounts (one in use near its week, one ready, one with its token expired) and two keys. Placeholder names. */
+export function defaultFakeProxy(): FakeProxy {
+  return {
+    accounts: [
+      { name: "prof-a", label: "lavoro@example.com", tier: "default_claude_max_20x", isActive: true, priority: 0, disabled: false, expired: false, fiveH: 30, week: 92, cap: { fiveH: null, sevenD: null } },
+      { name: "prof-b", label: "riserva@example.com", tier: "default_claude_max_5x", isActive: false, priority: 1, disabled: false, expired: false, fiveH: 12, week: 31, cap: { fiveH: null, sevenD: null } },
+      { name: "prof-c", label: "terzo@example.com", tier: "default_claude_max_5x", isActive: false, priority: 0, disabled: false, expired: true, fiveH: null, week: 64, cap: { fiveH: null, sevenD: null } },
+    ],
+    keys: [
+      { name: "key-acme", label: "Chiave acme-web", priority: 20, disabled: false },
+      { name: "key-studio", label: "Chiave studio-x", priority: 10, disabled: true },
+    ],
+    settings: {
+      autoSwitch: true, proxyEnabled: true, rotationStrategy: "margin", rotationIntervalMin: 60, notifications: true, serializeRequests: false,
+      maxConcurrentPerAccount: 8, usageCap5h: null, usageCap7d: null, usageCapHoldMin: 10, usdEur: 0.92,
+    },
+  };
+}
+
+/** The proxy's `/api/profiles` from the fake's state, in the real proxy's shape. */
+function proxyProfiles(proxy: FakeProxy, now: number): Record<string, unknown> {
+  const s = proxy.settings;
+  return {
+    profiles: proxy.accounts.map((a) => {
+      const own = { fiveH: a.cap.fiveH, sevenD: a.cap.sevenD };
+      const effective = { fiveH: own.fiveH ?? (s.usageCap5h as number | null), sevenD: own.sevenD ?? (s.usageCap7d as number | null) };
+      const over5h = effective.fiveH !== null && a.fiveH !== null && a.fiveH >= effective.fiveH;
+      const over7d = effective.sevenD !== null && a.week >= effective.sevenD;
+      return {
+        name: a.name, label: a.label, subscriptionType: "max", rateLimitTier: a.tier, isActive: a.isActive, priority: a.priority, disabled: a.disabled,
+        expiresAt: a.expired ? now - HOUR : now + 30 * 24 * HOUR, expired: false, refreshFailed: a.expired ? { error: "Refresh token expired", retriable: false } : null,
+        limited: a.week >= 100, blockKind: a.disabled ? "disabled" : null,
+        rateLimits: {
+          status: "allowed",
+          fiveH: a.fiveH === null ? null : { status: "allowed", utilization: a.fiveH / 100, reset: Math.floor((now + 2 * HOUR) / 1000) },
+          sevenD: { status: "allowed", utilization: a.week / 100, reset: Math.floor((now + 3 * 24 * HOUR) / 1000) },
+        },
+        cap: { override: own, effective: effective, over5h, over7d, over: over5h || over7d, freeAt: 0 },
+      };
+    }),
+    apiProfiles: proxy.keys.map((k) => ({ type: "api", ...k, usage5h: null, usage7d: null, balance: null })),
+    allExhausted: false,
+    rotationStrategy: s.rotationStrategy,
+  };
+}
+
+/** The hub's write paths that change the fake's state, and the proxy's. */
+const PROXY_WRITES = new Set(["switch", "priority", "account-cap", "account-enabled", "remove", "api-profiles", "settings"]);
+
+function applyProxyWrite(hub: FakeHub, path: string, body: Record<string, unknown>): { status: number; body: unknown } {
+  const p = hub.proxy;
+  const account = p.accounts.find((a) => a.name === body.name);
+  switch (path) {
+    case "switch":
+      if (!account) return { status: 404, body: { error: "unknown account" } };
+      for (const a of p.accounts) a.isActive = a === account;
+      // Like the real proxy: a manual switch pins the rotation on sticky.
+      p.settings.rotationStrategy = "sticky";
+      return { status: 200, body: { ok: true, switched: account.name, strategyChanged: true, strategy: "sticky" } };
+    case "priority":
+      if (!account || typeof body.priority !== "number") return { status: 400, body: { error: "name and priority" } };
+      account.priority = body.priority;
+      return { status: 200, body: { ok: true } };
+    case "account-cap":
+      if (!account) return { status: 404, body: { error: "unknown account" } };
+      if ("fiveH" in body) account.cap.fiveH = body.fiveH as number | null;
+      if ("sevenD" in body) account.cap.sevenD = body.sevenD as number | null;
+      return { status: 200, body: { ok: true } };
+    case "account-enabled":
+      if (!account) return { status: 404, body: { error: "unknown account" } };
+      account.disabled = body.enabled !== true;
+      return { status: 200, body: { ok: true } };
+    case "remove":
+      p.accounts = p.accounts.filter((a) => a.name !== body.name);
+      return { status: 200, body: { ok: true } };
+    case "api-profiles": {
+      const key = p.keys.find((k) => k.name === body.name);
+      if (!key) return { status: 404, body: { error: "unknown key" } };
+      if (typeof body.priority === "number") key.priority = body.priority;
+      if (typeof body.disabled === "boolean") key.disabled = body.disabled;
+      return { status: 200, body: { ok: true } };
+    }
+    default:
+      Object.assign(p.settings, body);
+      return { status: 200, body: p.settings };
+  }
+}
 
 export function defaultFakeHubItems(now = Date.now()): FakeHubItem[] {
   return [
@@ -66,13 +182,16 @@ function quietAnswers(): Record<string, unknown> {
   };
 }
 
-function answers(items: FakeHubItem[], devPids: number[] = []): Record<string, unknown> {
+function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy = defaultFakeProxy(), overrides: Array<Record<string, unknown>> = []): Record<string, unknown> {
   const now = Date.now();
+  const unlocked = (p: string) => overrides.some((o) => o.provider === p && !o.hold);
   return {
     pace: [
-      { provider: "claude", account: "e2e@example.com", active: true, login: "ok", used: 92, fiveHour: { used: 30, resetsAt: now + HOUR }, status: "ok" },
-      { provider: "codex", account: "e2e@example.com", active: true, login: "ok", used: 28, fiveHour: null, status: "ok" },
+      { provider: "claude", account: "lavoro@example.com", active: true, login: "ok", used: 92, elapsedPct: 55, pace: 1.7, fiveHour: { used: 30, resetsAt: now + HOUR }, status: "ok" },
+      { provider: "codex", account: "codex@example.com", active: true, login: "ok", used: 28, elapsedPct: 55, pace: 0.5, resetsAt: now + 3 * 24 * HOUR, fiveHour: { used: 8, resetsAt: now + 2 * HOUR }, status: "ok" },
+      { provider: "muse", account: "muse@example.com", active: true, login: "ok", used: 61, elapsedPct: 40, pace: 1.5, resetsAt: now + 4 * 24 * HOUR, fiveHour: null, status: "veloce", quotaStale: false },
     ],
+    settings: proxy.settings,
     mac: {
       at: now, cores: 12, strained: false, swapUsedGB: 1.26, swapTotalGB: 8, swapSustained: false,
       effort: { parts: [{ key: "cpu", pct: 34 }, { key: "mem", pct: 60 }] },
@@ -98,9 +217,20 @@ function answers(items: FakeHubItem[], devPids: number[] = []): Record<string, u
       { id: "project:studio-x", subject: "studio-x sopra budget", source: "soglia-progetto", message: "studio-x: 78% della settimana, budget 60%" },
     ] },
     gates: {
-      classes: { interattivo: { go: true, reason: "12% used" }, batch: { go: false, reason: "quota finished until Monday" } },
-      brakes: { muse: { go: true }, codex: { go: true } },
-      providers: {},
+      classes: {
+        interattivo: { order: ["claude", "codex"], go: true, provider: "claude", account: "lavoro@example.com", reason: "92% usato, ritmo 1,7" },
+        gusto: { order: ["claude"], go: true, provider: "claude", account: "lavoro@example.com", reason: "92% usato, ritmo 1,7" },
+        massivo: { order: ["free", "muse", "codex", "claude"], go: true, provider: "free", account: null, reason: "canali gratis, nessuna quota" },
+        batch: { order: ["free", "muse", "codex", "claude"], go: false, provider: null, account: null, reason: "Muse sopra ritmo, Codex in pari" },
+      },
+      brakes: { muse: { go: unlocked("muse") }, codex: { go: true } },
+      providers: {
+        claude: { state: "libero", reason: "92% usato", waitUntil: null },
+        codex: { state: "libero", reason: "28% usato, ritmo 0,5", waitUntil: null },
+        muse: unlocked("muse") ? { state: "libero", reason: "sbloccato da Topics", waitUntil: null } : { state: "frenato", reason: "consuma 1,5 volte il previsto per la settimana", waitUntil: now + 6 * HOUR },
+      },
+      overrides,
+      reserve: 10,
     },
     "automations/summary": { needsYou: 0, broken: 1, ok: 81, hidden: 0, runsToday: 412, calendar: { count: 3, next: { title: "Backup of the Mac", at: now + HOUR } } },
     automations: { broken: [{ key: "gh:docs-reindex", title: "Reindex dell'indice documenti", reason: "ha fallito alle 21:26", last: { at: now - HOUR, outcome: "error" } }] },
@@ -117,7 +247,7 @@ function answers(items: FakeHubItem[], devPids: number[] = []): Record<string, u
       { type: "auth-expired", ts: now - 2 * HOUR, account: "prof-c" },
       { type: "upstream-retry", ts: now - 10 * 60_000, account: "prof-a", status: 529 },
     ] },
-    profiles: { profiles: [{ name: "prof-a", label: "lavoro" }, { name: "prof-b", label: "riserva" }, { name: "prof-c", label: "codex riserva" }] },
+    profiles: proxyProfiles(proxy, now),
   };
 }
 
@@ -176,7 +306,7 @@ const LOG_LINES = [
 ];
 
 export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(), opts: { quiet?: boolean } = {}): Promise<FakeHub> {
-  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, close: async () => {} };
+  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], close: async () => {} };
   const server: Server = createServer((req, res) => {
     const path = (req.url ?? "").split("?")[0]!.replace(/^\/api\//, "");
     if (req.method === "GET" && path === "logs/stream") {
@@ -204,6 +334,41 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
       });
       return;
     }
+    // The proxy's writes and the hub's unlock and background stop: applied to the state the reads answer from.
+    if ((req.method === "POST" || req.method === "PATCH") && PROXY_WRITES.has(path)) {
+      let raw = "";
+      req.on("data", (c) => { raw += c; });
+      req.on("end", () => {
+        const body = JSON.parse(raw || "{}") as Record<string, unknown>;
+        hub.posts.push({ path, ...body });
+        const r = applyProxyWrite(hub, path, body);
+        send(r.status, r.body);
+      });
+      return;
+    }
+    if ((path === "override" || path === "hold") && (req.method === "POST" || req.method === "DELETE")) {
+      let raw = "";
+      req.on("data", (c) => { raw += c; });
+      req.on("end", () => {
+        const hold = path === "hold";
+        if (req.method === "DELETE") {
+          const provider = new URL(req.url ?? "", "http://x").searchParams.get("provider");
+          hub.posts.push({ path, method: "DELETE", ...(provider ? { provider } : {}) });
+          const before = hub.overrides.length;
+          hub.overrides = hub.overrides.filter((o) => (hold ? !o.hold : !(o.provider === provider && !o.hold)));
+          return send(200, { removed: before - hub.overrides.length });
+        }
+        const body = JSON.parse(raw || "{}") as Record<string, unknown>;
+        hub.posts.push({ path, ...body });
+        const now = Date.now();
+        const o = hold
+          ? { provider: "*", hold: true, class: null, by: body.by, reason: body.reason, since: now, until: now + Number(body.hours) * HOUR }
+          : { provider: body.provider, class: null, by: body.by, reason: body.reason, since: now, until: now + Number(body.hours) * HOUR };
+        hub.overrides = hub.overrides.filter((x) => (hold ? !x.hold : x.provider !== o.provider)).concat(o);
+        send(200, o);
+      });
+      return;
+    }
     if (req.method === "POST" && (path === "fix" || path === "refresh")) {
       let raw = "";
       req.on("data", (c) => { raw += c; });
@@ -220,10 +385,12 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
     if (req.method === "POST" && path === "e2e-reset") {
       hub.items = defaultFakeHubItems();
       hub.posts.length = 0;
+      hub.proxy = defaultFakeProxy();
+      hub.overrides = [];
       req.resume();
       return send(200, { ok: true });
     }
-    const all = opts.quiet ? quietAnswers() : answers(hub.items, hub.devPids);
+    const all = opts.quiet ? quietAnswers() : answers(hub.items, hub.devPids, hub.proxy, hub.overrides);
     if (req.method === "GET" && path in all) return send(200, all[path]);
     send(404, { error: "not in the fake hub" });
   });

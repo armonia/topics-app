@@ -44,13 +44,13 @@
  * working digit in the menu's tail and the tooltip's phrase.
  */
 import { Suspense, useEffect, useRef, useState } from 'react';
-import { Monitor, Smartphone } from 'lucide-react';
+import { Gauge, Monitor, Smartphone } from 'lucide-react';
 import { usePresenceSummary } from '@/hooks/usePresenceSummary';
 import { presenceSummary } from '../../../../shared/presence-phrase';
 import { openPersonProfile } from '@/state/profileTarget';
 import { IDENTITY_GLYPH_BOX, IDENTITY_GLYPH_INK, ROW_INSET } from '@/lib/selectionStyles';
 import { chipClass } from './identityChip';
-import { PALLINO_OK } from './chromeSignals';
+import { PALLINO_OK, SEGNALE_ATTESA } from './chromeSignals';
 import type { SidebarCommands } from './ProfileMenu';
 import { ProfileMenu, prefetchProfileMenu } from './profileMenuLazy';
 import { useIdentityMenuData, type IdentityMenuData } from '@/hooks/useIdentityMenuData';
@@ -64,6 +64,8 @@ import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 import { useLoad } from '@/state/systemLoad';
 import { useLocale, useT } from '@/hooks/useT';
 import { formatMemoryMB } from '@/lib/formatMemory';
+import { useHubLive } from '@/state/hubLive';
+import { highestQuota } from './hotQuota';
 
 export function IdentityBlock({ commands, alarm = false }: {
   commands: SidebarCommands;
@@ -188,6 +190,8 @@ function UserCard({ identity, commands, alarm }: {
   const activeAgents = activeAgentCount(agentRows);
   const agentsTitle = tr('statusBar.signals.working', { n: activeAgents });
   const load = useLoad();
+  // THE HOTTEST QUOTA, only from 80%: a signal when it matters, no fixed row (hub-smistamento).
+  const hot = highestQuota(useHubLive().pace?.data, tr);
 
   useEffect(() => {
     const onRequest = (e: Event) => {
@@ -262,7 +266,7 @@ function UserCard({ identity, commands, alarm }: {
         aria-label={who.nome}
         // Always FULL: if this card is drawn at all you are paired.
         className={`${chipClass(true)} w-full min-w-0 text-left`}
-        title={[`${who.nome}${who.dettaglio ? ` \u00b7 ${who.dettaglio}` : ''}`, summary ?? '', ...waiting].filter(Boolean).join('\n')}
+        title={[`${who.nome}${who.dettaglio ? ` \u00b7 ${who.dettaglio}` : ''}`, summary ?? '', hot?.title ?? '', ...waiting].filter(Boolean).join('\n')}
       >
         {/* THE FACE, and only when there is a person: a disc holding the
             initial of "This computer" would be a fake avatar. */}
@@ -286,6 +290,11 @@ function UserCard({ identity, commands, alarm }: {
           data-testid="metrics-total"
           className="ml-auto flex flex-shrink-0 items-center gap-1 text-app-text-secondary tabular-nums"
         >
+          {hot && (
+            <span data-testid="identity-hot-quota" className={`flex h-5 items-center gap-[3px] rounded-xs bg-amber-500/15 px-1.5 font-semibold ${SEGNALE_ATTESA}`}>
+              <Gauge size={11} aria-hidden="true" />{hot.text}
+            </span>
+          )}
           {load?.totalMB != null && <span>{formatMemoryMB(load.totalMB, { partial: load.partial })}</span>}
           {load?.totalCpu != null && <span>{Math.round(load.totalCpu)}%</span>}
         </span>

@@ -100,6 +100,10 @@ export const loadMachineProcesses = retryingChunk('MachineProcessesPane', async 
   const { MachineProcessesPane } = await import('../../components/Processes/MachineProcessesPane');
   return { MachineProcessesPane };
 });
+export const loadAccountQuotas = retryingChunk('AccountQuotasPane', async () => {
+  const { AccountQuotasPane } = await import('../../components/Accounts/AccountQuotasPane');
+  return { AccountQuotasPane };
+});
 export const loadTopicTree = retryingChunk('TopicTree', async () => {
   const { TopicTree } = await import('../../components/Sidebar/TopicTree');
   return { TopicTree };
@@ -161,6 +165,7 @@ const LOADERS: Partial<Record<PaneType, Loader[]>> = {
   cron: [loadCronJobs],
   profile: [loadProfile],
   processes: [loadMachineProcesses],
+  accounts: [loadAccountQuotas],
   // A project window is a host: what it tiles inside is a file tree and the
   // editor next to it, so its chunk is theirs. The tiles it persisted are
   // added by `paneTypesToWarm`. `GitChanges` is NOT here on purpose: since the

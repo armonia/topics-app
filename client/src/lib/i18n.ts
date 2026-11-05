@@ -45,6 +45,24 @@ let enPending: Promise<void> | null = null;
 const catalogueListeners = new Set<() => void>();
 
 /**
+ * Strings a lazy view brings with its own chunk (`addCatalogue`), kept per
+ * language: English may land after them, and its catalogue must not drop them.
+ */
+const VIEW_DICTS: Partial<Record<Locale, Dict>> = {};
+
+/**
+ * A VIEW LOADED AS ITS OWN CHUNK BRINGS ITS STRINGS WITH IT. A hundred keys
+ * that only one pane reads would otherwise ride in the entry, paid by every
+ * window that never opens it. Called once, at the top of the view's module,
+ * so the strings are there before its first render.
+ */
+export function addCatalogue(locale: Locale, dict: Dict): void {
+  VIEW_DICTS[locale] = { ...VIEW_DICTS[locale], ...dict };
+  if (DICTS[locale]) DICTS[locale] = { ...DICTS[locale], ...dict };
+  catalogueListeners.forEach((cb) => cb());
+}
+
+/**
  * The languages whose catalogue asked to be loaded and did not arrive.
  *
  * It exists because the failure used to be a `console.warn` and nothing else:
@@ -104,7 +122,7 @@ export function ensureLocaleLoaded(locale: Locale): Promise<void> {
     enPending = (async () => {
       try {
         const { default: EN } = await import('./i18n-en');
-        DICTS.en = EN;
+        DICTS.en = { ...EN, ...VIEW_DICTS.en };
         failedLocalesSet.delete('en');
         failedSnapshot = [...failedLocalesSet].sort().join(',');
         catalogueListeners.forEach((cb) => cb());

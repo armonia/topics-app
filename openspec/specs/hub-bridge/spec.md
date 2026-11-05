@@ -131,3 +131,26 @@ The log section of «Processi» SHALL read the Claude proxy's log stream through
 - **WHEN** the view's tab is closed
 - **THEN** the proxy SHALL see the stream end
 
+
+### Requirement: HUBBR-10 — Accounts and quotas, with commands only on the proxy's accounts
+
+Where the hub is part of the installation, the menu with your name SHALL carry, under the plan, a row «Account e quote» whose tail says the hottest quota of a plan in use from 80% (amber) and otherwise how many plans the hub meters; the card with your name SHALL show the same hottest quota from 80% and nothing below it. The row and the palette SHALL open «Account e quote», a view that SHALL show: at the top the command that stops the new background work for some hours (and resumes it); the Claude accounts of the proxy, the one in use first, then by priority, the switched-off ones last, each with its five hours and week bars, its cap marker and its state (in uso, pronto, spento, tetto raggiunto, esaurito, token scaduto), with the proxy's commands: «Usa questo», priority up and down, the account's own caps, «Aggiorna token», on and off, «Togli l'account» after a confirmation; Codex and Muse with their bars read-only, no account command, and «Sblocca il freno per 2 ore» (or «Rimetti il freno» while unlocked); the reserve Anthropic API keys in the order the proxy uses them, with priority up and down and on and off; «Come funziona il freno», per class of work the providers in order and the current pick, and each provider's quota used against the week gone. With the hub silent the bars SHALL keep their last reading under a band that says since when. Without the hub the row, the palette entry and the card's quota SHALL not exist.
+
+#### Scenario: Commands only on Claude
+- **GIVEN** a hub with Claude accounts on the proxy, Codex and Muse metered
+- **WHEN** «Account e quote» opens
+- **THEN** each Claude card SHALL carry the proxy's commands, the Codex and Muse cards SHALL carry only «Sblocca il freno per 2 ore», and «Usa questo» SHALL reach the proxy as a switch to that account
+
+#### Scenario: No hub
+- **GIVEN** nobody answers on the hub's address
+- **WHEN** the menu with your name and the palette open
+- **THEN** neither SHALL offer «Account e quote», and the card SHALL show no quota
+
+### Requirement: HUBBR-11 — Rotation and caps write the proxy's settings and read them back
+
+The section «Rotazione e tetti» of «Account e quote» SHALL show the Claude proxy's settings (proxy on, automatic switch, rotation strategy with its interval or parallel requests where the strategy has one, the five hours and week caps of every account, the wait when all are stopped, requests in line, dollar to euro) and every change SHALL be written to the proxy and then read back from it: the value on screen is the one the proxy answers. The Notifications level of the user menu SHALL carry «Avvisi del proxy degli account», the proxy's own notifications setting, written and read back the same way, only where the hub is and the proxy answers.
+
+#### Scenario: A cap written and read back
+- **GIVEN** «Account e quote» open with the proxy's week cap off
+- **WHEN** the week cap of every account is set to 90%
+- **THEN** the proxy SHALL receive the cap, and the row SHALL show 90% as read again from the proxy

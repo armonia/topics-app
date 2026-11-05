@@ -17,6 +17,8 @@ import { Segmented } from '../Shared/Segmented';
 import { Switch } from '../Shared/Switch';
 import { LevelHeading, SwitchRow } from './PreferenceRow';
 import type { MenuPreferences } from './AppearanceLevel';
+import { useHubEverRead } from '../../state/hubLive';
+import { apiFetch } from '../../lib/shell/net';
 
 const NOTE = 'flex items-start gap-2 px-3 py-1 text-mini leading-snug';
 const ACTION = 'mt-1 rounded-md bg-primary px-2.5 py-1 text-mini font-medium text-white hover:opacity-90 disabled:opacity-50 coarse:min-h-11 coarse:px-3';
@@ -49,11 +51,56 @@ export function NotificationsLevelBody({ preferences }: { preferences: MenuPrefe
           testId="notif-focused"
         />
       </div>
+      <ProxyAlerts />
       <NativeBannerStatus />
       <FocusGateStatus />
       <PushLevels />
       <MutedProjects settings={settings} onChange={(v) => onSettingChange('mutedProjects', v)} />
     </>
+  );
+}
+
+/** The proxy's notifications setting, or null when the proxy does not answer with its settings. */
+async function readProxyAlerts(): Promise<boolean | null> {
+  try {
+    const r = await apiFetch('/api/switchboard/settings');
+    const body = r.ok ? await r.json() as { proxyEnabled?: unknown; notifications?: unknown } : null;
+    return body && typeof body.proxyEnabled === 'boolean' ? body.notifications !== false : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * THE ACCOUNTS PROXY'S OWN ALERTS (hub-smistamento): the Mac notifications the
+ * Claude proxy sends on an account switch, a limit or an error. They are a
+ * setting of the proxy, not of Topics: the switch writes it there and shows
+ * what it reads back. Only where the hub is, and only once the proxy answered.
+ */
+function ProxyAlerts() {
+  const tr = useT();
+  const present = useHubEverRead();
+  const [on, setOn] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!present) return;
+    let alive = true;
+    void readProxyAlerts().then((v) => { if (alive) setOn(v); });
+    return () => { alive = false; };
+  }, [present]);
+  if (!present || on === null) return null;
+  const change = async (v: boolean) => {
+    setBusy(true);
+    try {
+      await apiFetch('/api/switchboard/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ notifications: v }) });
+    } catch { /* the read below says what is true */ }
+    setOn(await readProxyAlerts());
+    setBusy(false);
+  };
+  return (
+    <div className="border-t border-app-border py-1">
+      <SwitchRow label={tr('accounts.notif')} hint={tr('accounts.notifHint')} checked={on} disabled={busy} onChange={(v) => void change(v)} testId="notif-proxy-alerts" />
+    </div>
   );
 }
 

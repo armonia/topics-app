@@ -18,7 +18,7 @@
  * L'unione è derivata dall'insieme, non viceversa, così aggiungerne un quarto
  * è una modifica sola.
  */
-export const UTILITY_PANEL_TYPES = ['dashboard', 'cron', 'board', 'profile', 'processes'] as const;
+export const UTILITY_PANEL_TYPES = ['dashboard', 'cron', 'board', 'profile', 'processes', 'accounts'] as const;
 
 export type UtilityPanelType = (typeof UTILITY_PANEL_TYPES)[number];
 

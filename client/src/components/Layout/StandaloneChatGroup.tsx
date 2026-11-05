@@ -12,7 +12,7 @@ import { ChatPanel } from './ChatPanel';
 import { TopicColorDot } from '../Shared/TopicColorDot';
 import { LazyPane } from './LazyPane';
 import { lazyWarm } from '../../lib/lazyWarm';
-import { loadBoard, loadBrowser, loadCronJobs, loadDashboard, loadMachineProcesses, loadProfile, loadTerminal } from '../../state/pane/panePreload';
+import { loadBoard, loadBrowser, loadCronJobs, loadAccountQuotas, loadDashboard, loadMachineProcesses, loadProfile, loadTerminal } from '../../state/pane/panePreload';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { DND_TYPES, STANDALONE_SCOPE, dragMatchesScope } from '../../lib/dndTypes';
 import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_RESERVE_LEFT, RAISED_CONTROL, ROW_ACTION_BOX, ROW_INSET, TAB_LABEL } from '../../lib/selectionStyles';
@@ -76,6 +76,7 @@ const KanbanBoardPane = lazyWarm(loadBoard, (m) => m.KanbanBoardPane);
 const CronJobsPanel = lazyWarm(loadCronJobs, (m) => m.CronJobsPanel);
 const ProfilePane = lazyWarm(loadProfile, (m) => m.ProfilePane);
 const MachineProcessesPane = lazyWarm(loadMachineProcesses, (m) => m.MachineProcessesPane);
+const AccountQuotasPane = lazyWarm(loadAccountQuotas, (m) => m.AccountQuotasPane);
 
 
 interface StandaloneChatGroupProps {
@@ -892,6 +893,7 @@ export function StandaloneChatGroup({
           )}
           {utilityType === 'profile' && <ProfilePane />}
           {utilityType === 'processes' && <MachineProcessesPane />}
+          {utilityType === 'accounts' && <AccountQuotasPane />}
         </LazyPane>
       );
     }
