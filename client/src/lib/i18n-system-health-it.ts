@@ -3,11 +3,7 @@ import type { Dict } from './i18n-types';
 const SYSTEM_HEALTH_IT: Dict = {
   'systemHealth.unavailable': 'Stato dei sottosistemi non disponibile.',
   'systemHealth.section': 'Sottosistemi',
-  'systemHealth.cronJobs': 'Cron Jobs',
   'systemHealth.openTabs': 'Tab aperti',
-  'systemHealth.confirmRestart': 'Sei sicuro?',
-  'systemHealth.restart': 'Riavvia',
-  'systemHealth.restarting': 'Riavvio…',
   'systemHealth.name.server': 'Server',
   'systemHealth.name.pty-bridge': 'Bridge PTY',
   'systemHealth.name.ai-bridge': 'AI bridge',

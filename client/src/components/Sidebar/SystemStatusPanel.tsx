@@ -1,31 +1,18 @@
+/**
+ * WHAT IS LEFT OF «THIS COMPUTER»: facts of this installation, not of the
+ * machine. Open tabs, archived chats, models with no price and the health of
+ * the bridges. The server and the gateway are services of the machine's
+ * Processes view now, the OpenClaw jobs live in Automations, and nothing here
+ * restarts anything: two views of the same machine, one with a restart button
+ * the other lacks, was the mess this panel used to be.
+ */
 import { useState, useEffect } from 'react';
-import { AlertTriangle, Clock, DollarSign, Layers, MessageSquare, RefreshCw, RotateCcw, Server, Wifi } from 'lucide-react';
+import { DollarSign, Layers, MessageSquare, RefreshCw } from 'lucide-react';
 import { useSystemStatus } from '../../hooks/useSystemStatus';
 import { useSystemHealth } from '../../hooks/useSystemHealth';
-import { useOpenClawAvailable } from '../../hooks/useOpenClawAvailable';
-import { openclawControlApi } from '../../lib/api';
-import { runGatewayRestart } from '../../lib/openclawRestart';
 import { usePaneStore } from '../../state/pane/store';
 import { startVisibleInterval } from '../../state/documentVisibility';
 import { useLocale, useT } from '../../hooks/useT';
-
-function formatUptime(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const remainMins = minutes % 60;
-  if (hours < 24) return `${hours}h ${remainMins}m`;
-  const days = Math.floor(hours / 24);
-  const remainHours = hours % 24;
-  return `${days}d ${remainHours}h`;
-}
-
-function formatLatency(ms: number): string {
-  if (ms < 1) return '<1ms';
-  return `${ms}ms`;
-}
 
 interface SystemStatusPanelProps {
   enabled?: boolean;
@@ -36,11 +23,6 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
   const locale = useLocale();
   const { status, loading, error, refresh } = useSystemStatus(enabled, 30000);
   const { health, error: healthError, refresh: refreshHealth } = useSystemHealth(enabled, 30000);
-  const openclawAvailable = useOpenClawAvailable();
-  const [restarting, setRestarting] = useState(false);
-  /** The reason for the last failed restart. `null` = nothing failed. */
-  const [erroreRiavvio, setErroreRiavvio] = useState<string | null>(null);
-  const [confirmingRestart, setConfirmingRestart] = useState(false);
   // Local spinner state for the manual refresh: useSystemStatus's `loading` only
   // flips on the initial fetch, not on a manual re-poll, so the icon never spun
   // on click. A 500ms floor makes the (fast) refresh visibly acknowledged.
@@ -66,8 +48,6 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
     return startVisibleInterval(() => setTick(t => t + 1), 1000);
   }, []);
 
-  const gatewayOnline = status?.gateway.online ?? false;
-
   // ALL open tabs (panes) right now — chat, terminal, browser, editor, file…
   // not just chat (the old "Tab aperti" counted chat-only and under-reported).
   const openTabs = usePaneStore(s => Object.keys(s.panes).length);
@@ -88,26 +68,6 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
 
       {status && (
         <div className="space-y-1">
-          {/* Gateway — OpenClaw only */}
-          {openclawAvailable && (
-            <StatusRow
-              icon={<Wifi size={12} />}
-              label="Gateway"
-              value={formatGatewayStatus(status.gateway.status)}
-              detail={gatewayOnline ? formatLatency(status.gateway.latencyMs) : undefined}
-              color={gatewayOnline ? 'green' : status.gateway.status === 'timeout' ? 'yellow' : 'red'}
-            />
-          )}
-
-          {/* Server */}
-          <StatusRow
-            icon={<Server size={12} />}
-            label="Server"
-            value={formatUptime(status.server.uptimeMs)}
-            detail="uptime"
-            color="green"
-          />
-
           {/* Memory lives in the PerfSection block above (full per-process
               breakdown + server RSS) — not repeated here. */}
 
@@ -123,17 +83,6 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
               value={`${status.server.unpricedModels!.length}`}
               detail={status.server.unpricedModels!.join(', ')}
               color="yellow"
-            />
-          )}
-
-          {/* Cron Jobs — OpenClaw only */}
-          {openclawAvailable && (
-            <StatusRow
-              icon={<Clock size={12} />}
-              label={tr('systemHealth.cronJobs')}
-              value={`${status.cronJobs.enabled}/${status.cronJobs.total}`}
-              detail="attivi"
-              color={status.cronJobs.total === 0 ? 'yellow' : 'green'}
             />
           )}
 
@@ -198,57 +147,7 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
               ? `aggiornato ${formatAgo(lastRefreshedAt)}`
               : 'Aggiorna'}
         </button>
-        {openclawAvailable && (
-          <button
-            onClick={async () => {
-              if (!confirmingRestart) {
-                setConfirmingRestart(true);
-                setTimeout(() => setConfirmingRestart(false), 3000);
-                return;
-              }
-              setConfirmingRestart(false);
-              // SAME DEFECT AS THE «Ricarica» OF A TERMINAL TAB, and the same  allow-italian: quoted UI string
-              // cure: the empty `catch {}` swallowed every refusal, and the
-              // button went back from «Riavvio…» to «Riavvia» as if it had gone  allow-italian: quoted UI string
-              // fine. Whoever is watching has no way to tell a restart that
-              // worked from one that never started — and the next move of the
-              // two is the opposite: wait, or go and see why.
-              //
-              // The attempt itself is `runGatewayRestart`, so the two states it
-              // has to leave behind (a refusal shown, a retry that clears the
-              // band) are covered by a test instead of by this handler's shape.
-              await runGatewayRestart({
-                restart: () => openclawControlApi.restart(),
-                setRestarting,
-                setError: setErroreRiavvio,
-                scheduleRefresh: () => setTimeout(refresh, 3000),
-              });
-            }}
-            disabled={restarting}
-            className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-mini rounded transition-colors whitespace-nowrap ${
-              confirmingRestart
-                ? 'text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20'
-                : 'text-amber-400 hover:text-amber-300 hover:bg-app-hover'
-            }`}
-          >
-            <RotateCcw size={12} className={restarting ? 'animate-spin' : ''} />
-            {restarting ? tr('systemHealth.restarting') : confirmingRestart ? tr('systemHealth.confirmRestart') : tr('systemHealth.restart')}
-          </button>
-        )}
       </div>
-      {/* A failed restart gets a ROW, not a silence. It lives here and not in a
-          toast because this panel lives in the column: the toast would cover
-          the column itself, and anyway the fact has to be read NEXT TO the
-          button that produced it. */}
-      {erroreRiavvio && (
-        <div
-          data-testid="system-restart-error"
-          className="mt-1.5 flex items-start gap-1.5 rounded bg-red-500/10 px-2 py-1 text-mini text-red-400"
-        >
-          <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-          <span className="min-w-0 break-words">{erroreRiavvio}</span>
-        </div>
-      )}
     </div>
   );
 }
@@ -258,11 +157,11 @@ interface StatusRowProps {
   label: string;
   value: string;
   detail?: string;
-  color: 'green' | 'yellow' | 'red';
+  color: 'green' | 'yellow';
 }
 
 function StatusRow({ icon, label, value, detail, color }: StatusRowProps) {
-  const dotColor = color === 'green' ? 'bg-emerald-500' : color === 'yellow' ? 'bg-amber-500' : 'bg-red-500';
+  const dotColor = color === 'green' ? 'bg-emerald-500' : 'bg-amber-500';
 
   return (
     // No hover highlight: these rows are read-only status, not clickable — a
@@ -288,15 +187,4 @@ function formatAgo(ms: number): string {
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m fa`;
   return `${Math.floor(minutes / 60)}h fa`;
-}
-
-function formatGatewayStatus(status: string): string {
-  switch (status) {
-    case 'online': return 'Online';
-    case 'timeout': return 'Timeout';
-    case 'connection_refused': return 'Refused';
-    case 'server_error': return 'Server Error';
-    case 'auth_error': return 'Auth Error';
-    default: return 'Offline';
-  }
 }

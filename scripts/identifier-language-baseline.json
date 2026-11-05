@@ -788,9 +788,6 @@
       "LARGHEZZA",
       "pannello"
     ],
-    "client/src/components/Sidebar/SystemStatusPanel.tsx": [
-      "formatUptime"
-    ],
     "client/src/components/Sidebar/TopicTree.tsx": [
       "colonna",
       "dentro",

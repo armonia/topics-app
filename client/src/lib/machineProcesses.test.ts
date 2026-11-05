@@ -1,14 +1,14 @@
 /**
  * The machine's Processes as pure reads of the hub: GPU and network per
  * process, a dash where the hub did not measure, CPU only where it did, and
- * «Ferma» only on a running Topics script. Inputs are the hub's own shapes,
+ * the Stop button only on a running Topics script. Inputs are the hub's own shapes,
  * trimmed, with placeholder names.
  * @covers HUBBR-08
  * @covers HUBBR-09
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  NOT_MEASURED, cpuByPid, formatMem, formatPct, formatRate, logTone, macGauges, parseLogEvent, pcView, processRows, pushLogLine, serviceRows,
+  NOT_MEASURED, cpuByPid, formatMem, formatPct, formatRate, historyOf, logTone, macGauges, parseLogEvent, pcView, processRows, pushLogLine, serviceRows,
 } from './machineProcesses';
 import type { ScriptProcessInfo } from './api';
 
@@ -28,8 +28,8 @@ const mac = {
   trees: [{ pid: 42, cpu: 0.09 }, { pid: 10, cpu: 0.02 }],
 };
 const machines = [
-  { id: 'local', local: true, state: 'tranquillo', metrics: [{ key: 'cpu', pct: 31 }, { key: 'gpu', pct: 38 }] },
-  { id: 'pc', local: false, state: 'lavora', caption: 'dorme dopo 20 min senza lavoro', lines: ['Collegato dal Mac'], metrics: [{ key: 'cpu', name: 'CPU', pct: 25, note: 'adesso' }], procs: [{ name: 'chrome-headless-shell', cores: 1.2 }], offload: 2 },
+  { id: 'local', local: true, state: 'tranquillo', metrics: [{ key: 'cpu', pct: 31, history: [{ t: 200, v: 50 }, { t: 100, v: 90 }] }, { key: 'gpu', pct: 38 }, { key: 'swap', pct: 15, history: [] }] },
+  { id: 'pc', local: false, state: 'lavora', caption: 'dorme dopo 20 min senza lavoro', lines: ['Collegato dal Mac'], metrics: [{ key: 'cpu', name: 'CPU', pct: 25, note: 'adesso', history: [{ t: 1, v: 10 }, { t: 2, v: 25 }] }], procs: [{ name: 'chrome-headless-shell', cores: 1.2 }], offload: 2 },
 ];
 const script = (over: Partial<ScriptProcessInfo>): ScriptProcessInfo => ({
   processId: 'p-1', scriptName: 'dev', command: 'vite', projectPath: '/work/acme-web', status: 'running', pid: 43, startedAt: '', ports: [5173], ...over,
@@ -57,7 +57,7 @@ describe('per process: GPU and network, a dash where not measured', () => {
   });
 });
 
-describe('«Ferma» only on a running Topics script', () => {
+describe('Stop button only on a running Topics script', () => {
   test('matched by pid, with project, script and port', () => {
     const rows = processRows(census, mac, [script({})]);
     expect(rows[1]!.script).toEqual({ processId: 'p-1', scriptName: 'dev', projectPath: '/work/acme-web', project: 'acme-web', port: 5173 });
@@ -83,8 +83,15 @@ describe('the Mac, the PC and the services', () => {
   test('gauges: memory in GB from /api/mac, CPU and GPU from the machine list, network from the census', () => {
     expect(macGauges(mac, machines, census)).toEqual({
       cores: 12, totalGB: 32, state: 'tranquillo', cpuPct: 31, memUsedGB: 26.8, swapUsedGB: 1.2, swapTotalGB: 8, gpuPct: 38, netInBps: 2_400_000, netOutBps: 57_000,
+      history: { cpu: [{ t: 100, v: 90 }, { t: 200, v: 50 }], mem: [], gpu: [] },
     });
     expect(macGauges(null, null, null).cpuPct).toBeNull();
+  });
+
+  test('the 24 h history: oldest first, malformed samples dropped, none where the hub keeps none', () => {
+    expect(historyOf([{ t: 3, v: 1 }, { t: 'x', v: 2 }, { t: 1, v: null }, null, { t: 2, v: 0 }])).toEqual([{ t: 2, v: 0 }, { t: 3, v: 1 }]);
+    expect(historyOf(undefined)).toEqual([]);
+    expect(pcView(machines)!.metrics[0]!.history).toEqual([{ t: 1, v: 10 }, { t: 2, v: 25 }]);
   });
 
   test('the PC with its state, sentences, heavy programs and the jobs from the Mac', () => {

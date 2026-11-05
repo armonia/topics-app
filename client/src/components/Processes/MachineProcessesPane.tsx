@@ -7,7 +7,7 @@
  * and the Claude proxy's log, live. It replaces «This computer» of the Topics
  * menu: the server and the gateway are services here.
  *
- * Read-only by design. The one command is «Ferma» on a project script Topics
+ * Read-only by design. The one command is the Stop button on a project script Topics
  * started (the same stop as the project's own Processes section); the hub
  * restarts nothing from here. A number the hub did not measure is a dash.
  *
@@ -29,14 +29,14 @@ import { scriptsApi } from '../../lib/api';
 import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import {
   NOT_MEASURED, PROXY_SERVICE_ID, censusAt, formatMem, formatPct, formatRate, macGauges, parseLogEvent, pcView,
-  processRows, pushLogLine, serviceRows, type LogLine, type MacGauges, type PcView, type ProcessRow, type ServiceRow, type UnitKind,
+  processRows, pushLogLine, serviceRows, type HistoryPoint, type LogLine, type MacGauges, type PcView, type ProcessRow, type ServiceRow, type UnitKind,
 } from '../../lib/machineProcesses';
 
 type Tr = ReturnType<typeof useT>;
 
 /** The census is recomputed at most every 30 s by the hub: reading faster buys nothing. */
 const POLL_MS = 15_000;
-/** Rows drawn before «Altri N processi». */
+/** Rows drawn before the "N more processes" line. */
 const TOP_ROWS = 8;
 
 const KIND_ICON: Record<UnitKind, LucideIcon> = {
@@ -65,22 +65,33 @@ async function readJson(path: string): Promise<unknown> {
   }
 }
 
-/** The three reads of the hub, again every POLL_MS while the page is visible. */
-function useHubReads(enabled: boolean): HubReads | null {
+/**
+ * The three reads of the hub, again every POLL_MS while the page is visible.
+ * `failing` is true when the last round got nothing at all: the view's own
+ * proof that the hub is gone, which does not wait on the socket (a window whose
+ * socket is reconnecting never gets the hub-down frame).
+ */
+function useHubReads(enabled: boolean): { reads: HubReads | null; failing: boolean; reread: () => Promise<void> } {
   const [reads, setReads] = useState<HubReads | null>(null);
+  const [failing, setFailing] = useState(false);
+  const [round, setRound] = useState<() => Promise<void>>(() => async () => {});
   useEffect(() => {
     if (!enabled) return;
     let alive = true;
     const read = async () => {
       const [census, mac, machines] = await Promise.all([readJson('/api/hub/mac/procs'), readJson('/api/hub/mac'), readJson('/api/hub/machines')]);
+      if (!alive) return;
+      const any = Boolean(census || mac || machines);
+      setFailing(!any);
       // A failed read keeps the last good one: the hub-down band says how old it is.
-      if (alive && (census || mac || machines)) setReads((prev) => ({ census: census ?? prev?.census, mac: mac ?? prev?.mac, machines: machines ?? prev?.machines }));
+      if (any) setReads((prev) => ({ census: census ?? prev?.census, mac: mac ?? prev?.mac, machines: machines ?? prev?.machines }));
     };
+    setRound(() => read);
     void read();
     const stop = startVisibleInterval(() => { void read(); }, POLL_MS);
     return () => { alive = false; stop(); };
   }, [enabled]);
-  return reads;
+  return { reads, failing, reread: round };
 }
 
 function useTick(ms: number): number {
@@ -94,14 +105,16 @@ export function MachineProcessesPane() {
   const present = useHubEverRead();
   const live = useHubLive();
   const answering = Object.values(live).some((e) => e?.data !== undefined);
-  const reads = useHubReads(present);
+  const { reads, failing, reread } = useHubReads(present);
   const { allScripts, refresh } = useScripts({ ports: true });
   const now = useTick(5_000);
 
   const rows = useMemo(() => processRows(reads?.census, reads?.mac, allScripts), [reads, allScripts]);
   const gauges = useMemo(() => macGauges(reads?.mac, reads?.machines, reads?.census), [reads]);
   const pc = useMemo(() => pcView(reads?.machines), [reads]);
-  const services = useMemo(() => serviceRows(live.services?.data), [live.services]);
+  // The socket can miss the hub-down frame while it reconnects: with the view's own
+  // reads failing, the last list it pushed is not shown as current.
+  const services = useMemo(() => (failing ? [] : serviceRows(live.services?.data)), [live.services, failing]);
   const at = censusAt(reads?.census);
 
   return (
@@ -111,12 +124,12 @@ export function MachineProcessesPane() {
           <h1 className="m-0 text-title font-semibold text-app-text-heading @max-3xl:hidden">{tr('processes.title')}</h1>
           <span className="flex-1 @max-3xl:hidden" />
           <span className={`flex items-center gap-1.5 text-mini tabular-nums ${FAINT} @max-3xl:text-compact`} data-testid="machine-processes-updated">
-            <span className={`h-[7px] w-[7px] flex-none rounded-full ${answering ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-amber-500'}`} />
+            <span className={`h-[7px] w-[7px] flex-none rounded-full ${answering && !failing ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-amber-500'}`} />
             {at === null ? tr('processes.reading') : `${tr('processes.now')} · ${updatedLabel(now - at, tr)}`}
           </span>
         </header>
 
-        {present && !answering && <HubDownBand />}
+        {present && (!answering || failing) && <HubDownBand onRetry={reread} />}
 
         {present && (
         <div className="grid items-start gap-3.5 @5xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
@@ -137,7 +150,7 @@ function updatedLabel(ageMs: number, tr: Tr): string {
   return s < 60 ? tr('processes.updatedS', { n: s }) : tr('processes.updatedMin', { n: Math.floor(s / 60) });
 }
 
-function HubDownBand() {
+function HubDownBand({ onRetry }: { onRetry: () => Promise<void> }) {
   const tr = useT();
   const [busy, setBusy] = useState(false);
   return (
@@ -148,7 +161,7 @@ function HubDownBand() {
         type="button"
         disabled={busy}
         className={STOP_BUTTON}
-        onClick={() => { setBusy(true); void refreshHubLive().finally(() => setBusy(false)); }}
+        onClick={() => { setBusy(true); void Promise.all([refreshHubLive(), onRetry()]).finally(() => setBusy(false)); }}
       >
         {tr('processes.retry')}
       </button>
@@ -158,16 +171,47 @@ function HubDownBand() {
 
 // ── Mac ──────────────────────────────────────────────────────────────────────
 
-function Gauge({ label, value, unit, share, warn = false }: { label: string; value: string; unit?: string; share: number | null; warn?: boolean }) {
+/**
+ * The last 24 h of one gauge as a line, scaled to 0..100 %: the shape of the
+ * day, not a second number.
+ */
+function Spark({ points, warn }: { points: HistoryPoint[]; warn: boolean }) {
+  const tr = useT();
+  const t0 = points[0].t;
+  const span = Math.max(1, points[points.length - 1].t - t0);
+  const W = 100;
+  const H = 18;
+  const xy = points.map((p) => `${((p.t - t0) / span * W).toFixed(1)},${(H - Math.max(0, Math.min(100, p.v)) / 100 * H).toFixed(1)}`);
+  const peak = Math.round(Math.max(...points.map((p) => p.v)));
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      preserveAspectRatio="none"
+      className={`mt-1.5 block h-[18px] w-full ${warn ? 'text-amber-500' : 'text-app-text-tertiary'}`}
+      role="img"
+      aria-label={tr('processes.history', { peak })}
+      data-testid="machine-gauge-history"
+    >
+      <title>{tr('processes.history', { peak })}</title>
+      <polygon points={`0,${H} ${xy.join(' ')} ${W},${H}`} fill="currentColor" opacity={0.12} />
+      <polyline points={xy.join(' ')} fill="none" stroke="currentColor" strokeWidth={1.2} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function Gauge({ label, value, unit, share, warn = false, history = [] }: { label: string; value: string; unit?: string; share: number | null; warn?: boolean; history?: HistoryPoint[] }) {
   return (
     <div className="min-w-0 border-r border-app-border-subtle px-2.5 pb-2.5 pt-[9px] last:border-r-0 @max-3xl:[&:nth-child(3)]:border-r-0 @max-3xl:[&:nth-child(n+4)]:border-t @max-3xl:[&:nth-child(5)]:col-span-2">
       <div className={`text-mini uppercase tracking-[0.04em] ${FAINT}`}>{label}</div>
       <div className="mt-0.5 whitespace-nowrap text-body-lg text-app-text @max-3xl:text-prose">
         {value}{unit && <span className={`text-mini ${FAINT}`}> {unit}</span>}
       </div>
-      <div className={`mt-1.5 h-[3px] overflow-hidden rounded-sm ${TRACK}`}>
-        {share !== null && <i className={`block h-full rounded-sm ${warn ? 'bg-amber-500' : 'bg-app-text-tertiary'}`} style={{ width: `${Math.round(Math.min(1, share) * 100)}%` }} />}
-      </div>
+      {/* With a day of samples the line replaces the bar (for memory the hub keeps the pressure, not the GB). */}
+      {history.length >= 2 ? <Spark points={history} warn={warn} /> : (
+        <div className={`mt-1.5 h-[3px] overflow-hidden rounded-sm ${TRACK}`}>
+          {share !== null && <i className={`block h-full rounded-sm ${warn ? 'bg-amber-500' : 'bg-app-text-tertiary'}`} style={{ width: `${Math.round(Math.min(1, share) * 100)}%` }} />}
+        </div>
+      )}
     </div>
   );
 }
@@ -188,10 +232,10 @@ function MacSection({ gauges: g, rows, onStopped }: { gauges: MacGauges; rows: P
         <span className={`min-w-0 flex-1 truncate text-mini tabular-nums ${FAINT} @max-3xl:text-compact`}>{summary}</span>
       </div>
       <div className="grid grid-cols-5 border-b border-app-border-subtle tabular-nums @max-3xl:grid-cols-3">
-        <Gauge label={tr('processes.cpu')} value={formatPct(g.cpuPct)} share={g.cpuPct === null ? null : g.cpuPct / 100} />
-        <Gauge label={tr('processes.memory')} value={g.memUsedGB === null ? NOT_MEASURED : g.memUsedGB.toFixed(1).replace('.', ',')} unit={g.totalGB ? `/ ${Math.round(g.totalGB)} GB` : undefined} share={memShare} warn={memShare !== null && memShare >= 0.8} />
+        <Gauge label={tr('processes.cpu')} value={formatPct(g.cpuPct)} share={g.cpuPct === null ? null : g.cpuPct / 100} history={g.history.cpu} />
+        <Gauge label={tr('processes.memory')} value={g.memUsedGB === null ? NOT_MEASURED : g.memUsedGB.toFixed(1).replace('.', ',')} unit={g.totalGB ? `/ ${Math.round(g.totalGB)} GB` : undefined} share={memShare} warn={memShare !== null && memShare >= 0.8} history={g.history.mem} />
         <Gauge label={tr('processes.swap')} value={g.swapUsedGB === null ? NOT_MEASURED : g.swapUsedGB.toFixed(1).replace('.', ',')} unit="GB" share={g.swapUsedGB !== null && g.swapTotalGB ? g.swapUsedGB / g.swapTotalGB : null} />
-        <Gauge label={tr('processes.gpu')} value={formatPct(g.gpuPct)} share={g.gpuPct === null ? null : g.gpuPct / 100} />
+        <Gauge label={tr('processes.gpu')} value={formatPct(g.gpuPct)} share={g.gpuPct === null ? null : g.gpuPct / 100} history={g.history.gpu} />
         <Gauge label={tr('processes.net')} value={g.netInBps === null ? NOT_MEASURED : `↓${formatRate(g.netInBps)}`} unit={g.netOutBps === null ? undefined : `↑${formatRate(g.netOutBps)}`} share={null} />
       </div>
       <div className={`${ROW_GRID} h-7 border-b border-app-border-subtle px-2.5 text-mini uppercase tracking-[0.04em] ${FAINT} hidden @3xl:grid`}>
@@ -234,7 +278,7 @@ function ProcessRowView({ row: r, onStopped }: { row: ProcessRow; onStopped: () 
   const Icon = KIND_ICON[r.kind];
   const [stopping, setStopping] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  const memColour = r.memWarn ? WARNING_TEXT : '';
+  const memTone = r.memWarn ? WARNING_TEXT : '';
   const stop = useCallback(async () => {
     if (!r.script) return;
     setStopping(true);
@@ -279,7 +323,7 @@ function ProcessRowView({ row: r, onStopped }: { row: ProcessRow; onStopped: () 
       <span className={`hidden text-right text-compact tabular-nums @3xl:block ${r.cpuPct === null ? FAINT : ''}`} data-testid="machine-process-cpu" title={r.cpuPct === null ? tr('processes.notMeasured') : undefined}>{formatPct(r.cpuPct)}</span>
       <span className="hidden items-center justify-end gap-1.5 text-compact tabular-nums @3xl:flex">
         <span className={`h-1 max-w-[52px] flex-1 overflow-hidden rounded-sm ${TRACK}`}><i className={`block h-full ${r.memWarn ? 'bg-amber-500' : 'bg-app-text-tertiary'}`} style={{ width: `${Math.round(r.memShare * 100)}%` }} /></span>
-        <span className={memColour}>{formatMem(r.memMB)}</span>
+        <span className={memTone}>{formatMem(r.memMB)}</span>
       </span>
       <span className={`hidden text-right text-compact tabular-nums @3xl:block ${r.gpuPct === null ? FAINT : ''}`} data-testid="machine-process-gpu">{formatPct(r.gpuPct)}</span>
       <span className="hidden justify-end tabular-nums @3xl:flex" data-testid="machine-process-net"><Net inBps={r.netInBps} outBps={r.netOutBps} /></span>
@@ -292,7 +336,7 @@ function ProcessRowView({ row: r, onStopped }: { row: ProcessRow; onStopped: () 
       </span>
       <div className="col-span-2 flex flex-wrap gap-x-2.5 gap-y-1 whitespace-nowrap pl-[30px] text-compact tabular-nums text-app-text-secondary @3xl:hidden">
         {metric(tr('processes.cpu'), formatPct(r.cpuPct))}
-        {metric(tr('processes.memory'), formatMem(r.memMB), memColour)}
+        {metric(tr('processes.memory'), formatMem(r.memMB), memTone)}
         {metric(tr('processes.gpu'), formatPct(r.gpuPct))}
         {metric(tr('processes.net'), r.netInBps === null || r.netOutBps === null ? NOT_MEASURED : `↓${formatRate(r.netInBps)} ↑${formatRate(r.netOutBps)}`)}
       </div>
@@ -318,7 +362,7 @@ function PcSection({ pc }: { pc: PcView }) {
       </div>
       {pc.metrics.length > 0 && (
         <div className="grid grid-cols-4 border-b border-app-border-subtle tabular-nums">
-          {pc.metrics.slice(0, 4).map((m) => <Gauge key={m.key} label={m.name} value={formatPct(m.pct)} share={m.pct === null ? null : m.pct / 100} warn={m.pct !== null && m.pct >= 85} />)}
+          {pc.metrics.slice(0, 4).map((m) => <Gauge key={m.key} label={m.name} value={formatPct(m.pct)} share={m.pct === null ? null : m.pct / 100} warn={m.pct !== null && m.pct >= 85} history={m.history} />)}
         </div>
       )}
       {[...pc.lines, ...pc.heavy.map((h) => tr('processes.pc.heavy', { name: h.name, cores: String(h.cores).replace('.', ',') }))].map((line, i) => (
@@ -345,6 +389,9 @@ function ServicesAndLog({ services }: { services: ServiceRow[] }) {
   const stopped = shown.filter((s) => s.state === 'fermo').length; // allow-italian: the hub's wire value
   const live = shown.filter((s) => s.state === 'vivo').length; // allow-italian: the hub's wire value
   const hasProxy = services.some((s) => s.id === PROXY_SERVICE_ID);
+  // No list is not "all up": with the hub down the services are unknown, and
+  // the view says so instead of a green dot.
+  const unread = services.length === 0;
   return (
     <>
       <section aria-label={tr('processes.services')} className={SECTION} data-testid="machine-processes-services">
@@ -352,7 +399,7 @@ function ServicesAndLog({ services }: { services: ServiceRow[] }) {
           <Server size={14} className="flex-none text-app-text-secondary" aria-hidden="true" />
           <span className="text-compact font-semibold text-app-text-heading">{tr('processes.services')}</span>
           <span className={`min-w-0 flex-1 truncate text-mini tabular-nums ${FAINT} @max-3xl:text-compact`}>
-            {tr('processes.services.live', { n: live })}
+            {!unread && tr('processes.services.live', { n: live })}
             {stopped > 0 && <> · <span className={DANGER_TEXT}>{tr('processes.services.stopped', { n: stopped })}</span></>}
           </span>
         </div>
@@ -360,8 +407,10 @@ function ServicesAndLog({ services }: { services: ServiceRow[] }) {
           <ServiceRowView key={s.id} s={s} log={s.id === PROXY_SERVICE_ID ? { open: logOpen, toggle: () => setLogOpen((v) => !v) } : null} />
         ))}
         <div className={`flex items-center gap-1.5 px-2.5 py-2 text-mini ${FAINT} @max-3xl:text-compact`}>
+          {unread ? tr('processes.services.unread') : <>
           {stopped === 0 && <span className="h-[7px] w-[7px] flex-none rounded-full bg-emerald-500 dark:bg-emerald-400" />}
           {[stopped === 0 ? tr('processes.services.allOk') : null, off > 0 ? tr('processes.services.off', { n: off }) : null].filter(Boolean).join(' · ')}
+          </>}
         </div>
       </section>
       {hasProxy && <LogSection open={logOpen} />}

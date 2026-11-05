@@ -3,16 +3,19 @@
  *
  * Sistema in the Topics menu opens «Processi»: the Mac with GPU and network
  * per process (a dash where the hub did not measure), the PC, the services and
- * the Claude proxy's log, live. The only «Ferma» is on a project script Topics
+ * the Claude proxy's log, live. The only Stop button is on a project script Topics
  * started: here a real script of a scratch project, whose pid the fake census
  * puts in the dev server's unit, so the stop is the real one. Closing the
- * view's tab closes the proxy's stream (the fake counts it).
+ * view's tab closes the proxy's stream (the fake counts it). The gauges carry
+ * the hub's 24 h history as a line; with the hub gone the view keeps its last
+ * numbers under the hub-down band. The phone test runs first, while the script
+ * is still running, so the 390 px shot shows its Stop row.
  *
  * The hub is a fake (helpers/fake-hub.ts) on the port the test server reads;
  * the real :3360 and :3335 are never touched, and the names are placeholders.
  *
  * Mutation: with `scriptForUnit` (lib/machineProcesses.ts) answering null, «only the script stops» is
- * red (no row carries «Ferma»); with the EventSource left open on unmount,
+ * red (no row carries a Stop button); with the EventSource left open on unmount,
  * «closed with the view» is red (the fake never sees the stream end).
  *
  * Video on: the recording is the proof. The screenshots of the built surface go
@@ -85,7 +88,42 @@ test.describe("the machine's processes", () => {
     await waitForHubDown(request);
   });
 
-  test("Sistema opens Processi: GPU and network per process, a dash where not measured, «Ferma» only on the script; the log closes with the view", async ({ page }, testInfo) => {
+  test("phone, 390 px: one column, the figures under each name, nothing wider than the screen", async ({ browser }, testInfo) => {
+    const ctx = await browser.newContext({
+      baseURL: E2E_BASE, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, colorScheme: "dark", locale: "it-IT",
+      recordVideo: { dir: testInfo.outputPath("phone-video"), size: { width: 390, height: 844 } },
+    });
+    const page = await ctx.newPage();
+    try {
+      await page.goto("/");
+      await expect(page.getByTestId("mobile-chrome-bar")).toBeVisible({ timeout: 30_000 });
+      await expect.poll(() => page.evaluate(() => {
+        window.dispatchEvent(new CustomEvent("topics:open-utility", { detail: { type: "processes" } }));
+        return document.querySelector('[data-testid="machine-processes"]') !== null;
+      }), { timeout: 20_000 }).toBe(true);
+      const pane = page.getByTestId(PANE);
+      await expect(pane.getByTestId("machine-process-row")).toHaveCount(8, { timeout: 20_000 });
+      await expect(pane.getByTestId("machine-process-row").first()).toContainText("GPU");
+      // The script's row at 390 px: its Stop button and the project › script link, in view for the shot.
+      const dev = pane.getByTestId("machine-process-row").filter({ has: page.getByTestId("machine-process-stop") });
+      await expect(dev).toHaveCount(1, { timeout: 20_000 });
+      await expect(dev.getByTestId("machine-process-script")).toContainText("acme-web › dev");
+      await dev.scrollIntoViewIfNeeded();
+      const box = await dev.getByTestId("machine-process-stop").boundingBox();
+      expect(box && box.x + box.width).toBeLessThanOrEqual(390);
+      const widths = await page.evaluate(() => ({
+        doc: document.documentElement.scrollWidth,
+        pane: document.querySelector<HTMLElement>('[data-testid="machine-processes"]')!.scrollWidth,
+      }));
+      expect(widths.doc).toBeLessThanOrEqual(390);
+      expect(widths.pane).toBeLessThanOrEqual(390);
+      await page.screenshot({ path: testInfo.outputPath("vero-processi-macchina-telefono.png") });
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test("Sistema opens Processi: GPU and network per process, a dash where not measured, Stop button only on the script; the log closes with the view", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1440, height: 1100 });
     await page.emulateMedia({ colorScheme: "dark" });
     await goToApp(page);
@@ -104,7 +142,14 @@ test.describe("the machine's processes", () => {
     await expect(rows.filter({ hasText: "Container locali" }).getByTestId("machine-process-cpu")).toHaveText("-");
     await expect(pane.getByTestId("machine-processes-more")).toContainText("Altri 6 processi");
 
-    // One «Ferma», on the project script, with the project and the script.
+    // The day behind the gauges: a 24 h line on the Mac's CPU, memory and GPU
+    // (none on swap and network, which the hub keeps no history of) and on the
+    // PC's four, with the peak in words.
+    await expect(pane.getByTestId("machine-processes-mac").getByTestId("machine-gauge-history")).toHaveCount(3);
+    await expect(pane.getByTestId("machine-processes-pc").getByTestId("machine-gauge-history")).toHaveCount(4);
+    await expect(pane.getByTestId("machine-processes-mac").getByTestId("machine-gauge-history").first()).toHaveAttribute("aria-label", /Ultime 24 ore, picco \d+%/);
+
+    // One Stop button, on the project script, with the project and the script.
     await expect(pane.getByTestId("machine-process-stop")).toHaveCount(1, { timeout: 20_000 });
     const dev = rows.filter({ has: page.getByTestId("machine-process-stop") });
     await expect(dev.getByTestId("machine-process-script")).toContainText("acme-web › dev");
@@ -120,7 +165,7 @@ test.describe("the machine's processes", () => {
     await page.screenshot({ path: testInfo.outputPath("vero-processi-macchina-chiaro.png") });
     await page.emulateMedia({ colorScheme: "dark" });
 
-    // «Solo errori» keeps the 429 and drops the 200s.
+    // The errors-only filter keeps the 429 and drops the 200s.
     await pane.getByTestId("machine-log-errors").click();
     await expect(log.locator("[data-tone]")).toHaveCount(1);
     await expect(log).toContainText("429");
@@ -134,7 +179,7 @@ test.describe("the machine's processes", () => {
     await pane.getByTestId("machine-service-log-toggle").click();
     await expect.poll(() => hub!.streams.opened, { timeout: 10_000 }).toBeGreaterThan(opened);
 
-    // «Ferma» stops the real script: the row loses it.
+    // The Stop button stops the real script: the row loses it.
     await dev.getByTestId("machine-process-stop").click();
     await expect(pane.getByTestId("machine-process-stop")).toHaveCount(0, { timeout: 20_000 });
     const stopped = await page.request.get(`${E2E_BASE}/api/scripts`);
@@ -153,39 +198,45 @@ test.describe("the machine's processes", () => {
   test("the palette has a «Processi» entry that opens the same view", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await goToApp(page);
-    await page.keyboard.press("ControlOrMeta+k");
+    // The entry exists only once this window has read the hub (HUBBR-04): a
+    // palette opened before the first snapshot lands has none, so reopen it
+    // until the snapshot is in, instead of racing it.
     const search = page.getByPlaceholder(/Cerca topic/);
-    await expect(search).toBeVisible({ timeout: 10_000 });
-    await search.fill("Processi");
+    await expect(async () => {
+      if (await search.isVisible()) await page.keyboard.press("Escape");
+      await page.keyboard.press("ControlOrMeta+k");
+      await expect(search).toBeVisible({ timeout: 5_000 });
+      await search.fill("Processi");
+      await expect(page.getByTestId("palette-processes")).toBeVisible({ timeout: 3_000 });
+    }).toPass({ timeout: 30_000 });
     await page.getByTestId("palette-processes").click();
     await expect(page.getByTestId(PANE)).toBeVisible({ timeout: 20_000 });
   });
 
-  test("phone, 390 px: one column, the figures under each name, nothing wider than the screen", async ({ browser }, testInfo) => {
-    const ctx = await browser.newContext({
-      baseURL: E2E_BASE, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, colorScheme: "dark", locale: "it-IT",
-      recordVideo: { dir: testInfo.outputPath("phone-video"), size: { width: 390, height: 844 } },
-    });
-    const page = await ctx.newPage();
-    try {
-      await page.goto("/");
-      await expect(page.getByTestId("mobile-chrome-bar")).toBeVisible({ timeout: 30_000 });
-      await expect.poll(() => page.evaluate(() => {
-        window.dispatchEvent(new CustomEvent("topics:open-utility", { detail: { type: "processes" } }));
-        return document.querySelector('[data-testid="machine-processes"]') !== null;
-      }), { timeout: 20_000 }).toBe(true);
-      const pane = page.getByTestId(PANE);
-      await expect(pane.getByTestId("machine-process-row")).toHaveCount(8, { timeout: 20_000 });
-      await expect(pane.getByTestId("machine-process-row").first()).toContainText("GPU");
-      const widths = await page.evaluate(() => ({
-        doc: document.documentElement.scrollWidth,
-        pane: document.querySelector<HTMLElement>('[data-testid="machine-processes"]')!.scrollWidth,
-      }));
-      expect(widths.doc).toBeLessThanOrEqual(390);
-      expect(widths.pane).toBeLessThanOrEqual(390);
-      await page.screenshot({ path: testInfo.outputPath("vero-processi-macchina-telefono.png") });
-    } finally {
-      await ctx.close();
-    }
+
+  test("hub down while the view is open: the band says so, the last numbers stay, Retry is there", async ({ page, request }, testInfo) => {
+    await page.setViewportSize({ width: 1440, height: 1100 });
+    await goToApp(page);
+    await openFromMenu(page);
+    const pane = page.getByTestId(PANE);
+    await expect(pane.getByTestId("machine-process-row")).toHaveCount(8, { timeout: 20_000 });
+    await expect(pane.getByTestId("machine-processes-hub-down")).toHaveCount(0);
+
+    // The band comes from the hub-down frame or from the view's own failed
+    // reads, whichever lands first: a socket that is reconnecting misses the frame.
+    await hub!.close();
+    await waitForHubDown(request);
+    const band = pane.getByTestId("machine-processes-hub-down");
+    await expect(band).toBeVisible({ timeout: 35_000 });
+    await expect(band).toContainText("Hub non raggiungibile");
+    await expect(band.getByRole("button", { name: "Riprova" })).toBeVisible();
+    // The services are unknown, not "all up".
+    await expect(pane.getByTestId("machine-processes-services")).toContainText("Stato non letto");
+    await expect(pane.getByTestId("machine-processes-services")).not.toContainText("Tutto acceso");
+    // The census read before the drop is still drawn: stale, and said to be.
+    await expect(pane.getByTestId("machine-process-row")).toHaveCount(8);
+    await expect(pane.getByTestId("machine-processes-mac").getByTestId("machine-gauge-history")).toHaveCount(3);
+    await page.screenshot({ path: testInfo.outputPath("vero-processi-macchina-hub-fermo.png") });
+    hub = null;
   });
 });

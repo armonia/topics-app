@@ -359,8 +359,10 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
           <Suspense fallback={null}>
             <KeptSites />
           </Suspense>
-          {/* What was «This computer» and is about this installation, not the
-              machine: open tabs, archived, the health of the bridges. */}
+          {/* What is left of «This computer»: facts of this installation, not
+              of the machine (open tabs, archived, the health of the bridges).
+              No gateway, no server, no cron count and no restart: those are
+              the machine's Processes and Automations. */}
           <Suspense fallback={null}>
             <SystemStatusPanel enabled />
           </Suspense>

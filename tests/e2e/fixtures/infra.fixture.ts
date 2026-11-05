@@ -107,8 +107,7 @@ export class InfraPage {
     // that door (the user card on the desktop, the title on the phone) is the
     // helper's business: this fixture only knows the row it wants.
     await openMachinePanel(this.page);
-    // The panel's own handle: «Gateway» is a row only OpenClaw shows, and a test that keeps the
-    // real status (STATUS-04) has no OpenClaw.
+    // The panel's own handle: its rows change with the status, the testid does not.
     await this.page.getByTestId("system-status-panel").waitFor({ state: "visible", timeout: 10_000 });
   }
 
@@ -181,26 +180,14 @@ export class InfraPage {
   }
 
   async mockSystemStatus(status = MOCK_SYSTEM_STATUS) {
-    // SystemStatusPanel gates its Gateway, Cron Jobs and Restart rows behind
-    // openclawAvailable (they're OpenClaw-only). A meaningful "system status"
-    // is the OpenClaw-connected state, so enable it here — otherwise the panel
-    // renders only Server/Tab aperti/Archiviati and the gated rows never mount.
+    // OpenClaw on: the panel used to grow Gateway, Cron Jobs and Restart rows
+    // with it, and the tests prove they are gone even in that state.
     await mockOpenClawAvailable(this.page);
     await this.page.route("**/api/system/status", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify(status),
-      });
-    });
-  }
-
-  async mockOpenclawRestart() {
-    await this.page.route("**/api/openclaw/restart", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ ok: true }),
       });
     });
   }

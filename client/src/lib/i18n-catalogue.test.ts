@@ -69,8 +69,8 @@ describe('system health copy follows the selected language', () => {
       ...reasons.map((reason) => `systemHealth.reason.${reason}`),
       ...actions.map((reason) => `systemHealth.action.${reason}`),
       'systemHealth.unavailable', 'systemHealth.section', 'systemHealth.actionLabel',
-      'systemHealth.lastErrorLabel', 'systemHealth.lastError', 'systemHealth.cronJobs',
-      'systemHealth.openTabs', 'systemHealth.confirmRestart', 'systemHealth.restart', 'systemHealth.restarting',
+      'systemHealth.lastErrorLabel', 'systemHealth.lastError',
+      'systemHealth.openTabs',
     ];
     for (const key of keys) {
       expect(IT[key], `${key} missing from Italian`).toBeTruthy();

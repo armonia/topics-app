@@ -235,18 +235,10 @@ test.describe("System Status Panel", () => {
     // status-bar + version block — a bare getByText hits 2 elements (strict-mode).
     const statusPanel = page.getByTestId("system-status-panel");
 
-    // Gateway row (OpenClaw-gated — mockSystemStatus enables it) → Online, 42ms.
-    await expect(statusPanel.getByText("Gateway")).toBeVisible();
-    await expect(statusPanel.getByText("Online")).toBeVisible();
-
-    // Server uptime row (120000ms = 2m). "Server" is also the PerfSection RSS
-    // label in this dropdown, so identify the row by its unique "uptime" detail.
-    await expect(statusPanel.getByText("uptime")).toBeVisible();
-    await expect(statusPanel.getByText("2m", { exact: true })).toBeVisible();
-
-    // Cron Jobs row (OpenClaw-gated), enabled/total = 2/3
-    await expect(statusPanel.getByText("Cron Jobs")).toBeVisible();
-    await expect(statusPanel.getByText("2/3")).toBeVisible();
+    // No Gateway, no server uptime, no Cron Jobs, even with OpenClaw on: the
+    // gateway and the server are services of the machine's Processes view, the
+    // jobs live in Automations. This panel keeps the facts of this window.
+    await expect(statusPanel.getByText(/Gateway|uptime|Cron Jobs/)).toHaveCount(0);
 
     // Archiviati row: totalCount(12) − activeCount(5) = 7, detail "12 totali".
     // (The old Memory / "256 MB" row was moved into the PerfSection block above
@@ -280,30 +272,17 @@ test.describe("System Status Panel", () => {
     await expect(statusPanel.getByText("12 totali")).toBeVisible();
   });
 
-  test("STATUS-03: Restart button requires double-click confirmation", async ({
+  test("STATUS-03: Nothing restarts from the panel, even with OpenClaw on", async ({
     page,
     infraPage,
   }) => {
     test.info().annotations.push({ type: "spec", description: "SYSTEM-01" });
     await infraPage.mockSystemStatus();
-    await infraPage.mockOpenclawRestart();
     await page.goto("/");
     await infraPage.openSystemStatusPanel();
 
-    // Initial state: "Riavvia" button
-    const restartBtn = page.getByText("Riavvia").first();
-    await expect(restartBtn).toBeVisible();
-
-    // First click shows confirmation
-    await restartBtn.click();
-    await expect(page.getByText("Sei sicuro?")).toBeVisible();
-
-    // Second click triggers restart
-    await page.getByText("Sei sicuro?").click();
-
-    // Should show "Riavvio..." or return to "Riavvia"
-    await expect(
-      page.getByText("Riavvio").or(page.getByText("Riavvia"))
-    ).toBeVisible();
+    const statusPanel = page.getByTestId("system-status-panel");
+    await expect(statusPanel.getByText("Archiviati")).toBeVisible();
+    await expect(statusPanel.getByRole("button", { name: /Riavvia/ })).toHaveCount(0);
   });
 });

@@ -143,13 +143,22 @@ function machineCensus(now: number, devPids: number[]): Record<string, unknown> 
   return { at: now - 2_000, units, summary: { processes: 640, units: units.length, memMB: 11_900, gpuNetWindowS: 3, netInBps: 2_411_724, netOutBps: 178_176 } };
 }
 
+/** A day of samples, one every 15 min, as the hub's `history` ({t: unix s, v: %}); swap has none, like the real hub. */
+function day(base: number, swing: number, last: number): Array<{ t: number; v: number }> {
+  const end = Math.floor(Date.now() / 1000);
+  return Array.from({ length: 96 }, (_, i) => ({
+    t: end - (95 - i) * 900,
+    v: i === 95 ? last : Math.max(0, Math.min(100, Math.round(base + swing * Math.sin(i / 7)))),
+  }));
+}
+
 function machineList(): unknown[] {
   return [
     { id: "local", name: "Mac", local: true, state: "pressione normale", level: 0, caption: "12 core · ultime 24 h",
-      metrics: [{ key: "cpu", name: "CPU", pct: 31 }, { key: "mem", name: "Memoria", pct: 62 }, { key: "swap", name: "Swap", pct: 15 }, { key: "gpu", name: "GPU", pct: 38 }, { key: "disk", name: "Disco", pct: 70 }] },
+      metrics: [{ key: "cpu", name: "CPU", pct: 31, history: day(45, 30, 31) }, { key: "mem", name: "Memoria", pct: 62, history: day(60, 10, 62) }, { key: "swap", name: "Swap", pct: 15, history: [] }, { key: "gpu", name: "GPU", pct: 38, history: day(30, 25, 38) }, { key: "disk", name: "Disco", pct: 70, history: day(70, 1, 70) }] },
     { id: "pc", name: "PC", local: false, state: "lavora", level: 0, caption: "dorme dopo 20 min senza lavoro",
       lines: ["Collegato dal Mac", "Suite e2e di acme-web, mandata dal Mac carico"],
-      metrics: [{ key: "cpu", name: "CPU", pct: 25, note: "adesso" }, { key: "mem", name: "Memoria", pct: 67, note: "adesso" }, { key: "gpu", name: "GPU", pct: 4, note: "adesso" }, { key: "disk", name: "Disco", pct: 92, note: "78,0 GB liberi" }],
+      metrics: [{ key: "cpu", name: "CPU", pct: 25, note: "adesso", history: day(30, 25, 25), window: 86400 }, { key: "mem", name: "Memoria", pct: 67, note: "adesso", history: day(60, 12, 67), window: 86400 }, { key: "gpu", name: "GPU", pct: 4, note: "adesso", history: day(10, 10, 4), window: 86400 }, { key: "disk", name: "Disco", pct: 92, note: "78,0 GB liberi", history: day(92, 0, 92), window: 86400 }],
       procs: [{ name: "chrome-headless-shell", cores: 1.2 }], offload: 2 },
   ];
 }

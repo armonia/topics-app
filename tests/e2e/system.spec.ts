@@ -26,12 +26,13 @@ test.describe("System & Infrastructure", () => {
   });
 
   test("WebSocket connects and shows status", async ({ page }) => {
-    // WHERE THE CONNECTION STATE LIVES NOW. It used to be a word — «Online» —
-    // on a strip at the foot of the column, printed all day to say that
-    // nothing was wrong. The strip is gone (SIDEBAR-STATUS-01) and the state
-    // reads in two places instead: the dot on the user card, always in the
-    // DOM, which declares an alarm only when there is one, and the system
-    // panel, one gesture in, which names the gateway in words.
+    // WHERE THE CONNECTION STATE LIVES NOW. It used to be a word, «Online», on
+    // a strip at the foot of the column, printed all day to say that nothing
+    // was wrong. The strip is gone (SIDEBAR-STATUS-01): the dot on the user
+    // card is always in the DOM and declares an alarm only when there is one.
+    // The gateway and the server are services of the machine's Processes view
+    // (with the hub); the panel under Performance keeps only the facts of this
+    // installation, and restarts nothing, even with OpenClaw present.
     await mockOpenClawAvailable(page);
     await goToApp(page);
 
@@ -41,10 +42,8 @@ test.describe("System & Infrastructure", () => {
     await openMachinePanel(page);
     const panel = page.getByTestId("system-status-panel");
     await expect(panel).toBeVisible({ timeout: 15000 });
-    // Accept "Online", "Connecting", or "Offline" — the gateway may not be
-    // available on the test server, and which one it is is not the point.
-    await expect(panel.getByText(/Online|Connecting|Offline/).first())
-      .toBeVisible({ timeout: 15000 });
+    await expect(panel.getByText("Archiviati")).toBeVisible({ timeout: 15000 });
+    await expect(panel.getByText(/Gateway|Riavvia|Cron Jobs/)).toHaveCount(0);
   });
 
   test("status bar shows system info", async ({ page }) => {

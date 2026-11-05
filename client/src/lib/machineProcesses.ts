@@ -13,18 +13,18 @@
  *
  * Nothing here fetches. A number the hub did not measure stays null and is
  * drawn as a dash, never as 0: 0 is "measured and idle". The only command the
- * view carries is «Ferma» on a project script Topics started and can stop
+ * view carries is the Stop button on a project script Topics started and can stop
  * itself (`scriptForUnit`); the hub is read-only from here.
  */
 import type { ScriptProcessInfo } from './api';
 
 // ── Small readers ────────────────────────────────────────────────────────────
 
-type Obj = Record<string, unknown>;
-const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
+type JsonRecord = Record<string, unknown>;
+const isRecord = (v: unknown): v is JsonRecord => typeof v === 'object' && v !== null && !Array.isArray(v);
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v : null);
-const list = (v: unknown): Obj[] => (Array.isArray(v) ? v.filter(isObj) : []);
+const list = (v: unknown): JsonRecord[] => (Array.isArray(v) ? v.filter(isRecord) : []);
 
 /** «2,9 GB» from 1000 MB up, «980 MB» under it. Italian decimal comma. */
 export function formatMem(mb: number): string {
@@ -52,7 +52,7 @@ export function formatPct(v: number | null): string {
 export type UnitKind = 'app' | 'servizio' | 'sessione' | 'lavoro' | 'devserver' | 'mcp' | 'macos' | 'altro' | 'resto'; // allow-italian: the census's wire values, compared by value
 const KINDS: readonly UnitKind[] = ['app', 'servizio', 'sessione', 'lavoro', 'devserver', 'mcp', 'macos', 'altro', 'resto']; // allow-italian: the census's wire values
 
-/** A project script Topics started and can stop: the only «Ferma» of the view. */
+/** A project script Topics started and can stop: the only Stop button of the view. */
 interface UnitScript {
   processId: string;
   scriptName: string;
@@ -65,7 +65,7 @@ export interface ProcessRow {
   id: string;
   name: string;
   kind: UnitKind;
-  /** The hub's own words on how it is used («usata 3,4 h in 14 giorni»), or who owns it. */
+  /** The hub's own words on how it is used (hours of use over 14 days), or who owns it. */
   detail: string;
   memMB: number;
   /** Share of the heaviest row, for the bar. */
@@ -93,7 +93,7 @@ const baseName = (p: string): string => p.replace(/[\\/]+$/, '').split(/[\\/]/).
  */
 export function cpuByPid(mac: unknown): Map<number, number> {
   const out = new Map<number, number>();
-  if (!isObj(mac)) return out;
+  if (!isRecord(mac)) return out;
   for (const r of [...list(mac.hogs), ...list(mac.trees)]) {
     const pid = num(r.pid), cpu = num(r.cpu);
     if (pid === null || cpu === null) continue;
@@ -103,7 +103,7 @@ export function cpuByPid(mac: unknown): Map<number, number> {
 }
 
 /** The running Topics script behind a unit: same process id, else one of its pids. */
-function scriptForUnit(unit: Obj, scripts: readonly ScriptProcessInfo[]): UnitScript | null {
+function scriptForUnit(unit: JsonRecord, scripts: readonly ScriptProcessInfo[]): UnitScript | null {
   const pids = Array.isArray(unit.pids) ? unit.pids.filter((p): p is number => typeof p === 'number') : [];
   const pid = str(unit.processId);
   const s = scripts.find((x) => x.status === 'running' && ((pid !== null && x.processId === pid) || (x.pid !== null && pids.includes(x.pid))));
@@ -112,7 +112,7 @@ function scriptForUnit(unit: Obj, scripts: readonly ScriptProcessInfo[]): UnitSc
 }
 
 export function processRows(census: unknown, mac: unknown, scripts: readonly ScriptProcessInfo[]): ProcessRow[] {
-  const units = isObj(census) ? list(census.units) : [];
+  const units = isRecord(census) ? list(census.units) : [];
   const cpu = cpuByPid(mac);
   const top = Math.max(1, ...units.map((u) => num(u.memMB) ?? 0));
   return units.map((u, i) => {
@@ -120,8 +120,8 @@ export function processRows(census: unknown, mac: unknown, scripts: readonly Scr
     const pids = Array.isArray(u.pids) ? u.pids.filter((p): p is number => typeof p === 'number') : [];
     const measured = pids.filter((p) => cpu.has(p));
     const memMB = num(u.memMB) ?? 0;
-    const use = isObj(u.use) ? str(u.use.text) : null;
-    const owner = isObj(u.owner) ? str(u.owner.label) : null;
+    const use = isRecord(u.use) ? str(u.use.text) : null;
+    const owner = isRecord(u.owner) ? str(u.owner.label) : null;
     return {
       id: str(u.id) ?? String(i),
       name: str(u.name) ?? '',
@@ -141,7 +141,7 @@ export function processRows(census: unknown, mac: unknown, scripts: readonly Scr
 
 /** When the census was taken (ms), or null. */
 export function censusAt(census: unknown): number | null {
-  return isObj(census) ? num(census.at) : null;
+  return isRecord(census) ? num(census.at) : null;
 }
 
 // ── The Mac's gauges ────────────────────────────────────────────────────────
@@ -149,7 +149,7 @@ export function censusAt(census: unknown): number | null {
 export interface MacGauges {
   cores: number | null;
   totalGB: number | null;
-  /** The hub's word for the machine («sotto sforzo», «tranquillo»). */
+  /** The hub's word for the machine (strained, calm). */
   state: string | null;
   cpuPct: number | null;
   memUsedGB: number | null;
@@ -158,24 +158,45 @@ export interface MacGauges {
   gpuPct: number | null;
   netInBps: number | null;
   netOutBps: number | null;
+  /** The machine's last 24 h, per gauge, as the hub keeps it; empty where it keeps none (swap, network). */
+  history: { cpu: HistoryPoint[]; mem: HistoryPoint[]; gpu: HistoryPoint[] };
 }
 
-function metric(machine: Obj | undefined, key: string): number | null {
+/** One sample of a machine's history: unix seconds and a percentage. */
+export interface HistoryPoint {
+  t: number;
+  v: number;
+}
+
+/** The samples of a metric's `history`, the malformed ones dropped, oldest first. */
+export function historyOf(raw: unknown): HistoryPoint[] {
+  return list(raw)
+    .map((p) => ({ t: num(p.t), v: num(p.v) }))
+    .filter((p): p is HistoryPoint => p.t !== null && p.v !== null)
+    .sort((a, b) => a.t - b.t);
+}
+
+function metricHistory(machine: JsonRecord | undefined, key: string): HistoryPoint[] {
+  const m = machine ? list(machine.metrics).find((x) => x.key === key) : undefined;
+  return m ? historyOf(m.history) : [];
+}
+
+function metric(machine: JsonRecord | undefined, key: string): number | null {
   const m = machine ? list(machine.metrics).find((x) => x.key === key) : undefined;
   return m ? num(m.pct) : null;
 }
 
 /** This Mac and the PC, picked from `/api/machines`. */
-function machinesOf(data: unknown): { local?: Obj; pc?: Obj } {
+function machinesOf(data: unknown): { local?: JsonRecord; pc?: JsonRecord } {
   const all = list(data);
   return { local: all.find((m) => m.local === true), pc: all.find((m) => m.local !== true) };
 }
 
 export function macGauges(mac: unknown, machines: unknown, census: unknown): MacGauges {
-  const m = isObj(mac) ? mac : {};
-  const mem = isObj(m.mem) ? m.mem : {};
+  const m = isRecord(mac) ? mac : {};
+  const mem = isRecord(m.mem) ? m.mem : {};
   const { local } = machinesOf(machines);
-  const summary = isObj(census) && isObj(census.summary) ? census.summary : {};
+  const summary = isRecord(census) && isRecord(census.summary) ? census.summary : {};
   return {
     cores: num(m.cores),
     totalGB: num(mem.totalGB),
@@ -187,6 +208,7 @@ export function macGauges(mac: unknown, machines: unknown, census: unknown): Mac
     gpuPct: metric(local, 'gpu'),
     netInBps: num(summary.netInBps),
     netOutBps: num(summary.netOutBps),
+    history: { cpu: metricHistory(local, 'cpu'), mem: metricHistory(local, 'mem'), gpu: metricHistory(local, 'gpu') },
   };
 }
 
@@ -196,11 +218,11 @@ type PcState = 'dorme' | 'acceso' | 'lavora' | 'unknown'; // allow-italian: the 
 
 export interface PcView {
   state: PcState;
-  /** The hub's sentences on why («Collegato dal Mac», the heaviest program). */
+  /** The hub's sentences on why (linked from the Mac, the heaviest program). */
   lines: string[];
-  /** «dorme dopo 20 min senza lavoro». */
+  /** The idle rule, e.g. sleeps after 20 minutes without work. */
   caption: string | null;
-  metrics: Array<{ key: string; name: string; pct: number | null; note: string | null }>;
+  metrics: Array<{ key: string; name: string; pct: number | null; note: string | null; history: HistoryPoint[] }>;
   heavy: Array<{ name: string; cores: number }>;
   /** Jobs the Mac sent it. */
   offload: number;
@@ -215,7 +237,7 @@ export function pcView(machines: unknown): PcView | null {
     state,
     lines: Array.isArray(pc.lines) ? pc.lines.filter((l): l is string => typeof l === 'string') : [],
     caption: str(pc.caption),
-    metrics: list(pc.metrics).map((x) => ({ key: str(x.key) ?? '', name: str(x.name) ?? '', pct: num(x.pct), note: str(x.note) })),
+    metrics: list(pc.metrics).map((x) => ({ key: str(x.key) ?? '', name: str(x.name) ?? '', pct: num(x.pct), note: str(x.note), history: historyOf(x.history) })),
     heavy: list(pc.procs).map((p) => ({ name: str(p.name) ?? '', cores: num(p.cores) ?? 0 })).filter((p) => p.name),
     offload: num(pc.offload) ?? 0,
   };
@@ -245,7 +267,7 @@ const STATE_ORDER: Record<ServiceState, number> = { fermo: 0, vivo: 1, 'in attes
  * the view counts them instead of listing them.
  */
 export function serviceRows(data: unknown): ServiceRow[] {
-  const raw = isObj(data) ? list(data.services) : [];
+  const raw = isRecord(data) ? list(data.services) : [];
   const rows = raw.map((s, i): ServiceRow => {
     const st = str(s.state);
     const state: ServiceState = st === 'vivo' || st === 'in attesa' || st === 'fermo' || st === 'spento' ? st : 'fermo'; // allow-italian: the hub's wire values
@@ -270,7 +292,7 @@ export interface LogLine {
 export function parseLogEvent(raw: string): LogLine | null {
   let v: unknown;
   try { v = JSON.parse(raw); } catch { return null; }
-  if (!isObj(v)) return null;
+  if (!isRecord(v)) return null;
   const msg = str(v.msg);
   if (!msg) return null;
   const tag = str(v.tag) ?? '';
