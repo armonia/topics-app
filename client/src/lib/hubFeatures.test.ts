@@ -7,7 +7,7 @@
  * @covers HUBBR-18
  */
 import { describe, expect, test } from 'bun:test';
-import { featuresView, systemName, visibleAreas } from './hubFeatures';
+import { featuresView, localizeFeatures, systemName, visibleAreas } from './hubFeatures';
 
 const MAP = {
   meta: { updated: '2026-11-03' },
@@ -65,7 +65,7 @@ describe('featuresView', () => {
 
   test('news keep only http links and real dates', () => {
     const [good, bad] = v.areas[0]!.leaves[0]!.news;
-    expect(good).toEqual({ title: 'render headings', url: 'https://example.com/c/1', at: Date.parse('2026-11-03T07:23:23Z'), source: 'example/alpha' });
+    expect(good).toEqual({ title: 'render headings', url: 'https://example.com/c/1', at: Date.parse('2026-11-03T07:23:23Z'), source: 'alpha' });
     expect(bad!.url).toBeNull();
     expect(bad!.at).toBeNull();
   });
@@ -87,6 +87,27 @@ describe('visibleAreas', () => {
     expect(visibleAreas(v, 'all', 'BAILEYS').flatMap((a) => a.leaves.map((l) => l.id))).toEqual(['ch.wa']);
     expect(visibleAreas(v, 'all', 'recall').flatMap((a) => a.leaves.map((l) => l.id))).toEqual(['m.v']);
     expect(visibleAreas(v, 'all', '').flatMap((a) => a.leaves)).toHaveLength(3);
+  });
+});
+
+describe('localizeFeatures', () => {
+  const v = featuresView(MAP)!;
+  const words = { 'a:channels': ['Canali e messaggi'], 'g:ch.chat': ['Piattaforme di chat'], 'ch.wa': ['WhatsApp', 'Ponte WhatsApp nativo'] } as const;
+  test('areas, groups and features take the Italian; an unknown id keeps the hub English', () => {
+    const it = localizeFeatures(v, words);
+    expect(it.areas[0]!.name).toBe('Canali e messaggi');
+    expect(it.areas[0]!.leaves[0]).toMatchObject({ name: 'WhatsApp', desc: 'Ponte WhatsApp nativo', group: 'Piattaforme di chat' });
+    expect(it.areas[0]!.leaves[1]).toMatchObject({ name: 'Signal', group: 'Piattaforme di chat' });
+    expect(it.areas[1]!.name).toBe('Memory');
+    expect(it.areas[1]!.leaves[0]!.name).toBe('Vector recall');
+  });
+  test('the search still finds a feature by its English words', () => {
+    const it = localizeFeatures(v, words);
+    expect(visibleAreas(it, 'all', 'native whatsapp bridge').flatMap((a) => a.leaves.map((l) => l.id))).toEqual(['ch.wa']);
+    expect(visibleAreas(it, 'all', 'ponte').flatMap((a) => a.leaves.map((l) => l.id))).toEqual(['ch.wa']);
+  });
+  test('no word list, the same view', () => {
+    expect(localizeFeatures(v, null)).toBe(v);
   });
 });
 

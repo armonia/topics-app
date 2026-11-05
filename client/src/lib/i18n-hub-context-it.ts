@@ -12,7 +12,7 @@ import type { Dict } from './i18n-types';
 const HUB_CONTEXT_IT: Dict = {
   'hubContext.open': 'Contesto degli agenti',
   'hubContext.tail': '{n} tok di base',
-  'hubContext.featuresTail': '{n} indietro',
+  'hubContext.featuresTail': 'Jarvis indietro su {n}',
   'hubContext.back': 'Sistema',
   'hubContext.close': 'Chiudi',
   'hubContext.reading': 'lettura in corso',

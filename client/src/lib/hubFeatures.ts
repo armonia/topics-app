@@ -36,7 +36,7 @@ export interface FeatureNews {
   title: string;
   url: string | null;
   at: number | null;
-  /** Where the watcher saw it (a repository or a changelog). */
+  /** Who it comes from: a system's name, or the repository's own name. */
   source: string;
 }
 
@@ -44,8 +44,9 @@ export interface FeatureLeaf {
   id: string;
   name: string;
   desc: string;
-  /** The group inside its area («Chat platforms»). */
+  /** The group inside its area («Chat platforms») and its id. */
   group: string;
+  groupId: string;
   ours: LeafStatus;
   /** How many of the others have it fully, out of how many. */
   have: number;
@@ -82,6 +83,12 @@ export interface FeaturesView {
 export function systemName(raw: unknown, id: string): string {
   const s = str(raw) ?? id;
   return s.replace(/\s*\([^)]*\)\s*$/, '') || s;
+}
+
+/** «openclaw» → «OpenClaw», «HKUDS/nanobot» → «nanobot»: who the news is from, readable. */
+function sourceName(raw: string | null, names: Map<string, string>): string {
+  if (!raw) return '';
+  return names.get(raw) ?? raw.split('/').pop() ?? raw;
 }
 
 function safeUrl(v: unknown): string | null {
@@ -129,6 +136,7 @@ export function featuresView(data: unknown): FeaturesView | null {
     for (const g of list(a.children)) {
       if (!isObject(g)) continue;
       const group = str(g.name) ?? '';
+      const groupId = str(g.id) ?? '';
       for (const l of list(g.children)) {
         if (!isObject(l)) continue;
         const leafId = str(l.id);
@@ -141,6 +149,7 @@ export function featuresView(data: unknown): FeaturesView | null {
           name: leafName,
           desc: str(l.desc) ?? '',
           group,
+          groupId,
           ours: statusOf(l.ours ?? status[OURS]),
           have: num(l.have) ?? others.filter((k) => status[k] === 'yes').length,
           of: num(l.of) ?? others.length,
@@ -152,7 +161,7 @@ export function featuresView(data: unknown): FeaturesView | null {
             const title = str(n.title);
             if (!title) return [];
             const at = str(n.date) ? Date.parse(String(n.date)) : NaN;
-            return [{ title, url: safeUrl(n.url), at: Number.isFinite(at) ? at : null, source: str(n.system) ?? '' }];
+            return [{ title, url: safeUrl(n.url), at: Number.isFinite(at) ? at : null, source: sourceName(str(n.system), names) }];
           }),
           keywords: list(l.keywords).map(str).filter((s): s is string => s !== null),
         });
@@ -172,6 +181,36 @@ export function featuresView(data: unknown): FeaturesView | null {
     ours: systems.find((s) => s.id === OURS) ?? null,
     areas,
   };
+}
+
+/** The words of the map in another language, keyed as `i18n-features-names-it.ts` is. */
+export type FeatureWordsMap = Record<string, readonly [name: string, desc?: string]>;
+
+/**
+ * The map in the reader's language. The hub writes it in English; a word list
+ * keyed by the hub's ids swaps area, group and feature names and descriptions.
+ * An id it does not know keeps the hub's English. The English words move to
+ * the keywords, so a search in either language still finds the feature.
+ */
+export function localizeFeatures(view: FeaturesView, words: FeatureWordsMap | null): FeaturesView {
+  if (!words) return view;
+  const areas = view.areas.map((a) => ({
+    ...a,
+    name: words[`a:${a.id}`]?.[0] ?? a.name,
+    leaves: a.leaves.map((l) => {
+      const own = words[l.id];
+      const group = words[`g:${l.groupId}`]?.[0] ?? l.group;
+      if (!own && group === l.group) return l;
+      return {
+        ...l,
+        name: own?.[0] ?? l.name,
+        desc: own ? (own[1] ?? '') : l.desc,
+        group,
+        keywords: [...l.keywords, l.name, l.desc, l.group].filter((k) => k !== ''),
+      };
+    }),
+  }));
+  return { ...view, areas };
 }
 
 export type FeatureFilter = 'behind' | 'all';

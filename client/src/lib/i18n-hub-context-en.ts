@@ -11,7 +11,7 @@ import type { Dict } from './i18n-types';
 const HUB_CONTEXT_EN: Dict = {
   'hubContext.open': "Agents' context",
   'hubContext.tail': '{n} tok at start',
-  'hubContext.featuresTail': '{n} behind',
+  'hubContext.featuresTail': 'Jarvis behind on {n}',
   'hubContext.back': 'System',
   'hubContext.close': 'Close',
   'hubContext.reading': 'reading',

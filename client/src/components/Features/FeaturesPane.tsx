@@ -18,7 +18,8 @@ import { useLocale, useT } from '../../hooks/useT';
 import { addCatalogue } from '../../lib/i18n';
 import FEATURES_IT from '../../lib/i18n-features-it';
 import FEATURES_EN from '../../lib/i18n-features-en';
-import { featuresView, visibleAreas, OURS, type FeatureFilter, type FeatureLeaf, type FeaturesView, type LeafStatus } from '../../lib/hubFeatures';
+import FEATURE_NAMES_IT from '../../lib/i18n-features-names-it';
+import { featuresView, localizeFeatures, visibleAreas, OURS, type FeatureFilter, type FeatureLeaf, type FeaturesView, type LeafStatus } from '../../lib/hubFeatures';
 import { HUB_FEATURES_DOC, useHubDoc } from '../../state/hubDocs';
 import { useHubEverRead } from '../../state/hubLive';
 
@@ -62,7 +63,11 @@ export function FeaturesPane() {
   const fmt = useFormats(locale);
   const hubPresent = useHubEverRead();
   const doc = useHubDoc(HUB_FEATURES_DOC, hubPresent, MAX_AGE_MS);
-  const view = useMemo(() => featuresView(doc.data), [doc.data]);
+  const view = useMemo(() => {
+    const raw = featuresView(doc.data);
+    // The hub writes the map in English: the Italian words come with this chunk.
+    return raw && locale === 'it' ? localizeFeatures(raw, FEATURE_NAMES_IT) : raw;
+  }, [doc.data, locale]);
   const [filter, setFilter] = useState<FeatureFilter>('behind');
   const [query, setQuery] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
@@ -220,15 +225,19 @@ function Leaf({ leaf, tr, fmt, open, onToggle }: { leaf: FeatureLeaf; tr: Tr; fm
           {leaf.partly.length > 0 && <p className="m-0 mt-0.5"><span className="text-app-text-muted">{tr('feat.partly')}: </span><span className="text-app-text-body">{leaf.partly.join(', ')}</span></p>}
           {leaf.news.length > 0 && (
             <div className="mt-2">
-              <div className="mb-0.5 font-semibold uppercase tracking-wide text-app-text-tertiary">{tr('feat.newsTitle')}</div>
+              <div className="mb-0.5 flex items-baseline gap-2">
+                <span className="font-semibold uppercase tracking-wide text-app-text-tertiary">{tr('feat.newsTitle')}</span>
+                <span data-testid="features-news-hint" className="text-app-text-muted">{tr('feat.newsHint')}</span>
+              </div>
               {leaf.news.slice(0, NEWS_SHOWN).map((n, i) => (
                 <div key={i} data-testid="features-news" className="flex min-w-0 items-baseline gap-2 py-0.5">
                   <span className="w-12 flex-none tabular-nums text-app-text-muted">{n.at !== null ? fmt.day(n.at) : ''}</span>
+                  {n.source && <span data-testid="features-news-source" className="max-w-[96px] flex-none truncate text-app-text-secondary">{n.source}</span>}
                   {n.url ? (
-                    <a href={n.url} target="_blank" rel="noopener noreferrer" className="inline-flex min-w-0 items-center gap-1 text-primary hover:underline">
+                    <a href={n.url} target="_blank" rel="noopener noreferrer" lang="en" className="inline-flex min-w-0 items-center gap-1 text-primary hover:underline">
                       <span className="truncate">{n.title}</span><ExternalLink size={11} className="flex-none" aria-hidden="true" />
                     </a>
-                  ) : <span className="truncate text-app-text-body">{n.title}</span>}
+                  ) : <span lang="en" className="truncate text-app-text-body">{n.title}</span>}
                 </div>
               ))}
             </div>

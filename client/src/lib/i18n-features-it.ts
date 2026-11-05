@@ -37,6 +37,7 @@ const FEATURES_IT: Dict = {
   'feat.partly': 'In parte',
   'feat.nobody': 'nessuno',
   'feat.newsTitle': 'Novità',
+  'feat.newsHint': 'dai changelog, nella lingua originale',
   'feat.empty': 'Nessuna voce con questo filtro.',
   'feat.ourStatus': 'Jarvis',
 };

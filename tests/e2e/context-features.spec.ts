@@ -96,7 +96,7 @@ test.describe("agents' context and feature map", () => {
     expect(order.filter((id) => ["menu-system-agents", "menu-system-context", "menu-system-processes", "menu-system-features"].includes(id ?? "")))
       .toEqual(["menu-system-agents", "menu-system-context", "menu-system-processes", "menu-system-features"]);
     await expect(status.getByTestId("menu-system-context-tail")).toHaveText("15 k tok di base", { timeout: 20_000 });
-    await expect(status.getByTestId("menu-system-features-tail")).toHaveText("47 indietro", { timeout: 20_000 });
+    await expect(status.getByTestId("menu-system-features-tail")).toHaveText("Jarvis indietro su 47", { timeout: 20_000 });
     await page.mouse.move(0, 0);
     await page.screenshot({ path: testInfo.outputPath("vero-contesto-funzionalita-menu-scuro.png") });
 
@@ -146,6 +146,14 @@ test.describe("agents' context and feature map", () => {
     // A file the hub does not list is named by whose it is, not by a bare file name.
     await expect(found).toContainText("Regole di OpenClaw studio-x");
     await expect(found).not.toContainText("AGENTS.md");
+    // A long rule is one line until tapped, then reads whole: no tooltip needed.
+    const rule = found.getByTestId("context-rule-text").first();
+    await expect(rule).toHaveAttribute("aria-expanded", "false");
+    const closed = (await rule.boundingBox())!.height;
+    await rule.click();
+    await expect(rule).toHaveAttribute("aria-expanded", "true");
+    expect((await rule.boundingBox())!.height).toBeGreaterThan(closed * 1.5);
+    await expect(rule).toContainText("salvo i termini di dominio.");
     await expect(level.getByTestId("context-check-running")).toHaveCount(0);
     await expect(level.getByTestId("context-check-ask")).toHaveText("Controlla di nuovo");
     expect(checks(hub!)).toBe(1);
@@ -179,6 +187,15 @@ test.describe("agents' context and feature map", () => {
     const first = pane.getByTestId("features-leaf").first();
     await first.getByRole("button").click();
     await expect(first.getByTestId("features-leaf-detail")).toContainText("Ce l'hanno:");
+    // The hub writes the map in English: the view reads it in Italian.
+    await expect(first).toContainText("Ponte WhatsApp nativo, chat private e gruppi");
+    await expect(pane.locator('[data-area="channels"] h2')).toContainText("Canali e messaggi");
+    await expect(pane.locator('[data-area="channels"]')).toContainText("Piattaforme di chat");
+    await expect(pane).not.toContainText("Channels and messaging");
+    await expect(pane).not.toContainText("Native WhatsApp bridge");
+    // News are the upstream changelogs quoted as written, with who wrote them.
+    await expect(first.getByTestId("features-news-hint")).toHaveText("dai changelog, nella lingua originale");
+    await expect(first.getByTestId("features-news-source").first()).toHaveText("OpenClaw");
     // Open, and still not in the sidebar: the tab bar holds it.
     await expect(page.getByTestId("pane-tab-__features__")).toHaveCount(1);
     await expect(sidebar).not.toContainText("Funzionalità");
@@ -193,6 +210,9 @@ test.describe("agents' context and feature map", () => {
     await pane.getByTestId("features-filter-all").click();
     await expect(pane.getByTestId("features-leaf")).toHaveCount(172);
     await pane.getByTestId("features-search").fill("whatsapp");
+    await expect(pane.getByTestId("features-leaf")).toHaveCount(1);
+    // The English words still find it.
+    await pane.getByTestId("features-search").fill("bridge");
     await expect(pane.getByTestId("features-leaf")).toHaveCount(1);
 
     // The palette brings back the same single view.
@@ -231,6 +251,15 @@ test.describe("agents' context and feature map", () => {
       }));
       expect(widths.doc).toBeLessThanOrEqual(390);
       expect(widths.level).toBeLessThanOrEqual(390);
+      // The two rules of a contradiction read whole on a tap, inside the screen.
+      const rules = level.getByTestId("context-contradiction").first().getByTestId("context-rule-text");
+      await rules.nth(0).tap();
+      await rules.nth(1).tap();
+      await expect(rules.nth(0)).toHaveAttribute("aria-expanded", "true");
+      await expect(rules.nth(0)).toContainText("salvo i termini di dominio.");
+      await expect(rules.nth(1)).toContainText("fails on any Italian comment in a new file.");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+      await rules.nth(0).scrollIntoViewIfNeeded();
       await page.screenshot({ path: testInfo.outputPath("vero-contesto-funzionalita-telefono.png") });
       await level.getByTestId("context-back").tap();
       await expect(level).toHaveCount(0);

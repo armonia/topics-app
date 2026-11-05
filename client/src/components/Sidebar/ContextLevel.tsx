@@ -15,7 +15,7 @@
  * On the phone the level is the one sheet in sight, with its own way back to
  * System and its own close.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, CloudOff, FileText, Layers, Loader2, Scale, Sparkles, X } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
 import { useMobile } from '../../hooks/useMobile';
@@ -249,8 +249,8 @@ function Contradictions({ view, tr, pad, isMobile, when, running, asking, starti
         <div key={i} data-testid="context-contradiction" className="mb-1.5 rounded border border-amber-500/30 bg-amber-500/[0.06] px-2.5 py-2">
           <div className={`text-app-text ${isMobile ? 'text-body' : 'text-compact'}`}>{c.why}</div>
           <div className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-mini">
-            <span className="text-app-text-muted">{c.a.where}</span><span className="truncate text-app-text-secondary" title={c.a.text}>{c.a.text}</span>
-            <span className="text-app-text-muted">{c.b.where}</span><span className="truncate text-app-text-secondary" title={c.b.text}>{c.b.text}</span>
+            <span className="text-app-text-muted">{c.a.where}</span><RuleText text={c.a.text} className="text-app-text-secondary" />
+            <span className="text-app-text-muted">{c.b.where}</span><RuleText text={c.b.text} className="text-app-text-secondary" />
           </div>
         </div>
       ))}
@@ -377,7 +377,7 @@ function Duplicates({ view, tr, pad }: { view: ContextView; tr: Tr; pad: string 
       {view.duplicates.length === 0 && <p className="m-0 py-1 text-mini text-app-text-secondary">{tr('hubContext.duplicates.none')}</p>}
       {shown.map((d, i) => (
         <div key={i} data-testid="context-duplicate" className="py-1">
-          <span className="block truncate text-compact text-app-text" title={d.text}>{d.text}</span>
+          <RuleText text={d.text} className="text-compact text-app-text" />
           <span className="block truncate text-mini text-app-text-secondary">{d.where.join(' · ')}</span>
         </div>
       ))}
@@ -395,12 +395,46 @@ function OldRules({ view, tr, pad }: { view: ContextView; tr: Tr; pad: string })
       <div className={SECTION}>{tr('hubContext.oldRules')}<span className="font-normal tabular-nums">{view.oldRules.length}</span><span className={SECTION_HINT}>{tr('hubContext.oldRules.hint')}</span></div>
       {shown.map((r, i) => (
         <div key={i} data-testid="context-old-rule" className="py-1">
-          <span className="block truncate text-compact text-app-text" title={r.text}>{r.text}</span>
+          <RuleText text={r.text} className="text-compact text-app-text" />
           <span className="block truncate text-mini text-app-text-secondary">{tr('hubContext.oldRules.meta', { where: r.where, days: r.days })}</span>
         </div>
       ))}
       <More count={view.oldRules.length - shown.length} all={all} total={view.oldRules.length} tr={tr} onToggle={() => setAll((v) => !v)} />
     </div>
+  );
+}
+
+/**
+ * A rule's text: one line while closed, the whole of it on a tap. The rules
+ * are what Attilio judges here, and a tooltip does not exist on the phone. The
+ * chevron shows only when the line is actually cut.
+ */
+function RuleText({ text, className }: { text: string; className: string }) {
+  const [open, setOpen] = useState(false);
+  const [cut, setCut] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || open) return;
+    const measure = () => setCut(el.scrollWidth > el.clientWidth + 1);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [open, text]);
+  const canOpen = cut || open;
+  return (
+    <button
+      type="button"
+      data-testid="context-rule-text"
+      aria-expanded={canOpen ? open : undefined}
+      disabled={!canOpen}
+      onClick={() => setOpen((v) => !v)}
+      className={`flex w-full min-w-0 items-start gap-1 text-left disabled:cursor-default ${canOpen ? 'cursor-pointer' : ''} ${className}`}
+    >
+      <span ref={ref} className={`min-w-0 flex-1 ${open ? 'whitespace-pre-line break-words' : 'truncate'}`}>{text}</span>
+      {canOpen && <ChevronDown size={12} className={`mt-0.5 flex-none text-app-text-muted ${open ? 'rotate-180' : ''}`} aria-hidden="true" />}
+    </button>
   );
 }
 
