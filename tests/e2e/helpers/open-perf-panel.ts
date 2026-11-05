@@ -117,26 +117,16 @@ export async function openColumnViewMenu(page: Page): Promise<void> {
 }
 
 /**
- * ONE LEVEL FURTHER IN: the machine itself.
+ * WHAT WAS «THIS COMPUTER»: the status rows of this installation (open tabs,
+ * archived, the health list, the gateway) under Performance.
  *
- * The row that opens the work now answers two questions at two zooms — WHO is
- * running (the agent lines, plus the counts in its tail) and what the MACHINE
- * is doing (gateway, memory, the restart) — and the second went down a level of
- * its own rather than making the first one taller than the screen. So a spec
- * that reads a status row, the word «Gateway» or the restart button needs two
- * gestures, not one, and this is where that knowledge lives instead of in each
- * of them.
- *
- * `openPerfPanel` stops at the first level on purpose: the agents and the
- * per-section weights are there, and that is what `perf-panel` and
- * `feature-weight` read.
+ * The machine is a view of its own now (the machine's Processes, with the
+ * usage hub), and what the level said about this window moved under
+ * Performance, next to the agents and the weights. So the gesture is the
+ * performance one, and this name stays for the specs that read a status row.
  */
 export async function openMachinePanel(page: Page): Promise<void> {
   await openPerfPanel(page);
-  const machine = page.locator('[data-testid="menu-system-machine"]');
-  await expect(machine).toBeVisible({ timeout: 15_000 });
-  await machine.click();
-  await expect(page.getByTestId("menu-system-machine-menu")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("system-status-panel")).toBeVisible({ timeout: 15_000 });
   await page.mouse.move(0, 0);
 }

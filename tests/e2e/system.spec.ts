@@ -60,10 +60,9 @@ test.describe("System & Infrastructure", () => {
     await expect(total).toBeVisible({ timeout: 15000 });
 
     await page.getByTestId("menu-system-status").click();
-    // The machine sits one level further in: the work row carries who is
-    // running, and gateway/memory/restart go down a level of their own instead
-    // of making the first one taller than the screen.
-    await page.getByTestId("menu-system-machine").click();
+    // The status rows of this installation sit under Performance, beside the
+    // agents: «This computer» became the machine's Processes (with the hub).
+    await page.getByTestId("menu-system-performance").click();
     // Niente networkidle (SSE/WS non lo raggiungono mai) e nemmeno una pausa
     // fissa: si polla la condizione finale, che ritorna appena e' vera.
     await expect

@@ -154,6 +154,7 @@ export function ProfileMenu({
         <div className="border-t border-app-border" />
         <SidebarSystemMenu
           signals={signals}
+          onNavigate={onClose}
           onOpenChangelog={(version) => { onClose(); commands.onOpenChangelog(version); }}
         />
       </div>

@@ -1,0 +1,78 @@
+/**
+ * client/src/lib/i18n-processes-it.ts - the strings of the machine's
+ * Processes view (hub-smistamento): Mac, PC, services and the proxy's log; in
+ * Italian, the mirror of `i18n-processes-en.ts`.
+ *
+ * A leaf like `i18n-find-it.ts`: it takes its type from `i18n-types.ts` and
+ * imports nothing else, so it travels with its catalogue.
+ */
+import type { Dict } from './i18n-types';
+
+const PROCESSES_IT: Dict = {
+  'processes.title': 'Processi della macchina',
+  'processes.open': 'Processi',
+  'processes.openHint': 'Mac, PC, servizi e log',
+  'processes.now': 'Adesso',
+  'processes.updatedS': 'aggiornato {n} s fa',
+  'processes.updatedMin': 'aggiornato {n} min fa',
+  'processes.reading': 'Lettura in corso',
+  'processes.hubDown': 'Hub non raggiungibile: i numeri sono fermi a quando ha risposto',
+  'processes.retry': 'Riprova',
+  'processes.mac': 'Mac',
+  'processes.cores': '{n} core',
+  'processes.cpu': 'CPU',
+  'processes.memory': 'Memoria',
+  'processes.swap': 'Swap',
+  'processes.gpu': 'GPU',
+  'processes.net': 'Rete',
+  'processes.process': 'Processo',
+  'processes.kind.app': 'app',
+  'processes.kind.servizio': 'servizio',
+  'processes.kind.sessione': 'sessione',
+  'processes.kind.lavoro': 'lavoro',
+  'processes.kind.devserver': 'server di sviluppo',
+  'processes.kind.mcp': 'MCP',
+  'processes.kind.macos': 'sistema',
+  'processes.kind.altro': 'processo',
+  'processes.kind.resto': 'resto',
+  'processes.more': 'Altri {n} processi · {mem}',
+  'processes.less': 'Mostra solo i più pesanti',
+  'processes.rule': '«Ferma» c\'è solo sugli script dei progetti. App, servizi e sistema si chiudono dalla loro finestra.',
+  'processes.stop': 'Ferma',
+  'processes.stopTitle': 'Ferma lo script {script} di {project}',
+  'processes.stopFailed': 'Non si è fermato: {why}',
+  'processes.openProject': 'Apri {project}',
+  'processes.notMeasured': 'non misurato',
+  'processes.pc': 'PC',
+  'processes.pc.dorme': 'Dorme',
+  'processes.pc.acceso': 'Acceso',
+  'processes.pc.lavora': 'Acceso, lavora',
+  'processes.pc.unknown': 'Non risponde',
+  'processes.pc.jobs': '{n} lavori mandati dal Mac',
+  'processes.pc.noJobs': 'nessun lavoro dal Mac',
+  'processes.pc.heavy': '{name} · {cores} core',
+  'processes.pc.wakes': 'Si sveglia da solo al primo lavoro mandato dal Mac',
+  'processes.services': 'Servizi',
+  'processes.services.live': '{n} attivi',
+  'processes.services.stopped': '{n} fermi',
+  'processes.services.off': '{n} spenti apposta',
+  'processes.services.allOk': 'Tutto acceso · la campanella avvisa se uno si ferma',
+  'processes.state.vivo': 'attivo',
+  'processes.state.attesa': 'in attesa',
+  'processes.state.fermo': 'fermo',
+  'processes.state.spento': 'spento',
+  'processes.log': 'Log',
+  'processes.log.source': 'Proxy degli account, dal vivo',
+  'processes.log.live': 'Dal vivo',
+  'processes.log.paused': 'In pausa',
+  'processes.log.all': 'Tutto',
+  'processes.log.errors': 'Solo errori',
+  'processes.log.pause': 'Metti in pausa',
+  'processes.log.resume': 'Riprendi',
+  'processes.log.open': 'Apri il log',
+  'processes.log.close': 'Chiudi il log',
+  'processes.log.closed': 'Log chiuso: si riapre dalla riga del proxy',
+  'processes.log.empty': 'Nessuna riga ancora',
+};
+
+export default PROCESSES_IT;

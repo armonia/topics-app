@@ -80,6 +80,9 @@ export const PANE_CONFIG: Partial<Record<PaneType, PaneConfig>> = {
   profile:       { icon: 'UserRound',     label: 'Profilo',      color: '#0066ff', singleton: true, addableScopes: ['standalone'] },
   project:       { icon: 'FolderOpen',   label: 'Project',       color: '#10b981', singleton: false },
   'process-log':    { icon: 'Terminal',     label: 'Process',       color: '#8b5cf6' },
+  // The machine's Processes (usage hub). No `addableScopes`: it opens from
+  // Sistema in the Topics menu and from the palette, only where the hub is.
+  processes:     { icon: 'Activity',      label: 'Processi',     color: '#0066ff', singleton: true },
 };
 
 /**

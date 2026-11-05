@@ -24,6 +24,8 @@ import { busyDotColor, busyTone } from '../../lib/machineBusy';
 import type { WorkSignal } from './workSignals';
 import type { UsageRange } from '@/hooks/useProjectUsage';
 import { apiFetch } from '../../lib/shell/net';
+import { useHubEverRead } from '@/state/hubLive';
+import { menuRowClass } from './menuRow';
 
 // The sites kept live are read when the Performance level opens, not before.
 const KeptSites = lazy(async () => {
@@ -149,10 +151,14 @@ export interface SidebarSystemMenuProps {
    *  machine's numbers because «who is working» and «what it costs» are one
    *  question at two zooms. */
   signals?: WorkSignal[];
+  /** Closes the menu that hosts this one: a row that opens a pane leaves the menu. */
+  onNavigate?: () => void;
 }
 
-export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals = [] }: SidebarSystemMenuProps) {
+export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals = [], onNavigate }: SidebarSystemMenuProps) {
   const tr = useT();
+  // The machine's Processes read the usage hub: without it the row does not exist (HUBBR-04).
+  const hubPresent = useHubEverRead();
   // Warm the optional update panel when its parent menu opens, keeping it off
   // the app's initial download without waiting for the submenu gesture.
   // A failed warm-up is reported, not swallowed: a missing chunk raises the
@@ -353,6 +359,11 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
           <Suspense fallback={null}>
             <KeptSites />
           </Suspense>
+          {/* What was «This computer» and is about this installation, not the
+              machine: open tabs, archived, the health of the bridges. */}
+          <Suspense fallback={null}>
+            <SystemStatusPanel enabled />
+          </Suspense>
         </SubmenuItem>
 
         {/* WHAT EACH PROJECT HAS COST, in the third unit.
@@ -375,27 +386,26 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
           </Suspense>
         </SubmenuItem>
 
-        {/* THE MACHINE ITSELF ONE LEVEL FURTHER IN: cores, disks, the server's
-            own processes. It is the answer AFTER «is Topics heavy», it is the
-            tallest block of the three, and behind its own row it costs
-            nothing until somebody asks for it. */}
-        {/* AND IT KEEPS ITS OWN CEILING, like the level above it. Without one
-            the panel is as tall as its content and the window simply cuts it:
-            measured on 1280x800, the gateway row landed 30 px from the bottom
-            edge and everything under it — memory, uptime, the restart — was
-            off the screen with nothing to scroll. A level can be moved by the
-            placement, never shrunk by it. */}
-        <SubmenuItem
-          icon={MonitorCog}
-          label={tr('statusBar.system.machine')}
-          testId="menu-system-machine"
-          minWidth={300}
-          className="max-h-[min(78vh,560px)] overflow-y-auto"
-        >
-          <Suspense fallback={<div className="p-3 text-center text-mini text-app-text-muted">{tr('common.loading')}</div>}>
-            <SystemStatusPanel enabled />
-          </Suspense>
-        </SubmenuItem>
+        {/* THE MACHINE IS A VIEW NOW, not a level. «This computer» listed the
+            server, the gateway and the restart in a popover; with the usage hub
+            those are services of the machine's Processes (Mac, PC, services,
+            the proxy's log), a pane beside the work. What stays a fact of this
+            window (open tabs, archived, the health list) moved under
+            Performance above. Without the hub there is nothing to open. */}
+        {hubPresent && (
+          <button
+            type="button"
+            className={menuRowClass(isMobile)}
+            data-testid="menu-system-processes"
+            onClick={() => {
+              onNavigate?.();
+              window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'processes' } }));
+            }}
+          >
+            <MonitorCog size={14} className="flex-shrink-0 text-app-text-secondary" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate text-left">{tr('processes.open')}</span>
+          </button>
+        )}
       </SubmenuItem>
 
       {/* THE VERSION OPENS SIDEWAYS TOO. It used to be a chip carrying its own

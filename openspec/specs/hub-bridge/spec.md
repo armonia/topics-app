@@ -107,3 +107,27 @@ The bell's History tab SHALL merge two days of the hub's diary into the Topics l
 - **GIVEN** a diary with a successful backup, a skipped brief and a failed reindex
 - **WHEN** History opens
 - **THEN** only the failed reindex SHALL be listed among the automation runs
+
+### Requirement: HUBBR-08 — The machine's Processes
+
+Where the hub is part of the installation, Sistema in the Topics menu and the command palette SHALL open «Processi», a view of the whole machine that takes the place of «Questo computer» (what that level said about this window, open tabs, archived and the health list, moves under Prestazioni). The view SHALL show the Mac (CPU, memory, swap, GPU and network of the machine, then the processes by memory with memory, GPU and network for each, and the CPU of the processes the hub measures), the PC (asleep, on or working, with the hub's reasons, its measures and its heavy programs), the hub's services (state, memory, port; the stopped ones first, the ones switched off on purpose counted, not listed) and the Claude proxy's log. A number the hub did not measure SHALL be a dash, never 0. The only command SHALL be «Ferma» on a running project script started by Topics, with the project's name and the script's port; no row of an app, a service, a session or the system SHALL carry a stop or a restart. Without the hub the row and the palette entry SHALL not exist.
+
+#### Scenario: GPU and network per process
+- **GIVEN** a hub whose census measures GPU and network for some processes and not for one
+- **WHEN** «Processi» opens
+- **THEN** each measured row SHALL show its GPU and its network, the other SHALL show a dash, and only the row of the running project script SHALL carry «Ferma»
+
+#### Scenario: No hub
+- **GIVEN** nobody answers on the hub's address
+- **WHEN** Sistema and the palette open
+- **THEN** neither SHALL offer «Processi»
+
+### Requirement: HUBBR-09 — The proxy's log, live, closed with the view
+
+The log section of «Processi» SHALL read the Claude proxy's log stream through the Topics proxy while the view is open and the log is open, newest line first, with «Tutto», «Solo errori» and a pause. Closing the log from the proxy's row, or closing the view, SHALL close the stream.
+
+#### Scenario: Closed with the view
+- **GIVEN** «Processi» open with the log reading the stream
+- **WHEN** the view's tab is closed
+- **THEN** the proxy SHALL see the stream end
+

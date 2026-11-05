@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useMemo, useCallback, useSyncExternalStore } from 'react';
 import {
   Search, Moon, Sun, Monitor, File,
-  Loader2, TerminalSquare, RotateCcw, Grid2x2, Link2, ArrowLeft,
+  Loader2, TerminalSquare, RotateCcw, Grid2x2, Link2, ArrowLeft, MonitorCog,
 } from 'lucide-react';
+import { useHubEverRead } from '../../state/hubLive';
 import { EmptyState } from './EmptyState';
 import { ClaudeIcon } from './ClaudeIcon';
 import { CodexIcon } from './CodexIcon';
@@ -139,6 +140,8 @@ export function CommandPalette({
   onOpenHistoryUrl,
 }: CommandPaletteProps) {
   const t = useT();
+  // The machine's Processes read the usage hub: no hub, no entry (HUBBR-04).
+  const hubPresent = useHubEverRead();
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   // The filters of the full history (HISTORY-03). They live here, next to the
@@ -468,10 +471,21 @@ export function CommandPalette({
         action: () => { onAutoTilePanels(); onClose(); },
       });
     }
+    if (hubPresent) {
+      items.push({
+        id: 'machine-processes',
+        label: t('processes.open'),
+        description: t('processes.openHint'),
+        icon: <MonitorCog size={14} />,
+        category: 'action' as const,
+        testId: 'palette-processes',
+        action: () => { onClose(); window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'processes' } })); },
+      });
+    }
     // EVERY FORM BY ITS NAME (SETHOME-01): no «Settings» to open.
     items.push(...homeCommands(t, onClose));
     return items;
-  }, [focusedTabTarget, copyTabLink, onResetPanels, onAutoTilePanels, onClose, t]);
+  }, [focusedTabTarget, copyTabLink, onResetPanels, onAutoTilePanels, onClose, t, hubPresent]);
 
   // ── File search results (only when query has text) ──────────────────────
   const searchFileItems = useMemo((): CommandAction[] => {

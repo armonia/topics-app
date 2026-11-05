@@ -838,9 +838,12 @@
     "2026-11-05, tolti pannello Sistema piccolo e striscia (hub-smistamento): misurato sul PC con `bun run build:client && bun run check:bundle`, entry_eager raw 946.360 / gz 306.141, html shell 1.612.253 / 479.351 (5 file), total_assets 9.218.491. Nessun tetto alzato; i numeri non si abbassano qui perche' la misura del PC non e' quella della CI e la prossima traccia rimette pezzi dell'hub nella sidebar.",
     "",
     "2026-11-05, campanella a gruppi (seconda passata): total_assets 9.251.215 raw sul PC, 1.929 byte sopra il tetto di 9.249.286. Comprano Consenti/Nega sul permesso di una chat, Rinnova sul token scaduto, la banda dell'hub fermo con Riprova e la riga vuota del mockup, tutti nel chunk pigro del pannello (InboxPanel, BellRows) piu' il campo permissionCall nello store dell'attenzione. entry_eager resta sotto il tetto.",
-    "Il tetto segue la misura: total_assets 9.067.927 -> 9.070.000."
+    "Il tetto segue la misura: total_assets 9.067.927 -> 9.070.000.",
+    "",
+    "2026-11-05, Processi della macchina (hub-smistamento, HUBBR-08/09): misurato sul PC con `bun run build:client && bun run check:bundle`, total_assets 9.284.954 contro un tetto di 9.251.400 (9.070.000 +2%), entry_eager raw 953.098 / gz 308.271 (sotto il tetto di 958.055).",
+    "Cosa compra: il chunk pigro MachineProcessesPane (Mac, PC, servizi, log del proxy), le letture pure di lib/machineProcesses e i dizionari IT+EN della vista; nell'entry restano solo la riga Processi di Sistema, la voce di Cmd+K e il dizionario italiano. Il tetto segue la misura: total_assets 9.070.000 -> 9.110.000."
   ],
-  "updated": "2026-11-04",
+  "updated": "2026-11-05",
   "tolerance_pct": 2,
   "entry_eager": {
     "raw": 939270,
@@ -852,6 +855,6 @@
     "files": 5
   },
   "total_assets": {
-    "raw": 9070000
+    "raw": 9110000
   }
 }
