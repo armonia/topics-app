@@ -174,6 +174,8 @@ const IT: Dict = {
   'ai.providers.program.none': 'Percorso non noto',
   'ai.providers.saveError': 'Non è stato possibile salvare.',
 
+  'sidebar.board.brake': 'Frenato',
+  'sidebar.board.brakeTitle': 'Card in Todo che aspettano il freno di {who}: {n}',
   'sidebar.subagents.one': '1 sotto-agente',
   'sidebar.subagents.many': '{n} sotto-agenti',
   'sidebar.subagents.needsYou': 'Un sotto-agente ti aspetta',

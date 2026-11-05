@@ -72,7 +72,7 @@ import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, projectIdForPath,
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { activeFrozenCount } from "../services/budget-governor";
 import { swapFrozenCount } from "../lib/swap-freeze-hold";
-import { dispatchBrakes } from "../lib/provider-hold";
+import { dispatchBrakes, planUsage } from "../lib/provider-hold";
 import { resolveAgentRuntime } from "../services/app-settings";
 import { newProjectParentDir, scaffoldNewProject } from "../services/project-path-resolver";
 import { parkedEdgeEvent, type TaskDispatcher } from "../services/task-dispatcher";
@@ -2976,7 +2976,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // now, with the window, its share and when they start again (HUBBR-20).
     if (isBrakes) {
       if (method !== "GET") return json({ error: "method not allowed" }, 405);
-      return json({ brakes: dispatchBrakes() });
+      // The walls, and the cards behind them as the dispatcher judges each
+      // one: a wall that holds no card (every card on Automatic found another
+      // runtime) is a wall the chip does not name as a brake.
+      return json({
+        brakes: dispatchBrakes(),
+        ...(dispatcher?.dispatchWork?.() ?? { held: [], working: {} }),
+        claudeFiveHour: planUsage()?.fiveHour?.utilization ?? null,
+      });
     }
 
     // GET /api/dispatch/memory-queue — the dispatcher's read-only memory view.

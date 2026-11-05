@@ -58,6 +58,7 @@ import type { PinnedDropTarget, PinnedSnapshot, SidebarViewMode } from '@/hooks/
 import { useToast } from '@/components/Shared/Toast';
 import type { BoardTask, TaskStatus } from '@/lib/board';
 import { BoardRowSummary } from './BoardStatusCounts';
+import { BoardBrakeTag } from './BoardBrakeTag';
 import { AutomationsRow } from './AutomationsRow';
 import { useHubEverRead } from '@/state/hubLive';
 import { utilityPanelId } from '@/state/pane/adapters/utilityPanelId';
@@ -1977,6 +1978,8 @@ export function TopicTree({
                 e cede il resto al riassunto, che è la parte che cresce e che va
                 misurata. */}
             <span className={`flex-shrink-0 ${TAB_LABEL_TYPE}`} data-row-name="board">{BOARD_LABEL}</span>
+            {/* HUBBR-20: a queue a provider's wall holds, seen without opening the board. */}
+            <BoardBrakeTag />
             {/* Di CHI sono quei task e a che punto stanno, con una sola misura e
                 una sola scala di priorità: vedi `BoardRowSummary`. */}
             <BoardRowSummary byStatus={boardByStatus} />

@@ -171,6 +171,8 @@ const EN = {
   'ai.providers.program.none': 'Path not known',
   'ai.providers.saveError': 'Could not save.',
 
+  'sidebar.board.brake': 'Held',
+  'sidebar.board.brakeTitle': 'Todo cards waiting for the brake on {who}: {n}',
   'sidebar.subagents.one': '1 sub-agent',
   'sidebar.subagents.many': '{n} sub-agents',
   'sidebar.subagents.needsYou': 'A sub-agent is waiting for you',

@@ -70,7 +70,7 @@ import { buildDispatchAdmissionPreview } from "./dispatch-admission-preview";
 import { WorktreeRefusalError } from "./worktree-manager";
 import { providerHold, holdAsksAPerson, holdUntilLabel, planUsage } from "../lib/provider-hold";
 import { CLOUD_HOLD_KEY } from "../lib/cloud-weekly-limit";
-import { PLAN_DISPATCH_HOLD_AT, providerHoldKey, providerHoldLabel } from "../../shared/provider-hold";
+import { PLAN_DISPATCH_HOLD_AT, providerHoldKey, providerHoldLabel, type DispatchWork } from "../../shared/provider-hold";
 import { languageDirective } from "../lib/topics-agent-prompt";
 import { resolveOutputLanguage } from "./app-settings";
 import { OUTPUT_LANGUAGES, type OutputLanguage } from "../../shared/types";
@@ -691,6 +691,8 @@ export interface TaskDispatcher {
   childAdmissionPreview?(): DispatchAdmission | null;
   /** Read-only data for the dispatch memory dashboard. */
   memoryQueueSnapshot(): DispatchMemoryQueueSnapshot;
+  /** The cards a provider's wall keeps in Todo, and the cards at work per runtime (HUBBR-20). */
+  dispatchWork?(): DispatchWork;
   /** One reading of the server's process tree in GB, on the `[memsig]` minute: it weighs the local cards in flight. */
   sampleCardWeight(treeGB: number | null): void;
   /** Start one selected memory-waiting card, preserving all other admission gates. */
@@ -1760,7 +1762,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * 31be77d3). The approaching-limit early warning stays Claude-only: it
    * comes from the five-hour usage window, which only Claude's plan reports.
    */
-  function taskPlanWait(task: Task, model?: string | null, starting = false): { untilMs?: number; reason: string; asksAPerson?: true; slot?: string } | null {
+  function taskPlanWait(task: Task, model?: string | null, starting = false): { untilMs?: number; reason: string; asksAPerson?: true; slot?: string; provider: "claude" | "codex" } | null {
     const claudeHold = providerHold();
     const codexHold = providerHold(Date.now(), "codex");
     const window = starting ? planUsage()?.fiveHour : null;
@@ -1802,7 +1804,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           holdAnnounced = hold.sinceMs;
           log(`${label} dispatch waiting: ${hold.reason}, resumes when the API answers again`);
         }
-        return { reason: `${label}: ${hold.reason}. Riparte appena l'API torna a rispondere.` }; // allow-italian: task queue reason
+        return { provider: holdKey, reason: `${label}: ${hold.reason}. Riparte appena l'API torna a rispondere.` }; // allow-italian: task queue reason
       }
       // A WALL OF DAYS IS NOT A WINDOW ROTATING. Held for longer than a day,
       // the queue is not waiting for a reset: the plan is spent, and the only
@@ -1819,7 +1821,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       }
       if (asksAPerson) {
         return {
-          untilMs: hold.untilMs, asksAPerson: true,
+          untilMs: hold.untilMs, asksAPerson: true, provider: holdKey,
           // THE SLOT THIS NOTE OWNS IN THE THREAD, and it has to be a slot
           // because the sentence CHANGES while the condition does not: the
           // days left count down, so on a wall of six days the same note reads
@@ -1834,7 +1836,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             + "Le card non ripartono da sole: serve cambiare il modello della board o l'account.", // allow-italian: task queue reason
         };
       }
-      return { untilMs: hold.untilMs, reason: `${label}: ${hold.reason}. Ripresa dopo il reset delle ${endsAt}.` }; // allow-italian: task queue reason
+      return { untilMs: hold.untilMs, provider: holdKey, reason: `${label}: ${hold.reason}. Ripresa dopo il reset delle ${endsAt}.` }; // allow-italian: task queue reason
     }
     const untilMs = window!.resetsAtMs!;
     const pct = Math.round(window!.utilization);
@@ -1843,7 +1845,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       planWindowAnnounced = untilMs;
       log(`${label} dispatch waiting: five-hour window at ${pct}%, resumes at ${at}`);
     }
-    return { untilMs, reason: `${label}: finestra di 5 ore al ${pct}%. Nuovi task in attesa del reset delle ${at}.` }; // allow-italian: task queue reason
+    return { untilMs, provider: holdKey, reason: `${label}: finestra di 5 ore al ${pct}%. Nuovi task in attesa del reset delle ${at}.` }; // allow-italian: task queue reason
   }
 
   function markPlanWait(task: Task, reason: string): void {
@@ -2503,6 +2505,50 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** The card comments a queued batch delivers, in the order they were written. */
   function queuedCommentIds(queued: { commentIds: string[] }[]): string[] {
     return queued.flatMap((q) => q.commentIds);
+  }
+
+  /**
+   * THE CARDS A PROVIDER'S WALL KEEPS IN TODO RIGHT NOW, and the cards each
+   * runtime has at work, for the board's «Frenato» chip (HUBBR-20).
+   *
+   * A wall alone is not a held card: a card on Automatic starts on another
+   * runtime when one is free (`automaticModelAvailable`), so the chip that read
+   * only the wall said «Claude's cards wait» while they started. This asks
+   * `taskPlanWait` itself, card by card, behind the same gates the tick puts
+   * before it (the board's switch, the night, attempts, deferral, blockers).
+   */
+  function dispatchWork(): DispatchWork {
+    const held: DispatchWork["held"] = [];
+    const nowIso = new Date(clock()).toISOString();
+    let todos: Task[] = [];
+    try { todos = deps.svc.list({ scope: "all", status: "todo", rootsOnly: true }); } catch { /* no rows: nothing held */ }
+    const boards = new Map<string, ReturnType<typeof deps.svc.getBoardSettings> | null>();
+    for (const t of todos) {
+      try {
+        if (!boards.has(t.projectId)) boards.set(t.projectId, deps.svc.getBoardSettings(t.projectId));
+        const settings = boards.get(t.projectId);
+        if (!settings || !settings.autoDispatch || settings.dispatchPaused || draining) continue;
+        if (settings.nightMode) {
+          const action = evaluateNight(settings).decision.action;
+          if (action === "wait" || action === "expire") continue;
+        }
+        if (t.assignedTopicId || t.dispatchAttempts >= settings.dispatchRetryCap) continue;
+        if (t.dispatchDeferredUntil && t.dispatchDeferredUntil > nowIso) continue;
+        if (deps.svc.isDispatchBlocked(t.id)) continue;
+        const wait = taskPlanWait(t, t.model ?? (settings.dispatchModel !== "auto" ? settings.dispatchModel : undefined), true);
+        if (wait) held.push({ taskId: t.id, projectId: t.projectId, provider: wait.provider });
+      } catch { boards.set(t.projectId, null); }
+    }
+    const working: Record<string, number> = {};
+    for (const taskId of inFlight.keys()) {
+      try {
+        const topicId = deps.svc.get(taskId)?.task.assignedTopicId;
+        const runtime = topicId ? deps.topicModelSelection?.(topicId)?.provider : null;
+        const key = runtime ? providerHoldKey(runtime) ?? runtime : "claude";
+        working[key] = (working[key] ?? 0) + 1;
+      } catch { /* the card moved: it is no longer at work here */ }
+    }
+    return { held, working };
   }
 
   const memoryQueueSnapshot = createDispatchMemoryQueueSnapshot({
@@ -6989,7 +7035,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     taskForSession: taskWaitingOnSession,
     sessionsInFlight: () => [...inFlight.values()].map((slot) => slot.sessionKey).filter((sk): sk is string => typeof sk === "string" && !!sk),
     tick, onEnterTodo, onLeaveTodo, deferWait, onBlockerDone, resume, reconcile, markInterrupted,
-    revokeDelegatedCapability, shutdown, nightStatus, admissionPreview, childAdmissionPreview, memoryQueueSnapshot,
+    revokeDelegatedCapability, shutdown, nightStatus, admissionPreview, childAdmissionPreview, memoryQueueSnapshot, dispatchWork,
     sampleCardWeight: (treeGB) => cardWeights.sample(treeGB, [...inFlight].filter(([, slot]) => !slot.node && !isNodeSessionKey(slot.sessionKey))
       .flatMap(([taskId]) => { try { const projectId = deps.svc.get(taskId)?.task.projectId; return projectId ? [{ taskId, projectId }] : []; } catch { return []; } })),
     startAnyway: manualMemoryStart.startAnyway,

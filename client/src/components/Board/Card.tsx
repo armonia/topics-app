@@ -50,6 +50,7 @@ import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState 
 import { fmtMs, fmtTok, fmtAttesa, fmtUsd, taskCopyText } from './format';
 import { UpdatedAgo } from './UpdatedAgo';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
+import { BrakeCardLine, BrakeColumnNote, useBrakeHeld } from './BrakeChip';
 import { LiveEffortChip, LiveToolLine, RETRY_NOW_MESSAGE, RetryWaitChip } from './CardLive';
 import { SessionPeek } from './SessionPeek';
 import { createSessionPeekIntent } from './sessionPeekIntent';
@@ -136,6 +137,7 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
   const [adding, setAdding] = useState(false);
   const [text, setText] = useState('');
   const submit = () => { const v = text.trim(); if (v) { onCreate(v); } setText(''); setAdding(false); };
+  const todoIds = useMemo(() => (status === 'todo' ? tasks.map((t) => t.id) : []), [status, tasks]);
   // QUANTE card si disegnano. La regola (e il perché vale solo su Review e Done)
   // sta in `columnSlice`; qui c'è solo la memoria di quante ne hai chieste.
   const colKey = columnId ?? status;
@@ -300,6 +302,8 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
           <span data-testid={`kanban-column-count-${colKey}`} className="rounded bg-white/10 px-1.5 text-compact leading-4 text-app-text-secondary">{tasks.length}</span>
         </span>
       </div>
+      {/* HUBBR-20: how many of this column a provider's wall holds, and until when. */}
+      {status === 'todo' && !archived && <BrakeColumnNote todoIds={todoIds} />}
       {/* Bottom clearance lives on the scroll body (not the outer board padding)
           so the column FRAME reaches the bottom of the pane, while a full column's
           last card can still scroll clear of the floating "Descrivi un task" box.
@@ -492,6 +496,8 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // «· via Topics»; the boolean re-renders the card only when it flips.
   const getRunsThroughTopics = () => cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot, boardTopicsRoutingDefault);
   const runsThroughTopics = useSyncExternalStore(subscribeProvidersSnapshot, getRunsThroughTopics, getRunsThroughTopics);
+  // HUBBR-20: a Todo card a provider's wall holds says who holds it, in place of the queue's chip.
+  const brakeHeld = useBrakeHeld(task.id) && task.status === 'todo';
   // The chip's model in the one closed format, «label · who» (model selector
   // revision §3.8): a string, so the card re-renders only when it changes.
   const tm = useT();
@@ -1807,7 +1813,9 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
             // dove rispondere a un turno vivo.
             title={tr('board.task.awaitingYouTitle')}
           >{tr('board.card.awaitingYou')}</span>
-        ) : (live && task.dispatchState === 'working') ? null : task.queueReason ? (
+        ) : (live && task.dispatchState === 'working') ? null : brakeHeld ? (
+          <BrakeCardLine taskId={task.id} />
+        ) : task.queueReason ? (
           // Una card ferma in Todo dice PERCHÉ, e la ragione arriva già
           // scritta dal server. Vince sul chip di stato («in coda», «in
           // attesa»): sono la stessa informazione, ma quella è una parola

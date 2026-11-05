@@ -72,6 +72,17 @@ export interface DispatchBrake {
 }
 
 /**
+ * What the dispatcher does with the cards behind the walls, as
+ * `GET /api/dispatch/brakes` says it: the Todo cards a wall keeps waiting (the
+ * dispatcher's own verdict, card by card) and the cards each runtime has at
+ * work, keyed `claude`, `codex`, or the runtime's own name (`muse`).
+ */
+export interface DispatchWork {
+  held: Array<{ taskId: string; projectId: string; provider: 'claude' | 'codex' }>;
+  working: Record<string, number>;
+}
+
+/**
  * Every provider hits its own wall on its own plan: the memo in
  * `server/lib/provider-hold.ts` is one map keyed by this. Claude's several
  * runtime aliases (native, the CLI, its team variant, jcode) share one plan

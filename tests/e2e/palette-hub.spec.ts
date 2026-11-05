@@ -2,16 +2,16 @@
  * THE PALETTE'S ENTRIES FOR THE HUB'S PLACES (hub-smistamento, HUBBR-19).
  *
  * With the fake hub answering, each of the eight entries opens its own place:
- * Account e quote, Consumi (the Dashboard), Processi, Funzionalità and
- * Automazioni as views; «Agenti e lavori» and «Contesto degli agenti» as the
- * System levels, opened in the user menu with System already open; «Log» as
- * Processi with its log section open and in sight. With the hub gone, after a
- * reload, none of the eight is offered.
+ * accounts and quotas, usage (the Dashboard), processes, features and
+ * automations as views; the agents-and-jobs and agents-context entries as the
+ * System levels, opened in the user menu with System already open; the log
+ * entry as the processes view with its log section open and in sight. With
+ * the hub gone, after a reload, none of the eight is offered.
  *
  * The hub is a fake (helpers/fake-hub.ts) on the port the test server reads;
  * the real :3360 is never touched.
  *
- * Mutation: with the «Contesto» entry sending no level (`openUserMenu()`), the
+ * Mutation: with the context entry sending no level (`openUserMenu()`), the
  * context level never opens and the first test is red; with the log request
  * not read by the section (`takeProcessesLogRequest`), the log stays out of
  * sight and the first test is red.

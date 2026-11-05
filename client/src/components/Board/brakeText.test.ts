@@ -4,8 +4,8 @@
  * @covers HUBBR-20
  */
 import { describe, expect, test } from 'bun:test';
-import { brakeChipView, brakeDetail, whenLabel } from './brakeText';
-import { liveBrakes } from '../../state/dispatchBrakes';
+import { brakeChipView, brakeDetail, columnNoteView, heldCount, holdingBrakes, waitingClause, whenLabel, workingClause } from './brakeText';
+import { liveBrakes, readBrakeAnswer } from '../../state/dispatchBrakes';
 import BRAKES_IT from '../../lib/i18n-brakes-it';
 import BRAKES_EN from '../../lib/i18n-brakes-en';
 import type { DispatchBrake } from '../../../../shared/provider-hold';
@@ -61,6 +61,47 @@ describe('liveBrakes', () => {
     const outage: DispatchBrake = { provider: 'codex', window: 'api-down', utilization: null, untilMs: null };
     expect(liveBrakes([claude, outage], AT_1420 + 1)).toEqual([outage]);
     expect(liveBrakes([claude, outage], NOW)).toEqual([claude, outage]);
+  });
+});
+
+describe('the cards behind the walls', () => {
+  const answer = {
+    brakes: [claude, codex],
+    held: [
+      { taskId: 'a', projectId: 'p', provider: 'claude' },
+      { taskId: 'b', projectId: 'p', provider: 'claude' },
+      { taskId: 'c', projectId: 'q', provider: 'claude' },
+    ],
+    working: { codex: 1, muse: 2, claude: 0 },
+    claudeFiveHour: 94,
+  };
+
+  test('a wall that holds no card is not named: Codex at its limit with every card elsewhere', () => {
+    const state = readBrakeAnswer(answer, NOW);
+    expect(holdingBrakes(state).map((b) => b.provider)).toEqual(['claude']);
+    expect(heldCount(state, 'claude')).toBe(3);
+    expect(heldCount(state, 'codex')).toBe(0);
+    expect(state.working).toEqual({ codex: 1, muse: 2 });
+  });
+
+  test('a held card of a wall past its end is dropped with the wall', () => {
+    const state = readBrakeAnswer(answer, AT_1420 + 1);
+    expect(state.brakes.map((b) => b.provider)).toEqual(['codex']);
+    expect(state.held.size).toBe(0);
+  });
+
+  test('the Todo strip counts only the cards of this board', () => {
+    const state = readBrakeAnswer(answer, NOW);
+    expect(columnNoteView(state, new Set(['a', 'b', 'x']), NOW, tr, 'it')).toEqual({ head: '2 aspettano il freno di Claude', tail: 'Partono da sole alle 14:20.' });
+    expect(columnNoteView(state, new Set(['c']), NOW, tr, 'it')).toEqual({ head: '1 aspetta il freno di Claude', tail: 'Parte da sola alle 14:20.' });
+    expect(columnNoteView(state, new Set(['x']), NOW, tr, 'it')).toBeNull();
+  });
+
+  test('the counts read as Italian clauses', () => {
+    expect(waitingClause(1, tr)).toBe('1 card aspetta');
+    expect(waitingClause(2, tr)).toBe('2 card aspettano');
+    expect(workingClause(0, tr)).toBe('nessuna card al lavoro');
+    expect(workingClause(1, tr)).toBe('1 card al lavoro');
   });
 });
 

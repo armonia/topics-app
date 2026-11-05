@@ -1,4 +1,4 @@
-/** @covers MP-DISPATCH-01, MP-TASK-01, USAGE-21, RESUME-04, KANBAN-88 */
+/** @covers MP-DISPATCH-01, MP-TASK-01, USAGE-21, RESUME-04, KANBAN-88, HUBBR-20 */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskAttemptStore } from "./task-attempts";
@@ -475,4 +475,33 @@ test("a fan-out sibling already running keeps its delivery when a later sibling 
   expect(h.svc.get("partial")!.task.status).toBe("review");
   expect(h.attempts.list("partial").find(attempt => attempt.idx === 1)?.commit).toBe("abc123");
   expect(deleted).not.toContain("working-tree");
+});
+
+describe("dispatchWork: the cards behind the walls, for the board's chip (HUBBR-20)", () => {
+  test("Claude past the line holds its own cards, not the Automatic one with a way out, nor Codex's", async () => {
+    const h = harness("topics", { automaticModelAvailable: () => true });
+    h.task("claude-a", CLAUDE); h.task("claude-b", CLAUDE); h.task("automatic"); h.task("gpt", codingModel);
+    limit("threshold");
+    const work = h.dispatcher.dispatchWork!();
+    expect(work.held.map((x) => `${x.taskId}:${x.provider}`).sort()).toEqual(["claude-a:claude", "claude-b:claude"]);
+    expect(work.held.every((x) => x.projectId === PID)).toBe(true);
+  });
+
+  test("a board with dispatch off holds nothing: its switch keeps the cards, not the wall", () => {
+    const h = harness();
+    h.task("claude-a", CLAUDE);
+    h.svc.updateBoardSettings(PID, { autoDispatch: false });
+    limit("threshold");
+    expect(h.dispatcher.dispatchWork!().held).toEqual([]);
+  });
+
+  test("a Codex wall holds the Codex card, and the started Claude card counts at work", async () => {
+    const h = harness();
+    h.task("gpt", codingModel); h.task("claude-a", CLAUDE);
+    codexLimit();
+    await h.dispatcher.tick(PID); await flush();
+    const work = h.dispatcher.dispatchWork!();
+    expect(work.held).toEqual([{ taskId: "gpt", projectId: PID, provider: "codex" }]);
+    expect(work.working).toEqual({ claude: 1 });
+  });
 });
