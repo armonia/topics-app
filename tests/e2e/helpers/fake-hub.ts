@@ -43,7 +43,7 @@
  * service up. Nothing here ever reaches :3360 or :3335.
  */
 import { createServer, type Server } from "node:http";
-import { hubPortFor } from "./test-server";
+import { E2E_BASE, hubPortFor } from "./test-server";
 import { FOUND_CONTRADICTION, contextModel, contextText, defaultContextCheck, featuresMap, type FakeContextCheck } from "./fake-hub-context";
 import { automationsCalendar, automationsModel, automationsRuns, automationsSummary, feedbackRefusal, workflowRunCost, type FeedbackRow } from "./fake-hub-automations";
 
@@ -681,6 +681,32 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
     server.listen(hubPortFor(), "127.0.0.1", () => resolve());
   });
   // An open log stream would hold `close` forever: the connections go first.
-  hub.close = () => new Promise<void>((resolve) => { server.close(() => resolve()); server.closeAllConnections(); });
+  hub.close = async () => {
+    await new Promise<void>((resolve) => { server.close(() => resolve()); server.closeAllConnections(); });
+    await waitLiveReaderEmpty();
+  };
   return hub;
+}
+
+/**
+ * The test server outlives the spec, and its live reader serves the last good
+ * reading for up to one interval after the hub stops. A spec that runs next
+ * and expects no hub (the bell's ATTN-08 number) would open a window that
+ * still believes in the hub: `close` returns once the reader holds no data.
+ */
+async function waitLiveReaderEmpty(): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    let snap: Record<string, { data?: unknown }>;
+    try {
+      const resp = await fetch(`${E2E_BASE}/api/hub-live`);
+      if (!resp.ok) return;
+      snap = (await resp.json()) as Record<string, { data?: unknown }>;
+    } catch {
+      return; // no test server, nothing to wait for
+    }
+    if (Object.values(snap).every((entry) => entry.data === undefined)) return;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error("the live reader still served the closed fake hub after 30 s");
 }
