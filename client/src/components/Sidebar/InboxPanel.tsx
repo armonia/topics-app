@@ -253,7 +253,7 @@ export default function InboxPanel({ model, onWSMessage, onClose }: {
                       ? <FinishedRow key={entry.key} item={entry.item} first={first} onOpen={openItem} onMarkSeen={markSeen} />
                       : <DecideRow key={entry.key} item={entry.item} first={first} onOpen={openItem} />;
                   }
-                  return <HubRow key={entry.key} entry={entry} first={first} />;
+                  return <HubRow key={entry.key} entry={entry} first={first} onNavigate={onClose} />;
                 }}
               </GroupSection>
             ))}

@@ -60,6 +60,7 @@ const ATTENTION_IT: Dict = {
   'bell.fixQueued': 'In coda',
   'bell.failed': 'Ultimo giro fallito',
   'bell.service.stopped': 'fermo',
+  'bell.openProcesses': 'Apri in Processi',
   'bell.kind.decisione': 'Decisione',
   'bell.kind.spesa': 'Spesa',
   'bell.kind.pubblico': 'Pubblico',

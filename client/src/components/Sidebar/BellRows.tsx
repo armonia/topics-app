@@ -112,7 +112,7 @@ export function RowShell({ icon: Icon, tint, first, title, second, at, actions, 
 
 const joined = (parts: (string | null | undefined | false)[]) => parts.filter(Boolean).join(' · ');
 
-export function HubRow({ entry, first }: { entry: HubEntry; first: boolean }) {
+export function HubRow({ entry, first, onNavigate }: { entry: HubEntry; first: boolean; onNavigate?: () => void }) {
   const tr = useT();
   const now = useSharedNow();
   const button = useBellButton();
@@ -193,9 +193,23 @@ export function HubRow({ entry, first }: { entry: HubEntry; first: boolean }) {
       );
     }
     case 'service':
+      // The service is read where the machine is: Processi lists it with its state and port.
       return (
         <RowShell attrs={attrs} icon={ServerCrash} tint={DANGER_TEXT} first={first} title={entry.service.name} at={null}
-          second={<span className="truncate">{entry.service.problem ?? tr('bell.service.stopped')}</span>} />
+          second={<span className="truncate">{entry.service.problem ?? tr('bell.service.stopped')}</span>}
+          actions={(
+            <button
+              type="button"
+              onClick={() => {
+                onNavigate?.();
+                window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'processes' } }));
+              }}
+              className={button.secondary}
+              data-testid="bell-open-processes"
+            >
+              {tr('bell.openProcesses')}
+            </button>
+          )} />
       );
     case 'quota': {
       const q = entry.quota;

@@ -60,6 +60,7 @@ const ATTENTION_EN: Dict = {
   'bell.fixQueued': 'Queued',
   'bell.failed': 'Last run failed',
   'bell.service.stopped': 'stopped',
+  'bell.openProcesses': 'Open in Processes',
   'bell.kind.decisione': 'Decision',
   'bell.kind.spesa': 'Spending',
   'bell.kind.pubblico': 'Public',

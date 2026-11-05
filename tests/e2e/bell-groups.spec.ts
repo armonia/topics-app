@@ -342,6 +342,15 @@ test.describe("the bell in groups", () => {
       await expect(panel(page)).not.toContainText("Backup del Mac");
       await expect(panel(page)).not.toContainText("Brief del mattino");
       await page.screenshot({ path: testInfo.outputPath("vero-campanella-a-gruppi-cronologia-scuro.png") });
+
+      // A stopped service is read where the machine is: its button closes the bell and opens Processes.
+      await panel(page).getByTestId("inbox-tab-now").click();
+      const open = panel(page).getByTestId("bell-group-broken").getByTestId("bell-open-processes");
+      await expect(open).toHaveCount(1);
+      await expect(open).toHaveText("Apri in Processi");
+      await open.click();
+      await expect(panel(page)).toHaveCount(0);
+      await expect(page.getByTestId("machine-processes")).toBeVisible({ timeout: 15_000 });
     } finally {
       await request.post(`${E2E_BASE}/api/hub/e2e-reset`).catch(() => {});
     }
