@@ -223,7 +223,7 @@ function Verdict({ data, verdict, clock }: { data: AutomationsData; verdict: Ret
   return (
     <div className="flex items-start gap-3" data-testid="automations-verdict">
       <div className="min-w-0 flex-1">
-        <h1 className="m-0 text-headline font-semibold tracking-[-0.01em] text-app-text @max-2xl:text-[18px]" data-testid="automations-verdict-title">
+        <h1 className="m-0 text-headline font-semibold tracking-[-0.01em] text-app-text @max-2xl:text-title" data-testid="automations-verdict-title">
           {verdict.toFix > 0 ? (
             <>{tr('auto.verdict.toFix', { n: verdict.toFix })}<span className="font-medium text-app-text-muted">{tr('auto.verdict.rest')}</span></>
           ) : tr('auto.verdict.allOk', { n: verdict.total })}

@@ -152,7 +152,7 @@ function Verdict({ view, tr, fmt, okAt, down }: { view: FeaturesView | null; tr:
   return (
     <div className="flex items-start gap-3" data-testid="features-verdict">
       <div className="min-w-0 flex-1">
-        <h1 className="m-0 text-headline font-semibold tracking-[-0.01em] text-app-text @max-2xl:text-[18px]" data-testid="features-verdict-title">
+        <h1 className="m-0 text-headline font-semibold tracking-[-0.01em] text-app-text @max-2xl:text-title" data-testid="features-verdict-title">
           {!view ? <span className="inline-flex items-center gap-2"><Blocks size={18} aria-hidden="true" />{tr('features.open')}</span>
             : view.behind > 0
               ? <>{tr('feat.verdict.behind', { n: view.behind })}<span className="font-medium text-app-text-muted">{tr('feat.verdict.rest', { total: view.leaves })}</span></>
