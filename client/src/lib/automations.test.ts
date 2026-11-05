@@ -77,7 +77,7 @@ describe('readAutomations: the hub model as rows by system', () => {
   test('the computer\'s own apps and the tasks stay out: «Decidi tu» counts what the sidebar counts', () => {
     const m = readAutomations(MODEL)!;
     expect(m.rows.some((r) => r.key === OWN.key || r.key === TASK.key)).toBe(false);
-    expect(verdictOf(m.rows, NOW).toFix).toBe(toFixCount(MODEL.verdict));
+    expect(verdictOf(m.rows, NOW).toFix).toBe(toFixCount(MODEL.verdict)!);
     expect(toDecide(m.rows)).toHaveLength(3);
   });
 
@@ -85,7 +85,7 @@ describe('readAutomations: the hub model as rows by system', () => {
     const source = card('source:workflows', 'workflows', 'te', { title: 'Non riesco a leggere Workflow' });
     const m = readAutomations({ cards: { [source.key]: source }, needsYou: [source], broken: [], groups: [] })!;
     expect(m.rows.map((r) => [r.key, r.system])).toEqual([['source:workflows', 'workflow']]);
-    expect(verdictOf(m.rows, NOW).toFix).toBe(toFixCount({ needsYou: 1, broken: 0 }));
+    expect(verdictOf(m.rows, NOW).toFix).toBe(toFixCount({ needsYou: 1, broken: 0 })!);
   });
 
   test('not the hub answer: null', () => {

@@ -101,8 +101,8 @@ export function automationsModel(now: number, feedback: FeedbackRow[]): Record<s
   const list = seeds(now).filter((s) => s.level !== "nascosto").map((s) => cardOf(s, now, feedback)) as Array<Record<string, unknown> & { key: string; level: string }>;
   const own = { ...cardOf(OWN_SEED, now, feedback), own: true, purpose: { area: "computer-app", cosaFaPerTe: OWN_SEED.cosa } };
   const task = { ...cardOf(TASK_SEED, now, feedback), kind: "compito" };
-  const cards: Record<string, unknown> = {};
-  for (const c of [...list, own, task]) cards[c.key as string] = c;
+  const cards: Record<string, unknown> = { [OWN_SEED.key]: own, [TASK_SEED.key]: task };
+  for (const c of list) cards[c.key] = c;
   return {
     checkedAt: now - 30_000,
     verdict: { needsYou: 1, broken: 2, ok: 10, hidden: 1, tasks: 1, own: 1, runsToday: 412 },
