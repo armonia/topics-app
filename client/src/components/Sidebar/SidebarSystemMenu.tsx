@@ -15,6 +15,7 @@ import { useLoad } from '@/state/systemLoad';
 import { useT } from '@/hooks/useT';
 import { formatMemoryMB } from '@/lib/formatMemory';
 import { SubmenuItem } from '../Shared/SubmenuItem';
+import { refreshGateWaits, useGateWaits } from '../../state/gateWaits';
 import { WorkSignals } from './AgentLines';
 import { PerfSection } from './PerfSection';
 import { VersionChip } from './VersionChip';
@@ -23,7 +24,7 @@ import { reportLoadFailure } from '@/lib/chunkReloadGuard';
 import { busyDotColor, busyTone } from '../../lib/machineBusy';
 import type { WorkSignal } from './workSignals';
 import { apiFetch } from '../../lib/shell/net';
-import { useHubEverRead } from '@/state/hubLive';
+import { useHubEverRead, useHubLive } from '@/state/hubLive';
 import { menuRowClass } from './menuRow';
 import { useActiveAgentRows } from '@/state/signals';
 import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
@@ -175,7 +176,12 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
   const load = useLoad();
   // The tail of «Agenti e lavori»: who waits on you, else who works. Same rows as the level and the badge.
   const agentRows = useActiveAgentRows(useTerminalSessions(), useTopics());
-  const waitingOnYou = agentRows.awaitingInput.length;
+  // The workflows at a gate come from the hub's automations, read again when
+  // System opens and whenever the hub's own count of what needs you moves.
+  const needsYouAt = useHubLive().automations;
+  const needsYouKey = needsYouAt?.error ? 'down' : JSON.stringify((needsYouAt?.data as { needsYou?: unknown } | undefined)?.needsYou ?? null);
+  useEffect(() => { if (hubPresent) void refreshGateWaits(); }, [hubPresent, needsYouKey]);
+  const waitingOnYou = agentRows.awaitingInput.length + useGateWaits();
   const atWork = agentRows.working.length;
   const lastChange = useLastChangeTime();
   const { updateAvailable } = useServiceWorkerUpdate();
@@ -369,7 +375,7 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
         {/* WHO WORKS, ITS OWN LEVEL (HUBBR-13). The names of the sessions at
             work sat on top of Performance; with the hub they are one list with
             the proxy's sessions, the hub's queue and the workflows, filtered by
-            In corso, In attesa and Finiti, and that list is too big to stand
+            running, waiting and finished, and that list is too big to stand
             above the megabytes. Without the hub the level lists Topics alone. */}
         <SubmenuItem
           icon={Bot}
@@ -377,7 +383,9 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
           testId="menu-system-agents"
           minWidth={400}
           maxWidth={420}
-          className="max-h-[min(80vh,640px)] overflow-y-auto"
+          // On the phone the level covers the sheets it came from, as tall as a
+          // sheet can be: one sheet in sight, with its own way back and close.
+          className={isMobile ? 'min-h-[calc(100dvh-3rem)]' : 'max-h-[min(80vh,640px)] overflow-y-auto'}
           tail={waitingOnYou > 0 ? (
             <span data-testid="menu-system-agents-tail" className="flex flex-shrink-0 items-center gap-1.5 text-app-text-secondary tabular-nums">
               <span className={`h-1.5 w-1.5 rounded-full ${PALLINO_ATTESA}`} />

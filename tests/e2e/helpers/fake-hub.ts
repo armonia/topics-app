@@ -22,7 +22,9 @@
  * For «Agenti e lavori» (`jobs`) the queue also carries jobs running, in
  * line, held by a quota, failed and born from a card, the diary carries the
  * workflows, and the proxy answers its sessions (`sessions`); a job taken
- * out of the line (`DELETE queue?id=`) leaves the next read, as in the hub.
+ * out of the line (`DELETE queue?id=`) leaves the next read, as in the hub;
+ * the automations carry a running workflow's phases and a gate waiting for
+ * your ok, and `silent` makes the queue, the diary and the automations fail.
  * `quiet` answers a hub with nothing to say: no item, no failure, every
  * service up. Nothing here ever reaches :3360 or :3335.
  */
@@ -57,6 +59,8 @@ export interface FakeHub {
   budgets: Record<string, number | null>;
   /** Queue ids taken out of the line with `DELETE queue?id=`. */
   withdrawn: string[];
+  /** True: the queue, the diary and the automations do not answer (503), the rest does. */
+  silent: boolean;
   close(): Promise<void>;
 }
 
@@ -254,7 +258,10 @@ function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy 
       reserve: 10,
     },
     "automations/summary": { needsYou: 0, broken: 1, ok: 81, hidden: 0, runsToday: 412, calendar: { count: 3, next: { title: "Backup of the Mac", at: now + HOUR } } },
-    automations: { broken: [{ key: "gh:docs-reindex", title: "Reindex dell'indice documenti", reason: "ha fallito alle 21:26", last: { at: now - HOUR, outcome: "error" } }] },
+    automations: {
+      broken: [{ key: "gh:docs-reindex", title: "Reindex dell'indice documenti", reason: "ha fallito alle 21:26", last: { at: now - HOUR, outcome: "error" } }],
+      ...(jobs.on ? jobsAutomations(now) : {}),
+    },
     contesto: { contradictions: { at: now - HOUR, items: [{ a: { file: "~/rules-a.md", text: "x" }, b: { file: "~/rules-b.md", text: "y" }, why: "una chiede i commenti in inglese, l'altra in italiano" }] } },
     diario: { at: now, days: 2, items: [
       { at: now - 30 * 60_000, kind: "auto", who: "Mac", title: "Backup del Mac", outcome: "ok", what: "1,2 GB in 4 min" },
@@ -296,12 +303,27 @@ function jobsQueue(now: number, withdrawn: string[]): Array<{ id: string; status
     { id: "j-run", task: "Rigenera gli screenshot della landing di acme-web (vedi ~/Projects/acme-web/shots).", status: "running", provider: "codex", project: "acme-web", createdAt: now - 20 * 60_000, startedAt: now - 7 * 60_000 },
     { id: "j-l1", task: "Docs index non risponde: riparalo.", status: "queued", project: "acme-docs", createdAt: now - 50 * 60_000 },
     { id: "j-l1b", task: "Docs index non risponde: riparalo.", status: "queued", project: "acme-docs", createdAt: now - 45 * 60_000 },
-    { id: "j-l2", task: "Test unit di studio-x, poi riporta l'esito.", status: "queued", project: "studio-x", priority: "bassa", createdAt: now - 30 * 60_000 },
+    { id: "j-l2", task: "Test unit di studio-x, poi riporta l'esito.", status: "queued", project: "studio-x", priority: "bassa", background: true, createdAt: now - 30 * 60_000 },
     { id: "j-q", task: "Refactor del router di studio-x, seconda passata.", status: "queued", provider: "codex", project: "studio-x", createdAt: now - 60 * 60_000, waitUntil: now + 2 * HOUR },
     { id: "j-card", task: "Card della board Topics «Rilascio di acme-web». Da fare stasera.", ref: "card:acme/1", status: "queued", createdAt: now - 10 * 60_000 },
     { id: "j-fail", task: "Esegui ESATTAMENTE questo comando via tool bash con yield_time_ms=300000: npm run build", status: "failed", exit: 1, provider: "codex", project: "acme-api", createdAt: now - 3 * HOUR, startedAt: now - 3 * HOUR, endedAt: now - 2 * HOUR },
   ];
   return items.filter((i) => !withdrawn.includes(i.id));
+}
+
+/** The workflows' phases and the gate waiting for your ok, as the hub's automations write them. */
+function jobsAutomations(now: number): Record<string, unknown> {
+  return {
+    workflows: { days: 7, total: 2, failed: 1, byName: [
+      { name: "rev", runs: [{ at: now - 26 * 60_000, outcome: "running", agents: 2, durationMs: null, phases: [
+        { title: "Lettura", total: 1, done: 1, failed: 0 }, { title: "Scrittura", total: 2, done: 2, failed: 0 },
+        { title: "Verifica", total: 2, done: 0, failed: 0 }, { title: "Rilettura", total: 1, done: 0, failed: 0 }, { title: "Consegna", total: 1, done: 0, failed: 0 },
+      ] }] },
+    ] },
+    needsYou: [
+      { key: "lobster:publish-acme-web", provider: "lobster", title: "Pubblica la landing di acme-web", level: "te", reason: "aspetta il tuo ok al passo «deploy» da 14 min", since: now - 14 * 60_000 },
+    ],
+  };
 }
 
 function jobsDiary(now: number): unknown[] {
@@ -311,12 +333,27 @@ function jobsDiary(now: number): unknown[] {
   ];
 }
 
-/** The proxy's sessions: one at work outside Topics with its raw prompt in the timeline, one ended named by its repo. */
+/**
+ * The proxy's sessions in the live proxy's shape: `repo` always '', a session
+ * at work written again among the recent ones as an older segment, and what
+ * tells one from another only in the timeline (a Jarvis turn's channel, a
+ * project folder in a command) next to a raw prompt that must never show.
+ */
 function proxySessionsAnswer(now: number): Record<string, unknown> {
   return {
     enabled: true,
-    active: [{ id: "s-live", account: "lavoro@example.com", model: "claude-sonnet-5-5", cwd: "_sys_1", repo: "", branch: "", startedAt: now - 18 * 60_000, lastActiveAt: now - 60_000, requestCount: 40, totalInputTokens: 1_000, totalOutputTokens: 30_000, timeline: [{ type: "input", text: "PROMPT GREZZO: non mostrarlo mai" }] }],
-    recent: [{ id: "s-done", account: "lavoro@example.com", model: "claude-opus-5-5", cwd: "_sys_2", repo: "/w/acme-docs", branch: "main", startedAt: now - 2 * HOUR, completedAt: now - HOUR, duration: HOUR, requestCount: 12, totalInputTokens: 500, totalOutputTokens: 9_000, timeline: [] }],
+    active: [
+      { id: "s-live", account: "lavoro@example.com", model: "claude-sonnet-5-5", cwd: "_sys_1", repo: "", branch: "", startedAt: now - 18 * 60_000, lastActiveAt: now - 60_000, requestCount: 40, totalInputTokens: 1_000, totalOutputTokens: 30_000,
+        currentActivity: "bash cd /Users/demo/Projects/studio-x && ls",
+        timeline: [{ type: "input", text: "(turno 4201 · whatsapp · chat privata · Thu 05/11/2026 11:" }, { type: "action", text: "bash: cd /tmp/x && ls" }] },
+      { id: "s-raw", account: "lavoro@example.com", model: "claude-haiku-5-5", cwd: "_sys_3", repo: "", branch: "", startedAt: now - 3 * 60_000, lastActiveAt: now - 60_000, requestCount: 1, totalInputTokens: 2, totalOutputTokens: 900, currentActivity: null,
+        timeline: [{ type: "input", text: "PROMPT GREZZO: non mostrarlo mai" }] },
+    ],
+    recent: [
+      { id: "s-live", account: "lavoro@example.com", model: "claude-sonnet-5-5", cwd: "_sys_1", repo: "", branch: "", startedAt: now - 3 * HOUR, completedAt: now - 2 * HOUR, duration: HOUR, requestCount: 300, totalInputTokens: 2_000, totalOutputTokens: 80_000, timeline: [] },
+      { id: "s-done", account: "lavoro@example.com", model: "claude-opus-5-5", cwd: "_sys_2", repo: "", branch: "", startedAt: now - 2 * HOUR, completedAt: now - HOUR, duration: HOUR, requestCount: 12, totalInputTokens: 500, totalOutputTokens: 9_000,
+        timeline: [{ type: "action", text: "Read: /Users/demo/Projects/acme-docs/README.md" }] },
+    ],
     overhead: { inputTokens: 0, outputTokens: 0 },
     conflicts: [],
   };
@@ -409,7 +446,7 @@ const LOG_LINES = [
 ];
 
 export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(), opts: { quiet?: boolean; jobs?: boolean } = {}): Promise<FakeHub> {
-  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), withdrawn: [], close: async () => {} };
+  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), withdrawn: [], silent: false, close: async () => {} };
   const server: Server = createServer((req, res) => {
     const path = (req.url ?? "").split("?")[0]!.replace(/^\/api\//, "");
     if (req.method === "GET" && path === "logs/stream") {
@@ -517,6 +554,7 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
       req.resume();
       return send(200, { ok: true });
     }
+    if (hub.silent && req.method === "GET" && (path === "queue" || path === "diario" || path === "automations")) return send(503, { error: "silent" });
     const all = opts.quiet ? quietAnswers() : answers(hub.items, hub.devPids, hub.proxy, hub.overrides, hub.budgets, { on: !!opts.jobs, withdrawn: hub.withdrawn });
     if (req.method === "GET" && path in all) return send(200, all[path]);
     send(404, { error: "not in the fake hub" });

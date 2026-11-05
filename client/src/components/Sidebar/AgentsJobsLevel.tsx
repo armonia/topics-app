@@ -1,22 +1,27 @@
 /**
  * AGENTS AND JOBS, the level of System (hub-smistamento, HUBBR-13).
  *
- * Who works, in one list with three filters: In corso, In attesa, Finiti. The
+ * Who works, in one list with three filters: running, waiting, finished. The
  * sessions of Topics are the rows the card's badge counts (they lived under
  * Performance until this level took them: "who is running" has its own door
  * now, "what it costs" stays there). With the usage hub, the same list adds
  * the Claude proxy's sessions that run outside Topics, the hub's queue of
  * delegated jobs (in line, held by a quota, done or failed, and the one you
- * take out of the line) and the workflows. The cards of the Board are not
- * listed again: the night's cards stay on the Board, and the footer says so.
+ * take out of the line) and the workflows with the bar of their phases. What
+ * waits on you comes first and says what it asks: the chat's question, the
+ * workflow's gate. The cards of the Board are not listed again: the night's
+ * cards stay on the Board, and the footer says so, with the way to the hub's
+ * automations.
  *
  * Loaded as its own chunk when the level opens; its strings come with it.
  * The reads poll every 15 s while the level is open and the window visible.
- * With the hub silent, a band says so and the level shows Topics alone.
+ * With the hub silent, a band says since when, the hub's last answer stays
+ * on screen, and the retry reads again. On the phone the level is the one
+ * sheet in sight, with its own way back to System and its own close.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  Check, ChevronDown, ChevronRight, Clock, CloudOff, Hourglass, MessageCircleQuestion, MessageSquare, Pause, Route,
+  Check, ChevronDown, ChevronLeft, ChevronRight, Clock, CloudOff, Hourglass, MessageCircleQuestion, MessageSquare, Pause, Route,
   SquareKanban, SquareTerminal, Workflow, Wrench, X, type LucideIcon,
 } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
@@ -29,13 +34,17 @@ import { useHubEverRead } from '../../state/hubLive';
 import { startVisibleInterval } from '../../state/documentVisibility';
 import { useSharedNow } from '../../state/useSharedNow';
 import { useActiveAgentRows } from '../../state/signals';
+import { attentionOf, terminalSubject, topicSubject, useAttentionRows } from '../../state/attention';
+import { hubPageHref } from '../../lib/hubSystem';
+import { useCloseLevel } from '../Shared/levelClose';
+import { setGateWaits } from '../../state/gateWaits';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { PALLINO_ATTESA, PALLINO_OK } from './chromeSignals';
 import {
   agentsJobs, cancelRequest, openingFilter,
-  type AgentsJobsView, type JobFilter, type JobRow, type JobSection, type SectionId,
+  type AgentsJobsView, type JobFilter, type JobRow, type JobSection, type SectionId, type StepMark,
 } from '../../lib/agentsJobs';
 
 addCatalogue('it', AGENTS_JOBS_IT);
@@ -44,7 +53,9 @@ addCatalogue('en', AGENTS_JOBS_EN);
 type Tr = ReturnType<typeof useT>;
 
 const POLL_MS = 15_000;
-/** Rows of «Oggi» shown before «Altri N»: the level is a menu, not a log. */
+/** The automations are read one round in four: once a minute. */
+const AUTOMATIONS_EVERY = 4;
+/** Rows of today shown before the "N more" row: the level is a menu, not a log. */
 const TODAY_VISIBLE = 6;
 const FILTERS: JobFilter[] = ['running', 'waiting', 'finished'];
 
@@ -52,8 +63,13 @@ interface HubReads {
   queue: unknown;
   diary: unknown;
   proxy: unknown;
+  automations: unknown;
   /** reading: nothing answered yet; ok: the hub answered; down: it did not. */
   state: 'reading' | 'ok' | 'down';
+  /** The hub's last answer, kept on screen while it is silent. */
+  okAt: number | null;
+  /** The first read the hub did not answer, since it last did. */
+  downSince: number | null;
 }
 
 async function readJson(path: string): Promise<unknown> {
@@ -65,19 +81,33 @@ async function readJson(path: string): Promise<unknown> {
   }
 }
 
-/** The hub's queue and diary and the proxy's sessions, while the level is open. */
+/**
+ * The hub's queue, diary and automations and the proxy's sessions, while the
+ * level is open. The automations answer last (their first read after a cold
+ * start takes seconds): they arrive on their own and never hold the rest. They
+ * weigh most of a megabyte, so they are read once a minute, not every round.
+ */
 function useHubJobs(enabled: boolean): HubReads & { reread: () => void } {
-  const [reads, setReads] = useState<HubReads>({ queue: null, diary: null, proxy: null, state: 'reading' });
+  const [reads, setReads] = useState<HubReads>({ queue: null, diary: null, proxy: null, automations: null, state: 'reading', okAt: null, downSince: null });
   const alive = useRef(true);
-  const read = useCallback(async () => {
+  const round = useRef(0);
+  const read = useCallback(async (force = false) => {
+    if (force || round.current++ % AUTOMATIONS_EVERY === 0) {
+      void readJson('/api/hub/automations').then((automations) => {
+        if (alive.current && automations !== null) setReads((r) => ({ ...r, automations }));
+      });
+    }
     const [queue, diary, proxy] = await Promise.all([
       readJson('/api/hub/queue'),
       readJson('/api/hub/diario?days=2'),
       readJson('/api/switchboard/sessions'),
     ]);
     if (!alive.current) return;
-    const answered = queue !== null || diary !== null;
-    setReads({ queue, diary, proxy, state: answered ? 'ok' : 'down' });
+    if (queue !== null || diary !== null) {
+      setReads((r) => ({ ...r, queue, diary, proxy, state: 'ok', okAt: Date.now(), downSince: null }));
+    } else {
+      setReads((r) => ({ ...r, state: 'down', downSince: r.downSince ?? Date.now() }));
+    }
   }, []);
   useEffect(() => {
     alive.current = true;
@@ -86,7 +116,7 @@ function useHubJobs(enabled: boolean): HubReads & { reread: () => void } {
     const stop = startVisibleInterval(() => { void read(); }, POLL_MS);
     return () => { alive.current = false; stop(); };
   }, [enabled, read]);
-  return { ...reads, reread: () => { void read(); } };
+  return { ...reads, reread: () => { void read(true); } };
 }
 
 function useClock(locale: string) {
@@ -109,6 +139,13 @@ function shortTokens(n: number, locale: string): string {
   return String(n);
 }
 
+const STEP_FILL: Record<StepMark, string> = {
+  done: 'bg-emerald-600 dark:bg-emerald-400',
+  active: 'bg-primary',
+  failed: 'bg-red-600 dark:bg-red-400',
+  todo: 'bg-app-border-light',
+};
+
 const SOURCE_ICON: Record<JobRow['source'], LucideIcon> = {
   topic: MessageSquare,
   terminal: SquareTerminal,
@@ -119,7 +156,7 @@ const SOURCE_ICON: Record<JobRow['source'], LucideIcon> = {
 
 /** The glyph says the kind of thing; a waiting, held or ended row says its state instead. */
 function leadOf(row: JobRow): { Icon: LucideIcon; tone: string } {
-  if (row.tone === 'you') return { Icon: MessageCircleQuestion, tone: WARNING_TEXT };
+  if (row.tone === 'you') return { Icon: row.source === 'workflow' ? Workflow : MessageCircleQuestion, tone: WARNING_TEXT };
   if (row.tone === 'quota') return { Icon: Pause, tone: 'text-app-text-secondary' };
   if (row.tone === 'line') return { Icon: row.source === 'workflow' ? Clock : SOURCE_ICON[row.source], tone: 'text-app-text-secondary' };
   if (row.tone === 'ok') return { Icon: Check, tone: SUCCESS_TEXT };
@@ -127,34 +164,53 @@ function leadOf(row: JobRow): { Icon: LucideIcon; tone: string } {
   return { Icon: SOURCE_ICON[row.source], tone: 'text-app-text-secondary' };
 }
 
-function titleOf(tr: Tr, row: JobRow): string {
+function titleOf(tr: Tr, row: Pick<JobRow, 'title' | 'repairOf' | 'fallback' | 'project' | 'channel'>): string {
   if (row.title) return row.title;
+  if (row.repairOf) return tr('agentsJobs.repair', { name: row.repairOf });
+  if (row.fallback === 'jarvis') return tr('agentsJobs.fallback.jarvis', { channel: row.channel ?? '' });
+  if (row.fallback === 'workflowAgent') return tr('agentsJobs.fallback.workflowAgent');
   if (row.fallback === 'proxy') return tr('agentsJobs.fallback.proxy');
   return row.project ? tr('agentsJobs.fallback.jobOn', { project: row.project }) : tr('agentsJobs.fallback.job');
 }
 
-function metaOf(tr: Tr, row: JobRow, locale: string): string {
+function metaOf(tr: Tr, row: JobRow, locale: string, now: number): string {
   const parts: string[] = [];
   if (row.source === 'topic' || row.source === 'terminal') {
     parts.push(tr(row.source === 'topic' ? 'agentsJobs.src.topic' : 'agentsJobs.src.terminal'));
-    if (row.tone === 'you') parts.push(tr('agentsJobs.meta.waitsYou'));
+    if (row.tone === 'you') parts.push(row.at !== null ? tr('agentsJobs.meta.waitingFor', { t: elapsed(tr, now - row.at) }) : tr('agentsJobs.meta.waitsYou'));
     if (row.tone === 'ok') parts.push(tr('agentsJobs.meta.finishedTurn'));
   } else if (row.source === 'proxy') {
     parts.push(tr('agentsJobs.src.proxy'));
     if (row.model) parts.push(row.model);
+    if (row.project) parts.push(row.project);
     if (row.requests) parts.push(row.requests === 1 ? tr('agentsJobs.meta.requestsOne') : tr('agentsJobs.meta.requests', { n: row.requests }));
     if (row.tokens) parts.push(tr('agentsJobs.meta.tokens', { n: shortTokens(row.tokens, locale) }));
     if (row.tone === 'ok' && row.durationMs) parts.push(elapsed(tr, row.durationMs));
   } else if (row.source === 'queue') {
     // A job still in line has no executor yet: it is the hub's, and says so.
     parts.push(row.provider ?? tr(row.tone === 'line' || row.tone === 'quota' ? 'agentsJobs.src.queue' : 'agentsJobs.meta.noExecutor'));
-    if (row.project && row.title) parts.push(row.project);
+    // A job in line says what it waits on; the others where they work.
+    const w = row.tone === 'line' ? row.waitsOn : undefined;
+    if (w?.kind === 'reason') parts.push(tr('agentsJobs.meta.waitsOn', { why: w.why }));
+    else if (w?.kind === 'macFree') parts.push(tr('agentsJobs.meta.macFree'));
+    else if (w?.kind === 'after') parts.push(tr('agentsJobs.meta.after', { title: titleOf(tr, w.row) }));
+    else if (w?.kind === 'next') parts.push(tr('agentsJobs.meta.next'));
+    else if (row.project && (row.title || row.repairOf)) parts.push(row.project);
     if (row.tone === 'quota') parts.push(tr('agentsJobs.meta.restarts'));
     if (row.tone === 'failed' && row.exit !== null && row.exit !== undefined) parts.push(tr('agentsJobs.meta.exit', { n: row.exit }));
     if ((row.tone === 'ok' || row.tone === 'failed') && row.durationMs) parts.push(elapsed(tr, row.durationMs));
   } else {
     parts.push(tr('agentsJobs.src.workflow'));
-    if (row.what) parts.push(row.what);
+    if (row.tone === 'you') {
+      parts.push(row.at !== null ? tr('agentsJobs.meta.waitingFor', { t: elapsed(tr, now - row.at) }) : tr('agentsJobs.meta.waitsYou'));
+    } else if (row.step) {
+      parts.push(tr('agentsJobs.meta.step', { n: row.step.n, of: row.step.of }));
+      if (row.step.title) parts.push(row.step.title);
+    } else if (row.steps && row.steps.length && row.tone !== 'live') {
+      parts.push(row.steps.length === 1 ? tr('agentsJobs.meta.phasesOne') : tr('agentsJobs.meta.phases', { n: row.steps.length }));
+    }
+    if (row.agents) parts.push(row.agents === 1 ? tr('agentsJobs.meta.agentsOne') : tr('agentsJobs.meta.agents', { n: row.agents }));
+    if (row.tone !== 'live' && row.tone !== 'you' && row.durationMs) parts.push(elapsed(tr, row.durationMs));
   }
   return parts.join(' · ');
 }
@@ -162,7 +218,7 @@ function metaOf(tr: Tr, row: JobRow, locale: string): string {
 function rightOf(tr: Tr, row: JobRow, clock: (at: number) => string, now: number): string {
   if (row.tone === 'line' && row.rank) return tr('agentsJobs.rank', { n: row.rank });
   if (row.at === null) return '';
-  if (row.tone === 'live') return elapsed(tr, now - row.at);
+  if (row.tone === 'live' || row.tone === 'you') return elapsed(tr, now - row.at);
   return clock(row.at);
 }
 
@@ -211,11 +267,25 @@ export function AgentsJobsLevel({ onNavigate }: AgentsJobsLevelProps) {
   const clock = useClock(locale);
   const hubPresent = useHubEverRead();
   const hub = useHubJobs(hubPresent);
-  const topics = useActiveAgentRows(useTerminalSessions(), useTopics());
+  const rows = useActiveAgentRows(useTerminalSessions(), useTopics());
+  const attention = useAttentionRows();
+  // What a row waiting on you asks, and since when: the attention store has it, one line.
+  const topics = useMemo(() => ({
+    ...rows,
+    awaitingInput: rows.awaitingInput.map((r) => {
+      const a = attentionOf(attention, r.kind === 'topic' ? topicSubject(r.id) : terminalSubject(r.id));
+      return { ...r, question: a.detail, since: a.since || null };
+    }),
+  }), [rows, attention]);
   const view: AgentsJobsView = useMemo(
-    () => agentsJobs({ topics, queue: hub.queue, diary: hub.diary, proxy: hub.proxy, now }),
-    [topics, hub.queue, hub.diary, hub.proxy, now],
+    () => agentsJobs({ topics, queue: hub.queue, diary: hub.diary, proxy: hub.proxy, automations: hub.automations, now }),
+    [topics, hub.queue, hub.diary, hub.proxy, hub.automations, now],
   );
+  // The row of System counts the gates too, from the same read.
+  const gates = view.decide - topics.awaitingInput.length;
+  useEffect(() => { setGateWaits(gates); }, [gates]);
+  const closeLevel = useCloseLevel();
+  const automationsHref = hubPresent ? hubPageHref('#automations') : null;
   const [chosen, setChosen] = useState<JobFilter | null>(null);
   const filter = chosen ?? openingFilter(view);
   const [withdrawn, setWithdrawn] = useState<Set<string>>(() => new Set());
@@ -240,19 +310,37 @@ export function AgentsJobsLevel({ onNavigate }: AgentsJobsLevelProps) {
     .map((s) => ({ ...s, rows: s.rows.filter((r) => !r.cancelId || !withdrawn.has(r.cancelId)) }))
     .filter((s) => s.rows.length > 0);
   const hubDown = hubPresent && hub.state === 'down';
+  const downFor = hub.downSince !== null ? elapsed(tr, now - hub.downSince) : '';
+  const freshness = hubPresent && (
+    <span data-testid="agents-jobs-freshness" className="flex items-center gap-1.5 text-mini text-app-text-secondary">
+      <span className={`h-1.5 w-1.5 rounded-full ${hubDown ? PALLINO_ATTESA : PALLINO_OK}`} />
+      {hub.state === 'reading' ? tr('agentsJobs.reading') : hubDown ? tr('agentsJobs.hubDownFor', { t: downFor }) : tr('agentsJobs.updated')}
+    </span>
+  );
 
   const pad = isMobile ? 'px-4' : 'px-3';
   return (
     <div data-testid="agents-jobs-level" data-filter={filter} className="flex min-w-0 flex-col">
-      <div className={`flex items-center gap-2 ${pad} pb-1.5 pt-2.5`}>
-        <span className={`flex-1 font-semibold text-app-text ${isMobile ? 'text-body-lg' : 'text-compact'}`}>{tr('agentsJobs.open')}</span>
-        {hubPresent && (
-          <span data-testid="agents-jobs-freshness" className="flex items-center gap-1.5 text-mini text-app-text-secondary">
-            <span className={`h-1.5 w-1.5 rounded-full ${hubDown ? PALLINO_ATTESA : PALLINO_OK}`} />
-            {hub.state === 'reading' ? tr('agentsJobs.reading') : hubDown ? tr('agentsJobs.hubDown') : tr('agentsJobs.updated')}
-          </span>
-        )}
-      </div>
+      {isMobile ? (
+        // The phone: one sheet in sight, the way back to System and the close of the whole menu.
+        <>
+          <div className="relative flex h-11 items-center px-1">
+            <button type="button" data-testid="agents-jobs-back" onClick={closeLevel} className="flex h-11 items-center gap-0.5 px-2 text-body-lg text-primary">
+              <ChevronLeft size={18} aria-hidden="true" />{tr('agentsJobs.back')}
+            </button>
+            <span className="pointer-events-none absolute inset-x-0 text-center text-body-lg font-semibold text-app-text">{tr('agentsJobs.open')}</span>
+            <button type="button" data-testid="agents-jobs-close" aria-label={tr('agentsJobs.close')} onClick={() => onNavigate?.()} className="ml-auto grid h-11 w-11 place-items-center text-app-text-secondary">
+              <X size={18} aria-hidden="true" />
+            </button>
+          </div>
+          <div className="flex justify-center pb-2">{freshness}</div>
+        </>
+      ) : (
+        <div className={`flex items-center gap-2 ${pad} pb-1.5 pt-2.5`}>
+          <span className="flex-1 text-compact font-semibold text-app-text">{tr('agentsJobs.open')}</span>
+          {freshness}
+        </div>
+      )}
 
       <div role="tablist" className="mx-2.5 mb-1.5 grid grid-cols-3 gap-0.5 rounded border border-app-border bg-app-inset p-0.5">
         {FILTERS.map((f) => (
@@ -287,7 +375,7 @@ export function AgentsJobsLevel({ onNavigate }: AgentsJobsLevelProps) {
         {hubDown && (
           <div data-testid="agents-jobs-hub-down" className={`flex items-center gap-2 ${pad} py-1.5 text-mini ${WARNING_TEXT}`}>
             <CloudOff size={12} className="flex-none" aria-hidden="true" />
-            <span className="flex-1">{tr('agentsJobs.hubDown')}</span>
+            <span className="flex-1">{hub.okAt !== null ? tr('agentsJobs.hubDownSince', { t: downFor, time: clock(hub.okAt) }) : tr('agentsJobs.hubDown')}</span>
             <button type="button" className="text-primary hover:underline" onClick={hub.reread}>{tr('agentsJobs.retry')}</button>
           </div>
         )}
@@ -309,7 +397,7 @@ export function AgentsJobsLevel({ onNavigate }: AgentsJobsLevelProps) {
                 tr={tr}
                 pad={pad}
                 isMobile={isMobile}
-                meta={metaOf(tr, row, locale)}
+                meta={metaOf(tr, row, locale, now)}
                 right={rightOf(tr, row, clock, now)}
                 failedWithdraw={row.cancelId !== undefined && failedWithdraw === row.cancelId}
                 onOpen={row.target ? () => openTarget(row, onNavigate) : undefined}
@@ -320,17 +408,27 @@ export function AgentsJobsLevel({ onNavigate }: AgentsJobsLevelProps) {
         ))}
       </div>
 
-      <div className={`flex items-center gap-1.5 border-t border-app-border ${pad} py-2 text-mini text-app-text-secondary`}>
+      <div className={`flex min-w-0 items-center gap-1.5 border-t border-app-border ${pad} ${isMobile ? 'py-2.5 text-body' : 'py-2 text-mini'} text-app-text-secondary`}>
         <SquareKanban size={12} className="flex-none" aria-hidden="true" />
-        <span>{tr('agentsJobs.footer')}</span>
-        <button
-          type="button"
-          data-testid="agents-jobs-board"
-          className="text-primary hover:underline"
-          onClick={() => { onNavigate?.(); window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'board' } })); }}
-        >
-          {tr('agentsJobs.footer.board')}
-        </button>
+        <span className="min-w-0 truncate">
+          {tr(isMobile ? 'agentsJobs.footer.short' : 'agentsJobs.footer')}{' '}
+          <button
+            type="button"
+            data-testid="agents-jobs-board"
+            className="text-primary hover:underline"
+            onClick={() => { onNavigate?.(); window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'board' } })); }}
+          >
+            {tr('agentsJobs.footer.board')}
+          </button>
+          {automationsHref && (
+            <>
+              {' · '}{tr(isMobile ? 'agentsJobs.footer.calendarShort' : 'agentsJobs.footer.calendar')}{' '}
+              <a data-testid="agents-jobs-automations" href={automationsHref} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                {tr('agentsJobs.footer.automations')}
+              </a>
+            </>
+          )}
+        </span>
       </div>
     </div>
   );
@@ -358,7 +456,7 @@ function Section({ section, tr, pad, limit, onMore, renderRow }: {
       </div>
       {decide
         ? rows.map((r) => (
-          <div key={r.key} className="mx-2 mb-1.5 rounded border border-amber-500/40 bg-amber-500/[0.07]">{renderRow(r)}</div>
+          <div key={r.key} data-testid="agents-jobs-decide-card" className="mx-2 mb-1.5 rounded border border-amber-500/40 bg-amber-500/[0.07] pb-2">{renderRow(r)}</div>
         ))
         : rows.map(renderRow)}
       {hidden > 0 && (
@@ -399,15 +497,49 @@ function Row({ row, tr, pad, isMobile, meta, right, failedWithdraw, onOpen, onWi
           {row.tone === 'failed' && <span className={`flex-none rounded-xs bg-red-500/10 px-1 text-mini font-semibold ${DANGER_TEXT}`}>{tr('agentsJobs.chip.failed')}</span>}
         </span>
         {meta && <span className="block truncate text-mini text-app-text-secondary" title={meta}>{meta}</span>}
+        {row.steps && row.steps.length > 0 && (
+          <span data-testid="agents-jobs-steps" className="mt-1.5 flex gap-[3px]" aria-hidden="true">
+            {row.steps.map((m, i) => <i key={i} data-step={m} className={`h-[3px] flex-1 rounded-full ${STEP_FILL[m]}`} />)}
+          </span>
+        )}
         {failedWithdraw && <span className={`block text-mini ${DANGER_TEXT}`}>{tr('agentsJobs.withdrawFailed')}</span>}
       </span>
       {right && <span className="mt-0.5 flex-none text-mini tabular-nums text-app-text-secondary">{right}</span>}
     </>
   );
   const rowClass = `flex w-full items-start gap-2 ${pad} ${isMobile ? 'py-2.5' : 'py-1.5'}`;
+  if (row.tone === 'you') {
+    // A card: what it asks, in its words, and the one way to answer it from here.
+    const href = row.hubPage ? hubPageHref(row.hubPage) : null;
+    const act = `inline-flex items-center gap-1 whitespace-nowrap rounded-sm bg-primary px-2.5 font-medium text-white hover:bg-primary/90 ${isMobile ? 'h-9 text-body' : 'h-6 text-mini coarse:h-11'}`;
+    return (
+      <div data-testid={rowTestId(row)} data-kind={row.source} data-tone={row.tone}>
+        <div className={rowClass}>{body}</div>
+        {row.question && (
+          <div data-testid="agents-jobs-question" className={`${isMobile ? 'ml-[46px] text-body' : 'ml-[38px] text-compact'} mr-3 text-app-text`}>“{row.question}”</div>
+        )}
+        {(onOpen || href) && (
+          <div className={`${isMobile ? 'ml-[46px]' : 'ml-[38px]'} mt-2 flex flex-wrap gap-1.5`}>
+            {onOpen && (
+              <button type="button" data-testid="agents-jobs-open" onClick={onOpen} className={act}>
+                {tr(row.source === 'terminal' ? 'agentsJobs.openTerminal' : 'agentsJobs.openChat')}
+                <ChevronRight size={12} aria-hidden="true" />
+              </button>
+            )}
+            {!onOpen && href && (
+              <a data-testid="agents-jobs-open-hub" href={href} target="_blank" rel="noopener noreferrer" className={act}>
+                {tr('agentsJobs.openAutomations')}
+                <ChevronRight size={12} aria-hidden="true" />
+              </a>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
   return (
     <div data-testid={rowTestId(row)} data-kind={row.source} data-tone={row.tone} className="group flex items-start">
-      {onOpen && row.tone !== 'you'
+      {onOpen
         ? <button type="button" onClick={onOpen} className={`${rowClass} hover:bg-app-hover`}>{body}</button>
         : <div className={rowClass}>{body}</div>}
       {onWithdraw && (
@@ -422,21 +554,6 @@ function Row({ row, tr, pad, isMobile, meta, right, failedWithdraw, onOpen, onWi
           <X size={13} aria-hidden="true" />
         </button>
       )}
-      {onOpen && row.tone === 'you' && <OpenButton tr={tr} row={row} onOpen={onOpen} isMobile={isMobile} />}
     </div>
-  );
-}
-
-function OpenButton({ tr, row, onOpen, isMobile }: { tr: Tr; row: JobRow; onOpen: () => void; isMobile: boolean }) {
-  return (
-    <button
-      type="button"
-      data-testid="agents-jobs-open"
-      onClick={onOpen}
-      className={`mr-2 mt-1 inline-flex flex-none items-center gap-1 whitespace-nowrap rounded-sm bg-primary px-2.5 font-medium text-white hover:bg-primary/90 ${isMobile ? 'h-11 text-body-lg' : 'h-[26px] text-compact coarse:h-11'}`}
-    >
-      {tr(row.source === 'terminal' ? 'agentsJobs.openTerminal' : 'agentsJobs.openChat')}
-      <ChevronRight size={12} aria-hidden="true" />
-    </button>
   );
 }
