@@ -54,7 +54,7 @@ async function openBoard(page: Page): Promise<void> {
   await page.goto(E2E_BASE);
   await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
   await page.evaluate(() => window.dispatchEvent(new CustomEvent("topics:open-utility", { detail: { type: "board" } })));
-  await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("kanban-board").first()).toBeVisible({ timeout: 15_000 });
 }
 
 /** A reset still within today, so the chip reads «alle HH:MM» on any clock. */
@@ -106,8 +106,8 @@ test.describe("board: the «Frenato» chip", () => {
 
     // Codex held too, later than Claude: both names, Claude's earlier time.
     await request.post(`${E2E_BASE}/api/test/provider-hold`, { data: { provider: "codex", untilMs: resetsAtMs + 60_000, window: "usage_limit" } });
-    await page.reload();
-    await expect(page.getByTestId("kanban-board").first()).toBeVisible({ timeout: 20_000 });
+    // Back on the board, in a fresh page: the chip reads the brakes again on mount.
+    await openBoard(page);
     await expect(page.getByTestId("board-brake-chip")).toHaveText(`Frenato · Claude e Codex · riparte alle ${at}`, { timeout: 20_000 });
   });
 
