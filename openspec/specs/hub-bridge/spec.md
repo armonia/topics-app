@@ -254,3 +254,26 @@ Where the hub is part of the installation, a project's sidebar row SHALL carry w
 - **GIVEN** nobody answers on the hub's address
 - **WHEN** the sidebar and a project's menu open
 - **THEN** neither SHALL carry anything of the hub
+
+### Requirement: HUBBR-17 — Contesto degli agenti in System, the contradictions check only on confirmation
+
+Where the hub is part of the installation, System SHALL carry «Contesto degli agenti» after «Agenti e lavori», a level whose row says the weight of Claude Code at start («15 k tok di base», from the hub's `/api/contesto`). The level SHALL show the weight per harness (Claude Code, Codex, jcode, OpenClaw), the sessions opened in the home folder as Claude Code's extra and not as a harness of their own; the files read at start with who reads them and, on a tap, their text from `/api/context/text`; the list of skills; the sources read on demand folded; the lines repeated across files; the rules with an old date, oldest first; and the hub's last contradictions check with its time and, for each, why and the two rules with the label of their file. Files are named by the hub's labels, never by id or path. «Cerca contraddizioni» makes an agent work: it SHALL ask before it starts, send `POST /api/contesto/check` only after «Avvia il controllo», say that an agent is reading the rules while the hub says the check runs, and show what the agent found when it ends; a refused start SHALL show the hub's reason. A hub that stops answering SHALL keep the last answer on screen with a band and «Riprova». Without the hub the row SHALL not exist. The level comes in its own chunk.
+
+#### Scenario: The context and a check on confirmation
+- **GIVEN** a hub whose context weighs 14,888 tokens for Claude Code, with a memory index read only in the home sessions, an old rule and no contradiction found yet
+- **WHEN** System > «Contesto degli agenti» opens, a file is tapped and «Cerca contraddizioni» is pressed, then cancelled, then pressed again and confirmed
+- **THEN** the row SHALL say «15 k tok di base», the level SHALL list four harnesses with the home sessions under Claude Code, the file's text SHALL show, the hub SHALL receive no check before the confirmation and exactly one after it, and the contradiction the agent found SHALL show when the hub says the check is over
+
+#### Scenario: No hub
+- **GIVEN** nobody answers on the hub's address
+- **WHEN** System opens
+- **THEN** it SHALL offer neither «Contesto degli agenti» nor «Funzionalità»
+
+### Requirement: HUBBR-18 — Funzionalità opened from System and the palette, never from the sidebar
+
+Where the hub is part of the installation, System SHALL carry «Funzionalità» after «Processi», whose tail says how many features Jarvis is behind on, and the command palette SHALL carry «Funzionalità»; both SHALL open the view «Funzionalità», a singleton pane that neither the «+» nor a row of its own in the sidebar offers. The view SHALL read the hub's `/api/features` and show the verdict (where Jarvis is behind, out of how many features, how many systems are compared, Jarvis's share and place, the map's date), the ranking of the systems named without the repository in brackets, and the features area by area with Jarvis's share and place in each: by default only those where Jarvis is behind, or all of them, with a search. A feature SHALL open in place with who has it, who has it in part and the hub's news on it, the links opening outside. A hub that stops answering SHALL keep the last map with a band and «Riprova». Without the hub neither the row nor the palette entry SHALL exist. The view comes in its own chunk.
+
+#### Scenario: The map from System and from the palette
+- **GIVEN** a hub with 16 systems, 172 features and 47 where Jarvis is behind
+- **WHEN** System opens, then «Funzionalità», then the palette's «Funzionalità»
+- **THEN** the row SHALL say «47 indietro», the view SHALL say «47 dove Jarvis è indietro, su 172 voci», list only the features behind until «Tutte» is chosen, open a feature with who has it, and the palette SHALL bring back the same single view; no sidebar row of its own and no «+» entry SHALL offer it

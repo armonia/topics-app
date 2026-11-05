@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import { Activity, Bot, Cpu, MonitorCog, Tag } from 'lucide-react';
+import { Activity, Bot, Cpu, Tag } from 'lucide-react';
 import { getVersion, relaunch, reloadAllWindows } from '@/lib/shell/app';
 import { isDesktop } from '@/lib/shell';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
@@ -25,7 +25,6 @@ import { busyDotColor, busyTone } from '../../lib/machineBusy';
 import type { WorkSignal } from './workSignals';
 import { apiFetch } from '../../lib/shell/net';
 import { useHubEverRead, useHubLive } from '@/state/hubLive';
-import { menuRowClass } from './menuRow';
 import { useActiveAgentRows } from '@/state/signals';
 import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 import { PALLINO_ATTESA } from './chromeSignals';
@@ -138,6 +137,11 @@ const importAgentsJobsLevel = async () => {
   return { default: Component };
 };
 const AgentsJobsLevel = lazy(importAgentsJobsLevel);
+// The rows that exist only with the hub: context, processes, features.
+const HubSystemRows = lazy(async () => {
+  const { HubSystemRows: Rows } = await import('./HubSystemRows');
+  return { default: Rows };
+});
 
 export interface SidebarSystemMenuProps {
   /** Apre il changelog. La versione viaggia col gesto perché la modale la
@@ -406,25 +410,14 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
             usage row in the menu with your name (HUBBR-12): kept here too it
             would be the duplicate the hub map removes. */}
 
-        {/* THE MACHINE IS A VIEW NOW, not a level. «This computer» listed the
-            server, the gateway and the restart in a popover; with the usage hub
-            those are services of the machine's Processes (Mac, PC, services,
-            the proxy's log), a pane beside the work. What stays a fact of this
-            window (open tabs, archived, the health list) moved under
-            Performance above. Without the hub there is nothing to open. */}
+        {/* THE MACHINE IS A VIEW NOW, not a level: «Processi» is a pane beside
+            the work (HUBBR-04). With it, the agents' context (a level) and
+            the feature map (a view): the three rows exist only where the hub
+            answers, so they come in their own chunk, off the first download. */}
         {hubPresent && (
-          <button
-            type="button"
-            className={menuRowClass(isMobile)}
-            data-testid="menu-system-processes"
-            onClick={() => {
-              onNavigate?.();
-              window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'processes' } }));
-            }}
-          >
-            <MonitorCog size={14} className="flex-shrink-0 text-app-text-secondary" aria-hidden="true" />
-            <span className="min-w-0 flex-1 truncate text-left">{tr('processes.open')}</span>
-          </button>
+          <Suspense fallback={null}>
+            <HubSystemRows isMobile={isMobile} onNavigate={onNavigate} />
+          </Suspense>
         )}
       </SubmenuItem>
 

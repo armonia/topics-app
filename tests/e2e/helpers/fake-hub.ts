@@ -34,11 +34,17 @@
  * (studio-x held by the brake, acme-api in line), a folder for the names the
  * spec gives one, and a priority that `project-settings` writes; `refuseSettings`
  * makes that write fail with the hub's reason.
+ * For the agents' context and the feature map (`context`) the hub answers
+ * the whole `contesto` and `features` from fake-hub-context.ts, the text of a
+ * file (`context/text?path=`), and takes a contradictions check
+ * (`contesto/check`): running at once, over after `checkMs` with one
+ * contradiction found, like the hub's agent.
  * `quiet` answers a hub with nothing to say: no item, no failure, every
  * service up. Nothing here ever reaches :3360 or :3335.
  */
 import { createServer, type Server } from "node:http";
 import { hubPortFor } from "./test-server";
+import { FOUND_CONTRADICTION, contextModel, contextText, defaultContextCheck, featuresMap, type FakeContextCheck } from "./fake-hub-context";
 import { automationsCalendar, automationsModel, automationsRuns, automationsSummary, feedbackRefusal, workflowRunCost, type FeedbackRow } from "./fake-hub-automations";
 
 export interface FakeHubItem {
@@ -77,6 +83,10 @@ export interface FakeHub {
   priorities: Record<string, string>;
   /** Set: `project-settings` answers 500 with this reason, the way the hub refuses. */
   refuseSettings: string | null;
+  /** The contradictions check of the agents' context, as `contesto/check` moves it. */
+  contextCheck: FakeContextCheck;
+  /** How long the fake agent takes to answer a check. */
+  checkMs: number;
   close(): Promise<void>;
 }
 
@@ -492,8 +502,8 @@ const LOG_LINES = [
   { ts: "14:06:12", tag: "200", msg: "claude · acme-web -> account principale · 1,2 s" },
 ];
 
-export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(), opts: { quiet?: boolean; jobs?: boolean; automations?: boolean; projects?: { dirs: Record<string, string> } } = {}): Promise<FakeHub> {
-  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), withdrawn: [], silent: false, feedback: [], priorities: {}, refuseSettings: null, close: async () => {} };
+export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(), opts: { quiet?: boolean; jobs?: boolean; automations?: boolean; projects?: { dirs: Record<string, string> }; context?: boolean } = {}): Promise<FakeHub> {
+  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), withdrawn: [], silent: false, feedback: [], priorities: {}, refuseSettings: null, contextCheck: defaultContextCheck(), checkMs: 3000, close: async () => {} };
   const server: Server = createServer((req, res) => {
     const path = (req.url ?? "").split("?")[0]!.replace(/^\/api\//, "");
     if (req.method === "GET" && path === "logs/stream") {
@@ -605,6 +615,7 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
       hub.feedback = [];
       hub.priorities = {};
       hub.refuseSettings = null;
+      hub.contextCheck = defaultContextCheck();
       req.resume();
       return send(200, { ok: true });
     }
@@ -622,6 +633,23 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
         send(200, { ok: true, row, queued: null });
       });
       return;
+    }
+    // A contradictions check, as the hub's: one at a time, an agent answers later.
+    if (opts.context && req.method === "POST" && path === "contesto/check") {
+      req.resume();
+      hub.posts.push({ path });
+      if (hub.contextCheck.running) return send(200, { ok: true, already: true });
+      hub.contextCheck = { ...hub.contextCheck, running: true };
+      setTimeout(() => { hub.contextCheck = { at: Date.now(), running: false, items: [FOUND_CONTRADICTION] }; }, hub.checkMs);
+      return send(200, { ok: true });
+    }
+    if (opts.context && req.method === "GET" && (path === "contesto" || path === "features" || path === "context/text")) {
+      if (hub.silent) return send(503, { error: "silent" });
+      const now = Date.now();
+      if (path === "contesto") return send(200, contextModel(now, hub.contextCheck));
+      if (path === "features") return send(200, featuresMap(now));
+      const text = contextText(new URL(req.url ?? "", "http://x").searchParams.get("path") ?? "");
+      return text ? send(200, text) : send(403, { error: "Lettura del file di contesto non autorizzata." });
     }
     if (hub.silent && req.method === "GET" && (path === "queue" || path === "diario" || path === "automations")) return send(503, { error: "silent" });
     if (opts.automations && req.method === "GET") {

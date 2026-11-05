@@ -12,7 +12,7 @@ import { ChatPanel } from './ChatPanel';
 import { TopicColorDot } from '../Shared/TopicColorDot';
 import { LazyPane } from './LazyPane';
 import { lazyWarm } from '../../lib/lazyWarm';
-import { loadBoard, loadBrowser, loadAutomations, loadAccountQuotas, loadDashboard, loadMachineProcesses, loadProfile, loadTerminal } from '../../state/pane/panePreload';
+import { loadBoard, loadBrowser, loadAutomations, loadAccountQuotas, loadFeatures, loadDashboard, loadMachineProcesses, loadProfile, loadTerminal } from '../../state/pane/panePreload';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { AutomationsPhoneBell, AutomationsPhoneGlyph } from '../Sidebar/AutomationsRow';
 import { DND_TYPES, STANDALONE_SCOPE, dragMatchesScope } from '../../lib/dndTypes';
@@ -78,6 +78,7 @@ const ProfilePane = lazyWarm(loadProfile, (m) => m.ProfilePane);
 const MachineProcessesPane = lazyWarm(loadMachineProcesses, (m) => m.MachineProcessesPane);
 const AccountQuotasPane = lazyWarm(loadAccountQuotas, (m) => m.AccountQuotasPane);
 const AutomationsPane = lazyWarm(loadAutomations, (m) => m.AutomationsPane);
+const FeaturesPane = lazyWarm(loadFeatures, (m) => m.FeaturesPane);
 
 
 interface StandaloneChatGroupProps {
@@ -897,6 +898,7 @@ export function StandaloneChatGroup({
           {utilityType === 'processes' && <MachineProcessesPane />}
           {utilityType === 'accounts' && <AccountQuotasPane />}
           {utilityType === 'automations' && <AutomationsPane />}
+          {utilityType === 'features' && <FeaturesPane />}
         </LazyPane>
       );
     }

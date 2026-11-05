@@ -626,6 +626,8 @@ export default defineConfig({
         "**/agents-jobs.spec.ts",
         // Automazioni: the hub's model with the OpenClaw commands, same reason as the bell.
         "**/automations.spec.ts",
+        // The agents' context and the feature map, same reason as the bell.
+        "**/context-features.spec.ts",
         // Consumi in the Dashboard: the hub's numbers beside the board's, same reason as the bell.
         "**/dashboard-consumi.spec.ts",
         // The project row with the hub's state and its menu, same reason as the bell.

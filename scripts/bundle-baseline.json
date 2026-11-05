@@ -853,7 +853,10 @@
     "Cosa compra: il chunk pigro AgentsJobsLevel (sessioni di Topics e del proxy, coda dell'hub con «Togli dalla coda», workflow, filtri In corso / In attesa / Finiti) con le letture pure di lib/agentsJobs e i dizionari IT+EN, che viaggiano col chunk (addCatalogue). Nell'entry restano la riga di Sistema e le sue 4 chiavi. Il tetto segue la misura: total_assets 9.200.000 -> 9.250.000.",
     "",
     "2026-11-05, Automazioni (hub-smistamento, HUBBR-14/15): misurato sul Mac (PC non raggiungibile) con `offload -- \"bun run build:client && bun run check:bundle\"`, total_assets 9.436.884 contro un tetto di 9.435.000 (9.250.000 +2%), entry_eager raw 950.311 / gz 307.322 (3.993 byte sotto la misura della traccia prima: il pannello Cron e le sue chiavi sono usciti dall'entry).",
-    "Cosa compra: il chunk pigro AutomationsPane (49 KB: verdetto, Decidi tu, sistemi con i comandi sui job di OpenClaw, voti e note riletti dall'hub, Risolvi tu, giri, Calendario) e le letture pure di lib/automations (8 KB), con i dizionari IT+EN via addCatalogue, al posto del chunk CronJobsPanel (6 KB) che sparisce. Nell'entry restano la riga Automazioni della sidebar, la voce di Cmd+K e 4 chiavi. Il tetto segue la misura: total_assets 9.250.000 -> 9.300.000."
+    "Cosa compra: il chunk pigro AutomationsPane (49 KB: verdetto, Decidi tu, sistemi con i comandi sui job di OpenClaw, voti e note riletti dall'hub, Risolvi tu, giri, Calendario) e le letture pure di lib/automations (8 KB), con i dizionari IT+EN via addCatalogue, al posto del chunk CronJobsPanel (6 KB) che sparisce. Nell'entry restano la riga Automazioni della sidebar, la voce di Cmd+K e 4 chiavi. Il tetto segue la misura: total_assets 9.250.000 -> 9.300.000.",
+    "",
+    "2026-11-05, Contesto degli agenti e Funzionalità (hub-smistamento, HUBBR-17/18): misurato sul PC con `bun run build:client && bun run check:bundle`, total_assets 9.525.692 contro un tetto di 9.486.000 (9.300.000 +2%), entry_eager raw 956.084 / gz 309.392 (sotto il tetto di 958.055).",
+    "Cosa compra: tre chunk pigri, HubSystemRows (10 KB: le righe di Sistema che esistono solo con l'hub, Processi compreso, uscito dall'entry), ContextLevel (15 KB: peso per harness, file col loro testo, doppioni, regole vecchie, controllo delle contraddizioni con conferma) e FeaturesPane (15 KB: verdetto, classifica, voci per area dove Jarvis è indietro), con le letture pure di lib/hubContext e lib/hubFeatures e i dizionari IT+EN via addCatalogue. Nell'entry restano un lazy() in Sistema, la voce di Cmd+K e 2 chiavi. Il tetto segue la misura: total_assets 9.300.000 -> 9.350.000."
   ],
   "updated": "2026-11-05",
   "tolerance_pct": 2,
@@ -867,6 +870,6 @@
     "files": 5
   },
   "total_assets": {
-    "raw": 9300000
+    "raw": 9350000
   }
 }

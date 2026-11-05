@@ -51,6 +51,9 @@ const IT: Dict = {
   'automations.open': 'Automazioni',
   'automations.openHint': 'Lavori a orario di Jarvis, Mac, GitHub, PC e workflow',
   'automations.toFix': '{n} da sistemare',
+  // System and the palette open the feature map; its strings come with its chunk.
+  'features.open': 'Funzionalità',
+  'features.openHint': 'Il confronto fra i sistemi di agenti, dove Jarvis è indietro',
   'automations.hubDown': 'hub fermo',
   // The row of «Agenti e lavori» in System (HUBBR-13); the level's own strings
   // come with its chunk (`i18n-agents-jobs-it.ts`).

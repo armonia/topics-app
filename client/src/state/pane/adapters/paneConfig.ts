@@ -88,6 +88,9 @@ export const PANE_CONFIG: Partial<Record<PaneType, PaneConfig>> = {
   // The hub's automations, which take the place of the Cron panel (HUBBR-14):
   // opened from the row above the Board and from the palette, only where the hub is.
   automations:   { icon: 'Workflow',      label: 'Automazioni',  color: '#0066ff', singleton: true },
+  // The hub's feature map (HUBBR-18): opened from System and the palette only,
+  // never from the «+» nor from a row of its own in the sidebar.
+  features:      { icon: 'Blocks',        label: 'Funzionalità', color: '#0066ff', singleton: true }, // allow-italian: a tab title the pane store keeps, like every label above
 };
 
 /**

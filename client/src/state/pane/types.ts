@@ -40,6 +40,7 @@ export const PANE_TYPES = [
   'processes',
   'accounts',
   'automations',
+  'features',
 ] as const;
 
 export type PaneType = (typeof PANE_TYPES)[number];

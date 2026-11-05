@@ -48,6 +48,8 @@ const EN = {
   'accounts.notifHint': 'Mac notifications on account switches, limits and errors',
   'automations.open': 'Automations',
   'automations.openHint': 'Scheduled jobs of Jarvis, Mac, GitHub, PC and workflows',
+  'features.open': 'Features',
+  'features.openHint': 'The comparison between agent systems, where Jarvis is behind',
   'automations.toFix': '{n} to fix',
   'automations.hubDown': 'hub down',
   // The row of «Agenti e lavori» in System (HUBBR-13); the level's own strings

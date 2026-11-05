@@ -790,6 +790,9 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     // Automations have their own row above the Board too (HUBBR-14), selected
     // while the tab is open: a generic row would list them twice.
     if (utilType === 'automations') continue;
+    // The feature map is at hand, not in sight (HUBBR-18): System and the
+    // palette open it, the tab bar holds it, the sidebar never lists it.
+    if (utilType === 'features') continue;
     const config = getPaneConfig(utilType as PaneType);
     items.push({
       id: paneId,
