@@ -9,7 +9,7 @@
  * «Risolvi tu». Then the systems: Jarvis (OpenClaw: run, switch on and off,
  * delete, through Topics' cron routes, off when the gateway does not answer),
  * Mac and GitHub read-only, PC and the workflows. A system all in order folds
- * into «Le altre aree». A row opens its detail: votes and notes written to the
+ * into the "other areas" block. A row opens its detail: votes and notes written to the
  * hub's feedback log and read back, and the runs. The Calendar tab holds the
  * hub's dated reminders and jobs.
  *
@@ -39,7 +39,7 @@ import { BOX, BUTTON, BUTTON_PRIMARY, SECTION, SECTION_COUNT, SECTION_REST, SYST
 addCatalogue('it', AUTOMATIONS_IT);
 addCatalogue('en', AUTOMATIONS_EN);
 
-/** Rows of a system shown before «altre N in ordine». */
+/** Rows of a system shown before the "N more, all fine" fold. */
 const ROWS_SHOWN = 5;
 /** Below this width the detail is a sheet from the bottom instead of a side panel. */
 const SIDE_PANEL_MIN = 860;
@@ -284,14 +284,14 @@ function DecideList({ rows, selectedKey, data, onSelect, onRun }: { rows: Automa
       </h2>
       <div className={BOX} data-testid="automations-decide">
         {rows.map((r) => {
-          const sel = r.key === selectedKey;
+          const isSelected = r.key === selectedKey;
           const sub = [r.reason, tr(`auto.system.${r.system}`), r.when].filter(Boolean).join(' · ');
           return (
             <div
               key={r.key}
               data-testid="automations-decide-row"
               data-key={r.key}
-              className={`flex items-center gap-2.5 border-t border-app-border-subtle px-3 py-2.5 first:border-t-0 @max-2xl:flex-wrap @max-2xl:py-3 ${sel ? 'bg-primary/10 shadow-[inset_2px_0_0_var(--primary)]' : ''}`}
+              className={`flex items-center gap-2.5 border-t border-app-border-subtle px-3 py-2.5 first:border-t-0 @max-2xl:flex-wrap @max-2xl:py-3 ${isSelected ? 'bg-primary/10 shadow-[inset_2px_0_0_var(--primary)]' : ''}`}
             >
               <span className={`flex-none ${r.level === 'rotto' ? DANGER_TEXT : WARNING_TEXT}`} aria-hidden="true">
                 {r.level === 'rotto' ? <CircleX size={15} /> : <AlertTriangle size={15} />}

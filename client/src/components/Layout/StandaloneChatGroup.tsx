@@ -14,6 +14,7 @@ import { LazyPane } from './LazyPane';
 import { lazyWarm } from '../../lib/lazyWarm';
 import { loadBoard, loadBrowser, loadAutomations, loadAccountQuotas, loadDashboard, loadMachineProcesses, loadProfile, loadTerminal } from '../../state/pane/panePreload';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
+import { AutomationsPhoneBell, AutomationsPhoneGlyph } from '../Sidebar/AutomationsRow';
 import { DND_TYPES, STANDALONE_SCOPE, dragMatchesScope } from '../../lib/dndTypes';
 import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_RESERVE_LEFT, RAISED_CONTROL, ROW_ACTION_BOX, ROW_INSET, TAB_LABEL } from '../../lib/selectionStyles';
 import { CONTENT_CHROME_INSET_PROPERTY } from '../../lib/shell/windowControlsGeometry';
@@ -406,6 +407,8 @@ export function StandaloneChatGroup({
   // nome in cima e quello nella colonna non possono divergere: sono la stessa
   // stringa passata per due strade.
   const surfaceInFront = panes.find((p) => p.id === activePaneId);
+  // The Automations view carries its glyph and the bell in the phone's header (HUBBR-14).
+  const automationsInFront = !!activePaneId && isUtilityPanelId(activePaneId) && parseUtilityPanelType(activePaneId) === 'automations';
   // A browser pane's `title` is now the RAW page title, so the same rule the
   // tab applies has to be applied here too, or the phone's header would go
   // blank on a page that declares no title.
@@ -1022,8 +1025,10 @@ export function StandaloneChatGroup({
               {surfaceInFront?.type === 'chat' && surfaceInFront.topicId && (
                 <TopicColorDot color={topics[surfaceInFront.topicId]?.color} className="mr-2" />
               )}
+              {automationsInFront && <AutomationsPhoneGlyph />}
               <span className={`truncate ${TAB_LABEL}`}>{titleSurface}</span>
               <MobileFindButton paneId={activePaneId} />
+              {automationsInFront && <AutomationsPhoneBell />}
               {surfaceInFront && titleSheetKey && (
                 <TabSheet
                   sheetKey={titleSheetKey}

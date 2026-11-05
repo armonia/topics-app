@@ -9,6 +9,7 @@
  * the tab removes the row.
  *
  * @covers TOPIC-02
+ * @covers HUBBR-14
  */
 import { describe, test, expect } from "bun:test";
 import {
@@ -730,6 +731,19 @@ describe("buildSidebarItems — utility tabs (tab-driven, same rule as everythin
     });
     expect(items.find((i) => i.id === "__board__")).toBeUndefined();
     // …while the other utilities still get theirs.
+    expect(items.find((i) => i.id === "__dashboard__")).toBeTruthy();
+  });
+
+  // HUBBR-14: the automations row above the Board is the only one, selected while the tab is open.
+  test("the AUTOMATIONS tab is excluded too: its row above the Board already shows it", () => {
+    const items = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      terminalSessions: [],
+      openPanels: ["__automations__", "__dashboard__"],
+      projectOpenPanes: {},
+    });
+    expect(items.find((i) => i.id === "__automations__")).toBeUndefined();
     expect(items.find((i) => i.id === "__dashboard__")).toBeTruthy();
   });
 

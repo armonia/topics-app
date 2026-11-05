@@ -787,6 +787,9 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     // covers what this loop existed to guarantee: an open tab is visible in the
     // sidebar.
     if (utilType === 'board') continue;
+    // Automations have their own row above the Board too (HUBBR-14), selected
+    // while the tab is open: a generic row would list them twice.
+    if (utilType === 'automations') continue;
     const config = getPaneConfig(utilType as PaneType);
     items.push({
       id: paneId,

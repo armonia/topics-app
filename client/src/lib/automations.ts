@@ -26,7 +26,7 @@ export type AutomationLevel = 'te' | 'rotto' | 'va';
 
 export type RunOutcome = 'ok' | 'error' | 'skipped';
 
-export type VoteValue = 'ok' | 'cambia' | 'indietro';
+export type VoteValue = 'ok' | 'cambia' | 'indietro'; // allow-italian: the hub's vote values, compared by value
 
 export interface AutomationFeedback {
   vote: { v: VoteValue; at: string | null; note: string | null } | null;
@@ -50,7 +50,7 @@ export interface AutomationRow {
   /** The hub's reason, in its words. */
   reason: string | null;
   since: number | null;
-  /** The hub's own «ogni ora», «il lunedì alle 9:00». */
+  /** The hub's own wording of the schedule, already in Italian. */
   when: string | null;
   next: number | null;
   /** What it does for you, in the hub's words. */
@@ -89,7 +89,7 @@ const EMPTY_FEEDBACK: AutomationFeedback = { vote: null, mute: null, notes: [] }
 
 type Raw = Record<string, unknown>;
 
-function obj(v: unknown): Raw | null {
+function asRecord(v: unknown): Raw | null {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Raw) : null;
 }
 
@@ -133,15 +133,15 @@ export function cronJobId(key: string): string | null {
 }
 
 function readFeedback(raw: unknown): AutomationFeedback {
-  const f = obj(raw);
+  const f = asRecord(raw);
   if (!f) return EMPTY_FEEDBACK;
-  const v = obj(f.vote);
+  const v = asRecord(f.vote);
   const vv = v?.v;
-  const vote = v && (vv === 'ok' || vv === 'cambia' || vv === 'indietro') ? { v: vv as VoteValue, at: str(v.at), note: str(v.note) } : null;
-  const m = obj(f.mute);
+  const vote = v && (vv === 'ok' || vv === 'cambia' || vv === 'indietro') ? { v: vv as VoteValue, at: str(v.at), note: str(v.note) } : null; // allow-italian: the hub's vote values
+  const m = asRecord(f.mute);
   const mute = m ? { until: str(m.until), why: str(m.why) } : null;
   const notes = (Array.isArray(f.notes) ? f.notes : []).flatMap((n) => {
-    const o = obj(n);
+    const o = asRecord(n);
     const note = o && str(o.note);
     return o && note ? [{ at: str(o.at), note, kind: o.kind === 'complaint' ? ('complaint' as const) : ('note' as const) }] : [];
   });
@@ -149,16 +149,16 @@ function readFeedback(raw: unknown): AutomationFeedback {
 }
 
 function readCard(raw: unknown): AutomationRow | null {
-  const c = obj(raw);
+  const c = asRecord(raw);
   const key = c && str(c.key);
   if (!c || !key) return null;
   const level = c.level === 'te' || c.level === 'rotto' || c.level === 'va' ? c.level : null;
   const system = systemOf(c.provider);
-  // `nascosto` (switched off, silenced) stays out, as on the hub's page.
+  // The hidden level (switched off, silenced) stays out, as on the hub's page.
   if (!level || !system) return null;
-  const last = obj(c.last) ?? {};
-  const tech = obj(c.tech) ?? {};
-  const purpose = obj(c.purpose) ?? {};
+  const last = asRecord(c.last) ?? {};
+  const tech = asRecord(c.tech) ?? {};
+  const purpose = asRecord(c.purpose) ?? {};
   const day = (Array.isArray(c.day) ? c.day : []).flatMap((d) => {
     const at = Array.isArray(d) ? num(d[0]) : null;
     const o = Array.isArray(d) ? outcome(d[1]) : null;
@@ -194,11 +194,11 @@ export function workflowTitle(name: string): string {
 }
 
 function readWorkflow(raw: unknown): AutomationRow | null {
-  const w = obj(raw);
+  const w = asRecord(raw);
   const name = w && str(w.name);
   if (!w || !name) return null;
   const runs = (Array.isArray(w.runs) ? w.runs : []).flatMap((r): WorkflowRun[] => {
-    const o = obj(r);
+    const o = asRecord(r);
     const at = o && num(o.at);
     const runId = o && str(o.runId);
     if (!o || at === null || !runId) return [];
@@ -230,31 +230,31 @@ function readWorkflow(raw: unknown): AutomationRow | null {
 
 /** The hub's model as rows, or null when the answer is not the hub's. */
 export function readAutomations(raw: unknown): AutomationsModel | null {
-  const m = obj(raw);
-  const cards = m && obj(m.cards);
+  const m = asRecord(raw);
+  const cards = m && asRecord(m.cards);
   if (!m || !cards) return null;
   const rows = Object.values(cards).flatMap((c) => {
     const r = readCard(c);
     return r ? [r] : [];
   });
-  const byName = obj(m.workflows)?.byName;
+  const byName = asRecord(m.workflows)?.byName;
   for (const w of Array.isArray(byName) ? byName : []) {
     const r = readWorkflow(w);
     if (r) rows.push(r);
   }
-  const verdict = obj(m.verdict);
+  const verdict = asRecord(m.verdict);
   return { rows, checkedAt: num(m.checkedAt), runsToday: num(verdict?.runsToday) ?? rows.reduce((s, r) => s + r.runsToday, 0) };
 }
 
 /** The OpenClaw jobs as `/api/cron/jobs` lists them. */
 export function readCronJobs(raw: unknown): CronJob[] | null {
-  const list = obj(raw)?.jobs;
+  const list = asRecord(raw)?.jobs;
   if (!Array.isArray(list)) return null;
   return list.flatMap((j) => {
-    const o = obj(j);
+    const o = asRecord(j);
     const id = o && str(o.id);
     if (!o || !id) return [];
-    const s = obj(o.schedule);
+    const s = asRecord(o.schedule);
     const next = str(o.nextRunAt);
     return [{
       id,
@@ -367,7 +367,7 @@ export function verdictOf(rows: AutomationRow[], now: number): Verdict {
 
 /** «N da sistemare» of the sidebar row, from the hub's summary; null when it is not one. */
 export function toFixCount(summary: unknown): number | null {
-  const s = obj(summary);
+  const s = asRecord(summary);
   const a = s ? num(s.needsYou) : null;
   const b = s ? num(s.broken) : null;
   return a === null && b === null ? null : (a ?? 0) + (b ?? 0);
@@ -460,10 +460,10 @@ function firstLine(v: unknown): string | null {
 
 /** The runs of an OpenClaw job, as the hub's `automations/runs` answers them. */
 export function readCronRuns(raw: unknown): CronRun[] | null {
-  const list = obj(raw)?.runs;
+  const list = asRecord(raw)?.runs;
   if (!Array.isArray(list)) return null;
   return list.flatMap((r) => {
-    const o = obj(r);
+    const o = asRecord(r);
     const at = o && num(o.at);
     if (!o || at === null) return [];
     const oc = outcome(o.outcome);
@@ -473,17 +473,17 @@ export function readCronRuns(raw: unknown): CronRun[] | null {
 
 /** The hub's estimate of a workflow run's cost: agents and share of the week. */
 export function readRunCost(raw: unknown): { agents: number; weekPct: number | null } | null {
-  const o = obj(raw);
+  const o = asRecord(raw);
   if (!o || o.ok !== true) return null;
   return { agents: num(o.agents) ?? 0, weekPct: num(o.weekPct) };
 }
 
 /** The keys a «Risolvi tu» agent is already on, from the hub's queue. */
 export function fixingKeys(queue: unknown): Set<string> {
-  const items = obj(queue)?.items;
+  const items = asRecord(queue)?.items;
   const out = new Set<string>();
   for (const i of Array.isArray(items) ? items : []) {
-    const o = obj(i);
+    const o = asRecord(i);
     const ref = o && str(o.ref);
     if (o && ref && (o.status === 'queued' || o.status === 'running')) out.add(ref);
   }
@@ -503,10 +503,10 @@ export interface CalendarEntry {
 
 /** The hub's calendar: reminders with a date and tasks that end. Its prompt never leaves here. */
 export function readCalendar(raw: unknown): CalendarEntry[] | null {
-  const items = obj(raw)?.items;
+  const items = asRecord(raw)?.items;
   if (!Array.isArray(items)) return null;
   return items.flatMap((i) => {
-    const o = obj(i);
+    const o = asRecord(i);
     const key = o && str(o.key);
     const title = o && str(o.title);
     if (!o || !key || !title) return [];

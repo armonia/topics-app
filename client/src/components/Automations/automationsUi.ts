@@ -45,7 +45,7 @@ export function makeClock(locale: string, now: () => number): Clock {
   };
 }
 
-/** «47 min», «2 h 10 min», «3 giorni». */
+/** Minutes, hours and minutes, or days, in the chosen language. */
 export function durationWords(ms: number, tr: Tr): string {
   const min = Math.max(1, Math.round(ms / 60_000));
   if (min < 60) return tr('auto.dur.min', { n: min });
@@ -53,7 +53,7 @@ export function durationWords(ms: number, tr: Tr): string {
   return tr('auto.dur.days', { n: Math.round(min / 1440) });
 }
 
-/** The «Ultimo giro» cell: the time, with the exit or the error when it went wrong. */
+/** The last-run cell: the time, with the exit or the error when it went wrong. */
 export function lastRunWords(row: AutomationRow, clock: Clock, tr: Tr): string {
   const { at, outcome, exit } = row.last;
   if (at === null) return tr('auto.last.none');

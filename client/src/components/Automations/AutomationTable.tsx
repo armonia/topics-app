@@ -114,7 +114,7 @@ function TableRow({ row, now, clock, selected, gatewayDown, ran, onSelect, onCom
 
 interface TableProps {
   rows: AutomationRow[];
-  /** How many rows show before «altre N in ordine»; null shows them all. */
+  /** How many rows show before the "N more, all fine" fold; null shows them all. */
   limit: number | null;
   now: number;
   clock: Clock;

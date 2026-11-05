@@ -9,11 +9,13 @@
  * order: the «ok» ones are never counted. When the hub stops answering after
  * it was read, the row stays and says so.
  */
-import { Workflow } from 'lucide-react';
+import { Bell, Workflow } from 'lucide-react';
+import { OPEN_INBOX_EVENT } from '@/lib/inboxEvents';
+import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { useHubEverRead, useHubLive } from '@/state/hubLive';
 import { useT } from '@/hooks/useT';
 import { toFixCount } from '@/lib/automations';
-import { sidebarRowCard, ROW_PX, ROW_H, ROW_INSET, ROW_GLYPH, ROW_GLYPH_SLOT, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_ACTION_BOX, ROW_PX, ROW_H, ROW_INSET, ROW_GLYPH, ROW_GLYPH_SLOT, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
 import { SEGNALE_ATTESA } from './chromeSignals';
 
 export function AutomationsRow({ open }: { open: boolean }) {
@@ -44,6 +46,35 @@ export function AutomationsRow({ open }: { open: boolean }) {
           <span className={SEGNALE_ATTESA}>{tr('automations.toFix', { n })}</span>
         ) : null}
       </span>
+    </button>
+  );
+}
+
+/**
+ * The phone's header for the Automations view: the pane's glyph before its
+ * name, and the bell on the right with how many need fixing. On the phone the
+ * bell lives on the list, which is behind the pane; this one opens the same
+ * sheet (the inbox event), so the person never has to go back to read it.
+ */
+export function AutomationsPhoneGlyph() {
+  return <Workflow size={16} className="mr-2 flex-shrink-0 text-app-text-secondary" aria-hidden="true" />;
+}
+
+export function AutomationsPhoneBell() {
+  const tr = useT();
+  const entry = useHubLive().automations;
+  const n = entry?.data !== undefined ? toFixCount(entry.data) ?? 0 : 0;
+  return (
+    <button
+      type="button"
+      data-testid="automations-phone-bell"
+      aria-label={tr('inbox.title')}
+      title={tr('inbox.title')}
+      onClick={() => window.dispatchEvent(new CustomEvent(OPEN_INBOX_EVENT))}
+      className={`relative ml-auto mr-[6px] ${ROW_ACTION_BOX} tap-expand-y flex-shrink-0 flex items-center justify-center rounded text-app-text-muted hover:text-app-text hover:bg-app-hover transition-colors app-no-drag`}
+    >
+      <Bell size={16} aria-hidden="true" />
+      <NotificationBadge count={n} variant="needsYou" className="absolute -top-1 -right-1" testId="automations-phone-bell-count" />
     </button>
   );
 }

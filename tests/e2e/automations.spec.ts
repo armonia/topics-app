@@ -4,7 +4,7 @@
  * The row above the Board says «3 da sistemare» (two broken, one waiting on
  * you) and opens the whole view: «Decidi tu» oldest first, the Jarvis jobs
  * with their three commands, Mac read-only, GitHub, PC and the workflows
- * folded into «Le altre aree», the Calendario tab. The «+» menu offers no Cron
+ * folded into the "other areas" block, the calendar tab. The «+» menu offers no Cron
  * panel. Every command of an OpenClaw job reaches Topics' cron routes (faked
  * here with `page.route`, so the real gateway is never called), a refused run
  * leaves its reason (CRONUI-01) and a run that works marks its row
@@ -132,6 +132,8 @@ test.describe("automations", () => {
     const pane = page.getByTestId(PANE);
     await expect(pane).toBeVisible({ timeout: 20_000 });
     await expect(sidebarRow).toHaveAttribute("aria-selected", "true");
+    // One Automazioni row in the column, the one above the Board: the open tab adds no second one.
+    await expect(page.getByRole("treeitem").filter({ hasText: /^Automazioni/ })).toHaveCount(1);
     await expect(pane.getByTestId("automations-verdict-title")).toHaveText("3 da sistemare, il resto gira.", { timeout: 20_000 });
     await expect(pane.getByTestId("automations-verdict")).toContainText("1 da decidere · 2 rotte · 12 in ordine su 15 · 412 giri oggi");
 
@@ -302,7 +304,19 @@ test.describe("automations", () => {
       }));
       expect(widths.doc).toBeLessThanOrEqual(390);
       expect(widths.pane).toBeLessThanOrEqual(390);
+      // The phone header: the pane's glyph, its name, the bell with how many need fixing.
+      const bell = page.getByTestId("automations-phone-bell");
+      await expect(bell).toBeVisible();
+      await expect(page.getByTestId("automations-phone-bell-count")).toHaveText("3");
+      // The button row at the bottom never covers the view: the pane ends where the row begins.
+      const paneBox = (await page.getByTestId("automations-pane").boundingBox())!;
+      const barBox = (await page.getByTestId("mobile-chrome-bar").boundingBox())!;
+      expect(paneBox.y + paneBox.height).toBeLessThanOrEqual(barBox.y + 1);
       await page.screenshot({ path: testInfo.outputPath("vero-automazioni-vista-telefono.png") });
+      await bell.click();
+      await expect(page.getByTestId("inbox-panel")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page.getByTestId("inbox-panel")).toHaveCount(0);
       await pane.getByTestId("automations-decide-row").nth(2).locator("button").first().click();
       const sheet = page.getByTestId("automation-sheet");
       await expect(sheet.getByTestId("automation-detail")).toHaveAttribute("data-key", "cron:job-docs");
