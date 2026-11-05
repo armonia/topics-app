@@ -21,9 +21,9 @@
 
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { PlanUsage, PlanUsageWindow, ProviderHold, UsageWindowKind } from "../../shared/provider-hold";
-import { providerHoldKey } from "../../shared/provider-hold";
-export type { PlanUsage, ProviderHold, UsageWindowKind };
+import type { DispatchBrake, PlanUsage, PlanUsageWindow, ProviderHold, UsageWindowKind } from "../../shared/provider-hold";
+import { PLAN_DISPATCH_HOLD_AT, providerHoldKey } from "../../shared/provider-hold";
+export type { DispatchBrake, PlanUsage, ProviderHold, UsageWindowKind };
 
 /**
  * One hold per provider key ("claude", "codex", …): each hits its own wall on
@@ -328,4 +328,30 @@ export const HOLD_ASKS_A_PERSON_MS = 24 * 60 * 60 * 1000;
 /** Is this hold long enough that it should be a question instead of a wait? */
 export function holdAsksAPerson(hold: Pick<ProviderHold, "untilMs">, nowMs: number = Date.now()): boolean {
   return hold.untilMs - nowMs > HOLD_ASKS_A_PERSON_MS;
+}
+
+/**
+ * WHO THE DISPATCHER KEEPS IN TODO, provider by provider, by the same rule as
+ * `taskPlanWait` in the dispatcher: a hold in force for that provider, or
+ * Claude's five-hour window at `PLAN_DISPATCH_HOLD_AT` or more with its reset
+ * still ahead (the early stop, Claude only: only Claude's plan reports the
+ * window). The board's chip reads this, so it never names a brake the
+ * dispatcher is not applying.
+ */
+export function dispatchBrakes(nowMs: number = Date.now()): DispatchBrake[] {
+  const out: DispatchBrake[] = [];
+  const usage = planUsage(nowMs);
+  const claude = providerHold(nowMs, DEFAULT_KEY);
+  if (claude) {
+    const read = claude.window === "five_hour" ? usage?.fiveHour : claude.window === "seven_day" ? usage?.sevenDay : null;
+    out.push({ provider: "claude", window: claude.window, utilization: read?.utilization ?? null, untilMs: claude.window === "api-down" ? null : claude.untilMs });
+  } else {
+    const five = usage?.fiveHour;
+    if (five && five.utilization >= PLAN_DISPATCH_HOLD_AT && five.resetsAtMs != null && five.resetsAtMs > nowMs) {
+      out.push({ provider: "claude", window: "five_hour", utilization: five.utilization, untilMs: five.resetsAtMs });
+    }
+  }
+  const codex = providerHold(nowMs, "codex");
+  if (codex) out.push({ provider: "codex", window: codex.window, utilization: null, untilMs: codex.window === "api-down" ? null : codex.untilMs });
+  return out;
 }

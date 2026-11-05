@@ -72,6 +72,7 @@ import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, projectIdForPath,
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { activeFrozenCount } from "../services/budget-governor";
 import { swapFrozenCount } from "../lib/swap-freeze-hold";
+import { dispatchBrakes } from "../lib/provider-hold";
 import { resolveAgentRuntime } from "../services/app-settings";
 import { newProjectParentDir, scaffoldNewProject } from "../services/project-path-resolver";
 import { parkedEdgeEvent, type TaskDispatcher } from "../services/task-dispatcher";
@@ -2856,9 +2857,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       || pathname.startsWith("/api/boards/")
       || pathname.startsWith("/api/orchestrator-sessions/")
       || pathname === "/api/system/dispatch-capacity"
-      || pathname === "/api/dispatch/memory-queue";
+      || pathname === "/api/dispatch/memory-queue"
+      || pathname === "/api/dispatch/brakes";
     if (identita?.role === "guest" && miePath) {
-      if (pathname === "/api/dispatch/memory-queue") {
+      if (pathname === "/api/dispatch/memory-queue" || pathname === "/api/dispatch/brakes") {
         return json({ error: "dispatch data is not available to guests", code: "guest_forbidden" }, 403);
       }
       const deviceId = identita.deviceId;
@@ -2967,7 +2969,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     const isAllBoards = pathname.startsWith("/api/all-boards/");
     const isCapacity = pathname === "/api/system/dispatch-capacity";
     const isMemoryQueue = pathname === "/api/dispatch/memory-queue";
-    if (!isSession && !isOrchestratorSession && !isBoard && !isAllBoards && !isCapacity && !isMemoryQueue) return null;
+    const isBrakes = pathname === "/api/dispatch/brakes";
+    if (!isSession && !isOrchestratorSession && !isBoard && !isAllBoards && !isCapacity && !isMemoryQueue && !isBrakes) return null;
+
+    // GET /api/dispatch/brakes: the providers whose cards wait in Todo right
+    // now, with the window, its share and when they start again (HUBBR-20).
+    if (isBrakes) {
+      if (method !== "GET") return json({ error: "method not allowed" }, 405);
+      return json({ brakes: dispatchBrakes() });
+    }
 
     // GET /api/dispatch/memory-queue — the dispatcher's read-only memory view.
     // Keep this route on the same global identity and origin gate as every API

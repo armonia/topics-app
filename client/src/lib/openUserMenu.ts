@@ -22,7 +22,11 @@ export type UserMenuLevel =
   | 'nodes'
   | 'appearance'
   | 'notifications'
-  | 'view';
+  | 'view'
+  /** System > the agents and jobs level (the palette, HUBBR-19). */
+  | 'agents'
+  /** System > the agents' context level (the palette, HUBBR-19). */
+  | 'context';
 
 export interface OpenUserMenuDetail {
   level?: UserMenuLevel;

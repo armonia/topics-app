@@ -125,7 +125,7 @@ import { setSessionCliPid } from "../providers/session-pids";
 import { setRouteFault } from "../lib/route-fault";
 import { envDataDir } from "../lib/data-dir";
 import { holdDispatchReconcile, releaseDispatchHold } from "../lib/e2e-dispatch-hold";
-import { clearPlanUsage, clearProviderHold } from "../lib/provider-hold";
+import { clearPlanUsage, clearProviderHold, setProviderHold } from "../lib/provider-hold";
 import { observePlanUsage } from "../providers/native/usage-window";
 import { registerProvider, removeProvider } from "../providers";
 import { partialTurnRows } from "../lib/partial-turn-fixture";
@@ -488,6 +488,23 @@ export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): Ro
         return json({ ok: true, cleared: true });
       }
       observePlanUsage({ fiveHour: body?.fiveHour ?? null, sevenDay: body?.sevenDay ?? null });
+      return json({ ok: true });
+    }
+
+    // POST /api/test/provider-hold {provider, untilMs, window} | {provider, clear: true}
+    //
+    // A provider's wall as the chat route records it on a spent plan
+    // (`setProviderHold`), for Codex too, which has no usage window to feed.
+    if (method === "POST" && pathname === "/api/test/provider-hold") {
+      const body = (await req.json().catch(() => null)) as
+        { provider?: string; clear?: boolean; untilMs?: number; window?: "five_hour" | "seven_day" | "usage_limit" } | null;
+      const provider = body?.provider === "codex" ? "codex" : "claude";
+      if (body?.clear) {
+        clearProviderHold(provider);
+        return json({ ok: true, cleared: true });
+      }
+      if (typeof body?.untilMs !== "number") return json({ error: "untilMs required" }, 400);
+      setProviderHold({ untilMs: body.untilMs, window: body.window ?? "usage_limit", reason: "e2e", provider });
       return json({ ok: true });
     }
 

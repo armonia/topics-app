@@ -28,6 +28,7 @@ import { useHubEverRead, useHubLive } from '@/state/hubLive';
 import { useActiveAgentRows } from '@/state/signals';
 import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 import { PALLINO_ATTESA } from './chromeSignals';
+import type { UserMenuLevel } from '@/lib/openUserMenu';
 
 // The sites kept live are read when the Performance level opens, not before.
 const KeptSites = lazy(async () => {
@@ -161,9 +162,11 @@ export interface SidebarSystemMenuProps {
   signals?: WorkSignal[];
   /** Closes the menu that hosts this one: a row that opens a pane leaves the menu. */
   onNavigate?: () => void;
+  /** A level asked for by a door (the palette, HUBBR-19): System opens on it. */
+  openLevel?: UserMenuLevel | null;
 }
 
-export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals = [], onNavigate }: SidebarSystemMenuProps) {
+export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals = [], onNavigate, openLevel = null }: SidebarSystemMenuProps) {
   const tr = useT();
   // The machine's Processes read the usage hub: without it the row does not exist (HUBBR-04).
   const hubPresent = useHubEverRead();
@@ -310,6 +313,7 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
         icon={Cpu}
         label={tr('statusBar.system.title')}
         testId="menu-system-status"
+        defaultOpen={openLevel === 'agents' || openLevel === 'context'}
         minWidth={312}
         // The tallest level of the menu: the names of what is running, then
         // the numbers. On a short window the two together are more than the
@@ -385,6 +389,7 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
           icon={Bot}
           label={tr('agentsJobs.open')}
           testId="menu-system-agents"
+          defaultOpen={openLevel === 'agents'}
           minWidth={400}
           maxWidth={420}
           // On the phone the level covers the sheets it came from, as tall as a
@@ -416,7 +421,7 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
             answers, so they come in their own chunk, off the first download. */}
         {hubPresent && (
           <Suspense fallback={null}>
-            <HubSystemRows isMobile={isMobile} onNavigate={onNavigate} />
+            <HubSystemRows isMobile={isMobile} onNavigate={onNavigate} openContext={openLevel === 'context'} />
           </Suspense>
         )}
       </SubmenuItem>

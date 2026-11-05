@@ -58,6 +58,20 @@ export interface ProviderHold {
 }
 
 /**
+ * One provider whose cards the dispatcher keeps in Todo right now, as
+ * `GET /api/dispatch/brakes` says it to the board's «Frenato» chip: a spent
+ * window (the hold), or Claude's five-hour window past `PLAN_DISPATCH_HOLD_AT`.
+ */
+export interface DispatchBrake {
+  provider: 'claude' | 'codex';
+  window: UsageWindowKind;
+  /** Percent of that window already used, when the plan reports it. */
+  utilization: number | null;
+  /** When the cards start again (ms epoch); null for an API outage, which names no end. */
+  untilMs: number | null;
+}
+
+/**
  * Every provider hits its own wall on its own plan: the memo in
  * `server/lib/provider-hold.ts` is one map keyed by this. Claude's several
  * runtime aliases (native, the CLI, its team variant, jcode) share one plan

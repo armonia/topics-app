@@ -15,7 +15,7 @@
  * mounted and the log is open: closing either closes the stream, so nothing
  * keeps reading the proxy for a view nobody has in front.
  */
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Activity, AppWindow, ArrowUpRight, Asterisk, Box, ChevronDown, ChevronRight, CloudOff, Cpu, Folder,
   Monitor, Moon, Pause, Play, Plug, ScrollText, Server, Square, Zap, type LucideIcon,
@@ -26,6 +26,7 @@ import { useHubEverRead, useHubLive, refreshHubLive } from '../../state/hubLive'
 import { startVisibleInterval } from '../../state/documentVisibility';
 import { apiFetch, serverHttpBase } from '../../lib/shell/net';
 import { scriptsApi } from '../../lib/api';
+import { PROCESSES_LOG_EVENT, takeProcessesLogRequest } from '../../state/processesLog';
 import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import {
   NOT_MEASURED, PROXY_SERVICE_ID, censusAt, formatMem, formatPct, formatRate, macGauges, parseLogEvent, pcView,
@@ -420,6 +421,7 @@ function PcUnread({ pc }: { pc: PcView }) {
 function ServicesAndLog({ services }: { services: ServiceRow[] }) {
   const tr = useT();
   const [logOpen, setLogOpen] = useState(true);
+  const openLog = useCallback(() => setLogOpen(true), []);
   const shown = services.filter((s) => s.state !== 'spento'); // allow-italian: the hub's wire value
   const off = services.length - shown.length;
   const stopped = shown.filter((s) => s.state === 'fermo').length; // allow-italian: the hub's wire value
@@ -449,7 +451,7 @@ function ServicesAndLog({ services }: { services: ServiceRow[] }) {
           </>}
         </div>
       </section>
-      {hasProxy && <LogSection open={logOpen} />}
+      {hasProxy && <LogSection open={logOpen} onAsked={openLog} />}
     </>
   );
 }
@@ -504,15 +506,28 @@ function useProxyLog(open: boolean, paused: boolean): LogLine[] {
   return lines;
 }
 
-function LogSection({ open }: { open: boolean }) {
+function LogSection({ open, onAsked }: { open: boolean; onAsked: () => void }) {
   const tr = useT();
+  const ref = useRef<HTMLElement>(null);
+  // The palette's «Log» (HUBBR-19): a request set down before this section
+  // mounted, or one heard while it is on screen, opens it and brings it in view.
+  useEffect(() => {
+    const answer = () => {
+      if (!takeProcessesLogRequest()) return;
+      onAsked();
+      requestAnimationFrame(() => ref.current?.scrollIntoView({ block: 'start' }));
+    };
+    answer();
+    window.addEventListener(PROCESSES_LOG_EVENT, answer);
+    return () => window.removeEventListener(PROCESSES_LOG_EVENT, answer);
+  }, [onAsked]);
   const [errorsOnly, setErrorsOnly] = useState(false);
   const [paused, setPaused] = useState(false);
   const lines = useProxyLog(open, paused);
   const shown = errorsOnly ? lines.filter((l) => l.tone === 'error') : lines;
   const pill = (on: boolean) => `inline-flex h-[22px] items-center rounded-sm px-2 text-mini @max-3xl:h-7 @max-3xl:text-compact ${on ? 'bg-primary/10 text-primary' : 'bg-black/[0.035] text-app-text-secondary dark:bg-white/[0.05]'}`;
   return (
-    <section aria-label={tr('processes.log')} className={SECTION} data-testid="machine-processes-log" data-open={open ? 'true' : 'false'}>
+    <section ref={ref} aria-label={tr('processes.log')} className={SECTION} data-testid="machine-processes-log" data-open={open ? 'true' : 'false'}>
       <div className={SECTION_HEAD}>
         <ScrollText size={14} className="flex-none text-app-text-secondary" aria-hidden="true" />
         <span className="text-compact font-semibold text-app-text-heading">{tr('processes.log')}</span>

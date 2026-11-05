@@ -45,9 +45,11 @@ function behindOf(data: unknown): number | null {
 export interface HubSystemRowsProps {
   isMobile: boolean;
   onNavigate?: () => void;
+  /** The palette asked for the context level: it opens with the menu. */
+  openContext?: boolean;
 }
 
-export function HubSystemRows({ isMobile, onNavigate }: HubSystemRowsProps) {
+export function HubSystemRows({ isMobile, onNavigate, openContext = false }: HubSystemRowsProps) {
   const tr = useT();
   const locale = useLocale();
   const context = useHubDoc(HUB_CONTEXT_DOC, true, 60_000);
@@ -61,6 +63,7 @@ export function HubSystemRows({ isMobile, onNavigate }: HubSystemRowsProps) {
         icon={Layers}
         label={tr('hubContext.open')}
         testId="menu-system-context"
+        defaultOpen={openContext}
         minWidth={400}
         maxWidth={420}
         className={isMobile ? 'min-h-[calc(100dvh-3rem)]' : 'max-h-[min(80vh,640px)] overflow-y-auto'}

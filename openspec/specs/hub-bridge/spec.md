@@ -277,3 +277,31 @@ Where the hub is part of the installation, System SHALL carry «Funzionalità» 
 - **GIVEN** a hub with 16 systems, 172 features and 47 where Jarvis is behind
 - **WHEN** System opens, then «Funzionalità», then the palette's «Funzionalità»
 - **THEN** the row SHALL say «47 indietro», the view SHALL say «47 dove Jarvis è indietro, su 172 voci», list only the features behind until «Tutte» is chosen, open a feature with who has it, and the palette SHALL bring back the same single view; no sidebar row of its own and no «+» entry SHALL offer it
+
+### Requirement: HUBBR-19 — The palette has one entry for every place of the hub
+
+Where the hub is part of the installation, the command palette SHALL carry one entry for each place the hub's sections moved to, in this order: «Account e quote», «Consumi», «Processi», «Agenti e lavori», «Contesto degli agenti», «Funzionalità», «Log», «Automazioni». Each SHALL open its own place: the views through the utility bus (Account e quote, Consumi in the Dashboard, Processi, Funzionalità, Automazioni), the two levels of System in the user menu with System and the level already open («Agenti e lavori», «Contesto degli agenti»), and «Log» as Processi scrolled to its log section, opened. Without the hub none of the eight entries SHALL exist.
+
+#### Scenario: Every entry opens its place
+- **GIVEN** a hub that answers
+- **WHEN** the palette opens and each of the eight entries is chosen in turn
+- **THEN** each SHALL open its own place: the view, the System level with its rows, or Processi with its log in sight
+
+#### Scenario: No hub
+- **GIVEN** nobody answers on the hub's address
+- **WHEN** the palette opens
+- **THEN** none of the eight entries SHALL be offered
+
+### Requirement: HUBBR-20 — The board's «Frenato» chip says who Topics holds and until when
+
+The board's bar SHALL carry a «Frenato» chip beside the cap's gear while Topics keeps a provider's cards in Todo: Claude or Codex under a hold (a spent window, a plan limit, an API outage), or Claude's five-hour window at the dispatch line (`PLAN_DISPATCH_HOLD_AT`) or above with its reset still ahead, which is the dispatcher's own rule, read from `GET /api/dispatch/brakes`. The chip SHALL name the provider (or both), the window and its share when the plan reports it, and when the cards start again; its popover SHALL list Claude and Codex, held or free, each held one with its reason, and link to «Account e quote» where the hub answers. There SHALL be no command to lift the brake. With nothing held the chip SHALL not exist; on the phone it is a full-width row under the bar. The hub's pace brake, which holds no card, is not this chip's.
+
+#### Scenario: Claude past the line, then Codex held too
+- **GIVEN** Claude's five-hour window at 94% with its reset at a known time, and no hold for Codex
+- **WHEN** the board opens, and then Codex is held until a later time
+- **THEN** the chip SHALL say «Frenato · Claude · quota 5h al 94%, riparte alle HH:MM», its popover SHALL show Claude held with the threshold and Codex free, and then the chip SHALL say «Frenato · Claude e Codex · riparte alle HH:MM» with the earlier time
+
+#### Scenario: Nothing held
+- **GIVEN** no hold and Claude's window below the line
+- **WHEN** the board opens
+- **THEN** there SHALL be no «Frenato» chip

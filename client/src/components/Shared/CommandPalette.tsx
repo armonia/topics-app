@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useMemo, useCallback, useSyncExternalStore } from 'react';
 import {
   Search, Moon, Sun, Monitor, File,
-  Loader2, TerminalSquare, RotateCcw, Grid2x2, Link2, ArrowLeft, MonitorCog, Gauge, Workflow, BarChart3, Blocks,
+  Loader2, TerminalSquare, RotateCcw, Grid2x2, Link2, ArrowLeft, MonitorCog, Gauge, Workflow, BarChart3, Blocks, Bot, Layers, ScrollText,
 } from 'lucide-react';
 import { useHubEverRead } from '../../state/hubLive';
+import { openUserMenu } from '../../lib/openUserMenu';
+import { openProcessesLog } from '../../state/processesLog';
 import { EmptyState } from './EmptyState';
 import { ClaudeIcon } from './ClaudeIcon';
 import { CodexIcon } from './CodexIcon';
@@ -472,51 +474,32 @@ export function CommandPalette({
       });
     }
     if (hubPresent) {
-      items.push({
-        id: 'machine-processes',
-        label: t('processes.open'),
-        description: t('processes.openHint'),
-        icon: <MonitorCog size={14} />,
-        category: 'action' as const,
-        testId: 'palette-processes',
-        action: () => { onClose(); window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'processes' } })); },
-      });
-      items.push({
-        id: 'account-quotas',
-        label: t('accounts.open'),
-        description: t('accounts.openHint'),
-        icon: <Gauge size={14} />,
-        category: 'action' as const,
-        testId: 'palette-accounts',
-        action: () => { onClose(); window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'accounts' } })); },
-      });
-      items.push({
-        id: 'usage',
-        label: t('usage.open'),
-        description: t('usage.openHint'),
-        icon: <BarChart3 size={14} />,
-        category: 'action' as const,
-        testId: 'palette-usage',
-        action: () => { onClose(); window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'dashboard' } })); },
-      });
-      items.push({
-        id: 'automations',
-        label: t('automations.open'),
-        description: t('automations.openHint'),
-        icon: <Workflow size={14} />,
-        category: 'action' as const,
-        testId: 'palette-automations',
-        action: () => { onClose(); window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'automations' } })); },
-      });
-      items.push({
-        id: 'features',
-        label: t('features.open'),
-        description: t('features.openHint'),
-        icon: <Blocks size={14} />,
-        category: 'action' as const,
-        testId: 'palette-features',
-        action: () => { onClose(); window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'features' } })); },
-      });
+      // ONE ENTRY PER PLACE OF THE HUB (HUBBR-19), in the map's order. Views
+      // open through the utility bus; «Agenti e lavori» and «Contesto» are
+      // levels of System, opened in the user menu; «Log» is a section of
+      // Processes, opened on it.
+      const utility = (type: string) => () => window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type } }));
+      const places: Array<[string, string, string, React.ReactNode, () => void]> = [
+        ['accounts', 'accounts.open', 'accounts.openHint', <Gauge size={14} />, utility('accounts')],
+        ['usage', 'usage.open', 'usage.openHint', <BarChart3 size={14} />, utility('dashboard')],
+        ['processes', 'processes.open', 'processes.openHint', <MonitorCog size={14} />, utility('processes')],
+        ['agents', 'agentsJobs.open', 'agentsJobs.openHint', <Bot size={14} />, () => openUserMenu('agents')],
+        ['context', 'palette.context', 'palette.contextHint', <Layers size={14} />, () => openUserMenu('context')],
+        ['features', 'features.open', 'features.openHint', <Blocks size={14} />, utility('features')],
+        ['log', 'palette.log', 'palette.logHint', <ScrollText size={14} />, () => openProcessesLog()],
+        ['automations', 'automations.open', 'automations.openHint', <Workflow size={14} />, utility('automations')],
+      ];
+      for (const [id, label, hint, icon, open] of places) {
+        items.push({
+          id,
+          label: t(label),
+          description: t(hint),
+          icon,
+          category: 'action' as const,
+          testId: `palette-${id}`,
+          action: () => { onClose(); open(); },
+        });
+      }
     }
     // EVERY FORM BY ITS NAME (SETHOME-01): no «Settings» to open.
     items.push(...homeCommands(t, onClose));

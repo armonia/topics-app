@@ -2480,7 +2480,9 @@ function App() {
             <>
               <div className="my-1 border-t border-app-border" />
               <SidebarSystemMenu
+                key={topicsMenuRequest.n}
                 isMobile={isMobile}
+                openLevel={topicsMenuRequest.level}
                 onNavigate={() => setShowTopicsMenu(false)}
                 onOpenChangelog={(version) => { setShowTopicsMenu(false); setShowChangelogFromMenu(version); }}
               />

@@ -16,6 +16,7 @@ import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { AlertTriangle, Archive, ChevronDown, ChevronRight, Kanban, List, Music4, Settings, Target, UploadCloud, X } from 'lucide-react';
 import type { Topic, WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
+import { BrakeChip } from './BrakeChip';
 import { useTaskModelCatalog } from '../../hooks/useTaskModelCatalog';
 import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, reflectTaskFocus, subscribePopstateTask } from '../../lib/openTaskLink';
 import { useTaskDeepLink } from './useTaskDeepLink';
@@ -2007,6 +2008,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
               title={showArchived ? tr('board.archive.hide') : tr('board.archive.show')}
             ><Archive className="h-3.5 w-3.5" /></button>
           )}
+          {/* Beside the cap's gear: the providers whose cards wait in Todo (HUBBR-20). */}
+          <span className="hidden sm:contents"><BrakeChip /></span>
           {/* On EVERY board, project or not. Without a project there are no
               per-board rows, but the machine-wide cap still applies here — and
               gating this button on `hasProject` is what left the general board
@@ -2030,6 +2033,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         </div>
       )}
       </div>
+      <div className="shrink-0 px-2 pb-1.5 empty:hidden sm:hidden"><BrakeChip band /></div>
       {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-compact leading-4 text-rose-300">{error}</div>}
       {/* La striscia dice DUE cose, e la seconda è quella che mancava: dove sta
           il gesto. Un archivio in cui si guarda soltanto è il punto da cui
