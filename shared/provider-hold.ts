@@ -69,6 +69,8 @@ export interface DispatchBrake {
   utilization: number | null;
   /** When the cards start again (ms epoch); null for an API outage, which names no end. */
   untilMs: number | null;
+  /** True for Claude's early stop, Topics' own margin a person may lift; absent for a provider's wall. */
+  liftable?: true;
 }
 
 /**

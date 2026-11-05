@@ -4,7 +4,7 @@ import { Database } from "bun:sqlite";
 import { createTaskAttemptStore } from "./task-attempts";
 import { createTaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
-import { clearPlanUsage, clearProviderHold, holdForApiDown, liftApiDownHold, recordPlanUsage, setProviderHold, resetProviderHoldStore } from "../lib/provider-hold";
+import { clearPlanUsage, clearProviderHold, holdForApiDown, liftApiDownHold, liftClaudeEarlyStop, recordPlanUsage, resetClaudeEarlyStopLift, setProviderHold, resetProviderHoldStore } from "../lib/provider-hold";
 import { taskProviderForModel } from "../../shared/task-coding-models";
 import type { ProvidersSnapshot } from "../../shared/types";
 import type { TurnEndInfo } from "../providers/stop-reason";
@@ -62,7 +62,7 @@ const PID = "hold-board";
 const CLAUDE = "claude-opus-5";
 const codingModel = "gpt-5.4";
 const cleanups: Array<() => void> = [];
-beforeEach(() => { resetProviderHoldStore(); clearProviderHold(); clearProviderHold("codex"); clearPlanUsage(); });
+beforeEach(() => { resetProviderHoldStore(); clearProviderHold(); clearProviderHold("codex"); clearPlanUsage(); resetClaudeEarlyStopLift(); });
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
   clearProviderHold(); clearProviderHold("codex"); clearPlanUsage();
@@ -493,6 +493,27 @@ describe("dispatchWork: the cards behind the walls, for the board's chip (HUBBR-
     h.svc.updateBoardSettings(PID, { autoDispatch: false });
     limit("threshold");
     expect(h.dispatcher.dispatchWork!().held).toEqual([]);
+  });
+
+  test("the chip's read is quiet: it neither logs the wait nor takes the tick's once-per-window line", async () => {
+    const lines: string[] = [];
+    const h = harness("topics", { log: (line: string) => { lines.push(line); } });
+    h.task("claude-a", CLAUDE);
+    limit("threshold");
+    expect(h.dispatcher.dispatchWork!().held).toHaveLength(1);
+    expect(lines.filter((l) => l.includes("dispatch waiting"))).toEqual([]);
+    await h.dispatcher.tick(PID); await flush();
+    expect(lines.filter((l) => l.includes("dispatch waiting"))).toHaveLength(1);
+  });
+
+  test("a lifted early stop lets the Claude card start, and holds nothing", async () => {
+    const h = harness();
+    h.task("claude-a", CLAUDE);
+    limit("threshold");
+    expect(liftClaudeEarlyStop()).toBe(true);
+    expect(h.dispatcher.dispatchWork!().held).toEqual([]);
+    await h.dispatcher.tick(PID); await flush();
+    expect(h.starts).toHaveLength(1);
   });
 
   test("a Codex wall holds the Codex card, and the started Claude card counts at work", async () => {

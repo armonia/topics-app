@@ -6,9 +6,9 @@ import {
   TaskProviderPendingError,
 } from '../../shared/task-coding-models';
 import { EFFORT_TIERS } from '../../shared/effort';
-import { PLAN_DISPATCH_HOLD_AT, providerHoldKey } from '../../shared/provider-hold';
+import { providerHoldKey } from '../../shared/provider-hold';
 import type { ProvidersSnapshot } from '../../shared/types';
-import { isProviderHeld, planUsage } from '../lib/provider-hold';
+import { claudeEarlyStop, isProviderHeld } from '../lib/provider-hold';
 import { claudeModelGenerations, familyOf } from '../providers/claude-models';
 import type { AIProvider } from '../providers/types';
 import { readCodexModels } from '../providers/codex/models';
@@ -160,8 +160,8 @@ export function automaticDispatchHooks(env: {
       selection?: string,
       options?: { effort?: string; topicsRouting?: boolean },
     ) => {
-      const window = planUsage()?.fiveHour;
-      const claudeApproachingLimit = !!window && window.utilization >= PLAN_DISPATCH_HOLD_AT && (window.resetsAtMs ?? 0) > Date.now();
+      // The same early stop the dispatcher applies, lifted with it when a person lifts it.
+      const claudeApproachingLimit = claudeEarlyStop() !== null;
       return pickAutomaticTaskModel(task, selection, {
         snapshot: env.snapshot(),
         getProvider: env.getProvider,

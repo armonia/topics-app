@@ -21,6 +21,10 @@
  * The hub is a fake (helpers/fake-hub.ts) on the port the test server reads;
  * the real :3360 is never touched.
  *
+ * «Togli il freno a Claude» lifts the early stop at 90%, Topics' own margin:
+ * the chip and the marks go, and the server holds no Claude card. The test
+ * turns the board's dispatch off right after, then deletes the cards.
+ *
  * Mutation: with `dispatchWork` in the dispatcher answering every Todo card of
  * a board as held (the wall alone, without `taskPlanWait`), the Codex check
  * (no card of its own, Claude alone on the chip) is red; without the
@@ -145,13 +149,18 @@ function resetToday(): number {
 test.describe("board: the «Frenato» chip", () => {
   let hub: FakeHub | null = null;
 
+  let initialCap: { maxAgents: number; maxAgentsAuto: boolean } | null = null;
+
   test.beforeAll(async ({ request }) => {
+    initialCap = (await (await request.get(`${E2E_BASE}/api/all-boards/settings`)).json()) as { maxAgents: number; maxAgentsAuto: boolean };
+    await request.patch(`${E2E_BASE}/api/all-boards/settings`, { data: { maxAgents: 8, maxAgentsAuto: false } });
     hub = await startFakeHub();
     await waitForHub(request);
     await dispatchingBench(request);
   });
   test.afterAll(async ({ request }) => {
     await clearBrakes(request);
+    if (initialCap) await request.patch(`${E2E_BASE}/api/all-boards/settings`, { data: { maxAgents: initialCap.maxAgents, maxAgentsAuto: initialCap.maxAgentsAuto } });
     if (projectTopicId) await deleteTopic(request, projectTopicId).catch(() => {});
     await hub?.close();
   });
@@ -194,7 +203,9 @@ test.describe("board: the «Frenato» chip", () => {
     await expect(codex).toContainText("Quota 5h al 8% · nessuna card al lavoro");
     await expect(pop.getByTestId("board-brake-row-muse")).toContainText("Quota fissa · nessuna card al lavoro");
     await expect(pop.getByTestId("board-brake-row-suite")).toContainText("Sul Mac");
-    await expect(pop).not.toContainText("Togli il freno");
+    // The cap in the lead, as the mockup writes it, and the lift for Topics' own early stop.
+    await expect(pop.getByTestId("board-brake-lead")).toHaveText("Il tetto resta 8. Le card di Claude aspettano in Todo, le altre classi partono normalmente.");
+    await expect(pop.getByTestId("board-brake-lift")).toHaveText("Togli il freno a Claude");
     await page.screenshot({ path: testInfo.outputPath("vero-cmdk-e-frenato-popover-scuro.png") });
     await pop.getByTestId("board-brake-accounts").click();
     await expect(page.getByTestId("accounts-pane")).toBeVisible({ timeout: 20_000 });
@@ -209,6 +220,26 @@ test.describe("board: the «Frenato» chip", () => {
     await expect(codexHeld).toContainText("Frenato");
     await expect(codexHeld).toContainText("nessuna card ferma adesso");
     await expect(codexHeld).toHaveAttribute("data-held", "false");
+  });
+
+  test("«Togli il freno a Claude» lifts Topics' early stop for this window", async ({ page, request }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await request.post(`${E2E_BASE}/api/test/plan-usage`, { data: { fiveHour: { utilization: 94, resetsAtMs: resetToday() } } });
+    const ids = await heldCards(request);
+    await openBoard(page, request);
+    await page.getByTestId("board-brake-chip").click({ timeout: 20_000 });
+    await page.getByTestId("board-brake-pop").getByTestId("board-brake-lift").click();
+    // The chip, the strip and the card lines go with the brake, and the server no longer holds the cards.
+    await expect(page.getByTestId("board-brake-chip")).toBeHidden({ timeout: 10_000 });
+    // The cards may now start: the board stops dispatching before anything else, then they go.
+    await request.patch(`${E2E_BASE}/api/boards/${PROJECT_ID}/settings`, { data: { autoDispatch: false } });
+    await expect(page.getByTestId("board-brake-column")).toHaveCount(0);
+    for (const id of ids) await expect(page.locator(`[data-task-card="${id}"]`).getByTestId("board-brake-card")).toHaveCount(0);
+    const body = (await (await request.get(`${E2E_BASE}/api/dispatch/brakes`)).json()) as { brakes: Array<{ provider: string }> };
+    expect(body.brakes.filter((b) => b.provider === "claude")).toEqual([]);
+    // Lifted once, nothing is left to lift: the server refuses a second one.
+    expect((await request.post(`${E2E_BASE}/api/dispatch/brakes/lift`)).status()).toBe(409);
   });
 
   test("light: the chip and its popover", async ({ page, request }, testInfo) => {

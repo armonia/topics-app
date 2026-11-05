@@ -11,8 +11,9 @@
  * runtime with what it is doing (held cards, cards at work, the quota where it
  * is measured) and where the cards' heavy jobs run. The hub's own pace brake
  * does not hold cards and lives in «Account e quote», which the popover links
- * to where the hub answers. There is no «release» here: nothing in Topics
- * lifts a spent window.
+ * to where the hub answers. «Togli il freno a Claude» lifts only Claude's
+ * early stop, Topics' own margin under the five-hour wall, for the current
+ * window; a provider's real wall offers no such button.
  */
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { ArrowUpRight, Check, ChevronDown, CirclePause, Monitor } from 'lucide-react';
@@ -22,7 +23,9 @@ import BRAKES_IT from '../../lib/i18n-brakes-it';
 import BRAKES_EN from '../../lib/i18n-brakes-en';
 import { SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { meteredProviders } from '../../lib/accountQuotas';
-import { useDispatchBrakes } from '../../state/dispatchBrakes';
+import { liftClaudeBrake, useDispatchBrakes } from '../../state/dispatchBrakes';
+import { currentCapLimit, useGlobalDispatchCap } from '../../state/globalDispatchCap';
+import { capMode } from '../../lib/board';
 import { useHubEverRead, useHubLive } from '../../state/hubLive';
 import { providerHoldLabel, type DispatchBrake } from '../../../../shared/provider-hold';
 import { Menu } from '../Shared/Menu';
@@ -72,6 +75,8 @@ export function BrakeChip({ band = false }: { band?: boolean } = {}) {
   const live = useHubLive();
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const [lifting, setLifting] = useState(false);
+  const capState = useGlobalDispatchCap();
   const now = Date.now();
   const holding = holdingBrakes(state);
   const view = brakeChipView(holding, now, tr, locale);
@@ -83,6 +88,14 @@ export function BrakeChip({ band = false }: { band?: boolean } = {}) {
   const strained = mac?.strained === true;
   const load = typeof mac?.loadPerCore === 'number' ? mac.loadPerCore : null;
   const oneDecimal = (n: number) => n.toLocaleString(locale === 'en' ? 'en-GB' : 'it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const cap = capState.cap && capMode(capState.cap) === 'count' ? currentCapLimit(capState) : null;
+  const lead = cap != null && Number.isFinite(cap) ? tr('brake.pop.leadCap', { cap, who: view.who }) : tr('brake.pop.lead', { who: view.who });
+  // Only an early stop holding a card can be lifted: a provider's wall cannot.
+  const liftable = holding.find((b) => b.liftable && heldCount(state, b.provider) > 0) ?? null;
+  const lift = async () => {
+    setLifting(true);
+    try { await liftClaudeBrake(); } finally { setLifting(false); }
+  };
   const free = <Check className={`h-3 w-3 ${SUCCESS_TEXT}`} aria-hidden="true" />;
   const pause = <CirclePause className={`h-3 w-3 ${WARNING_TEXT}`} aria-hidden="true" />;
   return (
@@ -108,7 +121,7 @@ export function BrakeChip({ band = false }: { band?: boolean } = {}) {
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} align="right" role="dialog" minWidth={340} maxWidth={380} testId="board-brake-pop" ariaLabel={tr('brake.pop.title')}>
         <div className="px-3 pb-2 pt-2.5">
           <p className="text-compact font-semibold text-app-text-heading">{tr('brake.pop.title')}</p>
-          <p className="mt-0.5 text-mini leading-snug text-app-text-muted">{tr('brake.pop.lead', { who: view.who })}</p>
+          <p data-testid="board-brake-lead" className="mt-0.5 text-mini leading-snug text-app-text-muted">{lead}</p>
         </div>
         {PROVIDERS.map((p) => {
           const wall = state.brakes.find((x) => x.provider === p) ?? null;
@@ -137,16 +150,27 @@ export function BrakeChip({ band = false }: { band?: boolean } = {}) {
             state={strained ? tr('brake.suite.pc') : tr('brake.suite.mac')} stateTone="text-app-text-secondary"
             detail={strained ? (load != null ? tr('brake.suite.pcLoad', { load: oneDecimal(load) }) : tr('brake.suite.pcWhy')) : tr('brake.suite.macDetail')} />
         )}
-        {hub && (
-          <div className="border-t border-app-border px-3 py-2">
-            <button
+        {(hub || liftable) && (
+          <div className="flex flex-wrap gap-2 border-t border-app-border px-3 py-2">
+            {liftable && (
+              <button
+                type="button"
+                data-testid="board-brake-lift"
+                disabled={lifting}
+                onClick={() => { void lift(); }}
+                className="inline-flex h-6 items-center rounded border border-primary bg-primary px-2.5 text-mini text-white hover:bg-primary-hover disabled:opacity-60 coarse:h-11"
+              >
+                {tr('brake.pop.lift', { who: providerHoldLabel(liftable.provider) })}
+              </button>
+            )}
+            {hub && <button
               type="button"
               data-testid="board-brake-accounts"
               onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'accounts' } })); }}
               className="inline-flex h-6 items-center gap-1 rounded border border-app-border px-2.5 text-mini text-app-text hover:bg-app-hover coarse:h-11"
             >
               {tr('brake.pop.accounts')}<ArrowUpRight className="h-3 w-3" aria-hidden="true" />
-            </button>
+            </button>}
           </div>
         )}
       </Menu>

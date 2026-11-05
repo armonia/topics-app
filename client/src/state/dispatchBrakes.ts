@@ -117,6 +117,24 @@ async function read(): Promise<void> {
   }
 }
 
+/**
+ * «Togli il freno a Claude»: lifts Claude's early stop for the current
+ * five-hour window. The server answers with the same body as the read, so the
+ * chip redraws at once. False when there was nothing to lift (a real wall).
+ */
+export async function liftClaudeBrake(): Promise<boolean> {
+  const mine = ++seq;
+  try {
+    const res = await apiFetch('/api/dispatch/brakes/lift', { method: 'POST' });
+    if (!res.ok) { void read(); return false; }
+    const body: unknown = await res.json();
+    if (mine === seq) adopt(body);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function subscribe(cb: () => void): () => void {
   listeners.add(cb);
   if (listeners.size === 1) {

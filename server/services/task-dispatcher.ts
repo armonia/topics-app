@@ -68,9 +68,9 @@ import { createDispatchMemoryQueuePublisher, createDispatchMemoryQueueSnapshot }
 import { createDispatchMemoryStartController } from "./dispatch-memory-start";
 import { buildDispatchAdmissionPreview } from "./dispatch-admission-preview";
 import { WorktreeRefusalError } from "./worktree-manager";
-import { providerHold, holdAsksAPerson, holdUntilLabel, planUsage } from "../lib/provider-hold";
+import { providerHold, holdAsksAPerson, holdUntilLabel, claudeEarlyStop } from "../lib/provider-hold";
 import { CLOUD_HOLD_KEY } from "../lib/cloud-weekly-limit";
-import { PLAN_DISPATCH_HOLD_AT, providerHoldKey, providerHoldLabel, type DispatchWork } from "../../shared/provider-hold";
+import { providerHoldKey, providerHoldLabel, type DispatchWork } from "../../shared/provider-hold";
 import { languageDirective } from "../lib/topics-agent-prompt";
 import { resolveOutputLanguage } from "./app-settings";
 import { OUTPUT_LANGUAGES, type OutputLanguage } from "../../shared/types";
@@ -1762,12 +1762,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * 31be77d3). The approaching-limit early warning stays Claude-only: it
    * comes from the five-hour usage window, which only Claude's plan reports.
    */
-  function taskPlanWait(task: Task, model?: string | null, starting = false): { untilMs?: number; reason: string; asksAPerson?: true; slot?: string; provider: "claude" | "codex" } | null {
+  function taskPlanWait(task: Task, model?: string | null, starting = false, quiet = false): { untilMs?: number; reason: string; asksAPerson?: true; slot?: string; provider: "claude" | "codex" } | null {
     const claudeHold = providerHold();
     const codexHold = providerHold(Date.now(), "codex");
-    const window = starting ? planUsage()?.fiveHour : null;
-    const nearLimit = window && window.utilization >= PLAN_DISPATCH_HOLD_AT && window.resetsAtMs != null
-      && window.resetsAtMs > Date.now();
+    // The early stop at PLAN_DISPATCH_HOLD_AT, unless a person lifted it for this window.
+    const window = starting ? claudeEarlyStop() : null;
+    const nearLimit = !!window;
     if (!claudeHold && !codexHold && !nearLimit) return null;
     let topicId = task.assignedTopicId;
     if (!topicId && task.reuseBlockerContext && task.blockedByTaskId) {
@@ -1800,7 +1800,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // it names no end: a card's retry waited for that horizon, up to an
       // hour, with the API already back. It waits in the queue for the lift.
       if (hold.window === "api-down") {
-        if (holdAnnounced !== hold.sinceMs) {
+        if (!quiet && holdAnnounced !== hold.sinceMs) {
           holdAnnounced = hold.sinceMs;
           log(`${label} dispatch waiting: ${hold.reason}, resumes when the API answers again`);
         }
@@ -1813,7 +1813,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // lines between 13/09 and 16/09) is how that stays invisible.
       const asksAPerson = holdAsksAPerson(hold, clock());
       const endsAt = holdUntilLabel(hold, clock());
-      if (holdAnnounced !== hold.sinceMs) {
+      if (!quiet && holdAnnounced !== hold.sinceMs) {
         holdAnnounced = hold.sinceMs;
         log(asksAPerson
           ? `${label} dispatch waiting: ${hold.reason}, and the wall is ${holdDays(hold)} days away (until ${endsAt}): this is a spent plan, not a window reset`
@@ -1838,10 +1838,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       }
       return { untilMs: hold.untilMs, provider: holdKey, reason: `${label}: ${hold.reason}. Ripresa dopo il reset delle ${endsAt}.` }; // allow-italian: task queue reason
     }
-    const untilMs = window!.resetsAtMs!;
+    const untilMs = window!.resetsAtMs;
     const pct = Math.round(window!.utilization);
     const at = holdUntilLabel({ untilMs }, clock());
-    if (planWindowAnnounced !== untilMs) {
+    if (!quiet && planWindowAnnounced !== untilMs) {
       planWindowAnnounced = untilMs;
       log(`${label} dispatch waiting: five-hour window at ${pct}%, resumes at ${at}`);
     }
@@ -2535,7 +2535,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         if (t.assignedTopicId || t.dispatchAttempts >= settings.dispatchRetryCap) continue;
         if (t.dispatchDeferredUntil && t.dispatchDeferredUntil > nowIso) continue;
         if (deps.svc.isDispatchBlocked(t.id)) continue;
-        const wait = taskPlanWait(t, t.model ?? (settings.dispatchModel !== "auto" ? settings.dispatchModel : undefined), true);
+        // Quiet: a read for the chip, not the tick, so it neither logs the wait nor marks it announced.
+        const wait = taskPlanWait(t, t.model ?? (settings.dispatchModel !== "auto" ? settings.dispatchModel : undefined), true, true);
         if (wait) held.push({ taskId: t.id, projectId: t.projectId, provider: wait.provider });
       } catch { boards.set(t.projectId, null); }
     }
@@ -2568,7 +2569,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         if (task.assignedTopicId || task.dispatchAttempts >= settings.dispatchRetryCap) return false;
         if (task.dispatchDeferredUntil && task.dispatchDeferredUntil > new Date().toISOString()) return false;
         if (deps.svc.isDispatchBlocked(task.id)) return false;
-        return !taskPlanWait(task, task.model ?? (settings.dispatchModel !== "auto" ? settings.dispatchModel : undefined), true);
+        return !taskPlanWait(task, task.model ?? (settings.dispatchModel !== "auto" ? settings.dispatchModel : undefined), true, true);
       } catch { return false; }
     },
     boardOrder: (projectIds) => {

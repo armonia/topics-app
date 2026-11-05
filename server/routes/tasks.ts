@@ -72,7 +72,7 @@ import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, projectIdForPath,
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { activeFrozenCount } from "../services/budget-governor";
 import { swapFrozenCount } from "../lib/swap-freeze-hold";
-import { dispatchBrakes, planUsage } from "../lib/provider-hold";
+import { dispatchBrakes, liftClaudeEarlyStop, planUsage } from "../lib/provider-hold";
 import { resolveAgentRuntime } from "../services/app-settings";
 import { newProjectParentDir, scaffoldNewProject } from "../services/project-path-resolver";
 import { parkedEdgeEvent, type TaskDispatcher } from "../services/task-dispatcher";
@@ -2858,9 +2858,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       || pathname.startsWith("/api/orchestrator-sessions/")
       || pathname === "/api/system/dispatch-capacity"
       || pathname === "/api/dispatch/memory-queue"
-      || pathname === "/api/dispatch/brakes";
+      || pathname === "/api/dispatch/brakes"
+      || pathname === "/api/dispatch/brakes/lift";
     if (identita?.role === "guest" && miePath) {
-      if (pathname === "/api/dispatch/memory-queue" || pathname === "/api/dispatch/brakes") {
+      if (pathname === "/api/dispatch/memory-queue" || pathname === "/api/dispatch/brakes" || pathname === "/api/dispatch/brakes/lift") {
         return json({ error: "dispatch data is not available to guests", code: "guest_forbidden" }, 403);
       }
       const deviceId = identita.deviceId;
@@ -2970,7 +2971,24 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     const isCapacity = pathname === "/api/system/dispatch-capacity";
     const isMemoryQueue = pathname === "/api/dispatch/memory-queue";
     const isBrakes = pathname === "/api/dispatch/brakes";
-    if (!isSession && !isOrchestratorSession && !isBoard && !isAllBoards && !isCapacity && !isMemoryQueue && !isBrakes) return null;
+    const isBrakeLift = pathname === "/api/dispatch/brakes/lift";
+    if (!isSession && !isOrchestratorSession && !isBoard && !isAllBoards && !isCapacity && !isMemoryQueue && !isBrakes && !isBrakeLift) return null;
+
+    const brakesBody = () => ({
+      brakes: dispatchBrakes(),
+      ...(dispatcher?.dispatchWork?.() ?? { held: [], working: {} }),
+      claudeFiveHour: planUsage()?.fiveHour?.utilization ?? null,
+    });
+
+    // POST /api/dispatch/brakes/lift: «Togli il freno a Claude» (HUBBR-20).
+    // Only Claude's early stop, Topics' own margin under the five-hour wall,
+    // can be lifted; a hold is the provider's wall and answers 409. The answer
+    // is the same body as the GET, so the chip redraws from it at once.
+    if (isBrakeLift) {
+      if (method !== "POST") return json({ error: "method not allowed" }, 405);
+      if (!liftClaudeEarlyStop()) return json({ error: "no early stop to lift", code: "not_liftable" }, 409);
+      return json(brakesBody());
+    }
 
     // GET /api/dispatch/brakes: the providers whose cards wait in Todo right
     // now, with the window, its share and when they start again (HUBBR-20).
@@ -2979,11 +2997,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // The walls, and the cards behind them as the dispatcher judges each
       // one: a wall that holds no card (every card on Automatic found another
       // runtime) is a wall the chip does not name as a brake.
-      return json({
-        brakes: dispatchBrakes(),
-        ...(dispatcher?.dispatchWork?.() ?? { held: [], working: {} }),
-        claudeFiveHour: planUsage()?.fiveHour?.utilization ?? null,
-      });
+      return json(brakesBody());
     }
 
     // GET /api/dispatch/memory-queue — the dispatcher's read-only memory view.

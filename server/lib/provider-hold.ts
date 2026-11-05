@@ -331,6 +331,47 @@ export function holdAsksAPerson(hold: Pick<ProviderHold, "untilMs">, nowMs: numb
 }
 
 /**
+ * The reset instant of the five-hour window whose early stop a person lifted
+ * («Togli il freno a Claude», HUBBR-20), or null. The early stop is Topics' own
+ * margin (`PLAN_DISPATCH_HOLD_AT`), not the plan's wall: lifting it lets the
+ * cards start up to the window's real limit, where the hold takes over. It is
+ * keyed to one window, so the next window brakes again on its own, and kept in
+ * memory only: a restart puts the margin back, which is the safe side.
+ */
+let earlyStopLiftedFor: number | null = null;
+
+/**
+ * Claude's early stop in force at `nowMs`: the five-hour window at
+ * `PLAN_DISPATCH_HOLD_AT` or more with its reset still ahead, unless a person
+ * lifted it for this window. The dispatcher, the automatic picker and the
+ * chip all ask this, so the three never disagree about the margin.
+ */
+export function claudeEarlyStop(nowMs: number = Date.now()): { utilization: number; resetsAtMs: number } | null {
+  const five = planUsage(nowMs)?.fiveHour;
+  if (!five || five.utilization < PLAN_DISPATCH_HOLD_AT || five.resetsAtMs == null || five.resetsAtMs <= nowMs) return null;
+  if (earlyStopLiftedFor === five.resetsAtMs) return null;
+  return { utilization: five.utilization, resetsAtMs: five.resetsAtMs };
+}
+
+/**
+ * Lift Claude's early stop for the current five-hour window. Returns false when
+ * there is no early stop to lift: a hold (a spent window, a plan limit, an API
+ * outage) is the provider's wall, and starting cards into it only burns retries.
+ */
+export function liftClaudeEarlyStop(nowMs: number = Date.now()): boolean {
+  if (providerHold(nowMs, DEFAULT_KEY)) return false;
+  const stop = claudeEarlyStop(nowMs);
+  if (!stop) return false;
+  earlyStopLiftedFor = stop.resetsAtMs;
+  return true;
+}
+
+/** Tests only: put the margin back. */
+export function resetClaudeEarlyStopLift(): void {
+  earlyStopLiftedFor = null;
+}
+
+/**
  * WHO THE DISPATCHER KEEPS IN TODO, provider by provider, by the same rule as
  * `taskPlanWait` in the dispatcher: a hold in force for that provider, or
  * Claude's five-hour window at `PLAN_DISPATCH_HOLD_AT` or more with its reset
@@ -346,10 +387,8 @@ export function dispatchBrakes(nowMs: number = Date.now()): DispatchBrake[] {
     const read = claude.window === "five_hour" ? usage?.fiveHour : claude.window === "seven_day" ? usage?.sevenDay : null;
     out.push({ provider: "claude", window: claude.window, utilization: read?.utilization ?? null, untilMs: claude.window === "api-down" ? null : claude.untilMs });
   } else {
-    const five = usage?.fiveHour;
-    if (five && five.utilization >= PLAN_DISPATCH_HOLD_AT && five.resetsAtMs != null && five.resetsAtMs > nowMs) {
-      out.push({ provider: "claude", window: "five_hour", utilization: five.utilization, untilMs: five.resetsAtMs });
-    }
+    const five = claudeEarlyStop(nowMs);
+    if (five) out.push({ provider: "claude", window: "five_hour", utilization: five.utilization, untilMs: five.resetsAtMs, liftable: true });
   }
   const codex = providerHold(nowMs, "codex");
   if (codex) out.push({ provider: "codex", window: codex.window, utilization: null, untilMs: codex.window === "api-down" ? null : codex.untilMs });

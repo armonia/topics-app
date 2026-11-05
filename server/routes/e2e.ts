@@ -125,7 +125,7 @@ import { setSessionCliPid } from "../providers/session-pids";
 import { setRouteFault } from "../lib/route-fault";
 import { envDataDir } from "../lib/data-dir";
 import { holdDispatchReconcile, releaseDispatchHold } from "../lib/e2e-dispatch-hold";
-import { clearPlanUsage, clearProviderHold, setProviderHold } from "../lib/provider-hold";
+import { clearPlanUsage, clearProviderHold, resetClaudeEarlyStopLift, setProviderHold } from "../lib/provider-hold";
 import { observePlanUsage } from "../providers/native/usage-window";
 import { registerProvider, removeProvider } from "../providers";
 import { partialTurnRows } from "../lib/partial-turn-fixture";
@@ -485,6 +485,7 @@ export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): Ro
       if (body?.clear) {
         clearPlanUsage();
         clearProviderHold();
+        resetClaudeEarlyStopLift();
         return json({ ok: true, cleared: true });
       }
       observePlanUsage({ fiveHour: body?.fiveHour ?? null, sevenDay: body?.sevenDay ?? null });

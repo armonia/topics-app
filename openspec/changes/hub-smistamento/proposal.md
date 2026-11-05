@@ -80,7 +80,7 @@ Il motore dell'hub (API, freno, scansioni, misura di GPU e rete) non cambia. Nie
 - La riserva API sono chiavi Anthropic con priorità e disattiva: niente OpenRouter né Groq, e nessun saldo o tetto in euro al mese.
 - «Come funziona il freno» col 70/85/95% era inventato: il freno guarda il ritmo della settimana per classe di lavoro; Topics ferma le card al 90% della finestra.
 - «Frena» non esiste come comando: esistono «Sblocca il freno per N ore» per provider e «Ferma i lavori in background» per tutti.
-- Il chip «Frenato» della Board legge il fermo di Topics (Claude e Codex), che è ciò che tiene le card in Todo; «Togli il freno» non ha un comando e esce.
+- Il chip «Frenato» della Board legge il fermo di Topics (Claude e Codex), che è ciò che tiene le card in Todo; «Togli il freno a Claude» toglie solo il margine di Topics al 90% della finestra di 5 ore, per quella finestra: un muro vero del provider non si toglie.
 - I voti delle automazioni sono Va bene, Da cambiare (con nota), Nota, Segnala, Non avvisarmi più: non «Serve / Non serve».
 - «Fallo ora» su un job launchd non esiste; esegui, accendi e togli valgono solo per i lavori di OpenClaw. «Board di notte» non è un sistema delle automazioni: quelle card restano sulla Board.
 - Funzionalità non sono «24 accese»: è il confronto fra 16 sistemi, 172 voci, 47 dove Jarvis è indietro.
