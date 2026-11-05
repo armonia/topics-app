@@ -5,8 +5,10 @@
  * accounts of the proxy with their bars and the proxy's commands (use this one,
  * priority, cap, renew the token, on and off, remove), Codex and Muse read-only
  * with the hub's «unlock the brake», the reserve Anthropic keys, the proxy's
- * rotation and caps, and how the brake decides. At the top the one command
- * that holds for everybody: stop the new background work for a few hours.
+ * rotation and caps, and how the brake decides. At the top the decision that
+ * is yours: the account in use past 80% of a window, with the switch to the
+ * next ready account and the stop of the background work. Under the plans the
+ * one command that holds for everybody: stop the background work for a few hours.
  *
  * The truth stays in the hub and in the proxy: every write goes there and the
  * view shows what it reads back, never what it hoped to write. With the hub
@@ -16,8 +18,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  ArrowDown, ArrowUp, ArrowLeftRight, CloudOff, CreditCard, Gauge, Hourglass, Image as ImageIcon, Info, KeyRound, Lock,
-  LogIn, MoreHorizontal, Pause, Play, Power, RefreshCw, SlidersHorizontal, Unlock, Wallet,
+  AlertTriangle, ArrowDown, ArrowUp, ArrowLeftRight, CloudOff, CreditCard, Gauge, Hourglass, Image as ImageIcon, Info, KeyRound, Lock,
+  LogIn, MoreHorizontal, Pause, Play, Power, RefreshCw, SlidersHorizontal, Trash2, Unlock, Wallet,
 } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
 import { addCatalogue } from '../../lib/i18n';
@@ -33,10 +35,12 @@ import { Select } from '../Shared/Select';
 import { Switch } from '../Shared/Switch';
 import { DANGER_TEXT, POPOVER_ITEM, POPOVER_ITEM_DANGER, WARNING_TEXT } from '../../lib/popoverStyles';
 import { HOT_QUOTA_AT } from '../Sidebar/hotQuota';
+import { PLAN_DISPATCH_HOLD_AT } from '../../../../shared/provider-hold';
 import {
   HOLD_HOURS, HOLD_STEPS, PARALLEL_STEPS, ROTATION_INTERVALS, ROTATION_STRATEGIES, UNLOCK_HOURS,
-  backgroundHold, brakeClasses, capInput, commandRequest, keyMove, meteredProviders, paceLines, readProxyAccounts, readProxySettings,
-  type AccountCommand, type ApiKey, type ClaudeAccount, type MeteredProvider, type ProxySettings, type QuotaWindow,
+  accountCount, backgroundHold, brakeClasses, capInput, commandRequest, elidesArticle, hotDecision, hubProse, keyMove, meteredProviders,
+  oneDecimal, paceLines, readProxyAccounts, readProxySettings,
+  type AccountCommand, type ApiKey, type ClaudeAccount, type HotDecision, type MeteredProvider, type ProxySettings, type QuotaWindow,
 } from '../../lib/accountQuotas';
 
 // The view's strings travel with its chunk, before its first render.
@@ -49,6 +53,8 @@ type Run = (c: AccountCommand) => Promise<boolean>;
 /** The proxy recomputes its windows on every request; a read every 15 s is plenty for a view. */
 const POLL_MS = 15_000;
 const CAP_STEPS = [50, 60, 70, 75, 80, 85, 90, 95] as const;
+
+type Clock = ReturnType<typeof useClock>;
 
 const SECTION_TITLE = 'mb-1.5 mt-3.5 flex flex-wrap items-center gap-1.5 text-mini font-semibold text-app-text-secondary first:mt-0';
 const LIST = 'overflow-hidden rounded border border-app-border bg-app-inset';
@@ -153,6 +159,7 @@ export function AccountQuotasPane() {
   const settings = useMemo(() => readProxySettings(reads?.settings), [reads]);
   const metered = useMemo(() => meteredProviders(hub.pace, hub.gates), [hub.pace, hub.gates]);
   const hold = backgroundHold(hub.gates);
+  const decision = proxy ? hotDecision(proxy.accounts, HOT_QUOTA_AT) : null;
 
   // Every write goes to its service and the view then reads back what is true.
   const run = useCallback<Run>(async (c) => {
@@ -201,11 +208,11 @@ export function AccountQuotasPane() {
         )}
         {failure && <div role="alert" data-testid="accounts-failure" className={`mb-2.5 rounded border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-compact ${DANGER_TEXT}`}>{failure}</div>}
 
-        {hub.gates !== undefined && <HoldRow until={hold} run={run} clock={clock} />}
+        {decision && <Decide decision={decision} held={hold !== null} canHold={hub.gates !== undefined} run={run} clock={clock} />}
 
         <h2 className={SECTION_TITLE}>
           <CreditCard size={13} aria-hidden="true" />{tr('accounts.subs')}
-          <span className="font-normal tabular-nums">{(proxy?.accounts.length ?? 0) + metered.length}</span>
+          <span className="font-normal tabular-nums" data-testid="accounts-count">{accountCount(reads?.profiles, hub.pace)}</span>
           {strategy && <span className="ml-auto font-normal @max-2xl:ml-0 @max-2xl:w-full">{tr('accounts.subsOrder', { strategy })}</span>}
         </h2>
         {failing && !proxy && <p data-testid="accounts-proxy-down" className="mb-2 text-compact text-app-text-secondary">{tr('accounts.proxyDown')}</p>}
@@ -214,9 +221,11 @@ export function AccountQuotasPane() {
           {metered.map((m) => <MeteredCard key={m.provider} provider={m} run={run} clock={clock} />)}
         </div>
 
+        {hub.gates !== undefined && <HoldRow until={hold} run={run} clock={clock} />}
+
         {proxy && proxy.keys.length > 0 && <ApiKeys keys={proxy.keys} run={run} />}
         {settings && <Rules settings={settings} run={run} />}
-        <Brake gates={hub.gates} pace={hub.pace} />
+        <Brake gates={hub.gates} pace={hub.pace} locale={locale} />
 
         <p className="mt-3 flex flex-wrap items-center gap-1.5 text-compact text-app-text-secondary">
           <KeyRound size={13} aria-hidden="true" />{tr('accounts.providersLink')}
@@ -245,8 +254,49 @@ function Band({ testId, icon, onRetry, children }: { testId: string; icon: React
   );
 }
 
+/**
+ * «DECIDI TU»: the account in use is hot. The two moves that are yours: switch
+ * to the next ready account (the proxy's switch), or stop the background work
+ * so what is left of the window goes to the live chats.
+ */
+function Decide({ decision: d, held, canHold, run, clock }: { decision: HotDecision; held: boolean; canHold: boolean; run: Run; clock: Clock }) {
+  const tr = useT();
+  const [busy, setBusy] = useState(false);
+  const act = (c: AccountCommand) => { setBusy(true); void run(c).finally(() => setBusy(false)); };
+  const span = tr(d.window === 'week' ? 'accounts.decide.week' : 'accounts.decide.fiveH');
+  const title = tr(elidesArticle(d.pct) ? 'accounts.decide.titleElided' : 'accounts.decide.title', { name: d.account.label, pct: d.pct, window: span });
+  const reset = d.resetsAtMs === null ? null : d.window === 'week' ? clock.dayTime(d.resetsAtMs) : clock.time(d.resetsAtMs);
+  const at = PLAN_DISPATCH_HOLD_AT;
+  const board = d.pct >= at ? tr('accounts.decide.boardStopped', { at }) : tr('accounts.decide.boardStops', { at });
+  const holdHours = HOLD_HOURS[1];
+  return (
+    <>
+      <h2 className={SECTION_TITLE}><Hourglass size={13} className={WARNING_TEXT} aria-hidden="true" />{tr('accounts.decide')}<span className="font-normal tabular-nums">1</span></h2>
+      <div data-testid="accounts-decide" className="flex items-center gap-2.5 rounded border border-amber-500/45 bg-amber-500/10 px-2.5 py-2 text-app-text @max-2xl:flex-wrap">
+        <AlertTriangle size={16} className={`flex-none ${WARNING_TEXT}`} aria-hidden="true" />
+        <span className="min-w-0 flex-1">
+          <b className="block text-prose font-semibold" data-testid="accounts-decide-title">{title}</b>
+          <span className="text-compact tabular-nums text-app-text-secondary">{reset ? tr('accounts.decide.reset', { board, when: reset }) : board}</span>
+        </span>
+        <span className="flex flex-none flex-wrap gap-1.5 @max-2xl:w-full @max-2xl:justify-end">
+          {canHold && !held && (
+            <button type="button" disabled={busy} data-testid="accounts-decide-hold" className={BUTTON} onClick={() => act({ kind: 'hold', hours: holdHours })}>
+              <Pause size={12} aria-hidden="true" />{tr('accounts.decide.hold', { n: holdHours })}
+            </button>
+          )}
+          {d.switchTo && (
+            <button type="button" disabled={busy} data-testid="accounts-decide-switch" className={`${BUTTON} border-primary bg-primary text-white hover:bg-primary`} onClick={() => act({ kind: 'switch', name: d.switchTo!.name })}>
+              <ArrowLeftRight size={12} aria-hidden="true" />{tr('accounts.decide.switch', { name: d.switchTo.label })}
+            </button>
+          )}
+        </span>
+      </div>
+    </>
+  );
+}
+
 /** THE ONE COMMAND FOR EVERYBODY: no new background work for a few hours, and back. */
-function HoldRow({ until, run, clock }: { until: number | null; run: Run; clock: ReturnType<typeof useClock> }) {
+function HoldRow({ until, run, clock }: { until: number | null; run: Run; clock: Clock }) {
   const tr = useT();
   const [busy, setBusy] = useState(false);
   const act = (c: AccountCommand) => { setBusy(true); void run(c).finally(() => setBusy(false)); };
@@ -310,14 +360,14 @@ const STATE_TONE: Record<ClaudeAccount['state'], keyof typeof CHIP_TONE> = {
   'in-use': 'use', ready: 'quiet', off: 'quiet', capped: 'warn', limited: 'warn', expired: 'bad',
 };
 
-function resetCaption(fiveH: QuotaWindow | null, week: QuotaWindow | null, tr: Tr, clock: ReturnType<typeof useClock>): string {
+function resetCaption(fiveH: QuotaWindow | null, week: QuotaWindow | null, tr: Tr, clock: Clock): string {
   return [
     fiveH?.resetsAtMs ? tr('accounts.reset.fiveH', { time: clock.time(fiveH.resetsAtMs) }) : null,
     week?.resetsAtMs ? tr('accounts.reset.week', { when: clock.dayTime(week.resetsAtMs) }) : null,
   ].filter(Boolean).join(' · ');
 }
 
-function ClaudeCard({ account: a, run, clock }: { account: ClaudeAccount; run: Run; clock: ReturnType<typeof useClock> }) {
+function ClaudeCard({ account: a, run, clock }: { account: ClaudeAccount; run: Run; clock: Clock }) {
   const tr = useT();
   const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
@@ -369,7 +419,7 @@ function ClaudeCard({ account: a, run, clock }: { account: ClaudeAccount; run: R
           <MenuItem icon={SlidersHorizontal} testId="account-cmd-cap" onClick={() => { setMenu(false); setEditCap(true); }}>{tr('accounts.cmd.cap')}</MenuItem>
           <MenuItem icon={LogIn} testId="account-cmd-refresh" onClick={() => void act({ kind: 'refresh', name: a.name })}>{tr('accounts.cmd.refresh')}</MenuItem>
           <MenuItem icon={Power} testId="account-cmd-toggle" onClick={() => void act({ kind: 'enabled', name: a.name, enabled: a.disabled })}>{tr(a.disabled ? 'accounts.cmd.on' : 'accounts.cmd.off')}</MenuItem>
-          <MenuItem icon={Power} testId="account-cmd-remove" danger onClick={() => void remove()}>{tr('accounts.cmd.remove')}</MenuItem>
+          <MenuItem icon={Trash2} testId="account-cmd-remove" danger onClick={() => void remove()}>{tr('accounts.cmd.remove')}</MenuItem>
         </Menu>
       </div>
     </CardShell>
@@ -417,8 +467,10 @@ function CapEditor({ account: a, onDone, run }: { account: ClaudeAccount; onDone
 
 // ── Codex and Muse, read-only ─────────────────────────────────────────────────
 
-function MeteredCard({ provider: m, run, clock }: { provider: MeteredProvider; run: Run; clock: ReturnType<typeof useClock> }) {
+function MeteredCard({ provider: m, run, clock }: { provider: MeteredProvider; run: Run; clock: Clock }) {
   const tr = useT();
+  const locale = useLocale();
+  const reason = hubProse(m.brakeReason, locale);
   const [busy, setBusy] = useState(false);
   const act = async (c: AccountCommand) => { setBusy(true); await run(c); setBusy(false); };
   const name = tr(`accounts.provider.${m.provider}`);
@@ -429,10 +481,12 @@ function MeteredCard({ provider: m, run, clock }: { provider: MeteredProvider; r
       : <span className={`${CHIP} ${CHIP_TONE.quiet}`}>{m.provider === 'codex' && <ImageIcon size={11} aria-hidden="true" />}{tr('accounts.chip.readOnly')}</span>;
   const caption = m.unlockedUntil !== null
     ? tr('accounts.metered.unlockedUntil', { time: clock.time(m.unlockedUntil) })
-    : m.braked && m.brakeReason
-      ? tr('accounts.metered.braked', { reason: m.brakeReason })
+    : m.braked
+      ? reason
+        ? tr('accounts.metered.braked', { reason })
+        : m.brakedUntil !== null ? tr('accounts.metered.brakedUntil', { when: clock.dayTime(m.brakedUntil) }) : tr('accounts.metered.brakedPlain')
       : [
-          m.pace !== null ? tr('accounts.metered.pace', { n: m.pace.toFixed(1).replace('.', ',') }) : null,
+          m.pace !== null ? tr('accounts.metered.pace', { n: oneDecimal(m.pace, locale) }) : null,
           m.weekResetsAtMs ? tr('accounts.reset.week', { when: clock.dayTime(m.weekResetsAtMs) }) : null,
           m.stale ? tr('accounts.metered.stale') : null,
         ].filter(Boolean).join(' · ');
@@ -538,15 +592,20 @@ function Rule({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+function rateText(v: number, locale: string): string {
+  return locale === 'it' ? String(v).replace('.', ',') : String(v);
+}
+
 /** The dollar to euro rate, saved on Enter or when the field is left. */
 function RateField({ value, disabled, onSave }: { value: number; disabled: boolean; onSave: (v: number) => void }) {
   const tr = useT();
-  const [text, setText] = useState(String(value).replace('.', ','));
-  useEffect(() => { setText(String(value).replace('.', ',')); }, [value]);
+  const locale = useLocale();
+  const [text, setText] = useState(rateText(value, locale));
+  useEffect(() => { setText(rateText(value, locale)); }, [value, locale]);
   const commit = () => {
     const v = Number(text.replace(',', '.'));
     if (Number.isFinite(v) && v > 0 && v <= 10 && v !== value) onSave(v);
-    else setText(String(value).replace('.', ','));
+    else setText(rateText(value, locale));
   };
   return (
     <input
@@ -565,7 +624,7 @@ function RateField({ value, disabled, onSave }: { value: number; disabled: boole
 
 // ── How the brake works ───────────────────────────────────────────────────────
 
-function Brake({ gates, pace }: { gates: unknown; pace: unknown }) {
+function Brake({ gates, pace, locale }: { gates: unknown; pace: unknown; locale: string }) {
   const tr = useT();
   const classes = brakeClasses(gates);
   const lines = paceLines(pace);
@@ -593,7 +652,7 @@ function Brake({ gates, pace }: { gates: unknown; pace: unknown }) {
                 <td className={cell}>{c.order.map(who).join(' → ')}</td>
                 <td className={`${cell} @max-2xl:hidden`}>
                   <span className="text-app-text">{c.go && c.provider ? who(c.provider) : tr('accounts.brake.stopped')}</span>
-                  {c.reason && <span className="text-app-text-secondary"> · {c.reason}</span>}
+                  {hubProse(c.reason, locale) && <span className="text-app-text-secondary"> · {hubProse(c.reason, locale)}</span>}
                 </td>
               </tr>
             ))}

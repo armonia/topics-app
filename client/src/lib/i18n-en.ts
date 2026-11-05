@@ -33,8 +33,8 @@ const EN = {
   // the view's own strings come with its chunk (`i18n-accounts-en.ts`).
   'accounts.open': 'Accounts and quotas',
   'accounts.openHint': 'Plans, API reserve, rotation and brake',
-  'accounts.plans': '{n} plans',
-  'accounts.plansOne': '1 plan',
+  'accounts.count': '{n} accounts',
+  'accounts.countOne': '1 account',
   'accounts.hot.week': 'week {pct}%',
   'accounts.hot.fiveH': '5h {pct}%',
   'accounts.hot.title': 'Hottest quota: {who}, {window} {pct}%',

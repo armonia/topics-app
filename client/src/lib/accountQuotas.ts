@@ -70,6 +70,8 @@ export interface MeteredProvider {
   stale: boolean;
   braked: boolean;
   brakeReason: string | null;
+  /** When the hub expects to lift the brake, ms epoch; null when it does not say. */
+  brakedUntil: number | null;
   /** An unlock in force until then, ms epoch. */
   unlockedUntil: number | null;
 }
@@ -116,9 +118,9 @@ export const HOLD_STEPS = [0, 1, 2, 5, 10, 15, 30, 60, 120, 180, 360, 720, 1440]
 export const UNLOCK_HOURS = 2;
 export const HOLD_HOURS = [1, 2, 4] as const;
 
-type Rec = Record<string, unknown>;
+type JsonObject = Record<string, unknown>;
 
-function isRec(v: unknown): v is Rec {
+function isObject(v: unknown): v is JsonObject {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 function num(v: unknown): number | null {
@@ -144,17 +146,17 @@ export function planName(sub: unknown, tier: unknown): string | null {
 
 /** A proxy window ({utilization 0..1, reset unix s}) as a share in % and a reset in ms. */
 function proxyWindow(w: unknown): QuotaWindow | null {
-  if (!isRec(w)) return null;
+  if (!isObject(w)) return null;
   const u = num(w.utilization);
   if (u === null) return null;
   const reset = num(w.reset);
   return { pct: Math.round(u * 100), resetsAtMs: reset === null ? null : reset * 1000 };
 }
 
-function stateOf(p: Rec, over: boolean, now: number): AccountState {
+function stateOf(p: JsonObject, over: boolean, now: number): AccountState {
   if (p.disabled === true) return 'off';
   const expiresAt = num(p.expiresAt);
-  const expired = p.expired === true || isRec(p.refreshFailed) || (expiresAt !== null && expiresAt < now);
+  const expired = p.expired === true || isObject(p.refreshFailed) || (expiresAt !== null && expiresAt < now);
   if (p.isActive !== true && expired) return 'expired';
   if (p.isActive === true) return 'in-use';
   if (over) return 'capped';
@@ -168,14 +170,14 @@ function stateOf(p: Rec, over: boolean, now: number): AccountState {
  * not the proxy's list (proxy down, an error object).
  */
 export function readProxyAccounts(raw: unknown, now = Date.now()): ProxyAccounts | null {
-  if (!isRec(raw) || !Array.isArray(raw.profiles)) return null;
+  if (!isObject(raw) || !Array.isArray(raw.profiles)) return null;
   const accounts: ClaudeAccount[] = [];
   for (const p of raw.profiles) {
-    if (!isRec(p) || !str(p.name)) continue;
-    const rl = isRec(p.rateLimits) ? p.rateLimits : {};
-    const cap = isRec(p.cap) ? p.cap : {};
-    const own = isRec(cap.override) ? cap.override : {};
-    const eff = isRec(cap.effective) ? cap.effective : {};
+    if (!isObject(p) || !str(p.name)) continue;
+    const rl = isObject(p.rateLimits) ? p.rateLimits : {};
+    const cap = isObject(p.cap) ? p.cap : {};
+    const own = isObject(cap.override) ? cap.override : {};
+    const inForce = isObject(cap.effective) ? cap.effective : {};
     const over = cap.over === true;
     accounts.push({
       name: String(p.name),
@@ -187,13 +189,13 @@ export function readProxyAccounts(raw: unknown, now = Date.now()): ProxyAccounts
       state: stateOf(p, over, now),
       fiveH: proxyWindow(rl.fiveH),
       week: proxyWindow(rl.sevenD),
-      cap: { ownFiveH: num(own.fiveH), ownWeek: num(own.sevenD), fiveH: num(eff.fiveH), week: num(eff.sevenD), over },
+      cap: { ownFiveH: num(own.fiveH), ownWeek: num(own.sevenD), fiveH: num(inForce.fiveH), week: num(inForce.sevenD), over },
     });
   }
   const rank = (a: ClaudeAccount) => (a.active ? 0 : a.disabled ? 2 : 1);
   accounts.sort((a, b) => rank(a) - rank(b) || b.priority - a.priority);
   const keys: ApiKey[] = (Array.isArray(raw.apiProfiles) ? raw.apiProfiles : [])
-    .filter((k): k is Rec => isRec(k) && !!str(k.name))
+    .filter((k): k is JsonObject => isObject(k) && !!str(k.name))
     .map((k) => ({ name: String(k.name), label: str(k.label) ?? String(k.name), priority: num(k.priority) ?? 0, disabled: k.disabled === true }))
     .sort((a, b) => b.priority - a.priority);
   return { accounts, keys, allExhausted: raw.allExhausted === true };
@@ -220,7 +222,7 @@ export function capInput(text: string): number | null | 'invalid' {
 
 /** The proxy's rules, or null when the answer is not them. */
 export function readProxySettings(raw: unknown): ProxySettings | null {
-  if (!isRec(raw) || typeof raw.proxyEnabled !== 'boolean') return null;
+  if (!isObject(raw) || typeof raw.proxyEnabled !== 'boolean') return null;
   return {
     proxyEnabled: raw.proxyEnabled,
     autoSwitch: raw.autoSwitch === true,
@@ -239,9 +241,9 @@ export function readProxySettings(raw: unknown): ProxySettings | null {
 interface Override { provider: string; until: number; hold: boolean; exhausted: boolean }
 
 function overridesOf(gates: unknown, now: number): Override[] {
-  if (!isRec(gates) || !Array.isArray(gates.overrides)) return [];
+  if (!isObject(gates) || !Array.isArray(gates.overrides)) return [];
   return gates.overrides
-    .filter(isRec)
+    .filter(isObject)
     .map((o) => ({ provider: String(o.provider ?? ''), until: num(o.until) ?? 0, hold: o.hold === true, exhausted: o.exhausted === true }))
     .filter((o) => o.until > now);
 }
@@ -257,16 +259,16 @@ export function backgroundHold(gates: unknown, now = Date.now()): number | null 
  * its windows, its pace, and the brake on it. Only the providers the hub has.
  */
 export function meteredProviders(pace: unknown, gates: unknown, now = Date.now()): MeteredProvider[] {
-  const rows = Array.isArray(pace) ? pace.filter(isRec) : [];
-  const providers = isRec(gates) && isRec(gates.providers) ? gates.providers : {};
+  const rows = Array.isArray(pace) ? pace.filter(isObject) : [];
+  const providers = isObject(gates) && isObject(gates.providers) ? gates.providers : {};
   const unlocks = overridesOf(gates, now).filter((o) => !o.hold && !o.exhausted);
   const out: MeteredProvider[] = [];
   for (const id of METERED_PROVIDERS) {
     const mine = rows.filter((r) => r.provider === id);
     const row = mine.find((r) => r.active === true) ?? mine[0];
     if (!row) continue;
-    const g = isRec(providers[id]) ? providers[id] as Rec : {};
-    const five = isRec(row.fiveHour) ? num(row.fiveHour.used) : null;
+    const g = isObject(providers[id]) ? providers[id] as JsonObject : {};
+    const five = isObject(row.fiveHour) ? num(row.fiveHour.used) : null;
     const until = unlocks.filter((o) => o.provider === id).map((o) => o.until);
     out.push({
       provider: id,
@@ -278,6 +280,7 @@ export function meteredProviders(pace: unknown, gates: unknown, now = Date.now()
       stale: row.quotaStale === true,
       braked: g.state === 'frenato' || g.state === 'esaurito', // allow-italian: the hub's state values
       brakeReason: str(g.reason),
+      brakedUntil: num(g.waitUntil),
       unlockedUntil: until.length ? Math.max(...until) : null,
     });
   }
@@ -286,10 +289,10 @@ export function meteredProviders(pace: unknown, gates: unknown, now = Date.now()
 
 /** The brake per class of work: the providers in the order they are tried, and today's pick. */
 export function brakeClasses(gates: unknown): BrakeClass[] {
-  if (!isRec(gates) || !isRec(gates.classes)) return [];
+  if (!isObject(gates) || !isObject(gates.classes)) return [];
   const classes = gates.classes;
-  return WORK_CLASSES.filter((id) => isRec(classes[id])).map((id) => {
-    const c = classes[id] as Rec;
+  return WORK_CLASSES.filter((id) => isObject(classes[id])).map((id) => {
+    const c = classes[id] as JsonObject;
     return {
       id,
       order: Array.isArray(c.order) ? c.order.filter((x): x is string => typeof x === 'string') : [],
@@ -302,7 +305,7 @@ export function brakeClasses(gates: unknown): BrakeClass[] {
 
 /** Each provider's pace: the account in use, its week used against the week gone. */
 export function paceLines(pace: unknown): PaceLine[] {
-  const rows = Array.isArray(pace) ? pace.filter(isRec) : [];
+  const rows = Array.isArray(pace) ? pace.filter(isObject) : [];
   const seen = new Set<string>();
   const out: PaceLine[] = [];
   for (const r of [...rows].sort((a, b) => Number(b.active === true) - Number(a.active === true))) {
@@ -315,9 +318,72 @@ export function paceLines(pace: unknown): PaceLine[] {
   return out;
 }
 
-/** How many plans the hub meters: the rows of `pace`. */
-export function planCount(pace: unknown): number {
-  return Array.isArray(pace) ? pace.filter(isRec).length : 0;
+/**
+ * How many accounts the view lists: the proxy's Claude accounts (switched-off
+ * and expired ones included, they have a card) plus the metered providers the
+ * hub reads. The row in the menu and the view's header both count with this,
+ * from the same two answers, so they cannot disagree.
+ */
+export function accountCount(profiles: unknown, pace: unknown): number {
+  const claude = isObject(profiles) && Array.isArray(profiles.profiles)
+    ? profiles.profiles.filter((p) => isObject(p) && !!str(p.name)).length
+    : 0;
+  const rows = Array.isArray(pace) ? pace.filter(isObject) : [];
+  const metered = METERED_PROVIDERS.filter((id) => rows.some((r) => r.provider === id)).length;
+  return claude + metered;
+}
+
+/** The hot window of the account in use, and where a switch would go. */
+export interface HotDecision {
+  account: ClaudeAccount;
+  window: 'week' | 'fiveH';
+  pct: number;
+  resetsAtMs: number | null;
+  /** The next account the proxy could take: ready, on, highest priority. */
+  switchTo: ClaudeAccount | null;
+}
+
+/**
+ * THE DECISION AT THE TOP: the Claude account in use with a window at `hotAt`
+ * or more, and the account a switch would move to. Null when nothing is hot.
+ */
+export function hotDecision(accounts: ClaudeAccount[], hotAt: number): HotDecision | null {
+  const cur = accounts.find((a) => a.active);
+  if (!cur) return null;
+  const week = cur.week?.pct ?? -1;
+  const five = cur.fiveH?.pct ?? -1;
+  const onWeek = week >= five;
+  const pct = onWeek ? week : five;
+  if (pct < hotAt) return null;
+  const switchTo = accounts
+    .filter((a) => !a.active && a.state === 'ready')
+    .sort((a, b) => b.priority - a.priority)[0] ?? null;
+  return { account: cur, window: onWeek ? 'week' : 'fiveH', pct, resetsAtMs: (onWeek ? cur.week : cur.fiveH)?.resetsAtMs ?? null, switchTo };
+}
+
+/**
+ * Whether Italian elides «al» before this number said aloud (all'1%, all'8%,
+ * all'11%, all'80..89%). Only the article changes: the rest of the sentence is
+ * the dictionary's.
+ */
+export function elidesArticle(n: number): boolean {
+  return n === 1 || n === 8 || n === 11 || (n >= 80 && n <= 89);
+}
+
+/**
+ * A reason the hub wrote, fit for the locale: the hub writes Italian with a
+ * dot for decimals. In Italian the decimals take Topics' comma; in any other
+ * locale the prose is not shown (null) and the view says it with its own words.
+ */
+export function hubProse(text: string | null, locale: string): string | null {
+  if (!text || locale !== 'it') return null;
+  return text.replace(/(\d)\.(\d)/g, '$1,$2');
+}
+
+/** One decimal in the locale's way: 2,9 in Italian, 2.9 in English. */
+export function oneDecimal(n: number, locale: string): string {
+  const s = n.toFixed(1);
+  return locale === 'it' ? s.replace('.', ',') : s;
 }
 
 export type AccountCommand =

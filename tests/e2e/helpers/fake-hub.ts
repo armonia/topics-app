@@ -69,13 +69,19 @@ export interface FakeProxy {
   settings: Record<string, unknown>;
 }
 
-/** Three Claude accounts (one in use near its week, one ready, one with its token expired) and two keys. Placeholder names. */
+/**
+ * Four Claude accounts (one in use near its week, one ready, one with its
+ * token expired, one switched off) and two keys. Placeholder names. The hub's
+ * `pace` has no row for the switched-off one, as the real hub: the proxy and
+ * the hub do not count the same accounts.
+ */
 export function defaultFakeProxy(): FakeProxy {
   return {
     accounts: [
       { name: "prof-a", label: "lavoro@example.com", tier: "default_claude_max_20x", isActive: true, priority: 0, disabled: false, expired: false, fiveH: 30, week: 92, cap: { fiveH: null, sevenD: null } },
       { name: "prof-b", label: "riserva@example.com", tier: "default_claude_max_5x", isActive: false, priority: 1, disabled: false, expired: false, fiveH: 12, week: 31, cap: { fiveH: null, sevenD: null } },
       { name: "prof-c", label: "terzo@example.com", tier: "default_claude_max_5x", isActive: false, priority: 0, disabled: false, expired: true, fiveH: null, week: 64, cap: { fiveH: null, sevenD: null } },
+      { name: "prof-d", label: "spento@example.com", tier: "default_claude_max_5x", isActive: false, priority: 0, disabled: true, expired: false, fiveH: null, week: 12, cap: { fiveH: null, sevenD: null } },
     ],
     keys: [
       { name: "key-acme", label: "Chiave acme-web", priority: 20, disabled: false },

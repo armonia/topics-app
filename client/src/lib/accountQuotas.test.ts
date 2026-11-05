@@ -9,7 +9,8 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  backgroundHold, brakeClasses, capInput, commandRequest, keyMove, meteredProviders, paceLines, planCount, planName, readProxyAccounts, readProxySettings,
+  accountCount, backgroundHold, brakeClasses, capInput, commandRequest, elidesArticle, hotDecision, hubProse, keyMove, meteredProviders, oneDecimal,
+  paceLines, planName, readProxyAccounts, readProxySettings,
 } from './accountQuotas';
 import { highestQuota } from '../components/Sidebar/hotQuota';
 import { t } from './i18n';
@@ -121,7 +122,7 @@ const gates = {
     interattivo: { order: ['claude', 'codex'], go: true, provider: 'claude', account: 'lavoro@example.com', reason: '86% usato' },
     sconosciuta: { order: ['x'], go: true },
   },
-  providers: { codex: { state: 'libero', reason: 'ok' }, muse: { state: 'frenato', reason: 'sopra ritmo' } },
+  providers: { codex: { state: 'libero', reason: 'ok' }, muse: { state: 'frenato', reason: 'sopra ritmo', waitUntil: NOW + 21_600_000 } },
   overrides: [
     { provider: 'codex', until: NOW + 7_200_000, by: 'topics' },
     { provider: 'codex', until: NOW - 1 },
@@ -144,7 +145,7 @@ describe('meteredProviders', () => {
 
   test('the brake and the unlock in force; an expired or exhausted entry is not an unlock', () => {
     expect(read[0]).toMatchObject({ braked: false, unlockedUntil: NOW + 7_200_000 });
-    expect(read[1]).toMatchObject({ braked: true, brakeReason: 'sopra ritmo', unlockedUntil: null });
+    expect(read[1]).toMatchObject({ braked: true, brakeReason: 'sopra ritmo', brakedUntil: NOW + 21_600_000, unlockedUntil: null });
   });
 
   test('no hub, no provider', () => {
@@ -169,7 +170,56 @@ describe('the brake', () => {
     expect(paceLines(pace).map((l) => [l.provider, l.account, l.used])).toEqual([
       ['claude', 'lavoro@example.com', 86], ['codex', 'codex@example.com', 28], ['muse', 'muse@example.com', 40],
     ]);
-    expect(planCount(pace)).toBe(4);
+  });
+});
+
+describe('accountCount', () => {
+  test('the proxy\'s named accounts, off and expired included, plus Codex and Muse: what the view lists', () => {
+    // 4 named profiles (one off, one expired) + Codex + Muse, though the hub has 4 pace rows.
+    expect(accountCount(profiles, pace)).toBe(6);
+    expect(accountCount(profiles, pace)).toBe(readProxyAccounts(profiles, NOW)!.accounts.length + meteredProviders(pace, gates, NOW).length);
+  });
+  test('proxy silent: only what the hub meters', () => {
+    expect(accountCount(null, pace)).toBe(2);
+    expect(accountCount({ error: 'down' }, null)).toBe(0);
+  });
+});
+
+describe('hotDecision', () => {
+  const accounts = readProxyAccounts(profiles, NOW)!.accounts;
+  test('the account in use at 86% of the week, and the next ready one to switch to', () => {
+    const d = hotDecision(accounts, 80)!;
+    expect(d.account.name).toBe('auto-1');
+    expect(d).toMatchObject({ window: 'week', pct: 86, resetsAtMs: (S(NOW + 86_400_000)) * 1000 });
+    // auto-2 is over its cap and auto-3 off, auto-4 expired: nobody ready to take over.
+    expect(d.switchTo).toBeNull();
+  });
+  test('a ready account is offered; below the threshold nothing is asked', () => {
+    const ready = accounts.map((a) => (a.name === 'auto-2' ? { ...a, state: 'ready' as const } : a));
+    expect(hotDecision(ready, 80)!.switchTo?.name).toBe('auto-2');
+    expect(hotDecision(accounts, 90)).toBeNull();
+  });
+  test('the five hours when hotter than the week', () => {
+    const five = accounts.map((a) => (a.active ? { ...a, fiveH: { pct: 95, resetsAtMs: 1 } } : a));
+    expect(hotDecision(five, 80)).toMatchObject({ window: 'fiveH', pct: 95, resetsAtMs: 1 });
+  });
+});
+
+describe('locale', () => {
+  test('the Italian article before a share: all\'86%, al 92%', () => {
+    expect([1, 8, 11, 80, 86, 89].every(elidesArticle)).toBe(true);
+    expect([2, 10, 18, 79, 90, 92, 100].some(elidesArticle)).toBe(false);
+    expect(ACCOUNTS_IT['accounts.decide.titleElided']).toBe('{name} è all\'{pct}% {window}');
+    expect(ACCOUNTS_IT['accounts.decide.title']).toBe('{name} è al {pct}% {window}');
+  });
+  test('the hub\'s prose: comma decimals in Italian, not shown in English', () => {
+    expect(hubProse('45% usato, 9.3%/giorno, ritmo 1.7', 'it')).toBe('45% usato, 9,3%/giorno, ritmo 1,7');
+    expect(hubProse('45% usato', 'en')).toBeNull();
+    expect(hubProse(null, 'it')).toBeNull();
+  });
+  test('one decimal the locale\'s way', () => {
+    expect(oneDecimal(2.94, 'it')).toBe('2,9');
+    expect(oneDecimal(2.94, 'en')).toBe('2.9');
   });
 });
 

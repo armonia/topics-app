@@ -2,12 +2,14 @@
  * ACCOUNTS AND QUOTAS (hub-smistamento, HUBBR-10 and HUBBR-11).
  *
  * The row under the plan in the menu with your name opens «Account e quote»:
- * the Claude accounts of the proxy with their commands, Codex and Muse
- * read-only with «Sblocca il freno», the reserve keys, the proxy's rotation
- * and caps, the brake. Every command reaches the fake service it belongs to
+ * at the top the decision on the hot account, then the Claude accounts of the
+ * proxy with their commands, Codex and Muse read-only with the hub's unlock,
+ * the reserve keys, the proxy's rotation and caps, the brake. Every command reaches the fake service it belongs to
  * (the proxy for the accounts, the hub for the unlock and the background stop)
  * and the view shows what it reads back. The card with your name carries the
- * hottest quota (92% of the week in the fixture). The Notifications level
+ * hottest quota (92% of the week in the fixture), and the row and the view's
+ * header count the same accounts (the proxy has one the hub's pace has not).
+ * The Notifications level
  * carries the proxy's own alerts. With the hub gone the bars stay under the
  * band, and after a reload nothing of the hub is left.
  *
@@ -16,12 +18,13 @@
  * touched, and the names are placeholders.
  *
  * Mutation: with `commandRequest` (lib/accountQuotas.ts) sending «switch» to
- * the hub instead of the proxy, «Usa questo» is red (the account stays
- * «pronto»); with the rules drawn from what was written instead of what was
+ * the hub instead of the proxy, the card's use command is red (the account
+ * stays ready); with the rules drawn from what was written instead of what was
  * read back, «a cap written and read back» is red (the fake ignores 77).
  *
  * Video on: the recording is the proof. The screenshots of the built surface go
- * to the test's output (`vero-account-e-quote-*.png`).
+ * to the test's output (`vero-account-e-quote-*.png`): the menu with the row
+ * and the view, dark and light, and the phone.
  *
  * @covers HUBBR-10
  * @covers HUBBR-11
@@ -82,13 +85,19 @@ test.describe("accounts and quotas", () => {
     try {
       await page.goto("/");
       await expect(page.getByTestId("mobile-chrome-bar")).toBeVisible({ timeout: 30_000 });
+      // The menu with your name, the row and its tail, on the phone.
+      await openProfileMenu(page);
+      await expect(page.getByTestId("menu-account-quotas-tail")).toHaveText("sett. 92% · 6 account", { timeout: 20_000 });
+      await page.screenshot({ path: testInfo.outputPath("vero-account-e-quote-telefono-menu.png") });
+      await page.keyboard.press("Escape");
       await expect.poll(() => page.evaluate(() => {
         window.dispatchEvent(new CustomEvent("topics:open-utility", { detail: { type: "accounts" } }));
         return document.querySelector('[data-testid="accounts-pane"]') !== null;
       }), { timeout: 20_000 }).toBe(true);
       const pane = page.getByTestId(PANE);
-      await expect(pane.getByTestId("account-card")).toHaveCount(3, { timeout: 20_000 });
+      await expect(pane.getByTestId("account-card")).toHaveCount(4, { timeout: 20_000 });
       await expect(pane.getByTestId("metered-card")).toHaveCount(2);
+      await expect(pane.getByTestId("accounts-decide")).toBeVisible();
       const widths = await page.evaluate(() => ({
         doc: document.documentElement.scrollWidth,
         pane: document.querySelector<HTMLElement>('[data-testid="accounts-pane"]')!.scrollWidth,
@@ -98,6 +107,9 @@ test.describe("accounts and quotas", () => {
       // One column: the second card sits under the first.
       const [a, b] = await Promise.all([pane.getByTestId("account-card").nth(0).boundingBox(), pane.getByTestId("account-card").nth(1).boundingBox()]);
       expect(b!.y).toBeGreaterThan(a!.y + a!.height - 1);
+      // The decision wraps under its text: nothing overflows its box.
+      const decide = await pane.getByTestId("accounts-decide").evaluate((el) => el.scrollWidth <= el.clientWidth);
+      expect(decide).toBe(true);
       await page.screenshot({ path: testInfo.outputPath("vero-account-e-quote-telefono.png") });
     } finally {
       await ctx.close();
@@ -113,14 +125,30 @@ test.describe("accounts and quotas", () => {
     await expect(page.getByTestId("identity-hot-quota")).toHaveText("sett. 92%", { timeout: 20_000 });
     await openProfileMenu(page);
     const tail = page.getByTestId("menu-account-quotas-tail");
-    await expect(tail).toHaveText("sett. 92% · 3 abbonamenti");
+    // Four proxy accounts (one off, absent from the hub's pace) plus Codex and Muse.
+    await expect(tail).toHaveText("sett. 92% · 6 account", { timeout: 20_000 });
     await expect(tail).toHaveAttribute("data-warn", "true");
+    await page.screenshot({ path: testInfo.outputPath("vero-account-e-quote-menu-scuro.png") });
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.screenshot({ path: testInfo.outputPath("vero-account-e-quote-menu-chiaro.png") });
+    await page.emulateMedia({ colorScheme: "dark" });
     await page.getByTestId("menu-account-quotas").click();
     const pane = page.getByTestId(PANE);
     await expect(pane).toBeVisible({ timeout: 20_000 });
 
     // The one in use first, then by priority; each with its state.
-    await expect(pane.getByTestId("account-card")).toHaveCount(3, { timeout: 20_000 });
+    await expect(pane.getByTestId("account-card")).toHaveCount(4, { timeout: 20_000 });
+    await expect(pane.getByTestId("accounts-count")).toHaveText("6");
+    await expect(card(page, "prof-d")).toHaveAttribute("data-state", "off");
+
+    // The decision first: the account in use is past the board's line, with the switch to the next ready one.
+    const decide = pane.getByTestId("accounts-decide");
+    await expect(decide.getByTestId("accounts-decide-title")).toHaveText("lavoro@example.com è al 92% della settimana");
+    await expect(decide).toContainText("Dal 90% la board non avvia card nuove; si azzera");
+    await expect(decide.getByTestId("accounts-decide-switch")).toHaveText("Passa a riserva@example.com");
+    await expect(decide.getByTestId("accounts-decide-hold")).toHaveText("Ferma il background per 2 h");
+    const [decideBox, gridBox] = await Promise.all([decide.boundingBox(), pane.getByTestId("accounts-grid").boundingBox()]);
+    expect(decideBox!.y).toBeLessThan(gridBox!.y);
     await expect(pane.getByTestId("account-card").first()).toHaveAttribute("data-account", "prof-a");
     await expect(card(page, "prof-a")).toHaveAttribute("data-state", "in-use");
     await expect(card(page, "prof-a").getByTestId("account-bar-week")).toHaveAttribute("data-pct", "92");
@@ -146,7 +174,7 @@ test.describe("accounts and quotas", () => {
     await page.screenshot({ path: testInfo.outputPath("vero-account-e-quote-chiaro.png") });
     await page.emulateMedia({ colorScheme: "dark" });
 
-    // «Usa questo» goes to the proxy, and the card reads back in use; the proxy pins sticky.
+    // The card's use command goes to the proxy, and the card reads back in use; the proxy pins sticky.
     await card(page, "prof-b").getByTestId("account-card-use").click();
     await expect(card(page, "prof-b")).toHaveAttribute("data-state", "in-use", { timeout: 10_000 });
     expect(hub!.posts).toContainEqual({ path: "switch", name: "prof-b" });
@@ -189,8 +217,9 @@ test.describe("accounts and quotas", () => {
     await card(page, "prof-c").getByTestId("account-card-more").click();
     await page.getByTestId("account-cmd-remove").click();
     await page.getByRole("dialog").getByRole("button", { name: "Togli", exact: true }).click();
-    await expect(pane.getByTestId("account-card")).toHaveCount(2, { timeout: 10_000 });
+    await expect(pane.getByTestId("account-card")).toHaveCount(3, { timeout: 10_000 });
     expect(hub!.posts).toContainEqual({ path: "remove", name: "prof-c" });
+    await expect(pane.getByTestId("accounts-count")).toHaveText("5");
   });
 
   test("a cap written and read back; the proxy's alerts in Notifications", async ({ page }) => {

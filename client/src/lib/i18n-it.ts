@@ -33,8 +33,8 @@ const IT: Dict = {
   // the view's own strings come with its chunk (`i18n-accounts-it.ts`).
   'accounts.open': 'Account e quote',
   'accounts.openHint': 'Abbonamenti, riserva API, rotazione e freno',
-  'accounts.plans': '{n} abbonamenti',
-  'accounts.plansOne': '1 abbonamento',
+  'accounts.count': '{n} account',
+  'accounts.countOne': '1 account',
   'accounts.hot.week': 'sett. {pct}%',
   'accounts.hot.fiveH': '5h {pct}%',
   'accounts.hot.title': 'Quota più calda: {who}, {window} {pct}%',
