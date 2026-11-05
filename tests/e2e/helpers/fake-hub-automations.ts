@@ -128,8 +128,12 @@ export function automationsSummary(now: number): Record<string, unknown> {
 export function automationsCalendar(now: number): Record<string, unknown> {
   const tomorrow = new Date(now + 24 * HOUR);
   tomorrow.setHours(10, 0, 0, 0);
+  // «Today» stays today after 23:00: an hour ahead would land tomorrow.
+  const endOfToday = new Date(now);
+  endOfToday.setHours(23, 59, 59, 999);
+  const laterToday = now + Math.min(HOUR, (endOfToday.getTime() - now) / 2);
   return { items: [
-    { key: "cron:rem-pr", kind: "promemoria", title: "Ricordami di chiudere la PR di acme-api", when: "oggi", next: now + HOUR, says: "WhatsApp", level: "va", what: null, prompt: "PROMPT GREZZO DEL PROMEMORIA" },
+    { key: "cron:rem-pr", kind: "promemoria", title: "Ricordami di chiudere la PR di acme-api", when: "oggi", next: laterToday, says: "WhatsApp", level: "va", what: null, prompt: "PROMPT GREZZO DEL PROMEMORIA" },
     { key: "cron:rem-domain", kind: "promemoria", title: "Rinnovo del dominio acme-web.example", when: "domani", next: tomorrow.getTime(), says: null, level: "va", what: null, prompt: null },
     { key: "task:quote", kind: "compito", title: "Chiedere il preventivo a studio-x", when: "fra 4 giorni", next: now + 4 * 24 * HOUR, says: "Discord", level: "va", what: null, prompt: null },
   ] };
