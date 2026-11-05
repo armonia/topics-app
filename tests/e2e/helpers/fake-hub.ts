@@ -402,8 +402,9 @@ interface ProjectRows {
  * acme-brand-guidelines, for the row that must keep the name on hover.
  */
 function projectRows(budgets: Record<string, number | null>, rows: ProjectRows, now: number): unknown[] {
-  const state: Record<string, { state: string; why: string; waitUntil: number | null }> = {
-    "studio-x": { state: "frenato", why: "studio-x: 27% della settimana Claude, budget 25%", waitUntil: now + 3 * HOUR },
+  const state: Record<string, { state: string; why: string; waitUntil: number | null; claude?: number; codex?: number; muse?: number; total?: number }> = {
+    // The hub's brake reads the Claude share alone and fires at the budget exactly (pacing.mjs `gate`).
+    "studio-x": { state: "frenato", why: "studio-x: 25% della settimana Claude, budget 25%", waitUntil: now + 3 * HOUR, claude: 25, codex: 0, muse: 2, total: 27 },
     "acme-api": { state: "in coda", why: "2 lavori in attesa di partire", waitUntil: null },
     "misc-a": { state: "frenato", why: "misc-a: budget finito", waitUntil: null },
   };

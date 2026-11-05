@@ -3,11 +3,12 @@
  * says of a project, on its sidebar row and in its menu.
  *
  * On the row, beside the name and outside the quiet rail: an amber dot when
- * the share of the week went past the budget you set, a pause when the hub's
+ * the Claude share of the week reached the budget you set, a pause when the hub's
  * brake holds the project, a clock when its jobs wait in the hub's line, each
  * with the reason as its tooltip. On hover the share of the week takes the
- * place of the quiet signals (the share in words), clear of the command
- * rail. In the menu: the same facts in words, and the priority and the budget,
+ * place of the quiet signals, clear of the command rail: the number always,
+ * its words only when they fit whole (never a half word), the full sentence in
+ * the tooltip. In the menu: the same facts in words, and the priority and the budget,
  * written to the hub's `project-settings` and shown as the hub reads them back,
  * so a write that did not land does not look made.
  *
@@ -29,7 +30,7 @@ import { POPOVER_DIVIDER, DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverSty
 import { Segmented } from '../Shared/Segmented';
 import { PALLINO_ATTESA } from './chromeSignals';
 import {
-  HUB_PRIORITY_LEVELS, budgetChoices, matchHubProject, overBudget, projectSettingsBody, readHubProjects, weekShare,
+  HUB_PRIORITY_LEVELS, budgetChoices, holdWhy, matchHubProject, overBudget, projectSettingsBody, readHubProjects, shownShare, weekShare,
   type HubPriority, type HubProject,
 } from '../../lib/projectHub';
 
@@ -59,17 +60,18 @@ function clock(at: number, locale: string): string {
 
 /** The state in words, or null when the hub holds nothing back. */
 function holdWords(p: HubProject, tr: Tr, locale: string): string | null {
+  const { byBudget, why } = holdWhy(p);
   if (p.hold === 'held') {
-    const head = p.why ? tr('projectHub.held', { why: p.why }) : tr('projectHub.heldBare');
+    const head = byBudget ? tr('projectHub.heldBudget') : why ? tr('projectHub.held', { why }) : tr('projectHub.heldBare');
     return p.waitUntil !== null && p.waitUntil > Date.now() ? `${head} · ${tr('projectHub.until', { time: clock(p.waitUntil, locale) })}` : head;
   }
-  if (p.hold === 'queued') return p.why ? tr('projectHub.queued', { why: p.why }) : tr('projectHub.queuedBare');
+  if (p.hold === 'queued') return why ? tr('projectHub.queued', { why }) : tr('projectHub.queuedBare');
   return null;
 }
 
 function weekWords(p: HubProject, tr: Tr): string {
   return p.budgetPct !== null
-    ? tr('projectHub.weekBudget', { pct: weekShare(p.total), cap: weekShare(p.budgetPct) })
+    ? tr('projectHub.weekBudget', { pct: weekShare(p.claude), cap: weekShare(p.budgetPct) })
     : tr('projectHub.week', { pct: weekShare(p.total) });
 }
 
@@ -114,8 +116,8 @@ export function ProjectHubMark({ projectPath, expanded, onFill }: { projectPath:
         style={{ marginRight: railClear(expanded) }}
         title={[weekWords(p, tr), hold].filter(Boolean).join('\n')}
       >
-        <span className="flex-shrink-0">{weekShare(p.total)}%</span>
-        <span className="project-hub-hint-words">{'\u00a0'}{tr('projectHub.weekTail')}</span>
+        <span className="flex-shrink-0">{weekShare(shownShare(p))}%</span>
+        <span className="project-hub-hint-words">{'\u00a0'}{tr(p.budgetPct !== null ? 'projectHub.weekTailClaude' : 'projectHub.weekTail')}</span>
       </span>
     </>
   );

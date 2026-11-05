@@ -31,7 +31,9 @@ export interface HubProject {
   waitUntil: number | null;
   /** Share of the week, in %, all providers together. */
   total: number;
-  /** Your cap in % of the week; null when there is none. */
+  /** Share of the Claude week, in %: the figure the budget is measured on. */
+  claude: number;
+  /** Your cap in % of the Claude week (Codex and Muse count in other units); null when there is none. */
   budgetPct: number | null;
   priority: HubPriority;
 }
@@ -65,6 +67,7 @@ export function readHubProjects(data: unknown): HubProject[] {
       why: str(p.why),
       waitUntil: num(p.waitUntil),
       total: num(p.total) ?? 0,
+      claude: num(p.claude) ?? 0,
       budgetPct: budget !== null && budget > 0 ? budget : null,
       priority,
     });
@@ -82,9 +85,32 @@ export function matchHubProject(projects: readonly HubProject[], projectPath: st
   return projects.find((p) => p.name === base) ?? null;
 }
 
-/** Past your cap: the share of the week went over the budget you set. */
+/**
+ * At your cap: the Claude share of the week reached the budget you set. The
+ * hub's brake fires at `claude >= budgetPct` (pacing.mjs `gate`), on Claude
+ * alone: Codex and Muse are not summed in.
+ */
 export function overBudget(p: HubProject): boolean {
-  return p.budgetPct !== null && p.total > p.budgetPct;
+  return p.budgetPct !== null && p.claude >= p.budgetPct;
+}
+
+/** The share the row and the menu state: the Claude share where a budget is set (the budget's own figure), the whole week otherwise. */
+export function shownShare(p: HubProject): number {
+  return p.budgetPct !== null ? p.claude : p.total;
+}
+
+/**
+ * Why the hub holds the project, as the row's own menu says it. The hub writes
+ * its budget brake as «<name>: <claude>% of the Claude week, budget N%» (in
+ * Italian, pacing.mjs `gate`): on the project's own row the name is noise,
+ * and with a budget set the numbers repeat the budget line, so that reason
+ * reads as `byBudget` with no words of its own.
+ */
+export function holdWhy(p: HubProject): { byBudget: boolean; why: string } {
+  const prefix = `${p.name}: `;
+  if (!p.why.startsWith(prefix)) return { byBudget: false, why: p.why };
+  if (p.budgetPct !== null) return { byBudget: true, why: '' };
+  return { byBudget: false, why: p.why.slice(prefix.length) };
 }
 
 /** A share of the week as the row says it: whole numbers, and «<1» for a trace. */

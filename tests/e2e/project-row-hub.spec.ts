@@ -2,16 +2,19 @@
  * THE PROJECT ROW WITH THE HUB'S DATA (hub-smistamento, HUBBR-16).
  *
  * Four Topics projects, three of which the fake hub knows by their folder's
- * name, as the hub names a project: acme-web (38% of the week on a 40% budget,
- * running), studio-x (27% on 25%, held by the brake), acme-api (in line).
+ * name, as the hub names a project: acme-web (30% of the Claude week, 38% with
+ * Codex and Muse, on a 40% budget, running), studio-x (25% of the Claude week
+ * on 25%, held by the brake), acme-api (in line). The budget is on the Claude
+ * share alone, and reached at equality, as the hub's brake reads it.
  * The hub's folder for a row is the last agent's, never the project's: the
  * fixture puts acme-web's in a board worktree, acme-api's in a sibling repo,
  * and misc-a's (held, a cross-project row) right in notes-lab's folder.
  * notes-lab the hub does not know by name, so it shows nothing, misc-a's brake
  * included. The rows carry the dot and the pause on studio-x, the clock on
- * acme-api, nothing on acme-web at rest; on hover acme-web says «38% della settimana» (allow-italian: the UI copy asserted)
- * with the name whole, clear of the command rail, and a long name keeps its
- * letters before the hint keeps its words. The menu says the same in words
+ * acme-api, nothing on acme-web at rest; on hover acme-web says its share,
+ * the number always and the words only whole (never a half word), with the
+ * name whole, clear of the command rail, and a long name keeps its letters
+ * before the hint keeps its words. The menu says the same in words
  * and writes the priority and the budget to the hub's `project-settings`,
  * showing them as read back; a write the hub refuses shows its reason and
  * keeps the old one.
@@ -24,7 +27,9 @@
  * acme-api, and the first test is red; with the name's button allowed to
  * shrink on hover again (index.css), the name check of the first test is red; with the
  * menu's choice drawn from the click instead of the hub's answer, «a refused
- * write keeps the old priority» is red.
+ * write keeps the old priority» is red; with the budget compared on the
+ * total again, or with `>` where the hub brakes at `>=` (`overBudget`), the
+ * first test is red (the hint's 38%, the missing dot on studio-x).
  *
  * Video on: the recording is the proof. Screenshots of the built surface go to
  * the test's output (`vero-riga-progetto-hub-*.png`, allow-italian: file names the docs expect).
@@ -72,6 +77,26 @@ const drawnWhole = (l: Locator) => l.evaluate((el) => {
   return range.getBoundingClientRect().width <= el.getBoundingClientRect().width + 0.01;
 });
 
+/** Whether the hint's words are on its visible line: they wrap below it, out of sight, when they do not fit whole. */
+const wordsShown = (week: Locator) => week.evaluate((el) => {
+  const words = el.querySelector(".project-hub-hint-words");
+  if (!words) return false;
+  const box = el.getBoundingClientRect();
+  const w = words.getBoundingClientRect();
+  return w.top < box.bottom - 0.5 && w.right <= box.right + 0.5;
+});
+
+/** The hint never draws a half word: its words are inside it whole, or wholly below its line. */
+async function expectWordsWholeOrHidden(week: Locator): Promise<void> {
+  const [inside, below] = await week.evaluate((el) => {
+    const words = el.querySelector(".project-hub-hint-words")!;
+    const box = el.getBoundingClientRect();
+    const w = words.getBoundingClientRect();
+    return [w.top < box.bottom - 0.5 && w.right <= box.right + 0.5 && w.bottom <= box.bottom + 0.5, w.top >= box.bottom - 0.5];
+  });
+  expect(inside || below).toBe(true);
+}
+
 const projectRow = (page: Page, name: string) => page.locator(".group\\/proj").filter({ has: page.getByTestId(`project-toggle-${name}`) });
 
 async function openRows(page: Page): Promise<void> {
@@ -113,7 +138,9 @@ test.describe("project row with the hub", () => {
     await expect(studio).toHaveAttribute("data-hold", "held");
     await expect(studio).toHaveAttribute("data-over", "true");
     const pause = studio.locator('[role="img"]');
-    await expect.poll(() => tipOf(pause)).toMatch(/^Fermo: studio-x: 27% della settimana Claude, budget 25% · riparte alle \d\d:\d\d$/);
+    // The budget brake, said once: the numbers are the dot's, the project's own name is not repeated.
+    await expect.poll(() => tipOf(pause)).toMatch(/^Fermo per il budget · riparte alle \d\d:\d\d$/);
+    await expect.poll(() => tipOf(studio.locator('[aria-label="Oltre il budget della settimana"]'))).toBe("Oltre il budget della settimana: 25% della settimana Claude su 25% di budget");
 
     const api = projectRow(page, "acme-api").getByTestId("project-hub-mark");
     await expect(api).toHaveAttribute("data-hold", "queued");
@@ -130,13 +157,16 @@ test.describe("project row with the hub", () => {
 
     await projectRow(page, "acme-web").hover();
     await expect(week).toBeVisible();
-    await expect(week).toHaveText("38% della settimana");
+    // The Claude share (the budget's figure), never the 38% of all providers; the words whole or not at all.
+    await expect(week.locator("> span").first()).toHaveText("30%");
+    await expect(week.locator(".project-hub-hint-words")).toHaveText("\u00a0della settimana Claude");
+    await expectWordsWholeOrHidden(week);
     // The name stays whole beside the hint, its icon included.
     await expect(projectRow(page, "acme-web").locator('[data-row-glyph-slot="favicon"] img, [data-row-glyph-slot="favicon"] svg').first()).toBeVisible({ timeout: 20_000 });
     const name = projectRow(page, "acme-web").locator('[data-row-name="project"]');
     const nameWhole = () => drawnWhole(name);
     await expect.poll(nameWhole).toBe(true);
-    await expect.poll(() => tipOf(week)).toBe("38% della settimana su 40% di budget");
+    await expect.poll(() => tipOf(week)).toBe("30% della settimana Claude su 40% di budget");
     // Clear of the command rail that shows on hover, and inside the row.
     const rail = projectRow(page, "acme-web").locator("> .row-actions");
     const [w, r, rowBox] = await Promise.all([week.boundingBox(), rail.boundingBox(), projectRow(page, "acme-web").boundingBox()]);
@@ -156,15 +186,18 @@ test.describe("project row with the hub", () => {
     await page.getByTestId("project-toggle-studio-x").click({ button: "right" });
     const studioMenu = page.getByTestId("project-hub-menu");
     await expect(studioMenu).toHaveAttribute("data-project-hub", "studio-x");
-    await expect(studioMenu.getByTestId("project-hub-menu-week")).toHaveText("27% della settimana su 25% di budget");
-    await expect(studioMenu.getByTestId("project-hub-menu-hold")).toHaveText(/^Fermo: studio-x: 27% della settimana Claude, budget 25% · riparte alle \d\d:\d\d$/);
+    await expect(studioMenu.getByTestId("project-hub-menu-week")).toHaveText("25% della settimana Claude su 25% di budget");
+    await expect(studioMenu.getByTestId("project-hub-menu-hold")).toHaveText(/^Fermo per il budget · riparte alle \d\d:\d\d$/);
     await page.keyboard.press("Escape");
     await expect(studioMenu).toHaveCount(0);
 
-    await page.getByTestId("project-toggle-acme-web").click({ button: "right" });
+    // Opened from the row's bottom edge, so the menu falls below the row and the picture shows the name too.
+    const toggle = page.getByTestId("project-toggle-acme-web");
+    const tBox = (await toggle.boundingBox())!;
+    await toggle.click({ button: "right", position: { x: 8, y: tBox.height - 1 } });
     const menu = page.getByTestId("project-hub-menu");
     await expect(menu).toHaveAttribute("data-project-hub", "acme-web");
-    await expect(menu.getByTestId("project-hub-menu-week")).toHaveText("38% della settimana su 40% di budget");
+    await expect(menu.getByTestId("project-hub-menu-week")).toHaveText("30% della settimana Claude su 40% di budget");
     await expect(menu.getByTestId("project-hub-menu-hold")).toHaveCount(0);
     await expect(menu.getByTestId("project-hub-priority-normale")).toHaveAttribute("aria-checked", "true");
     // The budget in force (40) is not a step: it is offered beside them.
@@ -177,7 +210,7 @@ test.describe("project row with the hub", () => {
     expect(hub!.priorities["acme-web"]).toBe("alta");
 
     await menu.getByTestId("project-hub-budget-50").click();
-    await expect(menu.getByTestId("project-hub-menu-week")).toHaveText("38% della settimana su 50% di budget");
+    await expect(menu.getByTestId("project-hub-menu-week")).toHaveText("30% della settimana Claude su 50% di budget");
     await expect(menu.getByTestId("project-hub-budget-50")).toHaveAttribute("aria-checked", "true");
     expect(hub!.budgets["acme-web"]).toBe(50);
     // The priority written before is untouched by the budget's write.
@@ -222,7 +255,7 @@ test.describe("project row with the hub", () => {
           el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 }));
         });
       } else await longPress(page, '[data-testid="project-toggle-studio-x"]', { until: menu });
-      await expect(menu.getByTestId("project-hub-menu-week")).toHaveText("27% della settimana su 25% di budget");
+      await expect(menu.getByTestId("project-hub-menu-week")).toHaveText("25% della settimana Claude su 25% di budget");
       await expect(menu.getByTestId("project-hub-priority")).toBeInViewport();
       await page.screenshot({ path: testInfo.outputPath("vero-riga-progetto-hub-telefono-menu.png") });
     } finally {
@@ -245,12 +278,10 @@ test.describe("project row with the hub", () => {
       const week = row.getByTestId("project-hub-week");
       await expect(week).toBeVisible();
       await expect(week).toContainText("4%");
-      // Either the name is whole, or the hint's words already gave all their room (an ellipsis at most).
-      const [nameClipped, wordsWidth] = await Promise.all([
-        drawnWhole(row.locator('[data-row-name="project"]')).then((whole) => !whole),
-        week.locator(".project-hub-hint-words").evaluate((el) => el.getBoundingClientRect().width),
-      ]);
-      if (nameClipped) expect(wordsWidth).toBeLessThanOrEqual(14);
+      // Either the name is whole, or the hint's words already gave all their room.
+      const nameClipped = !(await drawnWhole(row.locator('[data-row-name="project"]')));
+      if (nameClipped) expect(await wordsShown(week)).toBe(false);
+      await expectWordsWholeOrHidden(week);
       const rail = row.locator("> .row-actions");
       const [w, r] = await Promise.all([week.boundingBox(), rail.boundingBox()]);
       expect(w!.x + w!.width).toBeLessThanOrEqual(r!.x);

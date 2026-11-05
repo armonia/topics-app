@@ -8,8 +8,10 @@ import type { Dict } from './i18n-types';
 const PROJECT_HUB_EN: Dict = {
   'projectHub.week': '{pct}% of the week',
   'projectHub.weekTail': 'of the week',
-  'projectHub.weekBudget': '{pct}% of the week out of a {cap}% budget',
+  'projectHub.weekTailClaude': 'of the Claude week',
+  'projectHub.weekBudget': '{pct}% of the Claude week out of a {cap}% budget',
   'projectHub.held': 'Held: {why}',
+  'projectHub.heldBudget': 'Held by the budget',
   'projectHub.heldBare': 'Held',
   'projectHub.until': 'starts again at {time}',
   'projectHub.queued': 'In line: {why}',

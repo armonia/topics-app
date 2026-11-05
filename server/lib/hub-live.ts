@@ -43,7 +43,7 @@ export const HUB_LIVE_PATHS: Readonly<Record<HubLiveTopic, string>> = {
  * so a frame goes out only when one of them changed. `dir` stays out too: it
  * is the folder of whichever agent ran last, so it moves on its own.
  */
-const PROJECT_FIELDS = ["name", "title", "state", "why", "waitUntil", "budgetPct", "priority", "total"] as const;
+const PROJECT_FIELDS = ["name", "title", "state", "why", "waitUntil", "budgetPct", "priority", "total", "claude"] as const;
 
 function pickLiveProjects(data: unknown): unknown {
   const list = (data as { projects?: unknown } | null)?.projects;

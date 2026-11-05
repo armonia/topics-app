@@ -13,7 +13,7 @@ function harness(opts: { clients?: boolean; base?: string | null } = {}) {
   const answers: Record<string, unknown> = {
     pace: [{ provider: "claude", pct: 40 }], mac: { cpu: 10 }, services: [],
     attesa: { items: [] }, alerts: { firing: [] }, gates: { classes: {} }, "automations/summary": { broken: 0 },
-    live: { projects: [{ name: "acme-web", state: "attivo", total: 12, agents: { count: 1 }, lastSeen: { at: 1 } }] },
+    live: { projects: [{ name: "acme-web", state: "attivo", total: 12, claude: 4, codex: 8, agents: { count: 1 }, lastSeen: { at: 1 } }] },
   };
   let down = false;
   let calls = 0;
@@ -123,8 +123,9 @@ describe("HUBBR-02: hub live data on the WebSocket", () => {
     const h = harness();
     await h.live.tick();
     const first = h.frames.find((f) => f.topic === "projects");
-    expect(first?.data).toEqual({ projects: [{ name: "acme-web", state: "attivo", total: 12 }] });
-    h.answers.live = { projects: [{ name: "acme-web", state: "attivo", total: 12, agents: { count: 3 }, lastSeen: { at: 2 } }] };
+    // The Claude share stays: the budget is measured on it alone.
+    expect(first?.data).toEqual({ projects: [{ name: "acme-web", state: "attivo", total: 12, claude: 4 }] });
+    h.answers.live = { projects: [{ name: "acme-web", state: "attivo", total: 12, claude: 4, codex: 8, agents: { count: 3 }, lastSeen: { at: 2 } }] };
     h.frames.length = 0;
     h.advance(15_000);
     await h.live.tick();
