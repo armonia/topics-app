@@ -295,9 +295,10 @@ test.describe("Kanban — larghezza elastica delle colonne", () => {
         Math.round(review.width),
         `a ${width}px la review non può essere più larga della finestra`,
       ).toBeLessThanOrEqual(width);
-      // Le colonne di lavoro NON cambiano: restano il carosello con lo sbircio.
+      // Working columns are one whole slide too on the phone, like the approved
+      // mockup of hub-smistamento: one column at a time, no cut-off neighbours.
       for (const c of m.columns.filter((x) => x.status !== "review")) {
-        expect(Math.round(c.width), `colonna ${c.status} resta al suo pavimento`).toBe(FLOOR.working);
+        expect(Math.round(c.width), `colonna ${c.status} vale la riga visibile`).toBe(Math.round(Math.min(visibile, CEIL.working)));
       }
       // Da `sm` in su nulla si muove: il pavimento torna il numero di prima.
       expect(width, "questi tre casi devono stare sotto sm, o non provano niente").toBeLessThan(SM);

@@ -206,8 +206,9 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
   // columns overflow the viewport (a phone, or a narrow desktop pane / open drawer)
   // scrolling glides column-by-column and always frames a useful one — instead of
   // stopping half-way between two. When everything already fits (wide desktop),
-  // there is no overflow so snapping is inert. Columns are a fixed w-72 with a peek
-  // of their neighbours on both sides; Review is wider (its own, roomier slide).
+  // there is no overflow so snapping is inert. From `sm` up columns sit on a w-72
+  // floor with a peek of their neighbours; on the phone each one is a whole slide
+  // (`boardGeometry.ts`). Review is wider (its own, roomier slide).
   const isReview = status === 'review';
   const snapCls = 'snap-center';
   // Width is a RANGE, not a number: `basis` is the floor (what a column is worth

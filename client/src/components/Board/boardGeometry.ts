@@ -25,11 +25,14 @@ export function readBoardLayout(): BoardLayout {
  * A column's width, as a RANGE (see the long note above `widthCls` in
  * `Card.tsx` for why each number is what it is): `basis` is the floor, `grow`
  * spends leftover room, `max-w` is the reading ceiling. Review is roomier, and
- * roomier still when it holds work.
+ * roomier still when it holds work. Below `sm` every column is one whole
+ * slide (`basis-full`), the phone's one-column-at-a-time board of the
+ * approved mockup (hub-smistamento, board.html): a peek of the neighbours
+ * left a working column floating between two cut-off edges.
  */
 export const COLUMN_WIDTH = {
   list: 'mx-auto w-full max-w-3xl',
-  working: 'min-w-0 grow basis-72 max-w-[26rem]',
+  working: 'min-w-0 grow basis-full sm:basis-72 max-w-[26rem]',
   reviewWithWork: 'min-w-0 grow basis-full sm:basis-[24rem] max-w-[36rem] lg:basis-[35rem] lg:max-w-[44rem]',
   review: 'min-w-0 grow basis-full sm:basis-[22rem] max-w-[34rem] lg:basis-[32rem] lg:max-w-[44rem]',
 } as const;
