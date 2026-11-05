@@ -95,7 +95,6 @@ import { useT } from './useT';
 import { utilityPanelId } from '../components/Layout/UtilityPanel';
 import { forgetProjectPersistence } from '../components/Layout/hooks/projectPersistence';
 import { UTILITY_PANEL_TYPES, type UtilityPanelType } from '../state/pane/adapters/utilityPanelId';
-import { openSystemSheet } from '../state/systemPane';
 import type { SendMessageOptions } from '@/hooks/useChat';
 import { DEFAULT_TOPIC_ICON } from '../lib/topicIcons';
 import { primeWebNotificationPermission } from '../lib/shell/app';
@@ -1084,9 +1083,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // ---- handleOpenAsPage ----
   type UtilityPageType = UtilityPanelType;
   const handleOpenAsPage = useCallback((type: UtilityPageType) => {
-    // The System pane on the phone is the bottom sheet over the chat: the grid
-    // draws no splits there, and taking the chat's place is what it must not do.
-    if (type === 'system' && isMobile) { openSystemSheet(); return; }
     const id = utilityPanelId(type);
     // Register in the pane store BEFORE pushing into openPanels —
     // otherwise Effect A reconciles openPanels back to the store-known
@@ -1105,10 +1101,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       setSidebarCollapsed(true);
     } else {
       setOpenPanels(prev => prev.includes(id) ? prev : [...prev, id]);
-      // The System pane opens BESIDE the work, as its own split cell, never as
-      // one more tab of the cell in front. The auto-solo is idempotent: a second
-      // open of a pane already in its cell only focuses it.
-      if (type === 'system') setPendingSoloPanelId(id);
     }
     setFocusedPanelId(id);
     // Plant the focus in the pane store SYNCHRONOUSLY, not just in React state.

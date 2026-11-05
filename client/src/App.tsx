@@ -125,7 +125,6 @@ import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar, MobileTransportBand } from './components/Sidebar/SidebarStatusBar';
 import { UnsentContext, useUnsentController } from './state/unsentMessages';
 import { MobileChromeBar } from './components/Sidebar/MobileChromeBar';
-import { useSystemSheetOpen } from './state/systemPane';
 import { shortcut, usesCtrl } from './lib/shortcutLabel';
 import { useSidebarHandleInsets } from './hooks/useSidebarBottomInset';
 
@@ -203,12 +202,6 @@ const InAppBanners = lazy(retryingChunk('InAppBanners', async () => {
 }));
 const PushEnrollPrompt = lazy(retryingChunk('PushEnrollPrompt', async () => {
   const { PushEnrollPrompt: Component } = await import('./components/Notifications/PushEnrollPrompt');
-  return { default: Component };
-}));
-// The System pane's phone sheet (usage hub): loaded when the sheet opens,
-// never in the entry chunk. On the desktop the pane is a grid cell.
-const SystemSheet = lazy(retryingChunk('SystemPane', async () => {
-  const { SystemSheet: Component } = await import('./components/System/SystemPane');
   return { default: Component };
 }));
 const TopicContextMenu = lazy(retryingChunk('ContextMenu', async () => {
@@ -425,8 +418,6 @@ function App() {
     viewportTop,
     windowId,
   } = layout.state;
-  // The System pane on the phone (usage hub): the bottom sheet over the chat.
-  const systemSheetOpen = useSystemSheetOpen();
   // «Un comando compare dove ha effetto»: sotto i 768px PanelGrid non disegna
   // affatto gli split, quindi i comandi che li governano non si mostrano.
   // La regola — e la misura che la giustifica — sta nell'hook, non qui.
@@ -2189,15 +2180,6 @@ function App() {
         // of staying mute. One prop, so detaching it silences both branches.
         onNextWaiting={() => window.dispatchEvent(new CustomEvent(waitingCount === 0 ? OPEN_INBOX_EVENT : NEXT_WAITING_EVENT))}
       />
-
-      {/* The System pane on the phone: the same content in the bottom sheet. */}
-      {isMobile && systemSheetOpen && (
-        <ErrorBoundary fallbackMessageKey="crash.panel">
-          <Suspense fallback={null}>
-            <SystemSheet />
-          </Suspense>
-        </ErrorBoundary>
-      )}
 
       {/* Sidebar resize handle. The sidebar is position:fixed (FLIP push), so a
           flex divider here would collapse to x=0 under the sidebar's LEFT edge —

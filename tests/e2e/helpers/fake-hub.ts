@@ -1,5 +1,5 @@
 /**
- * A fake usage hub for the System pane specs, on the port the test server is
+ * A fake usage hub for the hub specs, on the port the test server is
  * told to look at (`hubPortFor`, `TOPICS_HUB_URL` in `testServerEnv`). It
  * answers the paths the live reader asks (server/lib/hub-live.ts) with trimmed
  * copies of the real hub's shapes, and closes a "waiting for you" item on

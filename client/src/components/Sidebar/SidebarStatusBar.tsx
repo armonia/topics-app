@@ -13,7 +13,6 @@ import { useProviderHold } from '@/state/providerHold';
 import { usePlanUsage } from '@/state/planUsage';
 import { PLAN_USAGE_WARN_AT } from '../../../../shared/provider-hold';
 import { ProviderLimitNotice } from './ProviderLimitNotice';
-import { SystemStrip } from '../System/SystemStrip';
 import { useUnsent } from '@/state/unsentMessages';
 
 // Rare state (messages that expired unsent): kept out of the eager bundle, the
@@ -227,10 +226,6 @@ export function SidebarStatusBar({ wsStatus, dataNotice, commands }: {
           (`MobileTransportBand`): one component, mounted in two places. */}
       <TransportAlarms wsStatus={wsStatus} dataNotice={dataNotice} />
 
-      {/* The system at a glance (usage hub): opens the System pane beside the
-          work. Renders nothing on an installation where the hub was never read. */}
-      <SystemStrip />
-
       {/* ONLY THE HOME INDICATOR IS LEFT ON THIS WRAPPER. The bottom breathing
           room itself belongs to the band and is written on the band
           (`IdentityBlock`, `paddingBottom: ROW_INSET`), because a wrapper's
@@ -296,9 +291,6 @@ export function MobileTransportBand({ wsStatus, dataNotice, keyboardVisible }: {
         hidden={keyboardVisible}
         inset={{ left: 'max(12px, var(--sal))', right: 'max(12px, var(--sar))' }}
       />
-      {/* The system at a glance, above the bottom row: a tap opens the same
-          System pane as a bottom sheet over the chat. */}
-      {!keyboardVisible && <SystemStrip variant="phone" />}
       {/* Unsent messages of chats not on screen. Here and not over the grid:
           the phone's home screen is the drawer, which covers the grid, and
           this band is the one place that stays visible above the bottom bar

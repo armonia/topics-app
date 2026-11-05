@@ -613,9 +613,9 @@ export default defineConfig({
       // `testIgnore`), because the point is the SAME tree asserted on the two
       // engines.
       testMatch: [
-        // The System pane beside the work and its phone sheet: the desktop shell
-        // and phone Safari are WebKit, and it is the engine this Mac may film on.
-        "**/system-pane.spec.ts",
+        // No hub, or the hub down, leaves no trace: the desktop shell and phone
+        // Safari are WebKit, and it is the engine this Mac may film on.
+        "**/hub-off.spec.ts",
         // The live-terminals menu: used mostly from remote, i.e. from phone
         // Safari and the WKWebView shell. WebKit is where it lives.
         "**/live-terminals.spec.ts",

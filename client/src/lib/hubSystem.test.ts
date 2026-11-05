@@ -1,11 +1,11 @@
 /**
- * What the status strip and the System pane read out of the hub's live topics.
- * The inputs are the hub's own shapes (usage-hub src/server.mjs), trimmed.
- * @covers HUBBR-04, HUBBR-05
+ * What the client reads out of the hub's live topics. The inputs are the
+ * hub's own shapes (usage-hub src/server.mjs), trimmed.
+ * @covers HUBBR-03
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  automationSummary, hubPageLink, closeWaitingBody, failedJobs, firingAlerts, macGlance, quotaLines, redGates, servicesDown, stripModel, waitingItems,
+  automationSummary, closeWaitingBody, failedJobs, firingAlerts, quotaLines, redGates, servicesDown, waitingItems,
 } from './hubSystem';
 
 const SERVICES = { at: 1, services: [
@@ -14,61 +14,14 @@ const SERVICES = { at: 1, services: [
   { id: 'free-router', name: 'Free router', state: 'in attesa', problem: null },
   { id: 'docs', name: 'Docs index', state: 'vivo', problem: 'non ascolta su :3342' },
 ] };
-const MAC = { strained: false, swapUsedGB: 1.26, swapSustained: false, effort: { parts: [{ key: 'cpu', pct: 34.4 }, { key: 'mem', pct: 77 }] } };
 const PACE = [
   { provider: 'claude', account: 'a@x', active: true, used: 62, fiveHour: null },
   { provider: 'claude', account: 'b@x', active: false, used: 100, fiveHour: null },
   { provider: 'codex', account: 'c@x', active: true, used: 12, fiveHour: { used: 85, resetsAt: 1 } },
 ];
 
-describe('HUBBR-04: the strip', () => {
-  test('hidden while the hub was never read', () => {
-    expect(stripModel({}, false).state).toBe('hidden');
-    expect(stripModel({ mac: { error: 'down', at: 1 } }, false).state).toBe('hidden');
-  });
-
-  test('down once read and no topic answers: no numbers', () => {
-    const m = stripModel({ mac: { error: 'down', at: 2 }, pace: { error: 'down', at: 2 } }, true);
-    expect(m).toEqual({ state: 'down', servicesDown: 0, mac: null, quotas: [] });
-  });
-
-  test('calm with everything fine, attention with a service down, an alert, a red gate or a strained Mac', () => {
-    const fine = {
-      mac: { data: MAC, at: 1 }, services: { data: { services: [SERVICES.services[0]] }, at: 1 },
-      alerts: { data: { firing: [] }, at: 1 }, gates: { data: { classes: {} }, at: 1 },
-    };
-    expect(stripModel(fine, true).state).toBe('calm');
-    const m = stripModel({ ...fine, services: { data: SERVICES, at: 1 } }, true);
-    expect(m.state).toBe('attention');
-    expect(m.servicesDown).toBe(2);
-    expect(stripModel({ ...fine, alerts: { data: { firing: [{ id: 'x', message: 'm' }] }, at: 1 } }, true).state).toBe('attention');
-    expect(stripModel({ ...fine, gates: { data: { classes: { batch: { go: false } } }, at: 1 } }, true).state).toBe('attention');
-    expect(stripModel({ ...fine, mac: { data: { ...MAC, strained: true }, at: 1 } }, true).state).toBe('attention');
-  });
-
-  test('a topic in error adds nothing, the others still show', () => {
-    const read = { services: { data: { services: [] }, at: 1 }, alerts: { data: { firing: [] }, at: 1 }, gates: { data: {}, at: 1 } };
-    const m = stripModel({ ...read, mac: { data: MAC, at: 1 }, pace: { error: 'down', at: 1 } }, true);
-    expect(m.state).toBe('calm');
-    expect(m.quotas).toEqual([]);
-    expect(m.mac?.cpu).toBe(34);
-  });
-
-  test('calm is never said over an unread topic it speaks for: most topics in error read as partial', () => {
-    const err = { error: 'down', at: 2 };
-    const m = stripModel({
-      pace: { data: PACE, at: 2 }, services: err, alerts: err, gates: err, mac: err, attesa: err, automations: err,
-    }, true);
-    expect(m.state).toBe('partial');
-    expect(m.servicesDown).toBe(0);
-    expect(m.mac).toBeNull();
-    // What did read and asks for attention still says so.
-    expect(stripModel({ services: { data: SERVICES, at: 1 }, mac: err }, true).state).toBe('attention');
-  });
-
-  test('numbers: cpu from the effort parts, swap in GB, the active accounts only', () => {
-    expect(macGlance(MAC)).toEqual({ cpu: 34, swapGB: 1.26, strained: false, swapHot: false });
-    expect(macGlance(null)).toBeNull();
+describe('HUBBR-03: the hub readers', () => {
+  test('quotas: the active accounts only, warm at 80% of either window', () => {
     expect(quotaLines(PACE)).toEqual([
       { key: 'claude:a@x', provider: 'claude', used: 62, fiveHour: null, hot: false },
       { key: 'codex:c@x', provider: 'codex', used: 12, fiveHour: 85, hot: true },
@@ -79,9 +32,7 @@ describe('HUBBR-04: the strip', () => {
   test('services down follow the hub rule: a problem, stopped or not loaded; on demand is not down', () => {
     expect(servicesDown(SERVICES).map((s) => s.id)).toEqual(['openclaw', 'docs']);
   });
-});
 
-describe('HUBBR-05: the System pane sections', () => {
   test('waiting items keep the hub order, drop the malformed, accept only the three link forms of the hub', () => {
     const items = waitingItems({ at: 1, items: [
       { id: 'a', tipo: 'decisione', title: 'Ship it?', why: 'because', link: 'https://example.com/x', from: 'guardiano', due: 10 },
@@ -104,12 +55,12 @@ describe('HUBBR-05: the System pane sections', () => {
   });
 
   test('a hub page link opens only on the machine of the hub, never as the phone own localhost', () => {
-    expect(hubPageLink('#automations/k', '127.0.0.1')).toBe('http://127.0.0.1:3360/#automations/k');
-    expect(hubPageLink('#automations/k', 'localhost')).toBe('http://127.0.0.1:3360/#automations/k');
-    expect(hubPageLink('#automations/k', 'mac.tail1234.ts.net')).toBeNull();
-    expect(hubPageLink('#automations/k', '192.168.1.20')).toBeNull();
-    const [remote] = waitingItems({ items: [{ id: 'p', title: 'Page', link: '#automations/x' }] }, 'mac.tail1234.ts.net');
-    expect(remote!.link).toBeNull();
+    const page = { items: [{ id: 'p', title: 'Page', link: '#automations/k' }] };
+    const linkOn = (host: string) => waitingItems(page, host)[0]!.link;
+    expect(linkOn('127.0.0.1')).toBe('http://127.0.0.1:3360/#automations/k');
+    expect(linkOn('localhost')).toBe('http://127.0.0.1:3360/#automations/k');
+    expect(linkOn('mac.tail1234.ts.net')).toBeNull();
+    expect(linkOn('192.168.1.20')).toBeNull();
   });
 
   test('the close body is the one the hub expects', () => {

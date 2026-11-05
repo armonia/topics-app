@@ -96,10 +96,6 @@ export const loadProfile = retryingChunk('ProfilePane', async () => {
   const { ProfilePane } = await import('../../components/Profile/ProfilePane');
   return { ProfilePane };
 });
-export const loadSystemPane = retryingChunk('SystemPane', async () => {
-  const { SystemPane } = await import('../../components/System/SystemPane');
-  return { SystemPane };
-});
 export const loadTopicTree = retryingChunk('TopicTree', async () => {
   const { TopicTree } = await import('../../components/Sidebar/TopicTree');
   return { TopicTree };
@@ -160,7 +156,6 @@ const LOADERS: Partial<Record<PaneType, Loader[]>> = {
   // costs a request that lands in the same burst as the others.
   cron: [loadCronJobs],
   profile: [loadProfile],
-  system: [loadSystemPane],
   // A project window is a host: what it tiles inside is a file tree and the
   // editor next to it, so its chunk is theirs. The tiles it persisted are
   // added by `paneTypesToWarm`. `GitChanges` is NOT here on purpose: since the

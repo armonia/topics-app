@@ -209,7 +209,6 @@ export const CHROME_BAR_SURFACES: readonly ChromeBarSurface[] = [
       'remote-access',
       'system-status',
       'processes',
-      'system',
     ],
     cellBg: 'bg-surface',
     scrollsUnderChrome: false,

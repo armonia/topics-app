@@ -783,8 +783,6 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     // covers what this loop existed to guarantee: an open tab is visible in the
     // sidebar.
     if (utilType === 'board') continue;
-    // The System pane's sidebar presence is the status strip at its foot.
-    if (utilType === 'system') continue;
     const config = getPaneConfig(utilType as PaneType);
     items.push({
       id: paneId,

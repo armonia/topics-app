@@ -1,11 +1,11 @@
 /**
- * What the System pane and the sidebar status strip read out of the hub's
- * live topics (state/hubLive.ts). Pure functions over the hub's JSON: the
- * hub owns the shapes (~/.claude/jarvis/tools/usage-hub/src/server.mjs), so
- * everything here is defensive and drops what it does not recognise instead
+ * Readers of the hub's live topics (state/hubLive.ts): waiting items, alerts,
+ * red gates, automations, services and quotas, for the places of Topics that
+ * show them (openspec/changes/hub-smistamento). Pure functions over the hub's
+ * JSON: the hub owns the shapes (~/.claude/jarvis/tools/usage-hub/src/server.mjs),
+ * so everything here is defensive and drops what it does not recognise instead
  * of throwing on a field the hub renamed.
  */
-import type { HubLiveState } from '../state/hubLive';
 
 type Raw = Record<string, unknown>;
 
@@ -40,7 +40,7 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
  * remote session the same address would be the DEVICE's own localhost, a dead
  * link: there the item keeps its close action and no open action.
  */
-export function hubPageLink(hash: string, windowHost: string): string | null {
+function hubPageLink(hash: string, windowHost: string): string | null {
   return LOOPBACK_HOSTS.has(windowHost) ? HUB_PAGES_BASE + hash : null;
 }
 
@@ -232,66 +232,4 @@ export function quotaLines(data: unknown): QuotaLine[] {
     });
   }
   return out;
-}
-
-// ── The Mac (/api/mac) ───────────────────────────────────────────────────────
-
-export interface MacGlance {
-  cpu: number | null;
-  swapGB: number | null;
-  strained: boolean;
-  swapHot: boolean;
-}
-
-export function macGlance(data: unknown): MacGlance | null {
-  if (!isObject(data)) return null;
-  const parts = isObject(data.effort) && Array.isArray(data.effort.parts) ? data.effort.parts : [];
-  const cpuPart = parts.find((p): p is Raw => isObject(p) && p.key === 'cpu');
-  const cpu = cpuPart ? num(cpuPart.pct) : null;
-  return {
-    cpu: cpu === null ? null : Math.round(cpu),
-    swapGB: num(data.swapUsedGB),
-    strained: data.strained === true,
-    swapHot: data.swapSustained === true,
-  };
-}
-
-// ── The strip ────────────────────────────────────────────────────────────────
-
-export type StripState = 'hidden' | 'down' | 'partial' | 'calm' | 'attention';
-
-export interface StripModel {
-  state: StripState;
-  servicesDown: number;
-  mac: MacGlance | null;
-  quotas: QuotaLine[];
-}
-
-const HIDDEN: StripModel = { state: 'hidden', servicesDown: 0, mac: null, quotas: [] };
-
-/** The topics the calm sentence is a claim about: calm only once all of them read. */
-const CALM_RESTS_ON = ['services', 'alerts', 'gates', 'mac'] as const;
-
-/**
- * One glance at the system. Hidden while the hub was never readable (an
- * installation without it); `down` once it was and no topic answers now, so
- * the strip says so instead of keeping numbers that stopped being true. A
- * topic in error contributes nothing: its numbers were already dropped. And
- * "calm" is said only when every topic it speaks for was read: with one of
- * them unreadable the strip says the hub answers in part (`partial`), unless
- * what did read already asks for attention.
- */
-export function stripModel(state: HubLiveState, everRead: boolean): StripModel {
-  if (!everRead) return HIDDEN;
-  const anyData = Object.values(state).some((e) => e && e.data !== undefined);
-  if (!anyData) return { ...HIDDEN, state: 'down' };
-  const down = servicesDown(state.services?.data).length;
-  const mac = macGlance(state.mac?.data);
-  const quotas = quotaLines(state.pace?.data);
-  const attention = down > 0
-    || firingAlerts(state.alerts?.data).length > 0
-    || redGates(state.gates?.data).length > 0
-    || mac?.strained === true;
-  const unread = CALM_RESTS_ON.some((topic) => state[topic]?.data === undefined);
-  return { state: attention ? 'attention' : unread ? 'partial' : 'calm', servicesDown: down, mac, quotas };
 }

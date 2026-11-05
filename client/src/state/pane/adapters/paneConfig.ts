@@ -80,9 +80,6 @@ export const PANE_CONFIG: Partial<Record<PaneType, PaneConfig>> = {
   profile:       { icon: 'UserRound',     label: 'Profilo',      color: '#0066ff', singleton: true, addableScopes: ['standalone'] },
   project:       { icon: 'FolderOpen',   label: 'Project',       color: '#10b981', singleton: false },
   'process-log':    { icon: 'Terminal',     label: 'Process',       color: '#8b5cf6' },
-  // No `addableScopes`: the System pane opens from the status strip at the
-  // foot of the sidebar and from the palette, beside the work.
-  system:        { icon: 'Gauge',         label: 'Sistema',      color: '#0066ff', singleton: true },
 };
 
 /**
