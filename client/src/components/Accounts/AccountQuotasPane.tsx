@@ -37,8 +37,8 @@ import { DANGER_TEXT, POPOVER_ITEM, POPOVER_ITEM_DANGER, WARNING_TEXT } from '..
 import { HOT_QUOTA_AT } from '../Sidebar/hotQuota';
 import { PLAN_DISPATCH_HOLD_AT } from '../../../../shared/provider-hold';
 import {
-  HOLD_HOURS, HOLD_STEPS, PARALLEL_STEPS, ROTATION_INTERVALS, ROTATION_STRATEGIES, UNLOCK_HOURS,
-  accountCount, backgroundHold, brakeClasses, capInput, commandRequest, elidesArticle, hotDecision, hubProse, keyMove, meteredProviders,
+  HOLD_HOURS, HOLD_STEPS, PARALLEL_STEPS, ROTATION_INTERVALS, ROTATION_STRATEGIES, SERIALIZE_DELAYS, UNLOCK_HOURS,
+  accountCount, weekElapsedPct, backgroundHold, brakeClasses, capInput, commandRequest, elidesArticle, hotDecision, hubProse, keyMove, meteredProviders,
   oneDecimal, paceLines, readProxyAccounts, readProxySettings,
   type AccountCommand, type ApiKey, type ClaudeAccount, type HotDecision, type MeteredProvider, type ProxySettings, type QuotaWindow,
 } from '../../lib/accountQuotas';
@@ -52,7 +52,6 @@ type Run = (c: AccountCommand) => Promise<boolean>;
 
 /** The proxy recomputes its windows on every request; a read every 15 s is plenty for a view. */
 const POLL_MS = 15_000;
-const CAP_STEPS = [50, 60, 70, 75, 80, 85, 90, 95] as const;
 
 type Clock = ReturnType<typeof useClock>;
 
@@ -208,6 +207,15 @@ export function AccountQuotasPane() {
         )}
         {failure && <div role="alert" data-testid="accounts-failure" className={`mb-2.5 rounded border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-compact ${DANGER_TEXT}`}>{failure}</div>}
 
+        {proxy?.allExhausted && (
+          <div role="alert" data-testid="accounts-all-exhausted" className={`mb-2.5 flex items-start gap-2 rounded border border-red-500/35 bg-red-500/10 px-2.5 py-1.5 text-compact ${DANGER_TEXT}`}>
+            <AlertTriangle size={14} className="mt-px flex-none" aria-hidden="true" />
+            <span className="min-w-0 flex-1">
+              <b className="block font-semibold">{tr('accounts.allExhausted')}</b>
+              <span className="tabular-nums">{tr('accounts.allExhausted.first', { when: proxy.earliestReset ?? tr('accounts.allExhausted.unknown') })}</span>
+            </span>
+          </div>
+        )}
         {decision && <Decide decision={decision} held={hold !== null} canHold={hub.gates !== undefined} run={run} clock={clock} />}
 
         <h2 className={SECTION_TITLE}>
@@ -218,7 +226,7 @@ export function AccountQuotasPane() {
         {failing && !proxy && <p data-testid="accounts-proxy-down" className="mb-2 text-compact text-app-text-secondary">{tr('accounts.proxyDown')}</p>}
         <div className="grid grid-cols-2 gap-2 @max-2xl:grid-cols-1" data-testid="accounts-grid">
           {proxy?.accounts.map((a) => <ClaudeCard key={a.name} account={a} run={run} clock={clock} />)}
-          {metered.map((m) => <MeteredCard key={m.provider} provider={m} run={run} clock={clock} />)}
+          {metered.map((m) => <MeteredCard key={`${m.provider}:${m.account}`} provider={m} run={run} clock={clock} />)}
         </div>
 
         {hub.gates !== undefined && <HoldRow until={hold} run={run} clock={clock} />}
@@ -320,15 +328,26 @@ function HoldRow({ until, run, clock }: { until: number | null; run: Run; clock:
 
 // ── Bars ──────────────────────────────────────────────────────────────────────
 
-function Bar({ label, pct, cap = null, testId }: { label: string; pct: number | null; cap?: number | null; testId: string }) {
+function Bar({ label, pct, cap = null, mark = null, testId }: { label: string; pct: number | null; cap?: number | null; mark?: number | null; testId: string }) {
   const tr = useT();
   const warn = pct !== null && pct >= HOT_QUOTA_AT;
+  // Ahead of the week gone is too fast: the bar says it at a glance, as the hub's did.
+  const ahead = pct !== null && mark !== null && pct > mark + 5;
   return (
     <div className="grid h-[18px] grid-cols-[36px_minmax(0,1fr)_36px] items-center gap-1.5 text-compact tabular-nums text-app-text-secondary" data-testid={testId} data-pct={pct ?? ''}>
       <span>{label}</span>
       <span className="relative h-[5px] rounded-[3px] bg-black/[0.08] dark:bg-white/[0.1]">
         {pct !== null && <i className={`block h-full rounded-[3px] ${warn ? 'bg-amber-500' : 'bg-app-text-tertiary'}`} style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />}
         {cap !== null && <span title={tr('accounts.bar.cap', { pct: cap })} className="absolute -bottom-px -top-px w-0.5 rounded-[1px] bg-amber-500" style={{ left: `${Math.min(99, cap)}%` }} />}
+        {mark !== null && (
+          <span
+            title={tr(ahead ? 'accounts.bar.markAhead' : 'accounts.bar.mark', { pct: mark })}
+            data-testid="account-bar-mark"
+            data-mark={mark}
+            className={`absolute -bottom-[3px] -top-[3px] w-px ${ahead ? 'bg-red-500' : 'bg-app-text'}`}
+            style={{ left: `${Math.min(99.5, Math.max(0, mark))}%` }}
+          />
+        )}
       </span>
       <span className={`text-right ${warn ? `font-semibold ${WARNING_TEXT}` : 'text-app-text'}`}>{pct === null ? '-' : `${pct}%`}</span>
     </div>
@@ -375,7 +394,10 @@ function ClaudeCard({ account: a, run, clock }: { account: ClaudeAccount; run: R
   const [editCap, setEditCap] = useState(false);
   const more = useRef<HTMLButtonElement>(null);
   const act = async (c: AccountCommand) => { setMenu(false); setBusy(true); await run(c); setBusy(false); };
-  const caption = a.state === 'in-use' || a.state === 'ready' ? resetCaption(a.fiveH, a.week, tr, clock) : tr(`accounts.caption.${a.state}`);
+  // The reset is the answer to «when does it come back»: under every state, as the hub had it.
+  const reset = resetCaption(a.fiveH, a.week, tr, clock);
+  const caption = a.state === 'in-use' || a.state === 'ready' ? reset : [tr(`accounts.caption.${a.state}`), reset].filter(Boolean).join(' ');
+  const notes = accountNotes(a, tr, clock);
 
   const remove = async () => {
     setMenu(false);
@@ -388,11 +410,19 @@ function ClaudeCard({ account: a, run, clock }: { account: ClaudeAccount; run: R
       <CardHead
         name={a.label}
         plan={a.plan}
-        chip={<span className={`${CHIP} ${CHIP_TONE[STATE_TONE[a.state]]}`}>{a.state === 'in-use' && <Gauge size={11} aria-hidden="true" />}{tr(`accounts.chip.${a.state}`)}</span>}
+        chip={(
+          <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1">
+            <AccountChips account={a} />
+          </span>
+        )}
       />
       {a.fiveH && <Bar label={tr('accounts.bar.fiveH')} pct={a.fiveH.pct} cap={a.cap.fiveH} testId="account-bar-5h" />}
-      <Bar label={tr('accounts.bar.week')} pct={a.week?.pct ?? null} cap={a.cap.week} testId="account-bar-week" />
-      <div className={`mb-[9px] mt-1 min-h-[17px] leading-snug tabular-nums ${a.state === 'expired' ? DANGER_TEXT : 'text-app-text-secondary'}`}>{caption}</div>
+      <Bar label={tr('accounts.bar.week')} pct={a.week?.pct ?? null} cap={a.cap.week} mark={weekElapsedPct(a.week?.resetsAtMs ?? null)} testId="account-bar-week" />
+      {!a.fiveH && !a.week && <div className="mt-1 text-app-text-secondary" data-testid="account-no-windows">{tr(a.dormant ? 'accounts.dormant' : 'accounts.noLimits')}</div>}
+      <div className={`mb-[9px] mt-1 min-h-[17px] leading-snug tabular-nums ${a.state === 'expired' ? DANGER_TEXT : 'text-app-text-secondary'}`} data-testid="account-caption">{caption}</div>
+      {notes.map((n) => (
+        <div key={n.key} className={`mb-1.5 leading-snug ${n.bad ? DANGER_TEXT : WARNING_TEXT}`} data-testid="account-note" data-note={n.key}>{n.text}</div>
+      ))}
       {editCap && <CapEditor account={a} onDone={() => setEditCap(false)} run={run} />}
       <div className="mt-auto flex items-center gap-1.5">
         {a.state === 'expired'
@@ -400,6 +430,7 @@ function ClaudeCard({ account: a, run, clock }: { account: ClaudeAccount; run: R
           : !a.active && !a.disabled && <button type="button" disabled={busy} data-testid="account-card-use" className={BUTTON} onClick={() => void act({ kind: 'switch', name: a.name })}><ArrowLeftRight size={12} aria-hidden="true" />{tr('accounts.cmd.use')}</button>}
         {a.disabled && <button type="button" disabled={busy} data-testid="account-card-on" className={BUTTON} onClick={() => void act({ kind: 'enabled', name: a.name, enabled: true })}><Power size={12} aria-hidden="true" />{tr('accounts.cmd.on')}</button>}
         <span className="flex-1" />
+        <span className="whitespace-nowrap text-app-text-secondary tabular-nums" title={tr('accounts.priority.hint')} data-testid="account-priority" data-priority={a.priority}>{tr('accounts.priority', { n: a.priority })}</span>
         <button
           ref={more}
           type="button"
@@ -424,6 +455,51 @@ function ClaudeCard({ account: a, run, clock }: { account: ClaudeAccount; run: R
       </div>
     </CardShell>
   );
+}
+
+/** The state chip, and beside it what the state alone hides: the cap reached on the account in use, the proxy's block, the pace to the limit. */
+function AccountChips({ account: a }: { account: ClaudeAccount }) {
+  const tr = useT();
+  const stateKey = a.state === 'limited' && a.lastResort ? 'lastResort' : a.state;
+  const tone = a.state === 'limited' && a.lastResort ? 'warn' : STATE_TONE[a.state];
+  const extra: Array<{ key: string; text: string; tone: keyof typeof CHIP_TONE; title?: string }> = [];
+  if (a.state === 'in-use' && a.cap.over) extra.push({ key: 'capped', text: tr('accounts.chip.capped'), tone: 'warn' });
+  if (a.block === 'extra-usage') extra.push({ key: 'extra', text: tr('accounts.chip.extraUsage'), tone: 'bad' });
+  if (a.block === 'permission') extra.push({ key: 'permission', text: tr('accounts.chip.permission'), tone: 'bad' });
+  if (a.minutesToLimit !== null) {
+    const m = a.minutesToLimit;
+    const text = m <= 0 ? tr('accounts.speed.at') : m < 300 ? tr('accounts.speed.in', { when: minutesWords(m, tr) }) : tr('accounts.speed.far');
+    extra.push({ key: 'speed', text, tone: m < 300 ? 'bad' : 'quiet', title: tr('accounts.speed.hint') });
+  }
+  return (
+    <>
+      {extra.map((c) => <span key={c.key} className={`${CHIP} ${CHIP_TONE[c.tone]}`} title={c.title} data-testid="account-chip" data-chip={c.key}>{c.text}</span>)}
+      <span className={`${CHIP} ${CHIP_TONE[tone]}`} data-testid="account-chip" data-chip={stateKey}>{a.state === 'in-use' && <Gauge size={11} aria-hidden="true" />}{tr(`accounts.chip.${stateKey}`)}</span>
+    </>
+  );
+}
+
+/** «circa 40 min», «circa 2 h 10 min», to the nearest ten minutes as the proxy's guess deserves. */
+function minutesWords(m: number, tr: Tr): string {
+  const r = Math.max(10, Math.round(m / 10) * 10);
+  return r < 60 ? tr('accounts.minutes', { n: r }) : tr('accounts.hoursMinutes', { h: Math.floor(r / 60), m: r % 60 });
+}
+
+/** The proxy's sentences on an account: why it is blocked and until when, the models paused on it. */
+function accountNotes(a: ClaudeAccount, tr: Tr, clock: Clock): Array<{ key: string; text: string; bad: boolean }> {
+  const out: Array<{ key: string; text: string; bad: boolean }> = [];
+  const back = a.retryAfterMs !== null ? ` ${tr('accounts.block.back', { when: clock.dayTime(a.retryAfterMs) })}` : '';
+  if (a.block === 'extra-usage') out.push({ key: 'extra', text: tr('accounts.block.extraUsage'), bad: true });
+  else if (a.block === 'permission') out.push({ key: 'permission', text: tr('accounts.block.permission'), bad: true });
+  else if (a.block && a.block !== 'auth' && a.state !== 'off') {
+    const text = a.lastResort ? tr(a.block === 'quota-5h' ? 'accounts.block.lastResort5h' : 'accounts.block.lastResortWeek') : tr(`accounts.block.${a.block}`);
+    out.push({ key: a.block, text: text + back, bad: !a.lastResort });
+  }
+  if (a.modelBlocks.length > 0 && a.state !== 'off') {
+    const list = a.modelBlocks.map((b) => (b.untilMs !== null ? tr('accounts.model.until', { model: b.label, when: clock.dayTime(b.untilMs) }) : b.label)).join(', ');
+    out.push({ key: 'model-pause', text: tr('accounts.model.paused', { list }), bad: false });
+  }
+  return out;
 }
 
 function MenuItem({ icon: Icon, testId, danger = false, onClick, children }: { icon: typeof Power; testId: string; danger?: boolean; onClick: () => void; children: ReactNode }) {
@@ -479,7 +555,9 @@ function MeteredCard({ provider: m, run, clock }: { provider: MeteredProvider; r
     : m.braked
       ? <span className={`${CHIP} ${CHIP_TONE.warn}`}><Lock size={11} aria-hidden="true" />{tr('accounts.chip.braked')}</span>
       : <span className={`${CHIP} ${CHIP_TONE.quiet}`}>{m.provider === 'codex' && <ImageIcon size={11} aria-hidden="true" />}{tr('accounts.chip.readOnly')}</span>;
-  const caption = m.unlockedUntil !== null
+  const caption = m.loginDead
+    ? tr('accounts.metered.login', { provider: name })
+    : m.unlockedUntil !== null
     ? tr('accounts.metered.unlockedUntil', { time: clock.time(m.unlockedUntil) })
     : m.braked
       ? reason
@@ -491,11 +569,11 @@ function MeteredCard({ provider: m, run, clock }: { provider: MeteredProvider; r
           m.stale ? tr('accounts.metered.stale') : null,
         ].filter(Boolean).join(' · ');
   return (
-    <CardShell current={false} testId="metered-card" data={{ provider: m.provider, braked: m.braked ? 'true' : 'false' }}>
-      <CardHead name={name} plan={m.account} chip={chip} />
+    <CardShell current={false} testId="metered-card" data={{ provider: m.provider, account: m.account, braked: m.braked ? 'true' : 'false', login: m.loginDead ? 'dead' : 'ok' }}>
+      <CardHead name={name} plan={m.account} chip={m.loginDead ? <span className={`${CHIP} ${CHIP_TONE.bad}`}>{tr('accounts.chip.expired')}</span> : chip} />
       {m.fiveH !== null && <Bar label={tr('accounts.bar.fiveH')} pct={Math.round(m.fiveH)} testId="account-bar-5h" />}
-      <Bar label={tr('accounts.bar.week')} pct={m.week === null ? null : Math.round(m.week)} testId="account-bar-week" />
-      <div className={`mb-[9px] mt-1 min-h-[17px] leading-snug tabular-nums ${m.braked && m.unlockedUntil === null ? WARNING_TEXT : 'text-app-text-secondary'}`}>{caption}</div>
+      <Bar label={tr('accounts.bar.week')} pct={m.week === null ? null : Math.round(m.week)} mark={m.elapsedPct ?? weekElapsedPct(m.weekResetsAtMs)} testId="account-bar-week" />
+      <div className={`mb-[9px] mt-1 min-h-[17px] leading-snug tabular-nums ${m.loginDead ? DANGER_TEXT : m.braked && m.unlockedUntil === null ? WARNING_TEXT : 'text-app-text-secondary'}`}>{caption}</div>
       <div className="mt-auto flex items-center gap-1.5">
         {m.unlockedUntil !== null
           ? <button type="button" disabled={busy} data-testid="metered-relock" className={BUTTON} onClick={() => void act({ kind: 'relock', provider: m.provider })}><Lock size={12} aria-hidden="true" />{tr('accounts.cmd.relock')}</button>
@@ -551,10 +629,6 @@ function Rules({ settings: s, run }: { settings: ProxySettings; run: Run }) {
     await run({ kind: 'setting', patch: { [key]: value } });
     setBusy(null);
   };
-  const capOptions = (cur: number | null) => [
-    { value: 'none', label: tr('accounts.none') },
-    ...[...new Set([...CAP_STEPS, ...(cur === null ? [] : [cur])])].sort((a, b) => a - b).map((v) => ({ value: String(v), label: `${v}%` })),
-  ];
   const holdLabel = (m: number) => (m === 0 ? tr('accounts.noneF') : m < 60 ? tr('accounts.minutes', { n: m }) : tr('accounts.hours', { n: m / 60 }));
   const strategies = (ROTATION_STRATEGIES as readonly string[]).includes(s.rotationStrategy) ? ROTATION_STRATEGIES : [...ROTATION_STRATEGIES, s.rotationStrategy];
   const pick = (key: keyof ProxySettings, value: string, options: Array<{ value: string; label: string }>, onChange: (v: string) => void) => (
@@ -566,29 +640,68 @@ function Rules({ settings: s, run }: { settings: ProxySettings; run: Run }) {
       <div className={LIST} data-testid="accounts-rules">
         <Rule label={tr('accounts.rule.proxy')}><Switch checked={s.proxyEnabled} disabled={busy === 'proxyEnabled'} label={tr('accounts.rule.proxy')} testId="accounts-rule-proxyEnabled" onChange={(v) => void set('proxyEnabled', v)} /></Rule>
         <Rule label={tr('accounts.rule.autoSwitch')}><Switch checked={s.autoSwitch} disabled={busy === 'autoSwitch'} label={tr('accounts.rule.autoSwitch')} testId="accounts-rule-autoSwitch" onChange={(v) => void set('autoSwitch', v)} /></Rule>
-        <Rule label={tr('accounts.rule.strategy')}>{pick('rotationStrategy', s.rotationStrategy, strategies.map((id) => ({ value: id, label: strategyLabel(id, tr) })), (v) => void set('rotationStrategy', v))}</Rule>
+        <Rule label={tr('accounts.rule.strategy')} hint={(ROTATION_STRATEGIES as readonly string[]).includes(s.rotationStrategy) ? tr(`accounts.strategy.${s.rotationStrategy}.hint`) : undefined}>{pick('rotationStrategy', s.rotationStrategy, strategies.map((id) => ({ value: id, label: strategyLabel(id, tr) })), (v) => void set('rotationStrategy', v))}</Rule>
         {s.rotationStrategy === 'round-robin' && <Rule label={tr('accounts.rule.interval')}>{pick('rotationIntervalMin', String(s.rotationIntervalMin), ROTATION_INTERVALS.map((m) => ({ value: String(m), label: holdLabel(m) })), (v) => void set('rotationIntervalMin', Number(v)))}</Rule>}
         {s.rotationStrategy === 'balance' && <Rule label={tr('accounts.rule.parallel')}>{pick('maxConcurrentPerAccount', String(s.maxConcurrentPerAccount), PARALLEL_STEPS.map((n) => ({ value: String(n), label: String(n) })), (v) => void set('maxConcurrentPerAccount', Number(v)))}</Rule>}
-        <Rule label={tr('accounts.rule.cap5h')}>{pick('usageCap5h', s.usageCap5h === null ? 'none' : String(s.usageCap5h), capOptions(s.usageCap5h), (v) => void set('usageCap5h', v === 'none' ? null : Number(v)))}</Rule>
-        <Rule label={tr('accounts.rule.cap7d')}>{pick('usageCap7d', s.usageCap7d === null ? 'none' : String(s.usageCap7d), capOptions(s.usageCap7d), (v) => void set('usageCap7d', v === 'none' ? null : Number(v)))}</Rule>
+        <Rule label={tr('accounts.rule.cap5h')} hint={tr('accounts.rule.cap5h.hint')}><CapField key={`5h:${s.usageCap5h}`} value={s.usageCap5h} label={tr('accounts.rule.cap5h')} testId="accounts-rule-usageCap5h" disabled={busy === 'usageCap5h'} onSave={(v) => void set('usageCap5h', v)} /></Rule>
+        <Rule label={tr('accounts.rule.cap7d')} hint={tr('accounts.rule.cap7d.hint')}><CapField key={`7d:${s.usageCap7d}`} value={s.usageCap7d} label={tr('accounts.rule.cap7d')} testId="accounts-rule-usageCap7d" disabled={busy === 'usageCap7d'} onSave={(v) => void set('usageCap7d', v)} /></Rule>
         <Rule label={tr('accounts.rule.hold')}>{pick('usageCapHoldMin', String(s.usageCapHoldMin), [...new Set([...HOLD_STEPS, s.usageCapHoldMin])].sort((a, b) => a - b).map((m) => ({ value: String(m), label: holdLabel(m) })), (v) => void set('usageCapHoldMin', Number(v)))}</Rule>
-        <Rule label={tr('accounts.rule.queue')}><Switch checked={s.serializeRequests} disabled={busy === 'serializeRequests'} label={tr('accounts.rule.queue')} testId="accounts-rule-serializeRequests" onChange={(v) => void set('serializeRequests', v)} /></Rule>
-        <Rule label={tr('accounts.rule.usdEur')}><RateField value={s.usdEur} disabled={busy === 'usdEur'} onSave={(v) => void set('usdEur', v)} /></Rule>
+        <Rule label={tr('accounts.rule.queue')} hint={tr('accounts.rule.queue.hint')}><Switch checked={s.serializeRequests} disabled={busy === 'serializeRequests'} label={tr('accounts.rule.queue')} testId="accounts-rule-serializeRequests" onChange={(v) => void set('serializeRequests', v)} /></Rule>
+        {s.serializeRequests && <Rule label={tr('accounts.rule.delay')}>{pick('serializeDelayMs', String(s.serializeDelayMs), [...new Set([...SERIALIZE_DELAYS, s.serializeDelayMs])].sort((a, b) => a - b).map((ms) => ({ value: String(ms), label: ms === 0 ? tr('accounts.noneF') : tr('accounts.ms', { n: ms }) })), (v) => void set('serializeDelayMs', Number(v)))}</Rule>}
+        <Rule label={tr('accounts.rule.usdEur')} hint={tr('accounts.rule.usdEur.hint')}><RateField value={s.usdEur} disabled={busy === 'usdEur'} onSave={(v) => void set('usdEur', v)} /></Rule>
+      </div>
+      <h2 className={SECTION_TITLE}>{tr('accounts.rules.beta')}</h2>
+      <div className={LIST} data-testid="accounts-rules-beta">
+        <Rule label={tr('accounts.rule.sessionMonitor')} hint={tr('accounts.rule.sessionMonitor.hint')}><Switch checked={s.sessionMonitor} disabled={busy === 'sessionMonitor'} label={tr('accounts.rule.sessionMonitor')} testId="accounts-rule-sessionMonitor" onChange={(v) => void set('sessionMonitor', v)} /></Rule>
+        <Rule label={tr('accounts.rule.commitTokens')} hint={tr('accounts.rule.commitTokens.hint')}><Switch checked={s.commitTokenUsage} disabled={busy === 'commitTokenUsage'} label={tr('accounts.rule.commitTokens')} testId="accounts-rule-commitTokenUsage" onChange={(v) => void set('commitTokenUsage', v)} /></Rule>
       </div>
     </>
   );
 }
 
 const RULE_LABEL: Partial<Record<keyof ProxySettings, string>> = {
-  rotationStrategy: 'strategy', rotationIntervalMin: 'interval', maxConcurrentPerAccount: 'parallel', usageCap5h: 'cap5h', usageCap7d: 'cap7d', usageCapHoldMin: 'hold',
+  rotationStrategy: 'strategy', rotationIntervalMin: 'interval', maxConcurrentPerAccount: 'parallel', usageCap5h: 'cap5h', usageCap7d: 'cap7d', usageCapHoldMin: 'hold', serializeDelayMs: 'delay',
 };
 
-function Rule({ label, children }: { label: string; children: ReactNode }) {
+function Rule({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <div className={LIST_ROW}>
-      <span className="min-w-0 flex-1">{label}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block">{label}</span>
+        {hint && <span className="block text-mini leading-snug text-app-text-secondary" data-testid="accounts-rule-hint">{hint}</span>}
+      </span>
       {children}
     </div>
+  );
+}
+
+/** A global cap, any whole percent from 1 to 99; empty is none. Saved on Enter or when the field is left. */
+function CapField({ value, label, testId, disabled, onSave }: { value: number | null; label: string; testId: string; disabled: boolean; onSave: (v: number | null) => void }) {
+  const tr = useT();
+  // Keyed by the value in force (see the callers): a new reading starts a new field.
+  const [text, setText] = useState(value === null ? '' : String(value));
+  const parsed = capInput(text);
+  const commit = () => {
+    if (parsed === 'invalid') { setText(value === null ? '' : String(value)); return; }
+    if (parsed !== value) onSave(parsed);
+  };
+  return (
+    <span className="flex flex-none items-center gap-1">
+      <input
+        data-testid={testId}
+        aria-label={label}
+        aria-invalid={parsed === 'invalid'}
+        inputMode="numeric"
+        placeholder={tr('accounts.none')}
+        disabled={disabled}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+        className={`h-[26px] w-16 rounded-sm border bg-elevated px-2 text-right text-compact tabular-nums text-app-text outline-none focus:border-primary @max-2xl:h-9 ${parsed === 'invalid' ? 'border-red-500' : 'border-app-border-light'}`}
+      />
+      <span className="text-app-text-secondary">%</span>
+    </span>
   );
 }
 

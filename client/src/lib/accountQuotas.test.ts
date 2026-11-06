@@ -10,7 +10,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   accountCount, backgroundHold, brakeClasses, capInput, commandRequest, elidesArticle, hotDecision, hubProse, keyMove, meteredProviders, oneDecimal,
-  paceLines, planName, readProxyAccounts, readProxySettings,
+  paceLines, planName, readProxyAccounts, readProxySettings, weekElapsedPct,
 } from './accountQuotas';
 import { highestQuota, profileDoor } from '../components/Sidebar/hotQuota';
 import { t } from './i18n';
@@ -84,6 +84,36 @@ describe('readProxyAccounts', () => {
   });
 });
 
+describe('what the proxy says beyond the state', () => {
+  const raw = (over: Record<string, unknown>) => readProxyAccounts({ profiles: [{ name: 'a', label: 'a@x', isActive: false, rateLimits: { fiveH: { utilization: 0.94, reset: S(NOW + 3_600_000) }, sevenD: { utilization: 0.5, reset: S(NOW + 86_400_000) } }, ...over }], allExhausted: true, earliestReset: 'domani alle 10:00' }, NOW)!;
+
+  test('every account out, and when the first frees up', () => {
+    expect(raw({})).toMatchObject({ allExhausted: true, earliestReset: 'domani alle 10:00' });
+  });
+
+  test('a window over 90% but not full is a last resort, not exhausted; the time it comes back', () => {
+    const [a] = raw({ limited: true, blockKind: 'quota-5h', retryAfter: NOW + 3_600_000 }).accounts;
+    expect(a).toMatchObject({ state: 'limited', block: 'quota-5h', lastResort: true, retryAfterMs: NOW + 3_600_000 });
+    const [full] = raw({ limited: true, blockKind: 'quota-7d', rateLimits: { sevenD: { utilization: 1, reset: S(NOW + 86_400_000) } } }).accounts;
+    expect(full).toMatchObject({ block: 'quota-7d', lastResort: false, retryAfterMs: null });
+  });
+
+  test('the organization refusing OAuth, the extra usage spent, a model paused, the pace to the limit, a dormant account', () => {
+    expect(raw({ blockKind: 'permission' }).accounts[0]!.block).toBe('permission');
+    expect(raw({ blockKind: 'extra-usage' }).accounts[0]!.block).toBe('extra-usage');
+    expect(raw({ modelBlocks: [{ label: 'Opus', until: NOW + 1000 }, { label: 'Old', until: NOW - 1 }] }).accounts[0]!.modelBlocks).toEqual([{ label: 'Opus', untilMs: NOW + 1000 }]);
+    expect(raw({ isActive: true, minutesToLimit: 40 }).accounts[0]!.minutesToLimit).toBe(40);
+    expect(raw({ minutesToLimit: 40 }).accounts[0]!.minutesToLimit).toBeNull();
+    expect(raw({ dormant: true, rateLimits: null }).accounts[0]).toMatchObject({ dormant: true, fiveH: null, week: null });
+  });
+
+  test('the week gone, for the tick on the bar', () => {
+    expect(weekElapsedPct(NOW + 3.5 * 86_400_000, NOW)).toBe(50);
+    expect(weekElapsedPct(NOW - 1, NOW)).toBeNull();
+    expect(weekElapsedPct(null, NOW)).toBeNull();
+  });
+});
+
 describe('keyMove', () => {
   const keys = readProxyAccounts(profiles, NOW)!.keys;
   test('up goes one above the key over it, down one under the key below', () => {
@@ -111,7 +141,10 @@ describe('readProxySettings', () => {
     expect(readProxySettings({ proxyEnabled: true, autoSwitch: true, rotationStrategy: 'margin', usageCap5h: null, usageCap7d: 90, usdEur: 0.9 })).toEqual({
       proxyEnabled: true, autoSwitch: true, notifications: true, rotationStrategy: 'margin', rotationIntervalMin: 60, maxConcurrentPerAccount: 8,
       serializeRequests: false, usageCap5h: null, usageCap7d: 90, usageCapHoldMin: 10, usdEur: 0.9,
+      serializeDelayMs: 200, commitTokenUsage: false, sessionMonitor: false,
     });
+    expect(readProxySettings({ proxyEnabled: true, serializeDelayMs: 0, commitTokenUsage: true, sessionMonitor: true }))
+      .toMatchObject({ serializeDelayMs: 0, commitTokenUsage: true, sessionMonitor: true });
   });
   test('an error answer is not a set of rules', () => {
     expect(readProxySettings({ error: 'down' })).toBeNull();
@@ -142,18 +175,26 @@ const gates = {
 describe('meteredProviders', () => {
   const read = meteredProviders(pace, gates, NOW);
 
-  test('Codex and Muse only, the account in use of each', () => {
-    expect(read.map((p) => [p.provider, p.account])).toEqual([['codex', 'codex@example.com'], ['muse', 'muse@example.com']]);
+  test('Codex and Muse only, every account the hub has, the one in use first', () => {
+    expect(read.map((p) => [p.provider, p.account, p.active])).toEqual([
+      ['codex', 'codex@example.com', true], ['codex', 'riserva@example.com', false], ['muse', 'muse@example.com', true],
+    ]);
+  });
+
+  test('a login that died keeps its card and says so; the share of the week gone rides along', () => {
+    const dead = meteredProviders([{ provider: 'codex', account: 'c@x', active: true, used: 10, login: 'scaduto', elapsedPct: 40 }], null, NOW);
+    expect(dead[0]).toMatchObject({ loginDead: true, elapsedPct: 40 });
+    expect(meteredProviders([{ provider: 'codex', account: 'c@x', used: 10, login: 'ok' }], null, NOW)[0]!.loginDead).toBe(false);
   });
 
   test('windows, pace and an old reading as the hub gives them', () => {
     expect(read[0]).toMatchObject({ fiveH: 8, week: 28, pace: 0.7, stale: false, weekResetsAtMs: NOW + 86_400_000 });
-    expect(read[1]).toMatchObject({ fiveH: null, week: 40, stale: true });
+    expect(read[2]).toMatchObject({ fiveH: null, week: 40, stale: true });
   });
 
   test('the brake and the unlock in force; an expired or exhausted entry is not an unlock', () => {
     expect(read[0]).toMatchObject({ braked: false, unlockedUntil: NOW + 7_200_000 });
-    expect(read[1]).toMatchObject({ braked: true, brakeReason: 'sopra ritmo', brakedUntil: NOW + 21_600_000, unlockedUntil: null });
+    expect(read[2]).toMatchObject({ braked: true, brakeReason: 'sopra ritmo', brakedUntil: NOW + 21_600_000, unlockedUntil: null });
   });
 
   test('no hub, no provider', () => {
@@ -183,12 +224,12 @@ describe('the brake', () => {
 
 describe('accountCount', () => {
   test('the proxy\'s named accounts, off and expired included, plus Codex and Muse: what the view lists', () => {
-    // 4 named profiles (one off, one expired) + Codex + Muse, though the hub has 4 pace rows.
-    expect(accountCount(profiles, pace)).toBe(6);
+    // 4 named profiles (one off, one expired) + two Codex accounts + Muse: every metered account has a card.
+    expect(accountCount(profiles, pace)).toBe(7);
     expect(accountCount(profiles, pace)).toBe(readProxyAccounts(profiles, NOW)!.accounts.length + meteredProviders(pace, gates, NOW).length);
   });
   test('proxy silent: only what the hub meters', () => {
-    expect(accountCount(null, pace)).toBe(2);
+    expect(accountCount(null, pace)).toBe(3);
     expect(accountCount({ error: 'down' }, null)).toBe(0);
   });
 });

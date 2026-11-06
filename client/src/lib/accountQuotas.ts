@@ -39,7 +39,25 @@ export interface ClaudeAccount {
   week: QuotaWindow | null;
   /** The account's own caps (null = inherits), the ones in force, and whether one is reached. */
   cap: { ownFiveH: number | null; ownWeek: number | null; fiveH: number | null; week: number | null; over: boolean };
+  /**
+   * Why the proxy does not pick it, in the proxy's words: a window full
+   * (`quota-5h`, `quota-7d`), a single model (`model`), the extra usage
+   * spent, the organization refusing OAuth (`permission`, a 403), the login.
+   */
+  block: AccountBlock | null;
+  /** Over 90% of the blocking window but not full: picked only when the others are stopped. */
+  lastResort: boolean;
+  /** When the proxy expects it back, ms epoch. */
+  retryAfterMs: number | null;
+  /** Models paused on this account while the others go on («Opus until …»). */
+  modelBlocks: Array<{ label: string; untilMs: number | null }>;
+  /** The proxy's guess of the minutes to the five-hour limit at today's pace, on the account in use. */
+  minutesToLimit: number | null;
+  /** No windows because none started: the proxy keeps it at rest on purpose. */
+  dormant: boolean;
 }
+
+export type AccountBlock = 'quota-5h' | 'quota-7d' | 'model' | 'auth' | 'extra-usage' | 'permission' | 'other';
 
 export interface ApiKey {
   name: string;
@@ -52,6 +70,8 @@ export interface ProxyAccounts {
   accounts: ClaudeAccount[];
   keys: ApiKey[];
   allExhausted: boolean;
+  /** When the first account frees up, in the proxy's words, while all are exhausted. */
+  earliestReset: string | null;
 }
 
 /** The provider ids of the hub that are metered but not commanded from here. */
@@ -74,6 +94,12 @@ export interface MeteredProvider {
   brakedUntil: number | null;
   /** An unlock in force until then, ms epoch. */
   unlockedUntil: number | null;
+  /** The share of the week gone, where the hub says: the tick on the bar. */
+  elapsedPct: number | null;
+  /** The login is not usable (expired or switched off): the hub cannot read it. */
+  loginDead: boolean;
+  /** The account in use of its provider. */
+  active: boolean;
 }
 
 export interface ProxySettings {
@@ -88,7 +114,16 @@ export interface ProxySettings {
   usageCap7d: number | null;
   usageCapHoldMin: number;
   usdEur: number;
+  /** Pause between two queued requests, ms (only with the queue on). */
+  serializeDelayMs: number;
+  /** Beta: the token use written into commits. */
+  commitTokenUsage: boolean;
+  /** Beta: a Haiku summary of each active session (what «Agenti e lavori» reads). */
+  sessionMonitor: boolean;
 }
+
+/** The pauses the proxy takes between queued requests. */
+export const SERIALIZE_DELAYS = [0, 100, 200, 500, 1000] as const;
 
 /** The hub's classes of work, in the order a person reads them. */
 export const WORK_CLASSES = ['interattivo', 'gusto', 'massivo', 'batch'] as const; // allow-italian: the hub's class ids, compared by value
@@ -160,6 +195,18 @@ function proxyWindow(w: unknown, now: number): QuotaWindow | null {
   return { pct: Math.round(u * 100), resetsAtMs: reset === null ? null : reset * 1000 };
 }
 
+const BLOCKS: readonly string[] = ['quota-5h', 'quota-7d', 'model', 'auth', 'extra-usage', 'permission'];
+
+/** The share of a week gone, from when it starts again: the «where you should be» tick. */
+export function weekElapsedPct(resetsAtMs: number | null, now = Date.now()): number | null {
+  if (resetsAtMs === null) return null;
+  const left = resetsAtMs - now;
+  if (left <= 0 || left > WEEK_MS) return null;
+  return Math.round((1 - left / WEEK_MS) * 100);
+}
+
+const WEEK_MS = 7 * 24 * 3_600_000;
+
 function stateOf(p: JsonObject, over: boolean, now: number): AccountState {
   if (p.disabled === true) return 'off';
   const expiresAt = num(p.expiresAt);
@@ -197,6 +244,12 @@ export function readProxyAccounts(raw: unknown, now = Date.now()): ProxyAccounts
       fiveH: proxyWindow(rl.fiveH, now),
       week: proxyWindow(rl.sevenD, now),
       cap: { ownFiveH: num(own.fiveH), ownWeek: num(own.sevenD), fiveH: num(inForce.fiveH), week: num(inForce.sevenD), over },
+      ...blockOf(p, rl, now),
+      modelBlocks: (Array.isArray(p.modelBlocks) ? p.modelBlocks : []).filter(isObject)
+        .map((b) => ({ label: str(b.label) ?? str(b.model) ?? '', untilMs: num(b.until) }))
+        .filter((b) => b.label !== '' && (b.untilMs === null || b.untilMs > now)),
+      minutesToLimit: p.isActive === true ? num(p.minutesToLimit) : null,
+      dormant: p.dormant === true,
     });
   }
   const rank = (a: ClaudeAccount) => (a.active ? 0 : a.disabled ? 2 : 1);
@@ -205,7 +258,21 @@ export function readProxyAccounts(raw: unknown, now = Date.now()): ProxyAccounts
     .filter((k): k is JsonObject => isObject(k) && !!str(k.name))
     .map((k) => ({ name: String(k.name), label: str(k.label) ?? String(k.name), priority: num(k.priority) ?? 0, disabled: k.disabled === true }))
     .sort((a, b) => b.priority - a.priority);
-  return { accounts, keys, allExhausted: raw.allExhausted === true };
+  return { accounts, keys, allExhausted: raw.allExhausted === true, earliestReset: str(raw.earliestReset) };
+}
+
+/**
+ * The proxy's reason for not picking an account, as its dashboard reads it:
+ * from 90% a window is no longer chosen but still served, so «last resort»
+ * until it is really full.
+ */
+function blockOf(p: JsonObject, rl: JsonObject, now: number): Pick<ClaudeAccount, 'block' | 'lastResort' | 'retryAfterMs'> {
+  const kind = str(p.blockKind);
+  const block: AccountBlock | null = kind ? (BLOCKS.includes(kind) ? kind as AccountBlock : 'other') : p.limited === true ? 'other' : null;
+  const window = block === 'quota-5h' ? rl.fiveH : block === 'quota-7d' ? rl.sevenD : null;
+  const u = isObject(window) ? num(window.utilization) : null;
+  const retry = num(p.retryAfter);
+  return { block, lastResort: u !== null && u < 1, retryAfterMs: retry !== null && retry > now ? retry : null };
 }
 
 /**
@@ -242,6 +309,9 @@ export function readProxySettings(raw: unknown): ProxySettings | null {
     usageCap7d: num(raw.usageCap7d),
     usageCapHoldMin: num(raw.usageCapHoldMin) ?? 10,
     usdEur: num(raw.usdEur) ?? 0.92,
+    serializeDelayMs: num(raw.serializeDelayMs) ?? 200,
+    commitTokenUsage: raw.commitTokenUsage === true,
+    sessionMonitor: raw.sessionMonitor === true,
   };
 }
 
@@ -261,9 +331,13 @@ export function backgroundHold(gates: unknown, now = Date.now()): number | null 
   return h.length ? Math.max(...h.map((o) => o.until)) : null;
 }
 
+/** The hub's login words that mean the account cannot be read. */
+const DEAD_LOGINS: readonly string[] = ['scaduto', 'spento', 'expired', 'off']; // allow-italian: the hub's wire values
+
 /**
- * Codex and Muse as the hub measures them: the account in use (else the first),
- * its windows, its pace, and the brake on it. Only the providers the hub has.
+ * Codex and Muse as the hub measures them: every account the hub has, the one
+ * in use first, with its windows, its pace, its login and the brake on its
+ * provider. An account whose login died keeps its card: that is the news.
  */
 export function meteredProviders(pace: unknown, gates: unknown, now = Date.now()): MeteredProvider[] {
   const rows = Array.isArray(pace) ? pace.filter(isObject) : [];
@@ -271,9 +345,8 @@ export function meteredProviders(pace: unknown, gates: unknown, now = Date.now()
   const unlocks = overridesOf(gates, now).filter((o) => !o.hold && !o.exhausted);
   const out: MeteredProvider[] = [];
   for (const id of METERED_PROVIDERS) {
-    const mine = rows.filter((r) => r.provider === id);
-    const row = mine.find((r) => r.active === true) ?? mine[0];
-    if (!row) continue;
+    const mine = rows.filter((r) => r.provider === id).sort((a, b) => Number(b.active === true) - Number(a.active === true));
+    for (const row of mine) {
     const g = isObject(providers[id]) ? providers[id] as JsonObject : {};
     const five = isObject(row.fiveHour) ? num(row.fiveHour.used) : null;
     const until = unlocks.filter((o) => o.provider === id).map((o) => o.until);
@@ -289,7 +362,11 @@ export function meteredProviders(pace: unknown, gates: unknown, now = Date.now()
       brakeReason: str(g.reason),
       brakedUntil: num(g.waitUntil),
       unlockedUntil: until.length ? Math.max(...until) : null,
+      elapsedPct: num(row.elapsedPct),
+      loginDead: DEAD_LOGINS.includes(String(row.login ?? '')),
+      active: row.active === true,
     });
+    }
   }
   return out;
 }
@@ -336,7 +413,7 @@ export function accountCount(profiles: unknown, pace: unknown): number {
     ? profiles.profiles.filter((p) => isObject(p) && !!str(p.name)).length
     : 0;
   const rows = Array.isArray(pace) ? pace.filter(isObject) : [];
-  const metered = METERED_PROVIDERS.filter((id) => rows.some((r) => r.provider === id)).length;
+  const metered = rows.filter((r) => (METERED_PROVIDERS as readonly unknown[]).includes(r.provider)).length;
   return claude + metered;
 }
 

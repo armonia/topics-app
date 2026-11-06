@@ -120,6 +120,14 @@ test.describe("accounts and quotas", () => {
     await expect(card(page, "prof-d")).toHaveAttribute("data-state", "off");
     // Its last week reading (100%) is from a week already reset: no bar, not an old full one.
     await expect(card(page, "prof-d").getByTestId("account-bar-week")).toHaveAttribute("data-pct", "");
+    // What the state alone hides: the pace to the five-hour limit, the model paused, the priority, the week gone.
+    await expect(card(page, "prof-a").locator('[data-chip="speed"]')).toHaveText("limite tra circa 1 h 40 min");
+    await expect(card(page, "prof-b").locator('[data-note="model-pause"]')).toContainText("In pausa solo per Opus fino a");
+    await expect(card(page, "prof-b").getByTestId("account-priority")).toHaveText("priorità 1");
+    const mark = card(page, "prof-a").getByTestId("account-bar-week").getByTestId("account-bar-mark");
+    await expect(mark).toHaveAttribute("title", /Settimana passata: \d+%. La quota va più veloce del passo./);
+    // An off account still says when its windows come back.
+    await expect(card(page, "prof-d").getByTestId("account-caption")).toContainText("Escluso dalla rotazione");
 
     // The decision first: the account in use is past the board's line, with the switch to the next ready one.
     const decide = pane.getByTestId("accounts-decide");
@@ -207,17 +215,36 @@ test.describe("accounts and quotas", () => {
     await goToApp(page);
     await openFromMenu(page);
     const pane = page.getByTestId(PANE);
+    // The global cap takes any whole percent, as the proxy does: not only the steps of a menu.
     const cap = pane.getByTestId("accounts-rule-usageCap7d");
-    await expect(cap).toHaveText(/nessuno/, { timeout: 20_000 });
-    await cap.click();
-    await page.getByRole("option", { name: "90%" }).click();
-    await expect(cap).toHaveText(/90%/, { timeout: 10_000 });
-    expect(hub!.posts).toContainEqual({ path: "settings", usageCap7d: 90 });
+    await expect(cap).toHaveValue("", { timeout: 20_000 });
+    await expect(cap).toHaveAttribute("placeholder", "nessuno");
+    await cap.fill("97");
+    await cap.press("Enter");
+    await expect(cap).toHaveValue("97", { timeout: 10_000 });
+    expect(hub!.posts).toContainEqual({ path: "settings", usageCap7d: 97 });
+    await cap.fill("90");
+    await cap.press("Enter");
+    await expect.poll(() => hub!.posts.some((p) => p.path === "settings" && p.usageCap7d === 90)).toBe(true);
     // The cap of every account is the marker of the one with none of its own.
-    await expect(card(page, "prof-b").getByTestId("account-bar-week").locator("[title]")).toHaveAttribute("title", /Tetto 90%/);
+    await expect(card(page, "prof-b").getByTestId("account-bar-week").locator('[title^="Tetto"]')).toHaveAttribute("title", /Tetto 90%/);
+    // Every rule says what it does; the strategy in force is explained under its menu.
+    await expect(pane.getByTestId("accounts-rules")).toContainText("Serve solo a mostrare gli importi in euro.");
+    await expect(pane.getByTestId("accounts-rules")).toContainText("più margine sul ritmo");
+    // The proxy's trials have a place: the session summary that Agents and jobs reads, the tokens in commits.
+    await expect(pane.getByTestId("accounts-rule-sessionMonitor")).toHaveAttribute("aria-checked", "true");
+    await pane.getByTestId("accounts-rule-commitTokenUsage").click();
+    await expect.poll(() => hub!.posts.some((p) => p.path === "settings" && p.commitTokenUsage === true)).toBe(true);
+    // The queue's pause shows with the queue on.
+    await expect(pane.getByTestId("accounts-rule-serializeDelayMs")).toHaveCount(0);
+
+    // Every account out: the banner, with when the first frees up.
+    hub!.proxy.allExhausted = true;
 
     await pane.getByTestId("accounts-rule-autoSwitch").click();
     await expect(pane.getByTestId("accounts-rule-autoSwitch")).toHaveAttribute("aria-checked", "false", { timeout: 10_000 });
+    await expect(pane.getByTestId("accounts-all-exhausted")).toContainText("Il primo si libera: domani alle 10:00", { timeout: 10_000 });
+    hub!.proxy.allExhausted = false;
     expect(hub!.posts).toContainEqual({ path: "settings", autoSwitch: false });
 
     await openProfileMenu(page);
