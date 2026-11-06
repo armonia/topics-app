@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { Check, ChevronDown, ClipboardList, CornerDownRight, Laptop, Link2, Loader2, Lock, Paperclip, Send, Sparkles, X } from 'lucide-react';
 import { Menu } from '../Shared/Menu';
 import { useToast } from '../Shared/Toast';
@@ -6,7 +6,7 @@ import { insertAtCaret } from '../../lib/insertAtCaret';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { ZoomableImage } from '../Shared/ImageLightbox';
 import { boardApi, boardDrafts, AUTO_PROJECT_ID, STATUS_LABEL, UNASSIGNED_PROJECT_ID, type BoardProjectRef, type BoardSettings, type LinkProposal, type TaskStatus } from '../../lib/board';
-import { addBoardProject, projectNameFromId, useBoardProjects, useNewProjectDir } from '../../lib/boardProjectsStore';
+import { addBoardProject, loadBoardProjects, projectNameFromId, useBoardProjects, useNewProjectDir } from '../../lib/boardProjectsStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { CHIP_LABEL, COMPOSER_CURSOR_KEY, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER } from './constants';
 import { autoGrow } from './format';
@@ -19,6 +19,12 @@ import { DictationButton } from '../Shared/DictationButton';
 import { getMediaUrl } from '../../lib/api';
 import { dragCarriesFiles, filesFromDrop, imagesFromClipboard, uploadAttachment, MAX_ATTACHMENTS, type StagedAttachment } from '../../lib/attachments';
 import { titoloDaTesto } from '../../../../shared/task-title';
+// Loaded on first proposal only: most requests are a single card and never need the panel.
+const IntakePlanPanel = lazy(async () => {
+  const { IntakePlanPanel: Panel } = await import('./IntakePlanPanel');
+  return { default: Panel };
+});
+import { followParents, runIntakeSubmit, type IntakeCreateResult, type IntakeRow } from '../../../../shared/intake-plan';
 import { draftPreviewOf, type DraftPreview } from './draftPreview';
 import { TaskModelSelector } from '../Shared/ModelSelector/TaskModelSelector';
 import { surfaceTopicsRoutingEnabled } from '../../lib/topicsRoutingGate';
@@ -129,6 +135,12 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   // l'aveva. Stesso progetto, due superfici, due risposte.
   const projects = useBoardProjects(global);
   const newProjectDir = useNewProjectDir(global);
+  // The plan needs the project names even on a single-board composer.
+  const planProjects = useBoardProjects(true);
+  // Multi-project intake: the proposal waits here until the writer confirms.
+  const [planRows, setPlanRows] = useState<IntakeRow[] | null>(null);
+  const [planFailures, setPlanFailures] = useState<Record<string, string>>({});
+  const planDoneRef = useRef<{ key: string; taskId: string; projectId: string }[]>([]);
   const [targetProject, setTargetProject] = useState<string>(() => {
     try {
       const stored = localStorage.getItem('board:composerProject');
@@ -382,10 +394,19 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
     finally { setProjBusy(false); }
   };
 
-  const submit = async () => {
+  const submit = async (asSingle = false) => {
     const raw = text.trim();
-    if (!raw || submitting) return;
-    if (!target) { onError('Scegli il progetto del task.'); setProjOpen(true); return; }
+    if (submitting) return;
+    // "One card" closes the proposal and sends the whole text as it is.
+    if (planRows && asSingle) cancelPlan();
+    const openPlan = asSingle ? null : planRows;
+    if (!openPlan && !raw) return;
+    if (!openPlan && !target) { onError('Scegli il progetto del task.'); setProjOpen(true); return; }
+    // Nothing is created before the proposal is confirmed: with the panel open
+    // Enter and the send button confirm it and never create a card of their own.
+    // The one-card path: handed to runIntakeSubmit, which calls it only when no proposal is involved.
+    const createSingle = async () => {
+    if (!target) return;
     // IL TAGLIO STA IN `shared/task-title.ts`, e taglia su PAROLA.
     //
     // Qui c'era `firstLine.slice(0, 77) + '…'`: un taglio al carattere,
@@ -435,6 +456,65 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
       onCreated(created.id);
     } catch (e) { onError(e instanceof Error ? e.message : 'create failed'); }
     finally { setSubmitting(false); }
+    };
+    setSubmitting(true);
+    try {
+      // The project index loads asynchronously: a send that beats it must wait for it,
+      // or a list request would be taken for a one-card text and create a card at once.
+      const knownProjects = openPlan || asSingle || planProjects ? planProjects : await loadBoardProjects();
+      await runIntakeSubmit({
+        planRows: openPlan, request: raw, hasAttachments: attachments.length > 0, projects: knownProjects,
+        defaultProjectId: target === UNASSIGNED_PROJECT_ID ? null : target, asSingle,
+        done: planDoneRef.current, create: createPlanRow, adopt: adoptExisting,
+      }, {
+        onBlocked: (reason) => onError(`Proposal not confirmed: ${reason}`),
+        onPropose: (rows) => { setPlanRows(rows); setPlanFailures({}); planDoneRef.current = []; },
+        onPlanned: (result) => finishPlan(result, openPlan ?? []),
+        createSingle: async () => { setSubmitting(false); await createSingle(); },
+      });
+    } catch (e) { onError(e instanceof Error ? e.message : "create failed"); }
+    setSubmitting(false);
+  };
+
+  const cancelPlan = () => { setPlanRows(null); setPlanFailures({}); planDoneRef.current = []; };
+  /** One card of a confirmed proposal: it carries the options chosen in the composer. */
+  const createPlanRow = async (row: IntakeRow, parentTaskId: string | null) => {
+    const { title, description } = titoloDaTesto(row.title);
+    // The pending intake link belongs to the first top-level card of the plan.
+    const first = (planRows ?? []).find((r) => r.checked && !r.parentKey);
+    const withLink = link && first?.key === row.key && !parentTaskId;
+    const created = await boardApi.create(row.projectId!, {
+      text: title, description, status: birthStatus, planFirst,
+      ...(stayLocal ? { stayLocal: true } : {}),
+      model: model ?? undefined, topicsRouting: topicsRouting ?? undefined, priority: prio ?? undefined,
+      ...(parentTaskId ? { parentTaskId } : {}),
+      ...(withLink && link.kind === 'subtask' ? { parentTaskId: link.proposal.targetTaskId } : {}),
+      ...(withLink && link.kind === 'chain' ? { blockedByTaskId: link.proposal.targetTaskId, reuseBlockerContext: true } : {}),
+      ...(withLink ? { intakeLink: true, intakeReason: link.proposal.reason } : {}),
+    });
+    return created.id;
+  };
+  // "Above": the existing card moves under the one just created.
+  const adoptExisting = async (row: IntakeRow, newTaskId: string) => {
+    await boardApi.update(row.projectId!, row.existingChildTaskId!, { parentTaskId: newTaskId });
+  };
+  const finishPlan = (out: IntakeCreateResult, rows: IntakeRow[]) => {
+    planDoneRef.current = out.created;
+    if (out.adoptFailed.length) onError(`${out.adoptFailed.length} existing card not moved under its new parent`);
+    if (out.failed.length || out.skipped.length) {
+      // Created rows stay listed as done; the failed ones can be retried.
+      setPlanFailures(Object.fromEntries([...out.failed.map((f) => [f.key, f.error]), ...out.skipped.map((k) => [k, 'parent failed'])]));
+      setPlanRows(rows.map((r) => (out.created.some((c) => c.key === r.key) ? { ...r, checked: false } : r)));
+      onError(`${out.failed.length + out.skipped.length} card not created: retry`);
+      return;
+    }
+    setPlanRows(null);
+    setText('');
+    setLink(null);
+    setProposal(null);
+    boardDrafts.clearComposer();
+    if (taRef.current) taRef.current.style.height = 'auto';
+    onCreated(out.created[0]?.taskId ?? '');
   };
 
   return (
@@ -489,7 +569,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
           onSelect={saveCursor}
           onKeyUp={saveCursor}
           onClick={saveCursor}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void submit(); } }}
           // A pasted image becomes an attachment and NOT text: without this,
           // pasting a screenshot into the field did nothing at all. Every other
           // paste (text, a link) behaves exactly as before.
@@ -532,6 +612,21 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
             portata di occhio (title = la frase intera), e due bottoni — quello
             consigliato acceso, l'altro a un click. Il terzo bottone è "no": il
             task nasce libero, che è anche ciò che succede se non tocchi niente. */}
+        {planRows && planProjects && (
+          <Suspense fallback={null}>
+          <IntakePlanPanel
+            rows={planRows}
+            projects={planProjects}
+            busy={submitting}
+            failures={planFailures}
+            onChange={(next) => setPlanRows(followParents(next))}
+            loadTasks={(pid) => boardApi.list(pid).then((ts) => ts.filter((t) => t.status !== 'done').map((t) => ({ id: t.id, text: t.text })))}
+            onConfirm={() => { void submit(); }}
+            onSingle={() => { void submit(true); }}
+            onCancel={cancelPlan}
+          />
+          </Suspense>
+        )}
         {expanded && (proposal || link) && (
           <div
             data-testid="composer-intake"
@@ -796,7 +891,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
             onNotice={dictationNotice}
           />
           <button
-            onClick={submit} disabled={!text.trim() || submitting}
+            onClick={() => { void submit(); }} disabled={(!text.trim() && !planRows) || submitting}
             title={tr(todo ? 'board.composer.sendTodoTitle' : 'board.composer.sendBacklogTitle')}
             data-testid="composer-send"
             className="shrink-0 rounded-lg bg-emerald-500/80 p-1.5 text-white hover:bg-emerald-500 disabled:opacity-40"
