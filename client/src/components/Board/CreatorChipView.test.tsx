@@ -61,18 +61,32 @@ describe('creator chip', () => {
     expect(creatorChip({ createdBy: 'agent:coordinator', openerName: 'Coordinator', openerTopicId: 'g' }, tr)?.openTopicId).toBeNull();
   });
 
-  test('the long name truncates in its own span with min-w-0, so it gets the ellipsis', () => {
-    const chip = creatorChip({ createdBy: 'agent:session', openerName: 'Una chat con un nome lunghissimo', openerTopicId: 't' }, tr)!;
-    const html = renderToStaticMarkup(<CreatorChipView chip={{ ...chip, openTopicId: null }} />);
-    expect(html).toContain('min-w-0 truncate');
-    expect(html).toContain('title="');
+  test('the avatar shows who opened the card: person icon, agent initial, bot icon without a name', () => {
+    const me = creatorChip({ createdBy: 'human' }, tr)!;
+    const meHtml = renderToStaticMarkup(<CreatorChipView chip={me} />);
+    expect(meHtml).toContain('data-created-by-kind="human"');
+    expect(meHtml).toContain('<svg');
+    const agent = creatorChip({ createdBy: 'agent:session', openerName: 'riunione clienti', openerTopicId: 't' }, tr)!;
+    expect(agent.initial).toBe('R');
+    expect(renderToStaticMarkup(<CreatorChipView chip={agent} />)).toContain('>R<');
+    const anon = creatorChip({ createdBy: 'agent:api' }, tr)!;
+    expect(anon.initial).toBeNull();
+    expect(renderToStaticMarkup(<CreatorChipView chip={anon} />)).toContain('<svg');
   });
 
-  test('clicking the chip opens the chat through openTabInApp, with no bare link', () => {
+  test('the tooltip carries the name and the origin chat, and there is no text chip', () => {
+    const chip = creatorChip({ createdBy: 'agent:session', createdSource: 'session:s1', openerName: 'Riunione clienti', openerTopicId: 't' }, tr)!;
+    const html = renderToStaticMarkup(<CreatorChipView chip={chip} />);
+    expect(html).toContain('title="board.card.createdByTitle{&quot;who&quot;:&quot;Riunione clienti (session:s1)&quot;}"');
+    expect(html).not.toContain('>Riunione clienti<');
+    expect(html).not.toContain('truncate');
+  });
+
+  test('clicking the avatar opens the chat through openTabInApp, with no bare link', () => {
     const chip = creatorChip({ createdBy: 'agent:session', openerName: 'Riunione', openerTopicId: 'top-1' }, tr)!;
     let stopped = false;
     const tree = CreatorChipView({ chip, open: fakeDoor, notify: (m) => { notified.push(m); } });
-    const button = find(tree, (el) => el.props['data-testid'] === 'card-created-by-open')!;
+    const button = find(tree, (el) => el.props['data-testid'] === 'card-created-by')!;
     button.props.onClick({ stopPropagation: () => { stopped = true; } });
     expect(routed).toEqual([{ kind: 'chat', key: 'top-1' }]);
     expect(stopped).toBe(true);
@@ -81,10 +95,10 @@ describe('creator chip', () => {
     expect(renderToStaticMarkup(tree)).not.toContain('href');
   });
 
-  test('a chat that no longer exists is plain text, not a button', () => {
+  test('a chat that no longer exists is a plain avatar, not a button', () => {
     const chip = creatorChip({ createdBy: 'agent:session', openerName: undefined }, tr)!;
     const html = renderToStaticMarkup(<CreatorChipView chip={chip} />);
-    expect(html).not.toContain('card-created-by-open');
+    expect(html).not.toContain('<button');
   });
 });
 

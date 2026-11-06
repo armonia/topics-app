@@ -101,9 +101,10 @@ test.describe("Creatore sulla card", () => {
     await page.goto("/");
     await openProjectBoard(page);
 
-    await expect(page.locator(`[data-task-card="${mine.id}"]`).getByTestId("card-created-by")).toContainText("tu");
+    await expect(page.locator(`[data-task-card="${mine.id}"]`).getByTestId("card-created-by")).toHaveAttribute("data-created-by-kind", "human");
     const bareCard = page.locator(`[data-task-card="${bare.id}"]`);
-    await expect(bareCard.getByTestId("card-created-by")).toContainText("jarvis");
+    await expect(bareCard.getByTestId("card-created-by")).toHaveText("J");
+    await expect(bareCard.getByTestId("card-created-by")).toHaveAttribute("title", /jarvis/);
     await expect(bareCard.getByTestId("card-incomplete")).toBeVisible();
     await expect(page.locator(`[data-task-card="${full.id}"]`).getByTestId("card-incomplete")).toHaveCount(0);
 
