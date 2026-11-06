@@ -870,7 +870,10 @@
     "2026-11-06, segnali dell'hub nella campanella (traccia bell-processi): misurato sul PC con `bun run build:client && bun run check:bundle`, entry_eager raw 960.051 / gz 310.627 contro un tetto di 959.820 (+1.018 sulla misura di 959.033), total_assets 9.606.500 sotto il tetto di 9.608.400.",
     "Cosa compra nell'entry: la cifra grigia della campanella conta anche la previsione delle quote e le macchine (lib/hubSignals, letto dal pulsante che e' sempre montato), i due argomenti nuovi del lettore dal vivo e dello schema dei frame, e le chiavi italiane delle righe nuove; righe, filtri per tipo della Cronologia e gruppi dei Servizi stanno nei chunk pigri. Il tetto segue la misura: entry_eager 941.000 -> 942.000.",
     "",
-    "2026-11-06, Agenti e lavori e Calendario alla pari con l'hub (hub-gap-lavori): misurato sul PC con `bun run build:client && bun run check:bundle`, total_assets 9.619.526 contro un tetto di 9.608.400 (9.420.000 +2%), entry_eager raw 959.889 contro 959.820. Comprano le righe dell'hub fuori da Topics (sessioni, sottoagenti, workflow), il dettaglio delle sessioni del proxy e il Calendario che si apre, tutti in chunk pigri; il lettore del link /lavori e' passato a import dinamico, cosi' l'entry non lo porta e il suo tetto non si alza. total_assets 9.420.000 -> 9.440.000."
+    "2026-11-06, Agenti e lavori e Calendario alla pari con l'hub (hub-gap-lavori): misurato sul PC con `bun run build:client && bun run check:bundle`, total_assets 9.619.526 contro un tetto di 9.608.400 (9.420.000 +2%), entry_eager raw 959.889 contro 959.820. Comprano le righe dell'hub fuori da Topics (sessioni, sottoagenti, workflow), il dettaglio delle sessioni del proxy e il Calendario che si apre, tutti in chunk pigri; il lettore del link /lavori e' passato a import dinamico, cosi' l'entry non lo porta e il suo tetto non si alza. total_assets 9.420.000 -> 9.440.000.",
+    "",
+    "2026-11-06, Account e quote e Consumi alla pari con l'hub (hub-gap-account-consumi): misurato sul PC con `bun run build:client && bun run check:bundle`, total_assets 9.642.915 contro un tetto di 9.608.400 (9.420.000 +2%), entry_eager raw 959.061 / gz 310.320 (28 byte sopra la misura di prima, sotto il tetto).",
+    "Cosa compra, tutto nei chunk pigri AccountQuotasPane e HubUsageSection con i loro dizionari IT+EN: sotto le barre degli account le fasce, l'andamento e il verdetto interno/esterno, il quadrante del ritmo, la previsione, le finestre in piu', il bonus, l'accesso e chi ha speso, le schede degli accessi da rifare; nei Consumi i filtri con il CSV, input e output, cartelle e rami, il dettaglio dei progetti, Muse per cartella, l'attribuzione del proxy e la curva del risparmio. Il tetto segue la misura: total_assets 9.420.000 -> 9.460.000."
   ],
   "updated": "2026-11-06",
   "tolerance_pct": 2,
@@ -884,6 +887,6 @@
     "files": 5
   },
   "total_assets": {
-    "raw": 9440000
+    "raw": 9460000
   }
 }

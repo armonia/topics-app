@@ -10,6 +10,12 @@
  * hottest quota (92% of the week in the fixture), and so does the profile
  * door of the phone's bottom row («92%»); the row and the view's
  * header count the same accounts (the proxy has one the hub's pace has not).
+ * Past the bars, as the hub's page had them: the proxy's probes and queue in
+ * the header, under each window its slices through the proxy or outside it,
+ * its trend and its figures, the hub's pace dial and forecast, the 24 hours,
+ * the per-model window and the bonus, the priority's own minus and plus, the
+ * login and who spent the last 24 hours one click away, and a card for the
+ * Codex account whose login died (no quota, so no other card).
  * The Notifications level
  * carries the proxy's own alerts. With the hub gone the bars stay under the
  * band, and after a reload nothing of the hub is left.
@@ -93,6 +99,77 @@ test.describe("accounts and quotas", () => {
     await openSceneInSidebar(request, scene);
   });
 
+  test("past the bars: probes and queue, where each window went, its trend, the hub's pace and forecast, the login", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await goToApp(page);
+    await openFromMenu(page);
+    const pane = page.getByTestId(PANE);
+
+    // The proxy's probes of the week and its queue now, beside the header.
+    await expect(pane.getByTestId("accounts-probes")).toHaveText("19.952 sonde in 7 giorni · circa 159 k token di overhead", { timeout: 20_000 });
+    await expect(pane.getByTestId("accounts-queue")).toHaveText("Coda: 3 in corso, 2 in fila");
+
+    // Under the week of the account in use: its slices (through the proxy, outside it, not measured), its trend, its figures.
+    const a = card(page, "prof-a");
+    const week = a.locator('[data-testid="account-trail"][data-span="week"]');
+    await expect(week.getByTestId("account-strip").locator("i")).toHaveCount(12, { timeout: 20_000 });
+    await expect(week.locator('[data-band="mine"]')).toHaveCount(4);
+    await expect(week.locator('[data-band="outside"]')).toHaveCount(1);
+    await expect(week.locator('[data-band="unknown"]')).toHaveCount(2);
+    await expect(week.locator('[data-band="outside"]')).toHaveAttribute("title", /\+4% di quota senza traffico dal proxy: esterno/);
+    await expect(week.getByTestId("account-spark")).toHaveAttribute("data-points", "7");
+    await expect(week.getByTestId("account-figures")).toHaveAttribute("data-verdict", "measured");
+    await expect(week.getByTestId("account-figures")).toContainText("60% interno · 40% esterno");
+    await expect(week.getByTestId("account-figures")).toContainText(/token interni · [\d,]+\s€ a listino · ultimi 7 giorni/);
+    await expect(week.getByTestId("account-figures")).toContainText(/I\/O · .* cache/);
+    // Five hours measured on a tenth of the window: an estimate, said as one.
+    await expect(a.locator('[data-testid="account-trail"][data-span="fiveH"]').getByTestId("account-figures")).toContainText("misurato sul 10% del periodo: circa 35% esterno");
+    await expect(a.getByTestId("account-trail-legend")).toContainText("esterno (fuori dal proxy)");
+
+    // The hub's pace dial and forecast; the 24 hours against the daily share, the per-model window, the bonus.
+    await expect(a.getByTestId("account-dial")).toHaveAttribute("data-zone", "sopra");
+    await expect(a.getByTestId("account-outlook-state")).toHaveText("sopra ritmo");
+    await expect(a.getByTestId("account-outlook-end")).toHaveText("Fine sab 04:46");
+    await expect(a.getByTestId("account-outlook-tokens")).toHaveText("Token ~360 M · 380 M/24 h");
+    await expect(a.getByTestId("account-bar-extra")).toHaveCount(2);
+    await expect(a.getByTestId("account-bar-extra").first()).toContainText("24 h");
+    await expect(a.getByTestId("account-bar-extra").first().getByTestId("account-bar-mark")).toHaveAttribute("title", "quota giornaliera sostenibile: 14%");
+    await expect(a.getByTestId("account-bar-extra").last()).toContainText("Fable");
+    await expect(a.getByTestId("account-bonus")).toHaveText("restano $40 su $250 · si rinnova il 05/12");
+    await expect(metered(page, "codex").getByTestId("account-dial")).toHaveAttribute("data-zone", "sotto");
+    await expect(metered(page, "codex").getByTestId("account-outlook-end")).toHaveText("Fine al reset");
+
+    // The priority with its own minus and plus, written to the proxy.
+    await card(page, "prof-b").getByTestId("account-priority-up").click();
+    await expect.poll(() => hub!.posts).toContainEqual({ path: "priority", name: "prof-b", priority: 2 });
+    await expect(card(page, "prof-b").getByTestId("account-priority")).toHaveAttribute("data-priority", "2", { timeout: 10_000 });
+    await card(page, "prof-b").getByTestId("account-priority-down").click();
+    await expect(card(page, "prof-b").getByTestId("account-priority")).toHaveAttribute("data-priority", "1", { timeout: 10_000 });
+
+    // One click away: the login and the resets, the subscription page, who spent the last 24 hours.
+    await a.getByTestId("account-more-toggle").click();
+    const accessBox = a.getByTestId("account-access");
+    await expect(accessBox.getByTestId("account-access-lines")).toContainText("Collegato dal 23 ott 2026.");
+    await expect(accessBox.getByTestId("account-access-lines")).toContainText("Settimana: si azzera gio alle 13:00");
+    await expect(accessBox.getByTestId("account-access-link")).toHaveAttribute("href", "https://claude.ai/settings/usage");
+    await expect(accessBox.getByTestId("account-top-row")).toHaveCount(2);
+    await expect(accessBox.getByTestId("account-top-row").first()).toContainText("acme-web");
+    await expect(accessBox.getByTestId("account-top-row").first()).toContainText("77%");
+
+    // The Codex account whose login died has its own card: no quota, the hub's words, where to log in again.
+    const login = pane.locator('[data-testid="login-card"][data-account="vecchio@example.com"]');
+    await expect(login).toBeVisible();
+    await expect(login).toHaveAttribute("data-login", "scaduto");
+    await expect(login).toContainText("accesso da rifare");
+    await expect(login).toContainText("Accesso scaduto: esci e rientra.");
+
+    await a.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("vero-account-oltre-le-barre-scuro.png") });
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.screenshot({ path: testInfo.outputPath("vero-account-oltre-le-barre-chiaro.png") });
+  });
+
   test("the row with your name opens the view: Claude with the proxy's commands, Codex and Muse read-only", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.emulateMedia({ colorScheme: "dark" });
@@ -123,7 +200,8 @@ test.describe("accounts and quotas", () => {
     // What the state alone hides: the pace to the five-hour limit, the model paused, the priority, the week gone.
     await expect(card(page, "prof-a").locator('[data-chip="speed"]')).toHaveText("limite tra circa 1 h 40 min");
     await expect(card(page, "prof-b").locator('[data-note="model-pause"]')).toContainText("In pausa solo per Opus fino a");
-    await expect(card(page, "prof-b").getByTestId("account-priority")).toHaveText("priorità 1");
+    await expect(card(page, "prof-b").getByTestId("account-priority")).toHaveAttribute("data-priority", "1");
+    await expect(card(page, "prof-b").getByTestId("account-priority")).toContainText("priorità");
     const mark = card(page, "prof-a").getByTestId("account-bar-week").getByTestId("account-bar-mark");
     await expect(mark).toHaveAttribute("title", /Settimana passata: \d+%. La quota va più veloce del passo./);
     // An off account still says when its windows come back.

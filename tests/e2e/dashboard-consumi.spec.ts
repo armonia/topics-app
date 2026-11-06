@@ -8,7 +8,14 @@
  * a week at 0.92), the tokens per model over time, per model, per account
  * (Claude from the proxy, Codex and Muse read-only), per project with the caps,
  * the saving for Claude only, the board's work in one box, and the usage per
- * project that left the System level. Without the hub, after a reload, the
+ * project that left the System level. The cap is on the Claude week, as the
+ * hub's brake reads it: studio-x at 25% of Claude on a 25% cap is past it.
+ * Then the drill-down the hub's page had: the window narrowed to a folder
+ * and exported as CSV, input, output and requests, each day's tokens and
+ * euro on hover, every model and account with tokens and list price (a
+ * removed account included), per folder and branch, a project's requests and
+ * who made them, the rest of the projects opened, Muse per folder, the
+ * proxy's attribution, and the curve of the plans paying for themselves. Without the hub, after a reload, the
  * Dashboard is the board's numbers with the usage per project, and nothing of
  * the hub.
  *
@@ -143,7 +150,7 @@ test.describe("consumi in the dashboard", () => {
 
     // The decision first: the project past the cap you set, with the raise.
     const decide = pane.getByTestId("hub-usage-decide");
-    await expect(decide).toContainText("studio-x ha passato il tetto che hai messo: 27% della settimana su 25%", { timeout: 20_000 });
+    await expect(decide).toContainText("studio-x ha passato il tetto che hai messo: 25% della settimana Claude su 25%", { timeout: 20_000 });
     await expect(decide.getByTestId("hub-usage-raise")).toHaveText("Alza a 35%");
 
     // Five numbers in euro: the plans of the fixture are 500 dollars a month, a week is 107 €.
@@ -159,7 +166,7 @@ test.describe("consumi in the dashboard", () => {
     // Per model, per account, per project.
     await expect(pane.getByTestId("hub-usage-model-row")).toHaveCount(3);
     await expect(pane.getByTestId("hub-usage-model-row").first()).toContainText("Opus 5.5");
-    await expect(pane.getByTestId("hub-usage-account-row")).toHaveCount(3);
+    await expect(pane.getByTestId("hub-usage-account-row")).toHaveCount(4);
     await expect(pane.getByTestId("hub-usage-account-row").first()).toContainText("lavoro@example.com");
     await expect(pane.getByTestId("hub-usage-account-row").first()).toContainText("in uso");
     await expect(pane.getByTestId("hub-usage-metered-row")).toHaveCount(2);
@@ -170,7 +177,7 @@ test.describe("consumi in the dashboard", () => {
     // The saving is Claude's only; Muse is what it took off Claude.
     const saving = pane.getByTestId("hub-usage-saving");
     await expect(saving).toContainText("Abbonamenti Claude");
-    await expect(saving).toContainText("9,1M token tolti a Claude");
+    await expect(saving).toContainText("10,5M token tolti a Claude");
     await expect(saving).not.toContainText("Codex");
     await expect(saving).not.toContainText("ChatGPT");
 
@@ -188,12 +195,92 @@ test.describe("consumi in the dashboard", () => {
     await decide.getByTestId("hub-usage-raise").click();
     await expect.poll(() => hub!.posts).toContainEqual({ path: "project-settings", name: "studio-x", budgetPct: 35 });
     await expect(pane.getByTestId("hub-usage-decide")).toHaveCount(0, { timeout: 10_000 });
-    await expect(pane.getByTestId("hub-usage-project-row").nth(1)).toContainText("27% / 35%");
+    await expect(pane.getByTestId("hub-usage-project-row").nth(1)).toContainText("25% / 35%");
 
     // Today: the same view on today's window.
     await pane.getByTestId("hub-usage-range-1").click();
     await expect(pane.getByTestId("hub-usage-kpi-tokens")).toContainText("Token di oggi");
     await expect(pane.getByTestId("hub-usage-kpi-paid")).toContainText(/15,33\s€/, { timeout: 20_000 });
+  });
+
+  test("the drill-down: a folder, a model, an account; the CSV; who made a project's week; Muse per folder; the proxy's attribution", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await goToApp(page);
+    await openDashboard(page);
+    const pane = page.getByTestId(PANE);
+    await expect(pane.getByTestId("hub-usage-section")).toBeVisible({ timeout: 20_000 });
+
+    // Input, output and requests of the week: 28 rows of acme-web and 4 more.
+    await expect(pane.getByTestId("hub-usage-split-requests")).toHaveText(/^Richieste\s*32$/, { timeout: 20_000 });
+    await expect(pane.getByTestId("hub-usage-split-input")).toContainText(/\d/);
+    await expect(pane.getByTestId("hub-usage-split-output")).toContainText(/\dM/);
+    // Each day's tokens and euro on hover.
+    await expect(pane.getByTestId("hub-usage-bucket")).toHaveCount(7);
+    await expect(pane.getByTestId("hub-usage-bucket").last().locator("title")).toHaveText(/: [\d,]+M token · [\d.,]+\s€$/);
+
+    // Every model with its list price, every account with what it carried, the removed one too.
+    await expect(pane.getByTestId("hub-usage-model-money")).toHaveCount(3);
+    await expect(pane.getByTestId("hub-usage-model-money").first()).toContainText("€");
+    const gone = pane.locator('[data-testid="hub-usage-account-row"][data-account="vecchio@example.com"]');
+    await expect(gone).toHaveAttribute("data-state", "removed");
+    await expect(gone).toContainText("tolto");
+    await expect(gone.getByTestId("hub-usage-account-carried")).toContainText(/token · [\d,]+\s€ a listino · 1 rich\./);
+
+    // Per folder and branch: acme-web, studio-x and the empty folder; studio-x opens on its two branches.
+    await expect(pane.getByTestId("hub-usage-repo-row")).toHaveCount(3);
+    await expect(pane.locator('[data-testid="hub-usage-repo-row"][data-repo=""]')).toContainText("(senza cartella)");
+    await pane.locator('[data-testid="hub-usage-repo-row"][data-repo="studio-x"]').click();
+    await expect(pane.getByTestId("hub-usage-branch-row")).toHaveCount(2);
+    await expect(pane.locator('[data-testid="hub-usage-branch-row"][data-branch="feat/conti"]')).toBeVisible();
+
+    // A project's week: what it is on hover, its requests and who made them one click away, the rest opened.
+    const acme = pane.locator('[data-testid="hub-usage-project-row"][data-project="acme-web"]');
+    await expect(acme).toHaveAttribute("title", /^Sito di acme \(esempio\) · Claude 30%/);
+    await acme.click();
+    const detail = pane.getByTestId("hub-usage-project-detail");
+    await expect(detail).toContainText(/9\.?231 rich\. · 257M token · ultima/);
+    await expect(detail).toContainText(/di cui sottoagenti 15,3% · 7\.?522 rich\. · Jarvis 0,4% · 12 rich\. · jcode 0,1% · 75 rich\./);
+    await pane.getByTestId("hub-usage-project-rest").click();
+    await expect(pane.getByTestId("hub-usage-project-row")).toHaveCount(6);
+
+    // Muse per folder: six rows, and the seventh behind the row that opens the rest.
+    await expect(pane.getByTestId("hub-usage-muse-row")).toHaveCount(6);
+    await expect(pane.getByTestId("hub-usage-muse-row").first()).toContainText("41,5%");
+    await pane.getByTestId("hub-usage-muse-rest").click();
+    await expect(pane.getByTestId("hub-usage-muse-row")).toHaveCount(7);
+
+    // How the proxy put its requests in folders: the period, what it could not place, the source per folder.
+    await expect(pane.getByTestId("hub-usage-proxy-summary")).toContainText("14.569 richieste da");
+    await expect(pane.getByTestId("hub-usage-proxy-summary")).toContainText("27 sessioni senza cartella · 3 richieste senza cartella");
+    await expect(pane.locator('[data-testid="hub-usage-proxy-row"][data-source="logs"]')).toContainText("dai log di sessione");
+
+    // The plans paying for themselves, day by day.
+    await expect(pane.getByTestId("hub-usage-saving-curve")).toContainText("risparmio nel periodo");
+    await pane.getByTestId("hub-usage-saving").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("vero-consumi-dettaglio-scuro.png"), fullPage: true });
+
+    // Narrowed to the studio-x folder: two requests, one model, one folder; the CSV carries the same rows.
+    await pane.getByTestId("hub-usage-filter-repo").click();
+    await page.getByRole("option", { name: "studio-x", exact: true }).click();
+    await expect(pane.getByTestId("hub-usage-split-requests")).toHaveText(/^Richieste\s*2$/, { timeout: 20_000 });
+    await expect(pane.getByTestId("hub-usage-repo-row")).toHaveCount(1);
+    await expect(pane.getByTestId("hub-usage-model-row")).toHaveCount(1);
+    await expect(pane.getByTestId("hub-usage-filter-repo")).toContainText("studio-x");
+    const [download] = await Promise.all([page.waitForEvent("download"), pane.getByTestId("hub-usage-csv").click()]);
+    expect(download.suggestedFilename()).toMatch(/^consumi-\d{4}-\d{2}-\d{2}\.csv$/);
+    const csv = (await import("node:fs")).readFileSync((await download.path())!, "utf8").split("\n");
+    expect(csv[0]).toBe("timestamp,repo,branch,model,account,input_tokens,output_tokens");
+    expect(csv).toHaveLength(3);
+    expect(csv.slice(1).every((l) => l.includes('"/w/studio-x"'))).toBe(true);
+
+    // Narrowed to a model the folder does not have: nothing to export, said so.
+    await pane.getByTestId("hub-usage-filter-model").click();
+    await page.getByRole("option", { name: "Opus 5.5", exact: true }).click();
+    await expect(pane.getByTestId("hub-usage-split-requests")).toHaveText(/^Richieste\s*0$/, { timeout: 20_000 });
+    await pane.getByTestId("hub-usage-csv").click();
+    await expect(pane.getByTestId("hub-usage-csv-note")).toHaveText("Niente da esportare");
+    await page.screenshot({ path: testInfo.outputPath("vero-consumi-filtrato-scuro.png") });
   });
 
   test("hub gone, after a reload: the board's numbers and the usage per project, nothing of the hub", async ({ page, request }) => {

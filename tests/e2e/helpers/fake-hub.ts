@@ -18,7 +18,9 @@
  * For «Consumi» in the Dashboard it answers the proxy's raw rows of the week
  * (`token-usage`), the projects' share of the week with their caps (`live`),
  * the queue with Muse's jobs (`queue`) and Muse's tokens (`projects`), and
- * takes a project's new cap (`project-settings`) into the next `live`.
+ * takes a project's new cap (`project-settings`) into the next `live`; past
+ * the bars, fake-hub-accounts.ts gives the proxy's probes, queue, attribution
+ * and trends, the hub's `board` and its weekly report (`projects`).
  * For «Agenti e lavori» (`jobs`) the queue also carries jobs running, in
  * line, held by a quota, failed and born from a card, the diary carries the
  * workflows, and the proxy answers its sessions (`sessions`); a job taken
@@ -52,6 +54,7 @@ import { createServer, type Server } from "node:http";
 import { E2E_BASE, hubPortFor } from "./test-server";
 import { FOUND_CONTRADICTION, contextModel, contextText, defaultContextCheck, featuresMap, type FakeContextCheck } from "./fake-hub-context";
 import { FAKE_ICON_PNG, jobsBoard, jobsCalendar, jobsReminders, withJobsSessions, withLiveAgents } from "./fake-hub-jobs";
+import { boardAnswer, extraProxyRows, profileExtras, projectsReport, proxyHealthExtras } from "./fake-hub-accounts";
 import { automationsCalendar, automationsModel, automationsRuns, automationsSummary, feedbackRefusal, workflowRunCost, type FeedbackRow } from "./fake-hub-automations";
 
 export interface FakeHubItem {
@@ -178,8 +181,10 @@ function proxyProfiles(proxy: FakeProxy, now: number): Record<string, unknown> {
         cap: { override: own, effective: effective, over5h, over7d, over: over5h || over7d, freeAt: 0 },
         minutesToLimit: a.minutesToLimit ?? null,
         modelBlocks: (a.modelBlocks ?? []).map((b) => ({ model: b.label.toLowerCase(), label: b.label, until: now + b.inHours * HOUR })),
+        ...profileExtras(a.name, a.isActive, now),
       };
     }),
+    ...proxyHealthExtras(),
     apiProfiles: proxy.keys.map((k) => ({ type: "api", ...k, usage5h: null, usage7d: null, balance: null })),
     allExhausted: proxy.allExhausted === true,
     earliestReset: proxy.allExhausted === true ? "domani alle 10:00" : null,
@@ -342,7 +347,7 @@ function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy 
       { type: "upstream-retry", ts: now - 10 * 60_000, account: "prof-a", status: 529 },
     ] },
     profiles: proxyProfiles(proxy, now),
-    "token-usage": proxyRows(now),
+    "token-usage": [...proxyRows(now), ...extraProxyRows(now)],
     live: { at: now, projects: rows ? projectRows(budgets, rows, now) : jobs.on ? withLiveAgents(liveProjects(budgets)) : liveProjects(budgets) },
     queue: { items: [
       { id: "q1", provider: "muse", project: "acme-web", status: "done", createdAt: now - 2 * HOUR },
@@ -353,8 +358,10 @@ function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy 
       ...(jobs.on ? jobsQueue(now, jobs.withdrawn) : []),
     ] },
     sessions: jobs.on ? withJobsSessions(proxySessionsAnswer(now), now) : proxySessionsAnswer(now),
-    ...(jobs.on ? { board: jobsBoard(now), calendar: jobsCalendar(now) } : {}),
-    projects: { muse: { projects: [{ name: "acme-web", tokens: 6_000_000 }, { name: "studio-x", tokens: 3_100_000 }] } },
+    // The accounts of «Account e quote» and, with the jobs on, the work of «Agenti e lavori»: two keys of one answer.
+    board: { ...boardAnswer(now), ...(jobs.on ? jobsBoard(now) : {}) },
+    ...(jobs.on ? { calendar: jobsCalendar(now) } : {}),
+    projects: projectsReport(now),
     // The links to write to Jarvis: placeholders, never a real number.
     "hub-config": { demo: true, jarvis: { whatsapp: "https://example.com/assistente/whatsapp", discord: null } },
   };
@@ -435,8 +442,9 @@ export function defaultFakeBudgets(): Record<string, number | null> {
 /** The hub's live projects: share of the week per provider and the cap; six of them, so two fall in the rest. */
 function liveProjects(budgets: Record<string, number | null>): unknown[] {
   const row = (name: string, claude: number, codex: number, muse: number) =>
-    ({ name, title: name, label: null, claude, codex, muse, total: Math.round((claude + codex + muse) * 10) / 10, budgetPct: budgets[name] ?? null, state: "attivo", why: "" });
-  return [row("acme-web", 30, 2, 6), row("studio-x", 20, 0, 7), row("acme-api", 10, 1, 3), row("acme-docs", 5, 0, 1), row("misc-a", 2, 0, 0), row("misc-b", 1, 0, 0)];
+    ({ name, title: name, label: null, claude, codex, muse, total: Math.round((claude + codex + muse) * 10) / 10, budgetPct: budgets[name] ?? null, state: "attivo", why: "", what: name === "acme-web" ? "Sito di acme (esempio)" : null });
+  // studio-x sits at its cap on the Claude week exactly: the hub's brake holds it (claude >= budget).
+  return [row("acme-web", 30, 2, 6), row("studio-x", 25, 0, 2), row("acme-api", 10, 1, 3), row("acme-docs", 5, 0, 1), row("misc-a", 2, 0, 0), row("misc-b", 1, 0, 0)];
 }
 
 /** The project row's fixture: the folders the spec gives the hub's names, and the priorities written. */

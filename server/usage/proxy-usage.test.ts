@@ -1,12 +1,14 @@
 /**
  * The proxy's raw rows summed for the Dashboard: windows from local midnight,
  * tokens with cache reads at a tenth, list dollars from the Topics price table,
- * and a window cut by the proxy's 50 thousand rows said as cut.
+ * a window cut by the proxy's 50 thousand rows said as cut, the window
+ * narrowed to a model, an account or a folder (the pickers keep every value),
+ * per folder and branch, input and output apart, and the CSV the hub exported.
  * @covers HUBBR-12
  */
 import { describe, expect, test } from "bun:test";
-import { aggregateProxyUsage, localMidnight, usageBuckets } from "./proxy-usage";
-import { PROXY_ROW_CAP, parseUsageDays } from "../../shared/hub-usage";
+import { aggregateProxyUsage, localMidnight, proxyUsageCsv, usageBuckets } from "./proxy-usage";
+import { PROXY_ROW_CAP, parseUsageDays, parseUsageFilter, repoKey, usageFilterQuery } from "../../shared/hub-usage";
 
 const HOUR = 3_600_000;
 // A Wednesday at 15:30 local time.
@@ -68,5 +70,47 @@ describe("HUBBR-12: proxy usage summed on the server", () => {
     expect(parseUsageDays("30")).toBe(30);
     expect(parseUsageDays("365")).toBe(7);
     expect(parseUsageDays(null)).toBe(7);
+  });
+
+  test("the window narrowed to a model, an account or a folder; the pickers keep every value", () => {
+    const rows = [
+      { ...row(NOW - HOUR, "claude-opus-5-5", "lavoro@example.com", 100, 10), repo: "/w/acme-web", branch: "main" },
+      { ...row(NOW - HOUR, "claude-opus-5-5", "lavoro@example.com", 50, 5), repo: "/w/acme-web", branch: "feat/x" },
+      { ...row(NOW - HOUR, "claude-sonnet-5-5", "riserva@example.com", 20, 2), repo: "/w/studio-x/", branch: "main" },
+      { ...row(NOW - HOUR, "claude-haiku-5-5", "riserva@example.com", 7, 1), repo: "", branch: "" },
+    ];
+    const all = aggregateProxyUsage(rows, 1, NOW);
+    expect(all.totals).toMatchObject({ requests: 4, inputTokens: 177, outputTokens: 18 });
+    expect(all.repos.map((r) => [r.key, r.requests])).toEqual([["acme-web", 2], ["studio-x", 1], ["", 1]]);
+    expect(all.repos[0]!.branches.map((b) => b.key)).toEqual(["main", "feat/x"]);
+    expect(all.options).toEqual({ models: ["claude-haiku-5-5", "claude-opus-5-5", "claude-sonnet-5-5"], accounts: ["lavoro@example.com", "riserva@example.com"], repos: ["", "acme-web", "studio-x"] });
+
+    const folder = aggregateProxyUsage(rows, 1, NOW, { model: null, account: null, repo: "studio-x" });
+    expect(folder.totals.requests).toBe(1);
+    expect(folder.models.map((m) => m.key)).toEqual(["claude-sonnet-5-5"]);
+    expect(folder.options.models).toHaveLength(3);
+    expect(folder.filter.repo).toBe("studio-x");
+    expect(aggregateProxyUsage(rows, 1, NOW, { model: null, account: null, repo: "" }).totals.requests).toBe(1);
+    expect(aggregateProxyUsage(rows, 1, NOW, { model: "claude-opus-5-5", account: "riserva@example.com", repo: null }).totals.requests).toBe(0);
+  });
+
+  test("the CSV is the window's rows one line each, the filter applied, quotes doubled", () => {
+    const rows = [
+      { ...row(NOW - HOUR, "claude-opus-5-5", "lavoro@example.com", 100, 10), repo: '/w/a "b"', branch: "main" },
+      { ...row(NOW - HOUR, "claude-sonnet-5-5", "riserva@example.com", 20, 2), repo: "/w/c", branch: "dev" },
+      row(localMidnight(NOW) - 1, "claude-opus-5-5", "lavoro@example.com", 1, 1),
+    ];
+    const lines = proxyUsageCsv(rows, 1, NOW).split("\n");
+    expect(lines[0]).toBe("timestamp,repo,branch,model,account,input_tokens,output_tokens");
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toBe(`${new Date(NOW - HOUR).toISOString()},"/w/a ""b""","main","claude-opus-5-5","lavoro@example.com",100,10`);
+    expect(proxyUsageCsv(rows, 1, NOW, { model: null, account: "riserva@example.com", repo: null }).split("\n")).toHaveLength(2);
+  });
+
+  test("the filter on the wire: empty is all, «-» is the empty folder, and back", () => {
+    expect(parseUsageFilter(new URLSearchParams("model=claude-opus-5-5&account=&repo=-"))).toEqual({ model: "claude-opus-5-5", account: null, repo: "" });
+    expect(usageFilterQuery({ model: null, account: "a@b.c", repo: "" })).toBe("&account=a%40b.c&repo=-");
+    expect(repoKey("/Users/x/Projects/topics-app/")).toBe("topics-app");
+    expect(repoKey(undefined)).toBe("");
   });
 });
