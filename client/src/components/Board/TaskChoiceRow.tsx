@@ -214,8 +214,10 @@ export function TaskChoiceRow({ task, exclude, disabled, onDone, onError, onNeed
  * risposta lenta del server lascia sullo schermo un pannello a cui non si può
  * più chiedere niente.
  */
-export function TaskChoiceMenu({ task, disabled, onDone, onError, ariaLabel, className }: {
+export function TaskChoiceMenu({ task, exclude, disabled, onDone, onError, ariaLabel, className }: {
   task: BoardTask;
+  /** Choices the caller already shows on its face, or that must not appear here. */
+  exclude?: TaskChoiceId[];
   disabled?: boolean;
   onDone: () => void;
   onError: (message: string) => void;
@@ -225,7 +227,7 @@ export function TaskChoiceMenu({ task, disabled, onDone, onError, ariaLabel, cla
 }) {
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLButtonElement>(null);
-  const { choices, run } = useTaskChoiceRunner(task, { onDone, onError });
+  const { choices, run } = useTaskChoiceRunner(task, { exclude, onDone, onError });
   if (choices.length === 0) return null;
 
   return (
@@ -239,7 +241,7 @@ export function TaskChoiceMenu({ task, disabled, onDone, onError, ariaLabel, cla
         title={ariaLabel}
         disabled={disabled}
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-        className={`flex shrink-0 items-center rounded-md px-1.5 py-1.5 text-app-text-secondary hover:bg-white/10 hover:text-app-text disabled:opacity-50 ${className ?? ''}`}
+        className={`flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-md px-1.5 py-1.5 text-app-text-secondary hover:bg-white/10 hover:text-app-text disabled:opacity-50 ${className ?? ''}`}
       ><MoreHorizontal className="h-3.5 w-3.5" /></button>
       {/* `task-choices-panel`, non `task-choices`: quello è la RIGA di bottoni,
           che vive nel drawer sopra il composer, e il drawer si apre SOPRA la

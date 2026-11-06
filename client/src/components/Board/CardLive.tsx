@@ -93,7 +93,7 @@ export function LiveToolLine({ tool, frozen = false }: { tool: LiveTool; frozen?
  * anchors turnStartedAt at the actual turn start). Falls back to the static
  * agent_ms/agent_tokens chip the instant the turn ends.
  */
-export function LiveEffortChip({ usage }: { usage: LiveUsage }) {
+export function LiveEffortChip({ usage, label }: { usage: LiveUsage; label?: string }) {
   const tr = useT();
   const locale = useLocale();
   const [, force] = useState(0);
@@ -103,16 +103,27 @@ export function LiveEffortChip({ usage }: { usage: LiveUsage }) {
   // eslint-disable-next-line react-hooks/purity -- live effort chip: force-re-renders every 1s (interval above) and reads the clock each render on purpose
   const ms = usage.baseMs + Math.max(0, Date.now() - usage.turnStartedAt);
   return (
-    <span
+    // One muted line, not a pill: the card's foot keeps a single measure
+    // line. The dot alone says it is running. The model label carries the
+    // provider (`label`), the same text the static line shows.
+    // A wrapped band, full card width: loader and model on the left (the left
+    // side is the one that gets cut at 300 px), time and tokens on the right,
+    // in tabular figures and never wrapped. The model label is never cut: at
+    // 300 px it wraps on its own line instead of losing the provider.
+    <div
+      data-testid="card-measure"
       title={tr('board.card.liveEffortTitle', {
         model: fmtModel(usage.model),
         work: fmtLive(ms),
         tokens: usage.liveTokens ? tr('board.card.liveEffortTokens', { n: usage.liveTokens.toLocaleString(locale) }) : '',
       })}
-      className="flex min-w-0 max-w-full items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-800 dark:text-sky-300 tabular-nums"
+      className="flex w-full min-w-0 max-w-full items-center justify-between gap-2 rounded-lg bg-black/[0.12] px-2.5 py-1.5 text-compact leading-4 md:text-mini text-app-text-muted dark:bg-white/[0.16] tabular-nums"
     >
-      <SparkLoader className="shrink-0" />
-      <span className="truncate">{fmtModel(usage.model)} · ⏱ {fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)}`}</span>
-    </span>
+      <span className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
+        <SparkLoader className="shrink-0" />
+        <span className="min-w-0">{label ?? fmtModel(usage.model)}</span>
+      </span>
+      <span className="shrink-0 whitespace-nowrap">⏱ {fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)}`}</span>
+    </div>
   );
 }
