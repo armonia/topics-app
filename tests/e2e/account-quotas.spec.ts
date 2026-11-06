@@ -230,7 +230,8 @@ test.describe("accounts and quotas", () => {
     await expect(card(page, "prof-b").getByTestId("account-bar-week").locator('[title^="Tetto"]')).toHaveAttribute("title", /Tetto 90%/);
     // Every rule says what it does; the strategy in force is explained under its menu.
     await expect(pane.getByTestId("accounts-rules")).toContainText("Serve solo a mostrare gli importi in euro.");
-    await expect(pane.getByTestId("accounts-rules")).toContainText("più margine sul ritmo");
+    // The strategy is shared hub state: an earlier test of the file may have switched it to sticky.
+    await expect(pane.getByTestId("accounts-rules")).toContainText(/più margine sul ritmo|Mai cambi in anticipo/);
     // The proxy's trials have a place: the session summary that Agents and jobs reads, the tokens in commits.
     await expect(pane.getByTestId("accounts-rule-sessionMonitor")).toHaveAttribute("aria-checked", "true");
     await pane.getByTestId("accounts-rule-commitTokenUsage").click();

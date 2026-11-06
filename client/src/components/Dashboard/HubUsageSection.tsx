@@ -457,7 +457,8 @@ function QuotaRow({ label, pct }: { label: string; pct: number | null }) {
 
 function ByAccount({ profiles, usage, pace, gates, tr }: { profiles: unknown; usage: HubUsage | null; pace: unknown; gates: unknown; tr: Tr }) {
   const accounts = accountShares(profiles, usage).filter((a) => !a.disabled);
-  const metered = meteredProviders(pace, gates);
+  // One row per provider: the reader lists the active account first, the Accounts view shows the rest.
+  const metered = meteredProviders(pace, gates).filter((m, i, all) => all.findIndex((o) => o.provider === m.provider) === i);
   return (
     <Box
       testId="hub-usage-accounts" icon={<UserRound size={13} />} title={tr('hubUsage.byAccount')} meta={tr('hubUsage.byAccountMeta')}
