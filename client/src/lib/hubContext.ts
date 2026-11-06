@@ -9,7 +9,7 @@
  * the hub renamed is dropped, never thrown on.
  *
  * Names stay the hub's own labels («CLAUDE.md globale», «TOOLS.md»); a path is
- * kept only to ask for a file's text, never to show.
+ * shown only with a file's text, once opened, where it says where to edit it.
  */
 
 type Raw = Record<string, unknown>;
@@ -29,12 +29,16 @@ export interface HarnessWeight {
 export interface ContextFile {
   id: string;
   label: string;
-  /** The hub's key to read the text (`/api/context/text?path=`), never shown. */
+  /** The hub's key to read the text (`/api/context/text?path=`), shown with the text once opened. */
   path: string;
   group: string;
   tokens: number;
   /** Who reads it at start, by the hub's harness names; empty when it is read on demand. */
   readers: string[];
+  /** The same, with the hub's qualifier kept (the home sessions' one for the memory index): the row's chips. */
+  loaders: string[];
+  /** Last change of the file (ms), null when the hub did not say. */
+  mtime: number | null;
   /** The hub's own note, in its words (e.g. included from CLAUDE.md, read on demand). */
   note: string | null;
 }
@@ -69,12 +73,62 @@ export interface ContextView {
   files: ContextFile[];
   /** Read on demand: the sub-agents' prompts, the projects' CLAUDE.md, OpenClaw's memory and prompts. */
   onDemand: ContextFile[];
-  skills: { count: number; tokens: number } | null;
+  /** The skills' listing; `items` heaviest first, the ones worth trimming. */
+  skills: { count: number; tokens: number; items: Array<{ name: string; tokens: number }> } | null;
   duplicates: Array<{ text: string; where: string[] }>;
-  oldRules: Array<{ text: string; where: string; days: number }>;
+  /** `line` is where the rule sits in its file, to find it again; null when the hub did not say. */
+  oldRules: Array<{ text: string; where: string; line: number | null; days: number }>;
   check: ContextCheck;
-  /** The hub of the agents' own checks: how many, and the ones that fail. */
-  doctor: { total: number; failing: string[] } | null;
+  doctor: DoctorVerdict | null;
+}
+
+/**
+ * The verdict of agents-doctor, the hub's own checks. `pending` while the hub
+ * is still running it (seconds to minutes after a restart): not green. `fail`
+ * whenever the hub says not ok, a check fails or the doctor itself errored
+ * (a timeout), even with no failing line to show.
+ */
+export interface DoctorVerdict {
+  state: 'pending' | 'ok' | 'fail';
+  total: number;
+  failing: string[];
+  /** The doctor's own error, in the hub's words («agents-doctor: timeout 30s»). */
+  error: string | null;
+}
+
+export function doctorVerdict(raw: unknown): DoctorVerdict | null {
+  if (!isObject(raw)) return null;
+  const checks = list(raw.checks).filter(isObject);
+  const failing = checks.filter((c) => c.ok === false).map((c) => str(c.text)).filter((s): s is string => s !== null);
+  const error = str(raw.error);
+  const failedCount = checks.filter((c) => c.ok === false).length;
+  const state = raw.pending === true ? 'pending' : raw.ok === false || failedCount > 0 || error !== null ? 'fail' : 'ok';
+  return { state, total: checks.length, failing, error };
+}
+
+/** The hub's loader groups, in its order; any other group follows in the order it first appears. */
+const GROUP_ORDER = ['Claude Code', 'Codex e jcode', 'OpenClaw'];
+
+export interface FileGroup {
+  name: string;
+  files: ContextFile[];
+  tokens: number;
+}
+
+export function fileGroups(files: ContextFile[]): FileGroup[] {
+  const names = [...GROUP_ORDER, ...files.map((f) => f.group).filter((g) => !GROUP_ORDER.includes(g))];
+  const out: FileGroup[] = [];
+  for (const name of new Set(names)) {
+    const fs = files.filter((f) => f.group === name);
+    if (fs.length > 0) out.push({ name, files: fs, tokens: fs.reduce((a, f) => a + f.tokens, 0) });
+  }
+  return out;
+}
+
+/** Whole days since a file last changed; a file not touched for longer than STALE_FILE_DAYS is flagged. */
+export const STALE_FILE_DAYS = 60;
+export function fileAgeDays(mtime: number | null, now: number): number | null {
+  return mtime === null ? null : Math.max(0, Math.floor((now - mtime) / 86_400_000));
 }
 
 /** "Name (qualifier)" -> base "Name", note "qualifier". */
@@ -127,6 +181,8 @@ function readFile(raw: unknown): ContextFile | null {
     group: str(raw.group) ?? '',
     tokens: num(raw.tokens) ?? 0,
     readers: list(raw.loaders).map(str).filter((s): s is string => s !== null).map((s) => splitLoader(s).base),
+    loaders: list(raw.loaders).map(str).filter((s): s is string => s !== null),
+    mtime: num(raw.mtime),
     note: str(raw.note),
   };
 }
@@ -225,7 +281,14 @@ export function contextView(data: unknown, unlisted: (u: UnlistedRef) => string 
   const label = labeller([...files, ...onDemand], unlisted);
   const harnesses = harnessWeights(isObject(data.totals) ? data.totals.byLoader : null);
   const skills = isObject(data.skills) && num(data.skills.count) !== null
-    ? { count: num(data.skills.count) ?? 0, tokens: num(data.skills.tokens) ?? 0 }
+    ? {
+      count: num(data.skills.count) ?? 0,
+      tokens: num(data.skills.tokens) ?? 0,
+      items: list(data.skills.items).flatMap((s) => {
+        const name = isObject(s) ? str(s.name) : null;
+        return name ? [{ name, tokens: num((s as Raw).tokens) ?? 0 }] : [];
+      }).sort((a, b) => b.tokens - a.tokens),
+    }
     : null;
   const duplicates = list(data.duplicates).flatMap((raw) => {
     if (!isObject(raw)) return [];
@@ -238,13 +301,9 @@ export function contextView(data: unknown, unlisted: (u: UnlistedRef) => string 
     const text = plainRule(str(raw.text) ?? '');
     const days = num(raw.days);
     const file = str(raw.file);
-    return text && days !== null ? [{ text, where: file ? label(file) : '', days }] : [];
+    return text && days !== null ? [{ text, where: file ? label(file) : '', line: num(raw.line), days }] : [];
   }).sort((a, b) => b.days - a.days);
-  const doc = isObject(data.doctor) ? data.doctor : null;
-  const checks = doc ? list(doc.checks).filter(isObject) : [];
-  const doctor = doc
-    ? { total: checks.length, failing: checks.filter((c) => c.ok === false).map((c) => str(c.text)).filter((s): s is string => s !== null) }
-    : null;
+  const doctor = doctorVerdict(data.doctor);
   return {
     at: num(data.at),
     harnesses,

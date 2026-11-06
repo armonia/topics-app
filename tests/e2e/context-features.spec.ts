@@ -21,7 +21,8 @@
  * Mutation: with the check sent on the first button instead of on the
  * confirm, the count of checks after cancel is 1 and the test
  * is red; with the home sessions' loader read as a harness, the level lists
- * five and the test is red.
+ * five and the test is red; with the doctor's `pending` read as green, the
+ * doctor test is red.
  *
  * The shots are taken in the mockups' workspace (helpers/shot-scene.ts):
  * acme-web and studio-x with their chats in the sidebar, a chat with messages.
@@ -39,6 +40,7 @@ import { openMainChat, openSceneInSidebar, seedScene, type Scene } from "./helpe
 import { goToApp } from "./helpers";
 import { openProfileMenu } from "./helpers/open-perf-panel";
 import { startFakeHub, type FakeHub } from "./helpers/fake-hub";
+import { defaultContextDoctor } from "./helpers/fake-hub-context";
 import { E2E_BASE, canonicalTmpRoot } from "./helpers/test-server";
 
 hermetic(test);
@@ -129,12 +131,32 @@ test.describe("agents' context and feature map", () => {
     await expect(harness).toHaveCount(4, { timeout: 20_000 });
     await expect(harness.filter({ hasText: "Claude Code" })).toContainText("+4,9 k tok nelle sessioni aperte nella home");
     await expect(harness.filter({ hasText: "OpenClaw" })).toContainText("11 k tok");
-    await expect(level).not.toContainText("claude-cli");
+    await expect(level.getByTestId("context-weights")).not.toContainText("claude-cli");
     await expect(level).not.toContainText("~/");
+    // The caveat of every number: an estimate, read only.
+    await expect(level.getByTestId("context-lead")).toContainText("stima (caratteri ÷ 4)");
+    // Files by who loads them, each group with its count and tokens, in the hub's order.
+    const groups = level.getByTestId("context-file-group");
+    await expect(groups).toHaveCount(2);
+    expect(await groups.evaluateAll((els) => els.map((e) => e.getAttribute("data-group")))).toEqual(["Claude Code", "Codex e jcode"]);
+    await expect(groups.first().getByTestId("context-file-group-meta")).toHaveText("4 file · 18 k tok");
+    // Who loads a file keeps the hub's qualifier: the memory index is read only in the home sessions.
+    const memory = level.getByTestId("context-file").filter({ hasText: "Indice della memoria" });
+    await expect(memory.getByTestId("context-file-loader")).toHaveText(["Claude Code (sessioni nate in ~)"]);
+    await expect(level.getByTestId("context-file").filter({ hasText: "CLAUDE.md globale" }).getByTestId("context-file-loader")).toHaveText(["Claude Code", "OpenClaw (via claude-cli)"]);
+    // When each file last changed: three months is amber.
+    const style = level.getByTestId("context-file").filter({ hasText: "Stile di output" }).getByTestId("context-file-age");
+    await expect(style).toHaveText("90 g fa");
+    await expect(style).toHaveAttribute("data-stale", "true");
+    await expect(level.getByTestId("context-file").filter({ hasText: "AGENTS.md dell'hub" }).getByTestId("context-file-age")).toHaveText("oggi");
+    await expect(memory.getByTestId("context-file-age")).toHaveText("ieri");
+    // The skills open to every skill, heaviest first.
+    await level.getByTestId("context-skills").getByRole("button").click();
+    await expect(level.getByTestId("context-skill")).toHaveText([/^graphify/, /^senior-pass/, /^commit/]);
     await expect(level.getByTestId("context-check-ask")).toHaveText("Cerca contraddizioni");
     await expect(level.getByTestId("context-contradictions")).toContainText("mai state confrontate");
     await expect(level.getByTestId("context-duplicate")).toContainText("CLAUDE.md globale · CLAUDE.md · acme-web");
-    await expect(level.getByTestId("context-old-rule").first()).toContainText("372 giorni fa");
+    await expect(level.getByTestId("context-old-rule").first()).toContainText("CLAUDE.md · acme-web, riga 212 · 372 giorni fa");
     // The hub quotes raw markdown lines: bold marks, list dashes and link targets stay off screen.
     await expect(level.getByTestId("context-old-rule").first()).toContainText("Ultimo aggiornamento: 29 ottobre 2025");
     await expect(level.getByTestId("context-old-rules")).not.toContainText("**");
@@ -145,6 +167,9 @@ test.describe("agents' context and feature map", () => {
     const file = level.getByTestId("context-file").filter({ hasText: "CLAUDE.md globale" });
     await file.getByRole("button").click();
     await expect(file.getByTestId("context-file-text")).toContainText("Una domanda è una domanda.", { timeout: 10_000 });
+    // With the text, where the file lives, and why some of it reads «…».
+    await expect(file.getByTestId("context-file-path")).toHaveText("~/.claude/CLAUDE.md");
+    await expect(file.getByTestId("context-file-text")).toContainText("mascherati con «…»");
 
     // The check asks first: nothing reaches the hub on cancel.
     await level.getByTestId("context-check-ask").click();
@@ -183,6 +208,28 @@ test.describe("agents' context and feature map", () => {
     await turnedLight(page, "context-level");
     await page.screenshot({ path: testInfo.outputPath("vero-contesto-funzionalita-chiaro.png") });
     await page.emulateMedia({ colorScheme: "dark" });
+  });
+
+  test("agents-doctor still running is grey, never green, and the level reads again until it answers", async ({ page }) => {
+    hub!.contextDoctor = { ok: false, checks: [], error: null, pending: true };
+    try {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await goToApp(page);
+      await openMainChat(page, scene!);
+      const status = await openSystem(page);
+      await status.getByTestId("menu-system-context").click();
+      const doctor = page.getByTestId("context-level").getByTestId("context-doctor");
+      await expect(doctor).toHaveAttribute("data-state", "pending", { timeout: 20_000 });
+      await expect(doctor).toContainText("agents-doctor in corso");
+      await expect(doctor).not.toContainText("tutti verdi");
+      // The doctor ends in a timeout: the open level turns red with its words, nobody reopens it.
+      hub!.contextDoctor = { ok: false, checks: [], error: "agents-doctor: timeout 30s" };
+      await expect(doctor).toHaveAttribute("data-state", "fail", { timeout: 20_000 });
+      await expect(doctor.getByTestId("context-doctor-error")).toHaveText("agents-doctor: timeout 30s");
+      await expect(doctor).not.toContainText("tutti verdi");
+    } finally {
+      hub!.contextDoctor = defaultContextDoctor();
+    }
   });
 
   test("Funzionalità from System and from the palette, the same view, no sidebar row of its own", async ({ page }, testInfo) => {

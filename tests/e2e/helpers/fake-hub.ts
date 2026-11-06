@@ -54,7 +54,7 @@
  */
 import { createServer, type Server } from "node:http";
 import { E2E_BASE, hubPortFor } from "./test-server";
-import { FOUND_CONTRADICTION, contextModel, contextText, defaultContextCheck, featuresMap, type FakeContextCheck } from "./fake-hub-context";
+import { FOUND_CONTRADICTION, contextModel, contextText, defaultContextCheck, defaultContextDoctor, featuresMap, type FakeContextCheck } from "./fake-hub-context";
 import { FAKE_ICON_PNG, jobsBoard, jobsCalendar, jobsReminders, withJobsSessions, withLiveAgents } from "./fake-hub-jobs";
 import { boardAnswer, extraProxyRows, profileExtras, projectsReport, proxyHealthExtras } from "./fake-hub-accounts";
 import { automationsCalendar, automationsModel, automationsRuns, automationsSummary, feedbackRefusal, workflowRunCost, type FeedbackRow } from "./fake-hub-automations";
@@ -105,6 +105,8 @@ export interface FakeHub {
   checkMs: number;
   /** Set: the proxy's activity log answers these events instead of the default three (the bell's account history). */
   activity: Array<Record<string, unknown>> | null;
+  /** agents-doctor as `contesto` sends it: set `{ pending: true }` to play a hub still running it. */
+  contextDoctor: Record<string, unknown>;
   close(): Promise<void>;
 }
 
@@ -583,7 +585,7 @@ const LOG_LINES = [
 ];
 
 export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(), opts: { quiet?: boolean; jobs?: boolean; automations?: boolean; projects?: { dirs: Record<string, string> }; context?: boolean } = {}): Promise<FakeHub> {
-  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), withdrawn: [], silent: false, failing: [], answersOverride: {}, feedback: [], priorities: {}, refuseSettings: null, contextCheck: defaultContextCheck(), checkMs: 3000, activity: null, close: async () => {} };
+  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), withdrawn: [], silent: false, failing: [], answersOverride: {}, feedback: [], priorities: {}, refuseSettings: null, contextCheck: defaultContextCheck(), checkMs: 3000, activity: null, contextDoctor: defaultContextDoctor(), close: async () => {} };
   const server: Server = createServer((req, res) => {
     const path = (req.url ?? "").split("?")[0]!.replace(/^\/api\//, "");
     if (req.method === "GET" && path === "logs/stream") {
@@ -702,6 +704,7 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
       hub.priorities = {};
       hub.refuseSettings = null;
       hub.contextCheck = defaultContextCheck();
+      hub.contextDoctor = defaultContextDoctor();
       hub.failing = [];
       hub.activity = null;
       req.resume();
@@ -734,7 +737,7 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
     if (opts.context && req.method === "GET" && (path === "contesto" || path === "features" || path === "context/text")) {
       if (hub.silent) return send(503, { error: "silent" });
       const now = Date.now();
-      if (path === "contesto") return send(200, contextModel(now, hub.contextCheck));
+      if (path === "contesto") return send(200, contextModel(now, hub.contextCheck, hub.contextDoctor));
       if (path === "features") return send(200, featuresMap(now));
       const text = contextText(new URL(req.url ?? "", "http://x").searchParams.get("path") ?? "");
       return text ? send(200, text) : send(403, { error: "Lettura del file di contesto non autorizzata." });

@@ -7,19 +7,19 @@
  * @covers HUBBR-17
  */
 import { describe, expect, test } from 'bun:test';
-import { CHECK_STALE_MS, checkStart, contextCheck, contextView, harnessWeights, plainRule, shortTokens, unlistedRef } from './hubContext';
+import { CHECK_STALE_MS, checkStart, contextCheck, contextView, doctorVerdict, fileAgeDays, fileGroups, harnessWeights, plainRule, shortTokens, unlistedRef } from './hubContext';
 
 const HUB = {
   at: 1_793_901_551_906,
   files: [
-    { id: 'claude-md', label: 'CLAUDE.md globale', path: '~/.claude/CLAUDE.md', group: 'Claude Code', loaders: ['Claude Code', 'OpenClaw (via claude-cli)'], tokens: 4443, note: '' },
+    { id: 'claude-md', label: 'CLAUDE.md globale', path: '~/.claude/CLAUDE.md', group: 'Claude Code', loaders: ['Claude Code', 'OpenClaw (via claude-cli)'], tokens: 4443, note: '', mtime: 1_793_000_000_000 },
     { id: 'inc:tools.md', label: 'TOOLS.md', path: '~/.claude/tools.md', group: 'Claude Code', loaders: ['Claude Code', 'OpenClaw (via claude-cli)'], tokens: 6282, note: 'incluso da CLAUDE.md' },
     { id: 'memory-index', label: 'Indice della memoria', path: '~/.claude/memory/MEMORY.md', group: 'Claude Code', loaders: ['Claude Code (sessioni nate in ~)'], tokens: 4907, note: '' },
     { id: 'broken', label: '', path: '~/x.md' },
   ],
   subagentPrompts: [{ id: 'subagent:oracle.md', label: 'Prompt del sottoagente oracle', path: '~/.claude/agents/oracle.md', group: 'Prompt dei sottoagenti', loaders: [], tokens: 439, note: '' }],
   otherSources: [{ id: 'project:acme-web', label: 'CLAUDE.md · acme-web', path: '~/Projects/acme-web/CLAUDE.md', group: 'CLAUDE.md dei progetti', loaders: [], tokens: 302, note: 'letto nelle sessioni di quel progetto' }],
-  skills: { count: 41, tokens: 1780, loaders: ['Claude Code'], items: [] },
+  skills: { count: 41, tokens: 1780, loaders: ['Claude Code'], items: [{ name: 'light', tokens: 12 }, { name: 'heavy', tokens: 90 }, { tokens: 5 }] },
   duplicates: [{ text: 'Mai inviare email senza conferma', files: ['claude-md', 'project:acme-web'] }, { text: 'solo in un file', files: ['claude-md'] }],
   oldRules: [
     { file: 'memory-index', line: 77, text: '- [una scheda di maggio](reference_exec_stall.md): causa non provata', date: '2026-05-01', days: 188 },
@@ -69,12 +69,28 @@ describe('contextView', () => {
     expect(v.files[0]!.readers).toEqual(['Claude Code', 'OpenClaw']);
     expect(v.files[1]!.note).toBe('incluso da CLAUDE.md');
     expect(v.onDemand.map((f) => f.id)).toEqual(['subagent:oracle.md', 'project:acme-web']);
-    expect(v.skills).toEqual({ count: 41, tokens: 1780 });
+    expect(v.skills).toEqual({ count: 41, tokens: 1780, items: [{ name: 'heavy', tokens: 90 }, { name: 'light', tokens: 12 }] });
+  });
+
+  test('a file keeps who loads it with the hub qualifier, and when it last changed', () => {
+    expect(v.files[0]!.loaders).toEqual(['Claude Code', 'OpenClaw (via claude-cli)']);
+    expect(v.files[2]!.loaders).toEqual(['Claude Code (sessioni nate in ~)']);
+    expect(v.files[0]!.mtime).toBe(1_793_000_000_000);
+    expect(v.files[1]!.mtime).toBeNull();
+    expect(fileAgeDays(null, 5)).toBeNull();
+    expect(fileAgeDays(0, 86_400_000 * 61.5)).toBe(61);
+    expect(fileAgeDays(10, 0)).toBe(0);
+  });
+
+  test('files grouped by who loads them, in the hub order, each with its tokens', () => {
+    const f = (id: string, group: string, tokens: number) => ({ ...v.files[0]!, id, group, tokens });
+    const groups = fileGroups([f('a', 'OpenClaw', 5), f('b', 'Altro', 1), f('c', 'Claude Code', 3), f('d', 'Claude Code', 4)]);
+    expect(groups.map((g) => [g.name, g.files.length, g.tokens])).toEqual([['Claude Code', 2, 7], ['OpenClaw', 1, 5], ['Altro', 1, 1]]);
   });
 
   test('duplicates, old rules and contradictions name files by their label, never by id or path', () => {
     expect(v.duplicates).toEqual([{ text: 'Mai inviare email senza conferma', where: ['CLAUDE.md globale', 'CLAUDE.md · acme-web'] }]);
-    expect(v.oldRules.map((r) => [r.where, r.days])).toEqual([['rules · studio-x', 372], ['Indice della memoria', 188]]);
+    expect(v.oldRules.map((r) => [r.where, r.line, r.days])).toEqual([['rules · studio-x', 212, 372], ['Indice della memoria', 77, 188]]);
     expect(v.check.items).toHaveLength(2);
     expect(v.check.items[0]!.a.where).toBe('CLAUDE.md globale');
     expect(v.check.items[0]!.b.where).toBe('kind · Claude Code');
@@ -100,7 +116,15 @@ describe('contextView', () => {
   });
 
   test('the failing checks of the agents\' hub', () => {
-    expect(v.doctor).toEqual({ total: 2, failing: ['skill fuori posto: demo'] });
+    expect(v.doctor).toEqual({ state: 'fail', total: 2, failing: ['skill fuori posto: demo'], error: null });
+  });
+
+  test('agents-doctor is green only when it answered ok: running is pending, an error or a bare not-ok is red', () => {
+    expect(doctorVerdict({ ok: false, checks: [], error: null, pending: true })!.state).toBe('pending');
+    expect(doctorVerdict({ ok: false, checks: [], error: 'agents-doctor: timeout 30s' })).toEqual({ state: 'fail', total: 0, failing: [], error: 'agents-doctor: timeout 30s' });
+    expect(doctorVerdict({ ok: false, checks: [{ ok: true, text: 'a' }] })!.state).toBe('fail');
+    expect(doctorVerdict({ ok: true, checks: [{ ok: true, text: 'a' }], error: null })).toEqual({ state: 'ok', total: 1, failing: [], error: null });
+    expect(doctorVerdict(null)).toBeNull();
   });
 
   test('not an object, no view', () => {
