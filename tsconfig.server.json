@@ -10,8 +10,8 @@
   // with nobody updating the note. Don't reintroduce a scary number without
   // running the compiler first.
   //
-  // Pinned to the client's tsc (5.9.3); --ignoreDeprecations "5.0" is required
-  // for the same reason as client/tsconfig.app.json.
+  // Si controlla con il tsc del client (client/node_modules/typescript7, TypeScript 7
+  // nativo). Non serve `--ignoreDeprecations`: il server non usa opzioni deprecate.
   "compilerOptions": {
     "target": "ES2023",
     "module": "ESNext",

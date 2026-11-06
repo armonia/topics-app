@@ -11,18 +11,20 @@
  * files included (they had been excluded, leaving ~21k lines outside every
  * gate). BASELINE is 0 and this is a hard gate. Keep it there.
  */
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
+import { existsSync } from "node:fs";
 
 // Server type errors must stay at zero (tsconfig.server.json). Do NOT raise
 // this to make CI green — fix the new error instead.
 const BASELINE = 0;
 
-const TSC = "./client/node_modules/.bin/tsc";
-const res = spawnSync(
-  TSC,
-  ["-p", "tsconfig.server.json", "--ignoreDeprecations", "5.0"],
-  { encoding: "utf8" },
-);
+// TypeScript 7 (native) installed under the `typescript7` alias: `typescript` stays on 5.9
+// because typescript-eslint wants TS below 6.1. The current executable (bun) launches it,
+// as the client build does: the system `node` can be too old.
+const TSC = "./client/node_modules/typescript7/bin/tsc";
+const res: Pick<SpawnSyncReturns<string>, "error" | "status" | "stdout" | "stderr"> = existsSync(TSC)
+  ? spawnSync(process.execPath, [TSC, "-p", "tsconfig.server.json"], { encoding: "utf8" })
+  : { error: new Error("file mancante"), status: null, stdout: "", stderr: "" };
 
 const out = `${res.stdout ?? ""}${res.stderr ?? ""}`.trim();
 const count = (out.match(/error TS\d+/g) ?? []).length;
