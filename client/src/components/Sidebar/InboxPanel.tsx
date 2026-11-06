@@ -24,7 +24,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import {
   Check, ChevronDown, CircleAlert, CircleCheck, CircleX, ClipboardCheck, CloudOff, Eye, Gauge, GitPullRequest, Hand,
-  Inbox as InboxIcon, MessageCircleQuestion, MessageSquare, PauseCircle, Search, Server, Settings, ShieldAlert, SquareCheck, TerminalSquare,
+  Inbox as InboxIcon, MessageCircleQuestion, MessageSquare, PauseCircle, Server, Settings, ShieldAlert, SquareCheck, TerminalSquare,
   type LucideIcon,
 } from 'lucide-react';
 import type { WSMessage } from '../../types';
@@ -37,9 +37,10 @@ import { chatApi } from '../../lib/api';
 import { useAttentionRows, sendAttentionSeenItems } from '../../state/attention';
 import { markAllSeenItems, historyDayKey, type InboxItem, type InboxModel, type InboxQuietItem } from '../../lib/inboxModel';
 import { BELL_GROUP_PREVIEW, bellGroups, type BellGroup, type BellGroupKey } from '../../lib/bellGroups';
-import type { DiaryEntry } from '../../lib/hubSystem';
+import type { DiaryEntry, DiaryKind } from '../../lib/hubSystem';
 import type { HubLiveTopic } from '../../state/hubLive';
-import { HISTORY_FILTER_KEYS, dayTally, diaryForFilter, diaryMatches, historyCounts, topicsMatches, type HistoryFilter } from '../../lib/bellHistory';
+import { dayTally, diaryForFilter, diaryKindCounts, diaryMatches, historyCounts, topicsMatches, type HistoryFilter } from '../../lib/bellHistory';
+import { BellHistoryTools } from './BellHistoryTools';
 import { openDeepLinkInApp } from '../../lib/deepLinkEntry';
 import { openUserMenu } from '../../lib/openUserMenu';
 import { WARNING_TEXT, DANGER_TEXT } from '../../lib/popoverStyles';
@@ -627,13 +628,6 @@ function HubUnreadBand({ topics }: { topics: HubLiveTopic[] }) {
   );
 }
 
-const HISTORY_FILTER_LABEL: Record<HistoryFilter, string> = {
-  all: 'bell.history.all',
-  topics: 'bell.history.topics',
-  hub: 'bell.history.hub',
-  problems: 'bell.history.problems',
-};
-
 type HistoryLine = { at: number; key: string; row: NotificationRow } | { at: number; key: string; diary: DiaryEntry };
 
 /**
@@ -654,8 +648,8 @@ function History({ rows, diary, diaryReadAt, hubPresent, loading, hasMore, loadi
   onClose: () => void;
 }) {
   const tr = useT();
-  const { isTouch } = useMobile();
   const [filter, setFilter] = useState<HistoryFilter>('all');
+  const [kind, setKind] = useState<DiaryKind | null>(null);
   const [query, setQuery] = useState('');
   // Infinite scroll, within the hundred rows the panel keeps: the next page comes as its tail comes into view.
   const moreRef = useLoadOnReach(loadMore, { more: hasMore && rows.length < 100, loading: loadingMore, count: rows.length });
@@ -668,49 +662,15 @@ function History({ rows, diary, diaryReadAt, hubPresent, loading, hasMore, loadi
   const searchedDiary = diary.filter((d) => diaryMatches(d, query, outcomeWord));
   const counts = historyCounts(searchedTopics.length, searchedDiary);
   const topicsRows = filter === 'hub' || filter === 'problems' ? [] : searchedTopics;
-  const diaryRows = diaryForFilter(searchedDiary, filter).filter((d) => filter !== 'all' || d.at >= oldestTopics);
+  const diaryRows = diaryForFilter(searchedDiary, filter, kind).filter((d) => filter !== 'all' || d.at >= oldestTopics);
   const lines: HistoryLine[] = [
     ...topicsRows.map((row) => ({ at: Date.parse(row.createdAt), key: `n:${row.id}`, row })),
     ...diaryRows.map((d) => ({ at: d.at, key: d.id, diary: d })),
   ].sort((a, b) => b.at - a.at);
 
+  const fresh = diaryReadAt === null ? null : tr('bell.history.fresh', { n: diary.length, time: new Date(diaryReadAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false }) });
   const chips = hubPresent && (
-    <div className="border-b border-app-border/60" data-testid="bell-history-tools">
-      <div className="flex gap-1 px-3 pt-1.5 overflow-x-auto" style={{ scrollbarWidth: 'none' }} role="group" aria-label={tr('bell.history.filter')} data-testid="bell-history-filter">
-        {HISTORY_FILTER_KEYS.map((key) => (
-          <button
-            key={key}
-            type="button"
-            tabIndex={-1}
-            aria-pressed={filter === key}
-            onClick={() => setFilter(key)}
-            className={`flex items-center gap-[5px] whitespace-nowrap px-2 ${isTouch ? 'h-9 text-prose' : 'h-6 text-compact'} rounded-xs border transition-colors ${filter === key ? 'border-primary/40 bg-primary/10 text-primary font-medium' : 'border-black/15 dark:border-white/20 text-app-text-secondary hover:bg-app-hover'}`}
-            data-testid={`bell-history-${key}`}
-            data-count={counts[key]}
-          >
-            {tr(HISTORY_FILTER_LABEL[key])}
-            <span className={`tabular-nums ${key === 'problems' && counts.problems > 0 ? DANGER_TEXT : 'text-app-text-muted'}`}>{counts[key]}</span>
-          </button>
-        ))}
-      </div>
-      <label className={`flex items-center gap-1.5 mx-3 my-1.5 px-2 rounded-xs border border-black/15 dark:border-white/20 focus-within:border-primary/60 ${isTouch ? 'h-9' : 'h-6'}`}>
-        <Search size={12} className="flex-shrink-0 text-app-text-muted" aria-hidden="true" />
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={tr('bell.history.search')}
-          aria-label={tr('bell.history.search')}
-          className={`min-w-0 flex-1 bg-transparent outline-none text-app-text placeholder:text-app-text-muted ${isTouch ? 'text-prose' : 'text-compact'}`}
-          data-testid="bell-history-search"
-        />
-        {diaryReadAt !== null && (
-          <span className="flex-shrink-0 text-mini text-app-text-muted tabular-nums" data-testid="bell-history-fresh">
-            {tr('bell.history.fresh', { n: diary.length, time: new Date(diaryReadAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false }) })}
-          </span>
-        )}
-      </label>
-    </div>
+    <BellHistoryTools filter={filter} onFilter={setFilter} counts={counts} kind={kind} onKind={setKind} kindCounts={diaryKindCounts(searchedDiary)} query={query} onQuery={setQuery} fresh={fresh} />
   );
 
   if (lines.length === 0) {

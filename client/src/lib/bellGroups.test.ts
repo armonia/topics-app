@@ -22,7 +22,7 @@ function topicsItem(subject: string, since: number, tier: InboxItem['tier'] = 'n
 }
 
 function hubItem(id: string, since: number, due: number | null = null): WaitingItem {
-  return { id, kind: 'decisione', title: id, why: null, link: null, automationKey: null, from: null, due, since };
+  return { id, kind: 'decisione', title: id, why: null, link: null, automationKey: null, place: null, from: null, due, since };
 }
 
 const LIVE: HubLiveState = {
@@ -61,6 +61,35 @@ describe('HUBBR-06: the groups of the bell', () => {
 
     const bare = bellGroups({ waiting: [], finished: [topicsItem('topic:f', NOW, 'done')] }, { ...NO_HUB, waiting: [hubItem('x', NOW)] });
     expect(bare.map((g) => g.key)).toEqual(['decide', 'finished']);
+  });
+
+  test('the forecast and the machines: a subscription that runs out is the first quota row, the PC unreachable is broken, the Mac under strain is to look at', () => {
+    const live: HubLiveState = {
+      ...LIVE,
+      forecast: { at: 1, data: { providers: [
+        { id: 'codex', status: 'stretto', level: 1, right: 'regge fino a ven 18:00', sub: 'poi 10 h senza', soon: false },
+        { id: 'claude', status: 'corto', level: 2, right: 'finisce domani alle 04:46', sub: '3 account · al ritmo di oggi', soon: true },
+        { id: 'muse', status: 'ok', level: 0, right: 'arriva al reset', sub: null, soon: false },
+      ] } },
+      mac: { at: 1, data: { effort: { level: 2, label: 'sotto sforzo', why: 'disco al 97%' } } },
+      pc: { at: 1, data: { pc: 'chiuso' } },
+    };
+    const parts = liveBellHub(live);
+    // The worst first; a provider that reaches its reset is not news.
+    expect(parts.outlooks.map((o) => [o.provider, o.tone])).toEqual([['claude', 'bad'], ['codex', 'warn']]);
+    expect(parts.machines).toEqual([
+      { machine: 'mac', state: 'sotto sforzo', why: 'disco al 97%', tone: 'bad' },
+      { machine: 'pc', state: 'closed', why: null, tone: 'warn' },
+    ]);
+    const groups = bellGroups({ waiting: [], finished: [] }, { ...NO_HUB, ...parts });
+    expect(groups.find((g) => g.key === 'quota')!.entries.map((e) => e.key)).toEqual(['outlook:claude', 'outlook:codex', 'quota:claude:a', 'alert:muse:pace']);
+    expect(groups.find((g) => g.key === 'broken')!.entries.map((e) => e.key)).toEqual(['service:docs', 'machine:pc']);
+    expect(groups.find((g) => g.key === 'look')!.entries.map((e) => e.key)).toEqual(['machine:mac', 'alert:project:studio-x']);
+    // The grey figure counts them: 6 of LIVE + 2 forecasts + 2 machines.
+    expect(hubBadgeCounts(live)).toEqual({ decide: 1, alerts: 10 });
+    // A PC asleep or at work, a Mac only busy: nothing to say.
+    expect(liveBellHub({ mac: { at: 1, data: { effort: { level: 1, label: 'impegnato' } } }, pc: { at: 1, data: { pc: 'dorme' } } }).machines).toEqual([]);
+    expect(liveBellHub({ pc: { at: 1, data: { pc: 'sconosciuto' } } }).machines).toEqual([{ machine: 'pc', state: 'unknown', why: null, tone: 'bad' }]);
   });
 
   test('«Decide» mixes the waits of Topics and the hub: deadlines first, nearest first, then the longest wait', () => {

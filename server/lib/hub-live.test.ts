@@ -5,15 +5,19 @@
  * @covers HUBBR-02
  */
 import { describe, expect, test } from "bun:test";
-import { createHubLive, HUB_LIVE_PATHS, HUB_LIVE_TOPICS, type HubLiveFrame } from "./hub-live";
+import { createHubLive, HUB_LIVE_EVERY, HUB_LIVE_PATHS, HUB_LIVE_TOPICS, type HubLiveFrame } from "./hub-live";
 
 const N = HUB_LIVE_TOPICS.length;
+/** The topics read every tick: the slow ones (services, pc) wait their turn. */
+const EVERY_TICK = HUB_LIVE_TOPICS.filter((t) => (HUB_LIVE_EVERY[t] ?? 1) <= 1).length;
 
 function harness(opts: { clients?: boolean; base?: string | null } = {}) {
   const answers: Record<string, unknown> = {
     pace: [{ provider: "claude", pct: 40 }], mac: { cpu: 10 }, services: [],
     attesa: { items: [] }, alerts: { firing: [] }, gates: { classes: {} }, "automations/summary": { broken: 0 },
     live: { projects: [{ name: "acme-web", state: "attivo", total: 12, claude: 4, codex: 8, agents: { count: 1 }, lastSeen: { at: 1 } }] },
+    forecast: { at: 1_000, headline: { title: "x" }, providers: [{ id: "claude", status: "corto", level: 2, runsOutAt: 1_000 + 3_600_000, right: "finisce oggi alle 18:00", sub: "3 account", ends: {} }] },
+    pc: { pc: "chiuso", perche: "inattivo da 1 min" },
   };
   let down = false;
   let calls = 0;
@@ -93,7 +97,46 @@ describe("HUBBR-02: hub live data on the WebSocket", () => {
     expect(h.calls()).toBe(after);
     h.advance(15_000);
     await h.live.snapshot();
-    expect(h.calls()).toBe(after + N);
+    expect(h.calls()).toBe(after + EVERY_TICK);
+  });
+
+  test("services and the PC are read once every four ticks, the rest every tick", async () => {
+    const h = harness();
+    const urls: string[] = [];
+    const counting = createHubLive({
+      base: () => "http://hub", broadcast: () => {}, hasClients: () => true,
+      fetchImpl: (async (url: string) => { urls.push(String(url).split("/api/")[1]!); return new Response(JSON.stringify(h.answers[String(url).split("/api/")[1]!] ?? {})); }) as unknown as typeof fetch,
+    });
+    for (let i = 0; i < 8; i++) await counting.tick();
+    expect(urls.filter((u) => u === "services").length).toBe(2);
+    expect(urls.filter((u) => u === "pc").length).toBe(2);
+    expect(urls.filter((u) => u === "mac").length).toBe(8);
+  });
+
+  test("a hub that stops answering drops the slow topics too, without waiting for their turn", async () => {
+    const h = harness();
+    await h.live.tick();
+    h.setDown(true);
+    h.frames.length = 0;
+    await h.live.tick();
+    expect(h.frames.map((f) => f.topic).sort()).toEqual([...HUB_LIVE_TOPICS].sort());
+    const snap = await h.live.snapshot();
+    expect(snap.services!.data).toBeUndefined();
+    expect(snap.pc!.data).toBeUndefined();
+  });
+
+  test("the forecast keeps the sentence and whether it runs out within a day; the PC keeps its state alone", async () => {
+    const h = harness();
+    await h.live.tick();
+    expect(h.frames.find((f) => f.topic === "forecast")!.data).toEqual({
+      providers: [{ id: "claude", status: "corto", level: 2, right: "finisce oggi alle 18:00", sub: "3 account", soon: true }],
+    });
+    expect(h.frames.find((f) => f.topic === "pc")!.data).toEqual({ pc: "chiuso" });
+    // The hub's clock and the exact minute move on every read: no frame for that alone.
+    h.answers.forecast = { at: 9_000, providers: [{ id: "claude", status: "corto", level: 2, runsOutAt: 9_000 + 3_000_000, right: "finisce oggi alle 18:00", sub: "3 account" }] };
+    h.frames.length = 0;
+    await h.live.tick();
+    expect(h.frames.filter((f) => f.topic === "forecast")).toEqual([]);
   });
 
   test("snapshot reads again at once when a topic was unreadable, so a hub that came back shows up", async () => {
@@ -141,6 +184,7 @@ describe("HUBBR-02: hub live data on the WebSocket", () => {
     h.answers.attesa = { items: [{ id: "a" }] };
     const refreshed = h.live.refresh();
     await Promise.all([first, refreshed]);
+    // The write's read asks every topic: a write can change any of them.
     expect(h.calls()).toBe(2 * N);
     const snap = await h.live.snapshot();
     expect(snap.attesa!.data).toEqual({ items: [{ id: "a" }] });

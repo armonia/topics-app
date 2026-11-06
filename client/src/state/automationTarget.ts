@@ -23,9 +23,17 @@ export function openAutomation(key: string, nowMs: number = Date.now()): void {
   window.dispatchEvent(new CustomEvent(AUTOMATION_TARGET_EVENT, { detail: { key } }));
 }
 
-/** The key asked for, if still fresh, consuming it. */
-export function takeAutomationTarget(nowMs: number = Date.now()): string | null {
-  const fresh = pending && nowMs - pending.at < VALID_MS ? pending.key : null;
-  pending = null;
-  return fresh;
+/**
+ * The key asked for, if still fresh, WITHOUT consuming it. The view can mount
+ * twice for one gesture (the lazy chunk, then the tab moved into its group):
+ * a first mount that consumed the key left the second one on the plain list.
+ * The view settles the request once the row is on screen.
+ */
+export function peekAutomationTarget(nowMs: number = Date.now()): string | null {
+  return pending && nowMs - pending.at < VALID_MS ? pending.key : null;
+}
+
+/** The request fulfilled: the view shows this key, so a later open does not jump to it again. */
+export function settleAutomationTarget(key: string): void {
+  if (pending?.key === key) pending = null;
 }

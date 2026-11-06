@@ -23,7 +23,7 @@ import { addCatalogue } from '../../lib/i18n';
 import AUTOMATIONS_IT from '../../lib/i18n-automations-it';
 import AUTOMATIONS_EN from '../../lib/i18n-automations-en';
 import { useHubEverRead } from '../../state/hubLive';
-import { AUTOMATION_TARGET_EVENT, takeAutomationTarget } from '../../state/automationTarget';
+import { AUTOMATION_TARGET_EVENT, peekAutomationTarget, settleAutomationTarget } from '../../state/automationTarget';
 import { startVisibleInterval } from '../../state/documentVisibility';
 import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import {
@@ -84,10 +84,10 @@ function AutomationsView() {
   const [system, setSystem] = useState<AutomationSystem | null>(null);
   const [query, setQuery] = useState('');
   // A link of the hub (`#automations/<key>`) opens the view on that automation.
-  const [selectedKey, setSelectedKey] = useState<string | null>(() => takeAutomationTarget());
+  const [selectedKey, setSelectedKey] = useState<string | null>(() => peekAutomationTarget());
   useEffect(() => {
     const onTarget = () => {
-      const key = takeAutomationTarget();
+      const key = peekAutomationTarget();
       if (!key) return;
       setTab('list');
       setSystem(null);
@@ -124,6 +124,8 @@ function AutomationsView() {
   const counts = systemCounts(rows);
   const decide = toDecide(visible);
   const selected = selectedKey ? rows.find((r) => r.key === selectedKey) ?? null : null;
+  // A link's request is done once its row is open here.
+  useEffect(() => { if (selected) settleAutomationTarget(selected.key); }, [selected]);
   const side = width >= SIDE_PANEL_MIN;
 
   const detail = selected && (

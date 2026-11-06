@@ -1,7 +1,8 @@
 /**
  * The bell's rows that come from the hub (HUBBR-06, HUBBR-07): a «waiting for
  * you» item with «Open» and «Done», a failed automation with «Fix it», a
- * service with a problem, a quota nearly full, an alert, an account event, a
+ * service with a problem, a subscription that runs out before its reset, a
+ * machine that needs a look, a quota nearly full, an alert, an account event, a
  * contradiction of the agents' rules; and, in History, a line of the diary.
  *
  * One geometry for every row that asks something, of Topics or of the hub
@@ -12,15 +13,18 @@
  */
 import { useState, type ReactNode } from 'react';
 import {
-  ArrowLeftRight, Bot, Check, ChevronRight, CircleDashed, CircleX, Clock3, CreditCard, Eye, Gauge, KeyRound, Layers, LoaderCircle, Megaphone,
-  MessageCircle, PieChart, Scale, ServerCrash, SkipForward, User, Workflow, Wrench, type LucideIcon,
+  ArrowLeftRight, Bot, Check, ChevronRight, CircleDashed, CircleX, Clock, Clock3, Cpu, CreditCard, Eye, Gauge, KeyRound, Layers, LoaderCircle, Megaphone,
+  MessageCircle, MonitorOff, PieChart, Scale, ServerCrash, SkipForward, User, Workflow, Wrench, type LucideIcon,
 } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
 import { useMobile } from '../../hooks/useMobile';
 import { useBellActions } from '../../hooks/useBellHub';
 import { bellTimeLabel, type BellEntry } from '../../lib/bellGroups';
-import { jarvisHref, type DiaryEntry, type WaitingKind } from '../../lib/hubSystem';
+import { jarvisHref, type DiaryEntry, type HubPlace, type WaitingKind } from '../../lib/hubSystem';
+import { openUserMenu } from '../../lib/openUserMenu';
+import { openProcessesLog } from '../../state/processesLog';
 import { openAutomation } from '../../state/automationTarget';
+import { openTaskInApp } from '../../lib/openTaskLink';
 import { WARNING_TEXT, DANGER_TEXT } from '../../lib/popoverStyles';
 import { useSharedNow } from '../../state/useSharedNow';
 
@@ -133,6 +137,30 @@ export function RowShell({ icon: Icon, tint, first, title, second, at, actions, 
 
 const joined = (parts: (string | null | undefined | false)[]) => parts.filter(Boolean).join(' · ');
 
+/** Open the place of Topics that took over a page of the hub. */
+function openPlace(place: HubPlace): void {
+  if (place.kind === 'menu') openUserMenu(place.level);
+  else if (place.kind === 'log') openProcessesLog();
+  else window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: place.type } }));
+}
+
+/** A row's way to the view where its subject lives (Processi, Account e quote). */
+function OpenUtility({ type, label, testId, className, onNavigate }: { type: 'processes' | 'accounts'; label: string; testId: string; className: string; onNavigate?: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        onNavigate?.();
+        window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type } }));
+      }}
+      className={className}
+      data-testid={testId}
+    >
+      {label}
+    </button>
+  );
+}
+
 export function HubRow({ entry, first, onNavigate, jarvis }: {
   entry: HubEntry;
   first: boolean;
@@ -197,6 +225,16 @@ export function HubRow({ entry, first, onNavigate, jarvis }: {
                 >
                   {tr('bell.open')}
                 </button>
+              ) : item.place ? (
+                <button
+                  type="button"
+                  onClick={() => { onNavigate?.(); openPlace(item.place!); }}
+                  className={button.primary}
+                  data-testid="bell-open"
+                  data-target={item.place.kind}
+                >
+                  {tr('bell.open')}
+                </button>
               ) : item.link && (
                 <a href={item.link} target="_blank" rel="noopener noreferrer" className={button.primary} data-testid="bell-open">{tr('bell.open')}</a>
               )}
@@ -246,20 +284,30 @@ export function HubRow({ entry, first, onNavigate, jarvis }: {
         <RowShell attrs={attrs} icon={ServerCrash} tint={DANGER_TEXT} first={first} title={entry.service.name} at={null}
           full={joined([entry.service.name, entry.service.problem ?? tr('bell.service.stopped')])}
           second={<span className="truncate">{entry.service.problem ?? tr('bell.service.stopped')}</span>}
-          actions={(
-            <button
-              type="button"
-              onClick={() => {
-                onNavigate?.();
-                window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'processes' } }));
-              }}
-              className={button.secondary}
-              data-testid="bell-open-processes"
-            >
-              {tr('bell.openProcesses')}
-            </button>
-          )} />
+          actions={<OpenUtility type="processes" label={tr('bell.openProcesses')} testId="bell-open-processes" className={button.secondary} onNavigate={onNavigate} />} />
       );
+    case 'machine': {
+      const m = entry.machine;
+      const title = m.machine === 'mac' ? tr('bell.machine.mac', { state: m.state }) : tr(`bell.machine.pc.${m.state}`);
+      const hint = m.why ?? tr(m.machine === 'mac' ? 'bell.machine.macHint' : `bell.machine.pc.${m.state}Hint`);
+      return (
+        <RowShell attrs={{ ...attrs, 'data-machine': m.machine, 'data-tone': m.tone }} icon={m.machine === 'mac' ? Cpu : MonitorOff} tint={m.tone === 'bad' ? DANGER_TEXT : WARNING_TEXT}
+          first={first} title={title} at={null} full={joined([title, hint])}
+          second={<span className="truncate" data-testid="bell-machine-hint">{hint}</span>}
+          actions={<OpenUtility type="processes" label={tr('bell.openProcesses')} testId="bell-open-processes" className={button.secondary} onNavigate={onNavigate} />} />
+      );
+    }
+    case 'outlook': {
+      const o = entry.outlook;
+      const title = tr('bell.outlook.title', { provider: providerName(o.provider), text: o.text });
+      const hint = o.sub ?? tr('bell.outlook.hint');
+      return (
+        <RowShell attrs={{ ...attrs, 'data-provider': o.provider, 'data-tone': o.tone }} icon={Clock} tint={o.tone === 'bad' ? DANGER_TEXT : WARNING_TEXT}
+          first={first} title={title} at={null} full={joined([title, hint])}
+          second={<span className="truncate" data-testid="bell-outlook-sub">{hint}</span>}
+          actions={<OpenUtility type="accounts" label={tr('bell.openAccounts')} testId="bell-open-accounts" className={button.secondary} onNavigate={onNavigate} />} />
+      );
+    }
     case 'quota': {
       const q = entry.quota;
       const fiveHourFull = (q.fiveHour ?? 0) > q.used;
@@ -334,7 +382,8 @@ const DIARY_STATUS: Record<string, { icon: LucideIcon; tint: string; spin?: bool
 /**
  * A line of the hub's diary in History: the same row as the rest of the
  * panel, its state said by the icon and in words, its whole text a click
- * away; a line about an automation opens it in Automazioni.
+ * away; a line about an automation or a workflow opens it in Automazioni, a
+ * job born from a card of the board opens the task.
  */
 export function DiaryRow({ entry, onNavigate }: { entry: DiaryEntry; onNavigate?: () => void }) {
   const tr = useT();
@@ -345,6 +394,12 @@ export function DiaryRow({ entry, onNavigate }: { entry: DiaryEntry; onNavigate?
   const word = known ? tr(`bell.diary.outcome.${entry.outcome}`) : null;
   const second = joined([entry.what, entry.who]);
   const key = entry.automationKey;
+  const taskId = entry.taskId;
+  const open = key
+    ? { label: tr('bell.diary.open', { title: entry.title }), target: 'automation', go: () => openAutomation(key) }
+    : taskId
+      ? { label: tr('bell.diary.openTask', { title: entry.title }), target: 'task', go: () => openTaskInApp({ taskId }) }
+      : null;
   return (
     <RowShell
       attrs={{ 'data-testid': 'bell-diary-row', 'data-kind': entry.kind, 'data-outcome': entry.outcome ?? undefined }}
@@ -356,14 +411,15 @@ export function DiaryRow({ entry, onNavigate }: { entry: DiaryEntry; onNavigate?
       at={entry.at}
       full={joined([entry.title, entry.what, entry.who, word])}
       second={<span className="truncate">{second}</span>}
-      actions={key && (
+      actions={open && (
         <button
           type="button"
-          onClick={() => { onNavigate?.(); openAutomation(key); }}
+          onClick={() => { onNavigate?.(); open.go(); }}
           className={button.secondary}
-          aria-label={tr('bell.diary.open', { title: entry.title })}
-          title={tr('bell.diary.open', { title: entry.title })}
+          aria-label={open.label}
+          title={open.label}
           data-testid="bell-diary-open"
+          data-target={open.target}
         >
           <ChevronRight size={12} aria-hidden="true" />
         </button>

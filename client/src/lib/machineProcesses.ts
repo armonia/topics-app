@@ -329,6 +329,10 @@ export interface ServiceRow {
   /** Memory with the processes it started (agents, browsers, MCP), and how many. */
   treeMB: number | null;
   children: number;
+  /** The hub's area for it: «Consumi», «Assistente», «Agenti», «Strumenti». */
+  group: string | null;
+  /** One of the person's own apps (hub, tray, Topics): they come first, as on the hub's page. */
+  app: boolean;
 }
 
 /** The Claude proxy: the one service whose log the view streams. */
@@ -351,10 +355,46 @@ export function serviceRows(data: unknown): ServiceRow[] {
       id: str(s.id) ?? String(i), name: str(s.name) ?? str(s.id) ?? '', state, port: num(s.port), memMB: num(s.mb), problem: str(s.problem),
       what: str(s.what), label: str(s.label), url: url && /^https?:\/\//.test(url) ? url : null,
       treeMB: num(s.treeMb), children: num(s.children) ?? 0,
+      group: str(s.group), app: s.app === true,
     };
   });
   const rank = (r: ServiceRow) => STATE_ORDER[r.state] * 2 + (r.problem ? 0 : 1);
   return rows.sort((a, b) => rank(a) - rank(b));
+}
+
+/** A group of the services: `apps` is the person's own apps, otherwise the hub's area by name. */
+export interface ServiceGroup {
+  key: string;
+  /** The hub's word for the area; null for `apps`, whose name the view says. */
+  label: string | null;
+  rows: ServiceRow[];
+}
+
+/**
+ * The services in the hub's groups: the person's own apps first, then each
+ * area, the one holding the service most in trouble first. Inside a group the
+ * order stays the one `serviceRows` gave, the ones in trouble first. A service
+ * with no area goes in the last group, `other` for the view.
+ */
+export function serviceGroups(rows: readonly ServiceRow[]): ServiceGroup[] {
+  const groups: ServiceGroup[] = [];
+  const find = (key: string, label: string | null) => {
+    let g = groups.find((x) => x.key === key);
+    if (!g) { g = { key, label, rows: [] }; groups.push(g); }
+    return g;
+  };
+  find('apps', null);
+  for (const r of rows) {
+    if (r.app) find('apps', null).rows.push(r);
+    else if (r.group) find(`group:${r.group}`, r.group).rows.push(r);
+  }
+  for (const r of rows) if (!r.app && !r.group) find('other', null).rows.push(r);
+  return groups.filter((g) => g.rows.length > 0);
+}
+
+/** When the hub took its picture of the services (it keeps one for a minute), or null. */
+export function servicesReadAt(data: unknown): number | null {
+  return isRecord(data) ? num(data.at) : null;
 }
 
 // ── The proxy's log ─────────────────────────────────────────────────────────

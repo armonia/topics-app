@@ -3,8 +3,10 @@
  * (`/api/mac`), the launchd services (`/api/services`), and what the System
  * pane shows: the "waiting for you" items (`/api/attesa`), the firing alerts (allow-italian: hub path)
  * (`/api/alerts`), the quota gates (`/api/gates`) and the automations
- * counters (`/api/automations/summary`), and the projects' state, share of
- * the week, cap and priority (`/api/live`) for the sidebar's project row.
+ * counters (`/api/automations/summary`), the projects' state, share of
+ * the week, cap and priority (`/api/live`) for the sidebar's project row, and
+ * for the bell the quota forecast (`/api/forecast`: which subscription runs out
+ * before its reset at today's pace) and whether the PC answers (`/api/pc`).
  *
  * The hub's own pages poll every 60 s, each tab on its own. Here ONE reader
  * (this server) asks the hub and pushes a `hub:live` frame only when the
@@ -33,7 +35,18 @@ export const HUB_LIVE_PATHS: Readonly<Record<HubLiveTopic, string>> = {
   gates: "gates",
   automations: "automations/summary",
   projects: "live",
+  forecast: "forecast",
+  pc: "pc",
 };
+
+/**
+ * Topics read once every N ticks instead of every tick. `services` costs the
+ * hub about 5 CPU-seconds a snapshot and it caches it for 60 s, so a read every
+ * 15 s kept it recomputing all day while nobody looked (its own page computed it
+ * only with the tab open); a stopped service in the bell a minute later is
+ * soon enough. `pc` is rewritten by its watcher once a minute.
+ */
+export const HUB_LIVE_EVERY: Readonly<Partial<Record<HubLiveTopic, number>>> = { services: 4, pc: 4 };
 
 /**
  * What the reader keeps of a topic's answer, where it is not the whole of it.
@@ -56,8 +69,37 @@ function pickLiveProjects(data: unknown): unknown {
   return { projects };
 }
 
+const DAY_MS = 86_400_000;
+
+/**
+ * The forecast without what moves on every read: `at`, and the exact minute a
+ * quota runs out (it drifts with the pace). The sentence keeps the time the
+ * hub writes, so a frame goes out when that sentence changes; `soon` (runs out
+ * within a day) is what makes the hub paint it red.
+ */
+function pickForecast(data: unknown): unknown {
+  const d = (data && typeof data === "object" ? data : {}) as { at?: unknown; providers?: unknown };
+  const at = typeof d.at === "number" ? d.at : Date.now();
+  const list = Array.isArray(d.providers) ? d.providers : [];
+  const providers = list.flatMap((p) => {
+    if (!p || typeof p !== "object") return [];
+    const row = p as Record<string, unknown>;
+    const out = typeof row.runsOutAt === "number" ? row.runsOutAt : null;
+    return [{ id: row.id, status: row.status, level: row.level ?? 0, right: row.right, sub: row.sub, soon: out !== null && out - at < DAY_MS }];
+  });
+  return { providers };
+}
+
+/** The PC's state alone: its «why» carries a minute counter that would push a frame every read. */
+function pickPc(data: unknown): unknown {
+  const pc = (data as { pc?: unknown } | null)?.pc;
+  return { pc: typeof pc === "string" ? pc : null };
+}
+
 const HUB_LIVE_SHAPES: Partial<Record<HubLiveTopic, (data: unknown) => unknown>> = {
   projects: pickLiveProjects,
+  forecast: pickForecast,
+  pc: pickPc,
 };
 
 export type HubLiveFrame = {
@@ -87,6 +129,7 @@ export function createHubLive(deps: HubLiveDeps) {
   const now = deps.now ?? Date.now;
   const last = new Map<HubLiveTopic, { body: string | null; error: string | null; entry: HubLiveEntry }>();
   let lastTickAt = Number.NEGATIVE_INFINITY; // never read: the first snapshot must read
+  let ticks = 0;
   let inFlight: Promise<void> | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -104,11 +147,24 @@ export function createHubLive(deps: HubLiveDeps) {
     }
   }
 
-  async function runTick(): Promise<void> {
+  /** Due this tick: every topic on a forced read, one never read or unreadable last time, or its turn. */
+  const isDue = (topic: HubLiveTopic, tick: number, all: boolean): boolean => {
+    const every = HUB_LIVE_EVERY[topic] ?? 1;
+    const prev = last.get(topic);
+    return all || every <= 1 || !prev || prev.error !== null || tick % every === 0;
+  };
+
+  async function runTick(all: boolean): Promise<void> {
     const base = deps.base();
     if (!base) return;
     lastTickAt = now();
-    const results = await Promise.all(HUB_LIVE_TOPICS.map(async (t) => [t, await readTopic(base, t)] as const));
+    const tick = ticks++;
+    const due = HUB_LIVE_TOPICS.filter((t) => isDue(t, tick, all));
+    const results: Array<readonly [HubLiveTopic, { body: string } | { error: string }]> = await Promise.all(due.map(async (t) => [t, await readTopic(base, t)] as const));
+    // A hub that answers none of the topics read is down for the skipped ones too:
+    // their numbers must not outlive it until their turn comes.
+    const down = results.length > 0 && results.every(([, r]) => "error" in r) ? (results[0]![1] as { error: string }).error : null;
+    if (down) for (const t of HUB_LIVE_TOPICS) if (!due.includes(t) && last.has(t)) results.push([t, { error: down }]);
     for (const [topic, r] of results) {
       const prev = last.get(topic);
       const at = now();
@@ -127,24 +183,24 @@ export function createHubLive(deps: HubLiveDeps) {
     }
   }
 
-  /** One read of every topic; concurrent callers share it. */
-  function tick(): Promise<void> {
-    if (!inFlight) inFlight = runTick().finally(() => { inFlight = null; });
+  /** One read of the topics due (every topic when `all`); concurrent callers share it. */
+  function tick(all = false): Promise<void> {
+    if (!inFlight) inFlight = runTick(all).finally(() => { inFlight = null; });
     return inFlight;
   }
 
   /**
    * A read that starts AFTER the caller's write. A tick already in flight may
    * have asked the hub before the write landed, so sharing it would push the
-   * old list again: wait for it, then read anew.
+   * old list again: wait for it, then read anew, every topic.
    */
   async function refresh(): Promise<void> {
     if (inFlight) await inFlight;
-    await tick();
+    await tick(true);
   }
 
   return {
-    tick,
+    tick: () => tick(),
     refresh,
     /** The last known state per topic, refreshed first if older than a tick,
      *  or if a topic was unreadable last time: a window opening after the hub
