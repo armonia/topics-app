@@ -6,7 +6,8 @@
  * The button carries a number. Without the hub it is the Dock's (the lit
  * subjects). With the hub it is the figure of one group of the panel: amber
  * for «Decidi tu», else blue for the finished, else grey for the warnings,
- * nothing at zero (`bellBadge`).
+ * nothing at zero (`bellBadge`). The warnings include the Claude proxy's
+ * urgent account events (an expired token), read in the background.
  *
  * The panel itself (`InboxPanel.tsx`) is a chunk of its own, loaded the first
  * time the pointer or the keyboard comes near the button: the button is on
@@ -28,6 +29,8 @@ import { bellBadge } from '../../state/attentionTotal';
 import { useHubEverRead, useHubLive } from '../../state/hubLive';
 import { useBoardTasks } from '../../lib/boardTasksStore';
 import { hubBadgeCounts } from '../../lib/bellGroups';
+import { useProxyActivity } from '../../state/proxyActivity';
+import { accountEvents } from '../../lib/hubSystem';
 import { inboxModel } from '../../lib/inboxModel';
 import { OPEN_INBOX_EVENT } from '../../lib/inboxEvents';
 import { RAISED_CONTROL } from '../../lib/selectionStyles';
@@ -60,7 +63,12 @@ export function useInboxBadge() {
   const live = useHubLive();
   const hubPresent = useHubEverRead();
   const model = useMemo(() => inboxModel(attention, topics, terminalSessions, cards), [attention, topics, terminalSessions, cards]);
-  const hubCounts = useMemo(() => hubBadgeCounts(live), [live]);
+  // The proxy's log, read in the background every minute: an expired token lights the button with the panel closed.
+  const proxy = useProxyActivity(hubPresent);
+  const hubCounts = useMemo(
+    () => hubBadgeCounts(live, proxy ? accountEvents(proxy.activity, proxy.profiles, proxy.readAt) : [], proxy?.readAt),
+    [live, proxy],
+  );
   const badge = bellBadge(attentionTotal, model.waiting.length, hubCounts, hubPresent);
   const decideCount = model.waiting.length + hubCounts.decide;
   const label = badge.count === 0

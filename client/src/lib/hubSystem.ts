@@ -6,6 +6,8 @@
  * so everything here is defensive and drops what it does not recognise instead
  * of throwing on a field the hub renamed.
  */
+import { proxyLabels } from './proxyLabels';
+import type { ProxyText } from './proxyEvents';
 
 type Raw = Record<string, unknown>;
 
@@ -355,6 +357,12 @@ export interface AccountEvent {
   to: string | null;
   at: number;
   count: number;
+  /** The proxy's type of the latest occurrence (`cap-exhausted` is a cap, `all-exhausted` a limit). */
+  type: string;
+  /** The latest occurrence as the proxy wrote it: the panel reads its notes from it (`accountNotes`). */
+  latest: Record<string, unknown>;
+  /** What the latest occurrence adds, as the hub's page wrote it (how it switched and why, the minutes, the error): set by the panel. */
+  notes?: ProxyText[];
 }
 
 const ACCOUNT_EVENT_KIND: Record<string, AccountEventKind> = {
@@ -373,19 +381,14 @@ const ACCOUNT_EVENTS_WINDOW_MS = 24 * 3_600_000;
 
 /**
  * The facts of the proxy that the person must hear about: an account
- * switched, a limit reached, a token expired. The rest of its log (retries,
- * priorities, discovered accounts) stays in the Log. A token refreshed after a
+ * switched, a limit reached, a token expired. The whole log (retries,
+ * priorities, discovered accounts) is in the bell's History, filter «Account
+ * Claude» (`proxyEvents`). A token refreshed after a
  * failure clears that failure.
  */
 export function accountEvents(activity: unknown, profiles: unknown, now: number): AccountEvent[] {
   const log = isObject(activity) && Array.isArray(activity.log) ? activity.log : [];
-  const labels = new Map<string, string>();
-  const list = isObject(profiles) && Array.isArray(profiles.profiles) ? profiles.profiles : [];
-  for (const p of list) {
-    if (!isObject(p)) continue;
-    const name = str(p.name);
-    if (name) labels.set(name, str(p.label) ?? name);
-  }
+  const labels = proxyLabels(profiles);
   const label = (v: unknown): string | null => { const s = str(v); return s ? labels.get(s) ?? s : null; };
   // The proxy writes some events with the account's label (its e-mail) instead of its file name:
   // «Renew» must send the name, or the proxy answers «Cannot read account file».
@@ -408,13 +411,15 @@ export function accountEvents(activity: unknown, profiles: unknown, now: number)
     const rawAccount = str(raw.account) ?? str(raw.from) ?? str(raw.name);
     if (kind === 'token' && rawAccount && (refreshed.get(nameOf(rawAccount)!) ?? 0) > at) continue;
     const account = label(rawAccount);
-    const key = `${kind}:${kind === 'switched' ? '' : account ?? ''}`;
+    // A cap on every account and every account exhausted are two facts, not one row.
+    const key = `${kind}:${kind === 'switched' ? '' : account ?? String(raw.type)}`;
     const to = kind === 'switched' ? label(raw.to) : null;
     const prev = byKey.get(key);
     const profile = nameOf(rawAccount);
-    if (!prev) { byKey.set(key, { key, kind, account, profile, to, at, count: 1 }); continue; }
+    const latest = { account, profile, to, at, type: String(raw.type), latest: raw };
+    if (!prev) { byKey.set(key, { key, kind, count: 1, ...latest }); continue; }
     prev.count += 1;
-    if (at > prev.at) Object.assign(prev, { account, profile, to, at });
+    if (at > prev.at) Object.assign(prev, latest);
   }
   return [...byKey.values()].sort((a, b) => b.at - a.at);
 }
