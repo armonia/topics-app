@@ -95,6 +95,8 @@ export interface AutomationsHead {
   sources: HubSource[];
   hidden: HiddenJob[];
   brakes: Record<string, AutomationBrake>;
+  /** Who runs each dated reminder and task, by key: the calendar's «Esegue». */
+  calendarWho: Record<string, string>;
 }
 
 export function readHead(m: Raw): AutomationsHead {
@@ -119,7 +121,14 @@ export function readHead(m: Raw): AutomationsHead {
     const text = o && str(o.stateText);
     if (o && text) brakes[key] = { text, until: num(o.until) };
   }
-  return { stale: m.stale === true, usage, sources, hidden, brakes };
+  const calendarWho: Record<string, string> = {};
+  for (const c of [...list(m.reminders), ...list(m.tasks)]) {
+    const o = asRecord(c);
+    const key = o && str(o.key);
+    const who = o && str(o.who);
+    if (key && who) calendarWho[key] = who;
+  }
+  return { stale: m.stale === true, usage, sources, hidden, brakes, calendarWho };
 }
 
 /** The sources that do not answer now, as the hub counts them: the PC asleep is not one. */

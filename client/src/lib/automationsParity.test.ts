@@ -68,6 +68,8 @@ const MODEL = {
     hidden: { count: 1, why: [{ title: 'Vecchio controllo', reason: 'silenziata fino al 12/11' }] },
   },
   brakes: { 'cron:job-docs': { stateText: 'in pausa fino alle 23:00 perché Claude è al 92%', until: NOW + 34 * MIN } },
+  reminders: [{ key: 'cron:rem-pr', reminder: true, who: 'Jarvis su OpenClaw' }],
+  tasks: [{ key: 'task:quote', who: null }],
 };
 
 describe('the model around the rows', () => {
@@ -80,6 +82,7 @@ describe('the model around the rows', () => {
     expect(m.sources.find((s) => s.name === 'pc')!.asleep).toBe(true);
     expect(m.hidden).toEqual([{ title: 'Vecchio controllo', reason: 'silenziata fino al 12/11' }]);
     expect(m.brakes['cron:job-docs']!.text).toContain('Claude è al 92%');
+    expect(m.calendarWho).toEqual({ 'cron:rem-pr': 'Jarvis su OpenClaw' });
   });
 
   test('the computer\'s own apps are read apart, outside the rows', () => {

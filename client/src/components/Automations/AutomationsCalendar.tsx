@@ -14,7 +14,7 @@ import type { Clock } from './automationsUi';
 
 const CHIP = 'inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-sm border px-2.5 text-mini @max-2xl:h-8';
 
-export function AutomationsCalendar({ items, now, clock }: { items: CalendarEntry[]; now: number; clock: Clock }) {
+export function AutomationsCalendar({ items, now, clock, who = {} }: { items: CalendarEntry[]; now: number; clock: Clock; who?: Readonly<Record<string, string>> }) {
   const tr = useT();
   const [kind, setKind] = useState<CalendarKind | null>(null);
   const [open, setOpen] = useState<string | null>(null);
@@ -77,6 +77,7 @@ export function AutomationsCalendar({ items, now, clock }: { items: CalendarEntr
                       <dt className="text-app-text-muted">{tr('auto.facts.means')}</dt>
                       <dd className="m-0 text-app-text-body">{i.means ?? (i.says ? tr('auto.cal.on', { says: i.says }) : tr('auto.cal.nothing'))}</dd>
                       {i.says && <><dt className="text-app-text-muted">{tr('auto.cal.channel')}</dt><dd className="m-0 text-app-text-body">{i.says}</dd></>}
+                      {who[i.key] && <><dt className="text-app-text-muted">{tr('auto.facts.who')}</dt><dd className="m-0 text-app-text-body" data-testid="automations-calendar-who">{who[i.key]}</dd></>}
                     </dl>
                   )}
                 </div>

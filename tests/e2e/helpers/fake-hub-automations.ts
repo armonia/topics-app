@@ -141,6 +141,7 @@ export function automationsModel(now: number, feedback: FeedbackRow[]): Record<s
     groups: [{ id: "macchine", title: "Macchine", cards: list.filter((c) => c.level === "va") }],
     own: [own],
     tasks: [task],
+    reminders: [{ key: "cron:rem-pr", provider: "openclaw", title: "Ricordami di chiudere la PR di acme-api", reminder: true, level: "va", who: "Jarvis su OpenClaw" }],
     cards,
     usage: { d1: { muse: 12_000 }, d7: { muse: 80_000, claude: 4_000 }, unmeasured: 1, script: 1 },
     footer: {

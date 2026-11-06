@@ -272,6 +272,7 @@ test.describe("automations, as the hub told them", () => {
     await pr.getByTestId("automations-calendar-toggle").click();
     await expect(pr.getByTestId("automations-calendar-detail")).toContainText("Ti ricorda di chiudere la PR di acme-api prima di sera.");
     await expect(pr.getByTestId("automations-calendar-detail")).toContainText("un messaggio breve con il link alla PR");
+    await expect(pr.getByTestId("automations-calendar-who")).toHaveText("Jarvis su OpenClaw");
     await expect(pane.locator('[data-testid="automations-calendar-item"][data-key="cron:rem-domain"]')).toContainText("Jarvis · non ti scrive");
     await expect(pane.getByTestId("automations-calendar")).not.toContainText("PROMPT GREZZO");
   });

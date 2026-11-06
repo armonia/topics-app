@@ -217,7 +217,7 @@ function AutomationsView() {
         </div>
 
         {tab === 'calendar' ? (
-          <AutomationsCalendar items={data.calendar ?? []} now={now} clock={clock} />
+          <AutomationsCalendar items={data.calendar ?? []} now={now} clock={clock} who={data.model?.calendarWho} />
         ) : (
           <>
             <div className="mt-3 flex flex-wrap items-center gap-1.5">
