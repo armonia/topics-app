@@ -37,3 +37,19 @@ export function peekAutomationTarget(nowMs: number = Date.now()): string | null 
 export function settleAutomationTarget(key: string): void {
   if (pending?.key === key) pending = null;
 }
+
+let pendingCalendar: number | null = null;
+
+/** Open Automazioni on its Calendar tab: the dated reminders and the jobs that end («Agenti e lavori», its footer). */
+export function openAutomationsCalendar(nowMs: number = Date.now()): void {
+  pendingCalendar = nowMs;
+  window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'automations' } }));
+  window.dispatchEvent(new CustomEvent(AUTOMATION_TARGET_EVENT, { detail: { tab: 'calendar' } }));
+}
+
+/** Whether the Calendar tab was asked for and is still fresh, consuming the request. */
+export function takeCalendarTarget(nowMs: number = Date.now()): boolean {
+  const fresh = pendingCalendar !== null && nowMs - pendingCalendar < VALID_MS;
+  pendingCalendar = null;
+  return fresh;
+}

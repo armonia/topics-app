@@ -24,7 +24,9 @@
  * workflows, and the proxy answers its sessions (`sessions`); a job taken
  * out of the line (`DELETE queue?id=`) leaves the next read, as in the hub;
  * the automations carry a running workflow's phases and a gate waiting for
- * your ok, and `silent` makes the queue, the diary and the automations fail.
+ * your ok, and `silent` makes the queue, the diary and the automations fail;
+ * fake-hub-jobs.ts adds the board, the live agents, the proxy's details, the
+ * calendar and a project's icon.
  * For «Automazioni» (`automations`) the model, its summary, the calendar,
  * an OpenClaw job's runs and a workflow run's cost come from
  * fake-hub-automations.ts; a vote, a note or a silence posted to `feedback` is
@@ -49,6 +51,7 @@
 import { createServer, type Server } from "node:http";
 import { E2E_BASE, hubPortFor } from "./test-server";
 import { FOUND_CONTRADICTION, contextModel, contextText, defaultContextCheck, featuresMap, type FakeContextCheck } from "./fake-hub-context";
+import { FAKE_ICON_PNG, jobsBoard, jobsCalendar, jobsReminders, withJobsSessions, withLiveAgents } from "./fake-hub-jobs";
 import { automationsCalendar, automationsModel, automationsRuns, automationsSummary, feedbackRefusal, workflowRunCost, type FeedbackRow } from "./fake-hub-automations";
 
 export interface FakeHubItem {
@@ -317,7 +320,7 @@ function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy 
     "automations/summary": { needsYou: 0, broken: 1, ok: 81, hidden: 0, runsToday: 412, calendar: { count: 3, next: { title: "Backup of the Mac", at: now + HOUR } } },
     automations: {
       broken: [{ key: "gh:docs-reindex", title: "Reindex dell'indice documenti", reason: "ha fallito alle 21:26", last: { at: now - HOUR, outcome: "error" } }],
-      ...(jobs.on ? jobsAutomations(now) : {}),
+      ...(jobs.on ? { ...jobsAutomations(now), cards: {}, reminders: jobsReminders() } : {}),
     },
     contesto: { contradictions: { at: now - HOUR, items: [{ a: { file: "~/rules-a.md", text: "x" }, b: { file: "~/rules-b.md", text: "y" }, why: "una chiede i commenti in inglese, l'altra in italiano" }] } },
     diario: { at: now, days: 2, items: [
@@ -340,7 +343,7 @@ function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy 
     ] },
     profiles: proxyProfiles(proxy, now),
     "token-usage": proxyRows(now),
-    live: { at: now, projects: rows ? projectRows(budgets, rows, now) : liveProjects(budgets) },
+    live: { at: now, projects: rows ? projectRows(budgets, rows, now) : jobs.on ? withLiveAgents(liveProjects(budgets)) : liveProjects(budgets) },
     queue: { items: [
       { id: "q1", provider: "muse", project: "acme-web", status: "done", createdAt: now - 2 * HOUR },
       { id: "q2", provider: "muse", project: "studio-x", status: "done", createdAt: now - 26 * HOUR },
@@ -349,7 +352,8 @@ function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy 
       { id: "q5", provider: "muse", project: "acme-web", status: "done", createdAt: now - 20 * 24 * HOUR },
       ...(jobs.on ? jobsQueue(now, jobs.withdrawn) : []),
     ] },
-    sessions: proxySessionsAnswer(now),
+    sessions: jobs.on ? withJobsSessions(proxySessionsAnswer(now), now) : proxySessionsAnswer(now),
+    ...(jobs.on ? { board: jobsBoard(now), calendar: jobsCalendar(now) } : {}),
     projects: { muse: { projects: [{ name: "acme-web", tokens: 6_000_000 }, { name: "studio-x", tokens: 3_100_000 }] } },
     // The links to write to Jarvis: placeholders, never a real number.
     "hub-config": { demo: true, jarvis: { whatsapp: "https://example.com/assistente/whatsapp", discord: null } },
@@ -560,6 +564,12 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
       res.writeHead(status, { "content-type": "application/json" });
       res.end(JSON.stringify(body));
     };
+    // The icon of a project, the image the hub serves for the names it knows.
+    if (opts.jobs && req.method === "GET" && path === "project-icon") {
+      res.writeHead(200, { "content-type": "image/png" });
+      res.end(FAKE_ICON_PNG);
+      return;
+    }
     if (req.method === "POST" && path === "attesa") {
       let raw = "";
       req.on("data", (c) => { raw += c; });

@@ -189,7 +189,11 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
   const needsYouKey = needsYouAt?.error ? 'down' : JSON.stringify((needsYouAt?.data as { needsYou?: unknown } | undefined)?.needsYou ?? null);
   useEffect(() => { if (hubPresent) void refreshGateWaits(); }, [hubPresent, needsYouKey]);
   const waitingOnYou = agentRows.awaitingInput.length + useGateWaits();
-  const atWork = agentRows.working.length;
+  // Who works counts the hub's agents outside Topics too (Claude Code elsewhere, Codex, Muse,
+  // sub-agents, workflow agents), as the hub's own «Lavori» did; the Topics tabs it found are already counted.
+  const projectsLive = useHubLive().projects;
+  const outside = hubPresent && !projectsLive?.error ? (projectsLive?.data as { agentsOutside?: unknown } | undefined)?.agentsOutside : 0;
+  const atWork = agentRows.working.length + (typeof outside === 'number' && outside > 0 ? outside : 0);
   const lastChange = useLastChangeTime();
   const { updateAvailable } = useServiceWorkerUpdate();
   // Only while the menu is open, which is the only time this component exists:

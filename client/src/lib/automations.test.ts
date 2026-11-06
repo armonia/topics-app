@@ -257,17 +257,24 @@ describe('runs, fixes and the calendar', () => {
     expect([...fixingKeys({ items: [{ ref: 'cron:job-docs', status: 'running' }, { ref: 'cron:job-mail', status: 'done' }, { status: 'queued' }] })]).toEqual(['cron:job-docs']);
   });
 
-  test('the calendar by day, the past left out, the prompt never read', () => {
+  test('the calendar by day, the past kept on its day, the prompt kept for its own fold', () => {
     const items = readCalendar({ items: [
-      { key: 'cron:r1', kind: 'promemoria', title: 'Chiudere la PR di acme-api', next: NOW + HOUR, says: 'WhatsApp', prompt: 'PROMPT GREZZO' },
-      { key: 'cron:r2', kind: 'promemoria', title: 'Passato', next: NOW - HOUR },
-      { key: 'task:t1', kind: 'compito', title: 'Preventivo di studio-x', next: NOW + 4 * 24 * HOUR },
+      { key: 'cron:r1', kind: 'promemoria', title: 'Chiudere la PR di acme-api', next: NOW + HOUR, says: 'WhatsApp', prompt: 'Istruzioni per l agente', what: 'Ti ricorda la PR', means: 'con un messaggio breve' },
+      { key: 'cron:r2', kind: 'promemoria', title: 'Passato', next: NOW - 24 * HOUR },
+      { key: 'task:t1', kind: 'compito', title: 'Preventivo di studio-x', next: NOW + 4 * 24 * HOUR, when: 'ogni giorno alle 9' },
       { key: 'task:t2', kind: 'compito', title: 'Senza data', next: null },
     ] })!;
-    expect(JSON.stringify(items)).not.toContain('PROMPT GREZZO');
+    expect(items[0]).toMatchObject({ what: 'Ti ricorda la PR', means: 'con un messaggio breve', prompt: 'Istruzioni per l agente' });
+    expect(items[2]).toMatchObject({ when: 'ogni giorno alle 9', what: null, prompt: null });
     const days = calendarDays(items, NOW);
-    expect(days.map((d) => [d.offset, d.items.map((i) => i.key)])).toEqual([[0, ['cron:r1']], [4, ['task:t1']], [null, ['task:t2']]]);
+    // A reminder that did not fire stays, on yesterday, instead of vanishing.
+    expect(days.map((d) => [d.offset, d.items.map((i) => i.key)])).toEqual([[-1, ['cron:r2']], [0, ['cron:r1']], [4, ['task:t1']], [null, ['task:t2']]]);
     expect(calendarDays(items, NOW, 'compito').flatMap((d) => d.items.map((i) => i.key))).toEqual(['task:t1', 'task:t2']);
+  });
+
+  test('who runs each dated reminder, from the hub model', () => {
+    const m = readAutomations({ cards: {}, broken: [], reminders: [{ key: 'cron:r1', who: 'Muse' }, { key: 'cron:r2' }] })!;
+    expect(m.reminderWho).toEqual({ 'cron:r1': 'Muse' });
   });
 
   test('a workflow slug reads as words', () => {

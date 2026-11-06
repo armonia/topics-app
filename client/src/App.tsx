@@ -2728,6 +2728,15 @@ function BootDeepLinkResolver({ isDetached }: { isDetached: boolean }) {
   // that no longer exists would go from minting a ghost tab to doing nothing at
   // all, which is the outcome this repository calls the worst of the three.
   useEffect(() => setDeepLinkNotifier((message) => toast.warning(message)), [toast]);
+  // `/lavori[/<filter>]`: System > Agenti e lavori on that filter (the hub's `#work/<filter>`,
+  // where the tray pointed). After the menu hosts have mounted their listeners: the next tick.
+  useEffect(() => {
+    if (isDetached) return;
+    // Loaded only for such an address: the boot chunk does not carry it.
+    if (!window.location.pathname.startsWith('/lavori')) return;
+    const t = setTimeout(() => { void import('./lib/agentsJobsLink').then((m) => m.consumeAgentsJobsLinkFromUrl()); }, 0);
+    return () => clearTimeout(t);
+  }, [isDetached]);
   useEffect(() => {
     // Le finestre STACCATE (`?topics=`) sono read-only verso il pane-store
     // (bootstrap.ts: niente persistenza locale, niente PUT, niente cross-tab):

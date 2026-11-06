@@ -58,6 +58,28 @@ export const HUB_LIVE_EVERY: Readonly<Partial<Record<HubLiveTopic, number>>> = {
  */
 const PROJECT_FIELDS = ["name", "title", "state", "why", "waitUntil", "budgetPct", "priority", "total", "claude"] as const;
 
+/** The hub's word for an agent it found in a Topics tab (`open.via`). */
+const IN_TOPICS_TAB = "tab Topics"; // allow-italian: the hub's wire value
+
+/**
+ * How many agents the hub sees at work outside Topics: every live agent of
+ * every project (Claude Code, Codex, Muse, their sub-agents and workflow
+ * agents), less the ones it found in a Topics tab, which Topics counts itself.
+ * A number, not the list: it moves only when an agent starts or stops.
+ */
+export function agentsOutsideTopics(list: unknown[]): number {
+  let n = 0;
+  for (const p of list) {
+    const agents = (p as { agents?: { list?: unknown } } | null)?.agents?.list;
+    if (!Array.isArray(agents)) continue;
+    for (const a of agents) {
+      const via = (a as { open?: { via?: unknown } } | null)?.open?.via;
+      if (a && typeof a === "object" && via !== IN_TOPICS_TAB) n++;
+    }
+  }
+  return n;
+}
+
 function pickLiveProjects(data: unknown): unknown {
   const list = (data as { projects?: unknown } | null)?.projects;
   if (!Array.isArray(list)) return { projects: [] };
@@ -66,7 +88,7 @@ function pickLiveProjects(data: unknown): unknown {
     const row = p as Record<string, unknown>;
     return [Object.fromEntries(PROJECT_FIELDS.filter((k) => row[k] !== undefined).map((k) => [k, row[k]]))];
   });
-  return { projects };
+  return { projects, agentsOutside: agentsOutsideTopics(list) };
 }
 
 const DAY_MS = 86_400_000;

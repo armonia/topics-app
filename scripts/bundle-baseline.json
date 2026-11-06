@@ -868,7 +868,9 @@
     "Cosa compra nell'entry, oltre a main: la quota piu' calda sulla porta Profilo del telefono, la riga Processi che dice «Mac: sotto sforzo», «Apri in Processi» dalla campanella e le loro chiavi; il resto (Account e quote, Consumi per account, Scrivi a Jarvis, perché di Ti aspetta) sta nei chunk pigri. I tetti seguono la misura: entry_eager 939.270 -> 941.000, total_assets 9.390.000 -> 9.420.000.",
     "",
     "2026-11-06, segnali dell'hub nella campanella (traccia bell-processi): misurato sul PC con `bun run build:client && bun run check:bundle`, entry_eager raw 960.051 / gz 310.627 contro un tetto di 959.820 (+1.018 sulla misura di 959.033), total_assets 9.606.500 sotto il tetto di 9.608.400.",
-    "Cosa compra nell'entry: la cifra grigia della campanella conta anche la previsione delle quote e le macchine (lib/hubSignals, letto dal pulsante che e' sempre montato), i due argomenti nuovi del lettore dal vivo e dello schema dei frame, e le chiavi italiane delle righe nuove; righe, filtri per tipo della Cronologia e gruppi dei Servizi stanno nei chunk pigri. Il tetto segue la misura: entry_eager 941.000 -> 942.000."
+    "Cosa compra nell'entry: la cifra grigia della campanella conta anche la previsione delle quote e le macchine (lib/hubSignals, letto dal pulsante che e' sempre montato), i due argomenti nuovi del lettore dal vivo e dello schema dei frame, e le chiavi italiane delle righe nuove; righe, filtri per tipo della Cronologia e gruppi dei Servizi stanno nei chunk pigri. Il tetto segue la misura: entry_eager 941.000 -> 942.000.",
+    "",
+    "2026-11-06, Agenti e lavori e Calendario alla pari con l'hub (hub-gap-lavori): misurato sul PC con `bun run build:client && bun run check:bundle`, total_assets 9.619.526 contro un tetto di 9.608.400 (9.420.000 +2%), entry_eager raw 959.889 contro 959.820. Comprano le righe dell'hub fuori da Topics (sessioni, sottoagenti, workflow), il dettaglio delle sessioni del proxy e il Calendario che si apre, tutti in chunk pigri; il lettore del link /lavori e' passato a import dinamico, cosi' l'entry non lo porta e il suo tetto non si alza. total_assets 9.420.000 -> 9.440.000."
   ],
   "updated": "2026-11-06",
   "tolerance_pct": 2,
@@ -882,6 +884,6 @@
     "files": 5
   },
   "total_assets": {
-    "raw": 9420000
+    "raw": 9440000
   }
 }
