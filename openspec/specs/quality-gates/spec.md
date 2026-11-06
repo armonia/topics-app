@@ -962,3 +962,69 @@ blocca comunque.
 #### Scenario: lo stesso termine in un commit non pushato
 - **GIVEN** `> <termine>` e un commit locale che lo contiene nel contenuto, e un altro che lo ha solo nel MESSAGGIO
 - **THEN** il hook pre-push SHALL uscire 1 in entrambi i casi
+
+### Requirement: GATE-22 — I job pesanti della CI girano solo se la modifica li può toccare, e la board li legge comunque
+
+`ci.yml` faceva girare ogni job a ogni pull request e a ogni push su main. Misurato sulle
+ultime 40 esecuzioni (04/11/2026): le shard e2e sono il 50% dei minuti fatturati,
+`tauri (macos)` il 24% e `process-groups (macos)` il 15% (un minuto di macOS ne vale dieci),
+mentre una modifica a `docs/` o a `client/` non puo' cambiare il verdetto degli ultimi due.
+Il job `changes` SHALL leggere i file toccati (pull request: l'API dei file, rinomine su
+entrambi i lati; push: l'API di confronto) e SHALL dire, per `e2e`, `tauri` e
+`process-groups`, se girano. La regola sta in `scripts/ci-changes.ts`.
+
+La regola ha due forme. Per l'e2e e' una lista di cio' che le shard non leggono mai
+(`docs/`, `openspec/`, i `.md` della radice, `landing/`, `desktop-tauri/`, `native/`,
+`.github/`): un percorso che nessuno ha elencato SHALL far girare le shard. Per `tauri` e
+`process-groups` e' una lista degli ingressi del job, e SHALL contenere ogni file che i test
+del job importano, calcolato dalla chiusura degli import e non a mano. Il guscio Rust SHALL
+girare su macOS e Windows solo se cambia cio' che quei sistemi compilano da soli (i crate,
+l'addon nativo, cio' che si incorpora o si installa, gli script di build per sistema); una
+modifica al solo TypeScript del server SHALL girare sul solo Ubuntu. Una modifica a `ci.yml` o
+a `scripts/ci-changes.ts` SHALL far girare tutto, su tutti i sistemi.
+
+`unit`, `gates` e `check` NON SHALL dipendere da `changes` e SHALL girare sempre: i test leggono
+documenti, spec e workflow, quindi «solo docs» non e' inerte per loro. NON SHALL esistere un
+`paths:` sul trigger: un workflow che non parte lascia i check mancanti e la PR resta ferma.
+
+La board legge `prepare-e2e` e ogni `e2e (N)` e chiama NON MISURATO tutto cio' che non e'
+`success`. Quando nessuna shard serve, `prepare-e2e` ed `e2e` SHALL quindi girare lo stesso
+(matrice del solo `e2e (0)`), con ogni passo saltato tranne uno che dice perche', e finire
+`success`. Un job saltato da `if:` NON SHALL essere usato per questi due.
+
+Ogni dubbio SHALL far girare tutto: nessun elenco di file, API che fallisce, modifica troppo
+grande per l'API (piu' di 3000 file in una PR, 300 in un confronto). Su un push a main la sola
+differenza non basta: il commit precedente potrebbe essere rosso, e un verde con un job saltato
+sopra un rosso verrebbe rilasciato da auto-bump. Un push SHALL quindi saltare qualcosa solo se
+il commit precedente di main ha un push run di `ci.yml` concluso `success`.
+
+#### Scenario: una pull request che tocca solo `docs/`
+- **GIVEN** una pull request con file solo sotto `docs/` e `openspec/`
+- **THEN** `process-groups` e `tauri` SHALL non partire
+- **AND** `prepare-e2e` ed `e2e (0)` SHALL partire, eseguire solo il passo che dice «nessuna shard serve» e finire `success`
+- **AND** la riga e2e della board SHALL leggersi `pass`, mentre lo stesso run con `e2e` saltato SHALL leggersi NON MISURATO
+- **AND** `unit`, `gates` e `check` SHALL girare
+
+#### Scenario: una modifica solo al client
+- **GIVEN** una pull request con file solo sotto `client/src/`
+- **THEN** le nove shard e2e SHALL girare, e `tauri` e `process-groups` NON SHALL partire
+
+#### Scenario: una modifica solo al TypeScript del server
+- **GIVEN** una pull request con file solo sotto `server/` (nessun file di sistema)
+- **THEN** `tauri` SHALL girare sul solo `ubuntu-latest` e `process-groups` su entrambi i sistemi
+
+#### Scenario: una modifica al guscio Rust
+- **GIVEN** una modifica a `desktop-tauri/src-tauri/src/lib.rs`
+- **THEN** `tauri` SHALL girare su macOS, Windows e Ubuntu, e le shard e2e NON SHALL girare
+
+#### Scenario: un passo nuovo nella famiglia e2e
+- **GIVEN** un passo aggiunto a `prepare-e2e` o a `e2e` senza il cancello di `changes`
+- **THEN** il test SHALL diventare rosso, perche' quel passo girerebbe anche quando nessuna shard serve
+
+#### Scenario: l'elenco di un job non conosce una dipendenza
+- **GIVEN** un file importato dai test di `process-groups` o di `tauri` che l'elenco degli ingressi non contiene
+- **THEN** il test SHALL diventare rosso nominando il file
+
+#### Scenario: un push dopo un commit rosso
+- **GIVEN** un push a main che tocca solo documenti, e il commit precedente di main senza un push run verde
+- **THEN** ogni job SHALL girare, su ogni sistema, e il confronto dei file NON SHALL essere nemmeno richiesto

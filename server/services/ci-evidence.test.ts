@@ -477,9 +477,9 @@ describe("contracts", () => {
     expect(ci).toMatch(/^ {2}prepare-e2e:$/m);
     const e2e = ci.slice(ci.search(/^ {2}e2e:$/m));
     expect(ci.search(/^ {2}e2e:$/m)).toBeGreaterThan(0);
-    expect(e2e).toMatch(/^ {4}needs: prepare-e2e$/m);
+    expect(e2e).toMatch(/^ {4}needs: \[changes, prepare-e2e\]$/m); // `changes` says whether any shard is needed (scripts/ci-changes.ts)
     expect(e2e).toContain("E2E_TIER: pr");
-    expect(e2e).toContain("if: ${{ matrix.shard == 0 && github.event_name == 'pull_request' }}");
+    expect(e2e).toContain("matrix.shard == 0 && github.event_name == 'pull_request' }}"); // a gate may stand in front of it
     expect(e2e).toContain("bun run check:e2e-touched --base=\"origin/${{ github.base_ref }}\"");
   });
 
