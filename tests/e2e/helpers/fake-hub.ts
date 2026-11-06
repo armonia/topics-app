@@ -427,26 +427,49 @@ interface ProjectRows {
 
 /**
  * The live projects as the hub states them: studio-x held by the brake past its
- * budget, acme-api in line, acme-web running inside its budget, misc-a held
- * too (a cross-project row, as the hub's own). A name the spec gives a folder
- * carries it, as the real hub does: the folder of the last agent seen, not the
- * project's; the others carry none. One more row with a long name,
- * acme-brand-guidelines, for the row that must keep the name on hover.
+ * budget until a day later in the week (the budget waits on the weekly reset),
+ * at priority alta; acme-api in line, at priority bassa; acme-web running
+ * inside its budget with three agents outside Topics, Opus among them on a
+ * project past a tenth of the Claude week; acme-shop held by the quotas (the
+ * hub's short words) while one agent still works there, so the row says the
+ * agent, not the pause; acme-docs idle for three days, its last folder gone;
+ * misc-a held too (a cross-project row, as the hub's own). A name the spec
+ * gives a folder carries it, as the real hub does: the folder of the last
+ * agent seen, not the project's; the others carry none. One more row with a
+ * long name, acme-brand-guidelines, for the row that must keep the name on
+ * hover. Agents are only where said: every other project has none.
  */
 function projectRows(budgets: Record<string, number | null>, rows: ProjectRows, now: number): unknown[] {
-  const state: Record<string, { state: string; why: string; waitUntil: number | null; claude?: number; codex?: number; muse?: number; total?: number }> = {
+  const state: Record<string, Record<string, unknown>> = {
     // The hub's brake reads the Claude share alone and fires at the budget exactly (pacing.mjs `gate`).
-    "studio-x": { state: "frenato", why: "studio-x: 25% della settimana Claude, budget 25%", waitUntil: now + 3 * HOUR, claude: 25, codex: 0, muse: 2, total: 27 },
+    "studio-x": { state: "frenato", why: "studio-x: 25% della settimana Claude, budget 25%", brake: "budget finito: 25% di Claude su 25%", waitUntil: now + 3 * 24 * HOUR, claude: 25, codex: 0, muse: 2, total: 27 },
     "acme-api": { state: "in coda", why: "2 lavori in attesa di partire", waitUntil: null },
+    "acme-shop": { state: "frenato", why: "codex/lavoro@example.com: esaurito; muse/m@example.com: ritmo", brake: "Muse sopra ritmo · Codex esaurito → 20:07", waitUntil: now + HOUR },
+    "acme-docs": { state: "attivo", why: "", waitUntil: null, what: "Documentazione di Acme", lastSeen: { at: now - 3 * 24 * HOUR, provider: "codex" }, dirMissing: true },
     "misc-a": { state: "frenato", why: "misc-a: budget finito", waitUntil: null },
   };
-  const long = { name: "acme-brand-guidelines", title: "acme-brand-guidelines", label: null, claude: 3, codex: 0, muse: 1, total: 4, budgetPct: budgets["acme-brand-guidelines"] ?? null };
-  return ([...liveProjects(budgets), long] as Array<Record<string, unknown> & { name: string }>).map((p) => ({
+  const priority: Record<string, string> = { "studio-x": "alta", "acme-api": "bassa" };
+  const agent = (o: Record<string, unknown>) => ({ kind: "sessione", depth: 0, startedAt: now - 2 * HOUR, lastActivity: now - 2 * 60_000, open: null, cwd: "/never/shown", ...o });
+  const agents: Record<string, unknown> = {
+    "acme-web": {
+      count: 3, opus: 1, opusMs: 2 * HOUR,
+      models: [{ provider: "claude", model: "Opus", n: 1 }, { provider: "claude", model: "Sonnet", n: 1 }, { provider: "codex", model: "gpt-5", n: 1 }],
+      list: [
+        agent({ provider: "claude", model: "Opus", title: "[claude] raw", work: "Revisione del checkout", use: { tokens: 1_234_000, hourTokens: 400_000, pct: 1.5 }, open: { url: "claude://claude.ai/epitaxy/acme", via: "Claude Code desktop" } }),
+        agent({ provider: "claude", model: "Sonnet", kind: "sottoagente", depth: 1, title: "Controllo dei test", use: { tokens: 90_000, hourTokens: 90_000, pct: 0.1 } }),
+        agent({ provider: "codex", model: "gpt-5", title: "Paginazione degli ordini", use: { tokens: 300_000, hourTokens: 0, pct: 0 } }),
+      ],
+    },
+    "acme-shop": { count: 1, opus: 0, opusMs: 0, models: [{ provider: "codex", model: "gpt-5", n: 1 }], list: [agent({ provider: "codex", model: "gpt-5", title: "Listino", use: { tokens: 50_000, hourTokens: 50_000, pct: 0.3 } })] },
+  };
+  const extra = (name: string, claude: number, codex: number, muse: number) =>
+    ({ name, title: name, label: null, claude, codex, muse, total: claude + codex + muse, budgetPct: budgets[name] ?? null });
+  return ([...liveProjects(budgets), extra("acme-brand-guidelines", 3, 0, 1), extra("acme-shop", 4, 6, 3)] as Array<Record<string, unknown> & { name: string }>).map((p) => ({
     ...p,
     ...(state[p.name] ?? { state: "attivo", why: "", waitUntil: null }),
     dir: rows.dirs[p.name] ?? null,
-    priority: rows.priorities[p.name] ?? "normale",
-    agents: { count: 1, list: [{ at: now }] },
+    priority: rows.priorities[p.name] ?? priority[p.name] ?? "normale",
+    agents: agents[p.name] ?? null,
   }));
 }
 

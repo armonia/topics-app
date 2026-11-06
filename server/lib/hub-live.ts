@@ -4,7 +4,8 @@
  * pane shows: the "waiting for you" items (`/api/attesa`), the firing alerts (allow-italian: hub path)
  * (`/api/alerts`), the quota gates (`/api/gates`) and the automations
  * counters (`/api/automations/summary`), and the projects' state, share of
- * the week, cap and priority (`/api/live`) for the sidebar's project row.
+ * the week, cap, priority and live agents (`/api/live`) for the sidebar's
+ * project row and its menu.
  *
  * The hub's own pages poll every 60 s, each tab on its own. Here ONE reader
  * (this server) asks the hub and pushes a `hub:live` frame only when the
@@ -39,11 +40,72 @@ export const HUB_LIVE_PATHS: Readonly<Record<HubLiveTopic, string>> = {
  * What the reader keeps of a topic's answer, where it is not the whole of it.
  * The hub's `/api/live` carries each project's live agents and the time it was
  * last seen, which change on every read: pushed whole, it would be a frame per
- * tick to every window. The sidebar's project row reads only the fields below,
- * so a frame goes out only when one of them changed. `dir` stays out too: it
- * is the folder of whichever agent ran last, so it moves on its own.
+ * tick to every window. The sidebar's project row and menu read the fields
+ * below, and the moving ones are coarsened (`shapeAgents`, `minute`) so a frame
+ * goes out when something a reader can see changed, about once a minute while
+ * agents work. `dir` stays out: it is the folder of whichever agent ran last,
+ * so it moves on its own.
  */
-const PROJECT_FIELDS = ["name", "title", "state", "why", "waitUntil", "budgetPct", "priority", "total", "claude"] as const;
+const PROJECT_FIELDS = [
+  "name", "title", "what", "state", "why", "brake", "waitUntil", "budgetPct", "priority", "total", "claude", "codex", "muse", "dirMissing",
+] as const;
+
+/** Agents listed per project: the menu shows a handful, the count says the rest. */
+const AGENTS_LISTED = 12;
+
+/** A time to the minute: what the menu says («3 min fa») moves no faster. */
+const minute = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? Math.floor(v / 60_000) * 60_000 : null);
+
+/** A count to two significant digits: «786 k token» does not change with every request. */
+function twoDigits(v: unknown): number {
+  if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return 0;
+  const scale = 10 ** Math.max(0, Math.floor(Math.log10(v)) - 1);
+  return Math.round(v / scale) * scale;
+}
+
+const text = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
+
+/** The safe part of an agent's way in: a link the app opens, and where it opens. */
+function openOf(v: unknown): { url: string; via: string } | null {
+  const o = v as { url?: unknown; via?: unknown } | null;
+  return o && typeof o.url === "string" && /^(https?|claude):\/\//.test(o.url) ? { url: o.url, via: typeof o.via === "string" ? o.via : "" } : null;
+}
+
+/**
+ * The live agents of a project as the menu reads them: how many, the model
+ * mix, the Opus count and time (for the cost advice), the tokens of the last
+ * hour summed (the project's pace), and the first agents with what the menu
+ * prints of each. Every moving number is coarsened, see PROJECT_FIELDS.
+ */
+function shapeAgents(data: unknown): unknown {
+  const a = data as { count?: unknown; models?: unknown; opus?: unknown; opusMs?: unknown; list?: unknown } | null;
+  if (!a || typeof a !== "object" || typeof a.count !== "number" || a.count <= 0) return null;
+  const list = Array.isArray(a.list) ? a.list.filter((g): g is Record<string, unknown> => !!g && typeof g === "object") : [];
+  const use = (g: Record<string, unknown>) => (g.use && typeof g.use === "object" ? (g.use as Record<string, unknown>) : {});
+  return {
+    count: a.count,
+    models: Array.isArray(a.models)
+      ? a.models.flatMap((m) => (m && typeof m === "object" && typeof (m as { n?: unknown }).n === "number"
+        ? [{ provider: text((m as { provider?: unknown }).provider) ?? "", model: text((m as { model?: unknown }).model) ?? "", n: (m as { n: number }).n }]
+        : []))
+      : [],
+    opus: typeof a.opus === "number" ? a.opus : 0,
+    opusMs: minute(a.opusMs) ?? 0,
+    hourTokens: twoDigits(list.reduce((t, g) => t + (typeof use(g).hourTokens === "number" ? (use(g).hourTokens as number) : 0), 0)),
+    list: list.slice(0, AGENTS_LISTED).map((g) => ({
+      provider: text(g.provider) ?? "",
+      model: text(g.model) ?? "",
+      kind: text(g.kind) ?? "",
+      depth: typeof g.depth === "number" ? g.depth : 0,
+      title: text(g.work) ?? text(g.title) ?? "",
+      startedAt: minute(g.startedAt),
+      lastActivity: minute(g.lastActivity),
+      tokens: twoDigits(use(g).tokens),
+      pct: typeof use(g).pct === "number" ? Math.round((use(g).pct as number) * 10) / 10 : 0,
+      open: openOf(g.open),
+    })),
+  };
+}
 
 function pickLiveProjects(data: unknown): unknown {
   const list = (data as { projects?: unknown } | null)?.projects;
@@ -51,7 +113,12 @@ function pickLiveProjects(data: unknown): unknown {
   const projects = list.flatMap((p) => {
     if (!p || typeof p !== "object") return [];
     const row = p as Record<string, unknown>;
-    return [Object.fromEntries(PROJECT_FIELDS.filter((k) => row[k] !== undefined).map((k) => [k, row[k]]))];
+    const out: Record<string, unknown> = Object.fromEntries(PROJECT_FIELDS.filter((k) => row[k] !== undefined).map((k) => [k, row[k]]));
+    const seen = row.lastSeen as { at?: unknown; provider?: unknown } | null | undefined;
+    if (seen && minute(seen.at) !== null) out.lastSeen = { at: minute(seen.at), provider: text(seen.provider) ?? "" };
+    const agents = shapeAgents(row.agents);
+    if (agents) out.agents = agents;
+    return [out];
   });
   return { projects };
 }
