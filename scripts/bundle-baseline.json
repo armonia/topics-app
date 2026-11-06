@@ -836,7 +836,9 @@
     "Il tetto segue la misura: total_assets 9.037.638 -> 9.067.927. entry_eager resta dov'era (958.011 contro un tetto di 958.055).",
     "2026-11-06, proposta multi-progetto dall'input (card a5906c31): total_assets +13.380 raw, misurato con lo stesso comando: main 9.248.521, questo ramo 9.261.901. Sono la funzione stessa (pannello pigro, schema della proposta, test esclusi): si scaricano solo se il pannello si apre. entry_eager sta sotto il tetto.",
     "",
-    "2026-11-06, multi-project intake (card a5906c31): total_assets +13.380 raw, measured on the PC with `bun run build:client && bun run check:bundle` (origin/main 9.248.521, branch 9.261.901). It buys the proposal panel IntakePlanPanel and its IT+EN strings, all in a lazy chunk loaded by a destructured await import: entry_eager stays under its ceiling (958.020 against 958.055). The ceiling follows the measure: total_assets 9.081.307 -> 9.094.687."
+    "2026-11-06, multi-project intake (card a5906c31): total_assets +13.380 raw, measured on the PC with `bun run build:client && bun run check:bundle` (origin/main 9.248.521, branch 9.261.901). It buys the proposal panel IntakePlanPanel and its IT+EN strings, all in a lazy chunk loaded by a destructured await import: entry_eager stays under its ceiling (958.020 against 958.055). The ceiling follows the measure: total_assets 9.081.307 -> 9.094.687.",
+    "",
+    "2026-11-06, progress line on the card in progress (card 91a42e8f): total_assets +1.706 raw (the branch measured 941 bytes over a ceiling main already filled to 765 bytes from the top). It buys the wrapping measure band with the whole model name and «ora», and the review face that keeps «Approva» with the rest behind «…». The ceiling follows the measure: total_assets 9.094.687 -> 9.096.393."
   ],
   "updated": "2026-11-06",
   "tolerance_pct": 2,
@@ -850,6 +852,6 @@
     "files": 5
   },
   "total_assets": {
-    "raw": 9094687
+    "raw": 9096393
   }
 }
