@@ -41,7 +41,7 @@ import { useSharedNow } from '../../state/useSharedNow';
 import { useActiveAgentRows } from '../../state/signals';
 import { attentionOf, terminalSubject, topicSubject, useAttentionRows } from '../../state/attention';
 import { openAutomation, openAutomationsCalendar } from '../../state/automationTarget';
-import { takeAgentsJobsFilter } from '../../lib/agentsJobsLink';
+import { peekAgentsJobsFilter, takeAgentsJobsFilter } from '../../lib/agentsJobsLink';
 import { exchangeRateOf, formatCurrency } from '../../lib/hubUsage';
 import { JobProjectIcon } from './JobProjectIcon';
 import { useCloseLevel } from '../Shared/levelClose';
@@ -358,8 +358,11 @@ export function AgentsJobsLevel({ onNavigate }: AgentsJobsLevelProps) {
   const gates = view.decide - topics.awaitingInput.length;
   useEffect(() => { setGateWaits(gates); }, [gates]);
   const closeLevel = useCloseLevel();
-  // A link (`/lavori/<filter>`) or a door of the app may ask for a filter.
-  const [chosen, setChosen] = useState<JobFilter | null>(() => takeAgentsJobsFilter());
+  // A link (`/lavori/<filter>`) or a door of the app may ask for a filter. Read in
+  // render, consumed only once mounted: a render React throws away (a child that
+  // suspends on its chunk, seen on WebKit) would otherwise eat the request.
+  const [chosen, setChosen] = useState<JobFilter | null>(() => peekAgentsJobsFilter());
+  useEffect(() => { takeAgentsJobsFilter(); }, []);
   const [timelineOpen, setTimelineOpen] = useState<string | null>(null);
   const filter = chosen ?? openingFilter(view);
   const [withdrawn, setWithdrawn] = useState<Set<string>>(() => new Set());

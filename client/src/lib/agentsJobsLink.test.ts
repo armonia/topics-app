@@ -5,7 +5,7 @@
  * @covers HUBBR-13
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { agentsJobsLinkFilter, openAgentsJobs, takeAgentsJobsFilter } from './agentsJobsLink';
+import { agentsJobsLinkFilter, openAgentsJobs, peekAgentsJobsFilter, takeAgentsJobsFilter } from './agentsJobsLink';
 
 describe('agents and jobs link', () => {
   const g = globalThis as { window?: unknown };
@@ -35,6 +35,9 @@ describe('agents and jobs link', () => {
   test('a door opens System on the level, and the filter is taken once, while fresh', () => {
     openAgentsJobs('finished', 1_000);
     expect(sent).toEqual(['topics:open-user-menu']);
+    // A render thrown away may read it: only the mounted level consumes it.
+    expect(peekAgentsJobsFilter(2_000)).toBe('finished');
+    expect(peekAgentsJobsFilter(2_000)).toBe('finished');
     expect(takeAgentsJobsFilter(2_000)).toBe('finished');
     expect(takeAgentsJobsFilter(2_000)).toBeNull();
     openAgentsJobs('waiting', 1_000);

@@ -23,9 +23,14 @@ const SLUGS: Record<string, JobFilter> = { 'in-corso': 'running', 'in-attesa': '
 
 let pending: { filter: JobFilter | null; at: number } | null = null;
 
+/** The filter a link or a door asked for, if still fresh, without consuming it. */
+export function peekAgentsJobsFilter(nowMs: number = Date.now()): JobFilter | null {
+  return pending && nowMs - pending.at < VALID_MS ? pending.filter : null;
+}
+
 /** The filter a link or a door asked for, if still fresh, consuming it; null keeps the level's own choice. */
 export function takeAgentsJobsFilter(nowMs: number = Date.now()): JobFilter | null {
-  const fresh = pending && nowMs - pending.at < VALID_MS ? pending.filter : null;
+  const fresh = peekAgentsJobsFilter(nowMs);
   pending = null;
   return fresh;
 }
