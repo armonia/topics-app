@@ -3,7 +3,8 @@
  * you» item with «Open» and «Done», a failed automation with «Fix it», a
  * service with a problem, a subscription that runs out before its reset, a
  * machine that needs a look, a quota nearly full, an alert, an account event, a
- * contradiction of the agents' rules; and, in History, a line of the diary.
+ * contradiction of the agents' rules; and, in History, a line of the diary
+ * and an event of the Claude proxy's log.
  *
  * One geometry for every row that asks something, of Topics or of the hub
  * (`RowShell`, the mockup's): 40px with a mouse, icon, title, and a second
@@ -13,10 +14,14 @@
  */
 import { useState, type ReactNode } from 'react';
 import {
-  ArrowLeftRight, Bot, Check, ChevronRight, CircleDashed, CircleX, Clock, Clock3, Cpu, CreditCard, Eye, Gauge, KeyRound, Layers, LoaderCircle, Megaphone,
-  MessageCircle, MonitorOff, PieChart, Scale, ServerCrash, SkipForward, User, Workflow, Wrench, type LucideIcon,
+  ArrowLeftRight, ArrowUpCircle, Bot, Check, ChevronRight, CircleDashed, CircleX, Clock, Clock3, Cpu, CreditCard, Eye, Gauge, History, KeyRound, Layers, LoaderCircle, Megaphone,
+  MessageCircle, MonitorOff, PieChart, RotateCw, Scale, ServerCrash, Settings2, SkipForward, User, UserCog, Workflow, Wrench, type LucideIcon,
 } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
+import { addCatalogue } from '../../lib/i18n';
+import PROXY_EVENTS_IT from '../../lib/i18n-proxy-events-it';
+import PROXY_EVENTS_EN from '../../lib/i18n-proxy-events-en';
+import { proxyText, type ProxyEvent, type ProxyFamily, type ProxyTone } from '../../lib/proxyEvents';
 import { useMobile } from '../../hooks/useMobile';
 import { useBellActions } from '../../hooks/useBellHub';
 import { bellTimeLabel, type BellEntry } from '../../lib/bellGroups';
@@ -25,8 +30,11 @@ import { openUserMenu } from '../../lib/openUserMenu';
 import { openProcessesLog } from '../../state/processesLog';
 import { openAutomation } from '../../state/automationTarget';
 import { openTaskInApp } from '../../lib/openTaskLink';
-import { WARNING_TEXT, DANGER_TEXT } from '../../lib/popoverStyles';
+import { WARNING_TEXT, DANGER_TEXT, SUCCESS_TEXT } from '../../lib/popoverStyles';
 import { useSharedNow } from '../../state/useSharedNow';
+
+addCatalogue('it', PROXY_EVENTS_IT);
+addCatalogue('en', PROXY_EVENTS_EN);
 
 type HubEntry = Exclude<BellEntry, { source: 'topics' }>;
 
@@ -44,12 +52,16 @@ export function useBellButton(): { primary: string; secondary: string } {
   return { primary: `${PRIMARY} ${size}`, secondary: `${SECONDARY} ${size}` };
 }
 
-/** «4 min», «21:26», «ieri»: the time of a row, kept fresh by the shared clock. */
-export function BellTime({ at, className = '' }: { at: number; className?: string }) {
+/**
+ * «4 min», «21:26», «ieri»: the time of a row, kept fresh by the shared clock.
+ * `clock`: always the hour and minute, for a row under its day's heading.
+ */
+export function BellTime({ at, className = '', clock = false }: { at: number; className?: string; clock?: boolean }) {
   const tr = useT();
   const locale = useLocale();
   const now = useSharedNow();
-  return <span className={`tabular-nums flex-shrink-0 ${className}`} title={new Date(at).toLocaleString()} data-testid="bell-time">{bellTimeLabel(at, now, tr, locale)}</span>;
+  const label = clock ? new Date(at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: false }) : bellTimeLabel(at, now, tr, locale);
+  return <span className={`tabular-nums flex-shrink-0 ${className}`} title={new Date(at).toLocaleString(locale)} data-testid="bell-time">{label}</span>;
 }
 
 const providerName = (p: string) => p.charAt(0).toUpperCase() + p.slice(1);
@@ -71,13 +83,15 @@ function dueLabel(due: number, now: number, tr: ReturnType<typeof useT>): string
  * the text with a mouse, under it with a finger. With `onOpen` the text is a
  * button that opens the subject, otherwise it only takes the focus.
  */
-export function RowShell({ icon: Icon, tint, first, title, second, at, actions, aside, onOpen, attrs, full, iconLabel }: {
+export function RowShell({ icon: Icon, tint, first, title, second, at, clock, actions, aside, onOpen, attrs, full, iconLabel }: {
   icon: LucideIcon;
   tint: string;
   first: boolean;
   title: ReactNode;
   second: ReactNode;
   at: number | null;
+  /** The time as hour and minute, not «4 min» (`BellTime`). */
+  clock?: boolean;
   actions?: ReactNode;
   /** A reading that stays beside the text everywhere (the quota bar). */
   aside?: ReactNode;
@@ -107,7 +121,7 @@ export function RowShell({ icon: Icon, tint, first, title, second, at, actions, 
         <span className={`flex items-center gap-[5px] text-app-text-secondary min-w-0 ${isMobile ? 'text-prose leading-[18px] flex-wrap gap-y-0.5' : unfolded ? 'text-compact leading-4 flex-wrap gap-y-0.5' : 'text-compact leading-4 whitespace-nowrap overflow-hidden'} ${wrapped ? '[&_.truncate]:whitespace-normal [&_.truncate]:overflow-visible [&_.truncate]:[overflow-wrap:anywhere]' : ''}`}>
           {second}
           {at !== null && <span className="flex-shrink-0 text-app-text-muted">·</span>}
-          {at !== null && <BellTime at={at} className="text-app-text-muted" />}
+          {at !== null && <BellTime at={at} clock={clock} className="text-app-text-muted" />}
         </span>
       </span>
     </>
@@ -161,10 +175,12 @@ function OpenUtility({ type, label, testId, className, onNavigate }: { type: 'pr
   );
 }
 
-export function HubRow({ entry, first, onNavigate, jarvis }: {
+export function HubRow({ entry, first, onNavigate, onShowAccounts, jarvis }: {
   entry: HubEntry;
   first: boolean;
   onNavigate?: () => void;
+  /** An account row's way to the whole log of the accounts (History, «Account Claude»). */
+  onShowAccounts?: () => void;
   /** Where «Write to Jarvis» goes (the hub's `hub-config`); null: no such button. */
   jarvis?: { whatsapp: string | null; discord: string | null } | null;
 }) {
@@ -343,19 +359,40 @@ export function HubRow({ entry, first, onNavigate, jarvis }: {
       const icon = e.kind === 'switched' ? ArrowLeftRight : e.kind === 'token' ? KeyRound : Gauge;
       const title = e.kind === 'switched'
         ? (e.account ? tr('bell.account.switched', { from: e.account, to: e.to ?? '?' }) : tr('bell.account.switchedTo', { to: e.to ?? '?' }))
-        : tr(e.kind === 'token' ? 'bell.account.token' : 'bell.account.limit', { account: e.account ?? tr('bell.account.all') });
+        : e.type === 'cap-exhausted'
+          ? tr('bell.account.cap')
+          : tr(e.kind === 'token' ? 'bell.account.token' : 'bell.account.limit', { account: e.account ?? tr('bell.account.all') });
+      // How it happened (automatic for a 429, the minutes, the proxy's error), then how often.
+      const note = (e.notes ?? []).map((n) => proxyText(n, tr)).join(', ');
+      const times = e.count > 1 ? tr('bell.account.times', { n: e.count }) : tr('bell.account.once');
       // An expired token is renewed from the row, as the proxy's dashboard does.
       const profile = e.kind === 'token' ? e.profile : null;
       return (
-        <RowShell attrs={attrs} icon={icon} tint="text-app-text-tertiary" first={first} title={title} at={e.at}
-          second={error || <span className="truncate">{e.count > 1 ? tr('bell.account.times', { n: e.count }) : tr('bell.account.once')}</span>}
-          actions={profile && (done
-            ? <span className="text-compact text-app-text-secondary" data-testid="bell-renewed">{tr('bell.renewed')}</span>
-            : (
-              <button type="button" disabled={busy} onClick={() => void run(() => renew(profile))} className={button.secondary} data-testid="bell-renew">
-                {tr('bell.renew')}
-              </button>
-            ))} />
+        <RowShell attrs={{ ...attrs, 'data-type': e.type }} icon={icon} tint={e.kind === 'switched' ? 'text-app-text-tertiary' : e.kind === 'token' || e.account === null ? DANGER_TEXT : WARNING_TEXT}
+          first={first} title={title} at={e.at} full={joined([title, note, times])}
+          second={error || (
+            <>
+              {note && <span className="truncate font-medium text-app-text-secondary" data-testid="bell-account-note">{note}</span>}
+              {note && <span className="flex-shrink-0 text-app-text-muted">·</span>}
+              <span className={note ? 'flex-shrink-0' : 'truncate'}>{times}</span>
+            </>
+          )}
+          actions={(
+            <>
+              {profile && (done
+                ? <span className="text-compact text-app-text-secondary" data-testid="bell-renewed">{tr('bell.renewed')}</span>
+                : (
+                  <button type="button" disabled={busy} onClick={() => void run(() => renew(profile))} className={button.secondary} data-testid="bell-renew">
+                    {tr('bell.renew')}
+                  </button>
+                ))}
+              {onShowAccounts && (
+                <button type="button" onClick={onShowAccounts} className={button.secondary} aria-label={tr('bell.account.history')} title={tr('bell.account.history')} data-testid="bell-account-history">
+                  <History size={12} aria-hidden="true" />
+                </button>
+              )}
+            </>
+          )} />
       );
     }
     case 'contradiction':
@@ -423,6 +460,49 @@ export function DiaryRow({ entry, onNavigate }: { entry: DiaryEntry; onNavigate?
         >
           <ChevronRight size={12} aria-hidden="true" />
         </button>
+      )}
+    />
+  );
+}
+
+const PROXY_ICON: Record<ProxyFamily, LucideIcon> = {
+  switch: ArrowLeftRight, limit: Gauge, token: KeyRound, retry: RotateCw, account: UserCog, settings: Settings2, upgrade: ArrowUpCircle, other: CircleDashed,
+};
+
+/** The hub's five dots, as the rest of the panel colours a state. */
+const PROXY_TINT: Record<ProxyTone, string> = {
+  ok: SUCCESS_TEXT, info: 'text-primary', warn: WARNING_TEXT, bad: DANGER_TEXT, muted: 'text-app-text-muted',
+};
+
+/**
+ * An event of the Claude proxy's log in History, as the hub's Activity
+ * table showed it: the sentence, the severity as the icon's colour (and in
+ * words for the hover and screen readers), the detail the hub wrote small
+ * beside it, and the hour and minute under the day's heading.
+ */
+export function ProxyRow({ event }: { event: ProxyEvent }) {
+  const tr = useT();
+  const title = proxyText(event.text, tr);
+  const detail = event.detail ? proxyText(event.detail, tr) : null;
+  const who = tr('proxy.who');
+  const tone = tr(`proxy.tone.${event.tone}`);
+  return (
+    <RowShell
+      attrs={{ 'data-testid': 'bell-proxy-row', 'data-type': event.type, 'data-tone': event.tone }}
+      icon={PROXY_ICON[event.family]}
+      tint={PROXY_TINT[event.tone]}
+      iconLabel={tone}
+      first={false}
+      title={title}
+      at={event.at}
+      clock
+      full={joined([title, detail, who, tone])}
+      second={(
+        <>
+          {detail && <span className="truncate font-medium" data-testid="bell-proxy-detail">{detail}</span>}
+          {detail && <span className="flex-shrink-0 text-app-text-muted">·</span>}
+          <span className={detail ? 'flex-shrink-0' : 'truncate'}>{who}</span>
+        </>
       )}
     />
   );

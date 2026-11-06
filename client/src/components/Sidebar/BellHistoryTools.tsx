@@ -16,6 +16,7 @@ const HISTORY_FILTER_LABEL: Record<HistoryFilter, string> = {
   all: 'bell.history.all',
   topics: 'bell.history.topics',
   hub: 'bell.history.hub',
+  accounts: 'bell.history.accounts',
   problems: 'bell.history.problems',
 };
 

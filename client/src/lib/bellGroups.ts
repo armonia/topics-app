@@ -87,19 +87,34 @@ export function liveBellHub(live: HubLiveState): Pick<BellHub, 'waiting' | 'serv
   };
 }
 
+/** A limit on every account stays news on the button this long; an expired token until it is renewed. */
+const URGENT_LIMIT_MS = 3_600_000;
+
+/**
+ * The account events that light the button with the panel closed («the facts
+ * that matter arrive by themselves»): a token the proxy could not renew (the
+ * row offers «Renew») and, for an hour, every account at its limit or cap.
+ * A switch, or one account at its limit while another works, is news for the
+ * panel, not a reason to call the person.
+ */
+export function urgentAccountEvents(events: readonly AccountEvent[], now: number): AccountEvent[] {
+  return events.filter((e) => e.kind === 'token' || (e.kind === 'limit' && e.account === null && now - e.at < URGENT_LIMIT_MS));
+}
+
 /**
  * What the hub adds to the bell's button: the items that wait for the person
- * (they make it amber) and the warnings (grey, with the figure). Read from the
- * live topics only, so the button never asks the hub anything: the failed
- * automations are the summary's counter, the list behind it is read when the
- * panel opens.
+ * (they make it amber) and the warnings (grey, with the figure). The live
+ * topics, and the proxy's urgent account events (`state/proxyActivity`, read
+ * every minute in the background): the failed automations are the summary's
+ * counter, the list behind it is read when the panel opens.
  */
-export function hubBadgeCounts(live: HubLiveState): { decide: number; alerts: number } {
+export function hubBadgeCounts(live: HubLiveState, accounts: readonly AccountEvent[] = [], now = Date.now()): { decide: number; alerts: number } {
   const parts = liveBellHub(live);
   const broken = automationSummary(live.automations?.data)?.broken ?? 0;
+  const urgent = urgentAccountEvents(accounts, now).length;
   return {
     decide: parts.waiting.length,
-    alerts: broken + parts.services.length + parts.quotas.length + parts.outlooks.length + parts.machines.length + parts.alerts.length,
+    alerts: broken + parts.services.length + parts.quotas.length + parts.outlooks.length + parts.machines.length + parts.alerts.length + urgent,
   };
 }
 

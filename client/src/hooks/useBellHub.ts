@@ -1,14 +1,15 @@
 /**
  * What the hub adds to the bell's panel (HUBBR-06, HUBBR-07), read only while
  * the panel is open. The live topics (waiting items, services, quotas, alerts)
- * come from the socket; the rest is read once at the open:
+ * come from the socket; the rest is read at the open and again every minute
+ * while the panel stays open, as the hub's pages refreshed:
  *
  *   - the failed automations (`/api/hub/automations`, close to a megabyte, so
  *     only when the live summary says at least one is broken);
  *   - the contradictions of the agents' rules (`/api/hub/contesto`);
- *   - the Claude proxy's account events (`/api/switchboard/activity`, with
- *     `/profiles` for the labels);
  *   - the links to write to Jarvis (`/api/hub/hub-config`);
+ *   - the Claude proxy's account events come from its log, which the button
+ *     already reads in the background (`state/proxyActivity`);
  *   - for the History tab, seven days of the diary (`/api/hub/diario`),
  *     read again every minute while History stays open.
  *
@@ -21,11 +22,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../lib/shell/net';
 import { refreshHubLive, useHubEverRead, useHubLive, type HubLiveEntry, type HubLiveState, type HubLiveTopic } from '../state/hubLive';
 import { startVisibleInterval } from '../state/documentVisibility';
+import { refreshProxyActivity, useProxyActivity } from '../state/proxyActivity';
 import { NO_HUB, liveBellHub, type BellHub } from '../lib/bellGroups';
 import {
   accountEvents, automationSummary, closeWaitingBody, contradictions, diaryForHistory, failedJobs, jarvisLinks,
   type AccountEvent, type Contradiction, type DiaryEntry, type FailedJob, type JarvisLinks,
 } from '../lib/hubSystem';
+import { accountNotes, proxyEvents, type ProxyEvent } from '../lib/proxyEvents';
 
 async function readJson(path: string): Promise<unknown> {
   try {
@@ -49,12 +52,29 @@ async function post(path: string, body: unknown): Promise<string | null> {
 
 interface Extras {
   failed: FailedJob[];
-  accounts: AccountEvent[];
   contradictions: Contradiction[];
   jarvis: JarvisLinks | null;
 }
 
-const NO_EXTRAS: Extras = { failed: [], accounts: [], contradictions: [], jarvis: null };
+const NO_EXTRAS: Extras = { failed: [], contradictions: [], jarvis: null };
+
+/** While the panel stays open its extras are read again this often, as the hub's pages did. */
+const EXTRAS_REFRESH_MS = 60_000;
+
+/** The proxy's account events of the last day, one row per kind and account, with their notes; empty without the hub. */
+function useAccountEvents(enabled: boolean): AccountEvent[] {
+  const log = useProxyActivity(enabled);
+  return useMemo(
+    () => (log ? accountEvents(log.activity, log.profiles, log.readAt).map((e) => ({ ...e, notes: accountNotes(e.latest, log.profiles) })) : []),
+    [log],
+  );
+}
+
+/** The proxy's whole log (100 events, a week), described, for History; empty without the hub. */
+export function useProxyEvents(enabled: boolean): ProxyEvent[] {
+  const log = useProxyActivity(enabled);
+  return useMemo(() => (log ? proxyEvents(log.activity, log.profiles) : []), [log]);
+}
 
 /** The live topics the bell lists from: one that errs while the others answer was not read, not empty. */
 const BELL_TOPICS: readonly HubLiveTopic[] = ['attesa', 'services', 'alerts', 'pace']; // allow-italian: hub topic names
@@ -84,29 +104,27 @@ export function useBellHub(): { hub: BellHub; present: boolean; answering: boole
   const [extras, setExtras] = useState<Extras>(NO_EXTRAS);
   const broken = automationSummary(live.automations?.data)?.broken ?? 0;
   const answering = present && Object.values(live).some((entry) => entry?.data !== undefined);
+  const accounts = useAccountEvents(present);
 
   useEffect(() => {
     if (!answering) return;
     let alive = true;
-    void (async () => {
-      const [automations, contesto, activity, profiles, config] = await Promise.all([
+    const read = async () => {
+      const [automations, contesto, config] = await Promise.all([
         broken > 0 ? readJson('/api/hub/automations') : Promise.resolve(null),
         readJson('/api/hub/contesto'),
-        readJson('/api/switchboard/activity'),
-        readJson('/api/switchboard/profiles'),
         readJson('/api/hub/hub-config'),
       ]);
       if (!alive) return;
-      setExtras({
-        failed: failedJobs(automations), accounts: accountEvents(activity, profiles, Date.now()), contradictions: contradictions(contesto),
-        jarvis: jarvisLinks(config),
-      });
-    })();
-    return () => { alive = false; };
+      setExtras({ failed: failedJobs(automations), contradictions: contradictions(contesto), jarvis: jarvisLinks(config) });
+    };
+    void read();
+    const stop = startVisibleInterval(() => { void read(); }, EXTRAS_REFRESH_MS);
+    return () => { alive = false; stop(); };
   }, [answering, broken]);
 
   // Down, the panel is Topics alone: what was read at the open is as old as the hub's silence.
-  const hub = useMemo((): BellHub => (answering ? { ...liveBellHub(live), ...extras } : NO_HUB), [answering, live, extras]);
+  const hub = useMemo((): BellHub => (answering ? { ...liveBellHub(live), ...extras, accounts } : NO_HUB), [answering, live, extras, accounts]);
   return {
     hub, present, answering, downSince: present ? downSinceOf(live) : null,
     unread: answering ? unreadTopics(live) : [], jarvis: answering ? extras.jarvis : null,
@@ -155,7 +173,12 @@ export function useBellActions(): {
   }, []);
   const fix = useCallback((key: string) => post('/api/hub/fix', { key }), []);
   // The proxy renews the account's token now (its dashboard's «Refresh token» button).
-  const renew = useCallback((profile: string) => post('/api/switchboard/refresh', { name: profile }), []);
+  // Renewed, the log is read again: the proxy wrote «token renewed» and the row goes.
+  const renew = useCallback(async (profile: string) => {
+    const failure = await post('/api/switchboard/refresh', { name: profile });
+    if (failure === null) await refreshProxyActivity();
+    return failure;
+  }, []);
   return { closeWaiting, fix, renew };
 }
 

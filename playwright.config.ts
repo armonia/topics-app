@@ -618,6 +618,8 @@ export default defineConfig({
         "**/hub-off.spec.ts",
         // The bell in groups, with the hub's items beside the waits of Topics.
         "**/bell-groups.spec.ts",
+        // The Claude proxy's activity in the bell (the hub's Activity page), same reason as the bell.
+        "**/bell-activity.spec.ts",
         // The machine's Processes, with the proxy's log live: same reason as the bell.
         "**/machine-processes.spec.ts",
         // Accounts and quotas: the proxy's commands and the hub's brake, same reason as the bell.

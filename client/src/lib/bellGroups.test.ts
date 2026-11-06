@@ -5,7 +5,8 @@
  * @covers HUBBR-07
  */
 import { describe, expect, test } from 'bun:test';
-import { BELL_GROUP_ORDER, NO_HUB, bellGroups, bellTimeLabel, hubBadgeCounts, liveBellHub, type BellHub } from './bellGroups';
+import { BELL_GROUP_ORDER, NO_HUB, bellGroups, bellTimeLabel, hubBadgeCounts, liveBellHub, urgentAccountEvents, type BellHub } from './bellGroups';
+import { accountNotes } from './proxyEvents';
 import { accountEvents, contradictions, diaryForHistory, type WaitingItem } from './hubSystem';
 import { bellBadge } from '../state/attentionTotal';
 import type { InboxItem } from './inboxModel';
@@ -119,6 +120,23 @@ describe('HUBBR-06: the groups of the bell', () => {
     expect(bellBadge(0, 0, { decide: 0, alerts: 0 }, true)).toEqual({ count: 0, tone: 'quiet' });
   });
 
+  test('the button counts the proxy facts that matter: a token not renewed, every account out for an hour', () => {
+    const activity = { log: [
+      { type: 'refresh-failed', ts: NOW - 3 * HOUR, account: 'prof-c', error: 'invalid_grant' },
+      { type: 'all-exhausted', ts: NOW - 10 * 60_000 },
+      { type: 'cap-exhausted', ts: NOW - 2 * HOUR, capped: ['prof-a'] },
+      { type: 'rate-limited', ts: NOW - 5 * 60_000, account: 'prof-a', retryAfter: 300 },
+      { type: 'auto-switch', ts: NOW - 5 * 60_000, from: 'prof-a', to: 'prof-b', reason: '429' },
+    ] };
+    const events = accountEvents(activity, null, NOW);
+    // The token, and every account exhausted ten minutes ago; the cap of two hours ago, one account's limit and a switch are panel news.
+    expect(urgentAccountEvents(events, NOW).map((e) => e.type).sort()).toEqual(['all-exhausted', 'refresh-failed']);
+    expect(hubBadgeCounts({}, events, NOW)).toEqual({ decide: 0, alerts: 2 });
+    expect(bellBadge(0, 0, hubBadgeCounts({}, events, NOW), true)).toEqual({ count: 2, tone: 'quiet' });
+    // An hour later only the token is left.
+    expect(hubBadgeCounts({}, events, NOW + HOUR)).toEqual({ decide: 0, alerts: 1 });
+  });
+
   test('without the hub the pill is the number of the Dock (ATTN-08)', () => {
     expect(bellBadge(4, 1, { decide: 0, alerts: 0 }, false)).toEqual({ count: 4, tone: 'needs-you' });
     expect(bellBadge(2, 0, { decide: 0, alerts: 0 }, false)).toEqual({ count: 2, tone: 'lit' });
@@ -156,6 +174,30 @@ describe('HUBBR-06: the groups of the bell', () => {
     // «Renew» sends the proxy's own name for the account, never its label.
     expect(accountEvents(activity, profiles, NOW).find((e) => e.kind === 'token')?.profile).toBe('prof-c');
     expect(accountEvents(null, null, NOW)).toEqual([]);
+  });
+
+  test('account rows keep what the hub said of the latest occurrence: how and why it switched, the minutes, the names, the error', () => {
+    const profiles = { profiles: [{ name: 'prof-a', label: 'work' }, { name: 'prof-b', label: 'spare' }] };
+    const activity = { log: [
+      { type: 'proactive-switch', ts: NOW - 50 * 60_000, from: 'prof-b', to: 'prof-a' },
+      { type: 'auto-switch', ts: NOW - 10 * 60_000, from: 'prof-a', to: 'prof-b', reason: '429-error' },
+      { type: 'rate-limited', ts: NOW - 20 * 60_000, account: 'prof-a', retryAfter: 290 },
+      { type: 'cap-exhausted', ts: NOW - 30 * 60_000, capped: ['prof-a', 'prof-b'] },
+      { type: 'all-exhausted', ts: NOW - 40 * 60_000 },
+      { type: 'refresh-failed', ts: NOW - 60 * 60_000, account: 'prof-b', error: 'invalid_grant' },
+    ] };
+    const rows = accountEvents(activity, profiles, NOW);
+    const notes = (type: string) => {
+      const row = rows.find((r) => r.type === type)!;
+      return accountNotes(row.latest, profiles);
+    };
+    expect(notes('auto-switch')).toEqual([{ key: 'proxy.note.auto' }, { key: 'proxy.event.reason', vars: { code: '429' } }]);
+    expect(rows.find((r) => r.kind === 'switched')).toMatchObject({ count: 2, account: 'work', to: 'spare' });
+    expect(notes('rate-limited')).toEqual([{ key: 'proxy.event.minutes', vars: { n: 5 } }]);
+    expect(notes('cap-exhausted')).toEqual([{ text: 'work, spare' }]);
+    expect(notes('refresh-failed')).toEqual([{ text: 'invalid_grant' }]);
+    // A cap on every account and every account exhausted are two rows, not one.
+    expect(rows.filter((r) => r.kind === 'limit' && r.account === null).map((r) => r.type).sort()).toEqual(['all-exhausted', 'cap-exhausted']);
   });
 
   test('a token event written with the account e-mail still renews the account file name', () => {

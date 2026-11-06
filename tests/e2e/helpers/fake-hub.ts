@@ -48,7 +48,9 @@
  * (`pc`, at work); `answersOverride` replaces any reading whole, so a spec
  * can make Claude run out, the Mac strain or the PC stop answering.
  * `quiet` answers a hub with nothing to say: no item, no failure, every
- * service up. Nothing here ever reaches :3360 or :3335.
+ * service up. `activity` set by a spec replaces the proxy's log (the bell's
+ * account history), read again on every request like the real proxy's.
+ * Nothing here ever reaches :3360 or :3335.
  */
 import { createServer, type Server } from "node:http";
 import { E2E_BASE, hubPortFor } from "./test-server";
@@ -101,6 +103,8 @@ export interface FakeHub {
   contextCheck: FakeContextCheck;
   /** How long the fake agent takes to answer a check. */
   checkMs: number;
+  /** Set: the proxy's activity log answers these events instead of the default three (the bell's account history). */
+  activity: Array<Record<string, unknown>> | null;
   close(): Promise<void>;
 }
 
@@ -579,7 +583,7 @@ const LOG_LINES = [
 ];
 
 export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(), opts: { quiet?: boolean; jobs?: boolean; automations?: boolean; projects?: { dirs: Record<string, string> }; context?: boolean } = {}): Promise<FakeHub> {
-  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), withdrawn: [], silent: false, failing: [], answersOverride: {}, feedback: [], priorities: {}, refuseSettings: null, contextCheck: defaultContextCheck(), checkMs: 3000, close: async () => {} };
+  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), withdrawn: [], silent: false, failing: [], answersOverride: {}, feedback: [], priorities: {}, refuseSettings: null, contextCheck: defaultContextCheck(), checkMs: 3000, activity: null, close: async () => {} };
   const server: Server = createServer((req, res) => {
     const path = (req.url ?? "").split("?")[0]!.replace(/^\/api\//, "");
     if (req.method === "GET" && path === "logs/stream") {
@@ -699,6 +703,7 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
       hub.refuseSettings = null;
       hub.contextCheck = defaultContextCheck();
       hub.failing = [];
+      hub.activity = null;
       req.resume();
       return send(200, { ok: true });
     }
@@ -757,6 +762,7 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
       const queue = all.queue as { items: unknown[] };
       all.queue = { items: [...queue.items, { id: "q-fix", ref: "launchd:com.example.backup", status: "running", provider: "codex", project: "acme-web", createdAt: now - 5 * 60_000 }] };
     }
+    if (hub.activity) all.activity = { log: hub.activity };
     Object.assign(all, hub.answersOverride);
     if (req.method === "GET" && path in all) return send(200, all[path]);
     send(404, { error: "not in the fake hub" });
