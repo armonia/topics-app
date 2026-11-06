@@ -11,7 +11,13 @@
  * agent found when the hub says it is over. The feature map opens as a view
  * from System and from the palette, the same single tab, never offered by a
  * row of its own in the sidebar: the verdict, the ranking, the features where
- * Jarvis is behind until the all filter, one opened with who has it. Without the hub,
+ * Jarvis is behind until the all filter, one opened with who has it. Above the
+ * comparison the pyramid of what Jarvis needs (seven levels widening down,
+ * one opened at a time with its functions, where they live and their use)
+ * and the decisions on what is missing with the two still to build; the
+ * filters for news, to build and chosen not now; an area with who leads it,
+ * its groups with their own share; a feature with the note, the decision,
+ * every other system, eight news and the evidence link. Without the hub,
  * after a reload, System and the palette offer neither.
  *
  * The hub is a fake (helpers/fake-hub.ts with `context`, shapes in
@@ -21,7 +27,8 @@
  * Mutation: with the check sent on the first button instead of on the
  * confirm, the count of checks after cancel is 1 and the test
  * is red; with the home sessions' loader read as a harness, the level lists
- * five and the test is red.
+ * five and the test is red; with the news cap back at five the opened feature
+ * shows five and no hint of the other two, and the test is red.
  *
  * The shots are taken in the mockups' workspace (helpers/shot-scene.ts):
  * acme-web and studio-x with their chats in the sidebar, a chat with messages.
@@ -243,6 +250,109 @@ test.describe("agents' context and feature map", () => {
     await page.getByTestId("palette-features").click();
     await expect(page.getByTestId("features-pane")).toHaveCount(1);
     await expect(page.getByTestId("pane-tab-__features__")).toHaveCount(1);
+  });
+
+  test("Funzionalità: the pyramid, the decisions, the filters and a feature whole", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await goToApp(page);
+    await openMainChat(page, scene!);
+    const status = await openSystem(page);
+    await status.getByTestId("menu-system-features").click();
+    const pane = page.getByTestId("features-pane");
+    await expect(pane.getByTestId("features-verdict-title")).toHaveText("47 dove Jarvis è indietro, su 172 voci", { timeout: 20_000 });
+
+    // The pyramid: seven levels from the top down, each wider than the one above.
+    const pyramid = pane.getByTestId("features-pyramid");
+    const levels = pyramid.getByTestId("features-pyramid-level");
+    await expect(levels).toHaveCount(7);
+    expect(await levels.evaluateAll((els) => els.map((e) => e.getAttribute("data-level")))).toEqual(["7", "6", "5", "4", "3", "2", "1"]);
+    const widths = await levels.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().width));
+    for (let k = 1; k < widths.length; k++) expect(widths[k]!).toBeGreaterThan(widths[k - 1]!);
+    await expect(pyramid.getByTestId("features-pyramid-summary")).toHaveText(
+      "15 di 17 funzioni che servono sono coperte; 1 fatte oggi; 1 passano al motore unico; 1 mancano; 2 si lasciano o si ritirano. Tocca un livello per le voci.",
+    );
+    await expect(pyramid.getByTestId("features-pyramid-legend")).toHaveText(/coperta.*motore unico.*manca.*non serve/);
+    await expect(pyramid.getByTestId("features-pyramid-updated")).toContainText("aggiornata il");
+    const base = pyramid.locator('[data-testid="features-pyramid-level"][data-level="1"]');
+    await expect(base.getByTestId("features-pyramid-count")).toHaveText("2/3");
+    // Four colours in the bar of the base: covered, single engine, not needed.
+    expect(await base.locator("[data-band]").evaluateAll((els) => els.map((e) => e.getAttribute("data-band")))).toEqual(["ok", "warn", "off"]);
+    await base.click();
+    const detail = pyramid.getByTestId("features-pyramid-detail");
+    await expect(detail).toHaveCount(1);
+    await expect(detail).toContainText("Da dove arrivano i messaggi e come si risponde");
+    const items = detail.getByTestId("features-pyramid-item");
+    await expect(items).toHaveCount(4);
+    // What moved today first, the covered last.
+    await expect(items.first()).toHaveAttribute("data-status", "fatto");
+    await expect(items.first()).toContainText("fatta oggi");
+    await expect(items.first()).toContainText("fatta, anche sul secondo canale");
+    await expect(items.first()).toContainText("src/channels/team.rs · 12 in 14 giorni");
+    await expect(items.last()).toContainText("36 turni in 14 giorni");
+    // One level at a time.
+    await pyramid.locator('[data-testid="features-pyramid-level"][data-level="3"]').click();
+    await expect(detail).toHaveCount(1);
+    await expect(detail).toContainText("Cosa può fare l'agente");
+    await expect(detail.getByTestId("features-pyramid-item").first()).toContainText("manca");
+
+    // What is missing, decided: one tile per decision, the two to build by priority.
+    const decided = pane.getByTestId("features-decided");
+    const tiles = decided.getByTestId("features-decided-tile");
+    expect(await tiles.evaluateAll((els) => els.map((e) => `${e.getAttribute("data-plan")}=${e.textContent}`))).toEqual([
+      "sviluppo=2da fare", "topics=17si usano da Topics", "altro=30coperte in altro modo", "scelta=23scelte di non farle ora", "fatto=11già fatte",
+    ]);
+    await expect(decided.getByTestId("features-todo-row")).toHaveText(["P1Discord · Serve al secondo canale", "P2Telegram · Dopo il primo"]);
+
+    // How the shares count, and when the watcher last looked.
+    await expect(pane.getByTestId("features-ranking-foot")).toContainText("Sì vale 1, in parte 0,5, no 0; le voci non note non contano");
+    await expect(pane.getByTestId("features-checked")).toHaveText(/^novità controllate il \d{1,2} \S+ alle \d{2}:\d{2}$/);
+    await page.screenshot({ path: testInfo.outputPath("vero-funzionalita-piramide-scuro.png"), fullPage: true });
+
+    // The filters beyond behind, each with its count, each keeping what it says.
+    const leaves = pane.getByTestId("features-leaf");
+    for (const [f, n] of [["news", 43], ["todo", 2], ["choice", 23]] as const) {
+      const tab = pane.getByTestId(`features-filter-${f}`);
+      await expect(tab).toContainText(String(n));
+      await tab.click();
+      await expect(leaves).toHaveCount(n);
+    }
+    await expect(pane.locator('[data-testid="features-leaf"] [data-testid="features-plan"][data-plan="scelta"]')).toHaveCount(23);
+    await expect(pane.getByTestId("features-filter-news")).toHaveText(/Novità da rivedere/);
+
+    // All: the area says who leads it and how many behind, its groups their own share.
+    await pane.getByTestId("features-filter-all").click();
+    await expect(leaves).toHaveCount(172);
+    const channels = pane.locator('[data-area="channels"]');
+    await expect(channels.getByTestId("features-area-behind")).toHaveText("7 indietro");
+    await expect(channels.getByTestId("features-area-hint")).toHaveText("Jarvis 62%, 5° di 16 · davanti OpenClaw 74%");
+    await expect(channels.getByTestId("features-group")).toHaveCount(3);
+    await expect(channels.locator('[data-group="ch.chat"]')).toContainText("Piattaforme di chat");
+    await expect(channels.locator('[data-group="ch.chat"] [data-testid="features-group-ours"]')).toHaveText("Jarvis 17%");
+
+    // A feature whole: behind and its decision on the row, then the note, the
+    // decision, all fifteen others, eight news of ten and the evidence page.
+    const wa = channels.locator('[data-leaf="ch.wa"]');
+    await expect(wa.getByTestId("features-behind-chip")).toHaveText("indietro");
+    await expect(wa.getByTestId("features-plan")).toHaveText("scelta: non ora");
+    await wa.getByRole("button").first().click();
+    const leaf = wa.getByTestId("features-leaf-detail");
+    await expect(leaf.getByTestId("features-note")).toHaveText("Noi: solo i messaggi diretti e i gruppi del primo account");
+    await expect(leaf.getByTestId("features-decided-why")).toHaveText("Deciso: Nessun cliente lo usa: si fa quando serve");
+    await expect(leaf.getByTestId("features-cell")).toHaveCount(15);
+    await expect(leaf.getByTestId("features-cell").first()).toHaveAttribute("data-status", "yes");
+    await expect(leaf.locator('[data-testid="features-cell"][data-status="no"]').first()).toBeVisible();
+    await expect(leaf.getByTestId("features-news")).toHaveCount(8);
+    await expect(leaf.getByTestId("features-news-more")).toHaveText("altre 2");
+    const source = leaf.getByTestId("features-source");
+    await expect(source).toHaveAttribute("href", "https://docs.example.com/channels/whatsapp");
+    await expect(source).toHaveText(/fonte\s*docs\.example\.com\/channels\/whatsapp/);
+    await wa.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("vero-funzionalita-voce-scuro.png") });
+    await turnedLight(page, "features-pane");
+    await pyramid.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("vero-funzionalita-piramide-chiaro.png") });
+    await page.emulateMedia({ colorScheme: "dark" });
   });
 
   test("phone, 390 px: the context level is one sheet, nothing wider than the screen", async ({ browser }, testInfo) => {

@@ -40,6 +40,23 @@ export interface FeatureNews {
   source: string;
 }
 
+/** What was decided about a feature Jarvis does not fully have (`plan` in the hub's map). */
+export type PlanKind = 'sviluppo' | 'topics' | 'altro' | 'scelta' | 'fatto'; // allow-italian: the hub's own keys, compared by value
+const PLAN_KINDS: readonly string[] = ['sviluppo', 'topics', 'altro', 'scelta', 'fatto']; // allow-italian: the hub's own keys, compared by value
+
+export interface FeaturePlan {
+  kind: PlanKind;
+  /** Priority of a feature still to build, 1 first. */
+  prio: number | null;
+  why: string;
+}
+
+/** One of the other systems on a feature: its name and its status there. */
+export interface FeatureCell {
+  name: string;
+  status: LeafStatus;
+}
+
 export interface FeatureLeaf {
   id: string;
   name: string;
@@ -57,6 +74,20 @@ export interface FeatureLeaf {
   partly: string[];
   news: FeatureNews[];
   keywords: string[];
+  /** How Jarvis actually does it, when the map says. */
+  note: string | null;
+  plan: FeaturePlan | null;
+  /** Every other system with its status, who has it first, unknown last. */
+  cells: FeatureCell[];
+  /** The evidence pages behind the judgement, safe links only. */
+  sources: string[];
+}
+
+export interface FeatureGroup {
+  id: string;
+  name: string;
+  /** Jarvis's share in the group. */
+  oursPct: number | null;
 }
 
 export interface FeatureArea {
@@ -67,11 +98,22 @@ export interface FeatureArea {
   /** Jarvis's share and place in this area. */
   oursPct: number | null;
   oursRank: number | null;
+  /** The best of the others in this area, to say who is ahead and by how much. */
+  best: { name: string; pct: number; rank: number } | null;
+  groups: FeatureGroup[];
 }
 
 export interface FeaturesView {
   /** The day the map was last researched («2026-11-03»). */
   updated: string | null;
+  /** When the watcher last looked for news (ISO), not when Topics read the hub. */
+  checked: string | null;
+  /** Features with news still to review. */
+  withNews: number;
+  /** How many features carry each decision. */
+  plans: Record<PlanKind, number>;
+  /** The features still to build, by priority. */
+  todo: FeatureLeaf[];
   systems: FeatureSystem[];
   leaves: number;
   behind: number;
@@ -102,6 +144,13 @@ function safeUrl(v: unknown): string | null {
   }
 }
 
+function planOf(raw: unknown): FeaturePlan | null {
+  if (!isObject(raw) || !PLAN_KINDS.includes(String(raw.kind))) return null;
+  return { kind: raw.kind as PlanKind, prio: num(raw.prio), why: str(raw.why) ?? '' };
+}
+
+const CELL_ORDER: Record<LeafStatus, number> = { yes: 0, partial: 1, no: 2, unknown: 3 };
+
 function ranking(raw: unknown): Map<string, { pct: number; rank: number }> {
   const out = new Map<string, { pct: number; rank: number }>();
   list(raw).forEach((r, i) => {
@@ -126,6 +175,8 @@ export function featuresView(data: unknown): FeaturesView | null {
   const systems: FeatureSystem[] = [...names.keys()]
     .map((id) => ({ id, name: nameOf(id), pct: overall.get(id)?.pct ?? null, rank: overall.get(id)?.rank ?? null }))
     .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999));
+  const order = new Map(systems.map((s, i) => [s.id, i]));
+  const rivals = systems.filter((s) => s.id !== OURS);
   const areas: FeatureArea[] = [];
   for (const a of list(data.areas)) {
     if (!isObject(a)) continue;
@@ -133,10 +184,12 @@ export function featuresView(data: unknown): FeaturesView | null {
     const name = str(a.name);
     if (!id || !name) continue;
     const leaves: FeatureLeaf[] = [];
+    const groups: FeatureGroup[] = [];
     for (const g of list(a.children)) {
       if (!isObject(g)) continue;
       const group = str(g.name) ?? '';
       const groupId = str(g.id) ?? '';
+      groups.push({ id: groupId, name: group, oursPct: ranking(g.ranking).get(OURS)?.pct ?? null });
       for (const l of list(g.children)) {
         if (!isObject(l)) continue;
         const leafId = str(l.id);
@@ -164,17 +217,38 @@ export function featuresView(data: unknown): FeaturesView | null {
             return [{ title, url: safeUrl(n.url), at: Number.isFinite(at) ? at : null, source: sourceName(str(n.system), names) }];
           }),
           keywords: list(l.keywords).map(str).filter((s): s is string => s !== null),
+          note: str(l.note),
+          plan: planOf(l.plan),
+          cells: rivals
+            .map((s) => ({ id: s.id, name: s.name, status: statusOf(status[s.id]) }))
+            .sort((x, y) => CELL_ORDER[x.status] - CELL_ORDER[y.status] || (order.get(x.id) ?? 0) - (order.get(y.id) ?? 0))
+            .map(({ name: n, status: st }) => ({ name: n, status: st })),
+          sources: list(l.sources).map(safeUrl).filter((u): u is string => u !== null),
         });
       }
     }
-    const mine = ranking(a.ranking).get(OURS);
-    areas.push({ id, name, leaves, behind: leaves.filter((l) => l.behind).length, oursPct: mine?.pct ?? null, oursRank: mine?.rank ?? null });
+    const inArea = ranking(a.ranking);
+    const mine = inArea.get(OURS);
+    const top = [...inArea].find(([k]) => k !== OURS);
+    areas.push({
+      id, name, leaves, groups,
+      behind: leaves.filter((l) => l.behind).length,
+      oursPct: mine?.pct ?? null,
+      oursRank: mine?.rank ?? null,
+      best: top ? { name: nameOf(top[0]), pct: top[1].pct, rank: top[1].rank } : null,
+    });
   }
   const totals = isObject(data.totals) ? data.totals : {};
   const all = areas.flatMap((a) => a.leaves);
   const meta = isObject(data.meta) ? data.meta : {};
+  const plans: Record<PlanKind, number> = { sviluppo: 0, topics: 0, altro: 0, scelta: 0, fatto: 0 };
+  for (const l of all) if (l.plan) plans[l.plan.kind] += 1;
   return {
     updated: str(meta.updated),
+    checked: str(meta.checked),
+    withNews: num(totals.withNews) ?? all.filter((l) => l.news.length > 0).length,
+    plans,
+    todo: all.filter((l) => l.plan?.kind === 'sviluppo').sort((x, y) => (x.plan?.prio ?? 99) - (y.plan?.prio ?? 99)),
     systems,
     leaves: num(totals.leaves) ?? all.length,
     behind: num(totals.behind) ?? all.filter((l) => l.behind).length,
@@ -197,6 +271,7 @@ export function localizeFeatures(view: FeaturesView, words: FeatureWordsMap | nu
   const areas = view.areas.map((a) => ({
     ...a,
     name: words[`a:${a.id}`]?.[0] ?? a.name,
+    groups: a.groups.map((g) => ({ ...g, name: words[`g:${g.id}`]?.[0] ?? g.name })),
     leaves: a.leaves.map((l) => {
       const own = words[l.id];
       const group = words[`g:${l.groupId}`]?.[0] ?? l.group;
@@ -210,16 +285,42 @@ export function localizeFeatures(view: FeaturesView, words: FeatureWordsMap | nu
       };
     }),
   }));
-  return { ...view, areas };
+  // The to-do list holds the same leaves: it reads them in the same language.
+  const byId = new Map(areas.flatMap((a) => a.leaves).map((l) => [l.id, l]));
+  return { ...view, areas, todo: view.todo.map((l) => byId.get(l.id) ?? l) };
 }
 
-export type FeatureFilter = 'behind' | 'all';
+/** Behind, all, with news to review, still to build, chosen not to do now. */
+export type FeatureFilter = 'behind' | 'all' | 'news' | 'todo' | 'choice';
+export const FEATURE_FILTERS: readonly FeatureFilter[] = ['behind', 'all', 'news', 'todo', 'choice'];
+
+/** Whether a leaf passes a filter, before the search. */
+export function passes(l: FeatureLeaf, filter: FeatureFilter): boolean {
+  switch (filter) {
+    case 'all': return true;
+    case 'behind': return l.behind;
+    case 'news': return l.news.length > 0;
+    case 'todo': return l.plan?.kind === 'sviluppo';
+    case 'choice': return l.plan?.kind === 'scelta';
+  }
+}
+
+/** How many leaves each filter keeps, for the counts on its tab. */
+export function filterCounts(view: FeaturesView): Record<FeatureFilter, number> {
+  return {
+    behind: view.behind,
+    all: view.leaves,
+    news: view.withNews,
+    todo: view.plans.sviluppo,
+    choice: view.plans.scelta,
+  };
+}
 
 /** The areas with the leaves the filter and the search keep; an area left empty goes. */
 export function visibleAreas(view: FeaturesView, filter: FeatureFilter, query: string): FeatureArea[] {
   const q = query.trim().toLowerCase();
   const hit = (l: FeatureLeaf) => !q || [l.name, l.desc, l.group, ...l.keywords].some((s) => s.toLowerCase().includes(q));
   return view.areas
-    .map((a) => ({ ...a, leaves: a.leaves.filter((l) => (filter === 'all' || l.behind) && hit(l)) }))
+    .map((a) => ({ ...a, leaves: a.leaves.filter((l) => passes(l, filter) && hit(l)) }))
     .filter((a) => a.leaves.length > 0);
 }

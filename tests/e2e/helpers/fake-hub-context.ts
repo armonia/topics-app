@@ -152,6 +152,58 @@ const AREAS: Array<{ id: string; name: string; groups: Array<[id: string, name: 
 
 const WEIGHT: Record<string, number> = { yes: 1, partial: 0.5, no: 0 };
 
+/** The decision on a feature: the first two still to build, then a spread of the others. */
+function planOf(i: number, behind: boolean): Record<string, unknown> | undefined {
+  if (i === 0) return { kind: "scelta", why: "Nessun cliente lo usa: si fa quando serve" };
+  if (i === 1) return { kind: "sviluppo", prio: 1, why: "Serve al secondo canale" };
+  if (i === 2) return { kind: "sviluppo", prio: 2, why: "Dopo il primo" };
+  if (behind && i % 2 === 0) return { kind: "scelta", why: "Si fa quando serve" };
+  if (i % 5 === 1) return { kind: "altro", why: "Lo copre un altro strumento" };
+  if (i % 7 === 3) return { kind: "topics", why: "Si usa da Topics" };
+  if (i % 11 === 4) return { kind: "fatto", why: "Fatto il 03/11" };
+  return undefined;
+}
+
+/** The first feature has more news than the view shows: ten, the first from OpenClaw. */
+function newsOf(i: number, id: string, name: string, now: number): Array<Record<string, unknown>> {
+  if (i % 4 !== 0) return [];
+  const n = i === 0 ? 10 : 1;
+  return Array.from({ length: n }, (_, k) => ({
+    system: i % 8 === 0 && k === 0 ? "openclaw" : "example/agents",
+    title: `fix(${id}): keep the queue when the gateway restarts (#${1000 + i + k})`,
+    url: `https://example.com/news/${i}-${k}`,
+    date: new Date(now - ((i + k) % 9) * DAY).toISOString(),
+    match: name.toLowerCase(),
+  }));
+}
+
+/**
+ * The pyramid of what Jarvis needs: seven levels, 19 placeholder functions,
+ * 15 of the 17 needed covered, 1 done today, 1 moving to the single engine,
+ * 1 missing, 2 let go or withdrawn.
+ */
+export function pyramidMap(now: number): Record<string, unknown> {
+  const ok = (name: string, where: string, use = "\u2014") => ({ name, where, note: "s\u00ec", use, status: "ok" });
+  return {
+    updated: new Date(now - 3 * DAY).toISOString().slice(0, 10),
+    title: "Piramide di ci\u00f2 che serve a Jarvis",
+    levels: [
+      { n: 1, name: "Canali", desc: "Da dove arrivano i messaggi e come si risponde", items: [
+        ok("Chat dal telefono, un account", "src/channels/phone.rs", "36 turni"),
+        { name: "Bot di squadra", where: "src/channels/team.rs", note: "parziale", use: "12", status: "fatto", outcome: "fatta, anche sul secondo canale" },
+        { name: "Ponte della posta", where: "plugin mail-bridge", note: "parziale", use: "?", status: "motore", outcome: "va nel motore unico" },
+        { name: "Canale vecchio", where: "config legacy", note: "no", use: "\u2014", status: "lascia", outcome: "non serve" },
+      ] },
+      { n: 2, name: "Motore", desc: "Chi esegue il turno", items: [ok("Turno con riserva", "src/engine/turn.rs"), ok("Coda dei turni", "src/engine/queue.rs")] },
+      { n: 3, name: "Strumenti", desc: "Cosa pu\u00f2 fare l'agente", items: [ok("Shell", "tools/shell"), ok("Ricerca", "tools/search"), { name: "Invio verso altre chat", where: "tools/send", note: "no", use: "?", status: "no" }] },
+      { n: 4, name: "Conoscenza", desc: "Cosa sa e ricorda", items: [ok("Schede", "memory/"), ok("Richiamo", "memory/recall")] },
+      { n: 5, name: "Automazioni", desc: "Cosa gira da solo", items: [ok("Cron", "cron/"), ok("Brief", "cron/brief"), { name: "Job vecchio", where: "cron/old", note: "no", use: "0", status: "ritira" }] },
+      { n: 6, name: "Viste", desc: "Cosa vedi tu", items: [ok("Pannello", "public/"), ok("Board", "board/"), { name: "Avvisi", where: "notify/", note: "s\u00ec", use: "\u2014", status: "altro", outcome: "dalla campanella" }] },
+      { n: 7, name: "Sicurezza", desc: "Chi pu\u00f2 fare cosa", items: [ok("Muri dei gruppi", "guard/groups"), ok("Segreti nel portachiavi", "guard/keychain")] },
+    ],
+  };
+}
+
 /** The map, built so the totals are the real map's (172 features, 47 behind). */
 export function featuresMap(now: number): Record<string, unknown> {
   const total = AREAS.reduce((n, a) => n + a.groups.reduce((m, [, , leaves]) => m + leaves.length, 0), 0);
@@ -183,8 +235,11 @@ export function featuresMap(now: number): Record<string, unknown> {
         const have = others.filter((id) => status[id] === "yes").length;
         const ours = status.jarvis!;
         // The watcher quotes upstream changelogs as written: commit titles, in English.
-        const news = i % 4 === 0 ? [{ system: i % 8 === 0 ? "openclaw" : "example/agents", title: `fix(${id}): keep the queue when the gateway restarts (#${1000 + i})`, url: `https://example.com/news/${i}`, date: new Date(now - (i % 9) * DAY).toISOString(), match: name.toLowerCase() }] : [];
-        return { id, name, desc, status, sources: [], keywords: [name.toLowerCase()], ours, have, of: others.length, behind: ours !== "yes" && have >= 3, news };
+        const news = newsOf(i, id, name, now);
+        const plan = planOf(i, behind);
+        const note = i === 0 ? "solo i messaggi diretti e i gruppi del primo account" : undefined;
+        const sources = i === 0 ? ["https://docs.example.com/channels/whatsapp"] : [];
+        return { id, name, desc, status, sources, keywords: [name.toLowerCase()], ours, have, of: others.length, behind: ours !== "yes" && have >= 3, news, ...(plan ? { plan } : {}), ...(note ? { note } : {}) };
       });
       return { id: gid, name: gname, children: kids, ranking: rank(kids) };
     });
@@ -197,6 +252,6 @@ export function featuresMap(now: number): Record<string, unknown> {
     ranking: rank(all),
     totals: { leaves: all.length, behind: all.filter((l) => l.behind).length, withNews: all.filter((l) => l.news.length).length },
     areas,
-    pyramid: null,
+    pyramid: pyramidMap(now),
   };
 }
