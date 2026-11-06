@@ -111,9 +111,7 @@ export default function InboxPanel({ model, onWSMessage, onClose }: {
   const groups = useMemo(() => bellGroups(model, hub), [model, hub]);
   const nowCount = groups.reduce((n, g) => n + g.entries.length, 0);
 
-  // The focus goes to the first row on open, so ↓/Enter work at once.
-  //
-  // NOT IN ONE CALL. The `Menu` places its panel in a layout effect and shows
+  // The focus goes to the first row on open, so ↓/Enter work at once. NOT IN ONE CALL. The `Menu` places its panel in a layout effect and shows
   // it on the commit after (`visibility: hidden` until measured), and this
   // effect runs before that commit: a hidden element refuses `focus()` in
   // silence, so the focus stayed on the bell and ↓/Enter did nothing (seen by
