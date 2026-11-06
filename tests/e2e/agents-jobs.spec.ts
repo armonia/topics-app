@@ -18,6 +18,16 @@
  * reads; it also answers for the Claude proxy. The real :3360 and :3335 are
  * never touched, and the names are placeholders.
  *
+ * The same list carries what the hub sees outside Topics (a session of every
+ * provider with its project's icon and share of the week, the sub-agent, the
+ * live workflow with its agents and tokens, the session already in a Topics
+ * tab left out), why a held job is paused, the proxy's account, tool at work,
+ * idle session, cost, timeline without prompts and the band of two sessions on
+ * one file. `/lavori/<filter>` opens the level on its filter; the gate's card
+ * and the footer open Topics' Automazioni, the latter on the Calendar, where a
+ * late reminder stays, a row opens on what it will do and who runs it, and the
+ * agent's instructions show only behind their own fold.
+ *
  * Mutation: with `isBoardCard` (lib/agentsJobs.ts) returning false, «Rilascio
  * di acme-web» shows in the waiting filter and the test is red; with the proxy's title
  * taken from the timeline, «PROMPT GREZZO» shows and the test is red; with the
@@ -129,7 +139,7 @@ test.describe("agents and jobs", () => {
     const cards = decide.getByTestId("agents-jobs-decide-card");
     await expect(cards.first()).toContainText("Pubblica la landing di acme-web", { timeout: 20_000 });
     await expect(cards.first().getByTestId("agents-jobs-question")).toHaveText("“aspetta il tuo ok al passo «deploy» da 14 min”");
-    await expect(cards.first().getByTestId("agents-jobs-open-hub")).toHaveAttribute("href", /#automations\/lobster%3Apublish-acme-web$/);
+    await expect(cards.first().getByTestId("agents-jobs-open-hub")).toHaveText("Apri in Automazioni");
     if (withTopics) {
       await expect(cards).toHaveCount(2);
       const chat = cards.nth(1);
@@ -149,11 +159,13 @@ test.describe("agents and jobs", () => {
     await expect(line.nth(1)).toContainText("parte a Mac libero");
     const quota = level.getByTestId("agents-jobs-section-quota");
     await expect(quota).toContainText("Refactor del router di studio-x, seconda passata");
-    await expect(quota).toContainText("riparte da sola");
+    // Why the hub holds it, in its words, and since when it waits in line.
+    await expect(quota).toContainText("in pausa: Claude frenato");
+    await expect(quota).toContainText("in coda da 1 h 00");
     await expect(level.getByTestId("agents-jobs-count-waiting")).toHaveText(withTopics ? "5" : "4");
     await expect(level).not.toContainText("Rilascio di acme-web");
-    // The way to the Board and to the hub's automations.
-    await expect(level.getByTestId("agents-jobs-automations")).toHaveAttribute("href", /#automations$/);
+    // The way to the Board and to Automazioni (its calendar), inside Topics.
+    await expect(level.getByTestId("agents-jobs-automations")).toHaveText("Automazioni");
     await page.screenshot({ path: testInfo.outputPath("vero-agenti-e-lavori-scuro.png") });
 
     // RUNNING: Topics, the proxy outside Topics, the queue, the workflow.
@@ -171,9 +183,29 @@ test.describe("agents and jobs", () => {
     await expect(proxyRows).toHaveCount(2);
     await expect(proxyRows.filter({ hasText: "Jarvis su WhatsApp" })).toContainText("Sonnet 5.5 · studio-x");
     await expect(proxyRows.filter({ hasText: "Sessione Claude fuori da Topics" })).toContainText("Haiku 5.5");
+    // The account it spends; silent for minutes it waits for input, else it says the tool at work.
+    await expect(proxyRows.filter({ hasText: "Jarvis su WhatsApp" })).toContainText("lavoro@example.com");
+    await expect(proxyRows.filter({ hasText: "Jarvis su WhatsApp" })).toContainText("in attesa di input da 7 min");
+    await expect(proxyRows.filter({ hasText: "Sessione Claude fuori da Topics" })).toContainText("Legge README.md");
+    // Two sessions on one file: the band, with the file's name; a word out of a command is not a file.
+    await expect(level.getByTestId("agents-jobs-conflict")).toHaveCount(1);
+    await expect(level.getByTestId("agents-jobs-conflict")).toHaveText("2 sessioni modificano router.ts");
+    // What the hub sees outside Topics: every provider, the Topics tab left out, with the project's real icon.
+    const outside = level.getByTestId("agents-jobs-section-outside").getByTestId("agents-jobs-row");
+    await expect(outside).toHaveCount(3);
+    await expect(outside.filter({ hasText: "Test A/B con assegnazione all'edge" })).toContainText("Claude · Opus · acme-web");
+    await expect(outside.filter({ hasText: "Test A/B con assegnazione all'edge" })).toContainText("0,7% della settimana");
+    await expect(outside.filter({ hasText: "Test A/B con assegnazione all'edge" }).getByTestId("agents-jobs-project-icon")).toBeVisible();
+    await expect(outside.filter({ hasText: "Sessione jcode su studio-x" })).toContainText("aspetta un comando");
+    await expect(outside.filter({ hasText: "Migra il router di acme-api" })).toContainText("Codex · GPT-5");
+    await expect(level).not.toContainText("Sessione che Topics conta già");
+    await expect(level.getByTestId("agents-jobs-section-subagents")).toContainText("Sottoagente su acme-web");
     await expect(level.getByTestId("agents-jobs-section-queue")).toContainText("Rigenera gli screenshot della landing di acme-web");
     const flow = level.getByTestId("agents-jobs-section-workflows");
     await expect(flow).toContainText("Revisione di acme-web");
+    // A live workflow the hub sees: one row, its agents counted and its tokens summed.
+    await expect(flow).toContainText("Workflow per «Protocolli dei canali»");
+    await expect(flow).toContainText("4 agenti · 2,3M tok");
     await expect(flow).toContainText("passo 3 di 5 · Verifica · 2 agenti", { timeout: 20_000 });
     await expect(flow.locator("[data-step]")).toHaveCount(5);
     await expect(flow.locator('[data-step="active"]')).toHaveCount(1);
@@ -192,6 +224,12 @@ test.describe("agents and jobs", () => {
     // the session still at work is not also among the finished.
     await expect(level).toContainText("Opus 5.5 · acme-docs");
     await expect(level).not.toContainText("Jarvis su WhatsApp");
+    // The ended session: its estimated cost, and its timeline (the summaries, never the prompt) on demand.
+    const ended = level.getByTestId("agents-jobs-row").filter({ hasText: "Opus 5.5 · acme-docs" });
+    await expect(ended).toContainText(/circa [\d,]+\s?€|circa €/);
+    await ended.getByTestId("agents-jobs-timeline-toggle").click();
+    await expect(ended.getByTestId("agents-jobs-timeline")).toHaveText("Ha aggiornato l'indice dei documenti di acme-docs.");
+    await expect(level).not.toContainText("PROMPT GREZZO");
     await page.screenshot({ path: testInfo.outputPath("vero-agenti-e-lavori-finiti-scuro.png") });
     // The whole interface turns light, the sidebar and the menus included.
     await page.emulateMedia({ colorScheme: "light" });
@@ -211,6 +249,56 @@ test.describe("agents and jobs", () => {
     await expect.poll(() => hub!.posts.filter((p) => p.path === "queue" && p.method === "DELETE").map((p) => p.id)).toEqual(["j-l2"]);
     await expect(level.getByTestId("agents-jobs-section-line").getByTestId("agents-jobs-row")).toHaveCount(1);
     await expect(level.getByTestId("agents-jobs-count-waiting")).toHaveText(withTopics ? "4" : "3");
+  });
+
+  test("a link opens the level on its filter; Automazioni opens on the gate and on the calendar, the late reminder kept", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.emulateMedia({ colorScheme: "dark" });
+    // The hub's `#work/<filter>` is Topics' `/lavori/<filter>`: the level opens on it, and the address is consumed.
+    await page.goto("/lavori/finiti");
+    const level = page.getByTestId("agents-jobs-level");
+    await expect(level).toBeVisible({ timeout: 30_000 });
+    await expect(level).toHaveAttribute("data-filter", "finished");
+    await expect.poll(() => new URL(page.url()).pathname).toBe("/");
+
+    // The gate's card opens Topics' own Automazioni, not the hub's page.
+    await level.getByTestId("agents-jobs-filter-waiting").click();
+    const gate = level.getByTestId("agents-jobs-decide-card").filter({ hasText: "Pubblica la landing di acme-web" });
+    await gate.getByTestId("agents-jobs-open-hub").click();
+    const pane = page.getByTestId("automations-pane");
+    await expect(pane).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("agents-jobs-level")).toHaveCount(0);
+
+    // The footer's «Automazioni» opens it on its Calendar tab.
+    const again = await openLevel(page);
+    await again.level.getByTestId("agents-jobs-automations").click();
+    await expect(pane.getByTestId("automations-tab-calendar")).toHaveAttribute("aria-selected", "true", { timeout: 15_000 });
+    const cal = pane.getByTestId("automations-calendar");
+    const items = cal.getByTestId("automations-calendar-item");
+    await expect(items).toHaveCount(3, { timeout: 20_000 });
+    // The reminder that did not fire stays, on yesterday, marked late.
+    await expect(cal.getByTestId("automations-calendar-day").first()).toContainText("Ieri");
+    const late = items.filter({ hasText: "Rispondere al preventivo di acme-api" });
+    await expect(late.getByTestId("automations-calendar-late")).toHaveText("in ritardo");
+    await expect(late).toContainText("Jarvis · WhatsApp");
+    // The job says how often it checks; a reminder that writes nothing says so.
+    await expect(items.filter({ hasText: "Controllare il rinnovo del dominio" })).toContainText("controlla ogni mattina alle 9");
+    await expect(items.filter({ hasText: "Ricordami di chiudere la PR di studio-x" })).toContainText("Jarvis · non ti scrive");
+    // Opened: what it will do, when, the channel, who runs it; the agent's instructions behind their own fold.
+    await expect(cal).not.toContainText("ISTRUZIONI DELL'AGENTE");
+    await late.getByTestId("automations-calendar-toggle").click();
+    const detail = late.getByTestId("automations-calendar-detail");
+    await expect(detail).toContainText("un agente esegue le istruzioni qui sotto e ti scrive su WhatsApp. Poi il promemoria si chiude.");
+    await expect(detail).toContainText("Esegue");
+    await expect(detail).toContainText("Muse");
+    await expect(detail).not.toContainText("ISTRUZIONI DELL'AGENTE");
+    await detail.getByTestId("automations-calendar-prompt-toggle").click();
+    await expect(detail.getByTestId("automations-calendar-prompt")).toHaveText("ISTRUZIONI DELL'AGENTE per il preventivo");
+    const pr = items.filter({ hasText: "Ricordami di chiudere la PR di studio-x" });
+    await pr.getByTestId("automations-calendar-toggle").click();
+    await expect(pr.getByTestId("automations-calendar-detail")).toContainText("Ti ricorda la PR di studio-x se è ancora aperta");
+    await expect(pr.getByTestId("automations-calendar-detail")).toContainText("Ti scrive con una nota sulla card");
+    await page.screenshot({ path: testInfo.outputPath("vero-automazioni-calendario-scuro.png") });
   });
 
   test("hub silent: a band says since when, the last answer stays, the retry reads again", async ({ page }, testInfo) => {
@@ -303,7 +391,7 @@ test.describe("agents and jobs", () => {
     await goToApp(page);
     const { level } = await openLevel(page);
     await expect(level.getByTestId("agents-jobs-freshness")).toHaveCount(0);
-    for (const id of ["proxy", "queue", "workflows", "line", "quota"]) {
+    for (const id of ["outside", "subagents", "proxy", "queue", "workflows", "line", "quota"]) {
       await expect(level.getByTestId(`agents-jobs-section-${id}`)).toHaveCount(0);
     }
     await expect(level.getByTestId("agents-jobs-row")).toHaveCount(0);

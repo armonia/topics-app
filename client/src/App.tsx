@@ -57,6 +57,7 @@ import { ReloadedFlash } from './components/ReloadedFlash';
 import { currentTaskTarget } from './lib/openTaskLink';
 import { openTaskFromUrl, subscribeServiceWorkerTaskOpen, setDeepLinkNotifier } from './lib/deepLinkEntry';
 import { subscribeServiceWorkerBanner } from './lib/push/swBridge';
+import { consumeAgentsJobsLinkFromUrl } from './lib/agentsJobsLink';
 import { consumeTabLinkFromUrl, currentTabTarget, openTabInApp, openTabInAppWhenHydrated, tabAckReleasesIntent } from './lib/tabLink';
 import { TAB_PATH_PREFIX, type TabTarget } from '../../shared/tab-link';
 import { installOsOpenPathBridge, defaultOsOpenDeps } from './lib/osOpenPath';
@@ -2728,6 +2729,13 @@ function BootDeepLinkResolver({ isDetached }: { isDetached: boolean }) {
   // that no longer exists would go from minting a ghost tab to doing nothing at
   // all, which is the outcome this repository calls the worst of the three.
   useEffect(() => setDeepLinkNotifier((message) => toast.warning(message)), [toast]);
+  // `/lavori[/<filter>]`: System > Agenti e lavori on that filter (the hub's `#work/<filter>`,
+  // where the tray pointed). After the menu hosts have mounted their listeners: the next tick.
+  useEffect(() => {
+    if (isDetached) return;
+    const t = setTimeout(() => { consumeAgentsJobsLinkFromUrl(); }, 0);
+    return () => clearTimeout(t);
+  }, [isDetached]);
   useEffect(() => {
     // Le finestre STACCATE (`?topics=`) sono read-only verso il pane-store
     // (bootstrap.ts: niente persistenza locale, niente PUT, niente cross-tab):
