@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  automationKeyOfLink, automationSummary, macStrain, closeWaitingBody, failedJobs, firingAlerts, quotaLines, redGates, servicesDown, waitingItems,
+  automationJarvisText, automationKeyOfLink, automationSummary, jarvisHref, jarvisLinks, macStrain, closeWaitingBody, failedJobs, firingAlerts, quotaLines, redGates, servicesDown, waitingItems,
 } from './hubSystem';
 
 const SERVICES = { at: 1, services: [
@@ -117,5 +117,18 @@ describe('HUBBR-03: the hub readers', () => {
     expect(macStrain({ effort: { level: 0 }, swapSustained: true, swapUsedGB: 15, swapTotalGB: 16 })).toBe('memoria sotto pressione');
     expect(macStrain({ effort: { level: 0 }, swapSustained: false, swapUsedGB: 15, swapTotalGB: 16 })).toBeNull();
     expect(macStrain(null)).toBeNull();
+  });
+});
+
+describe('writing to Jarvis', () => {
+  test('only http links of the hub config count, and WhatsApp carries the message', () => {
+    expect(jarvisLinks({ jarvis: { whatsapp: 'javascript:alert(1)' } })).toBeNull();
+    expect(jarvisLinks(null)).toBeNull();
+    const links = jarvisLinks({ jarvis: { whatsapp: 'https://wa.me/1', discord: 'https://discord.com/x' } });
+    const text = automationJarvisText('Reindex docs', 'gh:docs', 'fallita 3 volte');
+    expect(text).toBe('Automazione «Reindex docs» (gh:docs): fallita 3 volte');
+    expect(jarvisHref(links, text)).toBe(`https://wa.me/1?text=${encodeURIComponent(text)}`);
+    expect(jarvisHref({ whatsapp: null, discord: 'https://discord.com/x' }, text)).toBe('https://discord.com/x');
+    expect(jarvisHref(null, text)).toBeNull();
   });
 });
