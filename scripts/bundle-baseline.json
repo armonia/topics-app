@@ -865,7 +865,10 @@
     "Cosa compra: nel chunk pigro della Board la striscia della colonna Todo, la riga «Aspetta il freno» sulle card ferme, le righe Codex, Muse e Suite e build del popover con le quote dell'hub, e le loro frasi IT+EN via addCatalogue. Il tetto segue la misura: total_assets 9.370.000 -> 9.390.000.",
     "",
     "2026-11-06, fine di hub-smistamento rifondato su main (b11a6997f): misurato sul PC con `bun run build:client && bun run check:bundle`, entry_eager raw 959.033 contro un tetto di 958.055 (main pulito sullo stesso PC: 958.007, quindi +1.026 del ramo), total_assets 9.597.945 contro un tetto di 9.577.800.",
-    "Cosa compra nell'entry, oltre a main: la quota piu' calda sulla porta Profilo del telefono, la riga Processi che dice «Mac: sotto sforzo», «Apri in Processi» dalla campanella e le loro chiavi; il resto (Account e quote, Consumi per account, Scrivi a Jarvis, perché di Ti aspetta) sta nei chunk pigri. I tetti seguono la misura: entry_eager 939.270 -> 941.000, total_assets 9.390.000 -> 9.420.000."
+    "Cosa compra nell'entry, oltre a main: la quota piu' calda sulla porta Profilo del telefono, la riga Processi che dice «Mac: sotto sforzo», «Apri in Processi» dalla campanella e le loro chiavi; il resto (Account e quote, Consumi per account, Scrivi a Jarvis, perché di Ti aspetta) sta nei chunk pigri. I tetti seguono la misura: entry_eager 939.270 -> 941.000, total_assets 9.390.000 -> 9.420.000.",
+    "",
+    "2026-11-06, Account e quote e Consumi alla pari con l'hub (hub-gap-account-consumi): misurato sul PC con `bun run build:client && bun run check:bundle`, total_assets 9.642.915 contro un tetto di 9.608.400 (9.420.000 +2%), entry_eager raw 959.061 / gz 310.320 (28 byte sopra la misura di prima, sotto il tetto).",
+    "Cosa compra, tutto nei chunk pigri AccountQuotasPane e HubUsageSection con i loro dizionari IT+EN: sotto le barre degli account le fasce, l'andamento e il verdetto interno/esterno, il quadrante del ritmo, la previsione, le finestre in piu', il bonus, l'accesso e chi ha speso, le schede degli accessi da rifare; nei Consumi i filtri con il CSV, input e output, cartelle e rami, il dettaglio dei progetti, Muse per cartella, l'attribuzione del proxy e la curva del risparmio. Il tetto segue la misura: total_assets 9.420.000 -> 9.460.000."
   ],
   "updated": "2026-11-06",
   "tolerance_pct": 2,
@@ -879,6 +882,6 @@
     "files": 5
   },
   "total_assets": {
-    "raw": 9420000
+    "raw": 9460000
   }
 }
