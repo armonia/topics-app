@@ -483,8 +483,9 @@ scripts/check-cross-shell.sh    # compila i rami Windows e Linux (~4 min)
 
 Vuole `brew install mingw-w64` per il ramo Windows e Docker per quello Linux; se
 manca l'uno o l'altro, lancia solo `windows` o solo `linux`. Lo stesso controllo
-gira in CI su tre runner nativi (job `tauri` di `ci.yml`), quindi saltarlo non
-nasconde niente. Costa solo un giro.
+gira in CI su tre runner nativi (job `tauri` di `ci.yml`) ogni volta che la modifica
+tocca il guscio, l'addon nativo o gli script di build per sistema
+(`scripts/ci-changes.ts`), quindi saltarlo non nasconde niente. Costa solo un giro.
 
 **Aggiungi uno script che si lancia a mano** (una sonda, un banco, una misura)?
 Dichiaralo in `knip.jsonc` col suffisso `!` — `"scripts/webrtc-probe.ts!", // misura a

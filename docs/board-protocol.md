@@ -105,7 +105,11 @@ della run `pull_request` di QUEL commit (tier PR piu' le spec toccate nello shar
 1). Verde solo con tutti i job e2e verdi; rosso con un job `failure`, e il referto
 nomina il job e il comando `gh run view --job <id> --log-failed`; ogni altro esito
 (nessuna run, run annullata, `gh` non autenticato, conflitto con main, 60 minuti
-senza verdetto) e' NON MISURATO. L'attesa non tiene corsia ne' memoria. Il ramo
+senza verdetto) e' NON MISURATO. L'attesa non tiene corsia ne' memoria. Se la
+modifica non tocca nulla che le shard leggano (solo `docs/`, `openspec/`, `.md` della
+radice, il guscio Rust), `prepare-e2e` ed `e2e (0)` girano lo stesso e finiscono
+verdi senza eseguire spec: quel verde dice «nessuna shard serve», non «le spec
+passano» (`scripts/ci-changes.ts`, GATE-22). Il ramo
 diventa pubblico alla consegna, prima della review. `check:e2e-touched --list`
 resta il modo di vedere le spec toccate; sul Mac, senza `--list`, lo script esce
 97 senza lanciare niente.
