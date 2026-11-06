@@ -10,9 +10,10 @@
     "commit che accetta o cura l avviso: e il diff a dire cosa si e deciso di tenersi.",
     "Che un avviso sparisca non fa mai rosso, ma il comando lo dice: quello e il momento di",
     "riscrivere la baseline, o marcisce.",
-    "03/10: accettato http-cache-semantics GHSA-ch52-4w7c-c8xp (landing, via astro). Nessuna versione corretta esiste (<= 4.2.0, senza patch). Il sito e' una build statica: astro lo usa solo in build/dev, mai come cache condivisa fra utenti, che e' la condizione dell'avviso. Si toglie appena esce la patch."
+    "03/10: accettato http-cache-semantics GHSA-ch52-4w7c-c8xp (landing, via astro). Nessuna versione corretta esiste (<= 4.2.0, senza patch). Il sito e' una build statica: astro lo usa solo in build/dev, mai come cache condivisa fra utenti, che e' la condizione dell'avviso. Si toglie appena esce la patch.",
+    "06/11: minimatch GHSA-g3hv-75wg-m249 era gia' accettato; npm ha solo cambiato l'id dell'avviso (1244012 -> 1244623). Arriva da typescript-eslint (solo lint): nemmeno typescript-eslint 8.72.1 esce dal range vulnerabile (chiede ^10.2.2, la patch e' 11.0.1)."
   ],
-  "updated": "2026-10-31",
+  "updated": "2026-11-06",
   "advisories": {
     ".": [
       {
@@ -33,7 +34,7 @@
       },
       {
         "package": "minimatch",
-        "id": 1244012,
+        "id": 1244623,
         "severity": "moderate",
         "title": "minimatch has potential denial of service via globparts amplification",
         "url": "https://github.com/advisories/GHSA-g3hv-75wg-m249"
