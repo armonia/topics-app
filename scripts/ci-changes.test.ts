@@ -553,10 +553,10 @@ describe("ci.yml obeys the answer: the workflow is evaluated, not read", () => {
     const run: GithubRun = { id: 1, head_sha: sha, event: "pull_request", path: CI_CONFIG_PATH, status: "completed", conclusion: "success", html_url: "https://example.test/run/1" };
     const finished = (name: string, conclusion: string): GithubJob => ({ id: 1, name, status: "completed", conclusion });
 
-    // The jobs GitHub would report: every planned job ends `success` (a step skipped inside it does not change that).
-    const planned = plan(answerOf(["docs/board-protocol.md"]), "pull_request");
+    // The jobs GitHub would report: every jobPlan job ends `success` (a step skipped inside it does not change that).
+    const jobPlan = plan(answerOf(["docs/board-protocol.md"]), "pull_request");
     const jobsOf = (conclusion: (job: string) => string) =>
-      Object.entries(planned).flatMap(([name, legs]) => legs.map((l) => finished(name === "e2e" ? `e2e (${l.leg})` : name, conclusion(name))));
+      Object.entries(jobPlan).flatMap(([name, legs]) => legs.map((l) => finished(name === "e2e" ? `e2e (${l.leg})` : name, conclusion(name))));
 
     expect(readE2eEvidence(sha, [run], jobsOf(() => "success")).kind).toBe("pass");
 

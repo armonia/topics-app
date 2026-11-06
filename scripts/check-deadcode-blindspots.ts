@@ -201,6 +201,9 @@ export const KNOWN_BLIND: Array<{ file: string; reason: string }> = [
   // `tests/unit/release-level.test.ts` imports its three functions. Its surface
   // is those three plus one type, all covered there.
   { file: "scripts/release-level.ts", reason: "entry point: il workflow lo esegue, knip da' per usati gli export di un entry" },
+  // Same shape again: CI's `changes` job runs `bun run scripts/ci-changes.ts`
+  // to plan the jobs, and `scripts/ci-changes.test.ts` imports what it tests.
+  { file: "scripts/ci-changes.ts", reason: "entry point: il workflow lo esegue, knip da' per usati gli export di un entry" },
 ];
 
 // ─── i candidati ─────────────────────────────────────────────────────────────

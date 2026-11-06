@@ -24,7 +24,7 @@ export interface QuotaWindow {
   resetsAtMs: number | null;
 }
 
-export type AccountState = 'in-use' | 'ready' | 'off' | 'capped' | 'limited' | 'expired';
+export type QuotaAccountState = 'in-use' | 'ready' | 'off' | 'capped' | 'limited' | 'expired';
 
 export interface ClaudeAccount {
   name: string;
@@ -34,7 +34,7 @@ export interface ClaudeAccount {
   active: boolean;
   disabled: boolean;
   priority: number;
-  state: AccountState;
+  state: QuotaAccountState;
   fiveH: QuotaWindow | null;
   week: QuotaWindow | null;
   /** The account's own caps (null = inherits), the ones in force, and whether one is reached. */
@@ -207,7 +207,7 @@ export function weekElapsedPct(resetsAtMs: number | null, now = Date.now()): num
 
 const WEEK_MS = 7 * 24 * 3_600_000;
 
-function stateOf(p: JsonObject, over: boolean, now: number): AccountState {
+function stateOf(p: JsonObject, over: boolean, now: number): QuotaAccountState {
   if (p.disabled === true) return 'off';
   const expiresAt = num(p.expiresAt);
   const expired = p.expired === true || isObject(p.refreshFailed) || (expiresAt !== null && expiresAt < now);

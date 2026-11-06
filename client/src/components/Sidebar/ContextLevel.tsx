@@ -256,7 +256,7 @@ function Contradictions({ view, tr, pad, isMobile, when, running, asking, starti
           <span className="min-w-0 flex-1">{tr('hubContext.check.running')}<span className="block text-mini text-app-text-muted">{tr('hubContext.check.runningHint')}</span></span>
         </div>
       ) : asking ? (
-        <div data-testid="context-check-confirm" role="alertdialog" aria-label={tr('hubContext.check.go')} className="mt-1 rounded border border-app-border bg-app-inset px-2.5 py-2">
+        <div data-testid="context-check-confirm" role="group" aria-label={tr('hubContext.check.go')} className="mt-1 rounded border border-app-border bg-app-inset px-2.5 py-2">
           <p className={`m-0 text-app-text ${isMobile ? 'text-body' : 'text-compact'}`}>{tr('hubContext.check.confirm')}</p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             <button type="button" data-testid="context-check-start" disabled={starting} onClick={onStart} className={`${button} bg-primary text-white hover:bg-primary/90 disabled:opacity-60`}>
