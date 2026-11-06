@@ -163,6 +163,20 @@ describe("HUBBR-01: /api/hub and /api/switchboard proxy", () => {
     expect(((await router({ sw: "http://127.0.0.1:1" })("GET", "/api/hub-usage"))!).status).toBe(502);
   });
 
+  test("GET /api/hub-usage narrows to a filter and /api/hub-usage.csv gives the rows, from the same minute's read", async () => {
+    tokenUsageReads = 0;
+    const r = router();
+    const none = await ((await r("GET", "/api/hub-usage?days=7&model=claude-sonnet-5-5"))!).json() as { totals: { requests: number }; options: { models: string[] } };
+    expect(none.totals.requests).toBe(0);
+    expect(none.options.models).toEqual(["claude-opus-5-5"]);
+    const csv = (await r("GET", "/api/hub-usage.csv?days=7&account=lavoro%40example.com"))!;
+    expect(csv.headers.get("content-type")).toContain("text/csv");
+    const lines = (await csv.text()).split("\n");
+    expect(lines[0]).toBe("timestamp,repo,branch,model,account,input_tokens,output_tokens");
+    expect(lines).toHaveLength(2);
+    expect(tokenUsageReads).toBe(1);
+  });
+
   test("a write the hub accepted refreshes the live reader; a read or a refused write does not", async () => {
     let refreshed = 0;
     const live = { snapshot: async () => ({}), refresh: async () => { refreshed++; } };
