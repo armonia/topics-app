@@ -34,9 +34,17 @@ const TEXTS: Record<string, string> = {
   "~/.claude/tools.md": "# TOOLS\n- Email: gws-mail\n- Browser: headless, chiuso a fine lavoro\n",
 };
 
-export function contextModel(now: number, check: FakeContextCheck): Record<string, unknown> {
+/** agents-doctor as the hub sends it once done: 27 checks, all green. */
+export function defaultContextDoctor(): Record<string, unknown> {
+  return { ok: true, checks: Array.from({ length: 27 }, (_, i) => ({ ok: true, text: `controllo ${i + 1}` })), error: null };
+}
+
+/** Days since each placeholder file changed; the style file is three months old. */
+const AGE: Record<string, number> = { style: 90, "agents-md": 0 };
+
+export function contextModel(now: number, check: FakeContextCheck, doctor: Record<string, unknown> = defaultContextDoctor()): Record<string, unknown> {
   const file = (id: string, label: string, path: string, group: string, loaders: string[], tokens: number, note = "", includedBy: string | null = null) =>
-    ({ id, label, path, group, loaders, bytes: tokens * 4, chars: tokens * 4, tokens, mtime: now - DAY, note, includedBy, generatedFrom: null });
+    ({ id, label, path, group, loaders, bytes: tokens * 4, chars: tokens * 4, tokens, mtime: now - (AGE[id] ?? 1) * DAY - 60_000, note, includedBy, generatedFrom: null });
   return {
     at: now - 60_000,
     files: [
@@ -54,7 +62,7 @@ export function contextModel(now: number, check: FakeContextCheck): Record<strin
       file("project:acme-web", "CLAUDE.md · acme-web", "~/Projects/acme-web/CLAUDE.md", "CLAUDE.md dei progetti", [], 302, "letto nelle sessioni di quel progetto"),
       file("ops", "Memoria operativa", "~/.openclaw/OPS.md", "Memoria operativa di OpenClaw", [], 7035, "letto su richiesta"),
     ],
-    skills: { count: 41, tokens: 1780, loaders: ["Claude Code", "Codex", "jcode", "OpenClaw"], items: [] },
+    skills: { count: 41, tokens: 1780, loaders: ["Claude Code", "Codex", "jcode", "OpenClaw"], items: [{ name: "senior-pass", tokens: 61 }, { name: "commit", tokens: 22 }, { name: "graphify", tokens: 74 }] },
     duplicates: [
       { text: "Mai inviare email senza conferma esplicita dell'utente, nemmeno in bozza.", files: ["claude-md", "project:acme-web"] },
     ],
@@ -64,7 +72,7 @@ export function contextModel(now: number, check: FakeContextCheck): Record<strin
       { file: "ops", line: 40, text: "Il router gira su :3340 fino al trasloco sull'hub: chi lo chiama deve passare dalla porta nuova prima del 18 ottobre, poi la vecchia si spegne", date: "2026-08-02", days: 95 },
       { file: "claude-md", line: 12, text: "Nuovo stile dal 12 settembre", date: "2026-09-12", days: 54 },
     ],
-    doctor: { ok: true, checks: Array.from({ length: 27 }, (_, i) => ({ ok: true, text: `controllo ${i + 1}` })), error: null },
+    doctor,
     totals: { byLoader: { "Claude Code": 14888, "OpenClaw (via claude-cli)": 11162, Codex: 14890, jcode: 14890, "Claude Code (sessioni nate in ~)": 4907 } },
     contradictions: { at: check.at, items: check.items, running: check.running, startedAt: check.startedAt },
   };

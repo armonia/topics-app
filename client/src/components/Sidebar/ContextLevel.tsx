@@ -16,29 +16,30 @@
  * System and its own close.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, CloudOff, FileText, Layers, Loader2, Scale, Sparkles, X } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ChevronLeft, CloudOff, Loader2, Scale, Sparkles, Stethoscope, X } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
 import { useMobile } from '../../hooks/useMobile';
 import { addCatalogue } from '../../lib/i18n';
 import HUB_CONTEXT_IT from '../../lib/i18n-hub-context-it';
 import HUB_CONTEXT_EN from '../../lib/i18n-hub-context-en';
 import { apiFetch } from '../../lib/shell/net';
-import { checkStart, contextView, shortTokens, type ContextFile, type ContextView, type UnlistedRef } from '../../lib/hubContext';
+import { checkStart, contextView, shortTokens, type ContextView, type DoctorVerdict, type UnlistedRef } from '../../lib/hubContext';
 import { HUB_CONTEXT_DOC, useHubDoc } from '../../state/hubDocs';
 import { startVisibleInterval } from '../../state/documentVisibility';
 import { useCloseLevel } from '../Shared/levelClose';
-import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
+import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { PALLINO_ATTESA, PALLINO_OK } from './chromeSignals';
+import { Files, SECTION, SECTION_HINT, type Tr } from './ContextFiles';
 
 addCatalogue('it', HUB_CONTEXT_IT);
 addCatalogue('en', HUB_CONTEXT_EN);
-
-type Tr = ReturnType<typeof useT>;
 
 /** The hub keeps its own copy for a minute: reading more often returns the same answer. */
 const MAX_AGE_MS = 60_000;
 /** While an agent checks the rules, the level asks the hub again this often. */
 const CHECK_POLL_MS = 5_000;
+/** While the hub is still running agents-doctor, the level asks again this often, as the hub's page does. */
+const DOCTOR_POLL_MS = 8_000;
 const RULES_SHOWN = 3;
 
 function useClock(locale: string) {
@@ -54,9 +55,6 @@ function useClock(locale: string) {
     };
   }, [locale]);
 }
-
-const SECTION = 'flex items-center gap-1.5 pb-1 pt-1.5 text-mini font-semibold uppercase tracking-wide text-app-text-secondary';
-const SECTION_HINT = 'ml-auto truncate font-normal normal-case tracking-normal text-app-text-muted';
 
 export interface ContextLevelProps {
   /** Closes the menu: the phone's close button leaves it. */
@@ -89,6 +87,13 @@ export function ContextLevel({ onNavigate }: ContextLevelProps) {
     if (!running) return;
     return startVisibleInterval(() => { void reread(); }, CHECK_POLL_MS);
   }, [running, reread]);
+
+  // A doctor still running is not an answer: read again until the hub has one.
+  const doctorPending = view?.doctor?.state === 'pending';
+  useEffect(() => {
+    if (!doctorPending) return;
+    return startVisibleInterval(() => { void reread(); }, DOCTOR_POLL_MS);
+  }, [doctorPending, reread]);
 
   const start = async () => {
     setStarting(true);
@@ -153,6 +158,7 @@ export function ContextLevel({ onNavigate }: ContextLevelProps) {
 
       {view && (
         <div className="min-h-0 flex-1 pb-2">
+          <p data-testid="context-lead" className={`m-0 ${pad} pb-1 text-mini text-app-text-muted`}>{tr('hubContext.lead')}</p>
           <Weights view={view} tr={tr} locale={locale} pad={pad} />
           <Contradictions
             view={view}
@@ -169,21 +175,10 @@ export function ContextLevel({ onNavigate }: ContextLevelProps) {
             onCancel={() => setAsking(false)}
             onStart={() => { void start(); }}
           />
-          <Files view={view} tr={tr} locale={locale} pad={pad} isMobile={isMobile} />
+          <Files view={view} tr={tr} locale={locale} pad={pad} isMobile={isMobile} now={doc.okAt ?? Date.now()} />
           <Duplicates view={view} tr={tr} pad={pad} />
           <OldRules view={view} tr={tr} pad={pad} />
-          {view.doctor && (
-            <div data-testid="context-doctor" className={`${pad} mt-2 border-t border-app-border pt-2 text-mini text-app-text-secondary`}>
-              {view.doctor.failing.length === 0 ? (
-                <span className="flex items-center gap-1.5"><Check size={12} className="flex-none" aria-hidden="true" />{tr('hubContext.doctor.ok', { n: view.doctor.total })}</span>
-              ) : (
-                <>
-                  <span className={`flex items-center gap-1.5 font-semibold ${DANGER_TEXT}`}><AlertTriangle size={12} aria-hidden="true" />{tr('hubContext.doctor.fail')}</span>
-                  {view.doctor.failing.map((f) => <span key={f} className="mt-0.5 block text-app-text">{f}</span>)}
-                </>
-              )}
-            </div>
-          )}
+          {view.doctor && <Doctor doctor={view.doctor} tr={tr} pad={pad} />}
         </div>
       )}
     </div>
@@ -286,88 +281,6 @@ function Contradictions({ view, tr, pad, isMobile, when, running, asking, starti
   );
 }
 
-function Files({ view, tr, locale, pad, isMobile }: { view: ContextView; tr: Tr; locale: string; pad: string; isMobile: boolean }) {
-  const [openId, setOpenId] = useState<string | null>(null);
-  const [showDemand, setShowDemand] = useState(false);
-  const demandTokens = view.onDemand.reduce((a, f) => a + f.tokens, 0);
-  const row = (f: ContextFile) => (
-    <FileRow key={f.id} file={f} tr={tr} locale={locale} isMobile={isMobile} open={openId === f.id} onToggle={() => setOpenId(openId === f.id ? null : f.id)} />
-  );
-  return (
-    <div data-testid="context-files" className={`${pad} mt-2`}>
-      <div className={SECTION}><FileText size={12} aria-hidden="true" />{tr('hubContext.files')}<span className="font-normal tabular-nums">{view.files.length}</span><span className={SECTION_HINT}>{tr('hubContext.files.hint')}</span></div>
-      {view.files.map(row)}
-      {view.skills && (
-        <div data-testid="context-skills" className="flex items-start gap-2 py-1.5">
-          <Layers size={13} className="mt-0.5 flex-none text-app-text-secondary" aria-hidden="true" />
-          <span className="min-w-0 flex-1">
-            <span className={`block truncate text-app-text ${isMobile ? 'text-body-lg' : 'text-compact'}`}>{tr('hubContext.skills')}</span>
-            <span className="block truncate text-mini text-app-text-secondary">{tr('hubContext.skills.meta', { n: view.skills.count })}</span>
-          </span>
-          <span className="mt-0.5 flex-none text-mini tabular-nums text-app-text-secondary">{tr('hubContext.tok', { n: shortTokens(view.skills.tokens, locale) })}</span>
-        </div>
-      )}
-      {view.onDemand.length > 0 && (
-        <>
-          <button
-            type="button"
-            data-testid="context-on-demand"
-            aria-expanded={showDemand}
-            onClick={() => setShowDemand((v) => !v)}
-            className="mt-1 flex w-full items-center gap-1.5 py-1 text-left text-mini text-app-text-secondary hover:text-app-text"
-          >
-            {showDemand ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />}
-            <span className="font-semibold uppercase tracking-wide">{tr('hubContext.onDemand')}</span>
-            <span className="tabular-nums">{view.onDemand.length}</span>
-            <span className="ml-auto truncate text-app-text-muted">{tr('hubContext.onDemand.hint')} · {tr('hubContext.tok', { n: shortTokens(demandTokens, locale) })}</span>
-          </button>
-          {showDemand && view.onDemand.map(row)}
-        </>
-      )}
-    </div>
-  );
-}
-
-function FileRow({ file, tr, locale, isMobile, open, onToggle }: { file: ContextFile; tr: Tr; locale: string; isMobile: boolean; open: boolean; onToggle: () => void }) {
-  const [text, setText] = useState<{ state: 'loading' | 'ok' | 'failed'; body: string } | null>(null);
-  useEffect(() => {
-    if (!open || text) return;
-    let alive = true;
-    void apiFetch(`/api/hub/context/text?path=${encodeURIComponent(file.path)}`, { cache: 'no-store' })
-      .then(async (r) => {
-        const body = r.ok ? await r.json() as { text?: unknown } : null;
-        if (!alive) return;
-        setText(typeof body?.text === 'string' ? { state: 'ok', body: body.text } : { state: 'failed', body: '' });
-      })
-      .catch(() => { if (alive) setText({ state: 'failed', body: '' }); });
-    return () => { alive = false; };
-  }, [open, text, file.path]);
-  const meta = [file.readers.join(', '), file.note].filter(Boolean).join(' · ') || file.group;
-  return (
-    <div data-testid="context-file" data-open={open}>
-      <button type="button" aria-expanded={open} onClick={onToggle} className={`flex w-full items-start gap-2 rounded-sm text-left hover:bg-app-hover ${isMobile ? 'py-2.5' : 'py-1.5'}`}>
-        <FileText size={13} className="mt-0.5 flex-none text-app-text-secondary" aria-hidden="true" />
-        <span className="min-w-0 flex-1">
-          <span className={`block truncate text-app-text ${isMobile ? 'text-body-lg' : 'text-compact'}`}>{file.label}</span>
-          {meta && <span className="block truncate text-mini text-app-text-secondary" title={meta}>{meta}</span>}
-        </span>
-        <span className="mt-0.5 flex-none text-mini tabular-nums text-app-text-secondary">{tr('hubContext.tok', { n: shortTokens(file.tokens, locale) })}</span>
-      </button>
-      {open && (
-        <div data-testid="context-file-text" className="mb-1.5 ml-[21px] max-h-56 overflow-auto rounded border border-app-border bg-app-inset px-2 py-1.5">
-          {!text || text.state === 'loading' ? (
-            <span className="text-mini text-app-text-muted">{tr('hubContext.text.loading')}</span>
-          ) : text.state === 'failed' ? (
-            <span className={`text-mini ${DANGER_TEXT}`}>{tr('hubContext.text.failed')}</span>
-          ) : (
-            <pre className="m-0 whitespace-pre-wrap break-words font-mono text-mini text-app-text-body">{text.body}</pre>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function Duplicates({ view, tr, pad }: { view: ContextView; tr: Tr; pad: string }) {
   const [all, setAll] = useState(false);
   const shown = all ? view.duplicates : view.duplicates.slice(0, RULES_SHOWN);
@@ -388,18 +301,54 @@ function Duplicates({ view, tr, pad }: { view: ContextView; tr: Tr; pad: string 
 
 function OldRules({ view, tr, pad }: { view: ContextView; tr: Tr; pad: string }) {
   const [all, setAll] = useState(false);
-  if (view.oldRules.length === 0) return null;
   const shown = all ? view.oldRules : view.oldRules.slice(0, RULES_SHOWN);
   return (
     <div data-testid="context-old-rules" className={`${pad} mt-2`}>
       <div className={SECTION}>{tr('hubContext.oldRules')}<span className="font-normal tabular-nums">{view.oldRules.length}</span><span className={SECTION_HINT}>{tr('hubContext.oldRules.hint')}</span></div>
+      {view.oldRules.length === 0 && (
+        <p data-testid="context-old-rules-none" className={`m-0 flex items-center gap-1.5 py-1 text-mini ${SUCCESS_TEXT}`}><Check size={12} aria-hidden="true" />{tr('hubContext.oldRules.none')}</p>
+      )}
       {shown.map((r, i) => (
         <div key={i} data-testid="context-old-rule" className="py-1">
           <RuleText text={r.text} className="text-compact text-app-text" />
-          <span className="block truncate text-mini text-app-text-secondary">{tr('hubContext.oldRules.meta', { where: r.where, days: r.days })}</span>
+          <span className="block truncate text-mini text-app-text-secondary">{r.line !== null ? tr('hubContext.oldRules.metaLine', { where: r.where, line: r.line, days: r.days }) : tr('hubContext.oldRules.meta', { where: r.where, days: r.days })}</span>
         </div>
       ))}
       <More count={view.oldRules.length - shown.length} all={all} total={view.oldRules.length} tr={tr} onToggle={() => setAll((v) => !v)} />
+    </div>
+  );
+}
+
+/**
+ * The verdict of agents-doctor: grey with a spinner while the hub still runs
+ * it, green only when the hub says ok with nothing failing, red otherwise,
+ * with the doctor's own error when it never finished (a timeout).
+ */
+function Doctor({ doctor, tr, pad }: { doctor: DoctorVerdict; tr: Tr; pad: string }) {
+  const failedN = doctor.failing.length;
+  return (
+    <div data-testid="context-doctor" data-state={doctor.state} className={`${pad} mt-2 border-t border-app-border pt-2 text-mini text-app-text-secondary`}>
+      {doctor.state === 'pending' ? (
+        <span className="flex items-center gap-1.5">
+          <Loader2 size={12} className="flex-none animate-spin" aria-hidden="true" />
+          <span className="font-semibold text-app-text">{tr('hubContext.doctor.pending')}</span>
+          <span className="truncate text-app-text-muted">{tr('hubContext.doctor.pendingHint')}</span>
+        </span>
+      ) : doctor.state === 'ok' ? (
+        <span className={`flex items-center gap-1.5 ${SUCCESS_TEXT}`}><Check size={12} className="flex-none" aria-hidden="true" />{tr('hubContext.doctor.ok', { n: doctor.total })}</span>
+      ) : (
+        <>
+          <span className={`flex items-center gap-1.5 font-semibold ${DANGER_TEXT}`}>
+            <AlertTriangle size={12} aria-hidden="true" />{tr('hubContext.doctor.fail')}
+            <span className="ml-auto flex items-center gap-1 font-normal text-app-text-muted"><Stethoscope size={11} aria-hidden="true" />
+              {doctor.error ? tr('hubContext.doctor.errored') : tr('hubContext.doctor.counts', { n: doctor.total, failed: failedN })}
+            </span>
+          </span>
+          {doctor.error && <span data-testid="context-doctor-error" className="mt-0.5 block text-app-text">{doctor.error}</span>}
+          {doctor.failing.map((f) => <span key={f} className="mt-0.5 block text-app-text">{f}</span>)}
+          {!doctor.error && failedN === 0 && <span className="mt-0.5 block text-app-text">{tr('hubContext.doctor.notOk')}</span>}
+        </>
+      )}
     </div>
   );
 }
