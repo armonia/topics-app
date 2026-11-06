@@ -5,7 +5,7 @@
  * @covers KANBAN-05, KANBAN-07
  */
 import { describe, it, expect } from 'bun:test';
-import { choiceForText, taskChoices, taskChoiceState, usableQuestionOptions, VERDICT_CHOICES, type TaskChoiceId } from './taskChoices';
+import { choiceForText, reviewFaceExclude, reviewMenuExclude, taskChoices, taskChoiceState, usableQuestionOptions, VERDICT_CHOICES, type TaskChoiceId } from './taskChoices';
 import { acceptWord, drawerSurfaceLabels, landWord, redoWord, reviewDecisionButtons, sendBackWord, stopWord, taskActionWord, unblockWord } from './taskActionWords';
 import { LAND_ACTION_LABEL } from '../../lib/board';
 import { t as translate, ensureLocaleLoaded } from '../../lib/i18n';
@@ -181,11 +181,11 @@ describe('taskChoices', () => {
     }
   });
 
-  it('review con ramo: landare, rimandare indietro, approvare, prenderselo', () => {
+  it('review con ramo: landare, rimandare indietro, approvare, prenderselo, archiviare', () => {
     // `accept` e' entrato dopo: landare e chiudere non sono la stessa cosa, e
     // una card il cui lavoro non e' un ramo di questo repo restava senza uscite.
     expect(ids(task({ status: 'review', assignedTopicId: 't', deliveryBranch: 'task/abc' })))
-      .toEqual(['land', 'send-back', 'accept', 'take-over']);
+      .toEqual(['land', 'send-back', 'accept', 'take-over', 'drop']);
   });
 
   it('review senza ramo: approva, rifai così, archivia', () => {
@@ -259,7 +259,7 @@ describe('taskChoices', () => {
     // I bottoni PROPRI del drawer sono tre (`reviewDecisionButtons`): approva,
     // rimanda, landa. Escluderne due su tre lasciava passare il terzo doppio.
     expect(ids(task({ status: 'review', assignedTopicId: 't', deliveryBranch: 'task/abc' }), { exclude: ['land', 'send-back', 'accept'] }))
-      .toEqual(['take-over']);
+      .toEqual(['take-over', 'drop']);
   });
 
   it('ogni scelta ha etichetta e spiegazione: nessun bottone muto', () => {
@@ -772,5 +772,45 @@ describe('una frase scritta non e\' mai un verdetto', () => {
 
   it('senza scelte non inventa niente', () => {
     expect(choiceForText([])).toBeNull();
+  });
+});
+
+/**
+ * The review face and the «…» menu, checked as facts, not as source.
+ *
+ * Only «Approva» stays on the face; «Rifai così» is in neither place; «Archivia»
+ * is in the menu even with a branch. These are the same lists the card passes to
+ * the row and the menu, so an exit that moves place turns these tests red.
+ */
+describe('la review: faccia e menu', () => {
+  const withBranch = task({ status: 'review', assignedTopicId: 't', deliveryBranch: 'task/abc' });
+  const aMano = task({ status: 'review' });
+  const noDelivery = task({ status: 'review', assignedTopicId: 't' });
+  const shown = (t: ChoiceInput, exclude: TaskChoiceId[]) => ids(t, { exclude });
+
+  it('sulla faccia resta solo «Approva», con o senza ramo', () => {
+    expect(shown(withBranch, reviewFaceExclude(withBranch))).toEqual(['accept']);
+    expect(shown(aMano, reviewFaceExclude(aMano))).toEqual(['accept']);
+    expect(shown(noDelivery, reviewFaceExclude(noDelivery))).toEqual(['accept']);
+  });
+
+  it('«Archivia» sta nel menu, anche sulle card con un ramo', () => {
+    expect(shown(withBranch, reviewMenuExclude(withBranch))).toEqual(['land', 'send-back', 'take-over', 'drop']);
+    expect(shown(aMano, reviewMenuExclude(aMano))).toEqual(['drop']);
+  });
+
+  it('«Rifai così» non compare né in faccia né nel menu: lo fa il campo', () => {
+    for (const t of [withBranch, aMano, noDelivery]) {
+      expect(shown(t, reviewFaceExclude(t))).not.toContain('redo');
+      expect(shown(t, reviewMenuExclude(t))).not.toContain('redo');
+    }
+  });
+
+  it('nessuna uscita sparisce: faccia e menu coprono tutte le scelte della card', () => {
+    for (const t of [withBranch, aMano, noDelivery]) {
+      const allIds = ids(t).filter((id) => id !== 'redo');
+      const faceAndMenu = [...shown(t, reviewFaceExclude(t)), ...shown(t, reviewMenuExclude(t))];
+      expect(faceAndMenu.sort()).toEqual([...allIds].sort());
+    }
   });
 });
