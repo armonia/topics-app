@@ -2734,7 +2734,11 @@ function BootDeepLinkResolver({ isDetached }: { isDetached: boolean }) {
     if (isDetached) return;
     // Loaded only for such an address: the boot chunk does not carry it.
     if (!window.location.pathname.startsWith('/lavori')) return;
-    const t = setTimeout(() => { void import('./lib/agentsJobsLink').then((m) => m.consumeAgentsJobsLinkFromUrl()); }, 0);
+    const consume = async () => {
+      const { consumeAgentsJobsLinkFromUrl } = await import('./lib/agentsJobsLink');
+      consumeAgentsJobsLinkFromUrl();
+    };
+    const t = setTimeout(() => { void consume(); }, 0);
     return () => clearTimeout(t);
   }, [isDetached]);
   useEffect(() => {

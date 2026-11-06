@@ -146,7 +146,7 @@ export function projectsReport(now: number): Record<string, unknown> {
 
 /**
  * Proxy rows past the acme-web ones: a studio-x branch, a row with no folder,
- * and an account the proxy no longer has, so «Per cartella e ramo» has two
+ * and an account the proxy no longer has, so «By folder and branch» has two
  * folders and the empty one, and «Per account» a removed account.
  */
 export function extraProxyRows(now: number): unknown[] {

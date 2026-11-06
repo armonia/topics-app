@@ -19,7 +19,7 @@ interface Keys {
 
 const ROW = '[data-testid="automation-row"], [data-testid="automations-decide-row"] > button';
 
-function typing(t: HTMLElement | null): boolean {
+function isTextField(t: HTMLElement | null): boolean {
   return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
 }
 
@@ -35,11 +35,11 @@ export function useAutomationsKeys(root: RefObject<HTMLElement | null>, keys: Ke
       if (!inside && !(e.key === 'Escape' && (!t || t === document.body))) return;
       if (e.key === 'Escape') {
         if (t === search.current) { clearSearch(); search.current?.blur(); return; }
-        if (typing(t) || !open) return;
+        if (isTextField(t) || !open) return;
         close();
         return;
       }
-      if (typing(t)) return;
+      if (isTextField(t)) return;
       if (e.key === '/') {
         e.preventDefault();
         search.current?.focus();

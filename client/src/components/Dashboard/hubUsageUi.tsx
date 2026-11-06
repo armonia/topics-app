@@ -48,7 +48,7 @@ export function Tokens({ n, locale, unit }: { n: number; locale: string; unit: s
 
 
 /**
- * «altri N» at the foot of a box's rows: it sums what is not shown and opens
+ * «N more» at the foot of a box's rows: it sums what is not shown and opens
  * on the rows themselves, each drawn like the ones above.
  */
 export function MoreRows({ testId, label, figure, children }: { testId: string; label: string; figure?: ReactNode; children: ReactNode }) {

@@ -82,7 +82,7 @@ export interface HiddenJob {
 }
 
 export interface AutomationBrake {
-  /** The gate's own sentence: «in pausa fino alle 14:00 perché Claude è al 92%». */
+  /** The gate's own sentence: «paused until 14:00 because Claude is at 92%». */
   text: string;
   until: number | null;
 }

@@ -36,7 +36,7 @@ const HEALTH_CHIP = 'inline-flex h-5 flex-none items-center gap-1 whitespace-now
 
 const TONE_TEXT = { ok: 'text-app-text-secondary', warn: WARNING_TEXT, bad: DANGER_TEXT, mut: 'text-app-text-secondary' } as const;
 
-function tok(n: number, locale: string): string {
+function tokenWords(n: number, locale: string): string {
   const t = tokenParts(n, locale);
   return t.unit ? `${t.value} ${t.unit}` : t.value;
 }
@@ -55,7 +55,7 @@ function Strip({ window: w, money }: { window: AttributionWindow; money: Money }
   const peak = Math.max(0, ...w.bands.map((b) => b.tokens));
   const when = (ms: number) => new Date(ms).toLocaleString(locale === 'en' ? 'en-GB' : 'it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   const title = (b: AttributionBand) => (b.kind === 'mine'
-    ? tr('accounts.band.mine', { when: when(b.toMs), tokens: tok(b.tokens, locale), n: b.requests, money: money(b.usd) })
+    ? tr('accounts.band.mine', { when: when(b.toMs), tokens: tokenWords(b.tokens, locale), n: b.requests, money: money(b.usd) })
     : b.kind === 'outside' ? tr('accounts.band.outside', { when: when(b.toMs), pct: b.deltaPct ?? 0 })
       : tr(`accounts.band.${b.kind}`, { when: when(b.toMs) }));
   return (
@@ -72,23 +72,23 @@ function Strip({ window: w, money }: { window: AttributionWindow; money: Money }
 function Spark({ points, span, now }: { points: TrendPoint[]; span: 'fiveH' | 'week'; now: number }) {
   const tr = useT();
   const t0 = now - SPAN_MS[span];
-  const pts = points.filter((p) => p.ts >= t0 && p.ts <= now);
-  if (pts.length === 0) return null;
+  const inWindow = points.filter((p) => p.ts >= t0 && p.ts <= now);
+  if (inWindow.length === 0) return null;
   const W = 300;
   const H = 22;
   const x = (t: number) => (((t - t0) / SPAN_MS[span]) * W).toFixed(1);
   const y = (pct: number) => (H - 1 - (Math.min(100, Math.max(0, pct)) / 100) * (H - 2)).toFixed(1);
-  let line = `M${x(pts[0]!.ts)},${y(pts[0]!.pct)}`;
-  pts.forEach((p, i) => {
-    const next = pts[i + 1];
+  let line = `M${x(inWindow[0]!.ts)},${y(inWindow[0]!.pct)}`;
+  inWindow.forEach((p, i) => {
+    const next = inWindow[i + 1];
     line += ` L${x(next ? next.ts : now)},${y(p.pct)}`;
     if (next) line += ` L${x(next.ts)},${y(next.pct)}`;
   });
-  const area = `${line} L${x(now)},${H} L${x(pts[0]!.ts)},${H} Z`;
+  const area = `${line} L${x(now)},${H} L${x(inWindow[0]!.ts)},${H} Z`;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="mt-[3px] block h-[22px] w-full" data-testid="account-spark" data-span={span} data-points={pts.length}
-      role="img" aria-label={tr(`accounts.spark.${span}`, { from: pts[0]!.pct, to: pts[pts.length - 1]!.pct })}>
-      <title>{tr(`accounts.spark.${span}`, { from: pts[0]!.pct, to: pts[pts.length - 1]!.pct })}</title>
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="mt-[3px] block h-[22px] w-full" data-testid="account-spark" data-span={span} data-points={inWindow.length}
+      role="img" aria-label={tr(`accounts.spark.${span}`, { from: inWindow[0]!.pct, to: inWindow[inWindow.length - 1]!.pct })}>
+      <title>{tr(`accounts.spark.${span}`, { from: inWindow[0]!.pct, to: inWindow[inWindow.length - 1]!.pct })}</title>
       <path d={area} className="fill-primary/15" />
       <path d={line} fill="none" className="stroke-primary" strokeWidth={1} vectorEffect="non-scaling-stroke" />
     </svg>
@@ -103,12 +103,12 @@ function Figures({ window: w, span, money }: { window: AttributionWindow; span: 
   const tip = tr('accounts.figures.title', { n: w.requests });
   return (
     <div className="mt-[3px] text-mini leading-snug tabular-nums text-app-text-secondary" data-testid="account-figures" data-verdict={v.kind} title={tip}>
-      <div>{tr('accounts.figures.tokens', { tokens: tok(w.tokens, locale), money: money(w.usd), period: tr(`accounts.figures.period.${span}`) })}</div>
+      <div>{tr('accounts.figures.tokens', { tokens: tokenWords(w.tokens, locale), money: money(w.usd), period: tr(`accounts.figures.period.${span}`) })}</div>
       <div>
         {v.kind === 'unmeasured' && <span>{tr('accounts.verdict.unmeasured')}</span>}
         {v.kind === 'partial' && <span>{tr('accounts.verdict.partial', { cov: v.coveragePct, ext: v.externalPct })}</span>}
         {v.kind === 'measured' && <><b className="font-semibold text-app-text">{tr('accounts.verdict.internal', { pct: v.internalPct })}</b> · {tr('accounts.verdict.external', { pct: v.externalPct })}</>}
-        {w.tokens > 0 && <span title={tr('accounts.figures.splitTitle')}> · {tr('accounts.figures.split', { io: tok(w.io, locale), cache: tok(w.cache, locale) })}</span>}
+        {w.tokens > 0 && <span title={tr('accounts.figures.splitTitle')}> · {tr('accounts.figures.split', { io: tokenWords(w.io, locale), cache: tokenWords(w.cache, locale) })}</span>}
       </div>
     </div>
   );
@@ -242,7 +242,7 @@ export function AccessAndSpend({ board: b }: { board: BoardAccount }) {
                 <li key={t.name} className="grid grid-cols-[minmax(0,1fr)_64px_44px_32px] items-center gap-1.5 tabular-nums" data-testid="account-top-row">
                   <span className="truncate text-app-text">{t.name}</span>
                   <span className="relative h-[4px] rounded-[2px] bg-black/[0.08] dark:bg-white/[0.1]"><i className="block h-full rounded-[2px] bg-primary" style={{ width: `${Math.min(100, t.pct)}%` }} /></span>
-                  <span className="text-right">{tok(t.tokens, locale)}</span>
+                  <span className="text-right">{tokenWords(t.tokens, locale)}</span>
                   <span className="text-right">{t.pct}%</span>
                 </li>
               ))}
@@ -279,7 +279,7 @@ export function ProxyHealthLine({ health }: { health: ProxyHealth }) {
     <div className="mb-2.5 flex flex-wrap items-center gap-1.5 text-mini tabular-nums" data-testid="accounts-proxy-health">
       {health.probes && (
         <span className={`${HEALTH_CHIP} ${CHIP_TONE.quiet}`} data-testid="accounts-probes" title={tr('accounts.probes.title')}>
-          <Radar size={11} aria-hidden="true" />{tr('accounts.probes', { n: n(health.probes.count), tokens: tok(health.probes.tokens, locale) })}
+          <Radar size={11} aria-hidden="true" />{tr('accounts.probes', { n: n(health.probes.count), tokens: tokenWords(health.probes.tokens, locale) })}
         </span>
       )}
       {health.queue && (

@@ -57,11 +57,6 @@ function currentHost(): string {
   return typeof window === 'undefined' ? '' : window.location.hostname;
 }
 
-/** A page of the hub's dashboard (`#automations`), or null where this window cannot reach it. */
-export function hubPageHref(hash: string, windowHost: string = currentHost()): string | null {
-  return hubPageLink(hash, windowHost);
-}
-
 /**
  * The three link forms the hub accepts on an item (its `validateAttesa`):
  * http(s), `#page` of the hub's dashboard, and `claude://`. Anything else is

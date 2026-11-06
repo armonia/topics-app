@@ -9,7 +9,7 @@
  *
  * Lists: «Decidi tu» says how many runs in a row failed, what you could lose,
  * the brake on the agent; the workflow step waiting for an ok is counted
- * apart. The status filter (Tutte, Ok, Problemi), the search on who runs it
+ * apart. The status filter (all, ok, problems), the search on who runs it
  * («/» brings the focus there), the grouping by purpose with its counts and
  * «Computer e app». A row carries its project, brake or remark, where it runs
  * and its steps (opened with the chevron or «p»), the strip's words, the
@@ -21,7 +21,7 @@
  * with who answered and the exact command, the runs in full (by hand, wrote
  * or why not, the error whole, the report, the model), the technical details
  * and the run on GitHub, no «Risolvi tu» on a gate. Votes: the vote's note
- * read back, «Annulla» for 5 seconds, the letters from the keyboard.
+ * read back, «Undo» for 5 seconds, the letters from the keyboard.
  * Calendar: a row opens on what it will do and what it writes.
  *
  * The hub is a fake (helpers/fake-hub.ts with `automations`); Topics' cron
@@ -94,7 +94,7 @@ test.describe("automations, as the hub told them", () => {
     await openView(page);
     const pane = page.getByTestId(PANE);
 
-    // The hub's last good copy is said as such, never «dal vivo».
+    // The hub's last good copy is said as such, never «live».
     await expect(pane.getByTestId("automations-live")).toContainText("ultima lettura fallita, dati delle");
     await expect(pane.getByTestId("automations-live")).toHaveAttribute("data-stale", "true");
     // The pills: tokens per provider, the unmeasured, the silent source.
@@ -226,7 +226,7 @@ test.describe("automations, as the hub told them", () => {
     await expect(detail.getByTestId("automation-tech-command")).toContainText("reindex.mjs");
     await page.screenshot({ path: testInfo.outputPath("vero-automazioni-parita-dettaglio.png") });
 
-    // A vote with its note, read back; «Annulla» takes it back.
+    // A vote with its note, read back; «Undo» takes it back.
     await detail.getByTestId("automation-vote-cambia").click();
     await detail.getByTestId("automation-vote-text").fill("il percorso delle note è cambiato");
     await detail.getByTestId("automation-vote-save").click();
@@ -256,7 +256,7 @@ test.describe("automations, as the hub told them", () => {
     await expect(detail.getByTestId("automation-fact-proof")).toHaveText("ultimo avviso arrivato alle 22:25");
     await expect(detail.getByTestId("automation-fact-next")).toContainText("verso le");
 
-    // GitHub: the run on GitHub. The gate: no «Risolvi tu», no «Scrivi a Jarvis».
+    // GitHub: the run on GitHub. The gate: no «Fix it», no «Write to Jarvis».
     await pane.locator('[data-testid="automations-area"][data-system="github"]').click();
     await row(page, "gh:acme/acme-web/nightly.yml").click();
     await detail.getByTestId("automation-tech").locator("summary").click();

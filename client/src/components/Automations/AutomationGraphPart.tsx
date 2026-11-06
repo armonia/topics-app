@@ -7,7 +7,7 @@
  * asked, what it answered, its error and the exact command.
  *
  * Read when the detail opens (`/api/hub/automations/graph`); a read that
- * fails offers «Riprova», a row with no scheme shows nothing.
+ * fails offers a retry, a row with no scheme shows nothing.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
@@ -27,8 +27,8 @@ function optionName(o: GraphOption, all: GraphOption[], tr: ReturnType<typeof us
   const name = o.name && !pretty.toLowerCase().startsWith(o.name.toLowerCase()) ? `${o.name} ${pretty}` : pretty;
   // The account matters only when the queue repeats the same model on several accounts.
   if (!o.account || all.filter((x) => x.model === o.model).length < 2) return name;
-  const acc = o.account.replace(/^anthropic-?/, '');
-  return `${name} ${acc ? tr('auto.graph.account', { account: acc }) : tr('auto.graph.mainAccount')}`;
+  const account = o.account.replace(/^anthropic-?/, '');
+  return `${name} ${account ? tr('auto.graph.account', { account }) : tr('auto.graph.mainAccount')}`;
 }
 
 function Outcome({ outcome, inferred, ms }: { outcome: GraphOutcome | null; inferred?: boolean; ms?: number | null }) {

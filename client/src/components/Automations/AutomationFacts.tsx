@@ -94,8 +94,8 @@ export function TechPart({ row, part, partTitle }: { row: AutomationRow; part: s
         {row.last.exit !== null && <><dt className={DT}>{tr('auto.tech.exit')}</dt><dd className={`${DD} tabular-nums`} data-testid="automation-tech-exit">{tr('auto.tech.code', { n: row.last.exit })}</dd></>}
         {row.sources.length > 1 && (
           <><dt className={DT}>{tr('auto.tech.sources')}</dt><dd className={DD}>{row.sources.map((s, i) => {
-            const sys = systemOf(s);
-            return <span key={`${s}-${i}`} className="block">{sys ? tr(`auto.source.${sys}`) : s}</span>;
+            const system = systemOf(s);
+            return <span key={`${s}-${i}`} className="block">{system ? tr(`auto.source.${system}`) : s}</span>;
           })}</dd></>
         )}
       </dl>

@@ -55,7 +55,7 @@
 import { createServer, type Server } from "node:http";
 import { E2E_BASE, hubPortFor } from "./test-server";
 import { FOUND_CONTRADICTION, contextModel, contextText, defaultContextCheck, defaultContextDoctor, featuresMap, type FakeContextCheck } from "./fake-hub-context";
-import { FAKE_ICON_PNG, jobsBoard, jobsCalendar, jobsReminders, withJobsSessions, withLiveAgents } from "./fake-hub-jobs";
+import { FAKE_ICON_PNG, jobsAutomations, jobsBoard, jobsCalendar, jobsDiary, jobsQueue, jobsReminders, withJobsSessions, withLiveAgents } from "./fake-hub-jobs";
 import { boardAnswer, extraProxyRows, profileExtras, projectsReport, proxyHealthExtras } from "./fake-hub-accounts";
 import { automationsCalendar, automationsGraph, automationsModel, automationsRuns, automationsSummary, feedbackRefusal, workflowRunCost, type FeedbackRow } from "./fake-hub-automations";
 
@@ -371,47 +371,6 @@ function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy 
     // The links to write to Jarvis: placeholders, never a real number.
     "hub-config": { demo: true, jarvis: { whatsapp: "https://example.com/assistente/whatsapp", discord: null } },
   };
-}
-
-/**
- * The queue's jobs and the diary's workflows of «Agenti e lavori», placeholder
- * names: one running, three in line (two the same job), one held by a quota,
- * one born from a card (never listed), one failed, one done with a raw
- * command as its text (its title must not be the prompt).
- */
-function jobsQueue(now: number, withdrawn: string[]): Array<{ id: string; status: string } & Record<string, unknown>> {
-  const items = [
-    { id: "j-run", task: "Rigenera gli screenshot della landing di acme-web (vedi ~/Projects/acme-web/shots).", status: "running", provider: "codex", project: "acme-web", createdAt: now - 20 * 60_000, startedAt: now - 7 * 60_000 },
-    { id: "j-l1", task: "Docs index non risponde: riparalo.", status: "queued", project: "acme-docs", createdAt: now - 50 * 60_000 },
-    { id: "j-l1b", task: "Docs index non risponde: riparalo.", status: "queued", project: "acme-docs", createdAt: now - 45 * 60_000 },
-    { id: "j-l2", task: "Test unit di studio-x, poi riporta l'esito.", status: "queued", project: "studio-x", priority: "bassa", background: true, createdAt: now - 30 * 60_000 },
-    { id: "j-q", task: "Refactor del router di studio-x, seconda passata.", status: "queued", provider: "codex", project: "studio-x", createdAt: now - 60 * 60_000, waitUntil: now + 2 * HOUR },
-    { id: "j-card", task: "Card della board Topics «Rilascio di acme-web». Da fare stasera.", ref: "card:acme/1", status: "queued", createdAt: now - 10 * 60_000 },
-    { id: "j-fail", task: "Esegui ESATTAMENTE questo comando via tool bash con yield_time_ms=300000: npm run build", status: "failed", exit: 1, provider: "codex", project: "acme-api", createdAt: now - 3 * HOUR, startedAt: now - 3 * HOUR, endedAt: now - 2 * HOUR },
-  ];
-  return items.filter((i) => !withdrawn.includes(i.id));
-}
-
-/** The workflows' phases and the gate waiting for your ok, as the hub's automations write them. */
-function jobsAutomations(now: number): Record<string, unknown> {
-  return {
-    workflows: { days: 7, total: 2, failed: 1, byName: [
-      { name: "rev", runs: [{ at: now - 26 * 60_000, outcome: "running", agents: 2, durationMs: null, phases: [
-        { title: "Lettura", total: 1, done: 1, failed: 0 }, { title: "Scrittura", total: 2, done: 2, failed: 0 },
-        { title: "Verifica", total: 2, done: 0, failed: 0 }, { title: "Rilettura", total: 1, done: 0, failed: 0 }, { title: "Consegna", total: 1, done: 0, failed: 0 },
-      ] }] },
-    ] },
-    needsYou: [
-      { key: "lobster:publish-acme-web", provider: "lobster", title: "Pubblica la landing di acme-web", level: "te", reason: "aspetta il tuo ok al passo «deploy» da 14 min", since: now - 14 * 60_000 },
-    ],
-  };
-}
-
-function jobsDiary(now: number): unknown[] {
-  return [
-    { at: now - 26 * 60_000, kind: "workflow", who: "Workflow", title: "Revisione di acme-web", outcome: "running", what: "2 agenti", ref: "wf:rev" },
-    { at: now - 70 * 60_000, kind: "workflow", who: "Workflow", title: "Pubblica la landing di acme-web", outcome: "error", what: "1 agente, 3 min", ref: "wf:land" },
-  ];
 }
 
 /**

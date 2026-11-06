@@ -14,6 +14,8 @@
 import { useState } from 'react';
 import { AlertTriangle, Bot, ChevronDown, ChevronRight } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
+import { useSharedNow } from '../../state/useSharedNow';
+import { spanWords } from './projectHubSpan';
 import { openExternal } from '../../lib/shell/external';
 import { WARNING_TEXT } from '../../lib/popoverStyles';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
@@ -22,17 +24,6 @@ import {
   PROVIDER_NAMES, agentOpen, modelMix, opusAdvice, shortTokens, weekShare,
   type HubAgent, type HubProject,
 } from '../../lib/projectHub';
-
-type Tr = ReturnType<typeof useT>;
-
-/** A span of time in the menu's words: minutes, then hours, then days. */
-export function spanWords(tr: Tr, ms: number): string {
-  const min = Math.max(0, Math.round(ms / 60_000));
-  if (min < 60) return tr('projectHub.span.min', { n: Math.max(1, min) });
-  const h = Math.round(min / 60);
-  if (h < 48) return tr('projectHub.span.h', { n: h });
-  return tr('projectHub.span.d', { n: Math.round(h / 24) });
-}
 
 function ProviderGlyph({ provider }: { provider: string }) {
   if (provider === 'claude') return <ClaudeIcon size={12} className="flex-none text-app-text-secondary" />;
@@ -92,9 +83,10 @@ export function ProjectHubAgents({ p, onOpened }: { p: HubProject; onOpened?: ()
   const tr = useT();
   const locale = useLocale();
   const [open, setOpen] = useState(false);
+  // The shared minute clock: «since 3 min» moves on its own, and render stays pure.
+  const now = useSharedNow();
   const a = p.agents;
   if (!a) return null;
-  const now = Date.now();
   const advice = opusAdvice(p);
   const hidden = a.count - a.list.length;
   return (

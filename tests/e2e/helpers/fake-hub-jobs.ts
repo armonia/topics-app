@@ -93,3 +93,44 @@ export function jobsCalendar(now: number): Record<string, unknown> {
 export function jobsReminders(): unknown[] {
   return [{ key: "cron:rem-late", reminder: true, who: "Muse", title: "Rispondere al preventivo di acme-api" }];
 }
+
+/**
+ * The queue's jobs and the diary's workflows of «Agenti e lavori», placeholder
+ * names: one running, three in line (two the same job), one held by a quota,
+ * one born from a card (never listed), one failed, one done with a raw
+ * command as its text (its title must not be the prompt).
+ */
+export function jobsQueue(now: number, withdrawn: string[]): Array<{ id: string; status: string } & Record<string, unknown>> {
+  const items = [
+    { id: "j-run", task: "Rigenera gli screenshot della landing di acme-web (vedi ~/Projects/acme-web/shots).", status: "running", provider: "codex", project: "acme-web", createdAt: now - 20 * 60_000, startedAt: now - 7 * 60_000 },
+    { id: "j-l1", task: "Docs index non risponde: riparalo.", status: "queued", project: "acme-docs", createdAt: now - 50 * 60_000 },
+    { id: "j-l1b", task: "Docs index non risponde: riparalo.", status: "queued", project: "acme-docs", createdAt: now - 45 * 60_000 },
+    { id: "j-l2", task: "Test unit di studio-x, poi riporta l'esito.", status: "queued", project: "studio-x", priority: "bassa", background: true, createdAt: now - 30 * 60_000 },
+    { id: "j-q", task: "Refactor del router di studio-x, seconda passata.", status: "queued", provider: "codex", project: "studio-x", createdAt: now - 60 * 60_000, waitUntil: now + 2 * HOUR },
+    { id: "j-card", task: "Card della board Topics «Rilascio di acme-web». Da fare stasera.", ref: "card:acme/1", status: "queued", createdAt: now - 10 * 60_000 },
+    { id: "j-fail", task: "Esegui ESATTAMENTE questo comando via tool bash con yield_time_ms=300000: npm run build", status: "failed", exit: 1, provider: "codex", project: "acme-api", createdAt: now - 3 * HOUR, startedAt: now - 3 * HOUR, endedAt: now - 2 * HOUR },
+  ];
+  return items.filter((i) => !withdrawn.includes(i.id));
+}
+
+/** The workflows' phases and the gate waiting for your ok, as the hub's automations write them. */
+export function jobsAutomations(now: number): Record<string, unknown> {
+  return {
+    workflows: { days: 7, total: 2, failed: 1, byName: [
+      { name: "rev", runs: [{ at: now - 26 * 60_000, outcome: "running", agents: 2, durationMs: null, phases: [
+        { title: "Lettura", total: 1, done: 1, failed: 0 }, { title: "Scrittura", total: 2, done: 2, failed: 0 },
+        { title: "Verifica", total: 2, done: 0, failed: 0 }, { title: "Rilettura", total: 1, done: 0, failed: 0 }, { title: "Consegna", total: 1, done: 0, failed: 0 },
+      ] }] },
+    ] },
+    needsYou: [
+      { key: "lobster:publish-acme-web", provider: "lobster", title: "Pubblica la landing di acme-web", level: "te", reason: "aspetta il tuo ok al passo «deploy» da 14 min", since: now - 14 * 60_000 },
+    ],
+  };
+}
+
+export function jobsDiary(now: number): unknown[] {
+  return [
+    { at: now - 26 * 60_000, kind: "workflow", who: "Workflow", title: "Revisione di acme-web", outcome: "running", what: "2 agenti", ref: "wf:rev" },
+    { at: now - 70 * 60_000, kind: "workflow", who: "Workflow", title: "Pubblica la landing di acme-web", outcome: "error", what: "1 agente, 3 min", ref: "wf:land" },
+  ];
+}

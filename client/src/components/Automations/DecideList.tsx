@@ -2,7 +2,7 @@
  * «Decidi tu»: what is broken or waits on you, oldest first. Each row says
  * why, how many runs in a row failed, what you could lose while it stays so
  * (the hub's purpose table), the brake that holds an agent sent on it, and
- * carries «Risolvi tu», «Riprova» on an OpenClaw job and the run on GitHub.
+ * carries «Fix it», «Retry» on an OpenClaw job and the run on GitHub.
  *
  * A workflow step waiting for your ok is not here: no agent can fix it. The
  * note under the list counts them and says where the ones that are yours go.

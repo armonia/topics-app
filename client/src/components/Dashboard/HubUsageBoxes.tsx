@@ -105,7 +105,7 @@ export function ByAccount({ profiles, usage, pace, gates, money, tr }: { profile
   );
 }
 
-/** «di cui sottoagenti 15,3% · 7.522 rich.»: one part of a project's Claude week, or a dash. */
+/** «of which sub-agents 15.3% · 7,522 req.»: one part of a project's Claude week, or a dash. */
 function partText(p: { pct: number; requests: number } | null, locale: string, tr: Tr): string {
   return p ? tr('hubUsage.part', { pct: pctText(p.pct, locale), n: p.requests.toLocaleString(locale === 'it' ? 'it-IT' : 'en-US') }) : '-';
 }
@@ -170,15 +170,15 @@ export function ByProject({ live, details, tr }: { live: unknown; details: Map<s
 
 /** The list price summed day by day against what the plans cost so far: where the plans paid for themselves. */
 function SavingCurve({ usage, planUsd, money, tr }: { usage: HubUsage; planUsd: number; money: Money; tr: Tr }) {
-  const pts = savingCurve(usage, planUsd);
-  if (pts.length === 0) return null;
+  const curve = savingCurve(usage, planUsd);
+  if (curve.length === 0) return null;
   const W = 600;
   const H = 96;
-  const top = Math.max(1e-9, ...pts.map((p) => Math.max(p.list, p.plan)));
-  const x = (i: number) => (pts.length <= 1 ? W / 2 : (i / (pts.length - 1)) * W);
+  const top = Math.max(1e-9, ...curve.map((p) => Math.max(p.list, p.plan)));
+  const x = (i: number) => (curve.length <= 1 ? W / 2 : (i / (curve.length - 1)) * W);
   const y = (v: number) => H - 3 - (v / top) * (H - 8);
-  const line = (k: 'list' | 'plan') => pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p[k]).toFixed(1)}`).join(' ');
-  const last = pts[pts.length - 1]!;
+  const line = (k: 'list' | 'plan') => curve.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p[k]).toFixed(1)}`).join(' ');
+  const last = curve[curve.length - 1]!;
   return (
     <div data-testid="hub-usage-saving-curve" className="border-t border-app-border-subtle px-3 pb-2 pt-2">
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block h-[96px] w-full" role="img" aria-label={tr('hubUsage.curve.aria')}>

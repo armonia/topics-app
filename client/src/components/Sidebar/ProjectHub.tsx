@@ -35,7 +35,8 @@ import { refreshHubLive, useHubLive } from '../../state/hubLive';
 import { POPOVER_DIVIDER, DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { Segmented } from '../Shared/Segmented';
 import { PALLINO_ATTESA } from './chromeSignals';
-import { ProjectHubAgents, spanWords } from './ProjectHubAgents';
+import { ProjectHubAgents } from './ProjectHubAgents';
+import { spanWords } from './projectHubSpan';
 import {
   HUB_PRIORITY_LEVELS, PROVIDER_NAMES, budgetChoices, holdWhy, matchHubProject, overBudget, projectSettingsBody, providerShares, readHubProjects,
   restartParts, shownShare, weekShare, working, workingOutside,

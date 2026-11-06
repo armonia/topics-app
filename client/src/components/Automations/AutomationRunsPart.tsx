@@ -4,7 +4,7 @@
  * outcome, «lanciato a mano», whether it wrote to you (and on what) or why
  * not, and, opened, what it produced and its error in full, the report of
  * the day and the model with its tokens. The heading counts the failed ones
- * and how many times it wrote to you. A read that fails offers «Riprova».
+ * and how many times it wrote to you. A read that fails offers a retry.
  *
  * A workflow's runs carry their cost, read only when asked. Any other row
  * shows the runs of its last day as the hub keeps them.

@@ -22,9 +22,9 @@ type Money = (usd: number) => string;
 /** The empty folder on a picker: «all» is the empty value. */
 const NO_FOLDER = '-';
 
-/** The rows of a box before «altri N». */
+/** The rows of a box before «N more». */
 const KEEP = 6;
-/** The proxy's folders before «altre N», as the hub had them. */
+/** The proxy's folders before «N more», as the hub had them. */
 const KEEP_PROXY = 10;
 
 const numText = (n: number, locale: string) => n.toLocaleString(locale === 'it' ? 'it-IT' : 'en-US');

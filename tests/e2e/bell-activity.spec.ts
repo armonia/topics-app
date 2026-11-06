@@ -1,5 +1,5 @@
 /**
- * THE CLAUDE PROXY'S ACTIVITY IN THE BELL (hub-smistamento, «Attività» merged
+ * THE CLAUDE PROXY'S ACTIVITY IN THE BELL (hub-smistamento, «Activity» merged
  * into the bell; HUBBR-06, HUBBR-07).
  *
  * The hub's Activity page listed the proxy's log: every event of the week,
