@@ -24,7 +24,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import {
   Check, ChevronDown, CircleAlert, CircleCheck, CircleX, ClipboardCheck, CloudOff, Eye, Gauge, GitPullRequest, Hand,
-  Inbox as InboxIcon, MessageCircleQuestion, MessageSquare, PauseCircle, Server, Settings, ShieldAlert, SquareCheck, TerminalSquare,
+  Inbox as InboxIcon, MessageCircleQuestion, MessageSquare, PauseCircle, Search, Server, Settings, ShieldAlert, SquareCheck, TerminalSquare,
   type LucideIcon,
 } from 'lucide-react';
 import type { WSMessage } from '../../types';
@@ -38,6 +38,8 @@ import { useAttentionRows, sendAttentionSeenItems } from '../../state/attention'
 import { markAllSeenItems, historyDayKey, type InboxItem, type InboxModel, type InboxQuietItem } from '../../lib/inboxModel';
 import { BELL_GROUP_PREVIEW, bellGroups, type BellGroup, type BellGroupKey } from '../../lib/bellGroups';
 import type { DiaryEntry } from '../../lib/hubSystem';
+import type { HubLiveTopic } from '../../state/hubLive';
+import { HISTORY_FILTER_KEYS, dayTally, diaryForFilter, diaryMatches, historyCounts, topicsMatches, type HistoryFilter } from '../../lib/bellHistory';
 import { openDeepLinkInApp } from '../../lib/deepLinkEntry';
 import { openUserMenu } from '../../lib/openUserMenu';
 import { WARNING_TEXT, DANGER_TEXT } from '../../lib/popoverStyles';
@@ -104,7 +106,7 @@ export default function InboxPanel({ model, onWSMessage, onClose }: {
   const history = useNotificationHistory(onWSMessage);
   const reloadHistory = history.reload;
   useEffect(() => { if (tab === 'history') reloadHistory(); }, [tab, reloadHistory]);
-  const { hub, present, answering, downSince } = useBellHub();
+  const { hub, present, answering, downSince, unread, jarvis } = useBellHub();
   const diary = useBellDiary(tab === 'history');
   const groups = useMemo(() => bellGroups(model, hub), [model, hub]);
   const nowCount = groups.reduce((n, g) => n + g.entries.length, 0);
@@ -209,6 +211,7 @@ export default function InboxPanel({ model, onWSMessage, onClose }: {
       </div>
       <div className="h-px bg-app-border flex-shrink-0" />
       {tab === 'now' && present && !answering && <HubDownBand />}
+      {tab === 'now' && unread.length > 0 && <HubUnreadBand topics={unread} />}
       {tab === 'now' && groups.length > 1 && <GroupChips groups={groups} onPick={jumpTo} />}
 
       <div ref={listRef} tabIndex={-1} role="tabpanel" className="overflow-y-auto overscroll-contain min-h-0 outline-none" data-testid={`inbox-panel-${tab}`}>
@@ -218,7 +221,7 @@ export default function InboxPanel({ model, onWSMessage, onClose }: {
               // The mockup's line: nothing waits, and (with the hub answering) nothing is broken; the log one click away.
               <div className={`flex items-center gap-2 text-app-text-secondary ${isTouch ? 'py-2 pl-3.5 pr-2 text-prose' : 'p-3 text-compact'}`} data-testid="inbox-empty">
                 <CircleCheck size={14} className="flex-shrink-0 text-green-600 dark:text-green-400" aria-hidden="true" />
-                <span className="min-w-0 flex-1">{tr(answering ? 'bell.empty' : 'inbox.empty')}</span>
+                <span className="min-w-0 flex-1">{tr(unread.length > 0 ? 'bell.emptyUnread' : answering ? 'bell.empty' : 'inbox.empty')}</span>
                 <button
                   type="button"
                   tabIndex={-1}
@@ -253,7 +256,7 @@ export default function InboxPanel({ model, onWSMessage, onClose }: {
                       ? <FinishedRow key={entry.key} item={entry.item} first={first} onOpen={openItem} onMarkSeen={markSeen} />
                       : <DecideRow key={entry.key} item={entry.item} first={first} onOpen={openItem} />;
                   }
-                  return <HubRow key={entry.key} entry={entry} first={first} onNavigate={onClose} />;
+                  return <HubRow key={entry.key} entry={entry} first={first} onNavigate={onClose} jarvis={jarvis} />;
                 }}
               </GroupSection>
             ))}
@@ -261,7 +264,8 @@ export default function InboxPanel({ model, onWSMessage, onClose }: {
         ) : (
           <History
             rows={history.rows}
-            diary={diary}
+            diary={diary.rows}
+            diaryReadAt={diary.readAt}
             hubPresent={present}
             loading={history.loading}
             hasMore={history.hasMore}
@@ -600,13 +604,37 @@ function HubDownBand() {
   );
 }
 
-type HistoryFilter = 'all' | 'topics' | 'hub';
+/**
+ * A part of the hub that did not answer while the others did: its items were
+ * not read, which is not the same as «nothing waits». Same band as the hub
+ * down, with what is missing and «Retry».
+ */
+function HubUnreadBand({ topics }: { topics: HubLiveTopic[] }) {
+  const tr = useT();
+  const { isTouch } = useMobile();
+  const button = useBellButton();
+  const [busy, setBusy] = useState(false);
+  const retry = async () => {
+    setBusy(true);
+    try { await retryHub(); } finally { setBusy(false); }
+  };
+  return (
+    <div className={`flex items-center gap-2 flex-shrink-0 bg-amber-500/15 ${WARNING_TEXT} ${isTouch ? 'py-2 pl-3.5 pr-2 text-prose' : 'py-1.5 pl-3 pr-2.5 text-compact'}`} role="status" data-testid="bell-hub-unread" data-topics={topics.join(',')}>
+      <CloudOff size={14} className="flex-shrink-0" aria-hidden="true" />
+      <span className="min-w-0 flex-1">{tr('bell.unread', { what: topics.map((t) => tr(`bell.unread.${t}`)).join(', ') })}</span>
+      <button type="button" tabIndex={-1} disabled={busy} onClick={() => void retry()} className={button.secondary} data-testid="bell-unread-retry">
+        {tr('bell.retry')}
+      </button>
+    </div>
+  );
+}
 
-const HISTORY_FILTERS: { key: HistoryFilter; label: string }[] = [
-  { key: 'all', label: 'bell.history.all' },
-  { key: 'topics', label: 'bell.history.topics' },
-  { key: 'hub', label: 'bell.history.hub' },
-];
+const HISTORY_FILTER_LABEL: Record<HistoryFilter, string> = {
+  all: 'bell.history.all',
+  topics: 'bell.history.topics',
+  hub: 'bell.history.hub',
+  problems: 'bell.history.problems',
+};
 
 type HistoryLine = { at: number; key: string; row: NotificationRow } | { at: number; key: string; diary: DiaryEntry };
 
@@ -616,9 +644,10 @@ type HistoryLine = { at: number; key: string; row: NotificationRow } | { at: num
  * still to come, the diary shows only what is newer than the last one loaded,
  * so an old run does not sit above a page that has not arrived yet.
  */
-function History({ rows, diary, hubPresent, loading, hasMore, loadingMore, loadMore, onClose }: {
+function History({ rows, diary, diaryReadAt, hubPresent, loading, hasMore, loadingMore, loadMore, onClose }: {
   rows: NotificationRow[];
   diary: DiaryEntry[];
+  diaryReadAt: number | null;
   hubPresent: boolean;
   loading: boolean;
   hasMore: boolean;
@@ -629,33 +658,60 @@ function History({ rows, diary, hubPresent, loading, hasMore, loadingMore, loadM
   const tr = useT();
   const { isTouch } = useMobile();
   const [filter, setFilter] = useState<HistoryFilter>('all');
+  const [query, setQuery] = useState('');
   // Infinite scroll, within the hundred rows the panel keeps: the next page comes as its tail comes into view.
   const moreRef = useLoadOnReach(loadMore, { more: hasMore && rows.length < 100, loading: loadingMore, count: rows.length });
   const now = useSharedNow();
   const attention = useAttentionRows();
-  const topicsRows = filter === 'hub' ? [] : rows.slice(0, 100);
-  const oldestTopics = hasMore && topicsRows.length > 0 ? Date.parse(topicsRows[topicsRows.length - 1]!.createdAt) : Number.NEGATIVE_INFINITY;
-  const diaryRows = filter === 'topics' ? [] : diary.filter((d) => filter === 'hub' || d.at >= oldestTopics);
+  const outcomeWord = (o: string) => tr(`bell.diary.outcome.${o}`);
+  const loaded = rows.slice(0, 100);
+  const oldestTopics = hasMore && loaded.length > 0 ? Date.parse(loaded[loaded.length - 1]!.createdAt) : Number.NEGATIVE_INFINITY;
+  const searchedTopics = loaded.filter((r) => topicsMatches({ title: r.title, body: r.body ?? '' }, query));
+  const searchedDiary = diary.filter((d) => diaryMatches(d, query, outcomeWord));
+  const counts = historyCounts(searchedTopics.length, searchedDiary);
+  const topicsRows = filter === 'hub' || filter === 'problems' ? [] : searchedTopics;
+  const diaryRows = diaryForFilter(searchedDiary, filter).filter((d) => filter !== 'all' || d.at >= oldestTopics);
   const lines: HistoryLine[] = [
     ...topicsRows.map((row) => ({ at: Date.parse(row.createdAt), key: `n:${row.id}`, row })),
     ...diaryRows.map((d) => ({ at: d.at, key: d.id, diary: d })),
   ].sort((a, b) => b.at - a.at);
 
   const chips = hubPresent && (
-    <div className="flex gap-1 px-3 py-1.5 border-b border-app-border/60 overflow-x-auto" style={{ scrollbarWidth: 'none' }} role="group" aria-label={tr('bell.history.filter')} data-testid="bell-history-filter">
-      {HISTORY_FILTERS.map((f) => (
-        <button
-          key={f.key}
-          type="button"
-          tabIndex={-1}
-          aria-pressed={filter === f.key}
-          onClick={() => setFilter(f.key)}
-          className={`flex items-center gap-[5px] whitespace-nowrap px-2 ${isTouch ? 'h-9 text-prose' : 'h-6 text-compact'} rounded-xs border transition-colors ${filter === f.key ? 'border-primary/40 bg-primary/10 text-primary font-medium' : 'border-black/15 dark:border-white/20 text-app-text-secondary hover:bg-app-hover'}`}
-          data-testid={`bell-history-${f.key}`}
-        >
-          {tr(f.label)}
-        </button>
-      ))}
+    <div className="border-b border-app-border/60" data-testid="bell-history-tools">
+      <div className="flex gap-1 px-3 pt-1.5 overflow-x-auto" style={{ scrollbarWidth: 'none' }} role="group" aria-label={tr('bell.history.filter')} data-testid="bell-history-filter">
+        {HISTORY_FILTER_KEYS.map((key) => (
+          <button
+            key={key}
+            type="button"
+            tabIndex={-1}
+            aria-pressed={filter === key}
+            onClick={() => setFilter(key)}
+            className={`flex items-center gap-[5px] whitespace-nowrap px-2 ${isTouch ? 'h-9 text-prose' : 'h-6 text-compact'} rounded-xs border transition-colors ${filter === key ? 'border-primary/40 bg-primary/10 text-primary font-medium' : 'border-black/15 dark:border-white/20 text-app-text-secondary hover:bg-app-hover'}`}
+            data-testid={`bell-history-${key}`}
+            data-count={counts[key]}
+          >
+            {tr(HISTORY_FILTER_LABEL[key])}
+            <span className={`tabular-nums ${key === 'problems' && counts.problems > 0 ? DANGER_TEXT : 'text-app-text-muted'}`}>{counts[key]}</span>
+          </button>
+        ))}
+      </div>
+      <label className={`flex items-center gap-1.5 mx-3 my-1.5 px-2 rounded-xs border border-black/15 dark:border-white/20 focus-within:border-primary/60 ${isTouch ? 'h-9' : 'h-6'}`}>
+        <Search size={12} className="flex-shrink-0 text-app-text-muted" aria-hidden="true" />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={tr('bell.history.search')}
+          aria-label={tr('bell.history.search')}
+          className={`min-w-0 flex-1 bg-transparent outline-none text-app-text placeholder:text-app-text-muted ${isTouch ? 'text-prose' : 'text-compact'}`}
+          data-testid="bell-history-search"
+        />
+        {diaryReadAt !== null && (
+          <span className="flex-shrink-0 text-mini text-app-text-muted tabular-nums" data-testid="bell-history-fresh">
+            {tr('bell.history.fresh', { n: diary.length, time: new Date(diaryReadAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false }) })}
+          </span>
+        )}
+      </label>
     </div>
   );
 
@@ -665,7 +721,7 @@ function History({ rows, diary, hubPresent, loading, hasMore, loadingMore, loadM
         {chips}
         <div className="px-4 py-7 text-center" data-testid="inbox-history-empty">
           <InboxIcon size={18} className="mx-auto mb-2 text-app-text-muted" aria-hidden="true" />
-          <div className="text-compact text-app-text-secondary">{loading ? tr('common.loading') : tr('notifications.empty')}</div>
+          <div className="text-compact text-app-text-secondary">{loading ? tr('common.loading') : query.trim() ? tr('bell.history.noMatch') : tr('notifications.empty')}</div>
         </div>
       </>
     );
@@ -681,11 +737,12 @@ function History({ rows, diary, hubPresent, loading, hasMore, loadingMore, loadM
       {chips}
       {days.map((d) => (
         <section key={d.key} className="pb-1">
-          <h3 className="px-3 pt-2 pb-0.5 text-mini font-semibold uppercase tracking-[.04em] text-app-text-muted">
+          <h3 className="flex items-baseline gap-1.5 px-3 pt-2 pb-0.5 text-mini font-semibold uppercase tracking-[.04em] text-app-text-muted" data-testid="bell-history-day">
             {d.key === 'today' ? tr('inbox.day.today') : d.key === 'yesterday' ? tr('inbox.day.yesterday') : new Date(`${d.key}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}
+            <DayTally lines={d.lines} />
           </h3>
           <ul>
-            {d.lines.map((l) => ('diary' in l ? <DiaryRow key={l.key} entry={l.diary} /> : <HistoryRow key={l.key} row={l.row} lit={!!l.row.groupKey && !!attention.get(l.row.groupKey)?.lit} onClose={onClose} />))}
+            {d.lines.map((l) => ('diary' in l ? <DiaryRow key={l.key} entry={l.diary} onNavigate={onClose} /> : <HistoryRow key={l.key} row={l.row} lit={!!l.row.groupKey && !!attention.get(l.row.groupKey)?.lit} onClose={onClose} />))}
           </ul>
         </section>
       ))}
@@ -695,6 +752,18 @@ function History({ rows, diary, hubPresent, loading, hasMore, loadingMore, loadM
         </button>
       )}
     </div>
+  );
+}
+
+/** «12 eventi · 3 falliti» beside the day's name. */
+function DayTally({ lines }: { lines: HistoryLine[] }) {
+  const tr = useT();
+  const { events, failed } = dayTally(lines);
+  return (
+    <span className="normal-case tracking-normal font-normal tabular-nums" data-testid="bell-history-day-tally" data-events={events} data-failed={failed}>
+      {events === 1 ? tr('bell.day.countOne') : tr('bell.day.count', { n: events })}
+      {failed > 0 && <span className={DANGER_TEXT}>{' · '}{failed === 1 ? tr('bell.day.failedOne') : tr('bell.day.failed', { n: failed })}</span>}
+    </span>
   );
 }
 

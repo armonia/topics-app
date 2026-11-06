@@ -101,7 +101,7 @@ The bell («Da guardare» > Ora) SHALL list, in this order: «Decidi tu» (the w
 
 ### Requirement: HUBBR-07 — History with the filtered diary
 
-The bell's History tab SHALL merge two days of the hub's diary into the Topics log by time, with a filter «Tutto», «Topics», «Automazioni e agenti». The diary SHALL bring failed runs, the agents' work («Risolvi tu» included), workflows and the person's own actions, and SHALL leave out the runs of automations that went well or were skipped: those stay on the automation's card.
+The bell's History tab SHALL merge seven days of the hub's diary into the Topics log by time, with a filter «Tutto», «Topics», «Automazioni e agenti» and a search over title, detail and who. The diary SHALL bring failed runs, the agents' work («Risolvi tu» included), workflows, the person's own actions and the lines other writers note (the Mac's brake, budgets, subscriptions), and SHALL leave out the runs of automations that went well or were skipped: those stay on the automation's card. Each line SHALL say its state in words (hover and screen reader), unfold its whole text, and open its automation in Automazioni when it is about one.
 
 #### Scenario: Routine runs stay out
 - **GIVEN** a diary with a successful backup, a skipped brief and a failed reindex

@@ -12,14 +12,15 @@
  */
 import { useState, type ReactNode } from 'react';
 import {
-  ArrowLeftRight, Bot, Check, CircleX, CreditCard, Eye, Gauge, KeyRound, Layers, Megaphone, PieChart, Scale, ServerCrash,
-  User, Workflow, Wrench, type LucideIcon,
+  ArrowLeftRight, Bot, Check, ChevronRight, CircleDashed, CircleX, Clock3, CreditCard, Eye, Gauge, KeyRound, Layers, LoaderCircle, Megaphone,
+  MessageCircle, PieChart, Scale, ServerCrash, SkipForward, User, Workflow, Wrench, type LucideIcon,
 } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
 import { useMobile } from '../../hooks/useMobile';
 import { useBellActions } from '../../hooks/useBellHub';
 import { bellTimeLabel, type BellEntry } from '../../lib/bellGroups';
-import type { DiaryEntry, WaitingKind } from '../../lib/hubSystem';
+import { jarvisHref, type DiaryEntry, type WaitingKind } from '../../lib/hubSystem';
+import { openAutomation } from '../../state/automationTarget';
 import { WARNING_TEXT, DANGER_TEXT } from '../../lib/popoverStyles';
 import { useSharedNow } from '../../state/useSharedNow';
 
@@ -66,7 +67,7 @@ function dueLabel(due: number, now: number, tr: ReturnType<typeof useT>): string
  * the text with a mouse, under it with a finger. With `onOpen` the text is a
  * button that opens the subject, otherwise it only takes the focus.
  */
-export function RowShell({ icon: Icon, tint, first, title, second, at, actions, aside, onOpen, attrs }: {
+export function RowShell({ icon: Icon, tint, first, title, second, at, actions, aside, onOpen, attrs, full, iconLabel }: {
   icon: LucideIcon;
   tint: string;
   first: boolean;
@@ -79,14 +80,27 @@ export function RowShell({ icon: Icon, tint, first, title, second, at, actions, 
   onOpen?: () => void;
   /** The `data-*` the specs read, on the row. */
   attrs: Record<string, string | undefined>;
+  /**
+   * The whole text of a row that can be longer than its line (the «why» of
+   * an item, an error, an alert that ends with what to do): the hover shows
+   * it, and a click on a row that opens nothing unfolds it on several lines.
+   */
+  full?: string;
+  /** The word the icon stands for (failed, running), for the hover and screen readers. */
+  iconLabel?: string;
 }) {
   const { isMobile } = useMobile();
+  const [unfolded, setUnfolded] = useState(false);
+  const canUnfold = !!full && !onOpen;
+  const wrapped = isMobile || unfolded;
   const body = (
     <>
-      <Icon size={isMobile ? 16 : 15} className={`flex-shrink-0 self-start ${isMobile ? 'mt-0.5' : 'mt-[3px]'} ${tint}`} aria-hidden="true" />
-      <span className="min-w-0 flex-1">
-        <span className={`block font-medium text-app-text ${isMobile ? 'text-body-lg leading-[19px]' : 'text-compact leading-4 truncate'}`}>{title}</span>
-        <span className={`flex items-center gap-[5px] text-app-text-secondary min-w-0 ${isMobile ? 'text-prose leading-[18px] flex-wrap gap-y-0.5' : 'text-compact leading-4 whitespace-nowrap overflow-hidden'}`}>
+      {iconLabel
+        ? <span className={`flex-shrink-0 self-start ${isMobile ? 'mt-0.5' : 'mt-[3px]'} ${tint}`} title={iconLabel} data-testid="bell-row-status"><Icon size={isMobile ? 16 : 15} aria-hidden="true" /><span className="sr-only">{iconLabel}</span></span>
+        : <Icon size={isMobile ? 16 : 15} className={`flex-shrink-0 self-start ${isMobile ? 'mt-0.5' : 'mt-[3px]'} ${tint}`} aria-hidden="true" />}
+      <span className="min-w-0 flex-1" title={full}>
+        <span className={`block font-medium text-app-text ${isMobile ? 'text-body-lg leading-[19px]' : `text-compact leading-4 ${unfolded ? 'break-words' : 'truncate'}`}`}>{title}</span>
+        <span className={`flex items-center gap-[5px] text-app-text-secondary min-w-0 ${isMobile ? 'text-prose leading-[18px] flex-wrap gap-y-0.5' : unfolded ? 'text-compact leading-4 flex-wrap gap-y-0.5' : 'text-compact leading-4 whitespace-nowrap overflow-hidden'} ${wrapped ? '[&_.truncate]:whitespace-normal [&_.truncate]:overflow-visible [&_.truncate]:[overflow-wrap:anywhere]' : ''}`}>
           {second}
           {at !== null && <span className="flex-shrink-0 text-app-text-muted">·</span>}
           {at !== null && <BellTime at={at} className="text-app-text-muted" />}
@@ -99,11 +113,18 @@ export function RowShell({ icon: Icon, tint, first, title, second, at, actions, 
   return (
     <li
       className={`flex gap-x-2.5 hover:bg-app-hover focus-within:bg-app-hover transition-colors ${isMobile ? 'flex-wrap items-start pl-3.5 pr-3 py-2' : 'items-center pl-3 pr-2.5 py-1 min-h-10'}`}
+      data-unfolded={unfolded ? 'true' : undefined}
       {...attrs}
     >
       {onOpen
         ? <button type="button" data-inbox-row="" data-subject={attrs['data-subject']} tabIndex={first ? 0 : -1} onClick={onOpen} className={text}>{body}</button>
-        : <div data-inbox-row="" tabIndex={first ? 0 : -1} className={text}>{body}</div>}
+        : canUnfold
+          ? (
+            <button type="button" data-inbox-row="" tabIndex={first ? 0 : -1} aria-expanded={unfolded} onClick={() => setUnfolded((u) => !u)} className={text} data-testid="bell-row-text">
+              {body}
+            </button>
+          )
+          : <div data-inbox-row="" tabIndex={first ? 0 : -1} className={text}>{body}</div>}
       {aside && <div className="flex-shrink-0 self-center">{aside}</div>}
       {actions && <div className={`flex items-center flex-shrink-0 ${isMobile ? 'basis-full pl-[26px] gap-1.5 mt-1' : 'gap-1'}`}>{actions}</div>}
     </li>
@@ -112,7 +133,13 @@ export function RowShell({ icon: Icon, tint, first, title, second, at, actions, 
 
 const joined = (parts: (string | null | undefined | false)[]) => parts.filter(Boolean).join(' · ');
 
-export function HubRow({ entry, first, onNavigate }: { entry: HubEntry; first: boolean; onNavigate?: () => void }) {
+export function HubRow({ entry, first, onNavigate, jarvis }: {
+  entry: HubEntry;
+  first: boolean;
+  onNavigate?: () => void;
+  /** Where «Write to Jarvis» goes (the hub's `hub-config`); null: no such button. */
+  jarvis?: { whatsapp: string | null; discord: string | null } | null;
+}) {
   const tr = useT();
   const now = useSharedNow();
   const button = useBellButton();
@@ -142,8 +169,9 @@ export function HubRow({ entry, first, onNavigate }: { entry: HubEntry; first: b
           tint={WARNING_TEXT}
           first={first}
           title={item.title}
-          // A deadline says more than the age: the time shows only without one.
-          at={item.due === null ? item.since : null}
+          // How long it has waited, also next to a deadline: the hub showed both.
+          at={item.since}
+          full={joined([item.title, item.why, item.from && tr('bell.from', { who: item.from })])}
           second={error || (
             <>
               {item.due !== null && (
@@ -153,14 +181,33 @@ export function HubRow({ entry, first, onNavigate }: { entry: HubEntry; first: b
                 </span>
               )}
               <span className={`flex-shrink-0 px-[5px] rounded-xs font-semibold text-mini leading-4 bg-amber-500/15 ${WARNING_TEXT}`}>{tr(`bell.kind.${item.kind}`)}</span>
-              {item.why && <span className="truncate">{item.why}</span>}
+              {item.from && <span className="flex-shrink-0 text-app-text-muted" data-testid="bell-from">{tr('bell.from', { who: item.from })}</span>}
+              {item.why && <span className="truncate" data-testid="bell-why">{item.why}</span>}
             </>
           )}
           actions={(
             <>
-              {item.link && (
+              {item.automationKey ? (
+                <button
+                  type="button"
+                  onClick={() => { onNavigate?.(); openAutomation(item.automationKey!); }}
+                  className={button.primary}
+                  data-testid="bell-open"
+                  data-target="automation"
+                >
+                  {tr('bell.open')}
+                </button>
+              ) : item.link && (
                 <a href={item.link} target="_blank" rel="noopener noreferrer" className={button.primary} data-testid="bell-open">{tr('bell.open')}</a>
               )}
+              {(() => {
+                const href = jarvisHref(jarvis ?? null, tr('bell.jarvis.text', { title: item.title }));
+                return href && (
+                  <a href={href} target="_blank" rel="noopener noreferrer" className={button.secondary} data-testid="bell-jarvis" title={tr('bell.jarvis')} aria-label={tr('bell.jarvis')}>
+                    <MessageCircle size={12} aria-hidden="true" />
+                  </a>
+                );
+              })()}
               <button type="button" disabled={busy} onClick={() => void run(() => closeWaiting(item.id))} className={button.secondary} data-testid="bell-done">
                 <Check size={12} aria-hidden="true" />
                 {tr('bell.done')}
@@ -180,6 +227,7 @@ export function HubRow({ entry, first, onNavigate }: { entry: HubEntry; first: b
           first={first}
           title={job.title}
           at={job.at}
+          full={joined([job.title, job.reason ?? tr('bell.failed')])}
           second={error || <span className="truncate">{job.reason ?? tr('bell.failed')}</span>}
           actions={done
             ? <span className="text-compact text-app-text-secondary" data-testid="bell-fix-queued">{tr('bell.fixQueued')}</span>
@@ -196,6 +244,7 @@ export function HubRow({ entry, first, onNavigate }: { entry: HubEntry; first: b
       // The service is read where the machine is: Processi lists it with its state and port.
       return (
         <RowShell attrs={attrs} icon={ServerCrash} tint={DANGER_TEXT} first={first} title={entry.service.name} at={null}
+          full={joined([entry.service.name, entry.service.problem ?? tr('bell.service.stopped')])}
           second={<span className="truncate">{entry.service.problem ?? tr('bell.service.stopped')}</span>}
           actions={(
             <button
@@ -238,7 +287,8 @@ export function HubRow({ entry, first, onNavigate }: { entry: HubEntry; first: b
     case 'alert':
       return (
         <RowShell attrs={attrs} icon={entry.alert.source === 'soglia-progetto' ? PieChart : Gauge} tint="text-app-text-tertiary" first={first} // allow-italian: the hub's wire value
-          title={entry.alert.subject || entry.alert.message} at={null} second={<span className="truncate">{entry.alert.message}</span>} />
+          title={entry.alert.subject || entry.alert.message} at={null} full={entry.alert.message}
+          second={<span className="truncate" data-testid="bell-alert-message">{entry.alert.message}</span>} />
       );
     case 'account': {
       const e = entry.event;
@@ -262,7 +312,7 @@ export function HubRow({ entry, first, onNavigate }: { entry: HubEntry; first: b
     }
     case 'contradiction':
       return (
-        <RowShell attrs={attrs} icon={Layers} tint="text-app-text-tertiary" first={first} title={tr('bell.contradiction')} at={null}
+        <RowShell attrs={attrs} icon={Layers} tint="text-app-text-tertiary" first={first} title={tr('bell.contradiction')} at={null} full={entry.item.why}
           second={<span className="truncate">{entry.item.why}</span>} />
       );
   }
@@ -270,18 +320,54 @@ export function HubRow({ entry, first, onNavigate }: { entry: HubEntry; first: b
 
 const DIARY_ICON: Record<DiaryEntry['kind'], LucideIcon> = { auto: Workflow, app: Workflow, workflow: Workflow, agente: Bot, tu: User }; // allow-italian: the hub's wire values
 
-/** A line of the hub's diary in History: read only, the same row as the rest of the panel. */
-export function DiaryRow({ entry }: { entry: DiaryEntry }) {
-  const failed = entry.outcome === 'error' || entry.outcome === 'undelivered';
+const DIARY_OUTCOMES = new Set(['ok', 'error', 'undelivered', 'skipped', 'running', 'queued']);
+
+/** The state of a line, as an icon the eye reads and a word for the hover and screen readers. */
+const DIARY_STATUS: Record<string, { icon: LucideIcon; tint: string; spin?: boolean }> = {
+  error: { icon: CircleX, tint: DANGER_TEXT },
+  undelivered: { icon: CircleX, tint: DANGER_TEXT },
+  running: { icon: LoaderCircle, tint: 'text-primary', spin: true },
+  queued: { icon: Clock3, tint: 'text-app-text-tertiary' },
+  skipped: { icon: SkipForward, tint: 'text-app-text-muted' },
+};
+
+/**
+ * A line of the hub's diary in History: the same row as the rest of the
+ * panel, its state said by the icon and in words, its whole text a click
+ * away; a line about an automation opens it in Automazioni.
+ */
+export function DiaryRow({ entry, onNavigate }: { entry: DiaryEntry; onNavigate?: () => void }) {
+  const tr = useT();
+  const button = useBellButton();
+  const status = entry.outcome ? DIARY_STATUS[entry.outcome] : undefined;
+  const Icon = status?.icon ?? DIARY_ICON[entry.kind] ?? CircleDashed;
+  const known = entry.outcome !== null && DIARY_OUTCOMES.has(entry.outcome);
+  const word = known ? tr(`bell.diary.outcome.${entry.outcome}`) : null;
+  const second = joined([entry.what, entry.who]);
+  const key = entry.automationKey;
   return (
     <RowShell
       attrs={{ 'data-testid': 'bell-diary-row', 'data-kind': entry.kind, 'data-outcome': entry.outcome ?? undefined }}
-      icon={failed ? CircleX : DIARY_ICON[entry.kind]}
-      tint={failed ? DANGER_TEXT : 'text-app-text-tertiary'}
+      icon={Icon}
+      tint={`${status?.tint ?? 'text-app-text-tertiary'}${status?.spin ? ' [&_svg]:animate-spin' : ''}`}
+      iconLabel={word ?? undefined}
       first={false}
       title={entry.title}
       at={entry.at}
-      second={<span className="truncate">{joined([entry.what, entry.who])}</span>}
+      full={joined([entry.title, entry.what, entry.who, word])}
+      second={<span className="truncate">{second}</span>}
+      actions={key && (
+        <button
+          type="button"
+          onClick={() => { onNavigate?.(); openAutomation(key); }}
+          className={button.secondary}
+          aria-label={tr('bell.diary.open', { title: entry.title })}
+          title={tr('bell.diary.open', { title: entry.title })}
+          data-testid="bell-diary-open"
+        >
+          <ChevronRight size={12} aria-hidden="true" />
+        </button>
+      )}
     />
   );
 }

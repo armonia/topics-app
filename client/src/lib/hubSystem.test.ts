@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  automationSummary, closeWaitingBody, failedJobs, firingAlerts, quotaLines, redGates, servicesDown, waitingItems,
+  automationKeyOfLink, automationSummary, closeWaitingBody, failedJobs, firingAlerts, quotaLines, redGates, servicesDown, waitingItems,
 } from './hubSystem';
 
 const SERVICES = { at: 1, services: [
@@ -46,25 +46,38 @@ describe('HUBBR-03: the hub readers', () => {
       { id: 'd', tipo: 'boh', title: 'Unknown kind' },
     ] });
     expect(items.map((i) => i.id)).toEqual(['a', 'b', 'd']);
-    expect(items[0]).toEqual({ id: 'a', kind: 'decisione', title: 'Ship it?', why: 'because', link: 'https://example.com/x', from: 'guardiano', due: 10, since: null });
+    expect(items[0]).toEqual({ id: 'a', kind: 'decisione', title: 'Ship it?', why: 'because', link: 'https://example.com/x', automationKey: null, from: 'guardiano', due: 10, since: null });
     expect(items[1]!.link).toBeNull();
     expect(items[2]!.kind).toBe('decisione');
     expect(waitingItems(null)).toEqual([]);
     const links = waitingItems({ items: [
-      { id: 'p', title: 'Page', link: '#automations/x' },
+      { id: 'p', title: 'Page', link: '#work' },
       { id: 'c', title: 'Claude', link: 'claude://resume/abc' },
       { id: 'f', title: 'File', link: 'file:///etc/passwd' },
     ] }, '127.0.0.1').map((i) => i.link);
-    expect(links).toEqual(['http://127.0.0.1:3360/#automations/x', 'claude://resume/abc', null]);
+    expect(links).toEqual(['http://127.0.0.1:3360/#work', 'claude://resume/abc', null]);
   });
 
   test('a hub page link opens only on the machine of the hub, never as the phone own localhost', () => {
-    const page = { items: [{ id: 'p', title: 'Page', link: '#automations/k' }] };
+    const page = { items: [{ id: 'p', title: 'Page', link: '#work' }] };
     const linkOn = (host: string) => waitingItems(page, host)[0]!.link;
-    expect(linkOn('127.0.0.1')).toBe('http://127.0.0.1:3360/#automations/k');
-    expect(linkOn('localhost')).toBe('http://127.0.0.1:3360/#automations/k');
+    expect(linkOn('127.0.0.1')).toBe('http://127.0.0.1:3360/#work');
+    expect(linkOn('localhost')).toBe('http://127.0.0.1:3360/#work');
     expect(linkOn('mac.tail1234.ts.net')).toBeNull();
     expect(linkOn('192.168.1.20')).toBeNull();
+  });
+
+  test('a link to one automation opens Topics own view on every device, not the hub page', () => {
+    const page = { items: [{ id: 'p', title: 'Page', link: '#automations/cron%3Abackup', from: 'guardiano' }] };
+    for (const host of ['127.0.0.1', 'mac.tail1234.ts.net']) {
+      const [item] = waitingItems(page, host);
+      expect(item!.automationKey).toBe('cron:backup');
+      expect(item!.link).toBeNull();
+      expect(item!.from).toBe('guardiano');
+    }
+    expect(automationKeyOfLink('#automations/')).toBeNull();
+    expect(automationKeyOfLink('#automations/%E0%A4%A')).toBeNull();
+    expect(automationKeyOfLink('https://x/#automations/k')).toBeNull();
   });
 
   test('the close body is the one the hub expects', () => {

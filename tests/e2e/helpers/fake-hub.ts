@@ -77,6 +77,8 @@ export interface FakeHub {
   withdrawn: string[];
   /** True: the queue, the diary and the automations do not answer (503), the rest does. */
   silent: boolean;
+  /** Paths that answer 503 while the rest answers: one part of the hub down, not all of it. */
+  failing: string[];
   /** The votes, notes and silences posted to `feedback`, as the hub keeps them. */
   feedback: FeedbackRow[];
   /** The projects' priorities, as `project-settings` writes them. */
@@ -210,8 +212,10 @@ function applyProxyWrite(hub: FakeHub, path: string, body: Record<string, unknow
 
 export function defaultFakeHubItems(now = Date.now()): FakeHubItem[] {
   return [
-    { id: "e2e-decide", tipo: "decisione", title: "Rilasciare Topics 0.48 su stable", why: "il fix è su main", link: "https://example.com/release", from: "guardiano", at: now - 26 * HOUR },
-    { id: "e2e-look", tipo: "vista", title: "Slide del corso, lezione 4 sul telefono", from: "sessione corso", due: now + 20 * HOUR, at: now - 3 * HOUR },
+    // A «why» longer than its line: the row unfolds it, the hover shows it whole.
+    { id: "e2e-decide", tipo: "decisione", title: "Rilasciare Topics 0.48 su stable", why: "il fix è su main da ieri sera, la suite è verde su chromium e webkit, il canale beta lo usa da due giorni senza segnalazioni: resta solo da decidere se uscire oggi o aspettare lunedì", link: "https://example.com/release", from: "guardiano", at: now - 26 * HOUR },
+    // A link to one automation: Open shows Topics' own view of it, on every device.
+    { id: "e2e-look", tipo: "vista", title: "Slide del corso, lezione 4 sul telefono", from: "sessione corso", link: "#automations/gh%3Adocs-reindex", due: now + 20 * HOUR, at: now - 3 * HOUR },
     { id: "e2e-spend", tipo: "spesa", title: "Passare studio-x al piano Launch", why: "19 EUR al mese", from: "claude", due: now + 2 * HOUR, at: now - HOUR },
   ];
 }
@@ -290,9 +294,14 @@ function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy 
     },
     contesto: { contradictions: { at: now - HOUR, items: [{ a: { file: "~/rules-a.md", text: "x" }, b: { file: "~/rules-b.md", text: "y" }, why: "una chiede i commenti in inglese, l'altra in italiano" }] } },
     diario: { at: now, days: 2, items: [
-      { at: now - 30 * 60_000, kind: "auto", who: "Mac", title: "Backup del Mac", outcome: "ok", what: "1,2 GB in 4 min" },
-      { at: now - 40 * 60_000, kind: "auto", who: "OpenClaw", title: "Brief del mattino", outcome: "skipped", what: "" },
-      { at: now - 50 * 60_000, kind: "auto", who: "GitHub", title: "Reindex dell'indice documenti", outcome: "error", what: "uscito con codice 1" },
+      // Runs of automations carry the link to their card, as the hub writes them.
+      { at: now - 30 * 60_000, kind: "auto", who: "Mac", title: "Backup del Mac", outcome: "ok", what: "1,2 GB in 4 min", link: "#automations/launchd%3Acom.example.backup" },
+      { at: now - 40 * 60_000, kind: "auto", who: "OpenClaw", title: "Brief del mattino", outcome: "skipped", what: "", link: "#automations/cron%3Ajob-brief" },
+      { at: now - 50 * 60_000, kind: "auto", who: "GitHub", title: "Reindex dell'indice documenti", outcome: "error", what: "uscito con codice 1", link: "#automations/gh%3Adocs-reindex" },
+      // A line of another writer: outcome ok, no link, and still news.
+      { at: now - 55 * 60_000, kind: "auto", who: "Freno del Mac", title: "Mac bloccato 10:54–11:07 da un browser da 2,9 GB: chiudilo se non ti serve", outcome: "ok", what: "" },
+      // The delegation queue's notices repeat the agent's own row: they stay out.
+      { at: now - 56 * 60_000, kind: "auto", who: "Coda delega", title: "⏳ In attesa: 2 lavori", outcome: "ok", what: "" },
       { at: now - 70 * 60_000, kind: "agente", who: "Agente · Muse", title: "Un agente ha sistemato il reindex", outcome: "ok", what: "progetto acme-web" },
       { at: now - 90 * 60_000, kind: "workflow", who: "Workflow", title: "Audit delle dipendenze", outcome: "ok", what: "2 agenti, 6 min" },
       ...(jobs.on ? jobsDiary(now) : []),
@@ -315,6 +324,8 @@ function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy 
     ] },
     sessions: proxySessionsAnswer(now),
     projects: { muse: { projects: [{ name: "acme-web", tokens: 6_000_000 }, { name: "studio-x", tokens: 3_100_000 }] } },
+    // The links to write to Jarvis: placeholders, never a real number.
+    "hub-config": { demo: true, jarvis: { whatsapp: "https://example.com/assistente/whatsapp", discord: null } },
   };
 }
 
@@ -503,7 +514,7 @@ const LOG_LINES = [
 ];
 
 export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(), opts: { quiet?: boolean; jobs?: boolean; automations?: boolean; projects?: { dirs: Record<string, string> }; context?: boolean } = {}): Promise<FakeHub> {
-  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), withdrawn: [], silent: false, feedback: [], priorities: {}, refuseSettings: null, contextCheck: defaultContextCheck(), checkMs: 3000, close: async () => {} };
+  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), withdrawn: [], silent: false, failing: [], feedback: [], priorities: {}, refuseSettings: null, contextCheck: defaultContextCheck(), checkMs: 3000, close: async () => {} };
   const server: Server = createServer((req, res) => {
     const path = (req.url ?? "").split("?")[0]!.replace(/^\/api\//, "");
     if (req.method === "GET" && path === "logs/stream") {
@@ -616,6 +627,7 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
       hub.priorities = {};
       hub.refuseSettings = null;
       hub.contextCheck = defaultContextCheck();
+      hub.failing = [];
       req.resume();
       return send(200, { ok: true });
     }
@@ -652,6 +664,7 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
       return text ? send(200, text) : send(403, { error: "Lettura del file di contesto non autorizzata." });
     }
     if (hub.silent && req.method === "GET" && (path === "queue" || path === "diario" || path === "automations")) return send(503, { error: "silent" });
+    if (req.method === "GET" && hub.failing.includes(path)) return send(503, { error: "failing" });
     if (opts.automations && req.method === "GET") {
       const now = Date.now();
       if (path === "automations/runs") {

@@ -23,6 +23,7 @@ import { addCatalogue } from '../../lib/i18n';
 import AUTOMATIONS_IT from '../../lib/i18n-automations-it';
 import AUTOMATIONS_EN from '../../lib/i18n-automations-en';
 import { useHubEverRead } from '../../state/hubLive';
+import { AUTOMATION_TARGET_EVENT, takeAutomationTarget } from '../../state/automationTarget';
 import { startVisibleInterval } from '../../state/documentVisibility';
 import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import {
@@ -82,7 +83,32 @@ function AutomationsView() {
   const [tab, setTab] = useState<'list' | 'calendar'>('list');
   const [system, setSystem] = useState<AutomationSystem | null>(null);
   const [query, setQuery] = useState('');
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // A link of the hub (`#automations/<key>`) opens the view on that automation.
+  const [selectedKey, setSelectedKey] = useState<string | null>(() => takeAutomationTarget());
+  useEffect(() => {
+    const onTarget = () => {
+      const key = takeAutomationTarget();
+      if (!key) return;
+      setTab('list');
+      setSystem(null);
+      setQuery('');
+      setSelectedKey(key);
+    };
+    window.addEventListener(AUTOMATION_TARGET_EVENT, onTarget);
+    return () => window.removeEventListener(AUTOMATION_TARGET_EVENT, onTarget);
+  }, []);
+  // Esc closes the open automation, as the hub's panel did; a field that handles Esc itself keeps it.
+  useEffect(() => {
+    if (!selectedKey) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      setSelectedKey(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedKey]);
   const [expanded, setExpanded] = useState<ReadonlySet<AutomationSystem>>(new Set());
   const [opened, setOpened] = useState<ReadonlySet<AutomationSystem>>(new Set());
 

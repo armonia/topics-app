@@ -22,7 +22,7 @@ function topicsItem(subject: string, since: number, tier: InboxItem['tier'] = 'n
 }
 
 function hubItem(id: string, since: number, due: number | null = null): WaitingItem {
-  return { id, kind: 'decisione', title: id, why: null, link: null, from: null, due, since };
+  return { id, kind: 'decisione', title: id, why: null, link: null, automationKey: null, from: null, due, since };
 }
 
 const LIVE: HubLiveState = {
@@ -129,6 +129,16 @@ describe('HUBBR-06: the groups of the bell', () => {
     expect(accountEvents(null, null, NOW)).toEqual([]);
   });
 
+  test('a token event written with the account e-mail still renews the account file name', () => {
+    const profiles = { profiles: [{ name: 'auto-3', label: 'user@example.com' }] };
+    const failed = { log: [{ type: 'refresh-failed', ts: NOW - HOUR, account: 'user@example.com' }] };
+    const [row] = accountEvents(failed, profiles, NOW);
+    expect(row).toMatchObject({ kind: 'token', account: 'user@example.com', profile: 'auto-3' });
+    // A later refresh written with the file name clears the failure written with the e-mail.
+    const healed = { log: [...failed.log, { type: 'token-refreshed', ts: NOW - 60_000, account: 'auto-3' }] };
+    expect(accountEvents(healed, profiles, NOW)).toEqual([]);
+  });
+
   test('contradictions keep the sentence only, never the files', () => {
     const data = { contradictions: { at: 1, items: [{ a: { file: '~/AGENTS.md', text: 'x' }, b: { file: '~/CLAUDE.md', text: 'y' }, why: 'comments in two languages' }, { why: '' }] } };
     expect(contradictions(data)).toEqual([{ id: 'contradiction-0', why: 'comments in two languages' }]);
@@ -138,8 +148,8 @@ describe('HUBBR-06: the groups of the bell', () => {
 describe('HUBBR-07: the diary in History', () => {
   test('failed runs, agents, workflows and what you said; never a routine run that went well or was skipped', () => {
     const data = { items: [
-      { at: NOW - 1, kind: 'auto', who: 'Mac', title: 'Backup', outcome: 'ok', what: '' },
-      { at: NOW - 2, kind: 'auto', who: 'OpenClaw', title: 'Brief', outcome: 'skipped', what: '' },
+      { at: NOW - 1, kind: 'auto', who: 'Mac', title: 'Backup', outcome: 'ok', what: '', link: '#automations/launchd%3Abackup' },
+      { at: NOW - 2, kind: 'auto', who: 'OpenClaw', title: 'Brief', outcome: 'skipped', what: '', link: '#automations/cron%3Abrief' },
       { at: NOW - 3, kind: 'auto', who: 'OpenClaw', title: 'Docs reindex', outcome: 'error', what: 'exit 1' },
       { at: NOW - 4, kind: 'app', who: 'Mac', title: 'Delivery', outcome: 'undelivered', what: '' },
       { at: NOW - 5, kind: 'agente', who: 'Agente · Muse', title: 'Fixed the reindex', outcome: 'ok', what: '' },
@@ -150,5 +160,20 @@ describe('HUBBR-07: the diary in History', () => {
     ] };
     expect(diaryForHistory(data).map((d) => d.title)).toEqual(['Docs reindex', 'Delivery', 'Fixed the reindex', 'Dependency audit', 'You said «fine»']);
     expect(diaryForHistory(null)).toEqual([]);
+  });
+
+  test('lines of other writers stay, even with outcome ok; their noise and routine runs go', () => {
+    const data = { items: [
+      { at: NOW - 1, kind: 'auto', who: 'Freno del Mac', title: 'Mac bloccato 10:54–11:07 da Helium', outcome: 'ok' },
+      { at: NOW - 2, kind: 'auto', who: 'Abbonamenti', title: 'claude è esaurito in anticipo', outcome: null },
+      { at: NOW - 3, kind: 'auto', who: 'Coda delega', title: '⏳ In attesa: 3 lavori', outcome: 'ok' },
+      { at: NOW - 4, kind: 'auto', who: 'Task Topics ↔ Promemoria', title: 'Nessuna novità', outcome: 'skipped' },
+      { at: NOW - 5, kind: 'auto', who: 'Mac', title: 'Backup', outcome: 'error', what: 'exit 1', link: '#automations/launchd%3Abackup' },
+    ] };
+    const rows = diaryForHistory(data);
+    expect(rows.map((d) => d.who)).toEqual(['Freno del Mac', 'Abbonamenti', 'Mac']);
+    // A failed run keeps the automation it opens.
+    expect(rows[2]!.automationKey).toBe('launchd:backup');
+    expect(rows[0]!.automationKey).toBeNull();
   });
 });

@@ -25,6 +25,9 @@ export interface WaitingItem {
   why: string | null;
   /** http(s), a hub page or `claude://`: the primary action opens it in a new tab. */
   link: string | null;
+  /** A link to one automation (`#automations/<key>`) opens Topics' own view on it, on every device. */
+  automationKey: string | null;
+  /** Who opened it, in the hub's words («guardiano», «claude»). */
   from: string | null;
   due: number | null;
   /** When the item was opened (ms): the oldest waits first after the deadlines. */
@@ -72,6 +75,20 @@ function safeLink(v: unknown, windowHost: string): string | null {
   }
 }
 
+/** The automation key of a hub link (`#automations/<key>`), or null for any other link. */
+export function automationKeyOfLink(link: unknown): string | null {
+  const s = str(link);
+  if (!s) return null;
+  const m = /^#automations\/(.+)$/.exec(s.trim());
+  if (!m) return null;
+  try {
+    const key = decodeURIComponent(m[1]!);
+    return key.trim() === '' ? null : key;
+  } catch {
+    return null;
+  }
+}
+
 /** The open items, in the hub's own order (most urgent first). */
 export function waitingItems(data: unknown, windowHost: string = currentHost()): WaitingItem[] {
   const items = isObject(data) && Array.isArray(data.items) ? data.items : [];
@@ -82,9 +99,37 @@ export function waitingItems(data: unknown, windowHost: string = currentHost()):
     const title = str(raw.title);
     if (!id || !title) continue;
     const kind = (WAITING_KINDS as readonly string[]).includes(String(raw.tipo)) ? (raw.tipo as WaitingKind) : 'decisione'; // allow-italian: the hub's wire value
-    out.push({ id, kind, title, why: str(raw.why), link: safeLink(raw.link, windowHost), from: str(raw.from), due: num(raw.due), since: num(raw.at) });
+    const automationKey = automationKeyOfLink(raw.link);
+    out.push({
+      id, kind, title, why: str(raw.why), link: automationKey ? null : safeLink(raw.link, windowHost), automationKey,
+      from: str(raw.from), due: num(raw.due), since: num(raw.at),
+    });
   }
   return out;
+}
+
+/** The links to write to Jarvis, from the hub's local config (`/api/hub-config`). */
+export interface JarvisLinks {
+  whatsapp: string | null;
+  discord: string | null;
+}
+
+/** The hub's `hub-config`, or null without a link to write to Jarvis. */
+export function jarvisLinks(data: unknown): JarvisLinks | null {
+  const j = isObject(data) && isObject(data.jarvis) ? data.jarvis : null;
+  if (!j) return null;
+  const http = (v: unknown) => { const s = str(v); return s && /^https?:\/\//.test(s) ? s : null; };
+  const out = { whatsapp: http(j.whatsapp), discord: http(j.discord) };
+  return out.whatsapp || out.discord ? out : null;
+}
+
+/**
+ * «Write to Jarvis»: WhatsApp with the message already written, or Discord
+ * (which takes no text), as the hub's page did. Null without a link.
+ */
+export function jarvisHref(links: JarvisLinks | null, text: string): string | null {
+  if (links?.whatsapp) return `${links.whatsapp}${links.whatsapp.includes('?') ? '&' : '?'}text=${encodeURIComponent(text)}`;
+  return links?.discord ?? null;
 }
 
 /** The body the hub expects to close an item. */
@@ -320,10 +365,15 @@ export function accountEvents(activity: unknown, profiles: unknown, now: number)
     if (name) labels.set(name, str(p.label) ?? name);
   }
   const label = (v: unknown): string | null => { const s = str(v); return s ? labels.get(s) ?? s : null; };
+  // The proxy writes some events with the account's label (its e-mail) instead of its file name:
+  // «Renew» must send the name, or the proxy answers «Cannot read account file».
+  const names = new Map<string, string>();
+  for (const [name, l] of labels) if (!labels.has(l)) names.set(l, name);
+  const nameOf = (s: string | null): string | null => (s && !labels.has(s) ? names.get(s) ?? s : s);
   const refreshed = new Map<string, number>();
   for (const raw of log) {
     if (!isObject(raw) || raw.type !== 'token-refreshed') continue;
-    const name = str(raw.account);
+    const name = nameOf(str(raw.account));
     const at = num(raw.ts);
     if (name && at !== null) refreshed.set(name, Math.max(at, refreshed.get(name) ?? 0));
   }
@@ -334,14 +384,15 @@ export function accountEvents(activity: unknown, profiles: unknown, now: number)
     const at = num(raw.ts);
     if (!kind || at === null || now - at > ACCOUNT_EVENTS_WINDOW_MS || at > now) continue;
     const rawAccount = str(raw.account) ?? str(raw.from) ?? str(raw.name);
-    if (kind === 'token' && rawAccount && (refreshed.get(rawAccount) ?? 0) > at) continue;
+    if (kind === 'token' && rawAccount && (refreshed.get(nameOf(rawAccount)!) ?? 0) > at) continue;
     const account = label(rawAccount);
     const key = `${kind}:${kind === 'switched' ? '' : account ?? ''}`;
     const to = kind === 'switched' ? label(raw.to) : null;
     const prev = byKey.get(key);
-    if (!prev) { byKey.set(key, { key, kind, account, profile: rawAccount, to, at, count: 1 }); continue; }
+    const profile = nameOf(rawAccount);
+    if (!prev) { byKey.set(key, { key, kind, account, profile, to, at, count: 1 }); continue; }
     prev.count += 1;
-    if (at > prev.at) Object.assign(prev, { account, profile: rawAccount, to, at });
+    if (at > prev.at) Object.assign(prev, { account, profile, to, at });
   }
   return [...byKey.values()].sort((a, b) => b.at - a.at);
 }
@@ -360,15 +411,30 @@ export interface DiaryEntry {
   /** `ok`, `error`, `undelivered`, `skipped`, `running`, `queued`, or null. */
   outcome: string | null;
   what: string;
+  /** The automation the row is about (`#automations/<key>`): the row opens it in Topics. */
+  automationKey: string | null;
 }
 
 const DIARY_KINDS: readonly string[] = ['auto', 'app', 'workflow', 'agente', 'tu']; // allow-italian: the hub's wire values
 
 /**
+ * Lines other writers put in the diary that only repeat what is elsewhere:
+ * the delegation queue's «waiting» notices (the job has its own agent row)
+ * and the task sync's skipped passes. Over a thousand a week, no news.
+ */
+function isDiaryNoise(who: string, title: string, outcome: string | null): boolean {
+  if (who === 'Coda delega' && title.startsWith('⏳')) return true; // allow-italian: the hub's label of that writer
+  return who === 'Task Topics ↔ Promemoria' && outcome === 'skipped'; // allow-italian: the hub's label of that writer
+}
+
+/**
  * The diary the bell's History shows: failed runs, the agents' work (the
- * «Fix it» jobs among them), workflows and what the person said. A run of an
+ * «Fix it» jobs among them), workflows, what the person said, and what other
+ * writers noted (the Mac's brake, the budgets, the subscriptions). A run of an
  * automation that went well, or was skipped, is routine: 1,615 of 1,781 rows
- * of a week were those, and they stay on the automation's own card.
+ * of a week were those, and they stay on the automation's own card. A run is
+ * told apart by its link to that card; a writer's line has none, and its
+ * outcome is usually `ok` even when it says the Mac was blocked.
  */
 export function diaryForHistory(data: unknown): DiaryEntry[] {
   const items = isObject(data) && Array.isArray(data.items) ? data.items : [];
@@ -380,8 +446,12 @@ export function diaryForHistory(data: unknown): DiaryEntry[] {
     const kind = String(raw.kind);
     if (at === null || !title || !DIARY_KINDS.includes(kind)) return;
     const outcome = str(raw.outcome);
-    if ((kind === 'auto' || kind === 'app') && (outcome === null || outcome === 'ok' || outcome === 'skipped')) return;
-    out.push({ id: `diary-${at}-${i}`, at, kind: kind as DiaryKind, who: str(raw.who) ?? '', title, outcome, what: str(raw.what) ?? '' });
+    const who = str(raw.who) ?? '';
+    const automationKey = automationKeyOfLink(raw.link);
+    const routine = outcome === null || outcome === 'ok' || outcome === 'skipped';
+    if ((kind === 'auto' || kind === 'app') && routine && automationKey !== null) return;
+    if (isDiaryNoise(who, title, outcome)) return;
+    out.push({ id: `diary-${at}-${i}`, at, kind: kind as DiaryKind, who, title, outcome, what: str(raw.what) ?? '', automationKey });
   });
   return out.sort((a, b) => b.at - a.at);
 }

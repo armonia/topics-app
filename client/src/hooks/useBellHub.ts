@@ -8,7 +8,9 @@
  *   - the contradictions of the agents' rules (`/api/hub/contesto`);
  *   - the Claude proxy's account events (`/api/switchboard/activity`, with
  *     `/profiles` for the labels);
- *   - for the History tab, two days of the diary (`/api/hub/diario`).
+ *   - the links to write to Jarvis (`/api/hub/hub-config`);
+ *   - for the History tab, seven days of the diary (`/api/hub/diario`),
+ *     read again every minute while History stays open.
  *
  * Without the hub (never read in this window) nothing is asked: the bell is
  * the Topics inbox of before and the network stays silent (HUBBR-04). With
@@ -17,11 +19,12 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../lib/shell/net';
-import { refreshHubLive, useHubEverRead, useHubLive, type HubLiveEntry, type HubLiveState } from '../state/hubLive';
+import { refreshHubLive, useHubEverRead, useHubLive, type HubLiveEntry, type HubLiveState, type HubLiveTopic } from '../state/hubLive';
+import { startVisibleInterval } from '../state/documentVisibility';
 import { NO_HUB, liveBellHub, type BellHub } from '../lib/bellGroups';
 import {
-  accountEvents, automationSummary, closeWaitingBody, contradictions, diaryForHistory, failedJobs,
-  type AccountEvent, type Contradiction, type DiaryEntry, type FailedJob,
+  accountEvents, automationSummary, closeWaitingBody, contradictions, diaryForHistory, failedJobs, jarvisLinks,
+  type AccountEvent, type Contradiction, type DiaryEntry, type FailedJob, type JarvisLinks,
 } from '../lib/hubSystem';
 
 async function readJson(path: string): Promise<unknown> {
@@ -48,9 +51,19 @@ interface Extras {
   failed: FailedJob[];
   accounts: AccountEvent[];
   contradictions: Contradiction[];
+  jarvis: JarvisLinks | null;
 }
 
-const NO_EXTRAS: Extras = { failed: [], accounts: [], contradictions: [] };
+const NO_EXTRAS: Extras = { failed: [], accounts: [], contradictions: [], jarvis: null };
+
+/** The live topics the bell lists from: one that errs while the others answer was not read, not empty. */
+const BELL_TOPICS: readonly HubLiveTopic[] = ['attesa', 'services', 'alerts', 'pace']; // allow-italian: hub topic names
+
+/** The bell's topics that failed while the hub answers on others: «not read», never «nothing». */
+export function unreadTopics(live: HubLiveState): HubLiveTopic[] {
+  if (!Object.values(live).some((e) => e?.data !== undefined)) return [];
+  return BELL_TOPICS.filter((t) => live[t]?.error !== undefined);
+}
 
 /** Since when the hub has not answered: the oldest error of the live topics, null while one answers. */
 function downSinceOf(live: HubLiveState): number | null {
@@ -65,7 +78,7 @@ function downSinceOf(live: HubLiveState): number | null {
  * carries data), what the foot of the panel says; `downSince`: when it
  * stopped, while it does not.
  */
-export function useBellHub(): { hub: BellHub; present: boolean; answering: boolean; downSince: number | null } {
+export function useBellHub(): { hub: BellHub; present: boolean; answering: boolean; downSince: number | null; unread: HubLiveTopic[]; jarvis: JarvisLinks | null } {
   const live = useHubLive();
   const present = useHubEverRead();
   const [extras, setExtras] = useState<Extras>(NO_EXTRAS);
@@ -76,34 +89,52 @@ export function useBellHub(): { hub: BellHub; present: boolean; answering: boole
     if (!answering) return;
     let alive = true;
     void (async () => {
-      const [automations, contesto, activity, profiles] = await Promise.all([
+      const [automations, contesto, activity, profiles, config] = await Promise.all([
         broken > 0 ? readJson('/api/hub/automations') : Promise.resolve(null),
         readJson('/api/hub/contesto'),
         readJson('/api/switchboard/activity'),
         readJson('/api/switchboard/profiles'),
+        readJson('/api/hub/hub-config'),
       ]);
       if (!alive) return;
-      setExtras({ failed: failedJobs(automations), accounts: accountEvents(activity, profiles, Date.now()), contradictions: contradictions(contesto) });
+      setExtras({
+        failed: failedJobs(automations), accounts: accountEvents(activity, profiles, Date.now()), contradictions: contradictions(contesto),
+        jarvis: jarvisLinks(config),
+      });
     })();
     return () => { alive = false; };
   }, [answering, broken]);
 
   // Down, the panel is Topics alone: what was read at the open is as old as the hub's silence.
   const hub = useMemo((): BellHub => (answering ? { ...liveBellHub(live), ...extras } : NO_HUB), [answering, live, extras]);
-  return { hub, present, answering, downSince: present ? downSinceOf(live) : null };
+  return {
+    hub, present, answering, downSince: present ? downSinceOf(live) : null,
+    unread: answering ? unreadTopics(live) : [], jarvis: answering ? extras.jarvis : null,
+  };
 }
 
-/** Two days of the diary, filtered for the History tab; empty without the hub. */
-export function useBellDiary(enabled: boolean): DiaryEntry[] {
+/** How far back History reads the diary: the hub's own page showed a week. */
+const DIARY_DAYS = 7;
+/** While History stays open the diary is read again this often, as the hub's page did. */
+const DIARY_REFRESH_MS = 60_000;
+
+/** A week of the diary, filtered for the History tab, and when it was read; empty without the hub. */
+export function useBellDiary(enabled: boolean): { rows: DiaryEntry[]; readAt: number | null } {
   const present = useHubEverRead();
-  const [rows, setRows] = useState<DiaryEntry[]>([]);
+  const [state, setState] = useState<{ rows: DiaryEntry[]; readAt: number | null }>({ rows: [], readAt: null });
   useEffect(() => {
     if (!enabled || !present) return;
     let alive = true;
-    void readJson('/api/hub/diario?days=2').then((data) => { if (alive) setRows(diaryForHistory(data)); });
-    return () => { alive = false; };
+    const read = () => {
+      void readJson(`/api/hub/diario?days=${DIARY_DAYS}`).then((data) => {
+        if (alive && data !== null) setState({ rows: diaryForHistory(data), readAt: Date.now() });
+      });
+    };
+    read();
+    const stop = startVisibleInterval(read, DIARY_REFRESH_MS);
+    return () => { alive = false; stop(); };
   }, [enabled, present]);
-  return enabled && present ? rows : [];
+  return enabled && present ? state : { rows: [], readAt: null };
 }
 
 /**

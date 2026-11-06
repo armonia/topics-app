@@ -283,6 +283,26 @@ test.describe("the bell in groups", () => {
         await expect(review.getByTestId("bell-answer")).toHaveText("Apri la card");
       }
 
+      // A hub item says who opened it and how long it has waited, also beside a deadline.
+      const release = decideRows.nth(2);
+      await expect(release.getByTestId("bell-from")).toHaveText("da guardiano");
+      await expect(release.getByTestId("bell-time")).toBeVisible();
+      await expect(decideRows.nth(1).getByTestId("bell-due")).toBeVisible();
+      await expect(decideRows.nth(1).getByTestId("bell-time")).toBeVisible();
+      // The «why» longer than its line: the hover has it whole, a click unfolds it.
+      const why = release.getByTestId("bell-why");
+      const folded = (await why.boundingBox())!.height;
+      await expect(release.locator("[title]").filter({ hasText: "Rilasciare Topics 0.48" }).first()).toHaveAttribute("title", /aspettare lunedì/);
+      await release.getByTestId("bell-row-text").click();
+      await expect(release).toHaveAttribute("data-unfolded", "true");
+      await expect(release.getByTestId("bell-row-text")).toHaveAttribute("aria-expanded", "true");
+      expect((await why.boundingBox())!.height).toBeGreaterThan(folded * 1.5);
+      // Write to Jarvis carries the item's title, on the link of the hub's config.
+      await expect(release.getByTestId("bell-jarvis")).toHaveAttribute("href", /^https:\/\/example\.com\/assistente\/whatsapp\?text=Su%20%C2%AB/);
+      // A link to one automation opens Topics' view, not the hub's page.
+      await expect(decideRows.nth(1).getByTestId("bell-open")).toHaveAttribute("data-target", "automation");
+      await expect(release.getByTestId("bell-open")).toHaveAttribute("href", "https://example.com/release");
+
       // A service switched off on purpose or asleep on demand is not broken.
       const broken = panel(page).getByTestId("bell-group-broken");
       await expect(broken).toHaveAttribute("data-count", "2");
@@ -345,10 +365,32 @@ test.describe("the bell in groups", () => {
       const diary = panel(page).getByTestId("bell-diary-row");
       await expect(diary.first()).toBeVisible();
       await panel(page).getByTestId("bell-history-hub").click();
-      await expect(diary).toHaveCount(3);
+      // The failed run, the agent, the workflow and the Mac's brake (a writer's line, outcome ok); not the queue's notice.
+      await expect(diary).toHaveCount(4);
+      await expect(panel(page).getByTestId("bell-history-hub")).toHaveAttribute("data-count", "4");
       await expect(panel(page).getByTestId("inbox-history-row")).toHaveCount(0);
       await expect(panel(page)).not.toContainText("Backup del Mac");
       await expect(panel(page)).not.toContainText("Brief del mattino");
+      await expect(panel(page)).not.toContainText("In attesa: 2 lavori");
+      await expect(panel(page)).toContainText("Mac bloccato 10:54–11:07");
+      // Each line says its state in words; a failed run opens its automation.
+      const failedRun = diary.filter({ hasText: "Reindex dell'indice documenti" });
+      await expect(failedRun.getByTestId("bell-row-status")).toHaveAttribute("title", "fallito");
+      await expect(failedRun.getByTestId("bell-diary-open")).toBeVisible();
+      await expect(diary.filter({ hasText: "Mac bloccato" }).getByTestId("bell-diary-open")).toHaveCount(0);
+      // The day says its events and its failures.
+      await expect(panel(page).getByTestId("bell-history-day-tally").first()).toContainText("1 fallito");
+      await expect(panel(page).getByTestId("bell-history-fresh")).toContainText("aggiornato alle");
+      // Problems: the failures only. The search reads title, detail and who.
+      await panel(page).getByTestId("bell-history-problems").click();
+      await expect(diary).toHaveCount(1);
+      await panel(page).getByTestId("bell-history-all").click();
+      await panel(page).getByTestId("bell-history-search").fill("freno helium");
+      await expect(diary).toHaveCount(0);
+      await panel(page).getByTestId("bell-history-search").fill("freno browser");
+      await expect(diary).toHaveCount(1);
+      await panel(page).getByTestId("bell-history-search").fill("");
+      await panel(page).getByTestId("bell-history-hub").click();
       await page.screenshot({ path: testInfo.outputPath("vero-campanella-a-gruppi-cronologia-scuro.png") });
 
       // A stopped service is read where the machine is: its button closes the bell and opens Processes.
@@ -359,8 +401,40 @@ test.describe("the bell in groups", () => {
       await open.click();
       await expect(panel(page)).toHaveCount(0);
       await expect(page.getByTestId("machine-processes")).toBeVisible({ timeout: 15_000 });
+
+      // Open on an item about one automation: the bell closes, Automations opens.
+      await page.getByTestId("inbox-button").click();
+      await panel(page).getByTestId("inbox-waiting").locator('[data-target="automation"]').click();
+      await expect(panel(page)).toHaveCount(0);
+      await expect(page.getByTestId("automations-pane")).toBeVisible({ timeout: 15_000 });
     } finally {
       await request.post(`${E2E_BASE}/api/hub/e2e-reset`).catch(() => {});
+    }
+  });
+
+  test("one part of the hub does not answer: its items are «not read», never «nothing waits»", async ({ page, request }) => {
+    try {
+      hub!.failing = ["attesa"];
+      await expect.poll(async () => {
+        const snap = (await (await request.get(`${E2E_BASE}/api/hub-live`)).json()) as Record<string, { error?: unknown }>;
+        return snap.attesa?.error !== undefined;
+      }, { timeout: 40_000 }).toBe(true);
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await goToApp(page);
+      await page.getByTestId("inbox-button").click();
+      const band = panel(page).getByTestId("bell-hub-unread");
+      await expect(band).toBeVisible({ timeout: 15_000 });
+      await expect(band).toContainText("Non lette dall'hub: Ti aspetta");
+      await expect(panel(page).getByTestId("inbox-waiting").locator('[data-source="waiting"]')).toHaveCount(0);
+      await expect(panel(page)).not.toContainText("Niente aspetta te, niente di rotto.");
+    } finally {
+      hub!.failing = [];
+      await request.post(`${E2E_BASE}/api/hub/e2e-reset`).catch(() => {});
+      // The next test reads the items again: the reader has them back first.
+      await expect.poll(async () => {
+        const snap = (await (await request.get(`${E2E_BASE}/api/hub-live`)).json()) as Record<string, { data?: unknown }>;
+        return snap.attesa?.data !== undefined;
+      }, { timeout: 40_000 }).toBe(true);
     }
   });
 
