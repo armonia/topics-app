@@ -304,16 +304,23 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
   const shownIsHtml = isHtmlFile(shownName);
   const shownMdBaseDir = displayPath.substring(0, displayPath.lastIndexOf('/'));
 
+  // A file that did not load keeps its path bar, as in the twin EditorTabs: the
+  // error alone («File too large (max 100KB)») does not say WHICH file it is,
+  // and the breadcrumb is also the way to a sibling that does open. Without it
+  // the bar flashed with the loading skeleton and vanished at the 413.
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-2 text-prose">
-        <p className="text-red-500">{error}</p>
-        <button
-          onClick={() => { setLoading(true); setError(null); filesApi.content(filePath).then(t => { setContent(t); setOriginalContent(t); setLoading(false); }).catch((e: unknown) => { setError(errorMessage(e)); setLoading(false); }); }}
-          className="text-primary hover:underline"
-        >
-          Retry
-        </button>
+      <div className="flex flex-col h-full">
+        <BreadcrumbNav filePath={filePath} projectPath={projectPath} openFile={handleBreadcrumbOpen} />
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 text-prose">
+          <p className="text-red-500">{error}</p>
+          <button
+            onClick={() => { setLoading(true); setError(null); filesApi.content(filePath).then(t => { setContent(t); setOriginalContent(t); setLoading(false); }).catch((e: unknown) => { setError(errorMessage(e)); setLoading(false); }); }}
+            className="text-primary hover:underline"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     );
   }

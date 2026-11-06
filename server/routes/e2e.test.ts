@@ -7,11 +7,12 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync, existsSync } from "fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { baselinePath, createE2eRouter, e2eRoutesEnabled } from "./e2e";
 import { _setPtyBridgeHealthSocketForTest } from "./status";
+import { attentionInitFrame, configureAttentionStore, resetAttentionStore, setCard } from "../attention/store";
 import type { AppContext } from "../types";
 
 function ctxWith(db: Database): AppContext {
@@ -132,5 +133,27 @@ describe("checkpoint + reset", () => {
     db.run("INSERT INTO topics (id, name) VALUES ('t2', 'sporca')");
     expect((await call(afterRestart, "/api/test/reset"))?.status).toBe(200);
     expect(db.query("SELECT id FROM topics").all()).toEqual([{ id: "t1" }]);
+  });
+});
+
+describe("the reset and the attention store", () => {
+  afterEach(() => resetAttentionStore());
+
+  it("a subject lit after the checkpoint is not sent to the next file's sockets", async () => {
+    // The store mirrors `subject_attention` in memory and read it once for this
+    // database: the restore put the table back, the mirror kept the card.
+    process.env.TOPICS_E2E = "1";
+    const db = testDb();
+    db.run(readFileSync(join(import.meta.dir, "../db/migrations/20261003214001-subject-attention.sql"), "utf8"));
+    configureAttentionStore({ db: () => db, broadcast: () => {}, recordRow: () => null, markRowsSeen: () => 0, sendPush: () => {}, unreadOf: () => 0 });
+    const router = createE2eRouter(ctxWith(db));
+    await call(router, "/api/test/checkpoint");
+
+    setCard("task:left-behind", { status: "review" });
+    const subjects = () => (attentionInitFrame() as unknown as { rows: Array<{ subject: string }> }).rows.map((r) => r.subject);
+    expect(subjects()).toEqual(["task:left-behind"]);
+
+    expect((await call(router, "/api/test/reset"))?.status).toBe(200);
+    expect(subjects()).toEqual([]);
   });
 });

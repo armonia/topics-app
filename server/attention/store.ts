@@ -248,6 +248,22 @@ export function resetAttentionStore(opts: { keepRows?: boolean } = {}): void {
   deps = { ...DEFAULT_DEPS };
 }
 
+/**
+ * The e2e hermetic boundary (`POST /api/test/reset`) puts the table back to its
+ * baseline under the store, on the SAME database: `ensureLoaded` would never read
+ * it again, and every socket of the next spec file would be sent the subjects the
+ * files before it lit (their cards are gone from the database, not from here).
+ * The entries go, so the next read is the restored table. Unlike
+ * `resetAttentionStore` the dependencies stay (the database, the broadcast, the
+ * push) and so does the sockets' focus: they belong to the running server.
+ */
+export function reloadAttentionTable(): void {
+  for (const e of entries.values()) if (e.graceTimer) clearTimeout(e.graceTimer);
+  entries.clear();
+  for (const id of [...engageDwells.keys()]) cancelEngageDwell(id);
+  loadedFrom = null;
+}
+
 function nowIso(): string {
   return new Date(deps.now()).toISOString();
 }

@@ -48,6 +48,13 @@ const DONE_SEEDED = 300;
 const TODO_SEEDED = 30;
 /** `COLUMN_PAGE` in `client/src/lib/boardOrder.ts`. Se cambia lì, cambia qui. */
 const COLUMN_PAGE = 25;
+/**
+ * A window tall enough for a whole page of Done (`COLUMN_PAGE` cards and the
+ * show-more row) to fit inside the column, with Done still past the right edge.
+ * Measured on CI Chromium: at 1800 the row ended 805 px past the column, once
+ * the cards grew the creator row; 2800 gives the column 1000 px more.
+ */
+const TALL_WINDOW = { width: 1600, height: 2800 };
 
 let projectTopicId: string | null = null;
 const createdTasks: string[] = [];
@@ -280,7 +287,9 @@ test.describe("Kanban — il volume di una colonna", () => {
     test.info().annotations.push({ type: "spec", description: "LIST-PAGE-01" });
     // Tall enough that Done's show-more row sits inside its own column, while Done starts past the
     // right edge: the column clips the row, the board clips the column, and only the first is its root.
-    await page.setViewportSize({ width: 1600, height: 1800 });
+    // TALL_WINDOW, not 1800: since every card carries who opened it (the creator row), a page of Done
+    // at 1800 left the row 805 px past the end of its column, and the scenario was not this one.
+    await page.setViewportSize(TALL_WINDOW);
     await page.goto("/");
     await openProjectBoard(page);
     await expect(cardsIn(page, "done").first()).toBeAttached({ timeout: 20000 });
@@ -301,7 +310,7 @@ test.describe("Kanban — il volume di una colonna", () => {
     // In the grid the row sits near the end of its own column, the root then, with Done past the right
     // edge. The switch moves the scroll to the columns' row and leaves the old root holding the row near:
     // the top of Done coming on screen loaded a page with the row 1728 px further down.
-    await page.setViewportSize({ width: 1600, height: 1800 });
+    await page.setViewportSize(TALL_WINDOW);
     await page.goto("/");
     await openProjectBoard(page);
     await expect(cardsIn(page, "done").first()).toBeAttached({ timeout: 20000 });

@@ -42,6 +42,13 @@ hermetic(test);
 
 const BASE = E2E_BASE;
 const API = `${BASE}/api`;
+/**
+ * The card is made as from the interface, as a person makes it: a card an
+ * agent opens without description, bar and source is born flagged incomplete,
+ * with a system note in its thread (`shared/agent-card-contract.ts`), and this
+ * scenario is not about that note.
+ */
+const AS_PERSON = { "X-Topics-Action-Origin": "interface" };
 
 /** Il file che il "task" modifica: righe numerate, così l'ancora è verificabile a occhio. */
 const BEFORE = ["uno", "due", "tre", "quattro", "cinque"].join("\n") + "\n";
@@ -158,6 +165,7 @@ test.describe("Board · revisione del diff riga per riga", () => {
     // 5. Task sulla board, legato alla topic come farebbe il dispatcher.
     const taskRes = await request.post(`${API}/boards/${PROJECT_ID}/tasks`, {
       data: { text: "Revisione diff E2E", status: "todo" },
+      headers: AS_PERSON,
     });
     expect(taskRes.ok()).toBe(true);
     taskId = ((await taskRes.json()) as { id: string }).id;

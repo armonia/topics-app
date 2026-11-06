@@ -50,6 +50,13 @@ hermetic(test);
 
 const BASE = E2E_BASE;
 const API = `${BASE}/api`;
+/**
+ * The card is made as from the interface, as a person makes it: a card an
+ * agent opens without description, bar and source is born flagged incomplete,
+ * with a system note in its thread (`shared/agent-card-contract.ts`), and this
+ * scenario is not about that note.
+ */
+const AS_PERSON = { "X-Topics-Action-Origin": "interface" };
 
 const STAMP = Date.now();
 /** Il repo che SI avvia: il suo `dev` serve la pagina che finirà sulla card. */
@@ -144,6 +151,7 @@ async function seedCardInReview(
 
   const taskRes = await request.post(`${API}/boards/${opts.projectId}/tasks`, {
     data: { text: opts.titolo, status: "review" },
+    headers: AS_PERSON,
   });
   expect(taskRes.ok()).toBe(true);
   const taskId = ((await taskRes.json()) as { id: string }).id;

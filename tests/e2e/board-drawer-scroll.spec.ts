@@ -21,6 +21,13 @@ import { projectIdForPath as boardIdForPath } from "../../shared/board";
 hermetic(test);
 
 const BASE = E2E_BASE;
+/**
+ * The card is made as from the interface, as a person makes it: a card an
+ * agent opens without description, bar and source is born flagged incomplete,
+ * with a system note in its thread (`shared/agent-card-contract.ts`), and this
+ * scenario is not about that note.
+ */
+const AS_PERSON = { "X-Topics-Action-Origin": "interface" };
 // Canonical spelling (`/private/tmp` on macOS): the server resolves the topic's
 // projectPath and hashes the STRING into the board id, so a literal `/tmp`
 // seeded a board the pane never reads.
@@ -156,7 +163,9 @@ async function seedWorstCaseTask(request: import("@playwright/test").APIRequestC
  */
 async function seedDispatchedTask(request: import("@playwright/test").APIRequestContext, topicId: string, step: string, status: "review" | "todo" = "review") {
   const text = `Drawer sessione ${Date.now()}`;
-  const task = (await api(request, "post", `/api/boards/${PROJECT_ID}/tasks`, { text })) as { id: string };
+  const created = await request.post(`${BASE}/api/boards/${PROJECT_ID}/tasks`, { data: { text }, headers: AS_PERSON });
+  expect(created.ok(), `POST /api/boards/${PROJECT_ID}/tasks → ${created.status()}`).toBe(true);
+  const task = (await created.json()) as { id: string };
   createdTasks.push(`${PROJECT_ID}:${task.id}`);
   await api(request, "patch", `/api/boards/${PROJECT_ID}/tasks/${task.id}`, { status });
   const bind = await request.post(`${BASE}/api/test/tasks/${task.id}/bind-topic`, { data: { topicId } });

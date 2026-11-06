@@ -134,7 +134,9 @@ test.describe("Sottotask · dall'id al drawer, a qualunque profondità", () => {
     await didascalia(page, "Lo step NON ha una card: il feed è roots-only");
     await beat(page, 1800);
 
-    await page.locator(`[data-task-card="${epica.id}"]`).click();
+    // On the TITLE, not the middle of the card: the middle of an epic is its
+    // step list, and a click there opens the step (the row is a door of its own).
+    await page.locator(`[data-task-card="${epica.id}"]`).getByText(EPICA, { exact: true }).click();
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
     await expect(drawer.getByText(EPICA, { exact: true })).toBeVisible();

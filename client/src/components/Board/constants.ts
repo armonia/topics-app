@@ -14,10 +14,15 @@ export const COMPACT_MD_CLS =
   // flattens them), so an agent's plan reads as structured markdown.
   // break-words on prose (p/li/a) so a long unbreakable token — a URL, a path,
   // a hash — wraps instead of forcing the surface (card / drawer) to overflow.
+  // The code size is `!important` because the global `code` rule in index.css
+  // (`font-size: 0.8125em`) is UNLAYERED, and an unlayered rule beats every
+  // utility: these two never applied, and inline code in a card's last word
+  // (12px text) rendered at 9.75px, under the 11px floor the usability audit
+  // holds (`tests/e2e/usability-audit.spec.ts`).
   '[&_p]:my-0.5 [&_p]:break-words [&_pre]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-black/40 [&_pre]:p-2 ' +
   '[&_ul]:my-0.5 [&_ul]:pl-4 [&_ul]:list-disc [&_ol]:my-0.5 [&_ol]:pl-4 [&_ol]:list-decimal [&_li]:my-0.5 [&_li]:break-words [&_li]:marker:text-app-text-muted ' +
   '[&_h1]:font-semibold [&_h1]:text-prose [&_h2]:font-semibold [&_h2]:text-prose [&_h3]:font-semibold [&_h3]:text-compact [&_h3]:leading-4 [&_h1]:mt-1 [&_h2]:mt-1 [&_h3]:mt-1 ' +
-  '[&_code]:text-compact [&_code]:leading-4 md:[&_code]:text-mini [&_a]:break-words [&_a]:text-sky-400 [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-app-border-light [&_blockquote]:pl-2 [&_blockquote]:text-app-text-secondary [&_strong]:font-semibold';
+  '[&_code]:!text-compact [&_code]:leading-4 md:[&_code]:!text-mini [&_a]:break-words [&_a]:text-sky-400 [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-app-border-light [&_blockquote]:pl-2 [&_blockquote]:text-app-text-secondary [&_strong]:font-semibold';
 
 // A PLAN is a document, not a chat bubble: this reading typography gives it a
 // roomy vertical rhythm, section-divider headings, and prominent numbered steps

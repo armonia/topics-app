@@ -42,6 +42,13 @@ import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 hermetic(test);
 
 const BASE = E2E_BASE;
+/**
+ * The card is made as from the interface, as a person makes it: a card an
+ * agent opens without description, bar and source is born flagged incomplete,
+ * with a system note in its thread (`shared/agent-card-contract.ts`), and this
+ * scenario is not about that note.
+ */
+const AS_PERSON = { "X-Topics-Action-Origin": "interface" };
 const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-preview-cap-${Date.now()}`;
 // Allowlist di /api/media: `${OPENCLAW_DIR}/media/`, e OPENCLAW_DIR del server
 // di test è dentro la sua DATA_DIR (helpers/test-server.ts).
@@ -94,7 +101,7 @@ async function seedTask(
   status: string,
   previewImage: string,
 ): Promise<string> {
-  const res = await request.post(`${BASE}/api/boards/${PROJECT_ID}/tasks`, { data: { text, status } });
+  const res = await request.post(`${BASE}/api/boards/${PROJECT_ID}/tasks`, { data: { text, status }, headers: AS_PERSON });
   expect(res.ok()).toBe(true);
   const task = (await res.json()) as { id: string };
   createdTasks.push(task.id);

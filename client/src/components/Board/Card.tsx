@@ -3,7 +3,7 @@ import { memo, useState, useEffect, useCallback, useMemo, useRef, useSyncExterna
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { reviewEvidence } from '../../lib/reviewEvidence';
-import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CircleSlash, ClipboardList, Copy, Cpu, GitBranch, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, Server, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
+import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CircleSlash, ClipboardList, Copy, GitBranch, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, Server, ShieldCheck, Square, Terminal, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -1733,11 +1733,16 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
                   Resta `latestIsPlumbing` in `cardComments.ts`: la decisione e'
                   giusta e provata, e serve a chi vorra' disegnarla meglio. Qui
                   si toglie solo il modo in cui la disegnavo io. */}
+              {/* The tag's glyph is `terminal`, not `cpu`: at 10px the chip's
+                  pins drew 4.7px of line per px of side, past the 3.33 that
+                  `tests/e2e/kanban-icone.spec.ts` holds for a readable icon.
+                  And `secondary` ink, not `muted`: on the tag's white/10 fill
+                  muted measured 4.08:1 in dark, under the 4.5 of small text. */}
               {notesOfMachine && (
                 <span
                   data-testid="card-comment-system-tag"
-                  className="mr-1 inline-flex items-center gap-1 rounded bg-white/10 px-1 py-px align-middle text-mini uppercase tracking-wide text-app-text-muted"
-                ><Cpu className="h-2.5 w-2.5 shrink-0" /> {tr('board.card.systemNote')}</span>
+                  className="mr-1 inline-flex items-center gap-1 rounded bg-white/10 px-1 py-px align-middle text-mini uppercase tracking-wide text-app-text-secondary"
+                ><Terminal className="h-2.5 w-2.5 shrink-0" /> {tr('board.card.systemNote')}</span>
               )}
               {/* IL RECINTO ```question NON ARRIVA MAI CRUDO AL MARKDOWN.
                   Qui ci finisce ogni parola che non e' «la domanda in fondo al

@@ -621,14 +621,15 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
       />
 
       {/* WHO OPENED THE CARDS: one button that cycles all, mine, others. The
-          margin keeps it off the search field when the row is narrow. */}
+          margin keeps it off the search field when the row is narrow. With a
+          finger it is 44 wide at least: «Tutte» alone measured 41. */}
       <button
         type="button"
         data-testid="filter-creator"
         data-creator={filters.creator ?? 'all'}
         title={tr('board.filter.creatorTitle')}
         onClick={() => onFiltersChange({ ...filters, creator: (filters.creator ?? 'all') === 'all' ? 'mine' : filters.creator === 'mine' ? 'others' : 'all' })}
-        className={`ml-1 flex ${TOOLBAR_CONTROL_H} shrink-0 items-center gap-1 whitespace-nowrap rounded px-2 text-mini ${filterFocusRingClass} ${(filters.creator ?? 'all') === 'all' ? 'text-app-text-muted' : 'bg-white/10 text-app-text'} hover:bg-white/10 hover:text-app-text`}
+        className={`ml-1 flex ${TOOLBAR_CONTROL_H} shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded px-2 text-mini coarse:min-w-11 ${filterFocusRingClass} ${(filters.creator ?? 'all') === 'all' ? 'text-app-text-muted' : 'bg-white/10 text-app-text'} hover:bg-white/10 hover:text-app-text`}
       >{tr(`board.filter.creator.${filters.creator ?? 'all'}`)}</button>
 
       {/* Reset — only when something is active */}

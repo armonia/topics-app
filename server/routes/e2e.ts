@@ -132,6 +132,7 @@ import { partialTurnRows } from "../lib/partial-turn-fixture";
 import { setInjectedSwapFreezeViews } from "../lib/swap-freeze-hold";
 import { setBenchStaleTimeout } from "../lib/stale-stream-sweep";
 import { __resetPendingForTests } from "./auth";
+import { reloadAttentionTable } from "../attention/store";
 import type { SwapFreezeView } from "../../shared/swap-freeze";
 
 /** Attivo solo dove `start-test-server.sh` lo dichiara. */
@@ -267,6 +268,11 @@ export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): Ro
         },
         afterInsert: (d) => { d.run("UPDATE ui_state SET server_seq = server_seq + ?", [maxSeq]); },
       });
+      // The attention store mirrors `subject_attention` in memory and reads it
+      // once per database: without this the next file's sockets would still be
+      // sent the subjects the files before it lit (a bell counting cards that
+      // the restore just deleted).
+      reloadAttentionTable();
       return json({ ok: true, ...result, takenAt: snap.takenAt });
     }
 
