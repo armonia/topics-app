@@ -7,11 +7,13 @@
  *      (questions, permissions, plans, reviews) and the hub's «waiting for
  *      you» items, in one list: the ones with a deadline first (the nearest
  *      first), then whoever has waited longest.
- *   2. «Broken»: failed automations, services with a problem or stopped.
- *   3. «Quotas and accounts»: a window nearly full, a limit reached, an
- *      account switched, a token expired.
- *   4. «To look at»: projects over their budget, contradictions between the
- *      agents' rules.
+ *   2. «Broken»: failed automations, services with a problem or stopped, the
+ *      PC that cannot be reached.
+ *   3. «Quotas and accounts»: a subscription that runs out before its reset
+ *      at today's pace, a window nearly full, a limit reached, an account
+ *      switched, a token expired.
+ *   4. «To look at»: the Mac under strain, projects over their budget,
+ *      contradictions between the agents' rules.
  *   5. «Finished»: as the inbox has always listed them.
  *
  * An empty group is not there at all. Without the hub the hub's parts are
@@ -23,6 +25,7 @@ import {
   type AccountEvent, type Contradiction, type FailedJob, type FiringAlert, type QuotaLine, type ServiceDown, type WaitingItem,
 } from './hubSystem';
 import type { HubLiveState } from '../state/hubLive';
+import { machineAlerts, quotaOutlooks, type MachineAlert, type QuotaOutlook } from './hubSignals';
 
 export const BELL_GROUP_ORDER = ['decide', 'broken', 'quota', 'look', 'finished'] as const;
 export type BellGroupKey = (typeof BELL_GROUP_ORDER)[number];
@@ -42,6 +45,8 @@ export type BellEntry =
   | { source: 'failed'; key: string; job: FailedJob }
   | { source: 'service'; key: string; service: ServiceDown }
   | { source: 'quota'; key: string; quota: QuotaLine }
+  | { source: 'outlook'; key: string; outlook: QuotaOutlook }
+  | { source: 'machine'; key: string; machine: MachineAlert }
   | { source: 'alert'; key: string; alert: FiringAlert }
   | { source: 'account'; key: string; event: AccountEvent }
   | { source: 'contradiction'; key: string; item: Contradiction };
@@ -57,21 +62,27 @@ export interface BellHub {
   failed: FailedJob[];
   services: ServiceDown[];
   quotas: QuotaLine[];
+  /** The subscriptions that run out before their reset at today's pace. */
+  outlooks: QuotaOutlook[];
+  /** The Mac under strain, the PC that cannot be reached. */
+  machines: MachineAlert[];
   alerts: FiringAlert[];
   accounts: AccountEvent[];
   contradictions: Contradiction[];
 }
 
-export const NO_HUB: BellHub = { waiting: [], failed: [], services: [], quotas: [], alerts: [], accounts: [], contradictions: [] };
+export const NO_HUB: BellHub = { waiting: [], failed: [], services: [], quotas: [], outlooks: [], machines: [], alerts: [], accounts: [], contradictions: [] };
 
 const isFull = (q: QuotaLine) => q.used >= QUOTA_BELL_AT || (q.fiveHour ?? 0) >= QUOTA_BELL_AT;
 
-/** The parts the live topics carry (no request): waiting items, services, quotas, alerts. */
-export function liveBellHub(live: HubLiveState): Pick<BellHub, 'waiting' | 'services' | 'quotas' | 'alerts'> {
+/** The parts the live topics carry (no request): waiting items, services, quotas, forecast, machines, alerts. */
+export function liveBellHub(live: HubLiveState): Pick<BellHub, 'waiting' | 'services' | 'quotas' | 'outlooks' | 'machines' | 'alerts'> {
   return {
     waiting: waitingItems(live.attesa?.data),
     services: servicesDown(live.services?.data),
     quotas: quotaLines(live.pace?.data).filter(isFull),
+    outlooks: quotaOutlooks(live.forecast?.data),
+    machines: machineAlerts(live.mac?.data, live.pc?.data),
     alerts: firingAlerts(live.alerts?.data),
   };
 }
@@ -86,7 +97,10 @@ export function liveBellHub(live: HubLiveState): Pick<BellHub, 'waiting' | 'serv
 export function hubBadgeCounts(live: HubLiveState): { decide: number; alerts: number } {
   const parts = liveBellHub(live);
   const broken = automationSummary(live.automations?.data)?.broken ?? 0;
-  return { decide: parts.waiting.length, alerts: broken + parts.services.length + parts.quotas.length + parts.alerts.length };
+  return {
+    decide: parts.waiting.length,
+    alerts: broken + parts.services.length + parts.quotas.length + parts.outlooks.length + parts.machines.length + parts.alerts.length,
+  };
 }
 
 /** «Decide»: deadlines first (nearest first), then the longest wait. */
@@ -115,11 +129,14 @@ export function bellGroups(model: { waiting: readonly InboxItem[]; finished: rea
       entries: [
         ...hub.failed.map((job): BellEntry => ({ source: 'failed', key: `job:${job.key}`, job })),
         ...hub.services.map((service): BellEntry => ({ source: 'service', key: `service:${service.id}`, service })),
+        ...hub.machines.filter((m) => m.machine === 'pc').map((machine): BellEntry => ({ source: 'machine', key: `machine:${machine.machine}`, machine })),
       ],
     },
     {
       key: 'quota',
       entries: [
+        // The forecast first: it says what happens next, the windows nearly full say where it stands.
+        ...hub.outlooks.map((outlook): BellEntry => ({ source: 'outlook', key: `outlook:${outlook.provider}`, outlook })),
         ...hub.quotas.map((quota): BellEntry => ({ source: 'quota', key: `quota:${quota.key}`, quota })),
         ...pace.map((alert): BellEntry => ({ source: 'alert', key: `alert:${alert.id}`, alert })),
         ...hub.accounts.map((event): BellEntry => ({ source: 'account', key: `account:${event.key}`, event })),
@@ -128,6 +145,7 @@ export function bellGroups(model: { waiting: readonly InboxItem[]; finished: rea
     {
       key: 'look',
       entries: [
+        ...hub.machines.filter((m) => m.machine === 'mac').map((machine): BellEntry => ({ source: 'machine', key: `machine:${machine.machine}`, machine })),
         ...budget.map((alert): BellEntry => ({ source: 'alert', key: `alert:${alert.id}`, alert })),
         ...hub.contradictions.map((item): BellEntry => ({ source: 'contradiction', key: item.id, item })),
       ],

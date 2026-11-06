@@ -8,7 +8,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  NOT_MEASURED, cpuByPid, formatMem, formatPct, formatRate, historyOf, logTone, macGauges, parseLogEvent, pcView, processRows, pushLogLine, serviceRows, servicesToWatch,
+  NOT_MEASURED, cpuByPid, formatMem, formatPct, formatRate, historyOf, logTone, macGauges, parseLogEvent, pcView, processRows, pushLogLine, serviceGroups, serviceRows, servicesReadAt, servicesToWatch,
 } from './machineProcesses';
 import type { ScriptProcessInfo } from './api';
 
@@ -143,6 +143,28 @@ describe('the Mac, the PC and the services', () => {
     expect(rows[0]!.port).toBe(18791);
     // Stopped and up with a problem ask for a look; off and waiting do not.
     expect(servicesToWatch(rows)).toBe(2);
+  });
+
+  test('services in the hub groups: the own apps first, then each area in the hub order, trouble first inside', () => {
+    const rows = serviceRows({ at: 1_700, services: [
+      { id: 'hub', name: 'Hub', state: 'vivo', group: 'Consumi', app: true },
+      { id: 'proxy', name: 'Proxy', state: 'vivo', group: 'Consumi' },
+      { id: 'oc', name: 'Gateway', state: 'vivo', group: 'Assistente' },
+      { id: 'docs', name: 'Docs', state: 'fermo', group: 'Strumenti' },
+      { id: 'tray', name: 'Tray', state: 'vivo', group: 'Strumenti', app: true },
+      { id: 'mcp', name: 'MCP', state: 'vivo', group: 'Strumenti' },
+      { id: 'loose', name: 'Loose', state: 'vivo' },
+    ] });
+    expect(serviceGroups(rows).map((g) => [g.key, g.label, g.rows.map((r) => r.id)])).toEqual([
+      ['apps', null, ['hub', 'tray']],
+      // The stopped one led the list, so its area comes before the ones it would follow.
+      ['group:Strumenti', 'Strumenti', ['docs', 'mcp']],
+      ['group:Consumi', 'Consumi', ['proxy']],
+      ['group:Assistente', 'Assistente', ['oc']],
+      ['other', null, ['loose']],
+    ]);
+    expect(servicesReadAt({ at: 1_700, services: [] })).toBe(1_700);
+    expect(servicesReadAt(null)).toBeNull();
   });
 
   test('a service keeps what it is, its launchd job, its page and the memory of what it started', () => {

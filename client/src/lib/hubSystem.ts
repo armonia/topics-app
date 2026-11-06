@@ -75,7 +75,11 @@ function safeLink(v: unknown, windowHost: string): string | null {
   }
 }
 
-/** The automation key of a hub link (`#automations/<key>`), or null for any other link. */
+/**
+ * The automation key of a hub link (`#automations/<key>`), or null for any
+ * other link. A workflow is `wf:<name>` for the hub and `workflow:<name>` in
+ * Topics' Automazioni: the key comes back in Topics' form.
+ */
 export function automationKeyOfLink(link: unknown): string | null {
   const s = str(link);
   if (!s) return null;
@@ -83,7 +87,8 @@ export function automationKeyOfLink(link: unknown): string | null {
   if (!m) return null;
   try {
     const key = decodeURIComponent(m[1]!);
-    return key.trim() === '' ? null : key;
+    if (key.trim() === '') return null;
+    return key.startsWith('wf:') ? `workflow:${key.slice('wf:'.length)}` : key;
   } catch {
     return null;
   }
@@ -421,7 +426,7 @@ export function accountEvents(activity: unknown, profiles: unknown, now: number)
 
 // ── Diary of automations and agents (/api/diario) ────────────────────────────
 
-type DiaryKind = 'auto' | 'app' | 'workflow' | 'agente' | 'tu'; // allow-italian: the hub's wire values
+export type DiaryKind = 'auto' | 'app' | 'workflow' | 'agente' | 'tu'; // allow-italian: the hub's wire values
 
 export interface DiaryEntry {
   id: string;
@@ -433,8 +438,27 @@ export interface DiaryEntry {
   /** `ok`, `error`, `undelivered`, `skipped`, `running`, `queued`, or null. */
   outcome: string | null;
   what: string;
-  /** The automation the row is about (`#automations/<key>`): the row opens it in Topics. */
+  /** The automation the row is about (`#automations/<key>`), a workflow's under Topics' own key: the row opens it in Topics. */
   automationKey: string | null;
+  /** The board card an agent's job was born from (`card:<board>/<task>`): the row opens the task. */
+  taskId: string | null;
+}
+
+/**
+ * Where a diary line leads in Topics. The hub links a run to its card
+ * (`#automations/<key>`, and `ref` the same key): a workflow is `wf:<name>`
+ * there and `workflow:<name>` in Topics' Automazioni, a job born from a card
+ * of the board is `card:<board>/<task>` and opens the task.
+ */
+function diaryTarget(raw: Record<string, unknown>): { automationKey: string | null; taskId: string | null } {
+  const key = automationKeyOfLink(raw.link) ?? str(raw.ref);
+  if (!key) return { automationKey: null, taskId: null };
+  if (key.startsWith('card:')) {
+    const task = key.slice('card:'.length).split('/').pop() ?? '';
+    return { automationKey: null, taskId: task.trim() === '' ? null : task };
+  }
+  if (key.startsWith('wf:')) return { automationKey: `workflow:${key.slice('wf:'.length)}`, taskId: null };
+  return { automationKey: key, taskId: null };
 }
 
 const DIARY_KINDS: readonly string[] = ['auto', 'app', 'workflow', 'agente', 'tu']; // allow-italian: the hub's wire values
@@ -469,11 +493,11 @@ export function diaryForHistory(data: unknown): DiaryEntry[] {
     if (at === null || !title || !DIARY_KINDS.includes(kind)) return;
     const outcome = str(raw.outcome);
     const who = str(raw.who) ?? '';
-    const automationKey = automationKeyOfLink(raw.link);
+    const { automationKey, taskId } = diaryTarget(raw);
     const routine = outcome === null || outcome === 'ok' || outcome === 'skipped';
     if ((kind === 'auto' || kind === 'app') && routine && automationKey !== null) return;
     if (isDiaryNoise(who, title, outcome)) return;
-    out.push({ id: `diary-${at}-${i}`, at, kind: kind as DiaryKind, who, title, outcome, what: str(raw.what) ?? '', automationKey });
+    out.push({ id: `diary-${at}-${i}`, at, kind: kind as DiaryKind, who, title, outcome, what: str(raw.what) ?? '', automationKey, taskId });
   });
   return out.sort((a, b) => b.at - a.at);
 }

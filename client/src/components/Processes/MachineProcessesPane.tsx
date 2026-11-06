@@ -30,7 +30,7 @@ import { PROCESSES_LOG_EVENT, takeProcessesLogRequest } from '../../state/proces
 import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import {
   NOT_MEASURED, PROXY_SERVICE_ID, censusAt, formatMem, formatPct, formatRate, macGauges, parseLogEvent, pcView,
-  processRows, pushLogLine, serviceRows, servicesToWatch, type HistoryPoint, type LogLine, type MacGauges, type PcView, type ProcessRow, type ServiceRow, type UnitKind,
+  processRows, pushLogLine, serviceGroups, serviceRows, servicesReadAt, servicesToWatch, type HistoryPoint, type LogLine, type MacGauges, type PcView, type ProcessRow, type ServiceRow, type UnitKind,
 } from '../../lib/machineProcesses';
 
 type Tr = ReturnType<typeof useT>;
@@ -140,7 +140,7 @@ export function MachineProcessesPane() {
           <MacSection gauges={gauges} rows={rows} onStopped={refresh} />
           <div className="flex min-w-0 flex-col gap-3.5">
             {pc && <PcSection pc={pc} stale={stale} />}
-            <ServicesAndLog services={services} />
+            <ServicesAndLog services={services} readAt={failing ? null : servicesReadAt(live.services?.data)} />
           </div>
         </div>
         )}
@@ -430,7 +430,7 @@ function PcUnread({ pc }: { pc: PcView }) {
 
 // ── Services and the proxy's log ─────────────────────────────────────────────
 
-function ServicesAndLog({ services }: { services: ServiceRow[] }) {
+function ServicesAndLog({ services, readAt }: { services: ServiceRow[]; readAt: number | null }) {
   const tr = useT();
   const [logOpen, setLogOpen] = useState(true);
   const openLog = useCallback(() => setLogOpen(true), []);
@@ -454,12 +454,21 @@ function ServicesAndLog({ services }: { services: ServiceRow[] }) {
           <span className="text-compact font-semibold text-app-text-heading">{tr('processes.services')}</span>
           <span className={`min-w-0 flex-1 truncate text-mini tabular-nums ${FAINT} @max-3xl:text-compact`}>
             {!unread && tr('processes.services.liveOf', { n: live, total: services.length })}
+            {!unread && readAt !== null && <> · <span data-testid="machine-services-read" title={tr('processes.services.readHint')}>{tr('processes.services.readAt', { time: new Date(readAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false }) })}</span></>}
             {stopped > 0 && <> · <span className={DANGER_TEXT}>{tr('processes.services.stopped', { n: stopped })}</span></>}
             {toWatch > 0 && <> · <span className={WARNING_TEXT} data-testid="machine-services-watch">{tr('processes.services.toWatch', { n: toWatch })}</span></>}
           </span>
         </div>
-        {shown.map((s) => (
-          <ServiceRowView key={s.id} s={s} log={s.id === PROXY_SERVICE_ID ? { open: logOpen, toggle: () => setLogOpen((v) => !v) } : null} />
+        {serviceGroups(shown).map((g) => (
+          <div key={g.key} role="group" aria-label={g.label ?? tr(`processes.services.group.${g.key}`)} data-testid="machine-services-group" data-group={g.key}>
+            <div className={`flex h-7 items-center gap-1.5 border-b border-app-border-subtle px-2.5 text-mini uppercase tracking-[0.04em] ${FAINT}`}>
+              <span>{g.label ?? tr(`processes.services.group.${g.key}`)}</span>
+              <span className="tabular-nums">{g.rows.length}</span>
+            </div>
+            {g.rows.map((s) => (
+              <ServiceRowView key={s.id} s={s} log={s.id === PROXY_SERVICE_ID ? { open: logOpen, toggle: () => setLogOpen((v) => !v) } : null} />
+            ))}
+          </div>
         ))}
         {offOpen && offRows.map((s) => <ServiceRowView key={s.id} s={s} log={null} />)}
         <div className={`flex items-center gap-1.5 px-2.5 py-2 text-mini ${FAINT} @max-3xl:text-compact`} data-testid="machine-services-foot">

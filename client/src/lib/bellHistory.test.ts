@@ -3,10 +3,10 @@
  * @covers HUBBR-07
  */
 import { describe, expect, test } from 'bun:test';
-import { dayTally, diaryForFilter, diaryMatches, historyCounts, isProblem, topicsMatches } from './bellHistory';
-import type { DiaryEntry } from './hubSystem';
+import { dayTally, diaryForFilter, diaryKindCounts, diaryMatches, historyCounts, isProblem, topicsMatches } from './bellHistory';
+import { diaryForHistory, type DiaryEntry } from './hubSystem';
 
-const row = (over: Partial<DiaryEntry>): DiaryEntry => ({ id: 'x', at: 1, kind: 'auto', who: 'OpenClaw', title: 'Brief', outcome: null, what: '', automationKey: null, ...over });
+const row = (over: Partial<DiaryEntry>): DiaryEntry => ({ id: 'x', at: 1, kind: 'auto', who: 'OpenClaw', title: 'Brief', outcome: null, what: '', automationKey: null, taskId: null, ...over });
 
 describe('HUBBR-07: History filter, search and day tally', () => {
   const rows = [
@@ -22,6 +22,24 @@ describe('HUBBR-07: History filter, search and day tally', () => {
     expect(diaryForFilter(rows, 'topics')).toEqual([]);
     expect(diaryForFilter(rows, 'hub')).toHaveLength(4);
     expect(historyCounts(3, rows)).toEqual({ all: 7, topics: 3, hub: 4, problems: 2 });
+  });
+
+  test('«Automazioni e agenti» narrows to one of the hub kinds, each with its count', () => {
+    expect(diaryKindCounts(rows)).toEqual({ auto: 2, agente: 1, workflow: 0, tu: 0, app: 1 });
+    expect(diaryForFilter(rows, 'hub', 'agente').map((r) => r.id)).toEqual(['c']);
+    expect(diaryForFilter(rows, 'hub', 'auto').map((r) => r.id)).toEqual(['a', 'd']);
+    // The kind applies to the hub's lump only: Problems stays Problems.
+    expect(diaryForFilter(rows, 'problems', 'agente').map((r) => r.id)).toEqual(['a', 'd']);
+  });
+
+  test('a line leads where its subject lives in Topics: a workflow to its row, a job born from a card to the task', () => {
+    const lines = diaryForHistory({ items: [
+      { at: 3, kind: 'workflow', who: 'Workflow', title: 'Revisione', outcome: 'error', what: '', link: '#automations/wf%3Arev' },
+      { at: 2, kind: 'agente', who: 'Agente · Codex', title: 'Card «Rilascio»', outcome: 'ok', what: '', link: '#automations/card%3Aacme-board%2Ftask-42' },
+      // The hub's `ref` alone leads the same way.
+      { at: 1, kind: 'workflow', who: 'Workflow', title: 'Audit', outcome: 'ok', what: '', ref: 'wf:audit' },
+    ] });
+    expect(lines.map((l) => [l.automationKey, l.taskId])).toEqual([['workflow:rev', null], [null, 'task-42'], ['workflow:audit', null]]);
   });
 
   test('the search finds every word in title, detail, who or state', () => {

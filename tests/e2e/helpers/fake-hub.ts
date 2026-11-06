@@ -39,6 +39,10 @@
  * file (`context/text?path=`), and takes a contradictions check
  * (`contesto/check`): running at once, over after `checkMs` with one
  * contradiction found, like the hub's agent.
+ * For the bell's status signals the hub answers the quota forecast
+ * (`forecast`, every subscription reaching its reset) and the PC's state
+ * (`pc`, at work); `answersOverride` replaces any reading whole, so a spec
+ * can make Claude run out, the Mac strain or the PC stop answering.
  * `quiet` answers a hub with nothing to say: no item, no failure, every
  * service up. Nothing here ever reaches :3360 or :3335.
  */
@@ -79,6 +83,8 @@ export interface FakeHub {
   silent: boolean;
   /** Paths that answer 503 while the rest answers: one part of the hub down, not all of it. */
   failing: string[];
+  /** Readings that replace the fixture's whole, by hub path (`forecast`, `pc`, `mac`). */
+  answersOverride: Record<string, unknown>;
   /** The votes, notes and silences posted to `feedback`, as the hub keeps them. */
   feedback: FeedbackRow[];
   /** The projects' priorities, as `project-settings` writes them. */
@@ -230,12 +236,20 @@ export function defaultFakeHubItems(now = Date.now()): FakeHubItem[] {
   ];
 }
 
+/** The hub's forecast when every subscription reaches its reset at today's pace. */
+function reachingReset(now: number): Record<string, unknown> {
+  const ok = (id: string) => ({ id, status: "ok", level: 0, runsOutAt: null, right: "arriva al reset", sub: "al ritmo di oggi regge fino al reset" });
+  return { at: now, headline: { title: "Tutto arriva al reset", sub: "" }, providers: [ok("claude"), ok("codex"), ok("muse")] };
+}
+
 /** A hub with nothing to say: the same paths, every list empty, every service up. */
 function quietAnswers(): Record<string, unknown> {
   const now = Date.now();
   return {
     pace: [{ provider: "claude", account: "e2e@example.com", active: true, login: "ok", used: 28, fiveHour: { used: 10, resetsAt: now + HOUR }, status: "ok" }],
     services: { at: now, services: [{ id: "usage-hub", name: "Hub dei consumi", state: "vivo", problem: null }] },
+    forecast: reachingReset(now),
+    pc: { pc: "dorme", perche: "" },
     attesa: { at: now, items: [] },
     alerts: { rules: [], firing: [] },
     "automations/summary": { needsYou: 0, broken: 0, ok: 82, hidden: 0, runsToday: 412 },
@@ -269,15 +283,17 @@ function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy 
     "mac/procs": machineCensus(now, devPids),
     machines: machineList(),
     services: { at: now, services: [
-      { id: "usage-hub", name: "Hub dei consumi", state: "vivo", port: 3360, mb: 153, problem: null, url: "http://127.0.0.1:3360/", label: "com.example.usage-hub" },
-      { id: "switchboard", name: "Proxy degli account", state: "vivo", port: 3335, mb: 90, problem: null, what: "Ruota gli account Claude", label: "com.example.switchboard" },
+      { id: "usage-hub", name: "Hub dei consumi", group: "Consumi", app: true, state: "vivo", port: 3360, mb: 153, problem: null, url: "http://127.0.0.1:3360/", label: "com.example.usage-hub" },
+      { id: "switchboard", name: "Proxy degli account", group: "Consumi", state: "vivo", port: 3335, mb: 90, problem: null, what: "Ruota gli account Claude", label: "com.example.switchboard" },
       // The service's own memory and the tree it started (agents, browsers): the hub's figure.
-      { id: "openclaw", name: "Gateway di Jarvis", state: "vivo", port: 18789, mb: 2969, treeMb: 4096, children: 12, problem: null },
-      { id: "docs-index", name: "Indice dei documenti", state: "vivo", port: 3342, mb: 95, problem: "non ascolta su :3342" },
+      { id: "openclaw", name: "Gateway di Jarvis", group: "Assistente", state: "vivo", port: 18789, mb: 2969, treeMb: 4096, children: 12, problem: null },
+      { id: "docs-index", name: "Indice dei documenti", group: "Strumenti", state: "vivo", port: 3342, mb: 95, problem: "non ascolta su :3342" },
       // Switched off on purpose and asleep on demand: neither may reach the bell.
-      { id: "openclaw-old", name: "Gateway vecchio", state: "spento", problem: null },
-      { id: "free-router", name: "Router dei modelli gratis", state: "in attesa", problem: null },
+      { id: "openclaw-old", name: "Gateway vecchio", group: "Assistente", state: "spento", problem: null },
+      { id: "free-router", name: "Router dei modelli gratis", group: "Agenti", state: "in attesa", problem: null },
     ] },
+    forecast: reachingReset(now),
+    pc: { pc: "lavora", perche: "processo node a 1,2 core" },
     attesa: { at: now, items },
     alerts: { rules: [], firing: [
       { id: "project:studio-x", subject: "studio-x sopra budget", source: "soglia-progetto", message: "studio-x: 78% della settimana, budget 60%" },
@@ -528,7 +544,7 @@ const LOG_LINES = [
 ];
 
 export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(), opts: { quiet?: boolean; jobs?: boolean; automations?: boolean; projects?: { dirs: Record<string, string> }; context?: boolean } = {}): Promise<FakeHub> {
-  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), withdrawn: [], silent: false, failing: [], feedback: [], priorities: {}, refuseSettings: null, contextCheck: defaultContextCheck(), checkMs: 3000, close: async () => {} };
+  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), withdrawn: [], silent: false, failing: [], answersOverride: {}, feedback: [], priorities: {}, refuseSettings: null, contextCheck: defaultContextCheck(), checkMs: 3000, close: async () => {} };
   const server: Server = createServer((req, res) => {
     const path = (req.url ?? "").split("?")[0]!.replace(/^\/api\//, "");
     if (req.method === "GET" && path === "logs/stream") {
@@ -700,6 +716,7 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
       const queue = all.queue as { items: unknown[] };
       all.queue = { items: [...queue.items, { id: "q-fix", ref: "launchd:com.example.backup", status: "running", provider: "codex", project: "acme-web", createdAt: now - 5 * 60_000 }] };
     }
+    Object.assign(all, hub.answersOverride);
     if (req.method === "GET" && path in all) return send(200, all[path]);
     send(404, { error: "not in the fake hub" });
   });
