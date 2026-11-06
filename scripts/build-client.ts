@@ -48,9 +48,11 @@ function buildInto(outDir: string): void {
   // `tsc -b` first, exactly as client/package.json did: a type error must stop
   // the build before anything is published. Both binaries are launched THROUGH
   // BUN: their shebang says `node`, and the node on this machine can be older
-  // than what vite 7 requires (measured here: node 18, and the build died on
-  // `crypto.hash is not a function`).
-  const tsc = run(["bun", join(CLIENT_DIR, "node_modules", ".bin", "tsc"), "-b"], CLIENT_DIR);
+  // than what vite requires (measured here: node 18, and the build died on
+  // `crypto.hash is not a function`). The compiler is TypeScript 7 (native), installed
+  // as the `typescript7` alias: `typescript` stays on 5.9 because typescript-eslint
+  // wants a version below 6.1.
+  const tsc = run(["bun", join(CLIENT_DIR, "node_modules", "typescript7", "bin", "tsc"), "-b"], CLIENT_DIR);
   if (tsc !== 0) fail(`tsc -b failed (exit ${tsc}) - public/ untouched.`);
   // `--emptyOutDir` is the confirmation vite wants for an outDir outside its
   // root. It empties the STAGING dir, which is ours and already empty.

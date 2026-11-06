@@ -87,7 +87,7 @@ export function SystemStrip({ variant = 'sidebar' }: { variant?: 'sidebar' | 'ph
         <Chevron size={12} aria-hidden="true" className={`ml-auto shrink-0 ${open ? 'text-primary' : 'text-app-text-faint group-hover:text-app-text-secondary'}`} />
       </span>
       {!down && (mac || model.quotas.length > 0) && (
-        <span data-testid="system-strip-numbers" className="mt-[5px] flex gap-2.5 overflow-hidden whitespace-nowrap font-mono text-[10.5px] tabular-nums text-app-text-muted">
+        <span data-testid="system-strip-numbers" className="mt-[5px] flex gap-2.5 overflow-hidden whitespace-nowrap font-mono text-mini tabular-nums text-app-text-muted">
           {mac?.cpu != null && (
             <span className="inline-flex items-center gap-1">
               {t('hubSystem.strip.cpu')}

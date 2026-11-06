@@ -1,11 +1,8 @@
 {
   "compilerOptions": {
     "composite": true,
-    /* baseUrl (below) is deprecated as of TS5 and removed in TS7; this silences
-       the hard error so `tsc -b` / build:client stays green until we migrate
-       off baseUrl (paths already resolve relative to this file in bundler mode).
-       Value must match the installed tsc major: "5.0" for tsc 5.x. Using "6.0"
-       here errors TS5103 under tsc 5.9.x and silently breaks the typecheck gate. */
+    /* Must match the tsc major: "5.0" for tsc 5.x ("6.0" here errors TS5103 under 5.9
+       and silently breaks the typecheck gate). TypeScript 7 (alias `typescript7`) accepts it. */
     "ignoreDeprecations": "5.0",
     "tsBuildInfoFile": "../.cache/checks/client-app.tsbuildinfo",
     "target": "ES2023",
@@ -28,10 +25,9 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
 
-    /* Path mapping */
-    "baseUrl": ".",
+    /* Path mapping. No baseUrl (TypeScript 7 removed it): `paths` resolves from this file. */
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src", "../shared"],

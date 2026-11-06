@@ -1,30 +1,28 @@
 /**
- * prompt-cache.ts — i breakpoint di prompt caching per i provider che parlano
- * direttamente con l'SDK Anthropic.
+ * prompt-cache.ts: prompt caching breakpoints for the providers that talk
+ * straight to the Anthropic SDK.
  *
- * Perché esiste: fino a questa change `grep -rn "cache_control" server/` non
- * trovava NULLA. `claude.ts` costruiva i params in tre punti (`sendChat`,
- * `streamHTTP`, `complete`) e non marcava un solo breakpoint, quindi ogni turno
- * ripagava l'intero prefisso a prezzo pieno invece di 0,1x — su una
- * conversazione che, per definizione di API stateless, riparte da capo ogni
- * volta e cresce ad ogni turno.
+ * Why it exists: before this change `grep -rn "cache_control" server/` found
+ * NOTHING. `claude.ts` built the params in three places (`sendChat`,
+ * `streamHTTP`, `complete`) and marked no breakpoint at all, so every turn
+ * paid the whole prefix at full price instead of 0.1x, on a conversation that,
+ * the API being stateless, starts over every time and grows every turn.
  *
- * L'ordine del prefisso Anthropic è `tools → system → messages`, quindi bastano
- * tre marker per coprire tutto ciò che si ripete:
+ * The Anthropic prefix order is `tools -> system -> messages`, so three markers
+ * cover everything that repeats:
  *
- *   1. ultimo tool      — congela gli schemi dei tool;
- *   2. fine del system  — congela il preambolo di sistema;
- *   3. ultimo messaggio — chiude la conversazione fin qui, così il turno
- *                         successivo la rilegge dalla cache invece di
- *                         riprefillarla.
+ *   1. last tool     - freezes the tool schemas;
+ *   2. end of system - freezes the system preamble;
+ *   3. last message  - closes the conversation so far, so the next turn reads
+ *                      it from the cache instead of prefilling it again.
  *
- * Il limite è quattro: ne usiamo al più tre, e il quarto resta libero per chi
- * dovesse aggiungere un breakpoint più avanti senza rompere questa funzione.
+ * The limit is four: we use at most three, and the fourth stays free for
+ * whoever adds a breakpoint later without breaking this function.
  *
- * Un breakpoint sotto la soglia minima di cache del modello non è un errore: il
- * provider semplicemente non cachea quel tratto. Per questo la funzione non
- * misura nulla e non prova a essere furba — marca i confini, e lascia al
- * provider la decisione su cosa valga la pena conservare.
+ * A breakpoint below the model's minimum cacheable length is not an error: the
+ * provider just does not cache that stretch. So the function measures nothing
+ * and does not try to be clever: it marks the boundaries and leaves the
+ * provider to decide what is worth keeping.
  */
 import type Anthropic from "@anthropic-ai/sdk";
 
