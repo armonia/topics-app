@@ -42,8 +42,8 @@ const RETIRED_TEXT = /Tutto ok|Quasi tutto ok|Hub non raggiungibile|Hub raggiung
  * (`/api/hub/`, `/api/switchboard/`: with the hub down nothing asks them, so
  * one is already a trace). With the hub up, the bell's button reads the
  * proxy's log in the background (`/api/switchboard/activity` and `/profiles`,
- * HUBBR-06): the second test lets those two pass while the hub answers and
- * wants none after it went down. Topics' own snapshot
+ * HUBBR-06): the tests with the hub up let those two pass, and want none once
+ * it went down. Topics' own snapshot
  * `/api/hub-live`, which the bell's button reads, asks the hub nothing and may
  * pass. Console errors
  * of the engine itself stay out: WebKit on the PC logs its own viewport and
@@ -65,6 +65,10 @@ function collectErrors(page: Page): string[] {
   page.on("request", (r) => { if (/^\/api\/(hub|switchboard)(\/|$)/.test(new URL(r.url()).pathname)) errors.push(`request ${r.url()}`); });
   return errors;
 }
+
+/** With the hub up, the bell's button reads the proxy's log in the background (HUBBR-06): those two requests are not a trace. */
+const PROXY_LOG = /^request http:\/\/[^/]+\/api\/switchboard\/(activity|profiles)$/;
+const withoutProxyLog = (errors: string[]): string[] => errors.filter((e) => !PROXY_LOG.test(e));
 
 /** The live reader's snapshot: which topics read, which are in error. */
 async function hubLive(request: APIRequestContext): Promise<Record<string, { data?: unknown; error?: string }>> {
@@ -149,8 +153,7 @@ test.describe("Without the hub, no trace", () => {
       await hub.close();
       await expect.poll(async () => typeof (await hubLive(request)).pace?.error, { timeout: 20_000 }).toBe("string");
       // Before the reload, only the proxy log's background read may have passed.
-      const PROXY_LOG = /^request http:\/\/[^/]+\/api\/switchboard\/(activity|profiles)$/;
-      expect(errors.filter((e) => !PROXY_LOG.test(e))).toEqual([]);
+      expect(withoutProxyLog(errors)).toEqual([]);
       errors.length = 0;
       await page.reload();
       await expect(page.getByLabel("Topics sidebar")).toBeVisible({ timeout: 30_000 });
@@ -179,7 +182,7 @@ test.describe("Without the hub, no trace", () => {
       await expect(page.getByTestId("project-toggle-acme-web")).toBeVisible({ timeout: 20_000 });
       await expectNoHubTrace(page);
       await page.screenshot({ path: testInfo.outputPath("vero-via-sistema-piccolo-telefono.png") });
-      expect(errors).toEqual([]);
+      expect(withoutProxyLog(errors)).toEqual([]);
     } finally {
       await ctx.close();
       await hub.close().catch(() => {});
