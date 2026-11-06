@@ -632,6 +632,8 @@ export default defineConfig({
         // A card that runs on «Cloud Claude»: the board as the desktop shell shows it, and the one
         // card scenario that can be filmed on this Mac (no agent runs here, the cloud is a fake).
         "**/board-cloud-card.spec.ts",
+        // The multi-project intake: the composer is a WebKit surface on this Mac, so its proposal runs here too (card a5906c31).
+        "**/board-intake-plan.spec.ts",
         // The conversation of a task follows its last answer while the drawer narrows: WebKit moves
         // scrollTop for the anchor before any ResizeObserver runs, and that is what the second net guards.
         "**/task-conversation-follow.spec.ts",
