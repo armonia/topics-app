@@ -297,6 +297,23 @@ export function quotaLines(data: unknown): QuotaLine[] {
   return out;
 }
 
+// ── The Mac under strain (/api/mac) ──────────────────────────────────────────
+
+/**
+ * The hub's word for a Mac under strain (strained, memory under pressure),
+ * or null while it breathes. Only the red level: «busy» is the
+ * normal state of a working machine and would sit on the row all day.
+ */
+export function macStrain(data: unknown): string | null {
+  if (!isObject(data)) return null;
+  const effort = isObject(data.effort) ? data.effort : null;
+  if (effort && (num(effort.level) ?? 0) >= 2) return str(effort.label) ?? 'sotto sforzo'; // allow-italian: the hub's own word
+  const used = num(data.swapUsedGB);
+  const total = num(data.swapTotalGB);
+  if (data.swapSustained === true && used !== null && total !== null && total > 0 && used / total > 0.8) return 'memoria sotto pressione'; // allow-italian: the hub's own word
+  return null;
+}
+
 // ── Contradictions of the agents' context (/api/contesto) ────────────────────
 
 export interface Contradiction {

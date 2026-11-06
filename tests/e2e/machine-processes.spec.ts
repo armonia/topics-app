@@ -175,11 +175,35 @@ test.describe("the machine's processes", () => {
     const dev = rows.filter({ has: page.getByTestId("machine-process-stop") });
     await expect(dev.getByTestId("machine-process-script")).toContainText("acme-web › dev");
 
+    // The disk with its free space, the notes under the gauges, what the hub paused.
+    await expect(pane.getByTestId("machine-gauge-disk")).toContainText("70%");
+    await expect(pane.getByTestId("machine-gauge-disk")).toContainText("120 GB liberi");
+    await expect(pane.getByTestId("machine-processes-mac")).toContainText("3,7 di 12 core");
+    await expect(pane.getByTestId("machine-mac-line")).toHaveText("In pausa finché respira: studio-x");
+
     // PC, services (the proxy first among the live ones with a port), the log live.
     await expect(pane.getByTestId("machine-processes-pc")).toContainText("Acceso, lavora");
-    await expect(pane.getByTestId("machine-processes-services")).toContainText("Proxy degli account");
+    const services = pane.getByTestId("machine-processes-services");
+    await expect(services).toContainText("Proxy degli account");
+    // A live service with a problem is one to look at: the foot never says all is on.
+    await expect(services.getByTestId("machine-services-watch")).toHaveText("1 da guardare");
+    await expect(services.getByTestId("machine-services-foot")).not.toContainText("Tutto acceso");
+    // What each one is, its launchd job, its page, and the memory of what it started.
+    await expect(services.getByTestId("machine-service-what")).toHaveText("Ruota gli account Claude");
+    await expect(services).toContainText("com.example.switchboard");
+    await expect(services.getByTestId("machine-service-link")).toHaveAttribute("href", "http://127.0.0.1:3360/");
+    await expect(services).toContainText("con 12 figli 4,0 GB");
+    // Off services are listed by name on request, not only counted.
+    await expect(services).not.toContainText("Gateway vecchio");
+    await services.getByTestId("machine-services-off").click();
+    await expect(services.locator('[data-testid="machine-service-row"][data-state="spento"]')).toContainText("Gateway vecchio");
     const log = pane.getByTestId("machine-log-lines");
     await expect(log).toContainText("limite del provider", { timeout: 15_000 });
+    // A long line wraps: its tail is on screen, not cut by an ellipsis.
+    await expect(log).toHaveAttribute("role", "log");
+    const long = log.getByTestId("machine-log-line").filter({ hasText: "fine-riga" });
+    await expect(long).toBeVisible();
+    expect(await long.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
     // The stream's own greeting is not a line of the proxy.
     await expect(log).not.toContainText("Connected to log stream");
     await expect.poll(() => hub!.streams.opened).toBeGreaterThan(0);

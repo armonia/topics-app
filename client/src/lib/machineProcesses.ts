@@ -202,6 +202,14 @@ export interface MacGauges {
    * is the system's pressure, not the used GB the gauge shows.
    */
   history: { cpu: HistoryPoint[]; gpu: HistoryPoint[] };
+  /** 0 calm, 1 busy, 2 strained: the hub's level, memory pressure and a full swap included. */
+  level: number;
+  /** The hub's sentences on why it strains and which projects it paused until the Mac breathes again. */
+  lines: string[];
+  /** The disk: share used and the hub's note on the free space, or null where it is not read. */
+  disk: { pct: number | null; note: string | null } | null;
+  /** The hub's note on each gauge (cores in use, the swap read back from disk). */
+  notes: { cpu: string | null; mem: string | null; swap: string | null; gpu: string | null };
 }
 
 /** One sample of a machine's history: unix seconds and a percentage. */
@@ -228,6 +236,13 @@ function metric(machine: JsonRecord | undefined, key: string): number | null {
   return m ? num(m.pct) : null;
 }
 
+function metricNote(machine: JsonRecord | undefined, key: string): string | null {
+  const m = machine ? list(machine.metrics).find((x) => x.key === key) : undefined;
+  return m ? str(m.note) : null;
+}
+
+const stringsOf = (v: unknown): string[] => (Array.isArray(v) ? v.filter((l): l is string => typeof l === 'string' && l.trim() !== '') : []);
+
 /** This Mac and the PC, picked from `/api/machines`. */
 function machinesOf(data: unknown): { local?: JsonRecord; pc?: JsonRecord } {
   const all = list(data);
@@ -252,12 +267,20 @@ export function macGauges(mac: unknown, machines: unknown, census: unknown): Mac
     netInBps: num(summary.netInBps),
     netOutBps: num(summary.netOutBps),
     history: { cpu: metricHistory(local, 'cpu'), gpu: metricHistory(local, 'gpu') },
+    level: local ? num(local.level) ?? 0 : 0,
+    lines: local ? stringsOf(local.lines) : [],
+    disk: local && list(local.metrics).some((x) => x.key === 'disk') ? { pct: metric(local, 'disk'), note: metricNote(local, 'disk') } : null,
+    notes: { cpu: metricNote(local, 'cpu'), mem: metricNote(local, 'mem'), swap: metricNote(local, 'swap'), gpu: metricNote(local, 'gpu') },
   };
 }
 
 // ── The PC ──────────────────────────────────────────────────────────────────
 
-type PcState = 'dorme' | 'acceso' | 'lavora' | 'unknown'; // allow-italian: the hub's wire values
+/**
+ * `closed`: on, but Windows' firewall refuses ssh (the hub's own state for
+ * it), a command away on the PC; `unknown`: it does not answer at all.
+ */
+type PcState = 'dorme' | 'acceso' | 'lavora' | 'closed' | 'unknown'; // allow-italian: the hub's wire values
 
 export interface PcView {
   state: PcState;
@@ -275,7 +298,7 @@ export function pcView(machines: unknown): PcView | null {
   const { pc } = machinesOf(machines);
   if (!pc) return null;
   const s = str(pc.state);
-  const state: PcState = s === 'dorme' || s === 'acceso' || s === 'lavora' ? s : 'unknown'; // allow-italian: the hub's wire values
+  const state: PcState = s === 'dorme' || s === 'acceso' || s === 'lavora' ? s : s === 'acceso, ssh chiuso' ? 'closed' : 'unknown'; // allow-italian: the hub's wire values
   return {
     state,
     lines: Array.isArray(pc.lines) ? pc.lines.filter((l): l is string => typeof l === 'string') : [],
@@ -297,6 +320,15 @@ export interface ServiceRow {
   port: number | null;
   memMB: number | null;
   problem: string | null;
+  /** What it is, in the hub's words (the port it forwards, when it sleeps). */
+  what: string | null;
+  /** The launchd job: the handle for `launchctl kickstart` and the logs. */
+  label: string | null;
+  /** Its web page, when it has one (http only). */
+  url: string | null;
+  /** Memory with the processes it started (agents, browsers, MCP), and how many. */
+  treeMB: number | null;
+  children: number;
 }
 
 /** The Claude proxy: the one service whose log the view streams. */
@@ -314,7 +346,12 @@ export function serviceRows(data: unknown): ServiceRow[] {
   const rows = raw.map((s, i): ServiceRow => {
     const st = str(s.state);
     const state: ServiceState = st === 'vivo' || st === 'in attesa' || st === 'fermo' || st === 'spento' ? st : 'fermo'; // allow-italian: the hub's wire values
-    return { id: str(s.id) ?? String(i), name: str(s.name) ?? str(s.id) ?? '', state, port: num(s.port), memMB: num(s.mb), problem: str(s.problem) };
+    const url = str(s.url);
+    return {
+      id: str(s.id) ?? String(i), name: str(s.name) ?? str(s.id) ?? '', state, port: num(s.port), memMB: num(s.mb), problem: str(s.problem),
+      what: str(s.what), label: str(s.label), url: url && /^https?:\/\//.test(url) ? url : null,
+      treeMB: num(s.treeMb), children: num(s.children) ?? 0,
+    };
   });
   const rank = (r: ServiceRow) => STATE_ORDER[r.state] * 2 + (r.problem ? 0 : 1);
   return rows.sort((a, b) => rank(a) - rank(b));
@@ -351,7 +388,12 @@ export function logTone(tag: string, msg: string): LogTone {
   return 'plain';
 }
 
-/** The lines the log keeps on screen: the newest at the top, at most `max`. */
-export function pushLogLine(lines: readonly LogLine[], line: LogLine, max = 200): LogLine[] {
+/** The services that ask for a look: stopped, or up with a problem. Switched off on purpose is not one. */
+export function servicesToWatch(rows: readonly ServiceRow[]): number {
+  return rows.filter((r) => r.state === 'fermo' || (r.state !== 'spento' && r.problem !== null)).length; // allow-italian: the hub's wire values
+}
+
+/** The lines the log keeps on screen: the newest at the top, at most `max` (the hub's page kept 400). */
+export function pushLogLine(lines: readonly LogLine[], line: LogLine, max = 400): LogLine[] {
   return [line, ...lines].slice(0, max);
 }

@@ -17,6 +17,9 @@ import HUB_CONTEXT_IT from '../../lib/i18n-hub-context-it';
 import HUB_CONTEXT_EN from '../../lib/i18n-hub-context-en';
 import { contextView, shortTokens } from '../../lib/hubContext';
 import { HUB_CONTEXT_DOC, HUB_FEATURES_DOC, useHubDoc } from '../../state/hubDocs';
+import { useHubLive } from '../../state/hubLive';
+import { macStrain } from '../../lib/hubSystem';
+import { WARNING_TEXT } from '../../lib/popoverStyles';
 import { SubmenuItem } from '../Shared/SubmenuItem';
 import { menuRowClass } from './menuRow';
 
@@ -56,6 +59,8 @@ export function HubSystemRows({ isMobile, onNavigate, openContext = false }: Hub
   const features = useHubDoc(HUB_FEATURES_DOC, true, FEATURES_MAX_AGE_MS);
   const base = contextView(context.data)?.claudeCode ?? null;
   const behind = behindOf(features.data);
+  // Who does not open Processes still hears that the Mac is struggling.
+  const strain = macStrain(useHubLive().mac?.data);
   const tail = 'flex-shrink-0 text-app-text-secondary tabular-nums';
   return (
     <>
@@ -76,6 +81,7 @@ export function HubSystemRows({ isMobile, onNavigate, openContext = false }: Hub
       <button type="button" className={menuRowClass(isMobile)} data-testid="menu-system-processes" onClick={() => openUtility('processes', onNavigate)}>
         <MonitorCog size={14} className="flex-shrink-0 text-app-text-secondary" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate text-left">{tr('processes.open')}</span>
+        {strain && <span data-testid="menu-system-processes-tail" className={`flex-shrink-0 tabular-nums ${WARNING_TEXT}`}>{tr('processes.tail.strain', { state: strain })}</span>}
       </button>
       <button type="button" className={menuRowClass(isMobile)} data-testid="menu-system-features" onClick={() => openUtility('features', onNavigate)}>
         <Blocks size={14} className="flex-shrink-0 text-app-text-secondary" aria-hidden="true" />

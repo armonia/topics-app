@@ -30,7 +30,7 @@ import { PROCESSES_LOG_EVENT, takeProcessesLogRequest } from '../../state/proces
 import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import {
   NOT_MEASURED, PROXY_SERVICE_ID, censusAt, formatMem, formatPct, formatRate, macGauges, parseLogEvent, pcView,
-  processRows, pushLogLine, serviceRows, type HistoryPoint, type LogLine, type MacGauges, type PcView, type ProcessRow, type ServiceRow, type UnitKind,
+  processRows, pushLogLine, serviceRows, servicesToWatch, type HistoryPoint, type LogLine, type MacGauges, type PcView, type ProcessRow, type ServiceRow, type UnitKind,
 } from '../../lib/machineProcesses';
 
 type Tr = ReturnType<typeof useT>;
@@ -203,13 +203,14 @@ function Spark({ points, warn }: { points: HistoryPoint[]; warn: boolean }) {
   );
 }
 
-function Gauge({ label, value, unit, share, warn = false, history = [] }: { label: string; value: string; unit?: string; share: number | null; warn?: boolean; history?: HistoryPoint[] }) {
+function Gauge({ label, value, unit, share, warn = false, history = [], note = null, testId }: { label: string; value: string; unit?: string; share: number | null; warn?: boolean; history?: HistoryPoint[]; note?: string | null; testId?: string }) {
   return (
-    <div className="min-w-0 border-r border-app-border-subtle px-2.5 pb-2.5 pt-[9px] last:border-r-0 @max-3xl:[&:nth-child(3)]:border-r-0 @max-3xl:[&:nth-child(n+4)]:border-t @max-3xl:[&:nth-child(5)]:col-span-2">
+    <div className="min-w-0 border-r border-app-border-subtle px-2.5 pb-2.5 pt-[9px] last:border-r-0 @max-3xl:[&:nth-child(3)]:border-r-0 @max-3xl:[&:nth-child(n+4)]:border-t" data-testid={testId} title={note ?? undefined}>
       <div className={`text-mini uppercase tracking-[0.04em] ${FAINT}`}>{label}</div>
       <div className="mt-0.5 whitespace-nowrap text-body-lg text-app-text @max-3xl:text-prose">
         {value}{unit && <span className={`text-mini ${FAINT}`}> {unit}</span>}
       </div>
+      {note && <div className={`truncate text-mini ${warn ? WARNING_TEXT : FAINT}`} data-testid="machine-gauge-note">{note}</div>}
       {/* With a day of samples the line replaces the bar. */}
       {history.length >= 2 ? <Spark points={history} warn={warn} /> : (
         <div className={`mt-1.5 h-[3px] overflow-hidden rounded-sm ${TRACK}`}>
@@ -234,20 +235,29 @@ function MacSection({ gauges: g, rows, onStopped }: { gauges: MacGauges; rows: P
     g.state,
     g.memPressurePct !== null ? tr('processes.pressure', { n: Math.round(g.memPressurePct) }) : null,
   ].filter(Boolean).join(' · ');
+  const strained = g.level >= 2;
+  const swapShare = g.swapUsedGB !== null && g.swapTotalGB ? g.swapUsedGB / g.swapTotalGB : null;
   return (
-    <section aria-label={tr('processes.mac')} className={SECTION} data-testid="machine-processes-mac">
+    <section aria-label={tr('processes.mac')} className={SECTION} data-testid="machine-processes-mac" data-level={g.level}>
       <div className={SECTION_HEAD}>
         <Monitor size={14} className="flex-none text-app-text-secondary" aria-hidden="true" />
         <span className="text-compact font-semibold text-app-text-heading">{tr('processes.mac')}</span>
-        <span className={`min-w-0 flex-1 truncate text-mini tabular-nums ${FAINT} @max-3xl:whitespace-normal @max-3xl:text-compact`}>{summary}</span>
+        <span className={`min-w-0 flex-1 truncate text-mini tabular-nums ${g.level > 0 ? (strained ? DANGER_TEXT : WARNING_TEXT) : FAINT} @max-3xl:whitespace-normal @max-3xl:text-compact`}>{summary}</span>
       </div>
-      <div className="grid grid-cols-5 border-b border-app-border-subtle tabular-nums @max-3xl:grid-cols-3">
-        <Gauge label={tr('processes.cpu')} value={formatPct(g.cpuPct)} share={g.cpuPct === null ? null : g.cpuPct / 100} history={g.history.cpu} />
+      <div className="grid grid-cols-6 border-b border-app-border-subtle tabular-nums @max-3xl:grid-cols-3">
+        <Gauge label={tr('processes.cpu')} value={formatPct(g.cpuPct)} share={g.cpuPct === null ? null : g.cpuPct / 100} history={g.history.cpu} note={g.notes.cpu} />
         <Gauge label={tr('processes.memory')} value={g.memUsedGB === null ? NOT_MEASURED : g.memUsedGB.toFixed(1).replace('.', ',')} unit={g.totalGB ? `/ ${Math.round(g.totalGB)} GB` : undefined} share={memShare} warn={memShare !== null && memShare >= 0.8} />
-        <Gauge label={tr('processes.swap')} value={g.swapUsedGB === null ? NOT_MEASURED : g.swapUsedGB.toFixed(1).replace('.', ',')} unit="GB" share={g.swapUsedGB !== null && g.swapTotalGB ? g.swapUsedGB / g.swapTotalGB : null} />
+        <Gauge label={tr('processes.swap')} value={g.swapUsedGB === null ? NOT_MEASURED : g.swapUsedGB.toFixed(1).replace('.', ',')} unit="GB" share={swapShare} warn={swapShare !== null && swapShare > 0.8} note={g.notes.swap} />
         <Gauge label={tr('processes.gpu')} value={formatPct(g.gpuPct)} share={g.gpuPct === null ? null : g.gpuPct / 100} history={g.history.gpu} />
         <Gauge label={tr('processes.net')} value={g.netInBps === null ? NOT_MEASURED : `↓${formatRate(g.netInBps)}`} unit={g.netOutBps === null ? undefined : `↑${formatRate(g.netOutBps)}`} share={null} />
+        <Gauge label={tr('processes.disk')} value={formatPct(g.disk?.pct ?? null)} share={g.disk?.pct == null ? null : g.disk.pct / 100} warn={(g.disk?.pct ?? 0) >= 85} note={g.disk?.note ?? null} testId="machine-gauge-disk" />
       </div>
+      {g.lines.map((line, i) => (
+        <div key={i} className={`flex min-h-[34px] items-center gap-2.5 border-b border-app-border-subtle px-2.5 py-1 ${g.level > 0 ? 'bg-amber-500/[0.06]' : ''}`} data-testid="machine-mac-line">
+          <Activity size={14} className={`flex-none ${g.level > 0 ? WARNING_TEXT : FAINT}`} aria-hidden="true" />
+          <span className="min-w-0 flex-1 text-compact text-app-text @max-3xl:text-prose">{line}</span>
+        </div>
+      ))}
       <div className={`${ROW_GRID} h-7 border-b border-app-border-subtle px-2.5 text-mini uppercase tracking-[0.04em] ${FAINT} hidden @3xl:grid`}>
         <span>{tr('processes.process')}</span>
         <span className="text-right">{tr('processes.cpu')}</span>
@@ -362,15 +372,16 @@ function ProcessRowView({ row: r, onStopped }: { row: ProcessRow; onStopped: () 
 function PcSection({ pc, stale }: { pc: PcView; stale: boolean }) {
   const tr = useT();
   if (stale) return <PcUnread pc={pc} />;
-  const dot = pc.state === 'lavora' || pc.state === 'acceso' ? 'bg-emerald-500 dark:bg-emerald-400' : pc.state === 'dorme' ? 'bg-app-text-faint opacity-50' : 'bg-red-500'; // allow-italian: the hub's wire values
-  const stateText = pc.state === 'lavora' || pc.state === 'acceso' ? SUCCESS_TEXT : pc.state === 'dorme' ? FAINT : DANGER_TEXT; // allow-italian: the hub's wire values
+  // On with ssh closed is a command away on the PC, not a dead machine: amber, as the hub had it.
+  const dot = pc.state === 'lavora' || pc.state === 'acceso' ? 'bg-emerald-500 dark:bg-emerald-400' : pc.state === 'dorme' ? 'bg-app-text-faint opacity-50' : pc.state === 'closed' ? 'bg-amber-500' : 'bg-red-500'; // allow-italian: the hub's wire values
+  const stateText = pc.state === 'lavora' || pc.state === 'acceso' ? SUCCESS_TEXT : pc.state === 'dorme' ? FAINT : pc.state === 'closed' ? WARNING_TEXT : DANGER_TEXT; // allow-italian: the hub's wire values
   return (
     <section aria-label={tr('processes.pc')} className={SECTION} data-testid="machine-processes-pc">
       <div className={SECTION_HEAD}>
         <Cpu size={14} className="flex-none text-app-text-secondary" aria-hidden="true" />
         <span className="text-compact font-semibold text-app-text-heading">{tr('processes.pc')}</span>
         <span className={`min-w-0 flex-1 truncate text-mini ${FAINT} @max-3xl:text-compact`}>
-          <span className={`inline-flex items-center gap-[5px] ${stateText}`}><span className={`h-[7px] w-[7px] rounded-full ${dot}`} />{tr(`processes.pc.${pc.state}`)}</span>
+          <span className={`inline-flex items-center gap-[5px] ${stateText}`} data-testid="machine-pc-state" data-state={pc.state}><span className={`h-[7px] w-[7px] rounded-full ${dot}`} />{tr(`processes.pc.${pc.state}`)}</span>
           {' · '}{pc.offload > 0 ? tr('processes.pc.jobs', { n: pc.offload }) : tr('processes.pc.noJobs')}
         </span>
       </div>
@@ -382,10 +393,10 @@ function PcSection({ pc, stale }: { pc: PcView; stale: boolean }) {
       {[...pc.lines, ...pc.heavy.map((h) => tr('processes.pc.heavy', { name: h.name, cores: String(h.cores).replace('.', ',') }))].map((line, i) => (
         <div key={i} className="flex min-h-[38px] items-center gap-2.5 border-b border-app-border-subtle px-2.5 py-1 last:border-b-0">
           <Activity size={14} className={`flex-none ${FAINT}`} aria-hidden="true" />
-          <span className="min-w-0 flex-1 truncate text-compact text-app-text @max-3xl:text-prose">{line}</span>
+          <span className="min-w-0 flex-1 text-compact text-app-text @max-3xl:text-prose">{line}</span>
         </div>
       ))}
-      <div className={`flex items-center gap-1.5 px-2.5 py-2 text-mini ${FAINT} @max-3xl:text-compact`}>
+      <div className={`flex items-center gap-1.5 px-2.5 py-2 text-mini ${pc.state === 'closed' ? WARNING_TEXT : FAINT} @max-3xl:text-compact`} data-testid="machine-pc-caption">
         <Moon size={12} className="flex-none" aria-hidden="true" />
         {pc.state === 'dorme' ? tr('processes.pc.wakes') : pc.caption}{/* allow-italian: the hub's wire value */}
       </div>
@@ -424,9 +435,13 @@ function ServicesAndLog({ services }: { services: ServiceRow[] }) {
   const [logOpen, setLogOpen] = useState(true);
   const openLog = useCallback(() => setLogOpen(true), []);
   const shown = services.filter((s) => s.state !== 'spento'); // allow-italian: the hub's wire value
-  const off = services.length - shown.length;
+  const offRows = services.filter((s) => s.state === 'spento'); // allow-italian: the hub's wire value
+  const off = offRows.length;
+  const [offOpen, setOffOpen] = useState(false);
   const stopped = shown.filter((s) => s.state === 'fermo').length; // allow-italian: the hub's wire value
   const live = shown.filter((s) => s.state === 'vivo').length; // allow-italian: the hub's wire value
+  // A service up with a problem asks for a look as much as a stopped one: «all on» would be a lie.
+  const toWatch = servicesToWatch(services);
   const hasProxy = services.some((s) => s.id === PROXY_SERVICE_ID);
   // No list is not "all up": with the hub down the services are unknown, and
   // the view says so instead of a green dot.
@@ -438,17 +453,28 @@ function ServicesAndLog({ services }: { services: ServiceRow[] }) {
           <Server size={14} className="flex-none text-app-text-secondary" aria-hidden="true" />
           <span className="text-compact font-semibold text-app-text-heading">{tr('processes.services')}</span>
           <span className={`min-w-0 flex-1 truncate text-mini tabular-nums ${FAINT} @max-3xl:text-compact`}>
-            {!unread && tr('processes.services.live', { n: live })}
+            {!unread && tr('processes.services.liveOf', { n: live, total: services.length })}
             {stopped > 0 && <> · <span className={DANGER_TEXT}>{tr('processes.services.stopped', { n: stopped })}</span></>}
+            {toWatch > 0 && <> · <span className={WARNING_TEXT} data-testid="machine-services-watch">{tr('processes.services.toWatch', { n: toWatch })}</span></>}
           </span>
         </div>
         {shown.map((s) => (
           <ServiceRowView key={s.id} s={s} log={s.id === PROXY_SERVICE_ID ? { open: logOpen, toggle: () => setLogOpen((v) => !v) } : null} />
         ))}
-        <div className={`flex items-center gap-1.5 px-2.5 py-2 text-mini ${FAINT} @max-3xl:text-compact`}>
+        {offOpen && offRows.map((s) => <ServiceRowView key={s.id} s={s} log={null} />)}
+        <div className={`flex items-center gap-1.5 px-2.5 py-2 text-mini ${FAINT} @max-3xl:text-compact`} data-testid="machine-services-foot">
           {unread ? tr('processes.services.unread') : <>
-          {stopped === 0 && <span className="h-[7px] w-[7px] flex-none rounded-full bg-emerald-500 dark:bg-emerald-400" />}
-          {[stopped === 0 ? tr('processes.services.allOk') : null, off > 0 ? tr('processes.services.off', { n: off }) : null].filter(Boolean).join(' · ')}
+          {toWatch === 0 && <span className="h-[7px] w-[7px] flex-none rounded-full bg-emerald-500 dark:bg-emerald-400" />}
+          {toWatch === 0 && <span>{tr('processes.services.allOk')}</span>}
+          {toWatch === 0 && off > 0 && <span aria-hidden="true">·</span>}
+          {off > 0 && (
+            <button type="button" onClick={() => setOffOpen((v) => !v)} aria-expanded={offOpen} className="inline-flex items-center gap-1 hover:text-app-text" data-testid="machine-services-off">
+              <ChevronRight size={12} className={offOpen ? 'rotate-90' : ''} aria-hidden="true" />
+              {tr('processes.services.off', { n: off })}
+            </button>
+          )}
+          <span className="flex-1" />
+          <span title={tr('processes.services.legend')} className="cursor-help underline decoration-dotted" data-testid="machine-services-legend">{tr('processes.services.legendLabel')}</span>
           </>}
         </div>
       </section>
@@ -466,21 +492,34 @@ function ServiceRowView({ s, log }: { s: ServiceRow; log: { open: boolean; toggl
   const tr = useT();
   const bad = s.state === 'fermo'; // allow-italian: the hub's wire value
   const dot = s.problem && !bad ? 'bg-amber-500' : SERVICE_DOT[s.state];
-  const detail = [tr(`processes.state.${STATE_KEY[s.state]}`), s.memMB !== null ? formatMem(s.memMB) : null].filter(Boolean).join(' · ');
+  // Its own memory, and with the processes it started: the hub's figure, which the census splits elsewhere.
+  const mem = s.memMB === null ? null : s.treeMB !== null && s.children > 0
+    ? tr('processes.service.tree', { mem: formatMem(s.memMB), n: s.children, tree: formatMem(s.treeMB) })
+    : formatMem(s.memMB);
+  const detail = [mem, s.label].filter(Boolean).join(' · ');
+  const off = s.state === 'spento'; // allow-italian: the hub's wire value
   return (
     <div
-      className={`flex min-h-[38px] items-center gap-2.5 border-b border-app-border-subtle px-2.5 py-1 ${bad ? 'bg-red-500/[0.06]' : ''} ${log?.open ? 'bg-app-hover' : ''}`}
+      className={`flex min-h-[38px] items-center gap-2.5 border-b border-app-border-subtle px-2.5 py-1 ${bad ? 'bg-red-500/[0.06]' : ''} ${log?.open ? 'bg-app-hover' : ''} ${off ? 'opacity-60' : ''}`}
       data-testid="machine-service-row"
       data-state={s.state}
+      title={s.what ?? undefined}
     >
       <span className={`h-[7px] w-[7px] flex-none rounded-full ${dot}`} />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-compact text-app-text @max-3xl:text-prose">{s.name}</div>
+        <div className="truncate text-compact text-app-text @max-3xl:text-prose">
+          {s.url
+            ? <a href={s.url} target="_blank" rel="noopener noreferrer" className="hover:underline" data-testid="machine-service-link">{s.name}</a>
+            : s.name}
+          {s.what && <span className={`ml-1.5 text-mini ${FAINT}`} data-testid="machine-service-what">{s.what}</span>}
+        </div>
         <div className={`truncate text-mini ${FAINT} @max-3xl:whitespace-normal @max-3xl:text-compact`}>
-          {detail}{s.problem && <> · <span className={WARNING_TEXT}>{s.problem}</span></>}
+          <span title={tr(`processes.state.${STATE_KEY[s.state]}.hint`)} className="cursor-help">{tr(`processes.state.${STATE_KEY[s.state]}`)}</span>
+          {detail && <> · {detail}</>}
+          {s.problem && <> · <span className={WARNING_TEXT}>{s.problem}</span></>}
         </div>
       </div>
-      {s.port !== null && <span className="font-mono text-mini text-primary @max-3xl:text-compact">:{s.port}</span>}
+      {s.port !== null && <span className={`font-mono text-mini ${FAINT} @max-3xl:text-compact`}>:{s.port}</span>}
       {log && (
         <button type="button" onClick={log.toggle} aria-label={log.open ? tr('processes.log.close') : tr('processes.log.open')} title={log.open ? tr('processes.log.close') : tr('processes.log.open')} data-testid="machine-service-log-toggle" className={`flex h-[26px] w-[26px] items-center justify-center rounded-xs ${FAINT} hover:bg-app-hover hover:text-app-text @max-3xl:h-9 @max-3xl:w-9`}>
           {log.open ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
@@ -498,6 +537,8 @@ function useProxyLog(open: boolean, paused: boolean): LogLine[] {
   useEffect(() => {
     if (!open || paused) return;
     const es = new EventSource(`${serverHttpBase()}/api/switchboard/logs/stream`);
+    // The proxy replays its whole buffer on every connection: what was held goes, or each line shows twice.
+    es.onopen = () => setLines([]);
     es.onmessage = (e: MessageEvent<string>) => {
       const line = parseLogEvent(e.data);
       if (line) setLines((prev) => pushLogLine(prev, line));
@@ -548,10 +589,11 @@ function LogSection({ open, onAsked }: { open: boolean; onAsked: () => void }) {
               {paused ? <Play size={13} aria-hidden="true" /> : <Pause size={13} aria-hidden="true" />}
             </button>
           </div>
-          <div className="max-h-[206px] overflow-auto bg-app-inset px-2.5 pb-2 pt-1.5 font-mono text-mini leading-[1.7] tabular-nums @max-3xl:max-h-none" data-testid="machine-log-lines">
+          {/* A line is read whole: the project and branch at its end are what it says. */}
+          <div role="log" aria-label={tr('processes.log.source')} tabIndex={0} className="max-h-[206px] overflow-auto bg-app-inset px-2.5 pb-2 pt-1.5 font-mono text-mini leading-[1.7] tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-primary/50 @max-3xl:max-h-none" data-testid="machine-log-lines">
             {shown.length === 0 && <div className={FAINT}>{tr('processes.log.empty')}</div>}
             {shown.map((l, i) => (
-              <div key={`${l.ts}-${i}`} className="truncate text-app-text-secondary @max-3xl:whitespace-normal" data-tone={l.tone}>
+              <div key={`${l.ts}-${i}`} className="whitespace-pre-wrap break-all text-app-text-secondary" data-tone={l.tone} data-testid="machine-log-line">
                 <span className={`mr-2 ${FAINT}`}>{l.ts}</span>
                 {l.tag && <span className={`mr-1.5 ${LOG_TONE[l.tone]}`}>{l.tag}</span>}
                 {l.msg}

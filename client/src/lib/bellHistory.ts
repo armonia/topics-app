@@ -20,7 +20,7 @@ export function isProblem(d: DiaryEntry): boolean {
   return (d.outcome === 'error' || d.outcome === 'undelivered') && d.kind !== 'app';
 }
 
-/** The words a search runs on, lowered: «brief, Codex, fallito» each must be found. */
+/** The words a search runs on, lowered: each of «brief, Codex, failed» must be found. */
 function words(query: string): string[] {
   return query.toLowerCase().split(/[\s,]+/).filter(Boolean);
 }

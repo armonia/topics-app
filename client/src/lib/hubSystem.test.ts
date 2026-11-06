@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  automationKeyOfLink, automationSummary, closeWaitingBody, failedJobs, firingAlerts, quotaLines, redGates, servicesDown, waitingItems,
+  automationKeyOfLink, automationSummary, macStrain, closeWaitingBody, failedJobs, firingAlerts, quotaLines, redGates, servicesDown, waitingItems,
 } from './hubSystem';
 
 const SERVICES = { at: 1, services: [
@@ -109,5 +109,13 @@ describe('HUBBR-03: the hub readers', () => {
     expect(automationSummary(null)).toBeNull();
     expect(failedJobs({ broken: [{ key: 'gh:x', title: 'Parametri paghe', reason: 'ha fallito domenica', last: { at: 9, outcome: 'error' } }, { key: 'k' }] }))
       .toEqual([{ key: 'gh:x', title: 'Parametri paghe', at: 9, reason: 'ha fallito domenica' }]);
+  });
+
+  test('the Mac under strain: the red level or a full sustained swap, never a busy Mac', () => {
+    expect(macStrain({ effort: { level: 2, label: 'sotto sforzo' } })).toBe('sotto sforzo');
+    expect(macStrain({ effort: { level: 1, label: 'impegnato' } })).toBeNull();
+    expect(macStrain({ effort: { level: 0 }, swapSustained: true, swapUsedGB: 15, swapTotalGB: 16 })).toBe('memoria sotto pressione');
+    expect(macStrain({ effort: { level: 0 }, swapSustained: false, swapUsedGB: 15, swapTotalGB: 16 })).toBeNull();
+    expect(macStrain(null)).toBeNull();
   });
 });

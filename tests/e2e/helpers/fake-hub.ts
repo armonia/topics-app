@@ -107,12 +107,18 @@ export interface FakeAccount {
   cap: { fiveH: number | null; sevenD: number | null };
   /** The proxy's last reading of a week that already reset, as the real one keeps for an idle account. */
   weekResetPast?: boolean;
+  /** The proxy's guess of the minutes to the five-hour limit (the account in use). */
+  minutesToLimit?: number;
+  /** Models paused on this account while the others go on. */
+  modelBlocks?: Array<{ label: string; inHours: number }>;
 }
 
 export interface FakeProxy {
   accounts: FakeAccount[];
   keys: Array<{ name: string; label: string; priority: number; disabled: boolean }>;
   settings: Record<string, unknown>;
+  /** Every account out: the proxy's banner, and when the first frees up. */
+  allExhausted?: boolean;
 }
 
 /**
@@ -125,8 +131,8 @@ export interface FakeProxy {
 export function defaultFakeProxy(): FakeProxy {
   return {
     accounts: [
-      { name: "prof-a", label: "lavoro@example.com", tier: "default_claude_max_20x", isActive: true, priority: 0, disabled: false, expired: false, fiveH: 30, week: 92, cap: { fiveH: null, sevenD: null } },
-      { name: "prof-b", label: "riserva@example.com", tier: "default_claude_max_5x", isActive: false, priority: 1, disabled: false, expired: false, fiveH: 12, week: 31, cap: { fiveH: null, sevenD: null } },
+      { name: "prof-a", label: "lavoro@example.com", tier: "default_claude_max_20x", isActive: true, priority: 0, disabled: false, expired: false, fiveH: 30, week: 92, cap: { fiveH: null, sevenD: null }, minutesToLimit: 95 },
+      { name: "prof-b", label: "riserva@example.com", tier: "default_claude_max_5x", isActive: false, priority: 1, disabled: false, expired: false, fiveH: 12, week: 31, cap: { fiveH: null, sevenD: null }, modelBlocks: [{ label: "Opus", inHours: 3 }] },
       { name: "prof-c", label: "terzo@example.com", tier: "default_claude_max_5x", isActive: false, priority: 0, disabled: false, expired: true, fiveH: null, week: 64, cap: { fiveH: null, sevenD: null } },
       { name: "prof-d", label: "spento@example.com", tier: "default_claude_max_5x", isActive: false, priority: 0, disabled: true, expired: false, fiveH: null, week: 100, cap: { fiveH: null, sevenD: null }, weekResetPast: true },
     ],
@@ -137,6 +143,7 @@ export function defaultFakeProxy(): FakeProxy {
     settings: {
       autoSwitch: true, proxyEnabled: true, rotationStrategy: "margin", rotationIntervalMin: 60, notifications: true, serializeRequests: false,
       maxConcurrentPerAccount: 8, usageCap5h: null, usageCap7d: null, usageCapHoldMin: 10, usdEur: 0.92,
+      serializeDelayMs: 200, commitTokenUsage: false, sessionMonitor: true,
     },
   };
 }
@@ -160,10 +167,13 @@ function proxyProfiles(proxy: FakeProxy, now: number): Record<string, unknown> {
           sevenD: { status: "allowed", utilization: a.week / 100, reset: Math.floor((now + (a.weekResetPast ? -4 : 3) * 24 * HOUR) / 1000) },
         },
         cap: { override: own, effective: effective, over5h, over7d, over: over5h || over7d, freeAt: 0 },
+        minutesToLimit: a.minutesToLimit ?? null,
+        modelBlocks: (a.modelBlocks ?? []).map((b) => ({ model: b.label.toLowerCase(), label: b.label, until: now + b.inHours * HOUR })),
       };
     }),
     apiProfiles: proxy.keys.map((k) => ({ type: "api", ...k, usage5h: null, usage7d: null, balance: null })),
-    allExhausted: false,
+    allExhausted: proxy.allExhausted === true,
+    earliestReset: proxy.allExhausted === true ? "domani alle 10:00" : null,
     rotationStrategy: s.rotationStrategy,
   };
 }
@@ -259,9 +269,10 @@ function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy 
     "mac/procs": machineCensus(now, devPids),
     machines: machineList(),
     services: { at: now, services: [
-      { id: "usage-hub", name: "Hub dei consumi", state: "vivo", port: 3360, mb: 153, problem: null },
-      { id: "switchboard", name: "Proxy degli account", state: "vivo", port: 3335, mb: 90, problem: null },
-      { id: "openclaw", name: "Gateway di Jarvis", state: "vivo", port: 18789, mb: 2969, problem: null },
+      { id: "usage-hub", name: "Hub dei consumi", state: "vivo", port: 3360, mb: 153, problem: null, url: "http://127.0.0.1:3360/", label: "com.example.usage-hub" },
+      { id: "switchboard", name: "Proxy degli account", state: "vivo", port: 3335, mb: 90, problem: null, what: "Ruota gli account Claude", label: "com.example.switchboard" },
+      // The service's own memory and the tree it started (agents, browsers): the hub's figure.
+      { id: "openclaw", name: "Gateway di Jarvis", state: "vivo", port: 18789, mb: 2969, treeMb: 4096, children: 12, problem: null },
       { id: "docs-index", name: "Indice dei documenti", state: "vivo", port: 3342, mb: 95, problem: "non ascolta su :3342" },
       // Switched off on purpose and asleep on demand: neither may reach the bell.
       { id: "openclaw-old", name: "Gateway vecchio", state: "spento", problem: null },
@@ -495,7 +506,8 @@ function day(base: number, swing: number, last: number): Array<{ t: number; v: n
 function machineList(): unknown[] {
   return [
     { id: "local", name: "Mac", local: true, state: "tranquillo", level: 0, caption: "12 core · ultime 24 h",
-      metrics: [{ key: "cpu", name: "CPU", pct: 31, history: day(45, 30, 31) }, { key: "mem", name: "Memoria", pct: 62, history: day(60, 10, 62) }, { key: "swap", name: "Swap", pct: 15, history: [] }, { key: "gpu", name: "GPU", pct: 38, history: day(30, 25, 38) }, { key: "disk", name: "Disco", pct: 70, history: day(70, 1, 70) }] },
+      lines: ["In pausa finché respira: studio-x"],
+      metrics: [{ key: "cpu", name: "CPU", pct: 31, note: "3,7 di 12 core", history: day(45, 30, 31) }, { key: "mem", name: "Memoria", pct: 62, history: day(60, 10, 62) }, { key: "swap", name: "Swap", pct: 15, note: "memoria scaricata su disco", history: [] }, { key: "gpu", name: "GPU", pct: 38, history: day(30, 25, 38) }, { key: "disk", name: "Disco", pct: 70, note: "120 GB liberi", history: day(70, 1, 70) }] },
     { id: "pc", name: "PC", local: false, state: "lavora", level: 0, caption: "dorme dopo 20 min senza lavoro",
       lines: ["Collegato dal Mac", "Suite e2e di acme-web, mandata dal Mac carico"],
       metrics: [{ key: "cpu", name: "CPU", pct: 25, note: "adesso", history: day(30, 25, 25), window: 86400 }, { key: "mem", name: "Memoria", pct: 67, note: "adesso", history: day(60, 12, 67), window: 86400 }, { key: "gpu", name: "GPU", pct: 4, note: "adesso", history: day(10, 10, 4), window: 86400 }, { key: "disk", name: "Disco", pct: 92, note: "78,0 GB liberi", history: day(92, 0, 92), window: 86400 }],
@@ -511,6 +523,8 @@ const LOG_LINES = [
   { ts: "14:05:58", tag: "200", msg: "codex · studio-x -> account lavoro · 3,4 s" },
   { ts: "14:06:09", tag: "rotation", msg: "secondo account al 91% della 5h, passa al terzo" },
   { ts: "14:06:12", tag: "200", msg: "claude · acme-web -> account principale · 1,2 s" },
+  // A line longer than the column: its end (project and branch) must stay readable.
+  { ts: "14:06:20", tag: "session", msg: "Session started: 43db792c-placeholder (acme-web/claude/una-branca-dal-nome-molto-lungo-fine-riga)" },
 ];
 
 export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(), opts: { quiet?: boolean; jobs?: boolean; automations?: boolean; projects?: { dirs: Record<string, string> }; context?: boolean } = {}): Promise<FakeHub> {

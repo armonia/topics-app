@@ -8,7 +8,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  NOT_MEASURED, cpuByPid, formatMem, formatPct, formatRate, historyOf, logTone, macGauges, parseLogEvent, pcView, processRows, pushLogLine, serviceRows,
+  NOT_MEASURED, cpuByPid, formatMem, formatPct, formatRate, historyOf, logTone, macGauges, parseLogEvent, pcView, processRows, pushLogLine, serviceRows, servicesToWatch,
 } from './machineProcesses';
 import type { ScriptProcessInfo } from './api';
 
@@ -98,8 +98,22 @@ describe('the Mac, the PC and the services', () => {
     expect(macGauges(mac, machines, census)).toEqual({
       cores: 12, totalGB: 32, state: 'tranquillo', cpuPct: 31, memUsedGB: 26.8, swapUsedGB: 1.2, swapTotalGB: 8, memPressurePct: 55, gpuPct: 38, netInBps: 2_400_000, netOutBps: 57_000,
       history: { cpu: [{ t: 100, v: 90 }, { t: 200, v: 50 }], gpu: [] },
+      level: 0, lines: [], disk: null, notes: { cpu: null, mem: null, swap: null, gpu: null },
     });
     expect(macGauges(null, null, null).cpuPct).toBeNull();
+  });
+
+  test('the Mac strained: the reason and what is paused, the disk with its free space, the notes of the gauges', () => {
+    const strained = [{
+      local: true, state: 'memoria sotto pressione', level: 2,
+      lines: ['Memoria sotto pressione: il Mac rilegge dal disco', 'In pausa finché respira: studio-x', ''],
+      metrics: [{ key: 'cpu', pct: 40, note: '4,8 di 12 core' }, { key: 'swap', pct: 92, note: 'il Mac rilegge dal disco: tutto rallenta' }, { key: 'disk', pct: 88, note: '120 GB liberi' }],
+    }];
+    const g = macGauges(mac, strained, census);
+    expect(g.level).toBe(2);
+    expect(g.lines).toEqual(['Memoria sotto pressione: il Mac rilegge dal disco', 'In pausa finché respira: studio-x']);
+    expect(g.disk).toEqual({ pct: 88, note: '120 GB liberi' });
+    expect(g.notes).toEqual({ cpu: '4,8 di 12 core', mem: null, swap: 'il Mac rilegge dal disco: tutto rallenta', gpu: null });
   });
 
   test('the 24 h history: oldest first, malformed samples dropped, none where the hub keeps none', () => {
@@ -112,6 +126,9 @@ describe('the Mac, the PC and the services', () => {
     expect(pcView(machines)).toMatchObject({ state: 'lavora', offload: 2, heavy: [{ name: 'chrome-headless-shell', cores: 1.2 }], lines: ['Collegato dal Mac'] });
     expect(pcView([{ local: true }])).toBeNull();
     expect(pcView([{ local: false, state: 'boh' }])!.state).toBe('unknown');
+    expect(pcView([{ local: false, state: 'non risponde' }])!.state).toBe('unknown');
+    // On with ssh closed is its own state: a command away, not a dead machine.
+    expect(pcView([{ local: false, state: 'acceso, ssh chiuso' }])!.state).toBe('closed');
   });
 
   test('services: stopped first, then a problem, then up, then waiting, off last', () => {
@@ -124,6 +141,16 @@ describe('the Mac, the PC and the services', () => {
     ] });
     expect(rows.map((r) => r.id)).toEqual(['e', 'd', 'b', 'c', 'a']);
     expect(rows[0]!.port).toBe(18791);
+    // Stopped and up with a problem ask for a look; off and waiting do not.
+    expect(servicesToWatch(rows)).toBe(2);
+  });
+
+  test('a service keeps what it is, its launchd job, its page and the memory of what it started', () => {
+    const [row] = serviceRows({ services: [{
+      id: 'oc', name: 'Gateway', state: 'vivo', mb: 2, treeMb: 1951, children: 39, what: 'Il gateway di Jarvis', label: 'ai.openclaw.gateway', url: 'http://127.0.0.1:18789/',
+    }] });
+    expect(row).toMatchObject({ what: 'Il gateway di Jarvis', label: 'ai.openclaw.gateway', url: 'http://127.0.0.1:18789/', treeMB: 1951, children: 39 });
+    expect(serviceRows({ services: [{ id: 'x', name: 'X', state: 'vivo', url: 'javascript:alert(1)' }] })[0]!.url).toBeNull();
   });
 });
 
