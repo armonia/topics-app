@@ -4,19 +4,28 @@
  * place of the Cron panel: the OpenClaw jobs are one of its systems, with
  * their commands, so the same jobs are no longer in two places.
  *
- * At the top the verdict (how many need fixing, the rest in order), then
- * «Decidi tu»: what is broken or waits on you, oldest first, each with
- * «Risolvi tu». Then the systems: Jarvis (OpenClaw: run, switch on and off,
+ * At the top the verdict (how many need fixing, the rest in order, how fresh
+ * the numbers are, the tokens and the sources in pills), then «Decidi tu»:
+ * what is broken or waits on you, oldest first, each with «Risolvi tu». A
+ * status filter (all, in order, problems) and a search («/» brings the
+ * focus there) narrow every list. The rows are grouped by system or, as the
+ * hub grouped them, by what they do for you. By system: Jarvis (OpenClaw: run, switch on and off,
  * delete, through Topics' cron routes, off when the gateway does not answer),
  * Mac and GitHub read-only, PC and the workflows. A system all in order folds
  * into the "other areas" block. A row opens its detail: votes and notes written to the
  * hub's feedback log and read back, and the runs. The Calendar tab holds the
- * hub's dated reminders and jobs.
+ * hub's dated reminders and jobs. Under the lists, «Computer e app» (the
+ * computer's own apps, outside the problems) and the foot with the sources
+ * and the hidden jobs.
+ *
+ * The keyboard, as on the hub: j/k or the arrows move between rows, «p»
+ * opens a row's steps, Esc closes the detail and gives the focus back to its
+ * row; the vote letters are the detail's.
  *
  * Loaded as its own chunk, only where the hub is part of the installation.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlarmClock, AlertTriangle, ChevronRight, CircleX, CloudOff, Play, Search, WandSparkles, Workflow, X } from 'lucide-react';
+import { AlarmClock, ChevronRight, CircleCheck, CloudOff, LayoutGrid, Search, TriangleAlert, Workflow, X } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
 import { useConfirm } from '../../hooks/useConfirm';
 import { addCatalogue } from '../../lib/i18n';
@@ -27,14 +36,18 @@ import { AUTOMATION_TARGET_EVENT, takeAutomationTarget } from '../../state/autom
 import { startVisibleInterval } from '../../state/documentVisibility';
 import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import {
-  AUTOMATION_SYSTEMS, matchesQuery, scheduleParts, systemCounts, systemRows, toDecide, verdictOf,
-  type AutomationRow, type AutomationSystem, type CronJob, type JobCommand,
+  AUTOMATION_SYSTEMS, gatesWaiting, isProblem, matchesQuery, matchesStatus, scheduleParts, systemCounts, systemRows, toDecide, verdictOf,
+  type AutomationRow, type AutomationSystem, type CronJob, type JobCommand, type StatusFilter,
 } from '../../lib/automations';
 import { AutomationTable, DayStrip } from './AutomationTable';
 import { AutomationDetail } from './AutomationDetail';
 import { AutomationsCalendar } from './AutomationsCalendar';
+import { AreaSections, OwnSection, type SectionTableProps } from './AutomationsAreas';
+import { SourcesFooter, Verdict } from './AutomationsHead';
+import { DecideList } from './DecideList';
+import { useAutomationsKeys } from './useAutomationsKeys';
 import { useAutomationsData, type AutomationsData } from './useAutomationsData';
-import { BOX, BUTTON, BUTTON_PRIMARY, SECTION, SECTION_COUNT, SECTION_REST, SYSTEM_ICON, makeClock, scheduleWords, type Clock } from './automationsUi';
+import { BUTTON, SECTION, SECTION_COUNT, SECTION_REST, SYSTEM_ICON, makeClock, scheduleWords, type Clock } from './automationsUi';
 
 // The view's strings travel with its chunk, before its first render.
 addCatalogue('it', AUTOMATIONS_IT);
@@ -82,7 +95,12 @@ function AutomationsView() {
   const [ref, width] = useWidth();
   const [tab, setTab] = useState<'list' | 'calendar'>('list');
   const [system, setSystem] = useState<AutomationSystem | null>(null);
+  const [status, setStatus] = useState<StatusFilter>('all');
+  const [grouping, setGrouping] = useState<'system' | 'area'>('system');
   const [query, setQuery] = useState('');
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const [flowOpen, setFlowOpen] = useState<ReadonlySet<string>>(new Set());
+  const onFlow = useCallback((key: string) => setFlowOpen((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; }), []);
   // A link of the hub (`#automations/<key>`) opens the view on that automation.
   const [selectedKey, setSelectedKey] = useState<string | null>(() => takeAutomationTarget());
   useEffect(() => {
@@ -91,24 +109,20 @@ function AutomationsView() {
       if (!key) return;
       setTab('list');
       setSystem(null);
+      setStatus('all');
       setQuery('');
       setSelectedKey(key);
     };
     window.addEventListener(AUTOMATION_TARGET_EVENT, onTarget);
     return () => window.removeEventListener(AUTOMATION_TARGET_EVENT, onTarget);
   }, []);
-  // Esc closes the open automation, as the hub's panel did; a field that handles Esc itself keeps it.
-  useEffect(() => {
-    if (!selectedKey) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented) return;
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      setSelectedKey(null);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [selectedKey]);
+  const close = useCallback(() => {
+    const key = selectedKey;
+    setSelectedKey(null);
+    // The focus goes back to the row the detail was opened from, as on the hub.
+    if (key) requestAnimationFrame(() => ref.current?.querySelector<HTMLElement>(`[data-testid="automation-row"][data-key="${CSS.escape(key)}"]`)?.focus());
+  }, [selectedKey, ref]);
+  useAutomationsKeys(ref, { open: selectedKey !== null, close, search: searchRef, clearSearch: () => setQuery('') });
   const [expanded, setExpanded] = useState<ReadonlySet<AutomationSystem>>(new Set());
   const [opened, setOpened] = useState<ReadonlySet<AutomationSystem>>(new Set());
 
@@ -119,12 +133,20 @@ function AutomationsView() {
   }, [confirm, data, selectedKey, tr]);
 
   const rows = data.rows;
-  const visible = useMemo(() => rows.filter((r) => (system === null || r.system === system) && matchesQuery(r, query)), [rows, system, query]);
+  const own = data.model?.own ?? [];
+  const pick = useCallback((r: AutomationRow) => matchesQuery(r, query, tr(`auto.system.${r.system}`)), [query, tr]);
+  const visible = useMemo(() => rows.filter((r) => (system === null || r.system === system) && matchesStatus(r, status) && pick(r)), [rows, system, status, pick]);
+  // The computer's own apps are never problems: the «problems» filter leaves them out, as on the hub.
+  const ownVisible = status === 'problems' || system !== null ? [] : own.filter(pick);
   const verdict = verdictOf(rows, now);
   const counts = systemCounts(rows);
   const decide = toDecide(visible);
-  const selected = selectedKey ? rows.find((r) => r.key === selectedKey) ?? null : null;
+  const selected = selectedKey ? rows.find((r) => r.key === selectedKey) ?? own.find((r) => r.key === selectedKey) ?? null : null;
   const side = width >= SIDE_PANEL_MIN;
+  const table: SectionTableProps = {
+    now, clock, selectedKey, gatewayDown: data.gatewayDown, ranAt: data.ranAt, brakes: data.model?.brakes ?? {}, flowOpen, onFlow,
+    onSelect: (r) => setSelectedKey(r.key), onCommand: (r, c) => { void onCommand(r, c); },
+  };
 
   const detail = selected && (
     <AutomationDetail
@@ -134,9 +156,11 @@ function AutomationsView() {
       hubDown={data.hubDown}
       gatewayDown={data.gatewayDown}
       fixing={data.fixing.has(selected.key)}
-      onClose={() => setSelectedKey(null)}
+      brake={data.model?.brakes[selected.key]?.text ?? null}
+      onClose={close}
       onCommand={(c) => { void onCommand(selected, c); }}
       feedback={data.feedback}
+      undo={data.undo}
       fix={data.fix}
     />
   );
@@ -174,16 +198,20 @@ function AutomationsView() {
             ))}
           </div>
           {tab === 'list' && (
-            <label className="ml-auto inline-flex h-[26px] w-[180px] items-center gap-1.5 rounded-sm border border-app-border-input bg-app-input px-2 text-app-text-muted @max-2xl:hidden">
+            <label className="ml-auto inline-flex h-[26px] w-[240px] items-center gap-1.5 rounded-sm border border-app-border-input bg-app-input px-2 text-app-text-muted @max-2xl:mt-2 @max-2xl:flex @max-2xl:h-9 @max-2xl:w-full">
               <Search size={13} aria-hidden="true" />
               <input
+                ref={searchRef}
+                type="search"
+                aria-keyshortcuts="/"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={tr('auto.search')}
                 aria-label={tr('auto.search')}
                 data-testid="automations-search"
-                className="min-w-0 flex-1 bg-transparent text-mini text-app-text outline-none placeholder:text-app-text-muted"
+                className="min-w-0 flex-1 bg-transparent text-mini text-app-text outline-none placeholder:text-app-text-muted @max-2xl:text-compact"
               />
+              <kbd aria-hidden="true" className="rounded-xs border border-app-border-subtle px-1 text-mini text-app-text-faint @max-2xl:hidden">/</kbd>
             </label>
           )}
         </div>
@@ -192,33 +220,45 @@ function AutomationsView() {
           <AutomationsCalendar items={data.calendar ?? []} now={now} clock={clock} />
         ) : (
           <>
-            <SystemChips counts={counts} total={rows.length} system={system} onPick={setSystem} />
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              <StatusChips rows={rows} status={status} onPick={setStatus} />
+              <span className="mx-1 h-4 w-px bg-app-border @max-2xl:hidden" aria-hidden="true" />
+              <GroupingChips grouping={grouping} onPick={setGrouping} />
+            </div>
+            {grouping === 'system' && <SystemChips counts={counts} total={rows.length} system={system} onPick={setSystem} />}
             {data.model === null && !data.hubDown && <p className="mt-4 text-compact text-app-text-secondary">{tr('auto.reading')}</p>}
-            {data.model !== null && visible.length === 0 && <p className="mt-4 text-compact text-app-text-secondary">{tr('auto.empty')}</p>}
-            {decide.length > 0 && (
+            {data.model !== null && visible.length === 0 && ownVisible.length === 0 && (
+              <p className="mt-4 text-compact text-app-text-secondary" data-testid="automations-empty">
+                {query.trim() ? tr('auto.emptyQuery', { q: query.trim() }) : tr('auto.empty')}
+              </p>
+            )}
+            {status !== 'ok' && (
               <DecideList
                 rows={decide}
+                gates={gatesWaiting(visible)}
                 selectedKey={selectedKey}
                 data={data}
                 onSelect={(r) => setSelectedKey(r.key)}
                 onRun={(r) => { void onCommand(r, { kind: 'run' }); }}
               />
             )}
-            <Systems
-              rows={visible}
-              system={system}
-              searching={query.trim() !== ''}
-              now={now}
-              clock={clock}
-              data={data}
-              selectedKey={selectedKey}
-              expanded={expanded}
-              opened={opened}
-              onSelect={(r) => setSelectedKey(r.key)}
-              onCommand={(r, c) => { void onCommand(r, c); }}
-              onExpand={(s, on) => setExpanded((prev) => { const n = new Set(prev); if (on) n.add(s); else n.delete(s); return n; })}
-              onOpen={(s) => setOpened((prev) => new Set(prev).add(s))}
-            />
+            {grouping === 'area' ? <AreaSections rows={visible} table={table} /> : (
+              <Systems
+                rows={visible}
+                system={system}
+                searching={query.trim() !== '' || status !== 'all'}
+                now={now}
+                clock={clock}
+                table={table}
+                gatewayDown={data.gatewayDown}
+                expanded={expanded}
+                opened={opened}
+                onExpand={(s, on) => setExpanded((prev) => { const n = new Set(prev); if (on) n.add(s); else n.delete(s); return n; })}
+                onOpen={(s) => setOpened((prev) => new Set(prev).add(s))}
+              />
+            )}
+            <OwnSection rows={ownVisible} table={table} />
+            <SourcesFooter data={data} clock={clock} />
           </>
         )}
       </section>
@@ -226,40 +266,13 @@ function AutomationsView() {
         <aside className="w-[360px] flex-none overflow-auto border-l border-app-border-subtle bg-surface" data-testid="automation-side">{detail}</aside>
       )}
       {detail && !side && (
-        <div className="absolute inset-0 z-20 flex flex-col justify-end bg-black/40" data-testid="automation-sheet" onClick={(e) => { if (e.target === e.currentTarget) setSelectedKey(null); }}>
+        <div className="absolute inset-0 z-20 flex flex-col justify-end bg-black/40" data-testid="automation-sheet" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
           <div className="max-h-[85%] overflow-auto rounded-t-xl border-t border-app-border bg-surface pb-[env(safe-area-inset-bottom)]">
             <div className="mx-auto mb-1 mt-2 h-1 w-9 rounded-full bg-app-border" aria-hidden="true" />
             {detail}
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function Verdict({ data, verdict, clock }: { data: AutomationsData; verdict: ReturnType<typeof verdictOf>; clock: Clock }) {
-  const tr = useT();
-  const parts = [
-    verdict.decide > 0 ? tr('auto.verdict.decide', { n: verdict.decide }) : null,
-    verdict.broken > 0 ? (verdict.broken === 1 ? tr('auto.verdict.brokenOne') : tr('auto.verdict.broken', { n: verdict.broken })) : null,
-    tr('auto.verdict.ok', { ok: verdict.ok, total: verdict.total }),
-    data.model ? tr('auto.verdict.runs', { n: data.model.runsToday }) : null,
-    verdict.next ? tr('auto.verdict.next', { title: verdict.next.title, time: clock.dayTime(verdict.next.at) }) : null,
-  ].filter(Boolean);
-  return (
-    <div className="flex items-start gap-3" data-testid="automations-verdict">
-      <div className="min-w-0 flex-1">
-        <h1 className="m-0 text-headline font-semibold tracking-[-0.01em] text-app-text @max-2xl:text-title" data-testid="automations-verdict-title">
-          {verdict.toFix > 0 ? (
-            <>{tr('auto.verdict.toFix', { n: verdict.toFix })}<span className="font-medium text-app-text-muted">{tr('auto.verdict.rest')}</span></>
-          ) : tr('auto.verdict.allOk', { n: verdict.total })}
-        </h1>
-        {data.model && <p className="m-0 mt-1 text-compact tabular-nums text-app-text-secondary">{parts.join(' · ')}</p>}
-      </div>
-      <span className="ml-auto inline-flex items-center gap-1.5 whitespace-nowrap pt-1.5 text-mini tabular-nums text-app-text-muted @max-2xl:hidden" data-testid="automations-live">
-        <span className={`h-1.5 w-1.5 rounded-full ${data.hubDown ? 'bg-amber-500' : 'bg-emerald-500 dark:bg-emerald-400'}`} />
-        {data.readAt === null ? tr('auto.reading') : data.hubDown ? tr('auto.readAt', { time: clock.time(data.readAt) }) : tr('auto.live', { time: clock.time(data.model?.checkedAt ?? data.readAt) })}
-      </span>
     </div>
   );
 }
@@ -276,11 +289,48 @@ function HubDownBand({ data, clock }: { data: AutomationsData; clock: Clock }) {
   );
 }
 
+const CHIP = (on: boolean) => `inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-sm border px-2.5 text-mini @max-2xl:h-8 ${on ? 'border-transparent bg-primary/10 text-primary' : 'border-app-border text-app-text-secondary hover:bg-app-hover'}`;
+
+/** All / in order / problems, with their counts, as the hub's filter. */
+function StatusChips({ rows, status, onPick }: { rows: AutomationRow[]; status: StatusFilter; onPick(s: StatusFilter): void }) {
+  const tr = useT();
+  const problems = rows.filter(isProblem).length;
+  const items: Array<{ s: StatusFilter; n: number; icon: typeof Workflow }> = [
+    { s: 'all', n: rows.length, icon: LayoutGrid },
+    { s: 'ok', n: rows.length - problems, icon: CircleCheck },
+    { s: 'problems', n: problems, icon: TriangleAlert },
+  ];
+  return (
+    <div role="group" aria-label={tr('auto.filter.label')} className="flex flex-wrap gap-1.5" data-testid="automations-status">
+      {items.map(({ s, n, icon: I }) => (
+        <button key={s} type="button" aria-pressed={status === s} className={CHIP(status === s)} onClick={() => onPick(s)} data-testid={`automations-status-${s}`}>
+          <I size={13} aria-hidden="true" />{tr(`auto.filter.${s}`)}
+          <span className={`tabular-nums ${status === s ? 'text-primary' : s === 'problems' && n > 0 ? WARNING_TEXT : 'text-app-text-muted'}`}>{n}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** By system (the engine that runs it) or by what it does for you (the hub's areas). */
+function GroupingChips({ grouping, onPick }: { grouping: 'system' | 'area'; onPick(g: 'system' | 'area'): void }) {
+  const tr = useT();
+  return (
+    <div role="group" aria-label={tr('auto.group.label')} className="flex gap-1.5" data-testid="automations-grouping">
+      {(['system', 'area'] as const).map((g) => (
+        <button key={g} type="button" aria-pressed={grouping === g} className={CHIP(grouping === g)} onClick={() => onPick(g)} data-testid={`automations-group-${g}`}>
+          {tr(`auto.group.${g}`)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function SystemChips({ counts, total, system, onPick }: { counts: ReturnType<typeof systemCounts>; total: number; system: AutomationSystem | null; onPick(s: AutomationSystem | null): void }) {
   const tr = useT();
-  const chip = (on: boolean) => `inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-sm border px-2.5 text-mini @max-2xl:h-8 ${on ? 'border-transparent bg-primary/10 text-primary' : 'border-app-border text-app-text-secondary hover:bg-app-hover'}`;
+  const chip = CHIP;
   return (
-    <div className="mt-3 flex flex-wrap gap-1.5" data-testid="automations-chips">
+    <div className="mt-2 flex flex-wrap gap-1.5" data-testid="automations-chips">
       <button type="button" aria-pressed={system === null} className={chip(system === null)} onClick={() => onPick(null)} data-testid="automations-chip-all">
         {tr('auto.chip.all')}<span className={`tabular-nums ${system === null ? 'text-primary' : 'text-app-text-muted'}`}>{total}</span>
       </button>
@@ -299,81 +349,21 @@ function SystemChips({ counts, total, system, onPick }: { counts: ReturnType<typ
   );
 }
 
-function DecideList({ rows, selectedKey, data, onSelect, onRun }: { rows: AutomationRow[]; selectedKey: string | null; data: AutomationsData; onSelect(r: AutomationRow): void; onRun(r: AutomationRow): void }) {
-  const tr = useT();
-  const [said, setSaid] = useState<Record<string, string>>({});
-  return (
-    <>
-      <h2 className={`${SECTION} ${WARNING_TEXT}`}>
-        <AlertTriangle size={13} aria-hidden="true" />{tr('auto.decide.title')}
-        <span className={SECTION_COUNT}>{rows.length}</span>
-        <span className={SECTION_REST}>{tr('auto.decide.order')}</span>
-      </h2>
-      <div className={BOX} data-testid="automations-decide">
-        {rows.map((r) => {
-          const isSelected = r.key === selectedKey;
-          const sub = [r.reason, tr(`auto.system.${r.system}`), r.when].filter(Boolean).join(' · ');
-          return (
-            <div
-              key={r.key}
-              data-testid="automations-decide-row"
-              data-key={r.key}
-              className={`flex items-center gap-2.5 border-t border-app-border-subtle px-3 py-2.5 first:border-t-0 @max-2xl:flex-wrap @max-2xl:py-3 ${isSelected ? 'bg-primary/10 shadow-[inset_2px_0_0_var(--primary)]' : ''}`}
-            >
-              <span className={`flex-none ${r.level === 'rotto' ? DANGER_TEXT : WARNING_TEXT}`} aria-hidden="true">
-                {r.level === 'rotto' ? <CircleX size={15} /> : <AlertTriangle size={15} />}
-              </span>
-              <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onSelect(r)}>
-                <span className="block text-compact font-medium text-app-text">{r.title}</span>
-                <span className="mt-0.5 block text-mini text-app-text-secondary">{said[r.key] ?? sub}</span>
-              </button>
-              <div className="flex flex-none items-center gap-1.5 @max-2xl:w-full @max-2xl:pl-6">
-                {r.votable && (
-                  data.fixing.has(r.key) ? (
-                    <span className="text-mini text-primary" data-testid="automations-decide-fixing">{tr('auto.fix.already')}</span>
-                  ) : (
-                    <button
-                      type="button"
-                      className={`${BUTTON_PRIMARY} @max-2xl:flex-1`}
-                      disabled={data.hubDown}
-                      data-testid="automations-decide-fix"
-                      onClick={() => { void data.fix(r.key).then((x) => setSaid((p) => ({ ...p, [r.key]: x.ok ? tr(x.already ? 'auto.fix.already' : 'auto.fix.queued') : tr('auto.fix.failed', { why: x.why ?? '' }) }))); }}
-                    >
-                      <WandSparkles size={13} />{tr('auto.fix.go')}
-                    </button>
-                  )
-                )}
-                {r.jobId !== null && (
-                  <button type="button" className={`${BUTTON} @max-2xl:flex-1`} disabled={data.gatewayDown || r.enabled === null} onClick={() => onRun(r)} data-testid="automations-decide-run">
-                    <Play size={13} />{tr('auto.cmd.retry')}
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </>
-  );
-}
-
 interface SystemsProps {
   rows: AutomationRow[];
   system: AutomationSystem | null;
   searching: boolean;
   now: number;
   clock: Clock;
-  data: AutomationsData;
-  selectedKey: string | null;
+  table: SectionTableProps;
+  gatewayDown: boolean;
   expanded: ReadonlySet<AutomationSystem>;
   opened: ReadonlySet<AutomationSystem>;
-  onSelect(r: AutomationRow): void;
-  onCommand(r: AutomationRow, c: JobCommand): void;
   onExpand(s: AutomationSystem, on: boolean): void;
   onOpen(s: AutomationSystem): void;
 }
 
-function Systems({ rows, system, searching, now, clock, data, selectedKey, expanded, opened, onSelect, onCommand, onExpand, onOpen }: SystemsProps) {
+function Systems({ rows, system, searching, now, clock, table, gatewayDown, expanded, opened, onExpand, onOpen }: SystemsProps) {
   const tr = useT();
   const open: AutomationSystem[] = [];
   const closed: AutomationSystem[] = [];
@@ -397,19 +387,13 @@ function Systems({ rows, system, searching, now, clock, data, selectedKey, expan
               <span className={SECTION_COUNT}>{list.length}</span>
               <span className={SECTION_REST}>{tr(`auto.systemNote.${s}`)}</span>
             </h2>
-            {s === 'jarvis' && data.gatewayDown && (
+            {s === 'jarvis' && gatewayDown && (
               <p className="m-0 mb-1.5 text-mini text-app-text-secondary" data-testid="automations-gateway-down">{tr('auto.gatewayOff')}</p>
             )}
             <AutomationTable
+              {...table}
               rows={list}
               limit={all ? null : ROWS_SHOWN}
-              now={now}
-              clock={clock}
-              selectedKey={selectedKey}
-              gatewayDown={data.gatewayDown}
-              ranAt={data.ranAt}
-              onSelect={onSelect}
-              onCommand={onCommand}
               onMore={system === null && !searching ? () => onExpand(s, true) : undefined}
               onLess={system === null && !searching && expanded.has(s) && list.length > ROWS_SHOWN ? () => onExpand(s, false) : undefined}
             />

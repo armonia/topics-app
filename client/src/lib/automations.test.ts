@@ -9,10 +9,12 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  calendarDays, cronJobId, dayStrip, feedbackBody, fixingKeys, hasCommands, jobRequest, readAutomations, readCalendar,
-  readCronJobs, readCronRuns, refusalOf, scheduleParts, systemCounts, systemOf, systemRows, toDecide, toFixCount,
+  cronJobId, dayStrip, feedbackBody, fixingKeys, hasCommands, jobRequest, readAutomations,
+  readCronJobs, refusalOf, scheduleParts, systemCounts, systemOf, systemRows, toDecide, toFixCount,
   verdictOf, withCronJobs, workflowTitle,
 } from './automations';
+import { calendarDays, readCalendar } from './automationsCalendar';
+import { readCronRuns } from './automationRuns';
 
 const NOW = new Date(2026, 10, 5, 22, 26, 0).getTime();
 const MIN = 60_000;
@@ -77,6 +79,8 @@ describe('readAutomations: the hub model as rows by system', () => {
   test('the computer\'s own apps and the tasks stay out: «Decidi tu» counts what the sidebar counts', () => {
     const m = readAutomations(MODEL)!;
     expect(m.rows.some((r) => r.key === OWN.key || r.key === TASK.key)).toBe(false);
+    // The apps are read apart, for «Computer e app»; the task never.
+    expect(m.own.map((r) => r.key)).toEqual([OWN.key]);
     expect(verdictOf(m.rows, NOW).toFix).toBe(toFixCount(MODEL.verdict)!);
     expect(toDecide(m.rows)).toHaveLength(3);
   });
@@ -194,17 +198,23 @@ describe('what needs fixing', () => {
 });
 
 describe('the last 24 hours', () => {
-  test('one cell per hour, the last the hour now, the worst run of each', () => {
-    const cells = dayStrip([
+  test('22 hours behind, one cell each with the worst run, and 2 ahead with the next run', () => {
+    const { cells, nowIndex, runs, failed } = dayStrip([
       { at: NOW - 10 * MIN, outcome: 'error' },
       { at: NOW - 20 * MIN, outcome: 'ok' },
       { at: NOW - 70 * MIN, outcome: 'ok' },
       { at: NOW - 30 * HOUR, outcome: 'error' },
-    ], NOW);
+    ], NOW, NOW + 80 * MIN);
     expect(cells).toHaveLength(24);
-    expect(cells[23]).toBe('error');
-    expect(cells[22]).toBe('ok');
-    expect(cells.slice(0, 22).every((c) => c === 'none')).toBe(true);
+    expect(nowIndex).toBe(21);
+    expect(cells[21]).toBe('error');
+    expect(cells[20]).toBe('ok');
+    expect(cells.slice(0, 20).every((c) => c === 'none')).toBe(true);
+    // The next run, an hour and twenty minutes ahead, marks the second hour ahead.
+    expect(cells.slice(22)).toEqual(['ahead', 'next']);
+    // The words of the strip: three runs behind, one failed; the one 30 hours ago is out.
+    expect({ runs, failed }).toEqual({ runs: 3, failed: 1 });
+    expect(dayStrip([], NOW, NOW + 5 * HOUR).cells.slice(22)).toEqual(['ahead', 'ahead']);
   });
 });
 
@@ -235,7 +245,9 @@ describe('votes, notes and silences: the rows the hub feedback log accepts (HUBB
     const m = readAutomations({ cards: { [voted.key]: voted }, broken: [voted] })!;
     expect(m.rows[0]!.feedback).toEqual({
       vote: { v: 'ok', at: '2026-10-21T10:00:00Z', note: null },
+      changedSinceVote: false,
       mute: { until: null, why: 'rumore' },
+      open: 0,
       notes: [{ at: '2026-10-21T10:00:00Z', note: 'serve', kind: 'note' }],
     });
   });
@@ -246,7 +258,7 @@ describe('runs, fixes and the calendar', () => {
     expect(readCronRuns({ runs: [
       { at: NOW - 10 * MIN, ms: 400, outcome: 'error', error: 'cartella non trovata\nstack…', text: 'x' },
       { at: NOW - 70 * MIN, ms: 6100, outcome: 'ok', text: '412 schede, 3 nuove' },
-    ] })).toEqual([
+    ] })!.map((r) => ({ at: r.at, ms: r.ms, outcome: r.outcome, text: r.text }))).toEqual([
       { at: NOW - 10 * MIN, ms: 400, outcome: 'error', text: 'cartella non trovata' },
       { at: NOW - 70 * MIN, ms: 6100, outcome: 'ok', text: '412 schede, 3 nuove' },
     ]);

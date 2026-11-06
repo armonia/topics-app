@@ -51,7 +51,7 @@ async function waitForHub(request: APIRequestContext): Promise<void> {
   await expect.poll(async () => {
     const snap = (await (await request.get(`${E2E_BASE}/api/hub-live`)).json()) as Record<string, { data?: { needsYou?: number } }>;
     return snap.automations?.data?.needsYou ?? -1;
-  }, { timeout: 30_000, message: "the live reader never read the fake hub" }).toBe(1);
+  }, { timeout: 30_000, message: "the live reader never read the fake hub" }).toBe(2);
 }
 
 interface CronFake {
@@ -135,7 +135,7 @@ test.describe("automations", () => {
     await openMainChat(page, scene!);
 
     const sidebarRow = page.getByTestId("sidebar-automations");
-    await expect(page.getByTestId("sidebar-automations-tail")).toHaveText("3 da sistemare", { timeout: 20_000 });
+    await expect(page.getByTestId("sidebar-automations-tail")).toHaveText("4 da sistemare", { timeout: 20_000 });
     const board = page.getByTestId("sidebar-board-generale");
     if (await board.count()) expect((await sidebarRow.boundingBox())!.y).toBeLessThan((await board.boundingBox())!.y);
 
@@ -151,16 +151,20 @@ test.describe("automations", () => {
     await expect(sidebarRow).toHaveAttribute("aria-selected", "true");
     // One Automazioni row in the column, the one above the Board: the open tab adds no second one.
     await expect(page.getByRole("treeitem").filter({ hasText: /^Automazioni/ })).toHaveCount(1);
-    await expect(pane.getByTestId("automations-verdict-title")).toHaveText("3 da sistemare, il resto gira.", { timeout: 20_000 });
-    await expect(pane.getByTestId("automations-verdict")).toContainText("1 da decidere · 2 rotte · 12 in ordine su 15 · 412 giri oggi");
+    await expect(pane.getByTestId("automations-verdict-title")).toHaveText("4 da sistemare, il resto gira.", { timeout: 20_000 });
+    await expect(pane.getByTestId("automations-verdict")).toContainText("2 da decidere · 2 rotte · 12 in ordine su 16 · 412 giri oggi");
 
-    // «Decidi tu»: the broken and the one waiting on you, oldest first.
+    // «Decidi tu»: the broken and the one waiting on you, oldest first; the
+    // workflow step waiting for an ok is counted apart, under the list.
     const decide = pane.getByTestId("automations-decide-row");
     await expect(decide).toHaveCount(3);
     expect(await decide.evaluateAll((els) => els.map((e) => e.getAttribute("data-key")))).toEqual(["cron:job-week", "launchd:com.example.backup", "cron:job-docs"]);
+    await expect(pane.getByTestId("automations-gates")).toContainText("1 passo di un workflow aspetta un ok");
     // The hub's index also holds a broken app of the computer and a task waiting
-    // on you, both outside its verdict: they are not rows here either.
-    await expect(row(page, "launchd:com.example.darkroom")).toHaveCount(0);
+    // on you, both outside its verdict: the task is no row, the app is one
+    // only in «Computer e app», never in «Decidi tu».
+    await expect(pane.getByTestId("automations-own").locator('[data-testid="automation-row"][data-key="launchd:com.example.darkroom"]')).toHaveCount(1);
+    await expect(row(page, "launchd:com.example.darkroom")).toHaveCount(1);
     await expect(row(page, "cron:task-quote")).toHaveCount(0);
     // An agent is already on the backup (the hub's queue); the OpenClaw jobs can be run again.
     await expect(decide.nth(1).getByTestId("automations-decide-fixing")).toHaveText("Un agente ci sta già lavorando.");
@@ -190,7 +194,7 @@ test.describe("automations", () => {
     await expect(row(page, "launchd:com.example.backup").getByTestId("automation-last")).toContainText("exit 1");
     await expect(pane).not.toContainText("Vecchio controllo spento");
     // The systems all in order fold.
-    expect(await pane.getByTestId("automations-area").evaluateAll((els) => els.map((e) => e.getAttribute("data-system")))).toEqual(["github", "pc", "workflow"]);
+    expect(await pane.getByTestId("automations-area").evaluateAll((els) => els.map((e) => e.getAttribute("data-system")))).toEqual(["github", "pc"]);
 
     // The broken job opened: its status, its runs from the hub, «Risolvi tu».
     await jarvis.getByTestId("automation-row").first().click();
@@ -297,7 +301,6 @@ test.describe("automations", () => {
     expect(hub!.posts.filter((p) => p.path === "fix")).toEqual([{ path: "fix", key: "cron:job-docs" }]);
 
     // A workflow: read-only, its runs with the cost read only when asked.
-    await pane.locator('[data-testid="automations-area"][data-system="workflow"]').click();
     await row(page, "workflow:audit-dipendenze").click();
     await expect(detail).toHaveAttribute("data-key", "workflow:audit-dipendenze");
     await expect(detail.getByTestId("automation-votes")).toHaveCount(0);

@@ -1,28 +1,38 @@
 /**
- * ONE AUTOMATION, OPENED: what it is and when it runs, the commands of an
- * OpenClaw job, «Risolvi tu» on what is broken or waits on you, your vote and
- * your notes (HUBBR-15), and its runs. Beside the list on a wide pane, as a
- * sheet from the bottom on a narrow one.
+ * ONE AUTOMATION, OPENED: its state and the sources behind it, what it is and
+ * when it runs with every fact the hub knows (AutomationFacts), the commands
+ * of an OpenClaw job, «Risolvi tu» on what is broken or waits on you, your
+ * vote and your notes (HUBBR-15), its scheme step by step, its runs and the
+ * technical details. Beside the list on a wide pane, as a sheet from the
+ * bottom on a narrow one.
  *
  * Votes and notes are written to the hub's feedback log and the section then
  * shows the model as the hub reads it back: a vote that did not land does not
- * look pressed.
+ * look pressed. For 5 seconds after each one the undo button takes it back. The
+ * letters v c n s m vote from the keyboard, as on the hub.
+ *
+ * A workflow step waiting for your ok carries neither the fix button nor the
+ * link to write to Jarvis: no agent can give that ok.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  AlertTriangle, BellOff, CircleCheck, CircleX, MessageCircle, MessageSquare, Play, ThumbsDown, ThumbsUp, Trash2, WandSparkles, X, Flag, PenLine,
+  AlertTriangle, BellOff, CircleCheck, CircleX, Hand, MessageCircle, MessageSquare, Play, ThumbsDown, ThumbsUp, Trash2, Undo2, WandSparkles, X, Flag, PenLine,
 } from 'lucide-react';
-import { useLocale, useT } from '../../hooks/useT';
-import { apiFetch } from '../../lib/shell/net';
+import { useT } from '../../hooks/useT';
 import { automationJarvisText, jarvisHref } from '../../lib/hubSystem';
 import { useJarvisLinks } from '../../hooks/useJarvisLinks';
 import { Switch } from '../Shared/Switch';
 import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
-import {
-  FEEDBACK_NEEDS_TEXT, feedbackBody, readCronRuns, readRunCost, todayRuns,
-  type AutomationRow, type CronRun, type FeedbackAction, type JobCommand,
-} from '../../lib/automations';
-import { BUTTON, BUTTON_ON, BUTTON_PRIMARY, SYSTEM_ICON, durationWords, runWhen, secondsWords, type Clock } from './automationsUi';
+import { FEEDBACK_NEEDS_TEXT, feedbackBody, type AutomationRow, type FeedbackAction, type JobCommand } from '../../lib/automations';
+import type { FeedbackResult } from './useAutomationsData';
+import { BUTTON, BUTTON_ON, BUTTON_PRIMARY, SYSTEM_ICON, type Clock } from './automationsUi';
+import { Facts, TechPart } from './AutomationFacts';
+import { GraphPart } from './AutomationGraphPart';
+import { RunsPart } from './AutomationRunsPart';
+import { ProjectMark } from './AutomationMarks';
+
+/** How long the undo button stays after a vote, a note or a silence. */
+const UNDO_MS = 5_000;
 
 const PART = 'border-b border-app-border-subtle px-4 py-3 last:border-b-0';
 const PART_TITLE = 'mb-2 flex items-center gap-1.5 text-mini font-semibold uppercase tracking-[0.04em] text-app-text-tertiary';
@@ -35,46 +45,50 @@ interface DetailProps {
   hubDown: boolean;
   gatewayDown: boolean;
   fixing: boolean;
+  /** The gate's sentence when it holds an agent sent on this automation. */
+  brake: string | null;
   onClose(): void;
   onCommand(c: JobCommand): void;
-  feedback(body: Record<string, unknown>): Promise<string | null>;
+  feedback(body: Record<string, unknown>): Promise<FeedbackResult>;
+  undo(ref: string): Promise<string | null>;
   fix(key: string): Promise<{ ok: boolean; already: boolean; why: string | null }>;
 }
 
-export function AutomationDetail({ row, now, clock, hubDown, gatewayDown, fixing, onClose, onCommand, feedback, fix }: DetailProps) {
+export function AutomationDetail({ row, now, clock, hubDown, gatewayDown, fixing, brake, onClose, onCommand, feedback, undo, fix }: DetailProps) {
   const tr = useT();
   const Icon = SYSTEM_ICON[row.system];
   const status = row.enabled === false
     ? { tone: 'text-app-text-secondary', text: tr('auto.status.off'), icon: <BellOff size={13} /> }
-    : row.level === 'va'
-      ? { tone: SUCCESS_TEXT, text: tr('auto.status.ok'), icon: <CircleCheck size={13} /> }
-      : {
+    : row.level === 'va' && row.warn
+      ? { tone: WARNING_TEXT, text: row.warn, icon: <AlertTriangle size={13} /> }
+      : row.level === 'va'
+        ? { tone: SUCCESS_TEXT, text: tr('auto.status.ok'), icon: <CircleCheck size={13} /> }
+        : {
         tone: row.level === 'rotto' ? DANGER_TEXT : WARNING_TEXT,
         text: row.since !== null && row.reason ? tr('auto.status.since', { reason: row.reason, time: clock.dayTime(row.since) }) : row.reason ?? '',
-        icon: row.level === 'rotto' ? <CircleX size={13} /> : <AlertTriangle size={13} />,
+        icon: row.level === 'rotto' ? <CircleX size={13} /> : row.gate ? <Hand size={13} /> : <AlertTriangle size={13} />,
       };
+  const chip = row.level === 'rotto' ? { cls: `bg-red-500/10 ${DANGER_TEXT}`, text: tr('auto.level.rotto') }
+    : row.level === 'te' ? { cls: `bg-amber-500/10 ${WARNING_TEXT}`, text: tr('auto.level.te') }
+      : { cls: `bg-emerald-500/10 ${SUCCESS_TEXT}`, text: tr('auto.level.va') };
   const off = gatewayDown || row.enabled === null;
   return (
     <div data-testid="automation-detail" data-key={row.key} className="flex min-h-0 flex-col">
       <div className={PART}>
         <div className="flex items-center gap-2 text-mini text-app-text-muted">
+          <span className={`rounded-xs px-1.5 py-px text-mini font-medium ${chip.cls}`} data-testid="automation-level">{chip.text}</span>
           <Icon size={13} aria-hidden="true" />
-          <span>{tr(`auto.source.${row.system}`)}</span>
+          <span data-testid="automation-source">{tr(`auto.source.${row.system}`)}{row.sources.length > 1 ? ` · ${tr('auto.sources', { n: row.sources.length })}` : ''}</span>
           <button type="button" onClick={onClose} aria-label={tr('auto.close')} title={tr('auto.close')} className="ml-auto inline-flex h-6 w-6 items-center justify-center rounded-xs text-app-text-muted hover:bg-app-hover hover:text-app-text coarse:h-11 coarse:w-11" data-testid="automation-detail-close">
             <X size={14} />
           </button>
         </div>
-        <h2 className="m-0 mb-0.5 mt-2 text-title font-semibold text-app-text-heading">{row.title}</h2>
+        <h2 className="m-0 mb-0.5 mt-2 flex items-center gap-1.5 text-title font-semibold text-app-text-heading"><ProjectMark project={row.project} />{row.title}</h2>
         <div className={`flex items-start gap-1.5 text-compact ${status.tone}`} data-testid="automation-status">
           <span className="mt-0.5 flex-none">{status.icon}</span><span>{status.text}</span>
         </div>
-        <dl className="mt-2.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-mini">
-          {row.when && <><dt className="text-app-text-muted">{tr('auto.facts.when')}</dt><dd className="m-0 text-app-text-body">{row.when}</dd></>}
-          {row.what && <><dt className="text-app-text-muted">{tr('auto.facts.what')}</dt><dd className="m-0 text-app-text-body">{row.what}</dd></>}
-          {row.next !== null && row.next > now && row.enabled !== false && (
-            <><dt className="text-app-text-muted">{tr('auto.facts.next')}</dt><dd className="m-0 tabular-nums text-app-text-body">{tr('auto.facts.nextIn', { time: clock.dayTime(row.next), dur: durationWords(row.next - now, tr) })}</dd></>
-          )}
-        </dl>
+        {brake && <p className="m-0 mt-1 text-mini text-primary" data-testid="automation-detail-brake">{brake}</p>}
+        <Facts row={row} now={now} clock={clock} />
         {row.jobId !== null && (
           <div className="mt-3 flex flex-wrap gap-1.5" data-testid="automation-detail-commands">
             <button type="button" className={`${BUTTON} @max-2xl:flex-1`} disabled={off} onClick={() => onCommand({ kind: 'run' })} data-testid="automation-detail-run">
@@ -90,8 +104,9 @@ export function AutomationDetail({ row, now, clock, hubDown, gatewayDown, fixing
           </div>
         )}
       </div>
-      {row.votable && row.level !== 'va' && <FixPart row={row} fixing={fixing} disabled={hubDown} fix={fix} />}
-      {row.votable && <VotePart key={row.key} row={row} clock={clock} disabled={hubDown} feedback={feedback} />}
+      {row.votable && row.level !== 'va' && !row.gate && <FixPart row={row} fixing={fixing} disabled={hubDown} fix={fix} />}
+      {row.gate && <p className={`${PART} m-0 text-mini text-app-text-secondary`} data-testid="automation-gate">{tr('auto.gate.note')}</p>}
+      {row.votable && <VotePart key={row.key} row={row} clock={clock} disabled={hubDown} feedback={feedback} undo={undo} />}
       {row.feedback.notes.length > 0 && (
         <div className={PART} data-testid="automation-notes">
           <h3 className={PART_TITLE}><MessageSquare size={12} />{tr('auto.notes.title')}<span className={PART_REST}>{row.feedback.notes.length}</span></h3>
@@ -107,7 +122,9 @@ export function AutomationDetail({ row, now, clock, hubDown, gatewayDown, fixing
           </div>
         </div>
       )}
-      <RunsPart row={row} now={now} clock={clock} />
+      <GraphPart key={`g-${row.key}`} row={row} clock={clock} part={PART} partTitle={PART_TITLE} partRest={PART_REST} />
+      <RunsPart key={`r-${row.key}`} row={row} now={now} clock={clock} part={PART} partTitle={PART_TITLE} partRest={PART_REST} />
+      <TechPart row={row} part={PART} partTitle={PART_TITLE} />
     </div>
   );
 }
@@ -152,56 +169,91 @@ function FixPart({ row, fixing, disabled, fix }: { row: AutomationRow; fixing: b
   );
 }
 
-const VOTES: Array<{ action: FeedbackAction; icon: typeof ThumbsUp }> = [
-  { action: 'ok', icon: ThumbsUp },
-  { action: 'cambia', icon: ThumbsDown },
-  { action: 'nota', icon: PenLine },
-  { action: 'segnala', icon: Flag },
-  { action: 'muta', icon: BellOff },
+const VOTES: Array<{ action: FeedbackAction; icon: typeof ThumbsUp; key: string }> = [
+  { action: 'ok', icon: ThumbsUp, key: 'v' },
+  { action: 'cambia', icon: ThumbsDown, key: 'c' },
+  { action: 'nota', icon: PenLine, key: 'n' },
+  { action: 'segnala', icon: Flag, key: 's' },
+  { action: 'muta', icon: BellOff, key: 'm' },
 ];
 
-function VotePart({ row, clock, disabled, feedback }: { row: AutomationRow; clock: Clock; disabled: boolean; feedback: DetailProps['feedback'] }) {
+function VotePart({ row, clock, disabled, feedback, undo }: { row: AutomationRow; clock: Clock; disabled: boolean; feedback: DetailProps['feedback']; undo: DetailProps['undo'] }) {
   const tr = useT();
   const [open, setOpen] = useState<FeedbackAction | null>(null);
   const [text, setText] = useState('');
   const [days, setDays] = useState<number | null>(7);
   const [state, setState] = useState<{ busy: boolean; said: string | null; bad: boolean }>({ busy: false, said: null, bad: false });
+  const [undoRef, setUndoRef] = useState<string | null>(null);
+  const root = useRef<HTMLDivElement | null>(null);
   const vote = row.feedback.vote;
   const mute = row.feedback.mute;
   const pressed = (a: FeedbackAction) => ((a === 'ok' || a === 'cambia') && vote?.v === a) || (a === 'muta' && mute !== null);
+  useEffect(() => {
+    if (!undoRef) return;
+    const t = window.setTimeout(() => setUndoRef(null), UNDO_MS);
+    return () => window.clearTimeout(t);
+  }, [undoRef]);
   const submit = async (action: FeedbackAction) => {
-    // eslint-disable-next-line react-hooks/purity -- click handler: the clock is read when the vote is sent, never during render
     const body = feedbackBody(action, row, text, Date.now(), days);
     if (!body) return;
     setState({ busy: true, said: tr('auto.saving'), bad: false });
-    const why = await feedback(body);
-    setState({ busy: false, said: why ? tr('auto.saveFailed', { why }) : tr('auto.saved'), bad: why !== null });
-    if (!why) { setOpen(null); setText(''); }
+    setUndoRef(null);
+    const r = await feedback(body);
+    setState({ busy: false, said: r.error ? tr('auto.saveFailed', { why: r.error }) : tr('auto.saved'), bad: r.error !== null });
+    if (!r.error) { setOpen(null); setText(''); setUndoRef(r.ref); }
   };
+  const press = (action: FeedbackAction) => {
+    if (FEEDBACK_NEEDS_TEXT.has(action)) { setOpen((o) => (o === action ? null : action)); return; }
+    void submit(action);
+  };
+  // The vote letters, as on the hub: only with the focus in the view (or nowhere), never while typing.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (disabled || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      const pane = root.current?.closest('[data-testid="automations-pane"]');
+      if (t && t !== document.body && !pane?.contains(t)) return;
+      const v = VOTES.find((x) => x.key === e.key.toLowerCase());
+      if (!v) return;
+      e.preventDefault();
+      press(v.action);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+  const lines = [
+    vote ? tr('auto.vote.said', { vote: tr(vote.v === 'ok' ? 'auto.vote.ok' : 'auto.vote.cambia').toLowerCase(), date: vote.at ? clock.date(Date.parse(vote.at)) : '' }) + (vote.note ? `: «${vote.note}»` : '') : null,
+    row.feedback.changedSinceVote ? tr('auto.vote.changed') : null,
+    row.feedback.open > 0 ? tr(row.feedback.open === 1 ? 'auto.vote.openOne' : 'auto.vote.open', { n: row.feedback.open }) : null,
+  ].filter((x): x is string => !!x);
   return (
-    <div className={PART} data-testid="automation-votes">
+    <div className={PART} data-testid="automation-votes" ref={root}>
       <h3 className={PART_TITLE}>
         {tr('auto.vote.title')}
-        <span className={PART_REST}>{vote?.at ? tr('auto.vote.given', { date: clock.date(Date.parse(vote.at)) }) : ''}</span>
       </h3>
       <div className="flex flex-wrap gap-1.5">
-        {VOTES.map(({ action, icon: I }) => (
+        {VOTES.map(({ action, icon: I, key }) => (
           <button
             key={action}
             type="button"
             disabled={disabled || state.busy}
             aria-pressed={pressed(action)}
+            aria-keyshortcuts={key}
             data-testid={`automation-vote-${action}`}
             className={`${BUTTON} ${pressed(action) ? BUTTON_ON : ''}`}
-            onClick={() => {
-              if (FEEDBACK_NEEDS_TEXT.has(action)) { setOpen(open === action ? null : action); return; }
-              void submit(action);
-            }}
+            onClick={() => press(action)}
           >
             <I size={13} />{tr(`auto.vote.${action}`)}
+            <kbd aria-hidden="true" className="rounded-xs border border-app-border-subtle px-1 text-mini uppercase text-app-text-faint coarse:hidden">{key}</kbd>
           </button>
         ))}
       </div>
+      {lines.length > 0 && (
+        <div className="mt-2 flex flex-col gap-0.5 text-mini text-app-text-secondary" data-testid="automation-vote-lines">
+          {lines.map((l) => <span key={l}>{l}</span>)}
+        </div>
+      )}
       {mute && (
         <p className="m-0 mt-2 text-mini text-app-text-secondary" data-testid="automation-muted">
           {mute.until ? tr('auto.muted.until', { date: clock.date(Date.parse(mute.until)) }) : tr('auto.muted.never')}
@@ -238,92 +290,26 @@ function VotePart({ row, clock, disabled, feedback }: { row: AutomationRow; cloc
           </div>
         </form>
       )}
-      {state.said && <p role="status" className={`m-0 mt-2 text-mini ${state.bad ? DANGER_TEXT : 'text-app-text-muted'}`} data-testid="automation-vote-said">{state.said}</p>}
-    </div>
-  );
-}
-
-function RunMark({ outcome }: { outcome: CronRun['outcome'] | 'running' }) {
-  if (outcome === 'error') return <CircleX size={13} className={DANGER_TEXT} />;
-  if (outcome === 'ok') return <CircleCheck size={13} className={SUCCESS_TEXT} />;
-  return <CircleCheck size={13} className="text-app-text-faint" />;
-}
-
-const RUN = 'grid h-7 grid-cols-[14px_96px_minmax(0,1fr)_auto] items-center gap-2 border-t border-app-border-subtle text-mini text-app-text-body first:border-t-0 @max-2xl:h-9';
-
-function RunsPart({ row, now, clock }: { row: AutomationRow; now: number; clock: Clock }) {
-  const tr = useT();
-  const locale = useLocale();
-  const [runs, setRuns] = useState<CronRun[] | null | 'reading'>(row.jobId ? 'reading' : null);
-  useEffect(() => {
-    if (!row.jobId) return;
-    let alive = true;
-    apiFetch(`/api/hub/automations/runs?key=${encodeURIComponent(row.key)}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .catch(() => null)
-      .then((b: unknown) => { if (alive) setRuns(readCronRuns(b)); });
-    return () => { alive = false; };
-  }, [row.key, row.jobId]);
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  const today = todayRuns(row.day, start.getTime());
-  const list: Array<{ at: number; outcome: CronRun['outcome'] | 'running'; text: string | null; ms: number | null; runId?: string }> =
-    row.workflowRuns.length > 0
-      ? row.workflowRuns.map((r) => ({ at: r.at, outcome: r.outcome, text: r.agents !== null ? tr('auto.run.agents', { n: r.agents }) : null, ms: r.durationMs, runId: r.runId }))
-      : Array.isArray(runs) ? runs : row.day.slice(0, 10).map((d) => ({ at: d.at, outcome: d.outcome, text: null, ms: null }));
-  return (
-    <div className={PART} data-testid="automation-runs">
-      <h3 className={PART_TITLE}>
-        {tr('auto.runs.title')}
-        {today.total > 0 && <span className={PART_REST}>{tr('auto.runs.today', { n: today.total, ok: today.ok })}</span>}
-      </h3>
-      {runs === 'reading' && <p className="m-0 mb-1 text-mini text-app-text-muted">{tr('auto.runs.reading')}</p>}
-      {row.jobId && runs === null && <p className="m-0 mb-1 text-mini text-app-text-muted">{tr('auto.runs.failed')}</p>}
-      {list.length === 0 && runs !== 'reading' ? (
-        <p className="m-0 text-mini text-app-text-muted">{tr('auto.runs.none')}</p>
-      ) : (
-        <div className="flex flex-col tabular-nums">
-          {list.map((r) => (
-            <div key={`${r.at}-${r.runId ?? ''}`} className={RUN} data-testid="automation-run-row" data-outcome={r.outcome ?? 'none'}>
-              <RunMark outcome={r.outcome} />
-              <span className="truncate text-app-text-muted">{runWhen(r.at, now, clock, tr)}</span>
-              <span className="truncate">{r.runId ? <RunCost runId={r.runId} fallback={r.text} /> : r.text ?? tr(`auto.run.${r.outcome ?? 'skipped'}`)}</span>
-              <span className={`font-mono text-mini ${r.outcome === 'error' ? DANGER_TEXT : 'text-app-text-muted'}`}>
-                {r.ms !== null ? secondsWords(r.ms, locale) : r.outcome === 'running' ? tr('auto.run.running') : ''}
-              </span>
-            </div>
-          ))}
-        </div>
+      {state.said && (
+        <p role="status" className={`m-0 mt-2 flex items-center gap-2 text-mini ${state.bad ? DANGER_TEXT : 'text-app-text-muted'}`}>
+          <span data-testid="automation-vote-said">{state.said}</span>
+          {undoRef && (
+            <button
+              type="button"
+              className={BUTTON}
+              data-testid="automation-vote-undo"
+              onClick={() => {
+                const ref = undoRef;
+                setUndoRef(null);
+                setState({ busy: true, said: tr('auto.saving'), bad: false });
+                void undo(ref).then((why) => setState({ busy: false, said: why ? tr('auto.saveFailed', { why }) : tr('auto.undone'), bad: why !== null }));
+              }}
+            >
+              <Undo2 size={13} />{tr('auto.undo')}
+            </button>
+          )}
+        </p>
       )}
     </div>
-  );
-}
-
-/** A workflow run's cost, read only when asked: the hub reads its agents' transcripts for it. */
-function RunCost({ runId, fallback }: { runId: string; fallback: string | null }) {
-  const tr = useT();
-  const locale = useLocale();
-  const [cost, setCost] = useState<string | null>(null);
-  if (cost !== null) return <span data-testid="automation-run-cost">{cost}</span>;
-  return (
-    <button
-      type="button"
-      className="truncate text-left text-app-text-body underline decoration-app-border underline-offset-2 hover:text-app-text"
-      data-testid="automation-run-cost-ask"
-      onClick={() => {
-        void apiFetch(`/api/hub/automations/run/${encodeURIComponent(runId)}`)
-          .then((r) => (r.ok ? r.json() : null))
-          .catch(() => null)
-          .then((b: unknown) => {
-            const c = readRunCost(b);
-            if (!c) { setCost(tr('auto.run.costNone')); return; }
-            setCost(c.weekPct === null
-              ? tr('auto.run.costAgents', { agents: c.agents })
-              : tr('auto.run.costValue', { agents: c.agents, pct: new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(c.weekPct) }));
-          });
-      }}
-    >
-      {fallback ? `${fallback} · ` : ''}{tr('auto.run.cost')}
-    </button>
   );
 }

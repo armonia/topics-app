@@ -2,11 +2,14 @@
  * AUTOMAZIONI > CALENDARIO: the hub's reminders with a date and the jobs that
  * end, by day, soonest first. The appointments stay in the pinned calendar
  * tile: here only what Jarvis will do, never its prompt.
+ *
+ * A row opens on what it will do, when, and what it writes to you or on
+ * which channel; a row that writes nothing says so instead of a bare name.
  */
 import { useState } from 'react';
-import { AlarmClock, ListChecks } from 'lucide-react';
+import { AlarmClock, ChevronRight, ListChecks } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import { calendarDays, type CalendarEntry, type CalendarKind } from '../../lib/automations';
+import { calendarDays, type CalendarEntry, type CalendarKind } from '../../lib/automationsCalendar';
 import type { Clock } from './automationsUi';
 
 const CHIP = 'inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-sm border px-2.5 text-mini @max-2xl:h-8';
@@ -14,6 +17,7 @@ const CHIP = 'inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounde
 export function AutomationsCalendar({ items, now, clock }: { items: CalendarEntry[]; now: number; clock: Clock }) {
   const tr = useT();
   const [kind, setKind] = useState<CalendarKind | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
   const days = calendarDays(items, now, kind);
   const count = (k: CalendarKind | null) => calendarDays(items, now, k).reduce((s, d) => s + d.items.length, 0);
   const chips: Array<{ k: CalendarKind | null; label: string; icon?: typeof AlarmClock }> = [
@@ -49,12 +53,32 @@ export function AutomationsCalendar({ items, now, clock }: { items: CalendarEntr
           <div className="flex flex-col gap-1.5">
             {d.items.map((i) => {
               const I = i.kind === 'compito' ? ListChecks : AlarmClock;
+              const isOpen = open === i.key;
               return (
-                <div key={i.key} className="flex h-9 items-center gap-2 rounded border border-app-border bg-surface px-3 text-compact text-app-text @max-2xl:h-11" data-testid="automations-calendar-item">
-                  <span className="w-11 flex-none tabular-nums text-app-text-secondary">{i.next !== null ? clock.time(i.next) : ''}</span>
-                  <I size={13} className="flex-none text-app-text-tertiary" aria-hidden="true" />
-                  <span className="min-w-0 flex-1 truncate">{i.title}</span>
-                  <span className="flex-none truncate text-mini text-app-text-muted">{i.says ? tr('auto.cal.via', { says: i.says }) : tr('auto.cal.jarvis')}</span>
+                <div key={i.key} className="rounded border border-app-border bg-surface text-compact text-app-text" data-testid="automations-calendar-item" data-key={i.key}>
+                  <button
+                    type="button"
+                    aria-expanded={isOpen}
+                    onClick={() => setOpen(isOpen ? null : i.key)}
+                    className="flex h-9 w-full items-center gap-2 px-3 text-left hover:bg-app-hover @max-2xl:h-11"
+                    data-testid="automations-calendar-toggle"
+                  >
+                    <span className="w-11 flex-none tabular-nums text-app-text-secondary">{i.next !== null ? clock.time(i.next) : ''}</span>
+                    <I size={13} className="flex-none text-app-text-tertiary" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 truncate">{i.title}</span>
+                    <span className="flex-none truncate text-mini text-app-text-muted">{i.says ? tr('auto.cal.via', { says: i.says }) : tr('auto.cal.silent')}</span>
+                    <ChevronRight size={13} className={`flex-none text-app-text-muted ${isOpen ? 'rotate-90' : ''}`} aria-hidden="true" />
+                  </button>
+                  {isOpen && (
+                    <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-app-border-subtle px-3 py-2 text-mini" data-testid="automations-calendar-detail">
+                      <dt className="text-app-text-muted">{tr('auto.cal.what')}</dt>
+                      <dd className="m-0 text-app-text-body">{i.what ?? tr('auto.facts.notWritten')}</dd>
+                      {i.when && <><dt className="text-app-text-muted">{tr(i.kind === 'compito' ? 'auto.cal.checks' : 'auto.facts.when')}</dt><dd className="m-0 text-app-text-body">{i.when}</dd></>}
+                      <dt className="text-app-text-muted">{tr('auto.facts.means')}</dt>
+                      <dd className="m-0 text-app-text-body">{i.means ?? (i.says ? tr('auto.cal.on', { says: i.says }) : tr('auto.cal.nothing'))}</dd>
+                      {i.says && <><dt className="text-app-text-muted">{tr('auto.cal.channel')}</dt><dd className="m-0 text-app-text-body">{i.says}</dd></>}
+                    </dl>
+                  )}
                 </div>
               );
             })}

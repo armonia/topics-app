@@ -45,7 +45,7 @@
 import { createServer, type Server } from "node:http";
 import { E2E_BASE, hubPortFor } from "./test-server";
 import { FOUND_CONTRADICTION, contextModel, contextText, defaultContextCheck, featuresMap, type FakeContextCheck } from "./fake-hub-context";
-import { automationsCalendar, automationsModel, automationsRuns, automationsSummary, feedbackRefusal, workflowRunCost, type FeedbackRow } from "./fake-hub-automations";
+import { automationsCalendar, automationsGraph, automationsModel, automationsRuns, automationsSummary, feedbackRefusal, workflowRunCost, type FeedbackRow } from "./fake-hub-automations";
 
 export interface FakeHubItem {
   id: string;
@@ -684,6 +684,10 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
       if (path === "automations/runs") {
         const r = automationsRuns(now, new URL(req.url ?? "", "http://x").searchParams.get("key") ?? "");
         return r ? send(200, r) : send(404, { ok: false, error: "cronologia solo per i cron di OpenClaw" });
+      }
+      if (path === "automations/graph") {
+        const g = automationsGraph(now, new URL(req.url ?? "", "http://x").searchParams.get("key") ?? "");
+        return g ? send(200, g) : send(404, { ok: false, error: "nessuno schema per questa voce" });
       }
       if (path.startsWith("automations/run/")) {
         const r = workflowRunCost(decodeURIComponent(path.slice("automations/run/".length)));
