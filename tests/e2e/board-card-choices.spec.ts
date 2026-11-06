@@ -178,7 +178,7 @@ test.describe("Scelte sempre presenti sulla card", () => {
     await seedProjectPane(page.request, REPO);
   });
 
-  test("quattro stati, quattro decisioni in un click — senza scrivere niente", async ({ page }) => {
+  test("quattro stati, quattro decisioni in un click. Senza scrivere niente", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-02" });
     // The working card is staged with no live turn behind it, the shape the
     // dispatcher's 10s reconcile recovers: re-queued, its DOM node replaced, and

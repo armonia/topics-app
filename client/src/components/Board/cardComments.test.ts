@@ -292,7 +292,7 @@ describe('selectCardComments', () => {
       // elenco delle due opzioni — al posto della consegna. `Card.tsx` smette
       // di parsarla (nessun bottone), quindi cadeva nel ramo «testo semplice».
       const domanda = parkedQuestion();
-      const landing = comment('system', 'Non e\' su main: `04e90f7a` (topics/divine-rooster) — landa il ramo prima che venga potato.');
+      const landing = comment('system', 'Non e\' su main: `04e90f7a` (topics/divine-rooster). Landa il ramo prima che venga potato.');
       const risolta = { subtaskCount: 3, subtaskDoneCount: 3 };
       const got = selectCardComments([domanda, landing], risolta);
       expect(got?.latest).not.toBe(domanda);
