@@ -93,6 +93,7 @@ const AUTOMATIONS_IT: Dict = {
   'auto.status.ok': 'Gira come deve',
   'auto.status.off': 'Spenta: non parte finché non la riaccendi',
   'auto.status.since': '{reason}, dalle {time}',
+  'auto.jarvis': 'Scrivi a Jarvis',
   'auto.fix.title': 'Risolvi tu',
   'auto.fix.go': 'Risolvi tu',
   'auto.fix.hint': 'Manda un agente con tutto il contesto della voce: parte quando freno e ritmo lo permettono.',

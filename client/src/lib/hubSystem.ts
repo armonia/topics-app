@@ -132,6 +132,11 @@ export function jarvisHref(links: JarvisLinks | null, text: string): string | nu
   return links?.discord ?? null;
 }
 
+/** The message the hub's Automations page wrote to Jarvis about a row: title, key and reason. */
+export function automationJarvisText(title: string, key: string, reason: string | null): string {
+  return `Automazione «${title}» (${key}): ${reason ?? ''}`; // allow-italian: the message sent to Jarvis
+}
+
 /** The body the hub expects to close an item. */
 export function closeWaitingBody(id: string): { kind: 'chiudi'; ref: string } { // allow-italian: the hub's wire verb
   return { kind: 'chiudi', ref: id }; // allow-italian: the hub's wire verb

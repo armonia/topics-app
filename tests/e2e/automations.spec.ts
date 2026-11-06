@@ -200,6 +200,10 @@ test.describe("automations", () => {
     await expect(detail.getByTestId("automation-run-row")).toHaveCount(4, { timeout: 15_000 });
     await expect(detail.getByTestId("automation-run-row").first()).toContainText("cartella non trovata");
     await expect(detail.getByTestId("automation-fix-go")).toBeVisible();
+    // Writing to Jarvis carries the title, the key and the reason, as the hub's page did.
+    const href = await detail.getByTestId("automation-jarvis").getAttribute("href");
+    expect(href).toMatch(/^https:\/\/example\.com\/assistente\/whatsapp\?text=/);
+    expect(decodeURIComponent(href!.split("text=")[1])).toContain("(cron:job-docs): Fallisce da 2 giri");
     await jarvis.getByTestId("automation-row").first().scrollIntoViewIfNeeded();
     await pane.evaluate((el) => el.querySelector("section")?.scrollTo(0, 0));
     await page.mouse.move(0, 0);

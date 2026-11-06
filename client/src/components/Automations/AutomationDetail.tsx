@@ -10,10 +10,12 @@
  */
 import { useEffect, useState } from 'react';
 import {
-  AlertTriangle, BellOff, CircleCheck, CircleX, MessageSquare, Play, ThumbsDown, ThumbsUp, Trash2, WandSparkles, X, Flag, PenLine,
+  AlertTriangle, BellOff, CircleCheck, CircleX, MessageCircle, MessageSquare, Play, ThumbsDown, ThumbsUp, Trash2, WandSparkles, X, Flag, PenLine,
 } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
 import { apiFetch } from '../../lib/shell/net';
+import { automationJarvisText, jarvisHref } from '../../lib/hubSystem';
+import { useJarvisLinks } from '../../hooks/useJarvisLinks';
 import { Switch } from '../Shared/Switch';
 import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import {
@@ -114,6 +116,7 @@ function FixPart({ row, fixing, disabled, fix }: { row: AutomationRow; fixing: b
   const tr = useT();
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<string | null>(null);
+  const jarvis = jarvisHref(useJarvisLinks(), automationJarvisText(row.title, row.key, row.reason));
   return (
     <div className={PART} data-testid="automation-fix">
       <h3 className={PART_TITLE}><WandSparkles size={12} />{tr('auto.fix.title')}</h3>
@@ -136,6 +139,11 @@ function FixPart({ row, fixing, disabled, fix }: { row: AutomationRow; fixing: b
             >
               <WandSparkles size={13} />{tr('auto.fix.go')}
             </button>
+          )}
+          {jarvis && (
+            <a href={jarvis} target="_blank" rel="noopener noreferrer" className={BUTTON} data-testid="automation-jarvis">
+              <MessageCircle size={13} />{tr('auto.jarvis')}
+            </a>
           )}
           <span className="text-mini text-app-text-muted" data-testid="automation-fix-said">{said ?? tr('auto.fix.where')}</span>
         </div>

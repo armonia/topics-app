@@ -93,6 +93,7 @@ const AUTOMATIONS_EN: Dict = {
   'auto.status.ok': 'Runs as it should',
   'auto.status.off': 'Off: it does not start until you switch it back on',
   'auto.status.since': '{reason}, since {time}',
+  'auto.jarvis': 'Write to Jarvis',
   'auto.fix.title': 'Fix it',
   'auto.fix.go': 'Fix it',
   'auto.fix.hint': 'Sends an agent with the whole context of the item: it starts when the brake and the pace allow.',
