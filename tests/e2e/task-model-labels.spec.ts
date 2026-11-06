@@ -207,6 +207,9 @@ for (const device of [
         await expect(longChip).toBeVisible();
         expect(await longChip.evaluate((element) => element.getBoundingClientRect().width
           <= element.parentElement!.getBoundingClientRect().width + 1)).toBe(true);
+        // Not CUT, not only inside its box: a truncated label keeps its full text
+        // and overflows its own box (scrollWidth > clientWidth); a wrapped one fits.
+        expect(await longChip.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
         await expect(longChip).toHaveAttribute('title', new RegExp(longLabel));
         await page.screenshot({ path: testInfo.outputPath('resolved-card-model.png') });
         // MSEL-01, variant `chip`: a card whose choice runs through Topics says so.
