@@ -7,11 +7,16 @@
  * now, "what it costs" stays there). With the usage hub, the same list adds
  * the Claude proxy's sessions that run outside Topics, the hub's queue of
  * delegated jobs (in line, held by a quota, done or failed, and the one you
- * take out of the line) and the workflows with the bar of their phases. What
- * waits on you comes first and says what it asks: the chat's question, the
- * workflow's gate. The cards of the Board are not listed again: the night's
- * cards stay on the Board, and the footer says so, with the way to the hub's
- * automations.
+ * take out of the line) and the workflows with the bar of their phases, and
+ * what the hub sees at work outside Topics: Claude Code elsewhere, Codex,
+ * Muse, the sub-agents and the live workflows, each with its project's icon,
+ * its tokens and its share of the week. A session of the proxy says the tool
+ * it runs, its account, since when it waits for input, and opens on its
+ * timeline (the summaries, never the prompts); two sessions editing one file
+ * raise a band. What waits on you comes first and says what it asks: the
+ * chat's question, the workflow's gate. The cards of the Board are not listed
+ * again: the night's cards stay on the Board, and the footer says so, with
+ * the way to Automazioni > Calendario.
  *
  * Loaded as its own chunk when the level opens; its strings come with it.
  * The reads poll every 15 s while the level is open and the window visible.
@@ -21,8 +26,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  Check, ChevronDown, ChevronLeft, ChevronRight, Clock, CloudOff, Hourglass, MessageCircleQuestion, MessageSquare, Pause, Route,
-  SquareKanban, SquareTerminal, Workflow, Wrench, X, type LucideIcon,
+  AlertTriangle, Bot, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, CloudOff, Hourglass, MessageCircleQuestion, MessageSquare, Pause, Route,
+  SquareKanban, SquareTerminal, Terminal, Workflow, Wrench, X, type LucideIcon,
 } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
 import { useMobile } from '../../hooks/useMobile';
@@ -35,7 +40,10 @@ import { startVisibleInterval } from '../../state/documentVisibility';
 import { useSharedNow } from '../../state/useSharedNow';
 import { useActiveAgentRows } from '../../state/signals';
 import { attentionOf, terminalSubject, topicSubject, useAttentionRows } from '../../state/attention';
-import { hubPageHref } from '../../lib/hubSystem';
+import { openAutomation, openAutomationsCalendar } from '../../state/automationTarget';
+import { takeAgentsJobsFilter } from '../../lib/agentsJobsLink';
+import { exchangeRateOf, formatCurrency } from '../../lib/hubUsage';
+import { JobProjectIcon } from './JobProjectIcon';
 import { useCloseLevel } from '../Shared/levelClose';
 import { setGateWaits } from '../../state/gateWaits';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
@@ -64,6 +72,11 @@ interface HubReads {
   diary: unknown;
   proxy: unknown;
   automations: unknown;
+  /** The hub's board and live agents: who works outside Topics. */
+  board: unknown;
+  live: unknown;
+  /** The proxy's dollar to euro rate, for a session's cost. */
+  rate: number;
   /** reading: nothing answered yet; ok: the hub answered; down: it did not. */
   state: 'reading' | 'ok' | 'down';
   /** The hub's last answer, kept on screen while it is silent. */
@@ -88,23 +101,31 @@ async function readJson(path: string): Promise<unknown> {
  * weigh most of a megabyte, so they are read once a minute, not every round.
  */
 function useHubJobs(enabled: boolean): HubReads & { reread: () => void } {
-  const [reads, setReads] = useState<HubReads>({ queue: null, diary: null, proxy: null, automations: null, state: 'reading', okAt: null, downSince: null });
+  const [reads, setReads] = useState<HubReads>({ queue: null, diary: null, proxy: null, automations: null, board: null, live: null, rate: exchangeRateOf(null), state: 'reading', okAt: null, downSince: null });
   const alive = useRef(true);
   const round = useRef(0);
   const read = useCallback(async (force = false) => {
+    const first = round.current === 0;
     if (force || round.current++ % AUTOMATIONS_EVERY === 0) {
       void readJson('/api/hub/automations').then((automations) => {
         if (alive.current && automations !== null) setReads((r) => ({ ...r, automations }));
       });
     }
-    const [queue, diary, proxy] = await Promise.all([
+    if (first) {
+      void readJson('/api/switchboard/settings').then((settings) => {
+        if (alive.current && settings !== null) setReads((r) => ({ ...r, rate: exchangeRateOf(settings) }));
+      });
+    }
+    const [queue, diary, proxy, board, live] = await Promise.all([
       readJson('/api/hub/queue'),
       readJson('/api/hub/diario?days=2'),
       readJson('/api/switchboard/sessions'),
+      readJson('/api/hub/board'),
+      readJson('/api/hub/live'),
     ]);
     if (!alive.current) return;
     if (queue !== null || diary !== null) {
-      setReads((r) => ({ ...r, queue, diary, proxy, state: 'ok', okAt: Date.now(), downSince: null }));
+      setReads((r) => ({ ...r, queue, diary, proxy, board, live, state: 'ok', okAt: Date.now(), downSince: null }));
     } else {
       setReads((r) => ({ ...r, state: 'down', downSince: r.downSince ?? Date.now() }));
     }
@@ -153,6 +174,19 @@ const SOURCE_ICON: Record<JobRow['source'], LucideIcon> = {
   proxy: Route,
   queue: Wrench,
   workflow: Workflow,
+  outside: Terminal,
+  subagent: Bot,
+};
+
+/** The kind of each source, said in the glyph's tooltip as the hub's «tipo» column did. */
+const SOURCE_KIND: Record<JobRow['source'], string> = {
+  topic: 'agentsJobs.kind.topic',
+  terminal: 'agentsJobs.kind.terminal',
+  proxy: 'agentsJobs.kind.proxy',
+  queue: 'agentsJobs.kind.queue',
+  workflow: 'agentsJobs.kind.workflow',
+  outside: 'agentsJobs.kind.outside',
+  subagent: 'agentsJobs.kind.subagent',
 };
 
 /** The glyph says the kind of thing; a waiting, held or ended row says its state instead. */
@@ -162,11 +196,17 @@ function leadOf(row: JobRow): { Icon: LucideIcon; tone: string } {
   if (row.tone === 'line') return { Icon: row.source === 'workflow' ? Clock : SOURCE_ICON[row.source], tone: 'text-app-text-secondary' };
   if (row.tone === 'ok') return { Icon: Check, tone: SUCCESS_TEXT };
   if (row.tone === 'failed') return { Icon: X, tone: DANGER_TEXT };
+  // At work but waiting: for its next input (proxy), on a live command (hub).
+  if (row.idleSince || row.onCommand) return { Icon: Hourglass, tone: 'text-app-text-secondary' };
   return { Icon: SOURCE_ICON[row.source], tone: 'text-app-text-secondary' };
 }
 
-function titleOf(tr: Tr, row: Pick<JobRow, 'title' | 'repairOf' | 'fallback' | 'project' | 'channel'>): string {
+function titleOf(tr: Tr, row: Pick<JobRow, 'title' | 'repairOf' | 'fallback' | 'project' | 'channel' | 'runner'>): string {
   if (row.title) return row.title;
+  if (row.fallback === 'outside' || row.fallback === 'subagent' || row.fallback === 'workflow') {
+    const on = row.project ? 'On' : '';
+    return tr(`agentsJobs.fallback.${row.fallback}${on}`, { runner: row.runner ?? 'Claude', project: row.project ?? '' });
+  }
   if (row.repairOf) return tr('agentsJobs.repair', { name: row.repairOf });
   if (row.fallback === 'jarvis') return tr('agentsJobs.fallback.jarvis', { channel: row.channel ?? '' });
   if (row.fallback === 'workflowAgent') return tr('agentsJobs.fallback.workflowAgent');
@@ -174,18 +214,42 @@ function titleOf(tr: Tr, row: Pick<JobRow, 'title' | 'repairOf' | 'fallback' | '
   return row.project ? tr('agentsJobs.fallback.jobOn', { project: row.project }) : tr('agentsJobs.fallback.job');
 }
 
-function metaOf(tr: Tr, row: JobRow, locale: string, now: number): string {
+function pct(n: number, locale: string): string {
+  if (n > 0 && n < 0.1) return locale === 'en' ? '<0.1' : '<0,1';
+  return n.toLocaleString(locale === 'en' ? 'en-GB' : 'it-IT', { maximumFractionDigits: 1 });
+}
+
+/** Tokens and share of the week, the cost of a row: the same words for every source. */
+function spend(tr: Tr, row: JobRow, locale: string, rate: number): string[] {
+  const parts: string[] = [];
+  if (row.tokens) parts.push(tr('agentsJobs.meta.tokens', { n: shortTokens(row.tokens, locale) }));
+  if (row.weekPct) parts.push(tr('agentsJobs.meta.week', { n: pct(row.weekPct, locale) }));
+  if (row.costUsd && row.tone !== 'live') parts.push(tr('agentsJobs.meta.cost', { eur: formatCurrency(row.costUsd, rate, locale) }));
+  return parts;
+}
+
+function metaOf(tr: Tr, row: JobRow, locale: string, now: number, rate: number): string {
   const parts: string[] = [];
   if (row.source === 'topic' || row.source === 'terminal') {
     parts.push(tr(row.source === 'topic' ? 'agentsJobs.src.topic' : 'agentsJobs.src.terminal'));
+    if (row.project) parts.push(row.project);
     if (row.tone === 'you') parts.push(row.at !== null ? tr('agentsJobs.meta.waitingFor', { t: elapsed(tr, now - row.at) }) : tr('agentsJobs.meta.waitsYou'));
     if (row.tone === 'ok') parts.push(tr('agentsJobs.meta.finishedTurn'));
+  } else if (row.source === 'outside' || row.source === 'subagent') {
+    parts.push(row.runner ?? 'Claude');
+    if (row.model) parts.push(row.model);
+    if (row.project && row.title) parts.push(row.project);
+    if (row.onCommand) parts.push(tr('agentsJobs.meta.onCommand'));
+    parts.push(...spend(tr, row, locale, rate));
   } else if (row.source === 'proxy') {
     parts.push(tr('agentsJobs.src.proxy'));
+    if (row.account) parts.push(row.account);
     if (row.model) parts.push(row.model);
     if (row.project) parts.push(row.project);
+    if (row.idleSince) parts.push(tr('agentsJobs.meta.idle', { t: elapsed(tr, now - row.idleSince) }));
+    else if (row.activity) parts.push(row.activity.file ? tr(`agentsJobs.act.${row.activity.verb}.file`, { file: row.activity.file }) : tr(`agentsJobs.act.${row.activity.verb}`));
     if (row.requests) parts.push(row.requests === 1 ? tr('agentsJobs.meta.requestsOne') : tr('agentsJobs.meta.requests', { n: row.requests }));
-    if (row.tokens) parts.push(tr('agentsJobs.meta.tokens', { n: shortTokens(row.tokens, locale) }));
+    parts.push(...spend(tr, row, locale, rate));
     if (row.tone === 'ok' && row.durationMs) parts.push(elapsed(tr, row.durationMs));
   } else if (row.source === 'queue') {
     // A job still in line has no executor yet: it is the hub's, and says so.
@@ -197,7 +261,9 @@ function metaOf(tr: Tr, row: JobRow, locale: string, now: number): string {
     else if (w?.kind === 'after') parts.push(tr('agentsJobs.meta.after', { title: titleOf(tr, w.row) }));
     else if (w?.kind === 'next') parts.push(tr('agentsJobs.meta.next'));
     else if (row.project && (row.title || row.repairOf)) parts.push(row.project);
-    if (row.tone === 'quota') parts.push(tr('agentsJobs.meta.restarts'));
+    // How long it has waited in line: the hub's «when» column for a queued job.
+    if ((row.tone === 'line' || row.tone === 'quota') && row.queuedAt) parts.push(tr('agentsJobs.meta.queuedFor', { t: elapsed(tr, now - row.queuedAt) }));
+    if (row.tone === 'quota') parts.push(row.pausedWhy ? tr('agentsJobs.meta.paused', { why: row.pausedWhy }) : tr('agentsJobs.meta.restarts'));
     if (row.tone === 'failed' && row.exit !== null && row.exit !== undefined) parts.push(tr('agentsJobs.meta.exit', { n: row.exit }));
     if ((row.tone === 'ok' || row.tone === 'failed') && row.durationMs) parts.push(elapsed(tr, row.durationMs));
   } else {
@@ -211,6 +277,7 @@ function metaOf(tr: Tr, row: JobRow, locale: string, now: number): string {
       parts.push(row.steps.length === 1 ? tr('agentsJobs.meta.phasesOne') : tr('agentsJobs.meta.phases', { n: row.steps.length }));
     }
     if (row.agents) parts.push(row.agents === 1 ? tr('agentsJobs.meta.agentsOne') : tr('agentsJobs.meta.agents', { n: row.agents }));
+    parts.push(...spend(tr, row, locale, rate));
     if (row.tone !== 'live' && row.tone !== 'you' && row.durationMs) parts.push(elapsed(tr, row.durationMs));
   }
   return parts.join(' · ');
@@ -225,6 +292,8 @@ function rightOf(tr: Tr, row: JobRow, clock: (at: number) => string, now: number
 
 const SECTION_TEXT: Record<SectionId, { label: string; hint?: string; tone?: string; Icon?: LucideIcon }> = {
   topics: { label: 'agentsJobs.section.topics', hint: 'agentsJobs.section.topics.hint' },
+  outside: { label: 'agentsJobs.section.outside', hint: 'agentsJobs.section.outside.hint' },
+  subagents: { label: 'agentsJobs.section.subagents', hint: 'agentsJobs.section.subagents.hint' },
   proxy: { label: 'agentsJobs.section.proxy', hint: 'agentsJobs.section.proxy.hint' },
   queue: { label: 'agentsJobs.section.queue', hint: 'agentsJobs.section.queue.hint' },
   workflows: { label: 'agentsJobs.section.workflows' },
@@ -268,26 +337,30 @@ export function AgentsJobsLevel({ onNavigate }: AgentsJobsLevelProps) {
   const clock = useClock(locale);
   const hubPresent = useHubEverRead();
   const hub = useHubJobs(hubPresent);
-  const rows = useActiveAgentRows(useTerminalSessions(), useTopics());
+  const topicsById = useTopics();
+  const rows = useActiveAgentRows(useTerminalSessions(), topicsById);
   const attention = useAttentionRows();
-  // What a row waiting on you asks, and since when: the attention store has it, one line.
-  const topics = useMemo(() => ({
-    ...rows,
-    awaitingInput: rows.awaitingInput.map((r) => {
+  // What a row waiting on you asks, and since when it works, waits or finished: the attention
+  // store has it, one line. A chat's project is its folder: its icon and its name.
+  const topics = useMemo(() => {
+    const withState = (r: (typeof rows.working)[number]) => {
       const a = attentionOf(attention, r.kind === 'topic' ? topicSubject(r.id) : terminalSubject(r.id));
-      return { ...r, question: a.detail, since: a.since || null };
-    }),
-  }), [rows, attention]);
+      const t = r.kind === 'topic' ? topicsById[r.id] : undefined;
+      return { ...r, question: a.detail, since: a.since || null, projectPath: t && !t.standalone ? t.projectPath ?? null : null };
+    };
+    return { working: rows.working.map(withState), awaitingInput: rows.awaitingInput.map(withState), finished: rows.finished.map(withState) };
+  }, [rows, attention, topicsById]);
   const view: AgentsJobsView = useMemo(
-    () => agentsJobs({ topics, queue: hub.queue, diary: hub.diary, proxy: hub.proxy, automations: hub.automations, now }),
-    [topics, hub.queue, hub.diary, hub.proxy, hub.automations, now],
+    () => agentsJobs({ topics, queue: hub.queue, diary: hub.diary, proxy: hub.proxy, automations: hub.automations, board: hub.board, live: hub.live, now }),
+    [topics, hub.queue, hub.diary, hub.proxy, hub.automations, hub.board, hub.live, now],
   );
   // The row of System counts the gates too, from the same read.
   const gates = view.decide - topics.awaitingInput.length;
   useEffect(() => { setGateWaits(gates); }, [gates]);
   const closeLevel = useCloseLevel();
-  const automationsHref = hubPresent ? hubPageHref('#automations') : null;
-  const [chosen, setChosen] = useState<JobFilter | null>(null);
+  // A link (`/lavori/<filter>`) or a door of the app may ask for a filter.
+  const [chosen, setChosen] = useState<JobFilter | null>(() => takeAgentsJobsFilter());
+  const [timelineOpen, setTimelineOpen] = useState<string | null>(null);
   const filter = chosen ?? openingFilter(view);
   const [withdrawn, setWithdrawn] = useState<Set<string>>(() => new Set());
   const [failedWithdraw, setFailedWithdraw] = useState<string | null>(null);
@@ -373,6 +446,19 @@ export function AgentsJobsLevel({ onNavigate }: AgentsJobsLevelProps) {
             </button>
           </div>
         )}
+        {filter === 'running' && view.conflicts.map((c) => (
+          // Two sessions editing one file: the proxy's warning, as the hub's sessions page raised it.
+          <div key={c.path} data-testid="agents-jobs-conflict" title={c.path} className={`mx-2.5 mb-1 flex items-center gap-2 rounded border border-amber-500/30 bg-amber-500/10 ${pad} py-1.5 text-compact`}>
+            <AlertTriangle size={12} className={`flex-none ${WARNING_TEXT}`} aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate text-app-text">{tr('agentsJobs.conflict', { n: c.count, file: c.file })}</span>
+          </div>
+        ))}
+        {hubPresent && hub.state === 'ok' && filter !== 'waiting' && view.proxyState !== 'ok' && (
+          <div data-testid="agents-jobs-proxy-state" className={`flex items-center gap-2 ${pad} py-1.5 text-mini text-app-text-secondary`}>
+            <Route size={12} className="flex-none" aria-hidden="true" />
+            <span className="flex-1">{tr(view.proxyState === 'monitorOff' ? 'agentsJobs.proxyMonitorOff' : 'agentsJobs.proxySilent')}</span>
+          </div>
+        )}
         {hubDown && (
           <div data-testid="agents-jobs-hub-down" className={`flex items-center gap-2 ${pad} py-1.5 text-mini ${WARNING_TEXT}`}>
             <CloudOff size={12} className="flex-none" aria-hidden="true" />
@@ -398,8 +484,11 @@ export function AgentsJobsLevel({ onNavigate }: AgentsJobsLevelProps) {
                 tr={tr}
                 pad={pad}
                 isMobile={isMobile}
-                meta={metaOf(tr, row, locale, now)}
+                meta={metaOf(tr, row, locale, now, hub.rate)}
                 right={rightOf(tr, row, clock, now)}
+                onAutomation={row.automationKey ? () => { onNavigate?.(); openAutomation(row.automationKey!); } : undefined}
+                timelineOpen={timelineOpen === row.key}
+                onTimeline={row.timeline?.length ? () => setTimelineOpen(timelineOpen === row.key ? null : row.key) : undefined}
                 failedWithdraw={row.cancelId !== undefined && failedWithdraw === row.cancelId}
                 onOpen={row.target ? () => openTarget(row, onNavigate) : undefined}
                 onWithdraw={row.cancelId ? () => { void withdraw(row.cancelId!); } : undefined}
@@ -421,12 +510,18 @@ export function AgentsJobsLevel({ onNavigate }: AgentsJobsLevelProps) {
           >
             {tr('agentsJobs.footer.board')}
           </button>
-          {automationsHref && (
+          {hubPresent && (
             <>
               {' · '}{tr(isMobile ? 'agentsJobs.footer.calendarShort' : 'agentsJobs.footer.calendar')}{' '}
-              <a data-testid="agents-jobs-automations" href={automationsHref} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+              {/* Topics' own Automazioni, on its Calendar tab: the dated reminders and the jobs that end. */}
+              <button
+                type="button"
+                data-testid="agents-jobs-automations"
+                className="text-primary hover:underline"
+                onClick={() => { onNavigate?.(); openAutomationsCalendar(); }}
+              >
                 {tr('agentsJobs.footer.automations')}
-              </a>
+              </button>
             </>
           )}
         </span>
@@ -469,7 +564,7 @@ function Section({ section, tr, pad, limit, onMore, renderRow }: {
   );
 }
 
-function Row({ row, tr, pad, isMobile, meta, right, failedWithdraw, onOpen, onWithdraw }: {
+function Row({ row, tr, pad, isMobile, meta, right, failedWithdraw, onOpen, onWithdraw, onAutomation, timelineOpen = false, onTimeline }: {
   row: JobRow;
   tr: Tr;
   pad: string;
@@ -479,13 +574,17 @@ function Row({ row, tr, pad, isMobile, meta, right, failedWithdraw, onOpen, onWi
   failedWithdraw: boolean;
   onOpen?: () => void;
   onWithdraw?: () => void;
+  /** Opens the automation a gate waits in, in Topics' Automazioni. */
+  onAutomation?: () => void;
+  timelineOpen?: boolean;
+  onTimeline?: () => void;
 }) {
   const { Icon, tone } = leadOf(row);
   const title = titleOf(tr, row);
-  const live = row.tone === 'live';
+  const live = row.tone === 'live' && !row.idleSince && !row.onCommand;
   const body = (
     <>
-      <span className="mt-0.5 flex h-4 w-4 flex-none items-center justify-center">
+      <span className="mt-0.5 flex h-4 w-4 flex-none items-center justify-center" title={tr(SOURCE_KIND[row.source])} data-kind-glyph={row.source}>
         {live ? <SparkLoader /> : <Icon size={14} className={tone} aria-hidden="true" />}
       </span>
       <span className="min-w-0 flex-1 text-left">
@@ -497,7 +596,17 @@ function Row({ row, tr, pad, isMobile, meta, right, failedWithdraw, onOpen, onWi
           {row.tone === 'quota' && <span className={`flex-none rounded-xs bg-amber-500/15 px-1 text-mini font-semibold ${WARNING_TEXT}`}>{tr('agentsJobs.chip.quota')}</span>}
           {row.tone === 'failed' && <span className={`flex-none rounded-xs bg-red-500/10 px-1 text-mini font-semibold ${DANGER_TEXT}`}>{tr('agentsJobs.chip.failed')}</span>}
         </span>
-        {meta && <span className="block truncate text-mini text-app-text-secondary" title={meta}>{meta}</span>}
+        {meta && (
+          <span className="flex min-w-0 items-center gap-1 text-mini text-app-text-secondary" title={meta}>
+            <JobProjectIcon iconPath={row.iconPath} hubIcon={row.hubIcon} />
+            <span className="min-w-0 truncate">{meta}</span>
+          </span>
+        )}
+        {timelineOpen && row.timeline && (
+          <span data-testid="agents-jobs-timeline" className="mt-1 block border-l border-app-border-light pl-2">
+            {row.timeline.map((line, i) => <span key={i} className="block text-mini text-app-text-secondary">{line}</span>)}
+          </span>
+        )}
         {row.steps && row.steps.length > 0 && (
           <span data-testid="agents-jobs-steps" className="mt-1.5 flex gap-[3px]" aria-hidden="true">
             {row.steps.map((m, i) => <i key={i} data-step={m} className={`h-[3px] flex-1 rounded-full ${STEP_FILL[m]}`} />)}
@@ -511,7 +620,6 @@ function Row({ row, tr, pad, isMobile, meta, right, failedWithdraw, onOpen, onWi
   const rowClass = `flex w-full items-start gap-2 ${pad} ${isMobile ? 'py-2.5' : 'py-1.5'}`;
   if (row.tone === 'you') {
     // A card: what it asks, in its words, and the one way to answer it from here.
-    const href = row.hubPage ? hubPageHref(row.hubPage) : null;
     const act = `inline-flex items-center gap-1 whitespace-nowrap rounded-sm bg-primary px-2.5 font-medium text-white hover:bg-primary/90 ${isMobile ? 'h-9 text-body' : 'h-6 text-mini coarse:h-11'}`;
     return (
       <div data-testid={rowTestId(row)} data-kind={row.source} data-tone={row.tone}>
@@ -519,7 +627,7 @@ function Row({ row, tr, pad, isMobile, meta, right, failedWithdraw, onOpen, onWi
         {row.question && (
           <div data-testid="agents-jobs-question" className={`${isMobile ? 'ml-[46px] text-body' : 'ml-[38px] text-compact'} mr-3 text-app-text`}>“{row.question}”</div>
         )}
-        {(onOpen || href) && (
+        {(onOpen || onAutomation) && (
           <div className={`${isMobile ? 'ml-[46px]' : 'ml-[38px]'} mt-2 flex flex-wrap gap-1.5`}>
             {onOpen && (
               <button type="button" data-testid="agents-jobs-open" onClick={onOpen} className={act}>
@@ -527,11 +635,12 @@ function Row({ row, tr, pad, isMobile, meta, right, failedWithdraw, onOpen, onWi
                 <ChevronRight size={12} aria-hidden="true" />
               </button>
             )}
-            {!onOpen && href && (
-              <a data-testid="agents-jobs-open-hub" href={href} target="_blank" rel="noopener noreferrer" className={act}>
+            {!onOpen && onAutomation && (
+              // Topics' own Automazioni, on this automation: on the phone too, and after the hub's pages are gone.
+              <button type="button" data-testid="agents-jobs-open-hub" onClick={onAutomation} className={act}>
                 {tr('agentsJobs.openAutomations')}
                 <ChevronRight size={12} aria-hidden="true" />
-              </a>
+              </button>
             )}
           </div>
         )}
@@ -543,6 +652,19 @@ function Row({ row, tr, pad, isMobile, meta, right, failedWithdraw, onOpen, onWi
       {onOpen
         ? <button type="button" onClick={onOpen} className={`${rowClass} hover:bg-app-hover`}>{body}</button>
         : <div className={rowClass}>{body}</div>}
+      {onTimeline && (
+        <button
+          type="button"
+          data-testid="agents-jobs-timeline-toggle"
+          aria-expanded={timelineOpen}
+          aria-label={tr('agentsJobs.timeline')}
+          title={tr('agentsJobs.timeline')}
+          onClick={onTimeline}
+          className={`mr-2 mt-1 flex flex-none items-center justify-center rounded-sm text-app-text-muted hover:bg-app-hover hover:text-app-text ${isMobile ? 'h-11 w-11' : 'h-6 w-6 coarse:h-11 coarse:w-11'}`}
+        >
+          {timelineOpen ? <ChevronDown size={13} aria-hidden="true" /> : <ChevronRight size={13} aria-hidden="true" />}
+        </button>
+      )}
       {onWithdraw && (
         <button
           type="button"

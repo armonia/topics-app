@@ -299,12 +299,17 @@ describe('the proxy as it really answers: no repo, the timeline, the same sessio
 });
 
 describe('small pieces', () => {
-  test('foldRows joins only neighbours with the same title, tone and source', () => {
+  test('foldRows joins every row with the same title, tone and source, summing what it spent', () => {
     const r = (key: string, title: string): JobRow => ({ key, source: 'queue', tone: 'ok', title, fallback: null, at: null });
-    expect(foldRows([r('a', 'x'), r('b', 'x'), r('c', 'y'), r('d', 'x')]).map((x) => [x.key, x.fold ?? 1])).toEqual([['a', 2], ['c', 1], ['d', 1]]);
+    // Twenty identical jobs are one line, wherever they sit in the list.
+    expect(foldRows([r('a', 'x'), r('b', 'x'), r('c', 'y'), r('d', 'x')]).map((x) => [x.key, x.fold ?? 1])).toEqual([['a', 3], ['c', 1]]);
     expect(foldRows([r('a', ''), r('b', '')])).toHaveLength(2);
     // Same words in two places are two rows.
     expect(foldRows([{ ...r('a', 'x'), project: 'p' }, { ...r('b', 'x'), project: 'q' }])).toHaveLength(2);
+    const [sum] = foldRows([{ ...r('a', 'x'), tokens: 100, requests: 1, durationMs: 5 }, { ...r('b', 'x'), tokens: 50, requests: 2, durationMs: 9 }]);
+    expect(sum).toMatchObject({ fold: 2, tokens: 150, requests: 3, durationMs: 9 });
+    // A paused job folds only with one paused for the same reason.
+    expect(foldRows([{ ...r('a', 'x'), pausedWhy: 'Claude frenato' }, { ...r('b', 'x'), pausedWhy: 'budget finito' }])).toHaveLength(2);
   });
 
   test('the withdraw goes to the hub queue with the id encoded', () => {

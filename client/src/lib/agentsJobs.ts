@@ -11,7 +11,11 @@
  *   held by a quota until a time, done or failed;
  * - the workflows, as the hub's diary tells them (`/api/hub/diario?days=2`);
  * - the workflows' phases and the gates waiting for an approval, from the
- *   hub's automations (`/api/hub/automations`).
+ *   hub's automations (`/api/hub/automations`);
+ * - what the hub sees running outside Topics, from its board and its live
+ *   agents (`/api/hub/board`, `/api/hub/live`, read in `agentsJobsHub.ts`):
+ *   Claude Code in a terminal or in the desktop app, Codex, Muse, the
+ *   sub-agents, the live workflows, and why a held job is paused.
  *
  * Two rules the level exists to keep. The board's cards are NOT listed again:
  * a queued job born from a card (`ref` `card:...`, one of the night's, or a
@@ -24,13 +28,21 @@
  */
 
 import { gateWaitsOf, type GateWait } from './hubGates';
+import { capFirst, jobTitle, repairName } from './jobTitle';
+import { hubIconPath, hubWork, type HubAgentRow } from './agentsJobsHub';
+import {
+  PROXY_IDLE_MS, proxyActivity, proxyConflicts, proxyCostUsd, proxyState, proxyTimeline,
+  type ProxyActivity, type ProxyConflict, type ProxyState,
+} from './proxySessionDetail';
+
+export { jobTitle, repairName };
 
 export type JobFilter = 'running' | 'waiting' | 'finished';
 
-export type JobSource = 'topic' | 'terminal' | 'proxy' | 'queue' | 'workflow';
+export type JobSource = 'topic' | 'terminal' | 'proxy' | 'queue' | 'workflow' | 'outside' | 'subagent';
 
 /** Which sentence the view uses when a row has no title of its own. */
-export type JobFallback = 'job' | 'proxy' | 'jarvis' | 'workflowAgent' | null;
+export type JobFallback = 'job' | 'proxy' | 'jarvis' | 'workflowAgent' | 'outside' | 'subagent' | 'workflow' | null;
 
 /**
  * What a job in the hub's line waits on: the hub's own reason for holding it
@@ -87,9 +99,34 @@ export interface JobRow {
   cancelId?: string;
   /** Where a Topics row leads. */
   target?: { kind: 'topic' | 'terminal'; id: string; name: string };
+  /** The project's icon: a Topics project's folder, or the hub's icon through the bridge. */
+  iconPath?: string | null;
+  hubIcon?: string | null;
+  /** Who runs a session outside Topics: Claude, Codex, Muse, Jarvis, jcode. */
+  runner?: string | null;
+  /** Its share of the week, in percent. */
+  weekPct?: number | null;
+  /** A session silent on a live command: it works, and waits on that command. */
+  onCommand?: boolean;
+  /** The account a session of the proxy spends. */
+  account?: string | null;
+  /** The tool a session of the proxy runs now. */
+  activity?: ProxyActivity | null;
+  /** Since when a session of the proxy has asked nothing: past two minutes it waits for input. */
+  idleSince?: number | null;
+  /** The summariser's lines of a session of the proxy, never its prompts. */
+  timeline?: string[];
+  /** The cost at the model's list price, in dollars. */
+  costUsd?: number | null;
+  /** Why the hub holds a job in line until a time, its words. */
+  pausedWhy?: string | null;
+  /** When a job entered the hub's line. */
+  queuedAt?: number | null;
+  /** The automation a gate waits in: the row opens it in Automazioni. */
+  automationKey?: string | null;
 }
 
-export type SectionId = 'topics' | 'proxy' | 'queue' | 'workflows' | 'decide' | 'line' | 'quota' | 'failed' | 'today' | 'yesterday';
+export type SectionId = 'topics' | 'outside' | 'subagents' | 'proxy' | 'queue' | 'workflows' | 'decide' | 'line' | 'quota' | 'failed' | 'today' | 'yesterday';
 
 export interface JobSection {
   id: SectionId;
@@ -103,6 +140,10 @@ export interface AgentsJobsView {
   counts: Record<JobFilter, number>;
   /** How many wait on the person: the band on top of the running filter and the row's tail. */
   decide: number;
+  /** The files two or more sessions of the proxy are editing at once. */
+  conflicts: ProxyConflict[];
+  /** The proxy: answering, its session monitor off, or silent. */
+  proxyState: ProxyState;
 }
 
 /** A row of Topics, as `useActiveAgentRows` gives it. */
@@ -112,8 +153,10 @@ export interface TopicsAgentRow {
   label: string;
   /** For a row waiting on you: its question, one line, as the attention store keeps it. */
   question?: string | null;
-  /** When it started waiting, in ms. */
+  /** When it entered its state: started working, began waiting, finished. In ms. */
   since?: number | null;
+  /** The folder of the chat's project, for its icon and its name. */
+  projectPath?: string | null;
 }
 
 export interface AgentsJobsInput {
@@ -126,6 +169,9 @@ export interface AgentsJobsInput {
   automations?: unknown;
   /** The proxy's `/api/sessions` answer, or null. */
   proxy: unknown;
+  /** The hub's `/api/board` and `/api/live` answers, or null: who runs outside Topics. */
+  board?: unknown;
+  live?: unknown;
   now: number;
 }
 
@@ -134,7 +180,6 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 const DAY = 86_400_000;
-const TITLE_MAX = 64;
 
 /** Midnight of the local day `now` falls in. */
 export function startOfDay(now: number): number {
@@ -143,160 +188,6 @@ export function startOfDay(now: number): number {
   return d.getTime();
 }
 
-// Words that make a sentence English: the hub writes in Italian, a prompt in
-// English is a harness's own prose and not a title for this view.
-const ENGLISH = new Set(['the', 'and', 'of', 'to', 'with', 'for', 'this', 'that', 'is', 'are', 'on', 'an', 'from', 'your', 'you', 'be', 'it', 'in', 'up', 'into', 'new']);
-const ENGLISH_ONLY = new Set(['the', 'and', 'of', 'to', 'with', 'for', 'this', 'that', 'is', 'are', 'your', 'you', 'be', 'into', 'adversarial']);
-
-function looksEnglish(s: string): boolean {
-  const words = s.toLowerCase().split(/[^a-z']+/).filter(Boolean);
-  const hits = words.filter((w) => ENGLISH.has(w)).length;
-  const strong = words.some((w) => ENGLISH_ONLY.has(w));
-  return strong && (hits >= 2 || words.length <= 6);
-}
-
-/** A word in capitals is shouting, not a name: kept only up to three letters (PR, CI, API). */
-const calm = (s: string) => s.replace(/\b[A-ZÀ-Ý]{4,}\b/g, (w) => w.toLowerCase());
-
-function clip(s: string, n = TITLE_MAX): string {
-  if (s.length <= n) return s;
-  const cut = s.slice(0, n - 1);
-  const at = cut.lastIndexOf(' ');
-  return `${(at > 20 ? cut.slice(0, at) : cut).replace(/[,;:.\s]+$/, '')}…`;
-}
-
-const capFirst = (s: string) => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
-
-/** Where a token that is not prose was taken out: a path, a file, a command, a link. */
-const CUT = '\uE000';
-
-// The patterns below are the hub's own Italian phrasing of a prompt; they are
-// data, matched against what the person and the agents wrote.
-const WRAPPER = /^(?:esegui|lancia|run|execute)\b[^.]{0,40}\b(?:comando|command)\b|^(?:esegui|svolgi|fai|leggi|segui)\b[^.]{0,30}\b(?:descritt|scritt|indicat)\w*\s+(?:in|nel)\b|^(?:esegui|lancia|fai|run|execute|comando)\s*:/i; // allow-italian: the prompts' own words, matched as data
-const LOCATION = /^(?:nel|nella|in|lavori in|lavora in)\s+(?:(?:il|lo|la)\s+)?(?:git\s+)?(?:worktree|repo|cartella|progetto|ramo)?\b[^:]{0,160}?:\s+/i; // allow-italian: the prompts' own words, matched as data
-const LOCATION_BARE = new RegExp(`^(?:nel|nella|in)\\s+(?:(?:worktree|repo|cartella|progetto)\\s+)?${CUT}\\s*,?\\s*`, 'i'); // allow-italian: the prompts' own words, matched as data
-const PREAMBLE = /^(?:progetto|repo|worktree|cartella|ramo|branch|sorgente|fonte|anteprima)\b/i; // allow-italian: the prompts' own words, matched as data
-const ROLE = /^sei\s+(?:un|una|il|la|lo)\b/i; // allow-italian: the prompts' own words, matched as data
-/** A verifier's brief: what it checks is a claim, not a job with a name. */
-const CHECKER = /^sei\s+un\w*\s+(?:verifier|verificatore|revisore|critico)\b/i; // allow-italian: the prompts' own words, matched as data
-const RULE = /^(?:non|mai|niente|nessun\w*|regole|usa|puoi|devi|ricorda|lavora\s+(?:solo|su|nel|in|qui)|leggi\s+prima|prima\s+leggi|read\s+first|stato|lingua|language|output|formato|stile|browser)\b|\b(?:mai|vietat[oa])\b/i; // allow-italian: the prompts' own words, matched as data
-const LABEL = /^(?:task|compito|goal|obiettivo|richiesta[^:]{0,25}|contesto|context|fase\s+\w+|bug[^:]{0,40}|problema|ripresa[^:]{0,30}|decisione[^:]{0,25})\s*:\s*/i; // allow-italian: the prompts' own words, matched as data
-const CLAUSE = /,\s+(?=(?:niente|non|senza|mai|nessun\w*|solo|sola|rispondi|in italiano|in inglese)\b)/i; // allow-italian: the prompts' own words, matched as data
-const READ_ONLY = /\b(?:in\s+|di\s+)?sol[ao]\s+(?:lettura|scrittura)\b,?/gi; // allow-italian: the prompts' own words, matched as data
-const SMALL = '(?:in|di|da|su|a|ad|al|nel|nella|del|della|con|per|sul|sulla|dal|dalla|e|o|il|lo|la|le|gli|i|un|una|uno|tra|fra)'; // allow-italian: the prompts' own words, matched as data
-const TRAIL_WORDS = new RegExp(`\\s+${SMALL}\\s*$`, 'i');
-const TRAIL_PLACE = new RegExp(`\\s+(?:${SMALL}\\s+){1,2}(?:worktree|repo|ramo|branch|cartella|progetto|file)\\s*$`, 'i'); // allow-italian: the prompts' own words, matched as data
-const BROKEN = new RegExp(`(?:^|\\s)(?:${SMALL}|file|script|cartella|comando|ramo|percorso|branch)\\s*${CUT}`, 'i'); // allow-italian: the prompts' own words, matched as data
-const ENDS_ON_VERB = /\s(?:è|e'|sono|sta|stanno|ha|hanno)$/i; // allow-italian: the prompts' own words, matched as data
-
-/** The end of a sentence without what a removed token left: the mark, a dangling place, a dangling small word. */
-function trimTail(s: string): string {
-  let t = s;
-  for (let i = 0; i < 4; i++) {
-    const before = t;
-    t = t.replace(new RegExp(`[\\s,;:.]*${CUT}[\\s,;:.]*$`), '').replace(TRAIL_PLACE, '').replace(TRAIL_WORDS, '').trim();
-    if (t === before) break;
-  }
-  return t;
-}
-
-/**
- * Past a preamble the next sentences are as often the rules as the work: one
- * is a title only when it is hasLabel as the goal or opens on a verb of work.
- */
-const ACTION = /^(?:\p{L}+(?:are|ere|ire)|correggi|verifica|crea|aggiungi|togli|sistema|rifai|porta|sposta|scrivi|leggi|prepara|trova|cerca|controlla|ripara|rilancia|chiudi|riprendi|completa|traduci|aggiorna|implementa|rimuovi|fai|prova|misura|studia|analizza|confronta|migra|collega|pubblica|rigenera|ricostruisci|indaga|rivedi|rileggi)\b/iu; // allow-italian: the prompts' own words, matched as data
-
-/** One sentence of a prompt made a title, or '' when it is not one; null when it is a preamble to skip. */
-function sentenceTitle(raw: string, afterPreamble: boolean): string | null {
-  let t = raw.trim();
-  if (!t) return null;
-  if (WRAPPER.test(t) || CHECKER.test(t)) return '';
-  if (LOCATION.test(t) && (t.includes(CUT) || /\bramo\b|\brepo\b|\bworktree\b/i.test(t.split(':')[0]!))) t = t.replace(LOCATION, '');
-  else t = t.replace(LOCATION_BARE, '');
-  if (!t.trim() || PREAMBLE.test(t) || ROLE.test(t) || RULE.test(t)) return null;
-  const hasLabel = LABEL.test(t);
-  t = t.replace(LABEL, '');
-  if (afterPreamble && !hasLabel && !ACTION.test(t)) return null;
-  if (WRAPPER.test(t)) return '';
-  t = t.split(CLAUSE)[0]!.replace(READ_ONLY, ' ');
-  const colon = t.indexOf(': ');
-  if (colon > 0) {
-    const head = t.slice(0, colon).trim();
-    const tail = t.slice(colon + 2).replace(new RegExp(CUT, 'g'), '').trim();
-    const words = head.split(/\s+/).length;
-    if (!tail && words <= 3) return '';
-    if (head.includes(CUT) && words <= 3) t = t.slice(colon + 2);
-    else if (words >= 3) t = head;
-  }
-  // A path between a verb and the next one: «read X and tell me» reads «tell me».
-  t = t.replace(new RegExp(`^[\\p{L}']+\\s*${CUT}\\s+e\\s+`, 'iu'), '');
-  t = trimTail(t);
-  // A path cut out of the middle leaves the sentence broken there: what comes before it may still read.
-  const broken = BROKEN.exec(t);
-  if (broken) t = trimTail(t.slice(0, broken.index));
-  if (broken && t.split(/\s+/).length < 3) return '';
-  t = t.replace(new RegExp(CUT, 'g'), ' ').replace(/\s+/g, ' ').replace(/\s+([,.;:!?])/g, '$1').replace(/[.:,;]+$/, '').trim();
-  t = t.replace(/^«(.*)»$/, '$1').replace(/^"(.*)"$/, '$1').trim();
-  if (/^\d+[.)]/.test(t) || ENDS_ON_VERB.test(t)) return '';
-  if (t.split(/\s+/).length < 2 || !/[a-zà-ý]{3}/i.test(t)) return '';
-  if (looksEnglish(t)) return '';
-  return clip(capFirst(t));
-}
-
-/**
- * The automation a job was sent to repair, by the name the hub gave it,
- * without the hub's notes in brackets and after the second colon; null for
- * any other job. The view words the repair.
- */
-export function repairName(raw: unknown): string | null {
-  const auto = /^Automazione «([^»]+)»/i.exec(typeof raw === 'string' ? raw.trim() : ''); // allow-italian: the hub's own prompt
-  if (!auto) return null;
-  const parts = auto[1]!.replace(/\([^()]*\)/g, ' ').replace(/\s+/g, ' ').trim().split(/\s*:\s+/);
-  const name = parts.length > 1 && parts[0]!.split(' ').length <= 2 ? `${parts[0]}: ${parts[1]}` : parts[0]!;
-  return clip(name.trim(), TITLE_MAX - 10);
-}
-
-/**
- * The title of a delegated job, from the text it was given. A prompt is not
- * a title: it starts with where to work, who the agent is, the rules, and only
- * then the work. So the first sentence that says the work, without paths,
- * files, commands, links, parentheses, hashes or flags, at most 64
- * characters. '' when no sentence is readable on its own (a command wrapper,
- * a task kept in a file, a prompt in English, a sentence a removed path left
- * broken): the view then names the job by its project instead.
- */
-export function jobTitle(raw: unknown): string {
-  let s = (typeof raw === 'string' ? raw : '').replace(/\s+/g, ' ').trim();
-  if (!s || s.startsWith('-')) return '';
-  // A card of the board names itself between the quotes.
-  const card = /^Card della board[^«]*«(.+?)»(?:\.|\s|$)/i.exec(s);
-  if (card) return clip(capFirst(card[1]!.trim()));
-  // An automation the hub sent to be repaired is named by `repairName`, not here.
-  if (repairName(s)) return '';
-  s = calm(s)
-    .replace(/\([^()]*\)/g, ' ')
-    .replace(/\([^()]*\)/g, ' ')
-    .replace(/\([^)]*$/, ' ')
-    .replace(/`[^`]*`?/g, CUT)
-    .replace(/https?:\/\/\S*[^\s.,;:)]/g, CUT)
-    .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, CUT)
-    .replace(/(?<![\w/])(?:~|\.{1,2})?\/[^\s,;]*[^\s,;.:]/g, CUT)
-    // A word/word of letters only is prose (rollback/redeploy); with a digit, a dash, a dot or a second slash it is a path or a branch.
-    .replace(/\b(?![\p{L}]+\/[\p{L}]+\b(?![/\w-]|\.\w))[\w.-]*[a-z][\w.-]*\/[^\s,;]*[^\s,;.:]/giu, CUT)
-    .replace(/\b[\w.-]+\.(?:jsonl?|mjs|cjs|js|ts|tsx|jsx|swift|rs|py|sh|md|txt|ya?ml|html|css|toml|lobster|jpe?g|png|webp|gif|svg|pdf|webm|mp4)\b/gi, CUT)
-    .replace(/\b(?=[0-9a-f]*\d)[0-9a-f]{7,}\b/gi, CUT)
-    .replace(/\b\w+=\S+/g, CUT)
-    .replace(/(?:^|\s)--?[a-z][\w-]*/g, ` ${CUT}`)
-    .replace(/\s+/g, ' ');
-  const sentences = s.split(/(?<=[.!?])\s+|\s[\u2014\u2013-]\s|;\s|\s(?=\d[.)]\s)/).slice(0, 5);
-  let afterPreamble = false;
-  for (const sentence of sentences) {
-    const t = sentenceTitle(sentence, afterPreamble);
-    if (t !== null) return t;
-    afterPreamble = true;
-  }
-  return '';
-}
 
 /** «claude-sonnet-5-5» → «Sonnet 5.5»; any other id passes as it is. */
 export function modelLabel(id: unknown): string | null {
@@ -382,7 +273,17 @@ function queueItems(raw: unknown): QueueItem[] {
 
 interface WorkflowPhase { title: string; total: number; done: number; failed: number }
 
-interface WorkflowDetail { at: number; phases: WorkflowPhase[]; agents: number | null; durationMs: number | null }
+interface WorkflowDetail {
+  at: number;
+  phases: WorkflowPhase[];
+  agents: number | null;
+  durationMs: number | null;
+  runId: string | null;
+  /** The run's own summary, made a title (Italian only, never the prompt): every run of a workflow reads apart. */
+  title: string;
+  /** Its agents' tokens, summed. */
+  tokens: number | null;
+}
 
 /** The runs of every workflow by name, with their phases, from the hub's `/api/automations`. */
 function workflowDetails(raw: unknown): Map<string, WorkflowDetail[]> {
@@ -404,7 +305,9 @@ function workflowDetails(raw: unknown): Map<string, WorkflowDetail[]> {
         done: num(p.done) ?? 0,
         failed: num(p.failed) ?? 0,
       }));
-      runs.push({ at, phases, agents: num(r.agents), durationMs: num(r.durationMs) });
+      const steps = (Array.isArray(r.steps) ? r.steps : []).filter(isObject);
+      const tokens = steps.reduce((sum, x) => sum + (num(x.tokens) ?? 0), 0);
+      runs.push({ at, phases, agents: num(r.agents), durationMs: num(r.durationMs), runId: str(r.runId), title: jobTitle(r.summary), tokens: tokens || null });
     }
     out.set(name, runs);
   }
@@ -440,6 +343,8 @@ interface WorkflowRun {
   durationMs: number | null;
   steps: StepMark[];
   step: { n: number; of: number; title: string } | null;
+  tokens: number | null;
+  runId: string | null;
 }
 
 function workflowRuns(raw: unknown, details: Map<string, WorkflowDetail[]>): WorkflowRun[] {
@@ -461,11 +366,14 @@ function workflowRuns(raw: unknown, details: Map<string, WorkflowDetail[]>): Wor
     const bar = run && run.phases.length ? workflowSteps(run.phases, outcome === 'running') : { steps: [], step: null };
     out.push({
       key: `wf:${ref ?? title}:${at}:${i}`,
-      title,
+      // The run's summary when it reads as a title, else the workflow's name.
+      title: run?.title || title,
       outcome,
       at,
       agents: run?.agents ?? said.agents,
       durationMs: run?.durationMs ?? said.durationMs,
+      tokens: run?.tokens ?? null,
+      runId: run?.runId ?? null,
       ...bar,
     });
   });
@@ -486,6 +394,11 @@ interface ProxySession {
   requests: number | null;
   tokens: number | null;
   durationMs: number | null;
+  account: string | null;
+  activity: ProxyActivity | null;
+  lastActiveAt: number | null;
+  timeline: string[];
+  costUsd: number | null;
 }
 
 const CHANNELS: Record<string, string> = { whatsapp: 'WhatsApp', discord: 'Discord', telegram: 'Telegram', imessage: 'iMessage', slack: 'Slack' };
@@ -557,6 +470,11 @@ function proxySessions(raw: unknown): { active: ProxySession[]; recent: ProxySes
         requests: num(s.requestCount),
         tokens: (num(s.totalInputTokens) ?? 0) + (num(s.totalOutputTokens) ?? 0) || null,
         durationMs: num(s.duration),
+        account: str(s.account),
+        activity: proxyActivity(s.currentActivity),
+        lastActiveAt: num(s.lastActiveAt),
+        timeline: proxyTimeline(segments.get(id) ?? [s]),
+        costUsd: proxyCostUsd(s.model, s.totalInputTokens, s.totalOutputTokens),
       };
       const prev = byId.get(id);
       if (!prev || (row.endedAt ?? row.startedAt ?? 0) > (prev.endedAt ?? prev.startedAt ?? 0)) byId.set(id, row);
@@ -567,26 +485,53 @@ function proxySessions(raw: unknown): { active: ProxySession[]; recent: ProxySes
   return { active: live, recent: pick(recent, new Set(live.map((s) => s.id))) };
 }
 
-/** Two rows read the same in the list: same words, same kind, same place, same model. */
+/** Two rows read the same in the list: same words, same kind, same place, same model, same account, same state. */
 function sameLabel(a: JobRow, b: JobRow): boolean {
   if (!(a.title || a.fallback || a.repairOf)) return false;
+  // A session that says what it is doing, or what it did, is not the same as the next one.
+  if (a.activity || b.activity || a.timeline?.length || b.timeline?.length) return false;
   return a.title === b.title && a.fallback === b.fallback && (a.repairOf ?? null) === (b.repairOf ?? null)
-    && (a.channel ?? null) === (b.channel ?? null) && (a.project ?? null) === (b.project ?? null) && (a.model ?? null) === (b.model ?? null);
+    && (a.channel ?? null) === (b.channel ?? null) && (a.project ?? null) === (b.project ?? null) && (a.model ?? null) === (b.model ?? null)
+    && (a.account ?? null) === (b.account ?? null) && (a.runner ?? null) === (b.runner ?? null)
+    && !!a.onCommand === !!b.onCommand && (a.pausedWhy ?? null) === (b.pausedWhy ?? null);
 }
 
-/** Consecutive rows that read the same, with the same tone, become one, counted (×N). */
+const add = (x: number | null | undefined, y: number | null | undefined): number | null =>
+  (x === null || x === undefined) && (y === null || y === undefined) ? null : (x ?? 0) + (y ?? 0);
+const most = (x: number | null | undefined, y: number | null | undefined): number | null =>
+  (x === null || x === undefined) ? y ?? null : (y === null || y === undefined) ? x : Math.max(x, y);
+
+/**
+ * Rows that read the same, with the same tone and source, become one, counted
+ * (×N), where the first of them stands: twenty identical jobs are one line
+ * to read. The tokens, requests, agents, cost and share of the week are the
+ * sums; the duration is the longest.
+ */
 export function foldRows(rows: JobRow[]): JobRow[] {
   const out: JobRow[] = [];
   for (const r of rows) {
-    const last = out[out.length - 1];
-    if (last && last.tone === r.tone && last.source === r.source && !last.target && sameLabel(last, r)) {
-      out[out.length - 1] = { ...last, fold: (last.fold ?? 1) + 1 };
+    const at = r.target ? -1 : out.findIndex((o) => o.tone === r.tone && o.source === r.source && !o.target && sameLabel(o, r));
+    if (at < 0) {
+      out.push(r);
       continue;
     }
-    out.push(r);
+    const o = out[at]!;
+    out[at] = {
+      ...o,
+      fold: (o.fold ?? 1) + 1,
+      tokens: add(o.tokens, r.tokens),
+      requests: add(o.requests, r.requests),
+      agents: add(o.agents, r.agents),
+      costUsd: add(o.costUsd, r.costUsd),
+      weekPct: add(o.weekPct, r.weekPct),
+      durationMs: most(o.durationMs, r.durationMs),
+    };
   }
   return out;
 }
+
+/** The last folder of a path: the project's name. */
+const folderName = (path: string | null | undefined): string | null => (path ? path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || null : null);
 
 const topicRow = (r: TopicsAgentRow, tone: JobTone): JobRow => ({
   key: `${r.kind}:${r.id}`,
@@ -594,9 +539,12 @@ const topicRow = (r: TopicsAgentRow, tone: JobTone): JobRow => ({
   tone,
   title: r.label,
   fallback: null,
-  at: tone === 'you' ? r.since ?? null : null,
+  // Since when it works, waits on you, or since it finished.
+  at: r.since || null,
   question: tone === 'you' ? r.question ?? null : null,
   target: { kind: r.kind, id: r.id, name: r.label },
+  project: folderName(r.projectPath),
+  iconPath: r.projectPath ?? null,
 });
 
 const gateRow = (g: GateWait): JobRow => ({
@@ -608,9 +556,10 @@ const gateRow = (g: GateWait): JobRow => ({
   at: g.since,
   question: g.reason,
   hubPage: `#automations/${encodeURIComponent(g.key)}`,
+  automationKey: g.key,
 });
 
-const queueRow = (q: QueueItem, tone: JobTone, at: number | null): JobRow => ({
+const queueRow = (q: QueueItem, tone: JobTone, at: number | null, icons: Map<string, string>): JobRow => ({
   key: `queue:${q.id}`,
   source: 'queue',
   tone,
@@ -622,9 +571,11 @@ const queueRow = (q: QueueItem, tone: JobTone, at: number | null): JobRow => ({
   project: q.project,
   exit: q.exit,
   durationMs: q.startedAt !== null && q.endedAt !== null ? q.endedAt - q.startedAt : null,
+  hubIcon: hubIconPath(icons, q.project),
+  queuedAt: q.createdAt || null,
 });
 
-const proxyRow = (s: ProxySession, tone: JobTone, at: number | null): JobRow => ({
+const proxyRow = (s: ProxySession, tone: JobTone, at: number | null, icons: Map<string, string>, now: number): JobRow => ({
   key: `proxy:${s.id}:${at ?? 0}`,
   source: 'proxy',
   tone,
@@ -637,6 +588,13 @@ const proxyRow = (s: ProxySession, tone: JobTone, at: number | null): JobRow => 
   requests: s.requests,
   tokens: s.tokens,
   durationMs: s.durationMs,
+  account: s.account,
+  hubIcon: hubIconPath(icons, s.project),
+  costUsd: s.costUsd,
+  timeline: s.timeline,
+  // At work: what it runs now, or since when it waits for its next input.
+  activity: tone === 'live' ? s.activity : null,
+  idleSince: tone === 'live' && s.lastActiveAt !== null && now - s.lastActiveAt > PROXY_IDLE_MS ? s.lastActiveAt : null,
 });
 
 const workflowRow = (w: WorkflowRun, tone: JobTone): JobRow => ({
@@ -650,6 +608,25 @@ const workflowRow = (w: WorkflowRun, tone: JobTone): JobRow => ({
   durationMs: w.durationMs,
   steps: w.steps,
   step: w.step,
+  tokens: w.tokens,
+});
+
+/** A session, sub-agent or live workflow the hub sees outside Topics. */
+const hubRow = (h: HubAgentRow): JobRow => ({
+  key: h.key,
+  source: h.kind === 'session' ? 'outside' : h.kind === 'subagent' ? 'subagent' : 'workflow',
+  tone: 'live',
+  title: h.title,
+  fallback: h.title ? null : h.kind === 'session' ? 'outside' : h.kind === 'subagent' ? 'subagent' : 'workflow',
+  at: h.startedAt,
+  project: h.project,
+  hubIcon: h.icon && h.icon.startsWith('/api/') ? `/api/hub/${h.icon.slice('/api/'.length)}` : null,
+  runner: h.runner,
+  model: h.model,
+  tokens: h.tokens,
+  weekPct: h.weekPct,
+  agents: h.kind === 'workflow' ? h.agents : null,
+  onCommand: h.onCommand,
 });
 
 const section = (id: SectionId, rows: JobRow[]): JobSection[] => (rows.length ? [{ id, rows }] : []);
@@ -667,13 +644,27 @@ export function agentsJobs(input: AgentsJobsInput): AgentsJobsView {
   const proxy = proxySessions(input.proxy);
   const proxyActive = proxy.active;
   const proxyRecent = proxy.recent.filter((s) => (s.endedAt ?? 0) >= yesterday);
+  const hub = hubWork(input.board ?? null, input.live ?? null);
+  const icons = hub.icons;
+
+  // A workflow the diary tells and the hub sees live is one row: the diary's phases, the hub's agents and tokens.
+  const liveFlows = new Map(hub.workflows.filter((w) => w.runId).map((w) => [w.runId!, w]));
+  const flowRows = flows.filter((w) => w.outcome === 'running').map((w) => {
+    const h = w.runId ? liveFlows.get(w.runId) : undefined;
+    if (h) liveFlows.delete(w.runId!);
+    const row = workflowRow(w, 'live');
+    return h ? { ...row, agents: h.agents ?? row.agents, tokens: h.tokens ?? row.tokens, weekPct: h.weekPct, project: h.project, hubIcon: hubRow(h).hubIcon } : row;
+  });
+  const hubFlows = hub.workflows.filter((w) => !w.runId || liveFlows.has(w.runId)).map(hubRow);
 
   // RUNNING
   const running: JobSection[] = [
     ...section('topics', topics.working.map((r) => topicRow(r, 'live'))),
-    ...section('proxy', proxyActive.sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0)).map((s) => proxyRow(s, 'live', s.startedAt))),
-    ...section('queue', queue.filter((q) => q.status === 'running').map((q) => queueRow(q, 'live', q.startedAt ?? q.createdAt))),
-    ...section('workflows', flows.filter((w) => w.outcome === 'running').sort((a, b) => b.at - a.at).map((w) => workflowRow(w, 'live'))),
+    ...section('outside', foldRows(hub.sessions.map(hubRow))),
+    ...section('subagents', foldRows(hub.subagents.map(hubRow))),
+    ...section('proxy', foldRows(proxyActive.sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0)).map((s) => proxyRow(s, 'live', s.startedAt, icons, now)))),
+    ...section('queue', foldRows(queue.filter((q) => q.status === 'running').map((q) => queueRow(q, 'live', q.startedAt ?? q.createdAt, icons)))),
+    ...section('workflows', [...flowRows, ...hubFlows].sort(byAtNewestFirst)),
   ];
 
   // WAITING: yours first, then the line in the hub's own order, then the ones a quota holds.
@@ -682,7 +673,7 @@ export function agentsJobs(input: AgentsJobsInput): AgentsJobsView {
   const line = queued.filter((q) => !(q.waitUntil !== null && q.waitUntil > now))
     .sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt);
   const lineItems = new Map(line.map((q) => [`queue:${q.id}`, q]));
-  const lineRows = foldRows(line.map((q) => ({ ...queueRow(q, 'line', q.createdAt), cancelId: q.id })))
+  const lineRows = foldRows(line.map((q) => ({ ...queueRow(q, 'line', q.createdAt, icons), cancelId: q.id })))
     .map((r, i, all): JobRow => {
       const q = lineItems.get(r.key);
       const prev = all[i - 1];
@@ -697,14 +688,15 @@ export function agentsJobs(input: AgentsJobsInput): AgentsJobsView {
     ...section('decide', [...topics.awaitingInput.map((r) => topicRow(r, 'you')), ...gates.map(gateRow)]
       .sort((a, b) => (a.at ?? Number.POSITIVE_INFINITY) - (b.at ?? Number.POSITIVE_INFINITY))),
     ...section('line', lineRows),
-    ...section('quota', held.map((q) => ({ ...queueRow(q, 'quota', q.waitUntil), cancelId: q.id }))),
+    // The hub says why it holds each: the subscription that brakes it, a hold by hand, the budget.
+    ...section('quota', foldRows(held.map((q) => ({ ...queueRow(q, 'quota', q.waitUntil, icons), cancelId: q.id, pausedWhy: hub.paused.get(q.id)?.why ?? null })))),
   ];
 
   // FINISHED: what failed on top, then today and yesterday.
   const ended: JobRow[] = [
     ...queue.filter((q) => (q.status === 'done' || q.status === 'failed') && (q.endedAt ?? q.createdAt) >= yesterday)
-      .map((q) => queueRow(q, q.status === 'failed' ? 'failed' : 'ok', q.endedAt ?? q.createdAt)),
-    ...proxyRecent.map((s) => proxyRow(s, 'ok', s.endedAt)),
+      .map((q) => queueRow(q, q.status === 'failed' ? 'failed' : 'ok', q.endedAt ?? q.createdAt, icons)),
+    ...proxyRecent.map((s) => proxyRow(s, 'ok', s.endedAt, icons, now)),
     ...flows.filter((w) => w.outcome !== 'running' && w.at >= yesterday)
       .map((w) => workflowRow(w, w.outcome === 'error' ? 'failed' : 'ok')),
   ].sort(byAtNewestFirst);
@@ -721,6 +713,8 @@ export function agentsJobs(input: AgentsJobsInput): AgentsJobsView {
     finished,
     counts: { running: rowsOf(running), waiting: rowsOf(waiting), finished: rowsOf(finished) },
     decide: topics.awaitingInput.length + gates.length,
+    conflicts: proxyConflicts(input.proxy),
+    proxyState: proxyState(input.proxy),
   };
 }
 

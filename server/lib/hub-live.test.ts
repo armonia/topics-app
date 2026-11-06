@@ -124,7 +124,7 @@ describe("HUBBR-02: hub live data on the WebSocket", () => {
     await h.live.tick();
     const first = h.frames.find((f) => f.topic === "projects");
     // The Claude share stays: the budget is measured on it alone.
-    expect(first?.data).toEqual({ projects: [{ name: "acme-web", state: "attivo", total: 12, claude: 4 }] });
+    expect(first?.data).toEqual({ projects: [{ name: "acme-web", state: "attivo", total: 12, claude: 4 }], agentsOutside: 0 });
     h.answers.live = { projects: [{ name: "acme-web", state: "attivo", total: 12, claude: 4, codex: 8, agents: { count: 3 }, lastSeen: { at: 2 } }] };
     h.frames.length = 0;
     h.advance(15_000);
@@ -132,7 +132,18 @@ describe("HUBBR-02: hub live data on the WebSocket", () => {
     expect(h.frames.filter((f) => f.topic === "projects")).toEqual([]);
     h.answers.live = { projects: [{ name: "acme-web", state: "frenato", why: "budget finito", total: 12 }] };
     await h.live.tick();
-    expect(h.frames.filter((f) => f.topic === "projects").map((f) => f.data)).toEqual([{ projects: [{ name: "acme-web", state: "frenato", why: "budget finito", total: 12 }] }]);
+    expect(h.frames.filter((f) => f.topic === "projects").map((f) => f.data)).toEqual([{ projects: [{ name: "acme-web", state: "frenato", why: "budget finito", total: 12 }], agentsOutside: 0 }]);
+  });
+
+  test("the agents at work outside Topics are a count, the ones in a Topics tab left out (HUBBR-13)", async () => {
+    const h = harness();
+    const agent = (via: string | null) => ({ kind: "sessione", provider: "claude", ...(via ? { open: { via } } : {}) });
+    h.answers.live = { projects: [
+      { name: "acme-web", state: "attivo", total: 12, agents: { count: 3, list: [agent("tab Topics"), agent(null), agent("Claude Code desktop")] } },
+      { name: "studio-x", state: "attivo", total: 2, agents: { count: 1, list: [{ kind: "codex", provider: "codex" }] } },
+    ] };
+    await h.live.tick();
+    expect((h.frames.find((f) => f.topic === "projects")?.data as { agentsOutside?: number }).agentsOutside).toBe(3);
   });
 
   test("refresh after a write reads anew instead of sharing a read already in flight", async () => {
