@@ -25,7 +25,7 @@
  * row and the menu go back to what Topics alone shows.
  */
 import { useState } from 'react';
-import { ArrowDown, ArrowUp, Bot, Clock, Pause } from 'lucide-react';
+import { ArrowDown, ArrowUp, Ban, Bot, Clock, Pause } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
 import { addCatalogue } from '../../lib/i18n';
 import PROJECT_HUB_IT from '../../lib/i18n-project-hub-it';
@@ -212,7 +212,7 @@ export function ProjectHubMenu({ projectPath, onClose }: { projectPath: string; 
 
   const budgets = budgetChoices(p.budgetPct);
   return (
-    <div data-testid="project-hub-menu" data-project-hub={p.name} className="w-[268px] max-w-full">
+    <div data-testid="project-hub-menu" data-project-hub={p.name} className="w-[268px] max-w-full coarse:w-full">
       <div className={POPOVER_DIVIDER} />
       <div className="flex flex-col gap-1 px-3 py-1.5 text-mini leading-snug text-app-text-secondary">
         {p.what && <div data-testid="project-hub-menu-what" className="line-clamp-2 text-app-text-tertiary" title={p.what}>{p.what}</div>}
@@ -242,9 +242,10 @@ export function ProjectHubMenu({ projectPath, onClose }: { projectPath: string; 
       </div>
       <div className="flex flex-col gap-1 px-3 pb-1.5 pt-1">
         <span className="text-mini text-app-text-tertiary">{tr('projectHub.budget')}</span>
+        {/* Seven choices in a menu's width: the numbers alone (the line below says they are % of the Claude week), none as a glyph. */}
         <Segmented
           value={p.budgetPct === null ? 'none' : String(p.budgetPct)}
-          options={budgets.map((b) => ({ value: b === null ? 'none' : String(b), label: b === null ? tr('projectHub.budget.none') : tr('projectHub.budget.pct', { pct: b }) }))}
+          options={budgets.map((b) => (b === null ? { value: 'none', label: tr('projectHub.budget.none'), icon: Ban } : { value: String(b), label: String(b) }))}
           onChange={(v) => { void write({ budgetPct: v === 'none' ? null : Number(v) }); }}
           ariaLabel={tr('projectHub.budget')}
           testId="project-hub-budget"

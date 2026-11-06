@@ -37,7 +37,7 @@ const PROJECT_HUB_EN: Dict = {
   'projectHub.agent.open': 'Open',
   'projectHub.agent.openVia': 'Opens in {via}',
   'projectHub.opus': '{n} Opus for {t} on a project at {pct}% of the Claude week: consider Sonnet',
-  'projectHub.budgetHint': 'On the Claude week: past it, background jobs stop, chats do not',
+  'projectHub.budgetHint': 'In % of the Claude week: past it, background jobs stop, chats do not',
   'projectHub.queued': 'In line: {why}',
   'projectHub.queuedBare': 'In line',
   'projectHub.over': 'Over the budget of the week',
@@ -47,7 +47,6 @@ const PROJECT_HUB_EN: Dict = {
   'projectHub.priority.bassa': 'Low',
   'projectHub.budget': 'Budget of the week',
   'projectHub.budget.none': 'None',
-  'projectHub.budget.pct': '{pct}%',
   'projectHub.failed': 'Not saved: {why}',
 };
 

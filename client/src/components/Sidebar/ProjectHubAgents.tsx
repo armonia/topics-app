@@ -1,13 +1,13 @@
 /**
  * THE PROJECT MENU'S AGENTS (hub-smistamento, HUBBR-16): who works on the
- * project now, as the hub's Progetti page listed it under each project, across
+ * project now, as the hub's projects page listed it under each project, across
  * Claude Code, Codex, Muse and jcode, inside Topics and out.
  *
  * Folded, one line says how many, the model mix («1 Opus · 2 Sonnet») and the
- * pace of the last hour; open, each agent says its provider and model, what
+ * pace of the last hour; unfolded, each agent says its provider and model, what
  * kind of session it is, since when it runs, when it last did something, its
  * tokens and its share of the week, its title, sub-agents one step in, and
- * «Apri» where the hub knows a way in (a Topics chat opens here as a tab, the
+ * an open button where the hub knows a way in (a Topics chat opens here as a tab, the
  * desktop app's link opens outside). Below, the hub's cost advice when Opus
  * runs on a project that already took a tenth of the Claude week.
  */
@@ -68,9 +68,9 @@ function AgentRow({ a, now, onOpened }: { a: HubAgent; now: number; onOpened?: (
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-1">
           <b className="flex-none text-mini font-semibold text-app-text">{a.model || PROVIDER_NAMES[a.provider] || a.provider}</b>
-          <span data-testid="project-hub-agent-meta" className="truncate text-mini tabular-nums text-app-text-tertiary" title={meta}>{meta}</span>
+          {a.title && <span className="truncate text-mini text-app-text-secondary" title={a.title}>{a.title}</span>}
         </div>
-        {a.title && <div className="truncate text-mini text-app-text-secondary" title={a.title}>{a.title}</div>}
+        <div data-testid="project-hub-agent-meta" className="text-mini leading-snug tabular-nums text-app-text-tertiary">{meta}</div>
       </div>
       {target && (
         <button
@@ -104,15 +104,15 @@ export function ProjectHubAgents({ p, onOpened }: { p: HubProject; onOpened?: ()
         data-testid="project-hub-agents-toggle"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-1.5 px-3 py-1 text-left hover:bg-app-hover"
+        className="flex w-full items-start gap-1.5 px-3 py-1 text-left hover:bg-app-hover"
       >
-        {open ? <ChevronDown size={12} className="flex-none text-app-text-tertiary" aria-hidden="true" /> : <ChevronRight size={12} className="flex-none text-app-text-tertiary" aria-hidden="true" />}
-        <span className="min-w-0 flex-1 truncate text-mini">
-          <span className="text-app-text">{a.count === 1 ? tr('projectHub.agentsOne') : tr('projectHub.agents', { n: a.count })}</span>
-          {a.models.length > 0 && <span data-testid="project-hub-agents-mix" className="text-app-text-tertiary">{` · ${modelMix(a)}`}</span>}
+        {open ? <ChevronDown size={12} className="flex-none self-start mt-0.5 text-app-text-tertiary" aria-hidden="true" /> : <ChevronRight size={12} className="flex-none self-start mt-0.5 text-app-text-tertiary" aria-hidden="true" />}
+        <span className="flex min-w-0 flex-1 flex-col text-mini">
+          <span className="truncate text-app-text">{a.count === 1 ? tr('projectHub.agentsOne') : tr('projectHub.agents', { n: a.count })}</span>
+          {a.models.length > 0 && <span data-testid="project-hub-agents-mix" className="truncate text-app-text-tertiary">{modelMix(a)}</span>}
         </span>
         {a.hourTokens > 0 && (
-          <span data-testid="project-hub-agents-pace" className="flex-none text-mini tabular-nums text-app-text-secondary" title={tr('projectHub.paceTitle')}>
+          <span data-testid="project-hub-agents-pace" className="flex-none self-start text-mini tabular-nums text-app-text-secondary" title={tr('projectHub.paceTitle')}>
             {tr('projectHub.pace', { n: shortTokens(a.hourTokens, locale) })}
           </span>
         )}

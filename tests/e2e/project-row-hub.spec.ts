@@ -257,7 +257,7 @@ test.describe("project row with the hub", () => {
 
     // The tray's steps: 5 to 30, and the one in force beside them.
     for (const v of ["none", "5", "10", "15", "20", "30", "40"]) await expect(menu.getByTestId(`project-hub-budget-${v}`)).toBeVisible();
-    await expect(menu.getByTestId("project-hub-budget-hint")).toHaveText("Sulla settimana Claude: oltre, si fermano i lavori in background, non le chat");
+    await expect(menu.getByTestId("project-hub-budget-hint")).toHaveText("In % della settimana Claude: oltre, si fermano i lavori in background, non le chat");
     await menu.getByTestId("project-hub-budget-30").click();
     await expect(menu.getByTestId("project-hub-menu-week")).toHaveText("30% della settimana Claude su 30% di budget");
     await expect(menu.getByTestId("project-hub-budget-30")).toHaveAttribute("aria-checked", "true");
@@ -281,7 +281,7 @@ test.describe("project row with the hub", () => {
     await expect(menu.getByTestId("project-hub-share-muse")).toContainText("6%");
     const toggle = menu.getByTestId("project-hub-agents-toggle");
     await expect(toggle).toContainText("3 agenti al lavoro");
-    await expect(menu.getByTestId("project-hub-agents-mix")).toHaveText(" · 1 Opus · 1 Sonnet · 1 gpt-5");
+    await expect(menu.getByTestId("project-hub-agents-mix")).toHaveText("1 Opus · 1 Sonnet · 1 gpt-5");
     // The last hour of all its agents: 400 k + 90 k.
     await expect(menu.getByTestId("project-hub-agents-pace")).toHaveText("490 k/h");
     await expect(menu.getByTestId("project-hub-opus")).toHaveText("1 Opus da 2 h su un progetto al 30% della settimana Claude: valuta Sonnet");
