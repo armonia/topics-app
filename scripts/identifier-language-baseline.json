@@ -164,16 +164,7 @@
       "detto"
     ],
     "client/src/components/Board/taskChoices.test.ts": [
-      "chiusa",
-      "consegnata",
-      "disegnate",
-      "dopo",
-      "mai",
-      "orfana",
       "rosso",
-      "scelta",
-      "scelte",
-      "senzaRamo",
       "verde"
     ],
     "client/src/components/Board/taskChoices.ts": [

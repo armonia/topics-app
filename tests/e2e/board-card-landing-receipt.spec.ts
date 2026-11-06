@@ -219,7 +219,9 @@ test.describe("Board · la ricevuta del land arriva sulla card", () => {
 
         await didascalia(page, "Un click su «Landa su main»");
         await beat(page, 1000);
-        await card.getByTestId("task-choice-land").click();
+        // 03/11: «Landa su main» is in the «…» menu of a card with a branch; the face keeps «Approva».
+        await card.getByTestId("task-choices-menu").click();
+        await page.getByTestId("task-choices-panel").getByTestId("task-choice-land").click();
 
         // SECOND STATE: the receipt, on the card that took the click. The words
         // come from the i18n table, so what is pinned here is the queue's FACT:
