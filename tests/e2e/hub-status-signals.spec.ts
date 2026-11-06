@@ -8,7 +8,8 @@
  * strain (to look at), each with its way to the view where it lives.
  * History splits «Automazioni e agenti» into the hub's own kinds with their
  * counts, a workflow's line opens its row in Automazioni and a job born from a
- * card opens the task. Processi groups the services as the hub did (your apps
+ * card opens the task, an item linked to a hub page that moved into Topics
+ * opens that place. Processi groups the services as the hub did (your apps
  * first) and says when the hub read them.
  *
  * The hub is a fake (helpers/fake-hub.ts) on the port the test server reads;
@@ -86,7 +87,9 @@ test.describe("the hub's status signals", () => {
 
   test.beforeAll(async ({ request }) => {
     scene = await seedScene(request, `${canonicalTmpRoot()}/e2e-hub-signals-${Date.now().toString(36)}`);
-    hub = await startFakeHub(defaultFakeHubItems(), { automations: true });
+    // One more item, linked to a page of the hub that now lives in Topics.
+    const services = { id: "e2e-services", tipo: "vista" as const, title: "Indice dei documenti da guardare", from: "guardiano", link: "#services", at: Date.now() - HOUR };
+    hub = await startFakeHub([...defaultFakeHubItems(), services], { automations: true });
     hub.answersOverride = overrides(Date.now());
     await waitForSignals(request);
   });
@@ -136,10 +139,18 @@ test.describe("the hub's status signals", () => {
     await outlooks.first().getByTestId("bell-open-accounts").click();
     await expect(page.getByTestId("accounts-pane")).toBeVisible({ timeout: 20_000 });
     await expect(panel(page)).toHaveCount(0);
+    // An item linked to the hub's Servizi page opens Processi in Topics, not the hub's page.
     await openBell(page);
-    await panel(page).getByTestId("bell-group-look").getByTestId("bell-row").first().getByTestId("bell-open-processes").click();
+    const item = panel(page).getByTestId("inbox-waiting").locator("li").filter({ hasText: "Indice dei documenti da guardare" }).getByTestId("bell-open");
+    await expect(item).toHaveAttribute("data-target", "utility");
+    expect(await item.evaluate((el) => el.tagName)).toBe("BUTTON");
+    await item.click();
     const processes = page.getByTestId("machine-processes");
     await expect(processes).toBeVisible({ timeout: 20_000 });
+    await openBell(page);
+    await panel(page).getByTestId("bell-group-look").getByTestId("bell-row").first().getByTestId("bell-open-processes").click();
+    await expect(panel(page)).toHaveCount(0);
+    await expect(processes).toBeVisible();
 
     // Processi: the services in the hub's groups, your apps first, and when the hub read them.
     const services = processes.getByTestId("machine-processes-services");

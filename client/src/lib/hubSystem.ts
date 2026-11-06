@@ -27,6 +27,8 @@ export interface WaitingItem {
   link: string | null;
   /** A link to one automation (`#automations/<key>`) opens Topics' own view on it, on every device. */
   automationKey: string | null;
+  /** A link to a page of the hub whose content now lives in Topics: Open goes there, on every device. */
+  place: HubPlace | null;
   /** Who opened it, in the hub's words («guardiano», «claude»). */
   from: string | null;
   due: number | null;
@@ -94,6 +96,41 @@ export function automationKeyOfLink(link: unknown): string | null {
   }
 }
 
+/** Where a page of the hub lives in Topics: a view of its own, or a level of the user menu. */
+export type HubPlace =
+  | { kind: 'utility'; type: 'processes' | 'accounts' | 'dashboard' | 'features' | 'automations' }
+  | { kind: 'menu'; level: 'agents' | 'context' }
+  | { kind: 'log' };
+
+/**
+ * The hub's pages (`#work`, `#services`, …) and the place of Topics that
+ * took each one over (hub-smistamento): a link of an item to one of them opens
+ * Topics, so it keeps working once the hub's page only sends to Topics. The
+ * overview and the diary have no single place (the overview is the sidebar,
+ * the diary is this very bell): they stay hub links.
+ */
+const HUB_PAGE_PLACES: Record<string, HubPlace> = {
+  work: { kind: 'menu', level: 'agents' },
+  sessions: { kind: 'menu', level: 'agents' },
+  context: { kind: 'menu', level: 'context' },
+  services: { kind: 'utility', type: 'processes' },
+  logs: { kind: 'log' },
+  accounts: { kind: 'utility', type: 'accounts' },
+  activity: { kind: 'utility', type: 'accounts' },
+  settings: { kind: 'utility', type: 'accounts' },
+  usage: { kind: 'utility', type: 'dashboard' },
+  projects: { kind: 'utility', type: 'dashboard' },
+  features: { kind: 'utility', type: 'features' },
+  automations: { kind: 'utility', type: 'automations' },
+};
+
+/** The place in Topics of a hub page link (`#work/<filter>`, `#services`), or null for any other link. */
+export function hubPlaceOfLink(link: unknown): HubPlace | null {
+  const s = str(link)?.trim();
+  const m = s ? /^#([a-z]+)(?:\/.*)?$/.exec(s) : null;
+  return m ? HUB_PAGE_PLACES[m[1]!] ?? null : null;
+}
+
 /** The open items, in the hub's own order (most urgent first). */
 export function waitingItems(data: unknown, windowHost: string = currentHost()): WaitingItem[] {
   const items = isObject(data) && Array.isArray(data.items) ? data.items : [];
@@ -105,8 +142,9 @@ export function waitingItems(data: unknown, windowHost: string = currentHost()):
     if (!id || !title) continue;
     const kind = (WAITING_KINDS as readonly string[]).includes(String(raw.tipo)) ? (raw.tipo as WaitingKind) : 'decisione'; // allow-italian: the hub's wire value
     const automationKey = automationKeyOfLink(raw.link);
+    const place = automationKey ? null : hubPlaceOfLink(raw.link);
     out.push({
-      id, kind, title, why: str(raw.why), link: automationKey ? null : safeLink(raw.link, windowHost), automationKey,
+      id, kind, title, why: str(raw.why), link: automationKey || place ? null : safeLink(raw.link, windowHost), automationKey, place,
       from: str(raw.from), due: num(raw.due), since: num(raw.at),
     });
   }

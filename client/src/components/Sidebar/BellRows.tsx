@@ -20,7 +20,9 @@ import { useLocale, useT } from '../../hooks/useT';
 import { useMobile } from '../../hooks/useMobile';
 import { useBellActions } from '../../hooks/useBellHub';
 import { bellTimeLabel, type BellEntry } from '../../lib/bellGroups';
-import { jarvisHref, type DiaryEntry, type WaitingKind } from '../../lib/hubSystem';
+import { jarvisHref, type DiaryEntry, type HubPlace, type WaitingKind } from '../../lib/hubSystem';
+import { openUserMenu } from '../../lib/openUserMenu';
+import { openProcessesLog } from '../../state/processesLog';
 import { openAutomation } from '../../state/automationTarget';
 import { openTaskInApp } from '../../lib/openTaskLink';
 import { WARNING_TEXT, DANGER_TEXT } from '../../lib/popoverStyles';
@@ -135,6 +137,13 @@ export function RowShell({ icon: Icon, tint, first, title, second, at, actions, 
 
 const joined = (parts: (string | null | undefined | false)[]) => parts.filter(Boolean).join(' · ');
 
+/** Open the place of Topics that took over a page of the hub. */
+function openPlace(place: HubPlace): void {
+  if (place.kind === 'menu') openUserMenu(place.level);
+  else if (place.kind === 'log') openProcessesLog();
+  else window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: place.type } }));
+}
+
 /** A row's way to the view where its subject lives (Processi, Account e quote). */
 function OpenUtility({ type, label, testId, className, onNavigate }: { type: 'processes' | 'accounts'; label: string; testId: string; className: string; onNavigate?: () => void }) {
   return (
@@ -213,6 +222,16 @@ export function HubRow({ entry, first, onNavigate, jarvis }: {
                   className={button.primary}
                   data-testid="bell-open"
                   data-target="automation"
+                >
+                  {tr('bell.open')}
+                </button>
+              ) : item.place ? (
+                <button
+                  type="button"
+                  onClick={() => { onNavigate?.(); openPlace(item.place!); }}
+                  className={button.primary}
+                  data-testid="bell-open"
+                  data-target={item.place.kind}
                 >
                   {tr('bell.open')}
                 </button>
