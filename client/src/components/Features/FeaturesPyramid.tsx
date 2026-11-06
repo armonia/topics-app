@@ -15,6 +15,7 @@ import { useState } from 'react';
 import type { useT } from '../../hooks/useT';
 import { BAND_OF, PYRAMID_BANDS, type PyramidBand, type PyramidLevel, type PyramidView } from '../../lib/hubPyramid';
 import type { FeaturesView, PlanKind } from '../../lib/hubFeatures';
+import { PLAN_CHIP } from './featureStyles';
 
 type Tr = ReturnType<typeof useT>;
 
@@ -37,14 +38,6 @@ const BAND_CHIP: Record<PyramidBand, string> = {
   off: 'bg-app-hover text-app-text-secondary',
 };
 
-/** The plan's colours, shared with the chip on a feature's row. */
-export const PLAN_CHIP: Record<PlanKind, string> = {
-  sviluppo: 'bg-primary/[0.12] text-primary',
-  topics: 'bg-sky-500/[0.12] text-sky-700 dark:text-sky-400',
-  altro: 'bg-emerald-500/[0.12] text-emerald-700 dark:text-emerald-400',
-  scelta: 'bg-app-hover text-app-text-secondary',
-  fatto: 'bg-emerald-500/[0.12] text-emerald-700 dark:text-emerald-400',
-};
 
 const PLAN_DOT: Record<PlanKind, string> = {
   sviluppo: 'bg-primary',

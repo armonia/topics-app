@@ -26,7 +26,8 @@ import FEATURES_EN from '../../lib/i18n-features-en';
 import FEATURE_NAMES_IT from '../../lib/i18n-features-names-it';
 import { FEATURE_FILTERS, featuresView, filterCounts, localizeFeatures, visibleAreas, OURS, type FeatureArea, type FeatureFilter, type FeatureLeaf, type FeaturesView, type LeafStatus } from '../../lib/hubFeatures';
 import { pyramidView } from '../../lib/hubPyramid';
-import { BOX, Decided, PLAN_CHIP, Pyramid, SECTION, SECTION_COUNT, SECTION_REST } from './FeaturesPyramid';
+import { BOX, Decided, Pyramid, SECTION, SECTION_COUNT, SECTION_REST } from './FeaturesPyramid';
+import { PLAN_CHIP } from './featureStyles';
 import { HUB_FEATURES_DOC, useHubDoc } from '../../state/hubDocs';
 import { useHubEverRead } from '../../state/hubLive';
 
