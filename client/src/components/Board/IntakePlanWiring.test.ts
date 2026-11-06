@@ -27,6 +27,13 @@ describe('composer wiring of the intake plan', () => {
     expect(composer).not.toContain('confirmPlan');
   });
 
+  test('a send that beats the project index waits for it instead of creating a card', () => {
+    const body = composer.slice(composer.indexOf('const submit = async'));
+    // Without the index every text reads as one card, so the first Enter would create it before the proposal opens.
+    expect(body).toMatch(/await loadBoardProjects\(\)/);
+    expect(body.indexOf('await loadBoardProjects()')).toBeLessThan(body.indexOf('await runIntakeSubmit('));
+  });
+
   test('a blocked proposal is reported and keeps the text; cancel clears only the rows', () => {
     expect(composer).toContain('onBlocked:');
     expect(composer).toMatch(/const cancelPlan = \(\) => \{ setPlanRows\(null\)/);

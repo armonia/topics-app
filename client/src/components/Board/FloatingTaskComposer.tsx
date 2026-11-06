@@ -6,7 +6,7 @@ import { insertAtCaret } from '../../lib/insertAtCaret';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { ZoomableImage } from '../Shared/ImageLightbox';
 import { boardApi, boardDrafts, AUTO_PROJECT_ID, STATUS_LABEL, UNASSIGNED_PROJECT_ID, type BoardProjectRef, type BoardSettings, type LinkProposal, type TaskStatus } from '../../lib/board';
-import { addBoardProject, projectNameFromId, useBoardProjects, useNewProjectDir } from '../../lib/boardProjectsStore';
+import { addBoardProject, loadBoardProjects, projectNameFromId, useBoardProjects, useNewProjectDir } from '../../lib/boardProjectsStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { CHIP_LABEL, COMPOSER_CURSOR_KEY, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER } from './constants';
 import { autoGrow } from './format';
@@ -459,8 +459,11 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
     };
     setSubmitting(true);
     try {
+      // The project index loads asynchronously: a send that beats it must wait for it,
+      // or a list request would be taken for a one-card text and create a card at once.
+      const knownProjects = openPlan || asSingle || planProjects ? planProjects : await loadBoardProjects();
       await runIntakeSubmit({
-        planRows: openPlan, request: raw, hasAttachments: attachments.length > 0, projects: planProjects,
+        planRows: openPlan, request: raw, hasAttachments: attachments.length > 0, projects: knownProjects,
         defaultProjectId: target === UNASSIGNED_PROJECT_ID ? null : target, asSingle,
         done: planDoneRef.current, create: createPlanRow, adopt: adoptExisting,
       }, {
