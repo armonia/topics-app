@@ -122,6 +122,8 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   // "Mac only" at birth: the overflow never moves the card off this Mac.
   const [stayLocal, setStayLocal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // Synchronous twin of `submitting`: state lags a render, so two sends in the same tick would both pass it.
+  const sendingRef = useRef(false);
   // Avvio: dove nasce il task (Todo = parte, Backlog = resta ferma) e se prima
   // dell'implementazione vuoi il piano. Un chip solo, due domande vicine.
   const [startOpen, setStartOpen] = useState(false);
@@ -396,12 +398,15 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
 
   const submit = async (asSingle = false) => {
     const raw = text.trim();
-    if (submitting) return;
+    if (submitting || sendingRef.current) return;
     // "One card" closes the proposal and sends the whole text as it is.
     if (planRows && asSingle) cancelPlan();
     const openPlan = asSingle ? null : planRows;
     if (!openPlan && !raw) return;
     if (!openPlan && !target) { onError('Scegli il progetto del task.'); setProjOpen(true); return; }
+    // From here ONE send is in flight: whatever it decides (proposal or one card), nothing else can create.
+    sendingRef.current = true;
+    setSubmitting(true);
     // Nothing is created before the proposal is confirmed: with the panel open
     // Enter and the send button confirm it and never create a card of their own.
     // The one-card path: handed to runIntakeSubmit, which calls it only when no proposal is involved.
@@ -422,7 +427,6 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
     // configurato, rete assente — resta questo, che almeno non spezza le
     // parole a meta'.
     const { title, description } = titoloDaTesto(raw);
-    setSubmitting(true);
     try {
       // Il collegamento viaggia DENTRO la create: non esiste un istante in cui
       // il task è nato e il link non c'è ancora (o peggio, c'è senza che
@@ -455,9 +459,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
       if (taRef.current) taRef.current.style.height = 'auto';
       onCreated(created.id);
     } catch (e) { onError(e instanceof Error ? e.message : 'create failed'); }
-    finally { setSubmitting(false); }
     };
-    setSubmitting(true);
     try {
       // The project index loads asynchronously: a send that beats it must wait for it,
       // or a list request would be taken for a one-card text and create a card at once.
@@ -470,9 +472,10 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
         onBlocked: (reason) => onError(`Proposal not confirmed: ${reason}`),
         onPropose: (rows) => { setPlanRows(rows); setPlanFailures({}); planDoneRef.current = []; },
         onPlanned: (result) => finishPlan(result, openPlan ?? []),
-        createSingle: async () => { setSubmitting(false); await createSingle(); },
+        createSingle,
       });
     } catch (e) { onError(e instanceof Error ? e.message : "create failed"); }
+    sendingRef.current = false;
     setSubmitting(false);
   };
 

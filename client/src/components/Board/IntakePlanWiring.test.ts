@@ -23,7 +23,7 @@ describe('composer wiring of the intake plan', () => {
     const body = composer.slice(composer.indexOf('const submit = async'));
     expect(body).toContain('runIntakeSubmit(');
     // The one-card path is only a callback of runIntakeSubmit: the composer has no other door to boardApi.create besides the plan rows.
-    expect(body).toContain('createSingle: async');
+    expect(body).toContain('createSingle,');
     expect(composer).not.toContain('confirmPlan');
   });
 
@@ -32,6 +32,15 @@ describe('composer wiring of the intake plan', () => {
     // Without the index every text reads as one card, so the first Enter would create it before the proposal opens.
     expect(body).toMatch(/await loadBoardProjects\(\)/);
     expect(body.indexOf('await loadBoardProjects()')).toBeLessThan(body.indexOf('await runIntakeSubmit('));
+  });
+
+  test('one send in flight at a time: a synchronous lock set before the decision, released after it', () => {
+    const body = composer.slice(composer.indexOf('const submit = async'));
+    expect(body).toContain('sendingRef.current) return;');
+    expect(body.indexOf('sendingRef.current = true')).toBeLessThan(body.indexOf('await loadBoardProjects()'));
+    expect(body.indexOf('sendingRef.current = false')).toBeGreaterThan(body.indexOf('await runIntakeSubmit('));
+    // The one-card callback no longer lowers the busy flag itself: that opened a window for a second send.
+    expect(body).not.toContain('setSubmitting(false); await createSingle()');
   });
 
   test('a blocked proposal is reported and keeps the text; cancel clears only the rows', () => {
