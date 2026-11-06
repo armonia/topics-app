@@ -57,7 +57,6 @@ import { ReloadedFlash } from './components/ReloadedFlash';
 import { currentTaskTarget } from './lib/openTaskLink';
 import { openTaskFromUrl, subscribeServiceWorkerTaskOpen, setDeepLinkNotifier } from './lib/deepLinkEntry';
 import { subscribeServiceWorkerBanner } from './lib/push/swBridge';
-import { consumeAgentsJobsLinkFromUrl } from './lib/agentsJobsLink';
 import { consumeTabLinkFromUrl, currentTabTarget, openTabInApp, openTabInAppWhenHydrated, tabAckReleasesIntent } from './lib/tabLink';
 import { TAB_PATH_PREFIX, type TabTarget } from '../../shared/tab-link';
 import { installOsOpenPathBridge, defaultOsOpenDeps } from './lib/osOpenPath';
@@ -2733,7 +2732,9 @@ function BootDeepLinkResolver({ isDetached }: { isDetached: boolean }) {
   // where the tray pointed). After the menu hosts have mounted their listeners: the next tick.
   useEffect(() => {
     if (isDetached) return;
-    const t = setTimeout(() => { consumeAgentsJobsLinkFromUrl(); }, 0);
+    // Loaded only for such an address: the boot chunk does not carry it.
+    if (!window.location.pathname.startsWith('/lavori')) return;
+    const t = setTimeout(() => { void import('./lib/agentsJobsLink').then((m) => m.consumeAgentsJobsLinkFromUrl()); }, 0);
     return () => clearTimeout(t);
   }, [isDetached]);
   useEffect(() => {
