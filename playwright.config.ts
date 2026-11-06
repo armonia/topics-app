@@ -635,6 +635,8 @@ export default defineConfig({
         // The palette's entries for the hub's places and the board's brake chip, same reason as the bell.
         "**/palette-hub.spec.ts",
         "**/board-frenato.spec.ts",
+        // The hub's status signals in the bell, the diary's kinds and the services' groups, same reason as the bell.
+        "**/hub-status-signals.spec.ts",
         // The live-terminals menu: used mostly from remote, i.e. from phone
         // Safari and the WKWebView shell. WebKit is where it lives.
         "**/live-terminals.spec.ts",
