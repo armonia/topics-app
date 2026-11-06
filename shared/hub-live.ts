@@ -1,5 +1,5 @@
-// Le voci dell'hub che Topics porta ai client in un frame `hub:live`: un solo posto per server e client.
-export const HUB_LIVE_TOPICS = ["pace", "mac", "services", "attesa", "alerts", "gates", "automations"] as const;
+// The hub entries Topics carries to clients in a `hub:live` frame: one place for server and client.
+export const HUB_LIVE_TOPICS = ["pace", "mac", "services", "attesa", "alerts", "gates", "automations"] as const; // allow-italian: "attesa" is the hub API key, compared by value
 export type HubLiveTopic = (typeof HUB_LIVE_TOPICS)[number];
 
 export interface HubLiveEntry {

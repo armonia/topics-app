@@ -286,8 +286,8 @@ jobs:
         run: npx playwright install --with-deps chromium webkit
 
       # All three projects in one step. Each `typecheck:*` script uses the
-      # LOCALLY pinned tsc (5.9.3) — `bunx tsc` could fetch a newer major whose
-      # deprecation handling differs and re-break the build gate.
+      # LOCALLY pinned TypeScript 7 (alias `typescript7` in client/) — `bunx tsc` could fetch
+      # another major whose deprecation handling differs and re-break the build gate.
       #
       # This also finally RUNS `typecheck:e2e`, which existed in package.json
       # for months without appearing in any workflow.

@@ -32,7 +32,9 @@ function fixture() {
   mkdirSync(bins, { recursive: true });
   // Only the compiler and bundler are fakes. The CLI, argument validation,
   // bundle verification and publication all execute their real source.
-  writeFileSync(join(bins, "tsc"), `require('node:fs').writeFileSync(${JSON.stringify(started)}, 'started');`);
+  const tscBin = join(repo, "client", "node_modules", "typescript7", "bin");
+  mkdirSync(tscBin, { recursive: true });
+  writeFileSync(join(tscBin, "tsc"), `require('node:fs').writeFileSync(${JSON.stringify(started)}, 'started');`);
   writeFileSync(join(bins, "vite"), `
     const { mkdirSync, writeFileSync } = require('node:fs');
     const { join } = require('node:path');

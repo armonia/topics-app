@@ -339,7 +339,7 @@ function Lede({ live, t }: { live: ReturnType<typeof useHubLive>; t: Translate }
   const form = plural(n);
   return (
     <div data-testid="system-lede" className="mb-1.5">
-      <h2 className="text-[17px] font-semibold leading-[22px] tracking-[-0.015em] text-app-text-heading">
+      <h2 className="text-title font-semibold leading-[22px] tracking-[-0.015em] text-app-text-heading">
         <b className="font-semibold">{t(`hubSystem.lede.count.${form}`, { n })}</b>
         <span className="font-medium text-app-text-muted">{t(form === 'other' ? 'hubSystem.lede.verb.other' : 'hubSystem.lede.verb.one')}</span>
       </h2>
@@ -425,7 +425,7 @@ export function SystemPane() {
           {t(maximized ? 'hubSystem.pane.restore' : 'hubSystem.pane.openFull')}
           <FootIcon size={12} aria-hidden="true" className="transition-transform group-hover:translate-x-0.5" />
           <span className="ml-auto inline-flex items-center gap-1.5 text-mini font-normal text-app-text-muted">
-            <kbd className="rounded border border-app-border px-1 font-mono text-[10px] text-app-text-secondary">{shortcut('K')}</kbd>
+            <kbd className="rounded border border-app-border px-1 font-mono text-mini text-app-text-secondary">{shortcut('K')}</kbd>
             {t('hubSystem.pane.paletteHint')}
           </span>
         </button>
@@ -461,7 +461,7 @@ export function SystemSheet() {
           <Gauge size={15} aria-hidden="true" className="text-app-text-secondary" />
           {t('hubSystem.title')}
           {count > 0 && (
-            <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold tabular-nums text-white">{count}</span>
+            <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-mini font-semibold tabular-nums text-white">{count}</span>
           )}
         </div>
         <SystemPaneBody />
