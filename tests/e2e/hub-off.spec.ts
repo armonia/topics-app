@@ -39,8 +39,11 @@ const RETIRED_TEXT = /Tutto ok|Quasi tutto ok|Hub non raggiungibile|Hub raggiung
  * What the hub could leave in the console, from the first navigation on: every
  * uncaught page error, every console error that names the hub or the System
  * pane, and every request of the page to the hub's proxied routes
- * (`/api/hub/`, `/api/switchboard/`: with the strip gone only the open bell asks
- * them, so one on load is already a trace). Topics' own snapshot
+ * (`/api/hub/`, `/api/switchboard/`: with the hub down nothing asks them, so
+ * one is already a trace). With the hub up, the bell's button reads the
+ * proxy's log in the background (`/api/switchboard/activity` and `/profiles`,
+ * HUBBR-06): the second test lets those two pass while the hub answers and
+ * wants none after it went down. Topics' own snapshot
  * `/api/hub-live`, which the bell's button reads, asks the hub nothing and may
  * pass. Console errors
  * of the engine itself stay out: WebKit on the PC logs its own viewport and
@@ -145,6 +148,10 @@ test.describe("Without the hub, no trace", () => {
       // same sidebar as before.
       await hub.close();
       await expect.poll(async () => typeof (await hubLive(request)).pace?.error, { timeout: 20_000 }).toBe("string");
+      // Before the reload, only the proxy log's background read may have passed.
+      const PROXY_LOG = /^request http:\/\/[^/]+\/api\/switchboard\/(activity|profiles)$/;
+      expect(errors.filter((e) => !PROXY_LOG.test(e))).toEqual([]);
+      errors.length = 0;
       await page.reload();
       await expect(page.getByLabel("Topics sidebar")).toBeVisible({ timeout: 30_000 });
       await expectNoHubTrace(page);
