@@ -161,7 +161,20 @@ const AUTOMATIONS_EN: Dict = {
   'auto.cal.empty': 'Nothing in the calendar.',
   'auto.cal.note': 'Appointments stay in the «Oggi» tile of the sidebar: here only reminders and jobs with a date.',
   'auto.cal.via': 'Jarvis · {says}',
-  'auto.cal.jarvis': 'Jarvis',
+  'auto.cal.yesterday': 'Yesterday',
+  'auto.cal.late': 'late',
+  'auto.cal.silent': 'Jarvis · does not write to you',
+  'auto.cal.checks': 'checks {when}',
+  'auto.cal.defaultWhat': '{when}an agent runs the instructions below{says}. Then the reminder closes.',
+  'auto.cal.defaultWhen': '{when} ',
+  'auto.cal.defaultSays': ' and writes to you on {says}',
+  'auto.cal.defaultSilent': ', without writing to you',
+  'auto.cal.means': 'Writes to you {means}',
+  'auto.cal.fact.when': 'When',
+  'auto.cal.fact.channel': 'Channel',
+  'auto.cal.fact.who': 'Runs',
+  'auto.cal.prompt': 'Instructions for the agent',
+  'auto.cal.open': 'Open the details of «{title}»',
 };
 
 export default AUTOMATIONS_EN;

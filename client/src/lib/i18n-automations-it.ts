@@ -161,7 +161,20 @@ const AUTOMATIONS_IT: Dict = {
   'auto.cal.empty': 'Niente in calendario.',
   'auto.cal.note': 'Gli appuntamenti restano nella tessera «Oggi» della sidebar: qui solo promemoria e lavori con una data.',
   'auto.cal.via': 'Jarvis · {says}',
-  'auto.cal.jarvis': 'Jarvis',
+  'auto.cal.yesterday': 'Ieri',
+  'auto.cal.late': 'in ritardo',
+  'auto.cal.silent': 'Jarvis · non ti scrive',
+  'auto.cal.checks': 'controlla {when}',
+  'auto.cal.defaultWhat': '{when}un agente esegue le istruzioni qui sotto{says}. Poi il promemoria si chiude.',
+  'auto.cal.defaultWhen': '{when} ',
+  'auto.cal.defaultSays': ' e ti scrive su {says}',
+  'auto.cal.defaultSilent': ', senza scriverti',
+  'auto.cal.means': 'Ti scrive {means}',
+  'auto.cal.fact.when': 'Quando',
+  'auto.cal.fact.channel': 'Canale',
+  'auto.cal.fact.who': 'Esegue',
+  'auto.cal.prompt': 'Istruzioni per l\'agente',
+  'auto.cal.open': 'Apri i dettagli di «{title}»',
 };
 
 export default AUTOMATIONS_IT;

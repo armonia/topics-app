@@ -78,6 +78,8 @@ export interface AutomationsModel {
   rows: AutomationRow[];
   checkedAt: number | null;
   runsToday: number;
+  /** Who runs each dated reminder (Muse, Claude, Codex), by its key: the calendar's «Esegue». */
+  reminderWho: Record<string, string>;
 }
 
 export interface CronJob {
@@ -254,7 +256,14 @@ export function readAutomations(raw: unknown): AutomationsModel | null {
     if (r) rows.push(r);
   }
   const verdict = asRecord(m.verdict);
-  return { rows, checkedAt: num(m.checkedAt), runsToday: num(verdict?.runsToday) ?? rows.reduce((s, r) => s + r.runsToday, 0) };
+  const reminderWho: Record<string, string> = {};
+  for (const c of Array.isArray(m.reminders) ? m.reminders : []) {
+    const o = asRecord(c);
+    const key = o && str(o.key);
+    const who = o && str(o.who);
+    if (key && who) reminderWho[key] = who;
+  }
+  return { rows, checkedAt: num(m.checkedAt), runsToday: num(verdict?.runsToday) ?? rows.reduce((s, r) => s + r.runsToday, 0), reminderWho };
 }
 
 /** The OpenClaw jobs as `/api/cron/jobs` lists them. */
@@ -510,9 +519,15 @@ export interface CalendarEntry {
   next: number | null;
   when: string | null;
   says: string | null;
+  /** What it will do, as written for the person (never the agent's prompt). */
+  what: string | null;
+  /** How it writes to you, beyond the channel. */
+  means: string | null;
+  /** The agent's instructions: shown only when the person opens them, behind their own fold. */
+  prompt: string | null;
 }
 
-/** The hub's calendar: reminders with a date and tasks that end. Its prompt never leaves here. */
+/** The hub's calendar: reminders with a date and tasks that end. */
 export function readCalendar(raw: unknown): CalendarEntry[] | null {
   const items = asRecord(raw)?.items;
   if (!Array.isArray(items)) return null;
@@ -521,14 +536,17 @@ export function readCalendar(raw: unknown): CalendarEntry[] | null {
     const key = o && str(o.key);
     const title = o && str(o.title);
     if (!o || !key || !title) return [];
-    return [{ key, kind: o.kind === 'compito' ? ('compito' as const) : ('promemoria' as const), title, next: num(o.next), when: str(o.when), says: str(o.says) }];
+    return [{
+      key, kind: o.kind === 'compito' ? ('compito' as const) : ('promemoria' as const), title, next: num(o.next), when: str(o.when), says: str(o.says),
+      what: str(o.what), means: str(o.means), prompt: str(o.prompt),
+    }];
   });
 }
 
 export interface CalendarDay {
   /** Midnight of the day, or null for the undated ones (last). */
   day: number | null;
-  /** 0 today, 1 tomorrow, more after. */
+  /** 0 today, 1 tomorrow, more after; below 0 a day already gone (-1 yesterday). */
   offset: number | null;
   items: CalendarEntry[];
 }
@@ -539,14 +557,16 @@ function midnight(ms: number): number {
   return d.getTime();
 }
 
-/** The entries by day, soonest first; what already passed stays out. */
+/**
+ * The entries by day, soonest first. What already passed stays, on its day:
+ * a reminder that did not fire on time shows as late instead of vanishing.
+ */
 export function calendarDays(items: CalendarEntry[], now: number, kind: CalendarKind | null = null): CalendarDay[] {
   const today = midnight(now);
   const days = new Map<number | null, CalendarEntry[]>();
   const sorted = [...items].sort((a, b) => (a.next ?? Infinity) - (b.next ?? Infinity));
   for (const i of sorted) {
     if (kind && i.kind !== kind) continue;
-    if (i.next !== null && i.next < now) continue;
     const day = i.next === null ? null : midnight(i.next);
     days.set(day, [...(days.get(day) ?? []), i]);
   }

@@ -23,7 +23,7 @@ import { addCatalogue } from '../../lib/i18n';
 import AUTOMATIONS_IT from '../../lib/i18n-automations-it';
 import AUTOMATIONS_EN from '../../lib/i18n-automations-en';
 import { useHubEverRead } from '../../state/hubLive';
-import { AUTOMATION_TARGET_EVENT, takeAutomationTarget } from '../../state/automationTarget';
+import { AUTOMATION_TARGET_EVENT, takeAutomationTarget, takeCalendarTarget } from '../../state/automationTarget';
 import { startVisibleInterval } from '../../state/documentVisibility';
 import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import {
@@ -80,13 +80,19 @@ function AutomationsView() {
   const data = useAutomationsData(describe);
   const confirm = useConfirm();
   const [ref, width] = useWidth();
-  const [tab, setTab] = useState<'list' | 'calendar'>('list');
+  // «Agenti e lavori» opens the view on its Calendar tab.
+  const [tab, setTab] = useState<'list' | 'calendar'>(() => (takeCalendarTarget() ? 'calendar' : 'list'));
   const [system, setSystem] = useState<AutomationSystem | null>(null);
   const [query, setQuery] = useState('');
   // A link of the hub (`#automations/<key>`) opens the view on that automation.
   const [selectedKey, setSelectedKey] = useState<string | null>(() => takeAutomationTarget());
   useEffect(() => {
     const onTarget = () => {
+      if (takeCalendarTarget()) {
+        setSelectedKey(null);
+        setTab('calendar');
+        return;
+      }
       const key = takeAutomationTarget();
       if (!key) return;
       setTab('list');
@@ -169,7 +175,7 @@ function AutomationsView() {
               >
                 {t === 'list' ? <Workflow size={13} aria-hidden="true" /> : <AlarmClock size={13} aria-hidden="true" />}
                 {tr(t === 'list' ? 'auto.tab.list' : 'auto.tab.calendar')}
-                <span className="text-mini tabular-nums text-app-text-muted">{t === 'list' ? rows.length : data.calendar?.filter((c) => c.next === null || c.next >= now).length ?? ''}</span>
+                <span className="text-mini tabular-nums text-app-text-muted">{t === 'list' ? rows.length : data.calendar?.length ?? ''}</span>
               </button>
             ))}
           </div>
@@ -189,7 +195,7 @@ function AutomationsView() {
         </div>
 
         {tab === 'calendar' ? (
-          <AutomationsCalendar items={data.calendar ?? []} now={now} clock={clock} />
+          <AutomationsCalendar items={data.calendar ?? []} now={now} clock={clock} who={data.reminderWho} />
         ) : (
           <>
             <SystemChips counts={counts} total={rows.length} system={system} onPick={setSystem} />

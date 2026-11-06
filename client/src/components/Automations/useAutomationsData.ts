@@ -43,6 +43,8 @@ async function send(path: string, method: 'POST' | 'PATCH' | 'DELETE', body?: Re
   }
 }
 
+const NO_WHO: Readonly<Record<string, string>> = {};
+
 export type JobRefusal = { what: JobCommand['kind'] | 'disable'; why: 'gateway' | 'notRun' | 'refused' };
 
 export interface AutomationsData {
@@ -55,6 +57,8 @@ export interface AutomationsData {
   /** The gateway did not list the OpenClaw jobs: their commands are off. */
   gatewayDown: boolean;
   calendar: CalendarEntry[] | null;
+  /** Who runs each dated reminder, by its key, from the hub's model. */
+  reminderWho: Readonly<Record<string, string>>;
   fixing: ReadonlySet<string>;
   /** When a job was run from here, by key: the receipt the row shows at once. */
   ranAt: Readonly<Record<string, number>>;
@@ -169,5 +173,5 @@ export function useAutomationsData(describe?: (job: CronJob) => string | null): 
   const hubDown = modelFailing || summary?.error !== undefined;
   const clearRefusal = useCallback(() => setRefusal(null), []);
 
-  return { rows, model, readAt, hubDown, gatewayDown, calendar, fixing, ranAt, refusal, clearRefusal, retry, command, feedback, fix };
+  return { rows, model, readAt, hubDown, gatewayDown, calendar, reminderWho: model?.reminderWho ?? NO_WHO, fixing, ranAt, refusal, clearRefusal, retry, command, feedback, fix };
 }
