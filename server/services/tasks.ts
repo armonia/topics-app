@@ -67,7 +67,7 @@ import { EFFORT_TIERS } from "../../shared/effort";
 import { CLOSER_LABELS, KIND_LABELS, deriveCloser, deriveKind, isCloserLabel, isKindLabel, isTaskLabel, normalizeLabels, type LabelSource, type TaskFile, type TaskLabel, type TaskLabelRow } from "../../shared/task-labels";
 import { findNeighbours, type Neighbour } from "../../shared/task-similarity";
 import type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, QueueContext, QueueReason, SubtaskWork, TaskWeight, GlobalDispatchCap, GlobalCapPatch, TaskActionOrigin } from "../../shared/board";
-import { budgetShare } from "../../shared/board";
+import { budgetShare, projectIdForPath as boardIdForPath } from "../../shared/board";
 import { sliceCodePoints } from "../lib/code-points";
 import { allWideRows } from "../lib/wide-rows";
 import type { Task, CreateTaskInput, UpdateTaskPatch, ListTasksInput } from "./task-shapes";
@@ -359,6 +359,8 @@ interface ServiceOpts {
   listRepoRoots?: () => string[];
   /** Visible project directories, used as a fallback by older hosts. */
   listProjectDirs?: () => string[];
+  /** Refuse a create on a board that no listed project owns and that holds no card yet. */
+  requireKnownBoard?: boolean;
   /** How a root becomes a probe (tests pass a fake). */
   probeFor?: (root: string) => RepoProbe;
   /**
@@ -3810,11 +3812,29 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     if (stage === STAGE_AI_REVIEW) announceAiReview(taskId);
   }
 
+  /** Permissive when the host lists no projects (unit benches); otherwise the board is a project's, the unassigned one, or already holds cards. */
+  function isKnownBoard(projectId: string): boolean {
+    if (!opts.requireKnownBoard) return true;
+    if (projectId === AUTO_PROJECT_ID || projectId === UNASSIGNED_PROJECT_ID) return true;
+    let roots: string[] = [];
+    try { roots = opts.listRepoRoots?.() ?? []; } catch { /* best-effort */ }
+    if (roots.length === 0) {
+      try { roots = opts.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
+    }
+    if (roots.length === 0) return true;
+    if (roots.some((r) => typeof r === "string" && boardIdForPath(r.replace(/\/+$/, "") || "/") === projectId)) return true;
+    return db.prepare("SELECT 1 FROM tasks WHERE project_id = ? LIMIT 1").get(projectId) != null;
+  }
+
   const service: TaskService = {
     create(input: CreateTaskInput): Task {
       const text = (input.text ?? "").trim();
       if (!text) throw new TaskServiceError("invalid_input", "task text is required");
       if (!input.projectId) throw new TaskServiceError("invalid_input", "projectId is required");
+      // A client that stringified a missing project ("null") would give birth to a card on a board nobody reads.
+      if (/^(null|undefined|nan)$/i.test(input.projectId.trim())) throw new TaskServiceError("invalid_input", `invalid projectId "${input.projectId}"`);
+      // A host that knows its projects also knows its boards: an id that is none of them (and holds no card yet) is a typo, not a board.
+      if (!isKnownBoard(input.projectId)) throw new TaskServiceError("invalid_input", `unknown board "${input.projectId}"`);
 
       // Default `backlog`, NON `todo`. `todo` è la coda di esecuzione: un task
       // che ci nasce fa partire un agente entro pochi secondi su un board con

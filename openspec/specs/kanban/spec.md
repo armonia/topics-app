@@ -5417,3 +5417,16 @@ dispatcher's system chronicle SHALL live under «Details», never in the column.
 - **WHEN** the drawer of a working task is open
 - **THEN** the column SHALL show zero system chronicle rows and one live status line
 - **AND** the chronicle SHALL be readable under «Details»
+
+### Requirement: KANBAN-105 - A request naming several projects is proposed before any card exists
+
+When the text typed in the composer is a list (several lines naming projects), the composer SHALL show a
+proposal with one row per card, its project, and sub-cards under their parent, and SHALL create nothing
+until a valid confirmation. A request that is a single card SHALL keep creating that one card.
+
+#### Scenario: two projects, one confirmation
+- **GIVEN** a list request naming two projects
+- **WHEN** the writer presses Enter
+- **THEN** the proposal SHALL appear and zero cards SHALL exist
+- **WHEN** the writer confirms
+- **THEN** the ticked rows SHALL become cards, the parent first, each sub-card on its parent's project
