@@ -14,9 +14,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch } from '../../lib/shell/net';
 import { refreshHubLive, useHubLive } from '../../state/hubLive';
 import {
-  fixingKeys, jobRequest, readAutomations, readCalendar, readCronJobs, refusalOf, withCronJobs,
-  type AutomationRow, type AutomationsModel, type CalendarEntry, type CronJob, type JobCommand,
+  feedbackRowId, fixingKeys, jobRequest, readAutomations, readCronJobs, refusalOf, undoBody, withCronJobs,
+  type AutomationRow, type AutomationsModel, type CronJob, type JobCommand,
 } from '../../lib/automations';
+import { readCalendar, type CalendarEntry } from '../../lib/automationsCalendar';
 
 async function getJson(path: string): Promise<{ ok: boolean; status: number; body: unknown }> {
   try {
@@ -43,7 +44,10 @@ async function send(path: string, method: 'POST' | 'PATCH' | 'DELETE', body?: Re
   }
 }
 
-const NO_WHO: Readonly<Record<string, string>> = {};
+export interface FeedbackResult {
+  error: string | null;
+  ref: string | null;
+}
 
 export type JobRefusal = { what: JobCommand['kind'] | 'disable'; why: 'gateway' | 'notRun' | 'refused' };
 
@@ -58,7 +62,6 @@ export interface AutomationsData {
   gatewayDown: boolean;
   calendar: CalendarEntry[] | null;
   /** Who runs each dated reminder, by its key, from the hub's model. */
-  reminderWho: Readonly<Record<string, string>>;
   fixing: ReadonlySet<string>;
   /** When a job was run from here, by key: the receipt the row shows at once. */
   ranAt: Readonly<Record<string, number>>;
@@ -66,8 +69,10 @@ export interface AutomationsData {
   clearRefusal(): void;
   retry(): Promise<void>;
   command(row: AutomationRow, c: JobCommand): Promise<boolean>;
-  /** null when written and read back; the hub's reason otherwise. */
-  feedback(body: Record<string, unknown>): Promise<string | null>;
+  /** Written and read back (`error` null, `ref` the hub's id of the row, for the undo button), or the hub's reason. */
+  feedback(body: Record<string, unknown>): Promise<FeedbackResult>;
+  /** Takes back a feedback row by its id; null when done and read back. */
+  undo(ref: string): Promise<string | null>;
   fix(key: string): Promise<{ ok: boolean; already: boolean; why: string | null }>;
 }
 
@@ -152,8 +157,15 @@ export function useAutomationsData(describe?: (job: CronJob) => string | null): 
     return true;
   }, [readJobs, readModel]);
 
-  const feedback = useCallback(async (body: Record<string, unknown>) => {
+  const feedback = useCallback(async (body: Record<string, unknown>): Promise<FeedbackResult> => {
     const r = await send('/api/hub/feedback', 'POST', body);
+    if (!r.ok) return { error: r.error ?? `HTTP ${r.status || 502}`, ref: null };
+    await Promise.all([readModel(), refreshHubLive()]);
+    return { error: null, ref: feedbackRowId(r.body) };
+  }, [readModel]);
+
+  const undo = useCallback(async (ref: string) => {
+    const r = await send('/api/hub/feedback', 'POST', undoBody(ref));
     if (!r.ok) return r.error ?? `HTTP ${r.status || 502}`;
     await Promise.all([readModel(), refreshHubLive()]);
     return null;
@@ -173,5 +185,5 @@ export function useAutomationsData(describe?: (job: CronJob) => string | null): 
   const hubDown = modelFailing || summary?.error !== undefined;
   const clearRefusal = useCallback(() => setRefusal(null), []);
 
-  return { rows, model, readAt, hubDown, gatewayDown, calendar, reminderWho: model?.reminderWho ?? NO_WHO, fixing, ranAt, refusal, clearRefusal, retry, command, feedback, fix };
+  return { rows, model, readAt, hubDown, gatewayDown, calendar, fixing, ranAt, refusal, clearRefusal, retry, command, feedback, undo, fix };
 }

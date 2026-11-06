@@ -57,7 +57,7 @@ import { E2E_BASE, hubPortFor } from "./test-server";
 import { FOUND_CONTRADICTION, contextModel, contextText, defaultContextCheck, defaultContextDoctor, featuresMap, type FakeContextCheck } from "./fake-hub-context";
 import { FAKE_ICON_PNG, jobsBoard, jobsCalendar, jobsReminders, withJobsSessions, withLiveAgents } from "./fake-hub-jobs";
 import { boardAnswer, extraProxyRows, profileExtras, projectsReport, proxyHealthExtras } from "./fake-hub-accounts";
-import { automationsCalendar, automationsModel, automationsRuns, automationsSummary, feedbackRefusal, workflowRunCost, type FeedbackRow } from "./fake-hub-automations";
+import { automationsCalendar, automationsGraph, automationsModel, automationsRuns, automationsSummary, feedbackRefusal, workflowRunCost, type FeedbackRow } from "./fake-hub-automations";
 
 export interface FakeHubItem {
   id: string;
@@ -749,6 +749,10 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
       if (path === "automations/runs") {
         const r = automationsRuns(now, new URL(req.url ?? "", "http://x").searchParams.get("key") ?? "");
         return r ? send(200, r) : send(404, { ok: false, error: "cronologia solo per i cron di OpenClaw" });
+      }
+      if (path === "automations/graph") {
+        const g = automationsGraph(now, new URL(req.url ?? "", "http://x").searchParams.get("key") ?? "");
+        return g ? send(200, g) : send(404, { ok: false, error: "nessuno schema per questa voce" });
       }
       if (path.startsWith("automations/run/")) {
         const r = workflowRunCost(decodeURIComponent(path.slice("automations/run/".length)));

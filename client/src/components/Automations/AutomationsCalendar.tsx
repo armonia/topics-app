@@ -1,7 +1,7 @@
 /**
  * AUTOMAZIONI > CALENDARIO: the hub's reminders with a date and the jobs that
  * end, by day, soonest first. The appointments stay in the pinned calendar
- * tile: here only what Jarvis will do.
+ * tile: here only what Jarvis will do; the agent's prompt never in the row.
  *
  * A row opens on what it will do (the description written for the person, or
  * the hub's own sentence for a reminder without one), how it writes to you,
@@ -14,7 +14,7 @@
 import { useState } from 'react';
 import { AlarmClock, ChevronDown, ChevronRight, ListChecks, MessageCircle } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import { calendarDays, type CalendarEntry, type CalendarKind } from '../../lib/automations';
+import { calendarDays, type CalendarEntry, type CalendarKind } from '../../lib/automationsCalendar';
 import { WARNING_TEXT } from '../../lib/popoverStyles';
 import type { Clock } from './automationsUi';
 
@@ -92,7 +92,7 @@ export function AutomationsCalendar({ items, now, clock, who = {} }: {
               const runner = who[i.key] ?? null;
               const says = i.says ? tr('auto.cal.via', { says: i.says }) : tr('auto.cal.silent');
               return (
-                <div key={i.key} className="rounded border border-app-border bg-surface text-compact text-app-text" data-testid="automations-calendar-item" data-late={late || undefined}>
+                <div key={i.key} className="rounded border border-app-border bg-surface text-compact text-app-text" data-testid="automations-calendar-item" data-key={i.key} data-late={late || undefined}>
                   <button
                     type="button"
                     aria-expanded={expanded}
@@ -117,7 +117,7 @@ export function AutomationsCalendar({ items, now, clock, who = {} }: {
                         <dt className="text-app-text-muted">{tr('auto.cal.fact.when')}</dt>
                         <dd className="m-0 text-app-text">{i.when ?? (i.next !== null ? `${clock.longDay(i.next)} ${clock.time(i.next)}` : tr('auto.cal.undated'))}</dd>
                         {i.says && (<><dt className="text-app-text-muted">{tr('auto.cal.fact.channel')}</dt><dd className="m-0 text-app-text">{i.says}</dd></>)}
-                        {runner && (<><dt className="text-app-text-muted">{tr('auto.cal.fact.who')}</dt><dd className="m-0 text-app-text">{runner}</dd></>)}
+                        {runner && (<><dt className="text-app-text-muted">{tr('auto.cal.fact.who')}</dt><dd className="m-0 text-app-text" data-testid="automations-calendar-who">{runner}</dd></>)}
                       </dl>
                       {i.prompt && (
                         <div className="mt-2">

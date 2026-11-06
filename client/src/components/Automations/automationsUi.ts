@@ -53,14 +53,49 @@ export function durationWords(ms: number, tr: Tr): string {
   return tr('auto.dur.days', { n: Math.round(min / 1440) });
 }
 
-/** The last-run cell: the time, with the exit or the error when it went wrong. */
+/**
+ * The last-run cell: the time, with the exit or the error when it went wrong.
+ * Without a time it says how things stand, never a mute dash: a launchd job
+ * whose log is silent has only the count of today's runs, a job that runs
+ * without writing the hour «runs», one that never started «not yet».
+ */
 export function lastRunWords(row: AutomationRow, clock: Clock, tr: Tr): string {
   const { at, outcome, exit } = row.last;
-  if (at === null) return tr('auto.last.none');
+  if (at === null) {
+    if (row.runsToday > 0) return tr(row.runsToday === 1 ? 'auto.last.runsTodayOne' : 'auto.last.runsToday', { n: row.runsToday });
+    if (outcome === 'ok') return tr('auto.last.runs');
+    if (row.next !== null) return tr('auto.last.notYet');
+    return tr('auto.last.none');
+  }
   const time = clock.dayTime(at);
   if (outcome === 'error') return exit !== null && exit !== 0 ? tr('auto.last.exit', { time, n: exit }) : tr('auto.last.error', { time });
   if (outcome === 'skipped') return tr('auto.last.skipped', { time });
   return time;
+}
+
+/** The next-run cell: the time («~» when the hub only guesses it), or the cadence when there is no time. */
+export function nextRunWords(row: AutomationRow, now: number, clock: Clock): string {
+  if (row.next !== null && row.next > now) return `${row.nextApprox ? '~' : ''}${clock.dayTime(row.next)}`;
+  return row.when ?? '';
+}
+
+/** The brands that answer in the row's model steps, once each. */
+export function modelBrands(row: Pick<AutomationRow, 'flow'>): string[] {
+  const out: string[] = [];
+  for (const n of row.flow?.nodes ?? []) for (const w of n.who) if (w.brand && !out.includes(w.brand)) out.push(w.brand);
+  return out;
+}
+
+/** Weighted tokens in short: «850», «12 k», «1,2 M». */
+export function tokenWords(n: number, locale: string): string {
+  if (n >= 1e6) return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(n / 1e6)} M`;
+  if (n >= 1e3) return `${Math.round(n / 1e3)} k`;
+  return String(Math.round(n));
+}
+
+/** The providers' own names, the same on every surface. */
+export function providerName(p: string): string {
+  return ({ claude: 'Claude', codex: 'Codex', muse: 'Muse', free: 'Free' } as Record<string, string>)[p] ?? p;
 }
 
 export function scheduleWords(s: ScheduleParts | null, clock: Clock, tr: Tr): string | null {

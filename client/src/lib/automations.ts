@@ -20,6 +20,8 @@
  * Pure reads: no fetch, no React. The view formats every word.
  */
 
+import { asRecord, list, num, readHead, readUsage, str, usageTotal, type AutomationUsage, type AutomationsHead, type Raw } from './automationsHead';
+
 export type AutomationSystem = 'jarvis' | 'mac' | 'github' | 'pc' | 'workflow';
 
 export const AUTOMATION_SYSTEMS: readonly AutomationSystem[] = ['jarvis', 'mac', 'github', 'pc', 'workflow'];
@@ -33,8 +35,34 @@ export type VoteValue = 'ok' | 'cambia' | 'indietro'; // allow-italian: the hub'
 
 export interface AutomationFeedback {
   vote: { v: VoteValue; at: string | null; note: string | null } | null;
+  /** The job changed after your vote: the vote speaks of what it was. */
+  changedSinceVote: boolean;
   mute: { until: string | null; why: string | null } | null;
+  /** Notes and reports nobody has closed yet. */
+  open: number;
   notes: Array<{ at: string | null; note: string; kind: 'note' | 'complaint' }>;
+}
+
+/** The hub's areas: what an automation does for you, never the engine that runs it. */
+export const AUTOMATION_AREAS = ['posta-avvisi', 'clienti', 'sviluppo-topics', 'jarvis-agenti', 'manutenzione', 'backup-sicurezza'] as const;
+export type AutomationArea = (typeof AUTOMATION_AREAS)[number];
+
+/** The old groups, for a card the purpose table does not know yet: the same guess as the hub's. */
+const AREA_FROM_GROUP: Record<string, AutomationArea> = { arriva: 'posta-avvisi', dati: 'backup-sicurezza', quote: 'jarvis-agenti', macchine: 'manutenzione', prodotti: 'sviluppo-topics' };
+
+/** One step of a job in short, as the hub sums its scheme up for the row. */
+export interface FlowNode {
+  kind: 'sources' | 'model' | 'step' | 'deliver';
+  label: string;
+  /** The brands that answer in a model step (claude, codex, muse), in queue order. */
+  who: Array<{ name: string; brand: string | null }>;
+  brand: string | null;
+}
+
+export interface AutomationFlow {
+  steps: number;
+  ai: boolean;
+  nodes: FlowNode[];
 }
 
 export interface WorkflowRun {
@@ -72,14 +100,42 @@ export interface AutomationRow {
   /** A row the hub keeps a feedback log for (not a workflow). */
   votable: boolean;
   workflowRuns: WorkflowRun[];
+  /** What it does for you, by the hub's areas; null for a row with no card (workflow, switched-off job). */
+  area: AutomationArea | null;
+  /** What you could lose while it stays broken, from the hub's purpose table. */
+  ifBroken: string | null;
+  /** A row in order with a remark: recovering after errors, coming and going. */
+  warn: string | null;
+  /** Closed runs, newest first, up to 20: the source of «failed the last N times» and the ticks. */
+  history: Array<{ at: number; outcome: RunOutcome }>;
+  nextApprox: boolean;
+  usage: AutomationUsage | null;
+  /** Whether the last message reached you. */
+  delivered: 'delivered' | 'failed' | null;
+  /** The outside proof of a run («backup: a commit at 3:12»). */
+  proof: { ok: boolean | null; words: string } | null;
+  who: string | null;
+  means: string | null;
+  tech: { schedule: string | null; command: string | null; prompt: string | null; url: string | null };
+  /** The providers of the sources fused into this row; one for most rows. */
+  sources: string[];
+  /** The project it belongs to, with the hub's icon path. */
+  project: { name: string; icon: string | null } | null;
+  /** Where it runs, as the hub labels it («Mac (launchd)», «GitHub Actions»). */
+  where: string | null;
+  flow: AutomationFlow | null;
+  /** A workflow step waiting for your ok: not something «Risolvi tu» can fix. */
+  gate: boolean;
+  /** The computer's own apps: shown, never counted among the problems. */
+  own: boolean;
 }
 
-export interface AutomationsModel {
+export interface AutomationsModel extends AutomationsHead {
   rows: AutomationRow[];
+  /** The computer's own apps (Mac, PC, Topics…), outside the verdict and «Decidi tu». */
+  own: AutomationRow[];
   checkedAt: number | null;
   runsToday: number;
-  /** Who runs each dated reminder (Muse, Claude, Codex), by its key: the calendar's «Esegue». */
-  reminderWho: Record<string, string>;
 }
 
 export interface CronJob {
@@ -90,20 +146,17 @@ export interface CronJob {
   nextRunAt: number | null;
 }
 
-const EMPTY_FEEDBACK: AutomationFeedback = { vote: null, mute: null, notes: [] };
+const EMPTY_FEEDBACK: AutomationFeedback = { vote: null, changedSinceVote: false, mute: null, open: 0, notes: [] };
 
-type Raw = Record<string, unknown>;
-
-function asRecord(v: unknown): Raw | null {
-  return v && typeof v === 'object' && !Array.isArray(v) ? (v as Raw) : null;
-}
-
-function str(v: unknown): string | null {
-  return typeof v === 'string' && v.trim() ? v : null;
-}
-
-function num(v: unknown): number | null {
-  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+/** A row with nothing known but its key, system and title: every reader starts from here. */
+function blankRow(key: string, system: AutomationSystem, title: string): AutomationRow {
+  return {
+    key, system, title, level: 'va', reason: null, since: null, when: null, next: null, what: null,
+    last: { at: null, outcome: null, exit: null, error: null }, day: [], runsToday: 0, feedback: EMPTY_FEEDBACK, fp: null,
+    jobId: null, enabled: null, votable: true, workflowRuns: [], area: null, ifBroken: null, warn: null, history: [],
+    nextApprox: false, usage: null, delivered: null, proof: null, who: null, means: null,
+    tech: { schedule: null, command: null, prompt: null, url: null }, sources: [], project: null, where: null, flow: null, gate: false, own: false,
+  };
 }
 
 function outcome(v: unknown): RunOutcome | null {
@@ -153,10 +206,64 @@ function readFeedback(raw: unknown): AutomationFeedback {
     const note = o && str(o.note);
     return o && note ? [{ at: str(o.at), note, kind: o.kind === 'complaint' ? ('complaint' as const) : ('note' as const) }] : [];
   });
-  return { vote, mute, notes };
+  return { vote, changedSinceVote: f.changedSinceVote === true, mute, open: num(f.open) ?? 0, notes };
 }
 
-function readCard(raw: unknown): AutomationRow | null {
+/**
+ * «If it breaks», said to you: the hub's purpose table writes it about you in
+ * the third person, and the line under a broken row speaks to you.
+ */
+export function ifBrokenToYou(text: string): string {
+  return text.replace(/^Attilio potrebbe\s+/, 'potresti '); // allow-italian: the hub's own sentence, turned to the second person
+}
+
+/** A gate of a workflow: the hub's reason names the step waiting for your ok, in guillemets. */
+export function isGateReason(level: AutomationLevel, reason: string | null): boolean {
+  return level === 'te' && /passo «[^»]+»/.test(reason ?? '');
+}
+
+/** Only a web address becomes a link: anything else in the hub's data stays text. */
+function httpUrl(v: unknown): string | null {
+  const s = str(v);
+  return s && /^https?:\/\//i.test(s) ? s : null;
+}
+
+const BRANDS = new Set(['claude', 'codex', 'muse', 'whatsapp', 'discord', 'telegram']);
+
+function readFlow(v: unknown): AutomationFlow | null {
+  const f = asRecord(v);
+  if (!f) return null;
+  const nodes = list(f.nodes).flatMap((n): FlowNode[] => {
+    const o = asRecord(n);
+    const kind = o?.kind;
+    const label = o && str(o.label);
+    if (!o || !label || (kind !== 'sources' && kind !== 'model' && kind !== 'step' && kind !== 'deliver')) return [];
+    const who = list(o.who).flatMap((w) => {
+      const x = asRecord(w);
+      const name = x && str(x.name);
+      return x && name ? [{ name, brand: typeof x.brand === 'string' && BRANDS.has(x.brand) ? x.brand : null }] : [];
+    });
+    return [{ kind, label, who, brand: typeof o.brand === 'string' && BRANDS.has(o.brand) ? o.brand : null }];
+  });
+  return nodes.length ? { steps: num(f.steps) ?? nodes.length, ai: f.ai === true, nodes } : null;
+}
+
+function readHistory(v: unknown): AutomationRow['history'] {
+  return list(v).flatMap((h) => {
+    const o = asRecord(h);
+    const at = o && num(o.at);
+    const oc = o && outcome(o.outcome);
+    return at !== null && oc ? [{ at, outcome: oc }] : [];
+  }).sort((a, b) => b.at - a.at).slice(0, 20);
+}
+
+function readArea(purpose: Record<string, unknown>, group: unknown): AutomationArea | null {
+  const a = purpose.area;
+  if (typeof a === 'string' && (AUTOMATION_AREAS as readonly string[]).includes(a)) return a as AutomationArea;
+  return typeof group === 'string' ? AREA_FROM_GROUP[group] ?? 'manutenzione' : 'manutenzione';
+}
+
+function readCard(raw: unknown, own = false): AutomationRow | null {
   const c = asRecord(raw);
   const key = c && str(c.key);
   if (!c || !key) return null;
@@ -167,18 +274,24 @@ function readCard(raw: unknown): AutomationRow | null {
   const last = asRecord(c.last) ?? {};
   const tech = asRecord(c.tech) ?? {};
   const purpose = asRecord(c.purpose) ?? {};
-  const day = (Array.isArray(c.day) ? c.day : []).flatMap((d) => {
+  const day = list(c.day).flatMap((d) => {
     const at = Array.isArray(d) ? num(d[0]) : null;
     const o = Array.isArray(d) ? outcome(d[1]) : null;
     return at !== null && o ? [{ at, outcome: o }] : [];
   });
-  const jobId = c.provider === 'openclaw' ? cronJobId(key) : null;
+  const proof = asRecord(c.proof);
+  const proofWords = proof && str(proof.words);
+  const project = asRecord(c.project);
+  const projectName = project && str(project.name);
+  const reason = str(c.reason);
+  const sources = list(c.sources).flatMap((x) => {
+    const p = str(asRecord(x)?.provider);
+    return p ? [p] : [];
+  });
   return {
-    key,
-    system,
-    title: str(c.title) ?? key,
+    ...blankRow(key, system, str(c.title) ?? key),
     level,
-    reason: str(c.reason),
+    reason,
     since: num(c.since),
     when: str(c.when),
     next: num(c.next),
@@ -188,10 +301,24 @@ function readCard(raw: unknown): AutomationRow | null {
     runsToday: num(c.runsToday) ?? 0,
     feedback: readFeedback(c.feedback),
     fp: str(c.fp),
-    jobId,
-    enabled: null,
-    votable: true,
-    workflowRuns: [],
+    jobId: c.provider === 'openclaw' ? cronJobId(key) : null,
+    area: readArea(purpose, c.group),
+    ifBroken: str(purpose.seSiRompe),
+    warn: str(c.warn),
+    history: readHistory(c.history),
+    nextApprox: c.nextApprox === true,
+    usage: readUsage(c.usage),
+    delivered: last.delivered === 'delivered' || last.delivered === 'failed' ? last.delivered : null,
+    proof: proofWords ? { ok: typeof proof.ok === 'boolean' ? proof.ok : null, words: proofWords } : null,
+    who: str(c.who),
+    means: str(c.means),
+    tech: { schedule: str(tech.schedule), command: str(tech.command), prompt: str(tech.prompt), url: httpUrl(tech.url) },
+    sources,
+    project: projectName ? { name: projectName, icon: str(project.icon) } : null,
+    where: str(asRecord(c.where)?.label),
+    flow: readFlow(c.flow),
+    gate: isGateReason(level, reason),
+    own,
   };
 }
 
@@ -215,22 +342,10 @@ function readWorkflow(raw: unknown): AutomationRow | null {
   }).sort((a, b) => b.at - a.at);
   const lastRun = runs[0] ?? null;
   return {
-    key: `workflow:${name}`,
-    system: 'workflow',
-    title: workflowTitle(name),
-    level: 'va',
-    reason: null,
-    since: null,
-    when: null,
-    next: null,
-    what: null,
+    ...blankRow(`workflow:${name}`, 'workflow', workflowTitle(name)),
     last: { at: lastRun?.at ?? null, outcome: lastRun && lastRun.outcome !== 'running' ? lastRun.outcome : null, exit: null, error: null },
     day: runs.flatMap((r) => (r.outcome === 'running' ? [] : [{ at: r.at, outcome: r.outcome }])),
-    runsToday: 0,
-    feedback: EMPTY_FEEDBACK,
-    fp: null,
-    jobId: null,
-    enabled: null,
+    history: runs.flatMap((r) => (r.outcome === 'running' ? [] : [{ at: r.at, outcome: r.outcome }])).slice(0, 20),
     votable: false,
     workflowRuns: runs,
   };
@@ -238,7 +353,6 @@ function readWorkflow(raw: unknown): AutomationRow | null {
 
 /** The cards the hub judges, the ones its summary counts: to decide, broken, then the groups in order. */
 function judgedCards(m: Raw): unknown[] {
-  const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
   return [...list(m.needsYou), ...list(m.broken), ...list(m.groups).flatMap((g) => list(asRecord(g)?.cards))];
 }
 
@@ -251,19 +365,19 @@ export function readAutomations(raw: unknown): AutomationsModel | null {
     return r ? [r] : [];
   });
   const byName = asRecord(m.workflows)?.byName;
-  for (const w of Array.isArray(byName) ? byName : []) {
+  for (const w of list(byName)) {
     const r = readWorkflow(w);
     if (r) rows.push(r);
   }
+  const own = list(m.own).flatMap((c) => {
+    const r = readCard(c, true);
+    return r ? [r] : [];
+  });
   const verdict = asRecord(m.verdict);
-  const reminderWho: Record<string, string> = {};
-  for (const c of Array.isArray(m.reminders) ? m.reminders : []) {
-    const o = asRecord(c);
-    const key = o && str(o.key);
-    const who = o && str(o.who);
-    if (key && who) reminderWho[key] = who;
-  }
-  return { rows, checkedAt: num(m.checkedAt), runsToday: num(verdict?.runsToday) ?? rows.reduce((s, r) => s + r.runsToday, 0), reminderWho };
+  return {
+    ...readHead(m), rows, own, checkedAt: num(m.checkedAt),
+    runsToday: num(verdict?.runsToday) ?? rows.reduce((s, r) => s + r.runsToday, 0),
+  };
 }
 
 /** The OpenClaw jobs as `/api/cron/jobs` lists them. */
@@ -304,11 +418,7 @@ export function withCronJobs(rows: AutomationRow[], jobs: CronJob[] | null, desc
   });
   for (const j of jobs) {
     if (seen.has(j.id)) continue;
-    out.push({
-      key: `cron:${j.id}`, system: 'jarvis', title: j.name, level: 'va', reason: null, since: null, when: describe?.(j) ?? null,
-      next: j.enabled ? j.nextRunAt : null, what: null, last: { at: null, outcome: null, exit: null, error: null },
-      day: [], runsToday: 0, feedback: EMPTY_FEEDBACK, fp: null, jobId: j.id, enabled: j.enabled, votable: true, workflowRuns: [],
-    });
+    out.push({ ...blankRow(`cron:${j.id}`, 'jarvis', j.name), when: describe?.(j) ?? null, next: j.enabled ? j.nextRunAt : null, jobId: j.id, enabled: j.enabled });
   }
   return out;
 }
@@ -336,11 +446,41 @@ export function scheduleParts(job: CronJob | undefined): ScheduleParts | null {
   return null;
 }
 
-/** What waits on you, oldest first: the broken ones and the ones to decide. */
+/**
+ * What waits on you, oldest first: the broken ones and the ones to decide.
+ * A workflow step waiting for your ok is not one: no agent can fix it, and
+ * the ones that are yours reach the bell (`gatesWaiting`).
+ */
 export function toDecide(rows: AutomationRow[]): AutomationRow[] {
   return rows
-    .filter((r) => r.level !== 'va')
+    .filter((r) => r.level !== 'va' && !r.gate)
     .sort((a, b) => (a.since ?? Infinity) - (b.since ?? Infinity) || a.title.localeCompare(b.title, 'it'));
+}
+
+/** The workflow steps waiting for an ok, left out of «Decidi tu». */
+export function gatesWaiting(rows: AutomationRow[]): number {
+  return rows.filter((r) => r.gate).length;
+}
+
+/** The newest runs failed in a row, newest first: «failed the last N times» when more than one. */
+export function failStreak(row: Pick<AutomationRow, 'history'>): number {
+  let n = 0;
+  for (const h of row.history) {
+    if (h.outcome !== 'error') break;
+    n++;
+  }
+  return n;
+}
+
+/** The view's status filter: all, the ones in order, the problems. */
+export type StatusFilter = 'all' | 'ok' | 'problems';
+
+export function isProblem(row: AutomationRow): boolean {
+  return row.level !== 'va';
+}
+
+export function matchesStatus(row: AutomationRow, f: StatusFilter): boolean {
+  return f === 'all' || (f === 'problems' ? isProblem(row) : !isProblem(row));
 }
 
 export interface SystemCount {
@@ -357,15 +497,45 @@ export function systemCounts(rows: AutomationRow[]): SystemCount[] {
   }).filter((c) => c.total > 0);
 }
 
-/** A system's rows: what waits on you first, then the switched-off ones last, by title. */
-export function systemRows(rows: AutomationRow[], system: AutomationSystem): AutomationRow[] {
+/** Rows in the view's order: what waits on you first, the costliest next, the switched-off ones last, then by title. */
+export function sortRows(rows: AutomationRow[]): AutomationRow[] {
   const rank = (r: AutomationRow) => (r.level === 'va' ? (r.enabled === false ? 2 : 1) : 0);
-  return rows.filter((r) => r.system === system).sort((a, b) => rank(a) - rank(b) || a.title.localeCompare(b.title, 'it'));
+  return [...rows].sort((a, b) => rank(a) - rank(b) || usageTotal(b.usage) - usageTotal(a.usage) || a.title.localeCompare(b.title, 'it'));
 }
 
-export function matchesQuery(row: AutomationRow, query: string): boolean {
+/** A system's rows, in the view's order. */
+export function systemRows(rows: AutomationRow[], system: AutomationSystem): AutomationRow[] {
+  return sortRows(rows.filter((r) => r.system === system));
+}
+
+export interface AreaGroup {
+  area: AutomationArea;
+  rows: AutomationRow[];
+  ok: number;
+  decide: number;
+  broken: number;
+}
+
+/** The rows by what they do for you, as the hub groups them: the areas with a problem first, then the biggest. */
+export function areaGroups(rows: AutomationRow[]): AreaGroup[] {
+  return AUTOMATION_AREAS.map((area) => {
+    const mine = sortRows(rows.filter((r) => (r.area ?? 'manutenzione') === area));
+    const decide = mine.filter((r) => r.level === 'te').length;
+    const broken = mine.filter((r) => r.level === 'rotto').length;
+    return { area, rows: mine, ok: mine.length - decide - broken, decide, broken };
+  }).filter((g) => g.rows.length > 0)
+    .sort((a, b) => Number(b.decide + b.broken > 0) - Number(a.decide + a.broken > 0) || b.rows.length - a.rows.length);
+}
+
+/**
+ * The search: by name, by what it does for you, by who runs it, by what it
+ * writes to you and by its system, whose name in the person's language the
+ * caller passes.
+ */
+export function matchesQuery(row: AutomationRow, query: string, systemName = ''): boolean {
   const q = query.trim().toLocaleLowerCase('it');
-  return !q || row.title.toLocaleLowerCase('it').includes(q) || (row.what ?? '').toLocaleLowerCase('it').includes(q);
+  if (!q) return true;
+  return [row.title, row.what, row.who, row.means, row.where, systemName].some((t) => (t ?? '').toLocaleLowerCase('it').includes(q));
 }
 
 export interface Verdict {
@@ -393,19 +563,42 @@ export function toFixCount(summary: unknown): number | null {
   return a === null && b === null ? null : (a ?? 0) + (b ?? 0);
 }
 
-export type StripCell = RunOutcome | 'none';
+/** A past hour by its worst run, an hour ahead empty or holding the next run. */
+export type StripCell = RunOutcome | 'none' | 'ahead' | 'next';
 
-/** The last 24 hours, one cell per hour, the last one the hour now: the worst run of each. */
-export function dayStrip(day: AutomationRow['day'], now: number): StripCell[] {
-  const cells: StripCell[] = Array.from({ length: 24 }, () => 'none');
-  const weight: Record<StripCell, number> = { none: 0, ok: 1, skipped: 2, error: 3 };
+/** Hours of the strip behind now (the hour now included) and ahead of it, as the hub draws it: 22 + 2. */
+export const STRIP_BACK = 22;
+export const STRIP_AHEAD = 2;
+
+export interface Strip {
+  cells: StripCell[];
+  /** Index of the hour now: the cells after it are ahead. */
+  nowIndex: number;
+  /** Runs in the hours behind, and how many of them failed: the strip's words. */
+  runs: number;
+  failed: number;
+}
+
+/** The 24-hour strip: 22 hours behind, one cell per hour with its worst run, and 2 ahead with the next run. */
+export function dayStrip(day: AutomationRow['day'], now: number, next: number | null = null): Strip {
+  const cells: StripCell[] = Array.from({ length: STRIP_BACK + STRIP_AHEAD }, (_, i) => (i < STRIP_BACK ? 'none' : 'ahead'));
+  const weight: Record<StripCell, number> = { none: 0, ahead: 0, next: 0, ok: 1, skipped: 2, error: 3 };
+  const nowIndex = STRIP_BACK - 1;
+  let runs = 0;
+  let failed = 0;
   for (const d of day) {
     const ago = Math.floor((now - d.at) / 3_600_000);
-    if (ago < 0 || ago > 23) continue;
-    const i = 23 - ago;
+    if (ago < 0 || ago >= STRIP_BACK) continue;
+    runs++;
+    if (d.outcome === 'error') failed++;
+    const i = nowIndex - ago;
     if (weight[d.outcome] > weight[cells[i]!]) cells[i] = d.outcome;
   }
-  return cells;
+  if (next !== null && next > now) {
+    const ahead = Math.floor((next - now) / 3_600_000);
+    if (ahead < STRIP_AHEAD) cells[nowIndex + 1 + ahead] = 'next';
+  }
+  return { cells, nowIndex, runs, failed };
 }
 
 /** The runs of today and how many went well, for the detail's heading. */
@@ -446,6 +639,16 @@ export function feedbackBody(action: FeedbackAction, row: Pick<AutomationRow, 'k
   }
 }
 
+/** The row that takes a feedback row back, by the id the hub gave it (the undo button). */
+export function undoBody(ref: string): Record<string, unknown> {
+  return { kind: 'undo', ref };
+}
+
+/** The id of the row the hub wrote, from its answer to a feedback post. */
+export function feedbackRowId(answer: unknown): string | null {
+  return str(asRecord(asRecord(answer)?.row)?.id);
+}
+
 /** The command of a job, as the Topics route takes it. */
 export type JobCommand = { kind: 'run' } | { kind: 'enable'; on: boolean } | { kind: 'remove' };
 
@@ -463,41 +666,6 @@ export function refusalOf(status: number): 'gateway' | 'notRun' | 'refused' {
   return 'refused';
 }
 
-export interface CronRun {
-  at: number;
-  ms: number | null;
-  outcome: RunOutcome | null;
-  /** First line of what it produced or of its error. */
-  text: string | null;
-}
-
-function firstLine(v: unknown): string | null {
-  const s = str(v);
-  if (!s) return null;
-  const line = s.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
-  return line.length > 90 ? `${line.slice(0, 89)}…` : line || null;
-}
-
-/** The runs of an OpenClaw job, as the hub's `automations/runs` answers them. */
-export function readCronRuns(raw: unknown): CronRun[] | null {
-  const list = asRecord(raw)?.runs;
-  if (!Array.isArray(list)) return null;
-  return list.flatMap((r) => {
-    const o = asRecord(r);
-    const at = o && num(o.at);
-    if (!o || at === null) return [];
-    const oc = outcome(o.outcome);
-    return [{ at, ms: num(o.ms), outcome: oc, text: oc === 'error' ? firstLine(o.error) ?? firstLine(o.text) : firstLine(o.text) }];
-  });
-}
-
-/** The hub's estimate of a workflow run's cost: agents and share of the week. */
-export function readRunCost(raw: unknown): { agents: number; weekPct: number | null } | null {
-  const o = asRecord(raw);
-  if (!o || o.ok !== true) return null;
-  return { agents: num(o.agents) ?? 0, weekPct: num(o.weekPct) };
-}
-
 /** The keys a «Risolvi tu» agent is already on, from the hub's queue. */
 export function fixingKeys(queue: unknown): Set<string> {
   const items = asRecord(queue)?.items;
@@ -508,67 +676,4 @@ export function fixingKeys(queue: unknown): Set<string> {
     if (o && ref && (o.status === 'queued' || o.status === 'running')) out.add(ref);
   }
   return out;
-}
-
-export type CalendarKind = 'promemoria' | 'compito';
-
-export interface CalendarEntry {
-  key: string;
-  kind: CalendarKind;
-  title: string;
-  next: number | null;
-  when: string | null;
-  says: string | null;
-  /** What it will do, as written for the person (never the agent's prompt). */
-  what: string | null;
-  /** How it writes to you, beyond the channel. */
-  means: string | null;
-  /** The agent's instructions: shown only when the person opens them, behind their own fold. */
-  prompt: string | null;
-}
-
-/** The hub's calendar: reminders with a date and tasks that end. */
-export function readCalendar(raw: unknown): CalendarEntry[] | null {
-  const items = asRecord(raw)?.items;
-  if (!Array.isArray(items)) return null;
-  return items.flatMap((i) => {
-    const o = asRecord(i);
-    const key = o && str(o.key);
-    const title = o && str(o.title);
-    if (!o || !key || !title) return [];
-    return [{
-      key, kind: o.kind === 'compito' ? ('compito' as const) : ('promemoria' as const), title, next: num(o.next), when: str(o.when), says: str(o.says),
-      what: str(o.what), means: str(o.means), prompt: str(o.prompt),
-    }];
-  });
-}
-
-export interface CalendarDay {
-  /** Midnight of the day, or null for the undated ones (last). */
-  day: number | null;
-  /** 0 today, 1 tomorrow, more after; below 0 a day already gone (-1 yesterday). */
-  offset: number | null;
-  items: CalendarEntry[];
-}
-
-function midnight(ms: number): number {
-  const d = new Date(ms);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
-
-/**
- * The entries by day, soonest first. What already passed stays, on its day:
- * a reminder that did not fire on time shows as late instead of vanishing.
- */
-export function calendarDays(items: CalendarEntry[], now: number, kind: CalendarKind | null = null): CalendarDay[] {
-  const today = midnight(now);
-  const days = new Map<number | null, CalendarEntry[]>();
-  const sorted = [...items].sort((a, b) => (a.next ?? Infinity) - (b.next ?? Infinity));
-  for (const i of sorted) {
-    if (kind && i.kind !== kind) continue;
-    const day = i.next === null ? null : midnight(i.next);
-    days.set(day, [...(days.get(day) ?? []), i]);
-  }
-  return [...days.entries()].map(([day, list]) => ({ day, offset: day === null ? null : Math.round((day - today) / 86_400_000), items: list }));
 }
