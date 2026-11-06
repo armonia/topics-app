@@ -20,7 +20,10 @@ import { getMediaUrl } from '../../lib/api';
 import { dragCarriesFiles, filesFromDrop, imagesFromClipboard, uploadAttachment, MAX_ATTACHMENTS, type StagedAttachment } from '../../lib/attachments';
 import { titoloDaTesto } from '../../../../shared/task-title';
 // Loaded on first proposal only: most requests are a single card and never need the panel.
-const IntakePlanPanel = lazy(() => import('./IntakePlanPanel').then((m) => ({ default: m.IntakePlanPanel })));
+const IntakePlanPanel = lazy(async () => {
+  const { IntakePlanPanel: Panel } = await import('./IntakePlanPanel');
+  return { default: Panel };
+});
 import { followParents, runIntakeSubmit, type IntakeCreateResult, type IntakeRow } from '../../../../shared/intake-plan';
 import { draftPreviewOf, type DraftPreview } from './draftPreview';
 import { TaskModelSelector } from '../Shared/ModelSelector/TaskModelSelector';
