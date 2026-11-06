@@ -2384,7 +2384,7 @@ export function TopicTree({
               <span>{projectContextMenu.allArchived ? tr('sidebar.restoreProject') : tr('sidebar.archiveProject')}</span>
             </button>
           )}
-          {hubPresent && <Suspense fallback={null}><ProjectHubMenu projectPath={projectContextMenu.projectPath} /></Suspense>}
+          {hubPresent && <Suspense fallback={null}><ProjectHubMenu projectPath={projectContextMenu.projectPath} onClose={() => setProjectContextMenu(null)} /></Suspense>}
         </ContextMenuPortal>
       )}
 

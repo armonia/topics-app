@@ -1,10 +1,14 @@
 /**
  * THE PROJECT ROW WITH THE HUB'S DATA (hub-smistamento, HUBBR-16).
  *
- * Four Topics projects, three of which the fake hub knows by their folder's
+ * Six Topics projects, five of which the fake hub knows by their folder's
  * name, as the hub names a project: acme-web (30% of the Claude week, 38% with
- * Codex and Muse, on a 40% budget, running), studio-x (25% of the Claude week
- * on 25%, held by the brake), acme-api (in line). The budget is on the Claude
+ * Codex and Muse, on a 40% budget, three agents at work outside Topics, Opus
+ * among them), studio-x (25% of the Claude week on 25%, held by the brake
+ * until a day later in the week, priority alta), acme-api (in line, priority
+ * bassa), acme-shop (held by the quotas in the hub's short words while one
+ * agent still works: the row says the agent, as the hub's row does), acme-docs
+ * (idle for three days, its folder gone). The budget is on the Claude
  * share alone, and reached at equality, as the hub's brake reads it.
  * The hub's folder for a row is the last agent's, never the project's: the
  * fixture puts acme-web's in a board worktree, acme-api's in a sibling repo,
@@ -15,7 +19,9 @@
  * the number always and the words only whole (never a half word), with the
  * name whole, clear of the command rail, and a long name keeps its letters
  * before the hint keeps its words. The menu says the same in words
- * and writes the priority and the budget to the hub's `project-settings`,
+ * with what the project is, its share per provider (reachable on the phone,
+ * where nothing hovers), its agents with the model mix, the pace of the last
+ * hour and the Opus advice, and writes the priority and the budget to the hub's `project-settings`,
  * showing them as read back; a write the hub refuses shows its reason and
  * keeps the old one.
  *
@@ -29,7 +35,10 @@
  * menu's choice drawn from the click instead of the hub's answer, «a refused
  * write keeps the old priority» is red; with the budget compared on the
  * total again, or with `>` where the hub brakes at `>=` (`overBudget`), the
- * first test is red (the hint's 38%, the missing dot on studio-x).
+ * first test is red (the hint's 38%, the missing dot on studio-x); with the
+ * brake drawn before the agents again (ProjectHub.tsx `ProjectHubMark`), the
+ * acme-shop check of the first test is red; with the restart time printed
+ * without its day (`restartParts`), the studio-x tooltip check is red.
  *
  * Video on: the recording is the proof. Screenshots of the built surface go to
  * the test's output (`vero-riga-progetto-hub-*.png`, allow-italian: file names the docs expect),
@@ -55,12 +64,14 @@ test.use({ video: "on" });
 test.describe.configure({ mode: "serial", timeout: 150_000 });
 
 const ROOT = `${canonicalTmpRoot()}/e2e-hubrow-${Date.now().toString(36)}`;
-const NAMES = ["acme-web", "studio-x", "acme-api", "notes-lab"] as const;
+const NAMES = ["acme-web", "studio-x", "acme-api", "acme-shop", "acme-docs", "notes-lab"] as const;
 /** The chats each project is open on, as in the mockup's sidebar. */
 const CHATS: Record<(typeof NAMES)[number], string[]> = {
   "acme-web": ["Firma della release v1.1", "Revisione checkout"],
   "studio-x": ["Migrazione listino"],
   "acme-api": ["Paginazione degli ordini"],
+  "acme-shop": ["Listino"],
+  "acme-docs": ["Guida"],
   "notes-lab": ["Note sparse"],
 };
 const dirOf = (name: string) => `${ROOT}/${name}`;
@@ -154,18 +165,35 @@ test.describe("project row with the hub", () => {
     const studio = projectRow(page, "studio-x").getByTestId("project-hub-mark");
     await expect(studio).toHaveAttribute("data-hold", "held");
     await expect(studio).toHaveAttribute("data-over", "true");
-    const pause = studio.locator('[role="img"]');
+    const pause = studio.locator('[aria-label^="Fermo"]');
     // The budget brake, said once: the numbers are the dot's, the project's own name is not repeated.
-    await expect.poll(() => tipOf(pause)).toMatch(/^Fermo per il budget · riparte alle \d\d:\d\d$/);
+    // The budget waits on the weekly reset, days away: the restart says its day, never a bare time of a later day.
+    await expect.poll(() => tipOf(pause)).toMatch(/^Fermo per il budget · riparte \S+ alle \d\d:\d\d$/);
+    await expect(studio.getByTestId("project-hub-priority-mark")).toHaveAttribute("data-priority", "alta");
+    await expect.poll(() => tipOf(studio.getByTestId("project-hub-priority-mark"))).toBe("Priorità alta");
     await expect.poll(() => tipOf(studio.locator('[aria-label="Oltre il budget della settimana"]'))).toBe("Oltre il budget della settimana: 25% della settimana Claude su 25% di budget");
 
     const api = projectRow(page, "acme-api").getByTestId("project-hub-mark");
     await expect(api).toHaveAttribute("data-hold", "queued");
     await expect(api).not.toHaveAttribute("data-over", "true");
-    await expect.poll(() => tipOf(api.locator('[role="img"]'))).toBe("In coda: 2 lavori in attesa di partire");
+    await expect.poll(() => tipOf(api.locator('[aria-label^="In coda"]'))).toBe("In coda: 2 lavori in attesa di partire");
+    await expect(api.getByTestId("project-hub-priority-mark")).toHaveAttribute("data-priority", "bassa");
 
-    // acme-web is inside its budget and running: nothing at rest, the share on hover.
-    await expect(projectRow(page, "acme-web").getByTestId("project-hub-mark")).toHaveCount(0);
+    // acme-shop is held, but an agent still works there: the row says the agent, not the pause.
+    const shop = projectRow(page, "acme-shop").getByTestId("project-hub-mark");
+    await expect(shop).toHaveAttribute("data-working", "1");
+    await expect(shop).not.toHaveAttribute("data-hold", /.*/);
+    await expect(shop.getByTestId("project-hub-working")).toHaveText("1");
+    await expect(shop.locator('[aria-label^="Fermo"]')).toHaveCount(0);
+
+    // acme-web is inside its budget: no dot and no pause, its three agents at work outside Topics.
+    const webMark = projectRow(page, "acme-web").getByTestId("project-hub-mark");
+    await expect(webMark).toHaveAttribute("data-working", "3");
+    await expect(webMark).not.toHaveAttribute("data-over", "true");
+    await expect(webMark.getByTestId("project-hub-working")).toHaveText("3");
+    await expect.poll(() => tipOf(webMark.getByTestId("project-hub-working"))).toBe("3 agenti al lavoro");
+    // acme-docs nobody works on: nothing at rest.
+    await expect(projectRow(page, "acme-docs").getByTestId("project-hub-mark")).toHaveCount(0);
     const week = projectRow(page, "acme-web").getByTestId("project-hub-week");
     await expect(week).toBeHidden();
     // notes-lab is not the hub's: nothing of the hub at all.
@@ -183,7 +211,7 @@ test.describe("project row with the hub", () => {
     const name = projectRow(page, "acme-web").locator('[data-row-name="project"]');
     const nameWhole = () => drawnWhole(name);
     await expect.poll(nameWhole).toBe(true);
-    await expect.poll(() => tipOf(week)).toBe("30% della settimana Claude su 40% di budget");
+    await expect.poll(() => tipOf(week)).toBe("30% della settimana Claude su 40% di budget\n3 agenti al lavoro");
     // Clear of the command rail that shows on hover, and inside the row.
     const rail = projectRow(page, "acme-web").locator("> .row-actions");
     const [w, r, rowBox] = await Promise.all([week.boundingBox(), rail.boundingBox(), projectRow(page, "acme-web").boundingBox()]);
@@ -205,7 +233,7 @@ test.describe("project row with the hub", () => {
     const studioMenu = page.getByTestId("project-hub-menu");
     await expect(studioMenu).toHaveAttribute("data-project-hub", "studio-x");
     await expect(studioMenu.getByTestId("project-hub-menu-week")).toHaveText("25% della settimana Claude su 25% di budget");
-    await expect(studioMenu.getByTestId("project-hub-menu-hold")).toHaveText(/^Fermo per il budget · riparte alle \d\d:\d\d$/);
+    await expect(studioMenu.getByTestId("project-hub-menu-hold")).toHaveText(/^Fermo per il budget · riparte \S+ alle \d\d:\d\d$/);
     await page.keyboard.press("Escape");
     await expect(studioMenu).toHaveCount(0);
 
@@ -227,13 +255,64 @@ test.describe("project row with the hub", () => {
     await expect(menu.getByTestId("project-hub-priority-alta")).toHaveAttribute("aria-checked", "true");
     expect(hub!.priorities["acme-web"]).toBe("alta");
 
-    await menu.getByTestId("project-hub-budget-50").click();
-    await expect(menu.getByTestId("project-hub-menu-week")).toHaveText("30% della settimana Claude su 50% di budget");
-    await expect(menu.getByTestId("project-hub-budget-50")).toHaveAttribute("aria-checked", "true");
-    expect(hub!.budgets["acme-web"]).toBe(50);
+    // The tray's steps: 5 to 30, and the one in force beside them.
+    for (const v of ["none", "5", "10", "15", "20", "30", "40"]) await expect(menu.getByTestId(`project-hub-budget-${v}`)).toBeVisible();
+    await expect(menu.getByTestId("project-hub-budget-hint")).toHaveText("In % della settimana Claude: oltre, si fermano i lavori in background, non le chat");
+    await menu.getByTestId("project-hub-budget-30").click();
+    await expect(menu.getByTestId("project-hub-menu-week")).toHaveText("30% della settimana Claude su 30% di budget");
+    await expect(menu.getByTestId("project-hub-budget-30")).toHaveAttribute("aria-checked", "true");
+    expect(hub!.budgets["acme-web"]).toBe(30);
     // The priority written before is untouched by the budget's write.
     expect(hub!.priorities["acme-web"]).toBe("alta");
     await expect(menu.getByTestId("project-hub-priority-alta")).toHaveAttribute("aria-checked", "true");
+  });
+
+  test("the menu's facts: what the project is, the share per provider, the agents, the Opus advice, idle since when", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await openRows(page);
+
+    await page.getByTestId("project-toggle-acme-web").click({ button: "right" });
+    const menu = page.getByTestId("project-hub-menu");
+    await expect(menu).toHaveAttribute("data-project-hub", "acme-web");
+    // Every provider that spent, each on its own bar: the split the hub's columns gave, without a hover.
+    await expect(menu.getByTestId("project-hub-share-claude")).toContainText("30%");
+    await expect(menu.getByTestId("project-hub-share-codex")).toContainText("2%");
+    await expect(menu.getByTestId("project-hub-share-muse")).toContainText("6%");
+    const toggle = menu.getByTestId("project-hub-agents-toggle");
+    await expect(toggle).toContainText("3 agenti al lavoro");
+    await expect(menu.getByTestId("project-hub-agents-mix")).toHaveText("1 Opus · 1 Sonnet · 1 gpt-5");
+    // The last hour of all its agents: 400 k + 90 k.
+    await expect(menu.getByTestId("project-hub-agents-pace")).toHaveText("490 k/h");
+    await expect(menu.getByTestId("project-hub-opus")).toHaveText("1 Opus da 2 h su un progetto al 30% della settimana Claude: valuta Sonnet");
+    await expect(menu.getByTestId("project-hub-agent")).toHaveCount(0);
+    await toggle.click();
+    const agents = menu.getByTestId("project-hub-agent");
+    await expect(agents).toHaveCount(3);
+    // The hub's readable title, never its raw one; the session's tokens and share of the week.
+    await expect(agents.nth(0)).toContainText("Revisione del checkout");
+    await expect(agents.nth(0)).not.toContainText("[claude]");
+    await expect(agents.nth(0).getByTestId("project-hub-agent-meta")).toHaveText(/^sessione · da 2 h · \d min fa · 1,2 M token · 1,5% sett\.$/);
+    await expect.poll(() => tipOf(agents.nth(0).getByTestId("project-hub-agent-open"))).toBe("Si apre in Claude Code desktop");
+    // The sub-agent one step in, and no way in where the hub knows none.
+    await expect(agents.nth(1)).toHaveAttribute("data-depth", "1");
+    await expect(agents.nth(2).getByTestId("project-hub-agent-open")).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("vero-riga-progetto-hub-agenti-scuro.png") });
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+
+    await page.getByTestId("project-toggle-acme-shop").click({ button: "right" });
+    await expect(menu.getByTestId("project-hub-agents-toggle")).toContainText("1 agente al lavoro");
+    // The hub's short words, the time it appended replaced by the menu's own.
+    await expect(menu.getByTestId("project-hub-menu-hold")).toHaveText(/^Fermo: Muse sopra ritmo · Codex esaurito · riparte (\S+ )?alle \d\d:\d\d$/);
+    await page.keyboard.press("Escape");
+
+    await page.getByTestId("project-toggle-acme-docs").click({ button: "right" });
+    await expect(menu.getByTestId("project-hub-menu-what")).toHaveText("Documentazione di Acme");
+    await expect(menu.getByTestId("project-hub-menu-idle")).toHaveText(/^Nessun agente da 3 g, l'ultimo il \d+ \S+ \(Codex\)$/);
+    await expect(menu.getByTestId("project-hub-menu-gone")).toHaveText("La cartella era temporanea e non esiste più");
+    await expect(menu.getByTestId("project-hub-agents")).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("vero-riga-progetto-hub-fermo-scuro.png") });
   });
 
   test("a refused write keeps the old priority and says why", async ({ page }) => {
@@ -274,6 +353,9 @@ test.describe("project row with the hub", () => {
         });
       } else await longPress(page, '[data-testid="project-toggle-studio-x"]', { until: menu });
       await expect(menu.getByTestId("project-hub-menu-week")).toHaveText("25% della settimana Claude su 25% di budget");
+      // The split per provider is in the menu, where a finger reaches it.
+      await expect(menu.getByTestId("project-hub-share-claude")).toContainText("25%");
+      await expect(menu.getByTestId("project-hub-share-muse")).toContainText("2%");
       await expect(menu.getByTestId("project-hub-priority")).toBeInViewport();
       await page.screenshot({ path: testInfo.outputPath("vero-riga-progetto-hub-telefono-menu.png") });
     } finally {

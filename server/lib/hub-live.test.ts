@@ -162,20 +162,46 @@ describe("HUBBR-02: hub live data on the WebSocket", () => {
     expect(urls).toContain("http://hub/api/automations/summary");
   });
 
-  test("projects keep only what the project row reads: a change of agents alone sends no frame", async () => {
+  test("projects keep what the row and its menu read, coarsened: a minute of agents' noise sends no frame", async () => {
     const h = harness();
+    const t0 = 1_793_000_040_000; // on a whole minute
+    const agent = (lastActivity: number, tokens: number) => ({
+      kind: "sessione", provider: "claude", model: "Opus", depth: 0, title: "[claude] raw", work: "Seguito T8", startedAt: t0, lastActivity,
+      use: { tokens, hourTokens: tokens, pct: 0.158 }, open: { url: "claude://claude.ai/epitaxy/x", via: "Claude Code desktop" }, cwd: "/secret",
+    });
+    const row = (lastActivity: number, tokens: number, extra: Record<string, unknown> = {}) => ({
+      name: "acme-web", state: "attivo", total: 12, claude: 4, codex: 8, muse: 0, what: "Sito Acme", dir: "~/moves",
+      lastSeen: { at: lastActivity, provider: "codex", cwd: "/secret" }, dirMissing: false,
+      agents: { count: 1, models: [{ provider: "claude", model: "Opus", n: 1 }], opus: 1, opusMs: 3_600_000, list: [agent(lastActivity, tokens)] }, ...extra,
+    });
+    h.answers.live = { projects: [row(t0 + 1_000, 785_799)] };
     await h.live.tick();
     const first = h.frames.find((f) => f.topic === "projects");
-    // The Claude share stays: the budget is measured on it alone.
-    expect(first?.data).toEqual({ projects: [{ name: "acme-web", state: "attivo", total: 12, claude: 4 }], agentsOutside: 0 });
-    h.answers.live = { projects: [{ name: "acme-web", state: "attivo", total: 12, claude: 4, codex: 8, agents: { count: 3 }, lastSeen: { at: 2 } }] };
+    expect(first?.data).toEqual({ projects: [{
+      name: "acme-web", what: "Sito Acme", state: "attivo", total: 12, claude: 4, codex: 8, muse: 0, dirMissing: false,
+      lastSeen: { at: t0, provider: "codex" },
+      agents: {
+        count: 1, models: [{ provider: "claude", model: "Opus", n: 1 }], opus: 1, opusMs: 3_600_000, hourTokens: 790_000,
+        list: [{ provider: "claude", model: "Opus", kind: "sessione", depth: 0, title: "Seguito T8", startedAt: t0, lastActivity: t0, tokens: 790_000, pct: 0.2, open: { url: "claude://claude.ai/epitaxy/x", via: "Claude Code desktop" } }],
+      },
+    }], agentsOutside: 1 });
+    // Seconds later, a few more tokens: nothing a reader sees moved, no frame.
+    h.answers.live = { projects: [row(t0 + 20_000, 786_100)] };
     h.frames.length = 0;
     h.advance(15_000);
     await h.live.tick();
     expect(h.frames.filter((f) => f.topic === "projects")).toEqual([]);
-    h.answers.live = { projects: [{ name: "acme-web", state: "frenato", why: "budget finito", total: 12 }] };
+    h.answers.live = { projects: [{ name: "acme-web", state: "frenato", why: "budget finito", brake: "Muse sopra ritmo → 20:07", total: 12 }] };
     await h.live.tick();
-    expect(h.frames.filter((f) => f.topic === "projects").map((f) => f.data)).toEqual([{ projects: [{ name: "acme-web", state: "frenato", why: "budget finito", total: 12 }], agentsOutside: 0 }]);
+    expect(h.frames.filter((f) => f.topic === "projects").map((f) => f.data)).toEqual([{ projects: [{ name: "acme-web", state: "frenato", why: "budget finito", brake: "Muse sopra ritmo → 20:07", total: 12 }], agentsOutside: 0 }]);
+  });
+
+  test("an agent's link that is not the app's or the web's is dropped", async () => {
+    const h = harness();
+    h.answers.live = { projects: [{ name: "x", agents: { count: 1, list: [{ open: { url: "javascript:alert(1)", via: "x" } }] } }] };
+    await h.live.tick();
+    const data = h.frames.find((f) => f.topic === "projects")?.data as { projects: Array<{ agents: { list: Array<{ open: unknown }> } }> };
+    expect(data.projects[0]!.agents.list[0]!.open).toBeNull();
   });
 
   test("the agents at work outside Topics are a count, the ones in a Topics tab left out (HUBBR-13)", async () => {
