@@ -62,6 +62,15 @@ Tutto ciò che viene dall'hub si vede solo se l'hub c'è: senza hub Topics resta
 Il motore dell'hub (API, freno, scansioni, misura di GPU e rete) non cambia. Niente pagine nuove sull'hub, e le sue pagine e la tray si toccano dopo il merge. Niente app per il telefono a parte: stessi posti, nel cassetto in basso.
 Le risposte sulle card «Decidi tu» di Agenti e lavori che il mockup mette in riga restano fuori: «Approva», «Vedi il diff» e «Ferma» su un workflow fermo a un cancello vogliono un'API di approvazione che l'hub non ha (ci sono solo le `/api/gate*`, e il motore dell'hub qui non cambia), e «Sul main» / «Resta su…» su una domanda di Topics vogliono le scelte della domanda, che la riga non porta e che nemmeno la campanella offre (lì è «Rispondi», che apre la chat). Le card aprono la chat o le Automazioni dell'hub, come dice HUBBR-13.
 
+Pezzi dell'hub lasciati fuori dalle tracce della parità, uno per riga col perché:
+- Campanella, «Altri avvisi» di `/api/alerts` tagliati su una riga: c'è già, la riga dell'avviso in BellRows.tsx mostra il messaggio intero al passaggio e si apre col clic (ff3eceb58).
+- Diario, intestazione «N eventi, aggiornato alle HH:MM»: c'è già, è l'etichetta `bell.history.fresh` accanto alla ricerca della Cronologia, ora in BellHistoryTools.
+- Servizi come tabella a colonne (Servizio / Stato / Memoria / Porta e job): sarebbe solo forma, ogni riga di MachineProcessesPane porta già stato, memoria con l'albero dei processi, job launchd e porta, e i gruppi tornano come intestazioni.
+- Agenti e lavori, il filtro scelto scritto nell'indirizzo: il livello è un popover del menu Sistema, Topics consuma i link come `/tab/` e scriverlo a ogni cambio riaprirebbe il menu a ogni ricarico.
+- Progetti, la riga comune «Frenati:» sopra la tabella: serve solo a non ripetere un motivo lungo una colonna, in Topics ogni riga sta da sola e il suo freno ha già il suo motivo nelle parole corte dell'hub.
+- Consumi, «Attività Claude Code (14 giorni)»: la fonte `~/.claude/stats-cache.json` non esiste più, il proxy risponde stats null e anche la card dell'hub è vuota.
+- Automazioni, «Apri il dettaglio» sulle righe del Calendario: promemoria e compiti datati non sono righe di automazione e non hanno un pannello, i loro fatti si leggono aprendo la riga.
+
 ## Non ancora specificato
 - Se la CPU di ogni processo serve davvero anche fuori dai più pesanti: aggiungerla vorrebbe dire cambiare il censimento dell'hub, che qui è fuori.
 
