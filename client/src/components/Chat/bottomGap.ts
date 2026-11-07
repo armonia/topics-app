@@ -55,14 +55,16 @@ export function isParkedAtBottom(distance: number): boolean {
  * Through Virtuoso when the tail may be missing from the DOM (a history that
  * landed under the list, a reader who sent from the top of the thread):
  * `scrollToIndex('LAST')` mounts it, and the pin two frames later lands on its
- * true height. Parked at the bottom, as the window that sent the turn watched
- * it, the tail is already on screen, and Virtuoso's whole-pixel aim could only
- * take the view a pixel up for that pin to bring it back: traced at the end of
- * every `manytool` turn, `scrollTo` 1123 of 1124 and the pixel back 5 to 15 ms
- * later, room for a painted frame in between, the frame the loader goes. So it
- * is pinned in place, as the pane that comes back already is (TABSWITCH-01, in
- * the list's ResizeObserver).
+ * true height. A history landing is measured before its rows are drawn, when
+ * the empty list reads as parked at the bottom, so only the end of a turn that
+ * this window carried can go without. Parked at the bottom, as the window that
+ * sent the turn watched it, the tail is already on screen, and Virtuoso's
+ * whole-pixel aim could only take the view a pixel up for that pin to bring it
+ * back: traced at the end of every `manytool` turn, `scrollTo` 1123 of 1124 and
+ * the pixel back 5 to 15 ms later, room for a painted frame in between, the
+ * frame the loader goes. So only the pin runs, at the same two frames and with
+ * the same settling, which still follows the turn's last growth.
  */
-export function endOfLoadingPinRoute(distance: number): { now: true } | { viaVirtuoso: true; frames: 2 } {
-  return isParkedAtBottom(distance) ? { now: true } : { viaVirtuoso: true, frames: 2 };
+export function endOfLoadingPinRoute(at: { carriedTurn: boolean; distance: number }): { frames: 2; viaVirtuoso?: true } {
+  return at.carriedTurn && isParkedAtBottom(at.distance) ? { frames: 2 } : { viaVirtuoso: true, frames: 2 };
 }

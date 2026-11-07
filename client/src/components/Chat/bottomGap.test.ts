@@ -48,17 +48,23 @@ describe('isParkedAtBottom', () => {
 });
 
 describe('endOfLoadingPinRoute', () => {
-  test('the sender parked at the bottom is pinned in place, never through Virtuoso', () => {
-    expect(endOfLoadingPinRoute(traced(1124))).toEqual({ now: true });
-    expect(endOfLoadingPinRoute(traced(1123))).toEqual({ now: true });
+  test('the sender parked at the bottom when its turn ends gets the pin alone, never Virtuoso\'s whole-pixel aim', () => {
+    expect(endOfLoadingPinRoute({ carriedTurn: true, distance: traced(1124) })).toEqual({ frames: 2 });
+    expect(endOfLoadingPinRoute({ carriedTurn: true, distance: traced(1123) })).toEqual({ frames: 2 });
   });
 
   test('away from the bottom the tail may be missing: Virtuoso mounts it, the pin follows two frames later', () => {
-    expect(endOfLoadingPinRoute(traced(1122))).toEqual({ viaVirtuoso: true, frames: 2 });
-    expect(endOfLoadingPinRoute(traced(0))).toEqual({ viaVirtuoso: true, frames: 2 });
+    expect(endOfLoadingPinRoute({ carriedTurn: true, distance: traced(1122) })).toEqual({ viaVirtuoso: true, frames: 2 });
+    expect(endOfLoadingPinRoute({ carriedTurn: true, distance: traced(0) })).toEqual({ viaVirtuoso: true, frames: 2 });
+  });
+
+  test('a history landing goes through Virtuoso even when the list reads parked: its rows are not drawn yet', () => {
+    // Traced at the opening of a chat: the loading ended on an empty scroller, 800 of 800.
+    expect(endOfLoadingPinRoute({ carriedTurn: false, distance: 800 - 0 - 800 })).toEqual({ viaVirtuoso: true, frames: 2 });
+    expect(endOfLoadingPinRoute({ carriedTurn: false, distance: traced(1124) })).toEqual({ viaVirtuoso: true, frames: 2 });
   });
 
   test('with no scroller to measure, the route that mounts the tail', () => {
-    expect(endOfLoadingPinRoute(Infinity)).toEqual({ viaVirtuoso: true, frames: 2 });
+    expect(endOfLoadingPinRoute({ carriedTurn: true, distance: Infinity })).toEqual({ viaVirtuoso: true, frames: 2 });
   });
 });

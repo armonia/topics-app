@@ -836,7 +836,7 @@ export function MessageList({
   }, [jumpPending]);
 
   /** Manda un evento all'autorità, applica il nuovo stato, e pinna se lo dice lei. */
-  const dispatchScroll = useCallback((event: ScrollEvent, pinOpts?: { viaVirtuoso?: boolean; frames?: 1 | 2; settleFrames?: number; force?: boolean; now?: boolean }) => {
+  const dispatchScroll = useCallback((event: ScrollEvent, pinOpts?: { viaVirtuoso?: boolean; frames?: 1 | 2; settleFrames?: number; force?: boolean }) => {
     const decision = reduceScroll(authorityRef.current, event, Date.now());
     authorityRef.current = decision.state;
     if (decision.pin) pinToBottom(pinOpts);
@@ -1421,10 +1421,10 @@ export function MessageList({
       userTouchedRef.current = false;
       openingUntilRef.current = Date.now() + OPEN_WINDOW_MS;
       openingHardStopRef.current = Date.now() + OPEN_HARD_STOP_MS;
-      // Parked at the bottom (the window that sent the turn), pinned in place:
+      // The end of a turn this window carried, parked at the bottom: the pin alone,
       // Virtuoso's whole-pixel aim would take it a pixel up first (`bottomGap.ts`).
       const el = scrollerElRef.current;
-      const route = endOfLoadingPinRoute(el ? el.scrollHeight - el.scrollTop - el.clientHeight : Infinity);
+      const route = endOfLoadingPinRoute({ carriedTurn, distance: el ? el.scrollHeight - el.scrollTop - el.clientHeight : Infinity });
       dispatchScroll({ type: 'scroll-to-bottom' }, { ...route, settleFrames: OPEN_SETTLE_FRAMES, force: true });
     }
   }, [currentLoading, _currentStreaming, filteredMessages.length, dispatchScroll, topic.id, OPEN_SETTLE_FRAMES, grewFromEmpty]);
@@ -1590,7 +1590,16 @@ export function MessageList({
     // a gesture window (click on a tool-call row, dragging the scrollbar)
     // this pin scrolls the row out of Virtuoso's overscan, which unmounts
     // and remounts it collapsed. See `gestureUntilRef`.
-    if (_currentStreaming && Date.now() >= gestureUntilRef.current) pinToBottom({ now: true });
+    if (!_currentStreaming || Date.now() < gestureUntilRef.current) return;
+    pinToBottom({ now: true });
+    // The streamed line itself is drawn by Virtuoso in a second commit of its
+    // own (as for the rest pin below), so it has not grown yet here: the
+    // microtask pins it after that commit, in the same task. Left to the
+    // ResizeObserver, the frame's callbacks ran in between and read the new
+    // line with the view still 27 px short of the bottom (chat-turn-end-still
+    // `quick`, WebKit, the window that watched the turn: that was its last
+    // frame with the loader, so the next one read as the turn moving 27 px).
+    queueMicrotask(() => pinToBottom({ now: true }));
   }, [filteredMessages, _currentStreaming, pinToBottom]);
   // The bottom of a view at rest, kept in the same layout as the change, for
   // rows that change while NO turn streams: the pictures stapled to the end of
