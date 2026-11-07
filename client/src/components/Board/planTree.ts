@@ -11,6 +11,11 @@ export function progressLabel(p: { total: number; done: number }): string {
   return `${p.done}/${p.total}`;
 }
 
+/** Cards still open in a group: what is left to do, not its history. */
+export function openOf(p: { total: number; done: number }): number {
+  return p.total - p.done;
+}
+
 /** i18n key of a signal badge. */
 export const SIGNAL_KEY: Record<PlanSignal, string> = {
   duplicate: 'plan.signal.duplicate',

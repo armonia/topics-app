@@ -95,11 +95,13 @@ export function buildPlan(
   const sources = db.query(`SELECT id, task_id, milestone_id, kind, label, url FROM plan_sources ORDER BY created_at`).all() as SourceRow[];
 
   let names = new Map<string, string>();
+  let paths = new Map<string, string>();
   try {
     // Board ids are path slugs (`quadra-lh40qh`), not `projects.id`: resolve both,
     // or every project shows its slug instead of the name people know.
     const rows = db.query(`SELECT id, name, path FROM projects`).all() as { id: string; name: string; path: string | null }[];
     names = new Map(rows.flatMap((p) => [[p.id, p.name], ...(p.path ? [[projectIdForPath(p.path), p.name]] : [])] as [string, string][]));
+    paths = new Map(rows.flatMap((p) => (p.path ? [[p.id, p.path], [projectIdForPath(p.path), p.path]] : []) as [string, string][]));
   } catch { /* projects table absent (test bench): fall back to the id */ }
 
   const milestoneOf = new Map(links.map((l) => [l.task_id, l.milestone_id]));
@@ -188,17 +190,18 @@ export function buildPlan(
     const unplacedAll = allUnplaced.get(pid) ?? [];
     const everything = [...projectAreas.flatMap((a) => a.milestones.flatMap((m) => allByMilestone.get(m.id) ?? [])), ...unplacedAll];
     return {
-      projectId: pid, name: names.get(pid) ?? pid, progress: progressOf(everything), areas: projectAreas,
+      projectId: pid, name: names.get(pid) ?? pid, path: paths.get(pid) ?? null,
+      openCount: everything.filter((c) => c.status !== "done").length,
+      progress: progressOf(everything), areas: projectAreas,
       unplaced: { progress: progressOf(unplacedAll), tasks: unplacedByProject.get(pid) ?? [] },
     };
   });
   // A project with nothing open and no plan of its own is history: it stays out
-  // unless done cards were asked for. The rest goes by open work, largest first,
-  // so the list starts where the work is instead of at the alphabet.
-  const open = (p: PlanProject) => p.progress.total - p.progress.done;
+  // unless done cards were asked for. Projects with a plan come first (that is
+  // where the work has been ordered), then by open work, largest first.
   const projects = built
-    .filter((p) => includeDone || open(p) > 0 || p.areas.length > 0)
-    .sort((a, b) => open(b) - open(a) || a.name.localeCompare(b.name));
+    .filter((p) => includeDone || p.openCount > 0 || p.areas.length > 0)
+    .sort((a, b) => Number(b.areas.length > 0) - Number(a.areas.length > 0) || b.openCount - a.openCount || a.name.localeCompare(b.name));
   // Two boards can carry the same project name (`attilio` and `attilio-mn52yh`):
   // without the id the list shows two identical rows and nobody can tell them apart.
   const seenNames = new Map<string, number>();

@@ -1899,6 +1899,8 @@ const EN = {
   'plan.signal.stale': 'Idle over 7 days',
   'plan.error': 'The plan did not load: {message}',
   'plan.noMilestones': 'No milestone yet',
+  'plan.openCount': '{n} open',
+  'plan.milestoneEmpty': 'No open card here',
   'board.toolbar.allProjects': 'All projects',
   'board.toolbar.dispatchSettings': 'Auto-dispatch settings',
   'board.toolbar.viewMode.kanban': 'Switch to list view',

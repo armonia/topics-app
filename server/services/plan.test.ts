@@ -45,6 +45,24 @@ describe("plan tree", () => {
     expect(buildPlan(db, { includeDone: true, now: T0 }).projects.map((p) => p.projectId)).toContain("chiuso");
   });
 
+  test("a project with a plan comes before a bigger one without, and counts its open cards only", () => {
+    for (const i of [1, 2, 3]) task(`big${i}`, { project_id: "big" });
+    task("s1", { project_id: "small" }); task("s2", { project_id: "small", status: "done" });
+    createArea(db, { projectId: "small", name: "A" });
+    const projects = buildPlan(db, { now: T0 }).projects;
+    expect(projects.map((p) => p.projectId)).toEqual(["small", "big"]);
+    expect(projects.map((p) => p.openCount)).toEqual([1, 3]);
+  });
+
+  test("the project carries its folder, from the board slug too, for its real icon", () => {
+    db.run(`CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT, path TEXT)`);
+    db.query(`INSERT INTO projects (id, name, path) VALUES ('px', 'quadra', '/Users/me/Projects/quadra')`).run();
+    task("q1", { project_id: "px" }); task("v1", { project_id: "virtual" });
+    const byId = new Map(buildPlan(db, { now: T0 }).projects.map((p) => [p.projectId, p.path]));
+    expect(byId.get("px")).toBe("/Users/me/Projects/quadra");
+    expect(byId.get("virtual")).toBeNull();
+  });
+
   test("two boards with the same project name are told apart by their id", () => {
     db.run(`CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT, path TEXT)`);
     db.query(`INSERT INTO projects (id, name, path) VALUES ('x1', 'attilio', NULL)`).run();
