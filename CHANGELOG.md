@@ -2,6 +2,19 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.52 — 2026-11-07
+
+### Sotto il cofano
+- Chat SSE: dopo 40 ms di silenzio la risposta manda una riga di commento, perché WebKit tiene la coda di uno stream finché non arriva il byte dopo
+- a fine turno la vista non sale più di 1 px in Chromium né di 56 px in WebKit, perché un pixel dal fondo non è il fondo e il calo di una lista accorciata non è il lettore che risale
+- Chat SSE: il colpetto dopo un silenzio si ripete (40 ms, 250 ms, 1 s, 4 s), perché uno solo può arrivare a WebKit insieme alla raffica e restare bloccato con lei
+- Chat SSE: dopo una raffica i colpetti vengono ogni 40 ms per i primi 400, poi a 600 ms, 1, 2 e 4 s
+- la riga in streaming si incolla nello stesso task in cui Virtuoso la disegna, e il pin di fine caricamento salta Virtuoso solo alla fine di un turno
+- e2e chat-turn-end-still: il lettore gira di nuovo la rotellina se il primo giro si ferma prima di 300 px
+- Fine turno headless: ogni lettura lascia un solo timer di grazia e lo cancella appena il lettore vince
+- Test della grazia headless: dichiara il requisito che copre (KANBAN-07) e fissa la durata di ogni timer a graceMs, così un timer a 0 ms non passa più
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-07 [skip ci]
+
 ## 2.3.51 — 2026-11-07
 
 ### Sotto il cofano
