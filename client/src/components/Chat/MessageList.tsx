@@ -55,6 +55,7 @@ import { ANCHOR_SLACK_PROPERTY, TranscriptDisclosureContext, useDisclosureAnchor
 import { CHAT_BOTTOM_GUTTER_PX, COMPOSER_HEIGHT_PROPERTY, type ComposerResizeHandler } from './useComposerDock';
 import { conversationViewKey } from '../../state/composerHandoff';
 import { useHiddenTurnReturn } from './useHiddenTurnReturn';
+import { endOfLoadingPinRoute, isParkedAtBottom, isVisibleGap } from './bottomGap';
 
 /**
  * La LISTA di Virtuoso, cappata alla misura di lettura.
@@ -818,6 +819,11 @@ export function MessageList({
       // `reached-bottom` riancorava chi stava leggendo indietro.
       lastPinAtRef.current = Date.now();
       el.scrollTop = el.scrollHeight;
+      // The next drop is measured from where the pin left the view, not from the
+      // last `scroll`: a move the pin already followed (the browser clamping a
+      // list that got shorter) can send its event late, and measured from the
+      // event before it read as the reader going up (`onScroll`).
+      lastScrollTopRef.current = el.scrollTop;
       const residuo = el.scrollHeight - el.scrollTop - el.clientHeight;
       if (residuo > 1 && attempts < (opts?.settleFrames ?? PIN_SETTLE_FRAMES)) {
         attempts++;
@@ -1415,10 +1421,11 @@ export function MessageList({
       userTouchedRef.current = false;
       openingUntilRef.current = Date.now() + OPEN_WINDOW_MS;
       openingHardStopRef.current = Date.now() + OPEN_HARD_STOP_MS;
-      dispatchScroll(
-        { type: 'scroll-to-bottom' },
-        { viaVirtuoso: true, frames: 2, settleFrames: OPEN_SETTLE_FRAMES, force: true },
-      );
+      // The end of a turn this window carried, parked at the bottom: the pin alone,
+      // Virtuoso's whole-pixel aim would take it a pixel up first (`bottomGap.ts`).
+      const el = scrollerElRef.current;
+      const route = endOfLoadingPinRoute({ carriedTurn, distance: el ? el.scrollHeight - el.scrollTop - el.clientHeight : Infinity });
+      dispatchScroll({ type: 'scroll-to-bottom' }, { ...route, settleFrames: OPEN_SETTLE_FRAMES, force: true });
     }
   }, [currentLoading, _currentStreaming, filteredMessages.length, dispatchScroll, topic.id, OPEN_SETTLE_FRAMES, grewFromEmpty]);
 
@@ -1583,7 +1590,16 @@ export function MessageList({
     // a gesture window (click on a tool-call row, dragging the scrollbar)
     // this pin scrolls the row out of Virtuoso's overscan, which unmounts
     // and remounts it collapsed. See `gestureUntilRef`.
-    if (_currentStreaming && Date.now() >= gestureUntilRef.current) pinToBottom({ now: true });
+    if (!_currentStreaming || Date.now() < gestureUntilRef.current) return;
+    pinToBottom({ now: true });
+    // The streamed line itself is drawn by Virtuoso in a second commit of its
+    // own (as for the rest pin below), so it has not grown yet here: the
+    // microtask pins it after that commit, in the same task. Left to the
+    // ResizeObserver, the frame's callbacks ran in between and read the new
+    // line with the view still 27 px short of the bottom (chat-turn-end-still
+    // `quick`, WebKit, the window that watched the turn: that was its last
+    // frame with the loader, so the next one read as the turn moving 27 px).
+    queueMicrotask(() => pinToBottom({ now: true }));
   }, [filteredMessages, _currentStreaming, pinToBottom]);
   // The bottom of a view at rest, kept in the same layout as the change, for
   // rows that change while NO turn streams: the pictures stapled to the end of
@@ -1791,7 +1807,14 @@ export function MessageList({
         // just after «back to bottom» released it, leaving the chat 12px short
         // (150 ms: nothing for a hand, all of our settling). So is every move
         // while a toggled fold holds its header: a gesture ends that hold first.
-        const nostro = Date.now() - lastPinAtRef.current < SELF_PIN_SETTLE_MS || disclosure.holding();
+        // And a drop that leaves the view at the bottom is nobody's move up: the
+        // end came up under it (a turn's tools folding away, the browser clamping
+        // the shorter list), and a reader who goes up leaves the bottom. WebKit on
+        // a loaded runner sent that clamp's `scroll` 195 ms after our last pin:
+        // read as the reader, it let go of the bottom for the rest of the turn,
+        // and Virtuoso's compensation took the view 56 px up (`bottomGap.ts`).
+        const nostro = Date.now() - lastPinAtRef.current < SELF_PIN_SETTLE_MS || disclosure.holding()
+          || isParkedAtBottom(el.scrollHeight - st - el.clientHeight);
         // Ours is not emitted at all, not even downgraded to `delta`: past the
         // guard window a far `delta` still detaches, and that switched off
         // every recovery pin over a move we had caused ourselves.
@@ -1881,7 +1904,7 @@ export function MessageList({
         // second and fourth frame of every return (tab-switch e2e, TABSWITCH-01).
         // The pin loop still runs: it is a no-op at the bottom and still
         // catches a row that finishes measuring late.
-        const atBottomNow = el.scrollHeight - el.scrollTop - el.clientHeight <= 1;
+        const atBottomNow = isParkedAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight);
         // Both moves land before the first frame paints: a frame later, it
         // showed the rows at the pre-merge offset, or moved by the last pixel
         // on the third frame (tab-switch audit 2026-09-30, TABSWITCH-01/03).
@@ -1915,10 +1938,13 @@ export function MessageList({
       // solo finire un movimento già quasi compiuto e non trascina mai giù chi
       // sta leggendo indietro.
       const r = el.scrollHeight - el.scrollTop - el.clientHeight;
-      // Un pixel di banda morta, non di più: allargarla spegnerebbe
-      // l'oscillazione descritta più sotto, ma lascerebbe la chat FERMA a sei
-      // pixel dal fondo — e quello si vede. Vedi la nota prima di `pinToBottom`.
-      if (r <= 1) return;
+      // A dead band under a whole pixel, no wider: widening it would quiet the
+      // loop described further down, but would leave the chat STILL six pixels
+      // from the bottom, and that shows. And not a whole pixel either: the one
+      // left by Chromium's scroll anchoring, which follows this same growth in
+      // whole pixels, stayed for the rest of the turn and moved the transcript
+      // when the loader went (`bottomGap.ts`).
+      if (!isVisibleGap(r)) return;
       // DENTRO L'APERTURA la distanza non è un argomento.
       //
       // Il resto di questa regola esiste per non strappare la vista a chi sta

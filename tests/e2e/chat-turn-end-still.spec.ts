@@ -32,7 +32,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { hermetic } from "./fixtures/hermetic";
 import { goToApp, openTopic } from "./helpers";
@@ -319,13 +319,13 @@ test.describe("the end of a turn moves nothing, in the window that sent it and i
     await openChat(page, topic.name);
     await chatPage.sendMessage("SCEN:still go");
 
-    // The answer is live; the reader goes up 400 px with a real wheel.
+    // The answer is live; the reader goes up 400 px with a real wheel (`wheelUp`).
     await expect(page.getByText("ANSWER-STILL", { exact: false })).toBeVisible({ timeout: 15_000 });
     const scroller = page.locator('[data-testid="chat-message-list"]:visible');
     const box = await scroller.boundingBox();
     if (!box) throw new Error("the chat scroller has no box to wheel over");
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.wheel(0, -400);
+    await wheelUp(page, scroller, 400);
     await expect.poll(() => scroller.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeGreaterThan(300);
     await expect(page.getByTestId("chat-streaming-indicator")).toBeVisible();
 
@@ -366,3 +366,37 @@ test.describe("the end of a turn moves nothing, in the window that sent it and i
     });
   }
 });
+
+/** How far the view rests from the bottom once a turn of the wheel is over: on WebKit it is animated. */
+async function restingDistance(scroller: Locator): Promise<number> {
+  let last: number | null = null;
+  await expect.poll(async () => {
+    const top = await scroller.evaluate((el) => el.scrollTop);
+    const resting = top === last;
+    last = top;
+    return resting;
+  }, { intervals: [200] }).toBe(true);
+  return scroller.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop);
+}
+
+/**
+ * The reader turns the wheel up over `scroller` for `by` px from the bottom,
+ * and turns it again for the rest while the view rests within three quarters
+ * of that, as a hand whose turn fell short would.
+ *
+ * On the Linux runner WebKit animates a turn of the wheel, and a scroll from
+ * script stops the animation where it is. On the way up a history row mounts,
+ * Virtuoso corrects the height it had estimated for it (144 px for 110) with
+ * `scrollBy(-34)`, and when that came early in the animation the turn stopped
+ * 140 to 260 px up: the reader never got 300 px away, in 6 runs in 20 on main
+ * (run 42344140943) and 4 in 20 with the turn-end fixes (run 42344143197),
+ * never in Chromium. Never more than `by` in all: the sampler needs the
+ * answer's text mounted, inside Virtuoso's overscan.
+ */
+async function wheelUp(page: Page, scroller: Locator, by: number): Promise<void> {
+  let reached = 0;
+  for (let turn = 0; turn < 3 && reached <= by * 0.75; turn++) {
+    await page.mouse.wheel(0, -(by - reached));
+    reached = await restingDistance(scroller);
+  }
+}
