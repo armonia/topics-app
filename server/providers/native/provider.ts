@@ -70,6 +70,8 @@ import {
   detachAll,
   liveDetachedSessions,
   brokerIdFor,
+  detachedTurnEnd,
+  sessionHasOpenRow,
   type DetachedTurnResult,
   type ReattachOutcome,
 } from "./detached-turn";
@@ -1111,17 +1113,7 @@ export class NativeProvider implements AIProvider {
     // ENDED WHILE NO SERVER WAS LISTENING: the process is gone but its journal
     // holds the ending, and the row is still open. Re-adopting reads that
     // ending (`reattach` answers "completed"); resuming would redo the turn.
-    return info.endOffset > 0 && this.hasOpenRow(sessionKey);
-  }
-
-  private hasOpenRow(sessionKey: string): boolean {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports -- the database module is loaded at the first call, not when the provider registers
-      const { getDatabase } = require("../../db");
-      return !!getDatabase().query("SELECT 1 FROM messages WHERE session_key = ? AND partial = 1 LIMIT 1").get(sessionKey);
-    } catch {
-      return false;
-    }
+    return info.endOffset > 0 && sessionHasOpenRow(sessionKey);
   }
 
   /** Live detached turns, by session key, for the boot. */
@@ -1382,14 +1374,3 @@ function readTopicAutonomy(sessionKey: string): string | null {
   }
 }
 
-/** How a detached turn ended, from its terminal journal event. */
-function detachedTurnEnd(r: DetachedTurnResult): TurnEndInfo {
-  const t = r.terminal;
-  if (t && (t.e === "done" || t.e === "aborted")) {
-    const end = (t.m as { turnEnd?: TurnEndInfo } | undefined)?.turnEnd;
-    if (end) return end;
-    return t.e === "done" ? { end: "end_turn" } as TurnEndInfo : { end: "cancelled" };
-  }
-  if (t && t.e === "error") return { end: "error", cause: "provider-error", detail: t.msg };
-  return { end: "error", cause: "provider-error", detail: `the turn's process ended without finishing (exit ${r.exitCode ?? "signal"})` };
-}

@@ -17,6 +17,7 @@
 import { join } from "node:path";
 import { getAiBridgeClient } from "../../lib/ai-bridge-client";
 import type { StreamHandler } from "../types";
+import type { TurnEndInfo } from "../stop-reason";
 import { journalReader, type JournalEvent, type JournalReader, type RoundUsage } from "./turn-journal";
 import type { TurnSpec } from "./turn-host";
 
@@ -225,4 +226,27 @@ export async function liveDetachedSessions(): Promise<Set<string>> {
     if (sk && s.alive) out.add(sk);
   }
   return out;
+}
+
+/** How a detached turn ended, from its terminal journal event. */
+export function detachedTurnEnd(r: DetachedTurnResult): TurnEndInfo {
+  const t = r.terminal;
+  if (t && (t.e === "done" || t.e === "aborted")) {
+    const end = (t.m as { turnEnd?: TurnEndInfo } | undefined)?.turnEnd;
+    if (end) return end;
+    return t.e === "done" ? { end: "end_turn" } as TurnEndInfo : { end: "cancelled" };
+  }
+  if (t && t.e === "error") return { end: "error", cause: "provider-error", detail: t.msg };
+  return { end: "error", cause: "provider-error", detail: `the turn's process ended without finishing (exit ${r.exitCode ?? "signal"})` };
+}
+
+/** The session still has an open (partial) row: a turn nobody has closed. */
+export function sessionHasOpenRow(sessionKey: string): boolean {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- the database module is loaded at the first call, as the provider does
+    const { getDatabase } = require("../../db");
+    return !!getDatabase().query("SELECT 1 FROM messages WHERE session_key = ? AND partial = 1 LIMIT 1").get(sessionKey);
+  } catch {
+    return false;
+  }
 }

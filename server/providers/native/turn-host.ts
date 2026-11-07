@@ -100,15 +100,15 @@ async function callServerMcp(spec: TurnSpec, name: string, input: Record<string,
 
 async function readSpecAndControls(onControl: (msg: { t?: string; cause?: string }) => void): Promise<TurnSpec> {
   return new Promise((resolve, reject) => {
-    let buf = "";
+    let pending = "";
     let spec: TurnSpec | null = null;
     process.stdin.setEncoding("utf8");
     process.stdin.on("data", (chunk: string) => {
-      buf += chunk;
+      pending += chunk;
       let nl: number;
-      while ((nl = buf.indexOf("\n")) !== -1) {
-        const line = buf.slice(0, nl);
-        buf = buf.slice(nl + 1);
+      while ((nl = pending.indexOf("\n")) !== -1) {
+        const line = pending.slice(0, nl);
+        pending = pending.slice(nl + 1);
         if (!line.trim()) continue;
         let msg: unknown;
         try { msg = JSON.parse(line); } catch { log("unparseable stdin line"); continue; }

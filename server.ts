@@ -185,7 +185,16 @@ import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep, sessionHasPendingSend } from "./server/providers";
 import { sessionAttentionBackground, sessionHasBackgroundWork, sessionsWithBackgroundWork, stallBackgroundHold } from "./server/providers/background-probes";
 import { aiBridgeEnabled, ClaudeCodeProvider } from "./server/providers/claude-code";
-import { sessionKeyOfBrokerId } from "./server/providers/native/detached-turn";
+import { sessionKeyOfBrokerId, nativeDetachedEnabled } from "./server/providers/native/detached-turn";
+// The checkout's HEAD when this process started. Read once: the scripts that
+// move the checkout compare it with what they asked for.
+const BOOT_COMMIT: string | null = (() => {
+  try {
+    const out = Bun.spawnSync(["git", "-C", import.meta.dir, "rev-parse", "HEAD"], { stdout: "pipe", stderr: "ignore" });
+    const sha = out.stdout.toString().trim();
+    return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
+  } catch { return null; }
+})();
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
 import type { AbortReason } from "./server/providers/types";
 import { recordTurnEnd, takeTurnEnd, peekTurnEnd } from "./server/providers/turn-end-registry";
@@ -3777,6 +3786,12 @@ const opzioniServer = {
           // What the browser would get right now: `ok:false` means the app
           // serves nothing, whatever the rest of this object says.
           bundle: { ok: bundle.ok, missing: bundle.reason, since: bundle.since },
+          // A restart loses no turn: native turns run detached under the AI
+          // broker, which keeps the CLI's too. The update scripts read this to
+          // skip the wait for a window at zero turns (lossless-restart).
+          losslessRestart: aiBridgeEnabled() && nativeDetachedEnabled(),
+          // The commit this process booted on: what a client publish waits for.
+          commit: BOOT_COMMIT,
         }), { status: 200, headers: { "content-type": "application/json" } });
       }
       if (method === "POST" && pathname === "/__daemon/shutdown") {

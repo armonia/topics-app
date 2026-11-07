@@ -544,7 +544,12 @@
 
     "server/providers/native/agent-loop.ts": 1217,
 
-    "server/providers/native/provider.ts": 1196,
+    "server/providers/native/provider.ts": {
+      "lines": 1376,
+      "why": [
+        "2026-11-07, lossless-restart: +180, the native turn runs in its own process under the AI broker (detached-turn.ts, turn-host.ts). What stays here is the provider contract that process needs: stop() detaching instead of aborting, reattach(), hasLiveSession(), the Stop that reaches a re-adopted turn, and the turn spec built from the same per-turn reads as the in-process path. The journal, the host and the broker client live in their own files."
+      ]
+    },
 
     "server/providers/native/tools.ts": {
       "lines": 807,

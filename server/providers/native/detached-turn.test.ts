@@ -2,6 +2,8 @@
  * A native turn in its own process survives the death of the server that
  * started it (lossless-restart).
  *
+ * @covers CCLI-04
+ *
  * Real pieces: the AI broker daemon (isolated socket and store), the real
  * `turn-host.ts` process, the real agent loop. Only the model is fake
  * (`tests/e2e/helpers/fake-anthropic-api.ts`), streaming its answer in pieces.
