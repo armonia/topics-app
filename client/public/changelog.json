@@ -150,6 +150,12 @@
           "en": "",
           "scope": "e2e",
           "breaking": false
+        },
+        {
+          "it": "change via-gateway, la barra prima del codice",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ]
     }
@@ -368,7 +374,7 @@
           "scope": null
         },
         {
-          "it": "una vista sola per tutte le automazioni, con i comandi dei job di OpenClaw, al posto del pannello Cron",
+          "it": "una vista sola per tutte le automazioni, con i comandi dei job di Gateway, al posto del pannello Cron",
           "en": "",
           "scope": null,
           "breaking": false
@@ -1419,7 +1425,7 @@
           "breaking": false
         },
         {
-          "it": "OpenClaw AGENTS.md size analysis and cut proposals",
+          "it": "Gateway AGENTS.md size analysis and cut proposals",
           "en": "",
           "scope": null,
           "breaking": false
@@ -1807,7 +1813,7 @@
       ],
       "internal": [
         {
-          "it": "OpenClaw AGENTS.md size analysis and cut proposals",
+          "it": "Gateway AGENTS.md size analysis and cut proposals",
           "en": "",
           "scope": null,
           "breaking": false
@@ -2421,12 +2427,12 @@
           "scope": null
         },
         {
-          "it": "Token del gateway: regge il SecretRef di OpenClaw e il bridge MCP usa il token del daemon (#409)",
+          "it": "Token del gateway: regge il SecretRef di Gateway e il bridge MCP usa il token del daemon (#409)",
           "en": "",
           "scope": null
         },
         {
-          "it": "Pannello Cron: OpenClaw dalle RPC del gateway, non da /tools/invoke (#411)",
+          "it": "Pannello Cron: Gateway dalle RPC del gateway, non da /tools/invoke (#411)",
           "en": "",
           "scope": null
         },
@@ -8354,7 +8360,7 @@
           "scope": null
         },
         {
-          "it": "Fai di /new e /reset un /clear su ogni motore con una sessione, OpenClaw a parte",
+          "it": "Fai di /new e /reset un /clear su ogni motore con una sessione, Gateway a parte",
           "en": "",
           "scope": null
         },
@@ -20418,7 +20424,7 @@
           "scope": null
         },
         {
-          "it": "La radice dati non nasce piu' come .openclaw: una regola, legacy rispettato",
+          "it": "La radice dati non nasce piu' come .gateway: una regola, legacy rispettato",
           "en": "",
           "scope": null
         },
@@ -39350,14 +39356,14 @@
           "breaking": false
         },
         {
-          "it": "il controllo delle sessioni non dipende più da un token OpenClaw",
-          "en": "session control no longer depends on an OpenClaw token",
+          "it": "il controllo delle sessioni non dipende più da un token Gateway",
+          "en": "session control no longer depends on an Gateway token",
           "scope": "auth",
           "breaking": false
         },
         {
-          "it": "il controllo sessioni accetta il token agent nativo, non solo il gateway OpenClaw",
-          "en": "session control accepts the native agent token, not just the OpenClaw gateway",
+          "it": "il controllo sessioni accetta il token agent nativo, non solo il gateway Gateway",
+          "en": "session control accepts the native agent token, not just the Gateway gateway",
           "scope": "auth",
           "breaking": false
         },
@@ -39686,8 +39692,8 @@
           "breaking": false
         },
         {
-          "it": "il Context Inspector era spento su ogni provider tranne openclaw",
-          "en": "the Context Inspector was off on every provider except openclaw",
+          "it": "il Context Inspector era spento su ogni provider tranne gateway",
+          "en": "the Context Inspector was off on every provider except gateway",
           "scope": "contesto",
           "breaking": false
         },
@@ -41719,7 +41725,7 @@
           "breaking": false
         },
         {
-          "it": "media di Topics sotto ~/.topics (legacy ~/.openclaw in fallback)",
+          "it": "media di Topics sotto ~/.topics (legacy ~/.topics in fallback)",
           "en": "",
           "scope": "data",
           "breaking": false
@@ -42570,8 +42576,8 @@
           "breaking": false
         },
         {
-          "it": "coaching allegati dice la dir giusta (~/.openclaw/media, non uploads)",
-          "en": "attachment coaching points to the right dir (~/.openclaw/media, not uploads)",
+          "it": "coaching allegati dice la dir giusta (~/.topics/media, non uploads)",
+          "en": "attachment coaching points to the right dir (~/.topics/media, not uploads)",
           "scope": "dispatch",
           "breaking": false
         },
@@ -45544,8 +45550,8 @@
           "breaking": false
         },
         {
-          "it": "openclaw decision gate — skip control-tool blocks + log degradation",
-          "en": "openclaw decision gate — skip control-tool blocks + log degradation",
+          "it": "gateway decision gate — skip control-tool blocks + log degradation",
+          "en": "gateway decision gate — skip control-tool blocks + log degradation",
           "scope": "context",
           "breaking": false
         },
@@ -48323,8 +48329,8 @@
           "breaking": false
         },
         {
-          "it": "add x-openclaw-scopes header to gateway API calls",
-          "en": "add x-openclaw-scopes header to gateway API calls",
+          "it": "add x-gateway-scopes header to gateway API calls",
+          "en": "add x-gateway-scopes header to gateway API calls",
           "scope": null,
           "breaking": false
         },
@@ -48647,8 +48653,8 @@
           "breaking": false
         },
         {
-          "it": "multi-provider AI abstraction (OpenClaw + Claude)",
-          "en": "multi-provider AI abstraction (OpenClaw + Claude)",
+          "it": "multi-provider AI abstraction (Gateway + Claude)",
+          "en": "multi-provider AI abstraction (Gateway + Claude)",
           "scope": null,
           "breaking": false
         },
@@ -48941,8 +48947,8 @@
           "breaking": false
         },
         {
-          "it": "KILL OpenClaw browser bridge -- remove browserTargetIdCache + isolation injection from topics.ts",
-          "en": "KILL OpenClaw browser bridge -- remove browserTargetIdCache + isolation injection from topics.ts",
+          "it": "KILL Gateway browser bridge -- remove browserTargetIdCache + isolation injection from topics.ts",
+          "en": "KILL Gateway browser bridge -- remove browserTargetIdCache + isolation injection from topics.ts",
           "scope": "30-03",
           "breaking": false
         },
@@ -49069,7 +49075,7 @@
         {
           "it": "forward conversation history so the gateway can rehydrate",
           "en": "forward conversation history so the gateway can rehydrate",
-          "scope": "openclaw",
+          "scope": "gateway",
           "breaking": false
         },
         {
@@ -50539,8 +50545,8 @@
           "breaking": false
         },
         {
-          "it": "AI review delegates to OpenClaw instead of direct API calls",
-          "en": "AI review delegates to OpenClaw instead of direct API calls",
+          "it": "AI review delegates to Gateway instead of direct API calls",
+          "en": "AI review delegates to Gateway instead of direct API calls",
           "scope": null,
           "breaking": false
         },
@@ -50971,8 +50977,8 @@
           "breaking": false
         },
         {
-          "it": "recompute default when openclaw gateway is offline",
-          "en": "recompute default when openclaw gateway is offline",
+          "it": "recompute default when gateway gateway is offline",
+          "en": "recompute default when gateway gateway is offline",
           "scope": "providers",
           "breaking": false
         },
@@ -51079,8 +51085,8 @@
           "breaking": false
         },
         {
-          "it": "claude before openclaw — drop the openclaw default fallback",
-          "en": "claude before openclaw — drop the openclaw default fallback",
+          "it": "claude before gateway — drop the gateway default fallback",
+          "en": "claude before gateway — drop the gateway default fallback",
           "scope": "providers",
           "breaking": false
         },
@@ -52355,7 +52361,7 @@
       ],
       "internal": [
         {
-          "it": "Initial commit — Topics companion app for OpenClaw",
+          "it": "Initial commit — Topics companion app for Gateway",
           "en": "",
           "scope": null
         },
@@ -52735,7 +52741,7 @@
           "breaking": false
         },
         {
-          "it": "relocate repo to ~/Projects/topics-app (out of OpenClaw workspace)",
+          "it": "relocate repo to ~/Projects/topics-app (out of Gateway workspace)",
           "en": "",
           "scope": null,
           "breaking": false

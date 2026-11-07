@@ -11,7 +11,7 @@
  * the browser would have done with the redirect.
  *
  * NOTHING TOUCHES THE MACHINE. `APP_DATA_DIR` points the token store at a temp
- * directory for the whole file, so the real `~/.openclaw/mcp-oauth.json` is
+ * directory for the whole file, so the real `~/.app-data/mcp-oauth.json` is
  * never read and never written, and `TOPICS_MCP_CONFIG_FILE` is what lets the
  * fleet mount at all under `NODE_ENV=test`.
  *
@@ -218,7 +218,7 @@ async function completeSignIn(
 
 beforeAll(() => {
   for (const k of [
-    "APP_DATA_DIR", "OPENCLAW_DIR", "TOPICS_MCP_CONFIG_FILE", "TOPICS_NATIVE_MCP",
+    "APP_DATA_DIR", "TOPICS_MCP_CONFIG_FILE", "TOPICS_NATIVE_MCP",
     "TOPICS_SESSION_MCP_ALLOW", "TOPICS_SESSION_MCP_DENY", "TOPICS_SESSION_MCP_INHERIT_ALL",
   ]) {
     envBackup[k] = process.env[k];

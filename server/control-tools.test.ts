@@ -208,7 +208,7 @@ describe("dispatchControlToolCall — create_project", () => {
   });
 
   test("a new project is born next to the user's projects, not in the agent workspace", async () => {
-    // The 02/10 case: a session created `pop-demo` inside ~/.openclaw/workspace
+    // The 02/10 case: a session created `pop-demo` inside <app data>/workspace
     // while the real projects live in ~/Projects. Two known projects in the
     // same folder are enough to make it the convention.
     const h = makeDeps();

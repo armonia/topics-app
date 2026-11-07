@@ -1892,7 +1892,7 @@ export interface BoardSettings {
   dispatchOverflow: boolean;
   /**
    * Every card of this board touches this Mac itself (local processes,
-   * OpenClaw, sessions, macOS): the overflow never moves them. The same mark
+   * Jarvis, sessions, macOS): the overflow never moves them. The same mark
    * a single card carries as `stayLocal`.
    */
   dispatchStayLocal: boolean;

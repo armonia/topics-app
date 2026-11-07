@@ -15,9 +15,10 @@
  * ── Le due strade ───────────────────────────────────────────────────────────
  * Un sub-agent può finire in due modi diversi, e servono entrambi:
  *
- *  A. **Task() nativo del gateway** — il gateway scrive un «[Internal task
- *     completion event]» nel JSONL della sessione PADRE. Qui lo si scopre
- *     leggendo quel file a intervalli, solo i byte nuovi.
+ *  A. **Task() del vecchio gateway** — un «[Internal task completion event]»
+ *     nel JSONL della sessione PADRE, sotto `agents/main/sessions` della
+ *     cartella dati. Qui lo si scopre leggendo quel file a intervalli, solo i
+ *     byte nuovi, e il risultato si consegna così com'è.
  *
  *  B. **`spawn_agent` via MCP** — è un PTY `claude` separato, col SUO
  *     transcript: nel JSONL del padre non compare mai niente, quindi la strada
@@ -33,7 +34,6 @@ import { existsSync, readdirSync, readFileSync, statSync, openSync, readSync, cl
 import { join } from "path";
 import { resolveAppDataDir } from "./data-dir";
 import type { ContentBlock, Topic, StoredMessage } from "../types";
-import type { AIProvider } from "../providers";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { formatSubAgentExitMessage, formatSubAgentExitBody, subAgentResultOf, type ReportLanguage, type SubAgentExitInfo } from "../routes/subagent-exit";
 import { resultKey } from "./subagent-result";
@@ -58,8 +58,6 @@ interface WatchedSession {
 }
 
 export interface SubagentWatchDeps {
-  gatewayUrl: string;
-  gatewayToken: string;
   getTopicById: (id: string) => Topic | null;
   getTopicBySessionKey: (sessionKey: string) => Topic | null;
   saveSingleTopic: (topic: Topic) => void;
@@ -72,7 +70,6 @@ export interface SubagentWatchDeps {
   ) => StoredMessage;
   broadcastToAll: (message: OutboundMessage) => void;
   bumpUnread: (topicId: string) => void;
-  resolveProvider: (topic?: Topic | null) => AIProvider;
   /** Cartella dei transcript. Iniettabile perché i test ne usino una finta. */
   transcriptDir?: string;
   /** Intervallo del polling. Iniettabile per non far aspettare 5s a un test. */
@@ -233,9 +230,7 @@ export function createSubagentWatcher(deps: SubagentWatchDeps): SubagentWatcher 
             const task = taskMatch?.[1]?.trim() || "";
 
             console.log(`[SubagentPoll] Found completion event for ${childSk.slice(0, 40)} in ${sk}`);
-            // L'evento è già nel contesto del gateway: basta innescare un turno
-            // perché l'AI legga il risultato e lo presenti all'utente.
-            void triggerGatewayInference(watched, result, task);
+            deliverRawResult(watched, result, task);
           } catch { /* riga non-JSON o senza i campi attesi */ }
         }
       } catch (err) {
@@ -243,68 +238,6 @@ export function createSubagentWatcher(deps: SubagentWatchDeps): SubagentWatcher 
       }
     }
     if (watchedSessions.size === 0) stopPolling();
-  }
-
-  async function triggerGatewayInference(watched: WatchedSession, result: string, task: string): Promise<void> {
-    const topic = deps.getTopicById(watched.topicId);
-    const provider = deps.resolveProvider(topic);
-    if (provider.name !== "openclaw") {
-      // `/api/inference/chat` è specifico di OpenClaw: con gli altri provider si
-      // consegna il risultato grezzo, che è comunque meglio del silenzio.
-      deliverRawResult(watched, result, task);
-      return;
-    }
-    try {
-      const resp = await fetch(`${deps.gatewayUrl}/api/inference/chat`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${deps.gatewayToken}`,
-          "x-openclaw-scopes": "operator.read,operator.write",
-        },
-        body: JSON.stringify({
-          sessionKey: watched.sessionKey,
-          messages: [
-            { role: "user", content: `[System: sub-agent completed. Present the result to the user naturally.]` },
-          ],
-        }),
-      });
-      if (!resp.ok) {
-        console.warn(`[SubagentPoll] Gateway inference failed (${resp.status}), delivering raw result`);
-        deliverRawResult(watched, result, task);
-        return;
-      }
-      const reader = resp.body?.getReader();
-      if (!reader) { deliverRawResult(watched, result, task); return; }
-
-      let fullContent = "";
-      const decoder = new TextDecoder();
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        for (const line of chunk.split("\n")) {
-          if (!line.startsWith("data: ")) continue;
-          const data = line.slice(6).trim();
-          if (data === "[DONE]") continue;
-          try {
-            const parsed = JSON.parse(data);
-            const delta = parsed.choices?.[0]?.delta;
-            if (delta?.content) fullContent += delta.content;
-          } catch { /* keep-alive o frame non-JSON */ }
-        }
-      }
-
-      if (fullContent) {
-        deliverMessage(watched.sessionKey, watched.topicId, fullContent, fullContent.slice(0, 100));
-        console.log(`[SubagentPoll] ✓ Delivered AI-formatted result → topic ${watched.topicId.slice(0, 8)}`);
-      } else {
-        deliverRawResult(watched, result, task);
-      }
-    } catch (err) {
-      console.warn(`[SubagentPoll] Inference error:`, err);
-      deliverRawResult(watched, result, task);
-    }
   }
 
   function deliverRawResult(watched: WatchedSession, result: string, task: string): void {

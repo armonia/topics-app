@@ -58,14 +58,14 @@ function buildProviderHistory(
 
 const ROOT = join(tmpdir(), `regression-test-${process.pid}-${Date.now()}`);
 const baseDir = join(ROOT, "base");
-const openclawDir = join(ROOT, "openclaw");
+const appDataDir = join(ROOT, "app-data");
 const projectDir = join(ROOT, "project");
 const contextFile1 = join(ROOT, "ctx-foo.md");
 const contextFile2 = join(ROOT, "ctx-bar.md");
 
 beforeAll(() => {
   mkdirSync(join(baseDir, "memory"), { recursive: true });
-  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(join(appDataDir, "workspace"), { recursive: true });
   mkdirSync(projectDir, { recursive: true });
   writeFileSync(contextFile1, "FOO content");
   writeFileSync(contextFile2, "BAR content");
@@ -113,7 +113,7 @@ const topicsData: TopicsData = { topics: { [topic.id]: topic } };
 const ctx = {
   BASE_DIR: baseDir,
   STATE_DIR: baseDir,
-  OPENCLAW_DIR: openclawDir,
+  APP_DATA_DIR: appDataDir,
   getTopicBySessionKey: (sk: string) => (sk === topic.sessionKey ? topic : null),
   loadLocalMessages: (_sk: string) => storedMessages,
   loadTopics: () => topicsData,
@@ -197,12 +197,8 @@ function buildLegacyHistoryAware(_providerName: string = "claude"): { systemMess
       finalMessages.splice(idx >= 0 ? idx : finalMessages.length, 0, { role: "system", content });
     }
   }
-  // Blocks 4-6 steer the model to the control TOOLS. They're emitted only for
-  // providers that can actually reach those tools — openclaw is gateway-owned
-  // and can't, so it degrades to user-driven control (spec:
-  // replace-markers-with-tools step 4). Mirrors providerHasControlTools() in
-  // assemble.ts.
-  const hasControlTools = _providerName !== "openclaw";
+  // Blocks 4-6 steer the model to the control TOOLS: every provider reaches them.
+  const hasControlTools = true;
   // 4. browser — tool-only (markers removed). Mirrors browserInstructionContent().
   if (hasControlTools) {
     const content = `When you need to open a URL or file in the user's embedded browser panel, use the \`open_browser_pane\` tool with the absolute URL. Examples:
@@ -307,29 +303,6 @@ describe("regression — canonical pipeline matches legacy", () => {
     const legacyUserContent = buildLegacyInlineSystem();
     expect(payload.userContent).toBe(legacyUserContent);
     expect(payload.history).toBeUndefined();
-  });
-
-  it("gateway-stateful (openclaw): payload matches history-aware MINUS the control-tool blocks (openclaw can't reach those tools)", () => {
-    const envelope = assembleTopicContext(ctx, {
-      sessionKey: topic.sessionKey,
-      providerName: "openclaw",
-      providerStrategy: "gateway-stateful",
-      includeLastUserInHistory: false,
-      userMessageOverride: { content: "the new user turn (latest)", messageId: "u2" },
-    });
-    const payload = adaptEnvelope(envelope);
-    // openclaw is gateway-owned: Topics can't inject the browser/project/topic
-    // control tools, so assemble.ts omits their instruction blocks (spec:
-    // replace-markers-with-tools step 4). The legacy baseline for "openclaw"
-    // omits the same three blocks; everything else is byte-identical.
-    const legacy = buildLegacyHistoryAware("openclaw");
-    expect(payload.userContent).toBe(legacy.userContent);
-    expect(payload.history).toEqual(legacy.payloadHistory);
-    // Guard the intent: none of the three control-tool blocks leaked in.
-    const systemText = (payload.history ?? []).filter((m) => m.role === "system").map((m) => m.content).join("\n");
-    expect(systemText).not.toContain("open_browser_pane");
-    expect(systemText).not.toContain("open_project");
-    expect(systemText).not.toContain("switch_topic");
   });
 
   it("system blocks granularity: composing them back produces the same N system messages", () => {

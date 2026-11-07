@@ -44,7 +44,7 @@ describe('the list: every provider once, in a fixed order (AC-06)', () => {
   });
 
   test('the table of names is the revision\'s', () => {
-    expect([...PROVIDER_ORDER]).toEqual(['claude-code', 'topics', 'claude', 'codex', 'muse', 'openai', 'gemini', 'jcode', 'openclaw', 'goose']);
+    expect([...PROVIDER_ORDER]).toEqual(['claude-code', 'topics', 'claude', 'codex', 'muse', 'openai', 'gemini', 'jcode', 'goose']);
   });
 
   test('a program installed but not registered is a card to connect, after the known names', () => {

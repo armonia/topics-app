@@ -1897,7 +1897,7 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
                 // NO APP_DATA_DIR here, deliberately (card 211605ee). The root
                 // for media/ and workspace/ is resolved server-side by one rule
                 // (server/lib/data-dir.ts `resolveAppDataDir`): an explicit
-                // variable, else the legacy `~/.openclaw` when this machine
+                // variable, else the legacy root in the home when this machine
                 // already has one, else TOPICS_HOME — which the line below
                 // already sets. A fourth variable saying the same thing is one
                 // more place for the two to disagree.

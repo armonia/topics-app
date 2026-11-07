@@ -22,8 +22,9 @@ const say = (e: ProxyEvent) => [proxyText(e.text, tr), e.detail ? proxyText(e.de
 const one = (raw: Record<string, unknown>) => describeProxyEvent({ ts: 1, ...raw }, LABELS)!;
 
 describe('HUBBR-07: the proxy log, every type in the hub page words', () => {
-  test('the 31 types of the hub page are all named', () => {
-    expect(PROXY_EVENT_TYPES).toHaveLength(31);
+  // 29: the two types from Jarvis's old gateway never fire any more (switched off on 03/11).
+  test('the 29 types of the hub page are all named', () => {
+    expect(PROXY_EVENT_TYPES).toHaveLength(29);
   });
 
   test('switches carry their mode and reason, limits their minutes, caps their names, failures their error', () => {

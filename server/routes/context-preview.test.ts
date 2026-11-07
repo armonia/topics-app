@@ -24,11 +24,11 @@ import { createContextPreviewRouter } from "./context-preview";
 
 const ROOT = join(tmpdir(), `context-preview-test-${process.pid}-${Date.now()}`);
 const baseDir = join(ROOT, "base");
-const openclawDir = join(ROOT, "openclaw");
+const appDataDir = join(ROOT, "app-data");
 
 beforeAll(() => {
   mkdirSync(join(baseDir, "memory"), { recursive: true });
-  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(join(appDataDir, "workspace"), { recursive: true });
 });
 
 afterAll(() => {
@@ -68,7 +68,7 @@ const topicsData: TopicsData = { topics: { [topic.id]: topic } };
 const ctx = {
   BASE_DIR: baseDir,
   STATE_DIR: baseDir,
-  OPENCLAW_DIR: openclawDir,
+  APP_DATA_DIR: appDataDir,
   getTopicById: (id: string) => (id === topic.id ? topic : null),
   getTopicBySessionKey: (sk: string) => (sk === topic.sessionKey ? topic : null),
   loadLocalMessages: (_sk: string) => messages,
@@ -142,7 +142,7 @@ describe("contextPreviewRouter", () => {
       },
     } as AppContext);
     const path = "/api/topics/topic-1/context-preview";
-    const response = await guarded(new Request(url(path, { provider: "openclaw" })), url(path, { provider: "openclaw" }), path, "GET");
+    const response = await guarded(new Request(url(path, { provider: "claude" })), url(path, { provider: "claude" }), path, "GET");
     expect(response!.status).toBe(403);
     expect(await response!.json()).toMatchObject({ code: "orchestrator_topic_invariant" });
   });

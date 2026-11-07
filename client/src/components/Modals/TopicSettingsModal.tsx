@@ -310,7 +310,6 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
     '~/Sites/',
     '~/Developer/',
     '~/Code/',
-    '~/.openclaw/workspace/',
   ];
 
   const dialogRef = useRef<HTMLDivElement>(null);

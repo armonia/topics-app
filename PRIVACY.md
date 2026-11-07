@@ -4,7 +4,7 @@ Topics is **local-first**. Your conversations, topics and project context live o
 
 ## What Topics stores, and where
 
-- Conversations, topics, settings, and related data are stored locally under your app data directory (`APP_DATA_DIR`, default `~/.openclaw`).
+- Conversations, topics, settings, and related data are stored locally under your app data directory (`APP_DATA_DIR`; unset, the legacy app folder in your home if it exists, else `~/.topics`).
 - The app does not upload them anywhere on its own.
 
 ## Analytics
@@ -21,7 +21,7 @@ Everything local keeps working with the relay off, or with the subscription expi
 
 Topics only makes outbound network requests to the services **you configure**:
 
-- The Anthropic API (in `claude` mode), and/or an optional OpenClaw gateway (`GATEWAY_URL`).
+- The Anthropic API (in `claude` mode) and the OpenAI API (in `openai` mode), plus whatever the `claude` and `codex` CLIs on your machine reach with your own login.
 - Optional services you enable: ElevenLabs (TTS), Moondream (browser vision).
 - GitHub Releases, to check for and download application updates.
 

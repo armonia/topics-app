@@ -24,10 +24,10 @@ hermetic(test);
 
 const BASE = E2E_BASE;
 // Must agree with the server's WORKSPACE_DIR (server/routes/topics.ts —
-// `join(OPENCLAW_DIR, "workspace")`). global-setup.ts propagates OPENCLAW_DIR
+// `join(APP_DATA_DIR, "workspace")`). global-setup.ts propagates APP_DATA_DIR
 // to this runner process so both sides resolve the same isolated path.
 const WORKSPACE_DIR = join(
-  process.env.OPENCLAW_DIR || join(process.env.HOME || "/tmp", ".openclaw"),
+  process.env.APP_DATA_DIR || join(process.env.HOME || "/tmp", ".app-data"),
   "workspace"
 );
 

@@ -27,7 +27,7 @@ Stesso tema, seconda richiesta: nella stessa chat le tab Topics si moltiplicavan
 - Tool `show_view` sul ponte MCP (anche nel runtime nativo), tre tipi: `compare` (2-4 opzioni con prezzo, foto, metriche confrontabili, pro/contro, link, una consigliata), `table` (righe e colonne, colonne numeriche classificate, ignoto scritto come ignoto) e `timeline` (piano porta a porta per giorni, con alternative per tratta e scadenze).
 - `POST /api/sessions/:key/views` normalizza e salva in `data/views/<id>.json`; `GET /api/views/:id` la rilegge.
 - In chat: blocco `ViewBlock` sollevato fuori dalla piega del turno, come le pagine aperte. Pagina standalone `/v/<id>` sul server (13333 in Tauri), tema chiaro/scuro, telefono.
-- Interop MCP Apps: il ponte dichiara `resources` ed espone `ui://topics/view` (app generica, riceve la vista dal tool result) e `ui://topics/view/<id>` (una vista salvata), documenti autosufficienti col protocollo postMessage dello standard. OpenClaw, Claude e ChatGPT le mostrano senza il client di Topics.
+- Interop MCP Apps: il ponte dichiara `resources` ed espone `ui://topics/view` (app generica, riceve la vista dal tool result) e `ui://topics/view/<id>` (una vista salvata), documenti autosufficienti col protocollo postMessage dello standard. Claude e ChatGPT le mostrano senza il client di Topics.
 - Browser dei figli: `open-pane` di un figlio annuncia `hostTopicId` = la chat in cima alla catena (`rootSessionKeyOf`); il client mette la pagina nella finestra browser di quella chat, col contesto del figlio (i suoi `browser_*` restano suoi).
 
 ## Barra

@@ -49,7 +49,7 @@ const SNAPSHOT: ProvidersSnapshot = {
       }])),
     }),
     row("gemini", "Gemini", ["gemini-3-pro", "gemini-3-flash"], { capabilities: ["streaming"] }),
-    row("openclaw", "OpenClaw", ["llama-4-scout", "qwen-3-coder"], { capabilities: ["streaming"] }),
+    row("direct-ollama", "Ollama", ["llama-4-scout", "qwen-3-coder"], { capabilities: ["streaming"] }),
     row("topics", "Topics", ["claude-opus-5-5", "claude-opus-5-5[1m]", "claude-sonnet-5-5", "claude-haiku-4-5-20251001", "claude-fable-5-1"]),
   ],
 };
@@ -166,7 +166,7 @@ test.describe("desktop, 1280 × 900", () => {
     await page.keyboard.press("Escape");
   });
 
-  // MSEL-02 (amended 2026-10-06): no catch-all; OpenClaw's llama and qwen are
+  // MSEL-02 (amended 2026-10-06): no catch-all; Ollama's llama and qwen are
   // Meta and Qwen, sections of the one vertical list after the three fixed ones.
   test("five companies in a 900px window: inside the viewport, the list scrolls under a fixed band and search", async ({ page, request }) => {
     const picker = await openChat(page, request);

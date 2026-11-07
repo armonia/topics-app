@@ -296,7 +296,7 @@ describe("tasks router (session-scoped)", () => {
 
   test("catch-all dispatch: agent reaches its OWN task via bound topic, not cwd", async () => {
     // The bug: a "generale" task's dispatch topic runs in a per-task private cwd
-    // (~/.openclaw/workspace/tasks/<id8>) that maps to no real board, so scoping
+    // (~/.app-data/workspace/tasks/<id8>) that maps to no real board, so scoping
     // by cwd 404'd every one of the agent's own task ops. It must resolve the
     // board from the task bound to the topic (assigned_topic_id) instead.
     db.prepare("INSERT INTO topics (id) VALUES ('top-catch')").run();
@@ -1018,7 +1018,7 @@ describe("board router (human, project-scoped)", () => {
       const created = (await call(r, "POST", "/api/all-boards/projects", { name: "terzo" }))!;
       expect(created.status).toBe(201);
       const proj = await created.json();
-      // Accanto ad alpha e beta — non sepolto in ~/.openclaw/workspace.
+      // Accanto ad alpha e beta — non sepolto in ~/.app-data/workspace.
       expect(proj.path).toBe(join(projects, "terzo"));
       expect(existsSync(join(projects, "terzo", "CLAUDE.md"))).toBe(true);
       expect(existsSync(join(ws, "terzo"))).toBe(false);

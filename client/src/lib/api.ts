@@ -181,18 +181,6 @@ export const topicsApi = {
   },
 
   /**
-   * Open a cloud (gateway) session as a first-class, interactive Topics chat.
-   * Idempotent server-side: returns the existing topic if one already owns the
-   * sessionKey, otherwise creates an openclaw-backed topic bound to it.
-   */
-  async adoptSession(sessionKey: string, name?: string): Promise<Topic> {
-    return request<Topic>('/topics/adopt', {
-      method: 'POST',
-      body: JSON.stringify({ sessionKey, name }),
-    });
-  },
-
-  /**
    * Adopt a Claude Code session born outside Topics as a chat that continues
    * it (`/resume`, CMDUI-03). `transcriptPath` is the one `/resume` listed, so
    * the server does not walk every folder of the store to find it.
@@ -1124,11 +1112,6 @@ export const commandApi = {
     return this.execute(sessionKey, 'model', { model });
   },
 
-  /** `level` as typed (`/reasoning off`); absent, the gateway toggles. */
-  async toggleReasoning(sessionKey: string, level?: string): Promise<CommandResult> {
-    return this.execute(sessionKey, 'reasoning', level ? { level } : undefined);
-  },
-
   async setEffort(sessionKey: string, level: string): Promise<CommandResult> {
     return this.execute(sessionKey, 'effort', { level });
   },
@@ -1228,37 +1211,10 @@ export const memoryApi = {
   },
 };
 
-// OpenClaw Context API
-export interface OpenClawContextFile {
-  content: string;
-  tokens: number;
-}
-
-export interface MemoryTreeNode {
-  path: string;
-  name: string;
-  type: 'file' | 'dir';
-  tokens?: number;
-  children?: MemoryTreeNode[];
-}
-
-export interface OpenClawContextResponse {
-  soul: OpenClawContextFile | null;
-  memory: OpenClawContextFile | null;
-  agents: OpenClawContextFile | null;
-  tools: OpenClawContextFile | null;
-  identity: OpenClawContextFile | null;
-  user: OpenClawContextFile | null;
-  memoryIndex: MemoryTreeNode[];
-  memoryTokens: number;
-  totalTokens: number;
-  workspacePath: string;
-}
-
 export interface ContextSource {
   id: string;
   label: string;
-  category: 'openclaw' | 'memory' | 'prompt' | 'template' | 'file' | 'pinned';
+  category: 'memory' | 'prompt' | 'template' | 'file' | 'pinned';
   tokens: number;
   enabled: boolean;
   editable: boolean;
@@ -1278,16 +1234,6 @@ export interface ContextAnalysis {
   budgetPercent: number;
   warnings: ContextWarning[];
 }
-
-export const openclawContextApi = {
-  async getAll(): Promise<OpenClawContextResponse> {
-    return request<OpenClawContextResponse>('/openclaw/context');
-  },
-
-  async readFile(path: string): Promise<{ content: string; tokens: number; path: string }> {
-    return request<{ content: string; tokens: number; path: string }>(`/openclaw/context/file?path=${encodeURIComponent(path)}`);
-  },
-};
 
 export const contextAnalysisApi = {
   async analyze(topicId: string): Promise<ContextAnalysis> {

@@ -15,7 +15,6 @@ import { OpenAIProvider } from "../providers/openai";
 import { CodexProvider } from "../providers/codex";
 import { MuseProvider } from "../providers/muse";
 import { ClaudeCodeProvider } from "../providers/claude-code";
-import { OpenClawProvider } from "../providers/openclaw";
 import { getProviderStrategy } from "./provider-strategy";
 
 describe("getProviderStrategy", () => {
@@ -42,15 +41,6 @@ describe("getProviderStrategy", () => {
   it("claude-code is inline-system", () => {
     const p = new ClaudeCodeProvider({ type: "claude-code" });
     expect(getProviderStrategy(p)).toBe("inline-system");
-  });
-
-  it("openclaw is gateway-stateful", () => {
-    const p = new OpenClawProvider({
-      type: "openclaw",
-      gatewayUrl: "ws://localhost:1234",
-      token: "test",
-    });
-    expect(getProviderStrategy(p)).toBe("gateway-stateful");
   });
 
   // ── Fallback path ────────────────────────────────────────────────────────
@@ -83,13 +73,9 @@ describe("getProviderStrategy", () => {
     expect(getProviderStrategy(p)).toBe("inline-system");
   });
 
-  it("fallback never returns gateway-stateful (gateway must opt-in explicitly)", () => {
-    // Even if a synthetic provider has every other capability, omitting the
-    // explicit declaration MUST NOT promote it to gateway-stateful — that
-    // signals different inspector messaging which the user opts into.
-    const p = syntheticProvider(["streaming", "history", "tools", "context", "sessions"]);
+  it("fallback with every capability is still history-aware", () => {
+    const p = syntheticProvider(["streaming", "history", "tools", "sessions"]);
     expect(getProviderStrategy(p)).toBe("history-aware");
-    expect(getProviderStrategy(p)).not.toBe("gateway-stateful");
   });
 
   // Suppress unused-locals for handler-shaped `_h` etc. in the synthetic factory.

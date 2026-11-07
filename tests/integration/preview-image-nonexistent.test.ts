@@ -58,9 +58,9 @@ function freshDb(): Database {
 
 function makeRouter(db: Database, homeDir: string): RouteHandler {
   function isPathAllowed(p: string): boolean {
-    // Simula l'allowlist: accetta path sotto ~/.topics/media e ~/.openclaw/media
+    // Simula l'allowlist: accetta path sotto ~/.topics/media e la radice dati dell'app
     return p.startsWith(join(homeDir, ".topics", "media")) ||
-           p.startsWith(join(homeDir, ".openclaw", "media"));
+           p.startsWith(join(homeDir, ".app-data", "media"));
   }
 
   return createTasksRouter({

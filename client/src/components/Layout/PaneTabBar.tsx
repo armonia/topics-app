@@ -1217,7 +1217,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         const pinned = !!pinKey && !!isFissato?.(pinKey);
         const spawnerKey = pane.type === 'chat' ? pane.topicId : pane.type === 'terminal' ? pane.id : undefined;
         const spawnedBrowser = !!spawnerKey && !!spawnedBrowserMap[spawnerKey];
-        const cloud = pane.type === 'chat' && !!pane.topicId && topics[pane.topicId]?.provider === 'openclaw';
         const isDragged = draggedPaneId === pane.id;
         const hasDragSource = draggedPaneId || crossGroupDragActive;
         const isNotSelf = !draggedPaneId || draggedPaneId !== pane.id;
@@ -1325,7 +1324,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               browserKind,
               pinned && tr('sidebar.pinned'),
               spawnedBrowser && tr('tab.openedBrowser'),
-              cloud && tr('tab.cloudSession'),
             ].filter(Boolean).join(' · ')}
             title={isSquareInactive ? label : undefined}
             // A browser tab has extra commands that cover the label's tail on

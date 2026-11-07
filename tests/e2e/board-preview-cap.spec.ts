@@ -50,9 +50,9 @@ const BASE = E2E_BASE;
  */
 const AS_PERSON = { "X-Topics-Action-Origin": "interface" };
 const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-preview-cap-${Date.now()}`;
-// Allowlist di /api/media: `${OPENCLAW_DIR}/media/`, e OPENCLAW_DIR del server
+// Allowlist di /api/media: `${APP_DATA_DIR}/media/`, e APP_DATA_DIR del server
 // di test è dentro la sua DATA_DIR (helpers/test-server.ts).
-const MEDIA_DIR = join(E2E_DATA_DIR, ".openclaw", "media", "preview-cap");
+const MEDIA_DIR = join(E2E_DATA_DIR, ".app-data", "media", "preview-cap");
 const EVIDENCE_DIR = join(__dirname, "..", "..", "test-results", "preview-cap");
 
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);

@@ -6,7 +6,7 @@
  * by id. The HTTP-SSE paths kept `updateLastMessage` and friends without a
  * `rowId`, so they wrote the LAST row of the session: the chat route's
  * fallback (a provider that is not connected), and edit/regenerate with a
- * provider that streams over HTTP (openclaw, claude, openai). A row born after
+ * provider that streams over HTTP (claude, openai). A row born after
  * the turn's own (a notice, a sub-agent's report, a system message) took the
  * turn's text and tools, and the turn's row stayed empty and partial.
  *
@@ -124,7 +124,7 @@ describe("a turn streamed over HTTP-SSE, with a row born after its own", () => {
     const sk = "topic:ssefallback";
     const ctx = await contextFor(sk);
     const sse = sseBody();
-    const { provider, wired } = httpProvider("openclaw", false, sse.body);
+    const { provider, wired } = httpProvider("openai", false, sse.body);
     const resp = await chatTurn(ctx, provider, sk);
     expect(resp?.status).toBe(200);
     // Read while the gateway writes: the route forwards every chunk to this
@@ -163,7 +163,7 @@ describe("a turn streamed over HTTP-SSE, with a row born after its own", () => {
     const sk = "topic:ssecut";
     const ctx = await contextFor(sk);
     const sse = sseBody();
-    const { provider } = httpProvider("openclaw", false, sse.body);
+    const { provider } = httpProvider("openai", false, sse.body);
     const resp = await chatTurn(ctx, provider, sk);
     const drained = resp!.text();
     const turnRow = lastRow(ctx, sk);

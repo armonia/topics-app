@@ -217,7 +217,7 @@ export function createChromiumSidecar(opts: ChromiumSidecarOptions = {}) {
   const discover = opts.discover ?? (() => discoverChromiumEngines());
   const launcher = opts.launcher ?? defaultLauncher();
   const port = opts.port ?? 19333;
-  // App data root, not a hardcoded `~/.openclaw`: on an install that never had
+  // App data root, not a hardcoded legacy path: on an install that never had
   // the legacy root this profile is the difference between Topics owning one
   // home and silently creating a second one (card 211605ee).
   const userDataDir =

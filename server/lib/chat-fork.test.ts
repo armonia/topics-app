@@ -174,7 +174,7 @@ describe("forkStartFor: the spawn forks at most once", () => {
 
 describe("forkModeFor: every runtime has its way, or no menu item", () => {
   test("the table", () => {
-    const names = ["claude-code", "claude-code-team", "codex", "topics", "topics:opus", "claude", "openai", "direct-x", "openclaw", "jcode"];
+    const names = ["claude-code", "claude-code-team", "codex", "topics", "topics:opus", "claude", "openai", "direct-x", "gemini", "jcode"];
     expect(names.map(forkModeFor)).toEqual([
       "claude-cli", "claude-cli", "codex-cli", "db-history", "db-history", "db-history", "db-history", "db-history", null, null,
     ]);

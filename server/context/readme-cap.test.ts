@@ -23,7 +23,7 @@ function envelopeFor(projectDir: string) {
   const ctx = {
     BASE_DIR: ROOT,
     STATE_DIR: ROOT,
-    OPENCLAW_DIR: join(ROOT, "openclaw"),
+    APP_DATA_DIR: join(ROOT, "app-data"),
     getTopicBySessionKey: (sk: string) => (sk === topic.sessionKey ? topic : null),
     loadLocalMessages: () => [],
     loadTopics: () => ({ topics: { [topic.id]: topic } }),

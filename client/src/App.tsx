@@ -24,7 +24,6 @@ import { TabNotificationProvider } from './hooks/useTabNotifications';
 import { useTheme } from './hooks/useTheme';
 import { useClaudeSessionState } from './hooks/useClaudeSessionState';
 import { TopicsProvider } from './contexts/TopicsContext';
-import { useOpenClawAvailable } from './hooks/useOpenClawAvailable';
 import { useSplitLayoutAvailable } from './hooks/useSplitLayoutAvailable';
 import { useClaudeSkipPermissions } from './hooks/useClaudePrefs';
 import { useSidebarState } from './hooks/useSidebarState';
@@ -82,7 +81,7 @@ import { sendBlur } from './lib/focusMessaging';
 import { useRefMirror } from './hooks/useRefMirror';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useBrowserContexts } from './hooks/useBrowserContexts';
-import { useClosedTabs, createPaneId, isProjectPaneId, getProjectPathFromPaneId, setPaneCapability, newBrowserContextId } from './state/pane/adapters';
+import { useClosedTabs, createPaneId, isProjectPaneId, getProjectPathFromPaneId, newBrowserContextId } from './state/pane/adapters';
 import { seedBrowserPaneInitialUrl } from './state/pane/browserPaneUrl';
 import { isUtilityPanelType, utilityPanelId } from './state/pane/adapters/utilityPanelId';
 
@@ -735,20 +734,6 @@ function App() {
   // below), which derives the per-topic "needs you" attention the notification
   // badge surfaces across the tab bar and the sidebar.
   const { sessions: claudeSessions } = useClaudeSessionState({ onWSMessage });
-  const openclawAvailable = useOpenClawAvailable();
-  // Cron è l'unica pane che richiede OpenClaw, e il suo gate vive in PANE_CONFIG
-  // (`requires: 'openclaw'`), non nel menu che la apre: prima era un `.filter`
-  // scritto a mano nel dropdown «Topics ▾», cioè un gate valido su UNA
-  // superficie. Da qui vale per ogni menu di creazione, presente e futuro.
-  //
-  // In RENDER e non in un effetto, di proposito: App renderizza prima dei suoi
-  // figli, quindi il «+» costruito nello stesso passo vede già il valore nuovo.
-  // Un effetto scriverebbe DOPO il commit, e siccome la Set non è stato di
-  // React nessuno pianificherebbe il render che la rilegge — la riga Cron
-  // resterebbe assente fino al prossimo render capitato per altri motivi.
-  // La scrittura è idempotente (StrictMode renderizza due volte) e non tocca
-  // stato React, quindi non innesca cicli.
-  setPaneCapability('openclaw', openclawAvailable);
   // Feed the unified signals store from every raw input in one place
   // (Claude attention / live stream / hydrated mid-reply / server pty
   // activity). Consumers only read the facade (usePaneLoading / getBadgeCount).
