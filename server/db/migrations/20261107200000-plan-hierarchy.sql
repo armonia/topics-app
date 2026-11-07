@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS plan_milestones (
   completion_criteria TEXT,
   owner TEXT,
   status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'done', 'dropped')),
-  due_date TEXT,
+  target_date TEXT,
   position INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS plan_sources (
   id TEXT PRIMARY KEY,
   task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
   milestone_id TEXT REFERENCES plan_milestones(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL CHECK (kind IN ('session', 'pr', 'branch', 'commit', 'check', 'cron', 'other')),
+  kind TEXT NOT NULL CHECK (kind IN ('topic', 'pr', 'branch', 'commit', 'check', 'cron', 'other')),
   label TEXT NOT NULL,
   url TEXT,
   created_at TEXT NOT NULL,

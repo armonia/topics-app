@@ -8,61 +8,23 @@
 import type { Database } from "bun:sqlite";
 import { projectIdForPath } from "../../shared/board";
 import { findDuplicateGroups } from "../../shared/task-similarity";
+import {
+  PLAN_SOURCE_KINDS,
+  type PlanArea, type PlanCard, type PlanCounts, type PlanMilestone, type PlanProgress,
+  type PlanProject, type PlanSignal, type PlanSource, type PlanSourceKind, type PlanTree,
+} from "../../shared/plan";
+export type {
+  PlanArea, PlanCard, PlanCounts, PlanMilestone, PlanProgress, PlanProject, PlanSignal, PlanSource, PlanSourceKind, PlanTree,
+} from "../../shared/plan";
 
 export const STALE_DAYS = 7;
 const DAY_MS = 86_400_000;
 
-export type PlanSignal = "duplicate" | "delivered_but_open" | "no_owner" | "stale";
-export type PlanSourceKind = "session" | "pr" | "branch" | "commit" | "check" | "cron" | "other";
-
-export interface PlanSource {
-  /** Row id in plan_sources; absent for implicit sources. */
-  id?: string;
-  kind: PlanSourceKind;
-  label: string;
-  url?: string | null;
-  /** For sessions: the topic to open. */
-  topicId?: string | null;
-  implicit: boolean;
+/** A milestone row as SQLite returns it. */
+interface MilestoneRow {
+  id: string; area_id: string; title: string; expected_result: string | null; completion_criteria: string | null;
+  owner: string | null; status: string; target_date: string | null; position: number;
 }
-
-export interface PlanCard {
-  id: string;
-  text: string;
-  status: string;
-  projectId: string;
-  assignedTopicId: string | null;
-  originTopicId: string | null;
-  updatedAt: string;
-  signals: PlanSignal[];
-  /** For a duplicate: the surviving card it would be merged into. */
-  duplicateOf?: string;
-  sources: PlanSource[];
-}
-
-export interface PlanCounts { total: number; done: number; byStatus: Record<string, number> }
-export interface PlanProgress extends PlanCounts { ratio: number }
-
-export interface PlanMilestone {
-  id: string; areaId: string; title: string;
-  expectedResult: string | null; completionCriteria: string | null;
-  owner: string | null; status: string; dueDate: string | null; position: number;
-  progress: PlanProgress;
-  signals: PlanSignal[];
-  sources: PlanSource[];
-  tasks: PlanCard[];
-}
-export interface PlanArea {
-  id: string; projectId: string; name: string; position: number;
-  progress: PlanProgress; milestones: PlanMilestone[];
-}
-export interface PlanProject {
-  projectId: string; name: string; progress: PlanProgress;
-  areas: PlanArea[];
-  /** Project cards not yet linked to a milestone: the "to place" group. */
-  unplaced: { progress: PlanProgress; tasks: PlanCard[] };
-}
-export interface PlanTree { projects: PlanProject[]; includeDone: boolean }
 
 interface TaskRow {
   id: string; project_id: string; text: string; status: string;
@@ -99,9 +61,9 @@ export function cardSignals(
 
 function implicitSources(t: TaskRow): PlanSource[] {
   const out: PlanSource[] = [];
-  if (t.assigned_topic_id) out.push({ kind: "session", label: "assigned", topicId: t.assigned_topic_id, implicit: true });
+  if (t.assigned_topic_id) out.push({ kind: "topic", label: "assigned", topicId: t.assigned_topic_id, implicit: true });
   if (t.origin_topic_id && t.origin_topic_id !== t.assigned_topic_id) {
-    out.push({ kind: "session", label: "origin", topicId: t.origin_topic_id, implicit: true });
+    out.push({ kind: "topic", label: "origin", topicId: t.origin_topic_id, implicit: true });
   }
   if (t.delivery_branch) out.push({ kind: "branch", label: t.delivery_branch, implicit: true });
   if (t.delivery_commit) out.push({ kind: "commit", label: t.delivery_commit, implicit: true });
@@ -131,7 +93,7 @@ export function buildPlan(
   ).all(...params) as { id: string; project_id: string; name: string; position: number }[];
   const milestones = db.query(
     `SELECT * FROM plan_milestones ORDER BY position, created_at`,
-  ).all() as Record<string, any>[];
+  ).all() as MilestoneRow[];
   const links = db.query(`SELECT task_id, milestone_id FROM plan_task_links`).all() as { task_id: string; milestone_id: string }[];
   const sources = db.query(`SELECT id, task_id, milestone_id, kind, label, url FROM plan_sources ORDER BY created_at`).all() as SourceRow[];
 
@@ -144,7 +106,7 @@ export function buildPlan(
   } catch { /* projects table absent (test bench): fall back to the id */ }
 
   const milestoneOf = new Map(links.map((l) => [l.task_id, l.milestone_id]));
-  const milestoneById = new Map(milestones.map((m) => [m.id as string, m]));
+  const milestoneById = new Map(milestones.map((m) => [m.id, m]));
   const srcByTask = new Map<string, PlanSource[]>();
   const srcByMilestone = new Map<string, PlanSource[]>();
   for (const s of sources) {
@@ -166,12 +128,12 @@ export function buildPlan(
     }
   }
 
-  const areaOfMilestone = new Map(milestones.map((m) => [m.id as string, m.area_id as string]));
+  const areaOfMilestone = new Map(milestones.map((m) => [m.id, m.area_id]));
   const projectOfArea = new Map(areas.map((a) => [a.id, a.project_id]));
 
   const toCard = (t: TaskRow): PlanCard => {
     const mid = milestoneOf.get(t.id);
-    const owner = mid ? ((milestoneById.get(mid)?.owner as string | null) ?? null) : null;
+    const owner = mid ? (milestoneById.get(mid)?.owner ?? null) : null;
     const signals = cardSignals(t, owner, nowMs);
     const survivor = dupOf.get(t.id);
     const card: PlanCard = {
@@ -219,7 +181,7 @@ export function buildPlan(
         return {
           id: m.id, areaId: m.area_id, title: m.title,
           expectedResult: m.expected_result, completionCriteria: m.completion_criteria,
-          owner: m.owner, status: m.status, dueDate: m.due_date, position: m.position,
+          owner: m.owner, status: m.status, targetDate: m.target_date, position: m.position,
           progress: progressOf(all), signals, sources: srcByMilestone.get(m.id) ?? [], tasks: shown,
         };
       });
@@ -276,7 +238,7 @@ export function createArea(db: Database, input: { projectId?: unknown; name?: un
 }
 
 export function updateArea(db: Database, id: string, input: { name?: unknown; position?: unknown }) {
-  const row = db.query(`SELECT * FROM plan_areas WHERE id = ?`).get(id) as any;
+  const row = db.query(`SELECT * FROM plan_areas WHERE id = ?`).get(id) as { name: string; position: number } | null;
   if (!row) throw new PlanError("not_found", "area not found");
   const name = input.name === undefined ? row.name : text(input.name, "name", true)!;
   const position = typeof input.position === "number" ? input.position : row.position;
@@ -296,15 +258,15 @@ export function createMilestone(db: Database, input: Record<string, unknown>) {
   if (!db.query(`SELECT 1 FROM plan_areas WHERE id = ?`).get(areaId)) throw new PlanError("not_found", "area not found");
   const title = text(input.title, "title", true)!;
   const id = newId(), t = now();
-  db.query(`INSERT INTO plan_milestones (id, area_id, title, expected_result, completion_criteria, owner, due_date, position, created_at, updated_at)
+  db.query(`INSERT INTO plan_milestones (id, area_id, title, expected_result, completion_criteria, owner, target_date, position, created_at, updated_at)
             VALUES (?,?,?,?,?,?,?,?,?,?)`)
     .run(id, areaId, title, text(input.expectedResult, "expectedResult"), text(input.completionCriteria, "completionCriteria"),
-      text(input.owner, "owner"), text(input.dueDate, "dueDate"), nextPos(db, "plan_milestones", "area_id", areaId), t, t);
+      text(input.owner, "owner"), text(input.targetDate, "targetDate"), nextPos(db, "plan_milestones", "area_id", areaId), t, t);
   return db.query(`SELECT * FROM plan_milestones WHERE id = ?`).get(id);
 }
 
 export function updateMilestone(db: Database, id: string, input: Record<string, unknown>) {
-  const row = db.query(`SELECT * FROM plan_milestones WHERE id = ?`).get(id) as any;
+  const row = db.query(`SELECT * FROM plan_milestones WHERE id = ?`).get(id) as (MilestoneRow & Record<string, string | number | null>) | null;
   if (!row) throw new PlanError("not_found", "milestone not found");
   const pick = (key: string, col: string, required = false) =>
     key in input ? text(input[key], key, required) : row[col];
@@ -312,15 +274,15 @@ export function updateMilestone(db: Database, id: string, input: Record<string, 
   if (!MILESTONE_STATUS.includes(status)) throw new PlanError("invalid_input", "invalid status");
   let areaId = row.area_id;
   if (typeof input.areaId === "string" && input.areaId !== row.area_id) {
-    const from = db.query(`SELECT project_id FROM plan_areas WHERE id = ?`).get(row.area_id) as any;
-    const to = db.query(`SELECT project_id FROM plan_areas WHERE id = ?`).get(input.areaId) as any;
+    const from = db.query(`SELECT project_id FROM plan_areas WHERE id = ?`).get(row.area_id) as { project_id: string } | null;
+    const to = db.query(`SELECT project_id FROM plan_areas WHERE id = ?`).get(input.areaId) as { project_id: string } | null;
     if (!to) throw new PlanError("not_found", "area not found");
     if (to.project_id !== from?.project_id) throw new PlanError("invalid_input", "area belongs to another project");
     areaId = input.areaId;
   }
-  db.query(`UPDATE plan_milestones SET title=?, expected_result=?, completion_criteria=?, owner=?, due_date=?, status=?, area_id=?, position=?, updated_at=? WHERE id=?`)
+  db.query(`UPDATE plan_milestones SET title=?, expected_result=?, completion_criteria=?, owner=?, target_date=?, status=?, area_id=?, position=?, updated_at=? WHERE id=?`)
     .run(pick("title", "title", true), pick("expectedResult", "expected_result"), pick("completionCriteria", "completion_criteria"),
-      pick("owner", "owner"), pick("dueDate", "due_date"), status, areaId,
+      pick("owner", "owner"), pick("targetDate", "target_date"), status, areaId,
       typeof input.position === "number" ? input.position : row.position, now(), id);
   return db.query(`SELECT * FROM plan_milestones WHERE id = ?`).get(id);
 }
@@ -348,13 +310,12 @@ export function unlinkTask(db: Database, taskId: string): void {
   db.query(`DELETE FROM plan_task_links WHERE task_id = ?`).run(taskId);
 }
 
-const SOURCE_KINDS = ["session", "pr", "branch", "commit", "check", "cron", "other"];
 export function addSource(db: Database, input: Record<string, unknown>) {
   const taskId = text(input.taskId, "taskId");
   const milestoneId = text(input.milestoneId, "milestoneId");
   if (!taskId === !milestoneId) throw new PlanError("invalid_input", "exactly one of taskId or milestoneId is required");
   const kind = String(input.kind ?? "");
-  if (!SOURCE_KINDS.includes(kind)) throw new PlanError("invalid_input", "invalid kind");
+  if (!(PLAN_SOURCE_KINDS as readonly string[]).includes(kind)) throw new PlanError("invalid_input", "invalid kind");
   const label = text(input.label, "label", true)!;
   if (taskId && !db.query(`SELECT 1 FROM tasks WHERE id = ?`).get(taskId)) throw new PlanError("not_found", "task not found");
   if (milestoneId && !db.query(`SELECT 1 FROM plan_milestones WHERE id = ?`).get(milestoneId)) throw new PlanError("not_found", "milestone not found");

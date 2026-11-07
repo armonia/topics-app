@@ -25,11 +25,12 @@ async function ok(method: string, path: string, body?: unknown, status = 200) {
 describe("/api/plan", () => {
   test("full flow: area → milestone → link → tree → unlink", async () => {
     const area = await ok("POST", "/api/plan/areas", { projectId: "p1", name: "Auth" }, 201);
-    const ms = await ok("POST", "/api/plan/milestones", { areaId: area.id, title: "Login", expectedResult: "works", owner: "Anna", dueDate: "2026-12-01" }, 201);
+    const ms = await ok("POST", "/api/plan/milestones", { areaId: area.id, title: "Login", expectedResult: "works", owner: "Anna", targetDate: "2026-12-01" }, 201);
     await ok("PUT", "/api/plan/links/t1", { milestoneId: ms.id });
     let tree = await ok("GET", "/api/plan?projectId=p1");
     expect(tree.projects[0].areas[0].milestones[0].tasks[0].id).toBe("t1");
     expect(tree.projects[0].areas[0].milestones[0].owner).toBe("Anna");
+    expect(tree.projects[0].areas[0].milestones[0].targetDate).toBe("2026-12-01");
     await ok("DELETE", "/api/plan/links/t1");
     tree = await ok("GET", "/api/plan?projectId=p1");
     expect(tree.projects[0].unplaced.tasks).toHaveLength(1);

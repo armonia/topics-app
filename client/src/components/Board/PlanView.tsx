@@ -87,7 +87,7 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
         />
       </div>
       <div className="flex flex-wrap gap-x-3 pl-1 text-mini text-app-text-muted">
-        {c.sources.map((s, i) => s.kind === 'session' && s.topicId && onOpenTopic ? (
+        {c.sources.map((s, i) => s.kind === 'topic' && s.topicId && onOpenTopic ? (
           <button key={i} type="button" className="flex items-center gap-1 hover:underline" onClick={() => onOpenTopic(s.topicId!)}>
             <ExternalLink className="h-3 w-3" />{tr('plan.openSession')} ({s.label})
           </button>
@@ -103,7 +103,7 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
     return (
       <div key={m.id} data-testid="plan-milestone">
         <Row k={k} depth={2} title={m.title} p={m.progress} signals={m.signals}
-          extra={m.dueDate ? <span className="shrink-0 text-mini text-app-text-muted">{m.dueDate}</span> : undefined} />
+          extra={m.targetDate ? <span className="shrink-0 text-mini text-app-text-muted">{m.targetDate}</span> : undefined} />
         {open.has(k) && (
           <div className="pb-1">
             <div className="flex flex-wrap items-center gap-2 text-mini text-app-text-muted" style={{ paddingLeft: 3 * 16 }}>
@@ -113,7 +113,7 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
                 <input className={INPUT} defaultValue={m.owner ?? ''} onBlur={(e) => { if (e.target.value !== (m.owner ?? '')) void act(() => updateMilestone(m.id, { owner: e.target.value })); }} />
               </label>
               <label className="flex items-center gap-1">{tr('plan.due')}
-                <input type="date" className={INPUT} defaultValue={m.dueDate ?? ''} onBlur={(e) => { if (e.target.value !== (m.dueDate ?? '')) void act(() => updateMilestone(m.id, { dueDate: e.target.value })); }} />
+                <input type="date" className={INPUT} defaultValue={m.targetDate ?? ''} onBlur={(e) => { if (e.target.value !== (m.targetDate ?? '')) void act(() => updateMilestone(m.id, { targetDate: e.target.value })); }} />
               </label>
             </div>
             {m.tasks.map((c) => renderCard(c, project, 3))}
@@ -124,7 +124,7 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
   };
 
   const MilestoneForm = ({ area }: { area: PlanArea }) => {
-    const [v, setV] = useState({ title: '', expectedResult: '', completionCriteria: '', owner: '', dueDate: '' });
+    const [v, setV] = useState({ title: '', expectedResult: '', completionCriteria: '', owner: '', targetDate: '' });
     const set = (k: keyof typeof v) => (e: React.ChangeEvent<HTMLInputElement>) => setV({ ...v, [k]: e.target.value });
     return (
       <form className="flex flex-wrap items-end gap-2 py-1" style={{ paddingLeft: 2 * 16 }}
@@ -133,7 +133,7 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
         <input className={INPUT} placeholder={tr('plan.expectedResult')} value={v.expectedResult} onChange={set('expectedResult')} />
         <input className={INPUT} placeholder={tr('plan.criteria')} value={v.completionCriteria} onChange={set('completionCriteria')} />
         <input className={INPUT} placeholder={tr('plan.owner')} value={v.owner} onChange={set('owner')} />
-        <input type="date" className={INPUT} aria-label={tr('plan.due')} value={v.dueDate} onChange={set('dueDate')} />
+        <input type="date" className={INPUT} aria-label={tr('plan.due')} value={v.targetDate} onChange={set('targetDate')} />
         <button type="submit" className={BTN}>{tr('plan.create')}</button>
         <button type="button" className={BTN} onClick={() => setForm(null)}>{tr('plan.cancel')}</button>
       </form>
