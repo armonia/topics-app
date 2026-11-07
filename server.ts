@@ -69,7 +69,7 @@ import { sweepStaleStreams, rescueByOwner, type SilenceMark } from "./server/lib
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { flushTurnBody } from "./server/lib/turn-body-flush";
 import { endReattachLeg, finalizeStaleRow } from "./server/lib/closed-outside";
-import { cardTurnsHoldingReload, chatsHolding, describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice, unrecoverableHolders } from "./server/lib/quiescence";
+import { cardTurnsHoldingReload, chatGraceMs, chatsHolding, describeInFlight, dispatchDoor, sharedWait, turnComesBack as turnComesBackDecision, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice, unrecoverableHolders } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion, PARKED_ASK_HOLD_MS } from "./server/lib/parked-asks";
 import { touchReloadDeferred, clearReloadDeferred } from "./server/lib/reload-deferred";
@@ -186,6 +186,7 @@ import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProvider
 import { sessionAttentionBackground, sessionHasBackgroundWork, sessionsWithBackgroundWork, stallBackgroundHold } from "./server/providers/background-probes";
 import { aiBridgeEnabled, ClaudeCodeProvider } from "./server/providers/claude-code";
 import { sessionKeyOfBrokerId, nativeDetachedEnabled } from "./server/providers/native/detached-turn";
+import { classifyNativeBootSessions, pickTurnOwner, type TurnOwnerClaim } from "./server/lib/boot-native-turns";
 // The checkout's HEAD when this process started. Read once: the scripts that
 // move the checkout compare it with what they asked for.
 const BOOT_COMMIT: string | null = (() => {
@@ -1518,17 +1519,22 @@ async function runHeadlessTurn(
  * Which provider still runs a turn for this session in the AI broker, if any.
  *
  * Two can: `claude-code` (the CLI, under the session key) and the native
- * runtime (its turn process, under `native:<session key>`). The native one is
- * asked first because it is the default runtime; a session has at most one
- * live turn, so the order only saves a round trip.
+ * runtime (its turn process, under `native:<session key>`). The native one
+ * also claims a dead store whose row is still open, so when both claim, the
+ * one whose process is alive wins (`pickTurnOwner`).
  */
 async function liveTurnOwner(sessionKey: string): Promise<"topics" | "claude-code" | null> {
+  const claims: TurnOwnerClaim[] = [];
   for (const name of ["topics", "claude-code"] as const) {
-    const p = tryGetProvider(name) as unknown as { hasLiveSession?: (sk: string) => Promise<boolean> } | undefined;
-    try { if (typeof p?.hasLiveSession === "function" && await p.hasLiveSession(sessionKey)) return name; }
-    catch { /* this provider cannot tell: ask the next */ }
+    const p = tryGetProvider(name) as unknown as { hasLiveSession?: (sk: string) => Promise<boolean>; liveDetachedSessions?: () => Promise<Set<string>> } | undefined;
+    try {
+      if (typeof p?.hasLiveSession !== "function" || !(await p.hasLiveSession(sessionKey))) continue;
+      // claude-code claims only a live child; the native runtime says which of its claims are alive.
+      const alive = typeof p.liveDetachedSessions === "function" ? (await p.liveDetachedSessions()).has(sessionKey) : true;
+      claims.push({ name, claims: true, alive });
+    } catch { /* this provider cannot tell: ask the next */ }
   }
-  return null;
+  return pickTurnOwner(claims);
 }
 
 // Reattach variant: POST /api/chat with mode:"reattach" and NO user message —
@@ -3495,12 +3501,18 @@ const nativeEndedWhileDown = new Set<string>();
         // A native turn runs in its own process under `native:<session key>`.
         // Alive = the turn goes on; dead with a journal = it ENDED while no
         // server was listening, and its ending is in the store for the
-        // reattach to read. Either way its row is not a dead turn's.
-        for (const s of sessions) {
-          const sk = sessionKeyOfBrokerId(s.id);
-          if (!sk) continue;
-          if (s.alive) liveBrokerChatSessions.add(sk);
-          else if (s.endOffset > 0) nativeEndedWhileDown.add(sk);
+        // reattach to read. Either way its row is not a dead turn's - unless
+        // detached turns are off, and then nothing re-adopts it (see
+        // `classifyNativeBootSessions`).
+        const native = classifyNativeBootSessions(
+          sessions.flatMap((s) => { const sk = sessionKeyOfBrokerId(s.id); return sk ? [{ ...s, sessionKey: sk }] : []; }),
+          nativeDetachedEnabled(),
+        );
+        for (const sk of native.alive) liveBrokerChatSessions.add(sk);
+        for (const sk of native.endedWhileDown) nativeEndedWhileDown.add(sk);
+        for (const id of native.kill) {
+          console.log(`[Startup] detached native turns are off: ending ${id}, its chat is resumed from the database`);
+          try { getAiBridgeClient().kill(id); } catch { /* daemon hiccup: its orphan grace collects it */ }
         }
         listConfirmed = true;
       } catch {
@@ -5778,7 +5790,7 @@ async function reattachSurvivors(adopted: Set<string>): Promise<void> {
   // no server listened, and the reattach reads its ending from the store.
   const native = sessions
     .map((s) => ({ s, sk: sessionKeyOfBrokerId(s.id) }))
-    .filter((x): x is { s: typeof sessions[number]; sk: string } => !!x.sk && (x.s.alive || (x.s.endOffset > 0 && midTurnAtBoot.has(x.sk))));
+    .filter((x): x is { s: typeof sessions[number]; sk: string } => !!x.sk && nativeDetachedEnabled() && (x.s.alive || (x.s.endOffset > 0 && midTurnAtBoot.has(x.sk))));
   if (live.length === 0 && native.length === 0) return;
   const dispatcherClaimed = new Set<string>();
   try {
@@ -6867,16 +6879,22 @@ let askProbeCache: { at: number; parked: string[] } = { at: 0, parked: [] };
  * ogni giro; la terza si paga, e si guarda ogni QUIESCENCE_BROKER_PROBE_MS.
  */
 /**
- * The turn on this session survives a restart: its stream says so, and the
- * broker that keeps its process is on. A stream started on a provider that can
- * reattach, with the broker off, would be cut like an in-process one.
+ * The turn on this session survives a restart (see `turnComesBack` in
+ * `lib/quiescence.ts`): a native turn only when it runs in its own process,
+ * any other when its stream says so and the broker is on.
  */
 function turnComesBack(sessionKey: string): boolean {
-  if (!aiBridgeEnabled()) return false;
-  return activeStreams.get(sessionKey)?.survivesRestart === true;
+  const native = tryGetProvider("topics") as unknown as { isTurnProcessAlive?: (sk: string) => boolean; turnRunsDetached?: (sk: string) => boolean } | undefined;
+  const nativeTurn = native?.isTurnProcessAlive?.(sessionKey) === true;
+  return turnComesBackDecision({
+    bridgeOn: aiBridgeEnabled(),
+    streamSurvives: activeStreams.get(sessionKey)?.survivesRestart === true,
+    nativeTurn,
+    nativeDetached: nativeTurn && native?.turnRunsDetached?.(sessionKey) === true,
+  });
 }
 
-async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; chats: number; workingChats: number; holder: string | null; holderKind: "turn" | "question" }> {
+async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; chats: number; workingChats: number; everyTurnComesBack: boolean; holder: string | null; holderKind: "turn" | "question" }> {
   // A land in flight is a card turn for this purpose: it rewrites main and
   // the card, and a restart in the middle of it forgets the delivery branch.
   //
@@ -6962,6 +6980,9 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
     // The same chats minus the ones parked on a question: the turns a restart
     // "at zero turns" waits for (see `unrecoverableHolders`).
     workingChats: chatsHolding({ streamKeys, brokerOpenKeys: brokerOpen, parkedKeys: [], cardSessionKeys: taskDispatcher.busySessionKeys() }),
+    // Broker-kept turns and parked questions come back by construction; a
+    // stream only if its turn does (a native one running in this process does not).
+    everyTurnComesBack: aiBridgeEnabled() && streamKeys.every(turnComesBack),
     // STESSA PRIORITA' di `describeInFlight`, o la notifica nomina un soggetto
     // che non e' quello che trattiene: quando a trattenere e' una card la frase
     // parla di card, e qui non c'e' un topic da nominare — meglio `null` e il
@@ -7052,7 +7073,7 @@ async function runDispatcherQuiescentWait(label: string, capMs = QUIESCENCE_CAP_
   // card cannot start in the gap between "nothing holds" and the shutdown.
   let doorClosed = true;
   for (;;) {
-    const { busy, cards, unadoptable, chats, workingChats, holder, holderKind } = await whatIsStillWorking();
+    const { busy, cards, unadoptable, chats, workingChats, everyTurnComesBack, holder, holderKind } = await whatIsStillWorking();
     if (!busy) {
       if (!doorClosed) {
         taskDispatcher.drain(label);
@@ -7082,7 +7103,7 @@ async function runDispatcherQuiescentWait(label: string, capMs = QUIESCENCE_CAP_
       // was for a chat that a restart cut and the boot resumed with a visible
       // pause; a turn the broker keeps is found again where it was, partial
       // text and open question included, so waiting buys nothing.
-      chatCapMs: unrecoverable === 0 && aiBridgeEnabled() ? 0 : QUIESCENCE_CHAT_CAP_MS,
+      chatCapMs: chatGraceMs({ unrecoverable, everyTurnComesBack, capMs: QUIESCENCE_CHAT_CAP_MS }),
     });
     // DUE ATTESE, PERCHE' SONO DUE DANNI DIVERSI.
     //

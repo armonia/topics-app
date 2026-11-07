@@ -116,6 +116,32 @@ export function turnSurvivesRestart(args: { providerReattaches: boolean; boardCa
 }
 
 /**
+ * Does the turn in flight on this session come back after a restart? Asked per
+ * TURN, at gate time, not per provider when the stream opened.
+ *
+ * The stream's flag is decided before the native runtime knows where its turn
+ * runs: the turn may start in its own process under the broker, or fall back
+ * into the server when the broker cannot spawn it. Only the first survives. A
+ * native card trusted to the flag let the gate cut an in-process turn and the
+ * boot redo its round; a native chat lost its grace minute. So for a native
+ * turn the native provider answers; any other runtime keeps the stream's flag.
+ */
+export function turnComesBack(args: { bridgeOn: boolean; streamSurvives: boolean; nativeTurn: boolean; nativeDetached: boolean }): boolean {
+  if (!args.bridgeOn) return false;
+  return args.nativeTurn ? args.nativeDetached : args.streamSurvives;
+}
+
+/**
+ * The grace a streaming chat gets before the restart. Zero only when nothing
+ * is lost and every streaming turn is found again by the broker; a native chat
+ * running in the server is resumed from scratch by the boot, and the minute
+ * lets it finish instead.
+ */
+export function chatGraceMs(args: { unrecoverable: number; everyTurnComesBack: boolean; capMs: number }): number {
+  return args.unrecoverable === 0 && args.everyTurnComesBack ? 0 : args.capMs;
+}
+
+/**
  * Fra le chat che stanno streammando, quali NON sopravvivono al riavvio.
  *
  * L'attesa breve riservata alle chat (`QUIESCENCE_CHAT_CAP_MS`, un minuto)
