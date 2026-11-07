@@ -51,7 +51,11 @@ export type JournalEvent =
    * these registries is invisible to the server, so each change travels here
    * and the server applies it (`turn-effects.ts`).
    */
-  | { e: "hold"; at: number; hold: { untilMs: number; window: string; reason: string } | null }
+  | {
+      e: "hold"; at: number; hold: { untilMs: number; window: string; reason: string } | null;
+      /** On a lift: the hold the host had, so the server lifts that one and no other. */
+      lifted?: { window: string; untilMs: number };
+    }
   | { e: "plan_usage"; at: number; u: unknown }
   | { e: "api_ok"; at: number }
   | { e: "cmd_start"; pid: number; command: string; at: number }

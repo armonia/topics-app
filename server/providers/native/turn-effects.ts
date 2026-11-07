@@ -16,6 +16,7 @@
 
 import {
   clearProviderHold,
+  lastApiAnswerMs,
   liftApiDownHold,
   onPlanUsage,
   onProviderHold,
@@ -45,8 +46,15 @@ export type HostControl =
  */
 export function journalHostEffects(emit: (ev: JournalEvent) => void, seed: ProviderHold | null = null): () => void {
   if (seed && seed.untilMs > Date.now()) setProviderHold({ untilMs: seed.untilMs, window: seed.window, reason: seed.reason });
+  // A lift names what it lifted: the host's copy can be stale (an api-down
+  // seed while the server has since set a plan hold), and a bare "null" let
+  // the host's outage lift drop the server's plan hold with no measure.
+  let had = providerHold();
   const offHold = onProviderHold((h) => {
-    emit({ e: "hold", at: Date.now(), hold: h ? { untilMs: h.untilMs, window: h.window, reason: h.reason } : null });
+    const at = Date.now();
+    if (h) emit({ e: "hold", at, hold: { untilMs: h.untilMs, window: h.window, reason: h.reason } });
+    else if (had) emit({ e: "hold", at, hold: null, lifted: { window: had.window, untilMs: had.untilMs } });
+    had = h;
   });
   const offUsage = onPlanUsage((u) => {
     if (u) emit({ e: "plan_usage", at: u.observedAtMs, u: { fiveHour: u.fiveHour, sevenDay: u.sevenDay } });
@@ -74,8 +82,10 @@ export function applyTurnEffects(sessionKey: string, control: (msg: HostControl)
         const now = Date.now();
         const active = providerHold(now);
         if (ev.hold) {
-          if (ev.hold.untilMs > now) setProviderHold({ untilMs: ev.hold.untilMs, window: ev.hold.window as UsageWindowKind, reason: ev.hold.reason }, now);
-        } else if (active && active.sinceMs <= ev.at) {
+          // Dated at the event, not at the reading: a replayed [set, lift]
+          // must end lifted, and the lift is checked against `sinceMs`.
+          if (ev.hold.untilMs > now) setProviderHold({ untilMs: ev.hold.untilMs, window: ev.hold.window as UsageWindowKind, reason: ev.hold.reason }, Math.min(ev.at, now));
+        } else if (active && ev.lifted && active.window === ev.lifted.window && active.sinceMs <= ev.at) {
           clearProviderHold();
         }
         return;
@@ -90,6 +100,9 @@ export function applyTurnEffects(sessionKey: string, control: (msg: HostControl)
         // An outage hold set after this answer is about a later failure.
         const active = providerHold();
         if (active?.window === "api-down" && active.sinceMs > ev.at) return;
+        // A replayed answer older than the last one seen would move the
+        // outage clock back (`ripresa-boot` reads it).
+        if (ev.at <= lastApiAnswerMs()) return;
         liftApiDownHold(ev.at);
         return;
       }

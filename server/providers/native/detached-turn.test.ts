@@ -35,6 +35,7 @@ delete process.env.ANTHROPIC_BASE_URL;
 
 const { runDetachedTurn, reattachDetachedTurn, liveDetachedSessions, awaitStrayTurn, brokerIdFor } = await import("./detached-turn");
 const { __resetAiBridgeClientForTests, getAiBridgeClient } = await import("../../lib/ai-bridge-client");
+const { clearProviderHold, holdForApiDown, providerHold, setProviderHold } = await import("../../lib/provider-hold");
 import type { TurnSpec } from "./turn-host";
 
 const PIECES = 12;
@@ -45,6 +46,7 @@ beforeAll(async () => {
   fake = await startFakeAnthropic({
     long: [{ textPieces: PIECES, pieceMs: 150 }],
     tail: [{ textPieces: PIECES, pieceMs: 150 }],
+    stalehold: [{ textPieces: 6, pieceMs: 150 }],
     spawndrop: [{ textPieces: PIECES, pieceMs: 150 }],
     short: [{ text: "subito" }],
   });
@@ -275,5 +277,31 @@ describe("detached native turn", () => {
     expect(r.text()).toBe(piece.repeat(6));
     expect(JSON.stringify(out.end?.history)).not.toContain("\uFFFD");
     expect((out.end?.history[0] as { content: string }).content).toBe(piece.repeat(6));
+  }, 30_000);
+
+  test("an answered round in the host lifts the server's outage hold, never a plan hold set meanwhile", async () => {
+    clearProviderHold();
+    try {
+      holdForApiDown();
+      const plain = recorder();
+      await runDetachedTurn({ ...spec("topic:dt000012", "short"), hold: providerHold() }, plain.handler, {});
+      expect(providerHold()).toBeNull();
+
+      holdForApiDown();
+      const r = recorder();
+      let set = false;
+      const planUntil = Date.now() + 3 * 3_600_000;
+      const inner = r.handler.onTextDelta;
+      r.handler.onTextDelta = (d, full) => {
+        inner(d, full);
+        // The plan window runs out on the server while the host still holds its api-down seed.
+        if (!set) { set = true; setProviderHold({ untilMs: planUntil, window: "five_hour", reason: "spent" }); }
+      };
+      await runDetachedTurn({ ...spec("topic:dt000013", "stalehold"), hold: providerHold() }, r.handler, {});
+      expect(r.events.at(-1)).toBe("done");
+      expect(providerHold()?.window).toBe("five_hour");
+    } finally {
+      clearProviderHold();
+    }
   }, 30_000);
 });

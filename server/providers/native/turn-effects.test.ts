@@ -36,7 +36,7 @@ describe("host side", () => {
     expect(providerHold()?.window).toBe("api-down");
     clearProviderHold();
     off();
-    expect(out.at(-1)).toMatchObject({ e: "hold", hold: null });
+    expect(out.at(-1)).toMatchObject({ e: "hold", hold: null, lifted: { window: "api-down", untilMs: until } });
   });
 });
 
@@ -61,6 +61,25 @@ describe("server side", () => {
     recordPlanUsage({ fiveHour: { utilization: 40, resetsAtMs: until }, sevenDay: null });
     fx.apply({ e: "plan_usage", at: Date.now() - 10_000, u: { fiveHour: { utilization: 99, resetsAtMs: until }, sevenDay: null } });
     expect(planUsage()?.fiveHour?.utilization).toBe(40);
+  });
+
+  test("a lift of the host's stale api-down seed leaves the server's plan hold alone", () => {
+    const fx = applyTurnEffects("topic:fx7", noControl);
+    const until = Date.now() + 3_600_000;
+    setProviderHold({ untilMs: until, window: "five_hour", reason: "spent" }, Date.now() - 1_000);
+    fx.apply({ e: "hold", at: Date.now(), hold: null, lifted: { window: "api-down", untilMs: Date.now() + 60_000 } });
+    expect(providerHold()?.window).toBe("five_hour");
+    fx.apply({ e: "hold", at: Date.now(), hold: null, lifted: { window: "five_hour", untilMs: until } });
+    expect(providerHold()).toBeNull();
+  });
+
+  test("a replayed set followed by its lift ends lifted", () => {
+    const fx = applyTurnEffects("topic:fx8", noControl);
+    const t1 = Date.now() - 20_000;
+    const until = Date.now() + 3_600_000;
+    fx.apply({ e: "hold", at: t1, hold: { untilMs: until, window: "five_hour", reason: "spent" } });
+    fx.apply({ e: "hold", at: t1 + 1_000, hold: null, lifted: { window: "five_hour", untilMs: until } });
+    expect(providerHold()).toBeNull();
   });
 
   test("an answered round lifts the outage hold, not one set after it", () => {
