@@ -1,5 +1,5 @@
 import { test as base, type Page } from "@playwright/test";
-import { openAddMenuPane } from "../helpers/openclaw";
+import { openAddMenuPane } from "../helpers/add-menu";
 
 /**
  * Deterministic mock data for dashboard E2E tests.

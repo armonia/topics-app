@@ -41,7 +41,7 @@ servizio ora è nostro, la parola OpenClaw non deve comparire.
 - `jarvis-channels` e i repo di Jarvis.
 
 ## Elenco chiuso delle eccezioni (barra 3)
-`CHANGELOG.md` · `openspec/changes/archive/**` · `bench/results/**` ·
+`CHANGELOG.md` · `client/public/changelog.json` (generato dalla storia git) · `openspec/changes/archive/**` · `bench/results/**` ·
 `server/db/migrations/**` · `server/lib/data-dir.ts` (la vecchia radice) ·
 `tests/unit/no-openclaw-name.test.ts` · questa change.
 

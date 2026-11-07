@@ -1,6 +1,6 @@
 /**
  * Automations as pure reads: the hub's cards by system with the hidden ones
- * left out, the workflows as read-only rows, the OpenClaw jobs of Topics
+ * left out, the workflows as read-only rows, the Jarvis jobs of Topics
  * merged in (the only rows with commands, the switched-off ones added), the
  * 24-hour strip, the verdict and the feedback rows the hub accepts.
  * Inputs are the services' own shapes, trimmed, with placeholder names.
@@ -9,7 +9,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  cronJobId, dayStrip, feedbackBody, fixingKeys, hasCommands, jobRequest, readAutomations,
+  cronJobId, dayStrip, feedbackBody, fixingKeys, hasCommands, isJarvisJobProvider, jobRequest, readAutomations,
   readCronJobs, refusalOf, scheduleParts, systemCounts, systemOf, systemRows, toDecide, toFixCount,
   verdictOf, withCronJobs, workflowTitle,
 } from './automations';
@@ -29,13 +29,13 @@ function card(key: string, provider: string, level: string, extra: Record<string
 }
 
 const JUDGED = {
-  needsYou: [card('cron:job-week', 'openclaw', 'te', { since: NOW - 3 * 24 * HOUR, title: 'Riepilogo settimanale' })],
+  needsYou: [card('cron:job-week', 'jarvis', 'te', { since: NOW - 3 * 24 * HOUR, title: 'Riepilogo settimanale' })],
   broken: [
-    card('cron:job-docs', 'openclaw', 'rotto', { since: NOW - 70 * MIN, title: 'Indice dei documenti' }),
+    card('cron:job-docs', 'jarvis', 'rotto', { since: NOW - 70 * MIN, title: 'Indice dei documenti' }),
     card('launchd:com.example.backup', 'launchd', 'rotto', { since: NOW - 18 * HOUR, title: 'Backup del Mac' }),
   ],
   groups: [
-    { id: 'avvisi', cards: [card('cron:job-mail', 'openclaw', 'va', { title: 'Avviso mail importanti', next: NOW + 5 * MIN })] },
+    { id: 'avvisi', cards: [card('cron:job-mail', 'jarvis', 'va', { title: 'Avviso mail importanti', next: NOW + 5 * MIN })] },
     { id: 'macchine', cards: [
       card('launchd:com.example.memlog', 'launchd', 'va', { next: NOW + 2 * MIN, title: 'Memoria del Mac' }),
       card('launchd:com.example.off', 'launchd', 'nascosto'),
@@ -49,7 +49,7 @@ const JUDGED = {
 // The hub's `cards` is an index of everything, the computer's own apps and the
 // tasks included; only the judged lists above make rows.
 const OWN = card('launchd:com.example.darkroom', 'launchd', 'rotto', { own: true, purpose: { area: 'computer-app' } });
-const TASK = card('cron:task-quote', 'openclaw', 'te', { kind: 'compito', title: 'Chiedere il preventivo a studio-x' });
+const TASK = card('cron:task-quote', 'jarvis', 'te', { kind: 'compito', title: 'Chiedere il preventivo a studio-x' });
 
 const MODEL = {
   checkedAt: NOW - MIN,
@@ -97,8 +97,12 @@ describe('readAutomations: the hub model as rows by system', () => {
     expect(readAutomations(null)).toBeNull();
   });
 
-  test('systems: OpenClaw and its health findings are Jarvis, launchd and the desktop app are Mac', () => {
-    expect(systemOf('openclaw')).toBe('jarvis');
+  test('systems: the Jarvis jobs and their health findings are Jarvis, launchd and the desktop app are Mac', () => {
+    expect(systemOf('jarvis')).toBe('jarvis');
+    // l'hub manda ancora il vecchio nome della sorgente: letto uguale
+    expect(systemOf('jarvis')).toBe('jarvis');
+    expect(isJarvisJobProvider('jarvis')).toBe(true);
+    expect(isJarvisJobProvider('launchd')).toBe(false);
     expect(systemOf('health')).toBe('jarvis');
     expect(systemOf('launchd')).toBe('mac');
     expect(systemOf('desktop')).toBe('mac');
@@ -109,7 +113,7 @@ describe('readAutomations: the hub model as rows by system', () => {
   });
 });
 
-describe('commands only on the OpenClaw jobs', () => {
+describe('commands only on the Jarvis jobs', () => {
   const rows = readAutomations(MODEL)!.rows;
   const jobs = readCronJobs({ jobs: [
     { id: 'job-docs', name: 'Indice dei documenti', enabled: true, schedule: { kind: 'every', everyMs: HOUR } },
@@ -117,7 +121,7 @@ describe('commands only on the OpenClaw jobs', () => {
     { id: 'job-old', name: 'Vecchio riepilogo dei costi', enabled: false, schedule: { kind: 'cron', expr: '0 8 * * 1' } },
   ] });
 
-  test('a job id only on an OpenClaw key', () => {
+  test('a job id only on a Jarvis key', () => {
     expect(cronJobId('cron:job-docs')).toBe('job-docs');
     expect(cronJobId('launchd:com.example.backup')).toBeNull();
     expect(rows.find((r) => r.key === 'health:docs')!.jobId).toBeNull();
@@ -239,7 +243,7 @@ describe('votes, notes and silences: the rows the hub feedback log accepts (HUBB
   });
 
   test('the vote and the notes read back from the model', () => {
-    const voted = card('cron:job-docs', 'openclaw', 'rotto', {
+    const voted = card('cron:job-docs', 'jarvis', 'rotto', {
       feedback: { vote: { v: 'ok', at: '2026-10-21T10:00:00Z', fp: 'fp1' }, mute: { until: null, why: 'rumore' }, notes: [{ at: '2026-10-21T10:00:00Z', note: 'serve', kind: 'note' }, { at: null, note: '', kind: 'note' }] },
     });
     const m = readAutomations({ cards: { [voted.key]: voted }, broken: [voted] })!;

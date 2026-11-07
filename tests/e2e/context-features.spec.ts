@@ -137,7 +137,7 @@ test.describe("agents' context and feature map", () => {
     const harness = level.getByTestId("context-harness");
     await expect(harness).toHaveCount(4, { timeout: 20_000 });
     await expect(harness.filter({ hasText: "Claude Code" })).toContainText("+4,9 k tok nelle sessioni aperte nella home");
-    await expect(harness.filter({ hasText: "OpenClaw" })).toContainText("11 k tok");
+    await expect(harness.filter({ hasText: "Jarvis" })).toContainText("11 k tok");
     await expect(level.getByTestId("context-weights")).not.toContainText("claude-cli");
     await expect(level).not.toContainText("~/");
     // The caveat of every number: an estimate, read only.
@@ -150,7 +150,7 @@ test.describe("agents' context and feature map", () => {
     // Who loads a file keeps the hub's qualifier: the memory index is read only in the home sessions.
     const memory = level.getByTestId("context-file").filter({ hasText: "Indice della memoria" });
     await expect(memory.getByTestId("context-file-loader")).toHaveText(["Claude Code (sessioni nate in ~)"]);
-    await expect(level.getByTestId("context-file").filter({ hasText: "CLAUDE.md globale" }).getByTestId("context-file-loader")).toHaveText(["Claude Code", "OpenClaw (via claude-cli)"]);
+    await expect(level.getByTestId("context-file").filter({ hasText: "CLAUDE.md globale" }).getByTestId("context-file-loader")).toHaveText(["Claude Code", "Jarvis (via claude-cli)"]);
     // When each file last changed: three months is amber.
     const style = level.getByTestId("context-file").filter({ hasText: "Stile di output" }).getByTestId("context-file-age");
     await expect(style).toHaveText("90 g fa");
@@ -195,7 +195,7 @@ test.describe("agents' context and feature map", () => {
     await expect(found).toContainText("Una chiede i commenti in italiano, l'altra in inglese.");
     await expect(found).toContainText("CLAUDE.md globale");
     // A file the hub does not list is named by whose it is, not by a bare file name.
-    await expect(found).toContainText("Regole di OpenClaw studio-x");
+    await expect(found).toContainText("Regole di jcode studio-x");
     await expect(found).not.toContainText("AGENTS.md");
     // A long rule is one line until tapped, then reads whole: no tooltip needed.
     const rule = found.getByTestId("context-rule-text").first();
@@ -269,7 +269,7 @@ test.describe("agents' context and feature map", () => {
     await expect(pane).not.toContainText("Native WhatsApp bridge");
     // News are the upstream changelogs quoted as written, with who wrote them.
     await expect(first.getByTestId("features-news-hint")).toHaveText("dai changelog, nella lingua originale");
-    await expect(first.getByTestId("features-news-source").first()).toHaveText("OpenClaw");
+    await expect(first.getByTestId("features-news-source").first()).toHaveText("Aider");
     // Open, and still not in the sidebar: the tab bar holds it.
     await expect(page.getByTestId("pane-tab-__features__")).toHaveCount(1);
     await expect(sidebar).not.toContainText("Funzionalità");
@@ -372,7 +372,7 @@ test.describe("agents' context and feature map", () => {
     await expect(leaves).toHaveCount(172);
     const channels = pane.locator('[data-area="channels"]');
     await expect(channels.getByTestId("features-area-behind")).toHaveText("7 indietro");
-    await expect(channels.getByTestId("features-area-hint")).toHaveText("Jarvis 62%, 5° di 16 · davanti OpenClaw 74%");
+    await expect(channels.getByTestId("features-area-hint")).toHaveText("Jarvis 62%, 5° di 16 · davanti Aider 74%");
     await expect(channels.getByTestId("features-group")).toHaveCount(3);
     await expect(channels.locator('[data-group="ch.chat"]')).toContainText("Piattaforme di chat");
     await expect(channels.locator('[data-group="ch.chat"] [data-testid="features-group-ours"]')).toHaveText("Jarvis 17%");

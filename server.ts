@@ -2,7 +2,6 @@ import { configureApiCredentialRoot, readApiProviderKey } from "./server/service
 import { createLandingQueue } from "./server/services/landing-queue";
 import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanedRunningTools } from "./server/lib/boot-orphan-tools";
-import { holdGatewayToken, readOpenClawGatewayToken } from "./server/lib/openclaw-gateway-token";
 import { loadOwedAnswers } from "./server/lib/owed-answers";
 import { announceTurnEnded } from "./server/lib/turn-ended";
 import type { AnswerRelay } from "./server/lib/answer-relay";
@@ -101,7 +100,6 @@ import { initUsageStore, rebuildSummary } from "./server/usage/store";
 import { configureSideCallLedger } from "./server/usage/side-calls";
 import { createCheckpointsRouter } from "./server/routes/checkpoints";
 import { createGoalsRouter } from "./server/routes/goals";
-import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createTaskService, projectIdForPath } from "./server/services/tasks";
 import { createScheduledCards } from "./server/services/scheduled-cards";
@@ -181,8 +179,7 @@ import { createLicenseRouter } from "./server/routes/license";
 import { createBillingRouter, isBillingWebhookPath } from "./server/routes/billing";
 import { createAccountRouter } from "./server/routes/account";
 import { createPeopleRouter } from "./server/routes/people";
-import { getGatewayWS } from "./server/gateway-ws";
-import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep, sessionHasPendingSend } from "./server/providers";
+import { initProvider, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep, sessionHasPendingSend } from "./server/providers";
 import { sessionAttentionBackground, sessionHasBackgroundWork, sessionsWithBackgroundWork, stallBackgroundHold } from "./server/providers/background-probes";
 import { aiBridgeEnabled, ClaudeCodeProvider } from "./server/providers/claude-code";
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
@@ -401,25 +398,9 @@ try {
   throw err;
 }
 
-// Gateway token: .env takes priority, falls back to reading from ~/.openclaw/openclaw.json
-// (a plain string, or an exec SecretRef resolved through OpenClaw's provider).
-// Either way it leaves process.env: every child spawned with `...process.env`
-// would inherit it (see `holdGatewayToken`).
-{
-  const fromEnv = process.env.GATEWAY_TOKEN;
-  const fromOpenClaw = fromEnv ? null : readOpenClawGatewayToken();
-  if (fromOpenClaw) console.log("[Startup] GATEWAY_TOKEN loaded from ~/.openclaw/openclaw.json");
-  holdGatewayToken(fromEnv || fromOpenClaw, { fromEnv: !!fromEnv });
-  if (!fromEnv && !fromOpenClaw) {
-    // The OpenClaw gateway is an OPTIONAL integration (the "openclaw" relay
-    // provider). A standalone download has no OpenClaw config,
-    // so a missing token must NOT be fatal: the app defaults to the Claude
-    // provider and runs fine without the gateway. This previously process.exit(1)'d,
-    // which crashed the bundled server before it could listen — the packaged app
-    // then hung forever on "Launching the local engine" on every clean machine.
-    console.warn("[Startup] GATEWAY_TOKEN not set — the OpenClaw gateway relay is disabled; continuing without it.");
-  }
-}
+// Il vecchio token del gateway non serve più a niente: se un launchd o una
+// shell lo esporta ancora, esce da process.env prima che un figlio lo erediti.
+delete process.env.GATEWAY_TOKEN;
 
 // The process registry of the previous life: re-adopt what still runs, close
 // what ended while the server was down. It used to load at import, which ran
@@ -449,8 +430,8 @@ setUploadRootsProvider(() =>
     mediaDirs: [
       join(homedir(), ".topics/media"),
       join(homedir(), ".topics/workspace"),
-      join(ctx.OPENCLAW_DIR, "media"),
-      join(ctx.OPENCLAW_DIR, "workspace"),
+      join(ctx.APP_DATA_DIR, "media"),
+      join(ctx.APP_DATA_DIR, "workspace"),
     ],
     uploadsDir: ctx.UPLOADS_DIR,
     projectPaths: ctx.projectStore.list().map((p) => p.path).filter(Boolean),
@@ -677,11 +658,9 @@ try {
 //   1. AI_PROVIDER env override (explicit, always wins)
 //   2. claude (Anthropic SDK) if ANTHROPIC_API_KEY → stateless, sub-friendly,
 //      autonomous: history is rebuilt from the local SQLite messages table on
-//      every turn, so it survives `bun --watch` restarts and gateway outages.
+//      every turn, so it survives `bun --watch` restarts.
 //   3. openai if OPENAI_API_KEY
-//   4. openclaw only if GATEWAY_URL is set (explicit opt-in to the gateway —
-//      conversation memory there lives on the gateway and was lost on restart)
-//   5. graceful fallback to "claude" so the picker UI still has a target;
+//   4. graceful fallback to "claude" so the picker UI still has a target;
 //      initProviders() below auto-registers anything else available.
 configureApiCredentialRoot(ctx.STATE_DIR);
 const savedClaudeApiKey = readApiProviderKey("claude", ctx.STATE_DIR);
@@ -690,56 +669,23 @@ const requestedProviderType =
   resolveAiProvider() ||
   (savedClaudeApiKey ? 'claude' :
    savedOpenaiApiKey ? 'openai' :
-   process.env.GATEWAY_URL ? 'openclaw' :
    'claude');
 
 // Registry IDs are not constructor types. ACP agents are discovered by
 // initProviders below; their saved default wins once registered. Boot must
 // remain possible even when an optional runtime is no longer installed.
 const providerType = requestedProviderType === 'topics' ? 'native'
-  : ['openai', 'claude', 'claude-code', 'codex', 'openclaw', 'native'].includes(requestedProviderType)
+  : ['openai', 'claude', 'claude-code', 'codex', 'native'].includes(requestedProviderType)
     ? requestedProviderType : 'claude';
 
 const aiProvider = initProvider({
   type: providerType,
-  ...(providerType === 'openclaw' ? {
-    gatewayUrl: ctx.GATEWAY_URL,
-    token: ctx.GATEWAY_TOKEN,
-    refreshToken: (force?: boolean) => ctx.refreshGatewayToken(force),
-  } : providerType === 'openai' ? {
+  ...(providerType === 'openai' ? {
     apiKey: savedOpenaiApiKey || '',
   } : {
     apiKey: savedClaudeApiKey || '',
   }),
 } as any);
-
-// Wire provider events to broadcast system + recompute default on
-// connectivity changes. Without recompute, openclaw would stay as default
-// after the gateway goes down, and every chat would silently fail until
-// the user manually picked another provider.
-if (aiProvider.onConnect) {
-  aiProvider.onConnect(() => {
-    console.log("[Server] AI provider connected");
-    ctx.broadcastToAll({ type: "gateway:status", connected: true });
-    if (recomputeDefault()) {
-      console.log(`[Server] Default provider re-picked: ${getDefaultProviderName()}`);
-    }
-  });
-}
-if (aiProvider.onDisconnect) {
-  aiProvider.onDisconnect((reason) => {
-    console.log(`[Server] AI provider disconnected: ${reason}`);
-    ctx.broadcastToAll({ type: "gateway:status", connected: false });
-    if (recomputeDefault()) {
-      console.log(`[Server] Default provider re-picked: ${getDefaultProviderName()}`);
-    }
-  });
-}
-
-// Keep ctx.gatewayWS for backward compatibility
-if (aiProvider.name === 'openclaw') {
-  ctx.gatewayWS = getGatewayWS() ?? undefined;
-}
 
 console.log(`[Server] AI provider: ${aiProvider.name} (capabilities: ${[...aiProvider.capabilities].join(', ')})`);
 
@@ -1049,7 +995,6 @@ const mcpRouter = createMcpRouter(ctx);
 const sessionEnvironmentRouter = createSessionEnvironmentRouter(ctx);
 const checkpointsRouter = createCheckpointsRouter(ctx);
 const goalsRouter = createGoalsRouter(ctx);
-const openclawContextRouter = aiProvider.name === 'openclaw' ? createOpenClawContextRouter(ctx) : null;
 // Always-on: serves /api/topics/:id/context-preview and /context-snapshots.
 // Independent of which provider is the default — every provider benefits
 // from the canonical envelope inspector (change `topic-context-canonical`).
@@ -1205,7 +1150,7 @@ ctx.worktreeGcDeps.listOwnedScripts = listOwnedScripts;
 // board gesture. All its host-specific wiring — the in-process turn runtime,
 // worktree creation, project-path resolution — is assembled here and injected,
 // keeping server/services/task-dispatcher.ts host-agnostic and unit-tested.
-const DISPATCH_WORKSPACE_DIR = join(ctx.OPENCLAW_DIR, "workspace");
+const DISPATCH_WORKSPACE_DIR = join(ctx.APP_DATA_DIR, "workspace");
 // The repository a delivery report is checked against: the agent's worktree
 // (a cited file may exist only on the delivery branch), else the repository
 // the topic worked in, else the board's project. Until 2026-09-04 every report
@@ -1254,7 +1199,7 @@ const listKnownDeliveryRepoRoots = (): string[] => {
   return [...roots];
 };
 const dispatcherSvc = createTaskService(ctx.db, {
-  writeDeliverySheet: makeSheetWriter(ctx.OPENCLAW_DIR),
+  writeDeliverySheet: makeSheetWriter(ctx.APP_DATA_DIR),
   repoRootFor: repoRootForCard,
   listRepoRoots: listKnownDeliveryRepoRoots,
   onLateDeliveryNote: (taskId, projectId) => {
@@ -2430,11 +2375,11 @@ const worktreeOfTask = (taskId: string) => {
 // One preview server per task, booted from its branch worktree at review-time.
 // `previewManager` owns the lifecycle; the host wires HOW to start/probe/shoot.
 // La cartella dell'anteprima deve stare DENTRO l'allowlist che poi la serve
-// (`isPathAllowed` → `${OPENCLAW_DIR}/media/`). Scritta con `homedir()` le due
-// coincidevano solo finché `APP_DATA_DIR`/`OPENCLAW_DIR` restavano al default:
+// (`isPathAllowed` → `${APP_DATA_DIR}/media/`). Scritta con `homedir()` le due
+// coincidevano solo finché `APP_DATA_DIR` restava al default:
 // spostata la cartella dati, il file veniva scritto dove nessuno può leggerlo e
 // la card mostrava un'immagine rotta.
-const PREVIEW_MEDIA_DIR = join(ctx.OPENCLAW_DIR, "media", "task-previews");
+const PREVIEW_MEDIA_DIR = join(ctx.APP_DATA_DIR, "media", "task-previews");
 const PREVIEW_SCRIPT_CANDIDATES = ["preview", "dev", "start"];
 const previewBrowser = createPreviewBrowser();
 
@@ -3322,7 +3267,7 @@ const bundleProbe = startBundleProbe({ publicDir: PUBLIC_DIR });
 // the user enables it from Topics (POST /api/master/monitor) — nothing runs
 // "a caso". Default OFF on every server start. See session-monitor.ts.
 
-// Activity LOG (audit trail) — the live OpenClaw-log feed is gone.
+// Activity LOG (audit trail) — the live gateway-log feed is gone.
 const activityRouter = createActivityRouter(ctx);
 
 // External-session census: poll + broadcast so a `claude` started in iTerm
@@ -3629,7 +3574,6 @@ const apiRouteTable = buildRouteTable({
   checkpointsRouter,
   goalsRouter,
   openRouter,
-  openclawContextRouter,
   contextPreviewRouter,
   authRouter,
   accountRouter,
@@ -4194,10 +4138,10 @@ const opzioniServer = {
       return new Response("Not Found", { status: 404 });
     }
 
-    // Serve OpenClaw media files (browser screenshots, etc.)
-    // Handles paths like /media/browser/uuid.jpg → ~/.openclaw/media/browser/uuid.jpg
+    // Serve app media files (browser screenshots, etc.)
+    // Handles paths like /media/browser/uuid.jpg → <APP_DATA_DIR>/media/browser/uuid.jpg
     if (isRead && pathname.startsWith("/media/") && !pathname.includes("..")) {
-      const mediaBase = join(process.env.HOME || "/tmp", ".openclaw", "media");
+      const mediaBase = join(ctx.APP_DATA_DIR, "media");
       const filePath = join(mediaBase, pathname.slice("/media/".length));
       // Security: ensure resolved path stays within media directory (match on a
       // trailing separator so a sibling like `…/media-evil` can't sneak through,

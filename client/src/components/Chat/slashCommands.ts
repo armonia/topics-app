@@ -42,16 +42,12 @@ export interface SlashCommandEntry {
    * Absent = every provider.
    */
   readonly onlyOn?: readonly string[];
-  /** The providers that have their own command under this name: there it travels as typed. */
-  readonly notOn?: readonly string[];
   /** Offered only where this holds for the declared provider (unknown provider = offered). */
   readonly onlyIf?: (provider: string) => boolean;
 }
 
-/** Engines with a compaction to ask for (CMDUI-06): the CLI, the gateway, the native engine. */
-const COMPACTS = ['claude-code', 'claude-code-team', 'openclaw', 'topics'];
-/** OpenClaw's gateway runs its own `/mcp`, `/config`, `/export` and `/usage`. */
-const OPENCLAW = ['openclaw'];
+/** Engines with a compaction to ask for (CMDUI-06): the CLI and the native engine. */
+const COMPACTS = ['claude-code', 'claude-code-team', 'topics'];
 
 export const SLASH_COMMANDS: readonly SlashCommandEntry[] = [
   // `Info` and not a bolt: a state is being read. In this app the bolt means
@@ -62,33 +58,32 @@ export const SLASH_COMMANDS: readonly SlashCommandEntry[] = [
   { cmd: '/resume', descriptionKey: 'chat.slash.resume.description', icon: History, kind: 'topics', takesArgs: true },
   { cmd: '/btw', descriptionKey: 'chat.slash.btw.description', icon: HelpCircle, kind: 'topics', takesArgs: true, onlyOn: ['claude-code', 'claude-code-team'] },
   { cmd: '/model', descriptionKey: 'chat.slash.model.description', icon: Cpu, kind: 'control', opensKey: 'chat.slash.opens.model' },
-  { cmd: '/effort', descriptionKey: 'chat.slash.effort.description', icon: Brain, kind: 'control', opensKey: 'chat.slash.opens.effort', notOn: OPENCLAW },
+  { cmd: '/effort', descriptionKey: 'chat.slash.effort.description', icon: Brain, kind: 'control', opensKey: 'chat.slash.opens.effort' },
   { cmd: '/context', descriptionKey: 'chat.slash.context.description', icon: Gauge, kind: 'control', opensKey: 'chat.slash.opens.context' },
   { cmd: '/permissions', descriptionKey: 'chat.slash.permissions.description', icon: ShieldCheck, kind: 'control', opensKey: 'chat.slash.opens.autonomy' },
   { cmd: '/fast', descriptionKey: 'chat.slash.fast.description', icon: Zap, kind: 'control', opensKey: 'chat.slash.opens.fast', onlyOn: ['claude-code', 'claude-code-team'] },
-  { cmd: '/usage', descriptionKey: 'chat.slash.usage.description', icon: Wallet, kind: 'control', opensKey: 'chat.slash.opens.providers', notOn: OPENCLAW },
-  { cmd: '/mcp', descriptionKey: 'chat.slash.mcp.description', icon: Plug, kind: 'control', opensKey: 'chat.slash.opens.tools', notOn: OPENCLAW },
-  { cmd: '/config', descriptionKey: 'chat.slash.config.description', icon: Settings2, kind: 'control', opensKey: 'chat.slash.opens.userMenu', notOn: OPENCLAW },
+  { cmd: '/usage', descriptionKey: 'chat.slash.usage.description', icon: Wallet, kind: 'control', opensKey: 'chat.slash.opens.providers' },
+  { cmd: '/mcp', descriptionKey: 'chat.slash.mcp.description', icon: Plug, kind: 'control', opensKey: 'chat.slash.opens.tools' },
+  { cmd: '/config', descriptionKey: 'chat.slash.config.description', icon: Settings2, kind: 'control', opensKey: 'chat.slash.opens.userMenu' },
   // Compaction already existed and the app draws its outcome (the «context
   // compacted» dividers), but the only way to start it was a button that
   // appears above the threshold. Here it is permanent, on the engines that
-  // compact on request: the CLI and the gateway run it, the native engine
+  // compact on request: the CLI runs it, the native engine
   // compacts now (`/api/command` `compact`).
   { cmd: '/compact', descriptionKey: 'chat.slash.compact.description', icon: ChevronsDownUp, kind: 'topics', onlyOn: COMPACTS },
   { cmd: '/clear', descriptionKey: 'chat.slash.clear.description', icon: Trash2, kind: 'topics' },
   { cmd: '/goal', descriptionKey: 'chat.slash.goal.description', icon: Target, kind: 'topics', takesArgs: true },
   // Handled in `ChatPane` (the same call as the message's «Fork into a new
   // chat»), and NOT in the server's `CLI_BUILTINS`: the CLI never receives it.
-  // Not where the runtime keeps the conversation outside Topics (openclaw, the
-  // ACP agents): the server refuses the fork there (`shared/chat-fork.ts`).
+  // Not where the runtime keeps the conversation outside Topics (the ACP
+  // agents): the server refuses the fork there (`shared/chat-fork.ts`).
   { cmd: '/fork', descriptionKey: 'chat.slash.fork.description', icon: GitBranch, kind: 'topics', takesArgs: true, onlyIf: (p) => forkModeFor(p) !== null },
   { cmd: '/rewind', descriptionKey: 'chat.slash.rewind.description', icon: RotateCcw, kind: 'topics' },
   { cmd: '/project', descriptionKey: 'chat.slash.project.description', icon: FolderOpen, kind: 'topics' },
   { cmd: '/browser', descriptionKey: 'chat.slash.browser.description', icon: Globe, kind: 'topics', takesArgs: true },
   // The chat of Topics, not the CLI's session (which the CLI's own /rename names).
   { cmd: '/rename', descriptionKey: 'chat.slash.rename.description', icon: PenLine, kind: 'topics', takesArgs: true },
-  { cmd: '/export', descriptionKey: 'chat.slash.export.description', icon: Download, kind: 'topics', notOn: OPENCLAW },
-  { cmd: '/reasoning', descriptionKey: 'chat.slash.reasoning.description', icon: Brain, kind: 'topics', onlyOn: OPENCLAW },
+  { cmd: '/export', descriptionKey: 'chat.slash.export.description', icon: Download, kind: 'topics' },
   { cmd: '/help', descriptionKey: 'chat.slash.help.description', icon: HelpCircle, kind: 'topics' },
 ];
 
@@ -100,6 +95,5 @@ export const SLASH_COMMANDS: readonly SlashCommandEntry[] = [
 export function offeredSlashCommands(provider: string | null | undefined): readonly SlashCommandEntry[] {
   return SLASH_COMMANDS.filter((c) =>
     (!c.onlyOn || (!!provider && c.onlyOn.includes(provider)))
-    && (!c.notOn || !provider || !c.notOn.includes(provider))
     && (!c.onlyIf || !provider || c.onlyIf(provider)));
 }

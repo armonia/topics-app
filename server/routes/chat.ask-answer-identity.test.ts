@@ -65,7 +65,7 @@ function makeHarness(row: Row) {
 
   const ctx = {
     // No handler on this path reads it; the router dereferences it on mount.
-    OPENCLAW_DIR: tmpdir(),
+    APP_DATA_DIR: tmpdir(),
     db: {
       // The session's recent rows, as the answer route reads them to find the
       // row that carries the panel it writes on.

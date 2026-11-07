@@ -44,8 +44,8 @@ function hasIpv6Loopback(): boolean {
 
 // Test server runs WITHOUT TLS for simplicity (NO_TLS=1)
 // Port 13334 is the default per il checkout principale, chosen to avoid
-// conflicts with production services (port 3334 is used by the openclaw-gateway
-// voice-call webhook). Ogni shard ne usa una diversa via E2E_PORT, e un worktree
+// conflicts with production services (port 3334 was taken by a voice-call
+// webhook). Ogni shard ne usa una diversa via E2E_PORT, e un worktree
 // di dispatch ne riceve una derivata dal path (helpers/worktree-port.ts).
 const BASE = E2E_BASE;
 const TEST_SERVER_PORT = E2E_PORT;
@@ -295,7 +295,7 @@ async function startTestServer(): Promise<void> {
     detached: !IS_WINDOWS,
     env: {
       ...process.env,
-      // Porta, DATA_DIR, TOPICS_HOME, OPENCLAW_DIR e i socket del PTY-bridge /
+      // Porta, DATA_DIR, TOPICS_HOME, APP_DATA_DIR e i socket del PTY-bridge /
       // ai-bridge: tutto da testServerEnv(), l'unica lista. Prima era ricopiata
       // qui, dentro start-test-server.sh e dentro lo spec che riavvia il server
       // — tre copie già divergenti fra loro.
@@ -467,15 +467,15 @@ async function globalSetup() {
   // hardcode the path.
   if (!process.env.DATA_DIR) process.env.DATA_DIR = TEST_DATA_DIR;
 
-  // Same rationale, for OPENCLAW_DIR (see startTestServer() below) — specs
+  // Same rationale, for APP_DATA_DIR (see startTestServer() below) — specs
   // that resolve project-workspace paths (e.g. project-commands.spec.ts's
   // WORKSPACE_DIR) need to agree with the isolated server on where
-  // `${OPENCLAW_DIR}/workspace` lives. NOT done for HOME itself: HOME is
+  // `${APP_DATA_DIR}/workspace` lives. NOT done for HOME itself: HOME is
   // isolated for the spawned server process only (start-test-server.sh) —
   // mutating it here, in the runner process, would also change what
   // Playwright's own os.homedir()-based Chromium cache lookup resolves to
   // for every worker, breaking browser launch for the whole suite.
-  if (!process.env.OPENCLAW_DIR) process.env.OPENCLAW_DIR = `${TEST_DATA_DIR}/.openclaw`;
+  if (!process.env.APP_DATA_DIR) process.env.APP_DATA_DIR = `${TEST_DATA_DIR}/.app-data`;
 
   // Kill the stale TEST servers on the test port before starting; anything
   // else holding it stops the run with its name (helpers/port-guard.ts).

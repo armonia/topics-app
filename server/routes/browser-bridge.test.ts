@@ -31,7 +31,8 @@ import type { PortOwnerDeps } from "../lib/port-project-owner";
 import { nativeDelegateRegistry } from "../browser-native-delegate";
 import { warnBridgeServerError } from "../lib/browser-bridge-warn";
 
-const TOKEN = "gateway-token-di-prova";
+// Il token del demone: è l'unica credenziale che le rotte accettano.
+const TOKEN = "c".repeat(64);
 
 function makeTopic(id: string, over: Partial<Topic> = {}): Topic {
   return {
@@ -245,7 +246,7 @@ function harness(opts: HarnessOpts = {}) {
     browserHostTopicOf: (topic) => opts.hostOf?.[topic.id],
   }, opts.noService ? undefined : service);
 
-  const post = async (path: string, body?: unknown, headers: Record<string, string> = { "x-gateway-token": TOKEN }) => {
+  const post = async (path: string, body?: unknown, headers: Record<string, string> = { "x-daemon-token": TOKEN }) => {
     const url = new URL(`http://topics.test${path}`);
     const req = new Request(url, {
       method: "POST",
@@ -265,11 +266,18 @@ function harness(opts: HarnessOpts = {}) {
   };
 }
 
-let savedToken: string | undefined;
-beforeEach(() => { savedToken = process.env.GATEWAY_TOKEN; process.env.GATEWAY_TOKEN = TOKEN; });
+let savedTopicsHome: string | undefined;
+let tokenHome: string;
+beforeEach(() => {
+  savedTopicsHome = process.env.TOPICS_HOME;
+  tokenHome = mkdtempSync(join(tmpdir(), "browser-bridge-token-"));
+  writeFileSync(join(tokenHome, "daemon-state.json"), JSON.stringify({ pid: 1, port: 1, token: TOKEN, startedAt: "x" }));
+  process.env.TOPICS_HOME = tokenHome;
+});
 afterEach(() => {
-  if (savedToken === undefined) delete process.env.GATEWAY_TOKEN;
-  else process.env.GATEWAY_TOKEN = savedToken;
+  if (savedTopicsHome === undefined) delete process.env.TOPICS_HOME;
+  else process.env.TOPICS_HOME = savedTopicsHome;
+  rmSync(tokenHome, { recursive: true, force: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -686,7 +694,7 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
     expect(h.broadcasts).toEqual([]);
   });
 
-  test("aprire e chiudere un pannello NON chiedono il token del gateway", async () => {
+  test("aprire e chiudere un pannello NON chiedono il token", async () => {
     const h = harness();
     h.addTopic("t1");
 
@@ -991,16 +999,18 @@ describe("cancello del token — le quattro rotte che leggono o espongono roba a
     h.addTopic("t1");
     for (const path of sensibili) {
       expect((await h.post(path, {}, {}))!.status).toBe(401);
-      expect((await h.post(path, {}, { "x-gateway-token": "sbagliato" }))!.status).toBe(401);
+      expect((await h.post(path, {}, { "x-daemon-token": "e".repeat(64) }))!.status).toBe(401);
+      // Il vecchio header del gateway non apre più niente, nemmeno col valore giusto.
+      expect((await h.post(path, {}, { "x-gateway-token": TOKEN }))!.status).toBe(401);
     }
   });
 
-  test("server SENZA GATEWAY_TOKEN configurato ⇒ 401 comunque, non un cancello aperto", async () => {
-    delete process.env.GATEWAY_TOKEN;
+  test("server SENZA token del demone ⇒ 401 comunque, non un cancello aperto", async () => {
+    rmSync(join(tokenHome, "daemon-state.json"));
     const h = harness();
     h.addTopic("t1");
     for (const path of sensibili) {
-      expect((await h.post(path, {}, { "x-gateway-token": "" }))!.status).toBe(401);
+      expect((await h.post(path, {}, { "x-daemon-token": "" }))!.status).toBe(401);
     }
   });
 
@@ -1012,15 +1022,14 @@ describe("cancello del token — le quattro rotte che leggono o espongono roba a
     }
   });
 
-  // The MCP bridge sends the daemon token, never the gateway one: a server
-  // with no OpenClaw at all (no GATEWAY_TOKEN) must still open these routes.
-  test("daemon token from TOPICS_HOME opens the gate with no GATEWAY_TOKEN; a wrong one does not", async () => {
+  // The MCP bridge sends the daemon token: it is re-read from TOPICS_HOME on
+  // every call.
+  test("daemon token from TOPICS_HOME opens the gate; a wrong one does not", async () => {
     const home = mkdtempSync(join(tmpdir(), "browser-bridge-daemon-"));
     const savedHome = process.env.TOPICS_HOME;
     const daemon = "d".repeat(64);
     writeFileSync(join(home, "daemon-state.json"), JSON.stringify({ pid: 1, port: 1, token: daemon, startedAt: "x" }));
     process.env.TOPICS_HOME = home;
-    delete process.env.GATEWAY_TOKEN;
     try {
       const h = harness({ noService: true });
       h.addTopic("t1");
@@ -1160,7 +1169,7 @@ describe("save_state — l'handle finisce sulla tab del task", () => {
 
   beforeEach(() => {
     // Lo store degli stati è un vero file su disco: lo dirotto in un tmp, così
-    // il test non tocca `~/.openclaw` né lo store dell'utente.
+    // il test non tocca la cartella dati vera né lo store dell'utente.
     savedDataDir = process.env.DATA_DIR;
     tmpDir = mkdtempSync(join(tmpdir(), "bridge-state-"));
     process.env.DATA_DIR = tmpDir;
@@ -1293,6 +1302,8 @@ describe("own-topic page op with no pane — the mini browser opens first", () =
   beforeEach(() => { // screenshots land on disk: keep them out of ~/.topics
     savedHome = process.env.TOPICS_HOME;
     shotHome = mkdtempSync(join(tmpdir(), "bridge-shots-"));
+    // La stessa casa porta anche il token del demone, o le rotte rispondono 401.
+    writeFileSync(join(shotHome, "daemon-state.json"), JSON.stringify({ pid: 1, port: 1, token: TOKEN, startedAt: "x" }));
     process.env.TOPICS_HOME = shotHome;
   });
   afterEach(() => {

@@ -136,7 +136,7 @@ export function buildKickoffReplica(task: ReplicaTask): string {
         `create_task(text=<step>, parent_task_id="${task.id}") for each — and mark EVERY step done as soon as you complete it: update_task(task_id=<step id>, status="done") (allowed on YOUR steps). They are your checklist on the board: the human watches the progress live.`,
       "- Before you hand off to review ALL your steps must be done (a task with open subtasks cannot be approved). Future work outside this scope → a top-level task with NO parent (it stays in backlog for the human).",
       "- Every step has its OWN thread: notes that belong to it → comment_task(task_id=<step id>, ...). If the human answers on a step's thread while you are in review, you restart with that context.",
-      "- Attachments (comment_task media[]): the server accepts ONLY files under ~/.topics/media/ (or ~/.openclaw/media/) or the workspace — copy the file there (a PDF/screenshot/clip to show) BEFORE attaching it, or the comment is rejected.",
+      "- Attachments (comment_task media[]): the server accepts ONLY files under ~/.topics/media/ or the workspace — copy the file there (a PDF/screenshot/clip to show) BEFORE attaching it, or the comment is rejected.",
       "- SELF-CONTAINED DELIVERY: the reviewer decides by looking ONLY at the task — everything the decision needs goes in the thread: full texts (a draft email is PASTED into the comment, not described), previews as attachments, pages/reports as output_url. If you ask 'do you confirm X?' the human has to be able to see X.",
       // Importata, non ricopiata: il braccio misura il COSTO dell'envelope
       // vero, e una copia stantia qui falsa i token senza che si veda.

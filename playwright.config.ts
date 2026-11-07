@@ -99,10 +99,6 @@ const NIGHTLY_ONLY_SPECS = [
   // ugualmente: il filtro grepInvert salta i test, non i file, quindi il
   // beforeAll (che chiama /api/stt/capabilities) gira comunque.
   "dictation-real-mic",
-  // Restarts the test server pointing at a fake gateway in its beforeAll, and
-  // again without it in its afterAll: on the PR gate the two restarts would be
-  // paid by the specs around it, and the tag alone would still run the hooks.
-  "chat-sse-own-row",
   // Seeds 2,000 messages and 1,203 cards one request at a time in its
   // beforeAll: the tag alone would still pay that seeding on the PR gate.
   "dom-node-budget",
@@ -626,7 +622,7 @@ export default defineConfig({
         "**/account-quotas.spec.ts",
         // Agents and jobs: the hub's queue and workflows beside the sessions of Topics, same reason as the bell.
         "**/agents-jobs.spec.ts",
-        // Automazioni: the hub's model with the OpenClaw commands, same reason as the bell.
+        // Automazioni: the hub's model with the Jarvis job commands, same reason as the bell.
         "**/automations.spec.ts",
         // The agents' context and the feature map, same reason as the bell.
         "**/context-features.spec.ts",
@@ -789,9 +785,6 @@ export default defineConfig({
         // A resend the chat route refused: its traced row reaches both windows,
         // one of them hidden at write time, with no reload.
         "**/ripresa-resend-refused-live.spec.ts",
-        // A turn over the HTTP fallback keeps its answer on its own bubble, in
-        // two windows, live and after a reload.
-        "**/chat-sse-own-row.spec.ts",
         // «Fork into a new chat» and `/fork`: the new tab with the copied
         // history and its «Forked from» line, filmed on the engine that ships.
         "**/chat-fork-new-chat.spec.ts",

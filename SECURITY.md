@@ -19,7 +19,7 @@ Topics is a **local-first** application that runs a server on your own machine. 
 
 - **Out of scope: what an *authorized* device can do.** An approved device has the owner's powers by design — it can read and write files, drive terminals, and run commands. Approve only devices you control, and revoke the ones you no longer use.
 - **Out of scope: `TOPICS_AUTH_OFF=1`.** It disables the checks on purpose, as a recovery hatch.
-- Issues in third-party services Topics connects to (OpenClaw, Anthropic, ElevenLabs, Moondream) should be reported to those providers.
+- Issues in third-party services Topics connects to (Anthropic, OpenAI, ElevenLabs, Moondream) should be reported to those providers.
 
 **In scope: anything that lets an unauthorized device in** — a way to reach a gated path (`/api`, `/ws`, `/preview`, `/media`, `/uploads`) from another machine without an approved session, to obtain a session without the owner approving it, or to keep using one after it was revoked.
 

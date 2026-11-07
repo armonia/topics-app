@@ -97,14 +97,7 @@ export const ADD_MENU_MNEMONICS: Record<AddMenuItemId, string> = {
 
 /** Le righe che possono comparire insieme, per scope. Il test di unicità gira
  *  su questi insiemi, non sull'unione: `kanban` e `board` condividono la D
- *  proprio perché non si incontrano mai.
- *
- *  `cron` è elencata qui benché l'installazione possa non offrirla (richiede
- *  OpenClaw, vedi `PaneConfig.requires`): l'insieme dichiara le righe POSSIBILI
- *  in uno scope, ed è esattamente sul possibile che l'unicità va garantita —
- *  una lettera che collide solo dove OpenClaw è configurato sarebbe un bug che
- *  metà delle installazioni non vede mai. Stessa ragione per cui la mappa non
- *  si calcola sul visibile (invariante 1 in testa al file). */
+ *  proprio perché non si incontrano mai. */
 export const ADD_MENU_ROWS_BY_SCOPE: Record<'project' | 'standalone', readonly AddMenuItemId[]> = {
   project: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'kimi-code', 'muse', 'browser', 'git', 'files', 'kanban'],
   standalone: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'kimi-code', 'muse', 'browser', 'board', 'dashboard', 'profile', 'open-project'],

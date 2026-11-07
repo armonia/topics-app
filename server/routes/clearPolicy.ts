@@ -11,7 +11,7 @@
  *   • **a respawn** (claude-code): la memoria sta nel file di sessione della
  *     CLI, che il turno dopo viene ricaricato con `--resume <id>`. Va tagliato
  *     il legame con quell'id → `resetSession`.
- *   • **in banda** (openclaw): la conversazione vive nel gateway e accetta i
+ *   • **in banda** (un provider con la sessione viva lato server): accetta i
  *     comandi dentro la sessione stessa → si manda `/clear` con
  *     `sendToSession`.
  *

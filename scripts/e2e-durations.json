@@ -202,7 +202,6 @@
   "chat-slash-controls.spec.ts": 6.2,
   "chat-slash-local-answers.spec.ts": 23.5,
   "chat-slash-menu.spec.ts": 8.7,
-  "chat-sse-own-row.spec.ts": 5.5,
   "chat-stall-does-not-drop-the-ghost.spec.ts": 7.6,
   "chat-streaming-indicator.spec.ts": 33.7,
   "chat-strips-in-transcript.spec.ts": 74.3,

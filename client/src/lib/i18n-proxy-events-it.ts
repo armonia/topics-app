@@ -29,8 +29,6 @@ const PROXY_EVENTS_IT: Dict = {
   'proxy.event.badRequest': '{account}: richiesta rifiutata come non valida',
   'proxy.event.inARow': '{n} di fila',
   'proxy.event.mcpSchema': '{account} rifiuta lo schema di uno strumento MCP',
-  'proxy.event.openclawRetry': 'Richiesta di OpenClaw riprovata da {from} su {to}',
-  'proxy.event.openclawExtra': '{account}: non è chiaro se OpenClaw stia usando crediti extra',
   'proxy.event.upstreamRetry': 'Nuovo tentativo su {account}',
   'proxy.event.afterError': "dopo l'errore {code}",
   'proxy.event.inbandRetry': 'Nuovo tentativo su {account} dopo un errore a metà risposta',

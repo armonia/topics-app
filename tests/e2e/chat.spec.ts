@@ -81,68 +81,6 @@ test.describe.serial("Chat", () => {
     await expect(page.locator('[role="main"]')).toBeVisible();
   });
 
-  test("aborts streaming via stop button", async ({ page, chatPage, request }) => {
-    test.info().annotations.push({ type: "spec", description: "CHAT-01" });
-    test.slow(); // Real streaming needs extra time
-
-    // Skip if the AI gateway isn't reachable — this test requires real streaming
-    // (the server's sendChat calls ${GATEWAY_URL}/v1/chat/completions server-side,
-    // which Playwright page.route cannot intercept). In CI without gateway, skip.
-    const gatewayUrl = process.env.GATEWAY_URL || "http://127.0.0.1:18789";
-    // Probe the endpoint this test NEEDS, not just liveness. `/healthz` answers
-    // `{"ok":true}` on a gateway that serves only its web UI and has no
-    // OpenAI-compatible route at all, so the old guard let the test through and
-    // it then died 15s later on a streaming indicator that never came — a red
-    // that named the UI and meant "the gateway has no completions endpoint".
-    //
-    // An EMPTY body on purpose: a live route rejects it (400/401/422) without
-    // spending a completion, while a missing route is a 404. So 404 alone means
-    // "not available here", and every other answer means the route is there and
-    // this test must really run.
-    const completions = await request
-      .post(`${gatewayUrl}/v1/chat/completions`, {
-        data: {},
-        timeout: 4000,
-        ignoreHTTPSErrors: true,
-        failOnStatusCode: false,
-      })
-      .then((r) => r.status())
-      .catch(() => 0);
-    test.skip(
-      completions === 0 || completions === 404,
-      `AI gateway at ${gatewayUrl} serves no /v1/chat/completions (${completions || "unreachable"}) — cannot verify real streaming abort`,
-    );
-
-    await goToApp(page);
-    await openTestChat(page);
-
-    // Send a prompt that triggers a long streaming response (real server)
-    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
-    await textarea.click();
-    await textarea.fill(
-      "Write a very long paragraph of 500 words about the history of computing"
-    );
-    await textarea.press("Enter");
-
-    // Wait for streaming indicator to appear (real server streaming)
-    await expect(chatPage.streamingIndicator).toBeVisible({ timeout: 15_000 });
-
-    // Click the composer's stop button to abort. Since 2026-09-07 the loader is
-    // a sign and not a button: the tab and sidebar rails carry their own named
-    // stop (`pane-tab-stop`), the composer keeps its stop button.
-    const stopBtn = page
-      .getByRole("button", { name: /Ferma la risposta/ })
-      .first();
-    await expect(stopBtn).toBeVisible({ timeout: 5_000 });
-    await stopBtn.click();
-
-    // Streaming indicator should disappear after abort
-    await expect(chatPage.streamingIndicator).toBeHidden({ timeout: 10_000 });
-
-    // The main content area should have some text (partial response was kept)
-    await expect(page.locator('[role="main"]')).not.toBeEmpty();
-  });
-
   test("scroll-to-bottom button works", async ({ page, chatPage, request }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-03" });
     // The shared "Web Search Test" seed is too short to overflow the redesigned

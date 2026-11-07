@@ -2,7 +2,7 @@
  * THE AGENTS' CONTEXT, read from the usage hub (`/api/contesto`, HUBBR-17).
  *
  * What every agent reads before the first word: the weight per harness (Claude
- * Code, Codex, jcode, OpenClaw), the files that make it, the sources read on
+ * Code, Codex, jcode), the files that make it, the sources read on
  * demand, the duplicated lines, the rules with an old date, and the hub's last
  * check for rules that contradict each other. Pure functions over the hub's
  * JSON (~/.claude/jarvis/tools/usage-hub/src/context.mjs): defensive, a field
@@ -71,7 +71,7 @@ export interface ContextView {
   claudeCode: number | null;
   /** Read at start by at least one harness. */
   files: ContextFile[];
-  /** Read on demand: the sub-agents' prompts, the projects' CLAUDE.md, OpenClaw's memory and prompts. */
+  /** Read on demand: the sub-agents' prompts, the projects' CLAUDE.md, the other agents' memory and prompts. */
   onDemand: ContextFile[];
   /** The skills' listing; `items` heaviest first, the ones worth trimming. */
   skills: { count: number; tokens: number; items: Array<{ name: string; tokens: number }> } | null;
@@ -107,7 +107,7 @@ export function doctorVerdict(raw: unknown): DoctorVerdict | null {
 }
 
 /** The hub's loader groups, in its order; any other group follows in the order it first appears. */
-const GROUP_ORDER = ['Claude Code', 'Codex e jcode', 'OpenClaw'];
+const GROUP_ORDER = ['Claude Code', 'Codex e jcode'];
 
 export interface FileGroup {
   name: string;
@@ -140,7 +140,7 @@ function splitLoader(name: string): { base: string; note: string | null } {
 /**
  * One row per harness, heaviest first. A loader that only qualifies another
  * (Claude Code for the home sessions) is that harness's extra, not a fifth
- * harness; one that qualifies nothing else («OpenClaw (via claude-cli)») is
+ * harness; one that qualifies nothing else («Muse (via claude-cli)») is
  * the harness of its base name.
  */
 export function harnessWeights(byLoader: unknown): HarnessWeight[] {
@@ -196,12 +196,12 @@ export interface UnlistedRef {
   name: string;
 }
 
-const OWNERS: Record<string, string> = { '.claude': 'Claude Code', '.openclaw': 'OpenClaw', '.jcode': 'jcode', '.codex': 'Codex', '.agents': 'Agents' };
+const OWNERS: Record<string, string> = { '.claude': 'Claude Code', '.jcode': 'jcode', '.codex': 'Codex', '.agents': 'Agents' };
 const KINDS: Record<string, UnlistedRef['kind']> = { AGENTS: 'rules', CLAUDE: 'rules', USER: 'profile', MEMORY: 'memory' };
 
 /**
  * The hub names a contradiction's files by path, and its lists do not hold
- * every file an agent may cite (OpenClaw's workspaces): those are told apart by
+ * every file an agent may cite (an agent's workspaces): those are told apart by
  * whose they are, not shown as a bare file name that two files can share.
  */
 export function unlistedRef(ref: string): UnlistedRef {

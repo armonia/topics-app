@@ -76,7 +76,7 @@ function harness(opts?: { withMessageRow?: boolean }): Harness {
   const ctx = {
     // `createTopicsRouter` compone `WORKSPACE_DIR` da qui al montaggio: deve
     // esistere come stringa anche se questa prova non tocca il filesystem.
-    OPENCLAW_DIR: testTmpDir("abort-turnend"),
+    APP_DATA_DIR: testTmpDir("abort-turnend"),
     activeStreams,
     json: (data: unknown, status = 200) =>
       new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } }),

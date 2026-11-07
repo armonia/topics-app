@@ -20,11 +20,6 @@ import type { AIProvider, ProviderContextStrategy } from "../providers/types";
  *   1. Explicit `provider.contextStrategy` declaration (preferred).
  *   2. Fallback: `capabilities.has("history")` → `"history-aware"`,
  *      otherwise → `"inline-system"`.
- *
- * The fallback never returns `"gateway-stateful"`: gateway providers MUST
- * opt-in by declaring it explicitly, because the inspector messaging differs
- * meaningfully ("gateway may ignore this field") from a plain history-aware
- * provider.
  */
 export function getProviderStrategy(provider: AIProvider): ProviderContextStrategy {
   if (provider.contextStrategy) return provider.contextStrategy;

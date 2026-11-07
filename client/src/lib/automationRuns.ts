@@ -1,6 +1,6 @@
 /**
- * The runs of one automation, for its detail: the OpenClaw job's runs as the
- * hub's `automations/runs` reads them from the gateway (when, how long, the
+ * The runs of one automation, for its detail: the Jarvis job's runs as the
+ * hub's `automations/runs` reads them from jarvis-channels (when, how long, the
  * outcome, whether it was launched by hand, whether it wrote to you or why
  * not, what it produced or its error in full, the report of the day, the
  * model and its tokens), and the cost of a workflow run.
@@ -21,7 +21,7 @@ export interface CronRun {
   /** Its error, whole. */
   error: string | null;
   manual: boolean;
-  /** It wrote to you, on that channel (null when the gateway does not say which). */
+  /** It wrote to you, on that channel (null when the scheduler does not say which). */
   wrote: { channel: string | null } | null;
   /** Why it did not write to you, in the hub's words. */
   whyNot: string | null;
@@ -42,7 +42,7 @@ function outcomeOf(v: unknown): RunOutcome | null {
   return v === 'ok' || v === 'error' || v === 'skipped' ? v : null;
 }
 
-/** The runs of an OpenClaw job, as the hub's `automations/runs` answers them. */
+/** The runs of a Jarvis job, as the hub's `automations/runs` answers them. */
 export function readCronRuns(raw: unknown): CronRun[] | null {
   const runs = asRecord(raw)?.runs;
   if (!Array.isArray(runs)) return null;

@@ -89,13 +89,10 @@ if (!process.env[PRIVATE_SCRATCH_ENV]) {
 
 /**
  * THE USER'S OWN SECRETS STAY OUT OF THE SUITE. Unset, any test that builds an
- * app context or checks agent auth reads the real `~/.openclaw/openclaw.json`
- * (whose gateway token is a Keychain reference: the real resolver would run)
- * and the real `~/.topics/daemon-state.json`. A path that does not exist is
- * enough: nothing is read, nothing resolved. Only when the runner chose none;
- * a test that needs a home of its own still sets one.
+ * app context or checks agent auth reads the real `~/.topics/daemon-state.json`.
+ * A path that does not exist is enough: nothing is read. Only when the runner
+ * chose none; a test that needs a home of its own still sets one.
  */
-process.env.OPENCLAW_CONFIG_PATH ||= join(tmpdir(), `topics-test-no-openclaw-${process.pid}`, "openclaw.json");
 process.env.TOPICS_HOME ||= join(tmpdir(), `topics-test-no-home-${process.pid}`);
 
 /**

@@ -18,7 +18,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import { join } from "node:path";
-import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
+import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir, installDaemonToken } from "./helpers";
 import { startFakeClaudeBridge, type FakeBridge, type FakeChild } from "./helpers/fake-claude-bridge";
 import type { SubAgentExitInfo } from "../../server/routes/subagent-exit";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
@@ -29,7 +29,7 @@ const SOCKET_PATH = `${ROOT}/b.sock`;
 const PROJECT = `${ROOT}/proj`;
 const TOPIC_ID = "5a738995-0000-4000-8000-000000000001";
 const PARENT = `topic:${TOPIC_ID}`;
-const TOKEN = "subagent-life-token";
+let TOKEN = "";
 const LONG_PROMPT = "Sei il sotto-agente foglio-tab: rendi BrowserTabSheet l'unica chrome del foglio e riporta i file toccati. ".repeat(40);
 
 let bridge: FakeBridge;
@@ -46,7 +46,7 @@ async function call(path: string, method: string, body?: object): Promise<Respon
   const url = new URL(`http://h${path}`);
   const res = await router(new Request(url, {
     method,
-    headers: { "content-type": "application/json", "x-gateway-token": TOKEN },
+    headers: { "content-type": "application/json", "x-daemon-token": TOKEN },
     body: body ? JSON.stringify(body) : undefined,
   }), url, url.pathname, method);
   if (!res) throw new Error(`no route for ${method} ${path}`);
@@ -81,7 +81,7 @@ beforeAll(async () => {
   fs.mkdirSync(PROJECT, { recursive: true });
   delete process.env.TOPICS_DISABLE_PTY_BRIDGE;
   delete process.env.TOPICS_EMBEDDED;
-  process.env.GATEWAY_TOKEN = TOKEN;
+  TOKEN = installDaemonToken();
   // A path that exists: the bridge is fake, so nothing ever runs it.
   process.env.CLAUDE_BIN = "/bin/echo";
   { const { _resetClaudeBinCache } = await import("../../server/lib/claude-bin"); _resetClaudeBinCache(); }
@@ -108,7 +108,6 @@ afterAll(async () => {
   terminal._setPtyBridgeSocketPath(null);
   await bridge?.close();
   delete process.env.CLAUDE_BIN;
-  delete process.env.GATEWAY_TOKEN;
   { const { _resetClaudeBinCache } = await import("../../server/lib/claude-bin"); _resetClaudeBinCache(); }
   bridge?.cleanup();
   await cleanupTestDataDir(ROOT);

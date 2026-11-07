@@ -54,11 +54,9 @@ describe('every engine name of the map is a command of the CLI', () => {
     expect(canonicalCommand('/review', 'claude-code')).toBe('code-review');
     expect(listed.has(canonicalCommand('cost', 'claude-code'))).toBe(true);
     expect(listed.has(canonicalCommand('review', 'claude-code'))).toBe(true);
-    // OpenClaw's `/new` and `/reset` are its own.
-    expect(canonicalCommand('new', 'openclaw')).toBe('new');
   });
 
-  test('`/new` and `/reset` are `/clear` on every declared engine but OpenClaw (CMDUI-06)', () => {
+  test('`/new` and `/reset` are `/clear` on every declared engine (CMDUI-06)', () => {
     for (const provider of ['gemini', 'jcode', 'codex', 'topics']) {
       for (const a of ['new', '/reset']) {
         expect(canonicalCommand(a, provider), `${a} on ${provider}`).toBe('clear');
@@ -125,13 +123,11 @@ describe('the rows of the engine group (CMDUI-01)', () => {
     const names = (p: string) => offeredSlashCommands(p).map((c) => c.cmd);
     expect(names('codex')).not.toContain('/compact');
     expect(names('topics')).toContain('/compact');
-    expect(names('openclaw')).toContain('/reasoning');
     expect(names('claude-code')).not.toContain('/reasoning');
-    expect(names('openclaw')).not.toContain('/mcp');
     expect(names('claude-code')).toContain('/resume');
     // /fork only where the server can fork (shared/chat-fork.ts).
     for (const p of ['claude-code', 'codex', 'topics']) expect(names(p), p).toContain('/fork');
-    for (const p of ['gemini', 'jcode', 'openclaw']) expect(names(p), p).not.toContain('/fork');
+    for (const p of ['gemini', 'jcode']) expect(names(p), p).not.toContain('/fork');
     expect(commandKind('cost', 'claude-code')).toBe('control');
   });
 });

@@ -93,7 +93,7 @@ terminal with its scrollback, the project files and diffs, a browser pane, and t
 token cost of each turn.
 
 The server listens on **`http://localhost:3333`** and stores everything under
-**`~/.openclaw`** (override with `APP_DATA_DIR`). There is a companion CLI in the
+**`~/.topics`** (override with `APP_DATA_DIR`). There is a companion CLI in the
 repository at `cli/topics.ts` — `topics open [path]` creates a topic for a
 directory — but it is **not** placed on `PATH` by the installer, so run it from a
 checkout with `bun cli/topics.ts open .` rather than assuming the command exists.

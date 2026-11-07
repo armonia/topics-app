@@ -8,11 +8,10 @@
  * `topics-route-payload.test.ts` (Section 8 of the change `topic-context-canonical`)
  * pins this contract.
  *
- * Three strategies, set per-provider via `provider.contextStrategy`:
+ * Two strategies, set per-provider via `provider.contextStrategy`:
  *   - `history-aware`     prepend system messages to history; pass userContent verbatim.
  *   - `inline-system`     concatenate system messages, wrap in `<context>...</context>`,
  *                         prepend to userContent; do NOT pass history (CLI session-resident).
- *   - `gateway-stateful`  same shape as history-aware, different `adaptationNotes`.
  */
 
 import type { ChatMessage } from "../providers/types";
@@ -226,8 +225,6 @@ export function adaptEnvelope(envelope: ContextEnvelope, opts?: AdaptOptions): P
       return adaptHistoryAware(envelope, composedSystem);
     case "inline-system":
       return adaptInlineSystem(envelope, slots, opts?.alreadySent, opts?.isSlashCommand);
-    case "gateway-stateful":
-      return adaptGatewayStateful(envelope, composedSystem);
     default: {
       // Exhaustiveness guard. If a new strategy is added without updating
       // this switch, TypeScript will surface the unhandled case here.
@@ -349,17 +346,6 @@ function adaptInlineSystem(
     // No `history` field — process-resident CLI keeps its own session state.
     adaptationNotes: notes,
     inlineSlots,
-  };
-}
-
-function adaptGatewayStateful(
-  envelope: ContextEnvelope,
-  composedSystem: ChatMessage[],
-): ProviderPayload {
-  return {
-    userContent: envelope.userMessage.content,
-    history: [...composedSystem, ...envelope.history],
-    adaptationNotes: buildGatewayStatefulNotes(envelope, composedSystem.length),
   };
 }
 
@@ -549,20 +535,6 @@ function buildInlineSystemNotes(
   );
   notes.push(
     `Inspector History tab reflects the topics-app DB; the live CLI session may have additional state from --resume`,
-  );
-  return notes;
-}
-
-function buildGatewayStatefulNotes(envelope: ContextEnvelope, composedCount: number): string[] {
-  const notes: string[] = [];
-  notes.push(
-    `${composedCount} aggregated system message(s) sent as fallback (from ${countEmittedBlocks(envelope)} enabled source block(s))`,
-  );
-  notes.push(
-    `Gateway typically uses internal session state and may ignore the history field on the happy path`,
-  );
-  notes.push(
-    `History is sent so the gateway can rehydrate after process restart or session expiry`,
   );
   return notes;
 }

@@ -1,13 +1,12 @@
 ## Purpose
 
-Fix critical reliability issues in the Topics → OpenClaw gateway chat flow that cause silent failures, empty responses, and stuck sessions.
+Fix critical reliability issues in the Topics chat flow that cause silent failures, empty responses, and stuck sessions. The first requirements were written for the external gateway Topics relayed through until 2026-11-03; the rules hold for every provider that streams over HTTP SSE.
 
 ## Background
 
 Common preconditions shared across scenarios:
 
 - Topics app running at https://localhost:3333 with gateway connected
-- OpenClaw gateway running at ws://127.0.0.1:18789
 - HTTP SSE path is the active chat path (`useWS = false` in topics.ts:1309)
 - Gateway may return rate limits (429), overloaded errors, or empty streams
 
@@ -201,7 +200,7 @@ the old filter omitted it.
 ## Out of Scope
 
 - Changing the primary model from Opus (rate limit is an Anthropic API issue, not a Topics bug)
-- The `LiveSessionModelSwitchError` bug in OpenClaw gateway (upstream issue)
+- The `LiveSessionModelSwitchError` bug in the old external gateway (upstream issue)
 - WS-based chat path (currently disabled, separate spec if re-enabled)
 
 ## Files to Modify

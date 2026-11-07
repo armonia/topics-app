@@ -365,7 +365,7 @@ jobs:
       # `data/topics.db`, che è in .gitignore:174. Su un checkout di CI quel
       # file non esiste e lo script esce **2** senza guardare niente, quindi
       # come passo sarebbe rosso per sempre; e i checkout che ispeziona
-      # arrivano anche da altri progetti (`~/.openclaw/workspace`), quindi il
+      # arrivano anche da altri progetti (il `workspace` dei dati dell'app), quindi il
       # suo rosso può venire da un ramo di un repo che non è questo — il 13/08,
       # 2 dei 4 debiti stavano in altri due repo della postazione, e si vedono
       # con `bun run report:landed --json`. Il prefisso `check:`
@@ -841,8 +841,8 @@ jobs:
 
   # Runs the real E2E suite against the isolated server that globalSetup spawns
   # on :13334 (own SQLite DB under /tmp/topics-test-data) — no external
-  # services or repo secrets needed: NO_TLS=1 and dummy GATEWAY_TOKEN/URL
-  # values are set by global-setup.ts / start-test-server.sh themselves.
+  # services or repo secrets needed: NO_TLS=1 and the rest are set by
+  # global-setup.ts / start-test-server.sh themselves.
   # Previously this suite was only *collected* (`playwright test --list`) in
   # the gates job above, which parses every spec but runs none of them.
 

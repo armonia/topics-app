@@ -2889,9 +2889,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             onTextDelta: (text: string, _fullText: string) => {
               resetStreamTimer();
               // Il primo argomento È il pezzo nuovo, sempre: lo dice il contratto
-              // su `StreamHandler.onTextDelta` e lo rispettano tutti e cinque i
-              // provider. L'unico cumulativo — il gateway OpenClaw — si
-              // normalizza da sé con `nextTextDelta` (server/providers/text-delta.ts).
+              // su `StreamHandler.onTextDelta` e lo rispettano tutti i provider.
               //
               // Qui prima si indovinava: prefisso tagliato se il testo cominciava
               // per quello di prima, evento SCARTATO se era identico. Su quattro
@@ -3157,18 +3155,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   });
               }
 
-              // Phase 30 BROWSER-CHAT-03 — OpenClaw browser tool profile monitoring.
-              // The bridge that injected targetId+profile system messages was removed;
-              // this block remains as logging-only telemetry for OpenClaw browser tool
-              // calls coming through other routes (sees what profile the model picked).
-              if (name === 'browser' && matchedTopic) {
-                const profile = args?.profile;
-                if (profile === 'topics') {
-                  console.log(`[BrowserMonitor] ✓ Topic ${matchedTopic.id.slice(0,8)} using isolated browser (action: ${args?.action})`);
-                } else {
-                  console.warn(`[BrowserMonitor] ⚠ Topic ${matchedTopic.id.slice(0,8)} used browser with profile="${profile || 'default'}" instead of "topics"`);
-                }
-              }
             },
 
             onToolExecStart: (toolCallId: string) => {
@@ -3885,9 +3871,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             //   - inline-system (claude-code):
             //       payload.userContent = "<context>...</context>\n\n${user}"
             //       payload.history = undefined (CLI session keeps its own state)
-            //   - gateway-stateful (openclaw):
-            //       same shape as history-aware; gateway may ignore `history`
-            //       on the happy path and use its session state instead.
             let envForProvider: ContextEnvelope = {
               ...envelope,
               providerName: topicProvider.name,
@@ -3953,7 +3936,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             const historyForProvider = payload.history;
 
             // Register handler BEFORE sendChat so tool events arriving during the await aren't lost.
-            // Use undefined runId initially — the sentinel filter in gateway-ws.ts handles stale events.
+            // Use undefined runId initially: the turn has no run id yet.
             topicProvider.registerStreamHandler?.(sessionKey, undefined, handler);
             const sendOptions: { model?: string; history?: ChatMessage[]; tools?: Tool[]; resetFallbackContent?: string; slashContext?: string; resetFallbackSlashContext?: string; fastMode?: boolean; rowId?: string; messageRows?: number; turnId?: string } = { rowId: partialMsg.id, ...(turnId ? { turnId } : {}) };
             if (payload.slashContext !== undefined) sendOptions.slashContext = payload.slashContext;
@@ -3977,7 +3960,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             }
             if (historyForProvider) sendOptions.history = historyForProvider;
             // Phase 30 BROWSER-CHAT-04 — register browserTools for SDK-driven providers.
-            // CLI/gateway providers (codex, claude-code, openclaw) ignore this field
+            // CLI providers (codex, claude-code) ignore this field
             // (their tool surfaces are managed upstream).
             //
             // Also register the control tools (open/create-project, switch/new-topic

@@ -5,7 +5,6 @@ import { contextLevel } from '../../../../shared/context-thresholds';
 import { formatTokens } from '../../lib/formatTokens';
 
 const CATEGORY_COLORS: Record<string, string> = {
-  openclaw: '#3b82f6',   // blue
   memory: '#8b5cf6',     // purple
   prompt: '#f59e0b',     // amber
   template: '#22c55e',   // green
@@ -140,7 +139,7 @@ export function ContextBudgetBar({ sources, totalTokens, budgetLimit, budgetPerc
           return (
             <div key={cat} className="flex items-center gap-1 text-mini text-app-text-muted">
               <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-              <span className="capitalize">{cat === 'openclaw' ? 'OpenClaw' : cat}</span>
+              <span className="capitalize">{cat}</span>
               <span className="tabular-nums">{formatTokens(catTokens)}</span>
             </div>
           );

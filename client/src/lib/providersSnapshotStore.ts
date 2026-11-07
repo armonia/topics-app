@@ -1,6 +1,6 @@
 /**
  * Module-level store for the providers snapshot. Single source of truth across
- * every hook that needs it (useProvidersSnapshot, useOpenClawAvailable, etc.).
+ * every hook that needs it (useProvidersSnapshot and the picker, the settings, the model chip).
  *
  * Why this exists: with two hooks each running their own `providersApi.snapshot()`
  * on first paint, we observed 2 HTTP fetches per page even though one is enough
@@ -33,7 +33,7 @@ type Listener = (state: SnapshotState) => void;
  *
  * Da questo snapshot dipende la FORMA di due superfici: il bottone del modello
  * nel composer (l'etichetta «Opus 5» e il badge della finestra di contesto) e la
- * pillola di stato in fondo alla sidebar (`openclawAvailable`). Senza valore
+ * pillola di stato in fondo alla sidebar. Senza valore
  * iniziale la prima paint disegna il ripiego — «Model», «≈200K», un pallino da
  * 6px — e quando la risposta arriva quei box cambiano LARGHEZZA, spingendo di
  * lato tutto ciò che hanno accanto: misurato al refresh, il bottone di

@@ -225,16 +225,16 @@ export function renderDeliverySheet(data: DeliverySheetData): string {
 /**
  * Il modo in cui l'host scrive una scheda: sotto `<dati>/media/task-sheets/`,
  * cioe' DENTRO l'allowlist che poi la serve (`isPathAllowed` guarda
- * `${OPENCLAW_DIR}/media/`). Scritta altrove, la card mostrerebbe un'immagine
+ * `${APP_DATA_DIR}/media/`). Scritta altrove, la card mostrerebbe un'immagine
  * rotta: lo stesso inciampo gia' pagato una volta dalle anteprime vive.
  *
  * Torna `null` invece di lanciare: una scheda mancata non deve poter far
  * fallire una consegna.
  */
-export function makeSheetWriter(openclawDir: string): (taskId: string, svg: string) => string | null {
+export function makeSheetWriter(appDataDir: string): (taskId: string, svg: string) => string | null {
   return (taskId, svg) => {
     try {
-      const path = deliverySheetPath(join(openclawDir, "media"), taskId);
+      const path = deliverySheetPath(join(appDataDir, "media"), taskId);
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, svg, "utf-8");
       return path;

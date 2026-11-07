@@ -8,7 +8,6 @@
 import { test, expect } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
-import { mockOpenClawAvailable } from "./helpers/openclaw";
 import { openMachinePanel, openProfileMenu } from "./helpers/open-perf-panel";
 import { hermetic } from "./fixtures/hermetic";
 
@@ -32,8 +31,7 @@ test.describe("System & Infrastructure", () => {
     // card is always in the DOM and declares an alarm only when there is one.
     // The gateway and the server are services of the machine's Processes view
     // (with the hub); the panel under Performance keeps only the facts of this
-    // installation, and restarts nothing, even with OpenClaw present.
-    await mockOpenClawAvailable(page);
+    // installation, and restarts nothing.
     await goToApp(page);
 
     const lamp = page.getByTestId("connection-status");
@@ -47,7 +45,6 @@ test.describe("System & Infrastructure", () => {
   });
 
   test("status bar shows system info", async ({ page }) => {
-    await mockOpenClawAvailable(page);
     await goToApp(page);
     await openProfileMenu(page);
 

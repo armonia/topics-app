@@ -5127,7 +5127,7 @@ essere l'unica tabella, letta dal server e dal client:
   (`isDirectProviderName`, `shared/direct-endpoints.ts:83`) → `db-history`:
   `OpenAICompatibleProvider` ha la capacità `history` ed è `history-aware`
   come `openai` (`server/providers/openai-compatible.ts:79-81`);
-- ogni altro nome, oggi `openclaw` e gli agenti ACP → `null`: tengono una
+- ogni altro nome, oggi gli agenti ACP → `null`: tengono una
   sessione loro fuori da Topics, e un `sessionKey` nuovo partirebbe vuoto sotto
   una chat che mostra la storia.
 
@@ -5136,8 +5136,8 @@ Il server SHALL decidere sul fornitore RISOLTO del topic
 con `provider` nullo SHALL mostrare la voce e lasciar decidere il server.
 
 #### Scenario: la tabella
-- **WHEN** si chiama `forkModeFor` con `claude-code`, `claude-code-team`, `codex`, `topics`, `topics:opus`, `claude`, `openai`, `direct-x`, `openclaw`, `jcode`
-- **THEN** le risposte sono `claude-cli`, `claude-cli`, `codex-cli`, `db-history`, `db-history`, `db-history`, `db-history`, `db-history`, `null`, `null`
+- **WHEN** si chiama `forkModeFor` con `claude-code`, `claude-code-team`, `codex`, `topics`, `topics:opus`, `claude`, `openai`, `direct-x`, `jcode`
+- **THEN** le risposte sono `claude-cli`, `claude-cli`, `codex-cli`, `db-history`, `db-history`, `db-history`, `db-history`, `db-history`, `null`
 
 #### Scenario: il ramo nativo ricorda
 - **GIVEN** un topic sul runtime nativo diramato dopo 2 turni
@@ -5145,7 +5145,7 @@ con `provider` nullo SHALL mostrare la voce e lasciar decidere il server.
 - **THEN** riceve le 4 righe copiate, con le chiamate agli strumenti delle risposte
 
 #### Scenario: un fornitore senza strada
-- **GIVEN** un topic su `openclaw`
+- **GIVEN** un topic su `jcode`
 - **WHEN** si chiama la rotta
 - **THEN** la risposta è 409 con `code: "fork_unsupported"`
 - **AND** la barra dei suoi messaggi non ha `msg-action-fork`

@@ -1,16 +1,16 @@
 /**
  * Quale provider decide la rotta di uno slash command.
  *
- * `/model`, `/effort` e `/reasoning` si biforcano sul provider: openclaw li
- * inoltra al gateway (`POST /api/inference/chat`), claude-code invece li
- * persiste come flag di spawn sul topic. La biforcazione va fatta sul provider
- * **dichiarato** dal topic, non su quello *risolto*.
+ * `/model`, `/effort` e `/reasoning` dipendono dal provider: claude-code li
+ * persiste come flag di spawn sul topic, e la risposta a `/reasoning` nomina
+ * il provider. La scelta va fatta sul provider **dichiarato** dal topic, non
+ * su quello *risolto*.
  *
  * Non sono la stessa cosa. Chi risolve un provider deve pur restituire un
  * oggetto con cui parlare, quindi se il nome dichiarato non è registrato su
  * questa macchina ripiega sul default. Ed è lì che nasceva il difetto: un
  * runner CI non ha la CLI `claude`, quindi il provider `claude-code` non viene
- * mai registrato, il default diventa `openclaw`, e un `/model` su un topic
+ * mai registrato, il default diventa un altro, e un `/model` su un topic
  * dichiarato claude-code partiva verso `127.0.0.1:18789` — dove non c'è nessun
  * gateway. Il server rispondeva 500 «Command failed: Unable to connect. Is the
  * computer able to access the url?», e la stessa spec era verde in locale (dove
@@ -40,28 +40,6 @@ export function declaredProviderName(
     return declared === "claude-code-team" ? "claude-code" : declared;
   }
   return defaultProviderName?.trim() || undefined;
-}
-
-/**
- * Vero quando lo slash command va inoltrato al gateway OpenClaw invece di
- * essere persistito sul topic.
- */
-export function routesThroughGateway(
-  topicProvider: string | null | undefined,
-  defaultProviderName?: string | null,
-): boolean {
-  return declaredProviderName(topicProvider, defaultProviderName) === "openclaw";
-}
-
-/**
- * What `/reasoning` sends to the OpenClaw gateway. The level the person typed
- * (`/reasoning off`, openclaw's own syntax), or the bare command, which the
- * gateway toggles. There used to be a default of "on", so a «toggle» could
- * only ever switch reasoning on.
- */
-export function reasoningCommandText(level: string | null | undefined): string {
-  const l = level?.trim();
-  return l ? `/reasoning ${l}` : "/reasoning";
 }
 
 /**

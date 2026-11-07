@@ -6,7 +6,7 @@
  * a mano in `global-setup.ts`, in `scripts/start-test-server.sh` e dentro lo
  * spec che riavvia il server. Tre copie della stessa lista che erano già
  * divergenti (il riavvio di `terminal-session-resume` non passava `TOPICS_HOME`
- * né `OPENCLAW_DIR`, quindi il server ripartiva meno isolato di come era nato).
+ * né la radice dei dati dell'app, quindi il server ripartiva meno isolato di come era nato).
  *
  * Quel numero cablato è anche ciò che teneva la suite seriale. Far girare più
  * shard sulla stessa macchina significa più processi Playwright avviati
@@ -26,7 +26,7 @@
  * volte in rossi finti).
  */
 
-import { existsSync, realpathSync, readdirSync } from "fs";
+import { existsSync, readFileSync, realpathSync, readdirSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { dirname, join, resolve } from "path";
 import { webkit } from "@playwright/test";
@@ -127,7 +127,7 @@ export function canonicalTmpRoot(): string {
  * muscolare puntano lì, e uno shard singolo non deve cambiare nulla.
  *
  * CANONICAL ROOT, and it is the whole reason `canonicalTmpRoot` sits in this
- * file. `${OPENCLAW_DIR}/workspace` hangs off this directory, so every project
+ * file. `${APP_DATA_DIR}/workspace` hangs off this directory, so every project
  * created inside it is named by this string on BOTH sides of the bench — and
  * the server does not spell it the same way twice: a project reached by BARE
  * NAME keeps the raw path the workspace scan produced, while one reached by
@@ -266,9 +266,9 @@ export function testServerEnv(port: number = E2E_PORT): Record<string, string> {
     // TOPICS_HOME dedicata: il lock del daemon (`daemon-process.lock`) è per-home,
     // e quello vero ce l'ha il server di sviluppo.
     TOPICS_HOME: join(dataDir, ".topics-home"),
-    // Config e sessioni OpenClaw dell'utente vero fuori dai piedi: SESSIONS_DIR
-    // deriva da OPENCLAW_DIR, quindi questa sola variabile copre entrambi.
-    OPENCLAW_DIR: join(dataDir, ".openclaw"),
+    // Workspace, media e sessioni dell'utente vero fuori dai piedi: SESSIONS_DIR
+    // deriva da APP_DATA_DIR, quindi questa sola variabile copre entrambi.
+    APP_DATA_DIR: join(dataDir, ".app-data"),
     // XDG inside the isolated HOME: in XDG precedence the variable wins over
     // HOME, and CI runners export both pointed at the real home — without these
     // two lines an XDG-respecting provider (muse: auth.json, model-catalog)
@@ -326,30 +326,23 @@ export function testServerEnv(port: number = E2E_PORT): Record<string, string> {
     TOPICS_HUB_URL: `http://127.0.0.1:${hubPortFor(port)}`,
     // The Claude proxy's account log: the same fake answers its paths too.
     TOPICS_SWITCHBOARD_URL: `http://127.0.0.1:${hubPortFor(port)}`,
-    // THE GATEWAY URL IS DECLARED ONLY IF SOMEONE IS ACTUALLY LISTENING.
-    // THE TOKEN, INSTEAD, IS ALWAYS DECLARED — and the difference is the whole
-    // point, because getting it wrong breaks the terminal tests.
-    //
-    // A fake GATEWAY_URL elected `openclaw` as the bench's AI provider
-    // (`providers/index.ts` registers it when GATEWAY_URL **and** GATEWAY_TOKEN
-    // are both present) while nothing answered on :18789. Consequence: a sent
-    // message opened a turn that NEVER ENDED — the server kept reporting
-    // `state: "streaming"` and the composer stayed on the `queue` action,
-    // because with a turn in flight Enter parks the text instead of sending it.
-    // It was also the source of the thousands of "[GatewayWS] Connect failed"
-    // lines in the nightly logs, in every shard, including the green ones.
-    // Dropping the URL is enough to stop that: the election needs BOTH.
-    //
-    // The token is a different job that happens to share a name. It is also the
-    // legacy credential `agentAuthOk()` accepts on the terminal routes (see
-    // server/routes/terminal.ts), and api-fixtures.ts sends it as
-    // `x-gateway-token` on every terminal call. Dropping it too — as a first
-    // attempt did — made GET /sessions/:id/buffer answer 401 to the bench
-    // itself, so TERM-02 read an empty buffer and failed while the product was
-    // perfectly fine. Measured: red 2 runs out of 2 without it, green with.
-    GATEWAY_TOKEN: process.env.GATEWAY_TOKEN ?? "test-token",
-    ...(process.env.GATEWAY_URL ? { GATEWAY_URL: process.env.GATEWAY_URL } : {}),
   };
+}
+
+/**
+ * The credential the agent and terminal routes accept (server/lib/agent-auth.ts):
+ * the daemon token the test server writes at boot into its own TOPICS_HOME
+ * (`<dataDir>/.topics-home`, the same folder `testServerEnv` gives it). Read on
+ * every call, because a restarted server writes a new one. Before the server
+ * is up there is no file, and the header is left out.
+ */
+export function daemonAuthHeaders(port: number = E2E_PORT): Record<string, string> {
+  try {
+    const state = JSON.parse(readFileSync(join(dataDirForPort(port), ".topics-home", "daemon-state.json"), "utf8"));
+    return typeof state?.token === "string" ? { "x-daemon-token": state.token } : {};
+  } catch {
+    return {};
+  }
 }
 
 /**

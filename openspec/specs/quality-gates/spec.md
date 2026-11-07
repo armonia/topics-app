@@ -562,8 +562,8 @@ pressione, mai sotto uno) e SHALL scriverlo nell'output. Un numero di shard
 scelto a mano via ambiente NON SHALL essere sovrascritto. Il timeout per test
 SHALL essere lo stesso per ogni file: 30 s oppure l'override esplicito
 `TOPICS_TEST_TIMEOUT_MS`, senza aumenti dovuti al carico. L'ambiente, incluso
-`CI`, SHALL essere ereditato, salvo `DATA_DIR`, `TOPICS_DATA_DIR`, `TOPICS_HOME` e
-`OPENCLAW_CONFIG_PATH`, che un file non eredita mai dal terminale di chi lancia.
+`CI`, SHALL essere ereditato, salvo `DATA_DIR`, `TOPICS_DATA_DIR` e `TOPICS_HOME`,
+che un file non eredita mai dal terminale di chi lancia.
 
 #### Scenario: macchina satura
 - **GIVEN** carico 46 su 12 core, nessuna scelta esplicita via ambiente

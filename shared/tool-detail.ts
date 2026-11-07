@@ -2,7 +2,7 @@
  * Tool detail normalizer: the ONE implementation.
  *
  * Translates a raw tool name + args (as emitted by the Claude Code CLI, the
- * Codex CLI, the OpenClaw gateway, the native provider, etc.) into the typed
+ * Codex CLI, the native provider, etc.) into the typed
  * `ToolCallDetail` union the renderer branches on. The server runs it at the
  * provider boundary, so:
  *   1. The wire format the client sees is uniform across providers.

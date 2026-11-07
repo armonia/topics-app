@@ -34,6 +34,7 @@ import { spawnSync } from "child_process";
 import { existsSync, statSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { resolveAppDataDir } from "../server/lib/data-dir";
 
 const JSON_OUT = process.argv.includes("--json");
 
@@ -321,9 +322,7 @@ const dataDir = (() => {
   // Il server gira da /Users/.../topics-app, quindi data/ e' relativa al repo
   const candidates = [
     join(homedir(), "Projects", "topics-app", "data"),
-    join(homedir(), ".openclaw"),
-    process.env.APP_DATA_DIR ?? "",
-    process.env.OPENCLAW_DIR ?? "",
+    resolveAppDataDir(),
   ].filter(Boolean);
   return candidates.find((p) => existsSync(join(p, "topics.db"))) ?? candidates[0];
 })();

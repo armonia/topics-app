@@ -8,9 +8,9 @@ import { createTopic, deleteTopic } from "../helpers/api-fixtures";
 export const MOCK_CONTEXT_ANALYSIS = {
   sources: [
     {
-      id: "openclaw:SOUL.md",
+      id: "template:SOUL.md",
       label: "SOUL.md",
-      category: "openclaw",
+      category: "template",
       tokens: 3200,
       enabled: true,
       editable: false,
@@ -59,9 +59,9 @@ export const MOCK_CONTEXT_ANALYSIS = {
 export const MOCK_HIGH_BUDGET_ANALYSIS = {
   sources: [
     {
-      id: "openclaw:SOUL.md",
+      id: "template:SOUL.md",
       label: "SOUL.md",
-      category: "openclaw",
+      category: "template",
       tokens: 45000,
       enabled: true,
       editable: false,

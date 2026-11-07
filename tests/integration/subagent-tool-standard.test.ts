@@ -10,7 +10,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { join } from "node:path";
-import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
+import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir, installDaemonToken } from "./helpers";
 import { startFakeClaudeBridge, type FakeBridge, type FakeChild } from "./helpers/fake-claude-bridge";
 import type { SubAgentExitInfo } from "../../server/routes/subagent-exit";
 import type { AppContext, Topic } from "../../server/types";
@@ -19,7 +19,7 @@ const ROOT = testTmpDir("subagent-std");
 const SOCKET_PATH = `${ROOT}/b.sock`;
 const PROJECT = `${ROOT}/proj`;
 const HOME = `${ROOT}/home`;
-const TOKEN = "subagent-std-token";
+let TOKEN = "";
 const topicKey = (n: number) => `topic:5a738995-0000-4000-8000-00000000010${n}`;
 const SONNET_CHAT = topicKey(1);
 const FOREIGN_MODEL_CHAT = topicKey(2);
@@ -37,7 +37,7 @@ async function call(path: string, method: string, body?: object): Promise<Respon
   const url = new URL(`http://h${path}`);
   const res = await router(new Request(url, {
     method,
-    headers: { "content-type": "application/json", "x-gateway-token": TOKEN },
+    headers: { "content-type": "application/json", "x-daemon-token": TOKEN },
     body: body ? JSON.stringify(body) : undefined,
   }), url, url.pathname, method);
   if (!res) throw new Error(`no route for ${method} ${path}`);
@@ -108,7 +108,7 @@ beforeAll(async () => {
   profile(join(PROJECT, ".claude", "agents"), "verifier.md", "---\nname: verifier\ndescription: The project's verifier.\neffort: high\n---\nbody\n");
   delete process.env.TOPICS_DISABLE_PTY_BRIDGE;
   delete process.env.TOPICS_EMBEDDED;
-  process.env.GATEWAY_TOKEN = TOKEN;
+  TOKEN = installDaemonToken();
   // A path that exists: the bridge is fake, so nothing ever runs it.
   process.env.CLAUDE_BIN = "/bin/echo";
   { const { _resetClaudeBinCache } = await import("../../server/lib/claude-bin"); _resetClaudeBinCache(); }
@@ -146,7 +146,6 @@ afterAll(async () => {
   terminal._setPtyBridgeSocketPath(null);
   await bridge?.close();
   delete process.env.CLAUDE_BIN;
-  delete process.env.GATEWAY_TOKEN;
   { const { _resetClaudeBinCache } = await import("../../server/lib/claude-bin"); _resetClaudeBinCache(); }
   bridge?.cleanup();
   await cleanupTestDataDir(ROOT);
@@ -313,7 +312,7 @@ describe("a foreground spawn waits for the result (SUBAGENT-13)", () => {
     // The native turn is stopped mid-leg: its request goes, the route's wait does not know it yet.
     const gone = new AbortController();
     const url = new URL(`http://h${agents(SONNET_CHAT)}/${agentId}/wait?legMs=15000`);
-    const orphan = router(new Request(url, { method: "GET", headers: { "x-gateway-token": TOKEN }, signal: gone.signal }), url, url.pathname, "GET");
+    const orphan = router(new Request(url, { method: "GET", headers: { "x-daemon-token": TOKEN }, signal: gone.signal }), url, url.pathname, "GET");
     await new Promise((r) => setTimeout(r, 100));
     gone.abort();
     endTurn(child!, "Report after the Stop");

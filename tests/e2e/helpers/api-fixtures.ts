@@ -2,7 +2,7 @@ import type { APIRequestContext, Page } from "@playwright/test";
 import { expect } from "@playwright/test";
 import { realpathSync } from "fs";
 import { projectPanesKey } from "../../../shared/project-keys";
-import { E2E_BASE } from "./test-server";
+import { E2E_BASE, daemonAuthHeaders } from "./test-server";
 
 const BASE = E2E_BASE;
 
@@ -766,10 +766,10 @@ export async function getTerminalSessionBuffer(
 ): Promise<string> {
   const res = await request.get(`${BASE}/api/terminal/sessions/${sessionId}/buffer`, {
     ignoreHTTPSErrors: true,
-    // /buffer is now token-gated (it leaks scrollback); the e2e server runs with
-    // GATEWAY_TOKEN=test-token (global-setup). NB on a 401 this returns '' — a
-    // missing header would surface as a silently-empty buffer, not a hard failure.
-    headers: { "x-gateway-token": process.env.GATEWAY_TOKEN ?? "test-token" },
+    // /buffer is token-gated (it leaks scrollback): the daemon token the test
+    // server wrote at boot. NB on a 401 this returns '' — a missing header
+    // would surface as a silently-empty buffer, not a hard failure.
+    headers: daemonAuthHeaders(),
   });
   if (!res.ok()) return "";
   return (await res.json()).buffer ?? "";

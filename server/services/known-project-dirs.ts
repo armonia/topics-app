@@ -50,7 +50,7 @@ export interface KnownProjectDirsCtx {
    *  archiviati» (`project-store.ts:149-153`: undefined significa SOLO gli
    *  attivi, quindi omettere l'opzione escluderebbe metà dei progetti). */
   projectStore?: { list(opts?: { archived?: boolean | null }): unknown[] };
-  /** Il workspace di OpenClaw (`<OPENCLAW_DIR>/workspace`). Omesso = si deduce
+  /** Il workspace della cartella dati (`<APP_DATA_DIR>/workspace`). Omesso = si deduce
    *  dall'ambiente con la STESSA regola di `server/utils.ts:133`, così anche i
    *  chiamanti che non ce l'hanno sottomano (le rotte dei file) vedono la
    *  sorgente 6 invece di ritrovarsi un confine più stretto degli altri. */
@@ -148,7 +148,7 @@ export function knownProjectDirs(ctx: KnownProjectDirsCtx): Set<string> {
       for (const p of projectPathTokensIn(row.value)) add(p);
     }
   } catch { /* tabella assente */ }
-  // 6. I progetti che il server ENUMERA nel workspace di OpenClaw — figli
+  // 6. I progetti che il server ENUMERA nel workspace della cartella dati — figli
   //    diretti con un marcatore (`scanWorkspaceProjects`). È la sorgente da cui
   //    l'indice della board (`GET /api/all-boards/projects`) tira fuori i `path`,
   //    e il path è l'UNICA cosa da cui nasce un'icona

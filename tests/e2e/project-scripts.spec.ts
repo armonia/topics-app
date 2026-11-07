@@ -31,10 +31,10 @@ hermetic(test);
  * the server already knows, and a bare `/tmp/e2e-...` is inside none of the six
  * sources: the pane-store PUT came back 400 `Invalid path`, the project window
  * never rendered, and the three cases here failed on `toHaveCount(1)` while the
- * screen said "No chats open". A direct child of `${OPENCLAW_DIR}/workspace`
+ * screen said "No chats open". A direct child of `${APP_DATA_DIR}/workspace`
  * carrying a project marker IS known (source 6, `scanWorkspaceProjects`), which
  * is the same road `project-commands.spec.ts` already takes. global-setup
- * propagates OPENCLAW_DIR to this runner process so both sides agree.
+ * propagates APP_DATA_DIR to this runner process so both sides agree.
  *
  * And CANONICAL: on macOS `/tmp` is a symlink to `/private/tmp`, the server
  * stores the realpath, and the window carries THAT string in
@@ -46,7 +46,7 @@ function canonical(dir: string): string {
   try { return realpathSync(dir); } catch { return dir; }
 }
 const WORKSPACE_DIR = join(
-  canonical(process.env.OPENCLAW_DIR || join(process.env.HOME || "/tmp", ".openclaw")),
+  canonical(process.env.APP_DATA_DIR || join(process.env.HOME || "/tmp", ".app-data")),
   "workspace",
 );
 const RUST = join(WORKSPACE_DIR, `e2e-scripts-rust-${Date.now()}`);
