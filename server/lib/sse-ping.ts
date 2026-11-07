@@ -42,13 +42,17 @@ export function startSsePing(opts: {
   return () => clearInterval(timer);
 }
 
-/** How long the stream stays silent after a write before the nudge goes out. */
-export const SSE_NUDGE_MS = 40;
+/**
+ * When the nudges go out, in ms after the last write. Each one is another
+ * chance to reach the page on its own (`createSseNudge`), and the gaps grow so
+ * that a long silence costs a handful of bytes, not a stream of them.
+ */
+export const SSE_NUDGE_DELAYS_MS: readonly number[] = [40, 250, 1_000, 4_000];
 
 const NUDGE = new TextEncoder().encode(": nudge\n\n");
 
 /**
- * PUSHES OUT THE LAST FRAME BEFORE A SILENCE.
+ * PUSHES OUT THE LAST FRAMES BEFORE A SILENCE.
  *
  * WebKit can sit on the last bytes of a streamed response until more bytes
  * follow (Playwright's WebKit: on the Mac measured below, in CI on Linux the
@@ -62,36 +66,57 @@ const NUDGE = new TextEncoder().encode(": nudge\n\n");
  * the second tool still running and no answer until the ping. A Node client
  * reading the same stream never waited (25 turns out of 25), and neither did
  * the stream shapes of the server tried (plain, direct with flush): the hold is
- * in the browser's network layer, not in what we write.
+ * in the browser, not in what we write.
  *
- * Any later byte releases it (a 1 s ping brought the answer in at once), so
- * after `delayMs` without a write this sends one comment line, the same kind of
- * byte as the ping. If WebKit holds the nudge itself, nothing is lost: it
- * carries nothing. A reader that measures silence asks `isSseCommentOnly`
- * first, as it does for the ping.
+ * The mechanism is WebKit bug 322545, a regression of the fetch byte stream
+ * that ships on by default (Safari 26, and the WKWebView of the desktop app):
+ * bytes that reach the page while its reader has no read pending are stashed,
+ * and only a LATER chunk that arrives while a read is pending releases them;
+ * reading again does not. A page whose main thread was busy gets a burst of
+ * frames in one go, and the tail of the burst is stranded.
+ *
+ * So after a write, and as long as nothing else is written, this sends one
+ * comment line at each of `delaysMs`, the same kind of byte as the ping. One
+ * line is not always enough: on a loaded CI runner the page stayed busy past
+ * the first one, which reached it in the same go as the burst and was
+ * stranded with it (the window that sent the turn showed its first tool
+ * running until the end of the turn, run 42334875663, WebKit). A later one
+ * reaches it on its own, once the reader has asked again. If WebKit holds a
+ * nudge, nothing is lost: it carries nothing. A reader that measures silence
+ * asks `isSseCommentOnly` first, as it does for the ping.
  */
 export function createSseNudge(opts: {
   /** Writes raw bytes to the response. Errors are the writer's to swallow. */
   write: (chunk: Uint8Array) => void;
   /** False once the stream is finished or its client is gone. */
   alive: () => boolean;
-  delayMs?: number;
+  /** When the nudges go out, in ms after the last write (`SSE_NUDGE_DELAYS_MS`). */
+  delaysMs?: readonly number[];
 }): { touch: () => void; stop: () => void } {
+  const delays = opts.delaysMs ?? SSE_NUDGE_DELAYS_MS;
   let timer: ReturnType<typeof setTimeout> | null = null;
   const stop = () => {
     if (timer) clearTimeout(timer);
     timer = null;
   };
+  // The nudge due at `delays[index]`, `elapsed` ms after the last write, then the next one.
+  const schedule = (index: number, elapsed: number) => {
+    const at = delays[index];
+    if (at === undefined) return;
+    timer = setTimeout(() => {
+      timer = null;
+      if (!opts.alive()) return;
+      opts.write(NUDGE);
+      schedule(index + 1, at);
+    }, at - elapsed);
+    // A nudge must never be what keeps a process alive.
+    (timer as { unref?: () => void }).unref?.();
+  };
   return {
-    // Called after every write: the nudge goes out only once the stream has been quiet.
+    // Called after every write: the nudges go out only while the stream stays quiet.
     touch: () => {
       stop();
-      timer = setTimeout(() => {
-        timer = null;
-        if (opts.alive()) opts.write(NUDGE);
-      }, opts.delayMs ?? SSE_NUDGE_MS);
-      // A nudge must never be what keeps a process alive.
-      (timer as { unref?: () => void }).unref?.();
+      schedule(0, 0);
     },
     stop,
   };
