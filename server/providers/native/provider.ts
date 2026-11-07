@@ -1003,7 +1003,7 @@ export class NativeProvider implements AIProvider {
           autonomy: turnOpts.autonomy,
           workspace: workspace ?? "",
           topics: topics ?? null,
-          server: { baseUrl: topicsAppBaseUrl(), topicsHome: topicsHome(), gatewayToken: gatewayToken() },
+          server: { baseUrl: topicsAppBaseUrl(), topicsHome: topicsHome() },
           hold: providerHold(),
         };
         const r = await this.runDetached(sessionKey, session, spec, handler, abort, turnModel);

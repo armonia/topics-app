@@ -1,4 +1,5 @@
 /**
+ * @covers GATE-23
  * THE OLD GATEWAY'S NAME IS GONE FROM THE REPOSITORY, save a closed list.
  *
  * The external agent gateway Topics once relayed through was switched off for
