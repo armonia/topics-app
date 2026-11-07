@@ -10,7 +10,7 @@
  * Three native turns are in flight at once: a chat streaming a long answer, a
  * card dispatched on a board, and a chat whose model asked a question. The
  * server is SIGTERMed and relaunched (`restartTestServer`, as the file watcher
- * does in production). Then, with no page reload and nobody pressing Riprova:
+ * does in production). Then, with no page reload and nobody pressing the retry button:
  * the chat bubble is the same row and ends with every piece once and in order,
  * the model was asked each round exactly once, the card ends on its session
  * with no attempt spent, and the question, still on screen, is answered after
@@ -111,7 +111,7 @@ async function readTask(request: APIRequestContext, taskId: string): Promise<Tas
 }
 
 /** `/__daemon/healthz` with the daemon token the test server wrote in its TOPICS_HOME. */
-async function healthz(): Promise<{ status: number; body: { pid?: number; losslessRestart?: boolean } | null }> {
+async function daemonHealth(): Promise<{ status: number; body: { pid?: number; losslessRestart?: boolean } | null }> {
   let token = "";
   try { token = JSON.parse(readFileSync(join(testServerEnv().TOPICS_HOME!, "daemon-state.json"), "utf8")).token ?? ""; } catch { /* no state: 401 below */ }
   const res = await fetch(`${E2E_BASE}/__daemon/healthz`, { headers: { authorization: `Bearer ${token}` } }).catch(() => null);
@@ -234,16 +234,16 @@ test("three native turns in flight survive a server restart, nothing redone and 
     await didascalia(page, `Tre turni in volo: ${shownBefore.length} pezzi sullo schermo, una card, una domanda aperta`);
 
     // ── SIGTERM and relaunch. ──
-    const healthBefore = await healthz();
+    const healthBefore = await daemonHealth();
     expect(healthBefore.status, "the old server answers /__daemon/healthz").toBe(200);
-    const sigtermAt = Date.now();
+    const stopSentAt = Date.now();
     const bootLog = await restartTestServer();
-    let health = await healthz();
-    while (health.status !== 200 && Date.now() - sigtermAt < 10_000) {
+    let health = await daemonHealth();
+    while (health.status !== 200 && Date.now() - stopSentAt < 10_000) {
       await new Promise((r) => setTimeout(r, 100));
-      health = await healthz();
+      health = await daemonHealth();
     }
-    const backAfterMs = Date.now() - sigtermAt;
+    const backAfterMs = Date.now() - stopSentAt;
     console.log(`[restart-loses-nothing] /__daemon/healthz answered ${backAfterMs} ms after the SIGTERM (status ${health.status}, pid ${healthBefore.body?.pid} -> ${health.body?.pid})`);
     test.info().annotations.push({ type: "restart-ms", description: String(backAfterMs) });
     expect(health.status, "the new server answers /__daemon/healthz").toBe(200);
