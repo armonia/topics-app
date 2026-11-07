@@ -15,8 +15,9 @@
  */
 
 import type { AppContext, RouteHandler } from "../types";
-import { ensureMcpFleet, remountMcpFleet, mcpFleetStatus } from "../providers/native/mcp-fleet";
+import { ensureMcpFleet, remountMcpFleet, mcpFleetStatus, executeMcpTool, mcpToolSpecs } from "../providers/native/mcp-fleet";
 import { startMcpAuthorization } from "../providers/native/mcp-oauth";
+import { agentAuthOk } from "../lib/agent-auth";
 
 export function createMcpRouter(ctx: AppContext): RouteHandler {
   const { json, readJSON, errorResponse } = ctx;
@@ -30,6 +31,22 @@ export function createMcpRouter(ctx: AppContext): RouteHandler {
       if (url.searchParams.get("peek") === "1") return json(mcpFleetStatus());
       await ensureMcpFleet();
       return json(mcpFleetStatus());
+    }
+    /**
+     * One call on the machine's MCP fleet, for a native turn running in its own
+     * process (`providers/native/turn-host.ts`). The fleet stays mounted here;
+     * the answer carries the fleet's current specs, so a child the call just
+     * mounted is offered to the turn's next round.
+     */
+    if (pathname === "/api/mcp/call" && method === "POST") {
+      // Runs any tool of the machine's MCP servers: only Topics' own processes.
+      if (!agentAuthOk(req)) return errorResponse(401, "daemon token required");
+      const body = await readJSON(req) as { name?: unknown; input?: unknown } | null;
+      if (typeof body?.name !== "string") return errorResponse(400, "name required");
+      await ensureMcpFleet();
+      const input = body.input && typeof body.input === "object" ? body.input as Record<string, unknown> : {};
+      const result = await executeMcpTool(body.name, input);
+      return json({ result, specs: mcpToolSpecs() });
     }
     if (pathname === "/api/mcp/fleet/refresh" && method === "POST") {
       await remountMcpFleet();

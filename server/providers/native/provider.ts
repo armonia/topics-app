@@ -62,6 +62,20 @@ import { apiCallCostUsd } from "../../usage/pricing";
 import { nativeSubagentToolPolicy, toolAllowedByPolicy } from "../../lib/subagent-tool-policy";
 import { gatewayToken } from "../../lib/openclaw-gateway-token";
 import { topicsHome } from "../../services/daemon-state";
+import {
+  nativeDetachedEnabled,
+  runDetachedTurn,
+  reattachDetachedTurn,
+  abortDetachedTurn,
+  detachAll,
+  liveDetachedSessions,
+  brokerIdFor,
+  type DetachedTurnResult,
+  type ReattachOutcome,
+} from "./detached-turn";
+import type { TurnSpec } from "./turn-host";
+import type { RoundUsage } from "./turn-journal";
+import { getAiBridgeClient } from "../../lib/ai-bridge-client";
 
 /**
  * The model we start from when nobody asks for one.
@@ -274,6 +288,8 @@ const MODELS = [
 
 interface NativeSession {
   history: AgentMessage[];
+  /** This session's turn runs in its own process (`detached-turn.ts`). */
+  detached?: boolean;
   /** `null` = questa topic non ha un progetto: niente tool di file. */
   workspace: string | null;
   /**
@@ -398,6 +414,8 @@ export class NativeProvider implements AIProvider {
 
   /** Il passaggio periodico dello sfratto. `unref` così non tiene su il processo. */
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
+  /** Sessions whose turn runs detached and that this server is following. */
+  private readonly detachedLive = new Set<string>();
 
   start(): void {
     this.stopped = false;
@@ -419,7 +437,16 @@ export class NativeProvider implements AIProvider {
   stop(): void {
     this.stopped = true;
     if (this.sweepTimer) { clearInterval(this.sweepTimer); this.sweepTimer = null; }
+    // A DETACHED TURN IS NOT OURS TO END. It runs in its own process under the
+    // AI broker: the server going away only stops listening, and the next
+    // server finds it again (`reattach`). Aborting it here is exactly what made
+    // every restart cut the turn in flight.
+    if (this.detachedLive.size > 0) {
+      detachAll(this.detachedLive);
+      this.detachedLive.clear();
+    }
     for (const s of this.sessions.values()) {
+      if (s.detached) continue;
       // LA RAGIONE VIAGGIA DENTRO IL SEGNALE, anche qui.
       //
       // Un turno nativo vive DENTRO questo processo: quando il server si
@@ -524,7 +551,7 @@ export class NativeProvider implements AIProvider {
 
   /** Vedi `resolveTurnAlive`: si parla solo per le proprie sessioni. */
   ownsSession(sessionKey: string): boolean {
-    return this.sessions.has(sessionKey);
+    return this.sessions.has(sessionKey) || this.detachedLive.has(sessionKey);
   }
 
   /**
@@ -535,7 +562,7 @@ export class NativeProvider implements AIProvider {
    * alla domanda che il dispatcher fa davvero — «sta ancora lavorando?».
    */
   isTurnProcessAlive(sessionKey: string): boolean {
-    return Boolean(this.sessions.get(sessionKey)?.abort);
+    return Boolean(this.sessions.get(sessionKey)?.abort) || this.detachedLive.has(sessionKey);
   }
 
   /**
@@ -905,6 +932,48 @@ export class NativeProvider implements AIProvider {
       };
       let requestedAt = Date.now();
       turnOpts.onRequestStart = () => { requestedAt = Date.now(); };
+      if (nativeDetachedEnabled()) {
+        const spec: TurnSpec = {
+          v: 1,
+          sessionKey,
+          model: turnModel,
+          effort: turnEffort,
+          maxTokens: turnMaxTokens,
+          system: turnOpts.system,
+          reminder: turnOpts.reminder,
+          history: session.history,
+          calibration: session.calibration,
+          tools: globalOrchestrator
+            ? topicsToolSpecs("global-orchestrator")
+            : [
+              ...(workspace ? CODING_TOOLS : WORKSPACE_FREE_TOOLS),
+              ...(topics ? topicsToolSpecs(topics.profile, { hasProject, cwd: workspace }) : []),
+            ],
+          mcpTools: !globalOrchestrator && fleetAllowed ? mcpToolSpecs() : [],
+          policy: subagentPolicy ? { allowed: subagentPolicy.allowed ? [...subagentPolicy.allowed] : null, noDelegation: subagentPolicy.noDelegation } : null,
+          autonomy: turnOpts.autonomy,
+          workspace: workspace ?? "",
+          topics: topics ?? null,
+          server: { baseUrl: topicsAppBaseUrl(), topicsHome: topicsHome(), gatewayToken: gatewayToken() },
+        };
+        const r = await this.runDetached(sessionKey, session, spec, handler, abort, turnModel);
+        if (r) {
+          // The conversation comes back whole: compaction and the language
+          // reminder rewrite it in place inside the turn.
+          if (r.end) {
+            session.history = r.end.history as AgentMessage[];
+            if (r.end.calibration) session.calibration = r.end.calibration as Calibration;
+            this.keepCacheWarm(sessionKey, session, { model: turnModel, effort: turnEffort, maxTokens: turnMaxTokens, system: turnOpts.system, history: session.history, tools: turnOpts.tools }, r.lastRequestAt ?? requestedAt);
+          } else {
+            // No `end`: the process died and its history went with it. The
+            // next turn rebuilds the conversation from the DB.
+            this.sessions.delete(sessionKey);
+          }
+          recordTurnEnd(sessionKey, { ...detachedTurnEnd(r), turnId: options?.turnId });
+          return {};
+        }
+        // null = the broker could not start it: the turn runs here, as before.
+      }
       const out = await runAgentTurn(turnOpts, handler);
       // Only what a request body is made of: the turn's handler and signal
       // must not live on in the timer for 15 minutes.
@@ -961,7 +1030,113 @@ export class NativeProvider implements AIProvider {
    * domani nasce una quarta strada, il compilatore la ferma qui invece di
    * lasciarle raccontare una bugia plausibile.
    */
+  /**
+   * The turn in its own process. Null when the broker could not start it, so
+   * the caller runs it in-process instead of failing a turn for the broker.
+   */
+  private async runDetached(
+    sessionKey: string,
+    session: NativeSession,
+    spec: TurnSpec,
+    handler: StreamHandler,
+    abort: AbortController,
+    model: string,
+  ): Promise<DetachedTurnResult | null> {
+    session.detached = true;
+    this.detachedLive.add(sessionKey);
+    try {
+      // Throws only while starting the process (`runDetachedTurn`): once it
+      // runs, every ending arrives through the journal.
+      return await runDetachedTurn(spec, handler, {
+        signal: abort.signal,
+        onUsage: this.usageListener(sessionKey, handler, model),
+      });
+    } catch (err) {
+      console.warn(`[native] ${sessionKey}: could not start the turn in its own process, running it in the server:`, err instanceof Error ? err.message : err);
+      return null;
+    } finally {
+      session.detached = false;
+      // `stop()` clears the set on shutdown: a turn still running stays in
+      // the broker for the next server, and must not be counted as ours.
+      if (!this.stopped) this.detachedLive.delete(sessionKey);
+    }
+  }
+
+  /** Per-round usage: the dispatcher's live registry and the chat row (see `driveTurn`). */
+  private usageListener(sessionKey: string, handler: StreamHandler, model: string): (u: RoundUsage) => void {
+    return (u) => {
+      recordTurnUsage(sessionKey, u, model);
+      try { handler.onCallUsage?.({ ...toProviderUsage(u), model }); }
+      catch { /* the measurement never stops the work */ }
+    };
+  }
+
+  /**
+   * Find a turn again after a server restart (see `AIProvider.reattach`).
+   * Only a detached turn can be found: an in-process one died with the server.
+   */
+  async reattach(sessionKey: string, handler: StreamHandler, _opts: { rowId?: string } = {}): Promise<ReattachOutcome> {
+    if (!nativeDetachedEnabled()) return "dead";
+    const model = this.sessions.get(sessionKey)?.model ?? DEFAULT_MODEL;
+    let r: Awaited<ReturnType<typeof reattachDetachedTurn>>;
+    try {
+      r = await reattachDetachedTurn(sessionKey, handler, { onUsage: this.usageListener(sessionKey, handler, model) });
+    } catch (err) {
+      console.warn(`[native] ${sessionKey}: reattach failed:`, err instanceof Error ? err.message : err);
+      return "dead";
+    }
+    if (r.outcome === "dead") return r.outcome;
+    this.detachedLive.add(sessionKey);
+    void r.done.then((res) => {
+      if (!this.stopped) this.detachedLive.delete(sessionKey);
+      // The conversation the turn ended with is the session's from now on.
+      if (res.end) {
+        const s = this.sessionFor(sessionKey);
+        s.history = res.end.history as AgentMessage[];
+        if (res.end.calibration) s.calibration = res.end.calibration as Calibration;
+      }
+      recordTurnEnd(sessionKey, detachedTurnEnd(res));
+    });
+    return r.outcome;
+  }
+
+  /** Whether the broker still runs a turn for this session (the dispatcher's probe). */
+  async hasLiveSession(sessionKey: string): Promise<boolean> {
+    if (!nativeDetachedEnabled()) return false;
+    let info: { alive: boolean; endOffset: number } | undefined;
+    try { info = (await getAiBridgeClient().list()).find((x) => x.id === brokerIdFor(sessionKey)); }
+    catch { return false; }
+    if (!info) return false;
+    if (info.alive) return true;
+    // ENDED WHILE NO SERVER WAS LISTENING: the process is gone but its journal
+    // holds the ending, and the row is still open. Re-adopting reads that
+    // ending (`reattach` answers "completed"); resuming would redo the turn.
+    return info.endOffset > 0 && this.hasOpenRow(sessionKey);
+  }
+
+  private hasOpenRow(sessionKey: string): boolean {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- the database module is loaded at the first call, not when the provider registers
+      const { getDatabase } = require("../../db");
+      return !!getDatabase().query("SELECT 1 FROM messages WHERE session_key = ? AND partial = 1 LIMIT 1").get(sessionKey);
+    } catch {
+      return false;
+    }
+  }
+
+  /** Live detached turns, by session key, for the boot. */
+  async liveDetachedSessions(): Promise<Set<string>> {
+    if (!nativeDetachedEnabled()) return new Set();
+    return liveDetachedSessions();
+  }
+
   async abort(sessionKey: string, _runId: string | undefined, reason: AbortReason): Promise<void> {
+    // A turn found again after a restart has no controller in this process:
+    // the Stop goes straight to its own.
+    if (this.detachedLive.has(sessionKey) && !this.sessions.get(sessionKey)?.abort) {
+      abortDetachedTurn(sessionKey, reason);
+      return;
+    }
     const s = this.sessions.get(sessionKey);
     if (!s?.abort) return;
     // La ragione entra NEL segnale: `signal.reason` è dove la piattaforma la
@@ -1205,4 +1380,16 @@ function readTopicAutonomy(sessionKey: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** How a detached turn ended, from its terminal journal event. */
+function detachedTurnEnd(r: DetachedTurnResult): TurnEndInfo {
+  const t = r.terminal;
+  if (t && (t.e === "done" || t.e === "aborted")) {
+    const end = (t.m as { turnEnd?: TurnEndInfo } | undefined)?.turnEnd;
+    if (end) return end;
+    return t.e === "done" ? { end: "end_turn" } as TurnEndInfo : { end: "cancelled" };
+  }
+  if (t && t.e === "error") return { end: "error", cause: "provider-error", detail: t.msg };
+  return { end: "error", cause: "provider-error", detail: `the turn's process ended without finishing (exit ${r.exitCode ?? "signal"})` };
 }

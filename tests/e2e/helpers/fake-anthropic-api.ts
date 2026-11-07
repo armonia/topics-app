@@ -35,6 +35,19 @@ export interface FakeRound {
   afterThinkingMs?: number;
   /** Pause after the last block, before the round ends: the turn live with all its rows. */
   holdMs?: number;
+  /**
+   * Stream `text` in this many deltas instead of one, `pieceMs` apart: an
+   * answer that is half on screen when something happens to the server.
+   * Piece `i` (1-based) is `«i»` followed by its slice, so a test can tell
+   * which pieces arrived, in which order, and whether any came twice.
+   */
+  textPieces?: number;
+  pieceMs?: number;
+}
+
+/** The text a round with `textPieces` streams, piece by piece. */
+export function pieceTexts(n: number): string[] {
+  return Array.from({ length: n }, (_, i) => `«${i + 1}» `);
 }
 
 export interface FakeAnthropic {
@@ -104,7 +117,15 @@ export async function startFakeAnthropic(scripts: Record<string, FakeRound[]>): 
         index++;
       }
       if (spec.afterThinkingMs) await sleep(spec.afterThinkingMs);
-      if (spec.text) {
+      if (spec.textPieces) {
+        write(sse("content_block_start", { index, content_block: { type: "text", text: "" } }));
+        for (const piece of pieceTexts(spec.textPieces)) {
+          write(sse("content_block_delta", { index, delta: { type: "text_delta", text: piece } }));
+          await sleep(spec.pieceMs ?? 300);
+        }
+        write(sse("content_block_stop", { index }));
+        index++;
+      } else if (spec.text) {
         write(sse("content_block_start", { index, content_block: { type: "text", text: "" } }));
         write(sse("content_block_delta", { index, delta: { type: "text_delta", text: spec.text } }));
         write(sse("content_block_stop", { index }));

@@ -771,3 +771,21 @@ describe("unrecoverableHolders: a restart at zero turns does not cut a working c
     expect(unrecoverableHolders({ cards: 0, unadoptable: 0, workingChats: 0, zeroTurns: true })).toBe(0);
   });
 });
+
+/**
+ * WITH THE BROKER ON, A LAND DOES NOT WAIT FOR A CHAT THAT COMES BACK
+ * (lossless-restart). The 07/11 deploy waited hours for a window at zero turns;
+ * a turn the broker keeps survives the restart whole, so only what does not
+ * come back still holds.
+ */
+describe("unrecoverableHolders: with the broker on only what does not come back holds", () => {
+  test("a re-adoptable working chat holds nothing, even at zero turns", () => {
+    expect(unrecoverableHolders({ cards: 0, unadoptable: 0, workingChats: 3, zeroTurns: true, turnsComeBack: true })).toBe(0);
+  });
+  test("cards in this process and unadoptable chats still hold", () => {
+    expect(unrecoverableHolders({ cards: 1, unadoptable: 2, workingChats: 3, zeroTurns: true, turnsComeBack: true })).toBe(3);
+  });
+  test("with nothing unrecoverable and no minute to wait, the restart goes at once", () => {
+    expect(quiescenceVerdict({ busy: "1 chat", unrecoverable: 0, now: 1, startedAt: 0, chatCapMs: 0 })).toBe("scaduto");
+  });
+});

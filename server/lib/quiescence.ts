@@ -338,7 +338,14 @@ export function unrecoverableHolders(args: {
   /** Chats with a turn running (stream or broker), card sessions and questions excluded. */
   workingChats: number;
   zeroTurns: boolean;
+  /** The AI broker is on, so a re-adoptable turn really comes back. */
+  turnsComeBack?: boolean;
 }): number {
+  // WITH THE BROKER ON, a working chat that can re-adopt is not cut by a
+  // restart (lossless-restart): its turn lives in a process the broker keeps
+  // and the next server finds it again, partial text included. A land then has
+  // nothing to wait for but what really does not come back.
+  if (args.turnsComeBack) return args.cards + args.unadoptable;
   return args.cards + (args.zeroTurns ? args.workingChats : args.unadoptable);
 }
 
