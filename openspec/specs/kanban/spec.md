@@ -5417,3 +5417,22 @@ dispatcher's system chronicle SHALL live under «Details», never in the column.
 - **WHEN** the drawer of a working task is open
 - **THEN** the column SHALL show zero system chronicle rows and one live status line
 - **AND** the chronicle SHALL be readable under «Details»
+
+### Requirement: KANBAN-105 — The Plan view: Project, Area, Milestone, Card, Sources over the board
+
+The global board SHALL offer a «Piano» view that shows every open card ONCE,
+under the milestone it serves (Project → Area → Milestone → Card → Sources).
+The plan SHALL copy no card: status, counts and progress SHALL be computed from
+the cards on every read. A card SHALL belong to at most one milestone, and only
+to a milestone of its own project. Deleting an area or a milestone SHALL unlink
+its cards, never delete them. Cards with no milestone SHALL show under «Da
+collocare». Duplicates, cards delivered but open, cards with no owner and cards
+idle for more than 7 days SHALL carry a visible signal.
+
+#### Scenario: a card is linked twice
+- **WHEN** a card already in milestone A is linked to milestone B
+- **THEN** the card SHALL appear only under B
+
+#### Scenario: a milestone of another project
+- **WHEN** a card is linked to a milestone of another project
+- **THEN** the request SHALL fail with 400 and the card SHALL stay where it was

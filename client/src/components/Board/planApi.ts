@@ -5,7 +5,7 @@
 import { apiFetch } from '../../lib/shell/net';
 import type { PlanTree } from '../../../../shared/plan';
 export type {
-  PlanArea, PlanCard, PlanMilestone, PlanProgress, PlanProject, PlanSignal, PlanSource, PlanSourceKind, PlanTree,
+  PlanArea, PlanCard, PlanMilestone, PlanProgress, PlanProject, PlanSignal, PlanTree,
 } from '../../../../shared/plan';
 
 async function send<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -26,7 +26,6 @@ export const createMilestone = (input: {
 }) => send('POST', '/plan/milestones', input);
 export const updateMilestone = (id: string, patch: { owner?: string; targetDate?: string }) => send('PATCH', `/plan/milestones/${encodeURIComponent(id)}`, patch);
 export const linkCard = (taskId: string, milestoneId: string) => send('PUT', `/plan/links/${encodeURIComponent(taskId)}`, { milestoneId });
-export const unlinkCard = (taskId: string) => send('DELETE', `/plan/links/${encodeURIComponent(taskId)}`);
 /** Merges a duplicate into the survivor through the board's existing merge. */
 export const mergeDuplicate = (projectId: string, taskId: string, intoTaskId: string) =>
   send('POST', `/boards/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/merge`, { intoTaskId });

@@ -13,9 +13,6 @@ import {
   type PlanArea, type PlanCard, type PlanCounts, type PlanMilestone, type PlanProgress,
   type PlanProject, type PlanSignal, type PlanSource, type PlanSourceKind, type PlanTree,
 } from "../../shared/plan";
-export type {
-  PlanArea, PlanCard, PlanCounts, PlanMilestone, PlanProgress, PlanProject, PlanSignal, PlanSource, PlanSourceKind, PlanTree,
-} from "../../shared/plan";
 
 export const STALE_DAYS = 7;
 const DAY_MS = 86_400_000;

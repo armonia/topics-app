@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-105
+ */
 import { describe, expect, test, beforeEach } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { freshDb, makeCtx, call } from "./tasks-test-support";

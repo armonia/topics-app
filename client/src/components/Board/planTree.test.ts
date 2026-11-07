@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-105
+ */
 import { describe, expect, test } from 'bun:test';
 import { milestoneChoices, nodeKey, progressLabel, progressPct, branchSignals } from './planTree';
 import type { PlanProject } from './planApi';

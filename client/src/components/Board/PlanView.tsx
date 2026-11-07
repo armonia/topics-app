@@ -156,7 +156,7 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
     <div data-testid="plan-view" className="min-h-0 flex-1 overflow-auto px-3 py-3 text-app-text sm:px-5">
       <div className="mx-auto max-w-5xl">
         <div className="mb-2 flex items-center justify-between gap-3">
-          <h2 className="text-base font-semibold">{tr('plan.title')}</h2>
+          <h2 className="text-title font-semibold">{tr('plan.title')}</h2>
           <div className="flex items-center gap-2">
             <label className="flex items-center gap-1 text-compact text-app-text-secondary">
               <input type="checkbox" checked={includeDone} onChange={(e) => setIncludeDone(e.target.checked)} />{tr('plan.showDone')}
