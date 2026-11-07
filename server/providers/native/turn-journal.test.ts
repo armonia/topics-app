@@ -25,7 +25,7 @@ describe("journal reader", () => {
     const w = journalingHandler((l) => lines.push(l));
     w.onTextDelta("è «così»", "è «così»");
     const bytes = Buffer.from(lines.join(""), "utf8");
-    // Cut inside the two bytes of the first "è" (after `{"e":"text","d":"`).
+    // Split inside the first multi-byte character, right after the text key.
     const cut = bytes.indexOf(0xc3) + 1;
     const r = textRecorder();
     const reader = journalReader(r.handler);
@@ -42,5 +42,12 @@ describe("journal reader", () => {
     reader.push(JSON.stringify({ e: "usage", u }) + "\n");
     expect(seen).toEqual(["claude-opus-5"]);
     expect(reader.state.model).toBe("claude-opus-5");
+  });
+
+  test("an effect that throws does not stop the reader", () => {
+    const r = textRecorder();
+    const reader = journalReader(r.handler, { onEvent: () => { throw new Error("registry down"); } });
+    reader.push(JSON.stringify({ e: "text", d: "ancora" }) + "\n");
+    expect(r.text()).toBe("ancora");
   });
 });

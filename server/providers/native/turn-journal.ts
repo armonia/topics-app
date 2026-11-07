@@ -185,7 +185,11 @@ export function journalReader(
   let running = "";
   let pending = "";
   const fold = (ev: JournalEvent): void => {
-    extra.onEvent?.(ev);
+    // An effect that throws (a registry, a persist) must not stop the reader:
+    // the turn's next lines would be lost with it.
+    try { extra.onEvent?.(ev); } catch (err) {
+      console.warn(`[native-journal] effect failed on ${ev.e}:`, err instanceof Error ? err.message : err);
+    }
     switch (ev.e) {
       case "start": state.started = true; state.model = ev.model ?? null; return;
       case "req": state.lastRequestAt = ev.at; running = ""; return;
