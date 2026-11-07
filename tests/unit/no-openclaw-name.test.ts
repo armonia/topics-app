@@ -8,7 +8,7 @@
  * name goes with them, from code, interface, tests, scripts and documents.
  *
  * What may still carry it is a record, not a surface, and the list is closed
- * (the proposal of that change, "Elenco chiuso delle eccezioni"):
+ * (the proposal of that change, the closed list of exceptions):
  *   - CHANGELOG.md and its generated in-app copy, the archived changes, bench results, the SQL migrations
  *     already applied: history, never rewritten;
  *   - server/lib/data-dir.ts: the legacy app data root, a folder that still
@@ -22,6 +22,7 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
+import { gitEnv } from "../setup/bun-test-preload";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const NAME = "open" + "claw";
@@ -46,7 +47,7 @@ function isAllowed(path: string): boolean {
 
 /** Tracked text files whose content carries the name, case-insensitive. */
 function filesWithName(): string[] {
-  const res = spawnSync("git", ["grep", "-lIi", NAME], { cwd: ROOT, encoding: "utf8" });
+  const res = spawnSync("git", ["grep", "-lIi", NAME], { cwd: ROOT, encoding: "utf8", env: gitEnv() });
   // git grep exits 1 when nothing matches: that is the clean case, not a failure.
   if (res.status === 1 && !res.stderr) return [];
   if (res.status !== 0) throw new Error(`git grep failed (exit ${res.status}): ${res.stderr}`);

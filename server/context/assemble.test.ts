@@ -664,8 +664,8 @@ describe("assembleTopicContext — workspace files are never listed", () => {
   const topic = makeTopic();
   const ctx = makeMockCtx({ baseDir, appDataDir, topic, messages: [] });
 
-  // Il vecchio gateway li iniettava lui e Topics li mostrava come informativi:
-  // senza gateway nessuno li manda, e nessun provider li deve vedere elencati.
+  // The old gateway injected them itself and Topics showed them as informational:
+  // with no gateway nobody sends them, and no provider must see them listed.
   for (const [providerName, providerStrategy] of [["claude", "history-aware"], ["claude-code", "inline-system"]] as const) {
     it(`provider=${providerName} → no block from the workspace files`, () => {
       const env = assembleTopicContext(ctx, { sessionKey: topic.sessionKey, providerName, providerStrategy });

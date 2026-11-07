@@ -20,7 +20,7 @@ const ctx = {
   resolveProjectPath: () => null,
 };
 
-// L'agente si presenta col token del demone, scritto in TOPICS_HOME.
+// The agent presents itself with the daemon token, written in TOPICS_HOME.
 const AGENT_TOKEN = "a".repeat(64);
 const homeBefore = process.env.TOPICS_HOME;
 let home: string;

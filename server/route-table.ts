@@ -71,7 +71,7 @@ export type ApiRouterName = (typeof API_ROUTER_ORDER)[number];
  * Their slot in the order is fixed; when the condition is false the router is
  * null and the slot is skipped, exactly as `(x && await x(...))` did.
  */
-// Oggi nessuno: l'ultimo (il contesto del gateway) se n'è andato col gateway.
+// None today: the last one (the gateway context) left with the gateway.
 export const CONDITIONAL_API_ROUTERS = {} as const;
 
 type ConditionalApiRouterName = keyof typeof CONDITIONAL_API_ROUTERS;

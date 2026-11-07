@@ -125,10 +125,10 @@ export function envDataDir(env: NodeJS.ProcessEnv = process.env): string | undef
 }
 
 /**
- * Il nome della vecchia radice dei dati dell'app, sotto la home. Resta perché
- * le installazioni esistenti ci hanno media e workspace veri, e i percorsi
- * salvati nel DB puntano lì: spostarli è una migrazione di dati con una change
- * sua. È l'unico posto del server dove questo nome può comparire.
+ * The name of the app's old data root, under the home dir. It stays because
+ * existing installs hold real media and workspaces there, and the paths
+ * saved in the DB point at it: moving them is a data migration with a change
+ * of its own. This is the only place in the server where this name may appear.
  */
 export const LEGACY_DATA_DIR_NAME = ".openclaw";
 

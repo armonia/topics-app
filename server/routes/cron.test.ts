@@ -4,8 +4,8 @@
  * GET /api/cron/jobs once answered 200 `{jobs: [], warning}` on a scheduler
  * error, and the panel (which checks `res.ok` only) showed an empty list: the
  * jobs looked deleted while the scheduler was simply down. Il pianificatore di
- * Jarvis è `jarvis-channels`: il router riceve una CLI finta, il wrapper uno
- * script finto. Nessun job vero viene letto, lanciato o cambiato.
+ * Jarvis is `jarvis-channels`: the router gets a fake CLI, the wrapper a
+ * fake script. No real job is read, run, or changed.
  * @covers CRON-01
  * @covers CRONRPC-01
  */
@@ -47,7 +47,7 @@ function routerWith(answer: (args: string[]) => CronCliResult) {
   return { calls, broadcasts, send };
 }
 
-// La forma di `jarvis-channels cron list --json --all`, misurata il 07/11 (nomi segnaposto).
+// The shape of `jarvis-channels cron list --json --all`, measured on 07/11 (placeholder names).
 const RAW = {
   jobs: [
     {
@@ -181,7 +181,7 @@ describe("jarvisChannelsCron", () => {
   });
 
   test("a job that is not there is a 400 with the CLI's sentence", async () => {
-    // Misurato: `cron disable --id nope` esce 1 con questa riga su stderr.
+    // Measured: `cron disable --id nope` exits 1 with this line on stderr.
     const bin = fakeCli("missing", `echo 'job nope: non trovato' >&2; exit 1`);
     expect(await jarvisChannelsCron(["disable", "--id", "nope"], { bin })).toEqual({ ok: false, status: 400, message: "job nope: non trovato" });
   });

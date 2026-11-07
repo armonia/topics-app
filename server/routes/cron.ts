@@ -12,12 +12,12 @@ export type CronCli = (args: string[]) => Promise<CronCliResult>;
 /**
  * One `jarvis-channels cron …` call, the scheduler of Jarvis.
  *
- * I lavori programmati di Jarvis li tiene `jarvis-channels` (dal 03/11): la
- * sua riga di comando è l'unica porta, nessun gateway e nessun token passano
- * da Topics. Forma dell'errore, misurata: exit 1, una riga su stderr
- * («job X: non trovato», «job X: ambiguo»), e per `run --json` anche
- * `{ok:false, reason:"not-found"}` su stdout. Un job che non c'è è un 400;
- * tutto il resto (binario assente, scadenza, uscita strana) è un 502.
+ * Jarvis's scheduled jobs live in `jarvis-channels` (since 03/11): its
+ * command line is the only door — no gateway and no token pass through
+ * Topics. Measured error shape: exit 1, one line on stderr
+ * (Italian for not-found/ambiguous, matched in code), and for `run --json` also
+ * `{ok:false, reason:"not-found"}` on stdout. A job that is not there is a 400;
+ * everything else (missing binary, timeout, odd output) is a 502.
  */
 export async function jarvisChannelsCron(args: string[], opts: { bin?: string | null } = {}): Promise<CronCliResult> {
   const bin = opts.bin === undefined ? Bun.which("jarvis-channels", { PATH: augmentPath() }) : opts.bin;
@@ -53,7 +53,7 @@ function isoOf(ms: unknown): string | null {
 
 /**
  * The jobs of `cron list --json --all` in the panel's shape, or null when the
- * answer is not a list. jarvis-channels dà i tempi in millisecondi dentro
+ * answer is not a list. jarvis-channels reports times in milliseconds inside
  * `state` (`nextRunAtMs`, `lastRunAtMs`): il pannello li legge in ISO in cima.
  */
 export function readJobList(stdout: string): CronJobView[] | null {
@@ -75,7 +75,7 @@ export function readJobList(stdout: string): CronJobView[] | null {
   });
 }
 
-// `--all`: senza, `--json` lascia fuori i job spenti, e il pannello li riaccende da qui.
+// `--all`: without it, `--json` leaves out disabled jobs, and the panel re-enables them from here.
 const LIST_ARGS = ["list", "--json", "--all"];
 
 export function createCronRouter(ctx: AppContext, cli: CronCli = (args) => jarvisChannelsCron(args)): RouteHandler {
@@ -104,13 +104,13 @@ export function createCronRouter(ctx: AppContext, cli: CronCli = (args) => jarvi
       return json({ jobs: r.jobs });
     }
 
-    // `--id`, non posizionale: un id che comincia con «-» non diventa un'opzione.
-    // Un id vuoto non arriva alla CLI: lì «» è il prefisso di ogni job.
+    // `--id`, not positional: an id starting with «-» never becomes an option.
+    // An empty id never reaches the CLI: there «» is the prefix of every job.
     const jobMatch = matchRoute(pathname, "/api/cron/jobs/:jobId");
     const cronJobMatch = jobMatch?.jobId ? jobMatch : null;
     if (cronJobMatch && method === "PATCH") {
       const patch = await readJSON(req);
-      // Il pannello cambia solo acceso/spento; altro non ha un comando qui.
+      // The panel only toggles enabled/disabled; nothing else has a command here.
       if (typeof patch?.enabled !== "boolean") return json({ error: "Only `enabled` can be changed" }, 400);
       const r = await cli([patch.enabled ? "enable" : "disable", "--id", cronJobMatch.jobId]);
       if (!r.ok) return json({ error: `Scheduler error: ${r.message}` }, r.status);
@@ -121,12 +121,12 @@ export function createCronRouter(ctx: AppContext, cli: CronCli = (args) => jarvi
     const runMatch = matchRoute(pathname, "/api/cron/jobs/:jobId/run");
     const cronRunMatch = runMatch?.jobId ? runMatch : null;
     if (cronRunMatch && method === "POST") {
-      // `cron run` parte subito, dovuto o no, e torna appena avviato: il giro finisce nel registro.
+      // `cron run` starts at once, due or not, and returns as soon as started: the run is recorded in the log.
       const r = await cli(["run", "--id", cronRunMatch.jobId, "--json"]);
       if (!r.ok) return json({ error: `Scheduler error: ${r.message}` }, r.status);
       let out: any;
       try { out = JSON.parse(r.stdout); } catch { out = undefined; }
-      // Un «sì» che non dice di essere partito non timbra la riga come eseguita.
+      // An `ok` that does not confirm the start does not mark the row as run.
       if (out?.ok !== true) return json({ error: `Not run: ${out?.reason ?? "the scheduler gave no reason"}` }, 409);
       await broadcastCronList();
       return json({ ok: true });

@@ -99,7 +99,7 @@ describe('readAutomations: the hub model as rows by system', () => {
 
   test('systems: the Jarvis jobs and their health findings are Jarvis, launchd and the desktop app are Mac', () => {
     expect(systemOf('jarvis')).toBe('jarvis');
-    // l'hub manda ancora il vecchio nome della sorgente: letto uguale
+    // the hub still sends the old source name: read as equal
     expect(systemOf('jarvis')).toBe('jarvis');
     expect(isJarvisJobProvider('jarvis')).toBe(true);
     expect(isJarvisJobProvider('launchd')).toBe(false);

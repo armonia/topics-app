@@ -31,7 +31,7 @@ import type { PortOwnerDeps } from "../lib/port-project-owner";
 import { nativeDelegateRegistry } from "../browser-native-delegate";
 import { warnBridgeServerError } from "../lib/browser-bridge-warn";
 
-// Il token del demone: è l'unica credenziale che le rotte accettano.
+// The daemon token: the only credential the routes accept.
 const TOKEN = "c".repeat(64);
 
 function makeTopic(id: string, over: Partial<Topic> = {}): Topic {
@@ -1000,7 +1000,7 @@ describe("cancello del token — le quattro rotte che leggono o espongono roba a
     for (const path of sensibili) {
       expect((await h.post(path, {}, {}))!.status).toBe(401);
       expect((await h.post(path, {}, { "x-daemon-token": "e".repeat(64) }))!.status).toBe(401);
-      // Il vecchio header del gateway non apre più niente, nemmeno col valore giusto.
+      // The old gateway header no longer opens anything, even with the right value.
       expect((await h.post(path, {}, { "x-gateway-token": TOKEN }))!.status).toBe(401);
     }
   });
@@ -1302,7 +1302,7 @@ describe("own-topic page op with no pane — the mini browser opens first", () =
   beforeEach(() => { // screenshots land on disk: keep them out of ~/.topics
     savedHome = process.env.TOPICS_HOME;
     shotHome = mkdtempSync(join(tmpdir(), "bridge-shots-"));
-    // La stessa casa porta anche il token del demone, o le rotte rispondono 401.
+    // The same home also carries the daemon token, or the routes answer 401.
     writeFileSync(join(shotHome, "daemon-state.json"), JSON.stringify({ pid: 1, port: 1, token: TOKEN, startedAt: "x" }));
     process.env.TOPICS_HOME = shotHome;
   });

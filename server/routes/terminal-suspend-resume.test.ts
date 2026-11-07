@@ -24,7 +24,7 @@ import {
 import type { AppContext, RouteHandler } from "../types";
 
 const SUSPEND = String.fromCharCode(26);
-// Il token del demone, l'unica credenziale delle rotte degli agenti.
+// The daemon token, the only credential of the agent routes.
 const daemonToken = crypto.randomUUID().replace(/-/g, "").repeat(2);
 const HOME_KEYS = ["HOME", "DATA_DIR", "TOPICS_DATA_DIR", "APP_DATA_DIR", "CLAUDE_BIN", "TOPICS_HOME", "TOPICS_DISABLE_PTY_BRIDGE"] as const;
 const priorEnv = new Map<string, string | undefined>();

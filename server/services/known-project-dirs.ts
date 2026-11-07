@@ -50,7 +50,7 @@ export interface KnownProjectDirsCtx {
    *  archiviati» (`project-store.ts:149-153`: undefined significa SOLO gli
    *  attivi, quindi omettere l'opzione escluderebbe metà dei progetti). */
   projectStore?: { list(opts?: { archived?: boolean | null }): unknown[] };
-  /** Il workspace della cartella dati (`<APP_DATA_DIR>/workspace`). Omesso = si deduce
+  /** The workspace of the data dir (`<APP_DATA_DIR>/workspace`). Omitted = it is derived
    *  dall'ambiente con la STESSA regola di `server/utils.ts:133`, così anche i
    *  chiamanti che non ce l'hanno sottomano (le rotte dei file) vedono la
    *  sorgente 6 invece di ritrovarsi un confine più stretto degli altri. */

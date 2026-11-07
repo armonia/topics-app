@@ -16,8 +16,8 @@ import { readState } from "../services/daemon-state";
  *      It replaced the old per-agent `X-Agent-Token` (a pbkdf2 hash column on
  *      `agent_profiles`) when the named-agent roster was removed: nothing could
  *      mint one any more, so keeping it would have been a gate with no key.
- *  Il vecchio token condiviso del gateway (`x-gateway-token`) non apre più
- *  niente: il gateway è spento e il bridge MCP manda il token del demone.
+ *  The old shared gateway token (`x-gateway-token`) no longer opens
+ *  anything: the gateway is off and the MCP bridge sends the daemon token.
  *
  *  The ownership guard on send/read/stop is defence-in-depth ON TOP of this,
  *  never instead of it.

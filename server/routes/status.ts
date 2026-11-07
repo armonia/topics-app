@@ -174,8 +174,8 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
     },
   };
 
-  // Lo stato del provider di default: risponde «connected» e basta, non c'è
-  // più un gateway HTTP da sondare.
+  // The default provider's state: it answers «connected» and nothing more, there is
+  // no HTTP gateway left to probe.
   async function checkGatewayHealth(): Promise<GatewayHealthResult> {
     const provider = getProvider();
     return {
@@ -368,8 +368,8 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
           activeCount: activeTopicsCount,
           totalCount: totalTopicsCount,
         },
-        // I lavori programmati stanno nel pannello Automazioni (`/api/cron`):
-        // qui restano a zero per la forma della risposta.
+        // Scheduled jobs live in the Automations panel (`/api/cron`):
+        // here they stay zero for the response shape.
         cronJobs: { enabled: 0, disabled: 0, total: 0 } satisfies CronJobsStatus,
         sessions: { total: 0, byType: {} } satisfies SessionsStatus,
         processSpawns: serverSpawnCounts(),
