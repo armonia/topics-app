@@ -9,13 +9,18 @@ export function installScrollDiag(page: Page): Promise<void> {
   return page.addInitScript(() => {
     type Entry = Record<string, unknown>;
     const log: Entry[] = [];
+    (Error as unknown as { stackTraceLimit: number }).stackTraceLimit = 40;
+    // DIAG2: the browser's own scroll anchoring off on the chat scroller.
+    const style = document.createElement("style");
+    style.textContent = "[data-virtuoso-scroller] { overflow-anchor: none !important; }";
+    document.documentElement.appendChild(style);
     const w = window as unknown as { __diag: { log: Entry[] } };
     w.__diag = { log };
     const push = (e: Entry) => { if (log.length < 60_000) log.push(e); };
     const isChat = (el: Element | null): el is HTMLElement =>
       !!el && (el as HTMLElement).dataset?.virtuosoScroller !== undefined && !!el.closest?.('[data-testid="chat-scroll-container"]');
     const geo = (el: HTMLElement) => ({ st: el.scrollTop, sh: el.scrollHeight, ch: el.clientHeight });
-    const stack = () => (new Error().stack ?? "").split("\n").slice(3, 11).map((l) => l.trim());
+    const stack = () => (new Error().stack ?? "").split("\n").slice(3, 30).map((l) => l.trim());
     const desc = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
     Object.defineProperty(Element.prototype, "scrollTop", {
       configurable: true,
