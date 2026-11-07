@@ -5426,3 +5426,16 @@ The body of a card in progress SHALL show ONE progress line: the last step of th
 - **WHEN** a task is in progress and a tool is running
 - **THEN** the body SHALL show the tool step as its single progress line
 - **AND** the measure band SHALL show the full model name and the time without cutting either
+
+### Requirement: KANBAN-106 - A request naming several projects is proposed before any card exists
+
+When the text typed in the composer is a list (several lines naming projects), the composer SHALL show a
+proposal with one row per card, its project, and sub-cards under their parent, and SHALL create nothing
+until a valid confirmation. A request that is a single card SHALL keep creating that one card.
+
+#### Scenario: two projects, one confirmation
+- **GIVEN** a list request naming two projects
+- **WHEN** the writer presses Enter
+- **THEN** the proposal SHALL appear and zero cards SHALL exist
+- **WHEN** the writer confirms
+- **THEN** the ticked rows SHALL become cards, the parent first, each sub-card on its parent's project
