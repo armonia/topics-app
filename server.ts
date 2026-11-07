@@ -101,6 +101,7 @@ import { initUsageStore, rebuildSummary } from "./server/usage/store";
 import { configureSideCallLedger } from "./server/usage/side-calls";
 import { createCheckpointsRouter } from "./server/routes/checkpoints";
 import { createGoalsRouter } from "./server/routes/goals";
+import { createPlanRouter } from "./server/routes/plan";
 import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createTaskService, projectIdForPath } from "./server/services/tasks";
@@ -1060,6 +1061,7 @@ const mcpRouter = createMcpRouter(ctx);
 const sessionEnvironmentRouter = createSessionEnvironmentRouter(ctx);
 const checkpointsRouter = createCheckpointsRouter(ctx);
 const goalsRouter = createGoalsRouter(ctx);
+const planRouter = createPlanRouter(ctx);
 const openclawContextRouter = aiProvider.name === 'openclaw' ? createOpenClawContextRouter(ctx) : null;
 // Always-on: serves /api/topics/:id/context-preview and /context-snapshots.
 // Independent of which provider is the default — every provider benefits
@@ -3690,6 +3692,7 @@ const apiRouteTable = buildRouteTable({
   profileRouter,
   processesRouter,
   tasksRouter,
+  planRouter,
   pushRouter,
   notificationsRouter,
   clientTraceRouter,

@@ -54,6 +54,7 @@ const GOLDEN_ORDER = [
   "profileRouter",
   "processesRouter",
   "tasksRouter",
+  "planRouter",
   "pushRouter",
   "notificationsRouter",
   "clientTraceRouter",

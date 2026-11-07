@@ -51,6 +51,7 @@ export const API_ROUTER_ORDER = [
   "profileRouter",
   "processesRouter",
   "tasksRouter",
+  "planRouter",
   "pushRouter",
   "notificationsRouter",
   "clientTraceRouter",
