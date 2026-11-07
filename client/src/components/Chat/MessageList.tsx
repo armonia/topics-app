@@ -56,6 +56,8 @@ import { CHAT_BOTTOM_GUTTER_PX, COMPOSER_HEIGHT_PROPERTY, type ComposerResizeHan
 import { conversationViewKey } from '../../state/composerHandoff';
 import { useHiddenTurnReturn } from './useHiddenTurnReturn';
 import { endOfLoadingPinRoute, isParkedAtBottom, isVisibleGap } from './bottomGap';
+// DIAG ONLY
+const dlog = (e: Record<string, unknown>) => (window as unknown as { __diag?: { push: (e: Record<string, unknown>) => void } }).__diag?.push(e);
 
 /**
  * La LISTA di Virtuoso, cappata alla misura di lettura.
@@ -786,8 +788,9 @@ export function MessageList({
    * dropped a line and came back (UI audit 2026-09-29, core:F03).
    */
   const pinToBottom = useCallback((opts?: { viaVirtuoso?: boolean; frames?: 1 | 2; force?: boolean; settleFrames?: number; now?: boolean; renderNow?: boolean }) => {
-    if (disclosureHoldingRef.current()) { pinAfterHoldRef.current = true; return; }
-    if (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() })) return;
+    dlog({ k: 'pin?', o: JSON.stringify(opts ?? {}), stack: (new Error().stack ?? '').split('\n').slice(2, 7) });
+    if (disclosureHoldingRef.current()) { dlog({ k: 'pin-x', why: 'hold' }); pinAfterHoldRef.current = true; return; }
+    if (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() })) { dlog({ k: 'pin-x', why: 'auth', a: authorityRef.current.anchored, h: authorityRef.current.userHeld }); return; }
     if (opts?.viaVirtuoso) {
       virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
       // `renderNow`: the offset is written at once, but Virtuoso renders its
@@ -825,6 +828,7 @@ export function MessageList({
       // event before it read as the reader going up (`onScroll`).
       lastScrollTopRef.current = el.scrollTop;
       const residuo = el.scrollHeight - el.scrollTop - el.clientHeight;
+      dlog({ k: 'pin!', st: el.scrollTop, r: residuo, n: attempts });
       if (residuo > 1 && attempts < (opts?.settleFrames ?? PIN_SETTLE_FRAMES)) {
         attempts++;
         requestAnimationFrame(run);
@@ -838,6 +842,7 @@ export function MessageList({
   /** Manda un evento all'autorità, applica il nuovo stato, e pinna se lo dice lei. */
   const dispatchScroll = useCallback((event: ScrollEvent, pinOpts?: { viaVirtuoso?: boolean; frames?: 1 | 2; settleFrames?: number; force?: boolean; now?: boolean }) => {
     const decision = reduceScroll(authorityRef.current, event, Date.now());
+    dlog({ k: 'auth', ev: event.type, src: (event as { source?: string }).source, a: decision.state.anchored, h: decision.state.userHeld, pin: decision.pin });
     authorityRef.current = decision.state;
     if (decision.pin) pinToBottom(pinOpts);
   }, [pinToBottom]);
@@ -1809,6 +1814,7 @@ export function MessageList({
         // Ours is not emitted at all, not even downgraded to `delta`: past the
         // guard window a far `delta` still detaches, and that switched off
         // every recovery pin over a move we had caused ourselves.
+        dlog({ k: 'up', st, ref: riferimento, gesto, nostro });
         if (nostro) {
           scrollUpAnchorRef.current = st;
         } else {
@@ -1862,6 +1868,7 @@ export function MessageList({
     // chat scrollata indietro la ritrova dove l'aveva lasciata.
     let wasHidden = el.clientHeight === 0;
     const ro = new ResizeObserver(() => {
+      dlog({ k: 'ro', r: el.scrollHeight - el.scrollTop - el.clientHeight, st: el.scrollTop, sh: el.scrollHeight });
       const hidden = el.clientHeight === 0;
       if (wasHidden && !hidden) {
         wasHidden = hidden;
