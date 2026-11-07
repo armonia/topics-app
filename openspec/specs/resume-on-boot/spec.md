@@ -229,3 +229,21 @@ passata dopo.
 - **GIVEN** un turno in corso quando il server riceve SIGTERM
 - **WHEN** il server riparte
 - **THEN** il turno SHALL finire, con la stessa sessione e lo stesso transcript
+
+### Requirement: RESUME-06 — Un riavvio non taglia i turni del motore nativo
+
+Un turno del motore nativo (`topics`, il predefinito per chat e card) SHALL girare in
+un processo suo sotto il broker AI (`server/providers/native/turn-host.ts`, id
+`native:<sessione>`), così che un SIGTERM del server non lo tocchi. Il server che
+riparte SHALL ritrovarlo dal diario del broker e seguirlo fino in fondo: la chat
+nella stessa riga, la card sulla stessa sessione dal ramo `live` del dispatcher,
+la domanda aperta con il suo pannello. Il modello NON SHALL essere richiamato per
+un giro già servito, e nessuno SHALL vedere «Turno interrotto» o Riprova.
+
+Con `TOPICS_NATIVE_DETACHED=0` (o il broker spento) il turno gira nel server come
+prima, e allora una card nativa SHALL trattenere il riavvio come prima.
+
+#### Scenario: tre turni nativi in volo durante un riavvio
+- **GIVEN** una chat a metà di una risposta lunga, una card dispacciata a metà turno e una chat con `ask_user_question` aperta
+- **WHEN** il server riceve SIGTERM e riparte
+- **THEN** il server SHALL rispondere a `/__daemon/healthz` entro 5 s, la bolla SHALL essere la stessa riga con ogni pezzo una volta e in ordine, ogni giro del modello SHALL essere servito una volta sola, la card SHALL finire sulla stessa sessione senza consumare un tentativo, e la risposta data dopo il riavvio SHALL arrivare al modello come `tool_result` dello stesso `tool_use_id`

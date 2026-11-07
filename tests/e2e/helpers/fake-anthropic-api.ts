@@ -52,12 +52,18 @@ export function pieceTexts(n: number): string[] {
 
 export interface FakeAnthropic {
   baseUrl: string;
-  /** Every request served: when, for which scenario and round. */
-  requests: Array<{ at: number; scen: string; round: number }>;
+  /**
+   * Every request served: when, for which scenario and round, the conversation
+   * it carried (so a test can read the `tool_result` a round was given) and the
+   * ids of the `tool_use` blocks it answered with.
+   */
+  requests: Array<{ at: number; scen: string; round: number; messages: FakeMessage[]; toolUseIds: string[] }>;
   /** When the last piece of each tool input went out, by tool name and scenario. */
   inputDoneAt: Map<string, number>;
   close(): Promise<void>;
 }
+
+export interface FakeMessage { role: string; content: unknown }
 
 function sse(type: string, data: Record<string, unknown>): string {
   return `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`;
@@ -98,7 +104,8 @@ export async function startFakeAnthropic(scripts: Record<string, FakeRound[]>): 
       let body: { model?: string; messages?: Array<{ role: string; content: unknown }> } = {};
       try { body = JSON.parse(raw); } catch { /* an empty body answers like an unknown scenario */ }
       const { scen, round } = scenarioOf(body.messages ?? []);
-      requests.push({ at: Date.now(), scen, round });
+      const record = { at: Date.now(), scen, round, messages: body.messages ?? [], toolUseIds: [] as string[] };
+      requests.push(record);
       const spec: FakeRound = scripts[scen]?.[round] ?? { text: scen ? `FINE-${scen}` : "ok" };
       res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
       const write = (s: string) => { try { res.write(s); } catch { /* the client went away */ } };
@@ -133,6 +140,7 @@ export async function startFakeAnthropic(scripts: Record<string, FakeRound[]>): 
       }
       for (const t of spec.tools ?? []) {
         const id = `toolu_${scen}_${round}_${index}_${n}`;
+        record.toolUseIds.push(id);
         write(sse("content_block_start", { index, content_block: { type: "tool_use", id, name: t.name, input: {} } }));
         const json = JSON.stringify(t.input);
         const pieces = t.argStreamMs ? 30 : 1;
