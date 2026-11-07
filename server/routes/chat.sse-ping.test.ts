@@ -205,6 +205,38 @@ describe("send_chat_message across a stream Bun cut, on the real routes", () => 
   }, 40_000);
 });
 
+describe("the last frame before a silence is pushed out by a nudge", () => {
+  // WebKit holds the tail of a streamed response until the next byte (`createSseNudge`): the
+  // sender window, which reads only this stream, saw the answer after a tool 20 s late, at the ping.
+  test("a comment line follows the frames within a fraction of a second, long before the ping", async () => {
+    const ctx = await createTestAppContext();
+    const sessionKey = saveTopic(ctx, "sse-nudge");
+    const { provider } = silentToolProvider();
+    const resp = await postInProcess(chatRouterFor(ctx, provider, 60_000), sessionKey);
+    const reader = resp.body!.getReader();
+    const decoder = new TextDecoder();
+    const t0 = Date.now();
+    let seen = "";
+    let nudgeAfterMs: number | null = null;
+    const giveUp = setTimeout(() => reader.cancel().catch(() => {}), 3_000);
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        seen += decoder.decode(value, { stream: true });
+        if (seen.includes(": nudge")) { nudgeAfterMs = Date.now() - t0; break; }
+      }
+    } catch { /* cancelled */ }
+    finally { clearTimeout(giveUp); }
+
+    expect(seen).toContain('"tool_calls"');
+    expect(nudgeAfterMs).not.toBeNull();
+    expect(nudgeAfterMs!).toBeLessThan(1_000);
+    reader.cancel().catch(() => {});
+    ctx.activeStreams.get(sessionKey)?.abortController?.abort();
+  }, 10_000);
+});
+
 describe("the board's stall watch with pings on the stream", () => {
   test("a stuck turn is still judged within the idle window while pings flow", async () => {
     const ctx = await createTestAppContext();

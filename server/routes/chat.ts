@@ -19,7 +19,7 @@ import { homedir } from "os";
 import { scaffoldNewProject } from "../services/project-path-resolver";
 import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
 import { repeatedRowMarks, userRowMarks } from "../lib/user-row-marks";
-import { startSsePing } from "../lib/sse-ping";
+import { createSseNudge, startSsePing } from "../lib/sse-ping";
 import { nativeWorkingDir, recallMemoryContext } from "../lib/native-parity";
 import { getProvider, type AIProvider, type ChatMessage, type ProviderDoneMessage, type ProviderUsage, type StreamHandler } from "../providers";
 import { hasPendingAsk } from "../lib/ask-user-bridge";
@@ -1682,9 +1682,13 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           let clientDisconnected = false;
           const encoder = new TextEncoder();
 
+          // Declared before `writeSSE` uses it; wired to the writer just below the ping.
+          let nudge: ReturnType<typeof createSseNudge> | null = null;
           const writeSSE = async (data: string) => {
             if (clientDisconnected) return;
             try { await writer.write(encoder.encode(`data: ${data}\n\n`)); } catch { clientDisconnected = true; }
+            // The last frame of a burst must not wait for the next write (see createSseNudge).
+            nudge?.touch();
           };
           // THE SSE CARRIES THE SAME TOOL CALL AS THE WS FRAME (CHAT-TOOL-10):
           // `sseToolCallDelta` for the announcement, this for the result. The
@@ -1715,8 +1719,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             return firstTimes(onTimeline, adoptedTimes.get(toolCallId));
           };
           // A byte every 20 s while the turn lives: Bun's 255 s idle timeout cut this response mid-tool.
-          stopPing = startSsePing({ intervalMs: ssePingMs, alive: () => !clientDisconnected && streamState !== "finalized",
-            write: (chunk) => { if (!clientDisconnected) writer.write(chunk).catch(() => { clientDisconnected = true; }); } });
+          const writeRaw = (chunk: Uint8Array) => { if (!clientDisconnected) writer.write(chunk).catch(() => { clientDisconnected = true; }); };
+          const stopPingTimer = startSsePing({ intervalMs: ssePingMs, alive: () => !clientDisconnected && streamState !== "finalized", write: writeRaw });
+          nudge = createSseNudge({ alive: () => !clientDisconnected && streamState !== "finalized", write: writeRaw });
+          stopPing = () => { stopPingTimer(); nudge?.stop(); };
           const closeClient = async () => {
             stopPing();
             if (clientDisconnected) return;
