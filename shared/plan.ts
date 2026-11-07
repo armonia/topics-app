@@ -52,7 +52,12 @@ export interface PlanArea {
   progress: PlanProgress; milestones: PlanMilestone[];
 }
 export interface PlanProject {
-  projectId: string; name: string; progress: PlanProgress;
+  projectId: string; name: string;
+  /** Folder of the project, for its real icon (`ProjectFavicon`); null for virtual boards. */
+  path: string | null;
+  /** Open cards of the project (not done), in milestones or not. */
+  openCount: number;
+  progress: PlanProgress;
   areas: PlanArea[];
   /** Project cards not yet linked to a milestone: the "to place" group. */
   unplaced: { progress: PlanProgress; tasks: PlanCard[] };

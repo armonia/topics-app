@@ -2121,6 +2121,8 @@ const IT: Dict = {
   'plan.signal.stale': 'Ferma da oltre 7 giorni',
   'plan.error': 'Il piano non si è caricato: {message}',
   'plan.noMilestones': 'Ancora nessuna milestone',
+  'plan.openCount': '{n} aperte',
+  'plan.milestoneEmpty': 'Nessuna card aperta qui',
   'board.toolbar.allProjects': 'Tutti i progetti',
   'board.toolbar.dispatchSettings': 'Impostazioni auto-dispatch',
   'board.toolbar.viewMode.kanban': 'Passa alla vista a lista',
