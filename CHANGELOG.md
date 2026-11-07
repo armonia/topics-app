@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.54 — 2026-11-07
+
+### Sotto il cofano
+- Vista Piano: Progetto → Area → Milestone → Card → Fonti sopra la board (#608)
+
 ## 2.3.53 — 2026-11-07
 
 ### Sotto il cofano

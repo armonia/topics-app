@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.54",
+    "date": "2026-11-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Vista Piano: Progetto → Area → Milestone → Card → Fonti sopra la board (#608)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.53",
     "date": "2026-11-07",
     "sections": {
