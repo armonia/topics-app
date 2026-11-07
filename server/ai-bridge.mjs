@@ -340,7 +340,15 @@ function handleMessage(msg, client) {
     }
     case 'kill': {
       const s = sessions.get(msg.id);
-      if (s) {
+      if (s && !s.alive) {
+        // Already exited (the usual case for a native turn killed after its
+        // `end`): onDead has run and will not run again, so the teardown it
+        // would do on exit happens here, or the fd and the file leak forever.
+        s.storeClosed = true;
+        try { fs.closeSync(s.storeFd); } catch { /* already closed */ }
+        try { fs.unlinkSync(s.storePath); } catch { /* already gone */ }
+        sessions.delete(msg.id);
+      } else if (s) {
         s.killing = true; // onDead does fd close + unlink + delete once the child truly exits
         // A child being killed is no longer THE session for this id. It stays
         // alive for up to KILL_GRACE_MS, and while it was still in the map a

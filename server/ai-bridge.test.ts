@@ -3,7 +3,7 @@
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import net from "node:net";
-import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, writeFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { guiSessionName } from "./pty-bridge-platform.mjs";
@@ -323,6 +323,28 @@ describe("ai-bridge daemon", () => {
     c.send({ type: "kill", id, rid: 20 });
     expect("rid" in (await c.next((m) => m.type === "killed" && m.id === id))).toBe(false);
     expect("rid" in (await c.next((m) => m.type === "exit" && m.id === id))).toBe(false);
+    c.close();
+  });
+
+  // The server kills a native turn after reading its `end` line, and the host has
+  // usually exited by then: onDead already ran, so nothing else would ever close
+  // the fd or unlink the store (one leak per turn, for the daemon's whole life).
+  test("killing a session whose child already exited frees its store file and fd at once", async () => {
+    const c = await connect();
+    const id = "native:topic:leak1";
+    c.send({ type: "spawn", id, cliPath: "/bin/sh", args: ["-c", "printf 'end\\n'"], cwd: storeDir, env: {} });
+    await c.next((m) => m.type === "spawned" && m.id === id);
+    await c.next((m) => m.type === "exit" && m.id === id);
+    c.send({ type: "kill", id });
+    await c.next((m) => m.type === "killed" && m.id === id);
+    // Same socket, next frame: the kill has been handled when `list` answers.
+    c.send({ type: "list" });
+    const list = await c.next((m) => m.type === "list");
+    expect(list.sessions.some((s: any) => s.id === id)).toBe(false);
+    const files = readdirSync(storeDir).filter((f) => f.startsWith("native_topic_leak1"));
+    expect(files).toEqual([]);
+    const lsof = Bun.spawnSync(["lsof", "-p", String(daemon!.pid)]).stdout.toString();
+    expect(lsof.includes("native_topic_leak1")).toBe(false);
     c.close();
   });
 
