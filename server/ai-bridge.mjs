@@ -16,6 +16,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { userInfo } from 'node:os';
+import { StringDecoder } from 'node:string_decoder';
 // runtime-dep-ok: import ESM fratello, non uno spawn (come in pty-bridge.mjs).
 import { guiSessionName } from './pty-bridge-platform.mjs';
 
@@ -340,7 +341,15 @@ function handleMessage(msg, client) {
     }
     case 'kill': {
       const s = sessions.get(msg.id);
-      if (s) {
+      if (s && !s.alive) {
+        // Already exited (the usual case for a native turn killed after its
+        // `end`): onDead has run and will not run again, so the teardown it
+        // would do on exit happens here, or the fd and the file leak forever.
+        s.storeClosed = true;
+        try { fs.closeSync(s.storeFd); } catch { /* already closed */ }
+        try { fs.unlinkSync(s.storePath); } catch { /* already gone */ }
+        sessions.delete(msg.id);
+      } else if (s) {
         s.killing = true; // onDead does fd close + unlink + delete once the child truly exits
         // A child being killed is no longer THE session for this id. It stays
         // alive for up to KILL_GRACE_MS, and while it was still in the map a
@@ -561,8 +570,13 @@ async function start() {
     clients.add(socket);
     connectedAt.set(socket, Date.now());
     let lineBuffer = '';
+    // One decoder per socket: a chunk can end inside a UTF-8 character, and
+    // decoding chunks one by one turned it into U+FFFD. A native turn's whole
+    // history travels in one write frame, so the model got the damage back in
+    // every later turn.
+    const decoder = new StringDecoder('utf8');
     socket.on('data', (chunk) => {
-      lineBuffer += chunk.toString();
+      lineBuffer += typeof chunk === 'string' ? chunk : decoder.write(chunk);
       let nl;
       while ((nl = lineBuffer.indexOf('\n')) !== -1) {
         const line = lineBuffer.slice(0, nl); lineBuffer = lineBuffer.slice(nl + 1);
