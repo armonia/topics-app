@@ -44,6 +44,8 @@ let undoFake: () => void;
 beforeAll(async () => {
   fake = await startFakeAnthropic({
     long: [{ textPieces: PIECES, pieceMs: 150 }],
+    tail: [{ textPieces: PIECES, pieceMs: 150 }],
+    spawndrop: [{ textPieces: PIECES, pieceMs: 150 }],
     short: [{ text: "subito" }],
   });
   undoFake = installFakeAnthropic(home, fake.baseUrl);
@@ -206,5 +208,45 @@ describe("detached native turn", () => {
     const end = await awaitStrayTurn(sk);
     expect(end?.history.length).toBe(2);
     expect(await awaitStrayTurn(sk)).toBeNull();
+  }, 30_000);
+
+  test("an attachment lost without a socket drop: the tail is read at the host's exit", async () => {
+    const sk = "topic:dt000009";
+    const r = recorder();
+    const run = runDetachedTurn(spec(sk, "tail"), r.handler, {});
+    await until(() => textCount(r) >= 3);
+    // The daemon stops sending to us; only the exit frame still names the turn.
+    getAiBridgeClient().detach(brokerIdFor(sk));
+    const out = await run;
+    expect(r.text()).toBe(pieceTexts(PIECES).join(""));
+    expect(r.events.at(-1)).toBe("done");
+    expect(out.end).not.toBeNull();
+  }, 30_000);
+
+  test("a socket drop during the spawn is not a dead turn, even if another caller reconnects first", async () => {
+    const sk = "topic:dt000010";
+    const r = recorder();
+    const c = getAiBridgeClient() as unknown as { send: (m: { type?: string; id?: string }) => boolean; socket: { destroy: () => void } | null; list: () => Promise<unknown> };
+    await getAiBridgeClient().ensureConnected();
+    const origSend = c.send.bind(c);
+    let dropped = false;
+    c.send = (msg) => {
+      if (!dropped && msg?.type === "spawn" && msg.id === brokerIdFor(sk)) {
+        dropped = true;
+        c.socket?.destroy();
+        // Another user of the shared client reconnects before the spawn's retry.
+        setTimeout(() => { void c.list().catch(() => {}); }, 30);
+        return false;
+      }
+      return origSend(msg);
+    };
+    try {
+      await runDetachedTurn(spec(sk, "spawndrop"), r.handler, {});
+    } finally {
+      c.send = origSend;
+    }
+    expect(r.events.filter((e) => e.startsWith("error:"))).toEqual([]);
+    expect(r.events.at(-1)).toBe("done");
+    expect(r.text()).toBe(pieceTexts(PIECES).join(""));
   }, 30_000);
 });

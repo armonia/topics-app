@@ -56,6 +56,13 @@ interface Follow {
   done: Promise<DetachedTurnResult>;
   /** Ends the follow now, as an exit would. */
   finish: (exitCode: number | null) => void;
+  /**
+   * Starts re-attaching on every reconnect. Called once the broker knows the
+   * session: before the spawn's ack a reconnect finds it `missing`, and taking
+   * that for a dead turn reported an error while the spawn's retry started the
+   * host anyway, with nobody following it.
+   */
+  armReconnect: () => void;
 }
 
 /** What `detachAll` has to undo besides the handlers: the reconnect hook and the turn's effects. */
@@ -134,18 +141,22 @@ function follow(
       finish(code);
     },
   });
-  offReconnect = client.onReconnect(() => {
+  const armReconnect = () => {
     if (settled) return;
-    client.attachWhole(id, consumed)
-      .then((r) => {
-        if (settled) return;
-        if (r.missing) { finish(r.exitCode); return; }
-        if (!r.alive) finish(r.exitCode);
-      })
-      .catch((err: unknown) => console.warn(`[native-detached] ${id}: re-attach after a reconnect failed: ${err instanceof Error ? err.message : String(err)}`));
-  });
+    offReconnect();
+    offReconnect = client.onReconnect(() => {
+      if (settled) return;
+      client.attachWhole(id, consumed)
+        .then((r) => {
+          if (settled) return;
+          if (r.missing) { finish(r.exitCode); return; }
+          if (!r.alive) finish(r.exitCode);
+        })
+        .catch((err: unknown) => console.warn(`[native-detached] ${id}: re-attach after a reconnect failed: ${err instanceof Error ? err.message : String(err)}`));
+    });
+  };
   followed.set(id, () => { offReconnect(); effects.close(); });
-  return { reader, done, finish };
+  return { reader, done, finish, armReconnect };
 }
 
 /** One control line to the host. A socket being re-made is waited for once; past that, `fallback`. */
@@ -184,6 +195,7 @@ export async function runDetachedTurn(
   try {
     await client.spawn(id, { cliPath: process.execPath, args: [HOST_PATH], cwd: spec.workspace || env.HOME || "/", env });
     client.write(id, JSON.stringify(spec) + "\n");
+    f.armReconnect();
   } catch (err) {
     followed.get(id)?.();
     followed.delete(id);
@@ -272,6 +284,7 @@ export async function reattachDetachedTurn(
     client.unregister(id);
     throw err;
   }
+  f.armReconnect();
   // The replay arrived before the ack (same socket, in order): the reader has
   // folded the whole turn so far.
   const st = f.reader.state;
