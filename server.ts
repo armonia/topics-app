@@ -188,6 +188,7 @@ import { aiBridgeEnabled, ClaudeCodeProvider } from "./server/providers/claude-c
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
 import type { AbortReason } from "./server/providers/types";
 import { recordTurnEnd, takeTurnEnd, peekTurnEnd } from "./server/providers/turn-end-registry";
+import { raceReadAgainstTurnEnd } from "./server/providers/race-read-turn-end";
 import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { automaticDispatchHooks } from "./server/services/task-auto-model";
@@ -1433,15 +1434,11 @@ async function watchHeadlessBody(
   });
   try {
     while (true) {
-      const { done, value } = await Promise.race<{ done: boolean; value?: Uint8Array }>([
-        reader.read(),
-        (async () => {
-          while (true) {
-            await Bun.sleep(HEADLESS_END_GRACE_MS);
-            if (peekTurnEnd(sessionKey)) return { done: true as const };
-          }
-        })(),
-      ]);
+      const { done, value } = await raceReadAgainstTurnEnd(
+        () => reader.read(),
+        () => peekTurnEnd(sessionKey),
+        HEADLESS_END_GRACE_MS,
+      );
       if (done) {
         if (peekTurnEnd(sessionKey)) reader.cancel().catch(() => {});
         break;
