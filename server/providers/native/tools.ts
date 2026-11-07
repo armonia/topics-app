@@ -26,7 +26,7 @@ import { resolve, relative, isAbsolute, dirname } from "path";
 import { spawn } from "child_process";
 import { homedir } from "os";
 import { killProcessTree } from "../../lib/process-tree";
-import { registerNativeCommand } from "../../lib/native-command-registry";
+import { registerNativeCommand, type NativeCommandEntry } from "../../lib/native-command-registry";
 import { lowPriorityArgv } from "../../lib/low-priority";
 import { agentBaseEnv } from "../../lib/agent-env";
 import { readSlashCommandSource } from "../../lib/slash-command-source";
@@ -36,6 +36,27 @@ import { globAnswer, globFiles } from "./glob-files";
 import { resolveSearchRoot } from "./search-root";
 import { imageShape } from "../../services/image-shape";
 import { imageCaption, type ToolImage } from "./image-normalize";
+
+/**
+ * Who hears a command start and end, besides this process's registry. A turn
+ * in its own process (`turn-host.ts`) journals them, so the server's swap
+ * freezer and budget governor see commands they would otherwise never find.
+ */
+let commandWatcher: { started: (c: NativeCommandEntry) => void; ended: (pid: number) => void } | null = null;
+
+export function watchNativeCommands(w: NonNullable<typeof commandWatcher>): () => void {
+  commandWatcher = w;
+  return () => { if (commandWatcher === w) commandWatcher = null; };
+}
+
+function trackNativeCommand(entry: NativeCommandEntry): () => void {
+  const forget = registerNativeCommand(entry);
+  try { commandWatcher?.started(entry); } catch { /* the command runs anyway */ }
+  return () => {
+    forget();
+    try { commandWatcher?.ended(entry.pid); } catch { /* idem */ }
+  };
+}
 
 export interface ToolSpec {
   name: string;
@@ -460,7 +481,7 @@ async function runCommand(
     };
     arm(timeoutMs);
     const forgetCommand = child.pid && owner?.sessionKey
-      ? registerNativeCommand({
+      ? trackNativeCommand({
         sessionKey: owner.sessionKey,
         pid: child.pid,
         command: owner.command ?? `${cmd} ${args.join(" ")}`,

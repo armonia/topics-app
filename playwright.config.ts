@@ -191,11 +191,19 @@ const webkitOnly = process.argv.some(
 );
 if (webkitOnly) process.env.TOPICS_E2E_WEBKIT_ONLY = "1";
 
+// A run whose browsers live on ANOTHER machine launches no Chromium here
+// either: `pw-remote` (~/bin) points Playwright at a run-server on the PC
+// through `PW_TEST_CONNECT_WS_ENDPOINT`, and every browser opens over there
+// while runner and test server stay on this Mac. That is the road the rule
+// itself names ("run it on the Windows PC").
+const remoteBrowsers = !!process.env.PW_TEST_CONNECT_WS_ENDPOINT;
+
 if (
   process.platform === "darwin" &&
   process.env.GITHUB_ACTIONS !== "true" &&
   process.env.TOPICS_E2E_LIST_ONLY !== "1" &&
-  process.env.TOPICS_E2E_WEBKIT_ONLY !== "1"
+  process.env.TOPICS_E2E_WEBKIT_ONLY !== "1" &&
+  !remoteBrowsers
 ) {
   throw new Error(
     "E2E does not run on this Mac: no Chromium here. Commit the spec and read the e2e jobs of the pull request CI " +

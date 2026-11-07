@@ -1654,7 +1654,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // Regge un riavvio chi gira in un processo FIGLIO che si riadotta, e
           // una chat che il boot riprende da sola (`turnSurvivesRestart`). Si
           // chiede UNA volta, qui: non cambia mentre il turno gira.
-          startStream(sessionKey, partialMsg.id, externalAbort, turnSurvivesRestart({ providerReattaches: providerSurvivesRestart(topicProvider), boardCard: !!dispatched }));
+          startStream(sessionKey, partialMsg.id, externalAbort, turnSurvivesRestart({ providerReattaches: providerSurvivesRestart(topicProvider), boardCard: !!dispatched }), providerSurvivesRestart(topicProvider));
           // The turn's name: the user row it answers. It rides on every end this
           // route records, so a late end is never taken for the next turn's.
           const turnId = partialMsg.parentId ?? undefined;
@@ -4232,7 +4232,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const originalBody = resp.body!;
           const SAVE_INTERVAL = 10;
           const partialMsg = createPartialMessage(sessionKey, "assistant");
-          startStream(sessionKey, partialMsg.id, abortController, turnSurvivesRestart({ providerReattaches: providerSurvivesRestart(topicProvider), boardCard: !!dispatched }));
+          startStream(sessionKey, partialMsg.id, abortController, turnSurvivesRestart({ providerReattaches: providerSurvivesRestart(topicProvider), boardCard: !!dispatched }), providerSurvivesRestart(topicProvider));
           startTurnAttention(matchedTopic, boardAgentTurn);
           broadcastToAll({
             type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id,

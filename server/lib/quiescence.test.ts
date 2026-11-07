@@ -228,6 +228,11 @@ describe("providerSurvivesRestart — la domanda si fa al provider, non al nome"
   test("un `reattach` che non e' una funzione non conta", () => {
     expect(providerSurvivesRestart({ reattach: true })).toBe(false);
   });
+
+  test("a reattach behind a switch counts only with the switch on (native runtime, detached turns off)", () => {
+    expect(providerSurvivesRestart({ reattach: async () => "dead", reattachEnabled: () => false })).toBe(false);
+    expect(providerSurvivesRestart({ reattach: async () => "live", reattachEnabled: () => true })).toBe(true);
+  });
 });
 
 /**
@@ -769,5 +774,23 @@ describe("unrecoverableHolders: a restart at zero turns does not cut a working c
     expect(unrecoverableHolders({ cards: 2, unadoptable: 1, workingChats: 1, zeroTurns: true })).toBe(3);
     // Parked on a question only: no working chat, so the chat minute still applies.
     expect(unrecoverableHolders({ cards: 0, unadoptable: 0, workingChats: 0, zeroTurns: true })).toBe(0);
+  });
+});
+
+/**
+ * WITH THE BROKER ON, A LAND DOES NOT WAIT FOR A CHAT THAT COMES BACK
+ * (lossless-restart). The 07/11 deploy waited hours for a window at zero turns;
+ * a turn the broker keeps survives the restart whole, so only what does not
+ * come back still holds.
+ */
+describe("unrecoverableHolders: with the broker on only what does not come back holds", () => {
+  test("a working chat whose turn comes back holds nothing, even at zero turns", () => {
+    expect(unrecoverableHolders({ cards: 0, unadoptable: 0, workingChats: 3, lostWorkingChats: 0, zeroTurns: true })).toBe(0);
+  });
+  test("cards in this process, and at zero turns each chat that would be cut, still hold", () => {
+    expect(unrecoverableHolders({ cards: 1, unadoptable: 2, workingChats: 3, lostWorkingChats: 1, zeroTurns: true })).toBe(2);
+  });
+  test("with nothing unrecoverable and no minute to wait, the restart goes at once", () => {
+    expect(quiescenceVerdict({ busy: "1 chat", unrecoverable: 0, now: 1, startedAt: 0, chatCapMs: 0 })).toBe("scaduto");
   });
 });

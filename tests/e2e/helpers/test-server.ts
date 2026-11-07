@@ -288,6 +288,15 @@ export function testServerEnv(port: number = E2E_PORT): Record<string, string> {
     TOPICS_LIVE_TERMINAL_APP: "0",
     // Stessa storia per il broker stream-json.
     TOPICS_AI_BRIDGE_SOCKET: bridgeSocket("ai-bridge", port),
+    // The broker as production runs it (`~/.topics-server-env` exports
+    // TOPICS_AI_BRIDGE=1). For the CLI nothing changes outside Windows, where
+    // the broker is already on by default; what it turns on is the native
+    // runtime's detached turns (`providers/native/detached-turn.ts`), which
+    // only an explicit 1 enables: without it the bench tested the in-process
+    // path production no longer takes, and a restart cut every native turn
+    // (restart-loses-nothing.spec.ts). Not on Windows: the broker talks over a
+    // Unix socket there is none of.
+    ...(process.platform === "win32" ? {} : { TOPICS_AI_BRIDGE: "1" }),
     // A bank daemon whose server died gives up after 60s, not the 90s meant for
     // a production restart. The teardown stops it anyway; this covers a run
     // killed before its teardown. It must outlast a restart: chat-join-mid-turn

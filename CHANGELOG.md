@@ -2,6 +2,27 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.53 — 2026-11-07
+
+### Sotto il cofano
+- Native turns run in their own process under the AI broker, so a server restart no longer cuts them
+- The update scripts can ask the server whether a restart loses turns, and which commit it booted on
+- A native card holds the restart again when its turn runs inside the server
+- E2E bar of lossless-restart: three native turns in flight survive a SIGTERM
+- The broker frees the store of a session killed after its process already exited
+- The restart gate asks each native turn where it runs, and the boot trusts a live process over a dead journal
+- A detached native turn survives a dropped broker socket, and its effects reach the server
+- A reconnect during a native turn's spawn no longer ends the turn as dead
+- The broker decodes each socket's bytes as one stream, not chunk by chunk
+- The restart gate asks every turn whether it comes back, not whether the broker is on
+- A native host's hold lift names the hold it lifted
+- The swap freezer and the governor reach a detached native turn's commands
+- A failing turn effect no longer stops the journal reader; gate fixes in native tests
+- A native turn left by a restart is adopted whole, priced, and never confused with an older one
+- A detached native turn's round lines reach the server's stdout log again
+- Language gates green on the restart e2e bar: English comment and names
+- CI green again: the remote MCP fleet setter is not named like a React hook, and the boot-order tests read the sweep's real argument
+
 ## 2.3.52 — 2026-11-07
 
 ### Sotto il cofano

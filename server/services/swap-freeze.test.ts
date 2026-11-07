@@ -548,6 +548,24 @@ describe("F12: the guards, and what happens when one trips", () => {
     expect(stops.map((s) => s.pid).sort()).toEqual([60123, 60130]);
   });
 
+  test("a detached native turn's command, grandchild of the AI broker, is frozen and offered; the broker and host are not", async () => {
+    // Daemon (a sidecar) -> turn host -> command, all in the daemon's group.
+    const HOST = 60200;
+    const procs = [
+      ...BASE,
+      { pid: HOST, ppid: BRIDGE, pgid: BRIDGE, command: "bun server/providers/native/turn-host.ts", cores: 0.1, footprintGB: 0.2 },
+      { pid: 60210, ppid: HOST, pgid: BRIDGE, command: "/bin/bash -lc bun run test:unit", cores: 0.9, footprintGB: 2.4, residentGB: 1.8 },
+      { pid: 60211, ppid: 60210, pgid: BRIDGE, command: "bun test", cores: 0.9, footprintGB: 1.0, residentGB: 0.8 },
+    ];
+    const natives: NativeCommandRef[] = [{ sessionKey: "topic:d", pid: 60210, command: "bun run test:unit", topicId: "d", terminalId: null, taskId: null }];
+    const w = world({ procs, natives });
+    expect((await w.freezer.freezableCommands()).map((f) => f.root.pid)).toEqual([60210]);
+    await twoBeats(w);
+    const stops = w.signals.filter((s) => s.sig === "SIGSTOP");
+    for (const s of stops) expect(s.pid, "no group signal: the group holds the broker").toBeGreaterThan(0);
+    expect(stops.map((s) => s.pid).sort()).toEqual([60210, 60211]);
+  });
+
   test("a CLI inside the tree refuses the whole freeze and turns the freezer off", async () => {
     const procs = [
       ...BASE,

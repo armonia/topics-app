@@ -223,6 +223,7 @@ export async function remountMcpFleet(): Promise<void> {
  * the API refuses the whole turn for exceeding the cap.
  */
 export function mcpToolSpecs(): ToolSpec[] {
+  if (remote) return remote.specs().map((t) => ({ ...t }));
   return [...toolsByName.values()]
     .map((t) => ({ ...t.spec }))
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
@@ -292,6 +293,25 @@ export function mcpFleetStatus(): McpFleetStatus {
 }
 
 /**
+ * A fleet that lives in ANOTHER process.
+ *
+ * A detached native turn (`turn-host.ts`) runs outside the server, but the
+ * machine's MCP servers stay mounted in the server: starting the fleet once
+ * per turn would pay every stdio server's cold start on every message. In that
+ * process the fleet is this proxy: the specs it was handed (refreshed by each
+ * call's answer, so a child mounted mid-turn is callable on the next round)
+ * and a call that goes to the server's `/api/mcp/call`.
+ */
+interface RemoteFleet {
+  specs: () => ToolSpec[];
+  call: (name: string, input: Record<string, unknown>) => Promise<ToolResult>;
+}
+let remote: RemoteFleet | null = null;
+export function setRemoteMcpFleet(fleet: RemoteFleet | null): void {
+  remote = fleet;
+}
+
+/**
  * Run one MCP tool.
  *
  * Never throws: the agent loop turns a result into a `tool_result` block, and an
@@ -299,6 +319,7 @@ export function mcpFleetStatus(): McpFleetStatus {
  * reads the reason and can go another way.
  */
 export async function executeMcpTool(name: string, input: Record<string, unknown>): Promise<ToolResult> {
+  if (remote) return remote.call(name, input);
   const mounted = toolsByName.get(name);
   if (!mounted) {
     return { content: `unknown MCP tool: ${name}`, isError: true };

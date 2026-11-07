@@ -35,16 +35,35 @@ export interface FakeRound {
   afterThinkingMs?: number;
   /** Pause after the last block, before the round ends: the turn live with all its rows. */
   holdMs?: number;
+  /**
+   * Stream `text` in this many deltas instead of one, `pieceMs` apart: an
+   * answer that is half on screen when something happens to the server.
+   * Piece `i` (1-based) is `«i»` followed by its slice, so a test can tell
+   * which pieces arrived, in which order, and whether any came twice.
+   */
+  textPieces?: number;
+  pieceMs?: number;
+}
+
+/** The text a round with `textPieces` streams, piece by piece. */
+export function pieceTexts(n: number): string[] {
+  return Array.from({ length: n }, (_, i) => `«${i + 1}» `);
 }
 
 export interface FakeAnthropic {
   baseUrl: string;
-  /** Every request served: when, for which scenario and round. */
-  requests: Array<{ at: number; scen: string; round: number }>;
+  /**
+   * Every request served: when, for which scenario and round, the conversation
+   * it carried (so a test can read the `tool_result` a round was given) and the
+   * ids of the `tool_use` blocks it answered with.
+   */
+  requests: Array<{ at: number; scen: string; round: number; messages: FakeMessage[]; toolUseIds: string[] }>;
   /** When the last piece of each tool input went out, by tool name and scenario. */
   inputDoneAt: Map<string, number>;
   close(): Promise<void>;
 }
+
+export interface FakeMessage { role: string; content: unknown }
 
 function sse(type: string, data: Record<string, unknown>): string {
   return `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`;
@@ -85,7 +104,8 @@ export async function startFakeAnthropic(scripts: Record<string, FakeRound[]>): 
       let body: { model?: string; messages?: Array<{ role: string; content: unknown }> } = {};
       try { body = JSON.parse(raw); } catch { /* an empty body answers like an unknown scenario */ }
       const { scen, round } = scenarioOf(body.messages ?? []);
-      requests.push({ at: Date.now(), scen, round });
+      const record = { at: Date.now(), scen, round, messages: body.messages ?? [], toolUseIds: [] as string[] };
+      requests.push(record);
       const spec: FakeRound = scripts[scen]?.[round] ?? { text: scen ? `FINE-${scen}` : "ok" };
       res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
       const write = (s: string) => { try { res.write(s); } catch { /* the client went away */ } };
@@ -104,7 +124,15 @@ export async function startFakeAnthropic(scripts: Record<string, FakeRound[]>): 
         index++;
       }
       if (spec.afterThinkingMs) await sleep(spec.afterThinkingMs);
-      if (spec.text) {
+      if (spec.textPieces) {
+        write(sse("content_block_start", { index, content_block: { type: "text", text: "" } }));
+        for (const piece of pieceTexts(spec.textPieces)) {
+          write(sse("content_block_delta", { index, delta: { type: "text_delta", text: piece } }));
+          await sleep(spec.pieceMs ?? 300);
+        }
+        write(sse("content_block_stop", { index }));
+        index++;
+      } else if (spec.text) {
         write(sse("content_block_start", { index, content_block: { type: "text", text: "" } }));
         write(sse("content_block_delta", { index, delta: { type: "text_delta", text: spec.text } }));
         write(sse("content_block_stop", { index }));
@@ -112,6 +140,7 @@ export async function startFakeAnthropic(scripts: Record<string, FakeRound[]>): 
       }
       for (const t of spec.tools ?? []) {
         const id = `toolu_${scen}_${round}_${index}_${n}`;
+        record.toolUseIds.push(id);
         write(sse("content_block_start", { index, content_block: { type: "tool_use", id, name: t.name, input: {} } }));
         const json = JSON.stringify(t.input);
         const pieces = t.argStreamMs ? 30 : 1;

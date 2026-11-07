@@ -172,7 +172,7 @@ describe("after a restart, an owed answer is there for the first message", () =>
   test("server.ts loads the answers the rows owe into the relay, held, before the server listens", () => {
     const src = readFileSync(join(import.meta.dir, "..", "..", "server.ts"), "utf8");
     const hold = src.indexOf("answerRelay?.hold()");
-    const load = src.indexOf("finalizeOrphanedRunningTools(db, liveBrokerChatSessions)");
+    const load = src.indexOf("finalizeOrphanedRunningTools(db, brokerBootHolds)");
     // The index is read after the sweep, which indexes the marks older than it.
     const index = src.indexOf("loadOwedAnswers(db)");
     const listen = src.indexOf("await listenWithSquatterFallback(");

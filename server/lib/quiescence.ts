@@ -82,8 +82,13 @@ export interface QuiescenceSources {
  * qualcuno dimentica di aggiungere erediterebbe in silenzio l'attesa corta —
  * cioè il difetto del 20/08, di nuovo, con un altro nome.
  */
-export function providerSurvivesRestart(provider: { reattach?: unknown } | null | undefined): boolean {
-  return typeof provider?.reattach === "function";
+export function providerSurvivesRestart(provider: { reattach?: unknown; reattachEnabled?: unknown } | null | undefined): boolean {
+  if (typeof provider?.reattach !== "function") return false;
+  // A provider whose reattach depends on a switch says so: the native runtime
+  // has `reattach` always, but only its detached turns (broker on,
+  // TOPICS_NATIVE_DETACHED not 0) live outside the server. With them off its
+  // turn dies with the server, as before lossless-restart.
+  return typeof provider.reattachEnabled === "function" ? (provider.reattachEnabled as () => boolean)() === true : true;
 }
 
 /**
@@ -108,6 +113,34 @@ export function providerSurvivesRestart(provider: { reattach?: unknown } | null 
  */
 export function turnSurvivesRestart(args: { providerReattaches: boolean; boardCard: boolean }): boolean {
   return args.providerReattaches || !args.boardCard;
+}
+
+/**
+ * Does the turn in flight on this session come back after a restart? Asked per
+ * TURN, at gate time, not per provider when the stream opened.
+ *
+ * The stream's flag is decided before the native runtime knows where its turn
+ * runs: the turn may start in its own process under the broker, or fall back
+ * into the server when the broker cannot spawn it. Only the first survives. A
+ * native card trusted to the flag let the gate cut an in-process turn and the
+ * boot redo its round; a native chat lost its grace minute. So for a native
+ * turn the native provider answers; any other runtime answers by whether its
+ * provider re-adopts (`brokerKeeps`), never by `survivesRestart`, which is
+ * also true for a Codex or ACP chat the boot only resumes from scratch.
+ */
+export function turnComesBack(args: { bridgeOn: boolean; brokerKeeps: boolean; nativeTurn: boolean; nativeDetached: boolean }): boolean {
+  if (!args.bridgeOn) return false;
+  return args.nativeTurn ? args.nativeDetached : args.brokerKeeps;
+}
+
+/**
+ * The grace a streaming chat gets before the restart. Zero only when nothing
+ * is lost and every streaming turn is found again by the broker; a native chat
+ * running in the server is resumed from scratch by the boot, and the minute
+ * lets it finish instead.
+ */
+export function chatGraceMs(args: { unrecoverable: number; everyTurnComesBack: boolean; capMs: number }): number {
+  return args.unrecoverable === 0 && args.everyTurnComesBack ? 0 : args.capMs;
 }
 
 /**
@@ -338,8 +371,18 @@ export function unrecoverableHolders(args: {
   /** Chats with a turn running (stream or broker), card sessions and questions excluded. */
   workingChats: number;
   zeroTurns: boolean;
+  /**
+   * Of `workingChats`, those whose turn does not come back (`turnComesBack`,
+   * asked per turn). Absent: all of them.
+   */
+  lostWorkingChats?: number;
 }): number {
-  return args.cards + (args.zeroTurns ? args.workingChats : args.unadoptable);
+  // A working chat whose turn the broker keeps is not cut by a restart
+  // (lossless-restart): the next server finds it again, partial text included.
+  // A land then waits only for the chats that really do not come back: one
+  // running inside the server (native with detached turns off or fallen back,
+  // Codex, ACP). Asked per turn: a global "the broker is on" let a land cut those.
+  return args.cards + (args.zeroTurns ? (args.lostWorkingChats ?? args.workingChats) : args.unadoptable);
 }
 
 /**

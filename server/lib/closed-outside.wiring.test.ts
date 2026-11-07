@@ -52,7 +52,7 @@ describe("server.ts closes and relights turn rows only through the helpers", () 
 
   test("the orphan-tool cleanup runs after the boot's partial sweep, with the broker's live sessions", () => {
     const sweep = server.indexOf("runBootPartialSweep(db, {");
-    const orphans = server.indexOf("finalizeOrphanedRunningTools(db, liveBrokerChatSessions);");
+    const orphans = server.indexOf("finalizeOrphanedRunningTools(db, brokerBootHolds);");
     expect([sweep > -1, orphans > -1]).toEqual([true, true]);
     // It reads the sweep's cut-by-restart to leave a cut row's content alone.
     expect(sweep).toBeLessThan(orphans);
