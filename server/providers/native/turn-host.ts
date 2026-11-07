@@ -244,7 +244,7 @@ export async function main(): Promise<void> {
 if (import.meta.main) {
   // stdout IS the journal. The loop's own logs (`[native] round:`, which
   // `scripts/token-audit.ts` reads from the server log) go to stderr, which
-  // the server forwards to its log.
+  // the server forwards to its stdout log (`forwardHostLog`).
   const toStderr = (...args: unknown[]) => { try { console.error(...args); } catch { /* stderr gone */ } };
   console.log = toStderr;
   console.info = toStderr;

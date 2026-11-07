@@ -17,6 +17,7 @@
  */
 
 import { join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { getAiBridgeClient } from "../../lib/ai-bridge-client";
 import type { StreamHandler } from "../types";
 import type { TurnEndInfo } from "../stop-reason";
@@ -130,10 +131,7 @@ function follow(
       // exit frame is late (or lost with a socket).
       if (reader.state.end) finish(0);
     },
-    onStderr: (chunk) => {
-      const text = chunk.toString("utf8").trim();
-      if (text) console.warn(`[native-detached] ${id}: ${text.slice(0, 400)}`);
-    },
+    onStderr: forwardHostLog(id),
     onExit: (code, endOffset) => {
       if (reader.state.end) { finish(code); return; }
       // Bytes past what we folded: a stretch spent detached. Read them first.
@@ -157,6 +155,34 @@ function follow(
   };
   followed.set(id, () => { offReconnect(); effects.close(); });
   return { reader, done, finish, armReconnect };
+}
+
+/**
+ * The host's stderr, line by line, into the server's own logs. The loop's
+ * `[native] ...` lines (rounds, compaction) were `console.log` in the server,
+ * and `scripts/token-audit.ts` reads them from the stdout log: sent to stderr
+ * they landed in the error log and the audit never saw a detached turn. A
+ * line cut across two chunks is joined first, and capped per line, not per
+ * chunk: a chunk of several lines lost all but the first.
+ */
+export function forwardHostLog(
+  id: string,
+  sink: { out: (line: string) => void; err: (line: string) => void } = { out: (l) => console.log(l), err: (l) => console.warn(l) },
+): (chunk: Uint8Array) => void {
+  const decoder = new StringDecoder("utf8");
+  let pending = "";
+  return (chunk) => {
+    pending += decoder.write(Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength));
+    let nl: number;
+    while ((nl = pending.indexOf("\n")) !== -1) {
+      const line = pending.slice(0, nl).trim();
+      pending = pending.slice(nl + 1);
+      if (!line) continue;
+      const tagged = `[native-detached] ${id}: ${line.slice(0, 2_000)}`;
+      if (line.startsWith("[native] ")) sink.out(tagged);
+      else sink.err(tagged);
+    }
+  };
 }
 
 /** One control line to the host. A socket being re-made is waited for once; past that, `fallback`. */

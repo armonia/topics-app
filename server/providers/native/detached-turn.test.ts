@@ -33,7 +33,7 @@ delete process.env.TOPICS_NATIVE_DETACHED;
 // written in settings.json and send the fake token to the real API.
 delete process.env.ANTHROPIC_BASE_URL;
 
-const { runDetachedTurn, reattachDetachedTurn, liveDetachedSessions, awaitStrayTurn, brokerIdFor } = await import("./detached-turn");
+const { runDetachedTurn, reattachDetachedTurn, liveDetachedSessions, awaitStrayTurn, brokerIdFor, forwardHostLog } = await import("./detached-turn");
 const { __resetAiBridgeClientForTests, getAiBridgeClient } = await import("../../lib/ai-bridge-client");
 const { clearProviderHold, holdForApiDown, providerHold, setProviderHold } = await import("../../lib/provider-hold");
 import type { TurnSpec } from "./turn-host";
@@ -303,5 +303,30 @@ describe("detached native turn", () => {
     } finally {
       clearProviderHold();
     }
+  }, 30_000);
+
+  test("the host's stdout holds only journal lines; its round lines reach the server's stdout log", async () => {
+    const host = Bun.spawn([process.execPath, join(import.meta.dir, "turn-host.ts")], {
+      stdin: "pipe", stdout: "pipe", stderr: "pipe", env: process.env as Record<string, string>,
+    });
+    host.stdin.write(JSON.stringify(spec("topic:dt000014", "short")) + "\n");
+    await host.stdin.flush();
+    const [out, err] = await Promise.all([new Response(host.stdout).text(), new Response(host.stderr).text()]);
+    await host.exited;
+    const lines = out.split("\n").filter((l) => l.trim());
+    const notJson = lines.filter((l) => { try { JSON.parse(l); return false; } catch { return true; } });
+    expect(notJson).toEqual([]);
+    expect(err).toContain("[native] round:");
+
+    const toStdout: string[] = [];
+    const toStderr: string[] = [];
+    const forward = forwardHostLog("native:topic:x", { out: (l) => toStdout.push(l), err: (l) => toStderr.push(l) });
+    const round = err.split("\n").find((l) => l.startsWith("[native] round:"))!;
+    const bytes = Buffer.from(`[turn-host 1] start\n${round}\n`);
+    // Two lines in one chunk, the second cut across two chunks.
+    forward(bytes.subarray(0, bytes.length - 10));
+    forward(bytes.subarray(bytes.length - 10));
+    expect(toStdout).toEqual([`[native-detached] native:topic:x: ${round}`]);
+    expect(toStderr).toEqual(["[native-detached] native:topic:x: [turn-host 1] start"]);
   }, 30_000);
 });
