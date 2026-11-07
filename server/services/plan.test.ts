@@ -42,6 +42,15 @@ describe("plan tree", () => {
     expect(buildPlan(db, { includeDone: true, now: T0 }).projects.map((p) => p.projectId)).toContain("chiuso");
   });
 
+  test("two boards with the same project name are told apart by their id", () => {
+    db.run(`CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT, path TEXT)`);
+    db.query(`INSERT INTO projects (id, name, path) VALUES ('x1', 'attilio', NULL)`).run();
+    db.query(`INSERT INTO projects (id, name, path) VALUES ('x2', 'attilio', NULL)`).run();
+    task("a1", { project_id: "x1" }); task("b1", { project_id: "x2" });
+    const names = buildPlan(db, { now: T0 }).projects.map((p) => p.name).sort();
+    expect(names).toEqual(["attilio (x1)", "attilio (x2)"]);
+  });
+
   test("done cards are hidden from lists by default but still count", () => {
     const a = createArea(db, { projectId: "p1", name: "A" }) as any;
     const m = createMilestone(db, { areaId: a.id, title: "M" }) as any;

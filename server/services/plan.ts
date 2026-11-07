@@ -240,6 +240,11 @@ export function buildPlan(
   const projects = built
     .filter((p) => includeDone || open(p) > 0 || p.areas.length > 0)
     .sort((a, b) => open(b) - open(a) || a.name.localeCompare(b.name));
+  // Two boards can carry the same project name (`attilio` and `attilio-mn52yh`):
+  // without the id the list shows two identical rows and nobody can tell them apart.
+  const seenNames = new Map<string, number>();
+  for (const p of projects) seenNames.set(p.name, (seenNames.get(p.name) ?? 0) + 1);
+  for (const p of projects) if ((seenNames.get(p.name) ?? 0) > 1) p.name = `${p.name} (${p.projectId})`;
   return { projects, includeDone };
 }
 
