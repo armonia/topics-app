@@ -281,11 +281,13 @@ export interface GuardRoles {
   /** Every agent CLI alive (`listSessionCliPids` + the `ptyPid` of each agent PTY). */
   cliPids: readonly number[];
   /**
-   * The roots the NATIVE runtime registered. They are children of the server and
-   * share its process group, so the "everything in the server's group" rule would
-   * guard the very commands this exists to freeze. They are named here, and their
-   * trees are the one exception to it - which is also why a group signal is never
-   * allowed for them (`allowedGroups`: group 981 holds the server).
+   * The roots the NATIVE runtime registered. In-process turns run them as
+   * children of the server, in its process group; detached turns as
+   * grandchildren of the AI broker. Either way a guard rule (the server's group,
+   * a sidecar's descendants) would cover the very commands this exists to
+   * freeze. They are named here, and their trees are the one exception to both
+   * - which is also why a group signal is never allowed for them while their
+   * group holds a guarded pid (`allowedGroups`).
    */
   nativeRootPids?: readonly number[];
 }
@@ -307,7 +309,11 @@ export function guardSet(rows: readonly PsRow[], roles: GuardRoles): Set<number>
   nativeTrees.delete(roles.serverPid);
   const serverGroup = byPid.get(roles.serverPid)?.pgid;
   if (serverGroup != null) for (const r of rows) if (r.pgid === serverGroup && !nativeTrees.has(r.pid)) guard.add(r.pid);
-  for (const pid of roles.sidecarPids) for (const p of descendantPids(rows, pid)) guard.add(p);
+  // A detached native turn runs in a host the AI broker spawned, so its
+  // commands descend from a sidecar too: the same exception, or not one native
+  // command was ever frozen or charged (lossless-restart). The daemon and the
+  // host are ancestors, not in the trees, and stay guarded.
+  for (const pid of roles.sidecarPids) for (const p of descendantPids(rows, pid)) if (!nativeTrees.has(p)) guard.add(p);
   const cliPids = new Set(roles.cliPids);
   for (const pid of cliPids) guard.add(pid);
   for (const r of rows) {
