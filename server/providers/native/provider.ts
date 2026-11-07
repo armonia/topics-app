@@ -78,6 +78,7 @@ import {
   type ReattachOutcome,
 } from "./detached-turn";
 import type { TurnSpec } from "./turn-host";
+import { deadStoreIsOpenRowsTurn } from "../../lib/boot-native-turns";
 import type { RoundUsage } from "./turn-journal";
 import { getAiBridgeClient } from "../../lib/ai-bridge-client";
 
@@ -781,12 +782,17 @@ export class NativeProvider implements AIProvider {
     this.strayWaits.set(sessionKey, wait);
     this.detachedLive.add(sessionKey);
     try {
-      const end = await awaitStrayTurn(sessionKey);
+      const end = await awaitStrayTurn(sessionKey, {
+        onUsage: (u, model) => recordTurnUsage(sessionKey, u, model ?? session.model ?? DEFAULT_MODEL),
+      });
+      // Adopted even when a Stop ended the wait: the turn's work up to the
+      // Stop is in its `end`, and the store is gone once read.
+      if (end) {
+        session.history = end.history as AgentMessage[];
+        if (end.calibration) session.calibration = end.calibration as Calibration;
+      }
       if (wait.stopped) return { stopped: wait.stopped };
-      if (!end) return "none";
-      session.history = end.history as AgentMessage[];
-      if (end.calibration) session.calibration = end.calibration as Calibration;
-      return "adopted";
+      return end ? "adopted" : "none";
     } catch (err) {
       console.warn(`[native] ${sessionKey}: could not follow the turn left running:`, err instanceof Error ? err.message : err);
       return wait.stopped ? { stopped: wait.stopped } : "none";
@@ -1176,7 +1182,9 @@ export class NativeProvider implements AIProvider {
    * so the restart need not wait for it.
    */
   turnRunsDetached(sessionKey: string): boolean {
-    return this.detachedLive.has(sessionKey);
+    // While a turn left running is awaited, this session's new message exists
+    // only in this process: a restart would lose it, so the gate must wait.
+    return this.detachedLive.has(sessionKey) && !this.strayWaits.has(sessionKey);
   }
 
   /** Whether the broker still runs a turn for this session (the dispatcher's probe). */
@@ -1192,10 +1200,7 @@ export class NativeProvider implements AIProvider {
     // ending (`reattach` answers "completed"); resuming would redo the turn.
     // Only a store at least as new as the open row is that row's turn: an
     // older one is a turn before it, whose text would replace the row's.
-    if (info.endOffset <= 0) return false;
-    const rowSince = openRowSince(sessionKey);
-    if (rowSince === null) return false;
-    return typeof info.createdAt !== "number" || info.createdAt >= rowSince;
+    return deadStoreIsOpenRowsTurn(info, openRowSince(sessionKey));
   }
 
   /** Live detached turns, by session key, for the boot. */

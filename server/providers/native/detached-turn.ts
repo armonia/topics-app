@@ -243,19 +243,26 @@ async function endStrayTurn(id: string): Promise<void> {
 }
 
 /**
- * A turn process alive for this session that no server follows (a restart
- * left it, and nothing re-adopted it). Followed silently to its end, so its
- * conversation is not lost under the new turn: a new spawn truncates the
- * store, and the history rebuilt from the database misses what it did.
- * Resolves with its `end`, or null when there was none to wait for.
+ * A turn of this session that no server follows (a restart left it, and
+ * nothing re-adopted it): still running, or already ended with its journal
+ * in the broker. Followed silently to its end, so its conversation is not
+ * lost under the new turn: a new spawn truncates the store, and the history
+ * rebuilt from the database misses what it did. Its rounds are priced through
+ * `onUsage` like any other. Resolves with its `end`, or null when there was
+ * none.
  */
-export async function awaitStrayTurn(sessionKey: string): Promise<Extract<JournalEvent, { e: "end" }> | null> {
+export async function awaitStrayTurn(
+  sessionKey: string,
+  extra: { onUsage?: (u: RoundUsage, model: string | null) => void } = {},
+): Promise<Extract<JournalEvent, { e: "end" }> | null> {
   const client = getAiBridgeClient();
-  let alive = false;
-  try { alive = await client.hasLiveSession(brokerIdFor(sessionKey)); } catch { alive = false; }
-  if (!alive) return null;
-  console.warn(`[native-detached] ${sessionKey}: a turn nobody follows is still running, waiting for it before the next one`);
-  const { done } = await reattachDetachedTurn(sessionKey, null);
+  let info: { alive: boolean; endOffset: number } | undefined;
+  try { info = (await client.list()).find((x) => x.id === brokerIdFor(sessionKey)); } catch { info = undefined; }
+  // A store that ended while nobody listened holds the `end` too: the common
+  // case of a card left running with dispatch off, written to after it ended.
+  if (!info || (!info.alive && info.endOffset <= 0)) return null;
+  console.warn(`[native-detached] ${sessionKey}: a turn nobody follows ${info.alive ? "is still running" : "ended unread"}, adopting it before the next one`);
+  const { done } = await reattachDetachedTurn(sessionKey, null, extra);
   return (await done).end;
 }
 
@@ -341,11 +348,11 @@ export function detachedTurnEnd(r: DetachedTurnResult): TurnEndInfo {
  * When the session's open (partial) row was created, or null without one: a
  * turn nobody has closed. Epoch ms.
  */
-export function openRowSince(sessionKey: string): number | null {
+export function openRowSince(sessionKey: string, db?: import("bun:sqlite").Database): number | null {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- the database module is loaded at the first call, as the provider does
-    const { getDatabase } = require("../../db");
-    const row = getDatabase().query("SELECT timestamp FROM messages WHERE session_key = ? AND partial = 1 ORDER BY sort_order DESC LIMIT 1").get(sessionKey) as { timestamp?: string } | null;
+    const database = db ?? require("../../db").getDatabase();
+    const row = database.query("SELECT timestamp FROM messages WHERE session_key = ? AND partial = 1 ORDER BY sort_order DESC LIMIT 1").get(sessionKey) as { timestamp?: string } | null;
     if (!row) return null;
     const t = Date.parse(String(row.timestamp ?? ""));
     return Number.isFinite(t) ? t : 0;

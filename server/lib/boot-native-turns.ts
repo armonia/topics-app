@@ -33,28 +33,46 @@ export interface NativeBrokerSession {
   sessionKey: string;
   alive: boolean;
   endOffset: number;
+  /** When the broker created the store (epoch ms); absent from an older daemon. */
+  createdAt?: number;
+}
+
+/**
+ * Whether a DEAD native store is the turn of the session's open row: it has a
+ * journal, there is an open row, and the store is not older than that row. An
+ * older one is a turn before it (left by a boot with detached turns off, an
+ * archived topic, a reattach that failed), and reading it merged that turn's
+ * text into the row of the turn after.
+ */
+export function deadStoreIsOpenRowsTurn(store: { endOffset: number; createdAt?: number }, rowSince: number | null): boolean {
+  if (store.endOffset <= 0 || rowSince === null) return false;
+  return typeof store.createdAt !== "number" || store.createdAt >= rowSince;
 }
 
 /**
  * How the boot treats the native turns in the broker.
  *
- * With detached turns on, an alive one goes on and a dead one with a journal
- * ended while the server was down: both keep their row for the reattach. With
- * them off, nothing re-adopts them (`reattach` answers "dead" and leaves the
- * row and its stream open), so the boot must not keep their rows: the partial
- * sweep closes them with its notice and the resume picks the chat up. A host
- * still running is killed, or it would keep editing files beside the resumed
- * turn.
+ * With detached turns on, an alive one goes on, and a dead one that is its
+ * open row's turn ended while the server was down: both keep their row for
+ * the reattach. Any other dead store is forgotten (`kill`): nobody will read
+ * it, and kept it would be taken later for a newer row's turn. With detached
+ * turns off, nothing re-adopts them (`reattach` answers "dead" and leaves the
+ * row and its stream open), so the boot keeps no row and forgets every store:
+ * the partial sweep closes the rows with its notice and the resume picks the
+ * chat up. A host still running is killed, or it would keep editing files
+ * beside the resumed turn.
  */
 export function classifyNativeBootSessions(
   sessions: readonly NativeBrokerSession[],
   detachedOn: boolean,
+  openRowSince: (sessionKey: string) => number | null = () => null,
 ): { alive: string[]; endedWhileDown: string[]; kill: string[] } {
   const out = { alive: [] as string[], endedWhileDown: [] as string[], kill: [] as string[] };
   for (const s of sessions) {
-    if (!detachedOn) { if (s.alive) out.kill.push(s.id); continue; }
+    if (!detachedOn) { out.kill.push(s.id); continue; }
     if (s.alive) out.alive.push(s.sessionKey);
-    else if (s.endOffset > 0) out.endedWhileDown.push(s.sessionKey);
+    else if (deadStoreIsOpenRowsTurn(s, openRowSince(s.sessionKey))) out.endedWhileDown.push(s.sessionKey);
+    else out.kill.push(s.id);
   }
   return out;
 }

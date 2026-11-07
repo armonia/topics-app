@@ -185,7 +185,7 @@ import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep, sessionHasPendingSend } from "./server/providers";
 import { sessionAttentionBackground, sessionHasBackgroundWork, sessionsWithBackgroundWork, stallBackgroundHold } from "./server/providers/background-probes";
 import { aiBridgeEnabled, ClaudeCodeProvider } from "./server/providers/claude-code";
-import { sessionKeyOfBrokerId, nativeDetachedEnabled } from "./server/providers/native/detached-turn";
+import { sessionKeyOfBrokerId, nativeDetachedEnabled, openRowSince } from "./server/providers/native/detached-turn";
 import { classifyNativeBootSessions, pickTurnOwner, type TurnOwnerClaim } from "./server/lib/boot-native-turns";
 // The checkout's HEAD when this process started. Read once: the scripts that
 // move the checkout compare it with what they asked for.
@@ -3507,11 +3507,12 @@ const nativeEndedWhileDown = new Set<string>();
         const native = classifyNativeBootSessions(
           sessions.flatMap((s) => { const sk = sessionKeyOfBrokerId(s.id); return sk ? [{ ...s, sessionKey: sk }] : []; }),
           nativeDetachedEnabled(),
+          (sk) => openRowSince(sk, db),
         );
         for (const sk of native.alive) liveBrokerChatSessions.add(sk);
         for (const sk of native.endedWhileDown) nativeEndedWhileDown.add(sk);
         for (const id of native.kill) {
-          console.log(`[Startup] detached native turns are off: ending ${id}, its chat is resumed from the database`);
+          console.log(`[Startup] forgetting native turn ${id}: ${nativeDetachedEnabled() ? "a dead store that is not its open row's turn" : "detached native turns are off, its chat is resumed from the database"}`);
           try { getAiBridgeClient().kill(id); } catch { /* daemon hiccup: its orphan grace collects it */ }
         }
         listConfirmed = true;
@@ -5790,7 +5791,7 @@ async function reattachSurvivors(adopted: Set<string>): Promise<void> {
   // no server listened, and the reattach reads its ending from the store.
   const native = sessions
     .map((s) => ({ s, sk: sessionKeyOfBrokerId(s.id) }))
-    .filter((x): x is { s: typeof sessions[number]; sk: string } => !!x.sk && nativeDetachedEnabled() && (x.s.alive || (x.s.endOffset > 0 && midTurnAtBoot.has(x.sk))));
+    .filter((x): x is { s: typeof sessions[number]; sk: string } => !!x.sk && nativeDetachedEnabled() && (x.s.alive || (nativeEndedWhileDown.has(x.sk) && midTurnAtBoot.has(x.sk))));
   if (live.length === 0 && native.length === 0) return;
   const dispatcherClaimed = new Set<string>();
   try {
@@ -5806,10 +5807,9 @@ async function reattachSurvivors(adopted: Set<string>): Promise<void> {
     if (dispatcherClaimed.has(sk)) continue; // the dispatcher's reconcile owns it
     const topic = ctx.getTopicBySessionKey(sk);
     if (!topic || topic.archived) {
-      if (s.alive) {
-        console.log(`[chat-reattach] ending native turn ${sk}: ${topic ? "archived topic" : "topic gone"}`);
-        try { client.kill(s.id); } catch { /* daemon hiccup: its orphan grace collects it */ }
-      }
+      // A dead store too: left behind, a later turn of the same key took it for its own.
+      console.log(`[chat-reattach] ending native turn ${sk}: ${topic ? "archived topic" : "topic gone"}`);
+      try { client.kill(s.id); } catch { /* daemon hiccup: its orphan grace collects it */ }
       continue;
     }
     console.log(`[chat-reattach] adopting native turn ${sk} (${s.alive ? "still running" : "ended while the server was down"})`);
