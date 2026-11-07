@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.55",
+    "date": "2026-11-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Plan view: project icons, open work instead of history, no empty groups, actions on hover (#609)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.54",
     "date": "2026-11-07",
     "sections": {

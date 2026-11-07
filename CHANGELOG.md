@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.55 — 2026-11-08
+
+### Sotto il cofano
+- Plan view: project icons, open work instead of history, no empty groups, actions on hover (#609)
+
 ## 2.3.54 — 2026-11-07
 
 ### Sotto il cofano
