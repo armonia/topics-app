@@ -2335,13 +2335,13 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   // --- Streams (in-memory, unchanged) ---
-  function startStream(sessionKey: string, messageId: string, abortController?: AbortController, survivesRestart = false) {
+  function startStream(sessionKey: string, messageId: string, abortController?: AbortController, survivesRestart = false, brokerKeeps = false) {
     // A turn of another row still registered (a send parked behind the CLI's own
     // turn, whose adoption registers now) is shadowed, not dropped: its entry
     // comes back when this one ends (`endStream`).
     const live = activeStreams.get(sessionKey);
     const shadowed = live && live.messageId !== messageId ? live : undefined;
-    activeStreams.set(sessionKey, { sessionKey, startedAt: new Date().toISOString(), isThinking: false, lastActivity: new Date().toISOString(), content: "", thinking: "", messageId, abortController, survivesRestart, ...(shadowed ? { shadowed } : {}) });
+    activeStreams.set(sessionKey, { sessionKey, startedAt: new Date().toISOString(), isThinking: false, lastActivity: new Date().toISOString(), content: "", thinking: "", messageId, abortController, survivesRestart, brokerKeeps, ...(shadowed ? { shadowed } : {}) });
     turnLedger.set(sessionKey, "route", true);
   }
 

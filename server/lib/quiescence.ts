@@ -124,11 +124,13 @@ export function turnSurvivesRestart(args: { providerReattaches: boolean; boardCa
  * into the server when the broker cannot spawn it. Only the first survives. A
  * native card trusted to the flag let the gate cut an in-process turn and the
  * boot redo its round; a native chat lost its grace minute. So for a native
- * turn the native provider answers; any other runtime keeps the stream's flag.
+ * turn the native provider answers; any other runtime answers by whether its
+ * provider re-adopts (`brokerKeeps`), never by `survivesRestart`, which is
+ * also true for a Codex or ACP chat the boot only resumes from scratch.
  */
-export function turnComesBack(args: { bridgeOn: boolean; streamSurvives: boolean; nativeTurn: boolean; nativeDetached: boolean }): boolean {
+export function turnComesBack(args: { bridgeOn: boolean; brokerKeeps: boolean; nativeTurn: boolean; nativeDetached: boolean }): boolean {
   if (!args.bridgeOn) return false;
-  return args.nativeTurn ? args.nativeDetached : args.streamSurvives;
+  return args.nativeTurn ? args.nativeDetached : args.brokerKeeps;
 }
 
 /**
@@ -369,15 +371,18 @@ export function unrecoverableHolders(args: {
   /** Chats with a turn running (stream or broker), card sessions and questions excluded. */
   workingChats: number;
   zeroTurns: boolean;
-  /** The AI broker is on, so a re-adoptable turn really comes back. */
-  turnsComeBack?: boolean;
+  /**
+   * Of `workingChats`, those whose turn does not come back (`turnComesBack`,
+   * asked per turn). Absent: all of them.
+   */
+  lostWorkingChats?: number;
 }): number {
-  // WITH THE BROKER ON, a working chat that can re-adopt is not cut by a
-  // restart (lossless-restart): its turn lives in a process the broker keeps
-  // and the next server finds it again, partial text included. A land then has
-  // nothing to wait for but what really does not come back.
-  if (args.turnsComeBack) return args.cards + args.unadoptable;
-  return args.cards + (args.zeroTurns ? args.workingChats : args.unadoptable);
+  // A working chat whose turn the broker keeps is not cut by a restart
+  // (lossless-restart): the next server finds it again, partial text included.
+  // A land then waits only for the chats that really do not come back: one
+  // running inside the server (native with detached turns off or fallen back,
+  // Codex, ACP). Asked per turn: a global "the broker is on" let a land cut those.
+  return args.cards + (args.zeroTurns ? (args.lostWorkingChats ?? args.workingChats) : args.unadoptable);
 }
 
 /**

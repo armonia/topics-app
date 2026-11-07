@@ -349,6 +349,13 @@ export interface ActiveStream {
    * from the first.
    */
   survivesRestart: boolean;
+  /**
+   * Whether the turn's provider runs it in a process the broker re-adopts.
+   * Not `survivesRestart`: that is also true for a chat the boot merely resumes
+   * from scratch, and the restart gate read it as "comes back whole", so Codex
+   * and ACP chats lost their grace minute and a land cut them.
+   */
+  brokerKeeps?: boolean;
   /** The entry of another row's turn this one took the slot from (see `startStream`): it comes back at this one's end. */
   shadowed?: ActiveStream;
   /**
@@ -633,7 +640,7 @@ export interface AppContext {
    * survive", and being wrong that way costs a slower restart instead of
    * somebody's work.
    */
-  startStream: (sessionKey: string, messageId: string, abortController?: AbortController, survivesRestart?: boolean) => void;
+  startStream: (sessionKey: string, messageId: string, abortController?: AbortController, survivesRestart?: boolean, brokerKeeps?: boolean) => void;
   updateStreamActivity: (sessionKey: string, isThinking?: boolean) => void;
   updateStreamContent: (sessionKey: string, content: string, thinking: string) => void;
   getStreamContent: (sessionKey: string) => { content: string; thinking: string; messageId: string } | null;

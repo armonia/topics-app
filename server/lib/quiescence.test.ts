@@ -784,11 +784,11 @@ describe("unrecoverableHolders: a restart at zero turns does not cut a working c
  * come back still holds.
  */
 describe("unrecoverableHolders: with the broker on only what does not come back holds", () => {
-  test("a re-adoptable working chat holds nothing, even at zero turns", () => {
-    expect(unrecoverableHolders({ cards: 0, unadoptable: 0, workingChats: 3, zeroTurns: true, turnsComeBack: true })).toBe(0);
+  test("a working chat whose turn comes back holds nothing, even at zero turns", () => {
+    expect(unrecoverableHolders({ cards: 0, unadoptable: 0, workingChats: 3, lostWorkingChats: 0, zeroTurns: true })).toBe(0);
   });
-  test("cards in this process and unadoptable chats still hold", () => {
-    expect(unrecoverableHolders({ cards: 1, unadoptable: 2, workingChats: 3, zeroTurns: true, turnsComeBack: true })).toBe(3);
+  test("cards in this process, and at zero turns each chat that would be cut, still hold", () => {
+    expect(unrecoverableHolders({ cards: 1, unadoptable: 2, workingChats: 3, lostWorkingChats: 1, zeroTurns: true })).toBe(2);
   });
   test("with nothing unrecoverable and no minute to wait, the restart goes at once", () => {
     expect(quiescenceVerdict({ busy: "1 chat", unrecoverable: 0, now: 1, startedAt: 0, chatCapMs: 0 })).toBe("scaduto");

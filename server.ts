@@ -6881,20 +6881,20 @@ let askProbeCache: { at: number; parked: string[] } = { at: 0, parked: [] };
 /**
  * The turn on this session survives a restart (see `turnComesBack` in
  * `lib/quiescence.ts`): a native turn only when it runs in its own process,
- * any other when its stream says so and the broker is on.
+ * any other when its provider re-adopts and the broker is on.
  */
 function turnComesBack(sessionKey: string): boolean {
   const native = tryGetProvider("topics") as unknown as { isTurnProcessAlive?: (sk: string) => boolean; turnRunsDetached?: (sk: string) => boolean } | undefined;
   const nativeTurn = native?.isTurnProcessAlive?.(sessionKey) === true;
   return turnComesBackDecision({
     bridgeOn: aiBridgeEnabled(),
-    streamSurvives: activeStreams.get(sessionKey)?.survivesRestart === true,
+    brokerKeeps: activeStreams.get(sessionKey)?.brokerKeeps === true,
     nativeTurn,
     nativeDetached: nativeTurn && native?.turnRunsDetached?.(sessionKey) === true,
   });
 }
 
-async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; chats: number; workingChats: number; everyTurnComesBack: boolean; holder: string | null; holderKind: "turn" | "question" }> {
+async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; chats: number; workingChats: number; lostWorkingChats: number; everyTurnComesBack: boolean; holder: string | null; holderKind: "turn" | "question" }> {
   // A land in flight is a card turn for this purpose: it rewrites main and
   // the card, and a restart in the middle of it forgets the delivery branch.
   //
@@ -6980,6 +6980,9 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
     // The same chats minus the ones parked on a question: the turns a restart
     // "at zero turns" waits for (see `unrecoverableHolders`).
     workingChats: chatsHolding({ streamKeys, brokerOpenKeys: brokerOpen, parkedKeys: [], cardSessionKeys: taskDispatcher.busySessionKeys() }),
+    // Of those, the ones a restart would cut: streams whose turn does not come
+    // back. A broker-kept turn comes back by construction.
+    lostWorkingChats: chatsHolding({ streamKeys: streamKeys.filter((k) => !turnComesBack(k)), brokerOpenKeys: [], parkedKeys: [], cardSessionKeys: taskDispatcher.busySessionKeys() }),
     // Broker-kept turns and parked questions come back by construction; a
     // stream only if its turn does (a native one running in this process does not).
     everyTurnComesBack: aiBridgeEnabled() && streamKeys.every(turnComesBack),
@@ -7073,7 +7076,7 @@ async function runDispatcherQuiescentWait(label: string, capMs = QUIESCENCE_CAP_
   // card cannot start in the gap between "nothing holds" and the shutdown.
   let doorClosed = true;
   for (;;) {
-    const { busy, cards, unadoptable, chats, workingChats, everyTurnComesBack, holder, holderKind } = await whatIsStillWorking();
+    const { busy, cards, unadoptable, chats, workingChats, lostWorkingChats, everyTurnComesBack, holder, holderKind } = await whatIsStillWorking();
     if (!busy) {
       if (!doorClosed) {
         taskDispatcher.drain(label);
@@ -7095,7 +7098,7 @@ async function runDispatcherQuiescentWait(label: string, capMs = QUIESCENCE_CAP_
     // Viveva dentro questo loop, e li' dentro nessun test poteva raggiungerla
     // senza avviare un server — che e' il motivo per cui il difetto del
     // rinnovo infinito e' sopravvissuto tanto a lungo.
-    const unrecoverable = unrecoverableHolders({ cards, unadoptable, workingChats, zeroTurns: restartAtZeroTurns, turnsComeBack: aiBridgeEnabled() });
+    const unrecoverable = unrecoverableHolders({ cards, unadoptable, workingChats, lostWorkingChats, zeroTurns: restartAtZeroTurns });
     const verdetto = quiescenceVerdict({
       busy, unrecoverable,
       now: Date.now(), startedAt: inizio,
