@@ -1,7 +1,7 @@
 /**
- * REST del Piano (Progetto → Area → Milestone → Card → Fonti). La logica sta in
- * `services/plan.ts`; qui solo instradamento e traduzione degli errori.
- * Nessuna rotta tocca le card: collegare o cancellare nel Piano non cambia la board.
+ * REST of the Plan (Project -> Area -> Milestone -> Card -> Sources). Logic is
+ * in `services/plan.ts`; this file only routes and maps errors.
+ * No route touches the cards: linking or deleting in the Plan never changes the board.
  */
 import type { AppContext, RouteHandler } from "../types";
 import {

@@ -1,9 +1,9 @@
 /**
- * Il Piano: Progetto → Area → Milestone → Card → Fonti, sopra la board.
+ * The Plan: Project -> Area -> Milestone -> Card -> Sources, over the board.
  *
- * Nessuna card viene copiata: la card resta la verità sullo stato, qui si dice
- * solo a quale risultato serve. Conteggi, avanzamento e segnali si CALCOLANO a
- * ogni lettura, non si salvano mai (un dato salvato invecchia, uno calcolato no).
+ * No card is copied: the card stays the truth about its status, the plan only
+ * says which result it serves. Counts, progress and signals are COMPUTED on
+ * every read and never stored (a stored value goes stale, a computed one cannot).
  */
 import type { Database } from "bun:sqlite";
 import { findDuplicateGroups } from "../../shared/task-similarity";
@@ -15,12 +15,12 @@ export type PlanSignal = "duplicate" | "delivered_but_open" | "no_owner" | "stal
 export type PlanSourceKind = "session" | "pr" | "branch" | "commit" | "check" | "cron" | "other";
 
 export interface PlanSource {
-  /** Id della riga in plan_sources; assente per le fonti implicite. */
+  /** Row id in plan_sources; absent for implicit sources. */
   id?: string;
   kind: PlanSourceKind;
   label: string;
   url?: string | null;
-  /** Per le sessioni: il topic da aprire. */
+  /** For sessions: the topic to open. */
   topicId?: string | null;
   implicit: boolean;
 }
@@ -34,7 +34,7 @@ export interface PlanCard {
   originTopicId: string | null;
   updatedAt: string;
   signals: PlanSignal[];
-  /** Per un duplicato: la card superstite con cui andrebbe unita. */
+  /** For a duplicate: the surviving card it would be merged into. */
   duplicateOf?: string;
   sources: PlanSource[];
 }
@@ -58,7 +58,7 @@ export interface PlanArea {
 export interface PlanProject {
   projectId: string; name: string; progress: PlanProgress;
   areas: PlanArea[];
-  /** Card del progetto non ancora collegate a una milestone: «Da collocare». */
+  /** Project cards not yet linked to a milestone: the "to place" group. */
   unplaced: { progress: PlanProgress; tasks: PlanCard[] };
 }
 export interface PlanTree { projects: PlanProject[]; includeDone: boolean }
@@ -81,7 +81,7 @@ function progressOf(cards: readonly { status: string }[]): PlanProgress {
   return { ...c, ratio: c.total === 0 ? 0 : c.done / c.total };
 }
 
-/** Segnali di UNA card, senza il duplicato (richiede il confronto con le altre). */
+/** Signals of ONE card, except duplicate (it needs the comparison with the others). */
 export function cardSignals(
   t: Pick<TaskRow, "status" | "assigned_topic_id" | "delivery_branch" | "delivery_commit" | "updated_at">,
   ownerOfMilestone: string | null,
@@ -91,8 +91,8 @@ export function cardSignals(
   const open = t.status !== "done";
   if (open && (t.delivery_branch || t.delivery_commit)) out.push("delivered_but_open");
   if (open && !t.assigned_topic_id && !ownerOfMilestone) out.push("no_owner");
-  const upd = Date.parse(t.updated_at);
-  if (open && Number.isFinite(upd) && nowMs - upd > STALE_DAYS * DAY_MS) out.push("stale");
+  const updated = Date.parse(t.updated_at);
+  if (open && Number.isFinite(updated) && nowMs - updated > STALE_DAYS * DAY_MS) out.push("stale");
   return out;
 }
 
@@ -137,7 +137,7 @@ export function buildPlan(
   let names = new Map<string, string>();
   try {
     names = new Map((db.query(`SELECT id, name FROM projects`).all() as { id: string; name: string }[]).map((p) => [p.id, p.name]));
-  } catch { /* tabella projects assente (banco di prova): si usa l'id */ }
+  } catch { /* projects table absent (test bench): fall back to the id */ }
 
   const milestoneOf = new Map(links.map((l) => [l.task_id, l.milestone_id]));
   const milestoneById = new Map(milestones.map((m) => [m.id as string, m]));
@@ -149,8 +149,8 @@ export function buildPlan(
     map.set(key, [...(map.get(key) ?? []), toSource(s)]);
   }
 
-  // Duplicati: la stessa funzione di GET /api/boards/:projectId/duplicates, per
-  // progetto e sulle sole card aperte (la storia non si fonde).
+  // Duplicates: the same function as GET /api/boards/:projectId/duplicates,
+  // per project and on open cards only (history is not merged).
   const dupOf = new Map<string, string>();
   const byProject = new Map<string, TaskRow[]>();
   for (const t of tasks) byProject.set(t.project_id, [...(byProject.get(t.project_id) ?? []), t]);
@@ -177,7 +177,7 @@ export function buildPlan(
       sources: [...implicitSources(t), ...(srcByTask.get(t.id) ?? [])],
     };
     if (survivor) {
-      // Il superstite e' solo il capo del gruppo: il segnale e' sui doppioni.
+      // The survivor only heads the group: the signal goes on the duplicates.
       if (survivor !== t.id) { card.signals.unshift("duplicate"); card.duplicateOf = survivor; }
     }
     return card;
@@ -186,14 +186,14 @@ export function buildPlan(
   const visible = (c: PlanCard) => includeDone || c.status !== "done";
   const cardsByMilestone = new Map<string, PlanCard[]>();
   const unplacedByProject = new Map<string, PlanCard[]>();
-  // I conteggi usano TUTTE le card (l'avanzamento ha bisogno dei done); la lista
-  // mostra i done solo con includeDone.
+  // Counts use ALL cards (progress needs the done ones); the list shows done
+  // cards only with includeDone.
   const allByMilestone = new Map<string, PlanCard[]>();
   const allUnplaced = new Map<string, PlanCard[]>();
   for (const t of tasks) {
     const card = toCard(t);
     const mid = milestoneOf.get(t.id);
-    // Un link verso una milestone di un altro progetto non conta: la card resta da collocare.
+    // A link to a milestone of another project does not count: the card stays unplaced.
     const mArea = mid ? areaOfMilestone.get(mid) : undefined;
     const valid = mid && mArea && projectOfArea.get(mArea) === t.project_id;
     const bucketAll = valid ? allByMilestone : allUnplaced;
@@ -232,7 +232,7 @@ export function buildPlan(
   return { projects, includeDone };
 }
 
-// ---------- scrittura ----------
+// ---------- writes ----------
 
 export class PlanError extends Error {
   constructor(public code: "not_found" | "invalid_input" | "conflict", message: string) { super(message); }
@@ -268,7 +268,7 @@ export function updateArea(db: Database, id: string, input: { name?: unknown; po
   return db.query(`SELECT * FROM plan_areas WHERE id = ?`).get(id);
 }
 
-/** Cancella l'area e le sue milestone (CASCADE): le card si scollegano, mai cancellate. */
+/** Deletes the area and its milestones (CASCADE): cards are unlinked, never deleted. */
 export function deleteArea(db: Database, id: string): void {
   if (!db.query(`SELECT 1 FROM plan_areas WHERE id = ?`).get(id)) throw new PlanError("not_found", "area not found");
   db.query(`DELETE FROM plan_areas WHERE id = ?`).run(id);
@@ -314,7 +314,7 @@ export function deleteMilestone(db: Database, id: string): void {
   db.query(`DELETE FROM plan_milestones WHERE id = ?`).run(id);
 }
 
-/** Collega (o sposta) una card a una milestone dello STESSO progetto. Una card, una milestone. */
+/** Links (or moves) a card to a milestone of the SAME project. One card, one milestone. */
 export function linkTask(db: Database, taskId: string, milestoneId: unknown): void {
   if (typeof milestoneId !== "string" || !milestoneId) throw new PlanError("invalid_input", "milestoneId is required");
   const task = db.query(`SELECT project_id FROM tasks WHERE id = ?`).get(taskId) as { project_id: string } | null;

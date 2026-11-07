@@ -57,9 +57,9 @@ describe("plan tree", () => {
     const m1 = createMilestone(db, { areaId: a.id, title: "M1" }) as any;
     const m2 = createMilestone(db, { areaId: a.id, title: "M2" }) as any;
     task("t1");
-    const ins = db.query(`INSERT INTO plan_task_links (task_id, milestone_id, created_at) VALUES ('t1', ?, 'x')`);
-    ins.run(m1.id);
-    expect(() => ins.run(m2.id)).toThrow();
+    const insertLink = db.query(`INSERT INTO plan_task_links (task_id, milestone_id, created_at) VALUES ('t1', ?, 'x')`);
+    insertLink.run(m1.id);
+    expect(() => insertLink.run(m2.id)).toThrow();
   });
 
   test("a milestone of another project is refused", () => {

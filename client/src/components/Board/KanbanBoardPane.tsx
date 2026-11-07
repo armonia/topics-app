@@ -65,6 +65,7 @@ import { TaskDetail } from './TaskDetail';
 import { OrchestratorDrawer } from './OrchestratorDrawer';
 import { BoardSettingsPanel } from './BoardSettingsPanel';
 import { ScheduledCardsControl } from './ScheduledCardsControl';
+import { PlanView } from './PlanView';
 import { GlobalOnlySettingsPanel } from './BoardSettingsSections';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { MISSIONS, type Mission } from '../../lib/missions';
@@ -710,6 +711,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   const canRunMissions = hasProject && devInstall && !!onStartMission;
   // 'project' = this project only · 'all' = the global cross-project board.
   const [mode, setMode] = useState<'project' | 'all'>(canToggle ? 'project' : 'all');
+  const [planVisible, setPlanVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // L'errore di UNA card sta sulla card, non nella barra qui sopra: quella vive
   // in cima al pannello, mentre la card che ha rifiutato il click può essere
@@ -1920,6 +1922,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             >{tr('board.toolbar.allProjects')}</button>
           </>
         )}
+        {mode === 'all' && <button type="button" data-testid="board-plan-toggle" aria-pressed={planVisible}
+          onClick={() => setPlanVisible((v) => !v)}
+          className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact leading-4 ${planVisible ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+        >{tr(planVisible ? 'plan.buttonBack' : 'plan.button')}</button>}
         <LoadAdviceChip />
         <WorktreeControl
           count={worktreeCount}
@@ -2098,6 +2104,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           (the drawer positions itself; out of flow, the board re-expands). */}
       <div ref={drawerHostRef} className="flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
+          {mode === 'all' && planVisible ? (
+            <PlanView onOpenTask={openTask} onOpenTopic={onOpenTopic} />
+          ) : <>
           <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveId(null); endDrag(); flushDeferredRead(); setDropNotice(null); }}>
             {/* NO `scroll-smooth` ON A PHONE, and that is the fix for "the
                 columns jump instead of gliding" (card 1e015ad6).
@@ -2218,6 +2227,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
               document.body,
             )}
           </DndContext>
+          </>}
           {/* New-task composer, anchored to the board AREA (centered on the
               visible columns). SEMPRE montato: quello che ci hai scritto dentro
               non deve evaporare perché hai guardato altrove o hai aperto un
@@ -2230,7 +2240,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             global={mode === 'all'}
             onCreated={onCreatedHere}
             onError={setError}
-            hidden={typingElsewhere}
+            hidden={typingElsewhere || (mode === 'all' && planVisible)}
             hiddenBelowLg={!!selected}
             onDraft={setDraft}
             paneSettings={settings}
