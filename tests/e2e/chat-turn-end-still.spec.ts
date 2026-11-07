@@ -39,6 +39,7 @@ import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, patchTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 import { installFakeAnthropic, startFakeAnthropic, type FakeAnthropic, type FakeRound } from "./helpers/fake-anthropic-api";
+import { dumpScrollDiag, installScrollDiag } from "./helpers/scroll-diag";
 
 hermetic(test);
 // The entrance slide is part of what is measured: with reduced motion it
@@ -176,7 +177,7 @@ async function startSampler(page: Page, marker: string, settleOn: "text" | "row"
         const ready = settleOn === "row" ? s.row !== null && s.text === null : s.text !== null;
         steady = s.loader && ready && same ? steady + 1 : 0;
         previous = s;
-        if (steady >= 10) { recording = true; t0 = performance.now(); }
+        if (steady >= 10) { recording = true; t0 = performance.now(); (w.__still as unknown as { t0abs: number }).t0abs = t0; }
         else if (!s.loader && s.text !== null) { w.__still.error = "the turn ended before it settled"; w.__still.done = true; return; }
         requestAnimationFrame(tick);
         return;
@@ -347,6 +348,7 @@ test.describe("the end of a turn moves nothing, in the window that sent it and i
       const topic = await nativeTopic(request, `turn-end-${scenario}`);
       const viewer = await context.newPage();
       await openChat(viewer, topic.name);
+      await installScrollDiag(page);
       await openChat(page, topic.name);
 
       await startSampler(page, "ANSWER-TOOLS");
@@ -355,6 +357,13 @@ test.describe("the end of a turn moves nothing, in the window that sent it and i
 
       const sender = await framesOf(page);
       const second = await framesOf(viewer);
+      const senderSpread = spread(sender.map((f) => f.scroll));
+      console.log(`DIAG verdict scroll spread ${senderSpread}`);
+      const firstMove = sender.findIndex((f, i) => i > 0 && f.scroll !== sender[i - 1]!.scroll);
+      if (firstMove > 0) console.log(`DIAG move at frame ${firstMove} t=${sender[firstMove]!.t} ${JSON.stringify(sender.slice(Math.max(0, firstMove - 3), firstMove + 3))}`);
+      console.log(`DIAG loader-gone t=${sender.find((f) => !f.loader)?.t}`);
+      console.log(`DIAG recording t0abs=${await page.evaluate(() => (window as unknown as { __still: { t0abs?: number } }).__still.t0abs)}`);
+      await dumpScrollDiag(page, "sender");
       judge("sender", sender, { row: true });
       judge("second window", second, { row: true });
       // Spread out, as it streamed: no «N actions» row over the answer.
