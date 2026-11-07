@@ -13,7 +13,7 @@ export function installScrollDiag(page: Page): Promise<void> {
     // DIAG2: the browser's own scroll anchoring off on the chat scroller.
     const style = document.createElement("style");
     style.textContent = "[data-virtuoso-scroller] { overflow-anchor: none !important; }";
-    document.documentElement.appendChild(style);
+    document.addEventListener("DOMContentLoaded", () => document.head.appendChild(style));
     const w = window as unknown as { __diag: { log: Entry[] } };
     w.__diag = { log };
     const push = (e: Entry) => { if (log.length < 60_000) log.push(e); };
