@@ -82,8 +82,13 @@ export interface QuiescenceSources {
  * qualcuno dimentica di aggiungere erediterebbe in silenzio l'attesa corta —
  * cioè il difetto del 20/08, di nuovo, con un altro nome.
  */
-export function providerSurvivesRestart(provider: { reattach?: unknown } | null | undefined): boolean {
-  return typeof provider?.reattach === "function";
+export function providerSurvivesRestart(provider: { reattach?: unknown; reattachEnabled?: unknown } | null | undefined): boolean {
+  if (typeof provider?.reattach !== "function") return false;
+  // A provider whose reattach depends on a switch says so: the native runtime
+  // has `reattach` always, but only its detached turns (broker on,
+  // TOPICS_NATIVE_DETACHED not 0) live outside the server. With them off its
+  // turn dies with the server, as before lossless-restart.
+  return typeof provider.reattachEnabled === "function" ? (provider.reattachEnabled as () => boolean)() === true : true;
 }
 
 /**

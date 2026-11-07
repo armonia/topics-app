@@ -228,6 +228,11 @@ describe("providerSurvivesRestart — la domanda si fa al provider, non al nome"
   test("un `reattach` che non e' una funzione non conta", () => {
     expect(providerSurvivesRestart({ reattach: true })).toBe(false);
   });
+
+  test("a reattach behind a switch counts only with the switch on (native runtime, detached turns off)", () => {
+    expect(providerSurvivesRestart({ reattach: async () => "dead", reattachEnabled: () => false })).toBe(false);
+    expect(providerSurvivesRestart({ reattach: async () => "live", reattachEnabled: () => true })).toBe(true);
+  });
 });
 
 /**

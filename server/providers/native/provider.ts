@@ -1102,6 +1102,15 @@ export class NativeProvider implements AIProvider {
     return r.outcome;
   }
 
+  /**
+   * Whether `reattach` can find anything: only a detached turn outlives the
+   * server. Read by `providerSurvivesRestart`, so with detached turns off a
+   * native card holds the restart again instead of being cut by it.
+   */
+  reattachEnabled(): boolean {
+    return nativeDetachedEnabled();
+  }
+
   /** Whether the broker still runs a turn for this session (the dispatcher's probe). */
   async hasLiveSession(sessionKey: string): Promise<boolean> {
     if (!nativeDetachedEnabled()) return false;
