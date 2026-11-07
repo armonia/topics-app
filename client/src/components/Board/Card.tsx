@@ -32,11 +32,12 @@ import { DispatchLoadGauge } from './DispatchLoadGauge';
 import { landingBand } from './landingBand';
 import { useLandingTicket } from './useLandingTicket';
 import { taskActionErrorMessage } from './taskActionError';
-import { choiceForText, taskChoices, usableQuestionOptions } from './taskChoices';
+import { cardProgressLine } from './cardProgressLine';
+import { choiceForText, reviewFaceExclude, reviewMenuExclude, taskChoices, usableQuestionOptions } from './taskChoices';
 import { taskChoiceState } from './taskChoices';
 import { checklistWindow } from './checklistWindow';
 import { showsStoppedChip } from './stoppedChip';
-import { sendBackDest, sendBackWord, taskActionWord } from './taskActionWords';
+import { taskActionWord } from './taskActionWords';
 import { useT, useLocale } from '../../hooks/useT';
 import { taskTriggerLine } from '../../lib/modelLabel';
 import { machineLabel, useMachines } from '../../state/machinesStore';
@@ -51,7 +52,7 @@ import { fmtMs, fmtTok, fmtAttesa, fmtUsd, taskCopyText } from './format';
 import { UpdatedAgo } from './UpdatedAgo';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
 import { BrakeCardLine, BrakeColumnNote, useBrakeHeld } from './BrakeChip';
-import { LiveEffortChip, LiveToolLine, RETRY_NOW_MESSAGE, RetryWaitChip } from './CardLive';
+import { LiveEffortChip, RETRY_NOW_MESSAGE, RetryWaitChip } from './CardLive';
 import { SessionPeek } from './SessionPeek';
 import { createSessionPeekIntent } from './sessionPeekIntent';
 import { SwapIce } from '../Shared/SwapIce';
@@ -492,6 +493,33 @@ type CardProps = {
   paneSettings: BoardSettings | null;
 };
 
+/**
+ * A machine's note, folded under «mostra». It is never the card's body on its
+ * own: the body carries the agent's word, and the note waits one click away.
+ */
+function SystemNoteFold({ note }: { note: { content: string } }) {
+  const tr = useT();
+  const [aperta, setAperta] = useState(false);
+  return (
+    <div>
+      <button
+        data-testid="card-system-note-toggle"
+        onClick={(e) => { e.stopPropagation(); setAperta((v) => !v); }}
+        className="text-compact leading-4 md:text-mini text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
+      >
+        {aperta ? tr('board.card.commentLess') : tr('board.card.noteShow')}
+      </button>
+      {aperta && (
+        <p data-testid="card-system-note" className="mt-1 break-words text-compact leading-snug text-app-text-muted">
+          {/* `terminal`, not `cpu`: at this size the chip pins draw more line per px than
+              `tests/e2e/kanban-icone.spec.ts` allows for a readable icon (4.7 against 3.33). */}
+          <Terminal className="mr-1 inline h-2.5 w-2.5 align-middle" />{tr('board.card.systemNote')}: {stripMarkdown(note.content)}
+        </p>
+      )}
+    </div>
+  );
+}
+
 const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, paneBoardId: _paneBoardId, paneSettings: _paneSettings, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition, boardTopicsRoutingDefault }: CardProps & CardDragProps & { boardTopicsRoutingDefault: boolean | null }) {
   // MSEL-01: subscribed, so a snapshot that lands after the first paint adds
   // «· via Topics»; the boolean re-renders the card only when it flips.
@@ -506,6 +534,10 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
     snapshot: getProvidersSnapshotState().snapshot, tr: tm, surface: 'task', viaTopics: runsThroughTopics,
   });
   const modelLine = useSyncExternalStore(subscribeProvidersSnapshot, getModelLine, getModelLine);
+  // The measure row is 300 px wide at its narrowest: only the Claude Code provider
+  // is shortened ("via Claude Code" -> "Claude Code"), so model and provider stay whole;
+  // the tooltip keeps the full line. Other providers stay as the specs pin them.
+  const measureLine = modelLine.replace(' · via Claude Code', ' · Claude Code');
 
   // Review context. The comment PAIR (`selectCardComments`) — the thread's last
   // word as a quick-reply with option buttons when it's a question block and
@@ -605,7 +637,6 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // le due risposte scritte in un commento e nessun bottone per darle.
   // Entrambi i rami stanno in `showsCardThread`, che è anche il predicato con
   // cui il server decide a quali schede attaccare i commenti.
-  const isAgentReview = task.status === 'review' && !!task.assignedTopicId;
   /**
    * Topics is holding this card's heaviest background command STOPped because
    * the Mac is in sustained swap. The card frosts over, says which command and
@@ -675,6 +706,26 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   const lastComment = rowThread?.latest ?? thread?.latest ?? null;
   /** Chi parla non e' una persona ne' un agente: vedi `isMachineVoice`. */
   const notesOfMachine = lastComment ? isMachineVoice(lastComment) : false;
+  /** The agent's last word: the body's word when the last one is a machine's. */
+  const agentWord = rowThread?.agentWord ?? thread?.agentWord ?? null;
+  const bodyWord = notesOfMachine ? agentWord : lastComment;
+  // Riga di avanzamento per una card in lavorazione: l'ultimo passo del tool,
+  // o la prima riga dell'agente. Una sola riga, mai il testo intero. Una nota
+  // della macchina non diventa mai la riga: va sotto «mostra».
+  const progressLine = cardProgressLine({
+    lastTool: live?.lastTool, retry: live?.retry, working: task.dispatchState === 'working',
+    showsQuestion, bodyText: bodyWord?.content,
+  });
+  // THE MEASURE BAND is drawn in progress (live) or whenever the turn has a
+  // model or a time. «ora» lives inside it then, and alone on the foot otherwise.
+  const measureShown = (!!live && !live.retry && task.dispatchState === 'working')
+    || !!(task.model || task.agentMs > 0 || task.agentTokens > 0);
+  const updatedAgo = (tone: string) => (
+    <span
+      className={`shrink-0 whitespace-nowrap text-compact leading-4 md:text-mini ${tone}`}
+      title={tr('board.card.lastUpdate', { when: new Date(task.updatedAt).toLocaleString(locale) })}
+    ><UpdatedAgo iso={task.updatedAt} /></span>
+  );
   const humanContext = rowThread ? rowThread.humanContext : thread?.humanContext ?? null;
   // Plain text: the context row is a single clamped line, so markdown blocks
   // would only leak their syntax into it.
@@ -776,11 +827,15 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
     // No choice takes it (or the one that does only wants the focus in the
     // field, where we already are): then the text is a note, and that is the
     // only sensible thing to do with it.
-    if (!prima || prima.needsText) { void steer(v, { quiet: true }); return; }
+    // «Rifai così» is no longer a button on the card: the field IS that
+    // choice. With an agent behind the task it sends the text back, so the
+    // agent restarts for real (card 38b78eba stayed parked in review before).
+    const sendsBackWithText = !!prima && (prima.id === 'send-back' || (prima.id === 'redo' && !!task.assignedTopicId));
+    if (!prima || (prima.needsText && !sendsBackWithText)) { void steer(v, { quiet: true }); return; }
     setBusy(true); clearError();
     try {
-      // `send-back` carries the instruction with it, the way the button does.
-      if (prima.id === 'send-back') await boardApi.review(task.projectId, task.id, 'reject', v);
+      // `send-back` and `redo` carry the instruction with them, the way the button does.
+      if (sendsBackWithText) await boardApi.review(task.projectId, task.id, 'reject', v);
       else {
         // The others have no field to put a sentence in: it is left on the
         // card BEFORE acting, so the why stays written next to the effect
@@ -1018,6 +1073,12 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // The send button names the action IT PERFORMS — the text's one, not the
   // first in the row: with `[0]` it promised «Landa su main» and sent back.
   const primaChoice = useMemo(() => choiceForText(taskChoices(task, { t: tr })), [task, tr]);
+  // THE REVIEW FACE, as Attilio decided on 01/11 and 03/11: only «Approva» on
+  // the face; «Rifai così» is in neither place (the field below sends the text
+  // back, see `primaryChoiceWithText`); every other exit, «Archivia» included,
+  // is behind the «…». See `reviewFaceExclude` in `taskChoices`.
+  const faceExclude = useMemo(() => reviewFaceExclude(task, tr), [task, tr]);
+  const menuExclude = useMemo(() => reviewMenuExclude(task, tr), [task, tr]);
   // …e l'altra metà, che è il verso OPPOSTO: quanti aspettano QUESTA card.
   // Anche questo numero è un fatto del DB, non della lista fetchata — un
   // dipendente che è un sottotask o sta in un altro progetto non è fra le card,
@@ -1674,7 +1735,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               protagonista come deve. */}
           {!showsQuestion ? null : questionIsLatest && pending ? (
             <p className="break-words text-compact leading-snug text-app-text">{stripMarkdown(pending.question)}</p>
-          ) : lastComment ? (
+          ) : bodyWord ? (
             // Render the agent's last word as REAL markdown (bold/headings/lists
             // format instead of showing raw `**`/`#`). Shown in full — no clamp,
             // no fade. Tooltip = plain text.
@@ -1699,8 +1760,8 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               // senza guadagno. Il testo NON viene tagliato: e' tutto li',
               // basta un click - e chi ha ripiegato una card la ritrova
               // ripiegata, perche' lo stato vive per card.
-              className={`text-compact leading-relaxed ${notesOfMachine ? 'text-app-text-muted' : 'text-app-text-heading'} ${COMPACT_MD_CLS} ${commentoAperto ? '' : 'line-clamp-[10]'}`}
-              title={`${commentAuthorLabel(lastComment.author).label}: ${stripMarkdown(lastComment.content)}`}
+              className={`text-compact leading-relaxed text-app-text-heading ${COMPACT_MD_CLS} ${commentoAperto ? '' : 'line-clamp-[10]'}`}
+              title={`${commentAuthorLabel(bodyWord.author).label}: ${stripMarkdown(bodyWord.content)}`}
             >
               {/* CHI PARLA, quando non e' una persona.
                   Una nota del sistema ha lo stesso aspetto del riassunto di una
@@ -1733,17 +1794,6 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
                   Resta `latestIsPlumbing` in `cardComments.ts`: la decisione e'
                   giusta e provata, e serve a chi vorra' disegnarla meglio. Qui
                   si toglie solo il modo in cui la disegnavo io. */}
-              {/* The tag's glyph is `terminal`, not `cpu`: at 10px the chip's
-                  pins drew 4.7px of line per px of side, past the 3.33 that
-                  `tests/e2e/kanban-icone.spec.ts` holds for a readable icon.
-                  And `secondary` ink, not `muted`: on the tag's white/10 fill
-                  muted measured 4.08:1 in dark, under the 4.5 of small text. */}
-              {notesOfMachine && (
-                <span
-                  data-testid="card-comment-system-tag"
-                  className="mr-1 inline-flex items-center gap-1 rounded bg-white/10 px-1 py-px align-middle text-mini uppercase tracking-wide text-app-text-secondary"
-                ><Terminal className="h-2.5 w-2.5 shrink-0" /> {tr('board.card.systemNote')}</span>
-              )}
               {/* IL RECINTO ```question NON ARRIVA MAI CRUDO AL MARKDOWN.
                   Qui ci finisce ogni parola che non e' «la domanda in fondo al
                   thread» (`pending`), e fra quelle c'e' anche una domanda che
@@ -1751,14 +1801,14 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
                   BLOCCO DI CODICE, quindi 300 caratteri di italiano diventavano
                   una riga sola con `overflow-x-auto`, da leggere scorrendo di
                   lato. Vedi `shared/question-prose.ts`. */}
-              <ChatMarkdown components={{}}>{questionToProse(lastComment.content)}</ChatMarkdown>
+              <ChatMarkdown components={{}}>{questionToProse(bodyWord.content)}</ChatMarkdown>
             </div>
           ) : null}
           {/* Il pieghevole compare SOLO se c'e' davvero da ripiegare: la
               soglia guarda il testo, non l'altezza resa, perche' un'altezza
               misurata dopo il render farebbe saltare la card di un fotogramma.
               620 caratteri sono circa dieci righe nella colonna della board. */}
-          {showsQuestion && !questionIsLatest && lastComment && lastComment.content.length > COMMENTO_PIEGA_CHARS && (
+          {showsQuestion && !questionIsLatest && bodyWord && bodyWord.content.length > COMMENTO_PIEGA_CHARS && (
             <button
               data-testid="card-comment-toggle"
               onClick={(e) => { e.stopPropagation(); setCommentoAperto((v) => !v); }}
@@ -1767,6 +1817,10 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               {commentoAperto ? tr('board.card.commentLess') : tr('board.card.commentMore')}
             </button>
           )}
+          {/* A machine note is never alone in the body: when it is the last
+              voice it stays folded behind a show toggle, and the body keeps
+              the agent's word. */}
+          {showsQuestion && notesOfMachine && lastComment && <SystemNoteFold note={lastComment} />}
         </div>
       )}
       {/* THE AGENT'S PROGRESS NOTE on a card still in progress. The kickoff
@@ -1774,23 +1828,17 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           writes it; the card showed a stopwatch and the words stayed in the
           thread. Same clamp and fold as the review's word, no request pair:
           there is no answer to pair a request with yet. */}
-      {task.status === 'in_progress' && showsQuestion && lastComment && (
-        <div className="mt-2" data-testid="card-progress-word">
-          <div
-            className={`text-compact leading-relaxed text-app-text-heading ${COMPACT_MD_CLS} ${commentoAperto ? '' : 'line-clamp-[10]'}`}
-            title={`${commentAuthorLabel(lastComment.author).label}: ${stripMarkdown(lastComment.content)}`}
-          >
-            <ChatMarkdown components={{}}>{questionToProse(lastComment.content)}</ChatMarkdown>
-          </div>
-          {lastComment.content.length > COMMENTO_PIEGA_CHARS && (
-            <button
-              data-testid="card-comment-toggle"
-              onClick={(e) => { e.stopPropagation(); setCommentoAperto((v) => !v); }}
-              className="text-compact leading-4 md:text-mini text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
-            >
-              {commentoAperto ? tr('board.card.commentLess') : tr('board.card.commentMore')}
-            </button>
+      {task.status === 'in_progress' && (progressLine || (showsQuestion && notesOfMachine)) && (
+        <div className="mt-2 space-y-1" data-testid="card-progress-word">
+          {progressLine && (
+            <p
+              data-testid="card-progress-line"
+              className="truncate text-compact leading-snug text-app-text-heading"
+              title={progressLine}
+            >{progressLine}</p>
           )}
+          {/* La nota della macchina non sta mai da sola nel corpo: è ripiegata. */}
+          {showsQuestion && notesOfMachine && lastComment && <SystemNoteFold note={lastComment} />}
         </div>
       )}
       {/* THE CARD'S FOOT: what is happening to the turn, and what it has cost
@@ -1851,8 +1899,13 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
         {live?.retry && task.dispatchState === 'working' && (
           <RetryWaitChip retry={live.retry} disabled={busy} onRetryNow={() => steer(RETRY_NOW_MESSAGE)} />
         )}
+        {/* THE TURN'S MEASURE, ONE LINE OF TEXT. Model with its provider, time
+            and tokens: always visible, in progress and in review. Not a pill:
+            a muted secondary line, on the state's row when it fits, and cut
+            from its tail (tokens first) when it does not. The last update
+            still closes the row, on the right. */}
         {live && !live.retry && task.dispatchState === 'working' ? (
-          <LiveEffortChip usage={live} />
+          <LiveEffortChip usage={live} label={measureLine} trailing={updatedAgo('')} />
         ) : (task.model || task.agentMs > 0 || task.agentTokens > 0) ? (
           // The model always lives here, in the time/effort chip — never as a
           // second standalone chip. Before the agent has logged any time we
@@ -1878,9 +1931,11 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
                 model: modelLine,
               })
               : tr('board.card.modelTitle', { model: modelLine })}
-            className="max-w-full truncate rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
-          >{modelLine}{(task.agentMs > 0 || costo > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{/* THE DOLLARS, when the card has a priced spend: the token figure is the
-              cost-weighted volume, this is what it came to. */}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>
+            data-testid="card-measure"
+            className="flex w-full min-w-0 max-w-full items-center justify-between gap-2 rounded-lg bg-black/[0.12] px-2.5 py-1.5 text-compact leading-4 md:text-mini text-app-text-secondary dark:bg-white/[0.16] tabular-nums"
+          ><span className="min-w-0 break-words">{measureLine}</span>{/* THE DOLLARS, when the card has a priced spend: the token figure is the
+              cost-weighted volume, this is what it came to. Right side: never wrapped, never cut. The
+              last update closes the band too: «ora» on a line of its own under it was a second row. */}<span className="flex shrink-0 items-center gap-2 whitespace-nowrap"><span>{(task.agentMs > 0 || costo > 0) && `⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>{updatedAgo('')}</span></span>
         ) : null}
         {/* WHICH MACHINE it runs on, next to the model it runs with. Only when
             a node is named: an absent one means "here", and saying that on
@@ -1910,20 +1965,13 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           />
         )}
         {/* The last update closes the row, on the right: it is the weakest of
-            the four measures and does not belong among the others. */}
-        <span
-          className="ml-auto text-compact leading-4 md:text-mini text-app-text-muted"
-          title={tr('board.card.lastUpdate', { when: new Date(task.updatedAt).toLocaleString(locale) })}
-        ><UpdatedAgo iso={task.updatedAt} /></span>
+            the four measures and does not belong among the others. With a
+            measure band it sits inside the band instead (above). */}
+        {!measureShown && updatedAgo('ml-auto text-app-text-muted')}
       </div>
-      {/* WHAT IT IS DOING RIGHT NOW: the tool the session is running and for
-          how long. A 14-minute stopwatch did not tell a unit suite that has
-          been running nine minutes from an agent that is stuck; the answer was
-          in the chat, which is what the board was meant to spare. One line,
-          under the measures, muted: a fact about the minute, not the card. */}
-      {live?.lastTool && !live.retry && task.dispatchState === 'working' && (
-        <LiveToolLine tool={live.lastTool} frozen={!!swapFreeze} />
-      )}
+      {/* The tool the session is running is NOT drawn again here: the progress
+          line under the title already says `name · input`. Drawing it twice
+          put «Bash · bun run test:unit» on the card two times. */}
       {/* WHAT THE FROST MEANS, in words: which command, how much it held, and
           that it comes back by itself. A texture alone would only say that
           something is wrong with this card. */}
@@ -2012,7 +2060,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               riga di codice che lo causava (`review(reject)` senza commento). */}
           <div onClick={(e) => e.stopPropagation()}>
             <TaskChoiceRow
-              task={task} disabled={busy}
+              task={task} disabled={busy} exclude={faceExclude}
               onDone={choiceDone} onError={choiceFailed}
               onNeedText={() => freeTextRef.current?.focus()}
               pendingText={() => freeText}
@@ -2051,9 +2099,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               // sopra: su una card che nessuno ha consegnato non si chiama
               // «Rimanda indietro» ma «Rimandalo avanti», e un placeholder che
               // nomina un bottone inesistente e' peggio di uno generico.
-              placeholder={isAgentReview
-                ? tr('board.task.replyPlaceholderShort', { sendBack: sendBackWord(sendBackDest(task), tr).label })
-                : tr('board.card.commentPlaceholder')}
+              placeholder={tr('board.card.commentPlaceholder')}
               className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-compact leading-4 text-app-text outline-none placeholder:text-app-placeholder coarse:min-h-11"
             />
             {/* L'INVIO SI VEDE. È la stessa azione del primo bottone qui sopra,
@@ -2073,6 +2119,16 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
                 : tr('board.card.steerSendTitle')}
               className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-compact leading-4 text-white hover:bg-sky-500 disabled:opacity-50 coarse:min-h-11 coarse:min-w-11 coarse:justify-center"
             ><Send className="h-3.5 w-3.5" /></button>
+            {/* The rest of the exits, and «Archivia», behind the «…». The same
+                wiring as the face row: the field's text goes with «Rimanda
+                indietro» from here too, and a queued land shows its receipt. */}
+            <TaskChoiceMenu
+              task={task} exclude={menuExclude} disabled={busy} onDone={choiceDone} onError={choiceFailed}
+              onNeedText={() => freeTextRef.current?.focus()}
+              pendingText={() => freeText}
+              onLanding={setLanding}
+              ariaLabel={tr('board.card.turnActions')}
+            />
           </div>
         </div>
       )}
