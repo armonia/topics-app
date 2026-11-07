@@ -1,3 +1,8 @@
+/**
+ * One read of a dispatched card's headless stream, raced against the deposited
+ * turn end: one grace timer per read, cleared when the race is decided.
+ * @covers KANBAN-07
+ */
 import { describe, expect, test } from "bun:test";
 import { raceReadAgainstTurnEnd, type GraceTimers } from "./race-read-turn-end";
 
@@ -5,10 +10,12 @@ import { raceReadAgainstTurnEnd, type GraceTimers } from "./race-read-turn-end";
 function fakeTimers() {
   let nextId = 1;
   const live = new Map<number, () => void>();
+  const delays: number[] = [];
   const timers: GraceTimers = {
-    setTimeout: (fn) => {
+    setTimeout: (fn, ms) => {
       const id = nextId++;
       live.set(id, fn);
+      delays.push(ms);
       return id;
     },
     clearTimeout: (handle) => {
@@ -18,6 +25,8 @@ function fakeTimers() {
   return {
     timers,
     liveCount: () => live.size,
+    /** The delay each timer was armed with, in arming order. */
+    delays: () => [...delays],
     /** Fires every armed timer once (a grace period elapsed). */
     elapse: () => {
       for (const [id, fn] of [...live]) {
@@ -87,6 +96,17 @@ describe("raceReadAgainstTurnEnd", () => {
     clock.elapse();
     expect((await p).done).toBe(true);
     expect(clock.liveCount()).toBe(0);
+  });
+
+  test("every grace timer, the first and each re-arm, waits exactly graceMs", async () => {
+    const clock = fakeTimers();
+    let ended = false;
+    const p = raceReadAgainstTurnEnd(() => new Promise(() => {}), () => ended, 20_000, clock.timers);
+    clock.elapse();
+    ended = true;
+    clock.elapse();
+    await p;
+    expect(clock.delays()).toEqual([20_000, 20_000]);
   });
 
   test("a rejected read also clears the timer", async () => {
