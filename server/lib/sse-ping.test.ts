@@ -65,13 +65,16 @@ describe("createSseNudge", () => {
     expect(written).toHaveLength(0);
   });
 
-  test("by default the first nudge comes right after the burst, the last within a few seconds, the gaps growing", () => {
+  test("by default they come every 40 ms right after the burst, then further apart, the last within a few seconds", () => {
     const delays = SSE_NUDGE_DELAYS_MS;
-    expect(delays.length).toBeGreaterThan(1);
     expect(delays[0]).toBeLessThanOrEqual(50);
+    const gaps = delays.map((d, i) => d - (i ? delays[i - 1]! : 0));
+    // Close together while a busy page may still be stranding them: the first one after it is free comes at most 40 ms later.
+    expect(gaps.filter((_, i) => delays[i]! <= 400).every((g) => g <= 40)).toBe(true);
+    expect(delays.filter((d) => d <= 400).length).toBeGreaterThanOrEqual(10);
+    // Never closer together later on, and done in seconds: a long silence costs a few dozen bytes.
+    for (let i = 1; i < gaps.length; i++) expect(gaps[i]!).toBeGreaterThanOrEqual(gaps[i - 1]!);
     expect(delays[delays.length - 1]).toBeLessThan(20_000);
-    for (let i = 2; i < delays.length; i++) {
-      expect(delays[i]! - delays[i - 1]!).toBeGreaterThan(delays[i - 1]! - delays[i - 2]!);
-    }
+    expect(delays.length).toBeLessThan(20);
   });
 });

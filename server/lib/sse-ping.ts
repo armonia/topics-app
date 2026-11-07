@@ -43,11 +43,21 @@ export function startSsePing(opts: {
 }
 
 /**
- * When the nudges go out, in ms after the last write. Each one is another
- * chance to reach the page on its own (`createSseNudge`), and the gaps grow so
- * that a long silence costs a handful of bytes, not a stream of them.
+ * When the nudges go out, in ms after the last write: every 40 ms for the first
+ * 400, then 600 ms, 1, 2 and 4 s. Each one is another chance to reach the page
+ * on its own (`createSseNudge`). Close together at first, because a page busy
+ * past a nudge strands it with the burst, and the first one after the page is
+ * free is the one that counts. With nudges at 40 and 250 ms only, the window
+ * that sent a turn saw a tool running past the 250 ms that open its body
+ * (`AUTO_OPEN_DELAY_MS` in the client), and the body closed 1.5 s later under
+ * the answer (WebKit, chat-turn-end-still `twotool`, 3 runs in 20 of run
+ * 42337916608; never in Chromium, which strands nothing). Then further apart,
+ * so a long silence costs a few dozen bytes, not a stream of them.
  */
-export const SSE_NUDGE_DELAYS_MS: readonly number[] = [40, 250, 1_000, 4_000];
+export const SSE_NUDGE_DELAYS_MS: readonly number[] = [
+  ...Array.from({ length: 10 }, (_, i) => (i + 1) * 40),
+  600, 1_000, 2_000, 4_000,
+];
 
 const NUDGE = new TextEncoder().encode(": nudge\n\n");
 
@@ -81,9 +91,10 @@ const NUDGE = new TextEncoder().encode(": nudge\n\n");
  * the first one, which reached it in the same go as the burst and was
  * stranded with it (the window that sent the turn showed its first tool
  * running until the end of the turn, run 42334875663, WebKit). A later one
- * reaches it on its own, once the reader has asked again. If WebKit holds a
- * nudge, nothing is lost: it carries nothing. A reader that measures silence
- * asks `isSseCommentOnly` first, as it does for the ping.
+ * reaches it on its own, once the reader has asked again, and the sooner it
+ * follows the end of the busy stretch, the less the page sees late. If WebKit
+ * holds a nudge, nothing is lost: it carries nothing. A reader that measures
+ * silence asks `isSseCommentOnly` first, as it does for the ping.
  */
 export function createSseNudge(opts: {
   /** Writes raw bytes to the response. Errors are the writer's to swallow. */
