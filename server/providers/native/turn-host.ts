@@ -26,7 +26,7 @@ import { journalHostEffects, type HostControl } from "./turn-effects";
 import type { Calibration } from "./context-window";
 import type { ToolSpec, ToolResult } from "./tools";
 import type { TopicsToolContext } from "./topics-tools";
-import { useRemoteMcpFleet } from "./mcp-fleet";
+import { setRemoteMcpFleet } from "./mcp-fleet";
 import { journalingHandler, JOURNAL_VERSION, type RoundUsage } from "./turn-journal";
 import { bridgeAuthHeaders, loopbackInit } from "../../mcp/topics-http";
 import { defaultLifecycleHooks } from "../../services/lifecycle-hooks";
@@ -181,7 +181,7 @@ export async function main(): Promise<void> {
   journalHostEffects(handler.emit, spec.hold ?? null);
 
   let mcpTools = spec.mcpTools ?? [];
-  useRemoteMcpFleet({
+  setRemoteMcpFleet({
     specs: () => mcpTools,
     call: async (name, input) => {
       const out = await callServerMcp(spec, name, input, abort.signal);

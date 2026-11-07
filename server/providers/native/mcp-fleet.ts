@@ -307,7 +307,7 @@ interface RemoteFleet {
   call: (name: string, input: Record<string, unknown>) => Promise<ToolResult>;
 }
 let remote: RemoteFleet | null = null;
-export function useRemoteMcpFleet(fleet: RemoteFleet | null): void {
+export function setRemoteMcpFleet(fleet: RemoteFleet | null): void {
   remote = fleet;
 }
 
