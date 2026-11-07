@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { milestoneChoices, nodeKey, progressLabel, progressPct, subtreeSignals } from './planTree';
+import { milestoneChoices, nodeKey, progressLabel, progressPct, branchSignals } from './planTree';
 import type { PlanProject } from './planApi';
 
 describe('planTree', () => {
@@ -16,8 +16,8 @@ describe('planTree', () => {
     ] } as unknown as PlanProject;
     expect(milestoneChoices(p)).toEqual([{ id: 'm1', label: 'A / X' }, { id: 'm2', label: 'A / Y' }, { id: 'm3', label: 'B / Z' }]);
   });
-  test('subtreeSignals dedupes', () => {
-    expect(subtreeSignals([{ signals: ['stale', 'duplicate'] }, { signals: ['stale'] }])).toEqual(['stale', 'duplicate']);
+  test('branchSignals dedupes', () => {
+    expect(branchSignals([{ signals: ['stale', 'duplicate'] }, { signals: ['stale'] }])).toEqual(['stale', 'duplicate']);
   });
   test('nodeKey', () => expect(nodeKey('area', 'a1')).toBe('area:a1'));
 });

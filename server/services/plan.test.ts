@@ -33,6 +33,15 @@ describe("plan tree", () => {
     expect(p.progress).toMatchObject({ total: 3, done: 1 });
   });
 
+  test("projects with nothing open stay out, the rest goes by open work", () => {
+    task("a1", { project_id: "zeta" }); task("a2", { project_id: "zeta" });
+    task("b1", { project_id: "alfa" });
+    task("c1", { project_id: "chiuso", status: "done" });
+    const ids = buildPlan(db, { now: T0 }).projects.map((p) => p.projectId);
+    expect(ids).toEqual(["zeta", "alfa"]);
+    expect(buildPlan(db, { includeDone: true, now: T0 }).projects.map((p) => p.projectId)).toContain("chiuso");
+  });
+
   test("done cards are hidden from lists by default but still count", () => {
     const a = createArea(db, { projectId: "p1", name: "A" }) as any;
     const m = createMilestone(db, { areaId: a.id, title: "M" }) as any;

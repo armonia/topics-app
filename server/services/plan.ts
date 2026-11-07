@@ -6,6 +6,7 @@
  * every read and never stored (a stored value goes stale, a computed one cannot).
  */
 import type { Database } from "bun:sqlite";
+import { projectIdForPath } from "../../shared/board";
 import { findDuplicateGroups } from "../../shared/task-similarity";
 
 export const STALE_DAYS = 7;
@@ -136,7 +137,10 @@ export function buildPlan(
 
   let names = new Map<string, string>();
   try {
-    names = new Map((db.query(`SELECT id, name FROM projects`).all() as { id: string; name: string }[]).map((p) => [p.id, p.name]));
+    // Board ids are path slugs (`quadra-lh40qh`), not `projects.id`: resolve both,
+    // or every project shows its slug instead of the name people know.
+    const rows = db.query(`SELECT id, name, path FROM projects`).all() as { id: string; name: string; path: string | null }[];
+    names = new Map(rows.flatMap((p) => [[p.id, p.name], ...(p.path ? [[projectIdForPath(p.path), p.name]] : [])] as [string, string][]));
   } catch { /* projects table absent (test bench): fall back to the id */ }
 
   const milestoneOf = new Map(links.map((l) => [l.task_id, l.milestone_id]));
@@ -206,7 +210,7 @@ export function buildPlan(
   }
 
   const projectIds = new Set<string>([...tasks.map((t) => t.project_id), ...areas.map((a) => a.project_id)]);
-  const projects: PlanProject[] = [...projectIds].sort().map((pid) => {
+  const built: PlanProject[] = [...projectIds].map((pid) => {
     const projectAreas: PlanArea[] = areas.filter((a) => a.project_id === pid).map((a) => {
       const ms: PlanMilestone[] = milestones.filter((m) => m.area_id === a.id).map((m) => {
         const all = allByMilestone.get(m.id) ?? [];
@@ -229,6 +233,13 @@ export function buildPlan(
       unplaced: { progress: progressOf(unplacedAll), tasks: unplacedByProject.get(pid) ?? [] },
     };
   });
+  // A project with nothing open and no plan of its own is history: it stays out
+  // unless done cards were asked for. The rest goes by open work, largest first,
+  // so the list starts where the work is instead of at the alphabet.
+  const open = (p: PlanProject) => p.progress.total - p.progress.done;
+  const projects = built
+    .filter((p) => includeDone || open(p) > 0 || p.areas.length > 0)
+    .sort((a, b) => open(b) - open(a) || a.name.localeCompare(b.name));
   return { projects, includeDone };
 }
 

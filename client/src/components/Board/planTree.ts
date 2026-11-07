@@ -28,6 +28,6 @@ export function milestoneChoices(project: PlanProject): { id: string; label: str
 export const nodeKey = (kind: 'project' | 'area' | 'milestone' | 'unplaced', id: string) => `${kind}:${id}`;
 
 /** Distinct signals of a set of milestones, to keep them visible on a closed node. */
-export function subtreeSignals(milestones: readonly { signals: readonly PlanSignal[] }[]): PlanSignal[] {
+export function branchSignals(milestones: readonly { signals: readonly PlanSignal[] }[]): PlanSignal[] {
   return [...new Set(milestones.flatMap((m) => m.signals))];
 }

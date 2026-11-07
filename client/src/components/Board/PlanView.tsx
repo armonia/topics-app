@@ -98,7 +98,7 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
     </div>
   );
 
-  const renderMilestone = (m: PlanMilestone, a: PlanArea, project: PlanProject) => {
+  const renderMilestone = (m: PlanMilestone, project: PlanProject) => {
     const k = nodeKey('milestone', m.id);
     return (
       <div key={m.id} data-testid="plan-milestone">
@@ -187,7 +187,7 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
                       {open.has(ak) && <>
                         {form === `ms:${a.id}` && <MilestoneForm area={a} />}
                         {a.milestones.length === 0 && <p className="text-mini text-app-text-muted" style={{ paddingLeft: 2 * 16 }}>{tr('plan.noMilestones')}</p>}
-                        {a.milestones.map((m) => renderMilestone(m, a, project))}
+                        {a.milestones.map((m) => renderMilestone(m, project))}
                       </>}
                     </div>
                   );
