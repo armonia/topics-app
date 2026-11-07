@@ -1,4 +1,4 @@
-/** @covers CODEX-01 */
+/** @covers CODEX-01 MP-AGENTAUTH-01 */
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";

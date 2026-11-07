@@ -140,18 +140,6 @@ malformed, nor a turn the user stopped.
 - **AND** the silence watchdog counts the wait as life
 - **AND** the notice clears when data flows again (`stream:resumed`)
 
-### Requirement: CHAT-REL-04 — WS handler isolation
-
-The system SHALL not route stale WS events to the current HTTP stream handler.
-
-#### Scenario: Old error event arrives for current session
-- **GIVEN** an HTTP SSE stream is active with a registered WS handler
-- **WHEN** a WS event with `state=error` arrives from a previous run
-- **THEN** the event is ignored (not routed to current handler)
-- **AND** no error is shown for the current request
-
-**Implementation**: Register HTTP-path WS handlers with a unique sentinel `runId` (e.g., `http:{uuid}`) so that events from gateway runs (which have their own runIds) don't match.
-
 ### Requirement: CHAT-REL-05 — Active stream cleanup
 
 The system SHALL periodically clean up stale active streams, not only on access.
