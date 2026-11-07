@@ -317,3 +317,9 @@ export function alterMigrationsAfter(dopo: string, tabelle: string[], radice: st
     .sort()
     .filter((f) => soloAlter.test(readFileSync(join(dir, f), "utf8")));
 }
+
+/**
+ * The Plan tables (migration 20261107200000), read from the migration file
+ * itself so the test bench and production cannot drift.
+ */
+export const PLAN_HIERARCHY_DDL = readFileSync(join(import.meta.dir, "migrations", "20261107200000-plan-hierarchy.sql"), "utf8");
