@@ -1,5 +1,101 @@
 [
   {
+    "version": "2.3.53",
+    "date": "2026-11-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Native turns run in their own process under the AI broker, so a server restart no longer cuts them",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The update scripts can ask the server whether a restart loses turns, and which commit it booted on",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A native card holds the restart again when its turn runs inside the server",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "E2E bar of lossless-restart: three native turns in flight survive a SIGTERM",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The broker frees the store of a session killed after its process already exited",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The restart gate asks each native turn where it runs, and the boot trusts a live process over a dead journal",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A detached native turn survives a dropped broker socket, and its effects reach the server",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A reconnect during a native turn's spawn no longer ends the turn as dead",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The broker decodes each socket's bytes as one stream, not chunk by chunk",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The restart gate asks every turn whether it comes back, not whether the broker is on",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A native host's hold lift names the hold it lifted",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The swap freezer and the governor reach a detached native turn's commands",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A failing turn effect no longer stops the journal reader; gate fixes in native tests",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A native turn left by a restart is adopted whole, priced, and never confused with an older one",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A detached native turn's round lines reach the server's stdout log again",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Language gates green on the restart e2e bar: English comment and names",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "CI green again: the remote MCP fleet setter is not named like a React hook, and the boot-order tests read the sweep's real argument",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.52",
     "date": "2026-11-07",
     "sections": {
