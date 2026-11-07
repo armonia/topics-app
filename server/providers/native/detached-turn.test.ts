@@ -33,8 +33,8 @@ delete process.env.TOPICS_NATIVE_DETACHED;
 // written in settings.json and send the fake token to the real API.
 delete process.env.ANTHROPIC_BASE_URL;
 
-const { runDetachedTurn, reattachDetachedTurn, liveDetachedSessions } = await import("./detached-turn");
-const { __resetAiBridgeClientForTests } = await import("../../lib/ai-bridge-client");
+const { runDetachedTurn, reattachDetachedTurn, liveDetachedSessions, awaitStrayTurn, brokerIdFor } = await import("./detached-turn");
+const { __resetAiBridgeClientForTests, getAiBridgeClient } = await import("../../lib/ai-bridge-client");
 import type { TurnSpec } from "./turn-host";
 
 const PIECES = 12;
@@ -145,5 +145,66 @@ describe("detached native turn", () => {
     expect(second.text()).toBe(pieceTexts(PIECES).join(""));
     expect(second.events.at(-1)).toBe("done");
     expect(fake.requests.filter((q) => q.scen === "long")).toHaveLength(2);
+  }, 30_000);
+
+  const textCount = (r: ReturnType<typeof recorder>) => r.events.filter((e) => e.startsWith("text:")).length;
+  const dropSocket = () => { (getAiBridgeClient() as unknown as { socket: { destroy: () => void } | null }).socket?.destroy(); };
+
+  test("the broker socket drops mid-answer: the turn is still heard to its end", async () => {
+    const r = recorder();
+    const run = runDetachedTurn(spec("topic:dt000004", "long"), r.handler, {});
+    await until(() => textCount(r) >= 3);
+    dropSocket();
+    // Live again before the turn ends, not only through the tail read at its exit.
+    await until(() => textCount(r) >= PIECES - 3);
+    expect(r.events).not.toContain("done");
+    const out = await run;
+    expect(r.text()).toBe(pieceTexts(PIECES).join(""));
+    expect(r.events.at(-1)).toBe("done");
+    expect(out.end).not.toBeNull();
+  }, 30_000);
+
+  test("a Stop pressed while the socket is being re-made still stops the turn", async () => {
+    const r = recorder();
+    const stop = new AbortController();
+    const run = runDetachedTurn(spec("topic:dt000005", "long"), r.handler, { signal: stop.signal });
+    await until(() => textCount(r) >= 2);
+    dropSocket();
+    stop.abort("user");
+    await run;
+    expect(r.events).toContain("aborted");
+    expect(r.events).not.toContain("done");
+  }, 30_000);
+
+  test("a host that dies without its ending is forgotten by the broker", async () => {
+    const sk = "topic:dt000006";
+    const r = recorder();
+    const run = runDetachedTurn(spec(sk, "long"), r.handler, {});
+    await until(() => textCount(r) >= 2);
+    const info = (await getAiBridgeClient().list()).find((x) => x.id === brokerIdFor(sk));
+    process.kill(info!.pid, "SIGKILL");
+    await run;
+    expect(r.events.at(-1)).toStartWith("error:");
+    // A dead store left behind would be read by the boot as this session's turn.
+    const left = (await getAiBridgeClient().list()).find((x) => x.id === brokerIdFor(sk));
+    expect(left).toBeUndefined();
+  }, 30_000);
+
+  test("a reattach that finds nothing tells the route", async () => {
+    const r = recorder();
+    const { outcome } = await reattachDetachedTurn("topic:dt000007", r.handler);
+    expect(outcome).toBe("dead");
+    expect(r.events.some((e) => e.startsWith("error:"))).toBe(true);
+  }, 30_000);
+
+  test("a turn nobody follows is waited for and its conversation kept", async () => {
+    const sk = "topic:dt000008";
+    const first = recorder();
+    void runDetachedTurn(spec(sk, "long"), first.handler, {});
+    await until(() => textCount(first) >= 2);
+    __resetAiBridgeClientForTests();
+    const end = await awaitStrayTurn(sk);
+    expect(end?.history.length).toBe(2);
+    expect(await awaitStrayTurn(sk)).toBeNull();
   }, 30_000);
 });

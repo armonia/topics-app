@@ -34,7 +34,8 @@ import { topicsToolSpecs, type TopicsToolContext } from "./topics-tools";
 import { ensureMcpFleet, mcpToolSpecs, closeMcpFleet } from "./mcp-fleet";
 import { hasCredentials, getAccessToken, readCredentials, unsavedCredentialsError } from "./auth";
 import { readClaudeSubscription, type ClaudeSubscription } from "../claude/subscription";
-import { topicsAppBaseUrl } from "../claude-code";
+import { aiBridgeEnabled, topicsAppBaseUrl } from "../claude-code";
+import { providerHold } from "../../lib/provider-hold";
 import { getTopicWorkspaceForSession } from "../../lib/agent-workspace";
 import type {
   AbortReason,
@@ -71,7 +72,8 @@ import {
   liveDetachedSessions,
   brokerIdFor,
   detachedTurnEnd,
-  sessionHasOpenRow,
+  openRowSince,
+  awaitStrayTurn,
   type DetachedTurnResult,
   type ReattachOutcome,
 } from "./detached-turn";
@@ -418,6 +420,11 @@ export class NativeProvider implements AIProvider {
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
   /** Sessions whose turn runs detached and that this server is following. */
   private readonly detachedLive = new Set<string>();
+  /**
+   * Sessions waiting for a turn nobody followed to end (`adoptStrayTurn`),
+   * with the Stop pressed meanwhile: it ends that turn AND the one waiting.
+   */
+  private readonly strayWaits = new Map<string, { stopped?: AbortReason }>();
 
   start(): void {
     this.stopped = false;
@@ -664,6 +671,11 @@ export class NativeProvider implements AIProvider {
       return {};
     }
     const session = this.sessionFor(sessionKey, options?.messageRows);
+    const adopted = await this.adoptStrayTurn(sessionKey, session);
+    if (typeof adopted === "object") {
+      handler.onAborted?.({ turnEnd: cancelled(adopted.stopped satisfies StopCause) });
+      return { notSent: true };
+    }
     await this.supersedeLiveTurn(sessionKey, session);
     // A STOPPED ENGINE STARTS NO TURN. The chat route holds this instance across
     // its own awaits (the `memrecall` run) between opening the stream and calling
@@ -680,7 +692,9 @@ export class NativeProvider implements AIProvider {
     // La storia del CHIAMANTE vince su quella in memoria: è lui che sa cosa è
     // successo davvero (riavvii, rami, modifiche). La nostra è una comodità,
     // non la verità.
-    if (options?.history && options.history.length > 0) {
+    // Except after adopting a turn nobody followed: its conversation is the
+    // newer truth, and the rows have not caught up with it.
+    if (adopted !== "adopted" && options?.history && options.history.length > 0) {
       session.history = options.history.map((m) => ({
         role: m.role === "assistant" ? "assistant" : "user",
         content: typeof m.content === "string" ? m.content : String(m.content ?? ""),
@@ -751,6 +765,35 @@ export class NativeProvider implements AIProvider {
     const turn = this.driveTurn(sessionKey, session, handler, options, abort);
     session.turn = turn;
     return turn;
+  }
+
+  /**
+   * A turn of this session still running in its own process with no server
+   * following it (a restart left it and nothing re-adopted it, e.g. a card
+   * with dispatch off). It is followed to its end and its conversation becomes
+   * the session's: ending it, as before, threw away what it did since the
+   * restart, because the new spawn truncates its journal. A Stop pressed
+   * while waiting ends it and is the answer for this turn too.
+   */
+  private async adoptStrayTurn(sessionKey: string, session: NativeSession): Promise<"none" | "adopted" | { stopped: AbortReason }> {
+    if (!nativeDetachedEnabled() || this.detachedLive.has(sessionKey) || this.strayWaits.has(sessionKey)) return "none";
+    const wait: { stopped?: AbortReason } = {};
+    this.strayWaits.set(sessionKey, wait);
+    this.detachedLive.add(sessionKey);
+    try {
+      const end = await awaitStrayTurn(sessionKey);
+      if (wait.stopped) return { stopped: wait.stopped };
+      if (!end) return "none";
+      session.history = end.history as AgentMessage[];
+      if (end.calibration) session.calibration = end.calibration as Calibration;
+      return "adopted";
+    } catch (err) {
+      console.warn(`[native] ${sessionKey}: could not follow the turn left running:`, err instanceof Error ? err.message : err);
+      return wait.stopped ? { stopped: wait.stopped } : "none";
+    } finally {
+      this.strayWaits.delete(sessionKey);
+      if (!this.stopped) this.detachedLive.delete(sessionKey);
+    }
   }
 
   /**
@@ -957,6 +1000,7 @@ export class NativeProvider implements AIProvider {
           workspace: workspace ?? "",
           topics: topics ?? null,
           server: { baseUrl: topicsAppBaseUrl(), topicsHome: topicsHome(), gatewayToken: gatewayToken() },
+          hold: providerHold(),
         };
         const r = await this.runDetached(sessionKey, session, spec, handler, abort, turnModel);
         if (r) {
@@ -1065,8 +1109,10 @@ export class NativeProvider implements AIProvider {
   }
 
   /** Per-round usage: the dispatcher's live registry and the chat row (see `driveTurn`). */
-  private usageListener(sessionKey: string, handler: StreamHandler, model: string): (u: RoundUsage) => void {
-    return (u) => {
+  private usageListener(sessionKey: string, handler: StreamHandler, fallbackModel: string): (u: RoundUsage, model: string | null) => void {
+    return (u, journalModel) => {
+      // The journal's own model wins: after a restart nothing in memory knows it.
+      const model = journalModel ?? fallbackModel;
       recordTurnUsage(sessionKey, u, model);
       try { handler.onCallUsage?.({ ...toProviderUsage(u), model }); }
       catch { /* the measurement never stops the work */ }
@@ -1078,13 +1124,21 @@ export class NativeProvider implements AIProvider {
    * Only a detached turn can be found: an in-process one died with the server.
    */
   async reattach(sessionKey: string, handler: StreamHandler, _opts: { rowId?: string } = {}): Promise<ReattachOutcome> {
-    if (!nativeDetachedEnabled()) return "dead";
-    const model = this.sessions.get(sessionKey)?.model ?? DEFAULT_MODEL;
+    // With detached turns off a native store can still be in the broker, from
+    // before the switch: it is read all the same, as long as there is a broker.
+    // Without one there is nothing to find, and the route must hear it.
+    if (!nativeDetachedEnabled() && !aiBridgeEnabled()) {
+      try { handler.onError("the turn's process is gone: native turns do not run in their own process here"); } catch { /* guarded */ }
+      return "dead";
+    }
+    const fallbackModel = this.sessions.get(sessionKey)?.model ?? DEFAULT_MODEL;
     let r: Awaited<ReturnType<typeof reattachDetachedTurn>>;
     try {
-      r = await reattachDetachedTurn(sessionKey, handler, { onUsage: this.usageListener(sessionKey, handler, model) });
+      r = await reattachDetachedTurn(sessionKey, handler, { onUsage: this.usageListener(sessionKey, handler, fallbackModel) });
     } catch (err) {
-      console.warn(`[native] ${sessionKey}: reattach failed:`, err instanceof Error ? err.message : err);
+      const why = err instanceof Error ? err.message : String(err);
+      console.warn(`[native] ${sessionKey}: reattach failed:`, why);
+      try { handler.onError(`could not find the turn's process again: ${why}`); } catch { /* guarded */ }
       return "dead";
     }
     if (r.outcome === "dead") return r.outcome;
@@ -1096,6 +1150,11 @@ export class NativeProvider implements AIProvider {
         const s = this.sessionFor(sessionKey);
         s.history = res.end.history as AgentMessage[];
         if (res.end.calibration) s.calibration = res.end.calibration as Calibration;
+        const warm = res.end.warm;
+        if (warm && !this.stopped) {
+          const tools = warm.tools;
+          this.keepCacheWarm(sessionKey, s, { model: warm.model, effort: warm.effort ?? null, maxTokens: warm.maxTokens, system: warm.system, history: s.history, tools: () => tools }, res.lastRequestAt ?? Date.now());
+        }
       }
       recordTurnEnd(sessionKey, detachedTurnEnd(res));
     });
@@ -1111,10 +1170,19 @@ export class NativeProvider implements AIProvider {
     return nativeDetachedEnabled();
   }
 
+  /**
+   * This server follows a turn of this session running in its own process
+   * (not one that fell back to running here). Such a turn outlives a restart,
+   * so the restart need not wait for it.
+   */
+  turnRunsDetached(sessionKey: string): boolean {
+    return this.detachedLive.has(sessionKey);
+  }
+
   /** Whether the broker still runs a turn for this session (the dispatcher's probe). */
   async hasLiveSession(sessionKey: string): Promise<boolean> {
     if (!nativeDetachedEnabled()) return false;
-    let info: { alive: boolean; endOffset: number } | undefined;
+    let info: { alive: boolean; endOffset: number; createdAt?: number } | undefined;
     try { info = (await getAiBridgeClient().list()).find((x) => x.id === brokerIdFor(sessionKey)); }
     catch { return false; }
     if (!info) return false;
@@ -1122,7 +1190,12 @@ export class NativeProvider implements AIProvider {
     // ENDED WHILE NO SERVER WAS LISTENING: the process is gone but its journal
     // holds the ending, and the row is still open. Re-adopting reads that
     // ending (`reattach` answers "completed"); resuming would redo the turn.
-    return info.endOffset > 0 && sessionHasOpenRow(sessionKey);
+    // Only a store at least as new as the open row is that row's turn: an
+    // older one is a turn before it, whose text would replace the row's.
+    if (info.endOffset <= 0) return false;
+    const rowSince = openRowSince(sessionKey);
+    if (rowSince === null) return false;
+    return typeof info.createdAt !== "number" || info.createdAt >= rowSince;
   }
 
   /** Live detached turns, by session key, for the boot. */
@@ -1132,10 +1205,12 @@ export class NativeProvider implements AIProvider {
   }
 
   async abort(sessionKey: string, _runId: string | undefined, reason: AbortReason): Promise<void> {
+    const waiting = this.strayWaits.get(sessionKey);
+    if (waiting) waiting.stopped = reason;
     // A turn found again after a restart has no controller in this process:
     // the Stop goes straight to its own.
     if (this.detachedLive.has(sessionKey) && !this.sessions.get(sessionKey)?.abort) {
-      abortDetachedTurn(sessionKey, reason);
+      await abortDetachedTurn(sessionKey, reason);
       return;
     }
     const s = this.sessions.get(sessionKey);

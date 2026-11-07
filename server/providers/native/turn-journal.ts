@@ -18,13 +18,16 @@
  * round restarts from empty).
  */
 
+import { StringDecoder } from "node:string_decoder";
 import type { StreamHandler } from "../types";
+import type { ToolSpec } from "./tools";
 
 export const JOURNAL_VERSION = 1;
 
 /** One line of the journal. `e` is the event; the rest is its payload. */
 export type JournalEvent =
-  | { e: "start"; v: number; pid: number; at: number }
+  /** `model`: what the turn runs on, so a server that finds it after a restart prices it right. */
+  | { e: "start"; v: number; pid: number; at: number; model?: string }
   | { e: "req"; at: number }
   | { e: "text"; d: string; f?: string }
   | { e: "think"; d: string }
@@ -43,8 +46,30 @@ export type JournalEvent =
   | { e: "done"; m?: unknown }
   | { e: "aborted"; m?: unknown }
   | { e: "error"; msg: string }
-  /** The last line. Carries what the server keeps between turns. */
-  | { e: "end"; history: unknown[]; calibration?: unknown };
+  /**
+   * The server's shared state, changed inside the host. The host's own copy of
+   * these registries is invisible to the server, so each change travels here
+   * and the server applies it (`turn-effects.ts`).
+   */
+  | { e: "hold"; at: number; hold: { untilMs: number; window: string; reason: string } | null }
+  | { e: "plan_usage"; at: number; u: unknown }
+  | { e: "api_ok"; at: number }
+  | { e: "cmd_start"; pid: number; command: string; at: number }
+  | { e: "cmd_end"; pid: number }
+  /**
+   * The last line. Carries what the server keeps between turns; `warm` is the
+   * request prefix the cache keep-alive needs, which a server that found the
+   * turn after a restart has no other way to know.
+   */
+  | { e: "end"; history: unknown[]; calibration?: unknown; warm?: TurnWarmPrefix };
+
+export interface TurnWarmPrefix {
+  model: string;
+  effort?: string | null;
+  maxTokens?: number;
+  system?: string;
+  tools: ToolSpec[];
+}
 
 export interface RoundUsage {
   input: number;
@@ -112,6 +137,8 @@ export function journalingHandler(
 /** What the reader learns from the lines it has folded so far. */
 export interface JournalState {
   started: boolean;
+  /** The model from `start`, when the host wrote one. */
+  model: string | null;
   /** A terminal event was read: the turn is over, whatever the process does. */
   terminal: JournalEvent | null;
   end: Extract<JournalEvent, { e: "end" }> | null;
@@ -124,7 +151,7 @@ export interface JournalState {
 }
 
 export function newJournalState(): JournalState {
-  return { started: false, terminal: null, end: null, openAsks: new Set(), rounds: 0, lastRequestAt: null };
+  return { started: false, model: null, terminal: null, end: null, openAsks: new Set(), rounds: 0, lastRequestAt: null };
 }
 
 /**
@@ -135,22 +162,30 @@ export interface JournalReader {
   state: JournalState;
   /** Split a chunk of the store into lines and fold each. Partial lines wait for the rest. */
   push(chunk: string): void;
+  /**
+   * `push` for raw store bytes. The broker cuts chunks anywhere, inside a
+   * UTF-8 character too: decoding each chunk on its own turned such a
+   * character into U+FFFD, in the streamed text and in `end.history`, which
+   * the next turns then sent to the model.
+   */
+  pushBytes(chunk: Uint8Array): void;
   fold(ev: JournalEvent): void;
 }
 
 export function journalReader(
   handler: StreamHandler | null,
-  extra: { onUsage?: (u: RoundUsage) => void; onEvent?: (ev: JournalEvent) => void } = {},
+  extra: { onUsage?: (u: RoundUsage, model: string | null) => void; onEvent?: (ev: JournalEvent) => void } = {},
 ): JournalReader {
+  const decoder = new StringDecoder("utf8");
   const state = newJournalState();
   let running = "";
   let pending = "";
   const fold = (ev: JournalEvent): void => {
     extra.onEvent?.(ev);
     switch (ev.e) {
-      case "start": state.started = true; return;
+      case "start": state.started = true; state.model = ev.model ?? null; return;
       case "req": state.lastRequestAt = ev.at; running = ""; return;
-      case "usage": state.rounds++; extra.onUsage?.(ev.u); return;
+      case "usage": state.rounds++; extra.onUsage?.(ev.u, state.model); return;
       case "end": state.end = ev; return;
       case "ask": state.openAsks.add(ev.id); break;
       case "tool_result": state.openAsks.delete(ev.id); break;
@@ -189,9 +224,12 @@ export function journalReader(
       default: return;
     }
   };
-  return {
+  const reader: JournalReader = {
     state,
     fold,
+    pushBytes(chunk: Uint8Array) {
+      reader.push(decoder.write(Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)));
+    },
     push(chunk: string) {
       pending += chunk;
       let nl: number;
@@ -206,4 +244,5 @@ export function journalReader(
       }
     },
   };
+  return reader;
 }
