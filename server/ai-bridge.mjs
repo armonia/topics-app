@@ -16,6 +16,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { userInfo } from 'node:os';
+import { StringDecoder } from 'node:string_decoder';
 // runtime-dep-ok: import ESM fratello, non uno spawn (come in pty-bridge.mjs).
 import { guiSessionName } from './pty-bridge-platform.mjs';
 
@@ -569,8 +570,13 @@ async function start() {
     clients.add(socket);
     connectedAt.set(socket, Date.now());
     let lineBuffer = '';
+    // One decoder per socket: a chunk can end inside a UTF-8 character, and
+    // decoding chunks one by one turned it into U+FFFD. A native turn's whole
+    // history travels in one write frame, so the model got the damage back in
+    // every later turn.
+    const decoder = new StringDecoder('utf8');
     socket.on('data', (chunk) => {
-      lineBuffer += chunk.toString();
+      lineBuffer += typeof chunk === 'string' ? chunk : decoder.write(chunk);
       let nl;
       while ((nl = lineBuffer.indexOf('\n')) !== -1) {
         const line = lineBuffer.slice(0, nl); lineBuffer = lineBuffer.slice(nl + 1);

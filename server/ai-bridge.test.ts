@@ -119,6 +119,30 @@ describe("ai-bridge daemon", () => {
     c.close(); c2.close(); c3.close();
   });
 
+  test("a write frame cut inside a UTF-8 character reaches the child intact", async () => {
+    const c = await connect();
+    const id = "topic:utf8write";
+    c.send({ type: "spawn", id, cliPath: "cat", args: [], cwd: storeDir, env: {} });
+    await c.next((m) => m.type === "spawned" && m.id === id);
+    const text = "perché è già così".repeat(4) + "\n";
+    const frame = Buffer.from(JSON.stringify({ type: "write", id, data: text }) + "\n", "utf8");
+    // Cut between the two bytes of the first "é", sent as two socket chunks.
+    const cut = frame.indexOf(Buffer.from("é", "utf8")) + 1;
+    const raw = net.connect(SOCK);
+    await new Promise<void>((r) => raw.on("connect", () => r()));
+    await new Promise<void>((r) => raw.write(frame.subarray(0, cut), () => r()));
+    await new Promise((r) => setTimeout(r, 50));
+    raw.end(frame.subarray(cut));
+    let got = "";
+    while (Buffer.byteLength(got) < Buffer.byteLength(text)) {
+      const d = await c.next((m) => m.type === "data" && m.id === id);
+      got += b64(d.chunk);
+    }
+    expect(got).toBe(text);
+    c.send({ type: "kill", id });
+    c.close();
+  });
+
   // Protocol 3 (server/providers/claude/row-turn.ts): where a row's message
   // reached the child. Never inside a line: a mark written in the middle of the
   // child's JSON line would break that line for every reader of the store.

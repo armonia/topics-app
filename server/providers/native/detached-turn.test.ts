@@ -92,9 +92,9 @@ function recorder() {
   return { handler, events, done, text: () => text };
 }
 
-const until = async (pred: () => boolean, ms = 10_000) => {
+const until = async (pred: () => boolean | Promise<boolean>, ms = 10_000) => {
   const end = Date.now() + ms;
-  while (!pred()) {
+  while (!(await pred())) {
     if (Date.now() > end) throw new Error("timeout");
     await new Promise((r) => setTimeout(r, 25));
   }
@@ -248,5 +248,32 @@ describe("detached native turn", () => {
     expect(r.events.filter((e) => e.startsWith("error:"))).toEqual([]);
     expect(r.events.at(-1)).toBe("done");
     expect(r.text()).toBe(pieceTexts(PIECES).join(""));
+  }, 30_000);
+
+  test("a journal with multi-byte text cut across the broker's chunks is read without U+FFFD", async () => {
+    const sk = "topic:dt000011";
+    const piece = "è«»€😀".repeat(15_000);
+    // A stand-in host: big lines of 2, 3 and 4-byte characters, so the
+    // chunks the broker forwards end inside a character.
+    const host = `
+      const { writeSync } = require("node:fs");
+      const w = (o) => { const b = Buffer.from(JSON.stringify(o) + "\\n"); let off = 0; while (off < b.length) off += writeSync(1, b, off); };
+      const piece = ${JSON.stringify("è«»€😀")}.repeat(15000);
+      w({ e: "start", v: 1, pid: process.pid, at: Date.now(), model: "m" });
+      w({ e: "req", at: Date.now() });
+      for (let i = 0; i < 6; i++) { w({ e: "text", d: piece }); await new Promise((r) => setTimeout(r, 40)); }
+      w({ e: "done", m: {} });
+      w({ e: "end", history: [{ role: "assistant", content: piece.repeat(6) }] });
+    `;
+    const client = getAiBridgeClient();
+    await client.ensureConnected();
+    await client.spawn(brokerIdFor(sk), { cliPath: process.execPath, args: ["-e", host], cwd: "/", env: { PATH: process.env.PATH ?? "" } });
+    // Followed live: the pipe hands the broker 64 KB chunks, cut anywhere.
+    const r = recorder();
+    const { done } = await reattachDetachedTurn(sk, r.handler);
+    const out = await done;
+    expect(r.text()).toBe(piece.repeat(6));
+    expect(JSON.stringify(out.end?.history)).not.toContain("\uFFFD");
+    expect((out.end?.history[0] as { content: string }).content).toBe(piece.repeat(6));
   }, 30_000);
 });
