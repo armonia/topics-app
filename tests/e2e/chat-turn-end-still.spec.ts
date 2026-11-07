@@ -39,6 +39,7 @@ import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, patchTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 import { installFakeAnthropic, startFakeAnthropic, type FakeAnthropic, type FakeRound } from "./helpers/fake-anthropic-api";
+import { dumpScrollDiag, installScrollDiag } from "./helpers/scroll-diag";
 
 hermetic(test);
 // The entrance slide is part of what is measured: with reduced motion it
@@ -176,7 +177,7 @@ async function startSampler(page: Page, marker: string, settleOn: "text" | "row"
         const ready = settleOn === "row" ? s.row !== null && s.text === null : s.text !== null;
         steady = s.loader && ready && same ? steady + 1 : 0;
         previous = s;
-        if (steady >= 10) { recording = true; t0 = performance.now(); }
+        if (steady >= 10) { recording = true; t0 = performance.now(); (w.__still as unknown as { t0abs: number }).t0abs = t0; }
         else if (!s.loader && s.text !== null) { w.__still.error = "the turn ended before it settled"; w.__still.done = true; return; }
         requestAnimationFrame(tick);
         return;
@@ -299,7 +300,9 @@ test.describe("the end of a turn moves nothing, in the window that sent it and i
   test("an answer that ends right behind its last word is drawn before the loader goes, and nothing moves", async ({ page, request, chatPage, context }) => {
     const topic = await nativeTopic(request, "turn-end-quick");
     const viewer = await context.newPage();
+    await installScrollDiag(viewer);
     await openChat(viewer, topic.name);
+    await installScrollDiag(page);
     await openChat(page, topic.name);
 
     await startSampler(page, "ANSWER-QUICK", "row");
@@ -308,6 +311,12 @@ test.describe("the end of a turn moves nothing, in the window that sent it and i
 
     const sender = await framesOf(page);
     const second = await framesOf(viewer);
+    for (const [who, p, fr] of [["sender", page, sender], ["second", viewer, second]] as const) {
+      const t0abs = await p.evaluate(() => (window as unknown as { __still: { t0abs?: number } }).__still.t0abs ?? 0);
+      const textAt = t0abs + (fr.find((f) => f.text !== null)?.t ?? 0);
+      console.log(`DIAG quick ${who} frames ${fr.map((f) => `${f.t}:${f.loader ? "L" : "-"}${f.text === null ? "" : "T"}@${f.scroll}`).join(" ")}`);
+      await dumpScrollDiag(p, `quick-${who}`, { from: textAt - 1200, to: textAt + 1500, t0: textAt });
+    }
     judgeFromText("sender", sender);
     judgeFromText("second window", second);
     await viewer.close();
@@ -316,6 +325,7 @@ test.describe("the end of a turn moves nothing, in the window that sent it and i
 
   test("a reader who scrolled up with the wheel stays where they are when the turn ends", async ({ page, request, chatPage }) => {
     const topic = await nativeTopic(request, "turn-end-wheel");
+    await installScrollDiag(page);
     await openChat(page, topic.name);
     await chatPage.sendMessage("SCEN:still go");
 
@@ -325,8 +335,15 @@ test.describe("the end of a turn moves nothing, in the window that sent it and i
     const box = await scroller.boundingBox();
     if (!box) throw new Error("the chat scroller has no box to wheel over");
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    const wheelAt = await page.evaluate(() => performance.now());
     await page.mouse.wheel(0, -400);
-    await expect.poll(() => scroller.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeGreaterThan(300);
+    try {
+      await expect.poll(() => scroller.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeGreaterThan(300);
+      await dumpScrollDiag(page, "wheel-ok", { from: wheelAt - 1500, to: wheelAt + 1500, t0: wheelAt });
+    } catch (err) {
+      await dumpScrollDiag(page, "wheel-red", { from: wheelAt - 1500, to: wheelAt + 4000, t0: wheelAt });
+      throw err;
+    }
     await expect(page.getByTestId("chat-streaming-indicator")).toBeVisible();
 
     await startSampler(page, "ANSWER-STILL");

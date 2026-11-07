@@ -173,6 +173,7 @@ export default defineConfig({
     },
   },
   build: {
+    sourcemap: true,
     outDir: '../public',
     // Wipe /public only for a ONE-SHOT build (a deploy: no stale hashed assets
     // left behind). NEVER in `--watch`: there /public is the bundle the prod
