@@ -1147,15 +1147,15 @@ describe("board router (human, project-scoped)", () => {
   });
 
   test("il feed porta sulla madre le figlie in review che aspettano una persona, a ogni profondità", async () => {
-    const madre = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "madre" }))!.json();
-    const figlia = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "figlia", parentTaskId: madre.id }))!.json();
-    const nipote = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "nipote", parentTaskId: figlia.id }))!.json();
-    const ai = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "ai", parentTaskId: madre.id }))!.json();
-    db.run("UPDATE tasks SET status = 'review' WHERE id IN (?, ?, ?)", [figlia.id, nipote.id, ai.id]);
+    const parent = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "madre" }))!.json();
+    const child = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "figlia", parentTaskId: parent.id }))!.json();
+    const grandchild = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "nipote", parentTaskId: child.id }))!.json();
+    const ai = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "ai", parentTaskId: parent.id }))!.json();
+    db.run("UPDATE tasks SET status = 'review' WHERE id IN (?, ?, ?)", [child.id, grandchild.id, ai.id]);
     db.run("UPDATE tasks SET stage = 'ai_review' WHERE id = ?", [ai.id]);
 
     const feed = await (await call(router, "GET", "/api/all-boards/tasks"))!.json();
-    expect(feed.tasks.map((t: any) => [t.id, t.subtaskReviewCount ?? 0])).toEqual([[madre.id, 2]]);
+    expect(feed.tasks.map((t: any) => [t.id, t.subtaskReviewCount ?? 0])).toEqual([[parent.id, 2]]);
   });
 
   test("i due feed della board rimettono dentro lo step ORFANO, e solo quello", async () => {

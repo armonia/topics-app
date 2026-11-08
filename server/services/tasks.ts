@@ -2883,7 +2883,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     // says it, and the Review count adds it to the roots (Kanban equals Plan).
     const reviewByParent = new Map<string, number>();
     try {
-      const rrows = db.query(
+      const reviewRows = db.query(
         `WITH RECURSIVE d(root, id) AS (
            SELECT parent_task_id, id FROM tasks
             WHERE parent_task_id IN (SELECT value FROM json_each(?)) AND archived = 0
@@ -2894,7 +2894,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           WHERE ${awaitsHumanSql(tasksHaveStage(), "t")}
           GROUP BY d.root`,
       ).all(ids) as Array<{ pid: string; n: number }>;
-      for (const r of rrows) reviewByParent.set(r.pid, r.n);
+      for (const r of reviewRows) reviewByParent.set(r.pid, r.n);
     } catch { /* a reduced schema: no step counts as waiting */ }
     // Human message count per task: comments the user sent (kind='comment'),
     // excluding the AI/agent, system notes and auto status events.

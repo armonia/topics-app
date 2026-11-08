@@ -199,6 +199,7 @@ function sameRow(a: AttentionSnapshot, b: AttentionSnapshot): boolean {
     && a.since === b.since && a.epoch === b.epoch && a.seenEpoch === b.seenEpoch && a.lit === b.lit
     && a.unread === b.unread && a.turnUnseen === b.turnUnseen && a.lastTurnAt === b.lastTurnAt
     && (a.permissionCall ?? null) === (b.permissionCall ?? null)
+    && (a.projectId ?? null) === (b.projectId ?? null) && (a.cardTitle ?? null) === (b.cardTitle ?? null)
     && sameTasks(a.background, b.background);
 }
 
@@ -226,6 +227,9 @@ function asSnapshot(raw: unknown): AttentionSnapshot | null {
     lastTurnAt: r.lastTurnAt ?? null,
     background: Array.isArray(r.background) ? r.background : [],
     permissionCall: typeof r.permissionCall === 'string' ? r.permissionCall : null,
+    // The board rollups (tab lights, tray review group) read these two: a frame that drops them hides a lit step.
+    projectId: typeof r.projectId === 'string' ? r.projectId : null,
+    cardTitle: typeof r.cardTitle === 'string' ? r.cardTitle : null,
   };
 }
 

@@ -18,7 +18,7 @@ import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir 
 import { decodeCol } from "../../shared/message-blob";
 import { planApprovalSchema } from "../lib/plan-approval";
 import { attentionBootReader, type AttentionBootSources } from "./boot-reader";
-import { configureAttentionStore, getAttention, markAttentionSeen, openHold, recomposeAttentionOnBoot, resetAttentionStore, turnEnded, turnStarted } from "./store";
+import { attentionInitFrame, configureAttentionStore, getAttention, markAttentionSeen, openHold, recomposeAttentionOnBoot, resetAttentionStore, turnEnded, turnStarted } from "./store";
 import type { AppContext, Topic } from "../types";
 import type { Database } from "bun:sqlite";
 import { freshDb } from "../routes/tasks-test-support";
@@ -30,6 +30,7 @@ import { trayBoardAttention, trayBoardGroups } from "../../shared/tray-board";
 import { boardTabCounts } from "../../client/src/lib/boardTabCounts";
 import { boardAttention, boardLitCards } from "../../client/src/state/attentionRollups";
 import type { BoardTask } from "../../client/src/lib/board";
+import { attentionActions, useAttentionStore } from "../../client/src/state/attention";
 
 const ROOT = testTmpDir("attention-boot-reader");
 beforeAll(() => setupTestDataDir(`${ROOT}/data`));
@@ -215,9 +216,13 @@ describe("review parity: Kanban, tab, tray, attention and Plan count the same ca
     // Attention: the boot read lights every card, steps included, with its project.
     const reader = attentionBootReader({ ...sources(), db: db as AttentionBootSources["db"] });
     recomposeAttentionOnBoot({ cards: reader.cards });
-    const subjects = reader.cards!().map((c) => `task:${c.taskId}`);
-    const rows = new Map(subjects.map((s) => [s, getAttention(s)]));
     expect(getAttention("task:d1a")).toMatchObject({ lit: true, projectId: "p2", cardTitle: "card d1a" });
+    // The surfaces read the client store, fed by the socket frame: send the
+    // init frame through JSON into it, so a field the transport drops fails here.
+    attentionActions.reset();
+    attentionActions.applyInit(JSON.parse(JSON.stringify(attentionInitFrame())).rows);
+    const rows = useAttentionStore.getState().rows;
+    expect(rows.get("task:d1a")).toMatchObject({ projectId: "p2", cardTitle: "card d1a" });
     const lit = boardLitCards(rows, feed, null);
 
     // Tray: the review group is the lit cards, and the glyph sums them.

@@ -598,7 +598,7 @@ function factOf(subject: string, composition: AttentionComposition, row: SavedRo
 // Bash and recognises it a moment later under the same id, and a frame keyed
 // on the ids alone never told the windows it was a Monitor.
 function frameKey(s: AttentionSnapshot): string {
-  return JSON.stringify([s.state, s.reason, s.outcome, s.detail, s.epoch, s.seenEpoch, s.unread, s.turnUnseen, s.background.map((t) => [t.id, t.kind, t.label, t.recurring ? 1 : 0]), s.permissionCall ?? null]);
+  return JSON.stringify([s.state, s.reason, s.outcome, s.detail, s.epoch, s.seenEpoch, s.unread, s.turnUnseen, s.background.map((t) => [t.id, t.kind, t.label, t.recurring ? 1 : 0]), s.permissionCall ?? null, s.projectId ?? null, s.cardTitle ?? null]);
 }
 
 function recompose(subject: string, opts: RecomposeOpts): AttentionSnapshot {
