@@ -180,7 +180,7 @@ type Tone = 'ok' | 'warn' | 'bad';
 /** Wait colours: the same amber the cards use for a waiting state. */
 const WARN_BOX = 'bg-amber-500/15 text-amber-800 dark:text-amber-300';
 const TONE_BOX: Record<Tone, string> = {
-  ok: 'bg-white/5 text-app-text',
+  ok: 'bg-black/5 dark:bg-white/5 text-app-text',
   warn: WARN_BOX,
   bad: `bg-red-500/10 ${DANGER_TEXT}`,
 };
@@ -333,7 +333,7 @@ export function HoldersFold({ consumers, total }: { consumers: DispatchMemoryQue
       {consumers.map((c) => (
         <li key={c.label} className="flex items-center gap-2 text-mini">
           <span className="min-w-0 flex-1 break-words">{c.label}</span>
-          <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded bg-white/10">
+          <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded bg-black/10 dark:bg-white/10">
             <i className="block h-full bg-sky-500/80" style={{ width: `${Math.round((c.gb / biggest) * 100)}%` }} />
           </span>
           <span className="w-14 shrink-0 text-right tabular-nums">{gb(c.gb)}</span>
@@ -373,7 +373,7 @@ export function DispatchDetailsView({ capacity, snapshot, queue, moved = [], now
   const sharedReason = queue.length > 0 && reasons.size === 1 ? [...reasons][0]! : null;
   const failure = startFailure && queue.some((q) => q.id === startFailure.id) ? startFailure : null;
   return (
-    <section data-testid="dispatch-dashboard-details" className="space-y-2 rounded-md bg-white/5 p-2.5">
+    <section data-testid="dispatch-dashboard-details" className="space-y-2 rounded-md bg-black/5 dark:bg-white/5 p-2.5">
       <div data-testid="dispatch-chart-block">
         <SectionLabel right={tr('board.dash.chartSub')}>{tr('board.dash.chartTitle')}</SectionLabel>
         <MemoryChart history={snapshot?.history ?? []} startGB={startGB} now={now} cpuHolds={cpuHolds} />
@@ -391,7 +391,7 @@ export function DispatchDetailsView({ capacity, snapshot, queue, moved = [], now
                 <span className="w-5 shrink-0 text-mini text-app-text-secondary">{i + 1}ª</span>
                 {/* Below 480 px (the panel never gets wider) nothing is cut: the row wraps. */}
                 <span className="min-w-0 flex-1 basis-32 break-words" data-testid="dispatch-dashboard-queue-text" title={q.title}>{q.title}</span>
-                {q.project && <span className="min-w-0 shrink-0 [overflow-wrap:anywhere] rounded bg-white/5 px-1 text-mini text-app-text-secondary" data-testid="dispatch-dashboard-queue-project">{q.project}</span>}
+                {q.project && <span className="min-w-0 shrink-0 [overflow-wrap:anywhere] rounded bg-black/5 dark:bg-white/5 px-1 text-mini text-app-text-secondary" data-testid="dispatch-dashboard-queue-project">{q.project}</span>}
                 <span className="shrink-0 text-mini text-app-text-secondary" data-testid="dispatch-dashboard-queue-sub">{tr('board.dash.since', { time: waitingLabel(q.waitingMs) })}</span>
                 {/* The reason shows on the row only when the cards differ; equal, it sits in the header. */}
                 {!sharedReason && (
