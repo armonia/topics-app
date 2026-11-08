@@ -17,7 +17,7 @@ import { closeDatabase } from "./db";
 import type { AppContext, Topic } from "./types";
 import { createAppContext } from "./utils";
 
-const envKeys = ["TOPICS_DATA_DIR", "DATA_DIR", "TOPICS_HOME", "APP_DATA_DIR", "OPENCLAW_DIR"] as const;
+const envKeys = ["TOPICS_DATA_DIR", "DATA_DIR", "TOPICS_HOME", "APP_DATA_DIR"] as const;
 const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
 let root: string;
 let ctx: AppContext;
@@ -28,7 +28,6 @@ beforeAll(() => {
   process.env.DATA_DIR = join(root, "state", "data");
   process.env.TOPICS_HOME = join(root, "topics-home");
   process.env.APP_DATA_DIR = join(root, "app-data");
-  process.env.OPENCLAW_DIR = join(root, "app-data");
   closeDatabase();
   ctx = createAppContext(join(root, "state"));
 });
