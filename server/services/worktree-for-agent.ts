@@ -13,7 +13,8 @@
  * thing that removes a directory.
  */
 
-import { defaultRunGit, fetchRemoteBase, resolveWorktreeBaseRef, type WorktreeBaseRef } from "./worktree-base-ref";
+import { defaultRunGit } from "./own-commits";
+import { fetchRemoteBase, resolveWorktreeBaseRef, type WorktreeBaseRef } from "./worktree-base-ref";
 import type { GitRunner } from "./own-commits";
 import { carriedRef } from "./branch-on-origin";
 import type { Worktree } from "../types";

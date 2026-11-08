@@ -16,9 +16,9 @@
  * a provider that cannot answer.
  */
 import { existsSync } from "fs";
-import { homedir } from "os";
 import { getAppSettings, updateAppSettings } from "../services/app-settings";
 
+import { expandHome } from "./expand-home";
 /** The agent CLIs Topics knows how to look for. Mirrors `detect-agents.ts`. */
 export const CLI_AGENT_IDS = [
   "claude-code",
@@ -48,20 +48,6 @@ export const CLI_AGENT_BIN_NAMES: Record<CliAgentId, string> = {
 
 export function isCliAgentId(value: unknown): value is CliAgentId {
   return typeof value === "string" && (CLI_AGENT_IDS as readonly string[]).includes(value);
-}
-
-/**
- * `~/bin/codex` is what a person types; `existsSync` does not expand it.
- * Exported because the route validates the same string before storing it, and
- * the two must expand it the same way.
- */
-export function expandHome(input: string): string {
-  const trimmed = input.trim();
-  if (trimmed === "~") return homedir();
-  if (trimmed.startsWith("~/") || trimmed.startsWith("~\\")) {
-    return homedir() + trimmed.slice(1);
-  }
-  return trimmed;
 }
 
 /** The stored map, tolerant of anything that is not the shape we wrote. */

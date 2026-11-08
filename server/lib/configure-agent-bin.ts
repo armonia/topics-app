@@ -14,11 +14,11 @@
  * thing we are looking for, and looking is cheaper than an error message that
  * sends them back to the terminal.
  */
+import { expandHome } from "./expand-home";
 import { accessSync, constants, existsSync, statSync } from "fs";
 import { isAbsolute, join } from "path";
 import {
   CLI_AGENT_BIN_NAMES,
-  expandHome,
   writeAgentBinPath,
   type CliAgentId,
 } from "./agent-bin-paths";
