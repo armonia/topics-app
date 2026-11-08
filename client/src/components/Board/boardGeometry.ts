@@ -51,3 +51,35 @@ export const COLUMNS_ROW_GRID = 'flex h-full min-w-0 gap-2 overflow-x-auto px-2 
 
 /** The columns stack in the list view. */
 export const COLUMNS_ROW_LIST = 'scroll-under-chrome flex h-full min-w-0 flex-col gap-2 overflow-y-auto px-2 pt-3 pb-36 scrollbar-standard sm:px-3';
+
+/** Where the board's grouping is kept: one row of columns per project, or none (a per-viewer choice). */
+export const BOARD_GROUP_STORAGE_KEY = 'topics.board.groupBy';
+
+export type BoardGroupBy = 'none' | 'project';
+
+export function readBoardGroupBy(): BoardGroupBy {
+  try { return localStorage.getItem(BOARD_GROUP_STORAGE_KEY) === 'project' ? 'project' : 'none'; }
+  catch { return 'none'; }
+}
+
+/** Where the cards' density is kept: the whole card, or its compact face (a per-viewer choice). */
+export const BOARD_DENSITY_STORAGE_KEY = 'topics.board.density';
+
+/**
+ * `compact` keeps what a card is at a glance: the project, the title with its
+ * status and priority, the relational chips, the foot (model, machine, cost,
+ * changes, last update), the live tool and why it is parked. It drops what is
+ * read once the card is open: the preview image, the checklist, the
+ * description, the review exchange and the progress note.
+ */
+export type CardDensity = 'full' | 'compact';
+
+export function readCardDensity(): CardDensity {
+  try { return localStorage.getItem(BOARD_DENSITY_STORAGE_KEY) === 'compact' ? 'compact' : 'full'; }
+  catch { return 'full'; }
+}
+
+/** The project rows (swimlanes): the vertical stack that holds them, and one row of columns. */
+export const LANES_STACK = 'scroll-under-chrome flex h-full min-w-0 flex-col gap-3 overflow-auto px-2 pt-3 pb-36 scrollbar-standard sm:px-3';
+export const LANE_ROW_GRID = 'flex min-w-0 items-start gap-2 sm:gap-3';
+export const LANE_ROW_LIST = 'flex min-w-0 flex-col gap-2';

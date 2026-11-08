@@ -15,7 +15,8 @@ import os from "os";
 import { readFile } from "fs/promises";
 import { join } from "path";
 import type { AppContext } from "../types";
-import { createMachineReadout, WINDOWS_PS_SCRIPT, type MachineReadout } from "../lib/machine-readout";
+import { createMachineReadout, WINDOWS_PS_END, WINDOWS_PS_LOOP, type MachineReadout } from "../lib/machine-readout";
+import { createWarmLister } from "../lib/warm-lister";
 import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 import { machineCores } from "../lib/machine-cores";
 import { NODE_SESSION_COOKIE, readNodeToken } from "../services/node-client";
@@ -39,13 +40,17 @@ function winfleetDir(): string | null {
   return process.platform === "win32" ? "C:\\winfleet" : null;
 }
 
+// On Windows one PowerShell kept warm between readings: a fresh one per reading
+// costs 0.4-1.4 s of CPU, the warm one about 16 ms (see `warm-lister.ts`).
+const winLister = process.platform === "win32"
+  ? createWarmLister({ argv: ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", WINDOWS_PS_LOOP], endMarker: WINDOWS_PS_END })
+  : null;
+
 const localReadout = createMachineReadout({
   platform: process.platform,
   cores: () => machineCores(),
   memTotalMB: () => Math.round(os.totalmem() / (1024 * 1024)),
-  listProcesses: () => process.platform === "win32"
-    ? runText(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", WINDOWS_PS_SCRIPT])
-    : runText(["ps", "-axo", "pid=,rss=,%cpu=,comm="]),
+  listProcesses: () => winLister ? winLister.read() : runText(["ps", "-axo", "pid=,rss=,%cpu=,comm="]),
   readScreenFile: async () => {
     const dir = winfleetDir();
     if (!dir) return null;

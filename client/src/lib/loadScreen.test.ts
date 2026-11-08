@@ -4,7 +4,7 @@
  * @covers HUBBR-21
  */
 import { describe, expect, test } from 'bun:test';
-import { cardsOn, elapsedParts, loadScreenMachine, projectLabel, readReadout, readoutRows, screenZoom, sleepView } from './loadScreen';
+import { cardsOn, elapsedParts, loadScreenMachine, procKind, projectLabel, readReadout, readoutRows, screenZoom, sleepView } from './loadScreen';
 
 const NOW = Date.parse('2026-11-08T19:40:00+01:00');
 
@@ -36,6 +36,23 @@ describe('load screen model', () => {
     const rows = readoutRows(readReadout(answer(null)), (n) => `${n} processi`);
     expect(rows[0]).toMatchObject({ name: 'node', detail: '3 processi', memShare: 1, memWarn: true, cpuPct: 140, gpuPct: null, netInBps: null });
     expect(rows[1]).toMatchObject({ detail: '', memShare: 0.25, memWarn: false, cpuPct: null });
+  });
+
+  test('what a program is: the system, an agent, a service, else an app', () => {
+    expect(['dwm', 'System', 'MsMpEng', 'svchost'].map((n) => procKind(n, 'win32'))).toEqual(['macos', 'macos', 'macos', 'macos']);
+    expect(procKind('claude', 'win32')).toBe('sessione');
+    expect(procKind('bun', 'win32')).toBe('servizio');
+    expect(procKind('msedge', 'win32')).toBe('app');
+    expect(procKind('WindowServer', 'darwin')).toBe('macos');
+    // A Windows name on the Mac is not its system.
+    expect(procKind('dwm', 'darwin')).toBe('app');
+    const rows = readoutRows(readReadout(answer(null)), (n) => `${n}`);
+    expect(rows.map((r) => r.kind)).toEqual(['app', 'app']);
+  });
+
+  test('outcomes keep an interrupted run apart from a failed one', () => {
+    const r = readReadout(answer({ outcomes: [{ what: 'e2e', ok: null, interrupted: true }, { what: 'test', ok: false }] }));
+    expect(r.screen!.outcomes.map((o) => [o.ok, o.interrupted])).toEqual([[null, true], [false, false]]);
   });
 
   test('the countdown rounds up and never says 0 while awake', () => {
@@ -84,6 +101,10 @@ describe('load screen model', () => {
     expect(screenZoom(1920)).toBe(1.45);
     expect(screenZoom(800)).toBe(1);
     expect(screenZoom(3840)).toBe(2);
+    // Fit by both sides: the PC's ultrawide is held by its height, not stretched by its width.
+    expect(screenZoom(1920, 1080)).toBe(1.45);
+    expect(screenZoom(3440, 1440)).toBe(1.9);
+    expect(screenZoom(3840, 2160)).toBe(2);
     expect(loadScreenMachine('/schermo')).toBeNull();
     expect(loadScreenMachine('/schermo/pc-1')).toBe('pc-1');
     expect(loadScreenMachine('/lavori')).toBeUndefined();

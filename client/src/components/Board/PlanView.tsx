@@ -27,6 +27,12 @@ import { SIGNAL_KEY, milestoneChoices, openOf, progressLabel, progressPct, sortF
 interface Props {
   onOpenTask: (id: string) => void;
   onOpenTopic?: (topicId: string) => void;
+  /**
+   * The board's own compact card for a task the board has loaded, so a card
+   * looks the same in the Plan and on the board; null for one it has not
+   * (a done card, a card of a board not in the feed), drawn as the Plan's row.
+   */
+  boardCard?: (taskId: string) => ReactNode | null;
 }
 
 const INPUT = 'rounded-md border border-app-border bg-surface px-2 py-1 text-compact text-app-text outline-none focus-visible:border-primary';
@@ -83,7 +89,7 @@ function SignalBadges({ signals }: { signals: readonly PlanSignal[] }) {
 
 const shortDate = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 
-export function PlanView({ onOpenTask, onOpenTopic }: Props) {
+export function PlanView({ onOpenTask, onOpenTopic, boardCard }: Props) {
   const tr = useT();
   const [tree, setTree] = useState<PlanTree | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -106,34 +112,51 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
   const renderCard = (c: PlanCard, project: PlanProject, nested = false): ReactNode => {
     const choices = milestoneChoices(project);
     const links = c.sources.filter((s) => (s.kind === 'topic' && s.topicId && onOpenTopic) || s.url);
+    // What only the Plan does with a card: its signals, the merge of a duplicate, its sources, the move to a milestone.
+    const actions = (
+      <>
+        <SignalBadges signals={c.signals} />
+        {c.duplicateOf && (
+          <button type="button" className="shrink-0 rounded px-1 text-mini text-app-text-secondary hover:bg-app-hover" onClick={() => void act(() => mergeDuplicate(c.projectId, c.id, c.duplicateOf!))}>{tr('plan.mergeInto')}</button>
+        )}
+        {links.map((s, i) => s.kind === 'topic' ? (
+          <button key={i} type="button" aria-label={tr('plan.openSession')} title={tr('plan.openSession')} className="shrink-0 text-app-text-muted opacity-0 hover:text-app-text group-hover/card:opacity-100 focus-visible:opacity-100 coarse:opacity-100" onClick={() => onOpenTopic!(s.topicId!)}>
+            <ExternalLink className="h-3 w-3" />
+          </button>
+        ) : (
+          <a key={i} href={s.url!} target="_blank" rel="noreferrer" title={s.label} className="shrink-0 truncate text-mini text-app-text-muted hover:underline max-w-[7rem]">{s.label}</a>
+        ))}
+        {/* Over the row, not beside it: hidden, it would still eat the title's width. */}
+        {choices.length > 0 && (
+          <span className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/card:pointer-events-auto group-hover/card:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
+            <Select<string>
+              className="bg-surface shadow-sm"
+              ariaLabel={tr('plan.moveTo')} placeholder={tr('plan.moveTo')} value=""
+              options={choices.map((m) => ({ value: m.id, label: m.label }))}
+              onChange={(mid) => void act(() => linkCard(c.id, mid))}
+            />
+          </span>
+        )}
+      </>
+    );
+    const face = boardCard?.(c.id) ?? null;
     return (
       <div key={c.id}>
-        <div data-testid="plan-card" className={`group/card relative flex items-center gap-1.5 rounded-md py-0.5 pr-1 hover:bg-app-hover/60 ${nested ? 'pl-5' : 'pl-1'}`}>
-          <StatusIcon status={c.status} className="h-3 w-3" />
-          <button type="button" onClick={() => onOpenTask(c.id)} title={c.text} className="min-w-0 flex-1 truncate text-left text-compact text-app-text hover:underline">{c.text}</button>
-          <SignalBadges signals={c.signals} />
-          {c.duplicateOf && (
-            <button type="button" className="shrink-0 rounded px-1 text-mini text-app-text-secondary hover:bg-app-hover" onClick={() => void act(() => mergeDuplicate(c.projectId, c.id, c.duplicateOf!))}>{tr('plan.mergeInto')}</button>
-          )}
-          {links.map((s, i) => s.kind === 'topic' ? (
-            <button key={i} type="button" aria-label={tr('plan.openSession')} title={tr('plan.openSession')} className="shrink-0 text-app-text-muted opacity-0 hover:text-app-text group-hover/card:opacity-100 focus-visible:opacity-100 coarse:opacity-100" onClick={() => onOpenTopic!(s.topicId!)}>
-              <ExternalLink className="h-3 w-3" />
-            </button>
-          ) : (
-            <a key={i} href={s.url!} target="_blank" rel="noreferrer" title={s.label} className="shrink-0 truncate text-mini text-app-text-muted hover:underline max-w-[7rem]">{s.label}</a>
-          ))}
-          {/* Over the row, not beside it: hidden, it would still eat the title's width. */}
-          {choices.length > 0 && (
-            <span className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/card:pointer-events-auto group-hover/card:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
-              <Select<string>
-                className="bg-surface shadow-sm"
-                ariaLabel={tr('plan.moveTo')} placeholder={tr('plan.moveTo')} value=""
-                options={choices.map((m) => ({ value: m.id, label: m.label }))}
-                onChange={(mid) => void act(() => linkCard(c.id, mid))}
-              />
-            </span>
-          )}
-        </div>
+        {face ? (
+          // THE BOARD'S CARD, compact: one face for a card wherever it is drawn. The Plan's own gestures ride under it.
+          <div data-testid="plan-card" data-face="board" className={`group/card ${nested ? 'pl-5' : ''}`}>
+            {face}
+            {(c.signals.length > 0 || c.duplicateOf || links.length > 0 || choices.length > 0) && (
+              <div role="group" className="relative flex min-h-[22px] items-center gap-1.5 px-1 pt-0.5" aria-label={tr('plan.card.actions')}>{actions}</div>
+            )}
+          </div>
+        ) : (
+          <div data-testid="plan-card" className={`group/card relative flex items-center gap-1.5 rounded-md py-0.5 pr-1 hover:bg-app-hover/60 ${nested ? 'pl-5' : 'pl-1'}`}>
+            <StatusIcon status={c.status} className="h-3 w-3" />
+            <button type="button" onClick={() => onOpenTask(c.id)} title={c.text} className="min-w-0 flex-1 truncate text-left text-compact text-app-text hover:underline">{c.text}</button>
+            {actions}
+          </div>
+        )}
         {c.children?.map((child) => renderCard(child, project, true))}
       </div>
     );
@@ -145,7 +168,7 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
     const sorted = sortForPlan(cards);
     const shown = all ? sorted : sorted.slice(0, CARDS_SHOWN);
     return (
-      <div className="flex flex-col">
+      <div className={`flex flex-col ${boardCard ? 'gap-1.5' : ''}`}>
         {shown.map((c) => renderCard(c, project))}
         {sorted.length > CARDS_SHOWN && (
           <button type="button" className="self-start rounded px-1 py-0.5 text-mini text-app-text-muted hover:bg-app-hover hover:text-app-text" onClick={() => toggle(`all:${id}`)}>

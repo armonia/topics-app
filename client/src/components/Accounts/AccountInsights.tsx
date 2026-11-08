@@ -139,7 +139,7 @@ export function TrailLegend() {
 }
 
 /** The hub's pace dial, as the tray draws it: green up to the pace, red past it, the needle in the zone's colour. */
-export function PaceDial({ needle, zone, label, scale = 1 }: { needle: number; zone: string; label: string; scale?: number }) {
+export function PaceDial({ needle, zone, label }: { needle: number; zone: string; label: string }) {
   const w = 30;
   const h = 18;
   const cx = w / 2;
@@ -157,7 +157,7 @@ export function PaceDial({ needle, zone, label, scale = 1 }: { needle: number; z
   const n = pt(needle);
   const over = zone === 'sopra' || zone === 'frenato'; // allow-italian: the hub's zone ids
   return (
-    <svg width={w * scale} height={h * scale} viewBox={`0 0 ${w} ${h}`} role="img" aria-label={label} data-testid="account-dial" data-zone={zone} className="flex-none">
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="img" aria-label={label} data-testid="account-dial" data-zone={zone} className="flex-none">
       <path d={arc(0, 1)} fill="none" strokeWidth={3} className="stroke-emerald-500/70" />
       <path d={arc(1, 2)} fill="none" strokeWidth={3} className="stroke-red-500/70" />
       <line x1={cx} y1={cy} x2={n[0].toFixed(1)} y2={n[1].toFixed(1)} strokeWidth={1.5} strokeLinecap="round" className={over ? 'stroke-red-600 dark:stroke-red-400' : 'stroke-app-text'} />
@@ -166,26 +166,33 @@ export function PaceDial({ needle, zone, label, scale = 1 }: { needle: number; z
   );
 }
 
-/** The hub's forecast on a card: the dial and its state, when it runs out, the tokens left; then the 24 hours, the per-model windows, the bonus. */
-export function BoardExtras({ board: b }: { board: BoardAccount }) {
+/** The hub's outlook for one account, in one row: the pace dial and its state, when it runs out, the tokens left. Drawn on the account card and on the load screen. */
+export function AccountOutlook({ board: b, className = 'mb-1' }: { board: BoardAccount; className?: string }) {
   const tr = useT();
   const locale = useLocale();
   const state = hubProse(b.state.text, locale);
   const end = b.end ? hubProse(b.end.text, locale) : null;
+  if (!(b.dial || state || end || b.tokens)) return null;
+  return (
+    <div className={`${className} flex min-h-[20px] flex-wrap items-center gap-x-2 gap-y-0.5 text-mini tabular-nums`} data-testid="account-outlook" title={hubProse(b.reason, locale) ?? undefined}>
+      {b.dial && <PaceDial needle={b.dial.needle} zone={b.dial.zone} label={tr('accounts.dial.label', { state: state ?? '' })} />}
+      {state && <span className={`font-semibold ${TONE_TEXT[b.state.tone]}`} data-testid="account-outlook-state">{state}</span>}
+      {end && <span className="text-app-text-secondary" title={hubProse(b.end!.hint, locale) ?? undefined} data-testid="account-outlook-end">{tr('accounts.outlook.end')} <b className={`font-semibold ${b.end!.tone === 'ok' ? 'text-app-text' : TONE_TEXT[b.end!.tone]}`}>{end}</b></span>}
+      {b.tokens && (
+        <span className="text-app-text-secondary" title={hubProse(b.tokens.hint, locale) ?? undefined} data-testid="account-outlook-tokens">
+          {tr('accounts.outlook.tokens')} <b className="font-semibold text-app-text">{b.tokens.left}</b> · {b.tokens.perDay}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** The hub's forecast on a card: the outlook row; then the 24 hours, the per-model windows, the bonus. */
+export function BoardExtras({ board: b }: { board: BoardAccount }) {
+  const tr = useT();
   return (
     <div className="mb-1" data-testid="account-board">
-      {(b.dial || state || end || b.tokens) && (
-        <div className="mb-1 flex min-h-[20px] flex-wrap items-center gap-x-2 gap-y-0.5 text-mini tabular-nums" data-testid="account-outlook" title={hubProse(b.reason, locale) ?? undefined}>
-          {b.dial && <PaceDial needle={b.dial.needle} zone={b.dial.zone} label={tr('accounts.dial.label', { state: state ?? '' })} />}
-          {state && <span className={`font-semibold ${TONE_TEXT[b.state.tone]}`} data-testid="account-outlook-state">{state}</span>}
-          {end && <span className="text-app-text-secondary" title={hubProse(b.end!.hint, locale) ?? undefined} data-testid="account-outlook-end">{tr('accounts.outlook.end')} <b className={`font-semibold ${b.end!.tone === 'ok' ? 'text-app-text' : TONE_TEXT[b.end!.tone]}`}>{end}</b></span>}
-          {b.tokens && (
-            <span className="text-app-text-secondary" title={hubProse(b.tokens.hint, locale) ?? undefined} data-testid="account-outlook-tokens">
-              {tr('accounts.outlook.tokens')} <b className="font-semibold text-app-text">{b.tokens.left}</b> · {b.tokens.perDay}
-            </span>
-          )}
-        </div>
-      )}
+      <AccountOutlook board={b} />
       {b.windows.map((w) => (
         <Bar key={w.key} label={w.label} pct={Math.round(w.used)} mark={w.mark} testId="account-bar-extra"
           markTitle={w.key === 'day' && w.mark !== null ? tr('accounts.bar.day', { pct: w.mark }) : undefined} />

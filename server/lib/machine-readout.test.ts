@@ -9,18 +9,38 @@ import {
   createMachineReadout, groupProcs, parsePsLines, parseScreenFile, parseWinProcLines, programName, winCpuBetween,
 } from "./machine-readout";
 
+/**
+ * The screen file EXACTLY as wf-autosleep's Write-Stato writes it (copied from allow-italian: names the keeper's own function
+ * the PC): `sospendeAlle` is `Epoch-Ms`, a NUMBER; a running job carries `da`
+ * (ISO) and `secondi`; an outcome is ok | fallito | interrotto. The keys are allow-italian: the keeper's wire values
+ * the keeper's own, in Italian.
+ */
+const SLEEPS_AT = Date.parse("2026-11-08T19:52:14+01:00");
 const SCREEN = `\uFEFFwindow.STATO = {
     "versione":  1,
     "ora":  "2026-11-08T19:32:14+01:00",
     "sogliaMinuti":  20,
-    "sospendeAlle":  "2026-11-08T19:52:14+01:00",
+    "sospendeAlle":  ${SLEEPS_AT},
     "motivi":  [ "Il Mac è collegato al PC", "" ],
-    "lavori":  [ { "progetto": "acme-web", "cosa": "test", "chi": "Mac", "inizio": "2026-11-08T19:30:00+01:00" } ],
+    "lavori":  [ { "progetto": "acme-web", "cosa": "test", "chi": "Mac", "da": "2026-11-08T19:30:00+01:00", "secondi": 134 } ],
     "esiti":  [
         { "progetto": "acme-web", "cosa": "test", "esito": "fallito", "secondi": 86, "fine": "2026-11-08T19:32:14+01:00" },
-        { "progetto": "studio-x", "cosa": "build", "esito": "ok", "secondi": 78, "fine": "2026-11-08T19:32:02+01:00" }
+        { "progetto": "studio-x", "cosa": "build", "esito": "ok", "secondi": 78, "fine": "2026-11-08T19:32:02+01:00" },
+        { "progetto": "studio-x", "cosa": "e2e", "esito": "interrotto", "secondi": 12, "fine": "2026-11-08T19:20:00+01:00" }
     ]
 };`;
+
+/** At rest: nothing keeps it awake, so the keeper names the time it will sleep, and lists nothing. */
+const SCREEN_AT_REST = `\uFEFFwindow.STATO = {
+    "versione":  1,
+    "ora":  "2026-11-08T20:55:00+01:00",
+    "sogliaMinuti":  20,
+    "sospendeAlle":  1794168600000,
+    "motivi":  [],
+    "lavori":  [],
+    "esiti":  []
+};
+`;
 
 describe("machine readout parsers", () => {
   test("program names drop the folder and the .exe", () => {
@@ -69,10 +89,25 @@ describe("machine readout parsers", () => {
   test("the screen file: countdown, jobs and outcomes", () => {
     const s = parseScreenFile(SCREEN)!;
     expect(s.thresholdMin).toBe(20);
-    expect(s.sleepsAt).toBe(Date.parse("2026-11-08T19:52:14+01:00"));
+    expect(s.sleepsAt).toBe(SLEEPS_AT);
     expect(s.reasons).toEqual(["Il Mac è collegato al PC"]);
     expect(s.jobs).toEqual([{ project: "acme-web", what: "test", who: "Mac", since: Date.parse("2026-11-08T19:30:00+01:00") }]);
-    expect(s.outcomes.map((o) => o.ok)).toEqual([false, true]);
+    expect(s.outcomes.map((o) => o.ok)).toEqual([false, true, null]);
+    expect(s.outcomes.map((o) => o.interrupted)).toEqual([false, false, true]);
+  });
+
+  test("at rest the countdown is the keeper's epoch-ms number, not lost to a string-only parser", () => {
+    const s = parseScreenFile(SCREEN_AT_REST)!;
+    expect(s.sleepsAt).toBe(1794168600000);
+    expect(s.reasons).toEqual([]);
+    expect(s.jobs).toEqual([]);
+  });
+
+  test("a time in seconds or as a string is read too; a null is no time", () => {
+    const at = (v: string) => parseScreenFile(`window.STATO = { "sospendeAlle": ${v} };`)?.sleepsAt;
+    expect(at("1794168600")).toBe(1794168600000);
+    expect(at('"2026-11-08T21:10:00+01:00"')).toBe(Date.parse("2026-11-08T21:10:00+01:00"));
+    expect(at("null")).toBeNull();
   });
 
   test("a file that does not parse is no reading at all", () => {

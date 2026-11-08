@@ -12,13 +12,17 @@
  *  - the PC itself: a second HTTP server that pairs through the REAL
  *    handshake (`POST /api/machines/pair`, then the poll, which writes the
  *    device token) and answers `/api/system/machine-readout` like the PC's
- *    Topics would, with its process list and sleep keeper file.
+ *    Topics would: its process list, and the sleep keeper's file written
+ *    EXACTLY as wf-autosleep writes it (`sospendeAlle` in epoch ms, a number)
+ *    and read by the REAL `parseScreenFile`, the PC's own parser.
  * The real :3360, :3333 and PC are never touched; names are placeholders.
  *
- * Scenes at 1920x1080: at rest (the countdown, nothing running) and at work
- * (a card on the node, a job sent by the Mac). Video on: the recording is the
- * proof; the screenshots go to the test's output (`vero-schermo-*.png`) and,
- * with LOAD_SCREEN_SHOTS set, to that folder too.
+ * Scenes at 1920x1080: at rest (the countdown, nothing running), then the
+ * same page turning to work by itself (a card on the node, a job sent by the
+ * Mac); and at work on the PC's real 3440x1440 monitor, where every list row
+ * must end inside its list. Video on: the recording is the proof; the
+ * screenshots go to the test's output (`vero-schermo-*.png`) and, with
+ * LOAD_SCREEN_SHOTS set, to that folder too.
  *
  * Mutation: with `cardsOn` (lib/loadScreen.ts) ignoring `machineId`, «only the
  * node's own cards» is red (the card of the other board shows up).
@@ -35,6 +39,7 @@ import { holdDispatchReconcile } from "./helpers/api-fixtures";
 import { startFakeHub, type FakeHub } from "./helpers/fake-hub";
 import { E2E_BASE } from "./helpers/test-server";
 import { projectIdForPath } from "../../shared/board";
+import { parseScreenFile } from "../../server/lib/machine-readout";
 
 hermetic(test);
 test.use({ viewport: { width: 1920, height: 1080 }, colorScheme: "dark", locale: "it-IT", video: { mode: "on", size: { width: 1920, height: 1080 } } });
@@ -49,6 +54,30 @@ const OTHER_ID = projectIdForPath(OTHER_PATH);
 /** The device token the fake PC hands out at pairing, made per run. */
 const DEVICE_COOKIE = `e2e${randomBytes(16).toString("hex")}`;
 const SHOTS = process.env.LOAD_SCREEN_SHOTS ?? "";
+
+const iso = (ms: number) => new Date(ms).toISOString();
+
+/**
+ * The keeper's screen file, byte for byte in its shape: UTF-8 without BOM,
+ * one `window.STATO = <ConvertTo-Json>;` line; `sospendeAlle` is `Epoch-Ms`, allow-italian: the keeper's wire format
+ * a NUMBER, null while something keeps the PC awake.
+ */
+function keeperScreenFile(working: boolean, now: number): string {
+  const screenFile = {
+    versione: 1,
+    ora: iso(now),
+    sogliaMinuti: 20,
+    sospendeAlle: working ? null : now + 13 * MIN + 20_000,
+    motivi: working ? ["Il Mac è collegato al PC", "Una card di Topics sta lavorando su questo PC"] : [],
+    lavori: working ? [{ progetto: "studio-x", cosa: "i test nel browser", chi: "Mac", da: iso(now - 7 * MIN), secondi: 420 }] : [],
+    esiti: [
+      { progetto: "acme-web", cosa: "test", esito: "fallito", secondi: 86, fine: iso(now - 9 * MIN) },
+      { progetto: "studio-x", cosa: "preparazione delle dipendenze e test", esito: "ok", secondi: 78, fine: iso(now - 11 * MIN) },
+      { progetto: "studio-x", cosa: "build", esito: "interrotto", secondi: 109, fine: iso(now - 14 * MIN) },
+    ],
+  };
+  return `window.STATO = ${JSON.stringify(screenFile, null, 4)};\n`;
+}
 
 /** The PC's process list, as its Topics groups it: heaviest first, MB and % of one core. */
 function procs(working: boolean) {
@@ -72,17 +101,8 @@ function readout(working: boolean, now: number) {
     readout: {
       at: now, platform: "win32", cores: 16, memTotalMB: 32_768, memMetric: "working-set", total: working ? 214 : 187,
       procs: procs(working), rest: { count: working ? 184 : 168, memMB: working ? 2100 : 1900 },
-      screen: {
-        at: now, thresholdMin: 20,
-        sleepsAt: working ? null : now + 13 * MIN + 20_000,
-        reasons: working ? ["Il Mac è collegato al PC", "Una card di Topics sta lavorando su questo PC"] : [],
-        jobs: working ? [{ project: "studio-x", what: "i test nel browser", who: "Mac", since: now - 7 * MIN }] : [],
-        outcomes: [
-          { project: "acme-web", what: "test", ok: false, seconds: 86, endedAt: now - 9 * MIN },
-          { project: "studio-x", what: "preparazione delle dipendenze e test", ok: true, seconds: 78, endedAt: now - 11 * MIN },
-          { project: "studio-x", what: "build", ok: true, seconds: 109, endedAt: now - 14 * MIN },
-        ],
-      },
+      // The PC's own parser on the keeper's own file.
+      screen: parseScreenFile(keeperScreenFile(working, now)),
     },
   };
 }
@@ -160,6 +180,27 @@ function keep(path: string, name: string): void {
   copyFileSync(path, join(SHOTS, name));
 }
 
+/** Every list row ends inside its list, and every section inside the screen: nothing is cut in half. */
+async function nothingCut(page: import("@playwright/test").Page): Promise<{ rows: number; cut: string[] }> {
+  return page.evaluate(() => {
+    const cut: string[] = [];
+    const inside = (list: Element | null, sel: string, name: string) => {
+      if (!list) return 0;
+      const box = list.getBoundingClientRect();
+      const kids = Array.from(list.querySelectorAll(sel));
+      kids.forEach((k, i) => { if (k.getBoundingClientRect().bottom > box.bottom + 0.5) cut.push(`${name}[${i}]`); });
+      return kids.length;
+    };
+    const rows = inside(document.querySelector('[data-testid="load-screen-procs"]'), '[data-testid="machine-process-row"]', "proc");
+    inside(document.querySelector('[data-testid="load-screen-running-list"]'), ':scope > *', "running");
+    for (const id of ["load-screen-weight", "load-screen-running", "load-screen-pace", "load-screen-outcomes"]) {
+      const el = document.querySelector(`[data-testid="${id}"]`);
+      if (el && el.getBoundingClientRect().bottom > window.innerHeight + 0.5) cut.push(id);
+    }
+    return { rows, cut };
+  });
+}
+
 test.describe("the load screen of the PC", () => {
   test.beforeEach(() => { test.info().annotations.push({ type: "spec", description: "HUBBR-21" }); });
   let hub: FakeHub | null = null;
@@ -180,13 +221,20 @@ test.describe("the load screen of the PC", () => {
   });
 
   test.afterAll(async ({ request }) => {
-    for (const [board, id] of tasks) await request.delete(`${E2E_BASE}/api/boards/${board}/tasks/${id}`).catch(() => {});
-    if (nodeId) await request.delete(`${E2E_BASE}/api/machines/${nodeId}`).catch(() => {});
+    // A deleted card is archived, not gone, and still names its machine: unhook it first, or the machine cannot be removed.
+    for (const [board, id] of tasks) {
+      await request.patch(`${E2E_BASE}/api/boards/${board}/tasks/${id}`, { data: { machineId: null } }).catch(() => {});
+      await request.delete(`${E2E_BASE}/api/boards/${board}/tasks/${id}`).catch(() => {});
+    }
+    if (nodeId) {
+      const gone = await request.delete(`${E2E_BASE}/api/machines/${nodeId}`);
+      expect(gone.ok(), await gone.text()).toBe(true);
+    }
     await node?.close();
     await hub?.close();
   });
 
-  test("at rest: the countdown to sleep, nothing running, who weighs and the pace", async ({ page }, testInfo) => {
+  test("at rest: the countdown from the keeper's own file; then the page turns to work by itself", async ({ page, request }, testInfo) => {
     const now = Date.now();
     node!.working = false;
     hub!.answersOverride = { machines: machines(false, now) };
@@ -199,17 +247,23 @@ test.describe("the load screen of the PC", () => {
     await expect(page.getByTestId("load-screen-running-none")).toBeVisible();
     // Who weighs: the PC's own programs, with MB and CPU; a CPU the reader did not measure is a dash.
     const rows = page.getByTestId("machine-process-row");
-    await expect(rows).toHaveCount(8);
     await expect(rows.first()).toContainText("msedge");
     await expect(rows.first()).toContainText("1,2 GB");
     await expect(rows.first()).toContainText("9 processi");
-    await expect(rows.nth(7).getByTestId("machine-process-cpu")).toHaveText("-");
+    await expect(rows.first()).toHaveAttribute("data-kind", "app");
+    // Windows' own programs are the system's, not «app».
+    await expect(rows.filter({ hasText: "dwm" })).toHaveAttribute("data-kind", "macos");
+    await expect(rows.filter({ hasText: "MsMpEng" }).getByTestId("machine-process-cpu")).toHaveText("-");
     await expect(page.getByTestId("load-screen-subline")).toHaveText(/^alle \d\d:\d\d, dopo 20 min senza lavoro$/);
-    // The rows past the eighth join the rest line: System's single process plus the 168 the PC left out.
-    await expect(page.getByTestId("load-screen-procs-rest")).toContainText("Altri 169 processi");
-    // The pace dial of «Account e quote», one per account.
+    // The rows that do not fit join the rest line with the 168 the PC left out: the count adds up.
+    const { rows: shown, cut } = await nothingCut(page);
+    expect(cut).toEqual([]);
+    const hiddenCount = procs(false).slice(shown).reduce((n, p) => n + p.count, 0);
+    await expect(page.getByTestId("load-screen-procs-rest")).toContainText(`Altri ${168 + hiddenCount} processi`);
+    // The pace row of «Account e quote», dial included.
     await expect(page.getByTestId("load-screen-pace-row").first().getByTestId("account-dial")).toBeVisible();
     await expect(page.getByTestId("load-screen-outcome").first()).toHaveAttribute("data-ok", "false");
+    await expect(page.getByTestId("load-screen-outcome").nth(2)).toContainText("interrotto");
     // Cheap: nothing on the page animates, and the whole page fits the screen.
     const cost = await page.evaluate(() => ({
       animations: document.getAnimations().length,
@@ -219,27 +273,22 @@ test.describe("the load screen of the PC", () => {
     const shot = testInfo.outputPath("vero-schermo-riposo.png");
     await page.screenshot({ path: shot });
     keep(shot, "schermo-riposo.png");
-  });
 
-  test("at work: the card on the node with project and time, the job and who sent it", async ({ page, request }, testInfo) => {
-    const now = Date.now();
-    await holdDispatchReconcile(request, 120_000);
+    // ── The PC takes work: a card on the node, one on another machine, a job sent by the Mac.
+    await holdDispatchReconcile(request, 180_000);
     tasks.push([PROJECT_ID, await createTask(request, PROJECT_ID, { text: "Rifare la sincronizzazione del calendario", status: "in_progress", machineId: nodeId })]);
     // A card running on another machine is not this screen's.
     tasks.push([OTHER_ID, await createTask(request, OTHER_ID, { text: "Card che gira sul Mac", status: "in_progress" })]);
     node!.working = true;
-    hub!.answersOverride = { machines: machines(true, now) };
-    // The Mac keeps a node's answer 15 s (one PC read for every screen): wait for the fresh one.
-    await expect.poll(async () => {
-      const r = await request.get(`${E2E_BASE}/api/system/machine-readout?machine=${encodeURIComponent(nodeId)}`);
-      return ((await r.json()) as { readout?: { screen?: { jobs?: unknown[] } } }).readout?.screen?.jobs?.length ?? 0;
-    }, { timeout: 30_000, intervals: [1_000] }).toBe(1);
-    await page.goto(`${E2E_BASE}/schermo/${encodeURIComponent(nodeId)}`);
-    await expect(page.getByTestId("load-screen")).toHaveAttribute("data-state", "working", { timeout: 40_000 });
+    hub!.answersOverride = { machines: machines(true, Date.now()) };
+    // The page reads again by itself (every 20 s; the Mac keeps a node's answer 15 s): no reload.
+    await expect(screen).toHaveAttribute("data-state", "working", { timeout: 60_000 });
     await expect(page.getByTestId("load-screen-headline")).toHaveText("Sta lavorando");
     await expect(page.getByTestId("load-screen-subline")).toHaveText("1 card · 1 lavoro mandato");
     const card = page.getByTestId("load-screen-card");
     await expect(card).toHaveCount(1);
+    // The board's own card, compact.
+    await expect(card.locator('[data-density="compact"]')).toHaveCount(1);
     await expect(card).toContainText("Rifare la sincronizzazione del calendario");
     await expect(card).toContainText("acme-web");
     await expect(card.getByTestId("load-screen-card-since")).toHaveText(/^da /);
@@ -249,19 +298,33 @@ test.describe("the load screen of the PC", () => {
     await expect(job).toContainText("da 7 min");
     // The running work is its own reason: the keeper's list of reasons is not repeated under it.
     await expect(page.getByTestId("load-screen-why")).toHaveCount(0);
-    // Nothing in the right column is cut in half: every section ends inside the screen.
-    const bottoms = await page.evaluate(() => ["load-screen-running", "load-screen-pace", "load-screen-outcomes"]
-      .map((id) => document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect().bottom ?? 0));
-    for (const b of bottoms) expect(b).toBeLessThanOrEqual(1080);
-    await expect(page.getByTestId("machine-process-row").first()).toContainText("node");
-    await expect(page.getByTestId("machine-process-row").first().getByTestId("machine-process-cpu")).toHaveText("413%");
-    const shot = testInfo.outputPath("vero-schermo-lavoro.png");
-    await page.screenshot({ path: shot });
-    keep(shot, "schermo-lavoro.png");
+    expect((await nothingCut(page)).cut).toEqual([]);
+    await expect(rows.first()).toContainText("node");
+    await expect(rows.first().getByTestId("machine-process-cpu")).toHaveText("413%");
+    const shot2 = testInfo.outputPath("vero-schermo-lavoro.png");
+    await page.screenshot({ path: shot2 });
+    keep(shot2, "schermo-lavoro.png");
     expect(node!.reads).toBeGreaterThan(0);
     const video = page.video();
     await page.close();
     // saveAs, not path(): the browser may run on another machine (pw-remote).
     if (video && SHOTS) { mkdirSync(SHOTS, { recursive: true }); await video.saveAs(join(SHOTS, "schermo-lavoro.webm")); }
+  });
+
+  test("on the PC's own 3440x1440 monitor at work: every row whole", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 3440, height: 1440 });
+    node!.working = true;
+    hub!.answersOverride = { machines: machines(true, Date.now()) };
+    await page.goto(`${E2E_BASE}/schermo/${encodeURIComponent(nodeId)}`);
+    await expect(page.getByTestId("load-screen")).toHaveAttribute("data-state", "working", { timeout: 30_000 });
+    await expect(page.getByTestId("load-screen-card")).toHaveCount(1);
+    const { rows, cut } = await nothingCut(page);
+    expect(cut).toEqual([]);
+    expect(rows).toBeGreaterThanOrEqual(8);
+    const scroll = await page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight || document.documentElement.scrollWidth > window.innerWidth);
+    expect(scroll).toBe(false);
+    const shot = testInfo.outputPath("vero-schermo-uw-lavoro.png");
+    await page.screenshot({ path: shot });
+    keep(shot, "schermo-uw-lavoro.png");
   });
 });

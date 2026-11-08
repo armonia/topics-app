@@ -11,7 +11,7 @@
  * Nothing here fetches or keeps time: `now` comes from the caller, so the
  * countdown is a function of two numbers and is tested as one.
  */
-import type { ProcessRow } from './machineProcesses';
+import type { ProcessRow, UnitKind } from './machineProcesses';
 
 type JsonRecord = Record<string, unknown>;
 const isRecord = (v: unknown): v is JsonRecord => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -21,7 +21,7 @@ const list = (v: unknown): JsonRecord[] => (Array.isArray(v) ? v.filter(isRecord
 
 export interface ScreenProc { name: string; count: number; memMB: number; cpuPct: number | null }
 export interface ScreenJob { project: string | null; what: string; who: string | null; since: number | null }
-export interface ScreenOutcome { project: string | null; what: string; ok: boolean | null; seconds: number | null; endedAt: number | null }
+export interface ScreenOutcome { project: string | null; what: string; ok: boolean | null; interrupted: boolean; seconds: number | null; endedAt: number | null }
 
 export interface Readout {
   machine: { id: string | null; name: string; local: boolean };
@@ -74,10 +74,34 @@ export function readReadout(raw: unknown): Readout {
       reasons: Array.isArray(s.reasons) ? s.reasons.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : [],
       jobs: list(s.jobs).map((j) => ({ project: str(j.project), what: str(j.what) ?? '', who: str(j.who), since: num(j.since) })),
       outcomes: list(s.outcomes).map((o) => ({
-        project: str(o.project), what: str(o.what) ?? '', ok: typeof o.ok === 'boolean' ? o.ok : null, seconds: num(o.seconds), endedAt: num(o.endedAt),
+        project: str(o.project), what: str(o.what) ?? '', ok: typeof o.ok === 'boolean' ? o.ok : null, interrupted: o.interrupted === true, seconds: num(o.seconds), endedAt: num(o.endedAt),
       })),
     } : null,
   };
+}
+
+/**
+ * What a program IS, from its name, for the row's icon and label: the
+ * operating system's own (Windows' or macOS'), a coding agent's session, a
+ * service the load relies on, or an app. Only names known for sure are
+ * classified; anything else is an app, never a guess.
+ */
+const SYSTEM_WIN = new Set([
+  'system', 'idle', 'registry', 'secure system', 'memory compression', 'smss', 'csrss', 'wininit', 'winlogon', 'services', 'lsass', 'lsaiso',
+  'svchost', 'dwm', 'fontdrvhost', 'msmpeng', 'mpdefendercoreservice', 'nissrv', 'securityhealthservice', 'securityhealthsystray', 'spoolsv',
+  'wmiprvse', 'audiodg', 'conhost', 'dllhost', 'sihost', 'taskhostw', 'runtimebroker', 'searchhost', 'searchindexer', 'ctfmon', 'explorer',
+  'startmenuexperiencehost', 'shellexperiencehost', 'textinputhost', 'applicationframehost', 'wudfhost', 'smartscreen', 'wlanext', 'aggregatorhost',
+]);
+const SYSTEM_MAC = new Set(['kernel_task', 'launchd', 'windowserver', 'mds', 'mds_stores', 'mdworker', 'mdworker_shared', 'logd', 'coreaudiod', 'opendirectoryd', 'syspolicyd', 'trustd', 'cfprefsd', 'distnoted', 'fseventsd', 'loginwindow', 'dock', 'finder', 'systemuiserver', 'controlcenter']);
+const AGENT = new Set(['claude', 'codex', 'jcode', 'muse', 'museagent', 'opencode', 'gemini']);
+const SERVICE = new Set(['bun', 'sshd', 'tailscaled', 'tailscale', 'tailscale-ipn', 'sunshine', 'parsec', 'parsecd', 'ollama']);
+
+export function procKind(name: string, platform: string | null): UnitKind {
+  const n = name.toLowerCase();
+  if (AGENT.has(n)) return 'sessione'; // allow-italian: the census's wire value
+  if (SERVICE.has(n)) return 'servizio'; // allow-italian: the census's wire value
+  if (platform === 'win32' ? SYSTEM_WIN.has(n) : platform === 'darwin' ? SYSTEM_MAC.has(n) : false) return 'macos';
+  return 'app';
 }
 
 /** At or above this a row's memory is drawn warm, as in the Processes view. */
@@ -93,7 +117,7 @@ export function readoutRows(r: Readout, processesWord: (n: number) => string): P
   return r.procs.map((p, i) => ({
     id: `${i}:${p.name}`,
     name: p.name,
-    kind: 'app',
+    kind: procKind(p.name, r.platform),
     detail: p.count > 1 ? processesWord(p.count) : '',
     memMB: p.memMB,
     memShare: p.memMB / peak,
@@ -139,6 +163,8 @@ export interface ScreenCard {
   since: number | null;
   /** Who sent it here: the device or the person that started its run. */
   from: string | null;
+  /** The feed's row as it came, for the board's own card. */
+  raw: JsonRecord;
 }
 
 /**
@@ -163,6 +189,7 @@ export function cardsOn(feed: unknown, machineId: string | null, local: boolean)
       since: Number.isFinite(at) ? at : null,
       // Who started the run, never where it runs: that is this screen's own machine.
       from: str(t.runInitiatorDeviceName) ?? str(t.runInitiatorPersonName),
+      raw: t,
     };
   }).sort((a, b) => (a.since ?? Infinity) - (b.since ?? Infinity));
 }
@@ -185,15 +212,20 @@ export function elapsedParts(ms: number): { h: number; m: number } {
 }
 
 /**
- * The page is laid out for LAYOUT_WIDTH px and enlarged to the screen: the same
- * components the app draws, read from across a room. Never below 1 (a small
+ * The page is laid out for LAYOUT_WIDTH x LAYOUT_HEIGHT px and enlarged to the
+ * screen: the same components the app draws, read from across a room. The
+ * zoom is the smaller of the two fits, so a wide screen (the PC's 3440x1440)
+ * does not trade height for width: zoomed by its width alone it left 720 px
+ * of layout, and the last process row was cut in half. Never below 1 (a small
  * window stays the app's own size), never above 2.
  */
 export const LAYOUT_WIDTH = 1320;
+export const LAYOUT_HEIGHT = 740;
 
-export function screenZoom(width: number): number {
-  if (!(width > 0)) return 1;
-  return Math.min(2, Math.max(1, Math.floor((width / LAYOUT_WIDTH) * 20) / 20));
+export function screenZoom(width: number, height = Infinity): number {
+  if (!(width > 0) || !(height > 0)) return 1;
+  const fit = Math.min(width / LAYOUT_WIDTH, height / LAYOUT_HEIGHT);
+  return Math.min(2, Math.max(1, Math.floor(fit * 20) / 20));
 }
 
 /** The machine named in the address: `/schermo/<id>`, null for this machine. */

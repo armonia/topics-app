@@ -53,8 +53,10 @@ export interface ScreenJob {
 export interface ScreenOutcome {
   project: string | null;
   what: string;
-  /** true = it passed, false = it failed, null = an outcome the file did not name. */
+  /** true = it passed, false = it failed, null = interrupted or an outcome the file did not name. */
   ok: boolean | null;
+  /** Stopped before its end (the keeper's `interrotto`: the ssh went away, a signal). allow-italian: the keeper's wire value */
+  interrupted: boolean;
   seconds: number | null;
   endedAt: number | null;
 }
@@ -87,7 +89,14 @@ export interface MachineReadout {
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() !== "" ? v.trim() : null);
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+/**
+ * A time as the keeper writes it: `sospendeAlle` is epoch milliseconds (its
+ * `Epoch-Ms`, a NUMBER), the other times are ISO strings. Both are read; a
+ * number too small to be milliseconds is seconds.
+ */
 const timeOf = (v: unknown): number | null => {
+  const n = num(v);
+  if (n !== null) return n > 0 ? (n < 1e11 ? n * 1000 : n) : null;
   const s = str(v);
   if (!s) return null;
   const t = Date.parse(s);
@@ -120,7 +129,7 @@ export function parsePsLines(text: string): RawProc[] {
   return out;
 }
 
-/** The PowerShell line format `Name|Id|CPU|WorkingSet64` (see WINDOWS_PS_SCRIPT). */
+/** The PowerShell line format `Name|Id|CPU|WorkingSet64` (see WINDOWS_PS_LOOP). */
 export function parseWinProcLines(text: string): RawProc[] {
   const out: RawProc[] = [];
   for (const line of text.split(/\r?\n/)) {
@@ -197,15 +206,26 @@ export function parseScreenFile(text: string): ScreenState | null {
       project: str(e.progetto),
       what: str(e.cosa) ?? "",
       ok: outcome(e.esito),
+      interrupted: str(e.esito)?.toLowerCase() === "interrotto", // allow-italian: the keeper's wire value
       seconds: num(e.secondi),
       endedAt: timeOf(e.fine),
     })).slice(0, 8),
   };
 }
 
-/** The PowerShell one-liner behind the Windows list: one line per process, no module to load. */
-export const WINDOWS_PS_SCRIPT =
-  "Get-Process | ForEach-Object { '{0}|{1}|{2}|{3}' -f $_.ProcessName,$_.Id,$_.CPU,$_.WorkingSet64 }";
+/** The line that closes one listing of the warm PowerShell loop. */
+export const WINDOWS_PS_END = "__TOPICS_PROCS_END__";
+
+/**
+ * The warm PowerShell loop behind the Windows list (`warm-lister.ts`): for
+ * every line read on stdin, one line per process and then the end marker. It
+ * ends by itself when stdin closes. No module to load.
+ */
+export const WINDOWS_PS_LOOP =
+  "$ErrorActionPreference='SilentlyContinue'; [Console]::OutputEncoding=[Text.Encoding]::UTF8; " +
+  "while ($null -ne [Console]::In.ReadLine()) { " +
+  "Get-Process | ForEach-Object { '{0}|{1}|{2}|{3}' -f $_.ProcessName,$_.Id,$_.CPU,$_.WorkingSet64 }; " +
+  `'${WINDOWS_PS_END}'; [Console]::Out.Flush() }`;
 
 export interface MachineReadoutDeps {
   platform: string;
