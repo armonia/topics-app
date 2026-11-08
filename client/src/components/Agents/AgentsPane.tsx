@@ -4,10 +4,12 @@
  * many sessions it holds; sub-agents sit under the session that spawned them.
  * A session opens as from the sidebar. The grouping is `lib/agentSessions`.
  */
-import { useMemo } from 'react';
-import { Bot, ChevronRight } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Bot, ChevronRight, TriangleAlert } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
-import { useAgentGroups } from '../../state/agentGroups';
+import { useAgentGroups, useChannelTitles } from '../../state/agentGroups';
+import { agentSessionName } from '../../lib/agentSessions';
+import { DANGER_TEXT } from '../../lib/popoverStyles';
 import { useSharedNow } from '../../state/useSharedNow';
 import type { AgentSession, AgentSessionState } from '../../lib/agentSessions';
 import { PALLINO_ATTESA, PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from '../Sidebar/chromeSignals';
@@ -36,7 +38,7 @@ function useAgo() {
   }, [locale, now]);
 }
 
-function SessionRow({ s, depth, tr, ago }: { s: AgentSession; depth: number; tr: Tr; ago: (at: number) => string }) {
+function SessionRow({ s, depth, tr, ago, name }: { s: AgentSession; depth: number; tr: Tr; ago: (at: number) => string; name: (raw: string) => string }) {
   return (
     <>
       <li>
@@ -47,22 +49,32 @@ function SessionRow({ s, depth, tr, ago }: { s: AgentSession; depth: number; tr:
           className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-app-hover"
           style={{ paddingLeft: 8 + depth * 18 }}
         >
-          <span className={`h-2 w-2 flex-shrink-0 rounded-full ${DOT[s.state]}`} aria-hidden="true" />
-          <span className="min-w-0 flex-1 truncate text-prose text-app-text">{s.topic.name}</span>
+          {s.error
+            ? <TriangleAlert size={12} className={`flex-shrink-0 ${DANGER_TEXT}`} aria-hidden="true" />
+            : <span className={`h-2 w-2 flex-shrink-0 rounded-full ${DOT[s.state]}`} aria-hidden="true" />}
+          <span className="min-w-0 flex-1 truncate text-prose text-app-text">{name(s.topic.name)}</span>
+          {s.error && <span data-testid="agents-session-error" className={`flex-shrink-0 text-mini ${DANGER_TEXT}`}>{tr('agents.error')}</span>}
           {s.state !== 'idle' && <span className={`flex-shrink-0 text-mini ${TEXT[s.state]}`}>{tr(`agents.state.${s.state}`)}</span>}
           <span className="flex-shrink-0 text-mini tabular-nums text-app-text-muted">{ago(s.lastActivity)}</span>
           <ChevronRight size={12} className="flex-shrink-0 text-app-text-muted" aria-hidden="true" />
         </button>
       </li>
-      {s.children.map((c) => <SessionRow key={c.topic.id} s={c} depth={depth + 1} tr={tr} ago={ago} />)}
+      {s.children.map((c) => <SessionRow key={c.topic.id} s={c} depth={depth + 1} tr={tr} ago={ago} name={name} />)}
     </>
   );
 }
 
+/** Sessions shown per agent before «show more»: every agent's header stays in sight. */
+const VISIBLE = 6;
+
 export function AgentsPane() {
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const tr = useT();
   const ago = useAgo();
   const groups = useAgentGroups();
+  const titles = useChannelTitles();
+  const cli = tr('agents.cli');
+  const name = (raw: string) => agentSessionName(raw, titles, cli);
   return (
     <div data-testid="agents-pane" className="h-full overflow-y-auto bg-surface">
       <div className="mx-auto max-w-3xl px-6 py-6">
@@ -74,9 +86,26 @@ export function AgentsPane() {
             <header className="flex items-center gap-2 border-b border-app-border-light px-3 py-2">
               <Bot size={16} className="text-app-text-secondary" aria-hidden="true" />
               <h2 className="text-body-lg font-semibold text-app-text">{g.name}</h2>
-              <span className={`flex items-center gap-1.5 text-mini ${TEXT[g.state]}`}>
-                <span className={`h-2 w-2 rounded-full ${DOT[g.state]}`} aria-hidden="true" />
-                {tr(`agents.state.${g.state}`)}
+              <span data-testid="agents-group-counts" className="flex items-center gap-2 text-mini">
+                {g.waiting > 0 && (
+                  <span className={`flex items-center gap-1 ${SEGNALE_ATTESA}`}>
+                    <span className={`h-2 w-2 rounded-full ${PALLINO_ATTESA}`} aria-hidden="true" />
+                    {tr('agents.waitingYou', { n: g.waiting })}
+                  </span>
+                )}
+                {g.working > 0 && (
+                  <span className={`flex items-center gap-1 ${SEGNALE_OK}`}>
+                    <span className={`h-2 w-2 rounded-full ${PALLINO_OK}`} aria-hidden="true" />
+                    {tr('agents.working', { n: g.working })}
+                  </span>
+                )}
+                {g.errors > 0 && (
+                  <span className={`flex items-center gap-1 ${DANGER_TEXT}`}>
+                    <TriangleAlert size={11} aria-hidden="true" />
+                    {tr('agents.errors', { n: g.errors })}
+                  </span>
+                )}
+                {g.waiting === 0 && g.working === 0 && g.errors === 0 && <span className="text-app-text-muted">{tr('agents.state.idle')}</span>}
               </span>
               <span className="ml-auto text-mini tabular-nums text-app-text-muted">
                 {g.total === 1 ? tr('agents.sessionsOne') : tr('agents.sessions', { n: g.total })}
@@ -85,7 +114,19 @@ export function AgentsPane() {
               </span>
             </header>
             <ul className="p-1">
-              {g.sessions.map((s) => <SessionRow key={s.topic.id} s={s} depth={0} tr={tr} ago={ago} />)}
+              {(open.has(g.id) ? g.sessions : g.sessions.slice(0, VISIBLE)).map((s) => <SessionRow key={s.topic.id} s={s} depth={0} tr={tr} ago={ago} name={name} />)}
+              {!open.has(g.id) && g.sessions.length > VISIBLE && (
+                <li>
+                  <button
+                    type="button"
+                    data-testid="agents-more"
+                    onClick={() => setOpen((o) => new Set(o).add(g.id))}
+                    className="w-full rounded px-2 py-1.5 text-left text-mini text-app-text-secondary hover:bg-app-hover"
+                  >
+                    {tr('agents.more', { n: g.sessions.length - VISIBLE })}
+                  </button>
+                </li>
+              )}
             </ul>
           </section>
         ))}

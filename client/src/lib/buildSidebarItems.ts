@@ -6,7 +6,7 @@ import { attentionOf, type AttentionRows } from '../state/attention';
 import { projectAttentionChildren } from '../state/attentionRollups';
 import { terminalSubject, topicSubject } from '../../../shared/attention';
 import { basename, tryHostname } from './path-utils';
-import { isAgentPath } from './agentSessions';
+import { agentTopicIds, isAgentPath } from './agentSessions';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -245,7 +245,11 @@ interface BuildSidebarItemsOpts {
 }
 
 export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
-  const { topics, workspaceProjects = [], terminalSessions = [], browserContexts = [], showArchived, openPanels = [], projectOpenPanes = {}, attention = new Map(), pinnedIds = new Set<string>(), detachedTopicIds = new Map<string, { windowId: string; windowLabel?: string }>(), paneTitleById = new Map<string, string>(), browserOriginById = new Map<string, BrowserOrigin>(), sessionLastActivityById = new Map<string, number>() } = opts;
+  // The agents' sessions (Jarvis, Visione…) live under the «Agenti» row only,
+  // open tab or not: the normal list never shows them.
+  const agentIds = agentTopicIds(opts.topics);
+  const topics = agentIds.size === 0 ? opts.topics : Object.fromEntries(Object.entries(opts.topics).filter(([id]) => !agentIds.has(id)));
+  const { workspaceProjects = [], terminalSessions = [], browserContexts = [], showArchived, openPanels = [], projectOpenPanes = {}, attention = new Map(), pinnedIds = new Set<string>(), detachedTopicIds = new Map<string, { windowId: string; windowLabel?: string }>(), paneTitleById = new Map<string, string>(), browserOriginById = new Map<string, BrowserOrigin>(), sessionLastActivityById = new Map<string, number>() } = opts;
   const openPanelSet = new Set(openPanels);
 
   const items: SidebarItem[] = [];

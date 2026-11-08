@@ -59,12 +59,32 @@ export function agentName(id: string): string {
   return AGENT_NAMES[id] ?? id;
 }
 
+/**
+ * A readable name for an agent's chat. The bridge names a channel's chat after
+ * its raw id («Gruppo 1564…», «WhatsApp, gruppo 1203…@g.us»): with the title
+ * jarvis-channels knows for that id, the chat takes the channel's name. The
+ * terminal chat («cli») gets a name in words, through `cliLabel`.
+ */
+export function agentSessionName(name: string, titles: Readonly<Record<string, string>>, cliLabel: string): string {
+  const raw = /^(?:WhatsApp, )?gruppo ([\w.@-]+)$/i.exec(name.trim()); // allow-italian: the bridge's own chat names
+  if (raw) return titles[raw[1]] ?? name;
+  if (/^(?:WhatsApp, )?cli$/i.test(name.trim())) return cliLabel;
+  return name;
+}
+
+/** A chat whose last message is a provider failure («API 400…», «⚠ …»). */
+export function isErrorText(text: string | undefined): boolean {
+  return !!text && /^\s*(?:⚠|API (?:Error|\d{3}))/.test(text);
+}
+
 export type AgentSessionState = 'working' | 'waiting' | 'idle';
 
 export interface AgentSession {
   topic: Topic;
   state: AgentSessionState;
   lastActivity: number;
+  /** Its last turn failed. */
+  error: boolean;
   /** Sub-agents this session spawned, nested under it. */
   children: AgentSession[];
 }
@@ -77,6 +97,7 @@ export interface AgentGroup {
   total: number;
   working: number;
   waiting: number;
+  errors: number;
   lastActivity: number;
   /** The loudest state among its sessions. */
   state: AgentSessionState;
@@ -99,13 +120,16 @@ export function groupAgentSessions(
   topics: Record<string, Topic>,
   working: ReadonlySet<string>,
   waiting: ReadonlySet<string>,
+  errored: ReadonlySet<string> = new Set(),
 ): AgentGroup[] {
-  const own = Object.values(topics).filter((t) => !t.archived && agentOfPath(t.projectPath) !== null);
+  const agentIds = agentTopicIds(topics);
+  const own = Object.values(topics).filter((t) => !t.archived && agentIds.has(t.id));
   const byKey = new Map(own.map((t) => [t.sessionKey, t]));
   const node = (t: Topic): AgentSession => ({
     topic: t,
     state: waiting.has(t.id) ? 'waiting' : working.has(t.id) ? 'working' : 'idle',
     lastActivity: stamp(t),
+    error: errored.has(t.id),
     children: [],
   });
   const nodes = new Map(own.map((t) => [t.id, node(t)]));
@@ -113,7 +137,7 @@ export function groupAgentSessions(
   const groupOf = (id: string): AgentGroup => {
     let g = groups.get(id);
     if (!g) {
-      g = { id, name: agentName(id), sessions: [], total: 0, working: 0, waiting: 0, lastActivity: 0, state: 'idle' };
+      g = { id, name: agentName(id), sessions: [], total: 0, working: 0, waiting: 0, errors: 0, lastActivity: 0, state: 'idle' };
       groups.set(id, g);
     }
     return g;
@@ -121,12 +145,14 @@ export function groupAgentSessions(
   for (const t of own) {
     const n = nodes.get(t.id)!;
     const parent = t.subagentOf && t.subagentOf !== t.sessionKey ? byKey.get(t.subagentOf) : undefined;
+    const agent = agentOfPath(parent?.projectPath) ?? agentOfPath(t.projectPath) ?? MAIN_AGENT;
     if (parent) nodes.get(parent.id)!.children.push(n);
-    else groupOf(agentOfPath(t.projectPath)!).sessions.push(n);
-    const g = groupOf(agentOfPath(parent?.projectPath ?? t.projectPath)!);
+    else groupOf(agent).sessions.push(n);
+    const g = groupOf(agent);
     g.total++;
     if (n.state === 'working') g.working++;
     if (n.state === 'waiting') g.waiting++;
+    if (n.error) g.errors++;
     g.lastActivity = Math.max(g.lastActivity, n.lastActivity);
     if (RANK[n.state] > RANK[g.state]) g.state = n.state;
   }
@@ -141,7 +167,26 @@ export function groupAgentSessions(
     || b.lastActivity - a.lastActivity);
 }
 
-/** How many agents have at least one session at work: the tail of the row. */
-export function workingAgentCount(groups: AgentGroup[]): number {
-  return groups.filter((g) => g.working > 0).length;
+/** The tail of the row: sessions at work and sessions waiting on you, across agents. */
+export function agentTotals(groups: AgentGroup[]): { working: number; waiting: number } {
+  let working = 0;
+  let waiting = 0;
+  for (const g of groups) { working += g.working; waiting += g.waiting; }
+  return { working, waiting };
+}
+
+/**
+ * Is this topic an agent's session? Its own folder says so, or the folder of
+ * the chat that spawned it (a sub-agent may work elsewhere). The sidebar's
+ * normal list leaves these out: they are reached from «Agenti» only.
+ */
+export function agentTopicIds(topics: Record<string, Topic>): Set<string> {
+  const byKey = new Map<string, Topic>();
+  for (const t of Object.values(topics)) if (t.sessionKey) byKey.set(t.sessionKey, t);
+  const ids = new Set<string>();
+  for (const t of Object.values(topics)) {
+    const parent = t.subagentOf ? byKey.get(t.subagentOf) : undefined;
+    if (isAgentPath(t.projectPath) || isAgentPath(parent?.projectPath)) ids.add(t.id);
+  }
+  return ids;
 }

@@ -6,7 +6,7 @@
  * @covers TOPIC-02
  */
 import { describe, test, expect } from "bun:test";
-import { agentOfPath, groupAgentSessions, workingAgentCount } from "./agentSessions";
+import { agentOfPath, agentSessionName, agentTotals, groupAgentSessions, isErrorText } from "./agentSessions";
 import { buildSidebarItems } from "./buildSidebarItems";
 import type { Topic } from "../types";
 
@@ -49,7 +49,7 @@ describe("groupAgentSessions", () => {
     expect(jarvis.total).toBe(3);
     expect(jarvis.sessions.map((s) => s.topic.id)).toEqual(["a", "b"]);
     expect(jarvis.sessions[0].children.map((s) => s.topic.id)).toEqual(["sub"]);
-    expect(workingAgentCount(groups)).toBe(0);
+    expect(agentTotals(groups)).toEqual({ working: 0, waiting: 0 });
   });
 
   test("state: working and waiting rise the session and the agent to the top", () => {
@@ -58,14 +58,46 @@ describe("groupAgentSessions", () => {
     expect(groups[0].state).toBe("waiting");
     expect(groups[0].sessions[0].topic.id).toBe("b");
     expect(groups[1].state).toBe("working");
-    expect(workingAgentCount(groups)).toBe(1);
+    expect(agentTotals(groups)).toEqual({ working: 1, waiting: 1 });
   });
 
   test("a sub-agent at work counts for its parent's agent", () => {
     const groups = groupAgentSessions(topics, new Set(["sub"]), new Set());
     expect(groups[0].id).toBe("jarvis");
     expect(groups[0].working).toBe(1);
-    expect(workingAgentCount(groups)).toBe(1);
+    expect(agentTotals(groups).working).toBe(1);
+  });
+});
+
+describe("group order and errors", () => {
+  test("waiting first, then working, then the rest; errors counted per agent", () => {
+    const topics = {
+      j: topic("j", `${H}/.openclaw`),
+      v: topic("v", `${H}/.openclaw/workspace-gtm`),
+      x: topic("x", `${H}/.openclaw/workspace-ops`),
+    };
+    const groups = groupAgentSessions(topics, new Set(["x"]), new Set(["v"]), new Set(["j"]));
+    expect(groups.map((g) => g.id)).toEqual(["gtm", "ops", "jarvis"]);
+    expect(groups[2].errors).toBe(1);
+    expect(groups[2].sessions[0].error).toBe(true);
+    expect(groups[1].name).toBe("ops");
+  });
+  test("a provider failure is an error, a normal reply is not", () => {
+    expect(isErrorText('API 400: {"type":"error"}')).toBe(true);
+    expect(isErrorText("⚠ API Error: overloaded")).toBe(true);
+    expect(isErrorText("Fatto, PR aperta")).toBe(false);
+  });
+});
+
+describe("agentSessionName", () => {
+  const titles = { "1000000000000000001": "#canale-prova", "100000000000000000@g.us": "Gruppo di prova" };
+  test("raw channel ids take the channel title; cli gets words; the rest stays", () => {
+    expect(agentSessionName("Gruppo 1000000000000000001", titles, "Jarvis da terminale")).toBe("#canale-prova");
+    expect(agentSessionName("WhatsApp, gruppo 100000000000000000@g.us", titles, "T")).toBe("Gruppo di prova");
+    expect(agentSessionName("Gruppo 999", titles, "T")).toBe("Gruppo 999");
+    expect(agentSessionName("cli", titles, "Jarvis da terminale")).toBe("Jarvis da terminale");
+    expect(agentSessionName("WhatsApp, cli", titles, "Jarvis da terminale")).toBe("Jarvis da terminale");
+    expect(agentSessionName("#lotto-siti", titles, "T")).toBe("#lotto-siti");
   });
 });
 
@@ -84,10 +116,19 @@ describe("buildSidebarItems leaves agent homes out of the project list", () => {
     expect(projects).toEqual([`${H}/Projects/quadra`]);
   });
 
-  test("an agent session open as a tab still shows, as a loose chat", () => {
-    const topics = { a: topic("a", `${H}/.openclaw/workspace-gtm`) };
-    const items = buildSidebarItems({ topics, browserContexts: [], showArchived: false, openPanels: ["a"] });
-    expect(items.some((i) => i.type === "project")).toBe(false);
-    expect(items.some((i) => i.id === "a")).toBe(true);
+  test("an agent session open as a tab, pinned or lit does NOT show in the normal list", () => {
+    const topics = {
+      a: topic("a", `${H}/.openclaw/workspace-gtm`),
+      sub: topic("sub", `${H}/Projects/quadra`, { subagentOf: "topic:a" }),
+      n: topic("n", `${H}/Projects/quadra`),
+    };
+    const items = buildSidebarItems({
+      topics, browserContexts: [], showArchived: false,
+      openPanels: ["a", "sub", "n"], pinnedIds: new Set(["a"]),
+    });
+    const all = JSON.stringify(items);
+    expect(all).not.toContain('"id":"a"');
+    expect(all).not.toContain('"id":"sub"');
+    expect(all).toContain('"id":"n"');
   });
 });
