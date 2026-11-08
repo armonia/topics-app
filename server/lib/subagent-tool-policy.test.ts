@@ -1,3 +1,4 @@
+/** @covers SUBAGENT-08 */
 import { describe, expect, test } from "bun:test";
 import { toolAllowedByPolicy, type SubagentToolPolicy } from "./subagent-tool-policy";
 

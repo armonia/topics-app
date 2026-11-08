@@ -21,7 +21,7 @@ export const SUBAGENT_TOOL_NAMES: ReadonlySet<string> = new Set(["spawn_agent", 
  * question reaches neither the parent nor anyone else, so the child never sees
  * it: the choices come back in its result and the parent carries them (card 114dc526).
  */
-export const CHILD_FORBIDDEN_TOOLS: ReadonlySet<string> = new Set(["ask_user_question"]);
+const CHILD_FORBIDDEN_TOOLS: ReadonlySet<string> = new Set(["ask_user_question"]);
 
 export interface SubagentToolPolicy {
   /** The names the profile allows; null = all of them. */
