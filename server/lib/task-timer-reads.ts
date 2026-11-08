@@ -13,12 +13,20 @@ import { ACTIVE_DISPATCH_STATES } from "../../shared/board";
 export const QUEUED_ROOT_BOARDS_SQL = `SELECT DISTINCT project_id FROM tasks
           WHERE archived = 0 AND status = 'todo' AND parent_task_id IS NULL`;
 
-export const WORKING_TASKS_COUNT_SQL = "SELECT COUNT(*) AS v FROM tasks WHERE dispatch_state = 'working'";
+/**
+ * How many cards are working, for the status bar and the Discord presence.
+ * `archived = 0`: archiving a working card leaves its `dispatch_state` as it
+ * was, and an archived card must not keep "tasks running" lit. The unary `+`
+ * keeps that term out of index selection: without it the planner picks
+ * idx_tasks_archived and walks every live card instead of idx_tasks_working.
+ */
+export const WORKING_TASKS_COUNT_SQL =
+  "SELECT COUNT(*) AS v FROM tasks WHERE dispatch_state = 'working' AND +archived = 0";
 
-/** The board of the card that has been working the longest. */
+/** The board of the card that has been working the longest, archived cards excluded (`+` as above). */
 export const OLDEST_WORKING_BOARD_SQL = `SELECT t.project_id AS v
          FROM tasks t
-        WHERE t.dispatch_state = 'working' AND t.project_id IS NOT NULL
+        WHERE t.dispatch_state = 'working' AND +t.archived = 0 AND t.project_id IS NOT NULL
         ORDER BY t.in_progress_at ASC LIMIT 1`;
 
 /** Cards parked in a wait series past the cutoff, oldest first. Binds: cutoff, now. */
