@@ -47,7 +47,12 @@ export const STAGE_TRIAGE = 'triage';
 export const STAGE_AI_REVIEW = 'ai_review';
 export const STAGE_HUMAN_REVIEW = 'human_review';
 
-const STATUS_COLUMN_LABEL: Record<TaskStatus, string> = {
+/**
+ * The one copy of the status words, shared by the client (`STATUS_LABEL` in
+ * `client/src/lib/board.ts` re-exports it) and mirrored by the tray in
+ * `desktop-tauri/src-tauri/src/lib.rs` (`tray_status_label`).
+ */
+export const STATUS_COLUMN_LABEL: Record<TaskStatus, string> = {
   backlog: 'Backlog',
   todo: 'Todo',
   in_progress: 'In Progress',
@@ -125,6 +130,19 @@ export function columnOfTask(
  */
 export function awaitsHuman(task: { status: string; stage?: string | null }): boolean {
   return task.status === 'review' && task.stage !== STAGE_AI_REVIEW;
+}
+
+/**
+ * `awaitsHuman` as a SQL condition, for the readers that count in the
+ * database (the attention boot read, a parent's `subtaskReviewCount`). A
+ * schema without the `stage` column has no AI review: plain `status`.
+ * `alias` qualifies the columns (`t` gives `t.status`).
+ */
+export function awaitsHumanSql(hasStage: boolean, alias = ''): string {
+  const c = alias ? `${alias}.` : '';
+  return hasStage
+    ? `(${c}status = 'review' AND (${c}stage IS NULL OR ${c}stage != '${STAGE_AI_REVIEW}'))`
+    : `${c}status = 'review'`;
 }
 
 /**

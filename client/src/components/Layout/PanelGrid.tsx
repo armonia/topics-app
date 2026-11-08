@@ -266,7 +266,8 @@ interface PanelGridProps {
   focusedPanelId: string | null;
   onFocusPanel: (topicId: string) => void;
   /** Default close — typically deferred via the PendingAction countdown. */
-  onClosePanel: (topicId: string) => void;
+  /** `onCommit` runs the pane kind's side effect when the close commits (a terminal's PTY is retired). */
+  onClosePanel: (topicId: string, onCommit?: () => void) => void;
   /** Optional immediate close (bypass countdown). Wired by App so the
    *  right-click "Close now" entry on standalone top-level tabs skips the
    *  toast. Falls back to onClosePanel if not provided. */
@@ -382,10 +383,13 @@ export function PanelGrid({
   // A working sub-agent's terminal is another session's work: closing it kills
   // the PTY, so it asks first (SUBAGENT-20). Every other tab closes as before.
   const confirmTerminalStop = useConfirmTerminalStop();
-  const onClosePanel = useCallback((id: string) => {
+  // `onCommit` goes through: it is the pane kind's side effect, and for a
+  // terminal it is what retires the PTY. Dropped here, a closed tab left its
+  // process running (and its sidebar row «working») for good.
+  const onClosePanel = useCallback((id: string, onCommit?: () => void) => {
     const sessionId = isTerminalPaneId(id) ? getTerminalSessionFromPaneId(id) : null;
-    if (!sessionId) { rawClosePanel(id); return; }
-    void confirmTerminalStop(sessionId).then((ok) => { if (ok) rawClosePanel(id); });
+    if (!sessionId) { rawClosePanel(id, onCommit); return; }
+    void confirmTerminalStop(sessionId).then((ok) => { if (ok) rawClosePanel(id, onCommit); });
   }, [rawClosePanel, confirmTerminalStop]);
   const onClosePanelImmediate = useMemo(() => {
     if (!rawClosePanelImmediate) return undefined;

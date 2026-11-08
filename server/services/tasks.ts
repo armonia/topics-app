@@ -36,8 +36,8 @@ import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
 import { readChecksMemFloorGB, readGlobalCap, readSpendCaps } from "./dispatch-capacity";
 import { checksMemFloorGB } from "../../shared/checks-memory-floor";
 import { parseCreatedBy, UNOWNED_BACKLOG_MS } from "../../shared/created-by";
-import { agentCardGaps, incompleteCardNotice } from "../../shared/agent-card-contract";
-import { STAGE_AI_REVIEW, STAGE_HUMAN_REVIEW, agentAskInThread, defaultColumnFor, namesHumanReviewWithoutAsk, stageAtBirth, stageForDelivery, stageForStatusChange, type WorkflowColumn, type WorkflowPresetId } from "../../shared/workflow";
+import { agentCardGaps, incompleteCardNotice, INCOMPLETE_CARD_NOTICE_PREFIX } from "../../shared/agent-card-contract";
+import { STAGE_AI_REVIEW, STAGE_HUMAN_REVIEW, agentAskInThread, awaitsHumanSql, defaultColumnFor, namesHumanReviewWithoutAsk, stageAtBirth, stageForDelivery, stageForStatusChange, type WorkflowColumn, type WorkflowPresetId } from "../../shared/workflow";
 import { requestAiReviewNotice } from "./ai-review-notice";
 import { checkStage, clearStagesOutsideWorkflow, dropStageOutsideTarget, readBoardWorkflow, routeAskOutOfAiReview, stampStaleAiReview, clearAiReviewReminderStamp, writeBoardWorkflow } from "./board-workflow";
 import { currentDispatchBlock, currentMemoryWait, heldResumeBlock } from "./dispatch-block-signal";
@@ -776,6 +776,13 @@ export interface TaskService {
   }): Neighbour[];
 
   archive(args: { taskId: string; projectId?: string }): Task;
+  /**
+   * Unhooks the open children (not archived, not done) of `taskId` so they
+   * become root cards again, keeping their status. Called by the board DELETE
+   * before `archive`, which would otherwise take them down with the parent.
+   * Returns the ids it unhooked.
+   */
+  detachOpenChildren(args: { taskId: string; projectId?: string }): string[];
   /**
    * Il ritorno dall'archivio: `archived = 0` sul task, sul suo sottoalbero e
    * sulla catena dei genitori. Speculare ad `archive`, che scende; risalire
@@ -2780,6 +2787,27 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   }
 
   /**
+   * A GROUPING PARENT IS NOT A WORK CARD. A card born in backlog that no turn
+   * ever touched becomes a container the moment a child is hung under it (same
+   * predicate as PARKED_CHILDREN_CANDIDATES_SQL in task-timer-reads.ts): the
+   * agent-card contract asks a work card for a bar and a source, a container
+   * has nothing to finish on its own. Measured 08/11: 15 grouping parents,
+   * each born with "Incomplete card" in its thread and the chip on top. The
+   * flag goes, and with it the system comment the birth wrote.
+   */
+  function releaseContainerFromCardContract(parentId: string): void {
+    const released = db.prepare(
+      `UPDATE tasks SET created_missing = NULL
+        WHERE id = ? AND created_missing IS NOT NULL
+          AND status = 'backlog' AND dispatch_attempts = 0
+          AND in_progress_at IS NULL AND delivered_by IS NULL AND dispatch_state IS NULL`,
+    ).run(parentId);
+    if (Number(released.changes ?? 0) === 0) return;
+    db.prepare("DELETE FROM task_comments WHERE task_id = ? AND author = 'system' AND content LIKE ?")
+      .run(parentId, `${INCOMPLETE_CARD_NOTICE_PREFIX}%`);
+  }
+
+  /**
    * What an agent's card still lacks, recomputed from the row so it shrinks as
    * the card is completed. Only a card born subject to the contract
    * (`created_missing` not NULL) is ever flagged: old cards stay as they were.
@@ -2829,6 +2857,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * scansione. L'indice che la copre è
    * `idx_task_comments_task_author_kind`.
    */
+  let stageColumn: boolean | null = null;
+  /** Does `tasks` have the workflow column? Read once: a reduced test schema may not. */
+  function tasksHaveStage(): boolean {
+    if (stageColumn !== null) return stageColumn;
+    try { stageColumn = (db.query("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).some((c) => c.name === "stage"); } catch { stageColumn = false; }
+    return stageColumn;
+  }
+
   function withSubtaskCounts(tasks: Task[]): Task[] {
     if (tasks.length === 0) return tasks;
     const ids = idParam(tasks.map((t) => t.id));
@@ -2842,6 +2878,24 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         GROUP BY parent_task_id`,
     ).all(ids) as Array<{ pid: string; total: number; done: number }>;
     for (const r of rows) byParent.set(r.pid, { total: r.total, done: r.done ?? 0 });
+    // Steps at ANY depth that wait on a person (`awaitsHuman`): the columns
+    // hold roots only, so a parent sitting in backlog is where a step in review
+    // says it, and the Review count adds it to the roots (Kanban equals Plan).
+    const reviewByParent = new Map<string, number>();
+    try {
+      const reviewRows = db.query(
+        `WITH RECURSIVE d(root, id) AS (
+           SELECT parent_task_id, id FROM tasks
+            WHERE parent_task_id IN (SELECT value FROM json_each(?)) AND archived = 0
+           UNION
+           SELECT d.root, t.id FROM tasks t JOIN d ON t.parent_task_id = d.id WHERE t.archived = 0
+         )
+         SELECT d.root AS pid, COUNT(*) AS n FROM d JOIN tasks t ON t.id = d.id
+          WHERE ${awaitsHumanSql(tasksHaveStage(), "t")}
+          GROUP BY d.root`,
+      ).all(ids) as Array<{ pid: string; n: number }>;
+      for (const r of reviewRows) reviewByParent.set(r.pid, r.n);
+    } catch { /* a reduced schema: no step counts as waiting */ }
     // Human message count per task: comments the user sent (kind='comment'),
     // excluding the AI/agent, system notes and auto status events.
     const byTask = new Map<string, number>();
@@ -2880,6 +2934,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     for (const t of tasks) {
       const c = byParent.get(t.id);
       if (c) { t.subtaskCount = c.total; t.subtaskDoneCount = c.done; }
+      const inReview = reviewByParent.get(t.id);
+      if (inReview) t.subtaskReviewCount = inReview;
       t.userCommentCount = byTask.get(t.id) ?? 0;
       const actor = byActor.get(t.id);
       t.lastActorPersonName = actor?.personName ?? null;
@@ -3921,6 +3977,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // default workflow writes the same row as before.
       if (birthStage) db.prepare("UPDATE tasks SET stage = ? WHERE id = ?").run(birthStage, id);
       if (bornAsk && status === "review") db.prepare("UPDATE tasks SET human_ask = ? WHERE id = ?").run(bornAsk, id);
+      if (input.parentTaskId) releaseContainerFromCardContract(input.parentTaskId);
       // Born in AI review: whoever opened it is told, as on any other entry.
       if (birthStage === STAGE_AI_REVIEW && status === "review") announceAiReview(id);
       return rowToTask(getTaskRow(id));
@@ -4569,6 +4626,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       put("updated_at", now());
 
       db.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...params, taskId);
+      if (patch.parentTaskId) releaseContainerFromCardContract(patch.parentTaskId);
       if (nextStage === STAGE_AI_REVIEW && (row.stage !== STAGE_AI_REVIEW || current !== "review")) announceAiReview(taskId);
       // Un task che ESCE da review si porta dietro la sua richiesta di
       // approvazione: va chiusa qui.
@@ -5158,6 +5216,30 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // sgombera una checklist a mano. Il padre va guardato in entrambi i casi.
       if (row.parent_task_id) childLeftFlight(row.parent_task_id as string, "system", this);
       return rowToTask(getTaskRow(taskId));
+    },
+
+    detachOpenChildren({ taskId, projectId }): string[] {
+      const row = getTaskRow(taskId);
+      if (!row || (projectId && row.project_id !== projectId)) {
+        throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      }
+      const ts = now();
+      const ids = (db.prepare(
+        "SELECT id FROM tasks WHERE parent_task_id = ? AND archived = 0 AND status != 'done'",
+      ).all(taskId) as Array<{ id: string }>).map((r) => r.id);
+      const unhook = db.prepare("UPDATE tasks SET parent_task_id = NULL, updated_at = ? WHERE id = ?");
+      for (const id of ids) {
+        unhook.run(ts, id);
+        // Where it came from goes in its own thread: on the board it is now a
+        // root card with no trace of the grouping it sat under.
+        try {
+          this.addComment({
+            taskId: id, author: "system", kind: "service",
+            content: `Staccata da «${row.text}», archiviata: ora e' una card a se'.`,
+          });
+        } catch { /* the note never blocks the detach */ }
+      }
+      return ids;
     },
 
     restore({ taskId, projectId }): Task | null {

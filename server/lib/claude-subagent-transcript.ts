@@ -23,6 +23,16 @@
  * prompt-snippet containment. A single-recent-file fallback covers sub-agents
  * spawned into an isolated cwd (no parent/sibling transcript to confuse).
  *
+ * THIS IS THE FALLBACK, not the first source. A live child's CLI says which
+ * conversation it is on in `~/.claude/sessions/<pid>.json`, and the terminal
+ * router asks it first (`resolveChildTranscriptSessionId`). The content scan
+ * runs when the CLI has no say (the child is gone, or the CLI writes no such
+ * file), and there two siblings briefed with the same opening match each
+ * other's transcript, and the fallback can take a sibling's file born first.
+ * So the caller passes the ids other sessions hold, and none of them is ever
+ * returned: on 08/11 four pairs of sub-agents shared one conversation, and a
+ * resume of one opened the other's work.
+ *
  * Pure + fs-only (no server imports) so it unit-tests against a fixture `root`,
  * exactly like discoverCodexSessionId / discoverOpencodeSessionId.
  */
@@ -98,7 +108,8 @@ function firstUserRecord(lines: string[]): { cwd: string | null; text: string } 
  * transcript whose first user turn contains the snippet (and, when the record
  * carries one, whose cwd matches). Falls back to the sole recent transcript when
  * the cwd is isolated. Returns null when nothing matches — the caller then keeps
- * the pre-assigned id (no regression vs. today's buffer fallback).
+ * the pre-assigned id (no regression vs. today's buffer fallback). Never returns
+ * one of `excludeIds`, the conversations other sessions already hold.
  */
 export function discoverClaudeSubAgentSessionId(opts: {
   cwd: string;
@@ -106,12 +117,14 @@ export function discoverClaudeSubAgentSessionId(opts: {
   sinceMs: number;
   root?: string;
   skewMs?: number;
+  excludeIds?: ReadonlySet<string>;
 }): string | null {
   const root = opts.root ?? claudeProjectsRoot();
   const dir = join(root, claudeProjectDirName(opts.cwd));
   if (!existsSync(dir)) return null;
   const skewMs = opts.skewMs ?? 5000;
   const snippet = normalizeForMatch(opts.promptSnippet);
+  const held = opts.excludeIds ?? new Set<string>();
 
   let bestMatch: { id: string; mtimeMs: number } | null = null;
   // Fallback candidates must be BORN after the spawn, not merely appended to.
@@ -134,7 +147,10 @@ export function discoverClaudeSubAgentSessionId(opts: {
     // sub-agents with a coincidentally similar prompt) and keeps the scan cheap.
     if (mtimeMs < opts.sinceMs - skewMs) continue;
     const id = name.slice(0, -'.jsonl'.length);
+    // Counted even when held: a held file born for this spawn still means the
+    // cwd is not isolated, and the one left over could be anyone's.
     if (birthtimeMs >= opts.sinceMs - skewMs) freshBorn.push({ id, mtimeMs });
+    if (held.has(id)) continue;
 
     if (!snippet) continue;
     const rec = firstUserRecord(readEarlyLines(file));
@@ -147,7 +163,7 @@ export function discoverClaudeSubAgentSessionId(opts: {
   if (bestMatch) return bestMatch.id;
   // Isolated cwd: exactly one transcript BORN for this spawn is unambiguously
   // the child (a shared long-lived session is excluded by birthtime above).
-  if (freshBorn.length === 1) return freshBorn[0].id;
+  if (freshBorn.length === 1 && !held.has(freshBorn[0].id)) return freshBorn[0].id;
   return null;
 }
 

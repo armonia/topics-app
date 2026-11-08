@@ -878,12 +878,14 @@
     "2026-11-06, Funzionalità alla pari con l'hub (piramide di ciò che serve a Jarvis, «Cosa manca: deciso», voce intera): misurato sul PC con `bun run build:client && bun run check:bundle`, total_assets 9.616.884 contro un tetto di 9.608.400 (9.420.000 +2%), 18.939 byte sopra la misura del ramo (9.597.945); entry_eager raw 959.033 invariato.",
     "Cosa compra, tutto nel chunk pigro FeaturesPane: lib/hubPyramid, FeaturesPyramid (livelli, voci, riquadri delle decisioni), la voce con nota, decisione, griglia degli altri sistemi, fonti e otto novità, i tre filtri in più e le loro frasi IT+EN via addCatalogue. Nell'entry non entra niente. Il tetto segue la misura: total_assets 9.420.000 -> 9.440.000.",
     "",
-    "2026-11-06, le otto tracce della parità con l'hub unite su hub-smistamento: misurato sul PC con `bun run build:client && bun run check:bundle`, total_assets 9.783.100 contro un tetto di 9.649.200 (9.460.000 +2%), entry_eager raw 960.536 sotto il suo tetto di 960.840. Ogni traccia aveva alzato il tetto sulla propria misura contro la stessa base, quindi la somma dei loro chunk pigri (Account e quote, Consumi, Agenti e lavori, Automazioni, Funzionalità, Contesto, Cronologia della campanella) supera ognuno dei tetti presi da solo; l'entry non cresce. Il tetto segue la misura unita: total_assets 9.460.000 -> 9.600.000."
+    "2026-11-06, le otto tracce della parità con l'hub unite su hub-smistamento: misurato sul PC con `bun run build:client && bun run check:bundle`, total_assets 9.783.100 contro un tetto di 9.649.200 (9.460.000 +2%), entry_eager raw 960.536 sotto il suo tetto di 960.840. Ogni traccia aveva alzato il tetto sulla propria misura contro la stessa base, quindi la somma dei loro chunk pigri (Account e quote, Consumi, Agenti e lavori, Automazioni, Funzionalità, Contesto, Cronologia della campanella) supera ognuno dei tetti presi da solo; l'entry non cresce. Il tetto segue la misura unita: total_assets 9.460.000 -> 9.600.000.",
+    "",
+    "2026-11-07 (vista Piano, PR #608): entry_eager 960.644 -> 961.585 raw (+941), total_assets 9.783.822 -> 9.795.944 (+12.122), misurati con `bun run build:client` su origin/main e sul ramo. Main era gia' a 196 byte dal tetto. Il +941 e' il dizionario italiano del Piano (27 voci, eager per scelta: ripiego sincrono di `t()`) e il pulsante nella board; PlanView e' `lazy()`, chunk suo da 9.264 raw, e da li' viene il resto del totale insieme a i18n-en. Nessuna dipendenza nuova."
   ],
-  "updated": "2026-11-06",
+  "updated": "2026-11-07",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 942000,
+    "raw": 961585,
     "gz": 392156
   },
   "critical_path": {
@@ -892,6 +894,6 @@
     "files": 5
   },
   "total_assets": {
-    "raw": 9600000
+    "raw": 9795944
   }
 }

@@ -3,7 +3,7 @@ import { memo, useState, useEffect, useCallback, useMemo, useRef, useSyncExterna
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { reviewEvidence } from '../../lib/reviewEvidence';
-import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CircleSlash, ClipboardList, Copy, GitBranch, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, Server, ShieldCheck, Square, Terminal, Trash2, UserRound, X } from 'lucide-react';
+import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CircleSlash, ClipboardList, Copy, GitBranch, Hourglass, ListTree, Lock, MessageSquare, Plus, RotateCcw, Send, Server, ShieldCheck, Square, Terminal, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -1544,6 +1544,18 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           children have not arrived yet.
           It sits between the chips and the description: the chips say how the
           card stands, the steps what it holds, the description what it asks. */}
+      {/* Steps waiting on a person, at any depth (`subtaskReviewCount`, from
+          the server): the columns hold roots only, so a parent sitting in
+          backlog is where a step in review says it. */}
+      {(task.subtaskReviewCount ?? 0) > 0 && (
+        <div className="mt-1">
+          <span
+            data-testid="card-subtasks-to-approve"
+            title={tr('board.card.subtasksToApproveTitle', { n: task.subtaskReviewCount ?? 0 })}
+            className="inline-flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
+          ><ListTree className="h-3 w-3 shrink-0" aria-hidden />{tr('board.card.subtasksToApprove', { n: task.subtaskReviewCount ?? 0 })}</span>
+        </div>
+      )}
       {checklist.length > 0 ? (
         <div className="mt-1 space-y-0.5" onClick={(e) => e.stopPropagation()}>
           {checklistShown.map((s) => {
@@ -1592,8 +1604,8 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
         <div className="mt-1">
           <span
             title={tr('board.card.subtasksDone', { done: task.subtaskDoneCount, total: task.subtaskCount })}
-            className="rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
-          >↳ {task.subtaskDoneCount}/{task.subtaskCount}</span>
+            className="inline-flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
+          ><ListTree className="h-3 w-3 shrink-0" aria-hidden />{task.subtaskDoneCount}/{task.subtaskCount}</span>
         </div>
       ) : null}
       {/* Description preview — plain text, clamped (the full markdown lives in

@@ -232,7 +232,18 @@ export function PendingActionProvider({
   // Last-mount-wins (only one provider expected, but if multiple are nested
   // for some reason the innermost should be authoritative for the whole tree).
   useEffect(() => {
-    apiSingleton = { enqueue, cancel, tick, flushAll };
+    // The newest queued action whose key starts with `prefix`, cancelled: ⇧⌘T
+    // during a close countdown means «keep this tab», not «reopen an older one».
+    const cancelLatest = (prefix: string): boolean => {
+      let latest: PendingActionEntry | null = null;
+      for (const e of entriesRef.current) {
+        if (e.key.startsWith(prefix) && (!latest || e.createdAt >= latest.createdAt)) latest = e;
+      }
+      if (!latest) return false;
+      cancel(latest.key);
+      return true;
+    };
+    apiSingleton = { enqueue, cancel, tick, flushAll, cancelLatest };
     return () => {
       if (apiSingleton && apiSingleton.enqueue === enqueue) apiSingleton = null;
     };
@@ -405,6 +416,7 @@ interface PendingActionApi {
   cancel: (key: string) => void;
   tick: (key: string) => void;
   flushAll: () => void;
+  cancelLatest: (prefix: string) => boolean;
 }
 
 let apiSingleton: PendingActionApi | null = null;
@@ -440,3 +452,9 @@ export const cancelPendingAction = withApi('cancel');
  *  (which resurrected the just-closed tab on boot). */
 // eslint-disable-next-line react-refresh/only-export-components -- imperative API bound to the module-private singleton wired by the Provider above; cannot live in a separate file
 export const flushPendingActions = withApi('flushAll');
+/** Imperative: cancel the newest tab close still counting down, if any. True
+ *  when one was cancelled (the tab stays where it was). */
+// eslint-disable-next-line react-refresh/only-export-components -- imperative API bound to the module-private singleton wired by the Provider above; cannot live in a separate file
+export function cancelLatestPendingClose(): boolean {
+  return withApi('cancelLatest')('close-tab:') === true;
+}

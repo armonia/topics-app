@@ -10,7 +10,7 @@
  * @covers ATTN-16, CHROME-COUNT-01
  */
 import { describe, test, expect } from 'bun:test';
-import { boardAttention } from '../../state/attentionRollups';
+import { boardAttention, boardLitCards } from '../../state/attentionRollups';
 import { chromeAttentionTotal } from '../../state/attentionTotal';
 import type { AttentionSnapshot } from '../../../../shared/attention';
 
@@ -52,4 +52,11 @@ describe('board tab: review + parked + a wait mid-turn', () => {
     const rows = rowsOf(card('new', { state: 'needs-you', reason: 'review', lit: true }));
     expect([boardAttention(rows, cards, null).count, boardAttention(rows, cards, 'p1').count]).toEqual([1, 0]);
   });
+
+  test('a step the feed does not hold lights its project when its row says the project (DEF-02)', () => {
+    const rows = rowsOf(card('step', { state: 'needs-you', reason: 'review', lit: true, projectId: 'p2', cardTitle: 'Step' }));
+    expect([boardAttention(rows, cards, null).count, boardAttention(rows, cards, 'p2').count, boardAttention(rows, cards, 'p1').count]).toEqual([1, 1, 0]);
+    expect(boardLitCards(rows, cards, 'p2').map((c) => [c.id, c.title, c.reason])).toEqual([['step', 'Step', 'review']]);
+  });
 });
+

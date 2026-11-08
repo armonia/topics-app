@@ -104,6 +104,10 @@ export const loadAutomations = retryingChunk('AutomationsPane', async () => {
   const { AutomationsPane } = await import('../../components/Automations/AutomationsPane');
   return { AutomationsPane };
 });
+export const loadAgents = retryingChunk('AgentsPane', async () => {
+  const { AgentsPane } = await import('../../components/Agents/AgentsPane');
+  return { AgentsPane };
+});
 export const loadFeatures = retryingChunk('FeaturesPane', async () => {
   const { FeaturesPane } = await import('../../components/Features/FeaturesPane');
   return { FeaturesPane };
@@ -170,6 +174,7 @@ const LOADERS: Partial<Record<PaneType, Loader[]>> = {
   processes: [loadMachineProcesses],
   accounts: [loadAccountQuotas],
   automations: [loadAutomations],
+  agents: [loadAgents],
   features: [loadFeatures],
   // A project window is a host: what it tiles inside is a file tree and the
   // editor next to it, so its chunk is theirs. The tiles it persisted are

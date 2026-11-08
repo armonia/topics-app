@@ -63,7 +63,7 @@ import { readAgentProfiles } from "../lib/agent-profiles";
 import { resolveSubagentLaunch, launchArgs } from "../lib/subagent-launch";
 import { endedSubagents, getSubagent, insertSubagent, resumeVerdict, setSubagentSessionId, setSubagentState } from "../lib/subagent-store";
 import {
-  childRuntimeFor, engineLaunchOf, liveNativeChildren, moveCliChildToEngine, nativeChildPlace, readNativeChildOutput, sendToNativeChild,
+  childRuntimeFor, engineLaunchOf, liveNativeChildren, moveCliChildToEngine, nativeChildPlace, placeableUnderKnownProject, readNativeChildOutput, sendToNativeChild,
   setCliChildStopper, spawnNativeChild, stopNativeChild,
 } from "../lib/native-subagents";
 import {
@@ -71,7 +71,7 @@ import {
   chatParentModel, parentTranscriptModel, readAgentOutput, releaseForeground, reportChildEnd, startChildWatch, subagentLimitRefusal, waitForegroundLeg, type ChildRef,
 } from "../lib/subagent-runtime";
 export { noteSubAgentStopHook, retireIdleSubAgents, _forgetSubAgentMemory } from "../lib/subagent-runtime";
-import { composerHoldsPrompt, trustCursorOnYes, trustDialogShowing } from "../lib/subagent-seed";
+import { composerHoldsPrompt, promptAsPaste, trustCursorOnYes, trustDialogShowing } from "../lib/subagent-seed";
 import { boardSpawnRefusal, liveAgentCount } from "../services/agent-census";
 import { effectiveDispatchCap, readGlobalCap, computeDispatchCapacity } from "../services/dispatch-capacity";
 import { capMode, type DispatchAdmission } from "../../shared/board";
@@ -257,19 +257,11 @@ async function readChildTranscriptLines(child: ChildRef): Promise<string[] | nul
 /** Discover a sub-agent's REAL transcript id (claude-code ignores the pre-assigned
  *  `--session-id` for children) and adopt it onto the session + DB row so every
  *  subsequent transcript read hits the right .jsonl. No-op unless this is a
- *  sub-agent with a recorded prompt fingerprint. Returns true when it adopted a
- *  new id. Cheap and idempotent — safe to call from the read/wake paths. */
+ *  sub-agent. Returns true when it adopted a new id. Cheap and idempotent — safe
+ *  to call from the read/wake paths. */
 function resolveChildTranscriptSessionId(child: ChildRef): boolean {
-  if (!child.parentSessionKey || !child.spawnPromptSnippet) return false;
-  // If the currently-recorded id already resolves to a real transcript, keep it.
-  if (child.claudeSessionId && fs.existsSync(claudeTranscriptPath(child.cwd, child.claudeSessionId))) {
-    return false;
-  }
-  const found = discoverClaudeSubAgentSessionId({
-    cwd: child.cwd,
-    promptSnippet: child.spawnPromptSnippet,
-    sinceMs: Date.parse(child.createdAt) || 0,
-  });
+  if (!child.parentSessionKey) return false;
+  const found = cliReportedSessionId(child) ?? transcriptFoundByPrompt(child);
   if (!found || found === child.claudeSessionId) return false;
   const prev = child.claudeSessionId;
   child.claudeSessionId = found;
@@ -285,6 +277,47 @@ function resolveChildTranscriptSessionId(child: ChildRef): boolean {
   if (prev) _tracker?.dropTerminalSession(prev);
   _tracker?.registerTerminalSession(found, { cwd: child.cwd });
   return true;
+}
+
+/**
+ * The conversation the child's own CLI says it is on (`~/.claude/sessions/<pid>.json`),
+ * while its process lives. It comes first, and it wins over an id recorded
+ * earlier: two siblings are two processes, so two ids, whatever their prompts
+ * say, and a guess the content scan made before this file appeared is put right.
+ */
+function cliReportedSessionId(child: ChildRef): string | null {
+  const pid = sessions.get(child.id)?.ptyPid;
+  return pid && pid > 0 ? liveClaudeSessionId(pid) : null;
+}
+
+/** Without the CLI's word (the child is gone, or its CLI writes no session
+ *  file): the transcript found by the child's opening prompt, never one that
+ *  another session holds. A recorded id whose transcript exists is kept. */
+function transcriptFoundByPrompt(child: ChildRef): string | null {
+  if (!child.spawnPromptSnippet) return null;
+  if (child.claudeSessionId && fs.existsSync(claudeTranscriptPath(child.cwd, child.claudeSessionId))) return null;
+  return discoverClaudeSubAgentSessionId({
+    cwd: child.cwd,
+    promptSnippet: child.spawnPromptSnippet,
+    sinceMs: Date.parse(child.createdAt) || 0,
+    excludeIds: sessionIdsHeldByOthers(child.id),
+  });
+}
+
+/** The conversations held by every session but `childId`: a live pane or
+ *  child, or a sub-agent row, which is what a resume of that child opens. */
+function sessionIdsHeldByOthers(childId: string): Set<string> {
+  const held = new Set<string>();
+  for (const s of sessions.values()) if (s.id !== childId && s.claudeSessionId) held.add(s.claudeSessionId);
+  try {
+    const rows = getDatabase()
+      .query("SELECT claude_session_id AS id FROM subagents WHERE id <> ? AND claude_session_id IS NOT NULL")
+      .all(childId) as Array<{ id: string }>;
+    for (const r of rows) held.add(r.id);
+  } catch (e) {
+    warnThrottled("subagents:held-ids", `[Terminal] subagents: reading the held conversations failed, only the live sessions are excluded:`, e);
+  }
+  return held;
 }
 
 /** After a sub-agent PTY launches, poll for the transcript claude actually wrote
@@ -2767,7 +2800,8 @@ async function seedAgentPrompt(childId: string, prompt: string, acceptSnippet?: 
     // `[Pasted text]` placeholder: both mean it is there (lib/subagent-seed.ts).
     if (!composerHoldsPrompt(await getTerminalBuffer(childId), typedPrompt)) {
       noteTerminalInput(childId);
-      sendToBridge({ type: "write", id: childId, data: typedPrompt });
+      // As a paste: a plain write over 1022 bytes lost its head (lib/subagent-seed.ts).
+      sendToBridge({ type: "write", id: childId, data: promptAsPaste(typedPrompt) });
     }
     for (let i = 0; i < 6; i++) { // ~1.8s for the echo to render
       await sleep(300);
@@ -2779,7 +2813,7 @@ async function seedAgentPrompt(childId: string, prompt: string, acceptSnippet?: 
     // Never confirmed the echo (unusual composer, or a buffer we can't scrape).
     // Fire it blind so we still try rather than strand the agent, then submit.
     noteTerminalInput(childId);
-    sendToBridge({ type: "write", id: childId, data: typedPrompt });
+    sendToBridge({ type: "write", id: childId, data: promptAsPaste(typedPrompt) });
     await sleep(300);
   }
 
@@ -3860,7 +3894,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             explicitCwd: typeof body.cwd === "string" && body.cwd ? body.cwd : null,
             parentTopic,
             parentCwd: parent?.cwd ?? null,
-            knownProject: (p) => !!ctx.projectStore.getByPath(p),
+            knownProject: (p) => placeableUnderKnownProject(p, (x) => !!ctx.projectStore.getByPath(x)),
           }));
         if (!choice.ok) return errorResponse(choice.status, choice.error);
         let nativePlace = choice.runtime === "topics" ? choice.place : null;
@@ -4037,7 +4071,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             const moved = await moveCliChildToEngine(row, cliSend.data, {
               parentTopic: parentKey.startsWith("topic:") ? ctx.getTopicBySessionKey(parentKey) : null,
               parentCwd: sessions.get(parentKey)?.cwd ?? null,
-              knownProject: (p) => !!ctx.projectStore.getByPath(p),
+              knownProject: (p) => placeableUnderKnownProject(p, (x) => !!ctx.projectStore.getByPath(x)),
               profileOf: (cwd, agentType) => agentProfilesFor(cwd).get(agentType) ?? null,
             });
             if (moved) return json({ ok: true, sent: cliSend.sent, resumed: true, runtime: "topics", sessionKey: moved.sessionKey });
@@ -4062,7 +4096,10 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         const send = resolveTerminalSend(child.type, input);
         if (send.dropped) return json({ ok: false, dropped: true, sent: 0 });
         noteTerminalInput(child.id);
-        sendToBridge({ type: "write", id: child.id, data: send.data });
+        // As a paste into a Claude TUI, like the seed: a plain write over 1022
+        // bytes reached it without its head (lib/subagent-seed.ts).
+        const claudeTui = child.type === "claude-code" || child.type === "claude-code-team";
+        sendToBridge({ type: "write", id: child.id, data: claudeTui ? promptAsPaste(send.data) : send.data });
         // Submit it: Enter as a separate frame so the TUI acts on the line.
         await new Promise(r => setTimeout(r, 120));
         noteTerminalInput(child.id);

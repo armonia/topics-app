@@ -130,13 +130,8 @@ export const isProjectlessId = (projectId: string): boolean =>
 export type { Translate } from '../../../shared/queue-reason-text';
 import type { Translate } from '../../../shared/queue-reason-text';
 
-export const STATUS_LABEL: Record<TaskStatus, string> = {
-  backlog: 'Backlog',
-  todo: 'Todo',
-  in_progress: 'In Progress',
-  review: 'Review',
-  done: 'Done',
-};
+// The status words live once, next to the columns they name.
+export { STATUS_COLUMN_LABEL as STATUS_LABEL } from '../../../shared/workflow';
 
 /**
  * La misura a cui va reso il glifo di stato (`StatusIcon`), in pixel.
@@ -592,6 +587,8 @@ export interface BoardTask {
   /** Direct-children counters (board badges: "↳ done/total"). */
   subtaskCount: number;
   subtaskDoneCount: number;
+  /** Steps at any depth in review waiting on a person; absent when none. */
+  subtaskReviewCount?: number;
   /** Human interactions in the thread: 'user' comments (kind='comment') — the
    *  AI/agent, system notes and status events are excluded. Shown on the card. */
   userCommentCount: number;

@@ -6,6 +6,7 @@ import { attentionOf, type AttentionRows } from '../state/attention';
 import { projectAttentionChildren } from '../state/attentionRollups';
 import { terminalSubject, topicSubject } from '../../../shared/attention';
 import { basename, tryHostname } from './path-utils';
+import { agentTerminalIds, agentTopicIds, isAgentPath } from './agentSessions';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -244,7 +245,14 @@ interface BuildSidebarItemsOpts {
 }
 
 export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
-  const { topics, workspaceProjects = [], terminalSessions = [], browserContexts = [], showArchived, openPanels = [], projectOpenPanes = {}, attention = new Map(), pinnedIds = new Set<string>(), detachedTopicIds = new Map<string, { windowId: string; windowLabel?: string }>(), paneTitleById = new Map<string, string>(), browserOriginById = new Map<string, BrowserOrigin>(), sessionLastActivityById = new Map<string, number>() } = opts;
+  // The agents' sessions (Jarvis, Visione…) live under the «Agenti» row only,
+  // open tab or not: the normal list never shows them.
+  const agentIds = agentTopicIds(opts.topics);
+  const topics = agentIds.size === 0 ? opts.topics : Object.fromEntries(Object.entries(opts.topics).filter(([id]) => !agentIds.has(id)));
+  const { workspaceProjects = [], terminalSessions: allTerminals = [], browserContexts = [], showArchived, openPanels = [], projectOpenPanes = {}, attention = new Map(), pinnedIds = new Set<string>(), detachedTopicIds = new Map<string, { windowId: string; windowLabel?: string }>(), paneTitleById = new Map<string, string>(), browserOriginById = new Map<string, BrowserOrigin>(), sessionLastActivityById = new Map<string, number>() } = opts;
+  // Their terminal sub-agents go with them: here they would have no parent row.
+  const agentTerms = agentIds.size === 0 ? null : agentTerminalIds(opts.topics, allTerminals);
+  const terminalSessions = agentTerms?.size ? allTerminals.filter((t) => !agentTerms.has(t.id)) : allTerminals;
   const openPanelSet = new Set(openPanels);
 
   const items: SidebarItem[] = [];
@@ -305,14 +313,16 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   // Collect all known project paths (workspace + topics + open project panes).
   // `standalone` topics keep a projectPath for their cwd but must NOT seed a
   // project node (catch-all "generale" agent sessions) — they render ungrouped.
-  const projectPaths = new Set<string>(workspaceProjects);
+  // An agent's home folder (Jarvis, Visione…) is not a project: its sessions
+  // live under the «Agenti» row, and an open one is listed like a loose chat.
+  const projectPaths = new Set<string>(workspaceProjects.filter((pp) => !isAgentPath(pp)));
   for (const t of Object.values(topics)) {
-    if (t.projectPath && !t.standalone) projectPaths.add(t.projectPath);
+    if (t.projectPath && !t.standalone && !isAgentPath(t.projectPath)) projectPaths.add(t.projectPath);
   }
   for (const id of openPanels) {
     if (isProjectPaneId(id)) {
       const pp = getProjectPathFromPaneId(id);
-      if (pp) projectPaths.add(pp);
+      if (pp && !isAgentPath(pp)) projectPaths.add(pp);
     }
   }
   // Seed pinned projects: a pinned project with no topics, no workspace entry
@@ -320,7 +330,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   // path nobody collected. Pin keys carry the RAW path (`project:<rawPath>`),
   // and chat pins are bare topic ids, so the prefix check can't misfire.
   for (const key of pinnedIds) {
-    if (key.startsWith('project:')) projectPaths.add(key.slice('project:'.length));
+    if (key.startsWith('project:') && !isAgentPath(key.slice('project:'.length))) projectPaths.add(key.slice('project:'.length));
   }
 
   // Pinned browsers whose tab is CLOSED and whose durable origin points at a
@@ -369,7 +379,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     if (isNestedChat(t)) continue;
     // `standalone` = ungrouped despite having a projectPath (catch-all agent
     // session): render as a top-level chat, same as a project-less topic.
-    if (t.projectPath && !t.standalone) {
+    if (t.projectPath && !t.standalone && !isAgentPath(t.projectPath)) {
       const arr = topicsByProject.get(t.projectPath) || [];
       arr.push(t);
       topicsByProject.set(t.projectPath, arr);
@@ -789,7 +799,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     if (utilType === 'board') continue;
     // Automations have their own row above the Board too (HUBBR-14), selected
     // while the tab is open: a generic row would list them twice.
-    if (utilType === 'automations') continue;
+    if (utilType === 'automations' || utilType === 'agents') continue;
     // The feature map is at hand, not in sight (HUBBR-18): System and the
     // palette open it, the tab bar holds it, the sidebar never lists it.
     if (utilType === 'features') continue;

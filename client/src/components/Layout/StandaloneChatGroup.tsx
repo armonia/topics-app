@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, lazy, Suspense } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect, useLayoutEffect, lazy, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
 import { Search } from 'lucide-react';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
@@ -12,7 +12,7 @@ import { ChatPanel } from './ChatPanel';
 import { TopicColorDot } from '../Shared/TopicColorDot';
 import { LazyPane } from './LazyPane';
 import { lazyWarm } from '../../lib/lazyWarm';
-import { loadBoard, loadBrowser, loadAutomations, loadAccountQuotas, loadFeatures, loadDashboard, loadMachineProcesses, loadProfile, loadTerminal } from '../../state/pane/panePreload';
+import { loadBoard, loadBrowser, loadAutomations, loadAgents, loadAccountQuotas, loadFeatures, loadDashboard, loadMachineProcesses, loadProfile, loadTerminal } from '../../state/pane/panePreload';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { AutomationsPhoneBell, AutomationsPhoneGlyph } from '../Sidebar/AutomationsRow';
 import { DND_TYPES, STANDALONE_SCOPE, dragMatchesScope } from '../../lib/dndTypes';
@@ -78,6 +78,7 @@ const ProfilePane = lazyWarm(loadProfile, (m) => m.ProfilePane);
 const MachineProcessesPane = lazyWarm(loadMachineProcesses, (m) => m.MachineProcessesPane);
 const AccountQuotasPane = lazyWarm(loadAccountQuotas, (m) => m.AccountQuotasPane);
 const AutomationsPane = lazyWarm(loadAutomations, (m) => m.AutomationsPane);
+const AgentsPane = lazyWarm(loadAgents, (m) => m.AgentsPane);
 const FeaturesPane = lazyWarm(loadFeatures, (m) => m.FeaturesPane);
 
 
@@ -491,6 +492,28 @@ export function StandaloneChatGroup({
     handleCloseOthers,
   } = lifecycle.handlers;
 
+  // ⌘W on a terminal tab of this group closes it the way its × does: the stop
+  // confirm for a working sub-agent, the countdown, the PTY retired at commit.
+  // The App fallback closed it on the spot, asked nothing and left the process
+  // running behind a tab that was gone.
+  const closePaneRef = useRef(handleClosePane);
+  const ownIdsRef = useRef(validatedOrderedIds);
+  useLayoutEffect(() => {
+    closePaneRef.current = handleClosePane;
+    ownIdsRef.current = validatedOrderedIds;
+  });
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ panelId?: string }>;
+      const id = ce.detail?.panelId;
+      if (ce.defaultPrevented || !id || !isTerminalPaneId(id) || !ownIdsRef.current.includes(id)) return;
+      ce.preventDefault();
+      closePaneRef.current(id);
+    };
+    window.addEventListener('close-focused-pane', handler);
+    return () => window.removeEventListener('close-focused-pane', handler);
+  }, []);
+
   // THE PHONE'S DOOR TO THE TAB'S COMMANDS (TABSHEET-04, model-selector
   // AC-39). Under 768px the name of the surface replaces the tab strip, and
   // the strip's sheet went with it. Holding the name (or a right click on it)
@@ -898,6 +921,7 @@ export function StandaloneChatGroup({
           {utilityType === 'processes' && <MachineProcessesPane />}
           {utilityType === 'accounts' && <AccountQuotasPane />}
           {utilityType === 'automations' && <AutomationsPane />}
+          {utilityType === 'agents' && <AgentsPane />}
           {utilityType === 'features' && <FeaturesPane />}
         </LazyPane>
       );

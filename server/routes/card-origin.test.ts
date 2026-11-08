@@ -88,6 +88,49 @@ describe("card origin and agent-card contract", () => {
     expect(got.task.createdMissing).toEqual(["source"]);
   });
 
+  // Measured 08/11: 15 grouping parents born in backlog to hold 52 cards, each
+  // with "Incomplete card" in its thread. A container has nothing to finish.
+  describe("a never-worked backlog parent with children is a container, not a work card", () => {
+    const groupingParent = async () => (await post("/api/boards/pX/tasks", { text: "madre", description: LONG, status: "backlog" })).body;
+    const thread = async (id: string) => (await (await call(router, "GET", `/api/boards/pX/tasks/${id}`))!.json());
+    const notices = (got: any) => got.comments.filter((c: any) => c.author === "system" && c.content.startsWith("Incomplete card"));
+
+    test("a child born under it drops the flag and the notice; the child keeps its own", async () => {
+      const m = await groupingParent();
+      expect(notices(await thread(m.id))).toHaveLength(1);
+      const child = await post("/api/boards/pX/tasks", { text: "figlia", parentTaskId: m.id });
+      const got = await thread(m.id);
+      expect(got.task.createdMissing).toBeUndefined();
+      expect(notices(got)).toEqual([]);
+      expect(child.body.createdMissing).toContain("bar");
+    });
+
+    test("an existing card hung under it does the same", async () => {
+      const m = await groupingParent();
+      const card = await post("/api/boards/pX/tasks", { text: "card", status: "backlog" });
+      await call(router, "PATCH", `/api/boards/pX/tasks/${card.body.id}`, { parentTaskId: m.id });
+      const got = await thread(m.id);
+      expect(got.task.createdMissing).toBeUndefined();
+      expect(notices(got)).toEqual([]);
+      expect(notices(await thread(card.body.id))).toHaveLength(1);
+    });
+
+    test("a parent a turn already touched, or one waiting in todo, keeps both", async () => {
+      const worked = await groupingParent();
+      db.run("UPDATE tasks SET dispatch_attempts = 1 WHERE id = ?", [worked.id]);
+      await post("/api/boards/pX/tasks", { text: "figlia", parentTaskId: worked.id });
+      const a = await thread(worked.id);
+      expect(a.task.createdMissing).toEqual(["bar", "source"]);
+      expect(notices(a)).toHaveLength(1);
+
+      const queued = (await post("/api/boards/pX/tasks", { text: "in coda", description: LONG, status: "todo" })).body;
+      await post("/api/boards/pX/tasks", { text: "figlia", parentTaskId: queued.id });
+      const b = await thread(queued.id);
+      expect(b.task.createdMissing).toEqual(["bar", "source"]);
+      expect(notices(b)).toHaveLength(1);
+    });
+  });
+
   test("a legacy card (no created_missing) is never flagged", async () => {
     const t = await post("/api/boards/pX/tasks", { text: "old" });
     db.run("UPDATE tasks SET created_missing = NULL, created_by = NULL WHERE id = ?", [t.body.id]);

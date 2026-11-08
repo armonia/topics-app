@@ -21,6 +21,8 @@
  * and then retires; a native one is already `retired` when its turn ends: it
  * holds no slot, and `send_to_agent` sends it the next turn.
  */
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getDatabase } from "../db";
 import type { StoredMessage, Topic } from "../types";
 import type { SubAgentOutcome } from "./subagent-result";
@@ -127,11 +129,69 @@ export function engineModelOf(model: string | null): string | null {
 }
 
 /**
+ * A folder a native child may call home: a project Topics knows, a folder
+ * inside one, or a git worktree checked out from one. The first two are
+ * already inside the file routes; a worktree is the same repository in another
+ * checkout. Anything else (`~/Projects`, `~`, `/tmp`) stays out, and its child
+ * on the CLI: that is the fence `nativeChildPlace` keeps.
+ *
+ * Before this only an exact project path passed, and the agents' children went
+ * to the CLI in their worktrees: a third of the week's spawns (08/11), all in
+ * repositories Topics knew.
+ */
+export function placeableUnderKnownProject(
+  dir: string,
+  isProject: (path: string) => boolean,
+  gitCommonDir: (dir: string) => string | null = readGitCommonDir,
+): boolean {
+  if (!isAbsolute(dir)) return false;
+  const abs = resolve(dir);
+  for (let cur = abs; ;) {
+    if (isProject(cur)) return true;
+    const up = dirname(cur);
+    if (up === cur) break;
+    cur = up;
+  }
+  const common = gitCommonDir(abs);
+  return !!common && basename(common) === ".git" && isProject(dirname(common));
+}
+
+/**
+ * The repository's shared `.git` of a checkout (absolute), or null. Read from
+ * the files git itself writes, no process: a worktree's `.git` is a file that
+ * names its folder under the repository (`gitdir: …/.git/worktrees/<name>`),
+ * and that folder's `commondir` names the shared `.git`. A spawn of `git` here
+ * would block the server on every `spawn_agent`.
+ */
+function readGitCommonDir(dir: string): string | null {
+  try {
+    for (let cur = dir; ;) {
+      const dotGit = join(cur, ".git");
+      if (existsSync(dotGit)) {
+        if (statSync(dotGit).isDirectory()) return dotGit;
+        const m = /^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, "utf8"));
+        if (!m) return null;
+        const gitDir = resolve(cur, m[1]!.trim());
+        const common = join(gitDir, "commondir");
+        return existsSync(common) ? resolve(gitDir, readFileSync(common, "utf8").trim()) : gitDir;
+      }
+      const up = dirname(cur);
+      if (up === cur) return null;
+      cur = up;
+    }
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Where a native child lives: its chat's project (and worktree). The engine
  * works in the chat's project, not in any folder, and a `projectPath` widens
- * the file routes to that folder: so a `cwd` Topics does not know as a project
- * never becomes a native child's home. `ok: false` = the child stays on the
- * CLI, or is refused if the caller asked for the engine.
+ * the file routes to that folder: so a `cwd` that is not a known project, a
+ * folder inside one or a worktree of one (`knownProject`, built on
+ * `placeableUnderKnownProject`) never becomes a native child's home.
+ * `ok: false` = the child stays on the CLI, or is refused if the caller asked
+ * for the engine.
  */
 export function nativeChildPlace(input: {
   explicitCwd: string | null;

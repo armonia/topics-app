@@ -42,8 +42,31 @@ export interface TrayRow {
   projectId: string;
 }
 
+/**
+ * WHAT ASKS FOR A PERSON, by why: the lit `task:` subjects of the attention
+ * state (review, a park to look at, a wait mid-turn), steps included. The
+ * glyph's number, the board tab's number and the Plan count these, so the
+ * menu lists them too: a review group read off the feed's roots said 3 while
+ * the number next to it said 8 (the steps of parents sitting in backlog).
+ */
+export const TRAY_LIT_REASONS = ["review", "parked", "question"] as const;
+export type TrayLitReason = (typeof TRAY_LIT_REASONS)[number];
+
+/** One lit card as the menu needs it. */
+export interface TrayLitCard {
+  id: string;
+  title: string;
+  projectId: string;
+  reason: TrayLitReason;
+}
+
+/** The attention reason of a lit card, folded to the menu's three: a permission or a plan is a question. */
+export function trayLitReason(reason: string | null | undefined): TrayLitReason {
+  return reason === "review" || reason === "parked" ? reason : "question";
+}
+
 export interface TrayGroup {
-  status: TrayGroupStatus;
+  status: TrayGroupStatus | TrayLitReason;
   /** TUTTI i task del gruppo, anche quelli che non entrano fra le righe. */
   count: number;
   rows: TrayRow[];
@@ -68,11 +91,14 @@ export function trayTitle(text: string, max = 44): string {
  */
 export function trayBoardGroups(
   tasks: readonly TrayTaskInput[],
-  opts: { rowsPerGroup?: number } = {},
+  opts: { rowsPerGroup?: number; lit?: readonly TrayLitCard[] } = {},
 ): TrayGroup[] {
   const perGroup = Math.max(1, opts.rowsPerGroup ?? TRAY_ROWS_PER_GROUP);
-  const out: TrayGroup[] = [];
+  // With the lit cards in hand, what waits on a person comes from them (steps
+  // included) and the feed's review group gives way: one list, one number.
+  const out: TrayGroup[] = opts.lit ? trayLitGroups(opts.lit, { rowsPerGroup: perGroup }) : [];
   for (const status of TRAY_GROUP_ORDER) {
+    if (opts.lit && status === "review") continue;
     // The review group is what waits on a PERSON: a card in AI review goes back
     // to whoever opened it, so it is not in the menu (`awaitsHuman`).
     const miei = tasks.filter((t) => (status === "review" ? awaitsHuman(t) : t.status === status));
@@ -90,9 +116,34 @@ export function trayBoardGroups(
   return out;
 }
 
+/**
+ * The lit cards grouped by why they wait, in `TRAY_LIT_REASONS` order, empty
+ * groups left out. The same rows the number counts: the menu cannot list a
+ * different board from the one the glyph and the tab say.
+ */
+export function trayLitGroups(
+  cards: readonly TrayLitCard[],
+  opts: { rowsPerGroup?: number } = {},
+): TrayGroup[] {
+  const perGroup = Math.max(1, opts.rowsPerGroup ?? TRAY_ROWS_PER_GROUP);
+  const out: TrayGroup[] = [];
+  for (const reason of TRAY_LIT_REASONS) {
+    const mine = cards.filter((c) => c.reason === reason);
+    if (mine.length === 0) continue;
+    out.push({
+      status: reason,
+      count: mine.length,
+      rows: mine.slice(0, perGroup).map((c) => ({ id: c.id, title: trayTitle(c.title), projectId: c.projectId })),
+    });
+  }
+  return out;
+}
+
 /** Il totale che va sul glifo: le righe che chiedono qualcosa a un umano. */
 export function trayBoardAttention(groups: readonly TrayGroup[]): number {
-  return groups.find((g) => g.status === "review")?.count ?? 0;
+  return groups
+    .filter((g) => (TRAY_LIT_REASONS as readonly string[]).includes(g.status))
+    .reduce((n, g) => n + g.count, 0);
 }
 
 /** Gli stati che la tray NON mostra, dichiarati invece che dedotti dal filtro. */

@@ -18,6 +18,7 @@ import { toFixCount } from '@/lib/automations';
 import { sidebarRowCard, ROW_ACTION_BOX, ROW_PX, ROW_H, ROW_INSET, ROW_GLYPH, ROW_GLYPH_SLOT, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
 import { SEGNALE_ATTESA } from './chromeSignals';
 import { useInboxBadge } from './Inbox';
+import { FittingTail } from './FittingTail';
 
 export function AutomationsRow({ open }: { open: boolean }) {
   const tr = useT();
@@ -33,20 +34,32 @@ export function AutomationsRow({ open }: { open: boolean }) {
       aria-selected={open}
       data-testid="sidebar-automations"
       onClick={() => window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'automations' } }))}
-      className={`flex items-center gap-2 leading-none ${ROW_PX} ${ROW_H} select-none ${sidebarRowCard({ focused: open })}`}
+      className={`flex flex-shrink-0 items-center gap-2 leading-none ${ROW_PX} ${ROW_H} select-none ${sidebarRowCard({ focused: open })}`}
       style={{ width: `calc(100% - ${ROW_INSET * 2}px)` }}
     >
       <span className={ROW_GLYPH_SLOT} data-row-glyph-slot="glyph">
         <Workflow size={ROW_GLYPH} className="text-app-text-secondary" aria-hidden="true" />
       </span>
-      <span className={`min-w-0 flex-1 truncate text-left ${TAB_LABEL_TYPE}`}>{tr('automations.open')}</span>
-      <span data-testid="sidebar-automations-tail" className="flex-shrink-0 text-mini tabular-nums">
-        {down ? (
-          <span className="text-app-text-muted">{tr('automations.hubDown')}</span>
-        ) : n !== null && n > 0 ? (
-          <span className={SEGNALE_ATTESA}>{tr('automations.toFix', { n })}</span>
-        ) : null}
-      </span>
+      {/* The name never yields: it is what the row IS. The tail gives way
+          instead, sentence then bare number then nothing (FittingTail). */}
+      <span className={`flex-shrink-0 whitespace-nowrap text-left ${TAB_LABEL_TYPE}`} data-row-name="automations">{tr('automations.open')}</span>
+      {down ? (
+        <FittingTail
+          testId="sidebar-automations-tail"
+          className="text-mini text-app-text-muted"
+          label={tr('automations.hubDown')}
+          variants={[{ node: tr('automations.hubDown') }]}
+        />
+      ) : n !== null && n > 0 ? (
+        <FittingTail
+          testId="sidebar-automations-tail"
+          className={`text-mini tabular-nums ${SEGNALE_ATTESA}`}
+          label={tr('automations.toFix', { n })}
+          variants={[{ node: tr('automations.toFix', { n }) }, { node: String(n) }]}
+        />
+      ) : (
+        <span data-testid="sidebar-automations-tail" className="min-w-0 flex-1" />
+      )}
     </button>
   );
 }

@@ -81,5 +81,4 @@ test.describe("cloud session opens as a Topics project", () => {
 
     await deleteTopic(request, topic.id);
   });
-
 });

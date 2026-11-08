@@ -100,6 +100,7 @@ import { initUsageStore, rebuildSummary } from "./server/usage/store";
 import { configureSideCallLedger } from "./server/usage/side-calls";
 import { createCheckpointsRouter } from "./server/routes/checkpoints";
 import { createGoalsRouter } from "./server/routes/goals";
+import { createPlanRouter } from "./server/routes/plan";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createTaskService, projectIdForPath } from "./server/services/tasks";
 import { createScheduledCards } from "./server/services/scheduled-cards";
@@ -223,6 +224,7 @@ import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } fr
 import { createProvidersRouter } from "./server/routes/providers";
 import { createAppSettingsRouter } from "./server/routes/app-settings";
 import { createCalendarRouter } from "./server/routes/calendar";
+import { createAgentChannelsRouter } from "./server/routes/agent-channels";
 import {
   resolveAiProvider,
   getAppSettings,
@@ -1006,6 +1008,7 @@ const mcpRouter = createMcpRouter(ctx);
 const sessionEnvironmentRouter = createSessionEnvironmentRouter(ctx);
 const checkpointsRouter = createCheckpointsRouter(ctx);
 const goalsRouter = createGoalsRouter(ctx);
+const planRouter = createPlanRouter(ctx);
 // Always-on: serves /api/topics/:id/context-preview and /context-snapshots.
 // Independent of which provider is the default — every provider benefits
 // from the canonical envelope inspector (change `topic-context-canonical`).
@@ -3067,6 +3070,8 @@ const providersRouter = createProvidersRouter(ctx);
 const appSettingsRouter = createAppSettingsRouter(ctx);
 // L'agenda del calendario configurato, e la prova di un indirizzo prima di salvarlo.
 const calendarRouter = createCalendarRouter(ctx);
+// The titles of the agents' Discord and WhatsApp chats, read from jarvis-channels.
+const agentChannelsRouter = createAgentChannelsRouter(ctx);
 const profileRouter = createProfileRouter(ctx);
 // Pagina pubblica del profilo — senza autenticazione, prima del gate.
 const publicProfileHandler = createPublicProfileHandler(ctx);
@@ -3634,6 +3639,7 @@ const apiRouteTable = buildRouteTable({
   profileRouter,
   processesRouter,
   tasksRouter,
+  planRouter,
   pushRouter,
   notificationsRouter,
   clientTraceRouter,
@@ -3641,6 +3647,7 @@ const apiRouteTable = buildRouteTable({
   providersRouter,
   appSettingsRouter,
   calendarRouter,
+  agentChannelsRouter,
   tabsRouter,
   viewsRouter,
   claudeHooksRouter,

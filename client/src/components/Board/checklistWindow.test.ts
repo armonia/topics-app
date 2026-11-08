@@ -30,4 +30,14 @@ describe('checklistWindow', () => {
     expect(shown).toHaveLength(CHECKLIST_WINDOW);
     expect(hidden).toBe(2);
   });
+
+  it('keeps a step waiting on a person ahead of one that is merely being worked', () => {
+    const rows = [
+      ...Array.from({ length: 5 }, (_, i) => ({ id: `w${i}`, subtaskWork: 'unattended' })),
+      { id: 'rv', status: 'review' },
+      { id: 'ai', status: 'review', stage: 'ai_review' },
+    ];
+    const { shown } = checklistWindow(rows);
+    expect(shown.map((r) => r.id)).toEqual(['w0', 'w1', 'w2', 'w3', 'rv']);
+  });
 });

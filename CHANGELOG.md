@@ -2,6 +2,46 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.60 — 2026-11-08
+
+### Sotto il cofano
+- i terminali dei sotto-agenti di Jarvis al loro posto, e tab che si chiudono in un modo solo (#617)
+- Sotto-agenti: due fratelli non finiscono più sulla stessa conversazione (#618)
+
+## 2.3.59 — 2026-11-08
+
+### Sotto il cofano
+- Madri contenitore: niente «Incomplete card» quando ci appendi le figlie (#616)
+
+## 2.3.58 — 2026-11-08
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-08 [skip ci]
+- the row name stays whole, the tail gives way (#613)
+- stato in testa alle tessere e riquadro «Ti aspetta» (#614)
+- Madri di raggruppamento: niente finte review, niente archivio a cascata (#615)
+- le sessioni degli agenti in una riga loro, divise per agente (#612)
+
+## 2.3.57 — 2026-11-08
+
+### Sotto il cofano
+- Piano a tessere: un riquadro per progetto, su più colonne, tutto visibile (#611)
+
+## 2.3.56 — 2026-11-08
+
+### Sotto il cofano
+- etichetta «Fatta, da approvare» (#610)
+
+## 2.3.55 — 2026-11-07
+
+### Sotto il cofano
+- Plan view: project icons, open work instead of history, no empty groups, actions on hover (#609)
+
+## 2.3.54 — 2026-11-07
+
+### Sotto il cofano
+- Vista Piano: Progetto → Area → Milestone → Card → Fonti sopra la board (#608)
+
 ## 2.3.53 — 2026-11-07
 
 ### Sotto il cofano

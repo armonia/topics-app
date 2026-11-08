@@ -436,8 +436,8 @@ bun run test:unit        # suite completa di unità e integrazione, un processo 
 Le cache dei controlli sono in `.cache/checks/`, separate per worktree e ignorate
 da Git. Le modifiche ai sorgenti, alla configurazione e alle dipendenze invalidano
 le parti interessate. Per tutti i controlli statici, tipi e lint insieme:
-`./scripts/qa-gate.sh --veloce`. Il resoconto aggiornato delle misure è in
-[PERFORMANCE-REVIEW.md](PERFORMANCE-REVIEW.md).
+`./scripts/qa-gate.sh --veloce`. La revisione delle misure dell'8 settembre 2026
+è archiviata in [docs/archive/PERFORMANCE-REVIEW.md](docs/archive/PERFORMANCE-REVIEW.md).
 
 `bun run test:unit` lancia ogni file di test nel suo processo `bun test`, con la
 sua cartella temporanea, a `TOPICS_UNIT_SHARDS` file per volta (default: uno per

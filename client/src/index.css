@@ -1134,8 +1134,8 @@ html {
    rest that only the `*:hover` rule reveals → on the Tauri build scrollbars
    "disappear" from every pane/tab until you happen to hover the exact element.
    Give WebKit a faint, always-visible cool-grey rest colour (native macOS thin
-   look), a touch stronger on hover. Scoped to `.tauri-mac` so Electron/web,
-   which take the Chromium pseudo path, are untouched. */
+   look), a touch stronger on hover. Scoped to `.tauri-mac` so the web build and
+   Windows (WebView2), which take the Chromium pseudo path, are untouched. */
 .tauri-mac * { scrollbar-color: rgba(148, 163, 184, 0.32) transparent; }
 .tauri-mac *:hover { scrollbar-color: rgba(148, 163, 184, 0.5) transparent; }
 .dark.tauri-mac * { scrollbar-color: rgba(118, 132, 158, 0.36) transparent; }
@@ -4150,7 +4150,7 @@ html.native-frost:not(.dark) .chrome-glass {
 .glass-surface-hover:hover { background-color: var(--bg-hover); }
 /* Use Tailwind's backdrop utilities via @apply rather than a raw
  * `backdrop-filter` declaration: the minifier (Lightning CSS) collapsed the raw
- * pair to ONLY `-webkit-backdrop-filter`, which Chromium/Electron ignores
+ * pair to ONLY `-webkit-backdrop-filter`, which Chromium (web, WebView2) ignores
  * (Blink ships the property UNPREFIXED), so the blur silently did nothing.
  * Tailwind emits the var-chain with BOTH the prefixed and unprefixed property,
  * which is exactly the form that works here (same as `backdrop-blur-*`). */
@@ -4187,7 +4187,7 @@ html.native-frost:not(.dark) [role="region"][aria-label$=" panel"] form.bg-surfa
 }
 
 /* Terminal panes ride the vibrancy like the project sidebar. Their roots carry
- * an opaque `bg-surface` (web fallback); under Electron we null it so the
+ * an opaque `bg-surface` (web fallback); under the native frost we null it so the
  * `.chrome-glass` terminal container frosts over the desktop instead of
  * compositing on an opaque backdrop (which would reintroduce the blue cast the
  * single frosted layer avoids). The xterm background is transparent, so the
@@ -4329,8 +4329,8 @@ html.native-frost [role="region"][aria-label$=" panel"] > .bg-surface {
 }
 
 /* ─── Floating splits (experimental, desktop-only) ──────────────────────────
- * Opt-in from Settings → Appearance (Electron only — see App.tsx, which only
- * adds `.floating-splits` when the setting is on AND in Electron). Detaches
+ * Opt-in from Settings → Appearance (desktop only — see App.tsx, which only
+ * adds `.floating-splits` when the setting is on AND `isDesktop`, i.e. Tauri). Detaches
  * every window split and the sidebar into rounded "cards" separated by a small
  * gap, so the native window vibrancy shows through the gaps and the split
  * structure reads at a glance.

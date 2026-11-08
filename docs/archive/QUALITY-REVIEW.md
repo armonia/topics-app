@@ -43,7 +43,7 @@ Il riepilogo `final-qa.log` conserva un rosso del controllo sui nomi perché il
 debito era diminuito: la baseline è stata abbassata e il controllo rieseguito
 con esito verde in `final-static-qa.log`. Anche le tolleranze su `any` e commenti
 sono state ridotte. La verifica da tastiera dispone di
-[video](test-results/artifacts-13335/profile-menu-il-menu-utent-475d1-chiude-un-livello-per-volta-chromium/video.webm)
+[video](../../test-results/artifacts-13335/profile-menu-il-menu-utent-475d1-chiude-un-livello-per-volta-chromium/video.webm)
 e trace della build finale (`menu-evidence.log`: 1 test superato).
 
 ## Copertura degli undici assi

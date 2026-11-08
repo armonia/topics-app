@@ -2904,6 +2904,9 @@ struct StatusGroup {
 fn tray_status_label(status: &str) -> &str {
     match status {
         "review" => "Review",
+        // The lit cards by why they wait (`TRAY_LIT_REASONS`, shared/tray-board.ts).
+        "parked" => "Parked",
+        "question" => "Questions",
         "in_progress" => "In Progress",
         "todo" => "Todo",
         "backlog" => "Backlog",

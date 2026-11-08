@@ -6,7 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { composerHoldsPrompt, trustCursorOnYes, trustDialogShowing } from "./subagent-seed";
+import { composerHoldsPrompt, promptAsPaste, trustCursorOnYes, trustDialogShowing } from "./subagent-seed";
 
 const LONG = "Sei il sotto-agente native-image-view. ".repeat(80);
 
@@ -23,6 +23,18 @@ describe("composerHoldsPrompt", () => {
 
   test("an empty composer does not hold it", () => {
     expect(composerHoldsPrompt("╭────╮\n│ >        │\n╰────╯\n Welcome to Claude Code", LONG)).toBe(false);
+  });
+});
+
+describe("promptAsPaste", () => {
+  test("the prompt goes between the bracketed-paste markers, whole", () => {
+    expect(promptAsPaste("Riga uno\nRiga due")).toBe("\x1b[200~Riga uno\nRiga due\x1b[201~");
+  });
+
+  test("a text cannot close the paste early: what followed would reach the TUI as keys", () => {
+    const pasted = promptAsPaste("prima\x1b[201~\x1b[Bdopo");
+    expect(pasted.indexOf("\x1b[201~")).toBe(pasted.length - "\x1b[201~".length);
+    expect(pasted).toBe("\x1b[200~prima[201~[Bdopo\x1b[201~");
   });
 });
 

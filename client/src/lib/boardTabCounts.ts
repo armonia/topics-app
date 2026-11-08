@@ -8,6 +8,7 @@
  * in due punti dello schermo.
  */
 import type { BoardTask, TaskStatus } from './board';
+import { awaitsHuman } from '../../../shared/workflow';
 
 /**
  * Gli stati che una tab riassume: chi aspetta te, e chi sta lavorando.
@@ -48,13 +49,24 @@ export function boardTabCounts(
   for (const status of SUMMARY_STATUSES) {
     let n = 0;
     for (const t of tasks ?? []) {
-      if (t.status !== status) continue;
       if (projectId && t.projectId !== projectId) continue;
-      n++;
+      if (status === 'review') n += reviewWaitingOf(t);
+      else if (t.status === status) n++;
     }
     if (n > 0) out.push({ status, n });
   }
   return out;
+}
+
+/**
+ * What one feed card adds to «review»: itself when it waits on a person
+ * (`awaitsHuman`, AI review left out), plus its steps that do
+ * (`subtaskReviewCount`, from the server). The feed holds roots only, and a
+ * step in review under a parent in backlog was in the Plan's count and in no
+ * column's: the Kanban said 3 where the Plan said 8.
+ */
+export function reviewWaitingOf(t: Pick<BoardTask, 'status' | 'stage' | 'subtaskReviewCount'>): number {
+  return (awaitsHuman(t) ? 1 : 0) + (t.subtaskReviewCount ?? 0);
 }
 
 /**

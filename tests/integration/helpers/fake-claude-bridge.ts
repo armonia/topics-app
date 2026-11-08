@@ -5,6 +5,16 @@
  * placeholder, and writes the user record only when an Enter lands. No
  * `claude` process is ever started.
  *
+ * Two switches play the CLI a sub-agent really runs: `mintSessionIds` ignores
+ * the pre-assigned `--session-id` and writes under an id of its own, and
+ * `sessionsDir` gets the `<pid>.json` file in which the CLI says which
+ * conversation that process is on (`~/.claude/sessions`).
+ *
+ * It also takes text the way the real composer does (measured on claude
+ * 2.1.319 in a macOS PTY, 08/11): a plain write longer than 1022 bytes keeps
+ * only its last piece, and a bracketed paste arrives whole, in a
+ * `<pasted_content>` block when it is long. See `cliTakes` below.
+ *
  * The transcripts live where the router reads them, `~/.claude/projects/<cwd>`:
  * `os.homedir()` is fixed per process under Bun, so every cwd must be inside a
  * throwaway test root, and only the folders this helper created are removed.
@@ -16,7 +26,48 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { claudeProjectDirName } from "../../../server/lib/claude-transcript-path";
 
-export interface FakeChild { cwd: string; sessionId: string; typed: string; promptWrites: number; enters: number; acceptFromEnter: number }
+export interface FakeChild {
+  cwd: string; sessionId: string;
+  /** What the composer holds as typed text. */
+  typed: string;
+  /** Long bracketed pastes, folded into a placeholder until Enter. */
+  pasted: string[];
+  promptWrites: number; enters: number; acceptFromEnter: number;
+}
+
+/**
+ * macOS makes a PTY writer wait once 1022 bytes (TTYHOG - 2) sit unread in
+ * the terminal's input queue, so the TUI reads a long write in pieces of 1022.
+ */
+const PTY_READ_PIECE = 1022;
+const PASTE_START = "\x1b[200~";
+const PASTE_END = "\x1b[201~";
+
+/**
+ * What the Claude composer keeps of one write. A plain write longer than
+ * 1022 bytes keeps only its last piece: the CLI drops every full one (a
+ * 2397-byte brief reached the transcript as its last 353 bytes; production
+ * briefs lost exactly 1022, 2044, 3066, 4088 or 13286 bytes of their head). Between
+ * bracketed-paste markers the whole text arrives, however it was cut; a long
+ * one is folded (measured: 135 bytes stayed inline, 1305 were folded).
+ */
+function cliTakes(data: string): { typed: string } | { pasted: string } {
+  if (data.startsWith(PASTE_START) && data.endsWith(PASTE_END)) {
+    const text = data.slice(PASTE_START.length, data.length - PASTE_END.length);
+    return text.length > 800 || text.includes("\n") ? { pasted: text } : { typed: text };
+  }
+  const bytes = Buffer.from(data, "utf8");
+  if (bytes.length <= PTY_READ_PIECE) return { typed: data };
+  const lastPiece = Math.floor((bytes.length - 1) / PTY_READ_PIECE) * PTY_READ_PIECE;
+  return { typed: bytes.subarray(lastPiece).toString("utf8") };
+}
+
+/** The user record the CLI writes: typed text, then each folded paste in its block. */
+function promptRecord(child: FakeChild): string {
+  return child.typed + child.pasted
+    .map((text, i) => `\n\n<pasted_content id="p${i}">\n${text}\n</pasted_content id="p${i}">\n`)
+    .join("");
+}
 
 /** The fake bridge, playing the CLI: what it received, and each child's state. */
 export interface FakeBridge {
@@ -24,6 +75,10 @@ export interface FakeBridge {
   children: Map<string, FakeChild>;
   /** Enter that makes the NEXT spawned child write its prompt record (1 = the first). */
   nextAcceptFromEnter: number;
+  /** A fresh launch writes under an id it mints, not the `--session-id` it was given (a `--resume` id is kept). */
+  mintSessionIds: boolean;
+  /** Where each process writes `<pid>.json` with its conversation, as the CLI does; null = a CLI that writes none. */
+  sessionsDir: string | null;
   /** Drop every connection and every PTY, as a bridge that died does; `list` then answers empty. */
   dropAll(): void;
   close(): Promise<void>;
@@ -70,6 +125,8 @@ export function startFakeClaudeBridge(root: string, socketPath: string): Promise
     received: [],
     children: new Map(),
     nextAcceptFromEnter: 1,
+    mintSessionIds: false,
+    sessionsDir: null,
     dropAll() { for (const s of sockets) s.destroy(); alive.clear(); },
     close() {
       return new Promise((resolve) => { for (const s of sockets) s.destroy(); server.close(() => resolve()); });
@@ -92,9 +149,13 @@ export function startFakeClaudeBridge(root: string, socketPath: string): Promise
       else if (msg.type === "ping") reply(socket, { type: "pong" });
       else if (msg.type === "create") {
         const args = msg.args ?? [];
-        const flag = args.indexOf("--session-id") >= 0 ? args.indexOf("--session-id") : args.indexOf("--resume");
+        const given = args.indexOf("--session-id");
+        const resumed = args.indexOf("--resume");
+        const sessionId = resumed >= 0 ? args[resumed + 1]!
+          : given < 0 ? ""
+          : bridge.mintSessionIds ? crypto.randomUUID() : args[given + 1]!;
         const child: FakeChild = {
-          cwd: msg.cwd ?? "", sessionId: flag >= 0 ? args[flag + 1]! : "", typed: "", promptWrites: 0, enters: 0,
+          cwd: msg.cwd ?? "", sessionId, typed: "", pasted: [], promptWrites: 0, enters: 0,
           acceptFromEnter: bridge.nextAcceptFromEnter,
         };
         bridge.children.set(id, child);
@@ -105,13 +166,17 @@ export function startFakeClaudeBridge(root: string, socketPath: string): Promise
           append(child, { type: "permission-mode", permissionMode: "bypassPermissions" });
           append(child, { type: "system", subtype: "informational", content: "AGENTS.md loaded" });
         }
-        alive.set(id, pid);
-        reply(socket, { type: "created", id, pid: pid++ });
+        const childPid = pid++;
+        alive.set(id, childPid);
+        if (bridge.sessionsDir) {
+          fs.writeFileSync(join(bridge.sessionsDir, `${childPid}.json`), JSON.stringify({ pid: childPid, sessionId: child.sessionId, cwd: child.cwd }));
+        }
+        reply(socket, { type: "created", id, pid: childPid });
         // The TUI draws its first screen: the terminal has been active once.
         setTimeout(() => reply(socket, { type: "data", id, data: "Welcome to Claude Code" }), 5);
       } else if (msg.type === "buffer") {
         const child = bridge.children.get(id);
-        const screen = child?.typed
+        const screen = child && (child.typed || child.pasted.length > 0)
           ? "╭──────────╮\n│ > [Pasted text #1 +40 lines] │\n╰──────────╯"
           : "╭──────────╮\n│ >          │\n╰──────────╯\n Welcome to Claude Code";
         reply(socket, { type: "buffer", id, data: Buffer.from(screen).toString("base64") });
@@ -120,15 +185,21 @@ export function startFakeClaudeBridge(root: string, socketPath: string): Promise
         if (!child) return;
         if (msg.data === "\r") {
           child.enters += 1;
-          if (child.typed && child.enters >= child.acceptFromEnter) {
-            append(child, { type: "user", cwd: child.cwd, message: { role: "user", content: child.typed } });
+          if ((child.typed || child.pasted.length > 0) && child.enters >= child.acceptFromEnter) {
+            append(child, { type: "user", cwd: child.cwd, message: { role: "user", content: promptRecord(child) } });
             child.typed = "";
+            child.pasted = [];
           }
         } else {
-          child.typed += msg.data ?? "";
+          const took = cliTakes(msg.data ?? "");
+          if ("pasted" in took) child.pasted.push(took.pasted);
+          else child.typed += took.typed;
           child.promptWrites += 1;
         }
       } else if (msg.type === "kill") {
+        // The CLI removes its own file when it exits.
+        const killed = alive.get(id);
+        if (bridge.sessionsDir && killed !== undefined) fs.rmSync(join(bridge.sessionsDir, `${killed}.json`), { force: true });
         alive.delete(id);
         setTimeout(() => reply(socket, { type: "exit", id, exitCode: 0 }), 20);
       }

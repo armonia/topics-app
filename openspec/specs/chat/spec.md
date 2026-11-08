@@ -1714,7 +1714,18 @@ contain an emoji.
 
 ### Requirement: SUBAGENT-05 — The child's real transcript is found, not the one it was assigned
 
-A sub-agent spawned as its own CLI does not honour the session id pre-assigned to it: it mints its own and writes the transcript under THAT name, so a read keyed by the assigned id finds no file and the parent is woken with an empty body. The system SHALL find the child's transcript by content, and SHALL prefer finding none to finding the parent's.
+A sub-agent spawned as its own CLI does not honour the session id pre-assigned to it: it mints its own and writes the transcript under THAT name, so a read keyed by the assigned id finds no file and the parent is woken with an empty body. While the child's process lives, the system SHALL take the id its CLI reports for that process (`~/.claude/sessions/<pid>.json`); otherwise it SHALL find the child's transcript by content. It SHALL prefer finding none to finding the parent's, and two sessions SHALL never hold one conversation: on 08/11 four pairs of siblings did, and a resume of one opened the other's work.
+
+#### Scenario: Siblings briefed with the same opening each keep their own conversation
+- **GIVEN** two children of one chat spawned together in one directory, their prompts sharing an opening longer than the fingerprint, the second taking its prompt only at the Enter retry
+- **WHEN** both prompts have landed
+- **THEN** each child's sub-agent row and terminal row SHALL hold the conversation its own CLI process reports, not its sibling's
+- **AND** the second child's prompt SHALL be submitted, not taken as delivered because the sibling's transcript holds the same opening
+
+#### Scenario: A conversation another session holds is never adopted by content
+- **GIVEN** a transcript held by another session, live or in a sub-agent row
+- **WHEN** it is the newest content match, or the single recent file, for a child the CLI says nothing about
+- **THEN** it SHALL be skipped: the next match is returned, or nothing
 
 #### Scenario: The child is told apart from a parent sharing its working directory
 - **GIVEN** a project directory holding both the parent's transcript, actively appended, and the child's

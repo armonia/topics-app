@@ -18,8 +18,9 @@ import { useEffect, useMemo } from 'react';
 import { boardTabCounts, type StatusCount } from '../../lib/boardTabCounts';
 import { useBoardTasks, useBoardTasksLoaded } from '../../lib/boardTasksStore';
 import { useBoardProjects } from '../../lib/boardProjectsStore';
-import { useAttentionRows } from '../../state/attention';
-import { boardAttention } from '../../state/attentionRollups';
+import { rollupAttention, useAttentionRows } from '../../state/attention';
+import { boardLitCards } from '../../state/attentionRollups';
+import { trayLitGroups, type TrayGroup } from '../../../../shared/tray-board';
 import type { AttentionTier } from '../../types';
 
 /** Un percorso confrontabile: la stessa cartella non deve diventare due
@@ -65,23 +66,32 @@ function useBoardProjectId(projectPath?: string): string | null {
   );
 }
 
-const NOTHING_LIT: { tier: AttentionTier | null; count: number } = { tier: null, count: 0 };
+export interface BoardAttention {
+  tier: AttentionTier | null;
+  count: number;
+  /** The same lit cards by why they wait: what the tooltip says the number is made of. */
+  groups: TrayGroup[];
+}
+
+const NOTHING_LIT: BoardAttention = { tier: null, count: 0, groups: [] };
 
 /**
  * THE NUMBER of a board tab (ATTN-16): the lit `task:` subjects of the
  * project's board, every board for the general one. Review, parked, and a card
  * whose agent asks something mid-turn, from the same rows the inbox and the
- * Dock count. A project tab whose path is not resolved yet says nothing rather
- * than every board's total.
+ * Dock count, steps included. A project tab whose path is not resolved yet
+ * says nothing rather than every board's total.
  */
-export function useBoardAttention(projectPath?: string): { tier: AttentionTier | null; count: number } {
+export function useBoardAttention(projectPath?: string): BoardAttention {
   const rows = useAttentionRows();
   const tasks = useBoardTasks();
   const projectId = useBoardProjectId(projectPath);
-  return useMemo(
-    () => (projectPath && !projectId ? NOTHING_LIT : boardAttention(rows, tasks, projectId)),
-    [rows, tasks, projectId, projectPath],
-  );
+  return useMemo(() => {
+    if (projectPath && !projectId) return NOTHING_LIT;
+    const lit = boardLitCards(rows, tasks, projectId);
+    const { tier, count } = rollupAttention(lit.map((c) => c.attention));
+    return { tier, count, groups: trayLitGroups(lit.map((c) => ({ ...c, projectId: c.projectId ?? '' }))) };
+  }, [rows, tasks, projectId, projectPath]);
 }
 
 export function useBoardTabCounts(projectPath?: string): StatusCount[] {

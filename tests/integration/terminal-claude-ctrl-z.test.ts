@@ -28,6 +28,7 @@ import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir,
 import { getDatabase } from "../../server/db";
 import { getSubagent, setSubagentState } from "../../server/lib/subagent-store";
 import { transcriptHasPrompt } from "../../server/lib/claude-subagent-transcript";
+import { _setClaudeSessionsDirForTests } from "../../server/lib/claude-live-session";
 
 const TEST_ROOT = testTmpDir("terminal-ctrl-z");
 // Short on purpose: a unix socket path cannot exceed 104 characters.
@@ -156,6 +157,9 @@ function fakeClientSocket() {
 beforeAll(async () => {
   setupTestDataDir(`${TEST_ROOT}/data`);
   fs.mkdirSync(CWD, { recursive: true });
+  // The fake pids (7000 on) can be a real CLI's: its `~/.claude/sessions/<pid>.json` must not be read.
+  fs.mkdirSync(`${TEST_ROOT}/cli-sessions`, { recursive: true });
+  _setClaudeSessionsDirForTests(`${TEST_ROOT}/cli-sessions`);
   setEnv("TOPICS_HOME", TOPICS_HOME);
   setEnv("CLAUDE_BIN", "/bin/sh");
   delete process.env.TOPICS_DISABLE_PTY_BRIDGE;
@@ -189,6 +193,7 @@ afterAll(async () => {
   for (const [k, v] of Object.entries(savedEnv)) {
     if (v === undefined) delete process.env[k]; else process.env[k] = v;
   }
+  _setClaudeSessionsDirForTests(null);
   await cleanupTestDataDir(TEST_ROOT);
 });
 
@@ -302,7 +307,8 @@ test("send_to_agent drops an all-filtered prompt and counts the bytes written", 
     expect(await send("a\x1abé")).toEqual({ status: 200, body: { ok: true, sent: Buffer.byteLength("abé", "utf8") } });
     expect(writeTopicsTerminal(agentId, SENTINEL)).toBe(true);
     await waitForWrite(agentId, (data) => data === SENTINEL, 5000, byteStart);
-    expect(writes.slice(byteStart).filter((write) => write.id === agentId).map((write) => write.data)).toEqual(["abé", "\r", SENTINEL]);
+    // The text goes as a bracketed paste (lib/subagent-seed.ts#promptAsPaste), filtered first.
+    expect(writes.slice(byteStart).filter((write) => write.id === agentId).map((write) => write.data)).toEqual(["\x1b[200~abé\x1b[201~", "\r", SENTINEL]);
   } finally {
     await stopCliChild(parentId, agentId);
   }
