@@ -104,6 +104,17 @@ function readQuestion(raw: unknown): { text: string; options: string[] } | null 
   return { text: typeof q.text === "string" ? q.text : "", options };
 }
 
+/**
+ * The warning sign (U+26A0, optional variation selector) chat error notices
+ * still open with. Written as escapes so this file carries no pictograph.
+ */
+const LEADING_WARNING_SIGN = /^\u26A0\uFE0F?\s*/u;
+
+/**
+ * Titles carry words only, never an emoji: the OS banner shows plain text and
+ * the bell draws a lucide icon from the row's `kind` (`notificationIcon` in the
+ * client), so a glyph in the title would be said twice or drawn as text.
+ */
 function record(kind: NotificationKind, title: string, body: string, subject: string, dedupeKey: string, target: { kind: "task" | "topic"; id: string } | null): NotificationRecordInput {
   return {
     kind,
@@ -136,7 +147,7 @@ export function buildAnnouncement(fact: AnnounceFact): Announcement | null {
       // `options=["Landa su main"]`, wrapped in that very fence.
       const question = readQuestion(fact.question);
       const asksHuman = fact.isAsk ?? questionAsksHuman(question);
-      const title = asksHuman ? "❓ L'agent ti sta chiedendo una cosa" : "📋 Task pronto per la review";
+      const title = asksHuman ? "L'agent ti sta chiedendo una cosa" : "Task pronto per la review";
       const body = question?.text || fact.taskTitle || "Un task è pronto per la review";
       const push = withActions({ title, body, tag: `task-review-${fact.taskId || "new"}`, url: taskUrl(fact.taskId) },
         { kind: "review-ready", question }, fact.projectId, fact.taskId);
@@ -146,10 +157,10 @@ export function buildAnnouncement(fact: AnnounceFact): Announcement | null {
       // Three states, three titles: `waited_out` is no failure and nothing to
       // repair, the decision goes back to the person.
       const title = fact.state === "blocked"
-        ? "🔧 Task da sistemare"
+        ? "Task da sistemare"
         : fact.state === "waited_out"
-          ? "⏳ Task in attesa, decidi tu"
-          : "⛔️ Task non consegnato";
+          ? "Task in attesa, decidi tu"
+          : "Task non consegnato";
       const body = fact.taskTitle || "Un task è stato parcheggiato";
       const push = withActions({ title, body, tag: `task-park-${fact.taskId || "new"}`, url: taskUrl(fact.taskId) },
         { kind: "parked" }, fact.projectId, fact.taskId);
@@ -157,12 +168,12 @@ export function buildAnnouncement(fact: AnnounceFact): Announcement | null {
     }
     case "finished": {
       if (fact.terminalId) {
-        const title = fact.name ? `💬 ${fact.name}` : "💬 Il terminale ha finito";
+        const title = fact.name || "Il terminale ha finito";
         const body = "Il terminale ha finito il turno";
         return { push: { title, body, tag: fact.subject, url: "/" }, record: record("terminal", title, body, fact.subject, fact.subject, null) };
       }
       // The reply push has no buttons: there is no click that answers.
-      const title = fact.name ? `💬 ${fact.name}` : "💬 Risposta pronta";
+      const title = fact.name || "Risposta pronta";
       const body = "Claude ha finito di rispondere";
       return {
         push: { title, body, tag: `chat-end-${fact.topicId}`, url: topicUrl(fact.topicId) },
@@ -170,9 +181,10 @@ export function buildAnnouncement(fact: AnnounceFact): Announcement | null {
       };
     }
     case "error": {
-      const title = fact.name ? `⚠️ ${fact.name}` : fact.terminalId ? "⚠️ Il terminale si è fermato" : "⚠️ La chat si è fermata";
-      // The notice already opens with the warning sign the title carries.
-      const body = (fact.error ?? "").trim().replace(/^⚠️\s*/, "").slice(0, 120) || "Il turno si è fermato";
+      const title = fact.name || (fact.terminalId ? "Il terminale si è fermato" : "La chat si è fermata");
+      // The notice opens with a warning sign: the bell draws the icon from the
+      // row's kind, so the body drops it.
+      const body = (fact.error ?? "").trim().replace(LEADING_WARNING_SIGN, "").slice(0, 120) || "Il turno si è fermato";
       if (fact.terminalId) {
         return { push: { title, body, tag: fact.subject, url: "/" }, record: record("terminal", title, body, fact.subject, `${fact.subject}:error`, null) };
       }
@@ -187,11 +199,11 @@ export function buildAnnouncement(fact: AnnounceFact): Announcement | null {
       const asked = (fact.prompt ?? "").trim();
       const prompt = asked && fact.reason === "permission" && !fact.terminalId ? `Permesso: ${asked}` : asked;
       if (fact.taskId) {
-        const title = "❓ L'agent ti sta chiedendo una cosa";
+        const title = "L'agent ti sta chiedendo una cosa";
         const body = prompt ? prompt.slice(0, 120) : fact.name || "Un agente aspetta una tua risposta";
         return { push: { title, body, tag: `task-wait-${fact.taskId}`, url: taskUrl(fact.taskId) }, record: record("session", title, body, fact.subject, `task-wait:${fact.taskId}`, { kind: "task", id: fact.taskId }) };
       }
-      const title = fact.name ? `❓ ${fact.name}` : "❓ Claude ti sta aspettando";
+      const title = fact.name || "Claude ti sta aspettando";
       const body = prompt ? prompt.slice(0, 120) : "Claude aspetta una tua risposta per andare avanti";
       if (fact.terminalId) {
         return { push: { title, body, tag: fact.subject, url: "/" }, record: record("terminal", title, body, fact.subject, `${fact.subject}:wait`, null) };
@@ -237,7 +249,7 @@ export function classifyTurnEnd(end: TurnEndFacts): { outcome: "done" | "error" 
   const errorText = typeof end.error === "string" ? end.error.trim() : "";
   if (end.reason === "error" && errorText) {
     const resumes = end.stopCause === "server-shutdown" || noticePromisesResume(errorText);
-    return { outcome: resumes ? null : "error", resumes, detail: errorText.replace(/^⚠️\s*/, "").slice(0, 200) };
+    return { outcome: resumes ? null : "error", resumes, detail: errorText.replace(LEADING_WARNING_SIGN, "").slice(0, 200) };
   }
   // The clean end: marked complete, not a stop of the person, not the
   // watchdog's cut. The client no longer judges a turn end on its own, so this
