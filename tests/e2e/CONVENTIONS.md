@@ -97,7 +97,7 @@ catalogue and `FALLBACK_LOCALE` is `it` (deliberately: read the docstring above
 `resolveLocale` before touching it). When the UI strings moved into that layer on
 2026-08-15, eight `it` values had to be kept BYTE-IDENTICAL to their old literal
 because a spec asserts on them. They are debt, and this is the list, so whoever
-picks one up knows what to change — six left, two paid off:
+picks one up knows what to change — six left, one paid off, one gone with its feature:
 
 | frozen `it` value | key | spec holding it |
 |---|---|---|

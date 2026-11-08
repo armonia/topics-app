@@ -18,10 +18,10 @@
  */
 import { createHash } from "crypto";
 import { existsSync, readFileSync, readdirSync, unlinkSync, statSync } from "fs";
-import { homedir } from "os";
 import { join } from "path";
 import { Database } from "bun:sqlite";
 import { DUPLICATE_EVIDENCE_REASON } from "../shared/preview-retirement";
+import { resolveAppDataDir } from "../server/lib/data-dir";
 
 const argv = process.argv.slice(2);
 const flag = (name: string): string | null => {
@@ -29,7 +29,7 @@ const flag = (name: string): string | null => {
   return i >= 0 && argv[i + 1] ? argv[i + 1] : null;
 };
 const FIX = argv.includes("--fix");
-const PREVIEW_DIR = flag("--dir") ?? join(homedir(), ".openclaw", "media", "task-previews");
+const PREVIEW_DIR = flag("--dir") ?? join(resolveAppDataDir(), "media", "task-previews");
 const DB_PATH = flag("--db") ?? process.env.TOPICS_DB ?? join(process.env.DATA_DIR ?? join(process.cwd(), "data"), "topics.db");
 
 const IMAGE_RE = /\.(png|jpe?g|webp|gif)$/i;

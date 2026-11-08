@@ -237,7 +237,7 @@ describe("server-reload-gate.sh — cancello migration SQL", () => {
     //   $ bash scripts/server-reload-gate.sh <appdir>
     //   exit=0   ← SBAGLIATO, doveva essere 1
     //
-    // La causa: lo script cercava ~/.openclaw/data/topics.db (non esistente),
+    // La causa: lo script cercava topics.db nella vecchia radice dei dati (non esistente),
     // trovava `if [ ! -f "$DB_PATH" ] → exit 0` e usciva verde senza guardare niente.
     // La correzione: se DATA_DIR non è nell'env, il default è <APP_DIR>/data,
     // identico a server/db.ts:17 — così il cancello guarda dove guarda il server.
@@ -269,7 +269,7 @@ describe("server-reload-gate.sh — cancello migration SQL", () => {
 describe("server-reload-gate.sh — albero vero", () => {
   it("exit 0 on the real repo root (the real server graph builds to a single output)", () => {
     // Fresh empty DATA_DIR: the migration half finds no DB and exits 0, so the
-    // test never reads data/topics.db or ~/.openclaw/data. Without the sqlite3
+    // test never reads data/topics.db or the home's fallback. Without the sqlite3
     // CLI (cloud VM) the gate still exits 0 but declares the migration half
     // off on stderr: that one known line is not a build failure, drop it.
     const dataDir = mkdtempSync(join(tmpdir(), "gate-real-data-"));

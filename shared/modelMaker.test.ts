@@ -36,7 +36,7 @@ describe('modelMaker: the company that makes a model, never a catch-all (revisio
   });
 
   test('an id with no known company is named by the provider that offers it', () => {
-    expect(modelMaker('openclaw', { name: 'openclaw', label: 'OpenClaw' })).toEqual({ id: 'provider:openclaw', label: 'OpenClaw' });
+    expect(modelMaker('relay-house', { name: 'relay', label: 'Relay' })).toEqual({ id: 'provider:relay', label: 'Relay' });
   });
 
   test('an unknown vendor/ prefix is a company of its own, not a fallback', () => {

@@ -2783,11 +2783,11 @@
           "scope": "ux"
         },
         {
-          "text": "session control no longer depends on an OpenClaw token",
+          "text": "session control no longer depends on an Gateway token",
           "scope": "auth"
         },
         {
-          "text": "session control accepts the native agent token, not just the OpenClaw gateway",
+          "text": "session control accepts the native agent token, not just the Gateway gateway",
           "scope": "auth"
         },
         {
@@ -3007,7 +3007,7 @@
           "scope": "dashboard"
         },
         {
-          "text": "the Context Inspector was off on every provider except openclaw",
+          "text": "the Context Inspector was off on every provider except gateway",
           "scope": "context"
         },
         {
@@ -4458,7 +4458,7 @@
           "scope": "tauri"
         },
         {
-          "text": "attachment coaching points to the right dir (~/.openclaw/media, not uploads)",
+          "text": "attachment coaching points to the right dir (~/.topics/media, not uploads)",
           "scope": "dispatch"
         },
         {
@@ -6313,7 +6313,7 @@
           "scope": "server"
         },
         {
-          "text": "openclaw decision gate: skip control-tool blocks + log degradation",
+          "text": "gateway decision gate: skip control-tool blocks + log degradation",
           "scope": "context"
         },
         {
@@ -7812,7 +7812,7 @@
           "scope": "260329-hkn"
         },
         {
-          "text": "add x-openclaw-scopes header to gateway API calls",
+          "text": "add x-gateway-scopes header to gateway API calls",
           "scope": null
         },
         {
@@ -8028,7 +8028,7 @@
           "scope": null
         },
         {
-          "text": "multi-provider AI abstraction (OpenClaw + Claude)",
+          "text": "multi-provider AI abstraction (Gateway + Claude)",
           "scope": null
         },
         {
@@ -8224,7 +8224,7 @@
           "scope": "30-03"
         },
         {
-          "text": "KILL OpenClaw browser bridge -- remove browserTargetIdCache + isolation injection from topics.ts",
+          "text": "KILL Gateway browser bridge -- remove browserTargetIdCache + isolation injection from topics.ts",
           "scope": "30-03"
         },
         {
@@ -8309,7 +8309,7 @@
         },
         {
           "text": "forward conversation history so the gateway can rehydrate",
-          "scope": "openclaw"
+          "scope": "gateway"
         },
         {
           "text": "permissions + downloads + select-element + reflow (C+D+E)",
@@ -9290,7 +9290,7 @@
           "scope": null
         },
         {
-          "text": "AI review delegates to OpenClaw instead of direct API calls",
+          "text": "AI review delegates to Gateway instead of direct API calls",
           "scope": null
         },
         {
@@ -9578,7 +9578,7 @@
           "scope": "client"
         },
         {
-          "text": "recompute default when openclaw gateway is offline",
+          "text": "recompute default when gateway gateway is offline",
           "scope": "providers"
         },
         {
@@ -9650,7 +9650,7 @@
           "scope": "30.1-persist"
         },
         {
-          "text": "claude before openclaw: drop the openclaw default fallback",
+          "text": "claude before gateway: drop the gateway default fallback",
           "scope": "providers"
         },
         {

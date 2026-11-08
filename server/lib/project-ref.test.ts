@@ -2,7 +2,7 @@
  * @covers PROJECT-08
  */
 import { describe, expect, it } from "bun:test";
-import { matchProjectRef, matchProjectRefAll, type ProjectRefCandidate } from "./project-ref";
+import { matchProjectRefAll, type ProjectRefCandidate } from "./project-ref";
 
 // Mirror the store's slugify closely enough for the matcher's purposes.
 const slugify = (s: string) =>
@@ -11,8 +11,13 @@ const slugify = (s: string) =>
 const candidates: ProjectRefCandidate[] = [
   { path: "/Users/z/Projects/topics-app", name: "Topics App", slug: "topics-app" },
   { path: "/Users/z/Projects/pix", name: "Pix", slug: "pix" },
-  { path: "/Users/z/.openclaw/workspace/scratch" }, // workspace dir, no name/slug
+  { path: "/Users/z/.app-data/workspace/scratch" }, // workspace dir, no name/slug
 ];
+
+// First match of `matchProjectRefAll`, or null.
+function matchProjectRef(ref: string, c: ProjectRefCandidate[], slug: (s: string) => string): string | null {
+  return matchProjectRefAll(ref, c, slug)[0] ?? null;
+}
 
 describe("matchProjectRef", () => {
   it("matches by the user's project name, case-insensitively (the 'open project Pix' case)", () => {
@@ -32,7 +37,7 @@ describe("matchProjectRef", () => {
 
   it("falls back to folder basename for candidates without a name/slug", () => {
     expect(matchProjectRef("scratch", candidates, slugify)).toBe(
-      "/Users/z/.openclaw/workspace/scratch",
+      "/Users/z/.app-data/workspace/scratch",
     );
   });
 
@@ -55,11 +60,11 @@ describe("matchProjectRefAll", () => {
   it("returns EVERY basename collision, in candidate order (the two-topics-app case)", () => {
     const c: ProjectRefCandidate[] = [
       { path: "/Users/z/Projects/topics-app" },          // real repo (live topic binding)
-      { path: "/Users/z/.openclaw/workspace/topics-app" }, // stale husk (dead June binding)
+      { path: "/Users/z/.app-data/workspace/topics-app" }, // stale husk (dead June binding)
     ];
     expect(matchProjectRefAll("topics-app", c, slugify)).toEqual([
       "/Users/z/Projects/topics-app",
-      "/Users/z/.openclaw/workspace/topics-app",
+      "/Users/z/.app-data/workspace/topics-app",
     ]);
   });
 

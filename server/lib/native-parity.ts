@@ -85,7 +85,7 @@ function readClaudeMd(file: string, home: string): string | null {
 }
 
 /**
- * Claude Code's switch for its auto-memory. OpenClaw sets it because it keeps a
+ * Claude Code's switch for its auto-memory. Jarvis sets it because it keeps a
  * memory of its own: whoever turned it off does not get it back from here.
  */
 function autoMemoryDisabled(): boolean {

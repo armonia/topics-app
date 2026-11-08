@@ -25,6 +25,17 @@ const DATA_DIR_PRIMA = process.env.DATA_DIR;
 const TEST_HOME = testTmpDir("ui-backup-home");
 const TEST_DATA = testTmpDir("ui-backup-data");
 
+// Backups newest first, as absolute paths.
+function listBackups(): string[] {
+  const dir = join(TEST_HOME, "ui-state-backups");
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
+    .filter((f) => f.endsWith(".json"))
+    .map((f) => ({ f, mtime: fs.statSync(join(dir, f)).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime)
+    .map((e) => join(dir, e.f));
+}
+
 beforeAll(() => {
   fs.rmSync(TEST_HOME, { recursive: true, force: true });
   fs.rmSync(TEST_DATA, { recursive: true, force: true });
@@ -93,13 +104,13 @@ describe("ui-state-backup", () => {
     closeDatabase();
   });
 
-  test("listUiStateBackups returns paths sorted newest-first", async () => {
+  test("backups are listed paths sorted newest-first", async () => {
     const { ctx, backup } = await loadModules();
     for (let i = 0; i < 3; i++) {
       backup.snapshotUiStateNow(ctx.db);
       await new Promise((r) => setTimeout(r, 8));
     }
-    const list = backup.listUiStateBackups();
+    const list = listBackups();
     expect(list.length).toBe(3);
     // Newest first: each entry's mtime > the next.
     for (let i = 0; i < list.length - 1; i++) {
@@ -115,7 +126,7 @@ describe("ui-state-backup", () => {
   test("snapshot file is mode 0600 (sensitive payload may include tokens)", async () => {
     const { ctx, backup } = await loadModules();
     backup.snapshotUiStateNow(ctx.db);
-    const file = backup.listUiStateBackups()[0];
+    const file = listBackups()[0];
     const mode = fs.statSync(file).mode & 0o777;
     expect(mode).toBe(0o600);
 

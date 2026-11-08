@@ -31,7 +31,6 @@ const DESCRIPTIONS: string[] = [
   'chat.slash.clear.description',
   'chat.slash.model.description',
   'chat.slash.effort.description',
-  'chat.slash.reasoning.description',
   'chat.slash.project.description',
   'chat.slash.browser.description',
   'chat.slash.goal.description',

@@ -31,6 +31,7 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { isSafeToDelete, landedVerdict, makeMainIndex } from "./landed-lib";
+import { resolveAppDataDir } from "../server/lib/data-dir";
 
 const REPO = process.cwd();
 const WT_ROOT = join(homedir(), ".topics", "worktrees");
@@ -275,16 +276,19 @@ console.log(`\nrigenerabile senza perdite: ${human(regen)}`);
 // spazza. La misura è del `du`; il verdetto è scritto qui perché è un giudizio,
 // e un giudizio va firmato: chi lo cambia deve cambiare la riga, non un numero.
 console.log("\n=== Fuori da git (stato dell'app) ===\n");
+// The legacy app data root, whatever its name: only server/lib/data-dir.ts
+// knows the rule, and here it is asked as if that folder existed.
+const LEGACY_ROOT = resolveAppDataDir({ env: {}, exists: () => true });
 const OUTSIDE: [string, "rigenerabile" | "ridondante" | "NON toccare", string][] = [
   [join(homedir(), ".topics", "backups"), "ridondante", "copie a mano del DB: una per operazione, 7 giorni (docs/backup-pre-migration-policy.md)"],
   [join(homedir(), ".topics", "db-backups"), "ridondante", "come sopra: la rete di ieri è lo snapshot giornaliero con la copia fuori dal disco"],
   [join(homedir(), ".topics", "ui-state-backups"), "ridondante", "stato UI: lo riscrive l'app al prossimo salvataggio"],
   [join(homedir(), ".topics", "media"), "NON toccare", "anteprime e allegati REFERENZIATI dalle card"],
-  [join(homedir(), ".openclaw", "browser"), "NON toccare", "profili browser: dentro ci sono i LOGIN"],
-  [join(homedir(), ".openclaw", "workspace"), "NON toccare", "workspace degli agent: può contenere lavoro unico"],
-  [join(homedir(), ".openclaw", "media"), "NON toccare", "allegati referenziati dalle conversazioni"],
-  [join(homedir(), ".openclaw", "chromium-sidecar"), "rigenerabile", "si riscarica da solo al primo uso"],
-  [join(homedir(), ".openclaw", "logs"), "rigenerabile", "log: nessuno li rilegge dopo giorni"],
+  [join(LEGACY_ROOT, "browser"), "NON toccare", "profili browser: dentro ci sono i LOGIN"],
+  [join(LEGACY_ROOT, "workspace"), "NON toccare", "workspace degli agent: può contenere lavoro unico"],
+  [join(LEGACY_ROOT, "media"), "NON toccare", "allegati referenziati dalle conversazioni"],
+  [join(LEGACY_ROOT, "chromium-sidecar"), "rigenerabile", "si riscarica da solo al primo uso"],
+  [join(LEGACY_ROOT, "logs"), "rigenerabile", "log: nessuno li rilegge dopo giorni"],
 ];
 for (const [path, verdict, why] of OUTSIDE) {
   if (!existsSync(path)) continue;

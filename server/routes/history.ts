@@ -363,9 +363,7 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
       // migration providers need a finite fetch bound, so cap it generously.
       const fallbackFetch = wantsAll ? 1000 : limit + offset;
       let data: any;
-      if (histProvider.invokeTool) {
-        data = await histProvider.invokeTool("sessions_history", { sessionKey, limit: fallbackFetch, includeTools: false });
-      } else if (histProvider.getHistory) {
+      if (histProvider.getHistory) {
         data = await histProvider.getHistory(sessionKey, fallbackFetch);
       }
       const gatewayMessages = data?.result?.messages || data?.result?.details?.messages || [];

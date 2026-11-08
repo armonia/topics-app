@@ -67,7 +67,7 @@ beforeAll(() => {
   }
   mkdirSync(join(tmpRoot, "public"), { recursive: true });
   process.env.DATA_DIR = join(tmpRoot, "data");
-  process.env.OPENCLAW_DIR = join(tmpRoot, "openclaw");
+  process.env.APP_DATA_DIR = join(tmpRoot, "app-data");
   ctx = createAppContext(tmpRoot);
 });
 
@@ -141,7 +141,7 @@ describe("saveSingleTopic upsert (no REPLACE cascade)", () => {
     // it was silently dropped on save — the task-workspace / catch-all-session
     // presentation never actually took effect at runtime.
     const t = makeTopic("66666666-aaaa-bbbb-cccc-000000000006", {
-      projectPath: "/tmp/.openclaw/workspace/tasks/66666666",
+      projectPath: "/tmp/.app-data/workspace/tasks/66666666",
       standalone: true,
     });
     ctx.saveSingleTopic(t);

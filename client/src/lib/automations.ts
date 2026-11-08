@@ -3,14 +3,14 @@
  * read into the rows of the view that takes the place of the Cron panel.
  *
  * - the cards of the hub's model (`/api/hub/automations`), one per job, by
- *   system: Jarvis (the OpenClaw jobs and the health findings on them), Mac
+ *   system: Jarvis (its scheduled jobs and the health findings on them), Mac
  *   (launchd and the Claude desktop app), GitHub, PC and Workflow. Only the
  *   cards the hub judges (`needsYou`, `broken` and the groups in order), the
  *   ones its summary counts: the computer's own apps (`own`) and the tasks
  *   (`tasks`) sit in its `cards` index too, but outside the verdict, so a row
  *   of theirs would make «Decidi tu» disagree with the sidebar's number;
  * - the workflows of the last days, from the same model, as read-only rows;
- * - the OpenClaw jobs as Topics reads them (`/api/cron/jobs`): the only ones
+ * - the Jarvis jobs as Topics reads them (`/api/cron/jobs`): the only ones
  *   with commands (run, on and off, remove), and the only source for the jobs
  *   switched off, which the hub leaves out of its model.
  *
@@ -93,9 +93,9 @@ export interface AutomationRow {
   feedback: AutomationFeedback;
   /** The fingerprint the hub stamps on a vote, to tell when a job changed after it. */
   fp: string | null;
-  /** The OpenClaw job behind the row: the only rows with commands. */
+  /** The Jarvis job behind the row: the only rows with commands. */
   jobId: string | null;
-  /** As the OpenClaw gateway says; null where Topics has no word on it. */
+  /** As jarvis-channels says; null where Topics has no word on it. */
   enabled: boolean | null;
   /** A row the hub keeps a feedback log for (not a workflow). */
   votable: boolean;
@@ -163,10 +163,15 @@ function outcome(v: unknown): RunOutcome | null {
   return v === 'ok' || v === 'error' || v === 'skipped' ? v : null;
 }
 
+/** The hub provider of Jarvis' scheduled jobs: the only cards with commands. */
+export function isJarvisJobProvider(provider: unknown): boolean {
+  return provider === 'jarvis';
+}
+
 /** The system a hub provider belongs to; null for one this view does not list. */
 export function systemOf(provider: unknown): AutomationSystem | null {
+  if (isJarvisJobProvider(provider)) return 'jarvis';
   switch (provider) {
-    case 'openclaw':
     case 'health':
       return 'jarvis';
     case 'launchd':
@@ -187,7 +192,7 @@ export function systemOf(provider: unknown): AutomationSystem | null {
   }
 }
 
-/** The OpenClaw job id of a hub key (`cron:<id>`), or null. */
+/** The Jarvis job id of a hub key (`cron:<id>`), or null. */
 export function cronJobId(key: string): string | null {
   const m = /^cron:([\w-]+)$/.exec(key);
   return m ? m[1]! : null;
@@ -301,7 +306,7 @@ function readCard(raw: unknown, own = false): AutomationRow | null {
     runsToday: num(c.runsToday) ?? 0,
     feedback: readFeedback(c.feedback),
     fp: str(c.fp),
-    jobId: c.provider === 'openclaw' ? cronJobId(key) : null,
+    jobId: isJarvisJobProvider(c.provider) ? cronJobId(key) : null,
     area: readArea(purpose, c.group),
     ifBroken: str(purpose.seSiRompe),
     warn: str(c.warn),
@@ -380,7 +385,7 @@ export function readAutomations(raw: unknown): AutomationsModel | null {
   };
 }
 
-/** The OpenClaw jobs as `/api/cron/jobs` lists them. */
+/** The Jarvis jobs as `/api/cron/jobs` lists them. */
 export function readCronJobs(raw: unknown): CronJob[] | null {
   const list = asRecord(raw)?.jobs;
   if (!Array.isArray(list)) return null;
@@ -401,7 +406,7 @@ export function readCronJobs(raw: unknown): CronJob[] | null {
 }
 
 /**
- * The hub's rows with the gateway's word on each OpenClaw job: on or off, and
+ * The hub's rows with jarvis-channels' word on each Jarvis job: on or off, and
  * the jobs switched off (the hub leaves them out) as rows of their own, so
  * they can be switched back on from here. `describe` words the schedule of
  * those rows, which the hub does not describe.
@@ -607,7 +612,7 @@ export function todayRuns(day: AutomationRow['day'], startOfToday: number): { to
   return { total: today.length, ok: today.filter((d) => d.outcome === 'ok').length };
 }
 
-/** The commands a row carries: only an OpenClaw job the gateway lists. */
+/** The commands a row carries: only a Jarvis job jarvis-channels lists. */
 export function hasCommands(row: AutomationRow): boolean {
   return row.jobId !== null && row.enabled !== null;
 }
@@ -659,7 +664,7 @@ export function jobRequest(jobId: string, c: JobCommand): { path: string; method
   return { path, method: 'DELETE' };
 }
 
-/** Why a command was refused, for the view to word: the gateway's English stays out. */
+/** Why a command was refused, for the view to word: the scheduler's English stays out. */
 export function refusalOf(status: number): 'gateway' | 'notRun' | 'refused' {
   if (status === 409) return 'notRun';
   if (status === 502 || status === 503 || status === 504) return 'gateway';

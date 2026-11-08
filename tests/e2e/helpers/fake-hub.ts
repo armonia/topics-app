@@ -30,7 +30,7 @@
  * fake-hub-jobs.ts adds the board, the live agents, the proxy's details, the
  * calendar and a project's icon.
  * For «Automazioni» (`automations`) the model, its summary, the calendar,
- * an OpenClaw job's runs and a workflow run's cost come from
+ * a Jarvis job's runs and a workflow run's cost come from
  * fake-hub-automations.ts; a vote, a note or a silence posted to `feedback` is
  * kept and folded into the next model, and the queue carries an agent already
  * on the Mac backup.
@@ -300,10 +300,10 @@ function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy 
       { id: "usage-hub", name: "Hub dei consumi", group: "Consumi", app: true, state: "vivo", port: 3360, mb: 153, problem: null, url: "http://127.0.0.1:3360/", label: "com.example.usage-hub" },
       { id: "switchboard", name: "Proxy degli account", group: "Consumi", state: "vivo", port: 3335, mb: 90, problem: null, what: "Ruota gli account Claude", label: "com.example.switchboard" },
       // The service's own memory and the tree it started (agents, browsers): the hub's figure.
-      { id: "openclaw", name: "Gateway di Jarvis", group: "Assistente", state: "vivo", port: 18789, mb: 2969, treeMb: 4096, children: 12, problem: null },
+      { id: "jarvis-channels", name: "Gateway di Jarvis", group: "Assistente", state: "vivo", port: 18789, mb: 2969, treeMb: 4096, children: 12, problem: null },
       { id: "docs-index", name: "Indice dei documenti", group: "Strumenti", state: "vivo", port: 3342, mb: 95, problem: "non ascolta su :3342" },
       // Switched off on purpose and asleep on demand: neither may reach the bell.
-      { id: "openclaw-old", name: "Gateway vecchio", group: "Assistente", state: "spento", problem: null },
+      { id: "jarvis-old", name: "Gateway vecchio", group: "Assistente", state: "spento", problem: null },
       { id: "free-router", name: "Router dei modelli gratis", group: "Agenti", state: "in attesa", problem: null },
     ] },
     forecast: reachingReset(now),
@@ -337,7 +337,7 @@ function answers(items: FakeHubItem[], devPids: number[] = [], proxy: FakeProxy 
     diario: { at: now, days: 2, items: [
       // Runs of automations carry the link to their card, as the hub writes them.
       { at: now - 30 * 60_000, kind: "auto", who: "Mac", title: "Backup del Mac", outcome: "ok", what: "1,2 GB in 4 min", link: "#automations/launchd%3Acom.example.backup" },
-      { at: now - 40 * 60_000, kind: "auto", who: "OpenClaw", title: "Brief del mattino", outcome: "skipped", what: "", link: "#automations/cron%3Ajob-brief" },
+      { at: now - 40 * 60_000, kind: "auto", who: "Jarvis", title: "Brief del mattino", outcome: "skipped", what: "", link: "#automations/cron%3Ajob-brief" },
       { at: now - 50 * 60_000, kind: "auto", who: "GitHub", title: "Reindex dell'indice documenti", outcome: "error", what: "uscito con codice 1", link: "#automations/gh%3Adocs-reindex" },
       // A line of another writer: outcome ok, no link, and still news.
       { at: now - 55 * 60_000, kind: "auto", who: "Freno del Mac", title: "Mac bloccato 10:54–11:07 da un browser da 2,9 GB: chiudilo se non ti serve", outcome: "ok", what: "" },
@@ -707,7 +707,7 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
       const now = Date.now();
       if (path === "automations/runs") {
         const r = automationsRuns(now, new URL(req.url ?? "", "http://x").searchParams.get("key") ?? "");
-        return r ? send(200, r) : send(404, { ok: false, error: "cronologia solo per i cron di OpenClaw" });
+        return r ? send(200, r) : send(404, { ok: false, error: "cronologia solo per i job di Jarvis" });
       }
       if (path === "automations/graph") {
         const g = automationsGraph(now, new URL(req.url ?? "", "http://x").searchParams.get("key") ?? "");

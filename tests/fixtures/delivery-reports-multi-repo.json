@@ -2,7 +2,7 @@
   {
     "title": "[Jarvis] lavori-watch vede la coda e le consegne sospese, e le riprova",
     "reports": [
-      "Punti 2-6 fatti, commit 1910b03 su main di ~/.openclaw (il punto 1 era già in 22e8b05) … i due replay 5b137a57 e 9735e0 dentro la suite."
+      "Punti 2-6 fatti, commit 1910b03 su main di ~/.app-data (il punto 1 era già in 22e8b05) … i due replay 5b137a57 e 9735e0 dentro la suite."
     ]
   },
   {
@@ -20,7 +20,7 @@
   {
     "title": "Riflessione notturna: falso allarme del controllo delle 03:50",
     "reports": [
-      "Commit a100b56 in ~/.openclaw; test verdi con mutanti."
+      "Commit a100b56 in ~/.app-data; test verdi con mutanti."
     ]
   },
   {

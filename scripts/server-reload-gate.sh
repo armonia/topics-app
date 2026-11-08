@@ -87,9 +87,10 @@ fi
 # Il DB vivo: stessa logica di server/db.ts:
 #   1. $DATA_DIR (variabile d'ambiente, uguale a quella del server)
 #   2. <APP_DIR>/data  (default del server quando DATA_DIR non è impostata)
-#   3. ~/.openclaw/data  (ultimo ripiego per ambienti legacy)
+#   3. ~/.topics/app-data/data  (ultimo ripiego del server, resolveStateDir in
+#      server/lib/data-dir.ts, quando la cartella del repo non è scrivibile)
 #
-# Prima usavamo APP_DATA_DIR/$HOME/.openclaw come primo ripiego: sbagliato,
+# Prima usavamo la vecchia radice dei dati dell'app come primo ripiego: sbagliato,
 # perché il DB vivo è in <APP_DIR>/data e il cancello non trovava niente.
 # Un `if [ ! -f "$DB_PATH" ] → exit 0` che scatta sempre è un cancello morto.
 if [ -z "${DATA_DIR:-}" ]; then
@@ -97,9 +98,8 @@ if [ -z "${DATA_DIR:-}" ]; then
   if [ -f "$APP_DIR/data/topics.db" ]; then
     DATA_DIR="$APP_DIR/data"
   else
-    # Ultimo ripiego (ambienti legacy con APP_DATA_DIR o ~/.openclaw).
-    _APP_DATA="${APP_DATA_DIR:-$HOME/.openclaw}"
-    DATA_DIR="$_APP_DATA/data"
+    # Ultimo ripiego, lo stesso del server.
+    DATA_DIR="$HOME/.topics/app-data/data"
   fi
 fi
 DB_PATH="$DATA_DIR/topics.db"

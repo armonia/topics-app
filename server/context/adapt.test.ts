@@ -67,7 +67,7 @@ describe("composeSystemMessages", () => {
 
   it("skips informational blocks (injectedByTopicsApp: false)", () => {
     const out = composeSystemMessages([
-      block({ id: "openclaw:SOUL.md", category: "openclaw", content: "soul", injectedByTopicsApp: false }),
+      block({ id: "synthetic:info", category: "synthetic", content: "soul", injectedByTopicsApp: false }),
     ]);
     expect(out).toEqual([]);
   });
@@ -309,58 +309,28 @@ describe("adaptEnvelope — inline-system", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────────────
-// adaptEnvelope — strategy: gateway-stateful
-// ────────────────────────────────────────────────────────────────────────────
-
-describe("adaptEnvelope — gateway-stateful", () => {
-  it("emits history (for rehydrate) but adaptationNotes warn the gateway may ignore it", () => {
-    const env = envelope({
-      providerStrategy: "gateway-stateful",
-      systemBlocks: [
-        block({ id: "prompt:system", category: "prompt", content: "SP" }),
-      ],
-      history: [{ role: "user", content: "u1" }],
-      userMessage: { content: "ping" },
-    });
-    const p = adaptEnvelope(env);
-    expect(p.userContent).toBe("ping");
-    expect(p.history).toEqual([
-      { role: "system", content: "SP" },
-      { role: "user", content: "u1" },
-    ]);
-    expect(p.adaptationNotes.some((n) => n.toLowerCase().includes("gateway"))).toBe(true);
-    expect(p.adaptationNotes.some((n) => n.toLowerCase().includes("rehydrate"))).toBe(true);
-  });
-});
-
-// ────────────────────────────────────────────────────────────────────────────
-// Cross-strategy: informational OpenClaw blocks are NEVER emitted
+// Cross-strategy: informational blocks are NEVER emitted
 // ────────────────────────────────────────────────────────────────────────────
 
 describe("adaptEnvelope — informational blocks excluded across strategies", () => {
-  const envWithOpenClaw = (strategy: ContextEnvelope["providerStrategy"]) => envelope({
+  const envWithInfo = (strategy: ContextEnvelope["providerStrategy"]) => envelope({
     providerStrategy: strategy,
     systemBlocks: [
-      block({ id: "openclaw:SOUL.md", category: "openclaw", content: "SOUL", injectedByTopicsApp: false }),
-      block({ id: "openclaw:MEMORY.md", category: "openclaw", content: "MEM", injectedByTopicsApp: false }),
+      block({ id: "synthetic:SOUL.md", category: "synthetic", content: "SOUL", injectedByTopicsApp: false }),
+      block({ id: "synthetic:MEMORY.md", category: "synthetic", content: "MEM", injectedByTopicsApp: false }),
     ],
     userMessage: { content: "ping" },
   });
 
-  it("history-aware: history has no OpenClaw content", () => {
-    const p = adaptEnvelope(envWithOpenClaw("history-aware"));
+  it("history-aware: history has no informational content", () => {
+    const p = adaptEnvelope(envWithInfo("history-aware"));
     expect(p.history?.some((m) => m.content.includes("SOUL"))).toBe(false);
     expect(p.history?.some((m) => m.content.includes("MEM"))).toBe(false);
   });
 
-  it("inline-system: userContent has no OpenClaw content (no <context> at all)", () => {
-    const p = adaptEnvelope(envWithOpenClaw("inline-system"));
+  it("inline-system: userContent has no informational content (no <context> at all)", () => {
+    const p = adaptEnvelope(envWithInfo("inline-system"));
     expect(p.userContent).toBe("ping");
     expect(p.userContent).not.toContain("SOUL");
-  });
-
-  it("gateway-stateful: history has no OpenClaw content (gateway injects it itself)", () => {
-    const p = adaptEnvelope(envWithOpenClaw("gateway-stateful"));
-    expect(p.history?.some((m) => m.content.includes("SOUL"))).toBe(false);
   });
 });

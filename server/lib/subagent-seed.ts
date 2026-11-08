@@ -102,3 +102,20 @@ export function trustCursorOnYes(screen: string): boolean {
   const cursor = seen.lastIndexOf("❯");
   return cursor >= 0 && /^(\d\.)?yes/.test(seen.slice(cursor + 1));
 }
+
+/** The dialog's last line, drawn after the choices: once it is there the dialog is whole. */
+const TRUST_FOOTER = "entertoconfirm";
+
+/**
+ * What to do next on the folder-trust dialog. The CLI paints the choices first
+ * and installs its key handler a beat later, so an arrow sent as soon as the
+ * choices show is dropped (measured on 2.1.310: three arrows in 900 ms, none
+ * taken). Wait for the footer, then move or accept; the caller repeats the
+ * step until the cursor sits on «Yes».
+ */
+export function trustDialogStep(screen: string): "wait" | "down" | "accept" {
+  const seen = stripForEcho(screen);
+  // The footer is drawn once; redraws after an arrow repaint only the choices.
+  if (!seen.includes(TRUST_QUESTION) || !seen.includes(TRUST_FOOTER)) return "wait";
+  return trustCursorOnYes(screen) ? "accept" : "down";
+}

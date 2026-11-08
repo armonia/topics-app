@@ -209,7 +209,7 @@ describe('task coding models', () => {
     for (const provider of ['topics', 'claude-code', 'claude-code-team', 'jcode', 'codex']) {
       expect(taskModelMatchesSession(undefined, { provider })).toBe(true);
     }
-    for (const provider of ['openai', 'claude', 'openclaw', null, undefined]) {
+    for (const provider of ['openai', 'claude', null, undefined]) {
       expect(taskModelMatchesSession(undefined, { provider })).toBe(false);
     }
     expect(taskModelMatchesSession(undefined, null)).toBe(false);

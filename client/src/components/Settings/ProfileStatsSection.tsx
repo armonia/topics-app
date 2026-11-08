@@ -11,7 +11,7 @@ import { openLink, isExternalLinkGesture } from '../../lib/openLink';
  * LE TUE STATISTICHE: quanto lavoro è passato davvero di qui.
  *
  * ── I NUMERI VENGONO DA DOVE QUALCUNO SCRIVE ────────────────────────────────
- * `usage_records` e `agent_sessions` sono tabelle vere che NESSUNO scrive: un
+ * `agent_sessions` (e `usage_records`, scritta solo dalle chiamate laterali) sono tabelle che NESSUNO riempie per il lavoro vero: un
  * pannello che le leggesse mostrerebbe zeri per sempre, e uno zero è la bugia
  * peggiore — «0 sessioni» si legge «non hai lavorato», non «non lo so». La
  * fonte è `messages`/`tasks`/`topics`, e la storia sta in cima a

@@ -160,7 +160,7 @@ describe("delivery SHA caps have independent regression fixtures", () => {
     initializeGitMarkerRoot(cardRoot);
     writeIndependentFixture(cardRoot, "card.txt");
     try {
-      const repoName = "openclaw-delegate-router";
+      const repoName = "jarvis-delegate-router";
       const fixture = createIndependentOverflowRoots(scratch, 52, 51, repoName);
       const roots = fixture.roots.map((root) => realpathSync(root));
       const { sha } = fixture;
@@ -204,7 +204,7 @@ describe("delivery SHA caps have independent regression fixtures", () => {
 
 describe("delivery SHA claims span the repositories named by the reports", () => {
   let home: string;
-  let roots: Record<"card" | "jarvis" | "openclaw" | "topics" | "delegate", string>;
+  let roots: Record<"card" | "jarvis" | "appdata" | "topics" | "delegate", string>;
   let commitByReportedSha: Map<string, string>;
 
   function gitInRepo(root: string, ...args: string[]): string {
@@ -236,9 +236,9 @@ describe("delivery SHA claims span the repositories named by the reports", () =>
     roots = {
       card: join(home, "Projects", "card-worktree"),
       jarvis: join(home, ".claude", "jarvis"),
-      openclaw: join(home, ".openclaw"),
+      appdata: join(home, ".app-data"),
       topics: join(home, "Projects", "topics-app"),
-      delegate: join(home, "Projects", "openclaw-delegate-router"),
+      delegate: join(home, "Projects", "jarvis-delegate-router"),
     };
     for (const root of Object.values(roots)) initializeRepo(root);
     commitFixture(roots.card, "proof.txt");
@@ -247,9 +247,9 @@ describe("delivery SHA claims span the repositories named by the reports", () =>
       "67a943e": "jarvis",
       "47818b0": "jarvis",
       "24fbf86": "jarvis",
-      "a100b56": "openclaw",
-      "1910b03": "openclaw",
-      "22e8b05": "openclaw",
+      "a100b56": "appdata",
+      "1910b03": "appdata",
+      "22e8b05": "appdata",
       "04d125e1b6": "topics",
       "5952c74": "delegate",
     };
@@ -458,14 +458,14 @@ describe("delivery SHA claims span the repositories named by the reports", () =>
     const cardRoot = freshCardRoot();
     const probe = await probeForRoot(cardRoot).prepare!([report], {
       homeDirectory: home,
-      knownRoots: [roots.jarvis, roots.openclaw, roots.topics, roots.delegate],
+      knownRoots: [roots.jarvis, roots.appdata, roots.topics, roots.delegate],
     });
     const finding = checkReport(report, probe).find((item) => item.code === "sha-missing");
     expect(finding).toBeDefined();
     expect(finding?.detail).toContain(`~/${relative(home, cardRoot)}`);
     expect(finding?.detail).toContain("~/.claude/jarvis");
-    expect(finding?.detail).toContain("~/.openclaw");
+    expect(finding?.detail).toContain("~/.app-data");
     expect(finding?.detail).toContain("~/Projects/topics-app");
-    expect(finding?.detail).toContain("~/Projects/openclaw-delegate-router");
+    expect(finding?.detail).toContain("~/Projects/jarvis-delegate-router");
   });
 });

@@ -21,7 +21,7 @@ hermetic(test);
  * seeded as the server stores a turn, then checked where a person sees them:
  * in the chat, as a page on desktop and phone in both themes, and inside an
  * MCP Apps host, driven by the REAL bridge process (`topics-mcp-server.ts`)
- * the way OpenClaw or Claude would drive it.
+ * the way an agent would drive it.
  *
  * @covers GENUI-06, GENUI-07, GENUI-08
  */

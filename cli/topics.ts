@@ -10,10 +10,10 @@
  *   topics open [path]                — POST /api/topics with the resolved
  *                                       path; prints the new topic id.
  *   topics auth status                — show whether a daemon is reachable +
- *                                       the gateway token's presence.
+ *                                       the daemon token's presence.
  *   topics auth login                 — open the dashboard so the user
  *                                       authenticates via the existing
- *                                       Supabase / OpenClaw flow.
+ *                                       Supabase flow.
  *   topics auth logout                — clear `~/.topics/cli.json`.
  *   topics daemon status              — read ~/.topics/daemon-state.json +
  *                                       ping /__daemon/healthz.
@@ -136,9 +136,8 @@ async function apiRequest<T>(
   body?: unknown,
 ): Promise<{ status: number; body: T | null }> {
   const state = readDaemonState();
-  // The public REST API doesn't use the daemon token; it's just localhost
-  // + (optionally) GATEWAY_TOKEN for /api/agent/*. We use the daemon's
-  // port if known, else PORT env, else 3333.
+  // The public REST API doesn't use the daemon token; it's just localhost.
+  // We use the daemon's port if known, else PORT env, else 3333.
   const port = state?.port ?? Number(process.env.PORT || "3333");
   const headers: Record<string, string> = { "content-type": "application/json" };
   const init: RequestInit = {

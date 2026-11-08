@@ -1,7 +1,7 @@
 /**
  * Una cartella aperta come progetto, ma non tracciata dal repo che la contiene.
  *
- * Caso reale: `match-compass` dentro `.openclaw/workspace`. Git non elenca i
+ * Caso reale: `match-compass` dentro la cartella `workspace` dei dati dell'app. Git non elenca i
  * file che ci sono dentro, collassa tutto in `?? match-compass/`. Il pannello
  * mostrava «1 modifica» con una riga senza nome, e accanto le branch e i remote
  * del repo di sopra, che sembravano di questa cartella.

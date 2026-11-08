@@ -28,7 +28,6 @@ import { isInsideDir } from "./lib/path-containment";
 import { realPathForNewEntry } from "./lib/real-path";
 import { isTopicsSecretPath } from "./lib/topics-secret-path";
 import { homeDir } from "./lib/broad-cwd";
-import { freshGatewayToken } from "./lib/openclaw-gateway-token";
 import { isTopicSilenced } from "./push-triggers";
 import { configureAttentionStore } from "./attention/store";
 import { isSubagentEngaged, markSubagentEngaged } from "./lib/subagent-store";
@@ -170,22 +169,6 @@ export function restoreToolCallsFromBlocks(msg: StoredMessage): void {
 export function createAppContext(baseDir: string): AppContext {
   // CLI PORT override: BUN_PORT beats .env PORT (Bun auto-loads .env first)
   const PORT = parseInt(process.env.BUN_PORT || process.env.PORT || "3333");
-  const GATEWAY_URL = process.env.GATEWAY_URL || "http://127.0.0.1:18789";
-  let GATEWAY_TOKEN = freshGatewayToken() || "";
-
-  /**
-   * The gateway token as it is now. OpenClaw rotates it in the Keychain, so
-   * it is read again at most every 30 s, at once on an auth failure (`force`).
-   * `ctx.GATEWAY_TOKEN` goes through here: read it at the call, not once.
-   */
-  function refreshGatewayToken(force = false): string {
-    const fresh = freshGatewayToken({ force });
-    if (fresh && fresh !== GATEWAY_TOKEN) {
-      console.log("[Gateway] Token refreshed from openclaw.json");
-      GATEWAY_TOKEN = fresh;
-    }
-    return GATEWAY_TOKEN;
-  }
 
   // Mutable state lives under a WRITABLE root. In dev / under the prod
   // LaunchAgent STATE_DIR === baseDir (the writable repo), so this is
@@ -209,10 +192,12 @@ export function createAppContext(baseDir: string): AppContext {
   const UPLOADS_DIR = join(STATE_DIR, "uploads");
   const CONTEXT_DIR = join(STATE_DIR, "context-files");
   // The app data root (media/, workspace/, agent sessions). One rule, in
-  // lib/data-dir.ts: an explicit variable, else the legacy `~/.openclaw` when
-  // that install already has one, else the home Topics already owns.
-  const OPENCLAW_DIR = resolveAppDataDir();
-  const SESSIONS_DIR = process.env.SESSIONS_DIR || `${OPENCLAW_DIR}/agents/main/sessions`;
+  // lib/data-dir.ts: an explicit variable, else the legacy root when that
+  // install already has one, else the home Topics already owns.
+  const APP_DATA_DIR = resolveAppDataDir();
+  // Transcript JSONL delle sessioni scritte prima di SQLite: li leggono ancora
+  // la ricerca e la storia di ripiego.
+  const SESSIONS_DIR = process.env.SESSIONS_DIR || `${APP_DATA_DIR}/agents/main/sessions`;
   const MESSAGES_DIR = join(STATE_DIR, "messages");
 
   mkdirSync(MESSAGES_DIR, { recursive: true });
@@ -672,6 +657,17 @@ export function createAppContext(baseDir: string): AppContext {
 
   // --- Helper: Save a single topic and its relations to SQLite ---
   /**
+   * The project allowlist cache of `allowedProjectDirs` (five seconds, see
+   * there). Declared here because saving a topic empties it: `topic.projectPath`
+   * is one of its sources, and a chat just created in a new folder was refused
+   * as "no project directory" until the five seconds ran out. The deny refresh
+   * of `allowedProjectDirsFresh` did not save it when another refusal had
+   * used it up in the half second before (chat-live-work, red on the first
+   * try in every CI run).
+   */
+  let knownDirsCache: { at: number; dirs: Set<string> } | null = null;
+
+  /**
    * Upsert a topic plus its 4 child relation tables atomically. Wrapped in
    * one transaction so a concurrent reader (e.g. another request running
    * `getTopicById`) never sees the half-state where links/contextFiles/etc.
@@ -762,6 +758,9 @@ export function createAppContext(baseDir: string): AppContext {
         for (const src of topic.disabledContextSources) stmts.insertTopicDisabledSource.run(topic.id, src);
       }
     })();
+    // Only a folder the cache does not hold yet empties it: topics are saved
+    // often, and a recompute costs two queries plus a realpath per entry.
+    if (topic.projectPath && knownDirsCache && !knownDirsCache.dirs.has(topic.projectPath)) knownDirsCache = null;
   }
 
   // --- Helper: Convert SQLite message row to StoredMessage ---
@@ -1252,6 +1251,12 @@ export function createAppContext(baseDir: string): AppContext {
   // (declared above) so it can fire `worktree:updated` envelopes when the
   // async git materialise step transitions a row from `pending` → `ready|error`.
   const projectStore = createProjectStore(db);
+  const createProjectRow = projectStore.create;
+  projectStore.create = (input) => {
+    const project = createProjectRow(input);
+    knownDirsCache = null;
+    return project;
+  };
   const worktreeStore = createWorktreeStore(db);
   // Le gcDeps sono closure deliberate: processes.ts nasce DOPO il manager,
   // e queste funzioni vengono lette ALLA CHIAMATA, non alla costruzione.
@@ -2593,8 +2598,8 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   // --- Path resolution (unchanged) ---
-  // Both roots, whichever one is live: a path saved when the root was
-  // `~/.openclaw` must stay readable on an install that resolves to `~/.topics`.
+  // Both roots, whichever one is live: a path saved under the legacy root must
+  // stay readable on an install that resolves to `~/.topics`.
   const ALLOWED_FILE_BASES = appDataRoots();
 
   function resolveSafePath(inputPath: string, allowedBases: string[] = ALLOWED_FILE_BASES): string | null {
@@ -2628,7 +2633,7 @@ export function createAppContext(baseDir: string): AppContext {
    * col picker entra nell'allowlist entro un battito, e nel frattempo il
    * client non ha ancora niente da chiederle.
    */
-  let knownDirsCache: { at: number; dirs: Set<string> } | null = null;
+  // `knownDirsCache` is declared above `saveSingleTopic`, which empties it.
   const KNOWN_DIRS_TTL_MS = 5_000;
   function allowedProjectDirs(): Set<string> {
     const now = Date.now();
@@ -2748,10 +2753,10 @@ export function createAppContext(baseDir: string): AppContext {
   // Media bases: EVERY app data root, not just the live one. A path recorded in
   // the DB belongs to the root that was live when it was written, and the two
   // populations coexist on the same machine — an install that predates card
-  // 211605ee keeps writing under `~/.openclaw`, a fresh one writes under
+  // 211605ee keeps writing under the legacy root, a fresh one writes under
   // `~/.topics`, and browser screenshots have gone to `~/.topics/media` all
-  // along. `~/.openclaw` also stays readable because it is a SHARED root of the
-  // surrounding tooling; the root itself is never migrated here.
+  // along. The legacy root also stays readable because it is a SHARED root of
+  // the surrounding tooling; the root itself is never migrated here.
   const ALLOWED_MEDIA_BASES = appDataRoots().flatMap((root) => [join(root, "media"), join(root, "workspace")]);
 
   function getMimeType(filepath: string): string {
@@ -3152,11 +3157,9 @@ export function createAppContext(baseDir: string): AppContext {
     /** Iniettato da server.ts dopo createProcessesRouter (lazy closure). */
     worktreeGcDeps: _worktreeGcDeps,
     machineStore,
-    PORT, GATEWAY_URL,
-    get GATEWAY_TOKEN() { return refreshGatewayToken(); },
-    refreshGatewayToken,
+    PORT,
     TOPICS_FILE, UNREAD_FILE, PUBLIC_DIR, UPLOADS_DIR, CONTEXT_DIR,
-    OPENCLAW_DIR, SESSIONS_DIR, MESSAGES_DIR, BASE_DIR: baseDir, STATE_DIR,
+    APP_DATA_DIR, SESSIONS_DIR, MESSAGES_DIR, BASE_DIR: baseDir, STATE_DIR,
     activeStreams, turnLedger, wsClients, deviceSockets,
     broadcast, broadcastToAll, broadcastProject, broadcastToProjectViewers, broadcastToTopic, broadcastToTopicSubscribers, sendToDevice, closeDeviceSockets, setGuestBroadcastFilter,
     loadTopics, saveTopics, saveSingleTopic,
