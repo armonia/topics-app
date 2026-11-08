@@ -21,11 +21,11 @@ import { DANGER_TEXT, WARNING_TEXT } from './popoverStyles';
  *
  * Measured on the sidebar chrome (#eaecf0 light, #080a0e dark):
  *
- *   sky-800 / sky-400      text   6.5 / 9.9
- *   sky-600 / sky-400      dot    3.5 / 9.9
- *   amber-700 / amber-400  dot    4.28 / 11.52
- *   emerald-600 / -400     dot    3.10 / 10.24
- *   red-500 / red-400      dot    3.24 / 6.84
+ *   sky-800 / sky-400      text   6.39 / 9.25
+ *   sky-600 / sky-400      dot    3.46 / 9.25
+ *   amber-700 / amber-400  dot    4.25 / 11.87
+ *   emerald-600 / -400     dot    3.19 / 10.30
+ *   red-500 / red-400      dot    3.18 / 7.16
  */
 export const STATUS_INK = {
   wait: WARNING_TEXT,
@@ -50,7 +50,7 @@ export const STATUS_CHIP = {
 } as const;
 
 /** One icon per meaning: Hourglass is retired, each of its jobs got its own glyph. */
-export const STATUS_ICON = {
+export const STATUS_ICON: Readonly<Record<string, LucideIcon>> = {
   /** Waits for you. */
   wait: CircleAlert,
   /** Postponed: back in the queue until a window elapses. */
@@ -59,4 +59,4 @@ export const STATUS_ICON = {
   blocking: Link2,
   /** The agent is stopped, idle. */
   paused: Pause,
-} as const satisfies Record<string, LucideIcon>;
+};
