@@ -68,7 +68,7 @@ describe("migration 20260928203249: chat_forks", () => {
   test("the runtime is one of the three", () => {
     const db = dbBefore();
     db.run(MIGRATION_SQL);
-    expect(() => insertChatFork(db, { ...row, runtime: "openclaw" as never })).toThrow();
+    expect(() => insertChatFork(db, { ...row, runtime: "jcode" as never })).toThrow();
     db.close();
   });
 

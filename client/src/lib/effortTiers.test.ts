@@ -32,7 +32,7 @@ describe('EFFORT_TIERS', () => {
 
 describe('resolveEffectiveProvider', () => {
   const entries = [
-    entry({ name: 'openclaw', status: 'error', models: ['oc'] }),
+    entry({ name: 'gemini', status: 'error', models: ['gm'] }),
     entry({ name: 'claude-code', models: ['opus', 'sonnet'] }),
     entry({ name: 'codex', isDefault: true, models: ['gpt-5-codex'] }),
   ];
@@ -52,7 +52,7 @@ describe('resolveEffectiveProvider', () => {
   });
 
   it('i provider non pronti non contano — nemmeno se sono il default della topic', () => {
-    expect(resolveEffectiveProvider(entries, null, 'openclaw')).toEqual({ provider: 'codex', model: 'gpt-5-codex' });
+    expect(resolveEffectiveProvider(entries, null, 'gemini')).toEqual({ provider: 'codex', model: 'gpt-5-codex' });
   });
 
   it('il default DICHIARATO dal provider batte il primo della lista', () => {

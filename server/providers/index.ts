@@ -7,7 +7,7 @@
  * Usage:
  *   import { initProviders, getProvider, getDefaultProvider, listProviders } from "./providers";
  *   initProviders();                     // auto-detect from env, init all
- *   getProvider("openclaw");             // get specific provider
+ *   getProvider("claude-code");          // get specific provider
  *   getDefaultProvider();                // get the default
  *   listProviders();                     // [{ name, connected, capabilities }]
  */
@@ -16,7 +16,7 @@ export * from "./types";
 
 import { syncDirectEndpointProviders } from "./direct-endpoint-registry";
 import { meterCompletions } from "../usage/side-calls";
-import type { AIProvider, ProviderConfig, OpenClawProviderConfig, ClaudeProviderConfig, ClaudeCodeProviderConfig, CodexProviderConfig, MuseProviderConfig, OpenAIProviderConfig, AcpProviderConfig } from "./types";
+import type { AIProvider, ProviderConfig, ClaudeProviderConfig, ClaudeCodeProviderConfig, CodexProviderConfig, MuseProviderConfig, OpenAIProviderConfig, AcpProviderConfig } from "./types";
 import { providerNameForConfig } from "./types";
 import { readApiProviderKey } from "../services/api-provider-credentials";
 import { KNOWN_ACP_AGENTS, mergeAcpAgents, parseAcpAgentsEnv } from "./acp/agents";
@@ -24,7 +24,6 @@ import { existsSync } from "fs";
 import { resolveClaudeBin } from "../lib/claude-bin";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { resolveMuseBin } from "../lib/muse-bin";
-import { gatewayToken } from "../lib/openclaw-gateway-token";
 import {
   getAppSettings,
   resolveAiProvider,
@@ -58,7 +57,6 @@ const PROVIDER_PREFERENCE_ORDER = [
   "muse",
   "claude",
   "openai",
-  "openclaw",
 ];
 
 /** Where a provider stands in that order; anything unlisted ranks after, in
@@ -85,10 +83,6 @@ export function createProvider(config: ProviderConfig): AIProvider {
 /* eslint-disable @typescript-eslint/no-require-imports -- each provider module (and its SDK) is loaded only when a provider of that type is configured */
 function instantiateProvider(config: ProviderConfig): AIProvider {
   switch (config.type) {
-    case "openclaw": {
-      const { OpenClawProvider } = require("./openclaw");
-      return new OpenClawProvider(config);
-    }
     case "claude": {
       const { ClaudeProvider } = require("./claude");
       return new ClaudeProvider(config);
@@ -165,10 +159,10 @@ export function getProvider(name?: string): AIProvider {
  * invisible, because the claude-code CLI is installed and therefore registered.
  *
  * It stopped being invisible on 2026-08-15: on a CI runner the only registered
- * provider is `openclaw`, the stale-stream sweeper called it from inside a
+ * provider was the old gateway relay, the stale-stream sweeper called it from inside a
  * `setInterval`, and an uncaught throw in a timer callback takes the whole
  * process down. The test server died with `Provider "claude-code" not found.
- * Available: openclaw` and every test after it failed at 0 ms with
+ * Available: <relay>` and every test after it failed at 0 ms with
  * ECONNREFUSED. The same thing would happen to any USER without that CLI, once
  * a stream went quiet for three minutes.
  *
@@ -226,10 +220,8 @@ export function recomputeDefault(): boolean {
 
   // Preference order — subscription-first: prefer the providers whose usage is
   // included in the user's Claude/ChatGPT subscription (the local `claude-code`
-  // and `codex` CLIs) over the metered API-key paths (`claude` SDK, `openai`),
-  // and keep `openclaw` last so a flaky gateway never silently becomes the
-  // default chat target. This only picks the *fallback* default when the
-  // previous one is offline; an explicit `AI_PROVIDER` env and per-topic
+  // and `codex` CLIs) over the metered API-key paths (`claude` SDK, `openai`).
+  // This only picks the *fallback* default when the previous one is offline; an explicit `AI_PROVIDER` env and per-topic
   // `provider` always win over this order.
   //
   // This is the order of the KNOWN, not the list of the allowed. It was five
@@ -402,24 +394,6 @@ export async function initProviders(): Promise<AIProvider[]> {
   // Snapshot the promoted behaviour toggles once (setting ?? env ?? default).
   // Reading the row up-front keeps a single DB hit for the whole init pass.
   const settings = getAppSettings();
-
-  // OpenClaw — init if GATEWAY_URL is set
-  const token = gatewayToken();
-  if (process.env.GATEWAY_URL && token) {
-    try {
-      const config: OpenClawProviderConfig = {
-        type: "openclaw",
-        gatewayUrl: process.env.GATEWAY_URL,
-        token,
-      };
-      const p = createProvider(config);
-      p.start();
-      _providers.set(p.name, p);
-      started.push(p);
-    } catch (err: any) {
-      console.warn(`[Providers] Failed to init openclaw: ${err.message}`);
-    }
-  }
 
   // Direct API connections survive restarts; settings keys override env.
   const claudeApiKey = readApiProviderKey("claude");
@@ -616,18 +590,14 @@ export async function initProviders(): Promise<AIProvider[]> {
   }
 
   // Pick a sensible default: explicit env wins; otherwise prefer a CONNECTED
-  // provider so chat routes don't silently dispatch to an offline gateway.
-  // Without re-evaluation, "openclaw" wins backwards-compat priority even
-  // when its gateway is unreachable, and every /api/chat call returns
-  // "Gateway unreachable" or an empty SSE stream — surfaced in the UI as
-  // "No response received" / generic error. recomputeDefault() ignores the
-  // legacy `!_defaultName` gate so the explicit-config path in initProvider()
-  // (which pre-sets `_defaultName` to e.g. "openclaw" before the WS even
-  // attempts to connect) gets re-evaluated against actual connectivity.
+  // provider so chat routes don't silently dispatch to an offline one.
+  // recomputeDefault() ignores the legacy `!_defaultName` gate so the
+  // explicit-config path in initProvider() (which pre-sets `_defaultName`)
+  // gets re-evaluated against actual connectivity.
   recomputeDefault();
 
   if (started.length === 0) {
-    console.warn("[Providers] No providers configured. Set GATEWAY_URL+GATEWAY_TOKEN, ANTHROPIC_API_KEY, OPENAI_API_KEY, or install codex/claude-code CLIs.");
+    console.warn("[Providers] No providers configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or install codex/claude-code CLIs.");
   }
 
   return started;

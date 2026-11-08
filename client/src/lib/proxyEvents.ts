@@ -93,8 +93,6 @@ const DESCRIBE: Record<string, Describer> = {
     detail: (num(e.consecutive) ?? 0) > 1 ? say('inARow', { n: num(e.consecutive)! }) : null,
   }),
   'reserved-mcp-schema-error': (e, L) => ({ tone: 'warn', family: 'retry', text: say('mcpSchema', { account: L(e.account) }) }),
-  'openclaw-isolated-retry': (e, L) => ({ tone: 'info', family: 'retry', text: say('openclawRetry', { from: L(e.from), to: L(e.to) }) }),
-  'openclaw-ambiguous-extra-usage': (e, L) => ({ tone: 'warn', family: 'retry', text: say('openclawExtra', { account: L(e.account) }) }),
   'upstream-retry': (e, L) => ({
     tone: 'warn', family: 'retry', text: say('upstreamRetry', { account: L(e.account) }),
     detail: num(e.status) !== null || str(e.status) ? say('afterError', { code: String(e.status) }) : null,

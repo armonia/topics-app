@@ -56,7 +56,7 @@ async function waitForHub(request: APIRequestContext): Promise<void> {
   }, { timeout: 30_000, message: "the live reader never read the fake hub" }).toBe(2);
 }
 
-/** Topics' cron routes, read only: the gateway lists the docs index and the mail alert. */
+/** Topics' cron routes, read only: jarvis-channels lists the docs index and the mail alert. */
 async function fakeCron(page: Page): Promise<void> {
   await page.route("**/api/cron/jobs**", (route) => route.fulfill({
     status: 200, contentType: "application/json",
@@ -272,7 +272,7 @@ test.describe("automations, as the hub told them", () => {
     await pr.getByTestId("automations-calendar-toggle").click();
     await expect(pr.getByTestId("automations-calendar-detail")).toContainText("Ti ricorda di chiudere la PR di acme-api prima di sera.");
     await expect(pr.getByTestId("automations-calendar-detail")).toContainText("un messaggio breve con il link alla PR");
-    await expect(pr.getByTestId("automations-calendar-who")).toHaveText("Jarvis su OpenClaw");
+    await expect(pr.getByTestId("automations-calendar-who")).toHaveText("Jarvis (lavori programmati)");
     await expect(pane.locator('[data-testid="automations-calendar-item"][data-key="cron:rem-domain"]')).toContainText("Jarvis · non ti scrive");
     await expect(pane.getByTestId("automations-calendar")).not.toContainText("PROMPT GREZZO");
   });

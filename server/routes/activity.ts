@@ -5,7 +5,7 @@ import { listActivity, type ActivityLevel } from "../db/activity-log";
  * Activity LOG (audit trail), not a feed.
  *
  * The live Activity feed — an SSE stream fed by `ActivityMonitor`, which tailed
- * OpenClaw's gateway log files under /tmp/openclaw — is gone: OpenClaw is
+ * the old gateway's log files under /tmp — is gone: the gateway is
  * dismissed, and everything that stream tried to say is already visible on the
  * tabs themselves (a session working, a turn finished, an attention badge).
  * What stays is the DURABLE part: the `activity_log` table the chat routes

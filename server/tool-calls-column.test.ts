@@ -80,7 +80,7 @@ beforeAll(() => {
   }
   mkdirSync(join(tmpRoot, "public"), { recursive: true });
   process.env.DATA_DIR = join(tmpRoot, "data");
-  process.env.OPENCLAW_DIR = join(tmpRoot, "openclaw");
+  process.env.APP_DATA_DIR = join(tmpRoot, "app-data");
   ctx = createAppContext(tmpRoot);
   seedTopic();
 });

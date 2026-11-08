@@ -130,10 +130,10 @@ beforeAll(async () => {
   port = freePort();
   const dataDir = join(ROOT, "data");
   const home = join(ROOT, "home");
-  const openclaw = join(ROOT, "openclaw");
+  const appData = join(ROOT, "app-data");
   const topicsHome = join(ROOT, "topics-home");
   const publicDir = join(ROOT, "public");
-  for (const d of [dataDir, home, openclaw, topicsHome, publicDir]) mkdirSync(d, { recursive: true });
+  for (const d of [dataDir, home, appData, topicsHome, publicDir]) mkdirSync(d, { recursive: true });
 
   server = Bun.spawn(["bun", "run", "server.ts"], {
     cwd: PROJECT_ROOT,
@@ -152,7 +152,7 @@ beforeAll(async () => {
       DATA_DIR: dataDir,
       TOPICS_DATA_DIR: dataDir,
       HOME: home,
-      OPENCLAW_DIR: openclaw,
+      APP_DATA_DIR: appData,
       TOPICS_HOME: topicsHome,
       TOPICS_PUBLIC_DIR: publicDir,
       // No orphan-Chromium sweep: the bottom of that chain is a SIGKILL on pids

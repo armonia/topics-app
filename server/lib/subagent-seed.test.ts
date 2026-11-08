@@ -6,7 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { composerHoldsPrompt, promptAsPaste, trustCursorOnYes, trustDialogShowing } from "./subagent-seed";
+import { composerHoldsPrompt, promptAsPaste, trustCursorOnYes, trustDialogStep, trustDialogShowing } from "./subagent-seed";
 
 const LONG = "Sei il sotto-agente native-image-view. ".repeat(80);
 
@@ -38,8 +38,8 @@ describe("promptAsPaste", () => {
   });
 });
 
-// REAL screen of `claude` 2.1.288 opened in a never-seen folder (captured
-// from a PTY on 04/10, path replaced): first the dialog with `❯` on
+// REAL screen of `claude` 2.1.310 opened in a never-seen folder (captured
+// from a clean PTY, no CLAUDE_* variables, on 08/11, path replaced): first the dialog with `❯` on
 // «No, exit», then, after a down arrow, the redraw with `❯` on «Yes».
 describe("folder-trust dialog", () => {
   const captured = readFileSync(join(import.meta.dir, "__fixtures__/claude-trust-dialog.txt"), "utf8");
@@ -59,5 +59,12 @@ describe("folder-trust dialog", () => {
   test("once the composer is drawn after it, the dialog is over", () => {
     expect(trustDialogShowing(`${captured}\n╭──╮\n│ > │\n? for shortcuts`)).toBe(false);
     expect(trustDialogShowing("╭──╮\n│ > Fai il build │\n? for shortcuts")).toBe(false);
+  });
+
+  test("the next step waits for the whole dialog, then moves to «Yes», then accepts", () => {
+    const beforeFooter = captured.slice(0, captured.indexOf("\x1b[18;2H"));
+    expect(trustDialogStep(beforeFooter)).toBe("wait");
+    expect(trustDialogStep(onNo)).toBe("down");
+    expect(trustDialogStep(captured)).toBe("accept");
   });
 });

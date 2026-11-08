@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AI visual review of E2E test screenshots — delegates to OpenClaw gateway.
+"""AI visual review of E2E test screenshots: writes the manifest a reviewer reads.
 
 Convenzione dei nomi:
   <soggetto>-BEFORE-<verbo>.png + <soggetto>-AFTER-<verbo>.png  → una COPPIA
@@ -63,7 +63,7 @@ def main():
         "status": "pending_review",
     }
     json.dump(manifest, open(OUTPUT_FILE, "w"), indent=2)
-    print(f"AI Review: {total} screenshots ready for review via OpenClaw")
+    print(f"AI Review: {total} screenshots ready for review")
     print(f"  {len(pairs)} pairs + {len(singles)} singles")
     if orphans:
         print(f"  ⚠ {len(orphans)} mezze coppie (verbo BEFORE/AFTER non appaiato), riviste come singoli:")

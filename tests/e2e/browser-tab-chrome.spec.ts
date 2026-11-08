@@ -736,9 +736,9 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     const topic = await createTopic(request, `E2E-TABCHROME-COPY-${Date.now()}`);
     topicId = topic.id;
 
-    // `/api/media` serves an allowlist, and `${OPENCLAW_DIR}/media/` is in it
+    // `/api/media` serves an allowlist, and `${APP_DATA_DIR}/media/` is in it
     // (helpers/test-server.ts holds the data dir of the test server).
-    const mediaDir = join(E2E_DATA_DIR, ".openclaw", "media", "tab-chrome-copy");
+    const mediaDir = join(E2E_DATA_DIR, ".app-data", "media", "tab-chrome-copy");
     mkdirSync(mediaDir, { recursive: true });
     const file = join(realpathSync(mediaDir), `documento-${Date.now()}.html`);
     writeFileSync(file, "<!doctype html><html lang=\"en\"><title>Documento</title><p>ok</p>");

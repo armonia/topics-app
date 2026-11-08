@@ -10,7 +10,7 @@
  * Sources of candidate paths:
  *  - the ProjectStore (registered projects — these carry the store UUID that
  *    the WorktreeManager requires),
- *  - the OpenClaw `workspace/` scan (the same marker-based discovery
+ *  - the app data `workspace/` scan (the same marker-based discovery
  *    topics.ts:getWorkspaceProjects uses), and
  *  - every OTHER dir the server already references: topic `projectPath`s and
  *    terminal-session cwds (injected as `extraPaths`). In this app most
@@ -54,7 +54,7 @@ const PROJECT_MARKERS = [
 ];
 
 // Config/tooling dot-dirs that are never user projects even though a chat or a
-// terminal may have been rooted there. NOT `.openclaw` — its `workspace/<name>`
+// terminal may have been rooted there. NOT the app data root — its `workspace/<name>`
 // children are legit catch-all projects (see scanWorkspace); we only strip the
 // well-known non-project homes below.
 const NON_PROJECT_DOTDIR = /\/\.(claude|config|cache|local|npm|bun|cargo|rustup|ssh|vscode|cursor|git|Trash|topics)(\/|$)/;
@@ -95,7 +95,7 @@ export function isSelectableProjectDir(
 }
 
 /**
- * I progetti che il server ENUMERA dentro il workspace di OpenClaw: figli
+ * I progetti che il server ENUMERA dentro il workspace della cartella dati: figli
  * diretti con un marcatore di progetto. Esportata perché è una SORGENTE, non un
  * dettaglio del resolver: da qui escono i dir che l'indice della board
  * (`/api/all-boards/projects`) mostra, e quindi anche quelli che l'allowlist di
@@ -155,7 +155,7 @@ export function buildProjectCandidates(deps: {
 
 /**
  * DOVE nasce un progetto nuovo creato per nome — la cartella in cui l'utente
- * tiene i suoi progetti, non `~/.openclaw/workspace`.
+ * tiene i suoi progetti, non `<app data>/workspace`.
  *
  * Il workspace è plumbing dell'agente (il catch-all `generale`, le cwd dei
  * task). Scaffoldare lì un progetto che l'utente ha appena battuto a mano lo
@@ -177,7 +177,7 @@ export function buildProjectCandidates(deps: {
  *    worktree, che sono nell'elenco dei dir noti come tutti gli altri, e su una
  *    macchina con pochi progetti veri vincerebbero la conta. Un progetto che
  *    crei a mano non nasce in una dot-dir — e la regola copre da sola anche
- *    `~/.openclaw/workspace`;
+ *    `<app data>/workspace`;
  *  - la cartella scelta deve ESISTERE. Dedotta da righe stantie (topic di un
  *    disco che non c'è più) puntava a un percorso immaginario, e la creazione
  *    moriva con un 500 invece di ricadere sul workspace;
@@ -230,7 +230,7 @@ export function newProjectParentDir(
  * name. There used to be five copies of `join(workspace, name)` and only one
  * (the board) went through `newProjectParentDir`: the sessions'
  * `create_project` tool, `/project create` and the two topic routes created
- * everything inside `~/.openclaw/workspace`, which is the agent's plumbing
+ * everything inside `<app data>/workspace`, which is the agent's plumbing
  * (02/10: `pop-demo`).
  *
  * The new folder is also REGISTERED in the store: outside the workspace no

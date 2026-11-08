@@ -5,8 +5,8 @@
  * you) and opens the whole view: «Decidi tu» oldest first, the Jarvis jobs
  * with their three commands, Mac read-only, GitHub, PC and the workflows
  * folded into the "other areas" block, the calendar tab. The «+» menu offers no Cron
- * panel. Every command of an OpenClaw job reaches Topics' cron routes (faked
- * here with `page.route`, so the real gateway is never called), a refused run
+ * panel. Every command of a Jarvis job reaches Topics' cron routes (faked
+ * here with `page.route`, so the real jarvis-channels is never called), a refused run
  * leaves its reason (CRONUI-01) and a run that works marks its row
  * (CRONUI-01b). Votes, notes and silences reach the hub's feedback log and the
  * detail shows them as read back; «Risolvi tu» reaches the hub's `fix`.
@@ -87,7 +87,7 @@ async function fakeCron(page: Page): Promise<CronFake> {
     fake.calls.push({ method, path: url.pathname, body });
     const id = url.pathname.split("/")[4] ?? "";
     if (method === "POST" && url.pathname.endsWith("/run")) {
-      if (fake.refuseRun) return route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "Gateway error: unreachable" }) });
+      if (fake.refuseRun) return route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "Scheduler error: jarvis-channels not found on PATH" }) });
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
     }
     if (method === "PATCH") {
@@ -166,25 +166,25 @@ test.describe("automations", () => {
     await expect(pane.getByTestId("automations-own").locator('[data-testid="automation-row"][data-key="launchd:com.example.darkroom"]')).toHaveCount(1);
     await expect(row(page, "launchd:com.example.darkroom")).toHaveCount(1);
     await expect(row(page, "cron:task-quote")).toHaveCount(0);
-    // An agent is already on the backup (the hub's queue); the OpenClaw jobs can be run again.
+    // An agent is already on the backup (the hub's queue); the Jarvis jobs can be run again.
     await expect(decide.nth(1).getByTestId("automations-decide-fixing")).toHaveText("Un agente ci sta già lavorando.");
     await expect(decide.nth(1).getByTestId("automations-decide-run")).toHaveCount(0);
     await expect(decide.nth(2).getByTestId("automations-decide-run")).toBeVisible();
 
-    // Jarvis: every OpenClaw job with the three commands, the switched-off one listed off.
+    // Jarvis: every Jarvis job with the three commands, the switched-off one listed off.
     const jarvis = pane.locator('[data-testid="automations-system"][data-system="jarvis"]');
     await expect(jarvis.getByTestId("automation-run").first()).toBeEnabled({ timeout: 20_000 });
     await jarvis.getByTestId("automation-more").click();
     await expect(row(page, "cron:job-old").getByTestId("automation-toggle")).toHaveAttribute("aria-checked", "false");
     await expect(row(page, "cron:job-old")).toContainText("spenta");
-    // The hub says nothing of a switched-off job: its schedule, in the detail, comes from the gateway's list.
+    // The hub says nothing of a switched-off job: its schedule, in the detail, comes from jarvis-channels' list.
     await row(page, "cron:job-old").click();
     await expect(page.getByTestId("automation-detail")).toContainText("pianificata: 0 8 * * 1");
     for (const key of ["cron:job-docs", "cron:job-mail", "cron:job-old"]) {
       await expect(row(page, key).getByTestId("automation-run")).toBeVisible();
       await expect(row(page, key).getByTestId("automation-remove")).toBeVisible();
     }
-    // The health finding on a job is Jarvis too, but read-only: it is not a job of the gateway.
+    // The health finding on a job is Jarvis too, but read-only: it is not a scheduled job.
     await expect(row(page, "health:job-mail").getByTestId("automation-readonly")).toBeVisible();
     // Mac: read-only, nothing runs or stops a launchd job from here.
     const mac = pane.locator('[data-testid="automations-system"][data-system="mac"]');
@@ -230,12 +230,12 @@ test.describe("automations", () => {
       { method: "DELETE", path: "/api/cron/jobs/job-costs", body: null },
     ]);
 
-    // A refused run says why, in Italian, not the gateway's English.
+    // A refused run says why, in Italian, not the scheduler's English.
     cron.refuseRun = true;
     await row(page, "cron:job-brief").getByTestId("automation-run").click();
     const refusal = pane.getByTestId("automations-refusal");
-    await expect(refusal).toHaveText("Esecuzione non partita: il gateway di Jarvis non risponde.");
-    await expect(refusal).not.toContainText("Gateway error");
+    await expect(refusal).toHaveText("Esecuzione non partita: il pianificatore di Jarvis non risponde.");
+    await expect(refusal).not.toContainText("Scheduler error");
     await expect(row(page, "cron:job-brief").getByTestId("automation-last")).not.toHaveText("eseguita ora");
 
     // A system chip: only its rows.

@@ -68,8 +68,7 @@ export const HIDDEN: ReadonlySet<string> = new Set([
 export function canonicalCommand(name: string, provider: string | null | undefined): string {
   const n = name.replace(/^\//, '').toLowerCase();
   if (declaresClaudeCode(provider)) return CLAUDE_ALIASES[n] ?? n;
-  // Elsewhere only `/new` and `/reset` are `/clear` (CMDUI-06), and not on
-  // OpenClaw, where they are the gateway's own reset gestures.
+  // Elsewhere only `/new` and `/reset` are `/clear` (CMDUI-06).
   return (n === 'new' || n === 'reset') && clearAliasesApply(provider) ? 'clear' : n;
 }
 

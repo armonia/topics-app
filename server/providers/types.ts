@@ -2,8 +2,8 @@
  * AIProvider — abstraction layer for AI inference backends.
  *
  * Implementations:
- *   - OpenClawProvider: wraps gateway-ws.ts (WebSocket + HTTP to OpenClaw Gateway)
  *   - ClaudeProvider:   uses Anthropic SDK directly (standalone mode)
+ *   - claude-code, codex, muse, acp, native: see the files next to this one
  */
 
 import { providerNameForEndpoint } from "../../shared/direct-endpoints";
@@ -170,7 +170,6 @@ export type ProviderCapability =
   | "thinking"       // extended thinking / reasoning visibility
   | "sessions"       // session management (pause, resume, history)
   | "abort"          // can abort an in-progress stream
-  | "context"        // injects external context (OpenClaw SOUL.md, etc.)
   | "tool-phases"    // tells ANNOUNCING a tool apart from RUNNING it: emits
                      // `onToolExecStart` when execution actually begins. A
                      // consumer that suspends a watchdog "because a tool is
@@ -240,12 +239,12 @@ export interface StreamHandler {
    * lo stato al pezzo; i due devono restare coerenti (`cumulato` finisce per
    * `delta`).
    *
-   * Il contratto è scritto qui perché è stato disatteso: `gateway-ws.ts` mandava
+   * Il contratto è scritto qui perché è stato disatteso: il vecchio relay del gateway mandava
    * il messaggio INTERO come primo argomento, e la route compensava indovinando
    * — se il testo era identico al precedente lo scartava. Su claude, openai,
    * codex e claude-code, che i delta li mandano veri, quella regola cancellava
-   * ogni token ripetuto di fila. Chi è cumulativo si normalizza da sé con
-   * `nextTextDelta` (./text-delta.ts) e chiama questo con il pezzo.
+   * ogni token ripetuto di fila. Chi riceve testo cumulativo calcola il pezzo
+   * nuovo da sé e chiama questo con il pezzo.
    */
   onTextDelta: (text: string, fullText: string) => void;
   onThinkingDelta?: (text: string) => void;
@@ -712,11 +711,8 @@ export interface AIProvider {
    */
   brokerTurnState?(sessionKey: string, opts?: { park?: boolean }): Promise<"open" | "idle" | "unknown">;
   getHistory?(sessionKey: string, limit?: number): Promise<unknown>;
-  pauseSession?(sessionKey: string): Promise<void>;
-  resumeSession?(sessionKey: string): Promise<void>;
   listSessions?(options?: { kinds?: string[]; activeMinutes?: number }): Promise<unknown>;
   sendToSession?(sessionKey: string, message: string): Promise<void>;
-  getSessionStatus?(sessionKey: string): Promise<unknown>;
 
   /**
    * Forget everything the model remembers of this session, so the next turn
@@ -730,9 +726,6 @@ export interface AIProvider {
    * `resetSession` rompe quel legame (dimentica l'id, stacca il processo in
    * pool) così lo spawn successivo riparte con `--session-id` su un uuid
    * nuovo: è la stessa semantica che ha `/clear` nella CLI.
-   *
-   * I provider dove la conversazione vive lato server (openclaw) non la
-   * implementano: lì `/clear` passa da `sendToSession`, che è in banda.
    */
   resetSession?(sessionKey: string): Promise<void>;
 
@@ -752,10 +745,6 @@ export interface AIProvider {
    * the epoch is unchanged.
    */
   contextEpoch?(sessionKey: string): number;
-
-  // --- Tools RPC (optional, OpenClaw-specific) ---
-
-  invokeTool?(tool: string, args: ToolArgs): Promise<unknown>;
 
   // --- Diagnostics ---
 
@@ -795,28 +784,9 @@ export interface AIProvider {
    * ledger labels a row with it when the answer does not name its model.
    */
   completionModel?(options?: CompletionOptions): string;
-
-  // --- Event routing ---
-
-  /**
-   * Handle a raw provider event and route it to registered handlers.
-   * Returns true if the event was handled.
-   */
-  routeEvent?(event: unknown): boolean;
-
-  /** Subscribe to provider-level events (connect, disconnect, etc.) */
-  onConnect?(handler: () => void): void;
-  onDisconnect?(handler: (reason: string) => void): void;
 }
 
 // ============ Provider Configuration ============
-
-export interface OpenClawProviderConfig {
-  type: "openclaw";
-  gatewayUrl: string;
-  token: string;
-  refreshToken?: (force?: boolean) => string;
-}
 
 export interface ClaudeProviderConfig {
   type: "claude";
@@ -884,7 +854,6 @@ import type { ClaudeCloudProviderConfig } from "./claude-cloud/provider";
 
 export type ProviderConfig =
   | ClaudeCloudProviderConfig
-  | OpenClawProviderConfig
   | ClaudeProviderConfig
   | ClaudeCodeProviderConfig
   | CodexProviderConfig

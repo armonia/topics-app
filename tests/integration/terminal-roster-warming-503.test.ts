@@ -33,7 +33,7 @@ import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import { createInterface } from "node:readline";
-import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
+import { setupTestDataDir, createTestAppContext, testTmpDir, installDaemonToken } from "./helpers";
 import { TERMINAL_ROSTER_WARMING_CODE } from "../../shared/terminal-messages";
 import type { AppContext } from "../../server/types";
 
@@ -92,15 +92,15 @@ let ctx: AppContext;
 let terminalRouter: (req: Request, url: URL, pathname: string, method: string) => Promise<Response | null> | Response | null;
 
 /** `/send` is token-gated (it is raw stdin into a `--dangerously-skip-permissions`
- *  PTY). The test presents the gateway token so the request reaches the routing
+ *  PTY). The test presents the daemon token so the request reaches the routing
  *  decision under test instead of stopping at the credential check. */
-const GATEWAY_TOKEN = "warming-test-gateway-token";
+let DAEMON_TOKEN = "";
 
 async function call(method: string, path: string, body?: unknown, authed = false): Promise<Response> {
   const url = new URL(`http://h${path}`);
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  if (authed) headers["x-gateway-token"] = GATEWAY_TOKEN;
+  if (authed) headers["x-daemon-token"] = DAEMON_TOKEN;
   const req = new Request(url, {
     method,
     headers,
@@ -124,7 +124,7 @@ beforeAll(async () => {
   setupTestDataDir(TEST_DATA);
   delete process.env.TOPICS_DISABLE_PTY_BRIDGE;
   delete process.env.TOPICS_EMBEDDED;
-  process.env.GATEWAY_TOKEN = GATEWAY_TOKEN;
+  DAEMON_TOKEN = installDaemonToken();
   bridge = await startFakeBridge();
 
   ctx = await createTestAppContext();

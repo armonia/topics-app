@@ -170,7 +170,7 @@ beforeAll(() => {
   // (0 bytes both ways). Closing is idempotent.
   closeDatabase();
   process.env.DATA_DIR = join(tmpRoot, "data");
-  process.env.OPENCLAW_DIR = join(tmpRoot, "openclaw");
+  process.env.APP_DATA_DIR = join(tmpRoot, "app-data");
   ctx = createAppContext(tmpRoot);
   // Without this SQLite recycles the WAL every 1000 pages and the measure
   // would read the checkpoint cadence instead of the bytes written.

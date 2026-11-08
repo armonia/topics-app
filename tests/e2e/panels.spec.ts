@@ -80,7 +80,7 @@ test.describe("Panels & Views", () => {
     //     default "Add pane" (PaneTabBar non lo sovrascrive: l'header di App
     //     usa "New (⌘N)" e la sidebar "Add to project", quindi questo title
     //     identifica UNA sola affordance).
-    // Nessun feature-flag, nessun gate openclaw, nessun ramo desktop-only,
+    // Nessun feature-flag, nessun gate di provider, nessun ramo desktop-only,
     // nessuna fetch di mezzo: l'asserzione va incondizionata.
     //
     // Pane-store azzerato prima di caricare: con un layout ereditato dagli

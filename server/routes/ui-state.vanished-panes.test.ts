@@ -26,7 +26,7 @@ afterEach(() => rmSync(realDir, { recursive: true, force: true }));
 
 describe("dropVanishedProjectPanes", () => {
   it("il pannello della cartella sparita confluisce in quello vero", () => {
-    const vanished = join(homedir(), ".openclaw", "workspace", realDir.split("/").pop()!);
+    const vanished = join(homedir(), ".app-data", "workspace", realDir.split("/").pop()!);
     const input = { panes: { [paneKey(vanished)]: { a: 1 }, [paneKey(realDir)]: { a: 2 } } };
     const output = dropVanishedProjectPanes(input, "pane-store-v2") as any;
     expect(Object.keys(output.panes)).toEqual([paneKey(realDir)]);
@@ -34,7 +34,7 @@ describe("dropVanishedProjectPanes", () => {
   });
 
   it("LA FILA DELLE TAB e' cio' che si vedeva doppio: l'id vecchio va rimappato, non lasciato", () => {
-    const vanished = join(homedir(), ".openclaw", "workspace", realDir.split("/").pop()!);
+    const vanished = join(homedir(), ".app-data", "workspace", realDir.split("/").pop()!);
     const input = {
       panes: { [paneKey(realDir)]: { a: 1 } },
       groups: { "group:default": { paneIds: [paneKey(vanished), "terminal:x", paneKey(realDir)] } },
@@ -44,7 +44,7 @@ describe("dropVanishedProjectPanes", () => {
   });
 
   it("rimappa anche un projectPath scritto per esteso, non solo l'id", () => {
-    const vanished = join(homedir(), ".openclaw", "workspace", realDir.split("/").pop()!);
+    const vanished = join(homedir(), ".app-data", "workspace", realDir.split("/").pop()!);
     const input = { panes: { [paneKey(realDir)]: { a: 1 } }, closedStack: [{ projectPath: vanished }] };
     const output = dropVanishedProjectPanes(input, "pane-store-v2") as any;
     expect(output.closedStack[0].projectPath).toBe(realDir);

@@ -58,7 +58,7 @@ function makeHarness(opts: { streams: string[]; stale?: string[]; topics: Topic[
   }
   const calls = { loadTopics: 0, getTopicBySessionKey: 0 };
   const ctx = {
-    OPENCLAW_DIR: "/nonexistent-openclaw-dir",
+    APP_DATA_DIR: "/nonexistent-app-data-dir",
     activeStreams,
     isStreaming: (k: string) => activeStreams.get(k),
     loadTopics: () => { calls.loadTopics += 1; return { topics: Object.fromEntries(topics) }; },

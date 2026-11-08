@@ -32,23 +32,23 @@ function card(key: string, provider: string, level: string, extra: Record<string
   };
 }
 
-const DOCS = card('cron:job-docs', 'openclaw', 'rotto', {
+const DOCS = card('cron:job-docs', 'jarvis', 'rotto', {
   title: 'Indice dei documenti', since: NOW - HOUR,
   history: [{ at: NOW - 10 * MIN, outcome: 'error' }, { at: NOW - 70 * MIN, outcome: 'error' }, { at: NOW - 130 * MIN, outcome: 'ok' }],
   purpose: { area: 'jarvis-agenti', cosaFaPerTe: 'Reindicizza le note.', seSiRompe: 'Attilio potrebbe cercare una nota e non trovarla.' },
   usage: { kind: 'tokens', d1: { muse: 12_000 }, d7: { muse: 80_000, claude: 4_000 } },
   who: 'Muse Spark', means: 'niente, se va tutto bene', project: { name: 'acme-docs', icon: '/api/project-icon?name=acme-docs' },
-  where: { icon: 'openclaw', label: 'OpenClaw' }, nextApprox: true,
+  where: { icon: 'jarvis', label: 'Jarvis' }, nextApprox: true,
   flow: { steps: 2, ai: true, nodes: [{ kind: 'step', label: 'legge le note' }, { kind: 'model', label: 'Muse', who: [{ name: 'Muse', brand: 'muse' }, { name: 'Sonnet', brand: 'claude' }] }] },
   tech: { exit: 1, schedule: '0 * * * *', command: 'node reindex.mjs', url: 'javascript:alert(1)' },
   feedback: { vote: { v: 'cambia', at: '2026-11-01T10:00:00Z', note: 'il percorso è cambiato' }, changedSinceVote: true, mute: null, open: 2, notes: [] },
 });
 const GATE = card('lobster:release', 'lobster', 'te', { title: 'Rilascio', reason: 'aspetta il tuo ok al passo «pubblica»' });
 const GH = card('gh:acme/acme-web/nightly.yml', 'github', 'rotto', { tech: { exit: 1, url: 'https://github.com/acme/acme-web/actions/runs/1' }, group: 'prodotti' });
-const MAIL = card('cron:job-mail', 'openclaw', 'va', {
+const MAIL = card('cron:job-mail', 'jarvis', 'va', {
   title: 'Avviso mail', group: 'arriva', warn: 'si sta riprendendo dopo 3 errori di fila', usage: { kind: 'unmeasured' },
   last: { at: NOW - MIN, outcome: 'ok', delivered: 'delivered' }, proof: { ok: true, words: 'ultimo avviso alle 22:25' },
-  sources: [{ provider: 'openclaw' }, { provider: 'health' }],
+  sources: [{ provider: 'jarvis' }, { provider: 'health' }],
 });
 const DARKROOM = card('launchd:com.example.darkroom', 'launchd', 'rotto', { own: true, purpose: { area: 'computer-app' } });
 
@@ -61,14 +61,14 @@ const MODEL = {
   usage: { d1: { muse: 12_000 }, d7: { muse: 80_000, claude: 4_000 }, unmeasured: 1, script: 3 },
   footer: {
     sources: [
-      { name: 'openclaw', label: 'OpenClaw', ok: true, at: NOW - MIN, pending: false, note: null },
+      { name: 'jarvis', label: 'Jarvis', ok: true, at: NOW - MIN, pending: false, note: null },
       { name: 'github', label: 'GitHub', ok: false, at: null, pending: false, note: '?' },
       { name: 'pc', label: 'PC di casa', ok: true, at: null, pending: false, note: 'PC dorme' },
     ],
     hidden: { count: 1, why: [{ title: 'Vecchio controllo', reason: 'silenziata fino al 12/11' }] },
   },
   brakes: { 'cron:job-docs': { stateText: 'in pausa fino alle 23:00 perché Claude è al 92%', until: NOW + 34 * MIN } },
-  reminders: [{ key: 'cron:rem-pr', reminder: true, who: 'Jarvis su OpenClaw' }],
+  reminders: [{ key: 'cron:rem-pr', reminder: true, who: 'Jarvis' }],
   tasks: [{ key: 'task:quote', who: null }],
 };
 
@@ -82,7 +82,7 @@ describe('the model around the rows', () => {
     expect(m.sources.find((s) => s.name === 'pc')!.asleep).toBe(true);
     expect(m.hidden).toEqual([{ title: 'Vecchio controllo', reason: 'silenziata fino al 12/11' }]);
     expect(m.brakes['cron:job-docs']!.text).toContain('Claude è al 92%');
-    expect(m.calendarWho).toEqual({ 'cron:rem-pr': 'Jarvis su OpenClaw' });
+    expect(m.calendarWho).toEqual({ 'cron:rem-pr': 'Jarvis' });
   });
 
   test('the computer\'s own apps are read apart, outside the rows', () => {
@@ -102,7 +102,7 @@ describe('a card read whole', () => {
     expect(ifBrokenToYou(docs.ifBroken!)).toBe('potresti cercare una nota e non trovarla.');
     expect(usageTotal(docs.usage)).toBe(84_000);
     expect(usageTotal(docs.usage, 'd1')).toBe(12_000);
-    expect([docs.who, docs.means, docs.where, docs.nextApprox]).toEqual(['Muse Spark', 'niente, se va tutto bene', 'OpenClaw', true]);
+    expect([docs.who, docs.means, docs.where, docs.nextApprox]).toEqual(['Muse Spark', 'niente, se va tutto bene', 'Jarvis', true]);
     expect(docs.project).toEqual({ name: 'acme-docs', icon: '/api/project-icon?name=acme-docs' });
     expect(docs.flow!.steps).toBe(2);
     expect(docs.flow!.nodes[1]!.who.map((w) => w.brand)).toEqual(['muse', 'claude']);
@@ -124,7 +124,7 @@ describe('a card read whole', () => {
     expect(mail.warn).toBe('si sta riprendendo dopo 3 errori di fila');
     expect(mail.delivered).toBe('delivered');
     expect(mail.proof).toEqual({ ok: true, words: 'ultimo avviso alle 22:25' });
-    expect(mail.sources).toEqual(['openclaw', 'health']);
+    expect(mail.sources).toEqual(['jarvis', 'health']);
     expect(mail.usage).toEqual({ kind: 'unmeasured' });
     // Without an area the old group guesses it, as the hub does.
     expect(mail.area).toBe('posta-avvisi');
@@ -209,7 +209,7 @@ describe('the scheme step by step', () => {
     run: { at: NOW - 10 * MIN, ms: 4_000, outcome: 'ok' },
     from: ['~/bin/reindex.sh'],
     nodes: [
-      { id: 'trigger', kind: 'trigger', label: 'pianificato da OpenClaw', params: [{ k: 'Ripete', v: 'ogni ora' }] },
+      { id: 'trigger', kind: 'trigger', label: 'pianificato da Jarvis', params: [{ k: 'Ripete', v: 'ogni ora' }] },
       { id: 's0', kind: 'step', label: 'legge le note', detail: '~/notes', outcome: 'ok', inferred: true },
       { id: 'model', kind: 'model', label: 'Modello', options: [
         { exec: 'muse', name: 'Muse', model: 'muse-spark-1.3', outcome: 'error', note: 'quota finita' },

@@ -208,11 +208,9 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
       hasScreenshot: true,
     });
 
-    // The test server boots with provider=openclaw by default (per
-    // server.ts startup log "[Server] AI provider: openclaw"). browserTools
-    // are passthrough only for `claude` and `openai` providers (see
-    // isPassthroughProvider in server/browser-tools-adapters.ts). For
-    // the openclaw gateway, tool surface is upstream-managed and no
+    // browserTools are passthrough only for the `claude` and `openai`
+    // providers (see isPassthroughProvider in
+    // server/browser-tools-adapters.ts). On any other default provider no
     // outbound HTTP fires to api.anthropic.com / api.openai.com — the
     // route mock will never resolve. Skip in that environment.
     const providerInfo = await request

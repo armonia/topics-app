@@ -739,7 +739,7 @@ async function openPaneCount(api: APIRequestContext, base: string): Promise<numb
 }
 
 /** Poll each agent's scrollback until its prompt is up. Reads the buffer route,
- *  which is token-gated; the bench server runs with the e2e token. */
+ *  which is token-gated: the daemon token the bench server wrote at boot. */
 async function waitForAgentPrompts(
   api: APIRequestContext,
   base: string,
@@ -748,12 +748,14 @@ async function waitForAgentPrompts(
 ): Promise<number> {
   const ready = new Set<string>();
   const deadline = Date.now() + timeoutMs;
+  const { daemonAuthHeaders } = await import("../../tests/e2e/helpers/test-server");
+  const port = Number(new URL(base).port);
   while (Date.now() < deadline && ready.size < sessionIds.length) {
     for (const id of sessionIds) {
       if (ready.has(id)) continue;
       try {
         const res = await api.get(`${base}/api/terminal/sessions/${id}/buffer`, {
-          headers: { "x-gateway-token": process.env.GATEWAY_TOKEN ?? "test-token" },
+          headers: daemonAuthHeaders(port),
         });
         if (!res.ok()) continue;
         const body = (await res.json()) as { buffer?: string };

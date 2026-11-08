@@ -26,7 +26,7 @@ import {
   createTopic, deleteAllTerminalSessions, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane,
 } from "./helpers/api-fixtures";
 import { projectPanesKey } from "../../shared/project-keys";
-import { E2E_BASE } from "./helpers/test-server";
+import { E2E_BASE, daemonAuthHeaders } from "./helpers/test-server";
 import { closeTabViaCommand } from "./helpers/layout";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { fakeTauriShell } from "./helpers/fake-tauri-shell";
@@ -38,7 +38,6 @@ hermetic(test);
 test.describe.configure({ timeout: 120_000 });
 
 const STAMP = Date.now();
-const TOKEN = { "x-gateway-token": process.env.GATEWAY_TOKEN ?? "test-token" };
 const AGENT_NAME = `E2E sub-agent ${STAMP}`;
 const TOPIC_NAME = `E2E substrip ${STAMP}`;
 
@@ -64,7 +63,7 @@ test.beforeEach(async ({ request }) => {
  */
 async function spawnSubAgent(request: APIRequestContext, name: string, cwd = "/tmp"): Promise<string> {
   const spawned = await request.post(`${E2E_BASE}/api/sessions/${encodeURIComponent(sessionKey)}/agents/spawn`, {
-    headers: TOKEN,
+    headers: daemonAuthHeaders(),
     data: { prompt: "wait for instructions", name, cwd },
   });
   expect(spawned.ok(), `spawn refused: ${spawned.status()} ${await spawned.text()}`).toBe(true);
@@ -94,7 +93,7 @@ async function spawnSubAgent(request: APIRequestContext, name: string, cwd = "/t
 
 /** The parent's `stop_agent`, then wait until the server's roster lets it go. */
 async function stopSubAgent(request: APIRequestContext, id: string): Promise<void> {
-  await request.post(`${E2E_BASE}/api/sessions/${encodeURIComponent(sessionKey)}/agents/${id}/stop`, { headers: TOKEN });
+  await request.post(`${E2E_BASE}/api/sessions/${encodeURIComponent(sessionKey)}/agents/${id}/stop`, { headers: daemonAuthHeaders() });
   await expect.poll(() => serverLists(request, id), { timeout: 30_000 }).toBe(false);
 }
 

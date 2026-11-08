@@ -1,6 +1,6 @@
 /**
- * The runs of one automation, in its detail. An OpenClaw job's come from the
- * gateway through the hub, read when the detail opens: when, how long, the
+ * The runs of one automation, in its detail. A Jarvis job's come from
+ * jarvis-channels through the hub, read when the detail opens: when, how long, the
  * outcome, «lanciato a mano», whether it wrote to you (and on what) or why
  * not, and, opened, what it produced and its error in full, the report of
  * the day and the model with its tokens. The heading counts the failed ones
@@ -30,7 +30,7 @@ function RunMark({ outcome }: { outcome: RunOutcome | null | 'running' }) {
 
 const CHANNEL: Record<string, string> = { whatsapp: 'WhatsApp', discord: 'Discord', telegram: 'Telegram' };
 
-/** One run of an OpenClaw job: a line, and when it has more to say a fold that opens on the rest. */
+/** One run of a Jarvis job: a line, and when it has more to say a fold that opens on the rest. */
 function CronRunRow({ r, now, clock }: { r: CronRun; now: number; clock: Clock }) {
   const tr = useT();
   const locale = useLocale();

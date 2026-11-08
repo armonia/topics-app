@@ -114,7 +114,7 @@ Frizioni reali: switch cross-device lento e instabile [issue #1170], sync Androi
 in timeout [issue #1208], cambio locale-remoto che fallisce al primo avvio [issue #1136].
 
 ## Provider e protocolli
-Claude Code, Codex, Gemini, Agy (CLI Antigravity) e OpenClaw hanno backend dedicati, più un backend ACP generico che
+Claude Code, Codex, Gemini, Agy (CLI Antigravity) e un gateway di agenti esterno hanno backend dedicati, più un backend ACP generico che
 accetta qualunque agente compatibile [codice: packages/happy-cli/src/agent/acp/AcpBackend.ts:1].
 Il README promette anche Grok fra i provider orchestrati [README].
 Le credenziali sono quelle dell'host: se il login Claude scade, l'app dice di rilanciare il login sulla macchina host

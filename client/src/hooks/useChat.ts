@@ -1622,7 +1622,7 @@ export function useChat() {
 
       case 'stream:tool_update':
         // Live partial result from a long-running tool (e.g. a Bash that
-        // streams output). The native runtime, codex, acp and openclaw emit
+        // streams output). The native runtime, codex and acp emit
         // these; the `cli` runtime cannot (its stream carries only heartbeats,
         // no output). Patch the running tool's `result` field with
         // the partial so the user sees output flowing in instead of staring

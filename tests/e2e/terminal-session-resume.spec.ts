@@ -74,8 +74,8 @@ async function killServer(): Promise<void> {
  *
  *  L'ambiente arriva da `testServerEnv()` — la stessa funzione che usa
  *  global-setup — perché la copia scritta a mano qui era già divergente: non
- *  passava né TOPICS_HOME né OPENCLAW_DIR, quindi il server ripartiva MENO
- *  isolato di come era partito, leggendo la config OpenClaw dell'utente vero.
+ *  passava né TOPICS_HOME né APP_DATA_DIR, quindi il server ripartiva MENO
+ *  isolato di come era partito, leggendo i dati dell'app dell'utente vero.
  *  In particolare TOPICS_PTY_SOCKET è indispensabile: senza, il server deriva
  *  il socket del bridge dalla cwd = il bridge di PRODUZIONE, e il suo reconcile
  *  ammazza le PTY Claude vive del server di sviluppo. */
