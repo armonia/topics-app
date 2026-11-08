@@ -62,26 +62,26 @@ export function buildProjectNames(
   registered: readonly RegisteredProjectRow[],
   knownDirs: readonly string[] = [],
 ): Map<string, ProjectNameEntry> {
-  type Identity = { boardId: string; rowId: string | null; base: string; path: string | null; archived: boolean };
-  const identities = new Map<string, Identity>();
+  type ProjectEntry = { boardId: string; rowId: string | null; base: string; path: string | null; archived: boolean };
+  const projectEntries = new Map<string, ProjectEntry>();
   for (const row of registered) {
     const path = row.path ? trimPath(row.path) : null;
     const boardId = path ? projectIdForPath(path) : row.id;
     const base = projectDisplayName(path, row.name) ?? boardId;
     // Two rows on one path are one project: the first registered name wins.
-    if (!identities.has(boardId)) identities.set(boardId, { boardId, rowId: row.id, base, path, archived: !!row.archived });
+    if (!projectEntries.has(boardId)) projectEntries.set(boardId, { boardId, rowId: row.id, base, path, archived: !!row.archived });
   }
   for (const raw of knownDirs) {
     if (typeof raw !== "string" || !raw.startsWith("/")) continue;
     const path = trimPath(raw);
     const boardId = path ? projectIdForPath(path) : "";
-    if (!boardId || identities.has(boardId)) continue;
-    identities.set(boardId, { boardId, rowId: null, base: projectDisplayName(path, null) ?? boardId, path, archived: false });
+    if (!boardId || projectEntries.has(boardId)) continue;
+    projectEntries.set(boardId, { boardId, rowId: null, base: projectDisplayName(path, null) ?? boardId, path, archived: false });
   }
   const sharedBy = new Map<string, number>();
-  for (const i of identities.values()) if (!i.archived) sharedBy.set(i.base, (sharedBy.get(i.base) ?? 0) + 1);
+  for (const i of projectEntries.values()) if (!i.archived) sharedBy.set(i.base, (sharedBy.get(i.base) ?? 0) + 1);
   const out = new Map<string, ProjectNameEntry>();
-  for (const i of identities.values()) {
+  for (const i of projectEntries.values()) {
     const entry: ProjectNameEntry = {
       projectId: i.boardId,
       name: (sharedBy.get(i.base) ?? 0) > 1 ? `${i.base} (${i.boardId})` : i.base,
