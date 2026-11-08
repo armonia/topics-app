@@ -44,6 +44,13 @@ function parentWithParkedChild(s: TaskService): { padre: string; figlio: string 
 const archiviato = (db: Database, id: string) =>
   (db.prepare("SELECT archived FROM tasks WHERE id = ?").get(id) as { archived: number }).archived;
 
+/**
+ * A parent that already had a turn. Without it, a never-worked backlog parent
+ * is a container and the sweep skips it (see the last describe).
+ */
+const hadATurn = (db: Database, id: string) =>
+  db.run("UPDATE tasks SET dispatch_attempts = 1 WHERE id = ?", [id]);
+
 const lastComment = (s: TaskService, id: string) => {
   const c = s.get(id)!.comments.filter((x) => x.kind !== "status");
   return c[c.length - 1]!.content;
@@ -330,6 +337,7 @@ describe("il rastrello arriva anche sulle card già ferme", () => {
   test("il secondo giro non ripete niente: la domanda è già sulla card", () => {
     const padre = s.create({ projectId: PID, text: "Il padre di ieri" }).id;
     s.create({ projectId: PID, text: "Lo step di ieri", parentTaskId: padre });
+    hadATurn(db, padre);
 
     expect(s.sweepParkedChildren()).toHaveLength(1);
     expect(s.sweepParkedChildren()).toHaveLength(0);
@@ -389,6 +397,7 @@ describe("il rastrello arriva anche sulle card già ferme", () => {
   test("la board spenta resta com'è", () => {
     const padre = s.create({ projectId: PID, text: "Su una board spenta" }).id;
     s.create({ projectId: PID, text: "Uno step", parentTaskId: padre });
+    hadATurn(db, padre);
 
     expect(s.sweepParkedChildren({ eligible: () => false })).toEqual([]);
     expect(s.get(padre)!.task.status).toBe("backlog");
@@ -606,5 +615,34 @@ describe("chiudere l'ultimo figlio rimette in moto il padre", () => {
     db.run("UPDATE tasks SET archived = 1 WHERE id = ?", [padre]);
     s.update({ taskId: figli[0]!, actor: "human", by: "attilio", patch: { status: "done" } });
     expect(riga(padre).dispatch_state).toBe("waiting");
+  });
+});
+
+/**
+ * THE CONTAINER PARENT. Measured 08/11: 15 parents made in backlog to group
+ * existing cards, 11 pushed to review on the first tick with the parked
+ * children question. No agent had ever touched them.
+ */
+describe("una parentId mai lavorata in backlog e' un contenitore", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { clock = 0; db = freshDb(); s = svc(db); });
+
+  test("il rastrello non la tocca: resta in backlog, senza commenti", () => {
+    const parentId = s.create({ projectId: PID, text: "Raggruppa i doppioni" }).id;
+    s.create({ projectId: PID, text: "Card A", parentTaskId: parentId });
+    s.create({ projectId: PID, text: "Card B", parentTaskId: parentId });
+
+    expect(s.sweepParkedChildren({ by: "dispatcher", eligible: () => true })).toEqual([]);
+    const got = s.get(parentId)!;
+    expect(got.task.status).toBe("backlog");
+    expect(got.comments.filter((c) => c.kind !== "status")).toEqual([]);
+  });
+
+  test("appena un turno l'ha toccata torna una parentId vera, e il rastrello chiede", () => {
+    const parentId = s.create({ projectId: PID, text: "Raggruppa i doppioni" }).id;
+    s.create({ projectId: PID, text: "Card A", parentTaskId: parentId });
+    hadATurn(db, parentId);
+
+    expect(s.sweepParkedChildren({ eligible: () => true }).map((t) => t.id)).toEqual([parentId]);
   });
 });
