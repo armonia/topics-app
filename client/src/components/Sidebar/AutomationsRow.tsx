@@ -33,7 +33,7 @@ export function AutomationsRow({ open }: { open: boolean }) {
       aria-selected={open}
       data-testid="sidebar-automations"
       onClick={() => window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'automations' } }))}
-      className={`flex items-center gap-2 leading-none ${ROW_PX} ${ROW_H} select-none ${sidebarRowCard({ focused: open })}`}
+      className={`flex flex-shrink-0 items-center gap-2 leading-none ${ROW_PX} ${ROW_H} select-none ${sidebarRowCard({ focused: open })}`}
       style={{ width: `calc(100% - ${ROW_INSET * 2}px)` }}
     >
       <span className={ROW_GLYPH_SLOT} data-row-glyph-slot="glyph">

@@ -48,6 +48,20 @@ const IT: Dict = {
   'accounts.notifHint': 'Notifiche del Mac su cambi di account, limiti ed errori',
   // The sidebar row and the palette entry of «Automazioni»; the view's own
   // strings come with its chunk (`i18n-automations-it.ts`).
+  // The «Agenti» row and its view: the always-on agents' sessions, by agent.
+  'agents.open': 'Agenti',
+  'agents.openHint': 'Le sessioni di Jarvis, Visione e degli altri agenti, divise per agente',
+  'agents.working': '{n} al lavoro',
+  'agents.title': 'Agenti',
+  'agents.lede': 'Le chat che gli agenti portano avanti da soli, da Discord, WhatsApp e dai lavori a orario.',
+  'agents.empty': 'Nessuna sessione di agenti su questo computer.',
+  'agents.state.working': 'sta lavorando',
+  'agents.state.waiting': 'aspetta te',
+  'agents.state.idle': 'fermo',
+  'agents.sessions': '{n} sessioni',
+  'agents.sessionsOne': '1 sessione',
+  'agents.last': 'ultima attività {when}',
+  'agents.subagents': '{n} sotto-agenti',
   'automations.open': 'Automazioni',
   'automations.openHint': 'Lavori a orario di Jarvis, Mac, GitHub, PC e workflow',
   'automations.toFix': '{n} da sistemare',
