@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 import { engineModelOf, nativeChildPlace, nativeTurnOutcome, placeableUnderKnownProject } from "./native-subagents";
 import { engineToolsOfProfile, toolAllowedByPolicy } from "./subagent-tool-policy";
 
@@ -103,7 +104,7 @@ describe("a folder a native child may call home (SUBAGENT-17)", () => {
       const repo = join(root, "repo");
       const wt = join(root, "repo-wt");
       const run = (args: string[], cwd: string) => {
-        const r = spawnSync("git", args, { cwd, encoding: "utf-8" });
+        const r = spawnSync("git", args, { cwd, encoding: "utf-8", env: gitEnv() });
         if (r.status !== 0) throw new Error(r.stderr);
       };
       mkdirSync(repo);

@@ -21,9 +21,8 @@
  * and then retires; a native one is already `retired` when its turn ends: it
  * holds no slot, and `send_to_agent` sends it the next turn.
  */
-import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { basename, dirname, isAbsolute, resolve } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getDatabase } from "../db";
 import type { StoredMessage, Topic } from "../types";
 import type { SubAgentOutcome } from "./subagent-result";
@@ -157,13 +156,29 @@ export function placeableUnderKnownProject(
   return !!common && basename(common) === ".git" && isProject(dirname(common));
 }
 
-/** The repository's shared `.git` of a checkout (absolute), or null: no git, no folder, no answer in 1 s. */
+/**
+ * The repository's shared `.git` of a checkout (absolute), or null. Read from
+ * the files git itself writes, no process: a worktree's `.git` is a file that
+ * names its folder under the repository (`gitdir: …/.git/worktrees/<name>`),
+ * and that folder's `commondir` names the shared `.git`. A spawn of `git` here
+ * would block the server on every `spawn_agent`.
+ */
 function readGitCommonDir(dir: string): string | null {
   try {
-    if (!existsSync(dir)) return null;
-    const r = spawnSync("git", ["-C", dir, "rev-parse", "--path-format=absolute", "--git-common-dir"], { encoding: "utf-8", timeout: 1000 });
-    const out = r.status === 0 ? (r.stdout ?? "").trim() : "";
-    return out || null;
+    for (let cur = dir; ;) {
+      const dotGit = join(cur, ".git");
+      if (existsSync(dotGit)) {
+        if (statSync(dotGit).isDirectory()) return dotGit;
+        const m = /^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, "utf8"));
+        if (!m) return null;
+        const gitDir = resolve(cur, m[1]!.trim());
+        const common = join(gitDir, "commondir");
+        return existsSync(common) ? resolve(gitDir, readFileSync(common, "utf8").trim()) : gitDir;
+      }
+      const up = dirname(cur);
+      if (up === cur) return null;
+      cur = up;
+    }
   } catch {
     return null;
   }
