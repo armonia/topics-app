@@ -168,7 +168,7 @@ describe('outbound registry contract', () => {
     // the outbound surface grew (and to document it in WS-PROTOCOL.md).
     //
     // 2026-08-05, −12 → tutta la famiglia `agent:*` / `agents:*`: profili,
-    // assegnazioni, heartbeat, escalation e il roster di sessioni di OpenClaw.
+    // assegnazioni, heartbeat, escalation e il roster di sessioni del gateway.
     // Un agente è il provider che hai scelto, non un personaggio con un nome, e
     // i sotto-agenti di un turno sono sessioni di terminale con un
     // `parentSessionKey` — viaggiano sui frame `terminal:*`.
@@ -459,7 +459,7 @@ describe('validateOutbound — final 100% coverage cluster', () => {
 // ----- Day-3 additions: approval + stream + message + misc ---------------
 //
 // Il cluster `agent:*` / `agents:*` non c'è più: profili, assegnazioni,
-// heartbeat e il roster di sessioni di OpenClaw sono usciti dal registro
+// heartbeat e il roster di sessioni del gateway sono usciti dal registro
 // insieme alle loro pane (vedi la lista bloccata qui sopra).
 
 describe('validateOutbound — stream cluster', () => {

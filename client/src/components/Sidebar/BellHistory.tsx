@@ -8,8 +8,9 @@
  * and how many failed. Moved out of `InboxPanel.tsx`, which sat at the
  * `check:bloat` ceiling.
  */
-import { useState } from 'react';
-import { Inbox as InboxIcon, MessageSquare, Server, SquareCheck, TerminalSquare } from 'lucide-react';
+import { createElement, useState } from 'react';
+import { Inbox as InboxIcon } from 'lucide-react';
+import { historyRowIcon, historyTitle } from '../../lib/notify/historyGlyph';
 import { useT } from '../../hooks/useT';
 import { useMobile } from '../../hooks/useMobile';
 import { useLoadOnReach } from '../../hooks/useLoadOnReach';
@@ -142,7 +143,7 @@ function HistoryRow({ row, lit, onClose }: { row: NotificationRow; lit: boolean;
   const tr = useT();
   const { isMobile } = useMobile();
   const system = row.kind === 'system';
-  const Icon = system ? Server : row.groupKey?.startsWith('terminal:') ? TerminalSquare : row.targetKind === 'task' ? SquareCheck : MessageSquare;
+  const title = historyTitle(row.title);
   const at = Date.parse(row.createdAt);
   return (
     <li>
@@ -156,11 +157,11 @@ function HistoryRow({ row, lit, onClose }: { row: NotificationRow; lit: boolean;
         data-testid="inbox-history-row"
         data-lit={lit ? 'true' : undefined}
       >
-        <Icon size={15} className="self-start mt-[3px] flex-shrink-0 text-app-text-tertiary" aria-hidden="true" />
+        {createElement(historyRowIcon(row), { size: 15, className: 'self-start mt-[3px] flex-shrink-0 text-app-text-tertiary', 'aria-hidden': true })}
         <span className="min-w-0 flex-1">
-          <span className={`block font-medium text-app-text truncate ${isMobile ? 'text-body-lg' : 'text-compact leading-4'}`}>{system ? tr('inbox.system') : row.title}</span>
+          <span className={`block font-medium text-app-text truncate ${isMobile ? 'text-body-lg' : 'text-compact leading-4'}`}>{system ? tr('inbox.system') : title}</span>
           <span className={`flex items-center gap-[5px] text-app-text-secondary min-w-0 whitespace-nowrap ${isMobile ? 'text-prose' : 'text-compact leading-4'}`}>
-            <span className="truncate">{system ? row.title : row.body}</span>
+            <span className="truncate">{system ? title : row.body}</span>
             {Number.isFinite(at) && <span className="flex-shrink-0 text-app-text-muted">·</span>}
             {Number.isFinite(at) && <BellTime at={at} className="text-app-text-muted" />}
           </span>

@@ -65,7 +65,7 @@ describe('jobTitle: never the raw prompt', () => {
   });
 
   test('an automation sent to repair keeps its name, without the hub notes', () => {
-    expect(repairName('Automazione «Backup del Mac» (chiave cron:3ca8e3df), eseguita da OpenClaw. Stato: rotta.')).toBe('Backup del Mac');
+    expect(repairName('Automazione «Backup del Mac» (chiave cron:3ca8e3df), eseguita da Jarvis. Stato: rotta.')).toBe('Backup del Mac');
     expect(repairName('Automazione «Build: ripartenza lun 26/10 (sync, build) (d5ce1d64): aspetta una» (chiave health:x)')).toBe('Build: ripartenza lun 26/10');
     expect(jobTitle('Automazione «Backup del Mac» (chiave cron:3ca8e3df).')).toBe('');
     expect(repairName('Rigenera gli screenshot')).toBeNull();
@@ -158,7 +158,7 @@ describe('agentsJobs: the three filters', () => {
     ] }] }] },
     needsYou: [
       { key: 'lobster:publish', provider: 'lobster', title: 'Pubblica la landing di acme-web', reason: 'aspetta il tuo ok al passo «deploy» da 14 min', since: NOW - 14 * MIN },
-      { key: 'cron:x', provider: 'openclaw', title: 'Una automazione rotta', reason: 'ha fallito', since: NOW - HOUR },
+      { key: 'cron:x', provider: 'jarvis', title: 'Una automazione rotta', reason: 'ha fallito', since: NOW - HOUR },
     ],
   };
   const proxy = {

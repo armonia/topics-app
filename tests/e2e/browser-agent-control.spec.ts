@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures/browser-v2.fixture";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { readFileSync } from "fs";
-import { E2E_BASE, E2E_WS_BASE } from "./helpers/test-server";
+import { E2E_BASE, E2E_WS_BASE, daemonAuthHeaders } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { serveFixturePage, type FixturePage } from "./helpers/fixture-page-server";
 
@@ -200,12 +200,11 @@ test.describe("BROWSER-CHAT-03 Agent control + native browser tools (@plan-30-05
   });
 
   test("manage any tab: list-tabs discovers another topic's pane + contextId targets it cross-session [BROWSER-CHAT-03 / @plan-30-05]", async ({ request }) => {
-    // The MCP bridge is token-gated. The Playwright process shares the spawned
-    // test server's env, so read the SAME token it was started with (falls back
-    // to the start-test-server.sh default).
+    // The MCP bridge is token-gated: send the daemon token the test server
+    // wrote into its own home at boot.
     const gw = {
       "Content-Type": "application/json",
-      "x-gateway-token": process.env.GATEWAY_TOKEN ?? "test-token",
+      ...daemonAuthHeaders(),
     };
     const topic = await createTopic(request, `E2E-AnyTab-${Date.now()}`);
     const ctxId = topic.id;
@@ -259,7 +258,7 @@ test.describe("BROWSER-CHAT-03 Agent control + native browser tools (@plan-30-05
     }
   });
 
-  test("OpenClaw bridge removed - 4 grep gates return 0 [BROWSER-CHAT-03 / @plan-30-05]", async () => {
+  test("Old gateway browser bridge removed - 4 grep gates return 0 [BROWSER-CHAT-03 / @plan-30-05]", async () => {
     const src = readFileSync("server/routes/topics.ts", "utf-8");
     expect((src.match(/browserTargetIdCache/g) ?? []).length).toBe(0);
     expect((src.match(/BROWSER ISOLATION/g) ?? []).length).toBe(0);

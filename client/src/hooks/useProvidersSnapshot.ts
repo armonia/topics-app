@@ -3,7 +3,7 @@
  * snapshot store. The store owns the single HTTP fetch + WS subscription;
  * this hook just observes.
  *
- * All consumers (picker, settings, OpenClaw availability gate) share the same
+ * All consumers (picker, settings, model chip) share the same
  * store, so first paint produces exactly one `/api/providers/snapshot` request
  * regardless of how many hooks are mounted.
  */

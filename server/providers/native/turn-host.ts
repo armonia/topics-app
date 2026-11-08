@@ -53,7 +53,7 @@ export interface TurnSpec {
   workspace: string;
   topics?: TopicsToolContext | null;
   /** Where `/api/mcp/call` lives and how to authenticate to it. */
-  server: { baseUrl: string; topicsHome?: string; gatewayToken?: string };
+  server: { baseUrl: string; topicsHome?: string };
   /** The server's provider hold at spawn (see `journalHostEffects`). */
   hold?: ProviderHold | null;
 }

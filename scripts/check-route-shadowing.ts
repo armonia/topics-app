@@ -7,7 +7,7 @@
  * (server/route-table.ts) and the first non-null answer wins. A route that an
  * EARLIER router also claims is dead code at best, and at worst a feature that
  * silently stops working (d5f4ca354: the Context Inspector was off outside
- * openclaw). Nothing in the type system sees that, so this script reads the
+ * the old gateway provider). Nothing in the type system sees that, so this script reads the
  * route predicates of the real router sources and looks for overlaps.
  *
  * HOW. For each router in the table, the factory named in server.ts

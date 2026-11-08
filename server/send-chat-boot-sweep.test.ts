@@ -37,7 +37,7 @@ beforeAll(() => {
   for (const f of readdirSync(realMigDir)) if (f.endsWith(".sql")) writeFileSync(join(migDir, f), readFileSync(join(realMigDir, f), "utf-8"));
   mkdirSync(join(tmpRoot, "public"), { recursive: true });
   process.env.DATA_DIR = join(tmpRoot, "data");
-  process.env.OPENCLAW_DIR = join(tmpRoot, "openclaw");
+  process.env.APP_DATA_DIR = join(tmpRoot, "app-data");
   ctx = createAppContext(tmpRoot);
 });
 afterAll(() => {

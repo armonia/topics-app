@@ -149,7 +149,7 @@ test.describe.serial("chat turn end → OS banner, whatever the runtime", () => 
       await expect
         .poll(async () => (await bannerLog(page)).length, { timeout: 10_000, message: "the finished chat raised no banner" })
         .toBeGreaterThan(0);
-      expect((await bannerLog(page)).map((b) => b.title)).toEqual([`💬 ${nameA}`]);
+      expect((await bannerLog(page)).map((b) => b.title)).toEqual([nameA]);
       await expect(page.locator('[data-testid="fake-os-banner"]')).toContainText(nameA);
     } finally {
       await deleteTopic(request, topicA.id);
@@ -191,7 +191,7 @@ test.describe.serial("chat turn end → OS banner, whatever the runtime", () => 
       // The state is said in words too, through the catalogue (never a literal).
       await expect(page.getByRole("tab", { name: new RegExp(`${nameA}.*${IT["attention.state.done"]}`) })).toBeVisible();
       // And the banner, in the same breath.
-      await expect.poll(async () => (await bannerLog(page)).map((b) => b.title), { timeout: 10_000 }).toEqual([`💬 ${nameA}`]);
+      await expect.poll(async () => (await bannerLog(page)).map((b) => b.title), { timeout: 10_000 }).toEqual([nameA]);
 
       // Opening the chat is having seen it: the mark goes from both surfaces.
       await tabA.click();

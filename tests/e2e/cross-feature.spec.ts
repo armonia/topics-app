@@ -153,7 +153,7 @@ test.describe("Cross-Feature Interactions", () => {
         await textarea.waitFor({ state: "visible", timeout: 10_000 });
       }
 
-      // openclaw is unavailable on the isolated test server, so a real send never
+      // No provider answers on the isolated test server, so a real send never
       // streams. Fake a stuck stream: deliver ONE content delta with NO
       // "data: [DONE]" terminator. The client only clears `partial` on [DONE],
       // and the inline streaming indicator only renders once content has started

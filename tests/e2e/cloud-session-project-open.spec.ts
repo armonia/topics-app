@@ -62,7 +62,7 @@ test.describe("cloud session opens as a Topics project", () => {
     // (1) persist projectPath on the topic, (2) ask clients to open + nest it.
     ws.send({
       type: "topic:updated",
-      topic: { id: topic.id, name: topic.name, slug: topic.slug, projectPath, provider: "openclaw", archived: false },
+      topic: { id: topic.id, name: topic.name, slug: topic.slug, projectPath, provider: "claude-code", archived: false },
     });
     ws.send({ type: "pane:focus-suggest", topicId: topic.id, projectPath });
 
@@ -78,21 +78,6 @@ test.describe("cloud session opens as a Topics project", () => {
     await expect(
       page.getByRole("textbox", { name: /Campo del messaggio/ }),
     ).toBeVisible({ timeout: 10000 });
-
-    await deleteTopic(request, topic.id);
-  });
-
-  test("an openclaw-backed (cloud) topic shows a Cloud indicator", async ({ page, request }) => {
-    const ts = Date.now().toString(36);
-    const topic = await createTopic(request, `E2E-Cloud-Badge-${ts}`, { provider: "openclaw" });
-
-    await goToApp(page);
-    await waitForTopicVisible(page, topic.id);
-
-    // The cloud (OpenClaw) attribute glyph (sidebar row and/or tab) is labelled.
-    await expect(page.getByLabel("Sessione cloud (OpenClaw)").first()).toBeVisible({
-      timeout: 10000,
-    });
 
     await deleteTopic(request, topic.id);
   });

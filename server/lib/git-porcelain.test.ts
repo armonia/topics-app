@@ -85,7 +85,7 @@ test("senza prefisso non si tocca niente", () => {
 // ── La cartella aperta è essa stessa non tracciata ─────────────────────────
 //
 // Caso reale: `match-compass` aperta come progetto, ma è una sottocartella non
-// tracciata di `.openclaw/workspace`, che è il repo. Git non elenca gli
+// tracciata di `<app data>/workspace`, che è il repo. Git non elenca gli
 // undicimila file dentro: collassa tutto in un record solo.
 const CONTAINER = "?? match-compass/\0 M altro/x.ts\0";
 

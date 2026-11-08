@@ -371,7 +371,7 @@ const errorMessageSchema = z.looseObject({
 
 // ---- (the "agent" frame family is gone) -----------------------------------
 //
-// Profiles, assignments, heartbeats, escalations and the OpenClaw session
+// Profiles, assignments, heartbeats, escalations and the gateway session
 // roster all broadcast under `agent:*` / `agents:*`. None of it exists any
 // more: an agent is a provider you picked, and the sub-agents a turn spawns
 // are terminal sessions with a `parentSessionKey` (SubAgentsStrip), which ride

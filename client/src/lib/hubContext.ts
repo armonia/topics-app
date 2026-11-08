@@ -2,7 +2,7 @@
  * THE AGENTS' CONTEXT, read from the usage hub (`/api/contesto`, HUBBR-17).
  *
  * What every agent reads before the first word: the weight per harness (Claude
- * Code, Codex, jcode, OpenClaw), the files that make it, the sources read on
+ * Code, Codex, jcode, Jarvis), the files that make it, the sources read on
  * demand, the duplicated lines, the rules with an old date, and the hub's last
  * check for rules that contradict each other. Pure functions over the hub's
  * JSON (~/.claude/jarvis/tools/usage-hub/src/context.mjs): defensive, a field
@@ -11,6 +11,8 @@
  * Names stay the hub's own labels («CLAUDE.md globale», «TOOLS.md»); a path is
  * shown only with a file's text, once opened, where it says where to edit it.
  */
+import { MAIN_AGENT, agentName } from './agentSessions';
+import { LEGACY_DATA_DIR_NAME } from '../../../shared/legacy-data-dir';
 
 type Raw = Record<string, unknown>;
 
@@ -71,7 +73,7 @@ export interface ContextView {
   claudeCode: number | null;
   /** Read at start by at least one harness. */
   files: ContextFile[];
-  /** Read on demand: the sub-agents' prompts, the projects' CLAUDE.md, OpenClaw's memory and prompts. */
+  /** Read on demand: the sub-agents' prompts, the projects' CLAUDE.md, the other agents' memory and prompts. */
   onDemand: ContextFile[];
   /** The skills' listing; `items` heaviest first, the ones worth trimming. */
   skills: { count: number; tokens: number; items: Array<{ name: string; tokens: number }> } | null;
@@ -107,7 +109,27 @@ export function doctorVerdict(raw: unknown): DoctorVerdict | null {
 }
 
 /** The hub's loader groups, in its order; any other group follows in the order it first appears. */
-const GROUP_ORDER = ['Claude Code', 'Codex e jcode', 'OpenClaw'];
+const GROUP_ORDER = ['Claude Code', 'Codex e jcode', agentName(MAIN_AGENT)];
+
+/**
+ * The hub names our agent's harness by name plus workspace id («Jarvis ·
+ * main», «Jarvis · gtm») or by name and qualifier («Jarvis (via claude)»). On screen
+ * it is the agent's own name, the one the Agents view uses: `gtm` is Visione
+ * there, so it is Visione here too, and a qualifier stays as it is.
+ */
+const AGENT_HARNESSES = new Set([agentName(MAIN_AGENT)]);
+/** The workspace id of the main agent in the hub's labels. */
+const MAIN_WORKSPACE = 'main';
+
+function harnessName(name: string): string {
+  const { base, note } = splitLoader(name);
+  const ws = /^(.+?)\s+·\s+(.+)$/.exec(base);
+  let alias: string | null = null;
+  if (ws && ws[1] && ws[2] && AGENT_HARNESSES.has(ws[1])) alias = agentName(ws[2] === MAIN_WORKSPACE ? MAIN_AGENT : ws[2]);
+  else if (AGENT_HARNESSES.has(base)) alias = agentName(MAIN_AGENT);
+  if (alias === null) return name;
+  return note === null ? alias : `${alias} (${note})`;
+}
 
 export interface FileGroup {
   name: string;
@@ -140,13 +162,13 @@ function splitLoader(name: string): { base: string; note: string | null } {
 /**
  * One row per harness, heaviest first. A loader that only qualifies another
  * (Claude Code for the home sessions) is that harness's extra, not a fifth
- * harness; one that qualifies nothing else («OpenClaw (via claude-cli)») is
+ * harness; one that qualifies nothing else («Jarvis (via claude-cli)») is
  * the harness of its base name.
  */
 export function harnessWeights(byLoader: unknown): HarnessWeight[] {
   if (!isObject(byLoader)) return [];
   const entries = Object.entries(byLoader)
-    .map(([name, v]) => ({ name, tokens: num(v) }))
+    .map(([name, v]) => ({ name: harnessName(name), tokens: num(v) }))
     .filter((e): e is { name: string; tokens: number } => e.tokens !== null && e.tokens > 0);
   const plain = new Set(entries.filter((e) => splitLoader(e.name).note === null).map((e) => e.name));
   const out = new Map<string, HarnessWeight>();
@@ -178,10 +200,10 @@ function readFile(raw: unknown): ContextFile | null {
     id,
     label,
     path,
-    group: str(raw.group) ?? '',
+    group: harnessName(str(raw.group) ?? ''),
     tokens: num(raw.tokens) ?? 0,
-    readers: list(raw.loaders).map(str).filter((s): s is string => s !== null).map((s) => splitLoader(s).base),
-    loaders: list(raw.loaders).map(str).filter((s): s is string => s !== null),
+    readers: [...new Set(list(raw.loaders).map(str).filter((s): s is string => s !== null).map((s) => splitLoader(harnessName(s)).base))],
+    loaders: list(raw.loaders).map(str).filter((s): s is string => s !== null).map(harnessName),
     mtime: num(raw.mtime),
     note: str(raw.note),
   };
@@ -196,12 +218,14 @@ export interface UnlistedRef {
   name: string;
 }
 
-const OWNERS: Record<string, string> = { '.claude': 'Claude Code', '.openclaw': 'OpenClaw', '.jcode': 'jcode', '.codex': 'Codex', '.agents': 'Agents' };
+const OWNERS: Record<string, string> = { '.claude': 'Claude Code', '.jcode': 'jcode', '.codex': 'Codex', '.agents': 'Agents' };
+/** The agents' home: its files belong to the agent of their workspace (`workspace-gtm` is Visione). */
+const AGENT_HOME = LEGACY_DATA_DIR_NAME;
 const KINDS: Record<string, UnlistedRef['kind']> = { AGENTS: 'rules', CLAUDE: 'rules', USER: 'profile', MEMORY: 'memory' };
 
 /**
  * The hub names a contradiction's files by path, and its lists do not hold
- * every file an agent may cite (OpenClaw's workspaces): those are told apart by
+ * every file an agent may cite (the agents' workspaces): those are told apart by
  * whose they are, not shown as a bare file name that two files can share.
  */
 export function unlistedRef(ref: string): UnlistedRef {
@@ -213,7 +237,10 @@ export function unlistedRef(ref: string): UnlistedRef {
   const root = parts[0] ?? '';
   let owner = '';
   if (root === 'Projects' && parts[1]) owner = parts[1];
-  else if (OWNERS[root]) {
+  else if (root === AGENT_HOME) {
+    const ws = parts[1] ? /^workspace-(.+)$/.exec(parts[1]) : null;
+    owner = agentName(ws?.[1] ?? MAIN_AGENT);
+  } else if (OWNERS[root]) {
     const ws = parts[1] && /^workspace-(.+)$/.exec(parts[1]);
     owner = ws && ws[1] ? `${OWNERS[root]} ${ws[1]}` : OWNERS[root];
   } else owner = parts[parts.length - 1] ?? '';

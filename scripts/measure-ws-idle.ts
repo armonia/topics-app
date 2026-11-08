@@ -75,7 +75,7 @@ const child = spawn("bash", [resolve(ROOT, "scripts/start-test-server.sh")], {
     BUN_PORT: String(port),
     DATA_DIR: dataDir,
     TOPICS_HOME: `${dataDir}/.topics-home`,
-    OPENCLAW_DIR: `${dataDir}/.openclaw`,
+    APP_DATA_DIR: `${dataDir}/.app-data`,
     HOME: home,
     TOPICS_PTY_SOCKET: `/tmp/topics-pty-bridge-ws-idle-${port}.sock`,
     TOPICS_AI_BRIDGE_SOCKET: `/tmp/topics-ai-bridge-ws-idle-${port}.sock`,
@@ -213,7 +213,7 @@ try {
   const turn = (async () => {
     const response = await fetch(`${base}/api/chat`, {
       method: "POST",
-      headers: { "content-type": "application/json", "X-Gateway-Token": process.env.GATEWAY_TOKEN ?? "test-token" },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ sessionKey, provider: "claude-code", messages: [{ role: "user", content: `SLOW:${duration + 30}:idle` }] }),
     });
     if (!response.ok || !response.body) throw new Error(`POST /api/chat ha risposto ${response.status}`);

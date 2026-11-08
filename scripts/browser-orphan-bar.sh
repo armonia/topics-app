@@ -29,7 +29,7 @@ LOG="$BAR_DIR/server.log"
 FALLITE=0
 
 rm -rf "$BAR_DIR"
-mkdir -p "$BAR_DIR/home" "$BAR_DIR/openclaw" "$BAR_DIR/topics-home"
+mkdir -p "$BAR_DIR/home" "$BAR_DIR/app-data" "$BAR_DIR/topics-home"
 
 esporta_ambiente() {
   # La HOME finta isola il DB e la configurazione, ma nasconde anche la cache di
@@ -39,13 +39,11 @@ esporta_ambiente() {
   export BUN_PORT="$PORT"
   export DATA_DIR="$BAR_DIR/data"
   export TOPICS_HOME="$BAR_DIR/topics-home"
-  export OPENCLAW_DIR="$BAR_DIR/openclaw"
+  export APP_DATA_DIR="$BAR_DIR/app-data"
   export HOME="$BAR_DIR/home"
   export TOPICS_PTY_SOCKET="$BAR_DIR/pty.sock"
   export TOPICS_AI_BRIDGE_SOCKET="$BAR_DIR/ai-bridge.sock"
   export SERVER_HOST=127.0.0.1
-  export GATEWAY_TOKEN="${GATEWAY_TOKEN:-bar-token}"
-  export GATEWAY_URL="${GATEWAY_URL:-http://127.0.0.1:18789}"
 }
 
 ok()   { echo "  OK   $*"; }

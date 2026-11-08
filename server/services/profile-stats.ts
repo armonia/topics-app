@@ -255,6 +255,22 @@ export function resetProfileStatsCache(): void {
 // ── The state RIGHT NOW, for the presence ──────────────────────────────────
 
 /**
+ * The projects the fallback may name in public: not a system folder. A project
+ * whose name starts with '.', or whose path runs through a dot folder
+ * (the old data root, `~/.claude/jarvis/home`), is an agent's home, not a project
+ * someone works on, and its folder name ended up verbatim in the Discord
+ * presence («su .<agent home>»). With no other candidate the fallback stays null
+ * and the line degrades to quiet or tasks.
+ */
+const PUBLIC_PROJECT_SQL =
+  `p.name NOT LIKE '.%' AND p.path NOT LIKE '%/.%' AND p.path NOT LIKE '%\\.%'`;
+
+/** The same rule as PUBLIC_PROJECT_SQL, for the board branch matched in JS. */
+function isPublicProject(p: { name: string; path: string }): boolean {
+  return !p.name.startsWith(".") && !p.path.includes("/.") && !p.path.includes("\\.");
+}
+
+/**
  * How many sessions are open and how many are working at this moment.
  *
  * It is the number the daemon this replaced tried to guess with `ps` and a CPU
@@ -294,6 +310,7 @@ export function computePresenceCounts(
   // read. The slug is derived, not stored, so the match is done here on the few
   // project rows rather than in SQL.
   let focusProject: string | null = null;
+  let boardIsPrivate = false;
   try {
     const r = db.query(OLDEST_WORKING_BOARD_SQL).get() as { v?: string } | null;
     const boardId = r?.v ?? null;
@@ -301,17 +318,24 @@ export function computePresenceCounts(
       const projects = db.query(
         `SELECT id, name, path FROM projects WHERE path IS NOT NULL`,
       ).all() as Array<{ id: string; name: string; path: string }>;
-      focusProject = projects.find(
+      const board = projects.find(
         // `p.id` too: rows written before the board switched to the slug still
         // carry the UUID (`scripts/migrate-uuid-board-ids.ts`).
         (p) => projectIdForPath(p.path) === boardId || p.id === boardId,
-      )?.name ?? null;
+      );
+      // A board on a system folder (the old data root's board has dispatched
+      // tasks) stays unnamed, and the fallback is skipped too: naming the most
+      // recent topic's project while the board works elsewhere would be the
+      // wrong-project lie described above.
+      if (board && !isPublicProject(board)) boardIsPrivate = true;
+      else focusProject = board?.name ?? null;
     }
-    if (!focusProject) {
+    if (!focusProject && !boardIsPrivate) {
       const s = db.query(
         `SELECT p.name AS v
            FROM topics tp JOIN projects p ON p.path = tp.project_path
           WHERE tp.archived = 0 AND tp.project_path IS NOT NULL
+            AND ${PUBLIC_PROJECT_SQL}
           ORDER BY tp.updated_at DESC LIMIT 1`,
       ).get() as { v?: string } | null;
       focusProject = s?.v ?? null;

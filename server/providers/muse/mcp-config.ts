@@ -7,7 +7,6 @@
  * bridge, so no browser pane, `run_command`, `spawn_agent`, `close_goal`: the
  * same chat was weaker on Muse than on Claude or Codex. Each turn gets a private
  * copy of the real settings with the bridge added, and the CLI is pointed at it.
- * The same scheme runs in production in the OpenClaw muse-cli backend.
  *
  * Only CONFIG moves: session logs live under `XDG_DATA_HOME`, so resume is
  * untouched. `auth.json`, `trust.json` and `skills` are symlinked, never copied:

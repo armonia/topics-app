@@ -58,8 +58,7 @@ export const CLI_REFUSED: Readonly<Record<string, CliRefusedAnswer>> = {
  * Does the topic DECLARE Claude Code (CMD-08)? Every fact in this file was
  * measured on Claude Code's CLI, and other providers run some of these names
  * themselves: gemini answers `/memory list` locally (measured, gemini-cli
- * 0.55.1 over ACP, 0 tokens), openclaw has its own `/login`, `/export`, `/new`
- * and `/reset`. `claude-code-team` is the legacy name of the same provider
+ * 0.55.1 over ACP, 0 tokens). `claude-code-team` is the legacy name of the same provider
  * (`server/routes/commandRouting.ts` `declaredProviderName`). An undeclared
  * provider is not assumed: the provider then answers for itself, as before.
  */
@@ -93,13 +92,11 @@ export function cliRefusedCommand(
  * the live process forgot while the screen kept the history and Topics kept
  * the old session id. On the ACP agents, Codex and Topics' engine nobody
  * answers to them, and sent they were prose to the model, while each of those
- * forgets its session on `/clear`. On openclaw the same two words are the
- * gateway's own reset gestures, so there they travel as typed. An undeclared
- * provider is not assumed.
+ * forgets its session on `/clear`. An undeclared provider is not assumed.
  */
 export function clearAliasesApply(declaredProvider: string | null | undefined): boolean {
   const p = declaredProvider?.trim();
-  return !!p && p !== 'openclaw';
+  return !!p;
 }
 
 /** Is `cmd` (lower-cased, trimmed) Topics' `/clear`, or one of its aliases where they apply? */
@@ -123,9 +120,7 @@ export function isClearCommand(cmd: string, declaredProvider: string | null | un
  * engine: Claude Code runs both names in `--print`, and opening a panel
  * instead dropped the arguments without a word.
  *
- * On every declared engine but OpenClaw (CMDUI-02): OpenClaw's gateway has its
- * own `/mcp show|set|unset` and `/config show|set|unset`, so there they travel
- * as typed (CMD-08). Codex (`codex exec` parses no command), the native engine
+ * On every declared engine (CMDUI-02). Codex (`codex exec` parses no command), the native engine
  * and the ACP agents (they announce neither name) would receive them as
  * prose: the panel is the only answer that does something. An undeclared
  * provider is not assumed.
@@ -135,7 +130,7 @@ export function topicsHomeCommand(
   declaredProvider: string | null | undefined,
 ): 'tools' | 'userMenu' | 'providers' | null {
   const p = declaredProvider?.trim();
-  if (!p || p === 'openclaw') return null;
+  if (!p) return null;
   if (cmd === '/mcp') return 'tools';
   if (cmd === '/config' || cmd === '/settings') return 'userMenu';
   if (cmd === '/usage' || cmd === '/cost' || cmd === '/stats') return 'providers';

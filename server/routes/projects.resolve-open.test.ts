@@ -53,7 +53,7 @@ beforeEach(() => {
   projects = [];
   const ctx = {
     db,
-    OPENCLAW_DIR: join(root, ".openclaw"),
+    APP_DATA_DIR: join(root, ".app-data"),
     loadTopics: () => ({ topics: {} }),
     worktreeStore: { list: () => [] },
     projectStore: { list: () => projects },

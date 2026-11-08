@@ -78,7 +78,6 @@ describe("parseArgs", () => {
     ]);
     expect(args.baseUrl).toBe("http://localhost:3333");
     expect(args.sessionKey).toBe("topic:abcdef");
-    expect(args.gatewayToken).toBeUndefined();
   });
 
   test("strips trailing slash from baseUrl", () => {
@@ -89,13 +88,13 @@ describe("parseArgs", () => {
     expect(args.baseUrl).toBe("http://localhost:3333");
   });
 
-  test("captures optional gateway-token", () => {
+  test("an old config's --gateway-token is ignored, not parsed", () => {
     const args = parseArgs([
       "--base-url=http://x",
       "--session-key=s",
       "--gateway-token=secret-123",
     ]);
-    expect(args.gatewayToken).toBe("secret-123");
+    expect(Object.values(args)).not.toContain("secret-123");
   });
 
   test("throws when --base-url missing", () => {
@@ -125,10 +124,9 @@ describe("bridge auth: the daemon token, re-read on every request", () => {
   const writeToken = (token: string) =>
     writeFileSync(join(home, "daemon-state.json"), JSON.stringify({ pid: 1, port: 1, token, startedAt: "x" }));
 
-  test("--topics-home is parsed; the gateway token stays a legacy argv flag", () => {
+  test("--topics-home is parsed", () => {
     const a = parseArgs(["--base-url=http://x", "--session-key=k", `--topics-home=${home}`]);
     expect(a.topicsHome).toBe(home);
-    expect(a.gatewayToken).toBeUndefined();
   });
 
   test("sends X-Daemon-Token, and picks up a new one after a Topics restart", () => {
@@ -143,14 +141,6 @@ describe("bridge auth: the daemon token, re-read on every request", () => {
     expect(bridgeAuthHeaders({ topicsHome: join(home, "missing") })).toEqual({});
     writeFileSync(join(home, "daemon-state.json"), "{not json");
     expect(readDaemonToken(home)).toBeUndefined();
-  });
-
-  test("an old config's --gateway-token still goes out, next to the daemon token", () => {
-    writeToken(TOKEN_A);
-    expect(bridgeAuthHeaders({ topicsHome: home, gatewayToken: "legacy" })).toEqual({
-      "X-Daemon-Token": TOKEN_A,
-      "X-Gateway-Token": "legacy",
-    });
   });
 });
 
@@ -272,22 +262,6 @@ describe("callOpenBrowserPane", () => {
     expect(headers["X-Gateway-Token"]).toBeUndefined();
     expect(seen.init?.body).toBe(JSON.stringify({ url: "https://example.com" }));
     expect(result).toEqual({ url: "https://example.com/final", title: "Example Domain", visible: true });
-  });
-
-  test("forwards gateway-token as X-Gateway-Token header", async () => {
-    let seenHeader: string | undefined;
-    const fetchImpl = stubFetch(async (_url, init) => {
-      seenHeader = (init?.headers as Record<string, string>)?.["X-Gateway-Token"];
-      return new Response(JSON.stringify({ url: "x", title: "" }), { status: 200 });
-    });
-
-    await callOpenBrowserPane(
-      { baseUrl: "http://x", sessionKey: "s", gatewayToken: "tok-abc" },
-      { url: "https://example.com" },
-      fetchImpl,
-    );
-
-    expect(seenHeader).toBe("tok-abc");
   });
 
   test("throws on missing url argument", async () => {

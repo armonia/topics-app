@@ -12,7 +12,7 @@
  *    risposta appariva troncata mentre il finale era lì, una colonna più in là.
  *
  * 2. **Un token ripetuto spariva.** `onTextDelta` riceve il pezzo nuovo da tutti
- *    i provider tranne il gateway OpenClaw, ma la route trattava il primo
+ *    i provider (l'unico cumulativo era un gateway oggi tolto), ma la route trattava il primo
  *    argomento come CUMULATIVO: se era identico al precedente lo scartava come
  *    «niente di nuovo». Due pezzi uguali di fila — «the the», due `\n`, un `= =`
  *    in una tabella — e il secondo non arrivava né a schermo né su disco.

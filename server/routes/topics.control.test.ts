@@ -5,7 +5,7 @@
  * PROJECT_OPEN}} markers (spec: replace-markers-with-tools, AC-01).
  *
  * We mount the real topicsRouter with a minimal stub AppContext (in-memory
- * topics map + broadcast capture + a temp OPENCLAW_DIR workspace), so the
+ * topics map + broadcast capture + a temp APP_DATA_DIR workspace), so the
  * suite asserts status codes, DB-equivalent effects (the topics map, scaffolded
  * dirs) AND the WebSocket broadcasts each endpoint must emit — without a live
  * server or SQLite. The regressions it guards:
@@ -119,8 +119,8 @@ function makeTopic(overrides: Partial<Topic> & { id: string }): Topic {
 
 /** Minimal stub AppContext: just what the control-endpoint paths dereference. */
 function makeHarness() {
-  const openclawDir = mkdtempSync(join(tmpdir(), "topics-ctrl-"));
-  const workspaceDir = join(openclawDir, "workspace");
+  const appDataDir = mkdtempSync(join(tmpdir(), "topics-ctrl-"));
+  const workspaceDir = join(appDataDir, "workspace");
   mkdirSync(workspaceDir, { recursive: true });
 
   const topics = new Map<string, Topic>();
@@ -134,7 +134,7 @@ function makeHarness() {
   } = makeUiStateDb();
 
   const ctx = {
-    OPENCLAW_DIR: openclawDir,
+    APP_DATA_DIR: appDataDir,
     db,
     json: (data: unknown, status = 200) =>
       new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } }),
@@ -177,7 +177,7 @@ function makeHarness() {
     });
     return router(req, url, url.pathname, method) as Promise<Response | null>;
   };
-  const cleanup = () => rmSync(openclawDir, { recursive: true, force: true });
+  const cleanup = () => rmSync(appDataDir, { recursive: true, force: true });
 
   const readUi = (key: string): Record<string, unknown> | null => {
     const row = uiState.get(key);
@@ -651,7 +651,7 @@ describe("il ponte MCP del browser è montato dentro topicsRouter", () => {
  * `projectIdForPath` è un hash della STRINGA del percorso: un topic legato a un
  * symlink e uno legato alla cartella vera diventano due progetti — due board, due
  * voci in sidebar, due pannelli. Successo il 02/09/2026 con
- * `~/.openclaw/workspace/neuture-proposal` → `~/Projects/neuture-proposal`.
+ * `<app data>/workspace/neuture-proposal` → `~/Projects/neuture-proposal`.
  */
 describe("POST /api/topics — il percorso si scioglie dal link", () => {
   test("un topic creato su un link risulta legato alla cartella vera", async () => {
@@ -707,7 +707,7 @@ describe("PATCH /api/topics/:id — global coordinator invariants", () => {
       h.topics.set("coordinator", makeTopic({ id: "coordinator", provider: "codex" }));
       h.registerGlobalOrchestratorTopic("coordinator", true);
 
-      for (const provider of [null, "openclaw", "claude", "openai"]) {
+      for (const provider of [null, "native", "claude", "openai"]) {
         const response = (await h.call("PATCH", "/api/topics/coordinator", { provider }))!;
         expect(response.status).toBe(403);
         expect(await response.json()).toMatchObject({ code: "orchestrator_topic_invariant" });
@@ -721,7 +721,7 @@ describe("PATCH /api/topics/:id — global coordinator invariants", () => {
     try {
       const topic = makeTopic({
         id: "coordinator",
-        provider: "openclaw",
+        provider: "claude",
         projectPath: "/corrupt",
         model: "old-model",
         effort: "low",
@@ -742,7 +742,7 @@ describe("PATCH /api/topics/:id — global coordinator invariants", () => {
       }
 
       expect(h.topics.get(topic.id)).toMatchObject({
-        provider: "openclaw",
+        provider: "claude",
         projectPath: "/corrupt",
         model: "old-model",
         effort: "low",
@@ -772,42 +772,11 @@ describe("PATCH /api/topics/:id — global coordinator invariants", () => {
   });
 });
 
-describe("POST /api/topics/adopt — the coordinator is not an adoptable session", () => {
-  test("refuses the registered session key instead of turning it into a cloud chat", async () => {
-    // Adopting means "make this an ordinary interactive chat", and the branch
-    // that returns an existing Topic also binds it to a project on the way out.
-    const h = makeHarness();
-    try {
-      const topic = makeTopic({ id: "coordinator", provider: "codex" });
-      h.topics.set(topic.id, topic);
-      h.registerGlobalOrchestratorTopic(topic.id, true);
-
-      const response = (await h.call("POST", "/api/topics/adopt", { sessionKey: topic.sessionKey }))!;
-      expect(response.status).toBe(403);
-      expect(await response.json()).toMatchObject({ code: "orchestrator_topic_invariant" });
-      expect(h.broadcasts).toEqual([]);
-    } finally { h.cleanup(); }
-  });
-
-  test("an ordinary adopted session leaves without a forged role marker", async () => {
-    const h = makeHarness();
-    try {
-      const response = (await h.call("POST", "/api/topics/adopt", {
-        sessionKey: "topic:ordinary-cloud",
-        isGlobalOrchestrator: true,
-      }))!;
-      expect(response.status).toBe(201);
-      const body = await response.json() as Record<string, unknown>;
-      expect(body.isGlobalOrchestrator).toBeUndefined();
-    } finally { h.cleanup(); }
-  });
-});
-
 describe("global coordinator direct-route invariants", () => {
-  test("a raw corrupted coordinator cannot send a slash command through the gateway", async () => {
+  test("a raw corrupted coordinator cannot run a slash command", async () => {
     const h = makeHarness();
     try {
-      h.topics.set("coordinator", makeTopic({ id: "coordinator", provider: "openclaw", projectPath: "/corrupt" }));
+      h.topics.set("coordinator", makeTopic({ id: "coordinator", provider: "claude", projectPath: "/corrupt" }));
       h.registerGlobalOrchestratorTopic("coordinator");
       const response = (await h.call("POST", "/api/command", {
         command: "reasoning",
@@ -822,7 +791,7 @@ describe("global coordinator direct-route invariants", () => {
   test("a raw corrupted coordinator cannot resume a generic tool or abort through its stored provider", async () => {
     const h = makeHarness();
     try {
-      h.topics.set("coordinator", makeTopic({ id: "coordinator", provider: "openclaw", projectPath: "/corrupt" }));
+      h.topics.set("coordinator", makeTopic({ id: "coordinator", provider: "claude", projectPath: "/corrupt" }));
       h.registerGlobalOrchestratorTopic("coordinator");
 
       const toolResponse = (await h.call("POST", "/api/chat/tool-response", {
@@ -858,8 +827,8 @@ describe("global coordinator direct-route invariants", () => {
 // The wiring of two answers of POST /api/command whose rules are pure and
 // tested in `commandRouting.test.ts` / `sessionStatus.test.ts`: these cases
 // fail if the route stops passing the declared provider's fallback model to
-// `/status` (CMD-07) or stops carrying the typed `/reasoning` level (CMD-08).
-describe("POST /api/command — /status names the fallback model, /reasoning carries the typed level", () => {
+// `/status` (CMD-07) or stops naming the declared provider on `/reasoning` (CMD-08).
+describe("POST /api/command — /status names the fallback model, /reasoning names the provider", () => {
   test("/status on an unpinned topic names the default model of the provider it DECLARES", async () => {
     const h = makeHarness();
     const provider = registerProvider({ type: "openai", apiKey: "sk-fake-wiring" });
@@ -878,28 +847,6 @@ describe("POST /api/command — /status names the fallback model, /reasoning car
       expect(pinned.output).not.toContain("gpt-wiring-fallback");
     } finally {
       removeProvider("openai");
-      h.cleanup();
-    }
-  });
-
-  test("/reasoning on openclaw sends the level typed, lower-cased, and bare toggles", async () => {
-    const h = makeHarness();
-    const realFetch = globalThis.fetch;
-    const sent: string[] = [];
-    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body ?? "{}")) as { messages?: Array<{ content: string }> };
-      sent.push(body.messages?.[0]?.content ?? "");
-      return new Response("ok", { status: 200 });
-    }) as unknown as typeof fetch;
-    try {
-      h.topics.set("oc", makeTopic({ id: "oc", provider: "openclaw" }));
-      const typed = await ((await h.call("POST", "/api/command", { command: "reasoning", sessionKey: "topic:oc", args: { level: " OFF " } }))!).json() as { level: string | null };
-      expect(typed.level).toBe("off");
-      const bare = await ((await h.call("POST", "/api/command", { command: "reasoning", sessionKey: "topic:oc" }))!).json() as { level: string | null };
-      expect(bare.level).toBeNull();
-      expect(sent).toEqual(["/reasoning off", "/reasoning"]);
-    } finally {
-      globalThis.fetch = realFetch;
       h.cleanup();
     }
   });

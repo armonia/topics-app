@@ -175,7 +175,7 @@ describe("buildAnnouncement: a chat finished, and what a turn's end means", () =
 
   test("senza nome risolto degrada a un titolo generico, ma manda la push", () => {
     const p = push({ kind: "finished", subject: "topic:zzz", topicId: "zzz", name: null });
-    expect(p.title).toBe("💬 Risposta pronta");
+    expect(p.title).toBe("Risposta pronta");
     expect(p.tag).toBe("chat-end-zzz");
     expect(p.url).toBe("/topic/zzz");
   });
@@ -219,7 +219,7 @@ describe("a dead turn (chat-error)", () => {
 
   test("un turno morto è un errore, e la sua push porta il nome del topic", () => {
     expect(classifyTurnEnd(DEAD).outcome).toBe("error");
-    expect(words().push.title).toBe("⚠️ Rifai la migration");
+    expect(words().push.title).toBe("Rifai la migration");
     expect(words().push.tag).toBe("chat-error-tp1");
     expect(words().push.url).toBe("/topic/tp1");
   });
@@ -296,13 +296,13 @@ describe("a dead turn (chat-error)", () => {
 describe("a chat waiting for you (PUSH-05)", () => {
   test("the entry into the wait: topic name, the question, deep link to the topic, its registry row", () => {
     const a = buildAnnouncement({ kind: "waiting", subject: "topic:tp1", reason: "question", topicId: "tp1", name: "Rifai la migration", prompt: "Quale schema uso, A o B?" })!;
-    expect(a.push).toEqual({ title: "❓ Rifai la migration", body: "Quale schema uso, A o B?", tag: "chat-wait-tp1", url: "/topic/tp1" });
+    expect(a.push).toEqual({ title: "Rifai la migration", body: "Quale schema uso, A o B?", tag: "chat-wait-tp1", url: "/topic/tp1" });
     expect(a.record).toMatchObject({ kind: "session", targetKind: "topic", targetId: "tp1", dedupeKey: "session:tp1:awaiting-approval", source: "push" });
   });
 
   test("without a question text, and without a topic name, it still announces with generic copy", () => {
     const a = buildAnnouncement({ kind: "waiting", subject: "topic:zzz", reason: "question", topicId: "zzz", prompt: "" })!;
-    expect(a.push.title).toBe("❓ Claude ti sta aspettando");
+    expect(a.push.title).toBe("Claude ti sta aspettando");
     expect(a.push.body.length).toBeGreaterThan(0);
   });
 });
@@ -440,5 +440,39 @@ describe("isTopicSilenced — il gate puro", () => {
   test("topic inesistente → zitto (fail-closed)", () => {
     expect(isTopicSilenced(null, [])).toBe(true);
     expect(isTopicSilenced(undefined, [])).toBe(true);
+  });
+});
+
+/**
+ * Titles are words only: the OS banner prints them as text and the bell draws
+ * the icon from the row's kind, so a pictograph would be a glyph-as-text. Every
+ * fact kind and every branch that picks a title, with and without a name.
+ */
+describe("titles carry no emoji", () => {
+  const PICTOGRAPH = /\p{Extended_Pictographic}/u;
+  const facts: AnnounceFact[] = [
+    REVIEW,
+    { ...REVIEW, isAsk: true, question: { text: "A o B?", options: ["A", "B"] } },
+    { kind: "parked", subject: "task:t1", projectId: "p", taskId: "t1", state: "blocked" },
+    { kind: "parked", subject: "task:t1", projectId: "p", taskId: "t1", state: "waited_out" },
+    { kind: "parked", subject: "task:t1", projectId: "p", taskId: "t1", state: "failed" },
+    { kind: "finished", subject: "topic:a", topicId: "a" },
+    { kind: "finished", subject: "topic:a", topicId: "a", name: "Chat" },
+    { kind: "finished", subject: "terminal:x", terminalId: "x" },
+    { kind: "finished", subject: "terminal:x", terminalId: "x", name: "Shell" },
+    { kind: "error", subject: "topic:a", topicId: "a", error: "\u26A0\uFE0F boom" },
+    { kind: "error", subject: "topic:a", topicId: "a", name: "Chat", error: "boom" },
+    { kind: "error", subject: "terminal:x", terminalId: "x", error: "boom" },
+    { kind: "waiting", subject: "task:t1", reason: "question", taskId: "t1", projectId: "p" },
+    { kind: "waiting", subject: "topic:a", reason: "permission", topicId: "a", prompt: "git push" },
+    { kind: "waiting", subject: "topic:a", reason: "question", topicId: "a", name: "Chat" },
+    { kind: "waiting", subject: "terminal:x", reason: "question", terminalId: "x" },
+  ];
+  test.each(facts.map((f) => [`${f.kind} ${JSON.stringify(f).slice(0, 80)}`, f] as const))("%s", (_label, fact) => {
+    const a = buildAnnouncement(fact)!;
+    expect(a).not.toBeNull();
+    expect(a.push.title).not.toMatch(PICTOGRAPH);
+    expect(a.record.title).not.toMatch(PICTOGRAPH);
+    expect(a.push.body).not.toMatch(PICTOGRAPH);
   });
 });

@@ -239,7 +239,7 @@ describe("every refusal comes before the first write", () => {
   });
 
   test("a runtime with no way to carry the memory: 409 fork_unsupported", async () => {
-    const t = chat(turns(1), { provider: "openclaw" });
+    const t = chat(turns(1), { provider: "jcode" });
     const before = topicCount();
     const res = await fork(t);
     expect(res.status).toBe(409);

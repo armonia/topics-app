@@ -8,20 +8,17 @@
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { join } from "node:path";
-import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
+import { setupTestDataDir, createTestAppContext, testTmpDir, installDaemonToken } from "./helpers";
 import type { RouteHandler } from "../../server/types";
 
 const TEST_DATA = testTmpDir("master-sessions");
-// /send + /buffer are token-gated (agentAuthOk checks process.env.GATEWAY_TOKEN);
-// set a known token for this in-process router and present it on every call().
-const TEST_TOKEN = "test-token";
-const PRIOR_GATEWAY_TOKEN = process.env.GATEWAY_TOKEN;
-beforeAll(() => { process.env.GATEWAY_TOKEN = TEST_TOKEN; setupTestDataDir(TEST_DATA); });
+// /send + /buffer are token-gated (agentAuthOk reads the daemon token);
+// install one for this in-process router and present it on every call().
+let TOKEN = "";
+beforeAll(() => { setupTestDataDir(TEST_DATA); TOKEN = installDaemonToken(); });
 
 let disconnect: (() => void) | null = null;
 afterAll(() => {
-  if (PRIOR_GATEWAY_TOKEN === undefined) delete process.env.GATEWAY_TOKEN;
-  else process.env.GATEWAY_TOKEN = PRIOR_GATEWAY_TOKEN;
   try { disconnect?.(); } catch {}
 });
 
@@ -31,7 +28,7 @@ function call(router: RouteHandler, method: string, path: string, body?: unknown
     method,
     headers: {
       ...(body ? { "content-type": "application/json" } : {}),
-      "x-gateway-token": process.env.GATEWAY_TOKEN ?? TEST_TOKEN,
+      "x-daemon-token": TOKEN,
     },
     body: body ? JSON.stringify(body) : undefined,
   });

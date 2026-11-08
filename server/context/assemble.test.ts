@@ -3,7 +3,7 @@
  *
  * Strategy:
  * - Use a temporary directory rooted under `os.tmpdir()` for both `BASE_DIR`
- *   (memory/) and `OPENCLAW_DIR` (workspace/) so we exercise the real `fs`
+ *   (memory/) and `APP_DATA_DIR` (workspace/) so we exercise the real `fs`
  *   reads instead of mocking them.
  * - Build a minimal `AppContext` mock exposing only the methods/properties
  *   `assembleTopicContext` actually consumes.
@@ -178,7 +178,7 @@ function makeMessage(
 
 function makeMockCtx(opts: {
   baseDir: string;
-  openclawDir: string;
+  appDataDir: string;
   topic: Topic | null;
   messages: StoredMessage[];
   topicsData?: TopicsData;
@@ -191,7 +191,7 @@ function makeMockCtx(opts: {
   return {
     BASE_DIR: opts.baseDir,
     STATE_DIR: opts.baseDir,
-    OPENCLAW_DIR: opts.openclawDir,
+    APP_DATA_DIR: opts.appDataDir,
     getTopicBySessionKey: (sk: string) => (opts.topic && opts.topic.sessionKey === sk ? opts.topic : null),
     loadLocalMessages: (_sk: string) => opts.messages,
     loadTopics: () => topicsData,
@@ -218,12 +218,12 @@ afterAll(() => {
 
 describe("assembleTopicContext — minimal topic", () => {
   const baseDir = join(ROOT, "minimal", "base");
-  const openclawDir = join(ROOT, "minimal", "openclaw");
+  const appDataDir = join(ROOT, "minimal", "app-data");
   mkdirSync(join(baseDir, "memory"), { recursive: true });
-  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(join(appDataDir, "workspace"), { recursive: true });
 
   const topic = makeTopic();
-  const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages: [] });
+  const ctx = makeMockCtx({ baseDir, appDataDir, topic, messages: [] });
 
   const env = assembleTopicContext(ctx, {
     sessionKey: topic.sessionKey,
@@ -274,9 +274,9 @@ describe("assembleTopicContext — topic switch directory", () => {
   // 2026-09-30, ~2.5 ms a turn), and skipping them in JS. The store has the
   // live half on an index: the directory asks for that.
   const baseDir = join(ROOT, "directory", "base");
-  const openclawDir = join(ROOT, "directory", "openclaw");
+  const appDataDir = join(ROOT, "directory", "app-data");
   mkdirSync(join(baseDir, "memory"), { recursive: true });
-  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(join(appDataDir, "workspace"), { recursive: true });
 
   const topic = makeTopic({ id: "live-current", name: "Current" });
   const all: Record<string, Topic> = { [topic.id]: topic };
@@ -289,7 +289,7 @@ describe("assembleTopicContext — topic switch directory", () => {
   // The real store's contract: no filter = every topic, `{ archived }` = one half.
   const loadedCounts: number[] = [];
   const ctx = {
-    ...makeMockCtx({ baseDir, openclawDir, topic, messages: [] }),
+    ...makeMockCtx({ baseDir, appDataDir, topic, messages: [] }),
     loadTopics: (filter?: TopicsFilter): TopicsData => {
       const rows = Object.values(all).filter((t) => filter?.archived === undefined || !!t.archived === filter.archived);
       loadedCounts.push(rows.length);
@@ -329,12 +329,12 @@ describe("assembleTopicContext — topic switch directory", () => {
 
 describe("assembleTopicContext — system prompt block", () => {
   const baseDir = join(ROOT, "prompt", "base");
-  const openclawDir = join(ROOT, "prompt", "openclaw");
+  const appDataDir = join(ROOT, "prompt", "app-data");
   mkdirSync(join(baseDir, "memory"), { recursive: true });
-  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(join(appDataDir, "workspace"), { recursive: true });
 
   const topic = makeTopic({ systemPrompt: "You are a brisk assistant." });
-  const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages: [] });
+  const ctx = makeMockCtx({ baseDir, appDataDir, topic, messages: [] });
 
   const env = assembleTopicContext(ctx, {
     sessionKey: topic.sessionKey,
@@ -354,13 +354,13 @@ describe("assembleTopicContext — system prompt block", () => {
 
 describe("assembleTopicContext — disabledContextSources", () => {
   const baseDir = join(ROOT, "disabled", "base");
-  const openclawDir = join(ROOT, "disabled", "openclaw");
+  const appDataDir = join(ROOT, "disabled", "app-data");
   mkdirSync(join(baseDir, "memory"), { recursive: true });
-  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(join(appDataDir, "workspace"), { recursive: true });
 
   const topic = makeTopic({ disabledContextSources: ["memory:topic"] });
   writeFileSync(join(baseDir, "memory", `${topic.id}.md`), "topic memory content");
-  const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages: [] });
+  const ctx = makeMockCtx({ baseDir, appDataDir, topic, messages: [] });
 
   const env = assembleTopicContext(ctx, {
     sessionKey: topic.sessionKey,
@@ -393,15 +393,15 @@ describe("assembleTopicContext — disabledContextSources", () => {
 
 describe("assembleTopicContext — .claude/CLAUDE.md fallback", () => {
   const baseDir = join(ROOT, "fallback", "base");
-  const openclawDir = join(ROOT, "fallback", "openclaw");
+  const appDataDir = join(ROOT, "fallback", "app-data");
   const projectDir = join(ROOT, "fallback", "project");
   mkdirSync(join(baseDir, "memory"), { recursive: true });
-  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(join(appDataDir, "workspace"), { recursive: true });
   mkdirSync(join(projectDir, ".claude"), { recursive: true });
   writeFileSync(join(projectDir, ".claude", "CLAUDE.md"), "fallback content");
 
   const topic = makeTopic({ projectPath: projectDir });
-  const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages: [], projectDir });
+  const ctx = makeMockCtx({ baseDir, appDataDir, topic, messages: [], projectDir });
 
   const env = assembleTopicContext(ctx, {
     sessionKey: topic.sessionKey,
@@ -428,17 +428,17 @@ describe("assembleTopicContext — worktree-bound awareness path", () => {
   // worktree-bound topic it must point at the worktree absPath, NOT the live
   // checkout (regression: a dispatched agent wrote into the main repo).
   const baseDir = join(ROOT, "wt", "base");
-  const openclawDir = join(ROOT, "wt", "openclaw");
+  const appDataDir = join(ROOT, "wt", "app-data");
   const liveRepo = join(ROOT, "wt", "live-repo");
   const worktreeDir = join(ROOT, "wt", "worktrees", "falcon");
   mkdirSync(join(baseDir, "memory"), { recursive: true });
-  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(join(appDataDir, "workspace"), { recursive: true });
   mkdirSync(liveRepo, { recursive: true });
   mkdirSync(worktreeDir, { recursive: true });
 
   const topic = makeTopic({ projectPath: liveRepo, worktreeId: "wt-1" });
   // resolveTopicCwd resolves a READY worktree to its absPath (utils.ts).
-  const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages: [], projectDir: worktreeDir });
+  const ctx = makeMockCtx({ baseDir, appDataDir, topic, messages: [], projectDir: worktreeDir });
 
   const env = assembleTopicContext(ctx, {
     sessionKey: topic.sessionKey,
@@ -460,9 +460,9 @@ describe("assembleTopicContext — worktree-bound awareness path", () => {
 
 describe("assembleTopicContext — history truncation at limit", () => {
   const baseDir = join(ROOT, "trunc", "base");
-  const openclawDir = join(ROOT, "trunc", "openclaw");
+  const appDataDir = join(ROOT, "trunc", "app-data");
   mkdirSync(join(baseDir, "memory"), { recursive: true });
-  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(join(appDataDir, "workspace"), { recursive: true });
 
   const topic = makeTopic();
 
@@ -472,7 +472,7 @@ describe("assembleTopicContext — history truncation at limit", () => {
     messages.push(makeMessage(`msg-${i}`, i % 2 === 0 ? "user" : "assistant", `msg ${i}`));
   }
 
-  const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages });
+  const ctx = makeMockCtx({ baseDir, appDataDir, topic, messages });
   const env = assembleTopicContext(ctx, {
     sessionKey: topic.sessionKey,
     providerName: "claude",
@@ -506,9 +506,9 @@ describe("assembleTopicContext — history truncation at limit", () => {
 
 describe("assembleTopicContext — partial messages excluded", () => {
   const baseDir = join(ROOT, "partial", "base");
-  const openclawDir = join(ROOT, "partial", "openclaw");
+  const appDataDir = join(ROOT, "partial", "app-data");
   mkdirSync(join(baseDir, "memory"), { recursive: true });
-  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(join(appDataDir, "workspace"), { recursive: true });
 
   const topic = makeTopic();
   const messages: StoredMessage[] = [
@@ -516,7 +516,7 @@ describe("assembleTopicContext — partial messages excluded", () => {
     makeMessage("a1", "assistant", "in flight…", { partial: true }),
   ];
 
-  const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages });
+  const ctx = makeMockCtx({ baseDir, appDataDir, topic, messages });
   const env = assembleTopicContext(ctx, {
     sessionKey: topic.sessionKey,
     providerName: "claude",
@@ -533,9 +533,9 @@ describe("assembleTopicContext — partial messages excluded", () => {
 
 describe("assembleTopicContext — context-message prefix excluded", () => {
   const baseDir = join(ROOT, "ctxmsg", "base");
-  const openclawDir = join(ROOT, "ctxmsg", "openclaw");
+  const appDataDir = join(ROOT, "ctxmsg", "app-data");
   mkdirSync(join(baseDir, "memory"), { recursive: true });
-  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(join(appDataDir, "workspace"), { recursive: true });
 
   const topic = makeTopic();
   const messages: StoredMessage[] = [
@@ -543,14 +543,14 @@ describe("assembleTopicContext — context-message prefix excluded", () => {
     makeMessage("a1", "assistant", "[Chat messages since your last reply: 2]\nfoo"),
   ];
 
-  const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages });
+  const ctx = makeMockCtx({ baseDir, appDataDir, topic, messages });
   const env = assembleTopicContext(ctx, {
     sessionKey: topic.sessionKey,
     providerName: "claude",
     includeLastUserInHistory: true,
   });
 
-  it("legacy openclaw envelope marker → excluded with 'context-message'", () => {
+  it("legacy gateway envelope marker → excluded with 'context-message'", () => {
     const e = env.diagnostics.historyEntries.find((x) => x.storedMessageId === "a1")!;
     expect(e.excluded).toBe(true);
     expect(e.excludeReason).toBe("context-message");
@@ -561,9 +561,9 @@ describe("assembleTopicContext — the last user turn leaves BEFORE the limit ap
   // HISTBUILD-01: exclude the last first, then keep the most recent; the
   // reverse order would spend one slot of the limit on the dropped turn.
   const baseDir = join(ROOT, "exclude-then-limit", "base");
-  const openclawDir = join(ROOT, "exclude-then-limit", "openclaw");
+  const appDataDir = join(ROOT, "exclude-then-limit", "app-data");
   mkdirSync(join(baseDir, "memory"), { recursive: true });
-  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(join(appDataDir, "workspace"), { recursive: true });
 
   const topic = makeTopic();
   const messages: StoredMessage[] = [
@@ -574,7 +574,7 @@ describe("assembleTopicContext — the last user turn leaves BEFORE the limit ap
     makeMessage("u3", "user", "four (sent fresh)"),
   ];
 
-  const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages });
+  const ctx = makeMockCtx({ baseDir, appDataDir, topic, messages });
   const env = assembleTopicContext(ctx, {
     sessionKey: topic.sessionKey,
     providerName: "claude",
@@ -594,9 +594,9 @@ describe("assembleTopicContext — the last user turn leaves BEFORE the limit ap
 
 describe("assembleTopicContext — includeLastUserInHistory: false", () => {
   const baseDir = join(ROOT, "lastuser", "base");
-  const openclawDir = join(ROOT, "lastuser", "openclaw");
+  const appDataDir = join(ROOT, "lastuser", "app-data");
   mkdirSync(join(baseDir, "memory"), { recursive: true });
-  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(join(appDataDir, "workspace"), { recursive: true });
 
   const topic = makeTopic();
   const messages: StoredMessage[] = [
@@ -605,7 +605,7 @@ describe("assembleTopicContext — includeLastUserInHistory: false", () => {
     makeMessage("u2", "user", "second (the most recent user turn)"),
   ];
 
-  const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages });
+  const ctx = makeMockCtx({ baseDir, appDataDir, topic, messages });
   const env = assembleTopicContext(ctx, {
     sessionKey: topic.sessionKey,
     providerName: "claude",
@@ -630,16 +630,16 @@ describe("assembleTopicContext — includeLastUserInHistory: false", () => {
 
 describe("assembleTopicContext — userMessageOverride wins", () => {
   const baseDir = join(ROOT, "override", "base");
-  const openclawDir = join(ROOT, "override", "openclaw");
+  const appDataDir = join(ROOT, "override", "app-data");
   mkdirSync(join(baseDir, "memory"), { recursive: true });
-  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(join(appDataDir, "workspace"), { recursive: true });
 
   const topic = makeTopic();
   const messages: StoredMessage[] = [
     makeMessage("u1", "user", "old turn"),
   ];
 
-  const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages });
+  const ctx = makeMockCtx({ baseDir, appDataDir, topic, messages });
   const env = assembleTopicContext(ctx, {
     sessionKey: topic.sessionKey,
     providerName: "claude",
@@ -652,75 +652,41 @@ describe("assembleTopicContext — userMessageOverride wins", () => {
   });
 });
 
-describe("assembleTopicContext — OpenClaw informational blocks", () => {
-  const baseDir = join(ROOT, "openclaw-info", "base");
-  const openclawDir = join(ROOT, "openclaw-info", "openclaw");
+describe("assembleTopicContext — workspace files are never listed", () => {
+  const baseDir = join(ROOT, "workspace-info", "base");
+  const appDataDir = join(ROOT, "workspace-info", "app-data");
   mkdirSync(join(baseDir, "memory"), { recursive: true });
-  const wsDir = join(openclawDir, "workspace");
+  const wsDir = join(appDataDir, "workspace");
   mkdirSync(wsDir, { recursive: true });
   writeFileSync(join(wsDir, "SOUL.md"), "soul content");
   writeFileSync(join(wsDir, "MEMORY.md"), "memory content");
 
   const topic = makeTopic();
-  const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages: [] });
+  const ctx = makeMockCtx({ baseDir, appDataDir, topic, messages: [] });
 
-  it("provider=openclaw → workspace files appear (gateway will inject them)", () => {
-    const env = assembleTopicContext(ctx, {
-      sessionKey: topic.sessionKey,
-      providerName: "openclaw",
-      providerStrategy: "gateway-stateful",
+  // The old gateway injected them itself and Topics showed them as informational:
+  // with no gateway nobody sends them, and no provider must see them listed.
+  for (const [providerName, providerStrategy] of [["claude", "history-aware"], ["claude-code", "inline-system"]] as const) {
+    it(`provider=${providerName} → no block from the workspace files`, () => {
+      const env = assembleTopicContext(ctx, { sessionKey: topic.sessionKey, providerName, providerStrategy });
+      expect(env.systemBlocks.some((b) => b.content.includes("soul content"))).toBe(false);
+      expect(env.systemBlocks.some((b) => b.sourceUri?.startsWith(wsDir))).toBe(false);
     });
-    const ids = env.systemBlocks.map((b) => b.id);
-    expect(ids).toContain("openclaw:SOUL.md");
-    expect(ids).toContain("openclaw:MEMORY.md");
-    expect(ids).not.toContain("openclaw:USER.md");      // file not present on disk
-  });
-
-  it("workspace blocks are NOT injected by topics-app (informational)", () => {
-    const env = assembleTopicContext(ctx, {
-      sessionKey: topic.sessionKey,
-      providerName: "openclaw",
-      providerStrategy: "gateway-stateful",
-    });
-    const soul = env.systemBlocks.find((b) => b.id === "openclaw:SOUL.md")!;
-    expect(soul.injectedByTopicsApp).toBe(false);
-    expect(soul.editable).toBe(false);
-  });
-
-  it("provider=claude → workspace files are HIDDEN (gateway not in play)", () => {
-    const env = assembleTopicContext(ctx, {
-      sessionKey: topic.sessionKey,
-      providerName: "claude",
-      providerStrategy: "history-aware",
-    });
-    const ids = env.systemBlocks.map((b) => b.id);
-    expect(ids).not.toContain("openclaw:SOUL.md");
-    expect(ids).not.toContain("openclaw:MEMORY.md");
-    expect(ids).not.toContain("openclaw:memory-tree");
-  });
-
-  it("provider=claude-code → workspace files are HIDDEN", () => {
-    const env = assembleTopicContext(ctx, {
-      sessionKey: topic.sessionKey,
-      providerName: "claude-code",
-      providerStrategy: "inline-system",
-    });
-    expect(env.systemBlocks.find((b) => b.id === "openclaw:SOUL.md")).toBeUndefined();
-  });
+  }
 });
 
 describe("assembleTopicContext — pinned messages aggregate", () => {
   const baseDir = join(ROOT, "pinned", "base");
-  const openclawDir = join(ROOT, "pinned", "openclaw");
+  const appDataDir = join(ROOT, "pinned", "app-data");
   mkdirSync(join(baseDir, "memory"), { recursive: true });
-  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(join(appDataDir, "workspace"), { recursive: true });
 
   const topic = makeTopic({ pinnedMessages: ["u1", "a1"] });
   const messages: StoredMessage[] = [
     makeMessage("u1", "user", "important question"),
     makeMessage("a1", "assistant", "important answer"),
   ];
-  const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages });
+  const ctx = makeMockCtx({ baseDir, appDataDir, topic, messages });
   const env = assembleTopicContext(ctx, {
     sessionKey: topic.sessionKey,
     providerName: "claude",
@@ -737,12 +703,12 @@ describe("assembleTopicContext — pinned messages aggregate", () => {
 
 describe("assembleTopicContext — planMode flag", () => {
   const baseDir = join(ROOT, "plan", "base");
-  const openclawDir = join(ROOT, "plan", "openclaw");
+  const appDataDir = join(ROOT, "plan", "app-data");
   mkdirSync(join(baseDir, "memory"), { recursive: true });
-  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(join(appDataDir, "workspace"), { recursive: true });
 
   const topic = makeTopic();
-  const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages: [] });
+  const ctx = makeMockCtx({ baseDir, appDataDir, topic, messages: [] });
 
   it("planMode: true → synthetic:plan-mode block present", () => {
     const env = assembleTopicContext(ctx, {
@@ -764,14 +730,14 @@ describe("assembleTopicContext — planMode flag", () => {
 
 describe("assembleTopicContext — fastMode flag (chat-fast-mode)", () => {
   const baseDir = join(ROOT, "fast", "base");
-  const openclawDir = join(ROOT, "fast", "openclaw");
+  const appDataDir = join(ROOT, "fast", "app-data");
   mkdirSync(join(baseDir, "memory"), { recursive: true });
-  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(join(appDataDir, "workspace"), { recursive: true });
 
   const topic = makeTopic();
 
   it("fastMode: true → diagnostics.fastMode === true, sessionMeta.fastMode === true", () => {
-    const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages: [] });
+    const ctx = makeMockCtx({ baseDir, appDataDir, topic, messages: [] });
     const env = assembleTopicContext(ctx, {
       sessionKey: topic.sessionKey,
       providerName: "claude-code",
@@ -782,7 +748,7 @@ describe("assembleTopicContext — fastMode flag (chat-fast-mode)", () => {
   });
 
   it("fastMode default → diagnostics.fastMode === false", () => {
-    const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages: [] });
+    const ctx = makeMockCtx({ baseDir, appDataDir, topic, messages: [] });
     const env = assembleTopicContext(ctx, {
       sessionKey: topic.sessionKey,
       providerName: "claude-code",
@@ -792,7 +758,7 @@ describe("assembleTopicContext — fastMode flag (chat-fast-mode)", () => {
   });
 
   it("fastMode does NOT alter systemBlocks or history", () => {
-    const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages: [] });
+    const ctx = makeMockCtx({ baseDir, appDataDir, topic, messages: [] });
     const off = assembleTopicContext(ctx, {
       sessionKey: topic.sessionKey,
       providerName: "claude-code",
@@ -816,16 +782,16 @@ describe("assembleTopicContext — fastMode flag (chat-fast-mode)", () => {
 
 describe("assembleTopicContext — leanContext (dispatcher resume/continuation)", () => {
   const baseDir = join(ROOT, "lean", "base");
-  const openclawDir = join(ROOT, "lean", "openclaw");
+  const appDataDir = join(ROOT, "lean", "app-data");
   const projectDir = join(ROOT, "lean", "project");
   mkdirSync(join(baseDir, "memory"), { recursive: true });
-  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(join(appDataDir, "workspace"), { recursive: true });
   mkdirSync(projectDir, { recursive: true });
   writeFileSync(join(projectDir, "CLAUDE.md"), "# Heavy project doc\n".repeat(50));
   writeFileSync(join(baseDir, "memory", "_global.md"), "global memory content");
 
   const topic = makeTopic({ systemPrompt: "Role: task agent.", projectPath: projectDir });
-  const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages: [], projectDir });
+  const ctx = makeMockCtx({ baseDir, appDataDir, topic, messages: [], projectDir });
 
   const full = assembleTopicContext(ctx, {
     sessionKey: topic.sessionKey,
@@ -865,15 +831,15 @@ describe("assembleTopicContext — leanContext (dispatcher resume/continuation)"
 
 describe("assembleTopicContext — graphify hint", () => {
   const baseDir = join(ROOT, "graphify", "base");
-  const openclawDir = join(ROOT, "graphify", "openclaw");
+  const appDataDir = join(ROOT, "graphify", "app-data");
   const projectDir = join(ROOT, "graphify", "project");
   mkdirSync(join(baseDir, "memory"), { recursive: true });
-  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(join(appDataDir, "workspace"), { recursive: true });
   mkdirSync(join(projectDir, "graphify-out"), { recursive: true });
   writeFileSync(join(projectDir, "graphify-out", "graph.json"), "{}");
 
   const topic = makeTopic({ projectPath: projectDir });
-  const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages: [], projectDir });
+  const ctx = makeMockCtx({ baseDir, appDataDir, topic, messages: [], projectDir });
 
   it("mentions graphify when graphify-out/graph.json exists in the project", () => {
     const env = assembleTopicContext(ctx, { sessionKey: topic.sessionKey, providerName: "claude-code" });
@@ -887,7 +853,7 @@ describe("assembleTopicContext — graphify hint", () => {
     const bare = join(ROOT, "nohint", "plain-project");
     mkdirSync(bare, { recursive: true });
     const t2 = makeTopic({ sessionKey: "topic:nograph", projectPath: bare });
-    const ctx2 = makeMockCtx({ baseDir, openclawDir, topic: t2, messages: [], projectDir: bare });
+    const ctx2 = makeMockCtx({ baseDir, appDataDir, topic: t2, messages: [], projectDir: bare });
     const env = assembleTopicContext(ctx2, { sessionKey: t2.sessionKey, providerName: "claude-code" });
     const aware = env.systemBlocks.find((b) => b.id === "template:project-awareness")!;
     expect(aware.content).not.toContain("graphify");
@@ -900,9 +866,9 @@ describe("assembleTopicContext — graphify hint", () => {
 
 describe("assembleTopicContext — blocco obiettivo", () => {
   const baseDir = join(ROOT, "goal", "base");
-  const openclawDir = join(ROOT, "goal", "openclaw");
+  const appDataDir = join(ROOT, "goal", "app-data");
   mkdirSync(join(baseDir, "memory"), { recursive: true });
-  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(join(appDataDir, "workspace"), { recursive: true });
 
   const topic = makeTopic({ id: "topic-goal", sessionKey: "topic:goal" });
 
@@ -911,7 +877,7 @@ describe("assembleTopicContext — blocco obiettivo", () => {
     opts: { leanContext?: boolean; providerName?: string; topic?: Topic } = {},
   ) {
     const t = opts.topic ?? topic;
-    const ctx = makeMockCtx({ baseDir, openclawDir, topic: t, messages: [], db });
+    const ctx = makeMockCtx({ baseDir, appDataDir, topic: t, messages: [], db });
     return assembleTopicContext(ctx, {
       sessionKey: t.sessionKey,
       providerName: "claude",
@@ -1003,11 +969,6 @@ describe("assembleTopicContext — blocco obiettivo", () => {
     expect(ids).not.toContain("synthetic:goal-hint");
   });
 
-  it("a openclaw non si dice di chiamare un tool che non ha", () => {
-    const ids = assemble(makeGoalsDb(), { providerName: "openclaw" }).systemBlocks.map((b) => b.id);
-    expect(ids).not.toContain("synthetic:goal-hint");
-  });
-
   it("un DB senza la tabella non fa saltare l'assemblaggio", () => {
     // Prod non ci arriva (le migration girano al boot), ma un envelope che
     // esplode per un blocco accessorio sarebbe un guasto peggiore del blocco
@@ -1024,7 +985,7 @@ describe("assembleTopicContext — blocco obiettivo", () => {
 
 describe("assembleTopicContext — global orchestrator board snapshot", () => {
   const baseDir = join(ROOT, "global-board", "base");
-  const openclawDir = join(ROOT, "global-board", "openclaw");
+  const appDataDir = join(ROOT, "global-board", "app-data");
   const topic = makeTopic({
     id: "topic-global-orchestrator",
     sessionKey: "topic:global-orchestrator",
@@ -1033,12 +994,12 @@ describe("assembleTopicContext — global orchestrator board snapshot", () => {
 
   beforeAll(() => {
     mkdirSync(join(baseDir, "memory"), { recursive: true });
-    mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+    mkdirSync(join(appDataDir, "workspace"), { recursive: true });
   });
 
   function assemble(db: Database) {
     return assembleTopicContext(
-      makeMockCtx({ baseDir, openclawDir, topic, messages: [], db }),
+      makeMockCtx({ baseDir, appDataDir, topic, messages: [], db }),
       { sessionKey: topic.sessionKey, providerName: "codex", providerStrategy: "history-aware" },
     );
   }
@@ -1101,7 +1062,7 @@ describe("assembleTopicContext — global orchestrator board snapshot", () => {
     seedGlobalBoardTasks(db);
 
     const env = assembleTopicContext(
-      makeMockCtx({ baseDir, openclawDir, topic: impostor, messages: [], db }),
+      makeMockCtx({ baseDir, appDataDir, topic: impostor, messages: [], db }),
       { sessionKey: impostor.sessionKey, providerName: "codex", providerStrategy: "history-aware" },
     );
     const ids = env.systemBlocks.map((block) => block.id);
@@ -1118,7 +1079,7 @@ describe("assembleTopicContext — global orchestrator board snapshot", () => {
     });
     const db = makeGlobalBoardDb(protectedTopic, true);
     const env = assembleTopicContext(
-      makeMockCtx({ baseDir, openclawDir, topic: protectedTopic, messages: [], db }),
+      makeMockCtx({ baseDir, appDataDir, topic: protectedTopic, messages: [], db }),
       { sessionKey: protectedTopic.sessionKey, providerName: "codex", providerStrategy: "history-aware" },
     );
     expect(env.systemBlocks.find((block) => block.id === "prompt:system")).toMatchObject({
@@ -1128,14 +1089,13 @@ describe("assembleTopicContext — global orchestrator board snapshot", () => {
     db.close();
   });
 
-  it("never injects OpenClaw workspace context for the registered coordinator", () => {
+  it("assembles the board snapshot for the registered coordinator on any provider name", () => {
     const db = makeGlobalBoardDb(topic, true);
     seedGlobalBoardTasks(db);
     const env = assembleTopicContext(
-      makeMockCtx({ baseDir, openclawDir, topic, messages: [], db }),
-      { sessionKey: topic.sessionKey, providerName: "openclaw", providerStrategy: "gateway-stateful" },
+      makeMockCtx({ baseDir, appDataDir, topic, messages: [], db }),
+      { sessionKey: topic.sessionKey, providerName: "claude", providerStrategy: "history-aware" },
     );
-    expect(env.systemBlocks.some((block) => block.id.startsWith("openclaw:"))).toBe(false);
     expect(env.systemBlocks.map((block) => block.id)).toContain("synthetic:global-board-snapshot");
     db.close();
   });
@@ -1150,23 +1110,23 @@ describe("assembleTopicContext — global orchestrator board snapshot", () => {
     const corrupt = makeTopic({
       id: "topic-global-corrupt",
       sessionKey: "topic:global-corrupt",
-      provider: "openclaw",
+      provider: "claude",
       projectPath: secretProject,
       contextFiles: [secretFile],
       systemPrompt: "corrupt mutable prompt",
     });
     const db = makeGlobalBoardDb(corrupt, true);
-    db.run("UPDATE topics SET project_path = ?, provider = 'openclaw' WHERE id = ?", [secretProject, corrupt.id]);
+    db.run("UPDATE topics SET project_path = ?, provider = 'claude' WHERE id = ?", [secretProject, corrupt.id]);
     const env = assembleTopicContext(
       makeMockCtx({
         baseDir,
-        openclawDir,
+        appDataDir,
         topic: corrupt,
         messages: [],
         projectDir: secretProject,
         db,
       }),
-      { sessionKey: corrupt.sessionKey, providerName: "openclaw", providerStrategy: "gateway-stateful" },
+      { sessionKey: corrupt.sessionKey, providerName: "claude", providerStrategy: "history-aware" },
     );
 
     const ids = env.systemBlocks.map((block) => block.id);
@@ -1192,7 +1152,7 @@ describe("assembleTopicContext — global orchestrator board snapshot", () => {
     const ordinary = makeTopic({ id: "topic-ordinary", sessionKey: "topic:ordinary" });
     const ordinaryDb = withGoals(ordinary, false);
     const ordinaryEnv = assembleTopicContext(
-      makeMockCtx({ baseDir, openclawDir, topic: ordinary, messages: [], db: ordinaryDb }),
+      makeMockCtx({ baseDir, appDataDir, topic: ordinary, messages: [], db: ordinaryDb }),
       { sessionKey: ordinary.sessionKey, providerName: "codex", providerStrategy: "history-aware" },
     );
     expect(ordinaryEnv.systemBlocks.some((b) => b.id === "synthetic:goal-hint")).toBe(true);
@@ -1220,12 +1180,12 @@ describe("assembleTopicContext — global orchestrator board snapshot", () => {
  */
 describe("assembleTopicContext — la lingua delle risposte", () => {
   const baseDir = join(ROOT, "lang", "base");
-  const openclawDir = join(ROOT, "lang", "openclaw");
+  const appDataDir = join(ROOT, "lang", "app-data");
   const topic = makeTopic({ id: "topic-lang", sessionKey: "topic:lang" });
 
   beforeAll(() => {
     mkdirSync(join(baseDir, "memory"), { recursive: true });
-    mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+    mkdirSync(join(appDataDir, "workspace"), { recursive: true });
     // Serve il DB VERO: la lingua vive in `app_settings` (migration 087) e il
     // blocco la legge da lì. Con il modulo db non inizializzato il servizio
     // ripiega su una riga tutta null — cioè 'auto' — e il test proverebbe solo
@@ -1242,7 +1202,7 @@ describe("assembleTopicContext — la lingua delle risposte", () => {
   /** `providerName` deliberatamente senza control tool: è il caso che conta. */
   const assemble = () =>
     assembleTopicContext(
-      makeMockCtx({ baseDir, openclawDir, topic, messages: [] }),
+      makeMockCtx({ baseDir, appDataDir, topic, messages: [] }),
       { sessionKey: topic.sessionKey, providerName: "codex", providerStrategy: "history-aware" },
     );
 

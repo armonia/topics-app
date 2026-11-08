@@ -57,8 +57,17 @@ test('cross-origin rrweb frames are labeled and do not relay input', async ({ pa
     await expect(sameFrame).toBeVisible();
     await expect(placeholder).toBeVisible();
     const top = async (target: Locator) => (await target.boundingBox())?.y ?? Number.NaN;
-    const frameBefore = await top(sameFrame);
-    const labelBefore = await top(placeholder);
+    // toBeVisible() above can pass on the old frame a moment before the rebuild
+    // detaches it, and the read right after is then null: it was red three times
+    // in a row with two Playwright processes on one runner (PR #630). The value
+    // compared is the one read when it was a number.
+    const settledTop = async (target: Locator): Promise<number> => {
+      let y = Number.NaN;
+      await expect.poll(async () => { y = await top(target); return Number.isFinite(y); }, { timeout: 10_000 }).toBe(true);
+      return y;
+    };
+    const frameBefore = await settledTop(sameFrame);
+    const labelBefore = await settledTop(placeholder);
     await hostPage.evaluate(() => window.scrollTo({ top: 120, behavior: 'instant' as ScrollBehavior }));
     await expect.poll(() => top(sameFrame), { timeout: 5_000 }).toBeLessThan(frameBefore - 20);
     await expect.poll(() => top(placeholder), { timeout: 5_000 }).toBeLessThan(labelBefore - 20);

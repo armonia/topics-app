@@ -56,7 +56,7 @@ function harness(rows: Row[]) {
   const json = (data: unknown, status = 200) =>
     new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
   const ctx = {
-    OPENCLAW_DIR: tmpdir(),
+    APP_DATA_DIR: tmpdir(),
     db: {
       prepare: (sql: string) => ({
         get: () => undefined,

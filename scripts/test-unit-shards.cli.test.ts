@@ -35,7 +35,6 @@ interface FakeCall {
   dataDir: string | null;
   topicsDataDir: string | null;
   topicsHome: string | null;
-  openclawConfig: string | null;
   ci: string | null;
   gateHeld: string | null;
   timeSlack: string | null;
@@ -95,7 +94,7 @@ const record = {
   tmpdirOwned: process.env.TOPICS_TEST_PRIVATE_SCRATCH ?? null,
   tmpdir: process.env.TMPDIR ?? null, tmp: process.env.TMP ?? null, temp: process.env.TEMP ?? null,
   dataDir: process.env.DATA_DIR ?? null, topicsDataDir: process.env.TOPICS_DATA_DIR ?? null,
-  topicsHome: process.env.TOPICS_HOME ?? null, openclawConfig: process.env.OPENCLAW_CONFIG_PATH ?? null,
+  topicsHome: process.env.TOPICS_HOME ?? null,
   ci: process.env.CI ?? null, gateHeld: process.env.TOPICS_GATE_HELD ?? null,
   timeSlack: process.env.TOPICS_TEST_TIME_SLACK ?? null, runId: process.env.TOPICS_TEST_RUN_ID ?? null,
   gateMaxRunMs: process.env.TOPICS_GATE_MAX_RUN_MS ?? null,
@@ -116,7 +115,6 @@ if (isRed) process.exit(7);
   env.DATA_DIR = "/tmp/should-not-reach-child";
   env.TOPICS_DATA_DIR = "/tmp/should-not-reach-child-topics";
   env.TOPICS_HOME = "/tmp/should-not-reach-child-home";
-  env.OPENCLAW_CONFIG_PATH = "/tmp/should-not-reach-child-config.json";
   if (options.ci !== undefined) env.CI = options.ci;
   if (options.timeoutMs !== undefined) env.TOPICS_TEST_TIMEOUT_MS = options.timeoutMs;
   if (options.shards !== undefined) env.TOPICS_UNIT_SHARDS = options.shards;
@@ -190,7 +188,6 @@ describe("unit shards CLI", () => {
       expect(call.dataDir).toBeNull();
       expect(call.topicsDataDir).toBeNull();
       expect(call.topicsHome).toBeNull();
-      expect(call.openclawConfig).toBeNull();
       // One scratch directory per file, all under the same run root.
       expect(call.tmpdir).toBeTruthy();
       expect(call.tmp).toBe(call.tmpdir);
