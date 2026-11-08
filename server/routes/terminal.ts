@@ -1123,10 +1123,27 @@ function noteDroppedInput(sessionId: string, err: unknown): void {
 export function resolveTerminalSend(
   sessionType: string | undefined,
   input: string,
-): { data: string; sent: number; dropped: boolean } {
+): { data: string; sent: number; dropped: boolean; pasted: boolean } {
   const data = bridgeWriteForSession(sessionType, input);
-  if (data === null) return { data: "", sent: 0, dropped: true };
-  return { data, sent: Buffer.byteLength(data, "utf8"), dropped: false };
+  if (data === null) return { data: "", sent: 0, dropped: true, pasted: false };
+  const sent = Buffer.byteLength(data, "utf8");
+  // Long plain text for a Claude TUI goes as one bracketed paste: a plain write
+  // over 1022 bytes reached it without its head (lib/subagent-seed.ts). Keys
+  // (Enter, arrows, anything with a control byte) and short text stay raw so
+  // dialogs and menus keep reading them as keystrokes.
+  const claudeTui = sessionType === "claude-code" || sessionType === "claude-code-team";
+  if (claudeTui && sent > PASTE_MIN_BYTES && isPlainText(data)) {
+    return { data: promptAsPaste(data), sent, dropped: false, pasted: true };
+  }
+  return { data, sent, dropped: false, pasted: false };
+}
+
+/** Under this many bytes a write reaches the TUI in one piece (macOS reads 1022 at a time). */
+const PASTE_MIN_BYTES = 1000;
+
+/** Printable text, newlines and tabs only: no ESC sequences, no Enter, no other control byte. */
+function isPlainText(s: string): boolean {
+  return !/[ --]/.test(s);
 }
 
 function sendToBridge(msg: any) {
@@ -3588,7 +3605,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       if (send.dropped) return json({ ok: false, dropped: true, sent: 0 });
       noteTerminalInput(sendMatch.id);
       sendToBridge({ type: "write", id: sendMatch.id, data: send.data });
-      return json({ ok: true, sent: send.sent });
+      return json({ ok: true, sent: send.sent, pasted: send.pasted });
     }
 
     const resizeMatch = matchRoute(pathname, "/api/terminal/sessions/:id/resize") || matchRoute(pathname, "/api/terminal/:id/resize");
