@@ -246,7 +246,7 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
               type="button"
               data-testid="dispatch-load-settings"
               onClick={() => { setOpen(false); onOpenSettings(); }}
-              className="mt-1 w-full rounded bg-black/5 dark:bg-white/5 px-2 py-1 text-mini text-app-text-secondary hover:bg-white/10"
+              className="mt-1 w-full rounded bg-white/5 px-2 py-1 text-mini text-app-text-secondary hover:bg-white/10"
             >{tr('board.gauge.settings')}</button>
           )}
         </div>

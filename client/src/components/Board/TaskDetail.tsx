@@ -10,7 +10,7 @@ import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useOwnerName } from '../../hooks/useOwnerName';
 import { actionOriginDisplay, authorDisplay } from '../../lib/authorDisplay';
-import { AlertTriangle, ListTree, RotateCcw, Timer, ArrowUp, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Rocket, Send, Server, ShieldCheck, Sparkles, Square, StickyNote, Tag, TriangleAlert, UserRound, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, ArrowUp, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Rocket, Send, Server, ShieldCheck, Sparkles, Square, StickyNote, Tag, TriangleAlert, UserRound, WifiOff, X } from 'lucide-react';
 import { SectionHeader, useSectionOpen } from './sectionAccordion';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { PlanSurface } from './PlanSurface';
@@ -47,7 +47,7 @@ import { emptyThreadKey } from './emptyThread';
 import { LandingNotice } from './LandingNotice';
 import { landingBand } from './landingBand';
 import { useLandingTicket } from './useLandingTicket';
-import { STATUS_GLYPH_PX, boardApi, commentAuthorLabel, diffTotals, NOT_MEASURED_EXIT, hasCodeQuestion, showsLandingDebt, showsDeployProposal, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, subtaskQueueChip, subtaskOpenable, reopenedChip, attemptHasWork, priorityAwaitingAgent, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type DiffPanelSource, type CheckRun, type TaskAttempt } from '../../lib/board';
+import { boardApi, commentAuthorLabel, diffTotals, NOT_MEASURED_EXIT, hasCodeQuestion, showsLandingDebt, showsDeployProposal, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, subtaskQueueChip, subtaskOpenable, reopenedChip, attemptHasWork, priorityAwaitingAgent, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type DiffPanelSource, type CheckRun, type TaskAttempt } from '../../lib/board';
 import { ZoomableImage } from '../Shared/ImageLightbox';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths, hasConversationMedia } from './taskMedia';
@@ -190,7 +190,7 @@ function ReviewDecisionRow({ task, busy, onAccept, onSendBack, onLand }: {
   const primaryCls = task.checksState === 'fail' && d.primary === 'accept'
     ? 'bg-amber-700 hover:bg-amber-800 text-white'
     : 'bg-emerald-700 hover:bg-emerald-800 text-white';
-  const neutralCls = 'bg-black/10 dark:bg-white/10 text-app-text hover:bg-white/20';
+  const neutralCls = 'bg-white/10 text-app-text hover:bg-white/20';
   // I GLIFI VENGONO DALLA TABELLA UNICA, non da qui. Erano `ShieldCheck` e
   // `ShieldX`, cioè gli scudi dei CHECKS: sulla stessa schermata lo scudo verde
   // è già il chip «checks verdi», quindi il bottone che chiude la card portava
@@ -256,7 +256,7 @@ function ChecksSection({ task }: { task: BoardTask }) {
     const progress = task.checksProgress;
     const ci = task.checksCi;
     return (
-      <div className="rounded bg-black/5 dark:bg-white/5 px-2 py-1.5 text-mini text-app-text-heading">
+      <div className="rounded bg-white/5 px-2 py-1.5 text-mini text-app-text-heading">
         <div className="flex items-center gap-1.5">
           <Spinner size="sm" tone="current" className="shrink-0 text-app-text-secondary" />
           {progress
@@ -348,8 +348,8 @@ function ChecksSection({ task }: { task: BoardTask }) {
                 {r.ok
                   ? <Check size={14} className="inline-block text-emerald-300" aria-hidden="true" />
                   : r.notMeasured || r.code === NOT_MEASURED_EXIT
-                    ? <Hourglass size={14} className="inline-block text-amber-800 dark:text-amber-300" aria-hidden="true" />
-                    : <X size={14} className="inline-block text-rose-800 dark:text-rose-300" aria-hidden="true" />} <code className="font-mono">{r.cmd}</code>{r.ok ? '' : `: ${short(r)}`}
+                    ? <Hourglass size={14} className="inline-block text-amber-300" aria-hidden="true" />
+                    : <X size={14} className="inline-block text-rose-300" aria-hidden="true" />} <code className="font-mono">{r.cmd}</code>{r.ok ? '' : `: ${short(r)}`}
               </div>
               {!r.ok && (r.tail || r.spawnError) && (
                 <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 p-1.5 font-mono text-mini leading-snug text-app-text-heading">
@@ -500,7 +500,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent, focusPath 
           // qui sotto. Un chip che tronca senza tooltip è un'informazione che
           // esiste e non si può leggere.
           title={`${label} · ${why}`}
-          className="inline-flex max-w-full items-center gap-1.5 rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-mini text-app-text-muted"
+          className="inline-flex max-w-full items-center gap-1.5 rounded bg-white/5 px-1.5 py-0.5 text-mini text-app-text-muted"
         >
           <GitCompare className="h-3 w-3 shrink-0" />
           <span className="shrink-0">{label}</span>
@@ -534,7 +534,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent, focusPath 
         onClick={() => setOpen((s) => !s)}
         data-testid="task-changes-trigger"
         title={tr('board.task.changes.openTitle')}
-        className="flex max-w-full items-center gap-1.5 rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/10"
+        className="flex max-w-full items-center gap-1.5 rounded bg-white/5 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/10"
       >
         <GitCompare className="h-3 w-3 shrink-0" />
         <span className="shrink-0">{label}</span>
@@ -546,7 +546,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent, focusPath 
           <span className="text-emerald-400">+{totals.additions}</span> <span className="text-red-400">−{totals.deletions}</span>
         </span>
         {from && (
-          <span className="min-w-0 truncate rounded bg-black/5 dark:bg-white/5 px-1 text-mini text-app-text-faint">{from}</span>
+          <span className="min-w-0 truncate rounded bg-white/5 px-1 text-mini text-app-text-faint">{from}</span>
         )}
         {notes.length > 0 && (
           <span className="shrink-0 rounded bg-indigo-500/20 px-1 text-mini text-indigo-300">
@@ -573,7 +573,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent, focusPath 
           <div className="mt-1.5 flex items-center gap-2 rounded border border-indigo-500/25 bg-indigo-500/5 px-2 py-1.5">
             <span className="min-w-0 flex-1 text-mini text-app-text-heading">
               {notesError
-                ? <span className="text-rose-800 dark:text-rose-300">{tr('board.task.changes.sendFailedInline', { msg: notesError })}</span>
+                ? <span className="text-rose-300">{tr('board.task.changes.sendFailedInline', { msg: notesError })}</span>
                 : tr(notes.length === 1 ? 'board.task.changes.notes.one' : 'board.task.changes.notes.many', { n: notes.length })}
             </span>
             <button
@@ -656,7 +656,7 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
       <div className="flex items-center gap-1 text-mini font-semibold uppercase tracking-wide text-app-text-muted">
         {tr('board.task.attempts')} <span className="normal-case tracking-normal text-app-text-faint">· {tr('board.task.attempts.parallel', { n: attempts.length })}</span>
         {running > 0 && (
-          <span className="ml-1 flex items-center gap-1 rounded bg-amber-500/15 px-1 text-mini normal-case tracking-normal text-amber-800 dark:text-amber-300">
+          <span className="ml-1 flex items-center gap-1 rounded bg-amber-500/15 px-1 text-mini normal-case tracking-normal text-amber-300">
             <Spinner size="xs" tone="current" /> {tr('board.task.attempts.running', { n: running })}
           </span>
         )}
@@ -666,7 +666,7 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
           {tr('board.task.attempts.pickHint')}
         </p>
       )}
-      {error && <p className="mt-1 text-mini text-rose-800 dark:text-rose-300">{error}</p>}
+      {error && <p className="mt-1 text-mini text-rose-300">{error}</p>}
       <div className="mt-1.5 space-y-1.5">
         {attempts.map((a) => {
           const won = a.state === 'selected';
@@ -683,7 +683,7 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
               <div className="flex items-center gap-1.5 text-mini">
                 <span className="font-medium text-app-text">{tr('board.task.attempt.n', { n: a.idx })}</span>
                 {won && <span className="rounded bg-emerald-500/25 px-1 text-mini text-emerald-200">{tr('board.task.attempt.selected')}</span>}
-                {dead && <span className="rounded bg-black/10 dark:bg-white/10 px-1 text-mini text-app-text-secondary">{tr('board.task.attempt.discarded')}</span>}
+                {dead && <span className="rounded bg-white/10 px-1 text-mini text-app-text-secondary">{tr('board.task.attempt.discarded')}</span>}
                 <span className="text-app-text-muted">{attemptStat(a, tr)}</span>
                 {a.branch && <span className="truncate font-mono text-mini text-app-text-faint">{a.branch}</span>}
               </div>
@@ -694,7 +694,7 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
                 {work && (
                   <button
                     onClick={() => setOpenDiff((cur) => (cur === a.id ? null : a.id))}
-                    className="rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-mini text-app-text-heading hover:bg-white/10"
+                    className="rounded bg-white/5 px-1.5 py-0.5 text-mini text-app-text-heading hover:bg-white/10"
                   >{tr(openDiff === a.id ? 'board.task.attempt.closeDiff' : 'board.task.attempt.openDiff')}</button>
                 )}
                 {/* «Apri la chat» diceva meno di quel che fa: è la SESSIONE di
@@ -703,13 +703,13 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
                   <button
                     onClick={() => onOpenTopic(a.topicId!)}
                     title={tr('board.task.openSessionTitle')}
-                    className="rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-mini text-app-text-heading hover:bg-white/10"
+                    className="rounded bg-white/5 px-1.5 py-0.5 text-mini text-app-text-heading hover:bg-white/10"
                   >{tr('board.task.openSession')}</button>
                 )}
                 {a.topicId && !dead && shouldExplainMissingSession(resolveSession(a.topicId)) && (
                   <span
                     title={tr('board.task.sessionGoneTitle')}
-                    className="rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-mini text-app-text-faint"
+                    className="rounded bg-white/5 px-1.5 py-0.5 text-mini text-app-text-faint"
                   >{tr('board.task.sessionGone')}</span>
                 )}
                 {!decided && running === 0 && a.topicId && (
@@ -756,7 +756,7 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
   }, [projectId, taskId, attemptId, reads]);
   const source = useMemo<DiffPanelSource>(() => ({ kind: 'task', projectId, taskId, attemptId }), [projectId, taskId, attemptId]);
   if (state === 'loading') return <div className="mt-1.5 flex items-center gap-1 text-mini text-app-text-muted"><Spinner size="sm" tone="current" /> {tr('board.task.loadingDiff')}</div>;
-  if (state === 'error') return <p className="mt-1.5 text-mini text-rose-800 dark:text-rose-300">{tr('board.task.diffUnreadable')}</p>;
+  if (state === 'error') return <p className="mt-1.5 text-mini text-rose-300">{tr('board.task.diffUnreadable')}</p>;
   // Un tentativo si legge SOLO dal suo worktree (i riferimenti durevoli parlano
   // del vincitore), quindi qui i codici sono due: «non ha prodotto niente» e
   // «non ricostruibile» — e restano distinti anche in una riga sola.
@@ -1939,7 +1939,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                   {replyOptions.map((opt) => (
                     <button key={opt} disabled={sending || busy || uploading}
                       onClick={() => void answerOption(opt)}
-                      className="rounded border border-app-border bg-black/5 dark:bg-white/5 px-2.5 py-1.5 text-left text-compact leading-4 text-app-text hover:bg-white/10 disabled:opacity-50">
+                      className="rounded border border-app-border bg-white/5 px-2.5 py-1.5 text-left text-compact leading-4 text-app-text hover:bg-white/10 disabled:opacity-50">
                       {stripMarkdown(opt)}
                     </button>
                   ))}
@@ -2177,7 +2177,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
             {reopened && (
               <details data-testid="task-reopened-notice" className="group relative shrink-0 text-mini text-app-text-muted">
                 <summary className="cursor-pointer list-none rounded px-1.5 py-0.5 hover:bg-white/5 hover:text-app-text">
-                  <RotateCcw size={STATUS_GLYPH_PX} className="inline-block align-text-bottom" aria-hidden /> {tr('board.task.reopened')}
+                  ↩︎ {tr('board.task.reopened')}
                 </summary>
                 <p className="absolute right-0 top-full z-20 mt-1 w-64 rounded border border-app-border bg-elevated p-2 text-app-text shadow-lg">{reopened.detail}</p>
               </details>
@@ -2190,7 +2190,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
               <DispatchChip state={task.dispatchState} error={task.dispatchError} deliveredBy={task.deliveredBy} />
             ) : task && showsStoppedChip(task) ? (
               // Same rule as the card, one module: `stoppedChip.ts`.
-              <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-mini text-rose-800 dark:text-rose-300" title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
+              <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-mini text-rose-300" title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
             ) : null}
           </div>
         )}
@@ -2209,7 +2209,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
             onCreate={doCreateProject}
             busy={projBusy}
             listLabel={tr('board.task.moveProjectTo')}
-            headerNote={moveBlocked ? <p className="px-2.5 pb-1 text-mini leading-snug text-amber-800/90 dark:text-amber-300/90">{moveBlocked}</p> : undefined}
+            headerNote={moveBlocked ? <p className="px-2.5 pb-1 text-mini leading-snug text-amber-300/90">{moveBlocked}</p> : undefined}
           />
           <div className={POPOVER_DIVIDER} />
           <button
@@ -2227,7 +2227,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
             onChange={(e) => { setTitleDraft(e.target.value); autoGrow(e.currentTarget); }}
             onBlur={saveTitle}
             onKeyDown={(e) => { cancelKey(e); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveTitle(); } }}
-            className="-mx-1.5 block max-h-24 w-[calc(100%+0.75rem)] resize-none overflow-y-auto rounded bg-black/5 dark:bg-white/5 px-1.5 py-1 text-body-lg leading-5 text-app-text outline-none"
+            className="-mx-1.5 block max-h-24 w-[calc(100%+0.75rem)] resize-none overflow-y-auto rounded bg-white/5 px-1.5 py-1 text-body-lg leading-5 text-app-text outline-none"
           />
         ) : (
           <p
@@ -2252,11 +2252,11 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                   onClick={() => openBlockerMenu(blockerChipRef.current)}
                   data-testid="task-blocked-by-chip"
                   title={tr('task.blocked.hint', { what: blockedChip.title })}
-                  className="flex min-w-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-mini text-amber-800 dark:text-amber-300 hover:bg-amber-500/25"
+                  className="flex min-w-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-mini text-amber-300 hover:bg-amber-500/25"
                 >
                   <Lock className="h-3 w-3 shrink-0" />
                   <span className="max-w-[14rem] truncate">{blockedChip.label}</span>
-                  <ChevronDown className="h-3 w-3 shrink-0 text-amber-800/70 dark:text-amber-300/70" />
+                  <ChevronDown className="h-3 w-3 shrink-0 text-amber-300/70" />
                 </button>
               </div>
             )}
@@ -2294,7 +2294,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
   const metadataCard = (
     <div className="border-b border-app-border px-3 py-2">
         {/* Meta row — compact chips that wrap, card-style: priorità,
-            model, timer effort (one chip, like the card), piano-prima,
+            modello · ⏱ effort (UN chip, come la card), piano-prima,
             blocked-by + reuse. Editable selectors keep their portaled Menus. */}
         {task && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -2310,7 +2310,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                 ? tr('task.priority.auto')
                 : tr('task.priority.change')}
               className={`flex items-center gap-1.5 rounded px-1.5 py-0.5 text-mini ${
-                !priorityAwaitingAgent(task) && task.priority >= 3 ? 'bg-rose-500/15 text-rose-800 dark:text-rose-300 hover:bg-rose-500/25' : 'bg-black/5 dark:bg-white/5 text-app-text-secondary hover:bg-white/10'
+                !priorityAwaitingAgent(task) && task.priority >= 3 ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'
               }`}
             >
               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2]}`} />
@@ -2347,7 +2347,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                   : task.labels.some((l) => l.label === 'decisione') // allow-italian: the label vocabulary IS the data, compared by value
                     ? tr('task.close.decision')
                     : tr('task.close.none')}
-              className="flex min-w-0 items-center gap-1.5 rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/20"
+              className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/20"
             >
               <Tag className="h-3 w-3 shrink-0 text-app-text-muted" />
               <span className="truncate">{task.labels.length ? task.labels.map((l) => l.label).join(', ') : tr('board.task.labelsChip')}</span>
@@ -2391,10 +2391,10 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                     cache: task.agentCacheReadTokens > 0 ? tr('task.model.cachePart', { n: fmtTok(task.agentCacheReadTokens) }) : '',
                   })
                 : `${modelTrigger.line}. ${tr('task.model.hint')}`}
-              className="flex min-w-0 items-center gap-1.5 rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/20"
+              className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/20"
             >
               <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />
-              <span className="truncate">{modelTrigger.line}{(task.agentMs > 0 || task.agentTokens > 0) && <> · <Timer size={STATUS_GLYPH_PX} className="inline-block align-text-bottom" aria-hidden /> {fmtMs(task.agentMs)}{task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)} tok` : ''}</>}</span>
+              <span className="truncate">{modelTrigger.line}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)} tok` : ''}`}</span>
               {/* Unknown tier shows nothing here: "auto" lives only next to the input fields (card 067a1f5b). */}
               {shownEffort && <span data-testid="task-effort-badge" className="shrink-0 rounded bg-app-hover/60 px-1 text-mini font-semibold uppercase tracking-wide text-app-text-muted">{shownEffort}</span>}
               {!task.assignedTopicId && <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />}
@@ -2425,7 +2425,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
               data-testid="task-node-chip"
               disabled={nodePickerLocked}
               title={nodePickerLocked ? tr('board.task.node.runningTitle') : tr('board.task.node.title')}
-              className="flex min-w-0 items-center gap-1.5 rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white/10"
+              className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white/10"
             >
               <Server className="h-3 w-3 shrink-0 text-app-text-muted" />
               <span className="truncate">{task.machineId ? machineLabel(machines, task.machineId) : tr('board.task.node.chipLocal')}</span>
@@ -2484,7 +2484,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                 data-testid="task-subtask-work-chip"
                 data-kind="parent-turn"
                 title={tr('task.work.hint', { what: workChip.title })}
-                className="flex min-w-0 items-center gap-1 rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-muted hover:bg-white/20"
+                className="flex min-w-0 items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-muted hover:bg-white/20"
               >
                 <UserRound className="h-3 w-3 shrink-0" />
                 <span className="max-w-[14rem] truncate">{workChip.label}</span>
@@ -2495,8 +2495,8 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                 data-kind={workChip.kind}
                 title={workChip.title}
                 className={workChip.kind === 'unattended'
-                  ? 'flex min-w-0 items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-mini text-rose-800 dark:text-rose-300'
-                  : 'flex min-w-0 items-center gap-1 rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-muted'}
+                  ? 'flex min-w-0 items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-mini text-rose-300'
+                  : 'flex min-w-0 items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-muted'}
               >
                 {workChip.kind === 'unattended'
                   ? <AlertTriangle className="h-3 w-3 shrink-0" />
@@ -2521,7 +2521,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
             onBlur={saveDesc}
             onKeyDown={cancelKey}
             placeholder={tr('board.task.descPlaceholder')}
-            className="block w-full resize-none overflow-hidden rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-body-lg leading-5 text-app-text-heading outline-none"
+            className="block w-full resize-none overflow-hidden rounded bg-white/5 px-1.5 py-0.5 text-body-lg leading-5 text-app-text-heading outline-none"
           />
         ) : task?.description ? (
           <>
@@ -2606,7 +2606,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                 onChange={(e) => setSubDraft(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
                 placeholder={tr('board.task.addSubtaskPlaceholder')}
-                className="w-full rounded bg-black/5 dark:bg-white/5 px-2 py-1 text-compact leading-4 text-app-text outline-none placeholder:text-app-placeholder disabled:opacity-60"
+                className="w-full rounded bg-white/5 px-2 py-1 text-compact leading-4 text-app-text outline-none placeholder:text-app-placeholder disabled:opacity-60"
               />
               {addingSub && <Spinner size="sm" tone="current" className="absolute right-1.5 top-1.5 text-app-text-secondary" />}
             </div>
@@ -2836,7 +2836,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
         >
           {/* A failed first read must not keep saying «Loading…»: the spinner is
               a promise, and here nothing is coming. */}
-          {chipStatus ? <StatusIcon status={chipStatus} /> : loadFailedMessage ? <AlertTriangle className="h-3.5 w-3.5 text-rose-800 dark:text-rose-300" /> : <Spinner size="sm" tone="current" />}
+          {chipStatus ? <StatusIcon status={chipStatus} /> : loadFailedMessage ? <AlertTriangle className="h-3.5 w-3.5 text-rose-300" /> : <Spinner size="sm" tone="current" />}
           {chipStatus ? STATUS_LABEL[chipStatus] : loadFailedMessage ? tr('board.task.loadFailedChip') : tr('board.task.loading')}
           <ChevronDown className="h-3 w-3 text-app-text-faint" />
         </button>
@@ -3023,7 +3023,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
           invece di offrire una via d'uscita, ed è il motivo per cui otto card
           sono rimaste così per settimane. */}
       {task && showsLandingDebt(task) && (
-        <div data-testid="task-not-landed-banner" className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-mini text-rose-800 dark:text-rose-300">
+        <div data-testid="task-not-landed-banner" className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-mini text-rose-300">
           <span className="min-w-0">
             <TriangleAlert className="w-4 h-4 inline-block align-[-2px]" aria-hidden="true" /> {tr('task.landing.closedBut')} <strong>{tr('board.task.notOnMain')}</strong>{tr('task.landing.commitIs')}
             {task.deliveryCommit ? <> <code className="rounded bg-black/30 px-1">{task.deliveryCommit.slice(0, 8)}</code></> : null}
@@ -3034,7 +3034,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
             data-testid="task-not-landed-land"
             disabled={busy} onClick={doLand}
             title={landWord.title}
-            // Nessun colore di testo proprio: eredita il rose text colour della
+            // Nessun colore di testo proprio: eredita il `text-rose-300` della
             // banda, che è la coppia già provata su questo velo nei due temi.
             // Con un `text-rose-100` il bottone spariva sul tema chiaro, biancore
             // su rosa: l'affordance la fanno il bordo e il fondo, non un testo
@@ -3058,7 +3058,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
         </div>
       )}
       {task?.deployState === 'running' && (
-        <div data-testid="task-deploy-running-banner" className="flex shrink-0 items-center gap-1.5 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-mini text-amber-800 dark:text-amber-300">
+        <div data-testid="task-deploy-running-banner" className="flex shrink-0 items-center gap-1.5 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-mini text-amber-300">
           <Spinner size="sm" tone="current" /> {tr('board.task.deployRunning')}
         </div>
       )}
@@ -3072,7 +3072,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
            window. Here the server's own sentence and one button that calls the
            same `load()`. */
         <div data-testid="task-load-error" className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-          <AlertTriangle className="h-6 w-6 text-rose-800 dark:text-rose-300" />
+          <AlertTriangle className="h-6 w-6 text-rose-300" />
           <p className="text-body-lg leading-5 text-app-text-heading">{tr('board.task.loadFailedTitle')}</p>
           <p className="max-w-sm break-words text-mini text-app-text-muted">{loadFailedMessage}</p>
           <button
@@ -3209,7 +3209,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
             {error && (
               <div
                 data-testid="task-action-error"
-                className="mb-2 flex items-start gap-2 rounded border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 text-mini text-rose-800 dark:text-rose-300"
+                className="mb-2 flex items-start gap-2 rounded border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 text-mini text-rose-300"
               >
                 <span className="min-w-0 flex-1 break-words">{error}</span>
                 <button aria-label={tr('board.task.closeError')} onClick={() => setError(null)} className="tap-expand shrink-0 rounded p-0.5 hover:bg-white/10 coarse:p-1.5"><X className="h-3 w-3" /></button>
@@ -3227,7 +3227,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                     {a.isImage ? (
                       <ZoomableImage src={getMediaUrl(a.path)} alt={a.name} title={a.name} testId="task-composer-attachment-image" className="h-12 w-12 rounded object-cover" />
                     ) : (
-                      <span className="flex max-w-[10rem] items-center gap-1 rounded bg-black/10 dark:bg-white/10 px-1.5 py-1 text-mini text-app-text-heading">
+                      <span className="flex max-w-[10rem] items-center gap-1 rounded bg-white/10 px-1.5 py-1 text-mini text-app-text-heading">
                         <Paperclip className="h-3 w-3 shrink-0" /><span className="truncate">{a.name}</span>
                       </span>
                     )}
@@ -3327,7 +3327,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                 <p className="text-compact leading-4 text-app-text-muted">{tr('board.task.noWorkspaceTabs')}</p>
                 <button
                   onClick={() => { setWorkspaceOpen(true); browser.addBrowserTab(); }}
-                  className="rounded bg-black/10 dark:bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20"
+                  className="rounded bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20"
                 >{tr('board.task.openTab')}</button>
               </div>
             )}
@@ -3408,7 +3408,7 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
             data-testid={`subtask-work-${node.id}`}
             data-kind="unattended"
             title={work.title}
-            className="flex shrink-0 items-center gap-1 rounded bg-rose-500/20 px-1 py-0.5 text-mini text-rose-800 dark:text-rose-300"
+            className="flex shrink-0 items-center gap-1 rounded bg-rose-500/20 px-1 py-0.5 text-mini text-rose-300"
           ><AlertTriangle className="h-2.5 w-2.5 shrink-0" /> {work.label}</span>
         ) : (
           <span
@@ -3418,7 +3418,7 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
             className="flex shrink-0 text-app-text-muted"
           ><UserRound className="h-2.5 w-2.5" /></span>
         ))}
-        {hasKids && <span className="shrink-0 text-mini text-app-text-muted"><ListTree size={STATUS_GLYPH_PX} className="inline-block align-text-bottom" aria-hidden /> {node.subtaskDoneCount}/{node.subtaskCount}</span>}
+        {hasKids && <span className="shrink-0 text-mini text-app-text-muted">↳ {node.subtaskDoneCount}/{node.subtaskCount}</span>}
       </div>
       {open && kids?.map((k) => (
         <SubtaskNode key={k.id} projectId={projectId} node={k} depth={depth + 1} onOpenTask={onOpenTask} />
@@ -3478,7 +3478,7 @@ export function MediaViewer({ url, path }: { url: string; path: string }) {
       <p className="text-body-lg leading-5 text-app-text-secondary">{tr('board.task.noPreviewForType')}</p>
       <button
         onClick={(e) => openLink(url, { external: isExternalLinkGesture(e), origin: e.target })}
-        className="flex items-center gap-1 rounded bg-black/10 dark:bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20"
+        className="flex items-center gap-1 rounded bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20"
       ><ExternalLink className="h-3.5 w-3.5" /> {tr('board.task.openInBrowser')}</button>
     </div>
   );
@@ -3519,7 +3519,7 @@ export function MediaStrip({ media, onPreview }: { media?: string[]; onPreview?:
         <a
           key={p} href={getMediaUrl(p)} target="_blank" rel="noreferrer" onClick={(e) => open(e, p)}
           title={onPreview ? tr('task.media.preview') : p.split('/').pop()}
-          className="flex max-w-[14rem] items-center gap-1.5 rounded-md bg-black/10 dark:bg-white/10 px-2 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20"
+          className="flex max-w-[14rem] items-center gap-1.5 rounded-md bg-white/10 px-2 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20"
         ><Paperclip className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{p.split('/').pop()}</span></a>
       ))}
     </div>
