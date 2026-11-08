@@ -76,11 +76,19 @@ export const CHILD_AGENT_COMING = ACTIVE_DISPATCH_STATES.map((s) => `'${s}'`).jo
  * status to those five values. It must stay identical to the predicate of
  * idx_tasks_parked_candidates (migration 20261024120000), or the planner will
  * not use that index.
+ *
+ * A backlog parent that no turn ever touched (no attempt, never started, never
+ * delivered, no dispatch chip left by one) is a CONTAINER: a person grouping cards under it, not a parent
+ * stuck behind them. Measured 08/11: 15 grouping parents made in backlog, 11
+ * pushed to review within one tick with a question nobody needed to answer.
  */
 export const PARKED_CHILDREN_CANDIDATES_SQL = `SELECT p.id, p.project_id FROM tasks p
             WHERE p.archived = 0
               AND p.status IN ('backlog', 'todo')
               AND NOT (p.status = 'todo' AND p.dispatch_attempts = 0)
+              AND NOT (p.status = 'backlog' AND p.dispatch_attempts = 0
+                       AND p.in_progress_at IS NULL AND p.delivered_by IS NULL
+                       AND p.dispatch_state IS NULL)
               AND COALESCE(p.dispatch_state, '') NOT IN (${CHILD_AGENT_COMING})
               AND COALESCE(p.dispatch_deferred_until, '') <= ?
               AND EXISTS (SELECT 1 FROM tasks c

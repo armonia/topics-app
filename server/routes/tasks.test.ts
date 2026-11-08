@@ -428,6 +428,34 @@ describe("board router (human, project-scoped)", () => {
     expect(frame.taskIds).toEqual([t.id, "figlio-1"]);
   });
 
+  // Measured 08/11: archiving 15 grouping parents archived 52 child cards too.
+  // Open children are now unhooked and stay on the board.
+  test("DELETE di una madre: le figlie aperte si staccano, quelle chiuse no", async () => {
+    const parent = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "madre" }))!.json();
+    const openChild = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "aperta", parentTaskId: parent.id }))!.json();
+    const doneChild = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "chiusa", parentTaskId: parent.id }))!.json();
+    db.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(doneChild.id);
+
+    const resp = await (await call(router, "DELETE", `/api/boards/pX/tasks/${parent.id}`))!.json();
+
+    expect(resp.detachedTaskIds).toEqual([openChild.id]);
+    const row = (id: string) => db.prepare("SELECT archived, parent_task_id FROM tasks WHERE id = ?").get(id) as any;
+    expect(row(openChild.id)).toEqual({ archived: 0, parent_task_id: null });
+    expect(row(doneChild.id).archived).toBe(1);
+    const { tasks } = await (await call(router, "GET", "/api/boards/pX/tasks"))!.json();
+    expect(tasks.map((t: any) => t.id)).toEqual([openChild.id]);
+  });
+
+  test("DELETE ?withChildren=1 archivia ancora tutto il sottoalbero", async () => {
+    const parent = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "madre" }))!.json();
+    const child = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "figlia", parentTaskId: parent.id }))!.json();
+
+    const resp = await (await call(router, "DELETE", `/api/boards/pX/tasks/${parent.id}?withChildren=1`))!.json();
+
+    expect(resp.detachedTaskIds).toEqual([]);
+    expect((db.prepare("SELECT archived FROM tasks WHERE id = ?").get(child.id) as any).archived).toBe(1);
+  });
+
   test("senza il teardown iniettato, task:deleted porta almeno la root", async () => {
     const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
     await call(router, "DELETE", `/api/boards/pX/tasks/${t.id}`);

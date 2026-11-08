@@ -777,6 +777,13 @@ export interface TaskService {
 
   archive(args: { taskId: string; projectId?: string }): Task;
   /**
+   * Unhooks the open children (not archived, not done) of `taskId` so they
+   * become root cards again, keeping their status. Called by the board DELETE
+   * before `archive`, which would otherwise take them down with the parent.
+   * Returns the ids it unhooked.
+   */
+  detachOpenChildren(args: { taskId: string; projectId?: string }): string[];
+  /**
    * Il ritorno dall'archivio: `archived = 0` sul task, sul suo sottoalbero e
    * sulla catena dei genitori. Speculare ad `archive`, che scende; risalire
    * serve perché una card riportata sotto un genitore ancora archiviato
@@ -5158,6 +5165,30 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // sgombera una checklist a mano. Il padre va guardato in entrambi i casi.
       if (row.parent_task_id) childLeftFlight(row.parent_task_id as string, "system", this);
       return rowToTask(getTaskRow(taskId));
+    },
+
+    detachOpenChildren({ taskId, projectId }): string[] {
+      const row = getTaskRow(taskId);
+      if (!row || (projectId && row.project_id !== projectId)) {
+        throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      }
+      const ts = now();
+      const ids = (db.prepare(
+        "SELECT id FROM tasks WHERE parent_task_id = ? AND archived = 0 AND status != 'done'",
+      ).all(taskId) as Array<{ id: string }>).map((r) => r.id);
+      const unhook = db.prepare("UPDATE tasks SET parent_task_id = NULL, updated_at = ? WHERE id = ?");
+      for (const id of ids) {
+        unhook.run(ts, id);
+        // Where it came from goes in its own thread: on the board it is now a
+        // root card with no trace of the grouping it sat under.
+        try {
+          this.addComment({
+            taskId: id, author: "system", kind: "service",
+            content: `Staccata da «${row.text}», archiviata: ora e' una card a se'.`,
+          });
+        } catch { /* the note never blocks the detach */ }
+      }
+      return ids;
     },
 
     restore({ taskId, projectId }): Task | null {

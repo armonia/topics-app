@@ -1415,6 +1415,15 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           // Read BEFORE the archive: the sweep needs the delivery branch, and
           // it runs after, when the card is already off the board.
           const deliveryBranch = got?.task.deliveryBranch ?? null;
+          // Archiving a parent used to take every child down with it: 52 cards
+          // went on 08/11 when a person deleted grouping parents. Open children
+          // are now unhooked and stay on the board as root cards; the response
+          // names them. Detach, not 409: both client callers (card menu, the
+          // «drop» choice) only read `ok` and have no UI to answer a refusal.
+          // `?withChildren=1` keeps the old cascade for whoever really means it.
+          const detachedTaskIds = new URL(req.url).searchParams.get("withChildren") === "1"
+            ? []
+            : svc.detachOpenChildren({ taskId, projectId });
           const archivedTaskIds = cardTreeIds(taskId);
           const task = svc.archive({ taskId, projectId });
           for (const archivedTaskId of archivedTaskIds) requestCardProcessStop(archivedTaskId);
@@ -1434,7 +1443,11 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           // frame porta gli id da dimenticare.
           const torn = opts?.teardownTaskBrowserState?.(taskId);
           broadcastToAll({ type: "task:deleted", projectId, taskId, taskIds: torn?.taskIds ?? [taskId] });
-          return json({ ok: true, task });
+          for (const id of detachedTaskIds) {
+            const moved = svc.get(id, { projectId })?.task;
+            if (moved) broadcastToAll({ type: "task:updated", projectId, task: moved });
+          }
+          return json({ ok: true, task, detachedTaskIds });
         } catch (e) { return fail(e); }
       }
       return null;
