@@ -17,7 +17,7 @@
  * `PW_REMOTE_GPU=0` goes back to SwiftShader on the PC too.
  */
 
-const SLOWMO = process.env.E2E_SLOWMO === "1";
+const SLOW_MOTION = process.env.E2E_SLOWMO === "1";
 
 export const REMOTE_GPU_ARGS: string[] =
   !!process.env.PW_TEST_CONNECT_WS_ENDPOINT && process.env.PW_REMOTE_GPU !== "0"
@@ -26,12 +26,12 @@ export const REMOTE_GPU_ARGS: string[] =
 
 /** Launch options of the Chromium projects: GPU on the PC, no args elsewhere. */
 export const CHROMIUM_LAUNCH = {
-  ...(SLOWMO ? { slowMo: 300 } : {}),
+  ...(SLOW_MOTION ? { slowMo: 300 } : {}),
   args: REMOTE_GPU_ARGS,
 };
 
 /** For specs with `toHaveScreenshot`: SwiftShader everywhere. */
 export const SOFTWARE_RENDER_LAUNCH = {
-  ...(SLOWMO ? { slowMo: 300 } : {}),
+  ...(SLOW_MOTION ? { slowMo: 300 } : {}),
   args: [] as string[],
 };
