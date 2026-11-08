@@ -167,12 +167,14 @@ export function taskChoices(
           landSay('neutral'),
           acceptSay('neutral'),
           say('take-over', 'neutral'),
+          say('drop', 'danger'),
         ]
         : [
           landSay('primary'),
           { id: 'send-back', tone: 'neutral', ...sendBackWord(sendBackDest(task), tr) },
           acceptSay('neutral'),
           say('take-over', 'neutral'),
+          say('drop', 'danger'),
         ];
       break;
     // Nessuno ha consegnato: le uscite sono le stesse, l'ordine e il tono no.
@@ -236,6 +238,25 @@ export function taskChoices(
     }
   }
   return excluded && excluded.length ? out.filter((c) => !excluded.includes(c.id)) : out;
+}
+
+/**
+ * The review card's face and its «…» menu, split by the decision of 01/11 and 03/11.
+ *
+ * On the face only «Approva» stays. Every other exit, «Archivia» included, goes
+ * behind the «…», also on a card with a branch. «Rifai così» is in neither: the (allow-italian: quoted button labels)
+ * field sends the text back. The two helpers return the `exclude` lists that the
+ * row and the menu already read, so the face and the menu cannot drift from the
+ * real choices of the card.
+ */
+export const REVIEW_FACE_CHOICE: TaskChoiceId = 'accept';
+
+export function reviewFaceExclude(task: ChoiceTask, t?: Translate): TaskChoiceId[] {
+  return taskChoices(task, { t }).map((c) => c.id).filter((id) => id !== REVIEW_FACE_CHOICE);
+}
+
+export function reviewMenuExclude(task: ChoiceTask, t?: Translate): TaskChoiceId[] {
+  return taskChoices(task, { t }).map((c) => c.id).filter((id) => id === REVIEW_FACE_CHOICE || id === 'redo');
 }
 
 /**
