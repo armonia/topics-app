@@ -631,3 +631,18 @@ If you find a security vulnerability, please report it privately rather than ope
 ## License
 
 By contributing, you agree that your contributions will be licensed under the MIT License.
+
+## Usage-hub tray
+
+The status-bar tray (usage counter, session list) lives in a separate Swift
+project at `~/.claude/jarvis/tools/usage-hub/modules/tray/ClaudeUsage.swift`.
+Its own performance bench is `tray-perf.sh` (threshold: apertura median ≤150ms,
+hover ≤50ms CPU). To rebuild and reinstall after a Swift change:
+
+```bash
+cd ~/.claude/jarvis/tools/usage-hub/modules/tray
+swiftc -O ClaudeUsage.swift ProviderIcon.swift MacStats.swift \
+        ProcessWindow.swift ProcessTable.swift ProcCensus.swift main.swift \
+        -o ClaudeUsage
+launchctl kickstart -k "gui/$(id -u)/com.jarvis.claude-usage-tray"
+```
