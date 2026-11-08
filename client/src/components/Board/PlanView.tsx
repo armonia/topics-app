@@ -10,14 +10,15 @@
  * they are the progress of a result.
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { ExternalLink, Inbox, Plus, RefreshCw, SquareKanban } from 'lucide-react';
+import { ExternalLink, Plus, RefreshCw } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { Select } from '../Shared/Select';
-import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { SEGNALE_ATTESA } from '../Sidebar/chromeSignals';
 import { StatusIcon } from './atoms';
 import { ActivityBadge, NeedsYouBox } from './PlanTileParts';
+import { ProjectGroupHeader } from './ProjectGroupHeader';
+import { useCollapsedProjects } from './useCollapsedProjects';
 import {
   createArea, createMilestone, fetchPlan, linkCard, mergeDuplicate, updateMilestone,
   type PlanArea, type PlanCard, type PlanMilestone, type PlanProject, type PlanProgress, type PlanSignal, type PlanTree,
@@ -27,6 +28,13 @@ import { SIGNAL_KEY, milestoneChoices, openOf, progressLabel, progressPct, sortF
 interface Props {
   onOpenTask: (id: string) => void;
   onOpenTopic?: (topicId: string) => void;
+  /**
+   * The board's own compact card for a task, so the Plan and the Kanban show
+   * ONE card and not two drawings of it. `null` when the board does not hold
+   * that task (a sub-card: the board feed carries roots only), and the Plan
+   * falls back to its one-line row.
+   */
+  renderTaskCard?: (taskId: string) => ReactNode | null;
 }
 
 const INPUT = 'rounded-md border border-app-border bg-surface px-2 py-1 text-compact text-app-text outline-none focus-visible:border-primary';
@@ -67,13 +75,6 @@ function ProjectOpenCount({ roots, subs }: { roots: number; subs: number }) {
   );
 }
 
-/** A board with no folder (a virtual board, or cards with no project) gets a neutral glyph, so headers stay aligned. */
-function ProjectGlyph({ project }: { project: PlanProject }) {
-  if (project.path) return <ProjectFavicon path={project.path} size={16} className="shrink-0" />;
-  const Glyph = project.projectId === '_none' ? Inbox : SquareKanban;
-  return <Glyph className="h-4 w-4 shrink-0 text-app-text-muted" aria-hidden />;
-}
-
 function SignalBadges({ signals }: { signals: readonly PlanSignal[] }) {
   const tr = useT();
   return <>{signals.map((s) => (
@@ -83,8 +84,10 @@ function SignalBadges({ signals }: { signals: readonly PlanSignal[] }) {
 
 const shortDate = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 
-export function PlanView({ onOpenTask, onOpenTopic }: Props) {
+export function PlanView({ onOpenTask, onOpenTopic, renderTaskCard }: Props) {
   const tr = useT();
+  // The same folded set as the Kanban lanes: a project folded there is folded here.
+  const { collapsed, toggle: toggleCollapsed } = useCollapsedProjects();
   const [tree, setTree] = useState<PlanTree | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [includeDone, setIncludeDone] = useState(false);
@@ -106,11 +109,17 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
   const renderCard = (c: PlanCard, project: PlanProject, nested = false): ReactNode => {
     const choices = milestoneChoices(project);
     const links = c.sources.filter((s) => (s.kind === 'topic' && s.topicId && onOpenTopic) || s.url);
+    const boardCard = nested ? null : renderTaskCard?.(c.id) ?? null;
     return (
       <div key={c.id}>
-        <div data-testid="plan-card" className={`group/card relative flex items-center gap-1.5 rounded-md py-0.5 pr-1 hover:bg-app-hover/60 ${nested ? 'pl-5' : 'pl-1'}`}>
-          <StatusIcon status={c.status} className="h-3 w-3" />
-          <button type="button" onClick={() => onOpenTask(c.id)} title={c.text} className="min-w-0 flex-1 truncate text-left text-compact text-app-text hover:underline">{c.text}</button>
+        <div data-testid="plan-card" data-board-card={boardCard ? '' : undefined}
+          className={boardCard
+            ? 'group/card relative flex items-start gap-1.5 py-0.5'
+            : `group/card relative flex items-center gap-1.5 rounded-md py-0.5 pr-1 hover:bg-app-hover/60 ${nested ? 'pl-5' : 'pl-1'}`}>
+          {boardCard ? <div className="min-w-0 flex-1">{boardCard}</div> : <>
+            <StatusIcon status={c.status} className="h-3 w-3" />
+            <button type="button" onClick={() => onOpenTask(c.id)} title={c.text} className="min-w-0 flex-1 truncate text-left text-compact text-app-text hover:underline">{c.text}</button>
+          </>}
           <SignalBadges signals={c.signals} />
           {c.duplicateOf && (
             <button type="button" className="shrink-0 rounded px-1 text-mini text-app-text-secondary hover:bg-app-hover" onClick={() => void act(() => mergeDuplicate(c.projectId, c.id, c.duplicateOf!))}>{tr('plan.mergeInto')}</button>
@@ -225,18 +234,18 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
 
   const renderProject = (project: PlanProject) => {
     const unplacedOpen = openOf(project.unplaced.progress);
+    const folded = collapsed.has(project.projectId);
     // Areas with nothing in them still show (they are the plan being built);
     // the caption is the only level left between the project and its milestones.
     return (
-      <section key={project.projectId} data-testid="plan-project"
+      <section key={project.projectId} data-testid="plan-project" data-project-id={project.projectId} data-collapsed={folded || undefined}
         className="group/tile mb-3 flex break-inside-avoid flex-col gap-2 rounded-xl border border-app-border bg-surface p-3">
-        <header className="flex items-center gap-2">
-          <ProjectGlyph project={project} />
-          <h3 className="min-w-0 flex-1 truncate text-compact font-semibold text-app-text-heading">{project.name}</h3>
-          <button type="button" className={HOVER_ACTION} onClick={() => setForm(`area:${project.projectId}`)}><Plus className="h-3 w-3" />{tr('plan.newArea')}</button>
+        <ProjectGroupHeader projectId={project.projectId} name={project.name} path={project.path} collapsed={folded} onToggle={() => toggleCollapsed(project.projectId)}>
+          {!folded && <button type="button" className={HOVER_ACTION} onClick={() => setForm(`area:${project.projectId}`)}><Plus className="h-3 w-3" />{tr('plan.newArea')}</button>}
           <ActivityBadge activity={project.activity} />
           <ProjectOpenCount roots={project.openCount} subs={project.openSubCount} />
-        </header>
+        </ProjectGroupHeader>
+        {!folded && <>
         <NeedsYouBox needs={project.needsYou} onOpenTask={onOpenTask} />
         {form === `area:${project.projectId}` && <AreaForm project={project} />}
         {project.areas.map((a) => (
@@ -261,6 +270,7 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
             <CardList id={`unplaced:${project.projectId}`} cards={project.unplaced.tasks} project={project} />
           </div>
         )}
+        </>}
       </section>
     );
   };

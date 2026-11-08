@@ -5436,3 +5436,24 @@ idle for more than 7 days SHALL carry a visible signal.
 #### Scenario: a milestone of another project
 - **WHEN** a card is linked to a milestone of another project
 - **THEN** the request SHALL fail with 400 and the card SHALL stay where it was
+
+### Requirement: KANBAN-106 — The board groups by project and has a compact card, the same in Kanban and Plan
+
+The cross-project board SHALL offer, beside the layout toggle, a control that
+groups the cards BY PROJECT: one lane per project, each lane the same row of
+workflow columns, headed by the project's icon and name, the fold chevron and
+its count per column. A folded project SHALL stay folded in the Plan too (one
+folded set for both views). A second control SHALL switch every card to a
+COMPACT density (title, project or lane, session door, the foot with the live
+state, a blocker), and the Plan SHALL draw that same compact card for every
+root card the board holds. Both choices SHALL persist per viewer, in local
+storage, like the layout. The full card SHALL stay unchanged.
+
+#### Scenario: grouping and density survive a reload
+- **GIVEN** the global board with cards from two projects
+- **WHEN** the person turns on the grouping and the compact density
+- **THEN** there SHALL be one lane per project with its count, every card SHALL be compact, and both SHALL survive a reload
+
+#### Scenario: a folded lane is folded in the Plan
+- **WHEN** the person folds a project's lane and opens the Plan
+- **THEN** that project's tile SHALL show only its header
