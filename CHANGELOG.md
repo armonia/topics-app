@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.60 — 2026-11-08
+
+### Sotto il cofano
+- i terminali dei sotto-agenti di Jarvis al loro posto, e tab che si chiudono in un modo solo (#617)
+- Sotto-agenti: due fratelli non finiscono più sulla stessa conversazione (#618)
+
 ## 2.3.59 — 2026-11-08
 
 ### Sotto il cofano

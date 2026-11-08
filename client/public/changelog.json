@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.3.60",
+    "date": "2026-11-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "i terminali dei sotto-agenti di Jarvis al loro posto, e tab che si chiudono in un modo solo (#617)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Sotto-agenti: due fratelli non finiscono più sulla stessa conversazione (#618)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.59",
     "date": "2026-11-08",
     "sections": {
