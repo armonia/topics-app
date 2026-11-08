@@ -3,7 +3,8 @@
  * reached the composer yet?
  *
  * Pure, so the question can be asked of a captured screen in a test instead of
- * a live Claude TUI (`terminal.ts#seedAgentPrompt` is the only caller).
+ * a live Claude TUI (`terminal.ts#seedAgentPrompt` is the only caller; the
+ * live `send_to_agent` also writes through `promptAsPaste`).
  *
  * THE DEFECT THIS CLOSES. The seed typed the prompt, then looked for its first
  * twenty characters on screen and typed it AGAIN whenever they were absent. A
@@ -45,6 +46,32 @@ export function composerHoldsPrompt(screen: string, prompt: string): boolean {
   const probe = stripForEcho(prompt).slice(0, 20);
   if (probe && seen.includes(probe)) return true;
   return seen.includes(PASTE_PLACEHOLDER);
+}
+
+/** Bracketed-paste markers (xterm mode 2004, which the Claude TUI turns on at start-up). */
+const PASTE_START = "\x1b[200~";
+const PASTE_END = "\x1b[201~";
+
+/**
+ * A prompt as it must be written into a Claude TUI: as one bracketed paste.
+ *
+ * THE DEFECT THIS CLOSES. The prompt went into the PTY as plain bytes, in a
+ * single write. macOS makes a PTY writer wait once 1022 bytes sit unread in
+ * the terminal's input queue, so the TUI reads a long write in pieces of 1022
+ * bytes, and the CLI dropped every full piece: only the last one reached the
+ * composer. 14 sub-agents out of 38 between 25/10 and 08/11 got their brief
+ * without its opening (from the seed or from `send_to_agent`); in 13 of them
+ * exactly 1022, 2044, 3066, 4088 or 13286 bytes were missing (on 04/11 a
+ * child that was to build a filings register got the last 54 bytes of 1076). The
+ * 14th has no source text left to compare. Reproduced on claude 2.1.319: a
+ * 2397-byte write reached the transcript as its last 353 bytes; the same text
+ * between the markers reached it whole, as a real terminal delivers a paste.
+ *
+ * ESC goes: an `ESC[201~` inside the text would close the paste early and
+ * the rest would reach the TUI as keystrokes.
+ */
+export function promptAsPaste(prompt: string): string {
+  return PASTE_START + prompt.replaceAll("\x1b", "") + PASTE_END;
 }
 
 /**
