@@ -48,6 +48,23 @@ describe("every way of starting a server asks for one on the loopback", () => {
   });
 });
 
+describe("run_command's retry_of", () => {
+  test("is declared in the schema", () => {
+    const props = (COMMAND_TOOLS[0]!.inputSchema as { properties: Record<string, { type: string }> }).properties;
+    expect(props.retry_of?.type).toBe("string");
+  });
+
+  // The messages served to readers may keep only `detail.result`: the link to
+  // the failure has to be readable there too.
+  test("comes back in the result, and is absent when not given", async () => {
+    const fetchImpl = (async () => new Response(JSON.stringify({ processId: "p2", pid: 7, wake: true }), { status: 200 })) as unknown as typeof fetch;
+    const linked = await callRunCommand({ baseUrl: "http://x", sessionKey: "s" }, { command: "rsync -a a/ b/", retry_of: " p1 " }, fetchImpl);
+    expect(linked).toContain("processId=p2 · retry_of=p1 ·");
+    const plain = await callRunCommand({ baseUrl: "http://x", sessionKey: "s" }, { command: "rsync -a a/ b/" }, fetchImpl);
+    expect(plain).not.toContain("retry_of");
+  });
+});
+
 describe("run_command's description", () => {
   test("travels to the route when given, and is left out when blank", async () => {
     const bodies: unknown[] = [];
