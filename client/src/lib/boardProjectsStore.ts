@@ -100,6 +100,11 @@ async function fetchOnce(): Promise<BoardProjectRef[] | null> {
   return inflight;
 }
 
+/** Resolves with the index once it is known, or null when the fetch failed. */
+export function loadBoardProjects(): Promise<BoardProjectRef[] | null> {
+  return fetchOnce();
+}
+
 /** L'indice, o `null` finché la prima fetch non è tornata. */
 export function getBoardProjects(): BoardProjectRef[] | null {
   return projects;
