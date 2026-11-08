@@ -911,8 +911,10 @@ jobs:
         # Se il piano fallisce (durate mancanti, --list crash) si fa ok=false e
         # ogni shard cade nel fallback --shard=i/8, che e' sempre stato l'unico.
         # The 8 here, the matrix of `e2e` and that fallback are one number.
+        # ESPERIMENTO (ramo esperimento/e2e-tre-processi-per-runner, da non unire):
+        # 24 pezzi invece di 8, perche' ogni runner ne fa girare 3 affiancati.
         run: |
-          if bun run scripts/e2e-plan-shards.ts 8 --out plan; then
+          if bun run scripts/e2e-plan-shards.ts 24 --out plan; then
             echo "ok=true" >> "$GITHUB_OUTPUT"
           else
             echo "ok=false" >> "$GITHUB_OUTPUT"
@@ -1171,16 +1173,36 @@ jobs:
         # a --shard=i/N di Playwright, che riparte per numero di test.
         # Il piano e' scritto con selettori regex (specSelector in e2e-plan-shards.ts)
         # che Playwright accetta come argomenti posizionali.
+        # ESPERIMENTO: tre processi Playwright affiancati sullo stesso runner da
+        # 4 vCPU. Ognuno ha la sua E2E_PORT, quindi il suo server, il suo DB e le
+        # sue cartelle (helpers/test-server.ts), come fa e2e-shards.sh in locale.
+        # Il carico e la memoria si scrivono ogni 15 s: dicono se c'e' margine.
         run: |
-          PLAN_FILE="plan/shard-${{ matrix.shard }}.txt"
-          if [ -f "$PLAN_FILE" ]; then
-            echo "[ci] usando il piano per durata: $PLAN_FILE"
-            readarray -t SELECTORS < "$PLAN_FILE"
-            npx playwright test "${SELECTORS[@]}"
-          else
-            echo "[ci] piano non disponibile, fallback a --shard=${{ matrix.shard }}/8"
-            npx playwright test --shard=${{ matrix.shard }}/8
-          fi
+          K=3
+          SHARD=${{ matrix.shard }}
+          mkdir -p test-results/sub
+          ( while sleep 15; do echo "[carico] $(cut -d' ' -f1-3 /proc/loadavg) memoria $(free -m | awk '/Mem/{print $3"/"$2}') MB"; done ) &
+          monitor=$!
+          pids=()
+          for k in $(seq 1 "$K"); do
+            idx=$(( (SHARD - 1) * K + k ))
+            PLAN_FILE="plan/shard-$idx.txt"
+            if [ -f "$PLAN_FILE" ]; then
+              readarray -t SELECTORS < "$PLAN_FILE"
+            else
+              SELECTORS=("--shard=$idx/$((8 * K))")
+            fi
+            echo "[ci] processo $k: pezzo $idx, porta $((13910 + k - 1))"
+            E2E_PORT=$((13910 + k - 1)) PLAYWRIGHT_JSON_OUTPUT_FILE="test-results/sub/report-$k.json" \
+              npx playwright test "${SELECTORS[@]}" --reporter=list,json --output="test-results/sub/artifacts-$k" \
+              > >(sed -u "s/^/[p$k] /") 2>&1 &
+            pids+=("$!")
+          done
+          rc=0
+          for p in "${pids[@]}"; do wait "$p" || rc=1; done
+          kill "$monitor" 2>/dev/null || true
+          sleep 1
+          exit "$rc"
         env:
           CHROMIUM_PATH: ${{ steps.chromium.outputs.path }}
           E2E_TIER: pr
@@ -1233,7 +1255,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-shard-${{ matrix.shard }}
-          path: test-results/html-report
+          path: |
+            test-results/html-report
+            test-results/sub
           # 3, non 7: la quota artifact e' dell'ORG (500 MB sul piano free), non del repo,
           # e questi report pesano fino a 20 MB l'uno. Con sette giorni di storico topics-app
           # da solo arrivava a 600 MB e saturava la quota di TUTTI: il 16/08 gli upload della
