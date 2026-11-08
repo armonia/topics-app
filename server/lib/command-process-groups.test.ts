@@ -21,7 +21,7 @@ const {
   COMMAND_GROUP_TERM_GRACE_MS, captureProcessGroup, closeCommandProcessGroup, commandProcessGroupStopPath, processGroupAlive,
   processGroupIdentityMatches, readProcessGroupIdentity, registerCommandProcessGroup,
 } = await import("./command-process-groups");
-const { commandArgv, readExitCode } = await import("./command-process");
+const { commandArgv, commandGroupArgv, readExitCode } = await import("./command-process");
 const { stopCardCommandProcesses } = await import("../routes/processes");
 const live: Array<{ proc: ReturnType<typeof Bun.spawn>; pgid: number }> = [];
 
@@ -162,13 +162,11 @@ test("the group leader stays verifiable after its command leaves a child behind"
 // them. None may end the leader while a peer lives (the delayed SIGKILL checks
 // the leader before it fires) or before it wrote the exit code. dash (Linux)
 // used to exit on the interrupted open without writing it; zsh skipped the scan.
-test("a TERM during the drain neither ends the leader early nor loses the exit code", async () => {
-  const processId = crypto.randomUUID();
-  const exitPath = join(instanceA, `${processId}.exit`);
-  const childPath = join(instanceA, `${processId}.child`);
-  const argv = commandArgv(`/bin/sh -c 'sleep 90 >/dev/null 2>&1 & echo $! > ${childPath}; exit 0'`, exitPath, commandProcessGroupStopPath(processId));
-  if (!argv) throw new Error("POSIX command shell is unavailable");
-  const proc = Bun.spawn(argv, { stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
+// Both leaders drain: a command's (`commandArgv`) and a card script's
+// (`commandGroupArgv`), which has no exit file but the same SIGKILL to keep.
+async function termDuringDrain(spawnArgv: (childPath: string) => string[]): Promise<ReturnType<typeof Bun.spawn>> {
+  const childPath = join(instanceA, `${crypto.randomUUID()}.child`);
+  const proc = Bun.spawn(spawnArgv(childPath), { stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
   live.push({ proc, pgid: proc.pid });
   const identity = captureProcessGroup(proc.pid);
   if (!identity) throw new Error(`could not capture group for ${proc.pid}`);
@@ -188,8 +186,28 @@ test("a TERM during the drain neither ends the leader early nor loses the exit c
     try { process.kill(childPid, "SIGKILL"); } catch {}
   }
   await Promise.race([proc.exited, Bun.sleep(5_000)]);
+  expect(processGroupAlive(identity.pgid)).toBe(false);
+  return proc;
+}
+
+const leavesChild = (childPath: string) => `sleep 90 >/dev/null 2>&1 & echo $! > ${childPath}; exit 0`;
+
+test("a TERM during the drain neither ends the leader early nor loses the exit code", async () => {
+  const processId = crypto.randomUUID();
+  const exitPath = join(instanceA, `${processId}.exit`);
+  const proc = await termDuringDrain((childPath) => {
+    const argv = commandArgv(`/bin/sh -c '${leavesChild(childPath)}'`, exitPath, commandProcessGroupStopPath(processId));
+    if (!argv) throw new Error("POSIX command shell is unavailable");
+    return argv;
+  });
   expect(proc.exitCode).toBe(0);
   expect(readExitCode(exitPath)).toBe(0);
+});
+
+test("a card script's leader outlives a TERM during the drain while a peer lives", async () => {
+  const processId = crypto.randomUUID();
+  const proc = await termDuringDrain((childPath) => commandGroupArgv(["/bin/sh", "-c", leavesChild(childPath)], commandProcessGroupStopPath(processId)));
+  expect(proc.exitCode).not.toBeNull();
 });
 
 // Closed as it starts, like a Stop right after Run: the TERM can land between
