@@ -11,6 +11,18 @@
           "it": "Plan view: project icons, open work instead of history, no empty groups, actions on hover (#609)",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "«Fatta, da approvare» al posto di «Consegnata, ancora aperta»",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "sotto-card sotto la madre, nella sua milestone",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ]
     }

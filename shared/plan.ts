@@ -30,6 +30,10 @@ export interface PlanCard {
   signals: PlanSignal[];
   /** For a duplicate: the surviving card it would be merged into. */
   duplicateOf?: string;
+  /** The root card this one was split from, on the same board. */
+  parentTaskId?: string;
+  /** Sub-cards shown under this one (one level: grandchildren come up to the root). */
+  children?: PlanCard[];
   sources: PlanSource[];
 }
 

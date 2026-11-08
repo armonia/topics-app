@@ -1894,7 +1894,7 @@ const EN = {
   'plan.openSession': 'Open session',
   'plan.mergeInto': 'Merge into the original',
   'plan.signal.duplicate': 'Duplicate',
-  'plan.signal.deliveredOpen': 'Delivered, still open',
+  'plan.signal.deliveredOpen': 'Done, awaiting approval',
   'plan.signal.noOwner': 'No owner',
   'plan.signal.stale': 'Idle over 7 days',
   'plan.error': 'The plan did not load: {message}',

@@ -2116,7 +2116,7 @@ const IT: Dict = {
   'plan.openSession': 'Apri la sessione',
   'plan.mergeInto': 'Unisci all\'originale',
   'plan.signal.duplicate': 'Duplicato',
-  'plan.signal.deliveredOpen': 'Consegnata, ancora aperta',
+  'plan.signal.deliveredOpen': 'Fatta, da approvare',
   'plan.signal.noOwner': 'Senza proprietario',
   'plan.signal.stale': 'Ferma da oltre 7 giorni',
   'plan.error': 'Il piano non si è caricato: {message}',
