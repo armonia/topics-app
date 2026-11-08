@@ -1,7 +1,24 @@
 [
   {
-    "version": "2.3.55",
+    "version": "2.3.56",
     "date": "2026-11-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "etichetta «Fatta, da approvare» (#610)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.55",
+    "date": "2026-11-07",
     "sections": {
       "new": [],
       "fixes": [],
@@ -11,18 +28,6 @@
           "it": "Plan view: project icons, open work instead of history, no empty groups, actions on hover (#609)",
           "en": "",
           "scope": null
-        },
-        {
-          "it": "«Fatta, da approvare» al posto di «Consegnata, ancora aperta»",
-          "en": "",
-          "scope": null,
-          "breaking": false
-        },
-        {
-          "it": "sotto-card sotto la madre, nella sua milestone",
-          "en": "",
-          "scope": null,
-          "breaking": false
         }
       ]
     }
