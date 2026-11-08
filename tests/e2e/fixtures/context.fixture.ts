@@ -9,7 +9,7 @@ export const MOCK_CONTEXT_ANALYSIS = {
   sources: [
     {
       // Not a "template": the inspector lists templates only for a topic with a
-      // project, and this fixture topic has none (the old "openclaw" category
+      // project, and this fixture topic has none (the old gateway category
       // that showed this row for every topic is gone).
       id: "memory:SOUL.md",
       label: "SOUL.md",
@@ -63,7 +63,7 @@ export const MOCK_HIGH_BUDGET_ANALYSIS = {
   sources: [
     {
       // Not a "template": the inspector lists templates only for a topic with a
-      // project, and this fixture topic has none (the old "openclaw" category
+      // project, and this fixture topic has none (the old gateway category
       // that showed this row for every topic is gone).
       id: "memory:SOUL.md",
       label: "SOUL.md",
