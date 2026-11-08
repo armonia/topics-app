@@ -1143,7 +1143,11 @@ const PASTE_MIN_BYTES = 1000;
 
 /** Printable text, newlines and tabs only: no ESC sequences, no Enter, no other control byte. */
 function isPlainText(s: string): boolean {
-  return !/[ --]/.test(s);
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if ((c < 0x20 && c !== 0x09 && c !== 0x0a) || c === 0x7f) return false;
+  }
+  return true;
 }
 
 function sendToBridge(msg: any) {
