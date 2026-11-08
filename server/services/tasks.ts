@@ -36,7 +36,7 @@ import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
 import { readChecksMemFloorGB, readGlobalCap, readSpendCaps } from "./dispatch-capacity";
 import { checksMemFloorGB } from "../../shared/checks-memory-floor";
 import { parseCreatedBy, UNOWNED_BACKLOG_MS } from "../../shared/created-by";
-import { agentCardGaps, incompleteCardNotice } from "../../shared/agent-card-contract";
+import { agentCardGaps, incompleteCardNotice, INCOMPLETE_CARD_NOTICE_PREFIX } from "../../shared/agent-card-contract";
 import { STAGE_AI_REVIEW, STAGE_HUMAN_REVIEW, agentAskInThread, defaultColumnFor, namesHumanReviewWithoutAsk, stageAtBirth, stageForDelivery, stageForStatusChange, type WorkflowColumn, type WorkflowPresetId } from "../../shared/workflow";
 import { requestAiReviewNotice } from "./ai-review-notice";
 import { checkStage, clearStagesOutsideWorkflow, dropStageOutsideTarget, readBoardWorkflow, routeAskOutOfAiReview, stampStaleAiReview, clearAiReviewReminderStamp, writeBoardWorkflow } from "./board-workflow";
@@ -2787,6 +2787,27 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   }
 
   /**
+   * A GROUPING PARENT IS NOT A WORK CARD. A card born in backlog that no turn
+   * ever touched becomes a container the moment a child is hung under it (same
+   * predicate as PARKED_CHILDREN_CANDIDATES_SQL in task-timer-reads.ts): the
+   * agent-card contract asks a work card for a bar and a source, a container
+   * has nothing to finish on its own. Measured 08/11: 15 grouping parents,
+   * each born with "Incomplete card" in its thread and the chip on top. The
+   * flag goes, and with it the system comment the birth wrote.
+   */
+  function releaseContainerFromCardContract(parentId: string): void {
+    const released = db.prepare(
+      `UPDATE tasks SET created_missing = NULL
+        WHERE id = ? AND created_missing IS NOT NULL
+          AND status = 'backlog' AND dispatch_attempts = 0
+          AND in_progress_at IS NULL AND delivered_by IS NULL AND dispatch_state IS NULL`,
+    ).run(parentId);
+    if (Number(released.changes ?? 0) === 0) return;
+    db.prepare("DELETE FROM task_comments WHERE task_id = ? AND author = 'system' AND content LIKE ?")
+      .run(parentId, `${INCOMPLETE_CARD_NOTICE_PREFIX}%`);
+  }
+
+  /**
    * What an agent's card still lacks, recomputed from the row so it shrinks as
    * the card is completed. Only a card born subject to the contract
    * (`created_missing` not NULL) is ever flagged: old cards stay as they were.
@@ -3928,6 +3949,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // default workflow writes the same row as before.
       if (birthStage) db.prepare("UPDATE tasks SET stage = ? WHERE id = ?").run(birthStage, id);
       if (bornAsk && status === "review") db.prepare("UPDATE tasks SET human_ask = ? WHERE id = ?").run(bornAsk, id);
+      if (input.parentTaskId) releaseContainerFromCardContract(input.parentTaskId);
       // Born in AI review: whoever opened it is told, as on any other entry.
       if (birthStage === STAGE_AI_REVIEW && status === "review") announceAiReview(id);
       return rowToTask(getTaskRow(id));
@@ -4576,6 +4598,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       put("updated_at", now());
 
       db.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...params, taskId);
+      if (patch.parentTaskId) releaseContainerFromCardContract(patch.parentTaskId);
       if (nextStage === STAGE_AI_REVIEW && (row.stage !== STAGE_AI_REVIEW || current !== "review")) announceAiReview(taskId);
       // Un task che ESCE da review si porta dietro la sua richiesta di
       // approvazione: va chiusa qui.
