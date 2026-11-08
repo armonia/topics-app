@@ -19,7 +19,7 @@
  * spawned through the route `spawn_agent` calls, as a claude-code PTY running
  * the e2e stub, its parent a chat of the test.
  *
- * @covers CMD-03 SUBAGENT-20 DENS-06
+ * @covers CMD-03 SUBAGENT-20 LAYOUT-42 (scenario DENS-06 of the archived change tab-bar-density)
  */
 import { execFileSync } from "node:child_process";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
@@ -188,7 +188,7 @@ test("TABS-03: Shift+Cmd+T after the PTY was retired resumes the same conversati
 });
 
 test("TABS-04: a pointer close leaves no empty slot while the tab counts down", async ({ page }) => {
-  test.info().annotations.push({ type: "spec", description: "DENS-06" });
+  test.info().annotations.push({ type: "spec", description: "LAYOUT-42" });
   await openSubAgentTab(page);
   await expect(chatTab(page)).toBeVisible();
   const spacer = page.locator("[data-density-close-spacer]");
