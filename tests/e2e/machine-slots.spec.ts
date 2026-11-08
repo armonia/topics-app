@@ -19,7 +19,7 @@ test("the Machines section declares how many cards a node runs at once", async (
     baseUrl: "https://pc.local", slots: null, createdAt: "", updatedAt: "",
   };
   const patches: unknown[] = [];
-  await page.route("**/api/machines", (route) => route.fulfill({ json: [node] }));
+  await page.route("**/api/machines", (route) => route.fulfill({ json: { machines: [node] } }));
   await page.route("**/api/machines/pc-1", async (route) => {
     if (route.request().method() !== "PATCH") return route.fallback();
     patches.push(route.request().postDataJSON());
