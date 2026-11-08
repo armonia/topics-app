@@ -1084,9 +1084,6 @@
       "loc",
       "onUnarchive"
     ],
-    "client/src/hooks/usePerfMetrics.ts": [
-      "TAURI_GPU"
-    ],
     "client/src/hooks/usePresenceSummary.ts": [
       "INTERVALLO_MS",
       "leggi",
