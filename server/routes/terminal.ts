@@ -257,19 +257,11 @@ async function readChildTranscriptLines(child: ChildRef): Promise<string[] | nul
 /** Discover a sub-agent's REAL transcript id (claude-code ignores the pre-assigned
  *  `--session-id` for children) and adopt it onto the session + DB row so every
  *  subsequent transcript read hits the right .jsonl. No-op unless this is a
- *  sub-agent with a recorded prompt fingerprint. Returns true when it adopted a
- *  new id. Cheap and idempotent — safe to call from the read/wake paths. */
+ *  sub-agent. Returns true when it adopted a new id. Cheap and idempotent — safe
+ *  to call from the read/wake paths. */
 function resolveChildTranscriptSessionId(child: ChildRef): boolean {
-  if (!child.parentSessionKey || !child.spawnPromptSnippet) return false;
-  // If the currently-recorded id already resolves to a real transcript, keep it.
-  if (child.claudeSessionId && fs.existsSync(claudeTranscriptPath(child.cwd, child.claudeSessionId))) {
-    return false;
-  }
-  const found = discoverClaudeSubAgentSessionId({
-    cwd: child.cwd,
-    promptSnippet: child.spawnPromptSnippet,
-    sinceMs: Date.parse(child.createdAt) || 0,
-  });
+  if (!child.parentSessionKey) return false;
+  const found = cliReportedSessionId(child) ?? transcriptFoundByPrompt(child);
   if (!found || found === child.claudeSessionId) return false;
   const prev = child.claudeSessionId;
   child.claudeSessionId = found;
@@ -285,6 +277,47 @@ function resolveChildTranscriptSessionId(child: ChildRef): boolean {
   if (prev) _tracker?.dropTerminalSession(prev);
   _tracker?.registerTerminalSession(found, { cwd: child.cwd });
   return true;
+}
+
+/**
+ * The conversation the child's own CLI says it is on (`~/.claude/sessions/<pid>.json`),
+ * while its process lives. It comes first, and it wins over an id recorded
+ * earlier: two siblings are two processes, so two ids, whatever their prompts
+ * say, and a guess the content scan made before this file appeared is put right.
+ */
+function cliReportedSessionId(child: ChildRef): string | null {
+  const pid = sessions.get(child.id)?.ptyPid;
+  return pid && pid > 0 ? liveClaudeSessionId(pid) : null;
+}
+
+/** Without the CLI's word (the child is gone, or its CLI writes no session
+ *  file): the transcript found by the child's opening prompt, never one that
+ *  another session holds. A recorded id whose transcript exists is kept. */
+function transcriptFoundByPrompt(child: ChildRef): string | null {
+  if (!child.spawnPromptSnippet) return null;
+  if (child.claudeSessionId && fs.existsSync(claudeTranscriptPath(child.cwd, child.claudeSessionId))) return null;
+  return discoverClaudeSubAgentSessionId({
+    cwd: child.cwd,
+    promptSnippet: child.spawnPromptSnippet,
+    sinceMs: Date.parse(child.createdAt) || 0,
+    excludeIds: sessionIdsHeldByOthers(child.id),
+  });
+}
+
+/** The conversations held by every session but `childId`: a live pane or
+ *  child, or a sub-agent row, which is what a resume of that child opens. */
+function sessionIdsHeldByOthers(childId: string): Set<string> {
+  const held = new Set<string>();
+  for (const s of sessions.values()) if (s.id !== childId && s.claudeSessionId) held.add(s.claudeSessionId);
+  try {
+    const rows = getDatabase()
+      .query("SELECT claude_session_id AS id FROM subagents WHERE id <> ? AND claude_session_id IS NOT NULL")
+      .all(childId) as Array<{ id: string }>;
+    for (const r of rows) held.add(r.id);
+  } catch (e) {
+    warnThrottled("subagents:held-ids", `[Terminal] subagents: reading the held conversations failed, only the live sessions are excluded:`, e);
+  }
+  return held;
 }
 
 /** After a sub-agent PTY launches, poll for the transcript claude actually wrote

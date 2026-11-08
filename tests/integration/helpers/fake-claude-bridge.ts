@@ -5,6 +5,11 @@
  * placeholder, and writes the user record only when an Enter lands. No
  * `claude` process is ever started.
  *
+ * Two switches play the CLI a sub-agent really runs: `mintSessionIds` ignores
+ * the pre-assigned `--session-id` and writes under an id of its own, and
+ * `sessionsDir` gets the `<pid>.json` file in which the CLI says which
+ * conversation that process is on (`~/.claude/sessions`).
+ *
  * The transcripts live where the router reads them, `~/.claude/projects/<cwd>`:
  * `os.homedir()` is fixed per process under Bun, so every cwd must be inside a
  * throwaway test root, and only the folders this helper created are removed.
@@ -24,6 +29,10 @@ export interface FakeBridge {
   children: Map<string, FakeChild>;
   /** Enter that makes the NEXT spawned child write its prompt record (1 = the first). */
   nextAcceptFromEnter: number;
+  /** A fresh launch writes under an id it mints, not the `--session-id` it was given (a `--resume` id is kept). */
+  mintSessionIds: boolean;
+  /** Where each process writes `<pid>.json` with its conversation, as the CLI does; null = a CLI that writes none. */
+  sessionsDir: string | null;
   /** Drop every connection and every PTY, as a bridge that died does; `list` then answers empty. */
   dropAll(): void;
   close(): Promise<void>;
@@ -70,6 +79,8 @@ export function startFakeClaudeBridge(root: string, socketPath: string): Promise
     received: [],
     children: new Map(),
     nextAcceptFromEnter: 1,
+    mintSessionIds: false,
+    sessionsDir: null,
     dropAll() { for (const s of sockets) s.destroy(); alive.clear(); },
     close() {
       return new Promise((resolve) => { for (const s of sockets) s.destroy(); server.close(() => resolve()); });
@@ -92,9 +103,13 @@ export function startFakeClaudeBridge(root: string, socketPath: string): Promise
       else if (msg.type === "ping") reply(socket, { type: "pong" });
       else if (msg.type === "create") {
         const args = msg.args ?? [];
-        const flag = args.indexOf("--session-id") >= 0 ? args.indexOf("--session-id") : args.indexOf("--resume");
+        const given = args.indexOf("--session-id");
+        const resumed = args.indexOf("--resume");
+        const sessionId = resumed >= 0 ? args[resumed + 1]!
+          : given < 0 ? ""
+          : bridge.mintSessionIds ? crypto.randomUUID() : args[given + 1]!;
         const child: FakeChild = {
-          cwd: msg.cwd ?? "", sessionId: flag >= 0 ? args[flag + 1]! : "", typed: "", promptWrites: 0, enters: 0,
+          cwd: msg.cwd ?? "", sessionId, typed: "", promptWrites: 0, enters: 0,
           acceptFromEnter: bridge.nextAcceptFromEnter,
         };
         bridge.children.set(id, child);
@@ -105,8 +120,12 @@ export function startFakeClaudeBridge(root: string, socketPath: string): Promise
           append(child, { type: "permission-mode", permissionMode: "bypassPermissions" });
           append(child, { type: "system", subtype: "informational", content: "AGENTS.md loaded" });
         }
-        alive.set(id, pid);
-        reply(socket, { type: "created", id, pid: pid++ });
+        const childPid = pid++;
+        alive.set(id, childPid);
+        if (bridge.sessionsDir) {
+          fs.writeFileSync(join(bridge.sessionsDir, `${childPid}.json`), JSON.stringify({ pid: childPid, sessionId: child.sessionId, cwd: child.cwd }));
+        }
+        reply(socket, { type: "created", id, pid: childPid });
         // The TUI draws its first screen: the terminal has been active once.
         setTimeout(() => reply(socket, { type: "data", id, data: "Welcome to Claude Code" }), 5);
       } else if (msg.type === "buffer") {
@@ -129,6 +148,9 @@ export function startFakeClaudeBridge(root: string, socketPath: string): Promise
           child.promptWrites += 1;
         }
       } else if (msg.type === "kill") {
+        // The CLI removes its own file when it exits.
+        const killed = alive.get(id);
+        if (bridge.sessionsDir && killed !== undefined) fs.rmSync(join(bridge.sessionsDir, `${killed}.json`), { force: true });
         alive.delete(id);
         setTimeout(() => reply(socket, { type: "exit", id, exitCode: 0 }), 20);
       }

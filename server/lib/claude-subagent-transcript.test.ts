@@ -102,6 +102,32 @@ describe("discoverClaudeSubAgentSessionId", () => {
     })).toBe("skew-sess");
   });
 
+  test("skips a content match another session already holds, so two siblings with the same opening never share one", () => {
+    const spawn = 15_000_000;
+    // The opening is longer than the fingerprint: both transcripts carry it,
+    // so the content alone cannot tell the two siblings apart (08/11, four
+    // pairs of sub-agents in the live database on one conversation).
+    const opening = "Rispondi sempre in italiano. Repo ~/Projects/zenocms (GitHub armonia/zenocms). Compito: ";
+    writeTranscript("/proj/siblings", "first-child", `${opening}le PR #183 e #166`, spawn + 900);
+    writeTranscript("/proj/siblings", "second-child", `${opening}le PR #168 e #169`, spawn + 400);
+    const snippet = normalizePromptSnippet(`${opening}le PR #168 e #169`);
+    // The newer match is the first sibling's, and the first sibling holds it.
+    expect(discoverClaudeSubAgentSessionId({
+      cwd: "/proj/siblings", promptSnippet: snippet, sinceMs: spawn, root, excludeIds: new Set(["first-child"]),
+    })).toBe("second-child");
+  });
+
+  test("the single-recent-file fallback skips a transcript another session already holds", () => {
+    const spawn = 16_000_000;
+    // The sibling's CLI wrote its transcript first and the sibling adopted it;
+    // this child's own file is not there yet. Taking the only file around
+    // would put both children on the sibling's conversation.
+    writeTranscript("/proj/race", "sibling-sess", "a prompt this child does not match", spawn + 300);
+    expect(discoverClaudeSubAgentSessionId({
+      cwd: "/proj/race", promptSnippet: "prompt that will not match", sinceMs: spawn, root, excludeIds: new Set(["sibling-sess"]),
+    })).toBeNull();
+  });
+
   test("rejects a content match whose recorded cwd differs from the spawn cwd", () => {
     const spawn = 14_000_000;
     // Prompt matches, but the transcript's own cwd field says elsewhere.

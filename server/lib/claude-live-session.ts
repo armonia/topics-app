@@ -28,7 +28,7 @@ export interface ClaudePane {
   type: string;
   ptyPid?: number;
   claudeSessionId?: string;
-  /** Sub-agents find their transcript their own way (`spawnPromptSnippet`) and are left to it. */
+  /** Sub-agents read the same file through `resolveChildTranscriptSessionId`, which also moves their sub-agent row: left out here. */
   parentSessionKey?: string;
 }
 

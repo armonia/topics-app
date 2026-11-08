@@ -20,6 +20,7 @@ import * as fs from "node:fs";
 import { join } from "node:path";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
 import { startFakeClaudeBridge, type FakeBridge, type FakeChild } from "./helpers/fake-claude-bridge";
+import { _setClaudeSessionsDirForTests } from "../../server/lib/claude-live-session";
 import type { SubAgentExitInfo } from "../../server/routes/subagent-exit";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
 import type { AppContext, Topic } from "../../server/types";
@@ -27,6 +28,8 @@ import type { AppContext, Topic } from "../../server/types";
 const ROOT = testTmpDir("subagent-life");
 const SOCKET_PATH = `${ROOT}/b.sock`;
 const PROJECT = `${ROOT}/proj`;
+/** The CLI's `~/.claude/sessions`, kept inside the test root: the bridge's pids (7000 on) can be a real CLI's pid. */
+const CLI_SESSIONS = `${ROOT}/cli-sessions`;
 const TOPIC_ID = "5a738995-0000-4000-8000-000000000001";
 const PARENT = `topic:${TOPIC_ID}`;
 const TOKEN = "subagent-life-token";
@@ -79,6 +82,8 @@ const hasPrompt = (child: FakeChild) => {
 beforeAll(async () => {
   setupTestDataDir(join(ROOT, "data"));
   fs.mkdirSync(PROJECT, { recursive: true });
+  fs.mkdirSync(CLI_SESSIONS, { recursive: true });
+  _setClaudeSessionsDirForTests(CLI_SESSIONS);
   delete process.env.TOPICS_DISABLE_PTY_BRIDGE;
   delete process.env.TOPICS_EMBEDDED;
   process.env.GATEWAY_TOKEN = TOKEN;
@@ -111,8 +116,44 @@ afterAll(async () => {
   delete process.env.GATEWAY_TOKEN;
   { const { _resetClaudeBinCache } = await import("../../server/lib/claude-bin"); _resetClaudeBinCache(); }
   bridge?.cleanup();
+  _setClaudeSessionsDirForTests(null);
   await cleanupTestDataDir(ROOT);
 });
+
+/**
+ * Two children of the chat briefed with the same opening, longer than the
+ * prompt fingerprint, spawned together in one directory of their own. The
+ * first takes its prompt at the first Enter, the second only at the retry 6 s
+ * later: in that window, on 08/11, the second matched the first's transcript
+ * by its opening and kept that conversation for good.
+ */
+async function spawnSameOpeningPair(dir: string): Promise<{ early: { agentId: string; child: FakeChild }; late: { agentId: string; child: FakeChild } }> {
+  const cwd = join(ROOT, dir);
+  fs.mkdirSync(cwd, { recursive: true });
+  const opening = "Rispondi sempre in italiano. Repo ~/Projects/zenocms (GitHub armonia/zenocms). Compito: ";
+  const launch = async (name: string, task: string) => {
+    const res = await call(`/api/sessions/${encodeURIComponent(PARENT)}/agents/spawn`, "POST", { prompt: opening + task, name, cwd, runtime: "claude-code" });
+    expect(res.status).toBe(200);
+    const { agentId } = await res.json() as { agentId: string };
+    return { agentId, child: bridge.children.get(agentId)! };
+  };
+  bridge.nextAcceptFromEnter = 2;
+  const late = await launch(`${dir}-168`, "le PR #168 e #169 sono in conflitto con main.");
+  bridge.nextAcceptFromEnter = 1;
+  const early = await launch(`${dir}-183`, "le PR #183 e #166 sono in conflitto con main.");
+  return { early, late };
+}
+
+/** The conversation a resume of the child opens: its sub-agent row, and its terminal row. */
+const conversationOf = (agentId: string) => {
+  const sub = ctx.db.query("SELECT claude_session_id AS id FROM subagents WHERE id = ?").get(agentId) as { id: string | null } | null;
+  const tab = ctx.db.query("SELECT claude_session_id AS id FROM terminal_sessions WHERE id = ?").get(agentId) as { id: string | null } | null;
+  return { subagent: sub?.id ?? null, terminal: tab?.id ?? null };
+};
+
+async function stopChildren(...agentIds: string[]): Promise<void> {
+  for (const id of agentIds) await call(`/api/sessions/${encodeURIComponent(PARENT)}/agents/${id}/stop`, "POST");
+}
 
 describe("spawn_agent from a chat", () => {
   test("the child starts in the chat's project, gets its long prompt ONCE, and keeps the name its parent chose", async () => {
@@ -283,6 +324,32 @@ describe("spawn_agent from a chat", () => {
     expect(slowChild!.child.enters).toBeGreaterThanOrEqual(2);
     expect(slowChild!.child.promptWrites).toBe(1);
   }, 40_000);
+
+  test("two children briefed with the same opening each keep the conversation their own CLI is on", async () => {
+    bridge.mintSessionIds = true;
+    bridge.sessionsDir = CLI_SESSIONS;
+    let pair: Awaited<ReturnType<typeof spawnSameOpeningPair>> | null = null;
+    try {
+      pair = await spawnSameOpeningPair("same-opening");
+      const { early, late } = pair;
+      const own = (c: { child: FakeChild }) => ({ subagent: c.child.sessionId, terminal: c.child.sessionId });
+      // The late prompt lands at the Enter retry, about 6 s in.
+      await until("both prompts delivered, each child on its own conversation", () =>
+        hasPrompt(early.child) && hasPrompt(late.child)
+        && Bun.deepEquals(conversationOf(early.agentId), own(early)) && Bun.deepEquals(conversationOf(late.agentId), own(late)), 25_000,
+      ).catch(() => { /* the assertions below say what went wrong */ });
+      // Was the early sibling's conversation for both: a resume of the late
+      // one, or its transcript read for the parent, opened the other's work.
+      expect({ early: conversationOf(early.agentId), late: conversationOf(late.agentId) }).toEqual({ early: own(early), late: own(late) });
+      // And the late prompt was then never sent: its seed read the other's
+      // transcript, found the shared opening there and took it as delivered.
+      expect({ early: hasPrompt(early.child), late: hasPrompt(late.child) }).toEqual({ early: true, late: true });
+    } finally {
+      bridge.mintSessionIds = false;
+      bridge.sessionsDir = null;
+      if (pair) await stopChildren(pair.early.agentId, pair.late.agentId);
+    }
+  }, 45_000);
 
   test("a child whose terminal died with the bridge is reported `lost`", async () => {
     // Last: dropAll kills every PTY.
