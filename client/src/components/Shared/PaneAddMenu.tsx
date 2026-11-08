@@ -249,8 +249,9 @@ export interface PaneAddMenuProps extends Omit<PaneAddMenuItemsProps, 'onClose'>
    *  it empty so the button is always visible. */
   triggerClassName?: string;
   /** When true, mark the trigger as `app-no-drag` and set the equivalent
-   *  inline style. Used by the top tab bar inside an electron drag region
-   *  so dragging the button doesn't initiate a window drag. */
+   *  inline style. Used by the top tab bar inside the window drag region
+   *  (Tauri `data-tauri-drag-region` / `-webkit-app-region`) so dragging the
+   *  button doesn't initiate a window drag. */
   noElectronDrag?: boolean;
   /** How the opened menu renders on desktop:
    *   - `'dropdown'` (default) — il primitivo `Menu`, ancorato al trigger.

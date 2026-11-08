@@ -290,9 +290,10 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
       // ⌘N — the centered "New…" add palette (the sidebar header's "+").
       // Event-based so the palette state stays inside <PaneAddMenu> — same
       // pattern as topics:open-project-picker. (Moved off ⌘J: ⌘N is the
-      // natural "new" key; Electron's default new-window is suppressed by
-      // the preventDefault. In a plain browser tab the browser owns ⌘N —
-      // Electron is the primary target.) ⌘⇧N keeps the New Topic modal.
+      // natural "new" key; the desktop shell (Tauri) has no ⌘N of its own, so
+      // the preventDefault leaves it to us. In a plain browser tab the browser
+      // owns ⌘N; the desktop app is the primary target.) ⌘⇧N keeps the New
+      // Topic modal.
       if (isMod && (e.key === 'n' || e.key === 'N')) {
         e.preventDefault();
         if (e.shiftKey) {
@@ -485,14 +486,14 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
       // tab. The target is resolved synchronously from the in-memory
       // recently-closed stack (`closedTabs[0]`), so reopen is instant for chats
       // (Warp / VS Code parity — both also bind ⇧⌘T to "reopen closed tab").
-      // topics-app's primary surface is the Electron desktop app, where ⇧⌘T is
-      // free: a packaged BrowserWindow has no browser tabs to "reopen", so
-      // there is nothing to contend with. In a plain dev-browser tab the
-      // preventDefault below overrides Chrome's reopen-tab while the app is
-      // focused, which is the intended in-app behavior. The Electron app ALSO
-      // claims ⇧⌘T as a native menu accelerator → `reopen-closed-tab` IPC (see
-      // electron-app/main.ts + App.tsx) so the chord still fires when focus is
-      // inside a native pane that swallows the renderer keydown.
+      // topics-app's primary surface is the Tauri desktop app, where ⇧⌘T is
+      // free: the app window has no browser tabs to "reopen", so there is
+      // nothing to contend with. In a plain dev-browser tab the preventDefault
+      // below overrides Chrome's reopen-tab while the app is focused, which is
+      // the intended in-app behavior. When focus is inside a native browser
+      // pane that swallows the renderer keydown, the Tauri NSEvent monitor
+      // re-dispatches ⌘T chords here (`is_forwarded_cmd_chord`, generated from
+      // shared/shortcuts.ts), so the chord still fires.
       if (
         isMod && e.shiftKey &&
         (e.key === 't' || e.key === 'T' || e.key === 'u' || e.key === 'U')
@@ -511,8 +512,8 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
       // exists (lib.rs) but its key equivalent is swallowed by the focused
       // WKWebView before the menu sees it, so the accelerator never fires — we
       // intercept it here in the renderer (which DOES receive the keydown) and
-      // reload directly. Electron's native menu reload works, and the web build
-      // wants the browser's own reload, so this is gated to Tauri.
+      // reload directly. The web build wants the browser's own reload, so this
+      // is gated to Tauri.
       //
       // Su macOS questo ramo NON scatta: il monitor NSEvent di lib.rs vede ⌘R
       // prima della webview e ingoia l'evento (`return nil`), perché deve
@@ -534,7 +535,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         return;
       }
 
-      // Desktop (Electron + Tauri): ⌘W closes the focused PANE, not the window.
+      // Desktop (Tauri): ⌘W closes the focused PANE, not the window.
       // Under Tauri the native menu's close_window accelerator is removed (lib.rs)
       // so this is the sole ⌘W handler; it reaches the focused pane whenever focus
       // is in the main webview (a child browser webview that has focus swallows
@@ -561,8 +562,8 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
       // → previous (⌘Tab is reserved by macOS for app-switching, so the ⌘ pair
       // only does previous). Cycles the TOP-LEVEL panels relative to the focused
       // one, wrapping. When focus is inside a native browser pane this keydown is
-      // swallowed by the OS view — the native key-forwarder (Electron before-
-      // input-event / Tauri NSEvent monitor) re-dispatches it so it still fires.
+      // swallowed by the OS view — the native key-forwarder (the Tauri NSEvent
+      // monitor) re-dispatches it so it still fires.
       if (e.key === 'Tab' && (e.ctrlKey || (e.metaKey && e.shiftKey))) {
         e.preventDefault();
         const panels = openPanelsRef.current;
