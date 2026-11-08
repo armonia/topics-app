@@ -38,6 +38,7 @@ import { BUTTON, Box, CARD, Tokens } from './hubUsageUi';
 import { TONES, modelName, niceMax, tokensShort, type Tr } from './hubUsageFormat';
 import { ByAccount, ByModel, ByProject, Saving } from './HubUsageBoxes';
 import { ByRepo, MuseByFolder, ProxyAttributionBox, SplitStrip, UsageFilters } from './HubUsageMore';
+import { readJson } from '../../lib/readJson';
 
 // The section's strings travel with its chunk, before its first render.
 addCatalogue('it', HUB_USAGE_IT);
@@ -55,15 +56,6 @@ interface Reads {
   queue: unknown;
   projects: unknown;
   at: number;
-}
-
-async function readJson(path: string): Promise<unknown> {
-  try {
-    const r = await apiFetch(path);
-    return r.ok ? await r.json() : null;
-  } catch {
-    return null;
-  }
 }
 
 /** Every read of the section, again every POLL_MS while visible, after a write and on a new window. */

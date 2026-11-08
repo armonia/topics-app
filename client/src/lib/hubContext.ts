@@ -345,13 +345,6 @@ export function contextView(data: unknown, unlisted: (u: UnlistedRef) => string 
   };
 }
 
-/** «15 k» for 14.888, «950» under a thousand, in the person's locale. */
-export function shortTokens(n: number, locale: string): string {
-  if (n < 1000) return String(Math.round(n));
-  const k = n / 1000;
-  return `${k.toLocaleString(locale === 'en' ? 'en-GB' : 'it-IT', { maximumFractionDigits: k < 10 ? 1 : 0 })} k`;
-}
-
 /** What the hub answered to «look for contradictions» (`POST /api/contesto/check`). */
 export type CheckStart = { ok: true; already: boolean } | { ok: false; why: string };
 
