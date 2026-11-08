@@ -1,3 +1,8 @@
+/**
+ * The history row draws its icon from the kind, never from an emoji in the title.
+ *
+ * @covers NOTIF-HIST-01
+ */
 import { describe, expect, test } from 'bun:test';
 import { CircleX, GitPullRequest, MessageCircleQuestion, MessageSquare, PauseCircle, Server, SquareCheck, TerminalSquare } from 'lucide-react';
 import { historyRowIcon, historyTitle } from './historyGlyph';
