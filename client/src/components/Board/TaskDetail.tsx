@@ -10,7 +10,7 @@ import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useOwnerName } from '../../hooks/useOwnerName';
 import { actionOriginDisplay, authorDisplay } from '../../lib/authorDisplay';
-import { AlertTriangle, ListTree, RotateCcw, Timer, ArrowUp, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Rocket, Send, Server, ShieldCheck, Sparkles, Square, StickyNote, Tag, TriangleAlert, UserRound, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, ListTree, RotateCcw, Timer, ArrowUp, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, CircleAlert, Copy, Download, ExternalLink, GitCompare, GitMerge, Globe, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Rocket, Send, Server, ShieldCheck, Sparkles, Square, StickyNote, Tag, TriangleAlert, UserRound, WifiOff, X } from 'lucide-react';
 import { SectionHeader, useSectionOpen } from './sectionAccordion';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { PlanSurface } from './PlanSurface';
@@ -152,7 +152,7 @@ function SystemDeliveryNotice({ task }: { task: BoardTask }) {
   if (task.deliveredBy !== 'system') return null;
   return (
     <div className="flex items-start gap-1.5 rounded bg-amber-500/10 px-2 py-1.5 text-mini text-amber-200">
-      <Hourglass className="mt-px h-3 w-3 shrink-0" />
+      <CircleAlert className="mt-px h-3 w-3 shrink-0" />
       <span className="min-w-0 flex-1">
         <span className="font-medium">{tr('board.task.movedToReviewBySystem')}</span>{' '}
         {systemDeliveryNote(task.deliveredReason, tr)}
@@ -348,7 +348,7 @@ function ChecksSection({ task }: { task: BoardTask }) {
                 {r.ok
                   ? <Check size={14} className="inline-block text-emerald-300" aria-hidden="true" />
                   : r.notMeasured || r.code === NOT_MEASURED_EXIT
-                    ? <Hourglass size={14} className="inline-block text-amber-800 dark:text-amber-300" aria-hidden="true" />
+                    ? <Clock size={14} className="inline-block text-amber-800 dark:text-amber-300" aria-hidden="true" />
                     : <X size={14} className="inline-block text-rose-800 dark:text-rose-300" aria-hidden="true" />} <code className="font-mono">{r.cmd}</code>{r.ok ? '' : `: ${short(r)}`}
               </div>
               {!r.ok && (r.tail || r.spawnError) && (

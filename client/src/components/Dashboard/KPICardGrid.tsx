@@ -1,16 +1,6 @@
 import type { DashboardKPIs } from '../../lib/api';
 import { KPICard } from './KPICard';
-import {
-  CalendarClock,
-  CalendarCheck,
-  Clock,
-  Loader,
-  AlertTriangle,
-  DollarSign,
-  Wallet,
-  CheckCircle,
-  Hourglass,
-} from 'lucide-react';
+import { CalendarClock, CalendarCheck, Clock, Loader, AlertTriangle, DollarSign, Wallet, CheckCircle } from 'lucide-react';
 
 interface KPICardGridProps {
   /**
@@ -102,7 +92,7 @@ export function KPICardGrid({ kpis }: KPICardGridProps) {
         label="Approval Turnaround"
         value={kpis ? kpis.approvalTurnaroundHours : null}
         unit="hrs"
-        icon={Hourglass}
+        icon={Clock}
         trend={kpis && kpis.approvalTurnaroundHours > 0 ? 'down' : 'flat'}
         upIsGood={false}
       />
