@@ -16,6 +16,13 @@ export const MAX_AGENT_DEPTH = 2;
 /** The five tools that drive sub-agents: a child at the depth cap sees none of them. */
 export const SUBAGENT_TOOL_NAMES: ReadonlySet<string> = new Set(["spawn_agent", "send_to_agent", "read_agent", "list_agents", "stop_agent"]);
 
+/**
+ * The tool that asks the human. A child's chat is one nobody watches and its
+ * question reaches neither the parent nor anyone else, so the child never sees
+ * it: the choices come back in its result and the parent carries them (card 114dc526).
+ */
+export const CHILD_FORBIDDEN_TOOLS: ReadonlySet<string> = new Set(["ask_user_question"]);
+
 export interface SubagentToolPolicy {
   /** The names the profile allows; null = all of them. */
   allowed: ReadonlySet<string> | null;
@@ -65,6 +72,7 @@ export function nativeSubagentToolPolicy(sessionKey: string): SubagentToolPolicy
 /** Is this tool one the session may use, by its sub-agent policy? A non-child may use all. */
 export function toolAllowedByPolicy(policy: SubagentToolPolicy | null, name: string): boolean {
   if (!policy) return true;
+  if (CHILD_FORBIDDEN_TOOLS.has(name)) return false;
   if (policy.noDelegation && SUBAGENT_TOOL_NAMES.has(name)) return false;
   return !policy.allowed || policy.allowed.has(name);
 }
