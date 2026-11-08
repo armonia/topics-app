@@ -5436,18 +5436,3 @@ idle for more than 7 days SHALL carry a visible signal.
 #### Scenario: a milestone of another project
 - **WHEN** a card is linked to a milestone of another project
 - **THEN** the request SHALL fail with 400 and the card SHALL stay where it was
-
-### Requirement: KANBAN-106 — The cross-project board grouped by project, and compact cards
-
-The cross-project board SHALL offer, beside the list/kanban toggle, a toggle that groups the board BY PROJECT: one row of the same workflow columns per project that has a visible card (a swimlane), headed by the project's favicon, name and card count, the projects where something runs or waits first. A card dragged inside a lane SHALL change column only, never project. A second toggle SHALL switch every card to its COMPACT face: the project, the title with status and priority, the relational chips, the foot and the live tool stay; the preview image, the checklist, the description, the review exchange and the progress note go; the review's exits stay. Both choices SHALL persist per viewer in local storage like the layout. The Plan view SHALL draw a card the board has loaded with the same compact board card, with the Plan's own gestures under it, so a card has one face wherever it is drawn.
-
-#### Scenario: Grouped and compact, and it remembers
-- **GIVEN** the cross-project board with cards in two projects
-- **WHEN** the person presses «Raggruppa per progetto» and «Card compatte»
-- **THEN** there SHALL be one lane per project, each card in its own project's lane, every card compact without its description, and both choices SHALL survive a reload
-
-#### Scenario: The Plan uses the board's card
-- **GIVEN** the grouped board and the Plan view open
-- **WHEN** the Plan lists a card the board has loaded
-- **THEN** it SHALL draw the board's compact card for it
-
