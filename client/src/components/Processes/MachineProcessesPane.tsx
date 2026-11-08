@@ -33,6 +33,9 @@ import {
   processRows, pushLogLine, serviceGroups, serviceRows, servicesReadAt, servicesToWatch, type HistoryPoint, type LogLine, type MacGauges, type PcView, type ProcessRow, type ServiceRow, type UnitKind,
 } from '../../lib/machineProcesses';
 
+import { SECTION, SECTION_HEAD, FAINT } from './processesStyles';
+import { SessionsPanel } from './SessionConsumption';
+
 type Tr = ReturnType<typeof useT>;
 
 /** The census is recomputed at most every 30 s by the hub: reading faster buys nothing. */
@@ -44,10 +47,6 @@ const KIND_ICON: Record<UnitKind, LucideIcon> = {
   app: AppWindow, servizio: Server, sessione: Asterisk, lavoro: Zap, devserver: Zap, mcp: Plug, macos: Monitor, altro: Cpu, resto: Box, // allow-italian: the census's wire values
 };
 
-/** The section frame, its head and the faint text: shared with the load screen (`LoadScreen.tsx`). */
-export const SECTION = 'min-w-0 overflow-hidden rounded border border-app-border bg-surface';
-export const SECTION_HEAD = 'flex h-[38px] items-center gap-2 border-b border-app-border-subtle px-2.5';
-export const FAINT = 'text-app-text-faint';
 const STOP_BUTTON = 'inline-flex h-6 items-center gap-1 justify-self-end rounded-sm bg-black/[0.035] px-[7px] text-mini text-app-text-secondary hover:bg-black/[0.06] hover:text-app-text dark:bg-white/[0.05] dark:hover:bg-white/[0.14] @max-3xl:h-9 @max-3xl:px-2.5 @max-3xl:text-compact disabled:opacity-60';
 const TRACK = 'bg-black/[0.07] dark:bg-white/[0.08]';
 const ROW_GRID = '@3xl:grid @3xl:grid-cols-[minmax(0,1fr)_46px_118px_42px_108px_64px] @3xl:items-center @3xl:gap-x-2.5';
@@ -133,6 +132,9 @@ export function MachineProcessesPane() {
             {at === null ? tr('processes.reading') : `${tr(stale ? 'processes.lastRead' : 'processes.now')} · ${updatedLabel(now - at, tr)}`}
           </span>
         </header>
+
+        {/* Topics' own sessions: they do not depend on the hub, so they are here even when it is gone. */}
+        <SessionsPanel />
 
         {present && stale && <HubDownBand onRetry={reread} />}
 

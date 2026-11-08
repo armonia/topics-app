@@ -5,7 +5,8 @@
  *
  * Under `SessionRoot`, like the app: the PC's browser reaches the Mac's
  * Topics over the tailnet, so the first visit shows the pairing code to
- * approve on the Mac, and only an owner device sees the screen.
+ * approve on the Mac, and only an owner device or a device paired as a
+ * screen sees it.
  */
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -16,7 +17,7 @@ export function mountLoadScreen(container: HTMLElement, machine: string | null):
   document.documentElement.classList.add('dark');
   createRoot(container).render(
     <StrictMode>
-      <SessionRoot>
+      <SessionRoot screenPage>
         <LoadScreen machine={machine} />
       </SessionRoot>
     </StrictMode>,

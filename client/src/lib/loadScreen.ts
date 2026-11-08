@@ -1,12 +1,14 @@
 /**
  * The load screen (`/schermo[/<machine>]`): what a machine that takes the
- * load shows on its own monitor, as pure reads of four answers.
+ * load shows on its own monitor, as pure reads of one answer.
  *
- *   /api/system/machine-readout  its processes by program (MB, CPU) and, on
- *                                the PC, the sleep keeper's screen file
- *   /api/hub/machines            its state and the four gauges, from the hub
- *   /api/hub/board               the pace of each account (the dial)
- *   /api/all-boards/tasks        the cards running on it
+ *   /api/system/screen-data      the slow read, one of the two routes a device paired
+ *                                as a screen may read (`server/lib/screen-scope.ts`):
+ *     readout                    its processes by program (MB, CPU) and, on the
+ *                                PC, the sleep keeper's screen file
+ *     machines                   its state and the four gauges, from the hub
+ *   /api/system/screen-sessions  the live one: the sessions and what each costs
+ *                                (`lib/sessionConsumption.ts`)
  *
  * Nothing here fetches or keeps time: `now` comes from the caller, so the
  * countdown is a function of two numbers and is tested as one.
@@ -19,7 +21,8 @@ const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFi
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v : null);
 const list = (v: unknown): JsonRecord[] => (Array.isArray(v) ? v.filter(isRecord) : []);
 
-export interface ScreenProc { name: string; count: number; memMB: number; cpuPct: number | null }
+/** `job`: work sent from the Mac (a test suite), told apart by its command line on the machine. */
+export interface ScreenProc { name: string; count: number; memMB: number; cpuPct: number | null; job: boolean }
 export interface ScreenJob { project: string | null; what: string; who: string | null; since: number | null }
 export interface ScreenOutcome { project: string | null; what: string; ok: boolean | null; interrupted: boolean; seconds: number | null; endedAt: number | null }
 
@@ -63,7 +66,7 @@ export function readReadout(raw: unknown): Readout {
     procs: r ? list(r.procs).flatMap((p) => {
       const name = str(p.name);
       const memMB = num(p.memMB);
-      return name && memMB !== null ? [{ name, count: Math.max(1, num(p.count) ?? 1), memMB, cpuPct: num(p.cpuPct) }] : [];
+      return name && memMB !== null ? [{ name, count: Math.max(1, num(p.count) ?? 1), memMB, cpuPct: num(p.cpuPct), job: p.job === true }] : [];
     }) : [],
     rest: { count: num(rest.count) ?? 0, memMB: num(rest.memMB) ?? 0 },
     total: r ? num(r.total) ?? 0 : 0,
@@ -112,13 +115,14 @@ const MEM_WARN_MB = 1500;
  * the same row, so the screen and the view cannot drift. GPU and network per
  * process are not measured on the PC: a dash, never a 0.
  */
-export function readoutRows(r: Readout, processesWord: (n: number) => string): ProcessRow[] {
+export function readoutRows(r: Readout, processesWord: (n: number) => string, fromMacWord = ''): ProcessRow[] {
   const peak = Math.max(1, ...r.procs.map((p) => p.memMB));
   return r.procs.map((p, i) => ({
     id: `${i}:${p.name}`,
     name: p.name,
-    kind: procKind(p.name, r.platform),
-    detail: p.count > 1 ? processesWord(p.count) : '',
+    // Work sent from the Mac is a job, whatever the program is called: `bun` there is a test suite, not the service.
+    kind: p.job ? 'lavoro' : procKind(p.name, r.platform), // allow-italian: the census's wire value
+    detail: [p.job ? fromMacWord : '', p.count > 1 ? processesWord(p.count) : ''].filter(Boolean).join(' · '),
     memMB: p.memMB,
     memShare: p.memMB / peak,
     memWarn: p.memMB >= MEM_WARN_MB,
@@ -154,61 +158,16 @@ export function sleepView(r: Readout, busy: number, now: number): SleepView {
   return { kind: 'idle', thresholdMin: s?.thresholdMin ?? null };
 }
 
-/** A card of the board as the screen needs it. */
-export interface ScreenCard {
-  id: string;
-  title: string;
-  projectId: string;
-  model: string | null;
-  since: number | null;
-  /** Who sent it here: the device or the person that started its run. */
-  from: string | null;
-  /** The feed's row as it came, for the board's own card. */
-  raw: JsonRecord;
+/** The screen's slow answer (`GET /api/system/screen-data`), defensively: a wrong-typed part is absent, never a crash. */
+export interface ScreenData {
+  readout: Readout;
+  /** The hub's machines as it sent them; null when the hub did not answer. */
+  machines: unknown;
 }
 
-/**
- * The cards in progress on this machine: on a node, those whose `machineId`
- * names it; on the local screen, those with no machine or with the local one.
- * The longest-running first.
- */
-export function cardsOn(feed: unknown, machineId: string | null, local: boolean): ScreenCard[] {
-  const tasks = isRecord(feed) ? list(feed.tasks) : [];
-  return tasks.filter((t) => {
-    if (t.status !== 'in_progress') return false;
-    const on = str(t.machineId);
-    return local ? on === null || on === machineId : on !== null && on === machineId;
-  }).map((t) => {
-    const since = str(t.inProgressAt) ?? str(t.updatedAt);
-    const at = since ? Date.parse(since) : Number.NaN;
-    return {
-      id: str(t.id) ?? '',
-      title: str(t.text) ?? '',
-      projectId: str(t.projectId) ?? '',
-      model: str(t.model),
-      since: Number.isFinite(at) ? at : null,
-      // Who started the run, never where it runs: that is this screen's own machine.
-      from: str(t.runInitiatorDeviceName) ?? str(t.runInitiatorPersonName),
-      raw: t,
-    };
-  }).sort((a, b) => (a.since ?? Infinity) - (b.since ?? Infinity));
-}
-
-/**
- * A card's project as a person reads it: the project row whose folder hashes
- * to the board id, else the board id without its hash (`acme-web-gr9brd` is
- * `acme-web`), never the bare id.
- */
-export function projectLabel(boardId: string, byBoard: ReadonlyMap<string, { name: string; path: string }>): { name: string; path: string | null } {
-  const row = byBoard.get(boardId);
-  if (row) return { name: row.name, path: row.path || null };
-  return { name: boardId.replace(/-[0-9a-z]{1,6}$/, '') || boardId, path: null };
-}
-
-/** An elapsed time as whole hours and minutes, for the «for N min» chips. */
-export function elapsedParts(ms: number): { h: number; m: number } {
-  const mins = Math.max(0, Math.floor(ms / 60_000));
-  return { h: Math.floor(mins / 60), m: mins % 60 };
+export function readScreenData(raw: unknown): ScreenData {
+  const top = isRecord(raw) ? raw : {};
+  return { readout: readReadout(top.readout), machines: top.machines ?? null };
 }
 
 /**

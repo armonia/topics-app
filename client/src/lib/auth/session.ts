@@ -29,7 +29,7 @@ export async function refreshSession(): Promise<SessionState> {
     }
     const body = await r.json() as {
       paired: boolean; as: 'loopback' | 'device' | null; name: string | null;
-      deviceId?: string; code?: string; role?: 'owner' | 'guest'; personId?: string | null;
+      deviceId?: string; code?: string; role?: 'owner' | 'guest' | 'screen'; personId?: string | null;
       installationName?: string | null; commandShell?: boolean;
     };
     if (body.paired && body.as && body.name) {
@@ -42,7 +42,7 @@ export async function refreshSession(): Promise<SessionState> {
         // MENO poteri. Il contrario — assumere `owner` — mostrerebbe l'app
         // intera a chi non deve vederla, e la schermata sbagliata sarebbe l'unico
         // sintomo di un server vecchio.
-        role: body.role === 'guest' ? 'guest' : body.role === 'owner' ? 'owner' : 'guest',
+        role: body.role === 'owner' ? 'owner' : body.role === 'screen' ? 'screen' : 'guest',
       });
     } else {
       // The name arrives FROM HERE, the only call that carries it: this route

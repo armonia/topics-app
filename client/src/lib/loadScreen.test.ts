@@ -1,10 +1,10 @@
 /**
- * The load screen's model: the readout, the countdown, the node's own cards.
+ * The load screen's model: the readout, the countdown, the sleep countdown.
  *
  * @covers HUBBR-21
  */
 import { describe, expect, test } from 'bun:test';
-import { cardsOn, elapsedParts, loadScreenMachine, procKind, projectLabel, readReadout, readoutRows, screenZoom, sleepView } from './loadScreen';
+import { loadScreenMachine, procKind, readReadout, readScreenData, readoutRows, screenZoom, sleepView } from './loadScreen';
 
 const NOW = Date.parse('2026-11-08T19:40:00+01:00');
 
@@ -73,31 +73,14 @@ describe('load screen model', () => {
     expect(sleepView(none, 0, NOW)).toEqual({ kind: 'idle', thresholdMin: null });
   });
 
-  test('cards on a node are its own; the local screen takes the unassigned ones', () => {
-    const feed = { tasks: [
-      { id: 'a', text: 'Card A', projectId: 'p', status: 'in_progress', machineId: 'pc-1', inProgressAt: '2026-11-08T19:30:00+01:00', model: 'sonnet', runInitiatorDeviceName: 'Mac' },
-      { id: 'b', text: 'Card B', projectId: 'p', status: 'in_progress', machineId: null, inProgressAt: '2026-11-08T19:00:00+01:00' },
-      { id: 'c', text: 'Card C', projectId: 'p', status: 'review', machineId: 'pc-1' },
-      { id: 'd', text: 'Card D', projectId: 'p', status: 'in_progress', machineId: 'pc-1', inProgressAt: '2026-11-08T19:10:00+01:00' },
-    ] };
-    expect(cardsOn(feed, 'pc-1', false).map((c) => c.id)).toEqual(['d', 'a']);
-    expect(cardsOn(feed, 'pc-1', false)[1]).toMatchObject({ model: 'sonnet', from: 'Mac' });
-    expect(cardsOn(feed, 'mac-1', true).map((c) => c.id)).toEqual(['b']);
+  test('the slow answer is the readout and the hub machines, nothing else', () => {
+    const d = readScreenData({ readout: answer(null), machines: [{ id: 'pc' }], cards: [{ id: 'x' }], board: [1] });
+    expect(Object.keys(d).sort()).toEqual(['machines', 'readout']);
+    expect(d.machines).toEqual([{ id: 'pc' }]);
+    expect(readScreenData(null).machines).toBeNull();
   });
 
-  test('a card never names the machine it runs on as its sender', () => {
-    const feed = { tasks: [{ id: 'a', text: 'A', projectId: 'p', status: 'in_progress', machineId: 'pc-1', runComputerName: 'PC' }] };
-    expect(cardsOn(feed, 'pc-1', false)[0].from).toBeNull();
-  });
-
-  test('project label: the row by board id, else the id without its hash', () => {
-    const rows = new Map([['acme-web-gr9brd', { name: 'Acme Web', path: '/w/acme-web' }]]);
-    expect(projectLabel('acme-web-gr9brd', rows)).toEqual({ name: 'Acme Web', path: '/w/acme-web' });
-    expect(projectLabel('studio-x-hut000', rows)).toEqual({ name: 'studio-x', path: null });
-  });
-
-  test('elapsed, zoom and address', () => {
-    expect(elapsedParts(65 * 60_000 + 30_000)).toEqual({ h: 1, m: 5 });
+  test('zoom and address', () => {
     expect(screenZoom(1920)).toBe(1.45);
     expect(screenZoom(800)).toBe(1);
     expect(screenZoom(3840)).toBe(2);
