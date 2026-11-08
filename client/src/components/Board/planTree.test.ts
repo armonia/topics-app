@@ -2,7 +2,7 @@
  * @covers KANBAN-105
  */
 import { describe, expect, test } from 'bun:test';
-import { milestoneChoices, nodeKey, progressLabel, progressPct, branchSignals } from './planTree';
+import { milestoneChoices, progressLabel, progressPct, sortForPlan } from './planTree';
 import type { PlanProject } from './planApi';
 
 describe('planTree', () => {
@@ -19,8 +19,11 @@ describe('planTree', () => {
     ] } as unknown as PlanProject;
     expect(milestoneChoices(p)).toEqual([{ id: 'm1', label: 'A / X' }, { id: 'm2', label: 'A / Y' }, { id: 'm3', label: 'B / Z' }]);
   });
-  test('branchSignals dedupes', () => {
-    expect(branchSignals([{ signals: ['stale', 'duplicate'] }, { signals: ['stale'] }])).toEqual(['stale', 'duplicate']);
+  test('sortForPlan puts moving work first and keeps the order inside a status', () => {
+    const cards = [
+      { id: 'b1', status: 'backlog' }, { id: 't1', status: 'todo' }, { id: 'r1', status: 'review' },
+      { id: 'b2', status: 'backlog' }, { id: 'p1', status: 'in_progress' }, { id: 'x', status: 'weird' },
+    ];
+    expect(sortForPlan(cards).map((c) => c.id)).toEqual(['p1', 'r1', 't1', 'b1', 'b2', 'x']);
   });
-  test('nodeKey', () => expect(nodeKey('area', 'a1')).toBe('area:a1'));
 });

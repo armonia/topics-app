@@ -1901,6 +1901,8 @@ const EN = {
   'plan.noMilestones': 'No milestone yet',
   'plan.openCount': '{n} open',
   'plan.milestoneEmpty': 'No open card here',
+  'plan.showMore': '{n} more',
+  'plan.showFewer': 'show fewer',
   'board.toolbar.allProjects': 'All projects',
   'board.toolbar.dispatchSettings': 'Auto-dispatch settings',
   'board.toolbar.viewMode.kanban': 'Switch to list view',
