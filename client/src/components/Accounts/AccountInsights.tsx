@@ -139,7 +139,7 @@ export function TrailLegend() {
 }
 
 /** The hub's pace dial, as the tray draws it: green up to the pace, red past it, the needle in the zone's colour. */
-export function PaceDial({ needle, zone, label }: { needle: number; zone: string; label: string }) {
+export function PaceDial({ needle, zone, label, scale = 1 }: { needle: number; zone: string; label: string; scale?: number }) {
   const w = 30;
   const h = 18;
   const cx = w / 2;
@@ -157,7 +157,7 @@ export function PaceDial({ needle, zone, label }: { needle: number; zone: string
   const n = pt(needle);
   const over = zone === 'sopra' || zone === 'frenato'; // allow-italian: the hub's zone ids
   return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="img" aria-label={label} data-testid="account-dial" data-zone={zone} className="flex-none">
+    <svg width={w * scale} height={h * scale} viewBox={`0 0 ${w} ${h}`} role="img" aria-label={label} data-testid="account-dial" data-zone={zone} className="flex-none">
       <path d={arc(0, 1)} fill="none" strokeWidth={3} className="stroke-emerald-500/70" />
       <path d={arc(1, 2)} fill="none" strokeWidth={3} className="stroke-red-500/70" />
       <line x1={cx} y1={cy} x2={n[0].toFixed(1)} y2={n[1].toFixed(1)} strokeWidth={1.5} strokeLinecap="round" className={over ? 'stroke-red-600 dark:stroke-red-400' : 'stroke-app-text'} />

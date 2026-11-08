@@ -22,6 +22,7 @@ import { browserEngineIsRunning, browserEngineLastLaunchFailure } from "../brows
 import { resolveDataDir } from "../lib/data-dir";
 import { claudeLoginSource } from "../providers/native/login-source";
 import { gatewayToken } from "../lib/openclaw-gateway-token";
+import { createMachineReadoutRoute } from "./machine-readout";
 
 const SERVER_START_TIME = Date.now();
 
@@ -114,6 +115,7 @@ interface SessionsStatus {
 
 export function createStatusRouter(ctx: AppContext): RouteHandler {
   const { json, wsClients, activeStreams, db } = ctx;
+  const machineReadout = createMachineReadoutRoute(ctx);
 
   // Topic counts come straight from indexed COUNT(*) queries — this endpoint is
   // polled by the status bar, so it must not pay a full loadTopics() table-scan
@@ -356,6 +358,11 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
      * Read-only and cheap: `Bun.which` plus a handful of `existsSync` on known
      * install locations. No spawn, no install, nothing touched.
      */
+    // The load screen's process list and sleep countdown, of this machine or of a paired node.
+    if (method === "GET" && pathname === "/api/system/machine-readout") {
+      return machineReadout(_url);
+    }
+
     if (method === "GET" && pathname === "/api/system/agents") {
       return json({ agents: detectAgents() });
     }

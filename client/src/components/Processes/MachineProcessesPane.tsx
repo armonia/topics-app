@@ -203,7 +203,7 @@ function Spark({ points, warn }: { points: HistoryPoint[]; warn: boolean }) {
   );
 }
 
-function Gauge({ label, value, unit, share, warn = false, history = [], note = null, testId }: { label: string; value: string; unit?: string; share: number | null; warn?: boolean; history?: HistoryPoint[]; note?: string | null; testId?: string }) {
+export function Gauge({ label, value, unit, share, warn = false, history = [], note = null, testId }: { label: string; value: string; unit?: string; share: number | null; warn?: boolean; history?: HistoryPoint[]; note?: string | null; testId?: string }) {
   return (
     <div className="min-w-0 border-r border-app-border-subtle px-2.5 pb-2.5 pt-[9px] last:border-r-0 @max-3xl:[&:nth-child(3)]:border-r-0 @max-3xl:[&:nth-child(n+4)]:border-t" data-testid={testId} title={note ?? undefined}>
       <div className={`text-mini uppercase tracking-[0.04em] ${FAINT}`}>{label}</div>
@@ -293,7 +293,7 @@ function Net({ inBps, outBps }: { inBps: number | null; outBps: number | null })
   );
 }
 
-function ProcessRowView({ row: r, onStopped }: { row: ProcessRow; onStopped: () => void }) {
+export function ProcessRowView({ row: r, onStopped }: { row: ProcessRow; onStopped: () => void }) {
   const tr = useT();
   const Icon = KIND_ICON[r.kind];
   const [stopping, setStopping] = useState(false);

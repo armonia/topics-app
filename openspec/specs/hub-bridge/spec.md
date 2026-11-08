@@ -322,3 +322,17 @@ The board's bar SHALL carry a «Frenato» chip beside the cap's gear while Topic
 - **GIVEN** no hold and Claude's window below the line
 - **WHEN** the board opens
 - **THEN** there SHALL be no «Frenato» chip, no strip in Todo and no tag on the sidebar's Board row
+
+### Requirement: HUBBR-21 — The load screen of a machine that takes the load
+
+A machine that takes the load (the PC) SHALL be able to show, full screen on its own monitor, the page `/schermo/<machine id>` of the Topics that sends it work (`/schermo` for that machine itself), built from the app's own components: its state and four gauges as the hub reads them; while nothing runs, the minutes left before it sleeps and the time, from its sleep keeper's screen file, rounded up and never 0 while it is awake; who weighs, program by program, with the memory (rss, or the working set on Windows, named on screen) and the CPU in % of one core, a dash where a figure was not measured; the cards in progress on that machine only, with their project, title, model, how long they have run and who started them, and the jobs sent to it with who sent them and since when; the pace of each account with the dial of «Account e quote»; the last outcomes of the jobs. The process list and the screen file SHALL come from the machine itself (`GET /api/system/machine-readout`), asked through the node channel with the device token when the machine is a paired node, never over ssh. The page SHALL run no animation, read again at an interval, fit the screen without scrolling, and show the pairing code to a device that is not paired.
+
+#### Scenario: At rest
+- **GIVEN** a paired PC whose sleep keeper names a time to sleep and no card running on it
+- **WHEN** `/schermo/<PC id>` opens at 1920x1080
+- **THEN** the page SHALL say «Dorme fra N min» with the time and the threshold, list the PC's programs with MB and CPU (a dash where not measured), say nothing runs, show the pace dials, run no animation and not scroll
+
+#### Scenario: At work
+- **GIVEN** a card in progress on the PC, one on another machine, and a job sent by the Mac
+- **WHEN** the page reads again
+- **THEN** it SHALL say «Sta lavorando · 1 card · 1 lavoro mandato», list that card with its project and how long it has run, never the other machine's card, and the job with «da Mac» and its minutes

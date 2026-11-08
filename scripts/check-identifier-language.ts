@@ -86,6 +86,11 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // readout: what one machine reports about itself (its processes, its sleep
+  // countdown) for the load screen, `server/lib/machine-readout.ts`.
+  "readout",
+  // winfleet: the PC's own tooling folder (sleep keeper, screen file), read by `server/routes/machine-readout.ts`.
+  "winfleet",
   // automation: a scheduled job of the usage hub (cron, launchd, workflow), the
   // hub's own word for its jobs page; `client/src/lib/hubSystem.ts` reads its summary.
   "automation",
