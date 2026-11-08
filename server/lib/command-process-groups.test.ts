@@ -106,11 +106,26 @@ test("closing card A leaves the server, daemon and card B groups alive", async (
   expect(processGroupAlive(server!.pgid)).toBe(true);
 });
 
+/** The pid a command wrote, once it is all there: the file exists a moment before its content. */
+async function writtenPid(path: string): Promise<number> {
+  const deadline = Date.now() + 5_000;
+  const text = () => (existsSync(path) ? readFileSync(path, "utf8").trim() : "");
+  while (!text() && Date.now() < deadline) await Bun.sleep(10);
+  return Number(text());
+}
+
+// The child writes its pid only once the command is gone, reaped by the leader:
+// from then on the code is 0 wherever the close's TERM lands. The command used
+// to write it a moment before exiting, and a TERM in that moment ended it with
+// 143, the right code for a stopped command and a red for this test (6 runs in
+// 50 on a loaded Linux runner). Catching TERM in the command is no way out: the
+// child it forks keeps that handler until its exec and loses the TERM there.
 test("the group leader stays verifiable after its command leaves a child behind", async () => {
   const processId = crypto.randomUUID();
   const exitPath = join(instanceA, `${processId}.exit`);
   const childPath = join(instanceA, `${processId}.child`);
-  const argv = commandArgv(`/bin/sh -c 'sleep 90 >/dev/null 2>&1 & echo $! > ${childPath}; exit 0'`, exitPath, commandProcessGroupStopPath(processId));
+  const child = `while kill -0 "$PPID" 2>/dev/null; do sleep 0.01; done; echo "$$" > ${childPath}; exec sleep 90`;
+  const argv = commandArgv(`/bin/sh -c '${child}' >/dev/null 2>&1 & exit 0`, exitPath, commandProcessGroupStopPath(processId));
   if (!argv) throw new Error("POSIX command shell is unavailable");
   const proc = Bun.spawn(argv, { stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
   live.push({ proc, pgid: proc.pid });
@@ -126,11 +141,7 @@ test("the group leader stays verifiable after its command leaves a child behind"
 
   let childIdentity: ReturnType<typeof readProcessGroupIdentity> = null;
   try {
-    const childDeadline = Date.now() + 5_000;
-    while (!existsSync(childPath) && Date.now() < childDeadline) await Bun.sleep(50);
-    expect(existsSync(childPath)).toBe(true);
-    const childPid = Number(readFileSync(childPath, "utf8").trim());
-    childIdentity = readProcessGroupIdentity(childPid);
+    childIdentity = readProcessGroupIdentity(await writtenPid(childPath));
     expect(childIdentity?.pgid).toBe(identity.pgid);
     expect(processGroupAlive(identity.pgid)).toBe(true);
     expect(readProcessGroupIdentity(identity.pid)).toEqual(identity);
@@ -163,10 +174,7 @@ test("a TERM during the drain neither ends the leader early nor loses the exit c
   if (!identity) throw new Error(`could not capture group for ${proc.pid}`);
   live[live.length - 1] = { proc, pgid: identity.pgid };
 
-  const childDeadline = Date.now() + 5_000;
-  const childText = () => (existsSync(childPath) ? readFileSync(childPath, "utf8").trim() : "");
-  while (!childText() && Date.now() < childDeadline) await Bun.sleep(10);
-  const childPid = Number(childText());
+  const childPid = await writtenPid(childPath);
   expect(readProcessGroupIdentity(childPid)?.pgid).toBe(identity.pgid);
   try {
     const until = Date.now() + 2_500;
