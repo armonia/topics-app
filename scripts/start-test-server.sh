@@ -20,7 +20,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export BUN_PORT="${BUN_PORT:-13334}"
 # The scratch root, CANONICAL — `/private/tmp` on macOS, `/tmp` on Linux. Same
 # rule as `dataDirForPort` in tests/e2e/helpers/test-server.ts, and it has to
-# hold here too: `${OPENCLAW_DIR}/workspace` hangs off this directory, and the
+# hold here too: `${APP_DATA_DIR}/workspace` hangs off this directory, and the
 # server spells a project bound by absolute path with its realpath. A raw root
 # makes the same folder answer under two names (see that docstring). Only the
 # FALLBACK is computed here: an explicit DATA_DIR from the caller still wins.
@@ -51,16 +51,15 @@ export DATA_DIR="${DATA_DIR:-$DEFAULT_DATA_DIR}"
 # Phase 30 plan 30-05: dedicated TOPICS_HOME so the test server doesn't
 # compete with the dev server (which holds ~/.topics/daemon-process.lock).
 export TOPICS_HOME="${TOPICS_HOME:-$DATA_DIR/.topics-home}"
-# Isolate OpenClaw config/session reads from the real user (server/utils.ts
-# falls back to `${HOME}/.openclaw` when OPENCLAW_DIR is unset — SESSIONS_DIR
-# derives from OPENCLAW_DIR the same way, so overriding this one var covers
-# both). HOME itself is also overridden below for any other `~`-relative
+# Isolate the app data root (workspace, media, sessions) from the real user:
+# server/lib/data-dir.ts falls back to a folder in the real home when
+# APP_DATA_DIR is unset. HOME itself is also overridden below for any other `~`-relative
 # reads (e.g. utils.ts's ALLOWED_FILE_BASES, media dirs) — this is safe for
 # PTY-spawned `claude`/`codex` terminal sessions specifically, since
 # server/routes/terminal.ts pins THEIR env to `realHome()` (the real OS
 # account home via getpwuid), not `process.env.HOME`, precisely so a sandboxed
 # HOME here never leaks into those spawns (see server/utils/path-env.ts).
-export OPENCLAW_DIR="${OPENCLAW_DIR:-$DATA_DIR/.openclaw}"
+export APP_DATA_DIR="${APP_DATA_DIR:-$DATA_DIR/.app-data}"
 export HOME="$DATA_DIR/.home"
 # XDG INSIDE THE ISOLATED HOME (same values testServerEnv() sets, for whoever
 # runs this script by hand): in XDG precedence the variable wins over HOME,
@@ -254,28 +253,8 @@ export TOPICS_E2E="${TOPICS_E2E:-1}"
 # dall'ambiente (testServerEnv); vuoto = comportamento storico (public/ del repo),
 # che è quello giusto per chi lancia questo script a mano.
 export TOPICS_PUBLIC_DIR="${TOPICS_PUBLIC_DIR:-}"
-# NIENTE GATEWAY FINTO, per la stessa ragione spiegata in
-# tests/e2e/helpers/test-server.ts: dichiarare URL e token di un gateway che non
-# ascolta fa eleggere `openclaw` a provider AI, e allora un messaggio inviato
-# apre un turno che non finisce mai — il composer resta su `queue` e chi misura
-# l'invio aspetta per sempre. Si passano solo se arrivano dall'ambiente, cosi'
-# chi vuole provare l'integrazione vera li esporta e ottiene il comportamento
-# di prima.
-# Il TOKEN si dichiara sempre, l'URL solo se qualcuno ascolta davvero — e la
-# differenza non e' un dettaglio. L'URL finto eleggeva `openclaw` a provider AI
-# del banco (serve la coppia URL+token) verso una porta dove non risponde
-# nessuno, e da li' nascevano i turni che non finivano mai. Il token invece fa
-# un mestiere diverso che ha solo lo stesso nome: e' la credenziale legacy che
-# `agentAuthOk()` accetta sulle route del terminale, e api-fixtures.ts la manda
-# come `x-gateway-token` a ogni chiamata. Toglierlo — come avevo fatto al primo
-# tentativo — faceva rispondere 401 al banco stesso: TERM-02 leggeva un buffer
-# vuoto e cadeva con il prodotto sanissimo. Misurato: rosso 2 volte su 2 senza,
-# verde con.
-export GATEWAY_TOKEN="${GATEWAY_TOKEN:-test-token}"
-if [ -n "${GATEWAY_URL:-}" ]; then export GATEWAY_URL; fi
-
-# Ensure data + topics-home + isolated OpenClaw config/home directories exist
-mkdir -p "$DATA_DIR" "$TOPICS_HOME" "$OPENCLAW_DIR" "$HOME"
+# Ensure data + topics-home + isolated app data/home directories exist
+mkdir -p "$DATA_DIR" "$TOPICS_HOME" "$APP_DATA_DIR" "$HOME"
 
 cd "$REPO_ROOT"
 # The argument is a name tag, and server.ts ignores it: after `exec` this

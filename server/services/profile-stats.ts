@@ -4,7 +4,7 @@
  * ── THE RULE THAT DECIDES EVERY QUERY IN THIS FILE ──────────────────────────
  * We read ONLY from tables that somebody writes. It sounds obvious, and instead
  * it is the fault the dashboard already had once: half its numbers came from
- * `usage_records` (a single INSERT in `server/db/seed.ts`, which nobody calls),
+ * `usage_records` (at the time nobody wrote it; `server/usage/side-calls.ts` does since then),
  * `agent_sessions` (zero INSERTs in the whole server) and `heartbeats`
  * (unreachable route). They were structural zeros, and a zero is the worst lie
  * a panel can tell - "0 sessions" reads as "you have not worked", not "I do not
@@ -257,9 +257,9 @@ export function resetProfileStatsCache(): void {
 /**
  * The projects the fallback may name in public: not a system folder. A project
  * whose name starts with '.', or whose path runs through a dot folder
- * (`~/.openclaw`, `~/.claude/jarvis/home`), is an agent's home, not a project
+ * (the old data root, `~/.claude/jarvis/home`), is an agent's home, not a project
  * someone works on, and its folder name ended up verbatim in the Discord
- * presence («su .openclaw»). With no other candidate the fallback stays null
+ * presence («su .<agent home>»). With no other candidate the fallback stays null
  * and the line degrades to quiet or tasks.
  */
 const PUBLIC_PROJECT_SQL =
@@ -323,7 +323,7 @@ export function computePresenceCounts(
         // carry the UUID (`scripts/migrate-uuid-board-ids.ts`).
         (p) => projectIdForPath(p.path) === boardId || p.id === boardId,
       );
-      // A board on a system folder (the `.openclaw` board has dispatched
+      // A board on a system folder (the old data root's board has dispatched
       // tasks) stays unnamed, and the fallback is skipped too: naming the most
       // recent topic's project while the board works elsewhere would be the
       // wrong-project lie described above.

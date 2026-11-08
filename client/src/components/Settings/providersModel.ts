@@ -19,7 +19,7 @@ import { DIRECT_PROVIDER_PREFIX } from '../../../../shared/direct-endpoints';
 import type { Translate } from '../../../../shared/queue-reason-text';
 
 /** The fixed order of the list (§5.2). Unknown names come after, never between. */
-export const PROVIDER_ORDER = ['claude-code', 'topics', 'claude', 'codex', 'muse', 'openai', 'gemini', 'jcode', 'openclaw', 'goose'] as const;
+export const PROVIDER_ORDER = ['claude-code', 'topics', 'claude', 'codex', 'muse', 'openai', 'gemini', 'jcode', 'goose'] as const;
 
 /** What kind of account a card is: it decides the first words of the fact. */
 export type CardKind = 'subscription' | 'key' | 'program' | 'agent' | 'endpoint' | 'engine';

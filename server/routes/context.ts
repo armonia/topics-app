@@ -32,7 +32,7 @@ interface ContextAnalysisResult {
 const contextAnalysisCache = new Map<string, { data: ContextAnalysisResult; timestamp: number }>();
 
 export function createContextRouter(ctx: AppContext): RouteHandler {
-  const { GATEWAY_URL, json, loadTopics, loadLocalMessages } = ctx;
+  const { json, loadTopics, loadLocalMessages } = ctx;
 
   return async function contextRouter(_req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
@@ -100,13 +100,11 @@ export function createContextRouter(ctx: AppContext): RouteHandler {
       if (!sessionKey) return json({ error: "sessionKey required" }, 400);
       // Il tetto e' la finestra del MODELLO del topic. Cablare 200000 dava un
       // denominatore che su un topic a 1M non e' mai stato vero, e la stessa
-      // stima appariva al 90% invece che al 18%. Se il gateway ne dichiara uno
-      // suo (`contextLimit`/`maxTokens`) vince quello: e' la sessione che sta
-      // servendo lui.
+      // stima appariva al 90% invece che al 18%.
       const modelLimit = contextWindowFor(ctx.getTopicBySessionKey?.(sessionKey)?.model).tokens;
 
-      // The coordinator is Codex-only and has no OpenClaw scope.  Its context
-      // estimate is local even if its stored Topic has been manually damaged.
+      // The coordinator is Codex-only.  Its context estimate stays on the
+      // messages alone even if its stored Topic has been manually damaged.
       // Do not read its attached files either: a raw registry role never gets
       // project/file authority through this diagnostic endpoint.
       if (isGlobalOrchestratorSession(ctx.db, sessionKey)) {
@@ -115,52 +113,34 @@ export function createContextRouter(ctx: AppContext): RouteHandler {
         return json({ total: Math.round(estimatedTokens), limit: modelLimit, breakdown: [{ label: "Messages", tokens: Math.round(estimatedTokens), color: "#22c55e" }] });
       }
 
+      // Stima locale: nessun motore espone il proprio conteggio qui.
       try {
-        const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.GATEWAY_TOKEN}` }, body: JSON.stringify({ tool: "session_status", args: { sessionKey } }) });
-
-        if (!resp.ok) {
-          const localMsgs = loadLocalMessages(sessionKey);
-          const estimatedTokens = localMsgs.reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0);
-          return json({ total: Math.round(estimatedTokens), limit: modelLimit, breakdown: [{ label: "Messages", tokens: Math.round(estimatedTokens), color: "#22c55e" }] });
-        }
-
-        const result = await resp.json() as any;
-        const status = result?.result || {};
-        const breakdown: any[] = [];
-
-        if (status.systemTokens || status.instructionTokens) breakdown.push({ label: "System/Instructions", tokens: status.systemTokens || status.instructionTokens || 0, color: "#3b82f6", description: "System prompt, SOUL.md, AGENTS.md and workspace files" });
-        if (status.contextTokens || status.fileTokens) breakdown.push({ label: "Context files", tokens: status.contextTokens || status.fileTokens || 0, color: "#ef4444", description: "MEMORY.md, injected files and project context" });
-        if (status.messageTokens || status.conversationTokens) breakdown.push({ label: "Conversation", tokens: status.messageTokens || status.conversationTokens || 0, color: "#22c55e", description: "User messages and assistant responses" });
-        if (status.toolTokens) breakdown.push({ label: "Tool calls", tokens: status.toolTokens || 0, color: "#8b5cf6", description: "Tool calls and results" });
-
-        if (breakdown.length === 0) {
-          const localMsgs = loadLocalMessages(sessionKey);
-          const topicData = loadTopics();
-          const topic = Object.values(topicData.topics).find(t => t.sessionKey === sessionKey);
-          const systemPromptTokens = topic?.systemPrompt ? Math.round(topic.systemPrompt.length / 4) : 0;
-          let contextFilesTokens = 0;
-          const contextFileDetails: string[] = [];
-          if (topic?.contextFiles && topic.contextFiles.length > 0) {
-            for (const filepath of topic.contextFiles) {
-              try { const content = readFileSync(filepath, 'utf-8'); const tokens = Math.round(content.length / 4); contextFilesTokens += tokens; contextFileDetails.push(`${filepath.split('/').pop()}: ~${tokens} tokens`); } catch {}
-            }
+        const breakdown: Array<{ label: string; tokens: number; color: string; description?: string }> = [];
+        const localMsgs = loadLocalMessages(sessionKey);
+        const topicData = loadTopics();
+        const topic = Object.values(topicData.topics).find(t => t.sessionKey === sessionKey);
+        const systemPromptTokens = topic?.systemPrompt ? Math.round(topic.systemPrompt.length / 4) : 0;
+        let contextFilesTokens = 0;
+        const contextFileDetails: string[] = [];
+        if (topic?.contextFiles && topic.contextFiles.length > 0) {
+          for (const filepath of topic.contextFiles) {
+            try { const content = readFileSync(filepath, 'utf-8'); const tokens = Math.round(content.length / 4); contextFilesTokens += tokens; contextFileDetails.push(`${filepath.split('/').pop()}: ~${tokens} tokens`); } catch {}
           }
-          const baseSystemTokens = 15000;
-          const userTokens = localMsgs.filter(m => m.role === "user").reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0);
-          const assistantTokens = localMsgs.filter(m => m.role === "assistant").reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0);
-          const toolTokens = localMsgs.reduce((sum, m) => sum + ((m.toolCalls?.length || 0) * 500), 0);
-
-          breakdown.push({ label: "Base system", tokens: baseSystemTokens, color: "#3b82f6", description: "SOUL.md, AGENTS.md, TOOLS.md and workspace files" });
-          if (systemPromptTokens > 0) breakdown.push({ label: "System prompt", tokens: systemPromptTokens, color: "#06b6d4", description: "Custom topic system prompt" });
-          if (contextFilesTokens > 0) breakdown.push({ label: "Context files", tokens: contextFilesTokens, color: "#ef4444", description: contextFileDetails.join(", ") });
-          if (userTokens > 0) breakdown.push({ label: "User messages", tokens: Math.round(userTokens), color: "#f59e0b", description: `${localMsgs.filter(m => m.role === "user").length} messages` });
-          if (assistantTokens > 0) breakdown.push({ label: "AI responses", tokens: Math.round(assistantTokens), color: "#22c55e", description: `${localMsgs.filter(m => m.role === "assistant").length} responses` });
-          if (toolTokens > 0) breakdown.push({ label: "Tool calls", tokens: Math.round(toolTokens), color: "#8b5cf6", description: `${localMsgs.reduce((sum, m) => sum + (m.toolCalls?.length || 0), 0)} calls` });
         }
+        const baseSystemTokens = 15000;
+        const userTokens = localMsgs.filter(m => m.role === "user").reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0);
+        const assistantTokens = localMsgs.filter(m => m.role === "assistant").reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0);
+        const toolTokens = localMsgs.reduce((sum, m) => sum + ((m.toolCalls?.length || 0) * 500), 0);
 
-        const total = status.totalTokens || status.inputTokens || breakdown.reduce((s: number, b: any) => s + b.tokens, 0);
-        const limit = status.contextLimit || status.maxTokens || modelLimit;
-        return json({ total, limit, breakdown });
+        breakdown.push({ label: "Base system", tokens: baseSystemTokens, color: "#3b82f6", description: "Engine system prompt and tool definitions" });
+        if (systemPromptTokens > 0) breakdown.push({ label: "System prompt", tokens: systemPromptTokens, color: "#06b6d4", description: "Custom topic system prompt" });
+        if (contextFilesTokens > 0) breakdown.push({ label: "Context files", tokens: contextFilesTokens, color: "#ef4444", description: contextFileDetails.join(", ") });
+        if (userTokens > 0) breakdown.push({ label: "User messages", tokens: Math.round(userTokens), color: "#f59e0b", description: `${localMsgs.filter(m => m.role === "user").length} messages` });
+        if (assistantTokens > 0) breakdown.push({ label: "AI responses", tokens: Math.round(assistantTokens), color: "#22c55e", description: `${localMsgs.filter(m => m.role === "assistant").length} responses` });
+        if (toolTokens > 0) breakdown.push({ label: "Tool calls", tokens: Math.round(toolTokens), color: "#8b5cf6", description: `${localMsgs.reduce((sum, m) => sum + (m.toolCalls?.length || 0), 0)} calls` });
+
+        const total = breakdown.reduce((sum, b) => sum + b.tokens, 0);
+        return json({ total, limit: modelLimit, breakdown });
       } catch (err) {
         console.error("Context API error:", err);
         return json({ total: 0, limit: modelLimit, breakdown: [] });
@@ -169,13 +149,11 @@ export function createContextRouter(ctx: AppContext): RouteHandler {
 
     // GET /api/context/analyze?topicId=xxx — tutte le fonti di contesto di una topic.
     //
-    // Stava in `openclaw-context.ts`, e quel router e' montato SOLO quando il
-    // provider di default e' `openclaw` (`server.ts`). Su claude-code — cioe'
-    // sempre, di fatto — la route rispondeva 404: il Context Inspector mostrava
-    // un errore, `budgetPercent` restava 0 e l'anello della chat cadeva sul suo
-    // fallback. L'handler non ha mai avuto nulla di specifico per openclaw:
-    // risolve il provider DELLA TOPIC e delega ad `assembleTopicContext`. Il
-    // gate era sul router sbagliato.
+    // Stava in un router montato SOLO col provider del vecchio gateway: su
+    // claude-code — cioe' sempre, di fatto — la route rispondeva 404, il
+    // Context Inspector mostrava un errore e l'anello della chat cadeva sul suo
+    // fallback. L'handler risolve il provider DELLA TOPIC e delega ad
+    // `assembleTopicContext`.
     //
     // BACK-COMPAT WRAPPER (since change `topic-context-canonical`).
     // Delegates to the canonical `assembleTopicContext()` so the inspector and

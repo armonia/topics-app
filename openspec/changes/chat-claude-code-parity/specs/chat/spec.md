@@ -73,7 +73,7 @@ The system SHALL detect Claude Code context compaction from the CLI's `system`/`
 
 ### Requirement: CHAT-SLASH-01 — Slash-command parity for claude-code chats
 
-The system SHALL handle the core Claude Code slash commands on claude-code topic chats. `/model` and `/reasoning`/`/effort` SHALL apply to claude-code (not only openclaw) by driving the existing per-topic respawn path. `/clear` SHALL reset the CLI session (new session id), not merely wipe the local message table. `/context`, `/cost`, and `/status` SHALL report from data the app already tracks. A single source-of-truth command table SHALL drive the composer allowlist, the `/help` text, and the submit dispatcher. Any input not matching a handled command SHALL be sent to the model verbatim.
+The system SHALL handle the core Claude Code slash commands on claude-code topic chats. `/model` and `/reasoning`/`/effort` SHALL apply to claude-code (not only the gateway provider) by driving the existing per-topic respawn path. `/clear` SHALL reset the CLI session (new session id), not merely wipe the local message table. `/context`, `/cost`, and `/status` SHALL report from data the app already tracks. A single source-of-truth command table SHALL drive the composer allowlist, the `/help` text, and the submit dispatcher. Any input not matching a handled command SHALL be sent to the model verbatim.
 
 #### Scenario: /model switches the model on a claude-code topic
 - **GIVEN** a claude-code topic

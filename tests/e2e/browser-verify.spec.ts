@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { AddressInfo } from "node:net";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
-import { E2E_BASE } from "./helpers/test-server";
+import { E2E_BASE, daemonAuthHeaders } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 
 hermetic(test);
@@ -36,7 +36,7 @@ test("browser_verify reloads a file fixture and reports the new CSS value", asyn
   const fixtureUrl = `http://127.0.0.1:${port}/fixture.html`;
   const gateway = {
     "Content-Type": "application/json",
-    "x-gateway-token": process.env.GATEWAY_TOKEN ?? "test-token",
+    ...daemonAuthHeaders(),
   };
   const topic = await createTopic(request, `E2E-BrowserVerify-${Date.now()}`);
   try {

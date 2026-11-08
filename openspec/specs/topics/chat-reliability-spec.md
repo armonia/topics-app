@@ -1,13 +1,12 @@
 ## Purpose
 
-Fix critical reliability issues in the Topics → OpenClaw gateway chat flow that cause silent failures, empty responses, and stuck sessions.
+Fix critical reliability issues in the Topics chat flow that cause silent failures, empty responses, and stuck sessions. The first requirements were written for the external gateway Topics relayed through until 2026-11-03; the rules hold for every provider that streams over HTTP SSE.
 
 ## Background
 
 Common preconditions shared across scenarios:
 
 - Topics app running at https://localhost:3333 with gateway connected
-- OpenClaw gateway running at ws://127.0.0.1:18789
 - HTTP SSE path is the active chat path (`useWS = false` in topics.ts:1309)
 - Gateway may return rate limits (429), overloaded errors, or empty streams
 
@@ -141,18 +140,6 @@ malformed, nor a turn the user stopped.
 - **AND** the silence watchdog counts the wait as life
 - **AND** the notice clears when data flows again (`stream:resumed`)
 
-### Requirement: CHAT-REL-04 — WS handler isolation
-
-The system SHALL not route stale WS events to the current HTTP stream handler.
-
-#### Scenario: Old error event arrives for current session
-- **GIVEN** an HTTP SSE stream is active with a registered WS handler
-- **WHEN** a WS event with `state=error` arrives from a previous run
-- **THEN** the event is ignored (not routed to current handler)
-- **AND** no error is shown for the current request
-
-**Implementation**: Register HTTP-path WS handlers with a unique sentinel `runId` (e.g., `http:{uuid}`) so that events from gateway runs (which have their own runIds) don't match.
-
 ### Requirement: CHAT-REL-05 — Active stream cleanup
 
 The system SHALL periodically clean up stale active streams, not only on access.
@@ -201,7 +188,7 @@ the old filter omitted it.
 ## Out of Scope
 
 - Changing the primary model from Opus (rate limit is an Anthropic API issue, not a Topics bug)
-- The `LiveSessionModelSwitchError` bug in OpenClaw gateway (upstream issue)
+- The `LiveSessionModelSwitchError` bug in the old external gateway (upstream issue)
 - WS-based chat path (currently disabled, separate spec if re-enabled)
 
 ## Files to Modify

@@ -100,7 +100,6 @@ export interface TopicsToolContext {
   /** L'origine del server che ci ospita, es. `https://127.0.0.1:3333`. */
   baseUrl: string;
   sessionKey: string;
-  gatewayToken?: string;
   /** Whose daemon-state.json token goes out as X-Daemon-Token. */
   topicsHome?: string;
   profile?: string;
@@ -135,7 +134,6 @@ export async function executeTopicsTool(
   const args: ParsedArgs = {
     baseUrl: ctx.baseUrl.replace(/\/$/, ""),
     sessionKey: ctx.sessionKey,
-    gatewayToken: ctx.gatewayToken,
     topicsHome: ctx.topicsHome,
     profile: ctx.profile,
     ...(signal ? { turnSignal: signal } : {}),

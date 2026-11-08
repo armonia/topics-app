@@ -1084,9 +1084,6 @@
       "loc",
       "onUnarchive"
     ],
-    "client/src/hooks/usePerfMetrics.ts": [
-      "TAURI_GPU"
-    ],
     "client/src/hooks/usePresenceSummary.ts": [
       "INTERVALLO_MS",
       "leggi",
@@ -2661,10 +2658,6 @@
     "server/file-watcher.ts": [
       "unwatchProjectFiles"
     ],
-    "server/gateway-ws.ts": [
-      "idempotencyKey",
-      "unregisterSessionHandler"
-    ],
     "server/git-watcher.ts": [
       "unwatchGitDir"
     ],
@@ -3749,10 +3742,6 @@
       "cancelled",
       "isAcpStopReason"
     ],
-    "server/providers/text-delta.test.ts": [
-      "eventi",
-      "pezzi"
-    ],
     "server/providers/types.ts": [
       "AcpProviderConfig"
     ],
@@ -4230,9 +4219,6 @@
     "server/services/checks-gate.ts": [
       "Corsa",
       "corsa"
-    ],
-    "server/services/claude-tasks-sync.ts": [
-      "projDir"
     ],
     "server/services/daemon-state.ts": [
       "obj",
@@ -6196,9 +6182,6 @@
     ],
     "tests/e2e/helpers/node-websocket.ts": [
       "opzioni"
-    ],
-    "tests/e2e/helpers/openclaw.ts": [
-      "provs"
     ],
     "tests/e2e/helpers/ospite.ts": [
       "approvato",

@@ -13,7 +13,7 @@
  * two files.
  *
  * WHAT IT DOES NOT DO. It does not restate the environment: BUN_PORT, DATA_DIR,
- * TOPICS_HOME, OPENCLAW_DIR, the bridge endpoints, TOPICS_E2E and the rest come
+ * TOPICS_HOME, APP_DATA_DIR, the bridge endpoints, TOPICS_E2E and the rest come
  * from `testServerEnv()` in tests/e2e/helpers/test-server.ts, which stays the
  * single list for both platforms. This file only fills the gaps for someone who
  * runs it by hand, creates the directories, plants the `claude` stub and execs
@@ -45,7 +45,7 @@ const env = {
   BUN_PORT: port,
   DATA_DIR: dataDir,
   TOPICS_HOME: process.env.TOPICS_HOME || join(dataDir, ".topics-home"),
-  OPENCLAW_DIR: process.env.OPENCLAW_DIR || join(dataDir, ".openclaw"),
+  APP_DATA_DIR: process.env.APP_DATA_DIR || join(dataDir, ".app-data"),
   // Both names: `os.homedir()` reads USERPROFILE on Windows, while a good deal
   // of this codebase (and every dependency written for POSIX first) reads HOME.
   // Setting only one of them isolates half the reads, which is the worst of the
@@ -57,10 +57,9 @@ const env = {
     process.env.TOPICS_AI_BRIDGE_SOCKET || `\\\\.\\pipe\\topics-ai-bridge-e2e-${port}`,
   TOPICS_E2E: process.env.TOPICS_E2E || "1",
   TOPICS_PUBLIC_DIR: process.env.TOPICS_PUBLIC_DIR || "",
-  GATEWAY_TOKEN: process.env.GATEWAY_TOKEN || "test-token",
 };
 
-for (const dir of [dataDir, env.TOPICS_HOME, env.OPENCLAW_DIR, home]) {
+for (const dir of [dataDir, env.TOPICS_HOME, env.APP_DATA_DIR, home]) {
   mkdirSync(dir, { recursive: true });
 }
 

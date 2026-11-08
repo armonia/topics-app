@@ -364,7 +364,7 @@ fails, and SHALL let a session that owns no pane list and drive another topic's 
 - **WHEN** the agent posts a description to `agent/point`
 - **THEN** the response is either a structured `error` naming the cause, or a success carrying `clicked: true` and numeric point coordinates
 
-#### Scenario: The OpenClaw browser-isolation bridge is gone
+#### Scenario: The old gateway's browser-isolation bridge is gone
 - **WHEN** `server/routes/topics.ts` is read
 - **THEN** it contains no occurrence of `browserTargetIdCache`, `BROWSER ISOLATION`, `isolationInstruction` or `BrowserIsolation`
 

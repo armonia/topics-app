@@ -1,126 +1,140 @@
 import type { AppContext, RouteHandler } from "../types";
 import { runBounded, SPAWN_TIMEOUT } from "../lib/bounded-spawn";
-import { withoutGatewayToken } from "../lib/openclaw-gateway-token";
 import { augmentPath } from "../utils/path-env";
 
-export type GatewayCallResult =
-  | { ok: true; payload: any }
+export type CronCliResult =
+  | { ok: true; stdout: string }
   | { ok: false; status: number; message: string };
 
-export type GatewayCall = (method: string, params: Record<string, unknown>) => Promise<GatewayCallResult>;
+/** One `jarvis-channels cron <args>` call: the router gets a stub in the tests. */
+export type CronCli = (args: string[]) => Promise<CronCliResult>;
 
 /**
- * The gateway WebSocket URL the CLI must resolve to, from Topics' GATEWAY_URL.
- * `--expect-url` compares strings, so `localhost` is spelled the way the CLI
- * spells its own loopback default.
- */
-export function gatewayWsUrl(gatewayUrl: string): string | null {
-  try {
-    const u = new URL(gatewayUrl);
-    u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
-    if (u.hostname === "localhost") u.hostname = "127.0.0.1";
-    return `${u.protocol}//${u.host}`;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * One gateway RPC through the OpenClaw CLI (`openclaw gateway call`).
+ * One `jarvis-channels cron …` call, the scheduler of Jarvis.
  *
- * Not `POST /tools/invoke`: OpenClaw denies the scheduler tool on that HTTP
- * surface by default (`DEFAULT_GATEWAY_HTTP_TOOL_DENY` lists `automations`, and
- * `cron` is its alias), so every call answered 404 "Tool not available". Not
- * Topics' own WebSocket client either: it exists only with the OpenClaw
- * provider and speaks a protocol version the gateway may have moved past. The
- * CLI ships with the gateway and resolves the gateway token itself (Keychain
- * SecretRef included), so no token passes through Topics or into argv.
- * `--expect-url` makes it refuse when its own config points at a different
- * gateway than Topics' GATEWAY_URL, instead of acting on the wrong one.
- *
- * Failure shape, measured on 2026.10.5: exit 1 and `{ok:false, error:{code?,
- * message}}` on stdout. `INVALID_REQUEST` (unknown job id, bad patch) maps to
- * 400; anything else (unreachable gateway, URL mismatch) is 502.
+ * Jarvis's scheduled jobs live in `jarvis-channels` (since 03/11): its
+ * command line is the only door — no gateway and no token pass through
+ * Topics. Measured error shape: exit 1, one line on stderr
+ * (Italian for not-found/ambiguous, matched in code), and for `run --json` also
+ * `{ok:false, reason:"not-found"}` on stdout. A job that is not there is a 400;
+ * everything else (missing binary, timeout, odd output) is a 502.
  */
-export async function openclawGatewayCall(
-  method: string,
-  params: Record<string, unknown>,
-  opts: { bin?: string | null; expectUrl?: string | null } = {},
-): Promise<GatewayCallResult> {
-  const bin = opts.bin === undefined ? Bun.which("openclaw", { PATH: augmentPath() }) : opts.bin;
-  if (!bin) return { ok: false, status: 502, message: "openclaw CLI not found on PATH" };
-  const argv = [bin, "gateway", "call", method, "--params", JSON.stringify(params), "--json"];
-  if (opts.expectUrl) argv.push("--expect-url", opts.expectUrl);
-  const r = await runBounded(argv, {
-    env: { ...withoutGatewayToken(), PATH: augmentPath() },
+export async function jarvisChannelsCron(args: string[], opts: { bin?: string | null } = {}): Promise<CronCliResult> {
+  const bin = opts.bin === undefined ? Bun.which("jarvis-channels", { PATH: augmentPath() }) : opts.bin;
+  if (!bin) return { ok: false, status: 502, message: "jarvis-channels not found on PATH" };
+  const r = await runBounded([bin, "cron", ...args], {
+    env: { ...process.env, PATH: augmentPath() },
+    stdin: "ignore",
     stderr: "pipe",
     timeoutMs: SPAWN_TIMEOUT.query,
   });
-  if (r.spawnFailed) return { ok: false, status: 502, message: `openclaw did not start: ${r.spawnError ?? "unknown error"}` };
-  if (r.timedOut) return { ok: false, status: 502, message: `openclaw gateway call ${method} timed out` };
-  let out: any;
-  try { out = JSON.parse(r.stdout); } catch { out = undefined; }
-  if (r.exitCode === 0 && out !== undefined) return { ok: true, payload: out };
-  const error = out?.error;
-  if (typeof error?.message === "string") {
-    // The CLI's own refusals (`cli_error`) include a URL mismatch, whose
-    // sentence ("Gateway destination changed") does not say which gateway.
-    const where = opts.expectUrl && error.type === "cli_error" ? ` (Topics expects the gateway at ${opts.expectUrl})` : "";
-    return { ok: false, status: error.code === "INVALID_REQUEST" ? 400 : 502, message: error.message + where };
-  }
-  const tail = (r.stderr || r.stdout).trim().split("\n").pop() || `exit ${r.exitCode}`;
-  return { ok: false, status: 502, message: `openclaw gateway call ${method} failed: ${tail}` };
+  if (r.spawnFailed) return { ok: false, status: 502, message: `jarvis-channels did not start: ${r.spawnError ?? "unknown error"}` };
+  if (r.timedOut) return { ok: false, status: 502, message: `jarvis-channels cron ${args[0] ?? ""} timed out` };
+  if (r.exitCode === 0) return { ok: true, stdout: r.stdout };
+  const tail = (r.stderr.trim() || r.stdout.trim()).split("\n").pop() || `exit ${r.exitCode}`;
+  const missing = /non trovato|ambiguo|not-found/.test(r.stderr + r.stdout);
+  return { ok: false, status: missing ? 400 : 502, message: tail };
 }
 
-// `compact` is the view the panel reads: ISO `nextRunAt`/`lastRunAt` (the full
-// view only has `state.nextRunAtMs`) and a quarter of the bytes.
-const LIST_PARAMS = { includeDisabled: true, compact: true };
+/** A job as the panel reads it: the shape `readCronJobs` takes (ISO times). */
+export interface CronJobView {
+  id: string;
+  name: string;
+  enabled: boolean;
+  schedule: Record<string, unknown> | null;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  lastStatus: string | null;
+}
 
-export function createCronRouter(ctx: AppContext, call?: GatewayCall): RouteHandler {
+function isoOf(ms: unknown): string | null {
+  return typeof ms === "number" && Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+}
+
+/**
+ * The jobs of `cron list --json --all` in the panel's shape, or null when the
+ * answer is not a list. jarvis-channels reports times in milliseconds inside
+ * `state` (`nextRunAtMs`, `lastRunAtMs`): il pannello li legge in ISO in cima.
+ */
+export function readJobList(stdout: string): CronJobView[] | null {
+  let d: any;
+  try { d = JSON.parse(stdout); } catch { return null; }
+  if (!Array.isArray(d?.jobs)) return null;
+  return d.jobs.flatMap((j: any): CronJobView[] => {
+    if (!j || typeof j.id !== "string" || !j.id) return [];
+    const state = j.state ?? {};
+    return [{
+      id: j.id,
+      name: typeof j.name === "string" && j.name ? j.name : j.id,
+      enabled: j.enabled !== false,
+      schedule: j.schedule && typeof j.schedule === "object" ? j.schedule : null,
+      nextRunAt: isoOf(state.nextRunAtMs),
+      lastRunAt: isoOf(state.lastRunAtMs),
+      lastStatus: typeof state.lastStatus === "string" ? state.lastStatus : null,
+    }];
+  });
+}
+
+// `--all`: without it, `--json` leaves out disabled jobs, and the panel re-enables them from here.
+const LIST_ARGS = ["list", "--json", "--all"];
+
+export function createCronRouter(ctx: AppContext, cli: CronCli = (args) => jarvisChannelsCron(args)): RouteHandler {
   const { readJSON, json, matchRoute, broadcastToAll } = ctx;
-  const gateway: GatewayCall = call ?? ((method, params) => openclawGatewayCall(method, params, { expectUrl: gatewayWsUrl(ctx.GATEWAY_URL) }));
 
-  // Re-fetch the cron job list and broadcast it to all clients (best-effort).
+  async function listJobs(): Promise<{ ok: true; jobs: CronJobView[] } | { ok: false; status: number; message: string }> {
+    const r = await cli(LIST_ARGS);
+    if (!r.ok) return r;
+    const jobs = readJobList(r.stdout);
+    return jobs ? { ok: true, jobs } : { ok: false, status: 502, message: "jarvis-channels cron list: the answer is not a job list" };
+  }
+
+  // Re-fetch the job list and broadcast it to all clients (best-effort).
   async function broadcastCronList() {
-    const r = await gateway("cron.list", LIST_PARAMS);
-    if (r.ok) broadcastToAll({ type: "cron:updated", jobs: r.payload?.jobs ?? [] });
+    const r = await listJobs();
+    if (r.ok) broadcastToAll({ type: "cron:updated", jobs: r.jobs });
   }
 
   return async function cronRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
 
     if (method === "GET" && pathname === "/api/cron/jobs") {
-      const r = await gateway("cron.list", LIST_PARAMS);
+      const r = await listJobs();
       // 502, not 200 with an empty list: the panel reads `res.ok`, and a
-      // gateway that is down must not look like every job was deleted.
-      if (!r.ok) return json({ jobs: [], warning: `Gateway error: ${r.message}` }, 502);
-      return json({ jobs: r.payload?.jobs ?? [] });
+      // scheduler that does not answer must not look like every job was deleted.
+      if (!r.ok) return json({ jobs: [], warning: `Scheduler error: ${r.message}` }, 502);
+      return json({ jobs: r.jobs });
     }
 
-    const cronJobMatch = matchRoute(pathname, "/api/cron/jobs/:jobId");
+    // `--id`, not positional: an id starting with «-» never becomes an option.
+    // An empty id never reaches the CLI: there «» is the prefix of every job.
+    const jobMatch = matchRoute(pathname, "/api/cron/jobs/:jobId");
+    const cronJobMatch = jobMatch?.jobId ? jobMatch : null;
     if (cronJobMatch && method === "PATCH") {
       const patch = await readJSON(req);
-      const r = await gateway("cron.update", { id: cronJobMatch.jobId, patch });
-      if (!r.ok) return json({ error: `Gateway error: ${r.message}` }, r.status);
+      // The panel only toggles enabled/disabled; nothing else has a command here.
+      if (typeof patch?.enabled !== "boolean") return json({ error: "Only `enabled` can be changed" }, 400);
+      const r = await cli([patch.enabled ? "enable" : "disable", "--id", cronJobMatch.jobId]);
+      if (!r.ok) return json({ error: `Scheduler error: ${r.message}` }, r.status);
       await broadcastCronList();
       return json({ ok: true });
     }
 
-    const cronRunMatch = matchRoute(pathname, "/api/cron/jobs/:jobId/run");
+    const runMatch = matchRoute(pathname, "/api/cron/jobs/:jobId/run");
+    const cronRunMatch = runMatch?.jobId ? runMatch : null;
     if (cronRunMatch && method === "POST") {
-      // "force", as `openclaw cron run`: the button means run now, due or not.
-      const r = await gateway("cron.run", { id: cronRunMatch.jobId, mode: "force" });
-      if (!r.ok) return json({ error: `Gateway error: ${r.message}` }, r.status);
-      // The gateway answers success with `ran: false` when it did not start the
-      // run (already running, scheduler stopped): a 200 here would stamp the row
-      // as run.
-      if (r.payload?.ran === false) return json({ error: `Not run: ${r.payload.reason ?? "the gateway gave no reason"}` }, 409);
+      // `cron run` starts at once, due or not, and returns as soon as started: the run is recorded in the log.
+      const r = await cli(["run", "--id", cronRunMatch.jobId, "--json"]);
+      if (!r.ok) return json({ error: `Scheduler error: ${r.message}` }, r.status);
+      let out: any;
+      try { out = JSON.parse(r.stdout); } catch { out = undefined; }
+      // An `ok` that does not confirm the start does not mark the row as run.
+      if (out?.ok !== true) return json({ error: `Not run: ${out?.reason ?? "the scheduler gave no reason"}` }, 409);
       await broadcastCronList();
       return json({ ok: true });
     }
 
     if (cronJobMatch && method === "DELETE") {
-      const r = await gateway("cron.remove", { id: cronJobMatch.jobId });
-      if (!r.ok) return json({ error: `Gateway error: ${r.message}` }, r.status);
+      const r = await cli(["rm", "--id", cronJobMatch.jobId]);
+      if (!r.ok) return json({ error: `Scheduler error: ${r.message}` }, r.status);
       await broadcastCronList();
       return json({ ok: true });
     }

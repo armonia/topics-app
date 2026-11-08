@@ -20,7 +20,7 @@ describe("a chi appartiene un WebContent", () => {
     // risponderebbe alla domanda per cui esiste.
     expect(appName("/System/Applications/Mail.app/Contents/MacOS/Mail")).toBe("Mail");
     expect(appName("/Users/x/Applications/Topics.app/Contents/MacOS/app")).toBe("Topics");
-    expect(appName("/Applications/OpenClaw.app/Contents/MacOS/OpenClaw")).toBe("OpenClaw");
+    expect(appName("/Applications/Helium.app/Contents/MacOS/Helium")).toBe("Helium");
   });
 
   it("un percorso che non è un bundle non inventa un nome", () => {

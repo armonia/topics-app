@@ -313,7 +313,7 @@ describe("global orchestrator session registry", () => {
   test("repairs a registered Topic back to Codex only through explicit ensure", () => {
     const h = harness();
     const { topic } = ensureGlobalOrchestratorSession(h.deps);
-    h.topics.set(topic.id, { ...topic, provider: "openclaw" });
+    h.topics.set(topic.id, { ...topic, provider: "claude" });
 
     const repaired = ensureGlobalOrchestratorSession(h.deps);
 

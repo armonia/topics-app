@@ -59,8 +59,8 @@
  *   chat-inflight-bubble-identity.spec.ts uses.
  *
  * `BENCH_AI_REAL=1` opts in to a real provider for the one leg that needs one.
- * It does not trust `/api/providers/snapshot`, which called openclaw,
- * claude-code and gemini all "ready" on a server where none of them could
+ * It does not trust `/api/providers/snapshot`, which called claude-code
+ * and gemini both "ready" on a server where none of them could
  * answer: "ready" means configured, not logged in. It probes with one turn and
  * reads the model back. See `reachedAModel`.
  *
@@ -440,8 +440,8 @@ interface SendSample {
  * HOME, so the `claude` CLI under it is not logged in and answers
  * "Not logged in - Please run /login" with model `<synthetic>` (measured
  * 2026-08-15, seven turns, zero tokens). A gate that trusted
- * `/api/providers/snapshot` instead would be fooled: it reported openclaw,
- * claude-code and gemini all "ready" on that same server, because "ready" means
+ * `/api/providers/snapshot` instead would be fooled: it reported claude-code
+ * and gemini both "ready" on that same server, because "ready" means
  * "configured", not "logged in".
  */
 function reachedAModel(model: string | null): boolean {

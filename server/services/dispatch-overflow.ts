@@ -15,7 +15,7 @@
  * not say which) and has been held by the memory floor
  * for more than `OVERFLOW_AFTER_MS`, in consecutive rounds. WHAT STAYS: a card or
  * a board explicitly marked "this Mac only" (`stayLocal` / `dispatchStayLocal`) -
- * local processes, OpenClaw, sessions, macOS. A mark and not a guess on the
+ * local processes, Jarvis, sessions, macOS. A mark and not a guess on the
  * text: a heuristic that sends a macOS card to the cloud fails over there,
  * after the wait. Also a delegated card, a node's mirror card and a card with
  * uncommitted work: their run is bound to this machine (`overflowEligible`).

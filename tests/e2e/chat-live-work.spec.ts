@@ -29,7 +29,7 @@ import { hermetic } from "./fixtures/hermetic";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore, seedProjectInnerChats, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
-import { E2E_BASE, E2E_DATA_DIR } from "./helpers/test-server";
+import { E2E_BASE, E2E_DATA_DIR, daemonAuthHeaders } from "./helpers/test-server";
 
 hermetic(test);
 test.use({ video: "on" });
@@ -37,7 +37,6 @@ test.use({ video: "on" });
 test.describe.configure({ timeout: 180_000 });
 
 const STAMP = Date.now();
-const TOKEN = { "x-gateway-token": process.env.GATEWAY_TOKEN ?? "test-token" };
 const encode = encodeURIComponent;
 
 let project = "";
@@ -48,7 +47,7 @@ const agents: string[] = [];
 
 test.afterEach(async ({ request }) => {
   for (const id of processes.splice(0)) await request.post(`${E2E_BASE}/api/scripts/${id}/stop`).catch(() => {});
-  for (const id of agents.splice(0)) await request.post(`${E2E_BASE}/api/sessions/${encode(sessionKey)}/agents/${id}/stop`, { headers: TOKEN }).catch(() => {});
+  for (const id of agents.splice(0)) await request.post(`${E2E_BASE}/api/sessions/${encode(sessionKey)}/agents/${id}/stop`, { headers: daemonAuthHeaders() }).catch(() => {});
   if (topicId) await deleteTopic(request, topicId).catch(() => {});
   if (project) removeTmpDir(project);
   topicId = sessionKey = project = "";
@@ -86,7 +85,7 @@ async function runCommand(request: APIRequestContext, command: string, descripti
 /** Spawn a sub-agent of the chat through the route `spawn_agent` calls, and check it runs the stub. */
 async function spawnSubAgent(request: APIRequestContext, name: string): Promise<string> {
   const spawned = await request.post(`${E2E_BASE}/api/sessions/${encode(sessionKey)}/agents/spawn`, {
-    headers: TOKEN,
+    headers: daemonAuthHeaders(),
     data: { prompt: "wait for instructions", name, cwd: "/tmp" },
   });
   expect(spawned.ok(), `spawn refused: ${spawned.status()} ${await spawned.text()}`).toBe(true);
@@ -100,7 +99,7 @@ async function spawnSubAgent(request: APIRequestContext, name: string): Promise<
   await expect.poll(() => cliCommandsFor(child?.claudeSessionId), { timeout: 15_000 }).not.toEqual([]).catch(() => {});
   const launched = cliCommandsFor(child?.claudeSessionId);
   if (!child || launched.length === 0 || !launched.every((c) => c.includes("/.home/.local/bin/claude"))) {
-    await request.post(`${E2E_BASE}/api/sessions/${encode(sessionKey)}/agents/${id}/stop`, { headers: TOKEN });
+    await request.post(`${E2E_BASE}/api/sessions/${encode(sessionKey)}/agents/${id}/stop`, { headers: daemonAuthHeaders() });
     throw new Error(`the sub-agent did not run the e2e stub: ${JSON.stringify(launched)}`);
   }
   return id;
@@ -172,7 +171,7 @@ test("only what works now: the working sub-agent and the commands, the one that 
 
   // The sub-agent finishes (its parent stops it): its row stays with the
   // check, then leaves within 70 s of the end.
-  await request.post(`${E2E_BASE}/api/sessions/${encode(sessionKey)}/agents/${agentId}/stop`, { headers: TOKEN });
+  await request.post(`${E2E_BASE}/api/sessions/${encode(sessionKey)}/agents/${agentId}/stop`, { headers: daemonAuthHeaders() });
   const endedAt = Date.now();
   await expect(agentRow).toHaveAttribute("data-state", "ended", { timeout: 15_000 });
   await expect(agentRow.locator("svg").first()).toBeVisible();

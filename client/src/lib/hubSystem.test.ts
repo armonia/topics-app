@@ -10,7 +10,7 @@ import {
 
 const SERVICES = { at: 1, services: [
   { id: 'usage-hub', name: 'Hub dei consumi', state: 'vivo', problem: null },
-  { id: 'openclaw', name: 'OpenClaw', state: 'spento', problem: null },
+  { id: 'muse', name: 'Muse', state: 'spento', problem: null },
   { id: 'free-router', name: 'Free router', state: 'in attesa', problem: null },
   { id: 'docs', name: 'Docs index', state: 'vivo', problem: 'non ascolta su :3342' },
 ] };

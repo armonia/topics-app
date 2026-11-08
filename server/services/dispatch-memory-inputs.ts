@@ -53,6 +53,6 @@ function memoryConsumerLabel(name: string): string {
   if (normalized === "claude-code" || normalized === "claude code" || normalized === "claude-cli") {
     return "sessione Claude";
   }
-  if (normalized.includes("openclaw") || normalized.includes("jarvis")) return "Jarvis";
+  if (normalized.includes("jarvis")) return "Jarvis";
   return `app ${name.trim()}`;
 }

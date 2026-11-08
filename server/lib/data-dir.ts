@@ -2,6 +2,7 @@ import { homedir } from "os";
 import { accessSync, constants, existsSync, mkdirSync } from "fs";
 import { join, resolve } from "path";
 import { topicsHome } from "../services/daemon-state";
+import { LEGACY_DATA_DIR_NAME } from "../../shared/legacy-data-dir";
 
 /**
  * Resolve the WRITABLE root for all mutable server state (SQLite DB, messages,
@@ -124,6 +125,9 @@ export function envDataDir(env: NodeJS.ProcessEnv = process.env): string | undef
   return env.DATA_DIR || env.TOPICS_DATA_DIR || undefined;
 }
 
+// The old data root's name lives in shared/, the one place the client can read it from too.
+export { LEGACY_DATA_DIR_NAME };
+
 /** Injectable inputs of `resolveAppDataDir`, so the rule can be tested without a real home. */
 export interface AppDataDirInputs {
   env?: NodeJS.ProcessEnv;
@@ -140,23 +144,23 @@ export interface AppDataDirInputs {
  * `resolveStateDir` above.
  *
  * WHY the rule has three branches (card ef26c310 / 211605ee):
- *   The root used to be `${HOME}/.openclaw`, hardcoded as the last resort in
+ *   The root used to be `${HOME}/${LEGACY_DATA_DIR_NAME}`, hardcoded as the last resort in
  *   four copies of the same expression. The desktop shell exports TOPICS_HOME,
  *   TOPICS_DATA_DIR and DATA_DIR but not APP_DATA_DIR, so a freshly installed
- *   Topics created `~/.openclaw/media` and `~/.openclaw/workspace` in the home
+ *   Topics created `media/` and `workspace/` under the legacy root in the home
  *   of somebody who never ran the product under its previous name: a second
  *   home for the app, under an obsolete name.
  *
- *   Every installation that already has `~/.openclaw` keeps it. Its data, the
+ *   Every installation that already has the legacy root keeps it. Its data, the
  *   paths recorded in the DB and the preview allowlist all point there, and
  *   moving them is a migration with a card of its own, not a side effect of
  *   this one. So the legacy root wins whenever it EXISTS, and only a machine
  *   that never had one gets the new default.
  *
  * Resolution order:
- *   1. `APP_DATA_DIR`, then `OPENCLAW_DIR` — an explicit instruction, used by
+ *   1. `APP_DATA_DIR` — an explicit instruction, used by
  *      the test servers and by anyone pinning the root by hand.
- *   2. `${home}/.openclaw` IF that directory already exists (legacy install).
+ *   2. `${home}/${LEGACY_DATA_DIR_NAME}` IF that directory already exists (legacy install).
  *   3. `topicsHome()` — `${TOPICS_HOME:-~/.topics}`, the same home the daemon
  *      state, the logs and the worktrees already live in. Not a fourth
  *      convention: `~/.topics/media` is already the preferred media base of the
@@ -169,9 +173,9 @@ export function resolveAppDataDir(inputs: AppDataDirInputs = {}): string {
   const env = inputs.env ?? process.env;
   const home = inputs.home ?? env.HOME ?? homedir();
   const exists = inputs.exists ?? existsSync;
-  const explicit = env.APP_DATA_DIR || env.OPENCLAW_DIR;
+  const explicit = env.APP_DATA_DIR;
   if (explicit) return explicit;
-  const legacy = join(home, ".openclaw");
+  const legacy = join(home, LEGACY_DATA_DIR_NAME);
   if (exists(legacy)) return legacy;
   return topicsHome(env, home);
 }
@@ -179,13 +183,13 @@ export function resolveAppDataDir(inputs: AppDataDirInputs = {}): string {
 /**
  * Both roots an already-saved path may belong to, legacy first when it is the
  * live one. Read by the file and preview allowlists: a media path written when
- * the app data root was `~/.openclaw` must stay readable on a machine that
+ * the app data root was the legacy one must stay readable on a machine that
  * resolves to `~/.topics` today, and the other way round.
  */
 export function appDataRoots(inputs: AppDataDirInputs = {}): string[] {
   const env = inputs.env ?? process.env;
   const home = inputs.home ?? env.HOME ?? homedir();
-  const roots = [resolveAppDataDir(inputs), join(home, ".openclaw"), topicsHome(env, home)];
+  const roots = [resolveAppDataDir(inputs), join(home, LEGACY_DATA_DIR_NAME), topicsHome(env, home)];
   return [...new Set(roots)];
 }
 

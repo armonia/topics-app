@@ -2,7 +2,7 @@ import { resolveClaudeModel, resolveClaudeMaxTokens } from "../services/app-sett
 /**
  * ClaudeProvider — AIProvider implementation using the Anthropic SDK directly.
  *
- * Standalone mode: no OpenClaw Gateway, no WebSocket sessions, no tools.
+ * Standalone mode: no gateway, no WebSocket sessions, no tools.
  * Talks to the Anthropic API for streaming chat, HTTP SSE, and completions.
  */
 

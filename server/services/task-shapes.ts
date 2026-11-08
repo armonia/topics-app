@@ -209,7 +209,7 @@ export interface Task {
   machineId: string | null;
   /**
    * "This Mac only": the card touches this machine itself (local processes,
-   * OpenClaw, sessions, macOS), so the overflow dispatch never moves it. An
+   * Jarvis, sessions, macOS), so the overflow dispatch never moves it. An
    * explicit mark set by a person, never guessed from the text.
    */
   stayLocal: boolean;

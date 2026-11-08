@@ -12,7 +12,7 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { goToApp, openTopic } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
 import { installSlowTurnCli } from "./helpers/fake-claude-cli";
-import { E2E_BASE } from "./helpers/test-server";
+import { E2E_BASE, daemonAuthHeaders } from "./helpers/test-server";
 
 hermetic(test);
 test.describe.configure({ timeout: 120_000 });
@@ -42,7 +42,7 @@ function startTurn(sessionKey: string, content: string): Promise<void> {
   const done = (async () => {
     const response = await fetch(`${E2E_BASE}/api/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Gateway-Token": process.env.GATEWAY_TOKEN ?? "test-token" },
+      headers: { "Content-Type": "application/json", ...daemonAuthHeaders() },
       body: JSON.stringify({ sessionKey, messages: [{ role: "user", content }] }),
     });
     if (!response.ok || !response.body) throw new Error(`POST /api/chat answered ${response.status}`);

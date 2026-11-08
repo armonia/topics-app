@@ -22,7 +22,7 @@ reparents to launchd — see the caveat below.)
 Sources: the responsible-process model
 (<https://mjtsai.com/blog/2025/07/07/the-curious-case-of-the-responsible-process/>),
 Apple's `AssociatedBundleIdentifiers` / SMAppService anchoring, and the
-near-identical OpenClaw #14138 (`screencapture` under a launchd agent → TCC
+near-identical issue #14138 of an agent gateway (`screencapture` under a launchd agent → TCC
 blocks even with a full binary path).
 
 ## The fix — a signed host app + `AssociatedBundleIdentifiers`

@@ -104,7 +104,7 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
       loadTopics: ctx.loadTopics,
       worktreeStore: ctx.worktreeStore,
       projectStore,
-      workspaceDir: join(ctx.OPENCLAW_DIR, "workspace"),
+      workspaceDir: join(ctx.APP_DATA_DIR, "workspace"),
     });
     iconAllowCache = { at: now, dirs, db: ctx.db };
     return dirs;

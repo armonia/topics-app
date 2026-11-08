@@ -18,8 +18,13 @@ import {
   navigateAndOpenTerminal,
 } from "./helpers/terminal-workspace";
 import { hermetic } from "./fixtures/hermetic";
+import { SOFTWARE_RENDER_LAUNCH } from "./helpers/remote-gpu";
 
 hermetic(test);
+
+// The pane is compared with a pixel baseline, so it stays on SwiftShader even
+// when pw-remote would give the PC's GPU to every other spec.
+test.use({ launchOptions: SOFTWARE_RENDER_LAUNCH });
 
 test.describe.configure({ timeout: 90_000 });
 
