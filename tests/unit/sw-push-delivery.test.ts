@@ -96,7 +96,7 @@ async function deliverPush(handlers: Map<string, (ev: unknown) => void>, payload
   await Promise.all(pending);
 }
 
-const PAYLOAD = { title: "📋 Task pronto per la review", body: "Sistemare il push", tag: "task-review-42", url: "/task/42" };
+const PAYLOAD = { title: "Task pronto per la review", body: "Sistemare il push", tag: "task-review-42", url: "/task/42" };
 
 describe("service worker · consegna della push", () => {
   test("app CHIUSA (nessuna finestra): notifica di sistema — il caso della card", async () => {
