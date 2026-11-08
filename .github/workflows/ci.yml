@@ -912,9 +912,9 @@ jobs:
         # ogni shard cade nel fallback --shard=i/8, che e' sempre stato l'unico.
         # The 8 here, the matrix of `e2e` and that fallback are one number.
         # ESPERIMENTO (ramo esperimento/e2e-tre-processi-per-runner, da non unire):
-        # 24 pezzi invece di 8, perche' ogni runner ne fa girare 3 affiancati.
+        # 16 pezzi invece di 8, perche' ogni runner ne fa girare 2 affiancati.
         run: |
-          if bun run scripts/e2e-plan-shards.ts 24 --out plan; then
+          if bun run scripts/e2e-plan-shards.ts 16 --out plan; then
             echo "ok=true" >> "$GITHUB_OUTPUT"
           else
             echo "ok=false" >> "$GITHUB_OUTPUT"
@@ -1173,12 +1173,12 @@ jobs:
         # a --shard=i/N di Playwright, che riparte per numero di test.
         # Il piano e' scritto con selettori regex (specSelector in e2e-plan-shards.ts)
         # che Playwright accetta come argomenti posizionali.
-        # ESPERIMENTO: tre processi Playwright affiancati sullo stesso runner da
+        # ESPERIMENTO: due processi Playwright affiancati sullo stesso runner da
         # 4 vCPU. Ognuno ha la sua E2E_PORT, quindi il suo server, il suo DB e le
         # sue cartelle (helpers/test-server.ts), come fa e2e-shards.sh in locale.
         # Il carico e la memoria si scrivono ogni 15 s: dicono se c'e' margine.
         run: |
-          K=3
+          K=2
           SHARD=${{ matrix.shard }}
           mkdir -p test-results/sub
           ( while sleep 15; do echo "[carico] $(cut -d' ' -f1-3 /proc/loadavg) memoria $(free -m | awk '/Mem/{print $3"/"$2}') MB"; done ) &
