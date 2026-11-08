@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.63 — 2026-11-08
+
+### Sotto il cofano
+- Via OpenClaw da Topics (#606)
+
 ## 2.3.62 — 2026-11-08
 
 ### Sotto il cofano
