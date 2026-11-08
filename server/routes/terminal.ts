@@ -71,7 +71,7 @@ import {
   chatParentModel, parentTranscriptModel, readAgentOutput, releaseForeground, reportChildEnd, startChildWatch, subagentLimitRefusal, waitForegroundLeg, type ChildRef,
 } from "../lib/subagent-runtime";
 export { noteSubAgentStopHook, retireIdleSubAgents, _forgetSubAgentMemory } from "../lib/subagent-runtime";
-import { composerHoldsPrompt, trustCursorOnYes, trustDialogShowing } from "../lib/subagent-seed";
+import { composerHoldsPrompt, promptAsPaste, trustCursorOnYes, trustDialogShowing } from "../lib/subagent-seed";
 import { boardSpawnRefusal, liveAgentCount } from "../services/agent-census";
 import { effectiveDispatchCap, readGlobalCap, computeDispatchCapacity } from "../services/dispatch-capacity";
 import { capMode, type DispatchAdmission } from "../../shared/board";
@@ -2800,7 +2800,8 @@ async function seedAgentPrompt(childId: string, prompt: string, acceptSnippet?: 
     // `[Pasted text]` placeholder: both mean it is there (lib/subagent-seed.ts).
     if (!composerHoldsPrompt(await getTerminalBuffer(childId), typedPrompt)) {
       noteTerminalInput(childId);
-      sendToBridge({ type: "write", id: childId, data: typedPrompt });
+      // As a paste: a plain write over 1022 bytes lost its head (lib/subagent-seed.ts).
+      sendToBridge({ type: "write", id: childId, data: promptAsPaste(typedPrompt) });
     }
     for (let i = 0; i < 6; i++) { // ~1.8s for the echo to render
       await sleep(300);
@@ -2812,7 +2813,7 @@ async function seedAgentPrompt(childId: string, prompt: string, acceptSnippet?: 
     // Never confirmed the echo (unusual composer, or a buffer we can't scrape).
     // Fire it blind so we still try rather than strand the agent, then submit.
     noteTerminalInput(childId);
-    sendToBridge({ type: "write", id: childId, data: typedPrompt });
+    sendToBridge({ type: "write", id: childId, data: promptAsPaste(typedPrompt) });
     await sleep(300);
   }
 
@@ -4095,7 +4096,10 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         const send = resolveTerminalSend(child.type, input);
         if (send.dropped) return json({ ok: false, dropped: true, sent: 0 });
         noteTerminalInput(child.id);
-        sendToBridge({ type: "write", id: child.id, data: send.data });
+        // As a paste into a Claude TUI, like the seed: a plain write over 1022
+        // bytes reached it without its head (lib/subagent-seed.ts).
+        const claudeTui = child.type === "claude-code" || child.type === "claude-code-team";
+        sendToBridge({ type: "write", id: child.id, data: claudeTui ? promptAsPaste(send.data) : send.data });
         // Submit it: Enter as a separate frame so the TUI acts on the line.
         await new Promise(r => setTimeout(r, 120));
         noteTerminalInput(child.id);

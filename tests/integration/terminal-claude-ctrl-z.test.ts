@@ -306,7 +306,8 @@ test("send_to_agent drops an all-filtered prompt and counts the bytes written", 
     expect(await send("a\x1abé")).toEqual({ status: 200, body: { ok: true, sent: Buffer.byteLength("abé", "utf8") } });
     expect(writeTopicsTerminal(agentId, SENTINEL)).toBe(true);
     await waitForWrite(agentId, (data) => data === SENTINEL, 5000, byteStart);
-    expect(writes.slice(byteStart).filter((write) => write.id === agentId).map((write) => write.data)).toEqual(["abé", "\r", SENTINEL]);
+    // The text goes as a bracketed paste (lib/subagent-seed.ts#promptAsPaste), filtered first.
+    expect(writes.slice(byteStart).filter((write) => write.id === agentId).map((write) => write.data)).toEqual(["\x1b[200~abé\x1b[201~", "\r", SENTINEL]);
   } finally {
     await stopCliChild(parentId, agentId);
   }

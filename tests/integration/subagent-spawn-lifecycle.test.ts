@@ -74,6 +74,30 @@ async function spawn(name: string, prompt = LONG_PROMPT): Promise<{ agentId: str
 }
 const stateOf = (agentId: string) => (ctx.db.query("SELECT state FROM subagents WHERE id = ?").get(agentId) as { state: string } | null)?.state;
 const reportsFor = (agentId: string) => reports.filter((r) => r.childId === agentId);
+/** The user records of a child's transcript, in order. */
+const userRecords = (child: FakeChild): string[] => {
+  const file = transcriptFile(child.cwd, child.sessionId);
+  if (!file || !fs.existsSync(file)) return [];
+  return fs.readFileSync(file, "utf-8").split("\n").flatMap((line) => {
+    try {
+      const e = JSON.parse(line) as { type?: string; message?: { content?: unknown } };
+      return e.type === "user" && typeof e.message?.content === "string" ? [e.message.content] : [];
+    } catch { return []; }
+  });
+};
+/**
+ * A brief shaped like the one of the child that was to build a filings
+ * register (04/11): one line of 1179 bytes whose opening says what to do.
+ * Written in one go it reached the child as its last 54 bytes, which started
+ * mid-word.
+ */
+const briefOf = (head: string) =>
+  `${head} Repo di prova, worktree di prova, branch feat/invio-diretto-enti. ` +
+  "Implementa solo la traccia del registro invii per ditta, con la barra eseguibile e un test che va rosso senza il codice. ".repeat(9) +
+  "Alla fine rispondi in italiano in 5 righe: cosa c'è, comandi della barra con exit code, cosa manca.";
+const stopChild = async (agentId: string) => {
+  expect((await call(`/api/sessions/${encodeURIComponent(PARENT)}/agents/${agentId}/stop`, "POST")).status).toBe(200);
+};
 const hasPrompt = (child: FakeChild) => {
   const file = transcriptFile(child.cwd, child.sessionId);
   return !!file && fs.existsSync(file) && fs.readFileSync(file, "utf-8").includes('"type":"user"');
@@ -170,6 +194,40 @@ describe("spawn_agent from a chat", () => {
     expect(child.promptWrites).toBe(1);
     const row = ctx.db.query("SELECT name, name_source FROM terminal_sessions WHERE id = ?").get(agentId) as { name: string; name_source: string };
     expect(row).toEqual({ name: "foglio-tab", name_source: "user" });
+  }, 30_000);
+
+  test("a brief longer than 1022 bytes reaches the child whole, its opening included", async () => {
+    // Was its last piece only: macOS hands a long write to the TUI 1022 bytes
+    // at a time and the CLI dropped every full piece (13 of 14 cut briefs since 25/10).
+    const brief = briefOf("APERTURA-DEL-BRIEF.");
+    expect(Buffer.byteLength(brief, "utf8")).toBeGreaterThan(1022);
+    const { agentId, child } = await spawn("registro-invii", brief);
+    try {
+      await until("the prompt record", () => hasPrompt(child));
+      const [first] = userRecords(child);
+      expect(first).toContain("APERTURA-DEL-BRIEF.");
+      expect(first).toContain(brief);
+      expect(child.promptWrites).toBe(1);
+    } finally {
+      // A live child holds one of the parent's five slots.
+      await stopChild(agentId);
+    }
+  }, 30_000);
+
+  test("send_to_agent with a long input reaches a live child whole", async () => {
+    // The filings-register child got its brief this way: 1076 bytes in, the last 54 out.
+    const { agentId, child } = await spawn("registro-invii-bis", "Aspetta le istruzioni.");
+    try {
+      await until("the prompt record", () => hasPrompt(child));
+      const input = briefOf("SECONDA-APERTURA.");
+      const res = await call(`/api/sessions/${encodeURIComponent(PARENT)}/agents/${agentId}/send`, "POST", { input });
+      expect(res.status).toBe(200);
+      await until("the second user record", () => userRecords(child).length > 1);
+      expect(userRecords(child)[1]).toContain("SECONDA-APERTURA.");
+      expect(userRecords(child)[1]).toContain(input);
+    } finally {
+      await stopChild(agentId);
+    }
   }, 30_000);
 
   test("a stop mid-turn reports `stopped`, quoting the last line as partial, under the chosen name", async () => {

@@ -10,6 +10,11 @@
  * `sessionsDir` gets the `<pid>.json` file in which the CLI says which
  * conversation that process is on (`~/.claude/sessions`).
  *
+ * It also takes text the way the real composer does (measured on claude
+ * 2.1.319 in a macOS PTY, 08/11): a plain write longer than 1022 bytes keeps
+ * only its last piece, and a bracketed paste arrives whole, in a
+ * `<pasted_content>` block when it is long. See `cliTakes` below.
+ *
  * The transcripts live where the router reads them, `~/.claude/projects/<cwd>`:
  * `os.homedir()` is fixed per process under Bun, so every cwd must be inside a
  * throwaway test root, and only the folders this helper created are removed.
@@ -21,7 +26,48 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { claudeProjectDirName } from "../../../server/lib/claude-transcript-path";
 
-export interface FakeChild { cwd: string; sessionId: string; typed: string; promptWrites: number; enters: number; acceptFromEnter: number }
+export interface FakeChild {
+  cwd: string; sessionId: string;
+  /** What the composer holds as typed text. */
+  typed: string;
+  /** Long bracketed pastes, folded into a placeholder until Enter. */
+  pasted: string[];
+  promptWrites: number; enters: number; acceptFromEnter: number;
+}
+
+/**
+ * macOS makes a PTY writer wait once 1022 bytes (TTYHOG - 2) sit unread in
+ * the terminal's input queue, so the TUI reads a long write in pieces of 1022.
+ */
+const PTY_READ_PIECE = 1022;
+const PASTE_START = "\x1b[200~";
+const PASTE_END = "\x1b[201~";
+
+/**
+ * What the Claude composer keeps of one write. A plain write longer than
+ * 1022 bytes keeps only its last piece: the CLI drops every full one (a
+ * 2397-byte brief reached the transcript as its last 353 bytes; production
+ * briefs lost exactly 1022, 2044, 3066, 4088 or 13286 bytes of their head). Between
+ * bracketed-paste markers the whole text arrives, however it was cut; a long
+ * one is folded (measured: 135 bytes stayed inline, 1305 were folded).
+ */
+function cliTakes(data: string): { typed: string } | { pasted: string } {
+  if (data.startsWith(PASTE_START) && data.endsWith(PASTE_END)) {
+    const text = data.slice(PASTE_START.length, data.length - PASTE_END.length);
+    return text.length > 800 || text.includes("\n") ? { pasted: text } : { typed: text };
+  }
+  const bytes = Buffer.from(data, "utf8");
+  if (bytes.length <= PTY_READ_PIECE) return { typed: data };
+  const lastPiece = Math.floor((bytes.length - 1) / PTY_READ_PIECE) * PTY_READ_PIECE;
+  return { typed: bytes.subarray(lastPiece).toString("utf8") };
+}
+
+/** The user record the CLI writes: typed text, then each folded paste in its block. */
+function promptRecord(child: FakeChild): string {
+  return child.typed + child.pasted
+    .map((text, i) => `\n\n<pasted_content id="p${i}">\n${text}\n</pasted_content id="p${i}">\n`)
+    .join("");
+}
 
 /** The fake bridge, playing the CLI: what it received, and each child's state. */
 export interface FakeBridge {
@@ -109,7 +155,7 @@ export function startFakeClaudeBridge(root: string, socketPath: string): Promise
           : given < 0 ? ""
           : bridge.mintSessionIds ? crypto.randomUUID() : args[given + 1]!;
         const child: FakeChild = {
-          cwd: msg.cwd ?? "", sessionId, typed: "", promptWrites: 0, enters: 0,
+          cwd: msg.cwd ?? "", sessionId, typed: "", pasted: [], promptWrites: 0, enters: 0,
           acceptFromEnter: bridge.nextAcceptFromEnter,
         };
         bridge.children.set(id, child);
@@ -130,7 +176,7 @@ export function startFakeClaudeBridge(root: string, socketPath: string): Promise
         setTimeout(() => reply(socket, { type: "data", id, data: "Welcome to Claude Code" }), 5);
       } else if (msg.type === "buffer") {
         const child = bridge.children.get(id);
-        const screen = child?.typed
+        const screen = child && (child.typed || child.pasted.length > 0)
           ? "╭──────────╮\n│ > [Pasted text #1 +40 lines] │\n╰──────────╯"
           : "╭──────────╮\n│ >          │\n╰──────────╯\n Welcome to Claude Code";
         reply(socket, { type: "buffer", id, data: Buffer.from(screen).toString("base64") });
@@ -139,12 +185,15 @@ export function startFakeClaudeBridge(root: string, socketPath: string): Promise
         if (!child) return;
         if (msg.data === "\r") {
           child.enters += 1;
-          if (child.typed && child.enters >= child.acceptFromEnter) {
-            append(child, { type: "user", cwd: child.cwd, message: { role: "user", content: child.typed } });
+          if ((child.typed || child.pasted.length > 0) && child.enters >= child.acceptFromEnter) {
+            append(child, { type: "user", cwd: child.cwd, message: { role: "user", content: promptRecord(child) } });
             child.typed = "";
+            child.pasted = [];
           }
         } else {
-          child.typed += msg.data ?? "";
+          const took = cliTakes(msg.data ?? "");
+          if ("pasted" in took) child.pasted.push(took.pasted);
+          else child.typed += took.typed;
           child.promptWrites += 1;
         }
       } else if (msg.type === "kill") {
