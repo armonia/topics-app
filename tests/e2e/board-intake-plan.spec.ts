@@ -79,6 +79,10 @@ test.describe("Multi-project intake proposal", () => {
   });
 
   test.beforeEach(async ({ page }) => {
+    // Cards outlive a test: a confirmed proposal of an earlier test would otherwise count in the next one's "nothing created".
+    for (const boardId of [PROJECT_ID, OTHER_ID]) {
+      for (const t of await boardTasks(page.request, boardId)) await deleteTask(page.request, boardId, t.id);
+    }
     await resetPaneStore(page.request, []);
     await resetProjectPanes(page.request, PROJECT_PATH);
     await seedProjectPane(page.request, PROJECT_PATH);
