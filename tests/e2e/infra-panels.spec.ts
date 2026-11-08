@@ -6,7 +6,7 @@ import { hermetic } from "./fixtures/hermetic";
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
 hermetic(test);
 
-// The Cron panel is gone (HUBBR-14): the OpenClaw jobs and their three commands
+// The Cron panel is gone (HUBBR-14): the Jarvis jobs and their commands
 // live in Automazioni, and tests/e2e/automations.spec.ts covers CRON-01,
 // CRONUI-01 and CRONUI-01b there.
 
@@ -66,7 +66,7 @@ test.describe("System Status Panel", () => {
     // status-bar + version block — a bare getByText hits 2 elements (strict-mode).
     const statusPanel = page.getByTestId("system-status-panel");
 
-    // No Gateway, no server uptime, no Cron Jobs, even with OpenClaw on: the
+    // No Gateway, no server uptime, no Cron Jobs: the
     // gateway and the server are services of the machine's Processes view, the
     // jobs live in Automations. This panel keeps the facts of this window.
     await expect(statusPanel.getByText(/Gateway|uptime|Cron Jobs/)).toHaveCount(0);
@@ -103,7 +103,7 @@ test.describe("System Status Panel", () => {
     await expect(statusPanel.getByText("12 totali")).toBeVisible();
   });
 
-  test("STATUS-03: Nothing restarts from the panel, even with OpenClaw on", async ({
+  test("STATUS-03: Nothing restarts from the panel", async ({
     page,
     infraPage,
   }) => {

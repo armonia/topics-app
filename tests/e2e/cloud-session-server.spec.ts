@@ -8,8 +8,6 @@
  * Covers:
  *  - "open project <name>" from a cloud session resolves the user's REAL
  *    Topics project by name and emits pane:focus-suggest (open + nest).
- *  - adopting a gateway session opens it as a first-class interactive,
- *    openclaw-backed Topics chat (idempotent).
  *
  * @covers PROJECT-01
  */
@@ -155,40 +153,5 @@ test.describe("cloud session ↔ project (server e2e)", () => {
 
     await deleteTopic(request, cloud.id);
     removeTmpDir(dir);
-  });
-
-  test("adopting a gateway session opens it as an interactive openclaw chat (idempotent)", async ({
-    request,
-  }) => {
-    const ts = Date.now().toString(36);
-    // A gateway-native session key that is NOT a Topics topic yet.
-    const sessionKey = `agent:sub-${ts}`;
-
-    const first = await request.post(`${BASE}/api/topics/adopt`, {
-      data: { sessionKey, name: `Adopted ${ts}` },
-      ignoreHTTPSErrors: true,
-    });
-    expect(first.ok()).toBeTruthy();
-    const t1 = await first.json();
-    expect(t1.sessionKey).toBe(sessionKey);   // bound to the EXISTING session
-    expect(t1.provider).toBe("openclaw");     // cloud-backed → interactive
-
-    // Idempotent: adopting again returns the same topic, not a duplicate.
-    const second = await request.post(`${BASE}/api/topics/adopt`, {
-      data: { sessionKey },
-      ignoreHTTPSErrors: true,
-    });
-    expect(second.ok()).toBeTruthy();
-    const t2 = await second.json();
-    expect(t2.id).toBe(t1.id);
-
-    // A malformed / non-session-shaped key is rejected (shape guard).
-    const bad = await request.post(`${BASE}/api/topics/adopt`, {
-      data: { sessionKey: "../etc passwd" },
-      ignoreHTTPSErrors: true,
-    });
-    expect(bad.status()).toBe(400);
-
-    await deleteTopic(request, t1.id);
   });
 });

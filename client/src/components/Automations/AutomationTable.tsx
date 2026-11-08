@@ -3,7 +3,7 @@
  * narrow one: name (with the project's icon, the brake or the remark of a row
  * in order, where it runs and its steps), the next run, the last 24 hours led
  * by the row's state, the tokens of 7 days, the last run, your vote and, on an
- * OpenClaw job only, the three commands. A launchd or GitHub row says it is
+ * Jarvis job only, the three commands. A launchd or GitHub row says it is
  * read-only instead: nothing here can run or stop it.
  *
  * A row's steps open inside the row (the chevron, or «p» on the row).

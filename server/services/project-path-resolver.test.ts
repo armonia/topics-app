@@ -108,18 +108,18 @@ describe("buildProjectCandidates", () => {
 });
 
 describe("isSelectableProjectDir (display filter)", () => {
-  const workspaceDir = "/Users/x/.openclaw/workspace";
+  const workspaceDir = "/Users/x/.app-data/workspace";
   const homeDir = "/Users/x";
   // Only these paths "exist" — real project dirs, their markers, and the
   // internal/husk dirs. Non-workspace projects need no marker; workspace-nested
   // ones must carry one (dashboard does, the husk does not).
   const real = new Set([
     "/Users/x/Projects/demoapp",
-    "/Users/x/.openclaw/workspace/generale",
-    "/Users/x/.openclaw/workspace/tasks/ab12cd34",
-    "/Users/x/.openclaw/workspace/dashboard",
-    "/Users/x/.openclaw/workspace/dashboard/package.json", // marker
-    "/Users/x/.openclaw/workspace/topics-app",             // husk (recreated), no marker
+    "/Users/x/.app-data/workspace/generale",
+    "/Users/x/.app-data/workspace/tasks/ab12cd34",
+    "/Users/x/.app-data/workspace/dashboard",
+    "/Users/x/.app-data/workspace/dashboard/package.json", // marker
+    "/Users/x/.app-data/workspace/topics-app",             // husk (recreated), no marker
     "/Users/x/.claude",
     "/Users/x/.claude/jarvis",
     "/Users/x",
@@ -129,17 +129,17 @@ describe("isSelectableProjectDir (display filter)", () => {
 
   it("keeps real projects, incl. a marker-bearing workspace/<name> child", () => {
     expect(ok("/Users/x/Projects/demoapp")).toBe(true);
-    expect(ok("/Users/x/.openclaw/workspace/dashboard")).toBe(true);
+    expect(ok("/Users/x/.app-data/workspace/dashboard")).toBe(true);
   });
 
   it("drops the catch-all generale dir and per-task cwds", () => {
-    expect(ok("/Users/x/.openclaw/workspace/generale")).toBe(false);
-    expect(ok("/Users/x/.openclaw/workspace/tasks/ab12cd34")).toBe(false);
-    expect(ok("/Users/x/.openclaw/workspace/tasks")).toBe(false);
+    expect(ok("/Users/x/.app-data/workspace/generale")).toBe(false);
+    expect(ok("/Users/x/.app-data/workspace/tasks/ab12cd34")).toBe(false);
+    expect(ok("/Users/x/.app-data/workspace/tasks")).toBe(false);
   });
 
   it("drops a recreated workspace husk that carries no project marker", () => {
-    expect(ok("/Users/x/.openclaw/workspace/topics-app")).toBe(false);
+    expect(ok("/Users/x/.app-data/workspace/topics-app")).toBe(false);
   });
 
   it("drops the home dir itself and config dot-dirs", () => {
@@ -162,7 +162,7 @@ describe("isSelectableProjectDir (display filter)", () => {
 
   it("tolerates a trailing slash", () => {
     expect(ok("/Users/x/Projects/demoapp/")).toBe(true);
-    expect(ok("/Users/x/.openclaw/workspace/generale/")).toBe(false);
+    expect(ok("/Users/x/.app-data/workspace/generale/")).toBe(false);
   });
 });
 
@@ -170,7 +170,7 @@ describe("newProjectParentDir", () => {
   // `exists` iniettato: questi percorsi non stanno su nessun disco, e senza
   // stub il controllo di esistenza li scarterebbe tutti (che è il suo mestiere,
   // ed è provato dal caso «cartella immaginaria» più sotto).
-  const deps = { workspaceDir: "/Users/x/.openclaw/workspace", homeDir: "/Users/x", exists: () => true };
+  const deps = { workspaceDir: "/Users/x/.app-data/workspace", homeDir: "/Users/x", exists: () => true };
 
   it("picks the folder where the projects ALREADY live, not the workspace", () => {
     expect(newProjectParentDir(
@@ -182,9 +182,9 @@ describe("newProjectParentDir", () => {
   it("ignores what lives INSIDE the workspace — il plumbing non vota per sé", () => {
     expect(newProjectParentDir(
       [
-        "/Users/x/.openclaw/workspace/a",
-        "/Users/x/.openclaw/workspace/b",
-        "/Users/x/.openclaw/workspace/c",
+        "/Users/x/.app-data/workspace/a",
+        "/Users/x/.app-data/workspace/b",
+        "/Users/x/.app-data/workspace/c",
         "/Users/x/Projects/alpha",
         "/Users/x/Projects/beta",
       ],

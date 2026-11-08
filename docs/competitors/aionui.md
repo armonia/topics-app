@@ -126,7 +126,7 @@ Cifratura oltre la password e relay via cloud non risultano documentati nel mate
 
 ACP è il protocollo principe: ogni agente esterno è un processo lanciato da comando risolto nel PATH, con handshake di capacità, e la vista di gestione mostra stato, errori di avvio e deriva di versione [codice: packages/desktop/src/renderer/utils/model/agentTypes.ts:20].
 
-I tipi di agente coperti sono cinque: ACP, remoto, agente integrato `aionrs`, gateway OpenClaw e Nanobot [codice: packages/desktop/src/renderer/utils/model/agentTypes.ts:20].
+I tipi di agente coperti sono cinque: ACP, remoto, agente integrato `aionrs`, un gateway di agenti esterno e Nanobot [codice: packages/desktop/src/renderer/utils/model/agentTypes.ts:20].
 
 I backend nominati nel codice e nelle issue includono Claude Code, Codex, Gemini, Antigravity, Qwen, Hermes, Cursor e opencode [issue #4290] [issue #4313].
 

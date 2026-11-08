@@ -12,7 +12,7 @@
  *    skills its prompt lists and its `skill` tool loads (`listSkills`). Only
  *    skills: that tool refuses a `commands/*.md`.
  *  - An ACP agent (jcode, gemini): the commands it announced.
- *  - Codex, the API engines, OpenClaw: nothing. A typed `/name` is prose there.
+ *  - Codex, the API engines: nothing. A typed `/name` is prose there.
  *
  * Before an engine has said anything since the server started, Claude Code
  * gets «your skills» from the folders as before and no engine group: nothing

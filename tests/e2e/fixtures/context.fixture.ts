@@ -8,9 +8,12 @@ import { createTopic, deleteTopic } from "../helpers/api-fixtures";
 export const MOCK_CONTEXT_ANALYSIS = {
   sources: [
     {
-      id: "openclaw:SOUL.md",
+      // Not a "template": the inspector lists templates only for a topic with a
+      // project, and this fixture topic has none (the old gateway category
+      // that showed this row for every topic is gone).
+      id: "memory:SOUL.md",
       label: "SOUL.md",
-      category: "openclaw",
+      category: "memory",
       tokens: 3200,
       enabled: true,
       editable: false,
@@ -59,9 +62,12 @@ export const MOCK_CONTEXT_ANALYSIS = {
 export const MOCK_HIGH_BUDGET_ANALYSIS = {
   sources: [
     {
-      id: "openclaw:SOUL.md",
+      // Not a "template": the inspector lists templates only for a topic with a
+      // project, and this fixture topic has none (the old gateway category
+      // that showed this row for every topic is gone).
+      id: "memory:SOUL.md",
       label: "SOUL.md",
-      category: "openclaw",
+      category: "memory",
       tokens: 45000,
       enabled: true,
       editable: false,

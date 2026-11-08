@@ -18,7 +18,7 @@ import { augmentPath } from "../utils/path-env";
 import { envDataDir, resolveStateDir } from "./data-dir";
 import { registerFleetSocket } from "./fleet-usage";
 import { aiBridgeDaemonLaunch } from "./ai-bridge-daemon-argv";
-import { withoutGatewayToken } from "./openclaw-gateway-token";
+import { withoutGatewayToken } from "./child-env";
 import { BridgeAckStalled, BridgeConnectionLost, isRetryableBridgeError, shouldRecycleSocket } from "./ai-bridge-errors";
 export { BridgeAckStalled, isRetryableBridgeError, shouldRecycleSocket } from "./ai-bridge-errors";
 // runtime-dep-ok: a static import, not a spawn. The compiled server bundles this

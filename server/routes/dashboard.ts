@@ -7,8 +7,8 @@ import { costFromMessage, costFromTask } from "../usage/token-sql";
  * Meta' dei numeri erano strutturalmente zero, e uno zero e' la bugia peggiore
  * che un cruscotto possa dire: "error rate 0%" si legge "nessun errore", non
  * "nessun dato". Le query leggevano tre tabelle che NESSUNO scrive —
- * `usage_records` (l'unico insert e' in `server/db/seed.ts`, che non e' chiamato
- * da nessuna parte), `agent_sessions` (zero insert in tutto il server) e
+ * `usage_records` (oggi la scrive `server/usage/side-calls.ts`, ma all'epoca non
+ * la scriveva nessuno), `agent_sessions` (zero insert in tutto il server) e
  * `heartbeats` (la route POST c'e', ma pretende una riga di `agent_sessions`
  * che non esiste, quindi non e' raggiungibile).
  *

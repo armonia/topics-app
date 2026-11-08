@@ -16,7 +16,7 @@ import { saveApiProviderKey } from "./services/api-provider-credentials";
 import type { AppContext, RouteHandler } from "./types";
 import { createAppContext } from "./utils";
 
-const envKeys = ["TOPICS_DATA_DIR", "DATA_DIR", "TOPICS_HOME", "APP_DATA_DIR", "OPENCLAW_DIR", "GATEWAY_TOKEN"] as const;
+const envKeys = ["TOPICS_DATA_DIR", "DATA_DIR", "TOPICS_HOME", "APP_DATA_DIR"] as const;
 const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
 let root: string;
 let ctx: AppContext;
@@ -32,8 +32,6 @@ beforeAll(() => {
   process.env.DATA_DIR = join(root, "data");
   process.env.TOPICS_HOME = join(root, "topics-home");
   process.env.APP_DATA_DIR = join(root, "app-data");
-  process.env.OPENCLAW_DIR = join(root, "app-data");
-  process.env.GATEWAY_TOKEN = "fixture-gateway-token";
   closeDatabase();
   ctx = createAppContext(root);
   ctx.db.run("INSERT INTO ui_state (key, value) VALUES (?, ?)", [

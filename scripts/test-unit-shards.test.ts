@@ -179,12 +179,11 @@ describe("fileEnv", () => {
       DATA_DIR: "/live/data",
       TOPICS_DATA_DIR: "/live/topics",
       TOPICS_HOME: "/live/home",
-      OPENCLAW_CONFIG_PATH: "/live/config.json",
     };
     const env = fileEnv(base);
     expect(env.FOO).toBe("bar");
     expect(env.PATH).toBe("/bin");
-    for (const key of ["DATA_DIR", "TOPICS_DATA_DIR", "TOPICS_HOME", "OPENCLAW_CONFIG_PATH"]) {
+    for (const key of ["DATA_DIR", "TOPICS_DATA_DIR", "TOPICS_HOME"]) {
       expect(key in env).toBe(false);
     }
     expect(env.TOPICS_GIT_ISOLATED).toBe("1");

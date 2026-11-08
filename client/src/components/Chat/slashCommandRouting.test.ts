@@ -160,7 +160,7 @@ describe("`/health` is a local command on every provider", () => {
   test("it reads the health endpoint into the command card without a model turn", () => {
     expect(handled("health")).toBe(true);
     expect(CHAT_PANE).toMatch(/cmd === '\/health'[\s\S]*?getSystemHealth\(\)/);
-    expect(topicsEntryFor("health", "openclaw")).not.toBeNull();
+    expect(topicsEntryFor("health", "codex")).not.toBeNull();
     expect(topicsEntryFor("health", "claude-code")).not.toBeNull();
   });
 });
@@ -260,7 +260,7 @@ describe("every menu entry does something when picked", () => {
     expect(handledBare('btw')).toBe(true);
     expect(handledWithArg('btw')).toBe(true);
     expect(offeredSlashCommands('claude-code').map((entry) => entry.cmd)).toContain('/btw');
-    for (const provider of ['codex', 'openclaw', 'gemini']) {
+    for (const provider of ['codex', 'gemini']) {
       expect(offeredSlashCommands(provider).map((entry) => entry.cmd), provider).not.toContain('/btw');
     }
   });
@@ -291,21 +291,16 @@ describe("every menu entry does something when picked", () => {
   });
 });
 
-describe("`/new` and `/reset` are `/clear` on every engine with a session, OpenClaw aside (CMDUI-06)", () => {
+describe("`/new` and `/reset` are `/clear` on every engine with a session (CMDUI-06)", () => {
   // Claude Code's aliases of /clear (measured: each emits conversation_reset
   // and changes the session id). Forwarded, the live process forgot while the
   // screen kept the history and Topics kept the old session id.
   test("both reach the clear branch, behind the same confirmation", () => {
     for (const c of ["/new", "/reset", "/clear"]) expect(isClearCommand(c, "claude-code"), c).toBe(true);
-    expect(isClearCommand("/clear", "openclaw")).toBe(true);
+    expect(isClearCommand("/clear", "codex")).toBe(true);
     expect(CHAT_PANE).toContain("isClearCommand(cmd, declared)");
     expect(CLI.aliases.new).toBe("clear");
     expect(CLI.aliases.reset).toBe("clear");
-  });
-
-  test("on openclaw they are the gateway's own reset gestures and travel as typed", () => {
-    // openclaw lists /new and /reset among its commands, and has no /clear.
-    for (const c of ["/new", "/reset"]) expect(isClearCommand(c, "openclaw"), c).toBe(false);
   });
 
   test("on the ACP agents, Codex and Topics' engine they clear too: sent, they were prose to the engine", () => {
@@ -322,7 +317,7 @@ describe("`/new` and `/reset` are `/clear` on every engine with a session, OpenC
 describe("the refusals are Claude Code's, so only a Claude Code topic gets them (CMD-08)", () => {
   // The table was measured on Claude Code. gemini answers `/memory list`
   // itself (measured, gemini-cli 0.55.1 over ACP: «No GEMINI.md files in
-  // use.», 0 tokens); `/login` and `/export` are openclaw's own commands.
+  // use.», 0 tokens).
   // Answered in the composer as «terminal commands of Claude Code», they were
   // blocked on the providers that run them.
   test("a Claude Code topic is answered in the composer", () => {
@@ -333,8 +328,8 @@ describe("the refusals are Claude Code's, so only a Claude Code topic gets them 
     for (const c of ["/resume", "/export", "/permissions"]) expect(cliRefusedCommand(c, "claude-code"), c).toBeNull();
   });
 
-  test("a gemini or openclaw topic is not intercepted", () => {
-    for (const provider of ["gemini", "openclaw", "codex", "topics"]) {
+  test("a gemini or codex topic is not intercepted", () => {
+    for (const provider of ["gemini", "codex", "topics"]) {
       for (const text of ["/memory list", "/login", "/export", "/resume abc"]) {
         expect(cliRefusedCommand(text, provider), `${text} on ${provider}`).toBeNull();
       }
@@ -384,10 +379,9 @@ describe("`/mcp` and `/config` open where Topics keeps those things (SETHOME-01)
     }
   });
 
-  test("on OpenClaw they are the gateway's own commands and travel as typed (CMD-08)", () => {
-    // openclaw has its own `/mcp show|set|unset` and `/config show|set|unset`.
-    // An undeclared provider is not assumed either.
-    for (const provider of ["openclaw", null, undefined]) {
+  test("on an undeclared provider they travel as typed (CMD-08)", () => {
+    // An undeclared provider is not assumed.
+    for (const provider of [null, undefined]) {
       for (const text of ["/mcp", "/mcp show", "/config", "/config set x 1", "/settings", "/usage", "/cost", "/stats"]) {
         expect(topicsHomeCommand(text, provider), `${text} on ${provider}`).toBeNull();
       }

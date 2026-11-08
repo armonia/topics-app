@@ -394,7 +394,7 @@ the sidecar ships — so in standalone mode they are **explicitly disabled**: th
 spawns the sidecar with `TOPICS_DISABLE_PTY_BRIDGE=1` and terminal endpoints answer
 `503 "terminals not available in standalone mode"` (an honest failure, not a hang or a
 crash). Chat, topics, projects, browser pane, and the dashboards work standalone.
-Terminals need a full local dev/OpenClaw setup.
+Terminals need a full local dev setup.
 
 **Gatekeeper on macOS:** without notarization the download is refused on first launch
 with "Apple could not verify Topics is free of malware". Since macOS Sequoia the

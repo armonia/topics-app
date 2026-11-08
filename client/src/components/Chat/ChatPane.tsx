@@ -1017,7 +1017,7 @@ function ChatPaneComponent({
     }
   }, [topic.id, topic.name, sendMessage, loadHistory, tr, setCommandResult]);
   const handleFork = useCallback(() => { void forkHere(); }, [forkHere]);
-  // Openclaw and the ACP agents keep their conversation outside Topics; no pinned provider = the server decides.
+  // The ACP agents keep their conversation outside Topics; no pinned provider = the server decides.
   const canFork = !isGlobalOrchestrator && (!topic.provider || forkModeFor(topic.provider) !== null);
 
   const sideQuestion = useSideQuestion({ topic, loadHistory, sendMessage, getSessionMessages, tr });
@@ -1052,7 +1052,7 @@ function ChatPaneComponent({
     // Claude Code's, and other providers run those names themselves.
     const declared = topic.provider || getProvidersSnapshotState().snapshot?.providers.find((p) => p.isDefault)?.name || null;
     // AN ALIAS IS ITS COMMAND (CMDUI-01): `/cost` is `/usage` on Claude Code,
-    // `/new` and `/reset` are `/clear` on every engine but OpenClaw. Resolved
+    // `/new` and `/reset` are `/clear` on every engine. Resolved
     // before every branch; the text that travels to the engine, when one does,
     // is the one typed.
     const invoked = invokedName(text);
@@ -1121,7 +1121,7 @@ function ChatPaneComponent({
       setCommandResult({ type: 'success', message: tr('chat.rename.done', { name }) });
       return true;
     }
-    // `/export` downloads the chat as Markdown (OpenClaw keeps its own).
+    // `/export` downloads the chat as Markdown.
     if ((cmd === '/export' || cmd.startsWith('/export ')) && topicsEntryFor('export', declared)) {
       if (currentMessages.length === 0) { setCommandResult({ type: 'error', message: tr('chat.export.empty') }); return true; }
       handleExportConversation();
@@ -1136,11 +1136,10 @@ function ChatPaneComponent({
     if (cmd === '/context') { if (isDraftTopicId(topic.id)) { setCommandResult({ type: 'success', message: tr('chat.context.draft') }); return true; } setCommandResult(null); composerControlsRef.current?.openContext(); return true; }
     // `/new` and `/reset` are `/clear` on every engine with a session
     // (CMDUI-06): on Claude Code forwarded, the live process forgot while the
-    // screen kept the history; elsewhere they were prose to the model. On
-    // openclaw they are the gateway's own reset and travel as typed (`isClearCommand`).
+    // screen kept the history; elsewhere they were prose to the model (`isClearCommand`).
     if (isClearCommand(cmd, declared)) { if (!await confirm({ title: tr('chat.clear.title'), body: tr('chat.clear.body'), confirmLabel: tr('chat.clear.confirm') })) return true; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); setCommandResult({ type: 'success', message: tr('chat.clear.done') }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
-    // The typed level travels (`/reasoning off`); bare, the gateway toggles.
-    if (cmd === '/reasoning' || cmd.startsWith('/reasoning ')) { const level = text.trim().slice('/reasoning'.length).trim() || undefined; setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey, level); setCommandResult({ type: 'success', message: r.message || tr('chat.command.reasoningToggled') }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
+    // `/reasoning` has no switch on any provider: the server answers with the declared provider and points at `/effort`.
+    if (cmd === '/reasoning' || cmd.startsWith('/reasoning ')) { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || '' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/fork' || cmd.startsWith('/fork ')) { await forkHere(text.trim().slice('/fork'.length)); return true; }
 
     // `/rewind` is answered here rather than forwarded, because forwarding it

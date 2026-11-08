@@ -10,7 +10,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import { join } from "node:path";
-import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
+import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir, installDaemonToken } from "./helpers";
 import { startFakeClaudeBridge, type FakeBridge } from "./helpers/fake-claude-bridge";
 import type { SubAgentExitInfo } from "../../server/routes/subagent-exit";
 import type { AppContext, Topic } from "../../server/types";
@@ -19,7 +19,7 @@ const ROOT = testTmpDir("subagent-native-tree");
 const SOCKET_PATH = `${ROOT}/b.sock`;
 const PROJECT = `${ROOT}/proj`;
 const HOME = `${ROOT}/home`;
-const TOKEN = "subagent-native-tree-token";
+let TOKEN = "";
 const PARENT = "topic:7c1e0a55";
 const ROOT2 = "topic:7c1e0a66";
 
@@ -80,7 +80,7 @@ async function fakeChatRoute(req: Request, _url: URL, pathname: string): Promise
 
 async function call(path: string, method: string, body?: object): Promise<Response> {
   const url = new URL(`http://h${path}`);
-  const res = await router(new Request(url, { method, headers: { "content-type": "application/json", "x-gateway-token": TOKEN }, body: body ? JSON.stringify(body) : undefined }), url, url.pathname, method);
+  const res = await router(new Request(url, { method, headers: { "content-type": "application/json", "x-daemon-token": TOKEN }, body: body ? JSON.stringify(body) : undefined }), url, url.pathname, method);
   if (!res) throw new Error(`no route for ${method} ${path}`);
   return res;
 }
@@ -118,7 +118,7 @@ beforeAll(async () => {
   fs.mkdirSync(join(HOME, ".claude", "agents"), { recursive: true });
   delete process.env.TOPICS_DISABLE_PTY_BRIDGE;
   delete process.env.TOPICS_EMBEDDED;
-  process.env.GATEWAY_TOKEN = TOKEN;
+  TOKEN = installDaemonToken();
   process.env.CLAUDE_BIN = "/bin/echo";
   { const { _resetClaudeBinCache } = await import("../../server/lib/claude-bin"); _resetClaudeBinCache(); }
   bridge = await startFakeClaudeBridge(ROOT, SOCKET_PATH);
@@ -170,7 +170,6 @@ afterAll(async () => {
   await bridge?.close();
   bridge?.cleanup();
   delete process.env.CLAUDE_BIN;
-  delete process.env.GATEWAY_TOKEN;
   { const { _resetClaudeBinCache } = await import("../../server/lib/claude-bin"); _resetClaudeBinCache(); }
   await cleanupTestDataDir(ROOT);
 });

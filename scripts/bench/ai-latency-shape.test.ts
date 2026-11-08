@@ -80,7 +80,7 @@ describe("buildAiLatencyReport", () => {
     shell: "chromium headless 1280x800",
     samples: { send: 7, delivery: 7 },
     stalls: { send: 0, deliver: 0, accept: 0 },
-    providersReady: ["openclaw", "claude-code", "gemini"],
+    providersReady: ["codex", "claude-code", "gemini"],
     turnModels: ["<synthetic>", "<synthetic>", "<synthetic>"],
     legs: {
       composerToWire: [0.2, 0.2, 0.3],

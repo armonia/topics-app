@@ -13,13 +13,23 @@ import { join } from 'node:path';
 import type { ReactElement, ReactNode } from 'react';
 import { isValidElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { DispatchDashboardView, DispatchDetailsView, DispatchSummaryView, MemoryChart } from './DispatchDashboard';
+import { DispatchDetailsView, DispatchSummaryView, MemoryChart } from './DispatchDashboard';
 import { GlobalSettingsSection, SettingsPanelHead } from './BoardSettingsSections';
 import { GlobalCapControl } from './GlobalCapControl';
 import { adoptDispatchCapacity, adoptGlobalCap } from '../../state/globalDispatchCap';
 import { rowReason, brokenCards, chartMax, overflowedCards, queuedCards, waitingLabel, type QueuedCard } from './dispatchDashboardModel';
 import type { BoardTask, DispatchCapacity } from '../../lib/board';
 import type { DispatchMemoryQueueSnapshot } from '../../../../shared/board';
+
+// Summary and detail in one piece, as the two surfaces compose them.
+function DispatchDashboardView({ live, onTurnOn, ...rest }: Parameters<typeof DispatchDetailsView>[0] & Parameters<typeof DispatchSummaryView>[0]) {
+  return (
+    <div className="space-y-2">
+      <DispatchSummaryView capacity={rest.capacity} snapshot={rest.snapshot} queue={rest.queue} broken={rest.broken} dispatchOn={rest.dispatchOn} live={live} onTurnOn={onTurnOn} />
+      <DispatchDetailsView {...rest} />
+    </div>
+  );
+}
 
 const capacity = { running: 2, availableMemGB: 2.8, totalMemGB: 32 } as DispatchCapacity;
 const history = Array.from({ length: 30 }, (_, i) => ({ at: new Date(Date.parse('2026-10-28T12:00:00Z') - (29 - i) * 60_000).toISOString(), freeGB: 4 - i / 20, running: i > 15 ? 1 : 0 }));

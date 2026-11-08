@@ -3,8 +3,8 @@
  *
  * These two files rot in a way nothing else catches: a manifest description and a
  * license notice are never executed, never typechecked and never rendered in a
- * test, so "Companion app for OpenClaw" survived the pivot to a CLI-agent desktop
- * workspace, and the notices kept crediting Electron a whole major version after
+ * test, so the manifests kept describing the app as a companion of another
+ * product after the pivot to a CLI-agent desktop workspace, and the notices kept crediting Electron a whole major version after
  * the Electron shell was archived (v2.0.0, `electron-archive` branch). A stale
  * notice is not cosmetic: it names software we do not ship and omits the one
  * library whose license actually asks for a notice (WebKitGTK, LGPL, linked
@@ -32,9 +32,6 @@ const MANIFESTS = [
   "client/public/manifest-dev.json",
 ] as const;
 
-/** The dead positioning, in every wording it was ever written in. */
-const STALE_IDENTITY = /companion (app )?for OpenClaw/i;
-
 /**
  * npm ids are lowercase; this shape is what separates a package name from the
  * other things that live in backticks here (env vars are upper case, tag globs
@@ -45,10 +42,10 @@ const NPM_NAME = /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 /**
  * Backticked words that are `AI_PROVIDER` VALUES, not packages: the services
  * section names the modes a reader sets in `.env`, and `claude-code`, `codex`,
- * `claude`, `openai` and `openclaw` all have the exact shape of an npm id.
+ * `claude` and `openai` all have the exact shape of an npm id.
  * Anything else in backticks is claimed to be a dependency and has to be one.
  *
- * Hand-writing the pair {claude, openclaw} was a landmine, not a shortcut: the
+ * Hand-writing a fixed pair of modes was a landmine, not a shortcut: the
  * services section credited only Anthropic, and the correct fix (naming OpenAI
  * and the two CLI modes, none of which is a declared package) turned this test
  * red on an edit that made the document TRUE. Reading the list out of the code
@@ -141,15 +138,10 @@ function presentTenseElectron(markdown: string): string[] {
 }
 
 describe("product identity", () => {
-  it("no manifest still calls the app a companion for OpenClaw", () => {
-    const stale = MANIFESTS.filter((rel) => STALE_IDENTITY.test(read(rel)));
-    expect(stale).toEqual([]);
-  });
-
-  it("the root package.json description does not either", () => {
+  // The old positioning (a companion of another product) cannot come back by
+  // name: the forbidden-name test next to this one fails on it anywhere.
+  it("the root package.json description says something", () => {
     const { description } = JSON.parse(read("package.json")) as { description: string };
-    expect(description).not.toMatch(STALE_IDENTITY);
-    // A description that lost the old line but says nothing is not a fix.
     expect(description.length).toBeGreaterThan(30);
   });
 
@@ -166,11 +158,6 @@ describe("product identity", () => {
       expect(read(`public/${name}`)).toBe(read(`client/public/${name}`));
       expect(bytes(`public/${name}`).equals(bytes(`client/public/${name}`))).toBe(true);
     }
-  });
-
-  it("the identity sieve is not vacuous", () => {
-    expect(STALE_IDENTITY.test('"description": "AI Chat companion for OpenClaw"')).toBe(true);
-    expect(STALE_IDENTITY.test("Companion app for OpenClaw, with project context")).toBe(true);
   });
 });
 
@@ -257,7 +244,7 @@ describe("third-party notices", () => {
 
   it("the package sieve ignores what is not a package name", () => {
     // Env vars, tag globs and config keys share the backticks with real ids.
-    const noise = "`ANTHROPIC_API_KEY` `v*` `bundle.externalBin` `claude` `openclaw`";
+    const noise = "`ANTHROPIC_API_KEY` `v*` `bundle.externalBin` `claude` `openai`";
     expect(undeclaredBackticks(noise, declaredPackages())).toEqual([]);
     // And it does not stop at the first line of a list.
     expect(undeclaredBackticks("- `zod`\n- `not-a-real-package`", declaredPackages())).toEqual([
@@ -266,10 +253,10 @@ describe("third-party notices", () => {
   });
 
   it("naming any AI_PROVIDER mode in the services section is not a failure", () => {
-    // The regression this guards: the exemption used to be the literal pair
-    // {claude, openclaw}, so writing the services section honestly — it named
+    // The regression this guards: the exemption used to be a literal pair of
+    // modes, so writing the services section honestly — it named
     // Anthropic alone while the app also drives `codex`, `claude-code` and the
-    // OpenAI API — failed the suite. None of the five is a declared package,
+    // OpenAI API — failed the suite. None of the modes is a declared package,
     // and none of them is meant to be.
     const declared = declaredPackages();
     for (const mode of NOT_PACKAGES) {
@@ -295,7 +282,7 @@ describe("third-party notices", () => {
     // leads with.
     const services = md.split(/^## /m).find((s) => s.startsWith("Third-party services"));
     expect(services, "the notices lost their Third-party services section").toBeTruthy();
-    for (const vendor of ["Anthropic", "OpenAI", "OpenClaw"]) {
+    for (const vendor of ["Anthropic", "OpenAI"]) {
       expect(services!, `the services section never mentions ${vendor}`).toContain(vendor);
     }
     // "the primary backend" outlived the pivot to CLI-first: an API key is now

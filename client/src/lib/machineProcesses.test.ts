@@ -169,9 +169,9 @@ describe('the Mac, the PC and the services', () => {
 
   test('a service keeps what it is, its launchd job, its page and the memory of what it started', () => {
     const [row] = serviceRows({ services: [{
-      id: 'oc', name: 'Gateway', state: 'vivo', mb: 2, treeMb: 1951, children: 39, what: 'Il gateway di Jarvis', label: 'ai.openclaw.gateway', url: 'http://127.0.0.1:18789/',
+      id: 'oc', name: 'Gateway', state: 'vivo', mb: 2, treeMb: 1951, children: 39, what: 'Il gateway di Jarvis', label: 'com.jarvis.channels', url: 'http://127.0.0.1:18789/',
     }] });
-    expect(row).toMatchObject({ what: 'Il gateway di Jarvis', label: 'ai.openclaw.gateway', url: 'http://127.0.0.1:18789/', treeMB: 1951, children: 39 });
+    expect(row).toMatchObject({ what: 'Il gateway di Jarvis', label: 'com.jarvis.channels', url: 'http://127.0.0.1:18789/', treeMB: 1951, children: 39 });
     expect(serviceRows({ services: [{ id: 'x', name: 'X', state: 'vivo', url: 'javascript:alert(1)' }] })[0]!.url).toBeNull();
   });
 });

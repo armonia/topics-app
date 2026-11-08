@@ -566,12 +566,12 @@ sola app). Il pid RESPONSABILE SHALL essere chiesto SOLO per un servizio XPC, ch
 browser si leggono come una famiglia altrui e la frase accuserebbe il
 proprietario di memoria che tiene Topics, ma chiesto su OGNI riga di `ps`
 (risponde per 600 pid su 901) darebbe il nome del processo altrui a chi l'ha
-lanciato: misurato il 16/09, `next-server` è responsabile al gateway OpenClaw e
+lanciato: misurato il 16/09, `next-server` è responsabile al gateway di Jarvis e
 finiva contato in una famiglia chiamata `index`, cioè il processo che la frase
 esiste per nominare usciva col nome di un file. Quando il nome ricavato è un
 punto di ingresso generico (`index`, `main`, `cli`) SHALL valere la prima
 cartella sopra che non sia impacchettamento (`dist`, `build`, `lib`, `bin`,
-`src`, `node_modules`): `openclaw`, non `index`. Due famiglie che differiscono
+`src`, `node_modules`): il nome del pacchetto, non `index`. Due famiglie che differiscono
 SOLO per la maiuscola SHALL essere distinte nella frase — il 16/09 la macchina
 viva diceva «Claude 6,8 GB» (l'app) accanto a «claude 1,1 GB» (la CLI che l'app
 contiene, in esecuzione fuori) — e il nome nudo resta all'app.

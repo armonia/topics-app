@@ -13,7 +13,7 @@ import { getProvider, getDefaultProvider, getDefaultProviderName, type AIProvide
 import { withBackgroundWork, stopBackgroundOnly, type TurnStatusRow } from "../providers/background-probes";
 import { createTopicProviderResolver } from "../providers/topic-provider-resolver";
 import { getSnapshotManager } from "../providers/snapshot-manager";
-import { declaredProviderName, fallbackModelFor, reasoningCommandText, reasoningElsewhereMessage, routesThroughGateway } from "./commandRouting";
+import { declaredProviderName, fallbackModelFor, reasoningElsewhereMessage } from "./commandRouting";
 import { createAutoNameRouter } from "./autoname";
 import { createHistoryRouter, createHistoryFindRouter, createToolDetailRouter } from "./history";
 import { blocksForDisk, leanMessagesForWire, toolCallsColumnForRow } from "../../shared/lean-tool-call";
@@ -428,7 +428,7 @@ const PREVIEW_CACHE_TTL_MS = 5_000;
  *  perché il client ripassa sul testo che arriva di qui (l'operazione è
  *  idempotente, quindi su un testo già pulito non fa niente). */
 const PREVIEW_MAX_CHARS = 120;
-/** Il prefisso delle buste di contesto di OpenClaw — vedi `CHAT_CONTEXT_PREFIX`
+/** Il prefisso delle buste di contesto della chat — vedi `CHAT_CONTEXT_PREFIX`
  *  in `server/context/assemble.ts`. Qui serve come pattern SQL, quindi
  *  niente apici né `%` dentro: entra in un `LIKE` per concatenazione. */
 const CONTEXT_ENVELOPE_PREFIX = "[Chat messages since your last reply";
@@ -528,7 +528,7 @@ export function createTopicsRouter(
   } = {},
 ): RouteHandler {
   const {
-    GATEWAY_URL, OPENCLAW_DIR,
+    APP_DATA_DIR,
     broadcastToAll,
     loadTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey,
@@ -607,17 +607,6 @@ export function createTopicsRouter(
     return resolveProvider(topic);
   }
 
-  /**
-   * Lo slash command di questo sessionKey va inoltrato al gateway OpenClaw?
-   *
-   * Si decide sul provider DICHIARATO dal topic, non su quello risolto: la
-   * regola (e il perché) stanno in `commandRouting.ts`, pure e testate.
-   */
-  function commandRoutesThroughGateway(sessionKey: string): boolean {
-    const topic = getTopicBySessionKey(sessionKey);
-    return routesThroughGateway(topic?.provider, getDefaultProviderName());
-  }
-
   /** The folder a chat's slash menu reads: its topic's project (`?topicId=`), else the server's. */
   function slashCommandProjectRoot(url: URL): string {
     const topicId = url.searchParams.get("topicId");
@@ -639,16 +628,12 @@ export function createTopicsRouter(
   // di polling, né un transcript finto, né le guardie di rotazione. La closure
   // gli serviva per nove valori, che ora sono dipendenze scritte.
   const subagents = createSubagentWatcher({
-    gatewayUrl: GATEWAY_URL,
-    // A getter: the watcher reads it at each call, after an OpenClaw rotation too.
-    get gatewayToken() { return ctx.GATEWAY_TOKEN; },
     getTopicById,
     getTopicBySessionKey,
     saveSingleTopic,
     appendLocalMessage,
     broadcastToAll,
     bumpUnread: updateUnreadCount,
-    resolveProvider,
     reportLanguage: () => (resolveOutputLanguage() === "en" ? "en" : "it"),
     // The result wakes the parent chat (SUBAGENT-12); the wakes start going out
     // once the boot has re-adopted the surviving turns (`startSubagentWakes`).
@@ -671,7 +656,7 @@ export function createTopicsRouter(
   // Track which topics already had a browser navigate this session to avoid duplicate triggers
   const browserNavigatedTopics = new Set<string>();
 
-  // Phase 30 BROWSER-CHAT-03 — OpenClaw browser bridge removed; agent now
+  // Phase 30 BROWSER-CHAT-03 — the gateway browser bridge was removed; agent now
   // controls the browser via 5 native tools at /api/browsers/:id/agent/*.
   // The legacy per-request targetId memoization Map (used by the deleted
   // bridge handler) was deleted alongside the bridge block.
@@ -709,10 +694,10 @@ export function createTopicsRouter(
 
   /**
    * Resolve a project reference (a Topics project name/slug, a `~/` or absolute
-   * path, or an OpenClaw workspace name) to an absolute directory on disk.
+   * path, or a workspace folder name) to an absolute directory on disk.
    *
    * Crucially this prefers the user's REAL Topics projects (projectStore) and
-   * folders already bound to a topic — not just `~/.openclaw/workspace`. That is
+   * folders already bound to a topic — not just `<app data>/workspace`. That is
    * what makes a cloud session's "open project Pix" land on the actual Pix
    * project the user has in Topics. Returns null when nothing resolves to an
    * existing directory.
@@ -921,7 +906,7 @@ export function createTopicsRouter(
   }
 
   // Scan workspace directory for project directories
-  const WORKSPACE_DIR = join(OPENCLAW_DIR, "workspace");
+  const WORKSPACE_DIR = join(APP_DATA_DIR, "workspace");
   const SKIP_DIRS = new Set(["node_modules", "memory", "backups", "test-results"]);
   const PROJECT_MARKERS = [
     ".git", "package.json", "CLAUDE.md", "Cargo.toml", "go.mod", "pyproject.toml",
@@ -1089,7 +1074,7 @@ export function createTopicsRouter(
    *    introduceva sì. Si scarta la riga e si prende la precedente che parla.
    *  · `partial` — un turno in volo ha testo mozzo, e mentre vola la riga mostra
    *    comunque lo stato live (SessionActivity), non l'anteprima.
-   *  · le buste di contesto di OpenClaw, che sono impalcatura, non messaggi.
+   *  · le buste di contesto della chat, che sono impalcatura, non messaggi.
    *
    * COSA FA DAVVERO IL `substr`. Non risparmia la LETTURA del `content`: i due
    * filtri di testo qui accanto (`trim(content) <> ''`, il `NOT LIKE` sulla
@@ -1489,94 +1474,6 @@ export function createTopicsRouter(
       broadcastToAll({ type: "topic:created", topic });
       if (initialMessage) void sendInitialMessage(topic.sessionKey, initialMessage);
       return json(topic, 201);
-    }
-
-    // POST /api/topics/adopt — open a cloud (gateway) session as a first-class,
-    // INTERACTIVE Topics chat (like opening a cloud session from Warp), instead
-    // of only viewing it read-only. Idempotent: if a topic already owns this
-    // sessionKey, return (and focus) it. Otherwise create an openclaw-backed
-    // topic bound to the EXISTING gateway session so the user can talk to it,
-    // optionally scoped to a project.
-    if (method === "POST" && pathname === "/api/topics/adopt") {
-      try {
-        const body = await readJSON(req);
-        const sessionKey = body?.sessionKey ? String(body.sessionKey).trim() : "";
-        if (!sessionKey) return json({ error: "sessionKey required" }, 400);
-
-        // Shape guard: a session key is `kind:id` / a bare token (e.g.
-        // "topic:abc12345", "agent:sub-xyz", "main"). Reject whitespace,
-        // control chars, path-like inputs and `..` so a fabricated/garbled key
-        // from a buggy client can't mint a phantom cloud chat.
-        if (!/^[A-Za-z0-9][\w:.\-/]{0,127}$/.test(sessionKey) || sessionKey.includes("..")) {
-          return json({ error: "invalid sessionKey" }, 400);
-        }
-
-        // Adopting means "make this an ordinary interactive chat", which is the
-        // one thing the coordinator's Topic must never become: the branch below
-        // would bind it to a project on the way out. The canonical Kanban
-        // endpoint stays the only door to that row.
-        if (isGlobalOrchestratorSession(db, sessionKey)) {
-          return json({
-            error: "the global coordinator is not an adoptable cloud session; open it from the Kanban",
-            code: "orchestrator_topic_invariant",
-          }, 403);
-        }
-
-        const existing = getTopicBySessionKey(sessionKey);
-        if (existing) {
-          if (existing.projectPath) bindTopicToProject(existing.id, existing.projectPath, { focus: true });
-          // The role marker is server-projected on every Topic that leaves the
-          // server, this route included: an ordinary payload must not carry a
-          // stale or forged `isGlobalOrchestrator` either.
-          return json(presentGlobalOrchestratorTopic(db, existing), 200);
-        }
-
-        const id = crypto.randomUUID();
-        const name =
-          (body?.name ? String(body.name).trim() : "") ||
-          `Cloud session ${sessionKey.replace(/^topic:/, "").slice(0, 12)}`;
-        // body.projectPath is an explicit local action → raw paths are trusted.
-        const projectDir = body?.projectPath
-          ? resolveProjectRef(String(body.projectPath), { trustRawPaths: true })
-          : null;
-
-        // Atomic check-then-insert: re-read INSIDE the transaction so two
-        // concurrent adopts for the same sessionKey converge on one topic,
-        // rather than the second INSERT OR REPLACE destructively deleting the
-        // first row (session_key is UNIQUE; REPLACE would cascade FK deletes).
-        const out = ctx.db.transaction((): { topic: Topic; created: boolean } => {
-          const again = getTopicBySessionKey(sessionKey);
-          if (again) return { topic: again, created: false };
-          const data = loadTopics();
-          const topic: Topic = {
-            id, name, slug: slugify(name), parentId: null, links: [],
-            sessionKey,                     // adopt the EXISTING gateway session
-            color: body?.color || "#5865f2", icon: body?.icon || "Cloud",
-            createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-            archived: false, systemPrompt: "",
-            contextFiles: [], pinnedMessages: [],
-            sortOrder: Object.keys(data.topics).length,
-            provider: "openclaw",           // cloud-backed
-          };
-          if (projectDir) (topic as any).projectPath = projectDir;
-          saveSingleTopic(topic);
-          return { topic, created: true };
-        })();
-
-        if (!out.created) {
-          if (out.topic.projectPath) bindTopicToProject(out.topic.id, out.topic.projectPath, { focus: true });
-          return json(presentGlobalOrchestratorTopic(db, out.topic), 200);
-        }
-
-        broadcastToAll({ type: "topic:created", topic: out.topic });
-        // Scope to its project (open + nest) when one was resolved; otherwise the
-        // caller opens it as a standalone cloud chat.
-        if (projectDir) bindTopicToProject(out.topic.id, projectDir, { focus: true });
-        return json(presentGlobalOrchestratorTopic(db, out.topic), 201);
-      } catch (err: any) {
-        console.warn("[adopt] failed:", err);
-        return json({ error: `adopt failed: ${err?.message || String(err)}` }, 500);
-      }
     }
 
     // POST /api/topics/adopt-claude — adopt a Claude Code session that is
@@ -2576,7 +2473,7 @@ export function createTopicsRouter(
       try {
         // A healthy coordinator may be stopped, but never through a mutable
         // provider/default resolution. A corrupt one exited above before any
-        // provider operation could reach OpenClaw or another runtime.
+        // provider operation could reach any runtime.
         abortProvider = rawGlobalAbort ? getProvider("codex") : resolveProvider(abortTopic);
       } catch (err) {
         return json({ error: `provider unavailable: ${err instanceof Error ? err.message : String(err)}` }, 503);
@@ -3198,12 +3095,6 @@ export function createTopicsRouter(
           case "model": {
             const modelName = args?.model;
             if (!modelName) return json({ error: "model name required" }, 400);
-            // Il provider DICHIARATO, non quello risolto: vedi declaredProviderName.
-            if (!isGlobalCoordinatorCommand && commandRoutesThroughGateway(sessionKey)) {
-              const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: `/model ${modelName}` }] }) });
-              if (!resp.ok) return json({ error: "Failed to set model" }, 500);
-              return json({ ok: true, command: "model", model: modelName, message: `Model set to: ${modelName}` });
-            }
             // claude-code (and any respawn provider): the model is a spawn-time
             // `--model` flag. Persist it per-topic and drop the idle pooled
             // process so the next turn respawns with it — same path as PATCH
@@ -3220,12 +3111,9 @@ export function createTopicsRouter(
           }
           case "effort": {
             // Per-topic reasoning-effort tier for claude-code (spawn-time
-            // `--effort`). openclaw has no effort tier → route through /reasoning.
+            // `--effort`).
             const tier = String(args?.level || args?.effort || "").trim().toLowerCase();
             const VALID_EFFORTS = new Set<string>(EFFORT_TIERS);
-            if (!isGlobalCoordinatorCommand && commandRoutesThroughGateway(sessionKey)) {
-              return json({ error: "L'effort non si applica a questo provider. Usa /reasoning." }, 400);
-            }
             if (!tier || !VALID_EFFORTS.has(tier)) {
               return json({ error: "Uso: /effort <low|medium|high|xhigh|max>" }, 400);
             }
@@ -3242,8 +3130,8 @@ export function createTopicsRouter(
           case "compact": {
             // `/compact` on an engine that compacts on request but has no
             // command parser: Topics' native engine (CMDUI-06). The CLI does
-            // its own on Claude Code, the gateway on OpenClaw; there the
-            // message travels as typed and never reaches this branch.
+            // its own on Claude Code; there the message travels as typed and
+            // never reaches this branch.
             const engine = providerForSessionKey(sessionKey) as AIProvider & { compactNow?: (key: string) => CompactNowResult };
             if (typeof engine.compactNow !== "function") {
               return json({ error: "this engine does not compact on request", code: "compact_unsupported" }, 400);
@@ -3273,17 +3161,7 @@ export function createTopicsRouter(
             return json({ ok: true, command: "compact", compacted: true, before: r.before, after: r.after });
           }
           case "reasoning": {
-            // The level the person TYPED, or none. It used to default to "on",
-            // so a «toggle» could only ever switch reasoning on. Bare, the
-            // command goes to the gateway bare, which toggles it itself.
-            const level = typeof args?.level === "string" && args.level.trim() ? args.level.trim().toLowerCase() : null;
-            if (!isGlobalCoordinatorCommand && commandRoutesThroughGateway(sessionKey)) {
-              const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: reasoningCommandText(level) }] }) });
-              if (!resp.ok) return json({ error: "Failed to toggle reasoning" }, 500);
-              const text = await resp.text();
-              return json({ ok: true, command: "reasoning", level, message: level ? `Ragionamento: ${level}` : "Ragionamento commutato", output: text });
-            }
-            // No on/off switch elsewhere: name the DECLARED provider (CMD-08), not «claude-code» everywhere.
+            // No on/off switch on any provider: name the DECLARED provider (CMD-08), not «claude-code» everywhere.
             const declared = declaredProviderName(getTopicBySessionKey(sessionKey)?.provider, getDefaultProviderName());
             return json({ ok: true, command: "reasoning", message: reasoningElsewhereMessage(declared) });
           }
@@ -3357,8 +3235,6 @@ export function createTopicsRouter(
         let result: any;
         if (procProvider.listSessions) {
           result = await procProvider.listSessions({ kinds: ["other"], activeMinutes: 30 });
-        } else if (procProvider.invokeTool) {
-          result = await procProvider.invokeTool("sessions_list", { kinds: ["other"], activeMinutes: 30 });
         } else {
           return json(commands);
         }

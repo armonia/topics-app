@@ -365,7 +365,7 @@ jobs:
       # `data/topics.db`, che è in .gitignore:174. Su un checkout di CI quel
       # file non esiste e lo script esce **2** senza guardare niente, quindi
       # come passo sarebbe rosso per sempre; e i checkout che ispeziona
-      # arrivano anche da altri progetti (`~/.openclaw/workspace`), quindi il
+      # arrivano anche da altri progetti (il `workspace` dei dati dell'app), quindi il
       # suo rosso può venire da un ramo di un repo che non è questo — il 13/08,
       # 2 dei 4 debiti stavano in altri due repo della postazione, e si vedono
       # con `bun run report:landed --json`. Il prefisso `check:`
@@ -841,8 +841,8 @@ jobs:
 
   # Runs the real E2E suite against the isolated server that globalSetup spawns
   # on :13334 (own SQLite DB under /tmp/topics-test-data) — no external
-  # services or repo secrets needed: NO_TLS=1 and dummy GATEWAY_TOKEN/URL
-  # values are set by global-setup.ts / start-test-server.sh themselves.
+  # services or repo secrets needed: NO_TLS=1 and the rest are set by
+  # global-setup.ts / start-test-server.sh themselves.
   # Previously this suite was only *collected* (`playwright test --list`) in
   # the gates job above, which parses every spec but runs none of them.
 
@@ -910,9 +910,10 @@ jobs:
         # E2E_TIER=pr: il piano copre solo i test del gate PR, come fa lo shard.
         # Se il piano fallisce (durate mancanti, --list crash) si fa ok=false e
         # ogni shard cade nel fallback --shard=i/8, che e' sempre stato l'unico.
-        # The 8 here, the matrix of `e2e` and that fallback are one number.
+        # 16 = the 8 runners of the matrix of `e2e` times the 2 processes each
+        # runs (see that job). Change one and the other two move with it.
         run: |
-          if bun run scripts/e2e-plan-shards.ts 8 --out plan; then
+          if bun run scripts/e2e-plan-shards.ts 16 --out plan; then
             echo "ok=true" >> "$GITHUB_OUTPUT"
           else
             echo "ok=false" >> "$GITHUB_OUTPUT"
@@ -972,6 +973,18 @@ jobs:
     # a pull request (run 36461528241). The suite runs ONE worker per shard
     # (`workers: 1`, one test server and one DB per shard), so the only lever
     # on its wall clock is the number of shards, and 8 halves it.
+    #
+    # TWO PLAYWRIGHT PROCESSES PER RUNNER. One process left three of the four
+    # vCPU idle: 18 of the 19 minutes of a shard were tests run one at a time
+    # (256 PR shards, 08/11/2026). Each process gets its own `E2E_PORT`, so its
+    # own server, DB and folders (helpers/test-server.ts), as e2e-shards.sh does
+    # locally. Measured on PR #630, same 2,426 tests:
+    #   1 process   ~18 min of tests per runner
+    #   2 processes 9.5-11.9 min, each test +13%, load 4.9 on 4 vCPU
+    #   3 processes 8.2-10.4 min, each test +55%, load 8.6 (max 15.8), and six
+    #               timing-sensitive tests flaked that never did before
+    # Two is nearly all the gain at a load the runner carries. The plan is cut
+    # in 16 pieces and runner N takes pieces 2N-1 and 2N.
     #
     # `e2e (0)` is not a shard of the PR tier: it runs ONLY the step "E2E dei
     # file toccati", in parallel with the eight shards instead of after one of
@@ -1171,16 +1184,39 @@ jobs:
         # a --shard=i/N di Playwright, che riparte per numero di test.
         # Il piano e' scritto con selettori regex (specSelector in e2e-plan-shards.ts)
         # che Playwright accetta come argomenti posizionali.
+        #
+        # Two processes side by side, each on its own E2E_PORT (see the top of
+        # this job). Each writes its own JSON and HTML report; the load line
+        # every 30 s says whether a red came with a saturated runner.
         run: |
-          PLAN_FILE="plan/shard-${{ matrix.shard }}.txt"
-          if [ -f "$PLAN_FILE" ]; then
-            echo "[ci] usando il piano per durata: $PLAN_FILE"
-            readarray -t SELECTORS < "$PLAN_FILE"
-            npx playwright test "${SELECTORS[@]}"
-          else
-            echo "[ci] piano non disponibile, fallback a --shard=${{ matrix.shard }}/8"
-            npx playwright test --shard=${{ matrix.shard }}/8
-          fi
+          PROCS=2
+          SHARD=${{ matrix.shard }}
+          mkdir -p test-results/sub
+          ( while sleep 30; do echo "[carico] $(cut -d' ' -f1-3 /proc/loadavg) memoria $(free -m | awk '/Mem/{print $3"/"$2}') MB"; done ) &
+          monitor=$!
+          pids=()
+          for k in $(seq 1 "$PROCS"); do
+            piece=$(( (SHARD - 1) * PROCS + k ))
+            PLAN_FILE="plan/shard-$piece.txt"
+            if [ -f "$PLAN_FILE" ]; then
+              echo "[ci] processo $k: piano per durata $PLAN_FILE"
+              readarray -t SELECTORS < "$PLAN_FILE"
+            else
+              echo "[ci] processo $k: piano non disponibile, fallback a --shard=$piece/$((8 * PROCS))"
+              SELECTORS=("--shard=$piece/$((8 * PROCS))")
+            fi
+            E2E_PORT=$((13910 + k - 1)) \
+            PLAYWRIGHT_JSON_OUTPUT_FILE="test-results/sub/report-$k.json" \
+            PLAYWRIGHT_HTML_OUTPUT_DIR="test-results/html-report-$k" PLAYWRIGHT_HTML_OPEN=never \
+              npx playwright test "${SELECTORS[@]}" --reporter=list,json,html --output="test-results/sub/artifacts-$k" \
+              > >(sed -u "s/^/[p$k] /") 2>&1 &
+            pids+=("$!")
+          done
+          rc=0
+          for p in "${pids[@]}"; do wait "$p" || rc=1; done
+          kill "$monitor" 2>/dev/null || true
+          sleep 1
+          exit "$rc"
         env:
           CHROMIUM_PATH: ${{ steps.chromium.outputs.path }}
           E2E_TIER: pr
@@ -1233,7 +1269,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-shard-${{ matrix.shard }}
-          path: test-results/html-report
+          path: |
+            test-results/html-report*
+            test-results/sub
           # 3, non 7: la quota artifact e' dell'ORG (500 MB sul piano free), non del repo,
           # e questi report pesano fino a 20 MB l'uno. Con sette giorni di storico topics-app
           # da solo arrivava a 600 MB e saturava la quota di TUTTI: il 16/08 gli upload della

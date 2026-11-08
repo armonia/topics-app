@@ -402,8 +402,7 @@ export function CommandPalette({
         const raw = new Date(topic.updatedAt || topic.createdAt).getTime();
         const ts = Number.isFinite(raw) ? raw : 0;
         const projLabel = topic.projectPath ? getProjectLabel(topic.projectPath) : undefined;
-        const cloud = topic.provider === 'openclaw' ? 'cloud' : undefined;
-        const descBits = [topic.archived ? 'chiuso' : undefined, cloud, projLabel].filter(Boolean);
+        const descBits = [topic.archived ? 'chiuso' : undefined, projLabel].filter(Boolean);
         const description = descBits.length ? descBits.join(' · ') : undefined;
         return {
           id: `topic-${topic.id}`,

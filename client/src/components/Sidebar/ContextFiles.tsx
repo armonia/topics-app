@@ -2,7 +2,7 @@
  * THE FILES OF THE AGENTS' CONTEXT, the lists of the context level (HUBBR-17).
  *
  * The files read at start, grouped as the hub groups them by who loads them
- * (Claude Code, Codex and jcode, OpenClaw), each group with its count and its
+ * (Claude Code, Codex and jcode), each group with its count and its
  * tokens; a row carries who loads it as chips with the hub's qualifier, the
  * hub's note, the tokens and how long ago the file changed (amber past two
  * months). A tap opens the text with the file's place on disk, so it can be

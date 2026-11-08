@@ -5,7 +5,7 @@
  * the `ui_state` keys use a twin hash. So two paths pointing at the same
  * directory — one direct, one through a symlink — produce two distinct
  * projects: two sidebar entries, two boards, two panes. Measured 2026-09-02:
- * `~/.openclaw/workspace/neuture-proposal` is a link to
+ * `<app data>/workspace/neuture-proposal` is a link to
  * `~/Projects/neuture-proposal`, and neuture showed up twice.
  *
  * The link is resolved ONCE here, when the path COMES IN. Nothing already

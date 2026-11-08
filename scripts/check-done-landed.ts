@@ -79,13 +79,13 @@
  * divergerebbero, e la copia sbagliata è quella che assolve.
  */
 import { existsSync } from "fs";
-import { homedir } from "os";
 import { join } from "path";
 import { Database } from "bun:sqlite";
 import { projectIdForPath } from "../server/services/tasks";
 import { branchExistsInRepo, commitStatusFromRepo, countCommitsAhead, resolveCommit, type BranchStatus } from "../server/services/branch-status";
 import { classifyBranchLanding, classifyCommitLanding, indiceRigheMain, type LandingEsito, type LandingVerdict } from "../server/services/landing-verdict";
 import { scanWorkspaceProjects } from "../server/services/project-path-resolver";
+import { resolveAppDataDir } from "../server/lib/data-dir";
 
 const argv = process.argv.slice(2);
 const flag = (name: string): string | null => {
@@ -96,7 +96,7 @@ const JSON_OUT = argv.includes("--json");
 const STRICT = argv.includes("--strict");
 const DB_PATH = flag("--db") ?? process.env.TOPICS_DB
   ?? join(process.env.DATA_DIR ?? join(process.cwd(), "data"), "topics.db");
-const WORKSPACE_DIR = process.env.DISPATCH_WORKSPACE_DIR ?? join(homedir(), ".openclaw", "workspace");
+const WORKSPACE_DIR = process.env.DISPATCH_WORKSPACE_DIR ?? join(resolveAppDataDir(), "workspace");
 
 interface DoneRow {
   id: string;

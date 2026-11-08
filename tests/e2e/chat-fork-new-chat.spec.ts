@@ -3,7 +3,7 @@ import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTopic, openTopicByClick } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
-import { E2E_BASE } from "./helpers/test-server";
+import { E2E_BASE, daemonAuthHeaders } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { installSlowTurnCli } from "./helpers/fake-claude-cli";
 
@@ -25,7 +25,6 @@ type Msg = { id: string; role: string; content: string };
 type TopicRow = { id: string; name: string; sessionKey: string; forkedFrom?: { topicId: string | null; name: string; atMessageId: string } };
 
 const skOf = (id: string) => `topic:${id.slice(0, 8)}`;
-const TOKEN = process.env.GATEWAY_TOKEN ?? "test-token";
 
 /** A real turn from outside the page (POST /api/chat), and the text its stream carried so far. */
 function startTurn(sessionKey: string, content: string): { said: () => string; done: Promise<void> } {
@@ -33,7 +32,7 @@ function startTurn(sessionKey: string, content: string): { said: () => string; d
   const done = (async () => {
     const res = await fetch(`${E2E_BASE}/api/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Gateway-Token": TOKEN },
+      headers: { "Content-Type": "application/json", ...daemonAuthHeaders() },
       body: JSON.stringify({ sessionKey, messages: [{ role: "user", content }] }),
     });
     if (!res.ok || !res.body) throw new Error(`POST /api/chat answered ${res.status}`);
@@ -281,7 +280,7 @@ test.describe("Fork into a new chat", () => {
 
   test("a runtime with no way to carry the memory: the route refuses and the item is not there", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-FORK-03" });
-    const topic = await createTopic(request, `Fork openclaw ${Date.now()}`, { provider: "openclaw" });
+    const topic = await createTopic(request, `Fork jcode ${Date.now()}`, { provider: "jcode" });
     try {
       const ids = await seedTurns(request, skOf(topic.id), 1);
       const res = await request.post(`${E2E_BASE}/api/topics/${topic.id}/fork`, { data: {} });
