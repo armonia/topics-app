@@ -683,7 +683,17 @@ export function createAppContext(baseDir: string): AppContext {
    * SQLite's WAL mode masks most of this, but Bun's `await` yields make
    * the gap large enough to matter under load.
    */
+  let knownDirsCache: { at: number; dirs: Set<string> } | null = null;
+  const topicProjectPaths = new Map<string, string | null>();
   function saveSingleTopic(topic: Topic): void {
+    // A new topic or a changed projectPath changes the allowed folders: drop the
+    // cache so the very next path check sees it, instead of waiting out the TTL.
+    // Unchanged saves (the hot path) leave the cache alone.
+    const nextPath = topic.projectPath || null;
+    if (topicProjectPaths.get(topic.id) !== nextPath) {
+      topicProjectPaths.set(topic.id, nextPath);
+      knownDirsCache = null;
+    }
     db.transaction(() => {
       stmts.insertTopic.run({
         $id: topic.id,
@@ -1252,6 +1262,12 @@ export function createAppContext(baseDir: string): AppContext {
   // (declared above) so it can fire `worktree:updated` envelopes when the
   // async git materialise step transitions a row from `pending` → `ready|error`.
   const projectStore = createProjectStore(db);
+  const createProjectRow = projectStore.create;
+  projectStore.create = (input) => {
+    const project = createProjectRow(input);
+    knownDirsCache = null;
+    return project;
+  };
   const worktreeStore = createWorktreeStore(db);
   // Le gcDeps sono closure deliberate: processes.ts nasce DOPO il manager,
   // e queste funzioni vengono lette ALLA CHIAMATA, non alla costruzione.
@@ -2628,7 +2644,7 @@ export function createAppContext(baseDir: string): AppContext {
    * col picker entra nell'allowlist entro un battito, e nel frattempo il
    * client non ha ancora niente da chiederle.
    */
-  let knownDirsCache: { at: number; dirs: Set<string> } | null = null;
+  // `knownDirsCache` itself is declared above `saveSingleTopic`, which resets it.
   const KNOWN_DIRS_TTL_MS = 5_000;
   function allowedProjectDirs(): Set<string> {
     const now = Date.now();
