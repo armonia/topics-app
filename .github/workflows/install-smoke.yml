@@ -122,6 +122,10 @@ jobs:
             sudo ditto "$app" /Applications/Topics.app || { hdiutil detach "$mount" -quiet || true; echo "::error title=Installazione::Copia di Topics.app $PREVIOUS_TAG fallita"; exit 1; }
             hdiutil detach "$mount" -quiet
           else
+            # The runner image ships a package index that goes stale: without this the
+            # mirror answers 404 for dependencies (libsoup3, 08/11) and the smoke fails
+            # for a reason that is not ours.
+            sudo apt-get update -qq
             sudo apt-get install -y --no-install-recommends "$package" || { echo "::error title=Installazione::Installazione .deb $PREVIOUS_TAG fallita"; exit 1; }
           fi
 
