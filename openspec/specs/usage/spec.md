@@ -942,3 +942,22 @@ The restart comparison (`scripts/token-before-after.ts`) SHALL read the `message
 - **GIVEN** no `--cut` option
 - **WHEN** the comparison runs
 - **THEN** it SHALL exit 1 and name the missing option
+
+### Requirement: USAGE-26 — What a session costs is read from one answer, and a shared process is split by a written rule
+
+Every surface that shows what a live session costs (the load screen of the PC, the machine's Processes view, the card drawer) SHALL read ONE answer, `GET /api/usage/consumption`, built from the sources that already exist: the fleet process table, the native usage registry, the dispatcher's transcript reader and the card's own token counter. A third consumption table SHALL NOT exist.
+
+Per session the answer SHALL carry the readable title, the project, the model, the tokens (input, output, cache), the output rate (tokens per second, averaged over the window the answer declares) and the memory and CPU billed to it. A figure not measured SHALL be `null` and shown as a dash, never as zero.
+
+A process belongs to the nearest session head above it. A process several sessions use at once (the server, a bridge) SHALL be split in equal slices between the sessions that use it, and the row SHALL say it («1/N server di Topics»). Work Topics started for nobody SHALL be reported apart and never shared out. What the sessions are billed plus what is reported apart SHALL equal what was scanned: nothing is counted twice.
+
+#### Scenario: Two sessions share the server
+- **GIVEN** two cards in progress, each with its own tokens and one process
+- **WHEN** the Processes view opens on the sessions
+- **THEN** each row SHALL show its model, its tokens and «1/2 server di Topics», the output rate SHALL appear from the growth of the counter, and the processes SHALL be listed only inside the row, closed by default
+
+#### Scenario: The card's own drawer
+- **GIVEN** a card in progress
+- **WHEN** its drawer opens on the details
+- **THEN** it SHALL show the same row, from the same answer
+

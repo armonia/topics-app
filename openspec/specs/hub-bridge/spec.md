@@ -333,9 +333,9 @@ A machine that takes the load (the PC) SHALL be able to show, full screen on its
 - **THEN** the page SHALL say «Dorme fra N min» with the time and the threshold, list the PC's programs with MB and CPU (a dash where not measured), say nothing runs, show the pace dials, run no animation and not scroll
 
 #### Scenario: At work
-- **GIVEN** a card in progress on the PC, one on another machine, and a job sent by the Mac
+- **GIVEN** two sessions in progress and a job sent by the Mac
 - **WHEN** the page reads again
-- **THEN** it SHALL say «Sta lavorando · 1 card · 1 lavoro mandato», list that card with its project and how long it has run, never the other machine's card, and the job with «da Mac» and its minutes
+- **THEN** it SHALL show the Topics logo and name, list the SESSIONS (title, project, model, tokens, tokens per second, a live clock, CPU and memory with the shared share named), and the job as «lavoro dal Mac»; the processes SHALL appear only inside a session or as the machine's weight, and no account quota pace SHALL be shown (USAGE-26)
 
 #### Scenario: The sleep keeper's own file, on the PC's ultrawide monitor
 - **GIVEN** the screen file exactly as the keeper writes it (`sospendeAlle` in epoch milliseconds) and a 3440x1440 screen

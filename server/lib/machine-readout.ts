@@ -32,6 +32,8 @@ export interface RawProc {
   cpuPct: number | null;
   /** Cumulative processor seconds, from `Get-Process` (Windows). */
   cpuSeconds: number | null;
+  /** Set when its command line, or an ancestor's, names `offload` or `pw-remote`: work sent from the Mac, not a service. */
+  job?: true;
 }
 
 /** Processes grouped by program name, the heaviest first. */
@@ -41,6 +43,8 @@ export interface ProcGroup {
   memMB: number;
   /** % of one core summed over the group; null when no process of it was measured. */
   cpuPct: number | null;
+  /** The group is work sent from the Mac (see `RawProc.job`): kept apart from a same-named service. */
+  job?: true;
 }
 
 export interface ScreenJob {
@@ -129,18 +133,21 @@ export function parsePsLines(text: string): RawProc[] {
   return out;
 }
 
-/** The PowerShell line format `Name|Id|CPU|WorkingSet64` (see WINDOWS_PS_LOOP). */
+/** The PowerShell line format `Name|Id|CPU|WorkingSet64[|job]` (see WINDOWS_PS_LOOP); the last field is `1` for work sent from the Mac. */
 export function parseWinProcLines(text: string): RawProc[] {
   const out: RawProc[] = [];
   for (const line of text.split(/\r?\n/)) {
     const parts = line.split("|");
-    if (parts.length !== 4) continue;
+    if (parts.length !== 4 && parts.length !== 5) continue;
     const pid = Number(parts[1]);
     const ws = Number(parts[3]);
     if (!Number.isFinite(pid) || !Number.isFinite(ws) || !parts[0].trim()) continue;
     // A process the reader may not open (System, Idle) has an empty CPU: not measured.
     const cpu = parts[2].trim() === "" ? null : Number(parts[2].replace(",", "."));
-    out.push({ pid, name: programName(parts[0]), memMB: ws / (1024 * 1024), cpuPct: null, cpuSeconds: cpu !== null && Number.isFinite(cpu) ? cpu : null });
+    out.push({
+      pid, name: programName(parts[0]), memMB: ws / (1024 * 1024), cpuPct: null, cpuSeconds: cpu !== null && Number.isFinite(cpu) ? cpu : null,
+      ...(parts[4]?.trim() === "1" ? { job: true as const } : {}),
+    });
   }
   return out;
 }
@@ -163,8 +170,9 @@ export function winCpuBetween(prev: ReadonlyMap<number, number>, cur: RawProc[],
 export function groupProcs(procs: RawProc[], top = 12): { procs: ProcGroup[]; rest: { count: number; memMB: number } } {
   const by = new Map<string, ProcGroup>();
   for (const p of procs) {
-    const key = p.name.toLowerCase();
-    const g = by.get(key) ?? { name: p.name, count: 0, memMB: 0, cpuPct: null };
+    // Work sent from the Mac is its own row: a `bun` test suite is not the `bun` service beside it.
+    const key = p.job ? `${p.name.toLowerCase()}\u0000job` : p.name.toLowerCase();
+    const g = by.get(key) ?? { name: p.name, count: 0, memMB: 0, cpuPct: null, ...(p.job ? { job: true as const } : {}) };
     g.count += 1;
     g.memMB += p.memMB;
     if (p.cpuPct !== null) g.cpuPct = (g.cpuPct ?? 0) + p.cpuPct;
@@ -220,12 +228,23 @@ export const WINDOWS_PS_END = "__TOPICS_PROCS_END__";
  * The warm PowerShell loop behind the Windows list (`warm-lister.ts`): for
  * every line read on stdin, one line per process and then the end marker. It
  * ends by itself when stdin closes. No module to load.
+ *
+ * A `bun` process is looked at once, when it first appears: its command line
+ * and its ancestors' (up to six) are read, and one that names `offload` or
+ * `pw-remote` is work sent from the Mac, flagged `1` in the last field. The
+ * answer is kept by pid and dropped when the process goes, so a steady reading
+ * costs what it cost before and only a new `bun` pays for the query.
  */
-export const WINDOWS_PS_LOOP =
-  "$ErrorActionPreference='SilentlyContinue'; [Console]::OutputEncoding=[Text.Encoding]::UTF8; " +
-  "while ($null -ne [Console]::In.ReadLine()) { " +
-  "Get-Process | ForEach-Object { '{0}|{1}|{2}|{3}' -f $_.ProcessName,$_.Id,$_.CPU,$_.WorkingSet64 }; " +
-  `'${WINDOWS_PS_END}'; [Console]::Out.Flush() }`;
+export const WINDOWS_PS_LOOP = [
+  "$ErrorActionPreference='SilentlyContinue'; [Console]::OutputEncoding=[Text.Encoding]::UTF8; $jobs=@{};",
+  "function Test-SentWork($id) { for ($i=0; $i -lt 6 -and $id; $i++) { $w=Get-CimInstance Win32_Process -Filter ('ProcessId='+$id); if (-not $w) { return 0 }; if ($w.CommandLine -match 'offload|pw-remote') { return 1 }; $id=$w.ParentProcessId }; return 0 };",
+  "while ($null -ne [Console]::In.ReadLine()) {",
+  "$all=@(Get-Process); $live=@{};",
+  "foreach ($p in $all) { if ($p.ProcessName -eq 'bun') { $live[$p.Id]=1; if (-not $jobs.ContainsKey($p.Id)) { $jobs[$p.Id]=Test-SentWork $p.Id } } };",
+  "foreach ($k in @($jobs.Keys)) { if (-not $live.ContainsKey($k)) { $jobs.Remove($k) } };",
+  "$all | ForEach-Object { '{0}|{1}|{2}|{3}|{4}' -f $_.ProcessName,$_.Id,$_.CPU,$_.WorkingSet64,$jobs[$_.Id] };",
+  `'${WINDOWS_PS_END}'; [Console]::Out.Flush() }`,
+].join(" ");
 
 export interface MachineReadoutDeps {
   platform: string;

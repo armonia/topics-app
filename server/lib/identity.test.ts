@@ -33,7 +33,7 @@ function db084(): Database {
 }
 
 function aggiungi(db: Database, opts: {
-  id: string; token: string; role?: "owner" | "guest"; revoked?: number | null; personId?: string | null;
+  id: string; token: string; role?: "owner" | "guest" | "screen"; revoked?: number | null; personId?: string | null;
 }) {
   db.query("INSERT INTO devices (id, name, token_hash, created_at, role, revoked_at, person_id) VALUES (?,?,?,?,?,?,?)")
     .run(opts.id, opts.id, hashToken(opts.token), 1, opts.role ?? "owner", opts.revoked ?? null, opts.personId ?? null);
@@ -48,7 +48,7 @@ describe("identità · il percorso locale non tocca il database", () => {
   it("locale = la macchina, senza cookie e senza query", () => {
     const db = db084();
     const io = resolveIdentity(db, null, true);
-    expect(io).toEqual({ locale: true, device: null, principals: [], confined: false, personId: null, rev: 0 });
+    expect(io).toEqual({ locale: true, device: null, principals: [], confined: false, personId: null, rev: 0, screen: false });
   });
 
   it("e vale anche se un cookie c'è: sul locale non lo si legge nemmeno", () => {
@@ -65,6 +65,22 @@ describe("identità · il percorso locale non tocca il database", () => {
 describe("identità · da remoto", () => {
   let db: Database;
   beforeEach(() => { db = db084(); });
+
+  it("un dispositivo accoppiato come schermo e' uno schermo: confinato, senza persona e senza permessi", () => {
+    aggiungi(db, { id: "pc-screen", token: "ts", role: "screen" });
+    const io = resolveIdentity(db, cookie("ts"), false);
+    expect(io.screen).toBe(true);
+    expect(io.confined).toBe(true);
+    expect(io.personId).toBeNull();
+    expect(io.principals).toEqual([{ kind: "device", id: "pc-screen" }]);
+  });
+
+  it("un owner o un guest non sono mai uno schermo", () => {
+    aggiungi(db, { id: "o", token: "to", role: "owner" });
+    aggiungi(db, { id: "g", token: "tg", role: "guest" });
+    expect(resolveIdentity(db, cookie("to"), false).screen).toBe(false);
+    expect(resolveIdentity(db, cookie("tg"), false).screen).toBe(false);
+  });
 
   it("senza cookie non sei nessuno, e sei confinato", () => {
     const io = resolveIdentity(db, null, false);

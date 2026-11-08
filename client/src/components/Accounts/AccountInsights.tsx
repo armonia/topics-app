@@ -166,33 +166,26 @@ export function PaceDial({ needle, zone, label }: { needle: number; zone: string
   );
 }
 
-/** The hub's outlook for one account, in one row: the pace dial and its state, when it runs out, the tokens left. Drawn on the account card and on the load screen. */
-export function AccountOutlook({ board: b, className = 'mb-1' }: { board: BoardAccount; className?: string }) {
+/** The hub's forecast on a card: the dial and its state, when it runs out, the tokens left; then the 24 hours, the per-model windows, the bonus. */
+export function BoardExtras({ board: b }: { board: BoardAccount }) {
   const tr = useT();
   const locale = useLocale();
   const state = hubProse(b.state.text, locale);
   const end = b.end ? hubProse(b.end.text, locale) : null;
-  if (!(b.dial || state || end || b.tokens)) return null;
-  return (
-    <div className={`${className} flex min-h-[20px] flex-wrap items-center gap-x-2 gap-y-0.5 text-mini tabular-nums`} data-testid="account-outlook" title={hubProse(b.reason, locale) ?? undefined}>
-      {b.dial && <PaceDial needle={b.dial.needle} zone={b.dial.zone} label={tr('accounts.dial.label', { state: state ?? '' })} />}
-      {state && <span className={`font-semibold ${TONE_TEXT[b.state.tone]}`} data-testid="account-outlook-state">{state}</span>}
-      {end && <span className="text-app-text-secondary" title={hubProse(b.end!.hint, locale) ?? undefined} data-testid="account-outlook-end">{tr('accounts.outlook.end')} <b className={`font-semibold ${b.end!.tone === 'ok' ? 'text-app-text' : TONE_TEXT[b.end!.tone]}`}>{end}</b></span>}
-      {b.tokens && (
-        <span className="text-app-text-secondary" title={hubProse(b.tokens.hint, locale) ?? undefined} data-testid="account-outlook-tokens">
-          {tr('accounts.outlook.tokens')} <b className="font-semibold text-app-text">{b.tokens.left}</b> · {b.tokens.perDay}
-        </span>
-      )}
-    </div>
-  );
-}
-
-/** The hub's forecast on a card: the outlook row; then the 24 hours, the per-model windows, the bonus. */
-export function BoardExtras({ board: b }: { board: BoardAccount }) {
-  const tr = useT();
   return (
     <div className="mb-1" data-testid="account-board">
-      <AccountOutlook board={b} />
+      {(b.dial || state || end || b.tokens) && (
+        <div className="mb-1 flex min-h-[20px] flex-wrap items-center gap-x-2 gap-y-0.5 text-mini tabular-nums" data-testid="account-outlook" title={hubProse(b.reason, locale) ?? undefined}>
+          {b.dial && <PaceDial needle={b.dial.needle} zone={b.dial.zone} label={tr('accounts.dial.label', { state: state ?? '' })} />}
+          {state && <span className={`font-semibold ${TONE_TEXT[b.state.tone]}`} data-testid="account-outlook-state">{state}</span>}
+          {end && <span className="text-app-text-secondary" title={hubProse(b.end!.hint, locale) ?? undefined} data-testid="account-outlook-end">{tr('accounts.outlook.end')} <b className={`font-semibold ${b.end!.tone === 'ok' ? 'text-app-text' : TONE_TEXT[b.end!.tone]}`}>{end}</b></span>}
+          {b.tokens && (
+            <span className="text-app-text-secondary" title={hubProse(b.tokens.hint, locale) ?? undefined} data-testid="account-outlook-tokens">
+              {tr('accounts.outlook.tokens')} <b className="font-semibold text-app-text">{b.tokens.left}</b> · {b.tokens.perDay}
+            </span>
+          )}
+        </div>
+      )}
       {b.windows.map((w) => (
         <Bar key={w.key} label={w.label} pct={Math.round(w.used)} mark={w.mark} testId="account-bar-extra"
           markTitle={w.key === 'day' && w.mark !== null ? tr('accounts.bar.day', { pct: w.mark }) : undefined} />
