@@ -50,7 +50,7 @@ describe("plan tree", () => {
     expect(ms.tasks.map((c) => c.id)).toEqual(["mom"]);
     expect(ms.tasks[0]!.children!.map((c) => c.id)).toEqual(["kid", "grandkid"]);
     expect(ms.progress.total).toBe(3);
-    // Una madre che non c'è (archiviata, altra board) non nasconde la figlia.
+    // A mother that is not there (archived, another board) does not hide the child.
     expect(p.unplaced.tasks.map((c) => c.id)).toEqual(["orphan"]);
   });
 

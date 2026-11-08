@@ -105,9 +105,9 @@ export function buildPlan(
   } catch { /* projects table absent (test bench): fall back to the id */ }
 
   const milestoneOf = new Map(links.map((l) => [l.task_id, l.milestone_id]));
-  // Una sotto-card sta dove sta la sua madre (stessa board): il piano la mostra
-  // sotto la madre, non sciolta in «Da collocare». Si risale fino alla radice
-  // presente fra le card lette; un ciclo si ferma al primo giro ripetuto.
+  // A sub-card lives where its mother lives (same board): the plan shows it
+  // under her, not loose among the unplaced cards. Walk up to the root among
+  // the cards read; a cycle stops at the first repeated step.
   const taskById = new Map(tasks.map((t) => [t.id, t]));
   const rootOf = (t: TaskRow): TaskRow => {
     const seen = new Set<string>([t.id]);
@@ -190,8 +190,8 @@ export function buildPlan(
       bucket.set(key, [...(bucket.get(key) ?? []), card]);
     }
   }
-  // Le figlie visibili vanno sotto la madre visibile; se la madre non si vede
-  // (chiusa, senza «Mostra completate») la figlia resta in lista da sola.
+  // Visible children go under their visible mother; when the mother is hidden
+  // (done, without "show completed") the child stays in the list on its own.
   for (const bucket of [cardsByMilestone, unplacedByProject]) {
     for (const [key, list] of bucket) {
       const byId = new Map(list.map((c) => [c.id, c]));
