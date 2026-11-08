@@ -7,7 +7,7 @@ import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { useExitGhost } from '../../lib/exitGhost';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
-import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Workflow, Kanban, UserRound, Hourglass, BellOff, BellRing, CircleCheck, type LucideIcon, Share2, Gauge } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Workflow, Kanban, UserRound, CircleAlert, BellOff, BellRing, CircleCheck, type LucideIcon, Share2, Gauge } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -83,7 +83,7 @@ import { useArchivedSidebarPages } from './useArchivedSidebarPages';
  * Le etichette dicono CHI deve muoversi, non il nome tecnico della fase.
  */
 const STATE_SECTIONS: readonly { key: SidebarStateBucket; icon: LucideIcon; labelKey: string }[] = [
-  { key: 'needs-you', icon: Hourglass, labelKey: 'sidebar.state.needsYou' },
+  { key: 'needs-you', icon: CircleAlert, labelKey: 'sidebar.state.needsYou' },
   { key: 'finished', icon: CircleCheck, labelKey: 'sidebar.state.finished' },
   { key: 'working', icon: Activity, labelKey: 'sidebar.state.working' },
   { key: 'rest', icon: MoreHorizontal, labelKey: 'sidebar.state.rest' },

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { Switch } from '../Shared/Switch';
+import { STATUS_DOT } from '../../lib/statusVisual';
+import { DANGER_TEXT } from '../../lib/popoverStyles';
 import {
   appSettingsApi,
   profileApi,
@@ -36,10 +38,10 @@ const LIVELLI: DiscordDetailLevel[] = ['minimal', 'activity', 'detailed'];
  *  informazione per chi non lo distingue. */
 const COLORE: Record<DiscordPresenceStatus['connection'], string> = {
   off: 'bg-app-text-muted',
-  connecting: 'bg-amber-500',
-  connected: 'bg-emerald-500',
+  connecting: STATUS_DOT.wait,
+  connected: STATUS_DOT.ok,
   no_discord: 'bg-app-text-muted',
-  error: 'bg-red-500',
+  error: STATUS_DOT.danger,
 };
 
 /**
@@ -234,7 +236,7 @@ export function DiscordSection() {
           <p className="text-mini leading-snug text-app-text-muted">{t('discord.previewNote')}</p>
         </div>
 
-        {errore && <p className="text-mini text-red-500">{errore}</p>}
+        {errore && <p className={`text-mini ${DANGER_TEXT}`}>{errore}</p>}
       </div>
     </div>
   );

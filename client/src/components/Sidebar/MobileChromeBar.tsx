@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { Hourglass, Kanban, LayoutGrid, List, Search, User, type LucideIcon } from 'lucide-react';
+import { CircleAlert, Kanban, LayoutGrid, List, Search, User, type LucideIcon } from 'lucide-react';
 import { getPaneConfig } from '@/state/pane/adapters/paneConfig';
 import { useMobile } from '@/hooks/useMobile';
 import { formaFila, raggioSchermo, type FormaScatola } from '@/lib/safeAreaArc';
@@ -337,7 +337,7 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
           accessibleName={tr('sidebar.waitingDoorName', { n: waitingCount })}
         >
           <span className="relative flex">
-            <Hourglass size={22} aria-hidden="true" />
+            <CircleAlert size={22} aria-hidden="true" />
             <NotificationBadge count={waitingCount} className="absolute -top-1.5 left-full -ml-2" />
           </span>
         </BottoneFila>
