@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.3.62",
+    "date": "2026-11-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "E2e sul PC: Chromium con la GPU, le spec a pixel su SwiftShader (#631)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Smoke di installazione: aggiorna l'elenco dei pacchetti prima del .deb (#635)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.61",
     "date": "2026-11-08",
     "sections": {
