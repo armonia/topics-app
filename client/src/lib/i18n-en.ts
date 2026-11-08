@@ -1822,6 +1822,8 @@ const EN = {
   'board.card.openSubtaskTitle': '{status} · open the subtask',
   'board.card.fullChecklistTitle': 'Open the task card: the whole checklist',
   'board.card.subtasksDone': '{done}/{total} subtasks done',
+  'board.card.subtasksToApprove': '{n} to approve',
+  'board.card.subtasksToApproveTitle': 'Subtasks in review waiting on you: {n}',
   'board.card.lastUpdate': 'Last update: {when}',
   'board.card.openParentNamedTitle': 'Open the parent card: {title}',
   'board.card.parent': 'parent',

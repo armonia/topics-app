@@ -2034,6 +2034,8 @@ const IT: Dict = {
   'board.card.openSubtaskTitle': '{status} · apri il sottotask',
   'board.card.fullChecklistTitle': 'Apri la scheda del task: la checklist per intero',
   'board.card.subtasksDone': '{done}/{total} sottotask completati',
+  'board.card.subtasksToApprove': '{n} da approvare',
+  'board.card.subtasksToApproveTitle': 'Sottotask in review che aspettano te: {n}',
   'board.card.lastUpdate': 'Ultimo aggiornamento: {when}',
   'board.card.openParentNamedTitle': 'Apri la scheda del padre: {title}',
   'board.card.parent': 'padre',

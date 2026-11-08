@@ -1,6 +1,6 @@
 import { createContext, useContext, useCallback, useMemo, useEffect, type ReactNode } from 'react';
 import { attentionOf, useAttentionRows, useAttentionStore } from '../state/attention';
-import { describeProjectAttention, projectAttention, projectAttentionChildren } from '../state/attentionRollups';
+import { boardLitCards, describeProjectAttention, projectAttention, projectAttentionChildren } from '../state/attentionRollups';
 import { chromeAttentionSubjects, notificationsToWithdraw, trayChatItems, type ChromeSubject } from '../state/attentionTotal';
 import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
 import { getTerminalSessionFromPaneId } from '../state/pane/adapters';
@@ -58,12 +58,16 @@ export function TabNotificationProvider({ children }: { children: ReactNode }) {
 
   // THE BOARD'S WORK, in the same call. The tray is the only surface left when
   // the window is hidden, and it used to list only the chats waiting for a reply:
-  // nothing about open cards. The rows come from the SAME store that feeds the
-  // "Board" sidebar row (`boardTasksStore`), so the two surfaces cannot tell two
-  // different boards; WHAT enters the menu (order, exclusions, title cut) is
-  // decided and tested in `shared/tray-board`. Here it is read and shipped.
+  // nothing about open cards. What waits on a person comes from the lit `task:`
+  // rows the glyph and the board tab count (`boardLitCards`, steps included),
+  // grouped by why they wait; the work in progress and the queue come from the
+  // feed (`boardTasksStore`), the store of the "Board" sidebar row. WHAT enters
+  // the menu (order, exclusions, title cut) is decided and tested in
+  // `shared/tray-board`. Here it is read and shipped.
   const boardTasks = useBoardTasks();
-  const boardGroups = useMemo(() => trayBoardGroups(boardTasks), [boardTasks]);
+  const boardGroups = useMemo(() => trayBoardGroups(boardTasks, {
+    lit: boardLitCards(attention, boardTasks, null).map((c) => ({ id: c.id, title: c.title, projectId: c.projectId ?? '', reason: c.reason })),
+  }), [boardTasks, attention]);
   // THE ONE OS NUMBER (ATTN-08, CHROME-COUNT-01): the lit subjects of the
   // attention state, an archived chat never. Dock badge, menu-bar tray glyph,
   // the PWA Badging API and the inbox's button all read `chromeCount`. No

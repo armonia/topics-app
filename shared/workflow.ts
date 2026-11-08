@@ -128,6 +128,19 @@ export function awaitsHuman(task: { status: string; stage?: string | null }): bo
 }
 
 /**
+ * `awaitsHuman` as a SQL condition, for the readers that count in the
+ * database (the attention boot read, a parent's `subtaskReviewCount`). A
+ * schema without the `stage` column has no AI review: plain `status`.
+ * `alias` qualifies the columns (`t` gives `t.status`).
+ */
+export function awaitsHumanSql(hasStage: boolean, alias = ''): string {
+  const c = alias ? `${alias}.` : '';
+  return hasStage
+    ? `(${c}status = 'review' AND (${c}stage IS NULL OR ${c}stage != '${STAGE_AI_REVIEW}'))`
+    : `${c}status = 'review'`;
+}
+
+/**
  * Where a card is born on a board with a triage column. Only a card born in
  * backlog: one created straight into Todo has already been given the «go».
  * A card from a person (`human`, or no label: a chat or an internal path) is

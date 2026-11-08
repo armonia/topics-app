@@ -25,18 +25,23 @@
  * would trade one misreading for another.
  */
 
+import { awaitsHuman } from '../../../../shared/workflow';
+
 /** How many steps a card shows before the "see all" fold. */
 export const CHECKLIST_WINDOW = 5;
 
 export interface ChecklistRow {
   /** Present when the server derived something about who is working this step. */
   subtaskWork?: unknown;
+  status?: string;
+  stage?: string | null;
 }
 
 /**
  * The steps a card renders, and how many stay folded.
  *
- * Rows carrying `subtaskWork` are picked first, the rest fill what is left, and
+ * Rows waiting on a person are picked first, then rows carrying
+ * `subtaskWork`, the rest fill what is left, and
  * the result is handed back in the checklist's own order. With five or fewer
  * steps nothing is chosen: every row is shown and `hidden` is 0.
  */
@@ -47,6 +52,12 @@ export function checklistWindow<T extends ChecklistRow>(
   if (rows.length <= cap) return { shown: [...rows], hidden: 0 };
 
   const picked = new Set<number>();
+  // A step waiting on a person first: the parent card is the only place on
+  // the board it is seen, and «N to approve» on the card points at it.
+  for (let i = 0; i < rows.length && picked.size < cap; i++) {
+    const { status, stage } = rows[i];
+    if (status && awaitsHuman({ status, stage })) picked.add(i);
+  }
   for (let i = 0; i < rows.length && picked.size < cap; i++) {
     if (rows[i].subtaskWork) picked.add(i);
   }

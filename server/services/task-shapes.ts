@@ -412,6 +412,10 @@ export interface Task {
   /** Direct-children counters (filled by list/get for board badges). */
   subtaskCount: number;
   subtaskDoneCount: number;
+  /** Steps under this card, at any depth, in review waiting on a person
+   *  (`awaitsHuman`). Absent when none: the columns hold roots only, so this
+   *  is how a parent in backlog says a step of its asks for approval. */
+  subtaskReviewCount?: number;
   /** Human interactions in the thread: comments authored by 'user' (kind
    *  'comment') — excludes the AI/agent, system notes and status events. Filled
    *  by list/get; the card shows it as a "how many messages did I send" count. */

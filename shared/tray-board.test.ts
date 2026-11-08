@@ -7,6 +7,8 @@ import {
   TRAY_HIDDEN_STATUSES,
   trayBoardAttention,
   trayBoardGroups,
+  trayLitGroups,
+  trayLitReason,
   trayTitle,
 } from "./tray-board";
 
@@ -61,6 +63,29 @@ describe("trayBoardGroups", () => {
     const g = trayBoardGroups([t("a", "review"), t("b", "review"), t("c", "in_progress"), t("d", "todo")]);
     expect(trayBoardAttention(g)).toBe(2);
     expect(trayBoardAttention([])).toBe(0);
+  });
+});
+
+describe("lit cards: the menu lists what the number counts", () => {
+  const lit = (id: string, reason: "review" | "parked" | "question", projectId = "p") => ({ id, title: `card ${id}`, projectId, reason });
+
+  test("the review group comes from the lit cards, steps included, and the feed's gives way", () => {
+    // The feed holds one root in review; the attention has it plus two steps.
+    const g = trayBoardGroups([t("root", "review"), t("parent", "backlog"), t("c", "in_progress")], {
+      lit: [lit("root", "review"), lit("step1", "review"), lit("step2", "review"), lit("k", "parked")],
+    });
+    expect(g.map((x) => [x.status, x.count])).toEqual([["review", 3], ["parked", 1], ["in_progress", 1]]);
+    expect(trayBoardAttention(g)).toBe(4);
+  });
+
+  test("grouped by why, in a fixed order, empty groups left out", () => {
+    const g = trayLitGroups([lit("q", "question"), lit("r", "review")]);
+    expect(g.map((x) => x.status)).toEqual(["review", "question"]);
+  });
+
+  test("a permission or a plan is a question; review and parked stay themselves", () => {
+    expect(["review", "parked", "permission", "plan", "question", null].map(trayLitReason))
+      .toEqual(["review", "parked", "question", "question", "question", "question"]);
   });
 });
 

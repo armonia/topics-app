@@ -37,7 +37,7 @@ import { readChecksMemFloorGB, readGlobalCap, readSpendCaps } from "./dispatch-c
 import { checksMemFloorGB } from "../../shared/checks-memory-floor";
 import { parseCreatedBy, UNOWNED_BACKLOG_MS } from "../../shared/created-by";
 import { agentCardGaps, incompleteCardNotice, INCOMPLETE_CARD_NOTICE_PREFIX } from "../../shared/agent-card-contract";
-import { STAGE_AI_REVIEW, STAGE_HUMAN_REVIEW, agentAskInThread, defaultColumnFor, namesHumanReviewWithoutAsk, stageAtBirth, stageForDelivery, stageForStatusChange, type WorkflowColumn, type WorkflowPresetId } from "../../shared/workflow";
+import { STAGE_AI_REVIEW, STAGE_HUMAN_REVIEW, agentAskInThread, awaitsHumanSql, defaultColumnFor, namesHumanReviewWithoutAsk, stageAtBirth, stageForDelivery, stageForStatusChange, type WorkflowColumn, type WorkflowPresetId } from "../../shared/workflow";
 import { requestAiReviewNotice } from "./ai-review-notice";
 import { checkStage, clearStagesOutsideWorkflow, dropStageOutsideTarget, readBoardWorkflow, routeAskOutOfAiReview, stampStaleAiReview, clearAiReviewReminderStamp, writeBoardWorkflow } from "./board-workflow";
 import { currentDispatchBlock, currentMemoryWait, heldResumeBlock } from "./dispatch-block-signal";
@@ -2857,6 +2857,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * scansione. L'indice che la copre è
    * `idx_task_comments_task_author_kind`.
    */
+  let stageColumn: boolean | null = null;
+  /** Does `tasks` have the workflow column? Read once: a reduced test schema may not. */
+  function tasksHaveStage(): boolean {
+    if (stageColumn !== null) return stageColumn;
+    try { stageColumn = (db.query("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).some((c) => c.name === "stage"); } catch { stageColumn = false; }
+    return stageColumn;
+  }
+
   function withSubtaskCounts(tasks: Task[]): Task[] {
     if (tasks.length === 0) return tasks;
     const ids = idParam(tasks.map((t) => t.id));
@@ -2870,6 +2878,24 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         GROUP BY parent_task_id`,
     ).all(ids) as Array<{ pid: string; total: number; done: number }>;
     for (const r of rows) byParent.set(r.pid, { total: r.total, done: r.done ?? 0 });
+    // Steps at ANY depth that wait on a person (`awaitsHuman`): the columns
+    // hold roots only, so a parent sitting in backlog is where a step in review
+    // says it, and the Review count adds it to the roots (Kanban equals Plan).
+    const reviewByParent = new Map<string, number>();
+    try {
+      const reviewRows = db.query(
+        `WITH RECURSIVE d(root, id) AS (
+           SELECT parent_task_id, id FROM tasks
+            WHERE parent_task_id IN (SELECT value FROM json_each(?)) AND archived = 0
+           UNION
+           SELECT d.root, t.id FROM tasks t JOIN d ON t.parent_task_id = d.id WHERE t.archived = 0
+         )
+         SELECT d.root AS pid, COUNT(*) AS n FROM d JOIN tasks t ON t.id = d.id
+          WHERE ${awaitsHumanSql(tasksHaveStage(), "t")}
+          GROUP BY d.root`,
+      ).all(ids) as Array<{ pid: string; n: number }>;
+      for (const r of reviewRows) reviewByParent.set(r.pid, r.n);
+    } catch { /* a reduced schema: no step counts as waiting */ }
     // Human message count per task: comments the user sent (kind='comment'),
     // excluding the AI/agent, system notes and auto status events.
     const byTask = new Map<string, number>();
@@ -2908,6 +2934,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     for (const t of tasks) {
       const c = byParent.get(t.id);
       if (c) { t.subtaskCount = c.total; t.subtaskDoneCount = c.done; }
+      const inReview = reviewByParent.get(t.id);
+      if (inReview) t.subtaskReviewCount = inReview;
       t.userCommentCount = byTask.get(t.id) ?? 0;
       const actor = byActor.get(t.id);
       t.lastActorPersonName = actor?.personName ?? null;
