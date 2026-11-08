@@ -10,7 +10,8 @@
  * instead of all lower-case among proper names.
  */
 const PROVIDER_LABELS: Record<string, string> = {
-  openclaw: "OpenClaw",
+  // The gateway to our own agent: on screen it is the agent, not the product it ran on.
+  openclaw: "Jarvis",
   // The canonical names of the model selector revision of 2026-10-04 (§7):
   // the selector's headings and the providers level write the same name,
   // and «OpenAI» alone is the company, not the key.

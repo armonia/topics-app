@@ -97,14 +97,13 @@ catalogue and `FALLBACK_LOCALE` is `it` (deliberately: read the docstring above
 `resolveLocale` before touching it). When the UI strings moved into that layer on
 2026-08-15, eight `it` values had to be kept BYTE-IDENTICAL to their old literal
 because a spec asserts on them. They are debt, and this is the list, so whoever
-picks one up knows what to change — seven left, one paid off:
+picks one up knows what to change — six left, two paid off:
 
 | frozen `it` value | key | spec holding it |
 |---|---|---|
 | `Metti in stage questo blocco` | `git.hunk.stageTitle` | `git-hunk-staging.spec.ts:86` |
 | `Nessun manifest di script in questa cartella.` | `scripts.noManifest` | `project-scripts.spec.ts:117` |
 | `· {n} in attesa di una tua risposta` | `statusBar.agents.awaitingInput` | `turn-awaiting-input.spec.ts:300` |
-| `Sessione cloud (OpenClaw)` | `topic.cloudSession` | `cloud-session-project-open.spec.ts:90` |
 | `Chiudi {name}` / `Apri {name}` | `space.collapse`, `space.expand` | `sidebar-group-lifecycle.spec.ts:127` |
 | `Riavvia la sessione in-place (…)` | `terminal.reloadTitle` | `terminal-tab-reload.spec.ts:115,157` |
 

@@ -267,6 +267,31 @@ describe("computePresenceCounts", () => {
     expect(computePresenceCounts(db, 0).focusProject).toBe("foo");
   });
 
+  test("board ferma: una cartella di sistema non finisce nella presence pubblica", () => {
+    // The Discord presence printed «su .openclaw»: the agent home was the most
+    // recently touched topic. A dot folder is skipped for the next real project.
+    progetto("p1", "Pix", "/tmp/pix");
+    progetto("p2", ".openclaw", "/Users/x/.openclaw");
+    progetto("p3", "home", "/Users/x/.claude/jarvis/home");
+    const t = (id: string, path: string, age: number) => db.run(
+      "INSERT INTO topics (id, name, slug, session_key, created_at, updated_at, archived, project_path) VALUES (?,?,?,?,?,?,0,?)",
+      [id, id, id, `sk-${id}`, iso(age), iso(age), path],
+    );
+    t("old", "/tmp/pix", GIORNO);
+    t("new", "/Users/x/.openclaw", 0);
+    t("mid", "/Users/x/.claude/jarvis/home", 1000);
+    expect(computePresenceCounts(db, 0).focusProject).toBe("Pix");
+  });
+
+  test("board ferma e solo cartelle di sistema ⇒ null, non «.openclaw»", () => {
+    progetto("p2", ".openclaw", "/Users/x/.openclaw");
+    db.run(
+      "INSERT INTO topics (id, name, slug, session_key, created_at, updated_at, archived, project_path) VALUES (?,?,?,?,?,?,0,?)",
+      ["a", "a", "a", "sk-a", iso(0), iso(0), "/Users/x/.openclaw"],
+    );
+    expect(computePresenceCounts(db, 0).focusProject).toBeNull();
+  });
+
   test("niente progetti ⇒ null, che il livello `detailed` sa degradare", () => {
     topic("a");
     expect(computePresenceCounts(db, 1).focusProject).toBeNull();

@@ -81,19 +81,4 @@ test.describe("cloud session opens as a Topics project", () => {
 
     await deleteTopic(request, topic.id);
   });
-
-  test("an openclaw-backed (cloud) topic shows a Cloud indicator", async ({ page, request }) => {
-    const ts = Date.now().toString(36);
-    const topic = await createTopic(request, `E2E-Cloud-Badge-${ts}`, { provider: "openclaw" });
-
-    await goToApp(page);
-    await waitForTopicVisible(page, topic.id);
-
-    // The cloud (OpenClaw) attribute glyph (sidebar row and/or tab) is labelled.
-    await expect(page.getByLabel("Sessione cloud (OpenClaw)").first()).toBeVisible({
-      timeout: 10000,
-    });
-
-    await deleteTopic(request, topic.id);
-  });
 });

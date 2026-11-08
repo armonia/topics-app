@@ -137,7 +137,7 @@ test.describe("agents' context and feature map", () => {
     const harness = level.getByTestId("context-harness");
     await expect(harness).toHaveCount(4, { timeout: 20_000 });
     await expect(harness.filter({ hasText: "Claude Code" })).toContainText("+4,9 k tok nelle sessioni aperte nella home");
-    await expect(harness.filter({ hasText: "OpenClaw" })).toContainText("11 k tok");
+    await expect(harness.filter({ hasText: "Jarvis" })).toContainText("11 k tok");
     await expect(level.getByTestId("context-weights")).not.toContainText("claude-cli");
     await expect(level).not.toContainText("~/");
     // The caveat of every number: an estimate, read only.
@@ -150,7 +150,7 @@ test.describe("agents' context and feature map", () => {
     // Who loads a file keeps the hub's qualifier: the memory index is read only in the home sessions.
     const memory = level.getByTestId("context-file").filter({ hasText: "Indice della memoria" });
     await expect(memory.getByTestId("context-file-loader")).toHaveText(["Claude Code (sessioni nate in ~)"]);
-    await expect(level.getByTestId("context-file").filter({ hasText: "CLAUDE.md globale" }).getByTestId("context-file-loader")).toHaveText(["Claude Code", "OpenClaw (via claude-cli)"]);
+    await expect(level.getByTestId("context-file").filter({ hasText: "CLAUDE.md globale" }).getByTestId("context-file-loader")).toHaveText(["Claude Code", "Jarvis (via claude-cli)"]);
     // When each file last changed: three months is amber.
     const style = level.getByTestId("context-file").filter({ hasText: "Stile di output" }).getByTestId("context-file-age");
     await expect(style).toHaveText("90 g fa");
@@ -195,7 +195,7 @@ test.describe("agents' context and feature map", () => {
     await expect(found).toContainText("Una chiede i commenti in italiano, l'altra in inglese.");
     await expect(found).toContainText("CLAUDE.md globale");
     // A file the hub does not list is named by whose it is, not by a bare file name.
-    await expect(found).toContainText("Regole di OpenClaw studio-x");
+    await expect(found).toContainText("Regole di studio-x");
     await expect(found).not.toContainText("AGENTS.md");
     // A long rule is one line until tapped, then reads whole: no tooltip needed.
     const rule = found.getByTestId("context-rule-text").first();

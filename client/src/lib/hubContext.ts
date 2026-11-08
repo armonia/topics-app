@@ -11,6 +11,7 @@
  * Names stay the hub's own labels («CLAUDE.md globale», «TOOLS.md»); a path is
  * shown only with a file's text, once opened, where it says where to edit it.
  */
+import { MAIN_AGENT, agentName } from './agentSessions';
 
 type Raw = Record<string, unknown>;
 
@@ -107,7 +108,21 @@ export function doctorVerdict(raw: unknown): DoctorVerdict | null {
 }
 
 /** The hub's loader groups, in its order; any other group follows in the order it first appears. */
-const GROUP_ORDER = ['Claude Code', 'Codex e jcode', 'OpenClaw'];
+const GROUP_ORDER = ['Claude Code', 'Codex e jcode', agentName(MAIN_AGENT)];
+
+/**
+ * The hub still names our agent's harness by the product it ran on
+ * («OpenClaw», «OpenClaw (via claude-cli)»); on screen it is the agent's own
+ * name, the one the Agents view uses, and a qualifier stays as it is.
+ */
+const HARNESS_ALIASES: Record<string, string> = { OpenClaw: agentName(MAIN_AGENT) };
+
+function harnessName(name: string): string {
+  const { base, note } = splitLoader(name);
+  const alias = Object.prototype.hasOwnProperty.call(HARNESS_ALIASES, base) ? HARNESS_ALIASES[base] : undefined;
+  if (!alias) return name;
+  return note === null ? alias : `${alias} (${note})`;
+}
 
 export interface FileGroup {
   name: string;
@@ -146,7 +161,7 @@ function splitLoader(name: string): { base: string; note: string | null } {
 export function harnessWeights(byLoader: unknown): HarnessWeight[] {
   if (!isObject(byLoader)) return [];
   const entries = Object.entries(byLoader)
-    .map(([name, v]) => ({ name, tokens: num(v) }))
+    .map(([name, v]) => ({ name: harnessName(name), tokens: num(v) }))
     .filter((e): e is { name: string; tokens: number } => e.tokens !== null && e.tokens > 0);
   const plain = new Set(entries.filter((e) => splitLoader(e.name).note === null).map((e) => e.name));
   const out = new Map<string, HarnessWeight>();
@@ -178,10 +193,10 @@ function readFile(raw: unknown): ContextFile | null {
     id,
     label,
     path,
-    group: str(raw.group) ?? '',
+    group: harnessName(str(raw.group) ?? ''),
     tokens: num(raw.tokens) ?? 0,
-    readers: list(raw.loaders).map(str).filter((s): s is string => s !== null).map((s) => splitLoader(s).base),
-    loaders: list(raw.loaders).map(str).filter((s): s is string => s !== null),
+    readers: list(raw.loaders).map(str).filter((s): s is string => s !== null).map((s) => splitLoader(harnessName(s)).base),
+    loaders: list(raw.loaders).map(str).filter((s): s is string => s !== null).map(harnessName),
     mtime: num(raw.mtime),
     note: str(raw.note),
   };
@@ -196,7 +211,9 @@ export interface UnlistedRef {
   name: string;
 }
 
-const OWNERS: Record<string, string> = { '.claude': 'Claude Code', '.openclaw': 'OpenClaw', '.jcode': 'jcode', '.codex': 'Codex', '.agents': 'Agents' };
+const OWNERS: Record<string, string> = { '.claude': 'Claude Code', '.jcode': 'jcode', '.codex': 'Codex', '.agents': 'Agents' };
+/** The agents' home: its files belong to the agent of their workspace (`workspace-gtm` is Visione). */
+const AGENT_HOME = '.openclaw';
 const KINDS: Record<string, UnlistedRef['kind']> = { AGENTS: 'rules', CLAUDE: 'rules', USER: 'profile', MEMORY: 'memory' };
 
 /**
@@ -213,7 +230,10 @@ export function unlistedRef(ref: string): UnlistedRef {
   const root = parts[0] ?? '';
   let owner = '';
   if (root === 'Projects' && parts[1]) owner = parts[1];
-  else if (OWNERS[root]) {
+  else if (root === AGENT_HOME) {
+    const ws = parts[1] ? /^workspace-(.+)$/.exec(parts[1]) : null;
+    owner = agentName(ws?.[1] ?? MAIN_AGENT);
+  } else if (OWNERS[root]) {
     const ws = parts[1] && /^workspace-(.+)$/.exec(parts[1]);
     owner = ws && ws[1] ? `${OWNERS[root]} ${ws[1]}` : OWNERS[root];
   } else owner = parts[parts.length - 1] ?? '';

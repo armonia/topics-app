@@ -41,11 +41,11 @@ const HUB = {
 describe('harnessWeights', () => {
   test('a loader that qualifies another is its extra, one that qualifies nothing is a harness of its own', () => {
     const w = harnessWeights(HUB.totals.byLoader);
-    expect(w.map((h) => h.name)).toEqual(['Codex', 'jcode', 'Claude Code', 'OpenClaw']);
+    expect(w.map((h) => h.name)).toEqual(['Codex', 'jcode', 'Claude Code', 'Jarvis']);
     const cc = w.find((h) => h.name === 'Claude Code')!;
     expect(cc.tokens).toBe(14888);
     expect(cc.extra).toEqual({ tokens: 4907, home: true });
-    expect(w.find((h) => h.name === 'OpenClaw')!.extra).toBeNull();
+    expect(w.find((h) => h.name === 'Jarvis')!.extra).toBeNull();
   });
 
   test('garbage in, nothing out', () => {
@@ -66,14 +66,14 @@ describe('contextView', () => {
 
   test('files read at start apart from those read on demand; a file without a label is dropped', () => {
     expect(v.files.map((f) => f.label)).toEqual(['CLAUDE.md globale', 'TOOLS.md', 'Indice della memoria']);
-    expect(v.files[0]!.readers).toEqual(['Claude Code', 'OpenClaw']);
+    expect(v.files[0]!.readers).toEqual(['Claude Code', 'Jarvis']);
     expect(v.files[1]!.note).toBe('incluso da CLAUDE.md');
     expect(v.onDemand.map((f) => f.id)).toEqual(['subagent:oracle.md', 'project:acme-web']);
     expect(v.skills).toEqual({ count: 41, tokens: 1780, items: [{ name: 'heavy', tokens: 90 }, { name: 'light', tokens: 12 }] });
   });
 
   test('a file keeps who loads it with the hub qualifier, and when it last changed', () => {
-    expect(v.files[0]!.loaders).toEqual(['Claude Code', 'OpenClaw (via claude-cli)']);
+    expect(v.files[0]!.loaders).toEqual(['Claude Code', 'Jarvis (via claude-cli)']);
     expect(v.files[2]!.loaders).toEqual(['Claude Code (sessioni nate in ~)']);
     expect(v.files[0]!.mtime).toBe(1_793_000_000_000);
     expect(v.files[1]!.mtime).toBeNull();
@@ -84,8 +84,8 @@ describe('contextView', () => {
 
   test('files grouped by who loads them, in the hub order, each with its tokens', () => {
     const f = (id: string, group: string, tokens: number) => ({ ...v.files[0]!, id, group, tokens });
-    const groups = fileGroups([f('a', 'OpenClaw', 5), f('b', 'Altro', 1), f('c', 'Claude Code', 3), f('d', 'Claude Code', 4)]);
-    expect(groups.map((g) => [g.name, g.files.length, g.tokens])).toEqual([['Claude Code', 2, 7], ['OpenClaw', 1, 5], ['Altro', 1, 1]]);
+    const groups = fileGroups([f('a', 'Jarvis', 5), f('b', 'Altro', 1), f('c', 'Claude Code', 3), f('d', 'Claude Code', 4)]);
+    expect(groups.map((g) => [g.name, g.files.length, g.tokens])).toEqual([['Claude Code', 2, 7], ['Jarvis', 1, 5], ['Altro', 1, 1]]);
   });
 
   test('duplicates, old rules and contradictions name files by their label, never by id or path', () => {
@@ -99,10 +99,12 @@ describe('contextView', () => {
 
   test('two unlisted files of the same name stay apart, by whose they are', () => {
     const [a, b] = [v.check.items[1]!.a.where, v.check.items[1]!.b.where];
-    expect(a).toBe('rules · OpenClaw');
-    expect(b).toBe('rules · OpenClaw gtm');
+    expect(a).toBe('rules · Jarvis');
+    expect(b).toBe('rules · Visione');
     expect(v.check.items[1]!.b.text).toBe('b');
-    expect(unlistedRef('~/.openclaw/USER.md')).toEqual({ kind: 'profile', owner: 'OpenClaw', name: 'USER' });
+    expect(unlistedRef('~/.openclaw/USER.md')).toEqual({ kind: 'profile', owner: 'Jarvis', name: 'USER' });
+    expect(unlistedRef('~/.openclaw/workspace-studio-x/AGENTS.md').owner).toBe('studio-x');
+    expect(unlistedRef('~/.openclaw/workspace/AGENTS.md').owner).toBe('Jarvis');
     expect(unlistedRef('~/Projects/acme-web/AGENTS.md')).toEqual({ kind: 'rules', owner: 'acme-web', name: 'AGENTS' });
     expect(unlistedRef('subagent:oracle.md')).toEqual({ kind: 'other', owner: '', name: 'oracle' });
   });
