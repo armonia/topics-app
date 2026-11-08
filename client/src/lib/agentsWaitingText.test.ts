@@ -1,3 +1,9 @@
+/**
+ * The words of the Agents row: one waiting session takes the singular key,
+ * and an idle agent is not called with the word for stale cards.
+ *
+ * @covers TOPIC-02
+ */
 import { describe, expect, test } from 'bun:test';
 import { interpolate } from './i18n';
 import { agentsWaitingText } from './agentsWaitingText';
