@@ -9,7 +9,7 @@
  * it is drawn as cards, never as the person's bubble.
  */
 import type { ComponentType } from 'react';
-import { Ban, Bot, CircleCheck, CircleStop, CircleX, Hourglass, MailX, SquareTerminal, Unplug } from 'lucide-react';
+import { Ban, Bot, CircleCheck, CircleStop, CircleX, CircleAlert, MailX, SquareTerminal, Unplug } from 'lucide-react';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { useT } from '../../hooks/useT';
 import { useTerminalSessions } from '../../contexts/TopicsContext';
@@ -91,7 +91,7 @@ const SparkIcon = () => <SparkLoader className="flex-shrink-0" />;
 
 const PHASE_ICON: Record<SpawnCardState, { icon: ComponentType<{ size?: number; className?: string }>; className: string }> = {
   starting: { icon: SparkIcon, className: '' },
-  'waiting-prompt': { icon: Hourglass, className: 'text-amber-500' },
+  'waiting-prompt': { icon: CircleAlert, className: 'text-amber-500' },
   working: { icon: SparkIcon, className: '' },
   finished: { icon: CircleCheck, className: 'text-blue-500' },
   ended: { icon: CircleStop, className: 'text-app-text-muted' },

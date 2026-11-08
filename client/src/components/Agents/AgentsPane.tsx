@@ -13,14 +13,15 @@ import { agentSessionName } from '../../lib/agentSessions';
 import { DANGER_TEXT } from '../../lib/popoverStyles';
 import { useSharedNow } from '../../state/useSharedNow';
 import type { AgentSession, AgentSessionState, AgentTerminal } from '../../lib/agentSessions';
-import { PALLINO_ATTESA, PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from '../Sidebar/chromeSignals';
+import { PALLINO_ATTESA, SEGNALE_ATTESA } from '../Sidebar/chromeSignals';
+import { STATUS_DOT, STATUS_INK } from '../../lib/statusVisual';
 import { AgentProfiles } from './AgentProfiles';
 import { useAgentRegistry } from '../../state/agentRegistry';
 
 type Tr = ReturnType<typeof useT>;
 
-const DOT: Record<AgentSessionState, string> = { working: PALLINO_OK, waiting: PALLINO_ATTESA, idle: 'bg-app-border-light' };
-const TEXT: Record<AgentSessionState, string> = { working: SEGNALE_OK, waiting: SEGNALE_ATTESA, idle: 'text-app-text-muted' };
+const DOT: Record<AgentSessionState, string> = { working: STATUS_DOT.working, waiting: PALLINO_ATTESA, idle: 'bg-app-border-light' };
+const TEXT: Record<AgentSessionState, string> = { working: STATUS_INK.working, waiting: SEGNALE_ATTESA, idle: 'text-app-text-muted' };
 
 function openSession(id: string) {
   window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId: id, mode: 'permanent', reveal: true } }));
@@ -133,8 +134,8 @@ export function AgentsPane() {
                   </span>
                 )}
                 {g.working > 0 && (
-                  <span className={`flex items-center gap-1 ${SEGNALE_OK}`}>
-                    <span className={`h-2 w-2 rounded-full ${PALLINO_OK}`} aria-hidden="true" />
+                  <span className={`flex items-center gap-1 ${STATUS_INK.working}`}>
+                    <span className={`h-2 w-2 rounded-full ${STATUS_DOT.working}`} aria-hidden="true" />
                     {tr('agents.working', { n: g.working })}
                   </span>
                 )}

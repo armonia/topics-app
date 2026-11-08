@@ -45,10 +45,10 @@ describe('DISPATCH_CHIP', () => {
     // they are: a key that resolved to the same sentence would read as one chip.
     expect(IT[atteso.textKey]).not.toBe(IT[fallito.textKey]);
     expect(IT[atteso.textKey]!.toLowerCase()).not.toContain('fallit'); // allow-italian: the Italian word IS what must not appear
-    // La tinta del fallimento è rosa/rossa: quella qui non ci deve stare, o il
+    // La tinta del fallimento è rossa: quella qui non ci deve stare, o il
     // colore direbbe «rotto» mentre il testo dice «aspetta».
     expect(atteso.cls).not.toContain('rose');
-    expect(fallito.cls).toContain('rose');
+    expect(fallito.cls).toContain('red');
     // Ma resta un PARK, non un chip di passaggio: l'anello lo distingue da
     // «in attesa», che è la stessa storia un capitolo prima.
     expect(atteso.cls).toContain('ring-1');
