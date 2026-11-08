@@ -3,18 +3,17 @@
  * two toolbar controls that choose how the board is read: grouping and card
  * density. Out of `KanbanBoardPane` so the pane keeps its size budget.
  */
-import { useMemo, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { Layers, ListCollapse } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import type { WorkflowColumn } from '../../../../shared/workflow';
 import type { BoardDensity, BoardGroupBy, BoardLayout } from './boardGeometry';
-import { splitIntoLanes, withDraftLane, type BoardLane } from './boardLanes';
-import { resolveProjectRefs } from '../../lib/boardProjectsStore';
-import type { BoardProjectRef, BoardTask } from '../../lib/board';
+import type { BoardLane } from './boardLanes';
+import type { BoardTask } from '../../lib/board';
 import { TOOLBAR_CONTROL_H, TOOLBAR_ICON_W } from './constants';
 import { LaneCounts, ProjectGroupHeader } from './ProjectGroupHeader';
 import { DraftCard } from './DraftCard';
-import { draftLaneOf, type DraftPlacement, type DraftPreview } from './draftPreview';
+import type { DraftPreview } from './draftPreview';
 
 const toggleClass = (on: boolean) =>
   `grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} shrink-0 place-items-center rounded ${on ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`;
@@ -93,40 +92,4 @@ export function ProjectLanes({ lanes, columns, layout, nameById, pathById, colla
       );
     })}
   </>;
-}
-
-/**
- * The lanes of the grouped board, in ONE place: the cards split per project, the
- * composer's ghost kept to a single spot (its project's lane, a temporary lane of
- * that project when it has no card yet, or above the lanes on «Automatico»), and
- * the name shown on each lane.
- */
-export function useProjectLanes({ grouped, showArchived, draft, tasks, byColumn, columnIds, projectIndex }: {
-  grouped: boolean;
-  showArchived: boolean;
-  draft: DraftPreview | null | undefined;
-  tasks: readonly BoardTask[];
-  byColumn: ReadonlyMap<string, BoardTask[]>;
-  columnIds: readonly string[];
-  projectIndex: BoardProjectRef[] | null;
-}): { lanes: BoardLane[]; draftPlacement: DraftPlacement | null; draftLane: string | null; laneNameById: Map<string, string> } {
-  const taskLanes = useMemo<BoardLane[]>(() => {
-    if (!grouped) return [];
-    const names = new Map(resolveProjectRefs([...new Set(tasks.map((t) => t.projectId))], projectIndex).map((p) => [p.projectId, p.name]));
-    return splitIntoLanes(byColumn, columnIds, (id) => names.get(id) ?? id);
-  }, [grouped, tasks, byColumn, columnIds, projectIndex]);
-  const draftPlacement = useMemo(
-    () => (grouped && !showArchived ? draftLaneOf(draft ?? null, taskLanes.map((l) => l.projectId)) : null),
-    [grouped, showArchived, draft, taskLanes],
-  );
-  const lanes = useMemo(
-    () => withDraftLane(taskLanes, draftPlacement, columnIds, (id) => resolveProjectRefs([id], projectIndex)[0]?.name ?? id),
-    [taskLanes, draftPlacement, columnIds, projectIndex],
-  );
-  const laneNameById = useMemo(
-    () => new Map(resolveProjectRefs(lanes.map((l) => l.projectId), projectIndex).map((p) => [p.projectId, p.name])),
-    [lanes, projectIndex],
-  );
-  const draftLane = draftPlacement && draftPlacement.kind !== 'above' ? draftPlacement.projectId : null;
-  return { lanes, draftPlacement, draftLane, laneNameById };
 }

@@ -49,7 +49,8 @@ import {
   readBoardDensity, readBoardGroupBy, writeBoardPreference, type BoardDensity, type BoardGroupBy,
 } from './boardGeometry';
 import { columnIdOfDropTarget, laneDropId, type BoardLane } from './boardLanes';
-import { BoardViewToggles, ProjectLanes, useProjectLanes } from './ProjectLanes';
+import { BoardViewToggles, ProjectLanes } from './ProjectLanes';
+import { useProjectLanes } from './useProjectLanes';
 import { useCollapsedProjects } from './useCollapsedProjects';
 import { useColumnClearance } from './columnClearance';
 import { scrollDelta } from '../../lib/scrollDelta';
