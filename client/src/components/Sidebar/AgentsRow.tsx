@@ -2,12 +2,15 @@
  * THE AGENTS ROW, next to Automations: the door to the always-on agents'
  * sessions (Jarvis, Visione…), which the sidebar no longer lists as projects.
  * Its tail says how many sessions are at work and how many wait on you, with
- * the amber dot of every other wait; nothing when neither.
+ * the amber dot of every other wait; nothing when neither. It counts only the
+ * always-on agents: «Agents and jobs» in the System menu counts more, and the
+ * title says so.
  */
 import { Bot } from 'lucide-react';
 import { useT } from '@/hooks/useT';
 import { useAgentGroups } from '@/state/agentGroups';
 import { agentTotals } from '@/lib/agentSessions';
+import { agentsWaitingText } from '@/lib/agentsWaitingText';
 import { sidebarRowCard, ROW_PX, ROW_H, ROW_INSET, ROW_GLYPH, ROW_GLYPH_SLOT, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
 import { PALLINO_ATTESA, SEGNALE_ATTESA, SEGNALE_OK } from './chromeSignals';
 
@@ -22,6 +25,7 @@ export function AgentsRow({ open }: { open: boolean }) {
       role="treeitem"
       aria-selected={open}
       data-testid="sidebar-agents"
+      title={tr('agents.rowTitle')}
       onClick={() => window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'agents' } }))}
       className={`flex flex-shrink-0 items-center gap-2 leading-none ${ROW_PX} ${ROW_H} select-none ${sidebarRowCard({ focused: open })}`}
       style={{ width: `calc(100% - ${ROW_INSET * 2}px)` }}
@@ -36,7 +40,7 @@ export function AgentsRow({ open }: { open: boolean }) {
         {waiting > 0 ? (
           <span className={`inline-flex items-center gap-1 ${SEGNALE_ATTESA}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${PALLINO_ATTESA}`} aria-hidden="true" />
-            {tr('agents.waitingYou', { n: waiting })}
+            {agentsWaitingText(waiting, tr)}
           </span>
         ) : null}
       </span>

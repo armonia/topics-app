@@ -130,13 +130,8 @@ export const isProjectlessId = (projectId: string): boolean =>
 export type { Translate } from '../../../shared/queue-reason-text';
 import type { Translate } from '../../../shared/queue-reason-text';
 
-export const STATUS_LABEL: Record<TaskStatus, string> = {
-  backlog: 'Backlog',
-  todo: 'Todo',
-  in_progress: 'In Progress',
-  review: 'Review',
-  done: 'Done',
-};
+// The status words live once, next to the columns they name.
+export { STATUS_COLUMN_LABEL as STATUS_LABEL } from '../../../shared/workflow';
 
 /**
  * La misura a cui va reso il glifo di stato (`StatusIcon`), in pixel.
