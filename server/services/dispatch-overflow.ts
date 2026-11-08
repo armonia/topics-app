@@ -65,6 +65,23 @@ export interface OverflowMachine {
   wakeable?: boolean;
   /** The machine's declared capacity, when it has one (default `OVERFLOW_SLOTS[kind]`). */
   slots?: number;
+  /** Free RAM the node last reported, in MB (optional heartbeat field). */
+  freeMemoryMb?: number;
+}
+
+/** Free RAM kept for the node's own use, and what one working card takes (measured). */
+const NODE_RESERVE_MB = 4096;
+const CARD_WORKING_MB = 1700;
+
+/**
+ * Cards a machine may run now: the declared slots (default by kind), cut down
+ * when a node reports its free RAM, to what that RAM can hold.
+ */
+export function effectiveSlots(m: OverflowMachine): number {
+  const declared = m.slots ?? OVERFLOW_SLOTS[m.kind];
+  if (m.kind !== "node" || m.freeMemoryMb === undefined) return declared;
+  const byRam = Math.floor((m.freeMemoryMb - NODE_RESERVE_MB) / CARD_WORKING_MB);
+  return Math.max(0, Math.min(declared, byRam));
 }
 
 /** What the overflow knows about one card when it chooses where to send it. */
@@ -106,7 +123,7 @@ export function pickOverflowMachine(
   machines: readonly OverflowMachine[],
   opts: OverflowChoice,
 ): OverflowMachine | null {
-  const room = (m: OverflowMachine) => opts.load(m.id) < (m.slots ?? OVERFLOW_SLOTS[m.kind]);
+  const room = (m: OverflowMachine) => opts.load(m.id) < effectiveSlots(m);
   const online = machines.filter((m) => m.online && room(m));
   if (opts.cloudCredit && opts.githubOrigin && cloudRunsModel(opts.model)) {
     const cloud = online.find((m) => m.kind === "cloud");
@@ -170,6 +187,8 @@ export interface OverflowMachineRow {
   name: string;
   baseUrl: string | null;
   status: string;
+  /** Declared cards-at-once, when the person set one. */
+  slots?: number | null;
 }
 
 /**
@@ -192,7 +211,7 @@ export function overflowMachinesFrom(input: {
     if (!m.baseUrl) continue;
     out.push(input.isCloud(m.baseUrl)
       ? { id: m.id, name: m.name, kind: "cloud", online: input.cloudEnabled && m.status === "online" && input.environmentOk !== false }
-      : { id: m.id, name: m.name, kind: "node", online: m.status === "online", wakeable: input.wakeable });
+      : { id: m.id, name: m.name, kind: "node", online: m.status === "online", wakeable: input.wakeable, ...(m.slots ? { slots: m.slots } : {}) });
   }
   return out;
 }

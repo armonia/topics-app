@@ -1201,6 +1201,7 @@ const EN = {
   'settings.machines.pair.title': 'Nodes',
   'settings.machines.pair.blurb': 'A second machine that can run this board cards. The code is approved in front of it.',
   'settings.machines.pair.add': 'Add node',
+  'settings.machines.slots.label': 'Cards at once',
   'settings.machines.pair.address': 'Node address',
   'settings.machines.pair.addressPlaceholder': 'https://node.local:3333',
   'settings.machines.pair.start': 'Request access',
