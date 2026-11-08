@@ -23,6 +23,7 @@ import { canonicalProjectIdentity } from "../lib/project-identity";
 import { createDelegatedRevocationRetry, type DelegatedRevocationRetry } from "../services/delegated-revocation-retry";
 import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 import { mintModelToken, revokeModelToken } from "../services/model-proxy";
+import { stripCtrl } from "../lib/strip-ctrl";
 
 const NAME_MAX = 200;
 
@@ -74,12 +75,6 @@ export async function revokeRemoteDelegatedCapability(ctx: AppContext, capabilit
     removeDelegatedNodeToken(ctx.STATE_DIR, row.machine_id, capabilityId);
     await retry.tick({ requestId: row.id, force: true });
   }
-}
-
-function stripCtrl(input: unknown): string | null {
-  if (typeof input !== "string") return null;
-  // eslint-disable-next-line no-control-regex -- removes control characters from text that came from outside, on purpose
-  return input.replace(/[\x00-\x1f\x7f]/g, "").trim();
 }
 
 /** What this process remembers about a handshake in flight. None of it goes to the client. */

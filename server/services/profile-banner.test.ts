@@ -93,7 +93,7 @@ describe("compact", () => {
 describe("esc", () => {
   test("copre i cinque caratteri che rompono XML, e `&` per prima", () => {
     expect(esc(`Tizio & <Caio> "d'accordo"`)).toBe(
-      "Tizio &amp; &lt;Caio&gt; &quot;d&apos;accordo&quot;",
+      "Tizio &amp; &lt;Caio&gt; &quot;d&#39;accordo&quot;",
     );
   });
 });

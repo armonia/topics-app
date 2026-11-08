@@ -26,7 +26,7 @@
 
 import type { TaskFile } from "../../shared/task-labels";
 import { RESIDUE_SUBJECT } from "./worktree-residue";
-import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
+import { runGitQuery } from "../lib/git-run";
 
 export interface GitRunResult {
   code: number;
@@ -93,18 +93,7 @@ function refName(name: string): string {
  * `listOwnCommits` e usarlo anche per le sue chiamate, altrimenti i test che ne
  * iniettano uno finto si troverebbero metà delle domande sul git vero.
  */
-export async function defaultRunGit(cwd: string, args: string[], opts?: GitRunEnv): Promise<GitRunResult> {
-  const r = await runBounded(["git", "-C", cwd, ...args], {
-    stderr: "pipe",
-    timeoutMs: SPAWN_TIMEOUT.query,
-    ...(opts?.env ? { env: { ...process.env, ...opts.env } } : {}),
-  });
-  if (r.spawnFailed) return { code: 1, stdout: "", stderr: r.spawnError ?? "" };
-  // A timeout is not "exit 1": `commitIsIn` reads 1 as "verified outside" and
-  // acts on it, while "could not answer" must stay `null`. 124 is the
-  // convention of `timeout(1)`; any code other than 0 and 1 is "no answer".
-  return { code: r.exitCode ?? 124, stdout: r.stdout, stderr: r.stderr };
-}
+export const defaultRunGit: GitRunner = runGitQuery;
 
 function lines(out: string): string[] {
   return out.split("\n").map((s) => s.trim()).filter((s) => s.length > 0);

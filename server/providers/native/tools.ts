@@ -24,7 +24,7 @@ import { BASH_DESCRIPTION, BASH_TIMEOUT_HINT, BASH_TIMEOUT_PROPERTY, DEFAULT_BAS
 import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync } from "fs";
 import { resolve, relative, isAbsolute, dirname } from "path";
 import { spawn } from "child_process";
-import { homedir } from "os";
+import { expandHome as expandHomeShared } from "../../lib/expand-home";
 import { killProcessTree } from "../../lib/process-tree";
 import { registerNativeCommand, type NativeCommandEntry } from "../../lib/native-command-registry";
 import { lowPriorityArgv } from "../../lib/low-priority";
@@ -172,9 +172,8 @@ function safePath(ctx: ToolContext, p: string): string {
 
 /** A leading `~` or `~/...` expanded to the home directory. Everything else is unchanged. */
 function expandHome(p: string): string {
-  if (p === "~") return homedir();
-  if (p.startsWith("~/")) return resolve(homedir(), p.slice(2));
-  return p;
+  // Only a path that starts with `~` is rewritten; any other text is left byte for byte (no trim).
+  return p.startsWith("~") ? expandHomeShared(p) : p;
 }
 
 /** Only for a MISSING path outside the workspace, where there are no bytes to read. */

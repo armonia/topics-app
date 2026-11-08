@@ -23,6 +23,7 @@
 import type { AppContext } from "../types";
 import { profileStatsCached } from "../services/profile-stats";
 import { getAppSettings } from "../services/app-settings";
+import { escapeHtml } from "../lib/escape-html";
 
 function compatto(n: number): string {
   const a = Math.abs(n);
@@ -33,14 +34,7 @@ function compatto(n: number): string {
   return String(Math.round(n));
 }
 
-function esc(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+const esc = escapeHtml;
 
 function sparklineSvg(last30: Array<{ date: string; tokens: number }>): string {
   const max = Math.max(0, ...last30.map((p) => p.tokens));

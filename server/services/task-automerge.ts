@@ -36,12 +36,12 @@ import { commitIsIn, countOwnCommits, otherLocalBranches } from "./own-commits";
 import { branchContentIsOnMain, commitStatusFromRepo } from "./branch-status";
 import { landedMergeRange } from "./task-diff-range";
 import { fetchRemoteBase } from "./worktree-base-ref";
-import { gitEnvFor } from "../lib/git-identity";
+import { runGitSigned } from "../lib/git-run";
 import { missingPackageManager, runScriptArgv } from "../lib/project-scripts";
 import { MIGRATIONS_DIR, findNumberCollisions } from "../../shared/migration-numbers";
 import { makeSerialQueue } from "../lib/serial-queue";
 import { bundleBreakageReason } from "../lib/client-bundle";
-import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
+import { runBounded } from "../lib/bounded-spawn";
 
 export type AutoMergeResult =
   | {
@@ -354,19 +354,7 @@ export interface BuildOutcome extends GitRunResult {
   artifact?: string | null;
 }
 
-export async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult> {
-  try {
-    // L'identità di chi firma, e solo dove manca: il land CREA commit (i due
-    // merge e i cherry-pick), e git senza identità esce 128 prima di toccare
-    // l'albero. Il perché e la regola del ripiego stanno in `git-identity.ts`.
-    const env = await gitEnvFor(cwd);
-    const r = await runBounded(["git", ...args], { cwd, stderr: "pipe", env, timeoutMs: args[0] === "fetch" ? SPAWN_TIMEOUT.query : SPAWN_TIMEOUT.long });
-    if (r.spawnFailed) return { code: 1, stdout: "", stderr: r.spawnError ?? "" };
-    return { code: r.exitCode ?? 124, stdout: r.stdout, stderr: r.stderr };
-  } catch (e) {
-    return { code: 1, stdout: "", stderr: e instanceof Error ? e.message : String(e) };
-  }
-}
+export const defaultRunGit: (cwd: string, args: string[]) => Promise<GitRunResult> = runGitSigned;
 
 /** La firma del «manca un pezzo sotto» nell'output di git. */
 const MISSING_BASE = /modify\/delete|deleted in|does not exist|no such file/i;

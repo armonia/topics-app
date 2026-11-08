@@ -1,20 +1,20 @@
 /**
- * La risposta di `/api/media` quando il file NON si può dare, per occhi umani.
+ * The answer of `/api/media` when the file CANNOT be given, for human eyes.
  *
- * Da quando un file locale si apre nel pannello passando di qui
- * (browser-local-file-url.ts), questa rotta non serve più solo `<img>` e
- * `<video>`: è una NAVIGAZIONE, e ciò che risponde finisce a schermo intero
- * davanti a una persona. `{"error":"forbidden: invalid path"}` su fondo bianco
- * è, per chi guarda, indistinguibile dalla pagina bianca da cui è nata tutta
- * questa storia — un rifiuto che non si legge.
+ * Since a local file opens in the panel by going through here
+ * (browser-local-file-url.ts), this route no longer serves only `<img>` and
+ * `<video>`: it is a NAVIGATION, and what it answers fills the screen in front
+ * of a person. `{"error":"forbidden: invalid path"}` on a white background is,
+ * to whoever looks, indistinguishable from a blank page: a refusal nobody can read.
  *
- * Quindi: se chi chiede è una navigazione (`Accept: text/html`) la risposta è
- * una pagina che dice il file, il motivo e cosa si può fare. Se chi chiede è un
- * `<img>`/`fetch()` resta il JSON di prima, perché lì a leggere è del codice —
- * e cambiargli la forma sotto i piedi romperebbe chi la controlla.
+ * So: when the caller is a navigation (`Accept: text/html`) the answer is a
+ * page that names the file, the reason and what can be done. When the caller is
+ * an `<img>`/`fetch()` the JSON stays as before, because there code reads it and
+ * changing its shape would break whoever checks it.
  *
- * Il codice HTTP non cambia mai: 403 resta 403. Cambia solo la lingua.
+ * The HTTP status never changes: 403 stays 403. Only the language changes.
  */
+import { escapeHtml } from "./lib/escape-html";
 
 /** `true` se la richiesta è una navigazione, non un sotto-fetch di pagina. */
 export function wantsHtml(accept: string | null): boolean {
@@ -25,9 +25,7 @@ export function wantsHtml(accept: string | null): boolean {
   return /^\s*text\/html\b/i.test(accept) || accept.includes("text/html,");
 }
 
-function esc(s: string): string {
-  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
-}
+const esc = escapeHtml;
 
 export interface MediaErrorPage {
   /** Il percorso richiesto, come l'ha scritto chi ha chiesto. */

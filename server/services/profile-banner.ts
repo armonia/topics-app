@@ -1,28 +1,25 @@
 /**
- * Il banner: le stesse statistiche, in un'immagine che si può incollare fuori.
+ * The banner: the same stats, as an image that can be pasted elsewhere.
  *
- * ── PERCHÉ SVG E PERCHÉ SENZA NIENTE DENTRO ────────────────────────────────
- * Il posto in cui finisce è il README di un profilo GitHub, cioè un contesto
- * ostile: GitHub serve le immagini dei README dal suo proxy (Camo), che
- * RISCRIVE l'URL e scarica il file una volta sola per cache. Quindi il banner
- * deve essere un file completo — niente `<image href>` esterni, niente
- * `@font-face`, niente CSS che arrivi da un'altra richiesta: tutto ciò che non
- * è dentro questo SVG, là fuori non esiste. I font sono famiglie di sistema con
- * ripiego generico, per lo stesso motivo.
+ * WHY SVG, AND WHY SELF-CONTAINED. It ends up in a GitHub profile README, a
+ * hostile context: GitHub serves README images through its Camo proxy, which
+ * REWRITES the URL and fetches the file once per cache. So the banner must be
+ * one whole file: no external `<image href>`, no `@font-face`, no CSS from
+ * another request. Anything not inside this SVG does not exist out there. Fonts
+ * are system families with a generic fallback, for the same reason.
  *
- * ── L'ESCAPING NON È UNA CORTESIA ──────────────────────────────────────────
- * Un nome con una `&` — o un nome messo lì apposta — dentro un SVG non
- * escapato produce un documento malformato che il browser rifiuta, e nel caso
- * cattivo un `<script>`. Qui dentro passa un solo dato di testo libero (il
- * nome), e passa da `esc()`. Il test prova entrambe le cose.
+ * ESCAPING IS NOT A COURTESY. A name with a `&` (or one planted on purpose) in
+ * an unescaped SVG makes a malformed document the browser rejects and, in the
+ * bad case, a `<script>`. One free-text datum goes in here (the name) and it
+ * goes through `esc()`. The test proves both.
  *
- * ── I NUMERI SI ABBREVIANO, IL COSTO NO ────────────────────────────────────
- * `9.629.422.233 token` non si legge; `9.6B` sì. Il costo invece resta per
- * esteso a due decimali: è l'unico numero della card che qualcuno potrebbe
- * confrontare con un estratto conto.
+ * NUMBERS ARE ABBREVIATED, THE COST IS NOT. `9,629,422,233 tokens` is unreadable;
+ * `9.6B` is not. The cost stays in full with two decimals: it is the one number
+ * on the card someone might compare with a bank statement.
  */
 
 import type { ProfileStats } from "./profile-stats";
+import { escapeHtml } from "../lib/escape-html";
 
 export interface BannerOptions {
   /** Il nome mostrato in cima. Testo libero: è l'unico, e va escapato. */
@@ -57,16 +54,8 @@ const TEMI = {
   },
 } as const;
 
-/** I cinque caratteri che rompono un documento XML. `&` per primo, o si
- *  ri-escaperebbero le entità appena scritte. */
-export function esc(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
+/** Kept under this name for the banner and its tests: the shared escape, apostrophe included. */
+export const esc = escapeHtml;
 
 /** 9.629.422.233 → `9.6B`. Sotto il migliaio si scrive per intero: «0.9K» è
  *  più lungo e meno chiaro di «912». */

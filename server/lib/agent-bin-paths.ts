@@ -16,7 +16,7 @@
  * a provider that cannot answer.
  */
 import { existsSync } from "fs";
-import { homedir } from "os";
+import { expandHome } from "./expand-home";
 import { getAppSettings, updateAppSettings } from "../services/app-settings";
 
 /** The agent CLIs Topics knows how to look for. Mirrors `detect-agents.ts`. */
@@ -55,14 +55,7 @@ export function isCliAgentId(value: unknown): value is CliAgentId {
  * Exported because the route validates the same string before storing it, and
  * the two must expand it the same way.
  */
-export function expandHome(input: string): string {
-  const trimmed = input.trim();
-  if (trimmed === "~") return homedir();
-  if (trimmed.startsWith("~/") || trimmed.startsWith("~\\")) {
-    return homedir() + trimmed.slice(1);
-  }
-  return trimmed;
-}
+export { expandHome };
 
 /** The stored map, tolerant of anything that is not the shape we wrote. */
 export function readAgentBinPaths(): Partial<Record<CliAgentId, string>> {

@@ -20,6 +20,7 @@ import { groupStepsByDay, type TimelineStep, type TimelineViewSpec } from "../..
 import { cellText, formatPrice, formatPriceNote } from "../../shared/views-format";
 import { VIEWS_IT } from "../../shared/i18n-views-it";
 import { VIEWS_EN } from "../../shared/i18n-views-en";
+import { escapeHtml } from "../lib/escape-html";
 
 export type ViewLanguage = "it" | "en";
 
@@ -30,8 +31,7 @@ export const MCP_APP_MIME = "text/html;profile=mcp-app";
 /** The key of the tool result's `_meta` that carries the drawn view to the generic app. */
 export const VIEW_META_KEY = "topics/view";
 
-export const escapeHtml = (s: string): string =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+export { escapeHtml };
 
 function words(language: ViewLanguage): (key: string, vars?: Record<string, string | number>) => string {
   const dict = language === "en" ? VIEWS_EN : VIEWS_IT;

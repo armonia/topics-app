@@ -27,8 +27,8 @@
  *     what stops a copy of the CLI surviving every call.
  */
 import { existsSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
+import { expandHome } from "./expand-home";
 import { OutboundConfigError } from "./outbound-config";
 
 /**
@@ -54,14 +54,6 @@ const KILL_GRACE_MS = 250;
 
 /** How much of a child's output is kept. Enough for an error, not for a dump. */
 const MAX_OUTPUT_CHARS = 4000;
-
-/** `~/bin/gws` is what a person writes; nothing in `node:fs` expands it. */
-export function expandHome(input: string): string {
-  const trimmed = input.trim();
-  if (trimmed === "~") return homedir();
-  if (trimmed.startsWith("~/")) return join(homedir(), trimmed.slice(2));
-  return trimmed;
-}
 
 function isExecutableFile(candidate: string): boolean {
   try {

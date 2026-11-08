@@ -36,18 +36,13 @@ import { resolveOsOpenPath, fsProbe } from "../lib/os-open-path";
 import { installationOrgId, actingPersonId } from "../lib/orgs";
 import { clientProjectPathRefused, CLIENT_PROJECT_PATH_ERROR } from "../lib/client-project-path";
 import { isAbsoluteServerPath } from "../lib/absolute-path";
+import { stripCtrl } from "../lib/strip-ctrl";
 
 const NAME_MAX = 200;
 const SLUG_REGEX = /^[a-z][a-z0-9-]{0,63}$/;
 const COLOR_REGEX = /^#[0-9a-fA-F]{6}$/;
 // Reasonable cap for an emoji or short string; lets multi-codepoint emoji through.
 const ICON_MAX = 16;
-
-function stripCtrl(input: unknown): string | null {
-  if (typeof input !== "string") return null;
-  // eslint-disable-next-line no-control-regex -- removes control characters from text that came from outside, on purpose
-  return input.replace(/[\x00-\x1f\x7f]/g, "").trim();
-}
 
 // ── Project icon (favicon / web-manifest) resolution ─────────────────────
 // Lives in ../lib/project-icon.ts (pure fs helpers, unit-tested); this route

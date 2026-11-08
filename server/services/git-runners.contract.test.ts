@@ -94,12 +94,12 @@ const RESULT_RUNNERS: { name: string; timeoutCode: number; call: () => Promise<u
     argv: () => ["bun", "run", MARK], cwd: () => dir,
   },
   {
-    name: "worktree-base-ref defaultRunGit", timeoutCode: 1,
+    name: "worktree-base-ref defaultRunGit", timeoutCode: 124,
     call: () => baseRefRunGit(dir, ["rev-parse", MARK]),
     argv: () => ["git", "-C", dir, "rev-parse", MARK],
   },
   {
-    name: "worktree-residue defaultRunGit", timeoutCode: 1,
+    name: "worktree-residue defaultRunGit", timeoutCode: 124,
     call: () => residueRunGit(dir, ["rev-parse", MARK]),
     argv: () => ["git", "rev-parse", MARK], cwd: () => dir,
   },

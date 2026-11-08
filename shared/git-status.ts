@@ -50,3 +50,14 @@ export interface GitStatus {
   /** The repo that HOSTS the opened folder (empty at the repo root). */
   repoName?: string;
 }
+
+/**
+ * A path in merge conflict, from its porcelain XY code: `AA` and `DD` (the same
+ * letter on both sides) or a `U` on either side (`UU AU UD UA DU`). One rule for
+ * server and client; they had four copies.
+ */
+export function isConflicted(status: string): boolean {
+  const x = status[0] ?? "";
+  const y = status[1] ?? "";
+  return x === "U" || y === "U" || (x === "A" && y === "A") || (x === "D" && y === "D");
+}

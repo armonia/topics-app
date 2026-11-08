@@ -33,8 +33,7 @@
  */
 import type { GitRunResult } from "./task-automerge";
 import { worktreeRegistrationLost } from "./worktree-registration";
-import { gitEnvFor } from "../lib/git-identity";
-import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
+import { runGitSigned } from "../lib/git-run";
 
 export interface ResidueResult {
   ok: boolean;
@@ -89,18 +88,7 @@ function hasConflict(porcelain: string): boolean {
     });
 }
 
-export async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult> {
-  try {
-    // Senza identità git esce 128 PRIMA di toccare l'albero, e questa funzione
-    // crea un commit: stessa ragione (e stesso ripiego) di `task-automerge`.
-    const env = await gitEnvFor(cwd);
-    const r = await runBounded(["git", ...args], { cwd, stderr: "pipe", env, timeoutMs: SPAWN_TIMEOUT.long });
-    if (r.spawnFailed) return { code: 1, stdout: "", stderr: r.spawnError ?? "" };
-    return { code: r.exitCode ?? 1, stdout: r.stdout, stderr: r.stderr };
-  } catch (e) {
-    return { code: 1, stdout: "", stderr: e instanceof Error ? e.message : String(e) };
-  }
-}
+export const defaultRunGit: (cwd: string, args: string[]) => Promise<GitRunResult> = runGitSigned;
 
 /**
  * Salva sul branch del worktree tutto ciò che è nell'albero e su nessun commit.

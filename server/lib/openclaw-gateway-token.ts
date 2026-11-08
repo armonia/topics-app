@@ -19,6 +19,7 @@ import { readFileSync } from "fs";
 import { spawnSync } from "child_process";
 import { homedir } from "os";
 import { dirname, join } from "path";
+import { expandHome as expandHomeIn } from "./expand-home";
 import { runBounded } from "./bounded-spawn";
 
 /** How long the resolver may take: it reads a local Keychain, not a network. */
@@ -27,10 +28,6 @@ const RESOLVER_TIMEOUT_MS = 5000;
 /** OpenClaw's own override first (`OPENCLAW_CONFIG_PATH`), as OpenClaw reads it. */
 function defaultConfigPath(): string {
   return process.env.OPENCLAW_CONFIG_PATH || join(process.env.HOME || homedir(), ".openclaw", "openclaw.json");
-}
-
-function expandHome(p: string): string {
-  return p === "~" || p.startsWith("~/") ? join(process.env.HOME || homedir(), p.slice(1)) : p;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -88,7 +85,7 @@ function resolverRun(config: Record<string, unknown>, ref: Record<string, unknow
   const providers = isRecord(config.secrets) ? config.secrets.providers : undefined;
   const p = isRecord(providers) ? providers[provider] : undefined;
   if (!isRecord(p) || p.source !== "exec" || typeof p.command !== "string" || !p.command) return null;
-  const command = expandHome(p.command);
+  const command = expandHomeIn(p.command, process.env.HOME || homedir());
   const args = Array.isArray(p.args) && p.args.every((a) => typeof a === "string") ? (p.args as string[]) : [];
   return {
     argv: [command, ...args],
