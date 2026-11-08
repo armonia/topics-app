@@ -8,6 +8,7 @@
  * keeps the cards of its project in that same order. Grouping never reorders.
  */
 import type { BoardTask } from '../../lib/board';
+import type { DraftPlacement } from './draftPreview';
 
 export interface BoardLane {
   projectId: string;
@@ -16,6 +17,31 @@ export interface BoardLane {
   /** How many cards the project has in each column: the lane header's counts. */
   counts: Record<string, number>;
   total: number;
+}
+
+/** A lane with every column present and no card in it. */
+export function emptyLane(projectId: string, columnIds: readonly string[]): BoardLane {
+  return {
+    projectId,
+    columns: new Map(columnIds.map((id) => [id, []])),
+    counts: Object.fromEntries(columnIds.map((id) => [id, 0])),
+    total: 0,
+  };
+}
+
+/**
+ * The lanes plus, when the composer's ghost belongs to a project that has no
+ * card yet, a temporary empty lane of that project in its sorted place. The
+ * lane exists only while the ghost does.
+ */
+export function withDraftLane(
+  lanes: readonly BoardLane[],
+  placement: DraftPlacement | null,
+  columnIds: readonly string[],
+  nameOf: (projectId: string) => string,
+): BoardLane[] {
+  if (placement?.kind !== 'new-lane' || lanes.some((l) => l.projectId === placement.projectId)) return [...lanes];
+  return sortProjectGroups([...lanes, emptyLane(placement.projectId, columnIds)], (lane) => nameOf(lane.projectId));
 }
 
 /**
@@ -35,12 +61,7 @@ export function splitIntoLanes(
   const laneOf = (projectId: string): BoardLane => {
     let lane = lanes.get(projectId);
     if (!lane) {
-      lane = {
-        projectId,
-        columns: new Map(columnIds.map((id) => [id, []])),
-        counts: Object.fromEntries(columnIds.map((id) => [id, 0])),
-        total: 0,
-      };
+      lane = emptyLane(projectId, columnIds);
       lanes.set(projectId, lane);
     }
     return lane;

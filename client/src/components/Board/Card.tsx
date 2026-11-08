@@ -23,6 +23,7 @@ import { reflowTransform } from './sortableReflow';
 import { MorphText } from '../Shared/MorphText';
 import { PreviewMedia } from './PreviewMedia';
 import type { DraftPreview } from './draftPreview';
+import { CompactQuestion } from './CompactQuestion';
 import { DraftCard } from './DraftCard';
 import { DeliveryFiles } from './DeliveryFiles';
 import { isDeliverySheetPath } from '../../../../shared/media-kind';
@@ -1579,6 +1580,10 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
             ><Hourglass className="h-3 w-3 shrink-0" /> {tr('board.card.reviewAge', { t: attesa })}</span>
           )}
         </div>
+      )}
+      {/* COMPACT: a question with quick replies shows both (`CompactQuestion`). */}
+      {compact && task.status === 'review' && pending && (
+        <CompactQuestion question={pending.question} options={replyOptions} busy={busy} onAnswer={answer} />
       )}
       {/* The checklist: the steps, in EVERY column and not only in review.
           Max 5 rows, the rest behind "Vedi tutti" (opens the drawer tree) —

@@ -16,6 +16,14 @@
  * «alfa», like the lanes, proves the two views share one order. The review
  * card is also the proof the compact card keeps the wait in sight.
  *
+ * Then the same grouped board, read against the Plan and against the composer:
+ * a project REGISTERED under a name that differs from its folder has the same
+ * heading and the same place in both views; the composer's ghost sits in its
+ * project's lane (a temporary lane when the project has no card, always open
+ * even if folded) or, on «Automatico», above the lanes with no project header;
+ * a compact review card keeps its question beside the quick replies; and a card
+ * dragged between the columns of a lane changes status, not project.
+ *
  * @covers KANBAN-106
  */
 import { test } from "./fixtures/layout.fixture";
@@ -35,6 +43,14 @@ const PATH_A = `${canonicalTmpRoot()}/e2e-lane-alfa-${STAMP}`;
 const PATH_B = `${canonicalTmpRoot()}/e2e-lane-zeta-${STAMP}`;
 const ID_A = boardIdForPath(PATH_A);
 const ID_B = boardIdForPath(PATH_B);
+// Registered under a name that differs from the folder, and chosen so that the
+// two orders disagree: by folder it sits between alfa and zeta, by name before alfa.
+const PATH_C = `${canonicalTmpRoot()}/e2e-lane-gamma-${STAMP}`;
+const ID_C = boardIdForPath(PATH_C);
+const NAME_C = `Aaa rinominato ${STAMP}`;
+// A project that exists but has no card: no lane until the composer's ghost asks for one.
+const PATH_D = `${canonicalTmpRoot()}/e2e-lane-vuoto-${STAMP}`;
+const ID_D = boardIdForPath(PATH_D);
 
 type Req = import("@playwright/test").APIRequestContext;
 const createdTasks: { board: string; id: string }[] = [];
@@ -61,6 +77,7 @@ test.describe("Board per progetto e card compatte", () => {
   let live = "";
   let plain = "";
   let review = "";
+  let projectC = "";
 
   test.beforeAll(async ({ request }) => {
     for (const [path, name] of [[PATH_A, "e2e-lane-alfa"], [PATH_B, "e2e-lane-zeta"]] as const) {
@@ -68,6 +85,17 @@ test.describe("Board per progetto e card compatte", () => {
       writeFileSync(`${path}/package.json`, JSON.stringify({ name }, null, 2));
       topics.push((await createTopic(request, name, { projectPath: path })).id);
     }
+    // topics[2]: the session that asks the question on project C's card.
+    mkdirSync(PATH_C, { recursive: true });
+    writeFileSync(`${PATH_C}/package.json`, JSON.stringify({ name: "e2e-lane-gamma" }, null, 2));
+    topics.push((await createTopic(request, "e2e-lane-gamma", { projectPath: PATH_C })).id);
+    const registered = await request.post(`${BASE}/api/projects`, { data: { name: NAME_C, path: PATH_C, slug: `aaa-rinominato-${STAMP}` } });
+    expect(registered.ok(), await registered.text()).toBe(true);
+    projectC = ((await registered.json()) as { id: string }).id;
+    await createTask(request, ID_C, `Card nel rinominato ${STAMP}`, "todo");
+    mkdirSync(PATH_D, { recursive: true });
+    writeFileSync(`${PATH_D}/package.json`, JSON.stringify({ name: "e2e-lane-vuoto" }, null, 2));
+    topics.push((await createTopic(request, "e2e-lane-vuoto", { projectPath: PATH_D })).id);
     const session = (await createTopic(request, `Sessione lane ${STAMP}`)).id;
     topics.push(session);
     live = await createTask(request, ID_A, `Card con sessione ${STAMP}`, "in_progress", "Una descrizione che la card compatta non disegna.");
@@ -86,8 +114,11 @@ test.describe("Board per progetto e card compatte", () => {
   test.afterAll(async ({ request }) => {
     for (const t of [...createdTasks].reverse()) await deleteTask(request, t.board, t.id);
     for (const id of [...topics].reverse()) await deleteTopic(request, id);
+    if (projectC) await request.delete(`${BASE}/api/projects/${projectC}`).catch(() => {});
     removeTmpDir(PATH_A);
     removeTmpDir(PATH_B);
+    removeTmpDir(PATH_C);
+    removeTmpDir(PATH_D);
   });
 
   test("raggruppa per progetto, compatta le card, ricorda le scelte e il Piano le rispetta", async ({ page }, testInfo) => {
@@ -182,5 +213,138 @@ test.describe("Board per progetto e card compatte", () => {
     expect(pick(tileOrder)).toEqual(pick(laneOrder));
     expect(pick(laneOrder)).toEqual([ID_A, ID_B]);
     await page.screenshot({ path: testInfo.outputPath("piano.png") });
+  });
+
+  const laneOf = (page: Page, id: string) => page.locator(`[data-testid="board-lane"][data-project-id="${id}"]`);
+  const orderOf = (ids: (string | null)[], among: string[]) => ids.filter((id): id is string => !!id && among.includes(id));
+
+  /** A fresh grouped board, with the composer pointed at `composerProject` (null = «Automatico»). */
+  async function freshGrouped(page: Page, composerProject: string | null) {
+    await resetPaneStore(page.request, []);
+    await page.goto("/");
+    await page.evaluate((target) => {
+      for (const k of ["topics.board.density", "topics.board.collapsedProjects", "board:composerProject"]) localStorage.removeItem(k);
+      localStorage.setItem("topics.board.groupBy", "project");
+      if (target) localStorage.setItem("board:composerProject", target);
+    }, composerProject);
+    await page.reload();
+    await openGlobalBoard(page);
+    await expect(laneOf(page, ID_A)).toBeVisible({ timeout: 15000 });
+  }
+
+  test("un progetto rinominato ha la stessa intestazione e lo stesso posto in Kanban e Piano", async ({ page }, testInfo) => {
+    await freshGrouped(page, null);
+    const laneC = laneOf(page, ID_C);
+    await expect(laneC).toBeVisible();
+    // The registered name heads the lane; the folder name is nowhere in it.
+    await expect(laneC.getByTestId("board-lane-header")).toContainText(NAME_C);
+    await expect(laneC.getByTestId("board-lane-header")).not.toContainText("e2e-lane-gamma");
+    const laneOrder = await page.getByTestId("board-lane").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
+
+    await page.getByTestId("board-plan-toggle").click();
+    const plan = page.getByTestId("plan-view");
+    const tileC = plan.locator(`[data-testid="plan-project"][data-project-id="${ID_C}"]`);
+    await expect(tileC).toBeVisible({ timeout: 15000 });
+    await expect(tileC).toContainText(NAME_C);
+    await expect(tileC).not.toContainText("e2e-lane-gamma");
+    const tileOrder = await plan.getByTestId("plan-project").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
+
+    // By name: renamed first. By folder it would be alfa, gamma, zeta.
+    const among = [ID_A, ID_B, ID_C];
+    expect(orderOf(laneOrder, among)).toEqual([ID_C, ID_A, ID_B]);
+    expect(orderOf(tileOrder, among)).toEqual(orderOf(laneOrder, among));
+    await page.screenshot({ path: testInfo.outputPath("piano-rinominato.png") });
+  });
+
+  test("la bozza del composer indica il progetto giusto: la sua corsia, una corsia di passaggio, o sopra le corsie", async ({ page }, testInfo) => {
+    const composer = page.getByTestId("board-task-composer").locator("textarea");
+    const drafts = page.getByTestId("kanban-draft-card");
+
+    // «Automatico»: the project is decided later, so the ghost belongs to no lane and has no project header.
+    await freshGrouped(page, null);
+    await composer.fill(`Bozza automatica ${STAMP}`);
+    await expect(drafts).toHaveCount(1);
+    await expect(page.getByTestId("board-draft-above").getByTestId("kanban-draft-card")).toHaveCount(1);
+    await expect(page.getByTestId("board-lane").getByTestId("kanban-draft-card")).toHaveCount(0);
+    await expect(laneOf(page, ID_D)).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("bozza-automatico.png") });
+    await composer.fill("");
+    await expect(drafts).toHaveCount(0);
+
+    // A project with no card: a lane of THAT project, with only the ghost; it goes when the text goes.
+    await freshGrouped(page, ID_D);
+    const laneD = laneOf(page, ID_D);
+    await expect(laneD).toHaveCount(0);
+    await composer.fill(`Bozza progetto vuoto ${STAMP}`);
+    await expect(laneD).toBeVisible();
+    await expect(laneD.getByTestId("board-lane-header")).toContainText("e2e-lane-vuoto");
+    await expect(drafts).toHaveCount(1);
+    await expect(laneD.getByTestId("kanban-draft-card")).toHaveCount(1);
+    await expect(laneD.locator("[data-task-card]")).toHaveCount(0);
+    await expect(page.getByTestId("board-draft-above")).toHaveCount(0);
+    await laneD.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("bozza-progetto-vuoto.png") });
+    await composer.fill("");
+    await expect(laneD).toHaveCount(0);
+
+    // A project with a lane that is FOLDED: the lane opens around the ghost, and folds back after.
+    await freshGrouped(page, ID_B);
+    const laneB = laneOf(page, ID_B);
+    await laneB.getByTestId("board-lane-header").getByRole("button").first().click();
+    await expect(laneB).toHaveAttribute("data-collapsed", "true");
+    await composer.fill(`Bozza corsia ripiegata ${STAMP}`);
+    await expect(laneB).not.toHaveAttribute("data-collapsed", "true");
+    await expect(laneB.getByTestId("kanban-draft-card")).toHaveCount(1);
+    await expect(drafts).toHaveCount(1);
+    await page.screenshot({ path: testInfo.outputPath("bozza-corsia-ripiegata.png") });
+    await composer.fill("");
+    await expect(laneB).toHaveAttribute("data-collapsed", "true");
+  });
+
+  test("la card compatta in review porta la domanda insieme alle risposte", async ({ page, request }, testInfo) => {
+    const asked = await createTask(request, ID_C, `Card con domanda ${STAMP}`, "review");
+    const sessionKey = `topic:${topics[2]!.slice(0, 8)}`;
+    const posted = await request.post(`${BASE}/api/sessions/${encodeURIComponent(sessionKey)}/tasks/${asked}/comments`, {
+      data: { content: "Porto la modifica sul ramo principale?", options: ["Si, subito", "No, aspetto"] },
+    });
+    expect(posted.status(), await posted.text()).toBe(201);
+
+    await freshGrouped(page, null);
+    await page.getByTestId("board-density-toggle").click();
+    const card = page.locator(`[data-task-card="${asked}"]`);
+    await expect(card).toHaveAttribute("data-density", "compact");
+    const question = card.getByTestId("card-compact-question");
+    await expect(question).toContainText("Porto la modifica sul ramo principale?");
+    const answerButtons = question.getByTestId("card-compact-reply");
+    await expect(answerButtons).toHaveCount(2);
+    await expect(answerButtons.first()).toHaveText("Si, subito");
+    await expect(answerButtons.first()).toBeEnabled();
+    await card.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("card-compatta-domanda.png") });
+  });
+
+  test("trascinare una card fra due colonne di una corsia cambia lo stato, non il progetto", async ({ page, request }, testInfo) => {
+    const moving = await createTask(request, ID_A, `Card da trascinare ${STAMP}`, "todo");
+    await freshGrouped(page, null);
+    const lane = laneOf(page, ID_A);
+    const card = lane.locator(`[data-task-card="${moving}"]`);
+    await expect(card).toBeVisible();
+    await card.scrollIntoViewIfNeeded();
+    const from = (await card.boundingBox())!;
+    const to = (await lane.getByTestId("kanban-column-body-backlog").boundingBox())!;
+    await page.mouse.move(from.x + from.width / 2, from.y + 12);
+    await page.mouse.down();
+    await page.mouse.move(from.x + from.width / 2 + 8, from.y + 20, { steps: 4 });
+    await page.mouse.move(to.x + to.width / 2, to.y + 60, { steps: 14 });
+    await page.screenshot({ path: testInfo.outputPath("trascinamento-in-corso.png") });
+    await page.mouse.up();
+
+    await expect.poll(async () => {
+      const r = await request.get(`${BASE}/api/boards/${ID_A}/tasks/${moving}`);
+      return ((await r.json()) as { task: { status: string; projectId: string } }).task;
+    }, { timeout: 10000 }).toMatchObject({ status: "backlog", projectId: ID_A });
+    await expect(lane.getByTestId("kanban-column-backlog").locator(`[data-task-card="${moving}"]`)).toBeVisible();
+    await expect(laneOf(page, ID_B).locator(`[data-task-card="${moving}"]`)).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("trascinamento-fatto.png") });
   });
 });

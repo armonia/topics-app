@@ -48,8 +48,8 @@ import {
   BOARD_DENSITY_STORAGE_KEY, BOARD_GROUP_BY_STORAGE_KEY, BOARD_LAYOUT_STORAGE_KEY, COLUMNS_ROW_GRID, COLUMNS_ROW_LIST,
   readBoardDensity, readBoardGroupBy, writeBoardPreference, type BoardDensity, type BoardGroupBy,
 } from './boardGeometry';
-import { columnIdOfDropTarget, laneDropId, splitIntoLanes, type BoardLane } from './boardLanes';
-import { BoardViewToggles, ProjectLanes } from './ProjectLanes';
+import { columnIdOfDropTarget, laneDropId, type BoardLane } from './boardLanes';
+import { BoardViewToggles, ProjectLanes, useProjectLanes } from './ProjectLanes';
 import { useCollapsedProjects } from './useCollapsedProjects';
 import { useColumnClearance } from './columnClearance';
 import { scrollDelta } from '../../lib/scrollDelta';
@@ -64,7 +64,7 @@ import { FilterTokenField } from './FilterTokenField';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
 import { ProjectFilterPicker } from './ProjectFilterPicker';
 import { Card, Column } from './Card';
-import { draftLaneOf, type DraftPreview } from './draftPreview';
+import type { DraftPreview } from './draftPreview';
 import { taskActionErrorMessage } from './taskActionError';
 import { taskActionWord } from './taskActionWords';
 import { TaskDetail } from './TaskDetail';
@@ -1515,17 +1515,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // one project, its lane would be the board itself). Split after the columns
   // (`splitIntoLanes`), so a lane keeps the board's order inside each column.
   const grouped = mode === 'all' && groupByPref === 'project';
-  const lanes = useMemo<BoardLane[]>(() => {
-    if (!grouped) return [];
-    const names = new Map(resolveProjectRefs([...new Set(tasks.map((t) => t.projectId))], projectIndex).map((p) => [p.projectId, p.name]));
-    return splitIntoLanes(byColumn, boardColumns.map((c) => c.id), (id) => names.get(id) ?? id);
-  }, [grouped, tasks, byColumn, boardColumns, projectIndex]);
-  // The composer's ghost belongs to ONE lane, not to the same column of every lane.
-  const draftLane = useMemo(() => draftLaneOf(draft, lanes.map((l) => l.projectId)), [draft, lanes]);
-  const laneNameById = useMemo(
-    () => new Map(resolveProjectRefs(lanes.map((l) => l.projectId), projectIndex).map((p) => [p.projectId, p.name])),
-    [lanes, projectIndex],
-  );
+  const columnIds = useMemo(() => boardColumns.map((c) => c.id), [boardColumns]);
+  const { lanes, draftPlacement, draftLane, laneNameById } = useProjectLanes({
+    grouped, showArchived, draft, tasks, byColumn, columnIds, projectIndex,
+  });
 
   /**
    * Persist a drop: status and/or position, optimistically. Routed by the
@@ -2255,6 +2248,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                   lanes={lanes} columns={boardColumns} layout={boardLayout}
                   nameById={laneNameById} pathById={projectPathById}
                   collapsed={collapsedProjects} onToggle={toggleProjectCollapsed}
+                  draftAbove={draftPlacement?.kind === 'above' ? draft ?? undefined : undefined}
+                  draftLane={draftLane}
                   renderColumn={renderColumn}
                 />
               ) : boardColumns.map((column) => renderColumn(column, byColumn.get(column.id) ?? []))}

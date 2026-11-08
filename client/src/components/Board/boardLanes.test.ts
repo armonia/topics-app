@@ -4,8 +4,8 @@
  * @covers KANBAN-106
  */
 import { afterEach, describe, expect, test } from 'bun:test';
-import type { BoardTask } from '../../lib/board';
-import { columnIdOfDropTarget, laneDropId, sortProjectGroups, splitIntoLanes, toggleCollapsed } from './boardLanes';
+import { AUTO_PROJECT_ID, type BoardTask } from '../../lib/board';
+import { columnIdOfDropTarget, laneDropId, sortProjectGroups, splitIntoLanes, toggleCollapsed, withDraftLane } from './boardLanes';
 import { draftLaneOf, type DraftPreview } from './draftPreview';
 import {
   BOARD_COLLAPSED_PROJECTS_STORAGE_KEY, BOARD_DENSITY_STORAGE_KEY, BOARD_GROUP_BY_STORAGE_KEY,
@@ -124,12 +124,32 @@ describe('one order and one ghost for the grouped board', () => {
     expect(groups.map((g) => g.projectId)).toEqual(['z', 'b', 'a']);
   });
 
-  test("the composer's ghost sits in its project's lane, else in the first, never in none", () => {
+  test("the composer's ghost: its project's lane, a temporary lane for an empty project, above the lanes for «Automatico»", () => {
     const draft: DraftPreview = { title: 't', description: null, status: 'todo', images: [], files: [], projectId: 'b' };
-    expect(draftLaneOf(draft, ['a', 'b'])).toBe('b');
-    expect(draftLaneOf({ ...draft, projectId: 'auto' }, ['a', 'b'])).toBe('a');
-    expect(draftLaneOf({ ...draft, projectId: undefined }, ['a', 'b'])).toBe('a');
+    // 1. the project has a lane
+    expect(draftLaneOf(draft, ['a', 'b'])).toEqual({ kind: 'lane', projectId: 'b' });
+    // 2. the project was chosen but has no card: its OWN temporary lane, never the first one
+    expect(draftLaneOf({ ...draft, projectId: 'vuoto' }, ['a', 'b'])).toEqual({ kind: 'new-lane', projectId: 'vuoto' });
+    expect(draftLaneOf({ ...draft, projectId: 'vuoto' }, [])).toEqual({ kind: 'new-lane', projectId: 'vuoto' });
+    // 3. «Automatico» (or no project at all): above the lanes, no project
+    expect(draftLaneOf({ ...draft, projectId: AUTO_PROJECT_ID }, ['a', 'b'])).toEqual({ kind: 'above' });
+    expect(draftLaneOf({ ...draft, projectId: undefined }, ['a', 'b'])).toEqual({ kind: 'above' });
+    // 4. nothing being written
     expect(draftLaneOf(null, ['a'])).toBeNull();
-    expect(draftLaneOf(draft, [])).toBeNull();
+  });
+
+  test('the temporary lane takes its sorted place and exists only for the new-lane case', () => {
+    const ids = ['todo', 'done'];
+    const base = splitIntoLanes(new Map([['todo', [task('1', 'alfa')]], ['done', [task('2', 'zeta')]]]), ids, (id) => id);
+    const nameOf = (id: string) => id;
+    const withEmpty = withDraftLane(base, { kind: 'new-lane', projectId: 'mid' }, ids, nameOf);
+    expect(withEmpty.map((l) => l.projectId)).toEqual(['alfa', 'mid', 'zeta']);
+    expect(withEmpty[1]!.total).toBe(0);
+    expect(withEmpty[1]!.columns.get('todo')).toEqual([]);
+    expect(withDraftLane(base, { kind: 'lane', projectId: 'alfa' }, ids, nameOf).map((l) => l.projectId)).toEqual(['alfa', 'zeta']);
+    expect(withDraftLane(base, { kind: 'above' }, ids, nameOf).map((l) => l.projectId)).toEqual(['alfa', 'zeta']);
+    expect(withDraftLane(base, null, ids, nameOf).map((l) => l.projectId)).toEqual(['alfa', 'zeta']);
+    // The base lanes are not touched: the lane lives only while the ghost does.
+    expect(base.map((l) => l.projectId)).toEqual(['alfa', 'zeta']);
   });
 });

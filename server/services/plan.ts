@@ -6,7 +6,8 @@
  * every read and never stored (a stored value goes stale, a computed one cannot).
  */
 import type { Database } from "bun:sqlite";
-import { isAgentWorking, projectIdForPath, type TaskStatus } from "../../shared/board";
+import { isAgentWorking, type TaskStatus } from "../../shared/board";
+import { buildProjectNames, loadRegisteredProjects } from "./project-display-name";
 import { STAGE_AI_REVIEW, awaitsHuman } from "../../shared/workflow";
 import { isGroupingParent } from "../../shared/grouping-parent";
 import { waitOnPerson } from "../../shared/waits-on-person";
@@ -125,7 +126,7 @@ const toSource = (r: SourceRow): PlanSource => ({ id: r.id, kind: r.kind, label:
 
 export function buildPlan(
   db: Database,
-  opts: { projectId?: string; includeDone?: boolean; now?: number } = {},
+  opts: { projectId?: string; includeDone?: boolean; now?: number; knownDirs?: readonly string[] } = {},
 ): PlanTree {
   const nowMs = opts.now ?? Date.now();
   const includeDone = !!opts.includeDone;
@@ -160,15 +161,11 @@ export function buildPlan(
   const links = db.query(`SELECT task_id, milestone_id FROM plan_task_links`).all() as { task_id: string; milestone_id: string }[];
   const sources = db.query(`SELECT id, task_id, milestone_id, kind, label, url FROM plan_sources ORDER BY created_at`).all() as SourceRow[];
 
-  let names = new Map<string, string>();
-  let paths = new Map<string, string>();
-  try {
-    // Board ids are path slugs (`quadra-lh40qh`), not `projects.id`: resolve both,
-    // or every project shows its slug instead of the name people know.
-    const rows = db.query(`SELECT id, name, path FROM projects`).all() as { id: string; name: string; path: string | null }[];
-    names = new Map(rows.flatMap((p) => [[p.id, p.name], ...(p.path ? [[projectIdForPath(p.path), p.name]] : [])] as [string, string][]));
-    paths = new Map(rows.flatMap((p) => (p.path ? [[p.id, p.path], [projectIdForPath(p.path), p.path]] : []) as [string, string][]));
-  } catch { /* projects table absent (test bench): fall back to the id */ }
+  // One rule for the name and the path of a project, shared with the Kanban's
+  // project index (`services/project-display-name.ts`): same heading, same order.
+  // Board ids are path slugs (`quadra-lh40qh`), not `projects.id`: the index
+  // resolves both, or every project shows its slug instead of the name people know.
+  const projectNames = buildProjectNames(loadRegisteredProjects(db), opts.knownDirs ?? []);
 
   const milestoneOf = new Map(links.map((l) => [l.task_id, l.milestone_id]));
   // A sub-card lives where its mother lives (same board): the plan shows it
@@ -336,7 +333,7 @@ export function buildPlan(
       .map((t) => needOf(t, commentsOf.get(t.id) ?? []))
       .filter((x): x is PlanNeed => !!x);
     return {
-      projectId: pid, name: names.get(pid) ?? pid, path: paths.get(pid) ?? null,
+      projectId: pid, name: projectNames.get(pid)?.name ?? pid, path: projectNames.get(pid)?.path ?? null,
       openCount: openCards.filter(isBoardCard).length,
       openSubCount: openCards.filter((c) => !isBoardCard(c)).length,
       progress: progressOf(everything), activity: activityOf(everything), needsYou, areas: projectAreas,
@@ -352,11 +349,6 @@ export function buildPlan(
     .sort((a, b) => Number(b.needsYou.length > 0) - Number(a.needsYou.length > 0)
       || Number(b.activity.state === "working") - Number(a.activity.state === "working")
       || Number(b.areas.length > 0) - Number(a.areas.length > 0) || b.openCount - a.openCount || a.name.localeCompare(b.name));
-  // Two boards can carry the same project name (`attilio` and `attilio-mn52yh`):
-  // without the id the list shows two identical rows and nobody can tell them apart.
-  const seenNames = new Map<string, number>();
-  for (const p of projects) seenNames.set(p.name, (seenNames.get(p.name) ?? 0) + 1);
-  for (const p of projects) if ((seenNames.get(p.name) ?? 0) > 1) p.name = `${p.name} (${p.projectId})`;
   return { projects, includeDone };
 }
 

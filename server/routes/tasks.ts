@@ -43,6 +43,7 @@ import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import { confirmCardOrigin } from "../services/card-origin-notice";
 import { logActivity } from "../db/activity-log";
+import { buildProjectNames, loadRegisteredProjects } from "../services/project-display-name";
 
 /**
  * The global cap as the client reads it, in ONE place for the GET, the PATCH
@@ -3527,12 +3528,17 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (method === "GET") {
         const seen = new Set<string>();
         const projects: Array<{ projectId: string; name: string; path: string }> = [];
-        for (const raw of knownDirs()) {
+        const dirs = knownDirs();
+        // The name shown comes from the same rule the Plan uses (registered name,
+        // else folder; duplicates told apart by id): one heading, one order.
+        const displayNames = buildProjectNames(loadRegisteredProjects(db), dirs);
+        for (const raw of dirs) {
           if (typeof raw !== "string" || !raw.startsWith("/")) continue;
           const path = raw.replace(/\/+$/, "");
           if (!path || seen.has(path)) continue;
           seen.add(path);
-          projects.push({ projectId: projectIdForPath(path), name: basename(path), path });
+          const projectId = projectIdForPath(path);
+          projects.push({ projectId, name: displayNames.get(projectId)?.name ?? basename(path), path });
         }
         projects.sort((a, b) => a.name.localeCompare(b.name));
         return json({ projects, newProjectDir: newDir() });
