@@ -71,7 +71,7 @@ import {
   chatParentModel, parentTranscriptModel, readAgentOutput, releaseForeground, reportChildEnd, startChildWatch, subagentLimitRefusal, waitForegroundLeg, type ChildRef,
 } from "../lib/subagent-runtime";
 export { noteSubAgentStopHook, retireIdleSubAgents, _forgetSubAgentMemory } from "../lib/subagent-runtime";
-import { composerHoldsPrompt, promptAsPaste, trustCursorOnYes, trustDialogShowing } from "../lib/subagent-seed";
+import { composerHoldsPrompt, promptAsPaste, trustDialogShowing, trustDialogStep } from "../lib/subagent-seed";
 import { boardSpawnRefusal, liveAgentCount } from "../services/agent-census";
 import { effectiveDispatchCap, readGlobalCap, computeDispatchCapacity } from "../services/dispatch-capacity";
 import { capMode, type DispatchAdmission } from "../../shared/board";
@@ -2842,18 +2842,21 @@ async function seedAgentPrompt(childId: string, prompt: string, acceptSnippet?: 
  *  there, so trusting it gives the child nothing the parent lacks. */
 async function acceptTrustDialog(childId: string): Promise<boolean> {
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-  for (let step = 0; step < 3; step++) {
+  for (let step = 0; step < 14; step++) { // ~7s: the CLI drops keys until its handler is installed
     if (!sessions.has(childId)) return false;
-    if (trustCursorOnYes(await getTerminalBuffer(childId))) {
+    const next = trustDialogStep(await getTerminalBuffer(childId));
+    if (next === "accept") {
       console.warn(`[Terminal] seedAgentPrompt: ${childId} hit the folder-trust dialog in its cwd, accepting it`);
       noteTerminalInput(childId);
       sendToBridge({ type: "write", id: childId, data: "\r" });
       await sleep(500);
       return true;
     }
-    noteTerminalInput(childId);
-    sendToBridge({ type: "write", id: childId, data: "\x1b[B" }); // freccia giù
-    await sleep(300);
+    if (next === "down") {
+      noteTerminalInput(childId);
+      sendToBridge({ type: "write", id: childId, data: "\x1b[B" }); // arrow down
+    }
+    await sleep(500);
   }
   console.warn(`[Terminal] seedAgentPrompt: ${childId} is stuck on the folder-trust dialog, cursor never reached «Yes»; not pressing Enter`);
   return false;
