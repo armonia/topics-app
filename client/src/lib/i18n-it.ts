@@ -2123,6 +2123,8 @@ const IT: Dict = {
   'plan.noMilestones': 'Ancora nessuna milestone',
   'plan.openCount': '{n} aperte',
   'plan.milestoneEmpty': 'Nessuna card aperta qui',
+  'plan.showMore': 'altre {n}',
+  'plan.showFewer': 'mostra meno',
   'board.toolbar.allProjects': 'Tutti i progetti',
   'board.toolbar.dispatchSettings': 'Impostazioni auto-dispatch',
   'board.toolbar.viewMode.kanban': 'Passa alla vista a lista',

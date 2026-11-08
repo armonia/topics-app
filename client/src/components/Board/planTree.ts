@@ -29,10 +29,13 @@ export function milestoneChoices(project: PlanProject): { id: string; label: str
   return project.areas.flatMap((a: PlanArea) => a.milestones.map((m) => ({ id: m.id, label: `${a.name} / ${m.title}` })));
 }
 
-/** Expansion keys, one shape for every level. */
-export const nodeKey = (kind: 'project' | 'area' | 'milestone' | 'unplaced', id: string) => `${kind}:${id}`;
+/** Where a status stands when a tile shows only the first few cards: what moves first, what waits last. */
+const STATUS_RANK: Record<string, number> = { in_progress: 0, review: 1, todo: 2, backlog: 3, done: 4 };
 
-/** Distinct signals of a set of milestones, to keep them visible on a closed node. */
-export function branchSignals(milestones: readonly { signals: readonly PlanSignal[] }[]): PlanSignal[] {
-  return [...new Set(milestones.flatMap((m) => m.signals))];
+/** Cards in tile order: in progress and to approve first, then to do, backlog, done; stable inside a status. */
+export function sortForPlan<T extends { status: string }>(cards: readonly T[]): T[] {
+  return cards
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => (STATUS_RANK[a.c.status] ?? 3) - (STATUS_RANK[b.c.status] ?? 3) || a.i - b.i)
+    .map((x) => x.c);
 }

@@ -1,14 +1,16 @@
 /**
- * Plan view: Project -> Area -> Milestone -> Card -> Sources, over the board.
- * It shows and acts; it recomputes nothing: counts, progress and signals come
- * from the server (`/api/plan`). No card is copied.
+ * Plan view: one bento tile per project, laid out in as many columns as the
+ * pane allows. Milestones and their cards show at once, without levels to
+ * open: the reader sees the plan, not a tree to explore. Areas are a small
+ * caption inside the tile. It shows and acts; it recomputes nothing: counts,
+ * progress and signals come from the server (`/api/plan`).
  *
  * The numbers are OPEN work: a board with 900 closed cards is not «935/991
  * done», it is «56 open». Done cards only count inside a milestone, where
  * they are the progress of a result.
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { ChevronDown, ChevronRight, ExternalLink, Plus, RefreshCw } from 'lucide-react';
+import { ExternalLink, Plus, RefreshCw } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { Select } from '../Shared/Select';
@@ -18,7 +20,7 @@ import {
   createArea, createMilestone, fetchPlan, linkCard, mergeDuplicate, updateMilestone,
   type PlanArea, type PlanCard, type PlanMilestone, type PlanProject, type PlanProgress, type PlanSignal, type PlanTree,
 } from './planApi';
-import { SIGNAL_KEY, milestoneChoices, nodeKey, openOf, progressLabel, progressPct } from './planTree';
+import { SIGNAL_KEY, milestoneChoices, openOf, progressLabel, progressPct, sortForPlan } from './planTree';
 
 interface Props {
   onOpenTask: (id: string) => void;
@@ -27,17 +29,18 @@ interface Props {
 
 const INPUT = 'rounded-md border border-app-border bg-surface px-2 py-1 text-compact text-app-text outline-none focus-visible:border-primary';
 const BTN = 'rounded px-2 py-1 text-compact text-app-text-secondary hover:bg-app-hover';
-/** Row actions appear on hover or focus, so the tree reads as a list and not as a toolbar. */
-const HOVER_ACTION = `${BTN} flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 coarse:opacity-100`;
-const INDENT = 18;
+/** Tile actions appear on hover or focus, so the tile reads as content and not as a toolbar. */
+const HOVER_ACTION = 'flex items-center gap-1 rounded px-1.5 py-0.5 text-mini text-app-text-muted hover:bg-app-hover hover:text-app-text opacity-0 group-hover/tile:opacity-100 focus-visible:opacity-100 coarse:opacity-100';
+/** Cards shown per milestone before «+N»: a tile stays a glance, the rest is one click away. */
+const CARDS_SHOWN = 6;
 
 function ProgressBar({ p }: { p: PlanProgress }) {
   return (
-    <span className="flex shrink-0 items-center gap-2" data-testid="plan-progress">
-      <span className="h-1 w-16 overflow-hidden rounded-full bg-app-border">
+    <span className="flex shrink-0 items-center gap-1.5" data-testid="plan-progress">
+      <span className="h-1 w-12 overflow-hidden rounded-full bg-app-border">
         <span className="block h-full rounded-full bg-primary" style={{ width: `${progressPct(p)}%` }} />
       </span>
-      <span className="w-9 text-right text-mini tabular-nums text-app-text-muted">{progressLabel(p)}</span>
+      <span className="text-mini tabular-nums text-app-text-muted">{progressLabel(p)}</span>
     </span>
   );
 }
@@ -50,15 +53,18 @@ function OpenCount({ n }: { n: number }) {
 function SignalBadges({ signals }: { signals: readonly PlanSignal[] }) {
   const tr = useT();
   return <>{signals.map((s) => (
-    <span key={s} data-testid={`plan-signal-${s}`} className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-mini text-amber-600 dark:text-amber-400">{tr(SIGNAL_KEY[s])}</span>
+    <span key={s} data-testid={`plan-signal-${s}`} className="shrink-0 whitespace-nowrap rounded bg-amber-500/15 px-1 py-px text-mini leading-tight text-amber-600 dark:text-amber-400">{tr(SIGNAL_KEY[s])}</span>
   ))}</>;
 }
+
+const shortDate = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 
 export function PlanView({ onOpenTask, onOpenTopic }: Props) {
   const tr = useT();
   const [tree, setTree] = useState<PlanTree | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [includeDone, setIncludeDone] = useState(false);
+  /** Milestones whose details (result, owner, date) are open, and lists shown in full. */
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   const [form, setForm] = useState<string | null>(null);
 
@@ -73,35 +79,30 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
     try { await fn(); setForm(null); await load(); } catch (e) { setError((e as Error).message); }
   };
 
-  const Row = ({ k, depth, lead, title, meta, actions, strong }: {
-    k: string; depth: number; lead?: ReactNode; title: string; meta?: ReactNode; actions?: ReactNode; strong?: boolean;
-  }) => (
-    <div className="group flex min-h-8 items-center gap-2 rounded-md pr-2 hover:bg-app-hover/60" style={{ paddingLeft: depth * INDENT }}>
-      <button type="button" aria-expanded={open.has(k)} onClick={() => toggle(k)} className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-left">
-        {open.has(k) ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-app-text-muted" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />}
-        {lead}
-        <span className={`truncate text-compact ${strong ? 'font-semibold text-app-text-heading' : 'font-medium'}`}>{title}</span>
-      </button>
-      {actions}
-      {meta}
-    </div>
-  );
-
-  const renderCard = (c: PlanCard, project: PlanProject, depth: number): ReactNode => {
+  const renderCard = (c: PlanCard, project: PlanProject, nested = false): ReactNode => {
     const choices = milestoneChoices(project);
+    const links = c.sources.filter((s) => (s.kind === 'topic' && s.topicId && onOpenTopic) || s.url);
     return (
       <div key={c.id}>
-      <div data-testid="plan-card" className="rounded-md py-1 pr-2" style={{ paddingLeft: depth * INDENT + 4 }}>
-        <div className="group flex items-center gap-2 rounded-md hover:bg-app-hover/60">
-          <StatusIcon status={c.status as Parameters<typeof StatusIcon>[0]['status']} />
-          <button type="button" onClick={() => onOpenTask(c.id)} className="min-w-0 flex-1 truncate text-left text-compact text-app-text hover:underline">{c.text}</button>
+        <div data-testid="plan-card" className={`group/card relative flex items-center gap-1.5 rounded-md py-0.5 pr-1 hover:bg-app-hover/60 ${nested ? 'pl-5' : 'pl-1'}`}>
+          <StatusIcon status={c.status as Parameters<typeof StatusIcon>[0]['status']} className="h-3 w-3" />
+          <button type="button" onClick={() => onOpenTask(c.id)} title={c.text} className="min-w-0 flex-1 truncate text-left text-compact text-app-text hover:underline">{c.text}</button>
           <SignalBadges signals={c.signals} />
           {c.duplicateOf && (
-            <button type="button" className={BTN} onClick={() => void act(() => mergeDuplicate(c.projectId, c.id, c.duplicateOf!))}>{tr('plan.mergeInto')}</button>
+            <button type="button" className="shrink-0 rounded px-1 text-mini text-app-text-secondary hover:bg-app-hover" onClick={() => void act(() => mergeDuplicate(c.projectId, c.id, c.duplicateOf!))}>{tr('plan.mergeInto')}</button>
           )}
+          {links.map((s, i) => s.kind === 'topic' ? (
+            <button key={i} type="button" aria-label={tr('plan.openSession')} title={tr('plan.openSession')} className="shrink-0 text-app-text-muted opacity-0 hover:text-app-text group-hover/card:opacity-100 focus-visible:opacity-100 coarse:opacity-100" onClick={() => onOpenTopic!(s.topicId!)}>
+              <ExternalLink className="h-3 w-3" />
+            </button>
+          ) : (
+            <a key={i} href={s.url!} target="_blank" rel="noreferrer" title={s.label} className="shrink-0 truncate text-mini text-app-text-muted hover:underline max-w-[7rem]">{s.label}</a>
+          ))}
+          {/* Over the row, not beside it: hidden, it would still eat the title's width. */}
           {choices.length > 0 && (
-            <span className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 coarse:opacity-100">
+            <span className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/card:pointer-events-auto group-hover/card:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
               <Select<string>
+                className="bg-surface shadow-sm"
                 ariaLabel={tr('plan.moveTo')} placeholder={tr('plan.moveTo')} value=""
                 options={choices.map((m) => ({ value: m.id, label: m.label }))}
                 onChange={(mid) => void act(() => linkCard(c.id, mid))}
@@ -109,41 +110,43 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
             </span>
           )}
         </div>
-        {c.sources.some((s) => !s.implicit || s.kind === 'topic' || s.url) && (
-          <div className="flex flex-wrap gap-x-3 pl-6 text-mini text-app-text-muted">
-            {c.sources.map((s, i) => s.kind === 'topic' && s.topicId && onOpenTopic ? (
-              <button key={i} type="button" className="flex items-center gap-1 hover:underline" onClick={() => onOpenTopic(s.topicId!)}>
-                <ExternalLink className="h-3 w-3" />{tr('plan.openSession')}
-              </button>
-            ) : s.url ? (
-              <a key={i} href={s.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:underline"><ExternalLink className="h-3 w-3" />{s.label}</a>
-            ) : !s.implicit ? <span key={i}>{s.label}</span> : null)}
-          </div>
-        )}
+        {c.children?.map((child) => renderCard(child, project, true))}
       </div>
-      {c.children?.map((child) => renderCard(child, project, depth + 1))}
+    );
+  };
+
+  /** A list of cards that stays short: the busiest first, the rest behind «+N». */
+  const CardList = ({ id, cards, project }: { id: string; cards: PlanCard[]; project: PlanProject }) => {
+    const all = open.has(`all:${id}`);
+    const sorted = sortForPlan(cards);
+    const shown = all ? sorted : sorted.slice(0, CARDS_SHOWN);
+    return (
+      <div className="flex flex-col">
+        {shown.map((c) => renderCard(c, project))}
+        {sorted.length > CARDS_SHOWN && (
+          <button type="button" className="self-start rounded px-1 py-0.5 text-mini text-app-text-muted hover:bg-app-hover hover:text-app-text" onClick={() => toggle(`all:${id}`)}>
+            {all ? tr('plan.showFewer') : tr('plan.showMore', { n: sorted.length - CARDS_SHOWN })}
+          </button>
+        )}
       </div>
     );
   };
 
   const renderMilestone = (m: PlanMilestone, project: PlanProject) => {
-    const k = nodeKey('milestone', m.id);
+    const k = `ms:${m.id}`;
     return (
-      <div key={m.id} data-testid="plan-milestone">
-        <Row k={k} depth={2} title={m.title}
-          meta={<>
-            <SignalBadges signals={m.signals} />
-            {m.targetDate && <span className="shrink-0 text-mini tabular-nums text-app-text-muted">{new Date(`${m.targetDate}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>}
-            <ProgressBar p={m.progress} />
-          </>} />
+      <div key={m.id} data-testid="plan-milestone" className="rounded-lg bg-app-hover/40 px-2 py-1.5">
+        <div className="flex items-center gap-2">
+          <button type="button" aria-expanded={open.has(k)} onClick={() => toggle(k)} className="min-w-0 flex-1 truncate text-left text-compact font-medium text-app-text-heading hover:underline">{m.title}</button>
+          {m.targetDate && <span className="shrink-0 text-mini tabular-nums text-app-text-muted">{shortDate(m.targetDate)}</span>}
+          <ProgressBar p={m.progress} />
+        </div>
         {open.has(k) && (
-          <div className="pb-1">
+          <div className="mt-1 flex flex-col gap-1 text-mini text-app-text-secondary">
             {(m.expectedResult || m.completionCriteria) && (
-              <p className="py-0.5 text-mini text-app-text-secondary" style={{ paddingLeft: 3 * INDENT + 4 }}>
-                {m.expectedResult}{m.expectedResult && m.completionCriteria ? ' · ' : ''}{m.completionCriteria}
-              </p>
+              <p>{m.expectedResult}{m.expectedResult && m.completionCriteria ? ' · ' : ''}{m.completionCriteria}</p>
             )}
-            <div className="flex flex-wrap items-center gap-3 py-0.5 text-mini text-app-text-muted" style={{ paddingLeft: 3 * INDENT + 4 }}>
+            <div className="flex flex-wrap items-center gap-2 text-app-text-muted">
               <label className="flex items-center gap-1">{tr('plan.owner')}
                 <input className={INPUT} defaultValue={m.owner ?? ''} onBlur={(e) => { if (e.target.value !== (m.owner ?? '')) void act(() => updateMilestone(m.id, { owner: e.target.value })); }} />
               </label>
@@ -151,11 +154,13 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
                 <input type="date" className={INPUT} defaultValue={m.targetDate ?? ''} onBlur={(e) => { if (e.target.value !== (m.targetDate ?? '')) void act(() => updateMilestone(m.id, { targetDate: e.target.value })); }} />
               </label>
             </div>
-            {m.tasks.length === 0
-              ? <p className="py-1 text-mini text-app-text-muted" style={{ paddingLeft: 3 * INDENT + 4 }}>{tr('plan.milestoneEmpty')}</p>
-              : m.tasks.map((c) => renderCard(c, project, 3))}
           </div>
         )}
+        <div className="mt-1">
+          {m.tasks.length === 0
+            ? <p className="px-1 text-mini text-app-text-muted">{tr('plan.milestoneEmpty')}</p>
+            : <CardList id={m.id} cards={m.tasks} project={project} />}
+        </div>
       </div>
     );
   };
@@ -164,15 +169,19 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
     const [v, setV] = useState({ title: '', expectedResult: '', completionCriteria: '', owner: '', targetDate: '' });
     const set = (k: keyof typeof v) => (e: React.ChangeEvent<HTMLInputElement>) => setV({ ...v, [k]: e.target.value });
     return (
-      <form className="flex flex-wrap items-end gap-2 py-1" style={{ paddingLeft: 2 * INDENT }}
+      <form className="flex flex-col gap-1.5 rounded-lg border border-app-border p-2"
         onSubmit={(e) => { e.preventDefault(); if (v.title.trim()) void act(() => createMilestone({ areaId: area.id, ...v })); }}>
         <input className={INPUT} placeholder={tr('plan.milestoneTitle')} value={v.title} onChange={set('title')} autoFocus />
         <input className={INPUT} placeholder={tr('plan.expectedResult')} value={v.expectedResult} onChange={set('expectedResult')} />
         <input className={INPUT} placeholder={tr('plan.criteria')} value={v.completionCriteria} onChange={set('completionCriteria')} />
-        <input className={INPUT} placeholder={tr('plan.owner')} value={v.owner} onChange={set('owner')} />
-        <input type="date" className={INPUT} aria-label={tr('plan.due')} value={v.targetDate} onChange={set('targetDate')} />
-        <button type="submit" className={BTN}>{tr('plan.create')}</button>
-        <button type="button" className={BTN} onClick={() => setForm(null)}>{tr('plan.cancel')}</button>
+        <div className="flex gap-1.5">
+          <input className={`${INPUT} min-w-0 flex-1`} placeholder={tr('plan.owner')} value={v.owner} onChange={set('owner')} />
+          <input type="date" className={INPUT} aria-label={tr('plan.due')} value={v.targetDate} onChange={set('targetDate')} />
+        </div>
+        <div className="flex justify-end gap-1">
+          <button type="button" className={BTN} onClick={() => setForm(null)}>{tr('plan.cancel')}</button>
+          <button type="submit" className={BTN}>{tr('plan.create')}</button>
+        </div>
       </form>
     );
   };
@@ -180,18 +189,58 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
   const AreaForm = ({ project }: { project: PlanProject }) => {
     const [name, setName] = useState('');
     return (
-      <form className="flex items-center gap-2 py-1" style={{ paddingLeft: INDENT }}
+      <form className="flex items-center gap-1.5"
         onSubmit={(e) => { e.preventDefault(); if (name.trim()) void act(() => createArea(project.projectId, name)); }}>
-        <input className={INPUT} placeholder={tr('plan.areaName')} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+        <input className={`${INPUT} min-w-0 flex-1`} placeholder={tr('plan.areaName')} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
         <button type="submit" className={BTN}>{tr('plan.create')}</button>
         <button type="button" className={BTN} onClick={() => setForm(null)}>{tr('plan.cancel')}</button>
       </form>
     );
   };
 
+  const renderProject = (project: PlanProject) => {
+    const unplacedOpen = openOf(project.unplaced.progress);
+    // Areas with nothing in them still show (they are the plan being built);
+    // the caption is the only level left between the project and its milestones.
+    return (
+      <section key={project.projectId} data-testid="plan-project"
+        className="group/tile mb-3 flex break-inside-avoid flex-col gap-2 rounded-xl border border-app-border bg-surface p-3">
+        <header className="flex items-center gap-2">
+          {project.path && <ProjectFavicon path={project.path} size={16} className="shrink-0" />}
+          <h3 className="min-w-0 flex-1 truncate text-compact font-semibold text-app-text-heading">{project.name}</h3>
+          <button type="button" className={HOVER_ACTION} onClick={() => setForm(`area:${project.projectId}`)}><Plus className="h-3 w-3" />{tr('plan.newArea')}</button>
+          <OpenCount n={project.openCount} />
+        </header>
+        {form === `area:${project.projectId}` && <AreaForm project={project} />}
+        {project.areas.map((a) => (
+          <div key={a.id} data-testid="plan-area" className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-mini font-medium uppercase tracking-wide text-app-text-muted">{a.name}</span>
+              <button type="button" className={HOVER_ACTION} onClick={() => setForm(`ms:${a.id}`)}><Plus className="h-3 w-3" />{tr('plan.newMilestone')}</button>
+            </div>
+            {form === `ms:${a.id}` && <MilestoneForm area={a} />}
+            {a.milestones.length === 0 && form !== `ms:${a.id}` && <p className="text-mini text-app-text-muted">{tr('plan.noMilestones')}</p>}
+            {a.milestones.map((m) => renderMilestone(m, project))}
+          </div>
+        ))}
+        {project.unplaced.tasks.length > 0 && (
+          <div data-testid="plan-unplaced" className="flex flex-col gap-1">
+            {project.areas.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 truncate text-mini font-medium uppercase tracking-wide text-app-text-muted">{tr('plan.unplaced')}</span>
+                <OpenCount n={unplacedOpen} />
+              </div>
+            )}
+            <CardList id={`unplaced:${project.projectId}`} cards={project.unplaced.tasks} project={project} />
+          </div>
+        )}
+      </section>
+    );
+  };
+
   return (
     <div data-testid="plan-view" className="min-h-0 flex-1 overflow-auto px-3 py-3 text-app-text sm:px-5">
-      <div className="mx-auto max-w-4xl">
+      <div className="mx-auto max-w-[1440px]">
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="text-title font-semibold">{tr('plan.title')}</h2>
           <div className="flex items-center gap-2">
@@ -206,43 +255,12 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
         {error && <p role="alert" className="mb-2 text-compact text-red-500">{tr('plan.error', { message: error })}</p>}
         {!tree && !error && <div className="flex items-center gap-2 py-6 text-compact text-app-text-secondary"><SparkLoader />{tr('plan.loading')}</div>}
         {tree && tree.projects.length === 0 && <p className="py-6 text-compact text-app-text-secondary">{tr('plan.empty')}</p>}
-        {tree?.projects.map((project) => {
-          const pk = nodeKey('project', project.projectId);
-          const uk = nodeKey('unplaced', project.projectId);
-          const unplacedOpen = openOf(project.unplaced.progress);
-          return (
-            <section key={project.projectId} data-testid="plan-project" className="border-b border-app-border/60 py-0.5 last:border-b-0">
-              <Row k={pk} depth={0} strong title={project.name}
-                lead={project.path ? <ProjectFavicon path={project.path} size={14} className="shrink-0" /> : undefined}
-                actions={<button type="button" className={HOVER_ACTION} onClick={() => { setForm(`area:${project.projectId}`); setOpen((o) => new Set(o).add(pk)); }}><Plus className="h-3 w-3" />{tr('plan.newArea')}</button>}
-                meta={<OpenCount n={project.openCount} />} />
-              {open.has(pk) && <div className="pb-1">
-                {form === `area:${project.projectId}` && <AreaForm project={project} />}
-                {project.areas.map((a) => {
-                  const ak = nodeKey('area', a.id);
-                  return (
-                    <div key={a.id} data-testid="plan-area">
-                      <Row k={ak} depth={1} title={a.name}
-                        actions={<button type="button" className={HOVER_ACTION} onClick={() => { setForm(`ms:${a.id}`); setOpen((o) => new Set(o).add(ak)); }}><Plus className="h-3 w-3" />{tr('plan.newMilestone')}</button>}
-                        meta={<OpenCount n={openOf(a.progress)} />} />
-                      {open.has(ak) && <>
-                        {form === `ms:${a.id}` && <MilestoneForm area={a} />}
-                        {a.milestones.length === 0 && form !== `ms:${a.id}` && <p className="py-1 text-mini text-app-text-muted" style={{ paddingLeft: 2 * INDENT + 4 }}>{tr('plan.noMilestones')}</p>}
-                        {a.milestones.map((m) => renderMilestone(m, project))}
-                      </>}
-                    </div>
-                  );
-                })}
-                {project.unplaced.tasks.length > 0 && (
-                  <div data-testid="plan-unplaced">
-                    <Row k={uk} depth={1} title={tr('plan.unplaced')} meta={<OpenCount n={unplacedOpen} />} />
-                    {open.has(uk) && project.unplaced.tasks.map((c) => renderCard(c, project, 2))}
-                  </div>
-                )}
-              </div>}
-            </section>
-          );
-        })}
+        {/* Columns by width, not by breakpoint: the pane is narrower than the window whenever a chat sits beside it. */}
+        {tree && tree.projects.length > 0 && (
+          <div data-testid="plan-grid" style={{ columnWidth: 340, columnGap: 12 }}>
+            {tree.projects.map(renderProject)}
+          </div>
+        )}
       </div>
     </div>
   );
