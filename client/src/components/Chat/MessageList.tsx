@@ -54,6 +54,7 @@ import { ROW_RESIZE_SLACK_MS, TranscriptRowResizeContext } from './transcriptRow
 import { ANCHOR_SLACK_PROPERTY, TranscriptDisclosureContext, useDisclosureAnchor } from './useDisclosureAnchor';
 import { CHAT_BOTTOM_GUTTER_PX, COMPOSER_HEIGHT_PROPERTY, type ComposerResizeHandler } from './useComposerDock';
 import { conversationViewKey } from '../../state/composerHandoff';
+import { toVisibleMessage } from './visibleMessage';
 import { useHiddenTurnReturn } from './useHiddenTurnReturn';
 import { endOfLoadingPinRoute, isParkedAtBottom, isVisibleGap } from './bottomGap';
 
@@ -454,24 +455,9 @@ export function MessageList({
 
   // Memoize filtered messages
   const visibleMessages = useMemo(() =>
-    settledMessages.filter(msg => {
-      // Keep partial assistant messages (streaming placeholder)
-      if (msg.role === 'assistant' && msg.partial) return true;
-      const c = msg.content?.trim();
-      if (!c) {
-        // An assistant turn can legitimately end with no prose — it only ran
-        // tools, or it was interrupted (timeout/stale/abort) before the final
-        // text. Keep it when it carries tool work so the timeline renders,
-        // instead of the message silently vanishing after it streamed.
-        const hasWork = msg.role === 'assistant' && (
-          (Array.isArray(msg.blocks) && msg.blocks.length > 0) ||
-          (Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0)
-        );
-        return hasWork;
-      }
-      if (c === 'NO_REPLY' || c === 'ANNOUNCE_SKIP') return false;
-      if (c.startsWith('Agent-to-agent announce step')) return false;
-      return true;
+    settledMessages.flatMap(msg => {
+      const shown = toVisibleMessage(msg);
+      return shown ? [shown] : [];
     }),
     [settledMessages]
   );
