@@ -6,15 +6,15 @@
  * Kept apart from PlanView so they can be mounted in a test without the view's
  * fetches.
  */
-import { CircleAlert } from 'lucide-react';
+import { CircleAlert, Clock } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { SEGNALE_ATTESA } from '../Sidebar/chromeSignals';
 import { StatusIcon } from './atoms';
 import type { PlanActivity, PlanNeed } from '../../../../shared/plan';
 
-/** The card status whose glyph stands for a non-working state. */
-const ICON_OF = { review: 'review', todo: 'todo', stale: 'backlog', done: 'done' } as const;
+/** The card status whose glyph stands for a non-working state; «stale» is not a card status and has a glyph of its own. */
+const ICON_OF = { review: 'review', todo: 'todo', done: 'done' } as const;
 
 export function ActivityBadge({ activity }: { activity: PlanActivity }) {
   const tr = useT();
@@ -26,7 +26,9 @@ export function ActivityBadge({ activity }: { activity: PlanActivity }) {
       {/* The same loader a card at work shows on the Board (CardLive). */}
       {activity.state === 'working'
         ? <SparkLoader className="shrink-0" state="working" />
-        : <StatusIcon status={ICON_OF[activity.state]} className="h-3 w-3" />}
+        : activity.state === 'stale'
+          ? <Clock className="h-3 w-3 shrink-0" aria-hidden />
+          : <StatusIcon status={ICON_OF[activity.state]} className="h-3 w-3" />}
       {label}
     </span>
   );

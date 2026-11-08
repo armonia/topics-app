@@ -35,4 +35,18 @@ describe('Plan tile parts', () => {
     expect(review).toContain('<svg');
     expect(renderToStaticMarkup(createElement(ActivityBadge, { activity: { state: 'empty', count: 0 } }))).toBe('');
   });
+
+  test('«no activity» has a glyph of its own, not the backlog one', () => {
+    const stale = renderToStaticMarkup(createElement(ActivityBadge, { activity: { state: 'stale', count: 3 } }));
+    expect(stale).toContain('lucide-clock');
+    expect(stale).not.toContain('pathLength');
+  });
+
+  test('a parked card has its own row label in «waiting for you»', () => {
+    const html = renderToStaticMarkup(createElement(NeedsYouBox, { onOpenTask: noop, needs: [
+      { taskId: 't1', text: 'Card one', reason: 'parked', detail: 'CLI exited 1' },
+    ] }));
+    expect(html).toContain('CLI exited 1');
+    expect(html).not.toContain('plan.needsYou.parked');
+  });
 });

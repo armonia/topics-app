@@ -6,8 +6,10 @@
  * every read and never stored (a stored value goes stale, a computed one cannot).
  */
 import type { Database } from "bun:sqlite";
-import { pendingQuestionComment, parseQuestionBlock, projectIdForPath } from "../../shared/board";
-import { STAGE_AI_REVIEW } from "../../shared/workflow";
+import { isAgentWorking, projectIdForPath, type TaskStatus } from "../../shared/board";
+import { STAGE_AI_REVIEW, awaitsHuman } from "../../shared/workflow";
+import { isGroupingParent } from "../../shared/grouping-parent";
+import { waitOnPerson } from "../../shared/waits-on-person";
 import { findDuplicateGroups } from "../../shared/task-similarity";
 import {
   PLAN_SOURCE_KINDS,
@@ -25,49 +27,48 @@ interface MilestoneRow {
 }
 
 interface TaskRow {
-  id: string; project_id: string; text: string; status: string;
+  id: string; project_id: string; text: string; status: TaskStatus;
   assigned_topic_id: string | null; origin_topic_id: string | null;
   delivery_branch: string | null; delivery_commit: string | null; checks_state: string | null;
   updated_at: string; created_at: string; parent_task_id?: string | null;
   description?: string | null; stage?: string | null; human_ask?: string | null;
+  dispatch_state?: string | null; dispatch_error?: string | null; dispatch_attempts?: number | null;
+  in_progress_at?: string | null; delivered_by?: string | null; landing_state?: string | null;
 }
-
-/** The «waits for Attilio» line a card description carries when it is the person's turn (see the test). */
-const WAITS_LINE = /aspetta:\s*attilio\b[\s\u2013\u2014:-]*(.*)/i;
 
 interface CommentRow { task_id: string; content: string; kind: string | null; author: string | null; message_id: string | null; quiet: number | null }
 
 /**
- * Does this open card need the person, and why? One reason per card, the most
- * specific first: a question to answer says more than «to approve».
- * An `ai_review` card is the reviewer agent's turn, not the person's.
+ * Does this open card need the person, and why? The rule is `waitOnPerson`
+ * (shared/waits-on-person.ts), the same for every reader.
  */
-export function needOf(t: Pick<TaskRow, "id" | "text" | "status" | "description" | "stage" | "human_ask">, comments: readonly CommentRow[]): PlanNeed | null {
-  if (t.status === "done") return null;
-  const q = pendingQuestionComment(comments.map((c) => ({
+export function needOf(
+  t: Pick<TaskRow, "id" | "text" | "status" | "description" | "stage" | "human_ask" | "dispatch_state" | "dispatch_error">,
+  comments: readonly CommentRow[],
+): PlanNeed | null {
+  const w = waitOnPerson(t, comments.map((c) => ({
     content: c.content, kind: c.kind, author: c.author, messageId: c.message_id, quiet: !!c.quiet,
   })));
-  const parsed = q ? parseQuestionBlock(q.content) : null;
-  if (parsed) return { taskId: t.id, text: t.text, reason: "question", detail: parsed.question };
-  if (t.human_ask?.trim()) return { taskId: t.id, text: t.text, reason: "human_ask", detail: t.human_ask.trim() };
-  const waits = t.description?.match(WAITS_LINE);
-  // The line is often quoted inside a sentence: drop the closing quote and full stop.
-  const said = waits?.[1]?.replace(/[»"”'.\s]+$/, "").trim();
-  if (waits) return { taskId: t.id, text: t.text, reason: "waits", ...(said ? { detail: said } : {}) };
-  if (t.status === "review" && t.stage !== STAGE_AI_REVIEW) return { taskId: t.id, text: t.text, reason: "review" };
-  return null;
+  return w ? { taskId: t.id, text: t.text, ...w } : null;
 }
 
 /**
- * The header state of a group of cards. In progress wins (that is what
- * «moving» means); then what waits for approval, then what is left to do, and
- * «stale» only when every open card has been idle past STALE_DAYS.
+ * The header state of a group of cards, with the Kanban's rules. «At work»
+ * means an agent is on the card now (`isAgentWorking`), or the reviewer agent
+ * in AI review: status in_progress alone is not work. Then what waits for a
+ * person's approval (`awaitsHuman`), then what is left to do, and «stale»
+ * only when every open card has been idle past STALE_DAYS. Grouping parents
+ * are not work and stay out.
  */
-export function activityOf(cards: readonly Pick<PlanCard, "status" | "signals">[]): PlanActivity {
-  const n = (s: string) => cards.filter((c) => c.status === s).length;
+export function activityOf(
+  all: readonly Pick<PlanCard, "status" | "signals" | "stage" | "dispatchState" | "grouping">[],
+): PlanActivity {
+  const cards = all.filter((c) => !c.grouping);
   const open = cards.filter((c) => c.status !== "done");
-  if (n("in_progress") > 0) return { state: "working", count: n("in_progress") };
-  if (n("review") > 0) return { state: "review", count: n("review") };
+  const working = open.filter((c) => isAgentWorking(c.dispatchState) || (c.status === "review" && c.stage === STAGE_AI_REVIEW)).length;
+  const review = open.filter((c) => awaitsHuman(c)).length;
+  if (working > 0) return { state: "working", count: working };
+  if (review > 0) return { state: "review", count: review };
   if (open.length > 0 && open.every((c) => c.signals.includes("stale"))) return { state: "stale", count: open.length };
   if (open.length > 0) return { state: "todo", count: open.length };
   if (cards.length > 0) return { state: "done", count: cards.length };
@@ -80,21 +81,28 @@ export function countCards(cards: readonly { status: string }[]): PlanCounts {
   return { total: cards.length, done: byStatus.done ?? 0, byStatus };
 }
 
-function progressOf(cards: readonly { status: string }[]): PlanProgress {
-  const c = countCards(cards);
+/** Progress of a group; grouping parents are containers, not results, and do not count. */
+function progressOf(all: readonly { status: string; grouping?: true }[]): PlanProgress {
+  const c = countCards(all.filter((x) => !x.grouping));
   return { ...c, ratio: c.total === 0 ? 0 : c.done / c.total };
 }
 
-/** Signals of ONE card, except duplicate (it needs the comparison with the others). */
+/**
+ * Signals of ONE card, except duplicate (it needs the comparison with the others).
+ * `delivered_but_open` is a card that was delivered (a commit, or landed) and
+ * then went back to work: a card in review is the approval itself, already in
+ * «waiting for you». A grouping parent has no owner to miss.
+ */
 export function cardSignals(
-  t: Pick<TaskRow, "status" | "assigned_topic_id" | "delivery_branch" | "delivery_commit" | "updated_at">,
+  t: Pick<TaskRow, "status" | "assigned_topic_id" | "delivery_commit" | "updated_at" | "landing_state">,
   ownerOfMilestone: string | null,
   nowMs: number,
+  opts: { grouping?: boolean } = {},
 ): PlanSignal[] {
   const out: PlanSignal[] = [];
   const open = t.status !== "done";
-  if (open && (t.delivery_branch || t.delivery_commit)) out.push("delivered_but_open");
-  if (open && !t.assigned_topic_id && !ownerOfMilestone) out.push("no_owner");
+  if (open && t.status !== "review" && (t.delivery_commit || t.landing_state === "landed")) out.push("delivered_but_open");
+  if (open && !opts.grouping && !t.assigned_topic_id && !ownerOfMilestone) out.push("no_owner");
   const updated = Date.parse(t.updated_at);
   if (open && Number.isFinite(updated) && nowMs - updated > STALE_DAYS * DAY_MS) out.push("stale");
   return out;
@@ -127,7 +135,8 @@ export function buildPlan(
   const tasks = db.query(
     `SELECT id, project_id, text, status, assigned_topic_id, origin_topic_id, delivery_branch,
             delivery_commit, checks_state, updated_at, created_at, parent_task_id,
-            description, stage, human_ask
+            description, stage, human_ask, dispatch_state, dispatch_error, dispatch_attempts,
+            in_progress_at, delivered_by, landing_state
        FROM tasks WHERE archived = 0 ${where}`,
   ).all(...params) as TaskRow[];
   // Threads of OPEN cards only: a closed card asks nothing, and the full
@@ -177,10 +186,42 @@ export function buildPlan(
     return cur;
   };
   const rootIdOf = new Map(tasks.map((t) => [t.id, rootOf(t).id]));
+  const areaOfMilestone = new Map(milestones.map((m) => [m.id, m.area_id]));
+  const projectOfArea = new Map(areas.map((a) => [a.id, a.project_id]));
+  // A link to a milestone of another project does not count: the card stays unplaced.
+  const validFor = (t: TaskRow, mid: string | undefined): mid is string => {
+    const area = mid ? areaOfMilestone.get(mid) : undefined;
+    return !!area && projectOfArea.get(area) === t.project_id;
+  };
+  // Up first: a mother with no milestone of her own goes where her sub-cards
+  // are (the most frequent milestone, the first met on a tie), so she is not
+  // left among the unplaced while they sit in a milestone.
+  const kidsMilestones = new Map<string, Map<string, number>>();
+  for (const t of tasks) {
+    const root = rootIdOf.get(t.id)!;
+    const mid = milestoneOf.get(t.id);
+    if (root === t.id || !validFor(t, mid)) continue;
+    const tally = kidsMilestones.get(root) ?? new Map<string, number>();
+    tally.set(mid, (tally.get(mid) ?? 0) + 1);
+    kidsMilestones.set(root, tally);
+  }
+  for (const [root, tally] of kidsMilestones) {
+    if (validFor(taskById.get(root)!, milestoneOf.get(root))) continue;
+    let best: string | undefined;
+    for (const [mid, n] of tally) if (best === undefined || n > (tally.get(best) ?? 0)) best = mid;
+    if (best !== undefined) milestoneOf.set(root, best);
+  }
+  // Then down: a sub-card with no milestone follows its mother.
   for (const t of tasks) {
     const root = rootIdOf.get(t.id)!;
     if (root !== t.id && !milestoneOf.has(t.id) && milestoneOf.has(root)) milestoneOf.set(t.id, milestoneOf.get(root)!);
   }
+  // Grouping parents: the same predicate that spares them from the parked sweep.
+  const openKids = new Map<string, number>();
+  for (const t of tasks) {
+    if (t.parent_task_id && t.status !== "done") openKids.set(t.parent_task_id, (openKids.get(t.parent_task_id) ?? 0) + 1);
+  }
+  const grouping = new Set(tasks.filter((t) => isGroupingParent(t, openKids.get(t.id) ?? 0)).map((t) => t.id));
   const milestoneById = new Map(milestones.map((m) => [m.id, m]));
   const srcByTask = new Map<string, PlanSource[]>();
   const srcByMilestone = new Map<string, PlanSource[]>();
@@ -203,16 +244,15 @@ export function buildPlan(
     }
   }
 
-  const areaOfMilestone = new Map(milestones.map((m) => [m.id, m.area_id]));
-  const projectOfArea = new Map(areas.map((a) => [a.id, a.project_id]));
-
   const toCard = (t: TaskRow): PlanCard => {
     const mid = milestoneOf.get(t.id);
     const owner = mid ? (milestoneById.get(mid)?.owner ?? null) : null;
-    const signals = cardSignals(t, owner, nowMs);
+    const isGrouping = grouping.has(t.id);
+    const signals = cardSignals(t, owner, nowMs, { grouping: isGrouping });
     const survivor = dupOf.get(t.id);
     const card: PlanCard = {
-      id: t.id, text: t.text, status: t.status, projectId: t.project_id,
+      id: t.id, text: t.text, status: t.status, stage: t.stage ?? null, dispatchState: t.dispatch_state ?? null,
+      ...(isGrouping ? { grouping: true as const } : {}), projectId: t.project_id,
       assignedTopicId: t.assigned_topic_id, originTopicId: t.origin_topic_id,
       updatedAt: t.updated_at, signals,
       sources: [...implicitSources(t), ...(srcByTask.get(t.id) ?? [])],
@@ -233,18 +273,23 @@ export function buildPlan(
   // cards only with includeDone.
   const allByMilestone = new Map<string, PlanCard[]>();
   const allUnplaced = new Map<string, PlanCard[]>();
+  const placeOf = (t: TaskRow): { valid: boolean; key: string } => {
+    const mid = milestoneOf.get(t.id);
+    return validFor(t, mid) ? { valid: true, key: mid } : { valid: false, key: t.project_id };
+  };
   for (const t of tasks) {
     const card = toCard(t);
-    const mid = milestoneOf.get(t.id);
-    // A link to a milestone of another project does not count: the card stays unplaced.
-    const mArea = mid ? areaOfMilestone.get(mid) : undefined;
-    const valid = mid && mArea && projectOfArea.get(mArea) === t.project_id;
-    const bucketAll = valid ? allByMilestone : allUnplaced;
-    const key = valid ? (mid as string) : t.project_id;
-    bucketAll.set(key, [...(bucketAll.get(key) ?? []), card]);
+    // Counts follow the card's own milestone.
+    const own = placeOf(t);
+    const bucketAll = own.valid ? allByMilestone : allUnplaced;
+    bucketAll.set(own.key, [...(bucketAll.get(own.key) ?? []), card]);
     if (visible(card)) {
-      const bucket = valid ? cardsByMilestone : unplacedByProject;
-      bucket.set(key, [...(bucket.get(key) ?? []), card]);
+      // The list shows a sub-card under her visible mother, even when its own
+      // link points to another milestone: the container and its content are one row.
+      const root = card.parentTaskId ? taskById.get(card.parentTaskId) : undefined;
+      const shownAt = root && (includeDone || root.status !== "done") ? placeOf(root) : own;
+      const bucket = shownAt.valid ? cardsByMilestone : unplacedByProject;
+      bucket.set(shownAt.key, [...(bucket.get(shownAt.key) ?? []), card]);
     }
   }
   // Visible children go under their visible mother; when the mother is hidden
@@ -281,12 +326,19 @@ export function buildPlan(
     });
     const unplacedAll = allUnplaced.get(pid) ?? [];
     const everything = [...projectAreas.flatMap((a) => a.milestones.flatMap((m) => allByMilestone.get(m.id) ?? [])), ...unplacedAll];
+    // Header counts follow the Kanban feed (`includeOrphanSubtasks`): a card is a
+    // board card when it has no parent or its parent is no longer open; grouping
+    // parents are board cards too, they only stay out of progress and activity.
+    const openCards = everything.filter((c) => c.status !== "done");
+    const openIds = new Set(openCards.map((c) => c.id));
+    const isBoardCard = (c: { parentTaskId?: string | null }) => !c.parentTaskId || !openIds.has(c.parentTaskId);
     const needsYou = (byProject.get(pid) ?? [])
       .map((t) => needOf(t, commentsOf.get(t.id) ?? []))
       .filter((x): x is PlanNeed => !!x);
     return {
       projectId: pid, name: names.get(pid) ?? pid, path: paths.get(pid) ?? null,
-      openCount: everything.filter((c) => c.status !== "done").length,
+      openCount: openCards.filter(isBoardCard).length,
+      openSubCount: openCards.filter((c) => !isBoardCard(c)).length,
       progress: progressOf(everything), activity: activityOf(everything), needsYou, areas: projectAreas,
       unplaced: { progress: progressOf(unplacedAll), tasks: unplacedByProject.get(pid) ?? [] },
     };
@@ -296,7 +348,7 @@ export function buildPlan(
   // for the person first (that is why one opens the view), then projects at
   // work, then those with a plan of their own, then by open work.
   const projects = built
-    .filter((p) => includeDone || p.openCount > 0 || p.areas.length > 0)
+    .filter((p) => includeDone || p.openCount + p.openSubCount > 0 || p.areas.length > 0)
     .sort((a, b) => Number(b.needsYou.length > 0) - Number(a.needsYou.length > 0)
       || Number(b.activity.state === "working") - Number(a.activity.state === "working")
       || Number(b.areas.length > 0) - Number(a.areas.length > 0) || b.openCount - a.openCount || a.name.localeCompare(b.name));
