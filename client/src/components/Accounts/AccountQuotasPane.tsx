@@ -18,7 +18,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  AlertTriangle, ArrowDown, ArrowUp, ArrowLeftRight, CloudOff, CreditCard, Hourglass, Image as ImageIcon, Info, KeyRound, Lock,
+  AlertTriangle, ArrowDown, ArrowUp, ArrowLeftRight, CloudOff, CreditCard, CircleAlert, Timer, Image as ImageIcon, Info, KeyRound, Lock,
   Pause, Play, Unlock, Wallet,
 } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
@@ -270,7 +270,7 @@ function Decide({ decision: d, held, canHold, run, clock }: { decision: HotDecis
   const holdHours = HOLD_HOURS[1];
   return (
     <>
-      <h2 className={SECTION_TITLE}><Hourglass size={13} className={WARNING_TEXT} aria-hidden="true" />{tr('accounts.decide')}<span className="font-normal tabular-nums">1</span></h2>
+      <h2 className={SECTION_TITLE}><CircleAlert size={13} className={WARNING_TEXT} aria-hidden="true" />{tr('accounts.decide')}<span className="font-normal tabular-nums">1</span></h2>
       <div data-testid="accounts-decide" className="flex items-center gap-2.5 rounded border border-amber-500/45 bg-amber-500/10 px-2.5 py-2 text-app-text @max-2xl:flex-wrap">
         <AlertTriangle size={16} className={`flex-none ${WARNING_TEXT}`} aria-hidden="true" />
         <span className="min-w-0 flex-1">
@@ -301,7 +301,7 @@ function HoldRow({ until, run, clock }: { until: number | null; run: Run; clock:
   const act = (c: AccountCommand) => { setBusy(true); void run(c).finally(() => setBusy(false)); };
   return (
     <div data-testid="accounts-hold" data-held={until !== null ? 'true' : 'false'} className={`${LIST} mb-1 flex flex-wrap items-center gap-2 px-2.5 py-2 text-compact ${until !== null ? 'border-amber-500/45 bg-amber-500/10' : ''}`}>
-      {until !== null ? <Pause size={14} className={`flex-none ${WARNING_TEXT}`} aria-hidden="true" /> : <Hourglass size={14} className="flex-none text-app-text-secondary" aria-hidden="true" />}
+      {until !== null ? <Pause size={14} className={`flex-none ${WARNING_TEXT}`} aria-hidden="true" /> : <Timer size={14} className="flex-none text-app-text-secondary" aria-hidden="true" />}
       <span className="min-w-0 flex-1">
         <b className="block font-semibold text-app-text">{tr('accounts.hold.title')}</b>
         <span className="text-app-text-secondary tabular-nums">{until !== null ? tr('accounts.hold.on', { time: clock.time(until) }) : tr('accounts.hold.off')}</span>
