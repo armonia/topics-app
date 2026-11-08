@@ -1112,6 +1112,11 @@ export const commandApi = {
     return this.execute(sessionKey, 'model', { model });
   },
 
+  /** The server answers with where reasoning is set on the declared provider (`/effort`). */
+  async toggleReasoning(sessionKey: string): Promise<CommandResult> {
+    return this.execute(sessionKey, 'reasoning');
+  },
+
   async setEffort(sessionKey: string, level: string): Promise<CommandResult> {
     return this.execute(sessionKey, 'effort', { level });
   },

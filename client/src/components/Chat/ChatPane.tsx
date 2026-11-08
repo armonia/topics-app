@@ -1138,6 +1138,8 @@ function ChatPaneComponent({
     // (CMDUI-06): on Claude Code forwarded, the live process forgot while the
     // screen kept the history; elsewhere they were prose to the model (`isClearCommand`).
     if (isClearCommand(cmd, declared)) { if (!await confirm({ title: tr('chat.clear.title'), body: tr('chat.clear.body'), confirmLabel: tr('chat.clear.confirm') })) return true; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); setCommandResult({ type: 'success', message: tr('chat.clear.done') }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
+    // `/reasoning` has no switch on any provider: the server answers with the declared provider and points at `/effort`.
+    if (cmd === '/reasoning' || cmd.startsWith('/reasoning ')) { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || '' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/fork' || cmd.startsWith('/fork ')) { await forkHere(text.trim().slice('/fork'.length)); return true; }
 
     // `/rewind` is answered here rather than forwarded, because forwarding it
