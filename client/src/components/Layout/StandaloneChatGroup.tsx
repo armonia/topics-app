@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef, useEffect, lazy, Suspense } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect, useLayoutEffect, lazy, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
 import { Search } from 'lucide-react';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
@@ -497,9 +497,11 @@ export function StandaloneChatGroup({
   // The App fallback closed it on the spot, asked nothing and left the process
   // running behind a tab that was gone.
   const closePaneRef = useRef(handleClosePane);
-  closePaneRef.current = handleClosePane;
   const ownIdsRef = useRef(validatedOrderedIds);
-  ownIdsRef.current = validatedOrderedIds;
+  useLayoutEffect(() => {
+    closePaneRef.current = handleClosePane;
+    ownIdsRef.current = validatedOrderedIds;
+  });
   useEffect(() => {
     const handler = (e: Event) => {
       const ce = e as CustomEvent<{ panelId?: string }>;
