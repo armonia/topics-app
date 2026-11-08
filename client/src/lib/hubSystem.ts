@@ -8,6 +8,7 @@
  */
 import { proxyLabels } from './proxyLabels';
 import type { ProxyText } from './proxyEvents';
+import { hubTaskId } from '../../../shared/hub-attesa';
 
 type Raw = Record<string, unknown>;
 
@@ -36,6 +37,8 @@ export interface WaitingItem {
   due: number | null;
   /** When the item was opened (ms): the oldest waits first after the deadlines. */
   since: number | null;
+  /** The board card this item belongs to, when whoever opened it said so. */
+  taskId: string | null;
 }
 
 /** Where the hub's own pages live: a `#page` link of an item points there. */
@@ -142,7 +145,7 @@ export function waitingItems(data: unknown, windowHost: string = currentHost()):
     const place = automationKey ? null : hubPlaceOfLink(raw.link);
     out.push({
       id, kind, title, why: str(raw.why), link: automationKey || place ? null : safeLink(raw.link, windowHost), automationKey, place,
-      from: str(raw.from), due: num(raw.due), since: num(raw.at),
+      from: str(raw.from), due: num(raw.due), since: num(raw.at), taskId: hubTaskId(raw.taskId),
     });
   }
   return out;

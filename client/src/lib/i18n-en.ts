@@ -1933,6 +1933,7 @@ const EN = {
   'plan.needsYou.waits': 'Waits for you',
   'plan.needsYou.review': 'To approve',
   'plan.needsYou.parked': 'To unblock',
+  'plan.hubWaits.title': 'Outside the board ({n})',
   'plan.openCount': '{n} open',
   'plan.openRoots.one': '1 card',
   'plan.openRoots.many': '{n} cards',

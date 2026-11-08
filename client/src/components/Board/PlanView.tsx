@@ -18,6 +18,7 @@ import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { SEGNALE_ATTESA } from '../Sidebar/chromeSignals';
 import { StatusIcon } from './atoms';
 import { ActivityBadge, NeedsYouBox } from './PlanTileParts';
+import { PlanHubWaits } from './PlanHubWaits';
 import {
   createArea, createMilestone, fetchPlan, linkCard, mergeDuplicate, updateMilestone,
   type PlanArea, type PlanCard, type PlanMilestone, type PlanProject, type PlanProgress, type PlanSignal, type PlanTree,
@@ -292,6 +293,7 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
             {tree.projects.map(renderProject)}
           </div>
         )}
+        <PlanHubWaits tree={tree} onOpenTask={onOpenTask} />
       </div>
     </div>
   );

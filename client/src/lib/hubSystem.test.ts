@@ -46,7 +46,7 @@ describe('HUBBR-03: the hub readers', () => {
       { id: 'd', tipo: 'boh', title: 'Unknown kind' },
     ] });
     expect(items.map((i) => i.id)).toEqual(['a', 'b', 'd']);
-    expect(items[0]).toEqual({ id: 'a', kind: 'decisione', title: 'Ship it?', why: 'because', link: 'https://example.com/x', automationKey: null, place: null, from: 'guardiano', due: 10, since: null });
+    expect(items[0]).toEqual({ id: 'a', kind: 'decisione', title: 'Ship it?', why: 'because', link: 'https://example.com/x', automationKey: null, place: null, from: 'guardiano', due: 10, since: null, taskId: null });
     expect(items[1]!.link).toBeNull();
     expect(items[2]!.kind).toBe('decisione');
     expect(waitingItems(null)).toEqual([]);

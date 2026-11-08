@@ -2155,6 +2155,7 @@ const IT: Dict = {
   'plan.needsYou.waits': 'Aspetta te',
   'plan.needsYou.review': 'Da approvare',
   'plan.needsYou.parked': 'Da sbloccare',
+  'plan.hubWaits.title': 'Fuori dalla board ({n})',
   'plan.openCount': '{n} aperte',
   'plan.openRoots.one': '1 card',
   'plan.openRoots.many': '{n} card',

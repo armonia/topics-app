@@ -23,7 +23,7 @@ function topicsItem(subject: string, since: number, tier: InboxItem['tier'] = 'n
 }
 
 function hubItem(id: string, since: number, due: number | null = null): WaitingItem {
-  return { id, kind: 'decisione', title: id, why: null, link: null, automationKey: null, place: null, from: null, due, since };
+  return { id, kind: 'decisione', title: id, why: null, link: null, automationKey: null, place: null, from: null, due, since, taskId: null };
 }
 
 const LIVE: HubLiveState = {
