@@ -1780,6 +1780,7 @@ const IT: Dict = {
   // Same sentence for all three doors (drag, the drawer's "move to", the inline
   // composer), because it is the same rule.
   'board.drop.inProgressRedirected': 'In Progress non ha una coda: il task lavora da Todo, che è da dove il dispatcher lo prende.',
+  'board.drop.otherProject': 'Una card resta nel suo progetto: rilasciala nella sua corsia per cambiarle colonna.',
   'board.dispatch.allBoards': 'Dispatch di tutte le board',
   'board.dispatch.parallel': 'Agent in parallelo',
   'board.dispatch.parallelAuto': 'Numero automatico',

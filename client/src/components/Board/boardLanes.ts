@@ -107,6 +107,33 @@ export function columnIdOfDropTarget(id: string): string {
   return at === -1 ? id : id.slice(0, at);
 }
 
+/** The project a lane's droppable id belongs to, or null for the flat board's ids and card ids. */
+export function projectIdOfDropTarget(id: string): string | null {
+  const at = id.indexOf(LANE_SEPARATOR);
+  return at === -1 ? null : id.slice(at + LANE_SEPARATOR.length);
+}
+
+/**
+ * Whether a drop lands in ANOTHER project's lane. A card cannot change project
+ * by being dragged: letting the drop through would change its status in a
+ * project the person was not looking at, and the card would jump back to its
+ * own lane. The drop is refused (and says so) instead. A card dropped on a card
+ * of another project counts too. Only the GROUPED board asks: on the flat
+ * board cards of every project share the columns and reordering among them is
+ * the normal gesture.
+ */
+export function dropsOnOtherProject(
+  task: { projectId: string },
+  overId: string | null,
+  cardProjectOf: (cardId: string) => string | undefined,
+): boolean {
+  if (!overId) return false;
+  const laneProject = projectIdOfDropTarget(overId);
+  if (laneProject !== null) return laneProject !== task.projectId;
+  const cardProject = cardProjectOf(overId);
+  return cardProject !== undefined && cardProject !== task.projectId;
+}
+
 /** Toggles one project in the folded set, returning a NEW set (React state). */
 export function toggleCollapsed(collapsed: ReadonlySet<string>, projectId: string): Set<string> {
   const next = new Set(collapsed);

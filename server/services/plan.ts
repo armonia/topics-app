@@ -341,14 +341,13 @@ export function buildPlan(
     };
   });
   // A project with nothing open and no plan of its own is history: it stays out
-  // unless done cards were asked for. Order: projects with something waiting
-  // for the person first (that is why one opens the view), then projects at
-  // work, then those with a plan of their own, then by open work.
+  // unless done cards were asked for. Order: by name, ties on the id, the same
+  // rule as the Kanban lanes (`sortProjectGroups` on the client). A project
+  // waiting for a person is not lifted to the top: it carries its own
+  // «needs you» box, and the two views list projects in one fixed order.
   const projects = built
     .filter((p) => includeDone || p.openCount + p.openSubCount > 0 || p.areas.length > 0)
-    .sort((a, b) => Number(b.needsYou.length > 0) - Number(a.needsYou.length > 0)
-      || Number(b.activity.state === "working") - Number(a.activity.state === "working")
-      || Number(b.areas.length > 0) - Number(a.areas.length > 0) || b.openCount - a.openCount || a.name.localeCompare(b.name));
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.projectId.localeCompare(b.projectId));
   return { projects, includeDone };
 }
 

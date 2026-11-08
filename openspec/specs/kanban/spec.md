@@ -5457,3 +5457,16 @@ storage, like the layout. The full card SHALL stay unchanged.
 #### Scenario: a folded lane is folded in the Plan
 - **WHEN** the person folds a project's lane and opens the Plan
 - **THEN** that project's tile SHALL show only its header
+
+#### Scenario: a project is named the same in the lane and in the Plan
+- **GIVEN** a registered project whose folder the picker does not offer
+- **WHEN** the person groups the board by project and then opens the Plan
+- **THEN** the lane and the Plan tile SHALL carry the same name and the two views SHALL list projects in the same order (by name)
+
+#### Scenario: a compact card in review keeps the question it waits on
+- **WHEN** a card in review has a pending question
+- **THEN** the compact card SHALL show the question in at most two lines, with the usable quick replies when there are any
+
+#### Scenario: a drop in another project's lane changes nothing
+- **WHEN** a card is dropped in a lane of another project on the grouped board
+- **THEN** the card SHALL keep its status and its project, and a notice SHALL say that a card stays in its own project

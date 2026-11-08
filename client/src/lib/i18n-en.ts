@@ -1595,6 +1595,7 @@ const EN = {
   'board.publish.loadingDiff': 'Loading the diff…',
   'board.publish.diffError': 'Could not load the diff.',
   'board.drop.inProgressRedirected': 'In Progress has no queue: the task works from Todo, which is where the dispatcher picks it up.',
+  'board.drop.otherProject': 'A card stays in its own project: drop it in its own lane to change its column.',
   'board.dispatch.allBoards': 'Dispatch for every board',
   'board.dispatch.parallel': 'Agents in parallel',
   'board.dispatch.parallelAuto': 'Automatic count',

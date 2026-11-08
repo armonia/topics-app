@@ -3541,7 +3541,18 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           projects.push({ projectId, name: displayNames.get(projectId)?.name ?? basename(path), path });
         }
         projects.sort((a, b) => a.name.localeCompare(b.name));
-        return json({ projects, newProjectDir: newDir() });
+        // Projects that are registered but not selectable (a hidden folder, a
+        // project the picker skips): they are not offered as a choice, yet cards
+        // still point at them and the grouped board must head their lane with the
+        // same name the Plan gives. `labelOnly` carries just that: name and path.
+        const listed = new Set(projects.map((p) => p.projectId));
+        const labelOnly: Array<{ projectId: string; name: string; path: string }> = [];
+        for (const entry of displayNames.values()) {
+          if (listed.has(entry.projectId)) continue;
+          listed.add(entry.projectId);
+          labelOnly.push({ projectId: entry.projectId, name: entry.name, path: entry.path ?? "" });
+        }
+        return json({ projects, labelOnly, newProjectDir: newDir() });
       }
       if (method === "POST") {
         if (!opts?.workspaceDir) return json({ error: "workspace not configured", code: "invalid_input" }, 500);

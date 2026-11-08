@@ -104,4 +104,40 @@ describe("one name and one order for the Kanban index and the Plan", () => {
     // The index itself is listed in that order.
     expect(index.projects.map((p: any) => p.name)).toEqual(["Alfa registrato", "cartella-a"]);
   });
+
+  test("a registered project the picker does not list is named by `labelOnly`, with the Plan's name", async () => {
+    // Registered, with a card, but its folder is not among the selectable dirs
+    // (a hidden folder): the picker must not offer it, the lane must still carry
+    // the Plan's name for it.
+    const hiddenPath = "/x/.nascosta/progetto-h";
+    const hiddenId = projectIdForPath(hiddenPath);
+    db.run(`CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT, path TEXT)`);
+    db.query(`INSERT OR REPLACE INTO projects (id, name, path) VALUES ('rowh', 'Nascosto registrato', ?)`).run(hiddenPath);
+    const t = new Date().toISOString();
+    db.query(`INSERT INTO tasks (id, project_id, text, status, created_at, updated_at) VALUES (?,?,?,?,?,?)`).run("h0", hiddenId, "card h", "todo", t, t);
+    const dirs = ["/x/cartella-a"];
+    const planRouter = createPlanRouter(makeCtx(db, []), { listProjectDirs: () => dirs });
+    const tasksRouter = createTasksRouter(makeCtx(db, []), undefined, { listProjectDirs: () => dirs });
+
+    const index = await (await call(tasksRouter, "GET", "/api/all-boards/projects"))!.json();
+    const plan = await (await call(planRouter, "GET", "/api/plan"))!.json();
+    expect(index.projects.some((p: any) => p.projectId === hiddenId)).toBe(false);
+    const label = index.labelOnly.find((p: any) => p.projectId === hiddenId);
+    expect(label).toEqual({ projectId: hiddenId, name: "Nascosto registrato", path: hiddenPath });
+    expect(plan.projects.find((p: any) => p.projectId === hiddenId).name).toBe(label.name);
+  });
+
+  test("the Plan lists projects by name, whatever the order they were created in", async () => {
+    db.run(`CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT, path TEXT)`);
+    const t = new Date().toISOString();
+    // Zeta is registered and has a card first; Alfa comes later but heads the list.
+    for (const [row, name] of [["rz", "Zeta ordine"], ["ra", "Alfa ordine"]] as const) {
+      const path = `/x/ordine-${row}`;
+      db.query(`INSERT OR REPLACE INTO projects (id, name, path) VALUES (?, ?, ?)`).run(row, name, path);
+      db.query(`INSERT INTO tasks (id, project_id, text, status, created_at, updated_at) VALUES (?,?,?,?,?,?)`).run(`o${row}`, projectIdForPath(path), `card ${row}`, "todo", t, t);
+    }
+    const plan = await (await call(createPlanRouter(makeCtx(db, []), { listProjectDirs: () => [] }), "GET", "/api/plan"))!.json();
+    const names = plan.projects.map((p: any) => p.name as string).filter((n: string) => n.endsWith(" ordine"));
+    expect(names).toEqual(["Alfa ordine", "Zeta ordine"]);
+  });
 });

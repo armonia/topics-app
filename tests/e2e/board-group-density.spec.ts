@@ -11,18 +11,22 @@
  * the board, not component state. Folding a lane and then opening the Plan is
  * the proof the two views share one folded set.
  *
- * The second project is named «zeta» and holds the card in review: the server
- * puts a project that waits for a person first, so the Plan listing it AFTER
- * «alfa», like the lanes, proves the two views share one order. The review
- * card is also the proof the compact card keeps the wait in sight.
+ * The second project is named «zeta» and holds the card in review: it waits
+ * for a person, yet the Plan lists it AFTER «alfa», like the lanes, because the
+ * two views share one order (by name). The review card is also the proof the
+ * compact card keeps the wait in sight.
  *
  * Then the same grouped board, read against the Plan and against the composer:
  * a project REGISTERED under a name that differs from its folder has the same
  * heading and the same place in both views; the composer's ghost sits in its
  * project's lane (a temporary lane when the project has no card, always open
  * even if folded) or, on «Automatico», above the lanes with no project header;
- * a compact review card keeps its question beside the quick replies; and a card
- * dragged between the columns of a lane changes status, not project.
+ * a registered project the picker does not offer (a hidden folder) is headed by
+ * the same name in both; a compact review card keeps its question, with the
+ * quick replies when there are usable ones and without them when the only
+ * option is the card's own «land» choice; a card dragged between the columns of
+ * its lane changes status, not project; and a card dropped in ANOTHER project's
+ * lane changes nothing and says why.
  *
  * @covers KANBAN-106
  */
@@ -51,6 +55,11 @@ const NAME_C = `Aaa rinominato ${STAMP}`;
 // A project that exists but has no card: no lane until the composer's ghost asks for one.
 const PATH_D = `${canonicalTmpRoot()}/e2e-lane-vuoto-${STAMP}`;
 const ID_D = boardIdForPath(PATH_D);
+// Registered, with cards, but in a folder the picker never offers (a `.topics`
+// dotdir): the Kanban index does not list it, the Plan names it from the registry.
+const PATH_E = `${canonicalTmpRoot()}/.topics/e2e-lane-nascosto-${STAMP}`;
+const ID_E = boardIdForPath(PATH_E);
+const NAME_E = `Bbb nascosto ${STAMP}`;
 
 type Req = import("@playwright/test").APIRequestContext;
 const createdTasks: { board: string; id: string }[] = [];
@@ -78,6 +87,7 @@ test.describe("Board per progetto e card compatte", () => {
   let plain = "";
   let review = "";
   let projectC = "";
+  let projectE = "";
 
   test.beforeAll(async ({ request }) => {
     for (const [path, name] of [[PATH_A, "e2e-lane-alfa"], [PATH_B, "e2e-lane-zeta"]] as const) {
@@ -96,6 +106,12 @@ test.describe("Board per progetto e card compatte", () => {
     mkdirSync(PATH_D, { recursive: true });
     writeFileSync(`${PATH_D}/package.json`, JSON.stringify({ name: "e2e-lane-vuoto" }, null, 2));
     topics.push((await createTopic(request, "e2e-lane-vuoto", { projectPath: PATH_D })).id);
+    mkdirSync(PATH_E, { recursive: true });
+    writeFileSync(`${PATH_E}/package.json`, JSON.stringify({ name: "e2e-lane-nascosto" }, null, 2));
+    const hidden = await request.post(`${BASE}/api/projects`, { data: { name: NAME_E, path: PATH_E, slug: `bbb-nascosto-${STAMP}` } });
+    expect(hidden.ok(), await hidden.text()).toBe(true);
+    projectE = ((await hidden.json()) as { id: string }).id;
+    await createTask(request, ID_E, `Card nel nascosto ${STAMP}`, "todo");
     const session = (await createTopic(request, `Sessione lane ${STAMP}`)).id;
     topics.push(session);
     live = await createTask(request, ID_A, `Card con sessione ${STAMP}`, "in_progress", "Una descrizione che la card compatta non disegna.");
@@ -115,10 +131,12 @@ test.describe("Board per progetto e card compatte", () => {
     for (const t of [...createdTasks].reverse()) await deleteTask(request, t.board, t.id);
     for (const id of [...topics].reverse()) await deleteTopic(request, id);
     if (projectC) await request.delete(`${BASE}/api/projects/${projectC}`).catch(() => {});
+    if (projectE) await request.delete(`${BASE}/api/projects/${projectE}`).catch(() => {});
     removeTmpDir(PATH_A);
     removeTmpDir(PATH_B);
     removeTmpDir(PATH_C);
     removeTmpDir(PATH_D);
+    removeTmpDir(PATH_E);
   });
 
   test("raggruppa per progetto, compatta le card, ricorda le scelte e il Piano le rispetta", async ({ page }, testInfo) => {
@@ -256,6 +274,29 @@ test.describe("Board per progetto e card compatte", () => {
     await page.screenshot({ path: testInfo.outputPath("piano-rinominato.png") });
   });
 
+  test("un progetto registrato in una cartella che il selettore non offre ha lo stesso nome in Kanban e Piano", async ({ page, request }, testInfo) => {
+    // The premise: the picker's index does not list it, the registry knows it.
+    const index = (await (await request.get(`${BASE}/api/all-boards/projects`)).json()) as { projects: { projectId: string }[] };
+    expect(index.projects.some((p) => p.projectId === ID_E)).toBe(false);
+
+    await freshGrouped(page, null);
+    const laneE = laneOf(page, ID_E);
+    await expect(laneE).toBeVisible();
+    await expect(laneE.getByTestId("board-lane-header")).toContainText(NAME_E);
+    const laneOrder = await page.getByTestId("board-lane").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
+
+    await page.getByTestId("board-plan-toggle").click();
+    const plan = page.getByTestId("plan-view");
+    const tileE = plan.locator(`[data-testid="plan-project"][data-project-id="${ID_E}"]`);
+    await expect(tileE).toBeVisible({ timeout: 15000 });
+    await expect(tileE.getByRole("heading")).toHaveText(NAME_E);
+    const tileOrder = await plan.getByTestId("plan-project").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
+    const among = [ID_A, ID_B, ID_C, ID_E];
+    expect(orderOf(laneOrder, among)).toEqual([ID_C, ID_E, ID_A, ID_B]);
+    expect(orderOf(tileOrder, among)).toEqual(orderOf(laneOrder, among));
+    await page.screenshot({ path: testInfo.outputPath("piano-nascosto.png") });
+  });
+
   test("la bozza del composer indica il progetto giusto: la sua corsia, una corsia di passaggio, o sopra le corsie", async ({ page }, testInfo) => {
     const composer = page.getByTestId("board-task-composer").locator("textarea");
     const drafts = page.getByTestId("kanban-draft-card");
@@ -323,6 +364,25 @@ test.describe("Board per progetto e card compatte", () => {
     await page.screenshot({ path: testInfo.outputPath("card-compatta-domanda.png") });
   });
 
+  test("la card compatta in review mostra la domanda anche quando l'unica opzione e' la scelta di land", async ({ page, request }, testInfo) => {
+    const asked = await createTask(request, ID_C, `Card con domanda di land ${STAMP}`, "review");
+    const sessionKey = `topic:${topics[2]!.slice(0, 8)}`;
+    const posted = await request.post(`${BASE}/api/sessions/${encodeURIComponent(sessionKey)}/tasks/${asked}/comments`, {
+      data: { content: "Fatto: colonna slots aggiunta. Landa su main?", options: ["Landa su main"] },
+    });
+    expect(posted.status(), await posted.text()).toBe(201);
+
+    await freshGrouped(page, null);
+    await page.getByTestId("board-density-toggle").click();
+    const card = page.locator(`[data-task-card="${asked}"]`);
+    await expect(card).toHaveAttribute("data-density", "compact");
+    // The sentence is there; the reply that would duplicate the card's own choice is not.
+    await expect(card.getByTestId("card-compact-question")).toContainText("Landa su main?");
+    await expect(card.getByTestId("card-compact-reply")).toHaveCount(0);
+    await card.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("card-compatta-domanda-land.png") });
+  });
+
   test("trascinare una card fra due colonne di una corsia cambia lo stato, non il progetto", async ({ page, request }, testInfo) => {
     const moving = await createTask(request, ID_A, `Card da trascinare ${STAMP}`, "todo");
     await freshGrouped(page, null);
@@ -346,5 +406,34 @@ test.describe("Board per progetto e card compatte", () => {
     await expect(lane.getByTestId("kanban-column-backlog").locator(`[data-task-card="${moving}"]`)).toBeVisible();
     await expect(laneOf(page, ID_B).locator(`[data-task-card="${moving}"]`)).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath("trascinamento-fatto.png") });
+  });
+
+  test("rilasciare una card nella corsia di un altro progetto non cambia niente e lo dice", async ({ page, request }, testInfo) => {
+    const moving = await createTask(request, ID_A, `Card che resta in alfa ${STAMP}`, "todo");
+    await freshGrouped(page, null);
+    const own = laneOf(page, ID_A);
+    const other = laneOf(page, ID_B);
+    const card = own.locator(`[data-task-card="${moving}"]`);
+    await expect(card).toBeVisible();
+    await card.scrollIntoViewIfNeeded();
+    const target = other.getByTestId("kanban-column-body-backlog");
+    await target.scrollIntoViewIfNeeded();
+    // Both visible at once is not guaranteed: grab, then bring the other lane's column under the pointer.
+    const from = (await card.boundingBox())!;
+    await page.mouse.move(from.x + from.width / 2, from.y + 12);
+    await page.mouse.down();
+    await page.mouse.move(from.x + from.width / 2 + 8, from.y + 20, { steps: 4 });
+    const to = (await target.boundingBox())!;
+    await page.mouse.move(to.x + to.width / 2, Math.min(to.y + 60, 840), { steps: 14 });
+    await page.screenshot({ path: testInfo.outputPath("trascinamento-altro-progetto.png") });
+    await page.mouse.up();
+
+    await expect(page.getByTestId("board-drop-notice")).toBeVisible();
+    // Nothing was written: same status, same project, and the card is still in its own lane.
+    const after = ((await (await request.get(`${BASE}/api/boards/${ID_A}/tasks/${moving}`)).json()) as { task: { status: string; projectId: string } }).task;
+    expect(after).toMatchObject({ status: "todo", projectId: ID_A });
+    await expect(own.getByTestId("kanban-column-todo").locator(`[data-task-card="${moving}"]`)).toBeVisible();
+    await expect(other.locator(`[data-task-card="${moving}"]`)).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("trascinamento-altro-progetto-fatto.png") });
   });
 });

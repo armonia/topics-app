@@ -18,13 +18,16 @@
  * un progetto appena creato entra nella lista per TUTTI i sottoscrittori nello
  * stesso istante.
  */
-import { useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import { boardApi, type BoardProjectRef } from './board';
 
 let projects: BoardProjectRef[] | null = null;
 /** La cartella dove nascerà un progetto creato per nome: dedotta dal server,
  *  da MOSTRARE prima di creare (è una deduzione, non una configurazione). */
 let newProjectDir: string | null = null;
+/** Registered projects the picker does not offer (hidden folders): only their
+ *  name and icon, so a lane or a chip heads them the way the Plan does. */
+let labelOnly: BoardProjectRef[] = [];
 let inflight: Promise<BoardProjectRef[] | null> | null = null;
 /** Projects created while the index was still `null`: they join the first
  *  answer instead of becoming the index themselves (see `addBoardProject`). */
@@ -80,6 +83,7 @@ async function fetchOnce(): Promise<BoardProjectRef[] | null> {
       projects = [...res.projects, ...addedBeforeIndex.filter((p) => !ids.has(p.projectId))].sort(byName);
       addedBeforeIndex = [];
       newProjectDir = res.newProjectDir ?? null;
+      labelOnly = res.labelOnly ?? [];
       lastFailAt = 0;
     } catch {
       // «NON LO SO» RESTA null, e non diventa una lista vuota.
@@ -190,6 +194,26 @@ export function addBoardProject(p: BoardProjectRef): void {
 
 const noopSubscribe = () => () => {};
 const getNull = () => null;
+const getLabelOnly = (): BoardProjectRef[] => labelOnly;
+const getEmpty = (): BoardProjectRef[] => EMPTY_REFS;
+const EMPTY_REFS: BoardProjectRef[] = [];
+
+/**
+ * The index for NAMING and ICONS: the selectable projects plus the registered
+ * ones the picker skips. The grouped board uses it so a lane carries the name
+ * the Plan shows for the same project (a project in a hidden folder is not in
+ * the picker, and would otherwise be headed by a name guessed from its id).
+ * `null` until the first answer, like the index itself.
+ */
+export function useBoardProjectLabels(enabled = true): BoardProjectRef[] | null {
+  const index = useBoardProjects(enabled);
+  const extra = useSyncExternalStore(
+    enabled ? subscribeBoardProjects : noopSubscribe,
+    enabled ? getLabelOnly : getEmpty,
+    getEmpty,
+  );
+  return useMemo(() => (index === null ? null : extra.length === 0 ? index : [...index, ...extra]), [index, extra]);
+}
 
 /**
  * L'indice dei progetti, reattivo.

@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { AUTO_PROJECT_ID, type BoardTask } from '../../lib/board';
-import { columnIdOfDropTarget, laneDropId, sortProjectGroups, splitIntoLanes, toggleCollapsed, withDraftLane } from './boardLanes';
+import { columnIdOfDropTarget, dropsOnOtherProject, laneDropId, projectIdOfDropTarget, sortProjectGroups, splitIntoLanes, toggleCollapsed, withDraftLane } from './boardLanes';
 import { draftLaneOf, type DraftPreview } from './draftPreview';
 import {
   BOARD_COLLAPSED_PROJECTS_STORAGE_KEY, BOARD_DENSITY_STORAGE_KEY, BOARD_GROUP_BY_STORAGE_KEY,
@@ -54,6 +54,28 @@ describe('lane drop ids', () => {
   });
   test('two lanes never share a droppable id', () => {
     expect(laneDropId('todo', 'p1')).not.toBe(laneDropId('todo', 'p2'));
+  });
+});
+
+describe('a drop in the lane of another project', () => {
+  const card = { projectId: 'p1' };
+  const noCards = () => undefined;
+  test('the lane of the same project is a normal drop', () => {
+    expect(projectIdOfDropTarget(laneDropId('todo', 'p1'))).toBe('p1');
+    expect(dropsOnOtherProject(card, laneDropId('todo', 'p1'), noCards)).toBe(false);
+  });
+  test('the lane of another project is refused', () => {
+    expect(dropsOnOtherProject(card, laneDropId('todo', 'p2'), noCards)).toBe(true);
+  });
+  test('a card of another project counts, a card of the same project does not', () => {
+    const owner = (id: string) => (id === 'c-other' ? 'p2' : id === 'c-same' ? 'p1' : undefined);
+    expect(dropsOnOtherProject(card, 'c-other', owner)).toBe(true);
+    expect(dropsOnOtherProject(card, 'c-same', owner)).toBe(false);
+  });
+  test('the flat board has no lanes: plain column ids and no target are never refused', () => {
+    expect(projectIdOfDropTarget('todo')).toBeNull();
+    expect(dropsOnOtherProject(card, 'todo', noCards)).toBe(false);
+    expect(dropsOnOtherProject(card, null, noCards)).toBe(false);
   });
 });
 

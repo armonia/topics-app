@@ -48,13 +48,13 @@ import {
   BOARD_DENSITY_STORAGE_KEY, BOARD_GROUP_BY_STORAGE_KEY, BOARD_LAYOUT_STORAGE_KEY, COLUMNS_ROW_GRID, COLUMNS_ROW_LIST,
   readBoardDensity, readBoardGroupBy, writeBoardPreference, type BoardDensity, type BoardGroupBy,
 } from './boardGeometry';
-import { columnIdOfDropTarget, laneDropId, type BoardLane } from './boardLanes';
+import { columnIdOfDropTarget, dropsOnOtherProject, laneDropId, type BoardLane } from './boardLanes';
 import { BoardViewToggles, ProjectLanes } from './ProjectLanes';
 import { useProjectLanes } from './useProjectLanes';
 import { useCollapsedProjects } from './useCollapsedProjects';
 import { useColumnClearance } from './columnClearance';
 import { scrollDelta } from '../../lib/scrollDelta';
-import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
+import { resolveProjectRefs, useBoardProjectLabels } from '../../lib/boardProjectsStore';
 import { useCardBoardSettings } from '../../hooks/useCardBoardSettings';
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -1506,7 +1506,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // Dallo store CONDIVISO: card, filtro e composer devono vedere lo stesso
   // indice nello stesso istante, altrimenti l'icona compare su una superficie
   // e non sull'altra a seconda di chi ha fetchato prima.
-  const projectIndex = useBoardProjects(mode === 'all');
+  const projectIndex = useBoardProjectLabels(mode === 'all');
   const projectPathById = useMemo(
     () => new Map((projectIndex ?? []).map((p) => [p.projectId, p.path])),
     [projectIndex],
@@ -1658,6 +1658,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     // WHICH WORKFLOW COLUMN the hand let go on: a column's own id (Triage, AI
     // review...) or a card inside one. `planDrop` speaks statuses, so it gets
     // the column's base; the column itself travels as `stage`.
+    // A card keeps its project: a drop in another project's lane is refused with
+    // a word, not carried out as a status change in a project nobody aimed at.
+    if (grouped && dropsOnOtherProject(task, e.over ? String(e.over.id) : null, (id) => tasks.find((t) => t.id === id)?.projectId)) {
+      setDropNotice(tr('board.drop.otherProject'));
+      flushDeferredRead();
+      return;
+    }
     const overRaw = e.over ? columnIdOfDropTarget(String(e.over.id)) : null;
     const overColumn = overRaw ? boardColumns.find((c) => c.id === overRaw) : undefined;
     const overCard = !overColumn && overRaw ? tasks.find((t) => t.id === overRaw) : undefined;
@@ -1693,7 +1700,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     // Nessun piano = nessuna scrittura da aspettare: la lettura parcheggiata
     // non ha più niente dietro cui mettersi in fila.
     if (plan) dropTo(task, plan); else flushDeferredRead();
-  }, [tasks, byStatus, boardColumns, dropTo, endDrag, flushDeferredRead, orderScope, skipFlight, tr]);
+  }, [tasks, byStatus, boardColumns, dropTo, endDrag, flushDeferredRead, grouped, orderScope, skipFlight, tr]);
   const activeTask = activeId ? tasks.find((t) => t.id === activeId) ?? null : null;
   // The Plan draws the board's own card, compact: one card, two views (Plan + Kanban).
   const renderPlanCard = useCallback((taskId: string) => {

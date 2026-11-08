@@ -32,8 +32,13 @@ describe('CompactQuestion', () => {
     expect(html).toContain('disabled');
   });
 
-  test('no replies, nothing drawn: the compact card keeps its two lines', () => {
-    expect(renderToStaticMarkup(<CompactQuestion question="Procedo?" options={[]} busy={false} onAnswer={() => {}} />)).toBe('');
+  test('no usable reply: the question is still drawn, with no buttons', () => {
+    // A question whose only option is the card's own «land» choice is filtered
+    // out of the replies; the card must still say what it is waiting on.
+    const html = renderToStaticMarkup(<CompactQuestion question="Fatto: colonna slots. Landa su main?" options={[]} busy={false} onAnswer={() => {}} />);
+    expect(html).toContain('data-testid="card-compact-question"');
+    expect(html).toContain('Fatto: colonna slots. Landa su main?');
+    expect(html).not.toContain('card-compact-reply');
   });
 
   test('the card draws it for a review card with a pending question, in compact only', () => {
