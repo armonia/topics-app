@@ -1,5 +1,6 @@
 import { defineConfig } from "@playwright/test";
 import { E2E_BASE } from "./tests/e2e/helpers/test-server";
+import { CHROMIUM_LAUNCH } from "./tests/e2e/helpers/remote-gpu";
 
 // Two-tier E2E: the PR gate runs a fast, deterministic subset; the full suite —
 // including slow/perf/network/two-window/reload-persistence specs — runs nightly
@@ -416,7 +417,7 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { browserName: "chromium" },
+      use: { browserName: "chromium", launchOptions: CHROMIUM_LAUNCH },
       // La spec touch gira nel SUO progetto (sotto), non qui: se girasse in
       // entrambi, l'unico progetto senza `hasTouch` la eseguirebbe con
       // `isTouch === false` e verificherebbe l'esatto contrario di ciò che
@@ -498,6 +499,8 @@ export default defineConfig({
       ],
       use: {
         browserName: "chromium",
+        // GPU on the PC under pw-remote, nothing elsewhere: tests/e2e/helpers/remote-gpu.ts
+        launchOptions: CHROMIUM_LAUNCH,
         hasTouch: true,
         isMobile: true,
         viewport: { width: 390, height: 844 },
@@ -542,6 +545,8 @@ export default defineConfig({
       testMatch: ["**/mobile-chrome-bar.spec.ts", "**/mobile-edge-swipe-no-history.spec.ts", "**/mobile-no-tab-strip.spec.ts"],
       use: {
         browserName: "chromium",
+        // GPU on the PC under pw-remote, nothing elsewhere: tests/e2e/helpers/remote-gpu.ts
+        launchOptions: CHROMIUM_LAUNCH,
         hasTouch: true,
         isMobile: true,
         viewport: { width: 390, height: 844 },
@@ -569,6 +574,8 @@ export default defineConfig({
       ],
       use: {
         browserName: "chromium",
+        // GPU on the PC under pw-remote, nothing elsewhere: tests/e2e/helpers/remote-gpu.ts
+        launchOptions: CHROMIUM_LAUNCH,
         hasTouch: true,
         isMobile: true,
         viewport: { width: 1280, height: 900 },

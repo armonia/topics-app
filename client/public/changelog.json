@@ -1,5 +1,72 @@
 [
   {
+    "version": "2.3.61",
+    "date": "2026-11-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "una card archiviata mentre lavora non conta più come «al lavoro» (#619)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Review delle figlie: Kanban, tab, tray e Piano dicono lo stesso numero (#624)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tauri è il guscio, non più Electron (#626)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Parole di stato: una copia sola, «1 aspetta te», l'agente a riposo non è «fermo» (#620)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "conteggi e stati con le stesse regole della Kanban, madri sopra le figlie (#623)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Radice del repo: archiviate le due revisioni dell'08/09 e tolto lo SVG orfano (#625)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sotto-agenti: il brief arriva intero, anche oltre 1022 byte (#627)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "titoli senza emoji, l'icona dal genere della riga (#621)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il nome OpenClaw sparisce dalla presence Discord e dall'interfaccia (#622)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "un TERM durante l'attesa dei figli non fa più perdere il codice d'uscita (#628)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.60",
     "date": "2026-11-08",
     "sections": {

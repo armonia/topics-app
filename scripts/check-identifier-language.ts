@@ -91,6 +91,8 @@ export const PROJECT_WORDS = new Set([
   "readout",
   // winfleet: the PC's own tooling folder (sleep keeper, screen file), read by `server/routes/machine-readout.ts`.
   "winfleet",
+  // gpu: the graphics card the e2e browser can render on (`tests/e2e/helpers/remote-gpu.ts`).
+  "gpu",
   // automation: a scheduled job of the usage hub (cron, launchd, workflow), the
   // hub's own word for its jobs page; `client/src/lib/hubSystem.ts` reads its summary.
   "automation",
