@@ -657,6 +657,17 @@ export function createAppContext(baseDir: string): AppContext {
 
   // --- Helper: Save a single topic and its relations to SQLite ---
   /**
+   * The project allowlist cache of `allowedProjectDirs` (five seconds, see
+   * there). Declared here because saving a topic empties it: `topic.projectPath`
+   * is one of its sources, and a chat just created in a new folder was refused
+   * as "no project directory" until the five seconds ran out. The deny refresh
+   * of `allowedProjectDirsFresh` did not save it when another refusal had
+   * used it up in the half second before (chat-live-work, red on the first
+   * try in every CI run).
+   */
+  let knownDirsCache: { at: number; dirs: Set<string> } | null = null;
+
+  /**
    * Upsert a topic plus its 4 child relation tables atomically. Wrapped in
    * one transaction so a concurrent reader (e.g. another request running
    * `getTopicById`) never sees the half-state where links/contextFiles/etc.
@@ -747,6 +758,9 @@ export function createAppContext(baseDir: string): AppContext {
         for (const src of topic.disabledContextSources) stmts.insertTopicDisabledSource.run(topic.id, src);
       }
     })();
+    // Only a folder the cache does not hold yet empties it: topics are saved
+    // often, and a recompute costs two queries plus a realpath per entry.
+    if (topic.projectPath && knownDirsCache && !knownDirsCache.dirs.has(topic.projectPath)) knownDirsCache = null;
   }
 
   // --- Helper: Convert SQLite message row to StoredMessage ---
@@ -2613,7 +2627,7 @@ export function createAppContext(baseDir: string): AppContext {
    * col picker entra nell'allowlist entro un battito, e nel frattempo il
    * client non ha ancora niente da chiederle.
    */
-  let knownDirsCache: { at: number; dirs: Set<string> } | null = null;
+  // `knownDirsCache` is declared above `saveSingleTopic`, which empties it.
   const KNOWN_DIRS_TTL_MS = 5_000;
   function allowedProjectDirs(): Set<string> {
     const now = Date.now();
