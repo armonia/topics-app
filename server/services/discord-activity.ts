@@ -102,3 +102,4 @@ export function buildActivity(
 
   return { details: cut(details), state: cut(state), ...timestamps, ...assets };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

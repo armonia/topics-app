@@ -56,3 +56,4 @@ export function createSessionPeekIntent(open: () => void, restMs = SESSION_PEEK_
     cancel,
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

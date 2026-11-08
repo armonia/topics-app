@@ -159,3 +159,4 @@ export function resolveAgentProject(
   const where = tried.length ? tried.join(", ") : "no known directory";
   return { ok: false, refusal: `isolation 'worktree': no project owns ${where}` };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -19,3 +19,4 @@ export const PaneBody = memo(function PaneBody({ render, pane, focused, visible 
 }) {
   return <>{render(pane, focused, visible)}</>;
 });
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

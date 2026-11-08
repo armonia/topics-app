@@ -188,3 +188,4 @@ export function bellTimeLabel(at: number, now: number, tr: Translate, locale?: s
   if (day(at) === day(now - 86_400_000)) return tr('bell.time.yesterday');
   return new Date(at).toLocaleDateString(locale, { day: 'numeric', month: 'short' });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -56,3 +56,4 @@ function memoryConsumerLabel(name: string): string {
   if (normalized.includes("jarvis")) return "Jarvis";
   return `app ${name.trim()}`;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

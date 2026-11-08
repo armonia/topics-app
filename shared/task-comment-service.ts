@@ -315,3 +315,4 @@ export const FOLD_MIN_RUN = 2;
 export function foldsAway(run: ThreadRun<unknown>): boolean {
   return run.service && run.comments.length >= FOLD_MIN_RUN;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

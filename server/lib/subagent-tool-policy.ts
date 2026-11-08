@@ -68,3 +68,4 @@ export function toolAllowedByPolicy(policy: SubagentToolPolicy | null, name: str
   if (policy.noDelegation && SUBAGENT_TOOL_NAMES.has(name)) return false;
   return !policy.allowed || policy.allowed.has(name);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

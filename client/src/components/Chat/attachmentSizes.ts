@@ -54,3 +54,4 @@ export async function sizesByPath(uploads: readonly PendingSize[]): Promise<Medi
   }
   return Object.keys(sizes).length > 0 ? sizes : undefined;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

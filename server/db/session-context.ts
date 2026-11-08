@@ -84,3 +84,4 @@ export function getSessionContext(db: Database, sessionKey: string): SessionCont
     .get(sessionKey) as Record<string, unknown> | undefined;
   return r ? mapRow(r) : null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

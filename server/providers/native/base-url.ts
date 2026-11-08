@@ -45,3 +45,4 @@ export function anthropicBaseUrl(): string {
 export function anthropicMessagesUrl(): string {
   return `${anthropicBaseUrl()}/v1/messages`;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

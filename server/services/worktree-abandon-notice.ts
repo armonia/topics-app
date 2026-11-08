@@ -177,3 +177,4 @@ export async function abandonNoticeFromRepo(args: {
   const aheadOfMain = await countCommitsAhead(repoPath, branchName);
   return composeAbandonNotice({ reason, branchName, branchState: "present", aheadOfMain, ...extra });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

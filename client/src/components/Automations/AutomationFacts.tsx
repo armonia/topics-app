@@ -112,3 +112,4 @@ export function TechPart({ row, part, partTitle }: { row: AutomationRow; part: s
     </details>
   );
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

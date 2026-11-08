@@ -34,3 +34,4 @@ export function lastMessageLines(content: string, limit = 3): string[] {
     .slice(-Math.max(0, limit))
     .map((line) => line.slice(0, 240));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

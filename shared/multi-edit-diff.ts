@@ -24,3 +24,4 @@ export function batchEditUnifiedDiff(edits: ReadonlyArray<Record<string, unknown
   });
   return out.join("\n");
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

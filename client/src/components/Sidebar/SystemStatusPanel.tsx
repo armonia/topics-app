@@ -188,3 +188,4 @@ function formatAgo(ms: number): string {
   if (minutes < 60) return `${minutes}m fa`;
   return `${Math.floor(minutes / 60)}h fa`;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

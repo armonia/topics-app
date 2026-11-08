@@ -356,3 +356,4 @@ export async function reconcileClosedCardProcessGroups(
   const groups = listCommandProcessGroups().filter((group) => group.cardId && cardIsClosed(group.cardId));
   return Promise.all(groups.map((group) => closeCommandProcessGroup(group, hooks)));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

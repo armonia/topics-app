@@ -163,3 +163,4 @@ export function cacheBreakdown(args: {
   const pct = prompt > 0 ? Math.round((read / prompt) * 100) : 0;
   return { known, read, write5m, write1h, fresh, newTokens: fresh + write5m + write1h, pct };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

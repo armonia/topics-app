@@ -201,3 +201,4 @@ export async function normalizeImage(
   }
   return { kind: "image", image: { mediaType: "image/jpeg", data: resized.toString("base64") }, shape: outShape };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -422,3 +422,4 @@ let _groupCounter = 0;
 export function createGroupId(): string {
   return `group:${Date.now()}-${++_groupCounter}`;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

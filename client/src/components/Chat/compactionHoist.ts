@@ -14,3 +14,4 @@ import { createContext } from 'react';
  * and the recap remains reachable.
  */
 export const CompactionHoistContext = createContext(false);
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

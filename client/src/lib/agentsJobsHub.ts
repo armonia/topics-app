@@ -189,3 +189,4 @@ export function hubIconPath(icons: Map<string, string>, project: string | null |
   const src = project ? icons.get(project) : undefined;
   return src && src.startsWith('/api/') ? `/api/hub/${src.slice('/api/'.length)}` : null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

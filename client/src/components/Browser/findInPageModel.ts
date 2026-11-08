@@ -69,3 +69,4 @@ export function formatFindCounter(
   const c = clampMatchCounter(index, total);
   return tr('find.counter', { i: c.index, t: c.total });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

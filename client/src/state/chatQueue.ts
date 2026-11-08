@@ -675,3 +675,4 @@ export function useChatQueue(sessionKey: string): QueuedTurn[] {
     () => EMPTY,
   );
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

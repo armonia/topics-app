@@ -277,3 +277,4 @@ export async function pushOutputLanguage(pref: LocalePreference): Promise<void> 
     /* la UI resta com'è: la prossima scelta riprova */
   }
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

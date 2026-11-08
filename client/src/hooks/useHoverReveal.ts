@@ -31,3 +31,4 @@ export function useHoverReveal(
 // stessa stanza è solo una porta in più da tenere allineata — e `check:deadcode`
 // la contava, giustamente, come codice morto.
 export type { HoverRevealGroup } from '../lib/hoverReveal';
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

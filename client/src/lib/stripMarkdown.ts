@@ -42,3 +42,4 @@ export function stripMarkdown(input: string): string {
   s = s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
   return s.trim();
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

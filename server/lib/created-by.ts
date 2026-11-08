@@ -53,3 +53,4 @@ export function knownTopicId(db: Database, value: unknown): string | null {
   try { return db.prepare("SELECT 1 FROM topics WHERE id = ?").get(value.trim()) ? value.trim() : null; }
   catch { return null; }
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

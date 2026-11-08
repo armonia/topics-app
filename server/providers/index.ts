@@ -839,3 +839,4 @@ export async function sessionHasPendingSend(sessionKey: string): Promise<boolean
 export function registeredProviders(): Iterable<AIProvider> {
   return _providers.values();
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

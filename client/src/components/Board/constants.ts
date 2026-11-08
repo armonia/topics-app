@@ -458,3 +458,4 @@ export type CreatorFilter = 'all' | 'mine' | 'others';
 /** What the ONE field owns: every axis except the project, which keeps its own
  *  control (it already has a search box and an inline chip strip of its own). */
 export type BoardFieldFilters = Omit<BoardFilters, 'projectId' | 'creator'>;
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

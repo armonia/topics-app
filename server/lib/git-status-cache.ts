@@ -131,3 +131,4 @@ export function invalidateGitCache(projectPath: string): number {
  * with the round before joining it.
  */
 export const roundsInFlight = new Map<string, { generation: number; promise: Promise<unknown> }>();
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

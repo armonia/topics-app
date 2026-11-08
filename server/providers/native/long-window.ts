@@ -83,3 +83,4 @@ export function spiegaErrore(status: number, detail: string, modelId: string): s
     + `(opus-5 e sonnet-5 la reggono, haiku no). Risposta dell'API: ${detail.slice(0, 200)}` // allow-italian: messaggio d'errore del provider, non UI
   );
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

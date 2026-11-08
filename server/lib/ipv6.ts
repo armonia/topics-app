@@ -72,3 +72,4 @@ export function ipv4MappedAddress(groups: number[]): string | null {
   const low = groups[7]!;
   return [high >> 8, high & 0xff, low >> 8, low & 0xff].join(".");
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

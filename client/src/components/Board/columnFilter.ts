@@ -44,3 +44,4 @@ export function liveToolRow(timeline: readonly TimelineItem[]): Extract<Timeline
   }
   return null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

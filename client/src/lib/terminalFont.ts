@@ -14,3 +14,4 @@ export const TERMINAL_PADDING_PX = 12;
  * against 16.25 px. 1.25 here would give 21 px rows.
  */
 export const TERMINAL_LINE_HEIGHT = 1;
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

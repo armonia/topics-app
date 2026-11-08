@@ -170,3 +170,4 @@ if (import.meta.main) {
   const outcome = enableIncrementalVacuum({ dbPath });
   process.exit(outcome.action === "failed" ? 1 : 0);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

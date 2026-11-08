@@ -58,3 +58,4 @@ export function useAutomationsKeys(root: RefObject<HTMLElement | null>, keys: Ke
     return () => window.removeEventListener('keydown', onKey);
   }, [root, open, close, search, clearSearch]);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

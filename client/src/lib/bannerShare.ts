@@ -52,3 +52,4 @@ export function bannerMarkdown(origin: string, nome: string | null): BannerShare
       : 'Questo indirizzo lo raggiunge solo questo computer: su GitHub l\'immagine resterebbe rotta. Sostituisci l\'indirizzo con quello pubblico da cui servi Topics.',
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

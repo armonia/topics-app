@@ -6,3 +6,4 @@ export function installationInviteUrl(relay: {
   if (!relay?.enabled || !relay.baseUrl || !relay.relayId) return null;
   return `${relay.baseUrl.replace(/\/$/, '')}/i/${encodeURIComponent(relay.relayId)}`;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

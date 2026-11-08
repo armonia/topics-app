@@ -69,3 +69,4 @@ export async function runNotificationAction(
   try { ok = await deps.send(req); } catch { ok = false; }
   return ok ? 'executed' : fallback();
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

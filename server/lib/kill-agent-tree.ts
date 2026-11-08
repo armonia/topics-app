@@ -32,3 +32,4 @@ export async function killAgentProcessTree(sessionKey: string): Promise<void> {
   if (!pid) return;
   await killProcessTree(pid).catch(() => { /* best-effort: a dead tree is not a failure */ });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

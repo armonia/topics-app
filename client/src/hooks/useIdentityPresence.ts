@@ -157,3 +157,4 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVAL_MS): P
 
   return state;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

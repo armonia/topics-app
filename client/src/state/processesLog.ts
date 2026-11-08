@@ -28,3 +28,4 @@ export function takeProcessesLogRequest(nowMs: number = Date.now()): boolean {
   askedAt = 0;
   return fresh;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

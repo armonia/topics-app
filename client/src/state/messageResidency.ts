@@ -132,3 +132,4 @@ export function decideMessageResidency(input: MessageResidencyInput): MessageRes
 
   return { keep, evict };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

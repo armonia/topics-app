@@ -431,3 +431,4 @@ export function discardStaging(dir: string): void {
   }
   try { rmSync(dir, { recursive: true, force: true }); } catch { /* the sweep will get it */ }
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

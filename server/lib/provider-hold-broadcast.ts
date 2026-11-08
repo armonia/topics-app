@@ -29,3 +29,4 @@ export function wireHoldToResume(
     if (!hold) deps.nudge();
   });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

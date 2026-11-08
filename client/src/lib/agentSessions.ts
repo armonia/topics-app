@@ -1,6 +1,6 @@
 /**
  * AGENT SESSIONS: the chats the always-on agents (Jarvis, Visione and the
- * other OpenClaw agents) run on their own, from Discord, WhatsApp and their
+ * other agents of the old home) run on their own, from Discord, WhatsApp and their
  * scheduled jobs.
  *
  * They live in the agents' home folders, not in a project you work on, so the
@@ -10,13 +10,14 @@
  * THE CRITERION LIVES HERE AND NOWHERE ELSE: a session is an agent's when its
  * folder is an agent home (`AGENT_HOMES`). The agent is read from the folder:
  * `workspace-<id>` is agent `<id>`, the home itself and `workspace` are the
- * main agent. A new OpenClaw agent shows up on its own, with its id as name,
+ * main agent. A new agent shows up on its own, with its id as name,
  * until `AGENT_NAMES` gives it a friendlier one.
  */
 import type { TerminalSessionInfo, Topic } from '../types';
+import { LEGACY_DATA_DIR_NAME } from '../../../shared/legacy-data-dir';
 
-/** The agent homes, as path suffixes: `~/.openclaw` and Jarvis' home. */
-const AGENT_HOMES = ['/.openclaw', '/.claude/jarvis/home'] as const;
+/** The agent homes, as path suffixes: the old data root and Jarvis' home. */
+const AGENT_HOMES = [`/${LEGACY_DATA_DIR_NAME}`, '/.claude/jarvis/home'] as const;
 
 /** The main agent, the one that answers in the home itself. */
 export const MAIN_AGENT = 'jarvis';
@@ -33,8 +34,8 @@ function norm(p: string): string {
 
 /**
  * The agent that owns a folder, or null when the folder is not an agent's.
- * `~/.openclaw` and `~/.openclaw/workspace` are the main agent,
- * `~/.openclaw/workspace-gtm/…` is `gtm`.
+ * The old data root and its `workspace` are the main agent,
+ * its `workspace-gtm/…` is `gtm`.
  */
 export function agentOfPath(path: string | null | undefined): string | null {
   if (!path) return null;
@@ -306,3 +307,4 @@ export function agentTerminalIds(topics: Record<string, Topic>, terminals: Reado
   }
   return out;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

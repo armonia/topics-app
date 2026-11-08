@@ -80,3 +80,4 @@ export interface ChatReconciliation {
    *  group's `activePaneId` and updates `focusedGroupId`. */
   activateInGroup?: { groupId: string; paneId: string };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

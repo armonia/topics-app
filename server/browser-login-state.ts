@@ -246,3 +246,4 @@ export function loadStateFromStores(
   const e = externalPath ? readStateFile(externalPath) : null;
   return e ? { state: e, source: "external" } : null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

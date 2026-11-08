@@ -169,3 +169,4 @@ export function presenceSummary(counts: PresenceCounts, lang: OutputLanguage = "
   if (counts.focusProject) pezzi.push(presenceProjectPhrase(counts.focusProject, lang));
   return pezzi.join(" · ");
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

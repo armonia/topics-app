@@ -109,3 +109,4 @@ export function sessionStatus(o: StatusOpts): string {
   ];
   return rows.filter(Boolean).join("\n");
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

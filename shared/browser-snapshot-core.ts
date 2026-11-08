@@ -605,3 +605,4 @@ export const UPLOAD_FN = (p: {
     return JSON.stringify({ error: String((e && e.message) || e) });
   }
 };
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

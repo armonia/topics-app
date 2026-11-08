@@ -44,3 +44,4 @@ export const MIN_PANE_FRACTION = 0.1;
  * landed in a new full-width row instead of that bar).
  */
 export const TAB_BAR_H = 40;
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

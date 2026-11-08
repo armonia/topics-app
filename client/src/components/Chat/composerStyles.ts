@@ -12,3 +12,4 @@ export const COMPOSER_CARD =
  *  it (it was 32, usability audit 04/10), and the line stays centred. */
 export const COMPOSER_TEXTAREA =
   'flex-1 min-w-[4rem] px-1.5 py-1.5 coarse:py-3 leading-5 bg-transparent text-app-text placeholder-app-placeholder resize-none overflow-y-auto focus:outline-none focus-visible:outline-none';
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

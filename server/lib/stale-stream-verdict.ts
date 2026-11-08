@@ -138,3 +138,4 @@ export function staleStreamVerdict(opts: {
   if ((opts.trueSilenceMs ?? opts.silentMs) >= frozenMs) return "frozen";
   return opts.alreadyResynced ? "extend" : "rescue";
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

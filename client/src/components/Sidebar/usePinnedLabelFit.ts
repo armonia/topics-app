@@ -58,3 +58,4 @@ export function usePinnedLabelFit({ isRow, name, hasIcon, expandable }: {
   return { tileRef, measureRef, labelShown };
 }
 
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

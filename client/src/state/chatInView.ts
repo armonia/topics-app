@@ -56,3 +56,4 @@ export function onSubjectInFrontChange(fn: () => void): () => void {
   listeners.add(fn);
   return () => { listeners.delete(fn); };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

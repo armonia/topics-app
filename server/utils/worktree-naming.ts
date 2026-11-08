@@ -224,3 +224,4 @@ function pickRandom<T>(list: readonly T[]): T {
   const idx = randomBytes(4).readUInt32BE(0) % list.length;
   return list[idx];
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

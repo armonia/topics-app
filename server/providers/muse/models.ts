@@ -135,3 +135,4 @@ export function museModelInfo(models: readonly MuseModel[]): Record<string, Mode
 export function museContextWindows(models: readonly MuseModel[]): Record<string, number> {
   return Object.fromEntries(models.flatMap((model) => model.contextWindow ? [[model.slug, model.contextWindow]] : []));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

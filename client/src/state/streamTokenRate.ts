@@ -206,3 +206,4 @@ export function forgetStreamTokenRate(sessionKey: string): void {
   if (entry?.timer != null) clearTimeout(entry.timer);
   entries.delete(sessionKey);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

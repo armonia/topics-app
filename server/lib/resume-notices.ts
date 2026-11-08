@@ -89,3 +89,4 @@ export function capLastCut(opts: { restarted: boolean; cause?: unknown }): strin
   if (blamesRestart(opts.cause, opts.restarted)) return "l'ultima volta l'ha interrotto un riavvio del server";
   return "l'ultima volta si è interrotto di nuovo";
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

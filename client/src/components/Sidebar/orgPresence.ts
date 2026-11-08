@@ -204,3 +204,4 @@ function nomeDi(m: MembroPresenza, perId: Map<string, RigaRubrica>): string {
 function initialOf(nome: string): string {
   return nome.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? '').join('');
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

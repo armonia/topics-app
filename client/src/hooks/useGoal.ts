@@ -136,3 +136,4 @@ export function useGoal(
 
   return { goal, declare, close, promote, reload, stopLoop };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

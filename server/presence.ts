@@ -113,3 +113,4 @@ function collapseByWindowLabel(windows: PresenceWindowEntry[]): PresenceWindowEn
   if (lastIndexByLabel.size === 0) return windows;
   return windows.filter((w, i) => !w.windowLabel || lastIndexByLabel.get(w.windowLabel) === i);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

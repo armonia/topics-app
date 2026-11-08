@@ -64,3 +64,4 @@ export const PROMPT_ARMS: PromptArm[] = [
   { id: "v1", label: "prompt del giudice fino al 2026-08-10 (congelato)", build: V1, sha256: sha(V1) },
   { id: "live", label: "CLASSIFIER_PROMPT — quello vero, importato", build: CLASSIFIER_PROMPT, sha256: sha(CLASSIFIER_PROMPT) },
 ];
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

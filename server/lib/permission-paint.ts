@@ -136,3 +136,4 @@ export function toolNameOnRow(row: PermissionPaintRow | null | undefined, toolCa
   const found = fromBlocks ?? findPainted(decodeCol(row?.tool_calls), toolCallId, (c) => c as ShownCall);
   return typeof found?.name === "string" && found.name ? found.name : null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

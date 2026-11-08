@@ -155,3 +155,4 @@ export function undoReducer(state: PaneState, action: PaneAction): void {
   // post-mount by the DOM scroll tracker via `setPaneScrollOffset` and the
   // ChatPane initialScrollOffset subscription (see ChatPane.tsx).
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -57,3 +57,4 @@ export function landingBand(ticket: LandingTicket | null | undefined): LandingBa
   if (ticket.outcome === 'unverifiable') return { kind: 'unverifiable', ahead: 0, detail: null };
   return null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

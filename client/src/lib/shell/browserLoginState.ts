@@ -105,3 +105,4 @@ export function setLocalStorageJs(items: Array<{ name: string; value: string }>,
     `return String(n)})(${JSON.stringify(items)},${JSON.stringify(origin)})`
   );
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

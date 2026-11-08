@@ -192,3 +192,4 @@ export function keepSystemMenuOffPanel(
     && target.closest(COMMAND) === null && selection.containsNode(target as never, true);
   if (!onSelectedText) e.preventDefault();
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

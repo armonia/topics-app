@@ -374,3 +374,4 @@ export async function describeImage(args: {
   }
   return { text, callsRemaining: max - (used + 1) };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

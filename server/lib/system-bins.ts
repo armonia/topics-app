@@ -11,3 +11,4 @@
 import { existsSync } from "node:fs";
 
 export const LSOF = Bun.which("lsof") ?? (existsSync("/usr/sbin/lsof") ? "/usr/sbin/lsof" : "lsof");
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

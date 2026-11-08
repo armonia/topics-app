@@ -303,3 +303,4 @@ export function checksFloorBoxValue(floor: number | null, draft?: string): strin
   if (draft !== undefined) return draft;
   return floor == null ? '' : String(floor);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -53,3 +53,4 @@ export function isTurnStillLive(input: HistoryCleanupInput): boolean {
 export function shouldConsultBroker(input: Omit<HistoryCleanupInput, "brokerState">): boolean {
   return !input.streamInMemory && input.hasPartialRows;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

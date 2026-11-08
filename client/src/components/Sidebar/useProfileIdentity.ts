@@ -71,3 +71,4 @@ export function useProfileIdentity(): ProfileIdentity {
 
   return { nome, avatarUrl: io?.github?.avatarUrl ?? null, sessione };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

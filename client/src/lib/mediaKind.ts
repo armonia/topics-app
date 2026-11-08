@@ -7,3 +7,4 @@
  * Questo file resta la porta d'ingresso del client, che le importava già da qui.
  */
 export { isVideoPath, isImagePath, isPdfPath, isPreviewablePath } from '../../../shared/media-kind';
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

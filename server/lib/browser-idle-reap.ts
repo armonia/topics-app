@@ -23,3 +23,4 @@ export interface ReapState {
 export function browserReapable(s: ReapState): boolean {
   return s.connected && s.contexts === 0 && s.creating === 0 && !s.launching && s.idleMs > s.idleTimeoutMs;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

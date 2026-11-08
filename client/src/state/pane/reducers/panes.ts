@@ -889,3 +889,4 @@ function inferTypeFromId(id: string): PaneType {
   const prefix = id.split(':')[0];
   return ((KNOWN_PANE_TYPES as readonly string[]).includes(prefix) ? prefix : 'chat') as PaneType;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

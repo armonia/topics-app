@@ -48,3 +48,4 @@ export function useFriendPresence(): FriendPresence {
 
   return { ...friendship, rows, faces: friendFaces(rows) };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

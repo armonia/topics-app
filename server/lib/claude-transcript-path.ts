@@ -144,3 +144,4 @@ export function isTranscriptOrphaned(opts: {
   if (updatedAtMs > 0 && nowMs - updatedAtMs < graceMs) return false;
   return !transcriptExists(claudeTranscriptPath(cwd, claudeSessionId));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

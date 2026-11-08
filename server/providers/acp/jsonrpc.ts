@@ -244,3 +244,4 @@ export class JsonRpcPeer {
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err ?? "errore sconosciuto");
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

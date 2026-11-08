@@ -258,3 +258,4 @@ export function createDomHostRegistry(maxIncrements = MAX_HOST_INCREMENTALS): Do
     },
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

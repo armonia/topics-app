@@ -80,3 +80,4 @@ export interface AccountState {
   /** `people.synced_at`: quando l'aggancio è stato scritto l'ultima volta. */
   linkedAt: number | null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

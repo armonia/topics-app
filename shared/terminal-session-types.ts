@@ -50,3 +50,4 @@ export type TerminalAgentType = (typeof TERMINAL_AGENT_TYPES)[number];
 export function isTerminalSessionType(v: unknown): v is TerminalSessionType {
   return typeof v === "string" && (TERMINAL_SESSION_TYPES as readonly string[]).includes(v);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

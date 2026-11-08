@@ -550,3 +550,4 @@ function sys(content: string): ChatMessage {
 function countEmittedBlocks(envelope: ContextEnvelope): number {
   return envelope.systemBlocks.filter((b) => b.enabled && b.injectedByTopicsApp).length;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

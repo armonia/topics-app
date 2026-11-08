@@ -82,3 +82,4 @@ export async function applyRouteFault(pathname: string, fault: RouteFault | null
   if (!pathname.startsWith(fault.pathPrefix)) return;
   await new Promise((r) => setTimeout(r, fault.delayMs));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

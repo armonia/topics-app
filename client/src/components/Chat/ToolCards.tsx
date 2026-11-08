@@ -781,3 +781,4 @@ function ToolCardBodyDetail({ detail, isError, error, isRunning, sessionKey, liv
       return <UnknownCard args={detail.raw.args} result={detail.raw.result} />;
   }
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

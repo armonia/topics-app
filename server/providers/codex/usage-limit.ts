@@ -52,3 +52,4 @@ export function parseCodexUsageLimit(message: string, nowMs: number = Date.now()
   if (!Number.isFinite(untilMs) || untilMs <= nowMs) return null;
   return { untilMs, reason: "Codex plan usage limit reached" };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

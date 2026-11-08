@@ -116,3 +116,4 @@ export async function releaseHoldIfFreed(token: string, nowMs: number = Date.now
   clearProviderHold();
   return true;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

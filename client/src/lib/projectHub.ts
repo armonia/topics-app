@@ -289,3 +289,4 @@ export function budgetChoices(current: number | null): Array<number | null> {
 export function projectSettingsBody(name: string, change: { priority: HubPriority } | { budgetPct: number | null }): string {
   return JSON.stringify({ name, ...change });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

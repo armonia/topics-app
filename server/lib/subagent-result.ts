@@ -380,3 +380,4 @@ export function tallyTurnDurationMs(t: TranscriptTally, turn: number): number | 
 export function resultKey(r: Pick<SubAgentResult, 'agentId' | 'turn' | 'status'>): string {
   return r.status === 'undelivered' ? `${r.agentId}:${r.turn}:undelivered` : `${r.agentId}:${r.turn}`;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

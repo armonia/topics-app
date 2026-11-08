@@ -246,3 +246,4 @@ export function useBoardFeed({ mode, projectId, showArchived, onError }: BoardFe
     flushDeferredRead,
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

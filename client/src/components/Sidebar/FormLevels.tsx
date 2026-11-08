@@ -137,3 +137,4 @@ export function MachinesLevel({ defaultOpen = false, onRequestsRead }: {
     </FormLevel>
   );
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

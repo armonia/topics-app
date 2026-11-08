@@ -285,3 +285,4 @@ function sideCallUsage(db: Database, days: number | null): SideCallUsage {
     byPurpose,
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

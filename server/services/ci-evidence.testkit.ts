@@ -75,3 +75,4 @@ export function fakeClock() {
 export const input = { cwd: "/tmp/wt", sha: SHA, taskId: "12345678-card" };
 
 export const e2eRow = async (i: typeof input, d: AwaitCiDeps) => (await awaitCiEvidence({ ...i, checks: [E2E_CI_CHECK] }, d))[0]!;
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

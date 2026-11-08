@@ -50,3 +50,4 @@ export function streamOfRow(top: ActiveStream | undefined, rowId: string): Activ
   while (s && s.messageId !== rowId) s = s.shadowed;
   return s;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

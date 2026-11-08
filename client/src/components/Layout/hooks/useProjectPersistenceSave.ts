@@ -113,3 +113,4 @@ export function useProjectPersistenceSave(
     onOpenPanesChange?.(panes.map(p => p.id));
   }, [panes, groups, rows, rowHeights, sidebarCollapsed, activeChatTopicId, focusedGroupId, projectPath, onOpenPanesChange]);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

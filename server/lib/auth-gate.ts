@@ -439,3 +439,4 @@ export function evaluateAuth(i: AuthInput): AuthResult {
  * ha già prodotto un buco misurato. Chi cerca la decisione d'origine la trova
  * dentro `evaluateAuth`, dove è l'unica.
  */
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

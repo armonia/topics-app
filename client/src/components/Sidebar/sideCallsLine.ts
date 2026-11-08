@@ -16,3 +16,4 @@ export function sideCallsLine(c: SideCallUsage, cost: string, tr: Translate): st
   parts.push(cost);
   return parts.join(', ');
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -43,3 +43,4 @@ export async function configureApiProvider(
   (deps.save ?? saveApiProviderKey)(config.type, config.apiKey);
   deps.apply(config);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

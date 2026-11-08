@@ -320,3 +320,4 @@ declare const __APP_VERSION__: string;
 function buildVersion(): string {
   return typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

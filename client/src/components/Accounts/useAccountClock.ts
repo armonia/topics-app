@@ -14,3 +14,4 @@ export function useClock(locale: string) {
     return { time: (ms: number) => time.format(ms), dayTime: (ms: number) => `${day.format(ms).replace('.', '')} ${time.format(ms)}` };
   }, [locale]);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

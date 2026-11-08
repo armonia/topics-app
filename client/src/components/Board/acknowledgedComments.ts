@@ -9,3 +9,4 @@ export function reconcileAcknowledgedComments(
   if (acknowledged.size === 0) return incoming;
   return [...incoming, ...acknowledged.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

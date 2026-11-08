@@ -174,3 +174,4 @@ export function useSpawnedBrowserMap(): Record<string, string> {
     () => EMPTY_MAP,
   );
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

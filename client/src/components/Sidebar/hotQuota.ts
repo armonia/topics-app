@@ -55,3 +55,4 @@ export function profileDoor(nome: string | null, pace: unknown, tr: Translate): 
   if (!hot) return { title: base, chip: null };
   return { title: `${base}. ${hot.title}`, chip: `${hot.pct}%` };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

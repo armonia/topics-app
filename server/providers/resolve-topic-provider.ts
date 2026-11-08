@@ -64,3 +64,4 @@ function direct(name: string | null, registry: { getProvider(name: string): AIPr
     throw new Error(`Provider "${name}" non disponibile. Collegalo da «Provider e chiavi», in fondo al selettore del modello, prima di riprendere questa conversazione.`);
   }
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

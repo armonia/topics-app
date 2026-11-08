@@ -47,3 +47,4 @@ export const contextFromMessage =
 /** Quanto CONTESTO è passato, per la riga di `tasks`. */
 export const contextFromTask =
   `(COALESCE(agent_tokens, 0) + COALESCE(agent_cache_read_tokens, 0))`;
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

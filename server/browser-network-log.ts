@@ -129,3 +129,4 @@ export function summarizeNetwork(all: readonly NetworkEntry[], shown: readonly N
     failures: all.reduce((n, e) => n + (isFailure(e) ? 1 : 0), 0),
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -13,3 +13,4 @@ export interface DiffRevs {
   /** The After, or `null` when it is the working tree of a live worktree. */
   head: string | null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

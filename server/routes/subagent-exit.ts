@@ -144,3 +144,4 @@ export function formatSubAgentExitMessage(
   if (!info.branch) return head;
   return `${head}\n\n${w.branch(info.branch)}`;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

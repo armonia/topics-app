@@ -241,3 +241,4 @@ export function parseTranscriptDelta(text: string, opts?: DeltaParseOptions): De
 export function parseTranscriptToMessages(text: string): StoredMessage[] {
   return parseTranscriptDelta(text).messages;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

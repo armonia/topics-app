@@ -150,3 +150,4 @@ export async function executeTopicsTool(
     return { content: err instanceof Error ? err.message : String(err), isError: true };
   }
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

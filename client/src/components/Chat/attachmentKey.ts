@@ -11,3 +11,4 @@ export function attachmentKey(item: object): number {
   if (k === undefined) { k = ++nextKey; keys.set(item, k); }
   return k;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

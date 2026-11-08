@@ -372,3 +372,4 @@ export function useSidebarSwipe({ enabled, sidebarRef, collapsed, setCollapsed }
     };
   }, [enabled, sidebarRef]);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

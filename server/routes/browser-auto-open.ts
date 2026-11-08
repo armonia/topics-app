@@ -130,3 +130,4 @@ export async function maybeOpenPaneForPageOp(
     // The pane never mounted: the tool below still runs headless.
   }
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

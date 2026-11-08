@@ -94,3 +94,4 @@ export function resolveMinRect(
   const bottom = Math.min(Math.max(pos.bottom, minBottom), maxBottom);
   return { left: area.width - right - width, top: area.height - bottom - height, width, height };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

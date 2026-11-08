@@ -139,3 +139,4 @@ export type CodiceAuth = (typeof CODICI_AUTH)[number];
 export function isCodiceAuth(v: unknown): v is CodiceAuth {
   return typeof v === 'string' && (CODICI_AUTH as readonly string[]).includes(v);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -26,3 +26,4 @@ export function runnableCommand(lang: string, text: string): string | null {
   }
   return command.trim() ? command : null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -34,3 +34,4 @@ export const TranscriptRowResizeContext = createContext<((durationMs: number) =>
 /** Past the end of the height animation, how long its growth is still followed:
  *  the last frame lands a little after the nominal duration on a loaded machine. */
 export const ROW_RESIZE_SLACK_MS = 120;
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

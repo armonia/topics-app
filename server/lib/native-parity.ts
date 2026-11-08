@@ -438,3 +438,4 @@ export function clampMaxTokens(n: number | null | undefined): number {
   if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) return DEFAULT_MAX_TOKENS;
   return Math.min(MAX_MAX_TOKENS, Math.max(MIN_MAX_TOKENS, Math.floor(n)));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

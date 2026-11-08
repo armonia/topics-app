@@ -260,3 +260,4 @@ export function readGoogleClient(clientSecretFile: string, readFile: (path: stri
   }
   return { clientId, clientSecret };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -142,3 +142,4 @@ export function SourcesFooter({ data, clock }: { data: AutomationsData; clock: C
     </footer>
   );
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

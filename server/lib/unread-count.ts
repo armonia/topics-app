@@ -71,3 +71,4 @@ export function bumpUnreadCount(deps: UnreadDeps, topicId: string): void {
     console.warn(`[topics] updateUnreadCount failed for ${topicId}:`, err);
   }
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

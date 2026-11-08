@@ -23,3 +23,4 @@ export async function fetchHunks(projectPath: string, file: string, side?: 'stag
     return { side: side ?? 'unstaged', hunks: [] };
   }
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

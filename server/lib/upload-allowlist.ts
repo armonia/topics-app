@@ -112,3 +112,4 @@ export function parseExtraRoots(raw: string | undefined | null): string[] {
   if (!raw) return [];
   return raw.split(":").map((s) => s.trim()).filter(Boolean);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

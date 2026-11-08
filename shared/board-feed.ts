@@ -54,3 +54,4 @@ export function toFeedTask<T extends object>(task: T): Omit<T, FeedOmittedTaskFi
   }
   return out as Omit<T, FeedOmittedTaskField>;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

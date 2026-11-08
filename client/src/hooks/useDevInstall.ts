@@ -67,3 +67,4 @@ export function useDevInstall(): boolean {
 export function whenDevInstallKnown(): Promise<boolean> {
   return probeDevInstall();
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

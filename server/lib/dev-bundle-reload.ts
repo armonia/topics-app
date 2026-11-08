@@ -119,3 +119,4 @@ export function stampBundleRev(html: string, rev: string): string {
   const tag = `<meta name="${BUNDLE_REV_META}" content="${rev}">`;
   return html.includes("<head>") ? html.replace("<head>", `<head>${tag}`) : `${tag}${html}`;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

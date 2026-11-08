@@ -96,3 +96,4 @@ export function hoverRevealClass(
   if (hasHover) return `opacity-0 transition-opacity ${REVEAL_BY_GROUP[group]}`;
   return touch === 'shown' ? '' : HOVER_REVEAL_HIDDEN;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -493,3 +493,4 @@ function cornersQueue({ curvatura, lato }: FormaScatola): { borderRadius: string
   if (lato === 'destra') return { borderRadius: `${s} ${s} ${c} ${s}` };
   return { borderRadius: s };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

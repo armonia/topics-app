@@ -320,3 +320,4 @@ export function __resetSiteHistory(): void {
     /* niente storage: lo stato in memoria è già azzerato */
   }
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

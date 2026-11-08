@@ -69,3 +69,4 @@ export function matchProjectRef(
 ): string | null {
   return matchProjectRefAll(ref, candidates, slugify)[0] ?? null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

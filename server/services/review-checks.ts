@@ -974,3 +974,4 @@ export function formatChecksThreadSummary(runs: CheckRun[], opts?: { commit?: st
   const why = ci ? ciRedWhy(failed) : failed.spawnError ? "non è partito" : `exit ${failed.code}`;
   return `Consegna fermata dai controlli automatici${where}: ${check} ${why}. Apri i dettagli dei check per comando e log.`;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

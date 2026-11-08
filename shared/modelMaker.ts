@@ -101,3 +101,4 @@ export function modelMaker(id: string, offeredBy: { name: string; label?: string
 export function engineMaker(name: string): string | null {
   return Object.prototype.hasOwnProperty.call(ENGINE_MAKERS, name) ? ENGINE_MAKERS[name]! : null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -104,3 +104,4 @@ export function foldRowTurns(t: RowTurns | undefined, event: unknown, end: numbe
 export function rowTurn(t: RowTurns | undefined, rowId: string | undefined): RowTurn | undefined {
   return rowId ? t?.byRow.get(rowId) : undefined;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

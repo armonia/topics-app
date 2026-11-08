@@ -80,3 +80,4 @@ export async function runIncrementalVacuum(deps: IncrementalVacuumDeps): Promise
   }
   return { action: "vacuumed", pages: released, remaining: free, stoppedBy };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

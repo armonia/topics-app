@@ -268,3 +268,4 @@ export function publishBundle(staging: string, publicDir: string, now = Date.now
   }
   return { broken: null, swept };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

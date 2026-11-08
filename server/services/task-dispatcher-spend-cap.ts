@@ -202,3 +202,4 @@ export function bookSessionCost(s: SessionLedger, reading: SessionUsage): void {
   });
   s.costCents = Math.max(s.costCents, Math.round(dollars * 100));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

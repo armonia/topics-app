@@ -174,3 +174,4 @@ export function standaloneSplitFitsCaps(
   if (vertical) return cellStackDepth(row, targetKey) + 1 <= MAX_STACK_DEPTH;
   return row.itemKeys.length < MAX_COLS_PER_ROW;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

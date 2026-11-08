@@ -41,3 +41,4 @@ export function deviceSeenLine(
 export function deviceRevokedLine(d: Pick<PairedDevice, 'revokedAt'>, t: Translate, locale: string, now = Date.now()): string {
   return t('devices.revokedWhen', { quando: deviceWhen(d.revokedAt, t, locale, now) });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

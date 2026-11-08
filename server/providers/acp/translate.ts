@@ -321,3 +321,4 @@ export function contentText(block: AcpContentBlock | null | undefined): string {
 function finite(v: unknown): number | undefined {
   return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

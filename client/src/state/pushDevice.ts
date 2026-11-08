@@ -36,3 +36,4 @@ export const usePushDeviceStore = create<PushDeviceState>((set) => ({
 export function isPushSubscribed(): boolean {
   return usePushDeviceStore.getState().subscribed;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

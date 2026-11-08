@@ -29,3 +29,4 @@ export const CommandRunContext = createContext<CommandRunTarget | null>(null);
 export function commandBlockKey(segment: number, offset: number): number {
   return segment * 0x1000000 + offset;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

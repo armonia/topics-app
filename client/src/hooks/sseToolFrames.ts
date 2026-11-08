@@ -65,3 +65,4 @@ export function withSseToolResult(old: ToolCall, r: SseToolResultDelta): ToolCal
     endedAt: typeof r.endedAt === 'number' ? r.endedAt : old.endedAt,
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

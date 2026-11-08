@@ -27,3 +27,4 @@ export function afterNextPaint(fn: () => void): void {
     channel.port2.postMessage(null);
   });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

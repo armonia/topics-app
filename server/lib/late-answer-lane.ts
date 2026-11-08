@@ -213,3 +213,4 @@ export function createLateAnswerLane(opts: LateAnswerLaneOptions): LateAnswerLan
     isOpen: () => open,
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

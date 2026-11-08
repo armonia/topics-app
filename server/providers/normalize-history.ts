@@ -39,3 +39,4 @@ export function normalizeAlternating(messages: ChatMessage[]): Turn[] {
   }
   return out;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

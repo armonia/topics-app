@@ -136,3 +136,4 @@ export function groupStepsByDay(steps: readonly TimelineStep[]): Array<{ day?: s
   }
   return groups;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

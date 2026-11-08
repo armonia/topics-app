@@ -46,3 +46,4 @@ export function bundleDrift(
 
   return bundle === repo ? null : { bundle, repo };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

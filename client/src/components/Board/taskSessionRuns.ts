@@ -43,3 +43,4 @@ export function taskSessionRuns(timeline: TimelineItem[], active: boolean, start
   }
   return { runs, hidden, since };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

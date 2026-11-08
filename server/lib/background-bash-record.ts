@@ -177,3 +177,4 @@ export function foregroundBashFor(claudeSessionId: string): string[] {
 export function forgetBashRecords(claudeSessionId: string): void {
   sessions.delete(claudeSessionId);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

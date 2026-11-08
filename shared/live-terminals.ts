@@ -21,3 +21,4 @@ export interface LiveTerminal {
   /** For `topics`: the PTY session id, which the client uses to foreground its tab. */
   sessionId?: string;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

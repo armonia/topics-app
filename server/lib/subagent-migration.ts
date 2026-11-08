@@ -106,3 +106,4 @@ export async function migratedChildPromptFor(row: { name: string; claudeSessionI
   }
   return migratedChildPrompt({ name: row.name, ...summary, transcriptPath, promptSnippet: row.promptSnippet, newInput });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

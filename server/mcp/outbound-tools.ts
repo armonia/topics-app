@@ -271,3 +271,4 @@ export async function callGoogleCall(
   const output = (res.output ?? "").trim();
   return output ? `${res.call ?? method}:\n${output}` : `${res.call ?? method}: done, no output`;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

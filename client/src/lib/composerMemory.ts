@@ -184,3 +184,4 @@ export function sameSelection(a: ProviderSelection | null, b: ProviderSelection 
   if (!a || !b) return false;
   return a.provider === b.provider && a.model === b.model;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

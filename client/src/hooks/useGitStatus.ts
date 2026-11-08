@@ -376,3 +376,4 @@ export function useGitStatus({ projectPath, onMessage }: UseGitStatusOptions) {
     gitCache,
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

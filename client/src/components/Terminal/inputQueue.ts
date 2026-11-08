@@ -326,3 +326,4 @@ export function nextInputBands(state: InputQueueState, current: InputBands): Inp
   const lost = held ? null : (state.lostReason ?? current.lost);
   return { held, lost };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

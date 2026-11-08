@@ -437,3 +437,4 @@ export function servicesToWatch(rows: readonly ServiceRow[]): number {
 export function pushLogLine(lines: readonly LogLine[], line: LogLine, max = 400): LogLine[] {
   return [line, ...lines].slice(0, max);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -70,3 +70,4 @@ export function resolveBaselinePaths(
   const write = baselineCandidates(envKey, root)[0]!;
   return { envKey, write, read: pickBaselinePath(envKey, exists, root) ?? write };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

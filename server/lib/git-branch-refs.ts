@@ -89,3 +89,4 @@ export function parseBranchLine(line: string): BranchRef | null {
 export function parseBranchLines(text: string): BranchRef[] {
   return text.split("\n").map(parseBranchLine).filter((b): b is BranchRef => b !== null);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

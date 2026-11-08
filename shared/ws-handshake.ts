@@ -103,3 +103,4 @@ export function parseHelloMessage(value: unknown): HelloParseResult {
   if (result.success) return { ok: true, data: result.data };
   return { ok: false, error: formatZodIssues(result.error) };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

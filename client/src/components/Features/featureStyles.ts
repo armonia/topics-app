@@ -12,3 +12,4 @@ export const PLAN_CHIP: Record<PlanKind, string> = {
   scelta: 'bg-app-hover text-app-text-secondary',
   fatto: 'bg-emerald-500/[0.12] text-emerald-700 dark:text-emerald-400',
 };
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

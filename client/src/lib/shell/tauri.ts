@@ -63,3 +63,4 @@ export function focusBrowserPane(id: string): void {
   if (!internals()) return;
   void tauriInvoke('browser_focus_pane', { id }).catch(() => {});
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -250,3 +250,4 @@ export function orphanBoardAccounts(list: BoardAccount[], shown: Array<{ provide
 export function loginBroken(b: BoardAccount): boolean {
   return b.access !== null && ['scaduto', 'manca'].includes(b.access.state); // allow-italian: the hub's state ids
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

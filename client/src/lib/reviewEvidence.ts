@@ -115,3 +115,4 @@ export function reviewEvidence(task: {
   // attribuire. Il silenzio della misura e' onesto, e va detto.
   return { kind: 'in-place', isolated: false };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

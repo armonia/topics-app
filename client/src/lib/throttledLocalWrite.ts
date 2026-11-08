@@ -173,3 +173,4 @@ export function createThrottledLocalWriter(opts: ThrottledWriterOptions): Thrott
   registry.add(writer);
   return writer;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -195,3 +195,4 @@ export function splitPromptTokens(args: {
   const fresh = Math.max(0, n(args.promptTokensTotal) - cacheRead - cacheCreation);
   return { fresh, cacheRead, cacheCreation };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -43,3 +43,4 @@ export const MOTIVI_LICENZA = [
   "no_token", "no_verification_key", "malformed",
   "bad_signature", "other_installation", "expired", "valid",
 ] as const satisfies readonly MotivoLicenza[];
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

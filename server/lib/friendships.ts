@@ -406,3 +406,4 @@ export function cancel(db: Db, me: string, other: string): FriendshipOutcome {
 function dropRow(db: Db, me: string, other: string): void {
   db.query("DELETE FROM friendships WHERE requester_id = ? AND addressee_id = ?").run(me, other);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

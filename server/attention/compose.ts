@@ -145,3 +145,4 @@ export function composeAttention(i: AttentionInputs): AttentionComposition {
 export function isLitComposition(c: Pick<AttentionComposition, "state">): boolean {
   return c.state === "needs-you" || c.state === "finished";
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

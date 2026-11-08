@@ -79,3 +79,4 @@ export function usePaneZoomChord(
     return () => window.removeEventListener(TOGGLE_PANE_ZOOM_EVENT, onChord);
   }, [enabled, outer, anchorRef, toggleRef]);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

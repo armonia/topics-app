@@ -276,3 +276,4 @@ export async function forgetSite(
   if (displayNames.length === 0) return 0;
   return await backend.forget(contextId, displayNames);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

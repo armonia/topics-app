@@ -107,3 +107,4 @@ export function withBridgeProcess(active: ActiveBridge, info: BridgeProcessInfo)
     startedAt: info.startedAt,
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

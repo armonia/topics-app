@@ -95,3 +95,4 @@ export function rankPaths(paths: readonly string[], query: string, limit: number
   scored.sort((a, b) => (b.score - a.score) || (a.p.length - b.p.length) || a.p.localeCompare(b.p));
   return scored.slice(0, limit).map((s) => s.p);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

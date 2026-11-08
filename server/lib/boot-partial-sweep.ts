@@ -210,3 +210,4 @@ export function threadChangedFrame(topic: { id: string }, sessionKey: string): O
   // The open pane reconciles by the topic's session key and drops a frame without one.
   return { type: "topic:updated", topic: { ...topic, sessionKey }, threadChanged: true };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

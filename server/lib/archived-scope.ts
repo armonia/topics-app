@@ -18,3 +18,4 @@
 export const NOT_ARCHIVED_SQL =
   `(session_key IS NULL OR session_key NOT IN
     (SELECT session_key FROM topics WHERE archived = 1 AND session_key IS NOT NULL))`;
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

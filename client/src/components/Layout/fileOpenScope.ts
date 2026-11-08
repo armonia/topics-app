@@ -65,3 +65,4 @@ export function shouldHandleOpenDiff(
   const target = detail.projectPath ? toPaneId(detail.projectPath) : focusedPanelId;
   return target === wrapperPaneId;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -539,3 +539,4 @@ export function diaryForHistory(data: unknown): DiaryEntry[] {
   });
   return out.sort((a, b) => b.at - a.at);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

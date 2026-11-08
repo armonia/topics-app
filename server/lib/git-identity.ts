@@ -99,3 +99,4 @@ export async function gitEnvFor(cwd: string): Promise<Record<string, string | un
   }
   return (await known) ? process.env : { ...process.env, ...FALLBACK_ENV };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

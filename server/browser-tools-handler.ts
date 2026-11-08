@@ -808,3 +808,4 @@ export async function handleBrowserImportChrome(
       "browser_import_chrome requires the Topics native browser. Open the browser pane first (open_browser_pane / browser_open), then retry.",
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

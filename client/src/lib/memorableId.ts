@@ -38,3 +38,4 @@ export function memorableId(id: string): string {
   const h = hash32(id);
   return `${ADJECTIVES[h % ADJECTIVES.length]}-${NOUNS[(h >>> 8) % NOUNS.length]}`;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

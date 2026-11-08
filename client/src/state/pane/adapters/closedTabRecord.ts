@@ -540,3 +540,4 @@ export function clearViewTombstone(projectPath: string, type: string): void {
 export function getViewTombstones(): Set<string> {
   return new Set(readViewTombstones().map(t => t.key));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

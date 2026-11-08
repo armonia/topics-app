@@ -12,3 +12,4 @@ export function menuRowClass(isMobile: boolean): string {
   return 'w-full flex items-center gap-2.5 px-3 text-app-text hover:bg-app-hover transition-colors '
     + (isMobile ? 'py-3 min-h-11 text-body-lg' : 'py-1.5 text-compact coarse:py-3 coarse:text-body-lg');
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

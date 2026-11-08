@@ -1068,3 +1068,4 @@ export function useAgentActivityCounts(
     return { working: rows.working.length, awaiting: rows.awaitingInput.length + rows.finished.length, awaitingInput: rows.awaitingInput.length };
   }, [roster, topics, sig]);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

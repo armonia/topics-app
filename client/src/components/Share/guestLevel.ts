@@ -22,3 +22,4 @@ const RANK: Record<GuestLevel, number> = { read: 0, comment: 1, edit: 2 };
 export function guestMeets(level: GuestLevel, min: GuestLevel): boolean {
   return RANK[level] >= RANK[min];
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

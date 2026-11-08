@@ -39,3 +39,4 @@ export function touchKeysForSession(sessionType: TerminalSessionType | undefined
 export function touchKeysForSessionInfo(sessionInfo: { type: TerminalSessionType } | undefined): TouchKey[] {
   return touchKeysForSession(sessionInfo?.type);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

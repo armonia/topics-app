@@ -90,3 +90,4 @@ export function applyContextInfo<S extends RemoteNavFields>(
   if (isBlankPage(url)) return { ...s, pageUrl: url, title: info.title || s.title, ...historyFlagsOf(info) };
   return { ...s, url, pageUrl: url, title: info.title || s.title, loading: false, loadingSince: null, ...historyFlagsOf(info) };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

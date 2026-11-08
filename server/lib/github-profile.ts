@@ -190,3 +190,4 @@ function scriviFallimento(db: Db, login: string, ora: number, status: number): v
     `).run(login, ora, status);
   } catch { /* idem */ }
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

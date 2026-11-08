@@ -218,3 +218,4 @@ export function imageCopyStartJs(src: string): string {
 /** L'attesa dell'estrazione: legge il globale e lo azzera quando ha finito. */
 export const IMAGE_COPY_READ_JS =
   "(function(){var v=window.__topicsImgCopy||'';if(v)window.__topicsImgCopy='';return v})()";
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

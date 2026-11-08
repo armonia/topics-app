@@ -142,3 +142,4 @@ export function summarizeHunks(parsed: ParsedDiff): { index: number; context: st
     oldStart: h.oldStart,
   }));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

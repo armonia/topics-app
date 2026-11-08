@@ -60,3 +60,4 @@ export function useProvidersSnapshot(): UseProvidersSnapshotResult {
     retry,
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

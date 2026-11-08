@@ -109,3 +109,4 @@ export function onScreenKeyboardUp(): boolean {
   const vv = typeof window !== 'undefined' ? window.visualViewport : null;
   return !!vv && vv.height < window.innerHeight * 0.85;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

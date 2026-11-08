@@ -136,3 +136,4 @@ export async function compressJson(
   else if (!/\baccept-encoding\b/i.test(vary)) headers.set("Vary", `${vary}, Accept-Encoding`);
   return new Response(compressed, { status: res.status, statusText: res.statusText, headers });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

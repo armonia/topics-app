@@ -1153,3 +1153,4 @@ Wait for the user to approve the plan before executing any changes.`;
 // Ri-esportarlo "per restare dentro server/context/" dava due nomi alla stessa
 // funzione senza che nessuno passasse dal secondo. Il codice di produzione usa
 // `assembleTopicContext`.
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

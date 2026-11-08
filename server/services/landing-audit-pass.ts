@@ -207,3 +207,4 @@ export async function auditOneLanding(deps: AuditWiring, taskId: string): Promis
   await auditLandings(landingAuditDeps(deps, () => [one], /*announce*/ false))
     .catch((err) => { console.warn("[landing-audit] verdetto singolo fallito", err); return null; });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

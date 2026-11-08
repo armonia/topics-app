@@ -94,3 +94,4 @@ export function openInTopicWindow(topicId: string | undefined, sheet: TopicWindo
 export function topicWindowOnScreen(topicId: string): boolean {
   return doors.has(topicId);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

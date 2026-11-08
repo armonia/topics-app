@@ -42,3 +42,4 @@ export function parseSlashInvocation(content: string): SlashInvocation | null {
   const args = m[2]?.trim();
   return args ? { command: m[1], args } : { command: m[1] };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

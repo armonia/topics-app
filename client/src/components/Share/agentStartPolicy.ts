@@ -42,3 +42,4 @@ export function revokeAgentStartRequest(projectId: string, capabilityId: string)
     method: 'DELETE', credentials: 'same-origin',
   }];
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

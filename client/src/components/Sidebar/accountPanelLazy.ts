@@ -31,3 +31,4 @@ export function prefetchAccountPanel(): void {
   prefetched = true;
   importAccountPanel().catch(() => { prefetched = false; });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

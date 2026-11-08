@@ -211,3 +211,4 @@ export function taskTriggerLine(
     : selection.model?.startsWith('claude-') ? 'claude-code' : null;
   return triggerLine(modelTriggerText({ provider, model: selection.model ?? null }, ctx));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

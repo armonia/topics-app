@@ -142,3 +142,4 @@ export function resolveWakeSource(work: BackgroundWork | undefined): WakeEvent[]
   if (report && report.at >= since) return [{ source: report.monitor ? "monitor" : "task", label: report.description, ...(report.end ? { end: report.end } : {}) }];
   return [];
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

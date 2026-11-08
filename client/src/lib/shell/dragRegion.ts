@@ -41,3 +41,4 @@ export const DRAG_REGION = { 'data-tauri-drag-region': 'deep' } as const;
 /** Rinuncia esplicita: dentro una zona `deep`, questo NON trascina. Serve alle
  *  tab riordinabili col drag e a ogni controllo cliccabile nella chrome. */
 export const NO_DRAG_REGION = { 'data-tauri-drag-region': 'false' } as const;
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

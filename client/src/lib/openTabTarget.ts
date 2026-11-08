@@ -113,3 +113,4 @@ export function insertPaneAfter(
   if (at < 0) return [...without, paneId];
   return [...without.slice(0, at + 1), paneId, ...without.slice(at + 1)];
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

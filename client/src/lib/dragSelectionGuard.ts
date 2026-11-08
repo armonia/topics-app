@@ -110,3 +110,4 @@ export function suppressTextSelection(env?: DragSelectionEnv): () => void {
     if (holds.size === 0) releaseAll();
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

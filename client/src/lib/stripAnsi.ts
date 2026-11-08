@@ -13,3 +13,4 @@ export const stripAnsi = (text: string) =>
   // eslint-disable-next-line no-control-regex
   text.replace(/\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?(?:\x07|\x1b\\)/g, '')
       .replace(/\[(?:\d+;)*\d*[A-HJKSTfm]/g, '');
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

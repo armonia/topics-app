@@ -67,3 +67,4 @@ export function isPlanApprovalSchema(schema: unknown): boolean {
   if (!s || s.kind !== 'questions') return false;
   return (s.questions ?? []).some((q) => q?.question?.trim() === PLAN_APPROVAL_QUESTION);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

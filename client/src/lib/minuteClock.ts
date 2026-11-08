@@ -94,3 +94,4 @@ const clock = createMinuteClock({
 /** The document's clock, in the shape `useSyncExternalStore` wants. */
 export const subscribeMinuteClock = clock.subscribe;
 export const getMinuteClockSnapshot = clock.getSnapshot;
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

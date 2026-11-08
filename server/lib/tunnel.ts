@@ -123,3 +123,4 @@ export function tunnelPort(env: Record<string, string | undefined>): number | nu
 export function httpTunnelPort(env: Record<string, string | undefined>): number | null {
   return parsePort(env.TOPICS_TUNNEL_HTTP_PORT);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

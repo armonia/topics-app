@@ -28,3 +28,4 @@ export const LONG_MESSAGE = [
   '```bash\necho two\n```',
   paragraph(15),
 ].join('\n\n') + '\n';
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

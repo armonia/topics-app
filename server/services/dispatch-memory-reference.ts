@@ -29,3 +29,4 @@ export function memoryQueueConsumerLabel(value: string): string {
     ? "Applicazione"
     : value;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

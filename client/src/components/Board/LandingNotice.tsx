@@ -58,3 +58,4 @@ const WORD = {
   unlanded: 'board.task.landUnlanded',
   unverifiable: 'board.task.landUnverifiable',
 } as const;
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

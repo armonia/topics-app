@@ -310,3 +310,4 @@ export function goalContextContent(goal: TopicGoal | null): string | null {
 export function goalToolsHintContent(): string {
   return "Per un lavoro a più passi dichiara l'obiettivo con set_goal e tieni i passi aggiornati con update_goal_steps: è ciò che l'utente vede sopra la chat.";
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

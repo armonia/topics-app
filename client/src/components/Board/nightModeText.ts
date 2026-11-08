@@ -67,3 +67,4 @@ export function describeNight(st: NightStatus | null, enabled: boolean, asked = 
   }
   return { tone: 'go', titleKey: 'board.night.state.go', detailKey: 'board.night.state.go.detail', detailText: null };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

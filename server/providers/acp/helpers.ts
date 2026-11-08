@@ -85,3 +85,4 @@ export function readTopicEffort(sessionKey: string): string | null {
 export function isMethodNotFound(err: unknown): boolean {
   return err instanceof JsonRpcRemoteError && err.code === RPC_METHOD_NOT_FOUND;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

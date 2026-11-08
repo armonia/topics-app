@@ -50,3 +50,4 @@ export function toOpenAIFunctions(tools: Tool[]): BrowserToolForOpenAI[] {
 export function isPassthroughProvider(name: string): boolean {
   return name === "claude" || name === "openai";
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

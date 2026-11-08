@@ -149,3 +149,4 @@ export function trayBoardAttention(groups: readonly TrayGroup[]): number {
 /** Gli stati che la tray NON mostra, dichiarati invece che dedotti dal filtro. */
 export const TRAY_HIDDEN_STATUSES: readonly TaskStatus[] =
   TASK_STATUSES.filter((s): s is TaskStatus => !(TRAY_GROUP_ORDER as readonly string[]).includes(s));
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

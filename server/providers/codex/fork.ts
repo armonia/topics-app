@@ -33,3 +33,4 @@ export function codexForkOf(db: Database, sessionKey: string): { parentThreadId:
   const size = rolloutSize(origin.parentRef);
   return { parentThreadId: origin.parentRef, parentRolloutExists: size !== null, parentUnchanged: size !== null && String(size) === origin.parentAt };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

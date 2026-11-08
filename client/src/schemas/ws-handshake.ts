@@ -35,3 +35,4 @@ export const CLIENT_CAPABILITIES = [
  */
 export const CLIENT_VERSION: string =
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_APP_VERSION) || '0.0.0-dev';
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

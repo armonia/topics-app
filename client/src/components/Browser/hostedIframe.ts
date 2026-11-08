@@ -369,3 +369,4 @@ export function placeHostedFrame(contextId: string, rect: DOMRect | null): void 
   }
   if (wrapper.style.display !== 'block') wrapper.style.display = 'block';
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

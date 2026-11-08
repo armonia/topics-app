@@ -100,3 +100,4 @@ export interface PlanProject {
   unplaced: { progress: PlanProgress; tasks: PlanCard[] };
 }
 export interface PlanTree { projects: PlanProject[]; includeDone: boolean }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -9,3 +9,4 @@ export function AppInteractiveMark({ ready }: { ready: boolean }): null {
   }, [ready]);
   return null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

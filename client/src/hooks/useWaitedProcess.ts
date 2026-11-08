@@ -71,3 +71,4 @@ export function useWaitedProcess(processId: string | undefined, sessionKey?: str
     ...(entry.completedAt ? { completedAt: entry.completedAt } : {}),
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

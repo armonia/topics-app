@@ -61,3 +61,4 @@ export function useReconnectCatchUp(args: {
     }
   }), [drainQueue, loadTopics, loadHistory, openPanelsRef, topicsRef, refreshPreviews]);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

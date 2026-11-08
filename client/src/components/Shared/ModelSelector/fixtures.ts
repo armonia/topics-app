@@ -83,3 +83,4 @@ export const AUDIT_NO_KEYS = snapshotOf([
   entry('direct-lmstudio', 'LM Studio', [], { status: 'error', capabilities: ['streaming'], lastError: 'connect ECONNREFUSED 127.0.0.1:1234' }),
   AUDIT_ENGINE,
 ]);
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

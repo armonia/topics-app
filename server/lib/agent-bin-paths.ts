@@ -104,3 +104,4 @@ export function writeAgentBinPath(id: CliAgentId, path: string | null): void {
   const remaining = Object.keys(map).length;
   updateAppSettings({ agentBinPaths: remaining === 0 ? null : JSON.stringify(map) });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

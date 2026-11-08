@@ -462,3 +462,4 @@ const CARTELLI_RIPRENDIBILI = [
   // minutes stopped until a person resent by hand).
   "Nessuna attività dal modello per 30 minuti",
 ] as const;
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

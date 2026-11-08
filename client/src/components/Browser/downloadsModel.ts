@@ -210,3 +210,4 @@ export function formatProgress(d: Pick<DownloadEntry, 'received' | 'total'>): st
 export function activeCount(list: DownloadEntry[]): number {
   return list.reduce((n, d) => (d.state === 'progressing' ? n + 1 : n), 0);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -222,3 +222,4 @@ export function useSpaceWindows(): Map<string, string> {
   const selfLabel = currentWindowLabel();
   return useMemo(() => computeSpaceWindows(windows, ownWindowId(), selfLabel), [windows, selfLabel]);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

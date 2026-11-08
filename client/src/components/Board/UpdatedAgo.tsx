@@ -21,3 +21,4 @@ function UpdatedAgoText({ iso }: { iso: string }) {
  * of `cloud-quality-pass` T2b, `board-card-updated-ago.spec.ts`).
  */
 export const UpdatedAgo = memo(UpdatedAgoText);
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

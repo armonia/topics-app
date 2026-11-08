@@ -98,3 +98,4 @@ export function isSettledParkedQuestion(
   const done = counts.subtaskDoneCount ?? 0;
   return total === 0 || done >= total;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

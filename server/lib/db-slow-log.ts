@@ -82,3 +82,4 @@ export function instrumentSlowStatements(db: Database, opts: SlowStatementOption
   handle.prepare = (sql: unknown, ...rest: unknown[]) => timeStatement(prepare(sql, ...rest), sql as string);
   handle.run = (sql: unknown, ...rest: unknown[]) => timed(sql as string, "run", () => run(sql, ...rest));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

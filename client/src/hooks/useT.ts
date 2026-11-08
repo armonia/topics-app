@@ -70,3 +70,4 @@ export function useActiveLocale(): Locale {
   useEffect(() => { void ensureLocaleLoaded(wanted); }, [wanted]);
   return active;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

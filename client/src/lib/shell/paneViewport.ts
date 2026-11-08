@@ -149,3 +149,4 @@ export function usedSince(last: number, seen: number): boolean {
   if (last < 0) return false;
   return seen < last ? seen > 0 : seen > last;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

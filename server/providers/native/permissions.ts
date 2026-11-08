@@ -136,3 +136,4 @@ export function decide(
 export function levelFor(raw: string | null | undefined): AutonomyLevel {
   return raw === "ask" || raw === "auto-apply" || raw === "yolo" ? raw : DEFAULT_AUTONOMY;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

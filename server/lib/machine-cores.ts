@@ -38,3 +38,4 @@ export function machineCores(): number {
   if (letto > migliore) migliore = letto;
   return Math.max(1, migliore);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

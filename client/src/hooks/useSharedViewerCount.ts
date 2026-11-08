@@ -82,3 +82,4 @@ export function useSharedViewerCount(contextId: string, enabled: boolean, isVisi
 
   return enabled && decided.ctx === contextId ? decided.shared : false;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

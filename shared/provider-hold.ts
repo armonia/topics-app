@@ -101,3 +101,4 @@ export function providerHoldKey(provider: string): 'claude' | 'codex' | null {
 export function providerHoldLabel(key: 'claude' | 'codex'): string {
   return key === 'codex' ? 'Codex' : 'Claude';
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

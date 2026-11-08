@@ -86,3 +86,4 @@ export async function callRunCommand(
       : "this topic gets a message with the outcome when it ends, so you can end your turn";
   return `started · processId=${res.processId} · pid=${res.pid ?? "?"} · ${after}`;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

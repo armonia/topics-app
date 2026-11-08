@@ -29,3 +29,4 @@ export const linkCard = (taskId: string, milestoneId: string) => send('PUT', `/p
 /** Merges a duplicate into the survivor through the board's existing merge. */
 export const mergeDuplicate = (projectId: string, taskId: string, intoTaskId: string) =>
   send('POST', `/boards/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/merge`, { intoTaskId });
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

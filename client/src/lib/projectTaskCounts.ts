@@ -75,3 +75,4 @@ export function countsSummary(c: ProjectCounts, label: Record<TaskStatus, string
     `${label.done}: ${c.done}`,
   ].join(' · ');
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

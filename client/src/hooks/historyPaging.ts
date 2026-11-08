@@ -136,3 +136,4 @@ export function rowsAboveLocalCopy(copy: ChatMessage[], page: ReadonlyArray<{ id
   const k = page.findIndex((m) => m.id === first.id);
   return k > 0 ? k : 0;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

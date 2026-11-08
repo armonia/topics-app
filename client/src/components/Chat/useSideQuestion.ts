@@ -62,3 +62,4 @@ export function useSideQuestion({ topic, loadHistory, sendMessage, getSessionMes
   }, []);
   return { state, ask, close };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

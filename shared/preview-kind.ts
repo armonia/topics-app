@@ -42,3 +42,4 @@ export function previewTypeOf(path: string): PreviewType | null {
   if (dot <= 0) return null;
   return BY_EXTENSION[name.slice(dot + 1).toLowerCase()] ?? null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

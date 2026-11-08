@@ -64,3 +64,4 @@ export async function uploadAttachment(file: File): Promise<StagedAttachment> {
   if (!r.ok || !d?.path) throw new Error(d?.error || 'upload failed');
   return { path: d.path, name: file.name, isImage: file.type.startsWith('image/') };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

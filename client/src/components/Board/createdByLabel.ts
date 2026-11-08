@@ -62,3 +62,4 @@ export function incompleteChip(
   const names = task.createdMissing.map((g) => tr(`board.card.missing.${g}`)).join(', ');
   return { label: tr('board.card.incomplete'), title: tr('board.card.incompleteTitle', { missing: names }) };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

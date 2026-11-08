@@ -260,3 +260,4 @@ export function isRedoneAnswer(blocks: ContentBlock[] | null | undefined): boole
   const sweepTraces = sweepTraceIndexes(blocks);
   return blocks.some((b, i) => b.kind === 'ripreso' && !sweepTraces.has(i));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

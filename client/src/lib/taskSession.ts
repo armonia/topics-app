@@ -78,3 +78,4 @@ export function canOpenTaskSession(state: TaskSessionState): boolean {
 export function shouldExplainMissingSession(state: TaskSessionState): boolean {
   return state === 'gone';
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

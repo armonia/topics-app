@@ -491,3 +491,4 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
   }
   return outcomes;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

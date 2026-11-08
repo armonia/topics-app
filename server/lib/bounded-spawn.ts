@@ -315,3 +315,4 @@ export async function runBounded(
   const exitCode = await proc.exited;
   return { stdout, stderr, exitCode, timedOut: proc.timedOut, spawnFailed: false };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

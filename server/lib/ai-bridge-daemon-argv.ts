@@ -70,3 +70,4 @@ export function aiBridgeDaemonLaunch(deps: DaemonLaunchDeps = {}): { cmd: string
   // It is not: we are a single-file binary that embedded it. Ask ourselves.
   return { cmd, args: [AI_BRIDGE_DAEMON_FLAG] };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

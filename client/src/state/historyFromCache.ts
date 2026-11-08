@@ -119,3 +119,4 @@ export function _resetForTests(): void {
   listeners.clear();
   socketOpen = false;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

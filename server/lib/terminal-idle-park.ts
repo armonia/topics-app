@@ -235,3 +235,4 @@ export function thresholdUnderPressure(
   const MIN_MS = 60_000;
   return Math.max(MIN_MS, Math.round(normalMs * squeeze));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

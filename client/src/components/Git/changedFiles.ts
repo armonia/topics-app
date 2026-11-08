@@ -176,3 +176,4 @@ export function visibleChangedRows(
   if (expanded || rows.length <= MAX_ROWS) return { shown: rows, rest: 0 };
   return { shown: rows.slice(0, MAX_ROWS), rest: rows.length - MAX_ROWS };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

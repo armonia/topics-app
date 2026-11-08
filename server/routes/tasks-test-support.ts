@@ -153,3 +153,4 @@ export function rawCall(router: RouteHandler, method: string, path: string, body
   const req = new Request(`http://x${path}`, init);
   return Promise.resolve(router(req, new URL(req.url), new URL(req.url).pathname, method));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

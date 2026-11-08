@@ -382,3 +382,4 @@ export interface ProviderPayload<TTool = unknown> {
    */
   slashContext?: string;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

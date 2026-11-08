@@ -139,3 +139,4 @@ export function sweepAskDrafts(now = Date.now()): number {
   for (const k of dead) s.removeItem(k);
   return dead.length;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

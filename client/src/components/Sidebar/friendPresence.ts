@@ -74,3 +74,4 @@ export function friendFaces(rows: readonly PresenceRow[]): PresenceFace[] {
     .filter((r) => r.presente)
     .map(({ id, nome, avatarUrl, iniziali }) => ({ id, nome, avatarUrl, iniziali }));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -1025,3 +1025,4 @@ async function originCarries(port: GithubPort, cwd: string, branch: string): Pro
   if (!base.value) return { ok: false, error: `origin has no ${CI_BASE_BRANCH} to compare \`${branch}\` against` };
   return port.contains(cwd, head.value, base.value);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

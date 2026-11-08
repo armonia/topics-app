@@ -64,3 +64,4 @@ export async function establishedPeers(timeoutMs = 2_000): Promise<{ pid: number
   const capture = await captureWithDeadline(["/usr/sbin/lsof", "-nP", "-FpPn", "-iTCP", "-sTCP:ESTABLISHED"], timeoutMs);
   return capture === null ? null : parseEstablishedPeers(capture.text);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

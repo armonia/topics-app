@@ -485,3 +485,4 @@ export function detectScripts(projectPath: string, fs: Fs = realFs(projectPath))
 export function resolveScript(res: DetectionResult, chiave: string): DetectedScript | null {
   return res.scripts.find(s => s.id === chiave) ?? res.scripts.find(s => s.name === chiave) ?? null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

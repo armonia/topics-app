@@ -174,3 +174,4 @@ export function toListShape(topic: Topic): Topic {
   const { systemPrompt, browserState: _browserState, ...rest } = topic;
   return systemPrompt ? { ...rest, hasSystemPrompt: true } : rest;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

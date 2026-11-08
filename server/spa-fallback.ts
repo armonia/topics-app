@@ -86,3 +86,4 @@ export function shouldServeSpaFallback({ method, pathname, accept }: SpaFallback
   const lastSegment = pathname.slice(pathname.lastIndexOf("/") + 1);
   return !lastSegment.includes(".");
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

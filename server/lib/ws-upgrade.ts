@@ -54,3 +54,4 @@ export function upgradeWebSocket(
   if (server.upgrade(req, { data })) return undefined;
   return new Response("WebSocket upgrade failed", { status: 400 });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -11,3 +11,4 @@ const LAUNCHED = /started · processId=([\w:.-]+)/;
 export function launchedProcessId(answer: string | undefined): string | null {
   return (answer && LAUNCHED.exec(answer)?.[1]) || null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

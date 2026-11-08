@@ -66,3 +66,4 @@ export function decideHistoryCompletion(s: HistoryCompletionSituation): HistoryC
   const resting = !s.userScrolled && s.anchoredAtBottom;
   return { action: 'complete', restore: resting ? 'bottom' : 'top-item' };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

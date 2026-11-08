@@ -85,3 +85,4 @@ export function toDeviceView(row: PushDeviceRow, thisDeviceId: string | null): P
     isThisDevice: thisDeviceId != null && row.device_id === thisDeviceId,
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

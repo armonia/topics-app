@@ -99,3 +99,4 @@ function answeredQuestions(response: unknown): boolean {
   const r = response as { kind?: unknown; answers?: unknown } | null | undefined;
   return r?.kind === 'questions' && !!r.answers && typeof r.answers === 'object';
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

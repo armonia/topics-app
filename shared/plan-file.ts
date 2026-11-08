@@ -20,3 +20,4 @@ const PLAN_FILE_RE = /(^|[/\\])\.claude[/\\]plans[/\\][^/\\]+\.md$/i;
 export function isPlanFile(filePath: string): boolean {
   return typeof filePath === 'string' && PLAN_FILE_RE.test(filePath.trim());
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

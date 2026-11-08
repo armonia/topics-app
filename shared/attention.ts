@@ -145,3 +145,4 @@ export function terminalIdOfSubject(subject: string): string | null {
 export function isAttentionSubject(subject: string): boolean {
   return [TOPIC_SUBJECT_PREFIX, TERMINAL_SUBJECT_PREFIX, TASK_SUBJECT_PREFIX].some((p) => subject.startsWith(p) && subject.length > p.length);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

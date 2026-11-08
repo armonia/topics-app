@@ -199,3 +199,4 @@ export function loadMemoryForTopic(baseDir: string, topicId: string, options?: {
     return `\n\n## Memory\nThe following memories/notes have been saved for context:\n\n### Topic Memory\n${content}`;
   } catch { return ""; }
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

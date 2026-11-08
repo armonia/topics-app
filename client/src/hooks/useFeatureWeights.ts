@@ -50,3 +50,4 @@ export function useFeatureWeights(attivo: boolean, misurati: IngressiMisurati, s
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the sample, not the object rebuilt on every render
   }, [attivo, sampleKey]);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

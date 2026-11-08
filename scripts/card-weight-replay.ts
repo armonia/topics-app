@@ -107,3 +107,4 @@ function main(argv: string[]): number {
 }
 
 if (import.meta.main) process.exit(main(process.argv.slice(2)));
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

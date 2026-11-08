@@ -71,3 +71,4 @@ export function isRetryableBridgeError(e: unknown): boolean {
 export function shouldRecycleSocket(now: number, lastPongAt: number, lastByteAt: number, pongTimeoutMs: number): boolean {
   return now - lastPongAt > pongTimeoutMs && now - lastByteAt > pongTimeoutMs;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

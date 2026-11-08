@@ -180,3 +180,4 @@ export async function twoBeats(w: World, over?: Parameters<World["beat"]>[0]): P
   w.advance(10_000);
   await w.beat(over);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

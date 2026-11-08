@@ -176,3 +176,4 @@ export function modelStory(n: Pick<GraphNode, 'options' | 'whoUnknown'>): ModelS
   }
   return { kind: n.whoUnknown ? 'likely' : 'answered', winner: opts[won]!, before: opts.slice(0, won), after: opts.slice(won + 1), tried: [] };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

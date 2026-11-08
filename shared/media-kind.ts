@@ -100,3 +100,4 @@ const AUTO_PREVIEW_RE = new RegExp(`/${AUTO_PREVIEW_DIR}/[^/]+\\.(png|jpe?g|webp
 export function isAutoCapturedPreview(path: string | null | undefined): boolean {
   return !!path && AUTO_PREVIEW_RE.test(path.trim());
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

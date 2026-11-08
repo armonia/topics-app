@@ -260,3 +260,4 @@ export function TaskChoiceMenu({ task, disabled, onDone, onError, ariaLabel, cla
     </>
   );
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

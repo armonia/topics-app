@@ -105,3 +105,4 @@ export function useDrawerPresence<T extends { id: string }>(
 
   return { shown: drawer?.task ?? null, leaving };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

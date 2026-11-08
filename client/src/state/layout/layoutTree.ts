@@ -203,3 +203,4 @@ export function treesEqual(a: LayoutNode, b: LayoutNode): boolean {
     (c, i) => Math.abs(c.weight - b.children[i].weight) < 1e-6 && treesEqual(c.node, b.children[i].node),
   );
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -566,3 +566,4 @@ function endMyQuestion(deps: OutboundGateDeps, hold: CardHold, line: string): vo
   closeRoutedAsk({ db: deps.db, comment: deps.comment, deliver: deps.deliver }, hold.askId, line);
   hold.askId = undefined;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

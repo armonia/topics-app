@@ -563,3 +563,4 @@ export function tabToPane(tab: { contextId: string; url: string; title: string; 
 export function paneIdToContextId(paneId: string): string {
   return paneId.startsWith('browser:') ? paneId.slice('browser:'.length) : paneId;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

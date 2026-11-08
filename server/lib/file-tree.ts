@@ -130,3 +130,4 @@ export async function walkFileTree(root: string, depth: number): Promise<FileNod
     logSlowWalk(performance.now() - started);
   }
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

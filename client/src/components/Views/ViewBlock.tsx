@@ -64,3 +64,4 @@ export const ViewBlock = memo(function ViewBlock({ spec, viewId }: { spec: ViewS
     </div>
   );
 });
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

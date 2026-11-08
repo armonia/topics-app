@@ -63,3 +63,4 @@ code { font:13px ui-monospace,SFMono-Regular,Menlo,monospace; word-break:break-a
 <p>${esc(detail)}</p>
 </main></body></html>`;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

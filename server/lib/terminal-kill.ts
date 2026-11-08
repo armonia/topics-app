@@ -37,3 +37,4 @@ export function recordedExitCode(raw: unknown, killedByPark: boolean): number | 
   if (killedByPark) return null;
   return typeof raw === 'number' ? raw : null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

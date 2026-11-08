@@ -121,3 +121,4 @@ export function SessionPeek({ taskId, open, live, layout = 'floating', anchor }:
   );
   return layout === 'menu' ? content : createPortal(content, document.body);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

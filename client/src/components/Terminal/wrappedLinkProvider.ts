@@ -164,3 +164,4 @@ export function openTerminalLink(uri: string, paneId?: string, e?: MouseEvent): 
     origin: e?.target ?? null,
   });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

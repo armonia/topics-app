@@ -144,3 +144,4 @@ export function forgetSilosInState(
   for (const name of targets) if (before.has(name)) removed++;
   return { state: next, removed };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

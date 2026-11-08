@@ -220,3 +220,4 @@ export function formatDurationMs(ms: number): string {
   const h = Math.floor(totalM / 60);
   return `${h}h ${String(totalM % 60).padStart(2, '0')}m`;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

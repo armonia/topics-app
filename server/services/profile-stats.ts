@@ -257,9 +257,9 @@ export function resetProfileStatsCache(): void {
 /**
  * The projects the fallback may name in public: not a system folder. A project
  * whose name starts with '.', or whose path runs through a dot folder
- * (`~/.openclaw`, `~/.claude/jarvis/home`), is an agent's home, not a project
+ * (the old data root, `~/.claude/jarvis/home`), is an agent's home, not a project
  * someone works on, and its folder name ended up verbatim in the Discord
- * presence («su .openclaw»). With no other candidate the fallback stays null
+ * presence («su .<agent home>»). With no other candidate the fallback stays null
  * and the line degrades to quiet or tasks.
  */
 const PUBLIC_PROJECT_SQL =
@@ -323,7 +323,7 @@ export function computePresenceCounts(
         // carry the UUID (`scripts/migrate-uuid-board-ids.ts`).
         (p) => projectIdForPath(p.path) === boardId || p.id === boardId,
       );
-      // A board on a system folder (the `.openclaw` board has dispatched
+      // A board on a system folder (the old data root's board has dispatched
       // tasks) stays unnamed, and the fallback is skipped too: naming the most
       // recent topic's project while the board works elsewhere would be the
       // wrong-project lie described above.
@@ -362,3 +362,4 @@ export function computePresenceCounts(
     focusProject,
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

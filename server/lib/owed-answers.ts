@@ -64,3 +64,4 @@ export function loadOwedAnswers(db: Database): OwedAnswer[] {
   if (gone.length > 0) console.log(`[boot] ${gone.length} owed answer(s) whose row no longer owes them dropped from the index`);
   return owed;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

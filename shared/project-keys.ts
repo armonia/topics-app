@@ -44,3 +44,4 @@ export function projectPanesKey(projectPath: string): string {
 export function projectLayoutKey(projectPath: string): string {
   return `${PROJECT_LAYOUT_PREFIX}${projectHash(projectPath)}`;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

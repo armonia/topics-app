@@ -26,3 +26,4 @@ export { initServerSync, flushPaneStoreNow } from './syncServer';
 export { initWSSync } from './syncWS';
 export type { WSFrame } from './syncWS';
 export { initCrossTabSync } from './syncCrossTab';
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

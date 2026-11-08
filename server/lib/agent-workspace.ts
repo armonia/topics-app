@@ -64,3 +64,4 @@ export function getTopicWorkspaceForSession(sessionKey: string): string | null {
 export function agentWorkspaceForSession(sessionKey: string, configured: string | undefined = process.env.CLAUDE_CODE_WORKSPACE): string {
   return getTopicWorkspaceForSession(sessionKey) || configured || process.env.HOME || "/tmp";
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

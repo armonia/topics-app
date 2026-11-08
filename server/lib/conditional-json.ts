@@ -33,3 +33,4 @@ export function conditionalJson(req: Request, data: unknown): Response {
   if (req.headers.get("if-none-match") === tag) return new Response(null, { status: 304, headers });
   return new Response(body, { headers });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

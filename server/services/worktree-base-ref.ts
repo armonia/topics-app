@@ -124,3 +124,4 @@ export async function resolveWorktreeBaseRef(
   }
   return { baseRef: "HEAD", fallback: true, reason: why || `nessun 'origin/${mainRef}'` };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

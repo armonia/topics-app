@@ -95,3 +95,4 @@ export function runScriptBindNote(how: string): string {
 export function listenUrl(a: ListenAddress): string {
   return `http://${ANY_HOST.has(a.host) ? "127.0.0.1" : a.host}:${a.port}/`;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -249,3 +249,4 @@ export function withCommandTask(
   const counting = Object.values(out).filter((t) => !t.recurring);
   return { tasks: out, count: counting.length, kinds: [...new Set(counting.map((t) => t.kind))] };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

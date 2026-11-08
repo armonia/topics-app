@@ -23,3 +23,4 @@ export function pageSharePct(v: { cpu: number; memMb?: number }, machine: { core
   // `formatShare` is the rule for "under 1%": keep it, a running page is never 0.
   return formatShare(pct) === '<1' ? 0.5 : pct;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -733,3 +733,4 @@ export function stripAllImages(messages: AgentMessage[]): AgentMessage[] {
   if (targets.size === 0) return messages;
   return replaceImageBlocks(messages, targets);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

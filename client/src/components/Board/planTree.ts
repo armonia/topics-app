@@ -39,3 +39,4 @@ export function sortForPlan<T extends { status: string }>(cards: readonly T[]): 
     .sort((a, b) => (STATUS_RANK[a.c.status] ?? 3) - (STATUS_RANK[b.c.status] ?? 3) || a.i - b.i)
     .map((x) => x.c);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

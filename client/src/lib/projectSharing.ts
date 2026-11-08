@@ -86,3 +86,4 @@ export function sharedTitle(org: OrgRef): string {
   // allow-italian: user-facing string, shown in the app's language
   return `Condiviso con ${org.name}: ${org.members} membri lo vedono`;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

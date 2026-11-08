@@ -194,3 +194,4 @@ export function mergeReattachedRow(
     nothingNew: produced.trackedTools === 0 && (producedText === "" || producedText === previousText),
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

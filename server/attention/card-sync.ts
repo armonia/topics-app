@@ -121,3 +121,4 @@ export function withCardAttention(db: Database, service: TaskService, commentAsk
   }
   return service;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

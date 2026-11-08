@@ -255,3 +255,4 @@ export async function applyRestorePlan(projectPath: string, plan: RestorePlan): 
     skipped: plan.skipped,
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

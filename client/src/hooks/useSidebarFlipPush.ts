@@ -172,3 +172,4 @@ export function useSidebarFlipPush(
     return () => { window.clearTimeout(cleanupTimer.current); cancelAnimationFrame(playRaf.current); };
   }, [collapsed, expandedPad, enabled, mainContent, flipLayer]);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

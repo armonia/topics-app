@@ -46,3 +46,4 @@ export function useAnimationPause() {
 export function syncAnimationPause(root: { classList: Pick<DOMTokenList, 'toggle'> }): void {
   root.classList.toggle('anims-paused', !isWindowAwake());
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

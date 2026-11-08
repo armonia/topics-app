@@ -616,3 +616,4 @@ export function _resetSwapBrake(): void {
   interruptionsByDelivery.clear();
   interruptedTasks.clear();
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

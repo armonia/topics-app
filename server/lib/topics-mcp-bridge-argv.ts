@@ -51,3 +51,4 @@ export function topicsMcpBridgeLaunch(
   if (exists(script)) return { command, args: ["run", script, ...flags] };
   return { command, args: [TOPICS_MCP_BRIDGE_FLAG, ...flags] };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

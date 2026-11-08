@@ -33,3 +33,4 @@ export function createPaneDomHost(
     ...wiring,
   });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

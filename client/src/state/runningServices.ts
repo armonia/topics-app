@@ -96,3 +96,4 @@ export function topicRunningServices(topicId: string | undefined): readonly Runn
 export function useTopicRunningServices(topicId: string | undefined): readonly RunningServiceSummary[] | undefined {
   return useSyncExternalStore(subscribe, () => topicRunningServices(topicId));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

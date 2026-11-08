@@ -17,3 +17,4 @@ export function ClaudeIcon({ size = 14, className = '' }: ClaudeIconProps) {
     </svg>
   );
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

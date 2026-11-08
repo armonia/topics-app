@@ -60,3 +60,4 @@ export function restoreCursor(k: string, ta: HTMLTextAreaElement | null, forceFo
     ta.setSelectionRange(start, end);
   } catch { /* detached / unsupported */ }
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

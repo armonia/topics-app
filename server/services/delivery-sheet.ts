@@ -280,3 +280,4 @@ function summarySvg(summary: string | null | undefined, NUM_Y: number, KEY_Y: nu
     .map((l, i) => `<text x="72" y="${NUM_Y - 22 + i * 44}" class="b">${escapeXml(l)}</text>`)
     .join("\n    ");
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

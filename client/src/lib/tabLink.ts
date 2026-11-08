@@ -1048,3 +1048,4 @@ export function browserPaneInLayout(contextId: string): boolean {
   const paneId = createPaneId('browser', contextId);
   return paneIsInStore(paneId) || anyProjectHostsPane(browserProjectPanesReader(), paneId);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

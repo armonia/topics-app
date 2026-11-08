@@ -379,3 +379,4 @@ export function shouldPin(
 export function isUserScrollUp(previousScrollTop: number, scrollTop: number): boolean {
   return scrollTop < previousScrollTop - USER_SCROLL_UP_PX;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

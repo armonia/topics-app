@@ -214,3 +214,4 @@ export function withMediaSizes<T extends object>(msg: T, rules: MediaFileRules):
   const sizes = mediaSizesOf(msg as { content?: unknown; blocks?: unknown; media?: unknown }, rules);
   return sizes ? { ...msg, mediaSizes: sizes } : msg;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -261,3 +261,4 @@ export function formatSweepPlan(plan: SweepPlan, mode: "sweep" | "dry"): string 
     : "";
   return head + who + safe;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

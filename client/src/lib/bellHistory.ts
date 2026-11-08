@@ -92,3 +92,4 @@ export function dayTally(lines: readonly ({ diary: DiaryEntry } | { row: unknown
   for (const l of lines) if ('diary' in l && (l.diary.outcome === 'error' || l.diary.outcome === 'undelivered')) failed += 1;
   return { events: lines.length, failed };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

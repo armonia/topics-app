@@ -111,3 +111,4 @@ export function codexModelInfo(models: readonly CodexModel[]): Record<string, Mo
 export function codexContextWindows(models: readonly CodexModel[]): Record<string, number> {
   return Object.fromEntries(models.flatMap((model) => model.contextWindow ? [[model.slug, model.contextWindow]] : []));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

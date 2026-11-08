@@ -214,3 +214,4 @@ export function usableMessage(content: string | undefined | null): string | null
   const blocco = t.match(/^```(?:\w+)?\n([\s\S]*?)\n```$/);
   return (blocco ? blocco[1] : t).trim() || null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

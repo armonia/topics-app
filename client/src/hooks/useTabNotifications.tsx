@@ -171,3 +171,4 @@ async function withdrawStaleNotifications(rows: ReturnType<typeof useAttentionSt
     for (const n of notificationsToWithdraw(await reg.getNotifications(), rows)) n.close();
   } catch { /* nothing delivered can be read here */ }
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

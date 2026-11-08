@@ -167,3 +167,4 @@ export async function commitWorktreeResidue(
   const nuovo = await runGit(path, ["rev-parse", "--short", "HEAD"]);
   return { ok: true, reason: `${files} percorsi salvati sul branch`, commit: nuovo.stdout.trim() || undefined, files };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -187,3 +187,4 @@ export function useAutomationsData(describe?: (job: CronJob) => string | null): 
 
   return { rows, model, readAt, hubDown, gatewayDown, calendar, fixing, ranAt, refusal, clearRefusal, retry, command, feedback, undo, fix };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

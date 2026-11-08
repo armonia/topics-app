@@ -700,3 +700,4 @@ export function dropGrant(
 export function deviceP(deviceId: string): Principal[] {
   return [{ kind: "device", id: deviceId }];
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

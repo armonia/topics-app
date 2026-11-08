@@ -1665,3 +1665,4 @@ export interface AppSettings {
 // membri `stream:*` dell'unione `WSMessage` qui sopra — l'unica forma su cui la
 // chat fa il narrowing. Due tipi che nessuno usa non documentano un protocollo:
 // divergono da quello vero senza che nessun compilatore se ne accorga.
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

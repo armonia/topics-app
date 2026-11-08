@@ -1590,3 +1590,4 @@ export async function worktreeRealDirt(
   const probe = await worktreeDirtProbe(path, runGit);
   return probe.paths;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

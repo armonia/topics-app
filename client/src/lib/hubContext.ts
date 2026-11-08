@@ -12,6 +12,7 @@
  * shown only with a file's text, once opened, where it says where to edit it.
  */
 import { MAIN_AGENT, agentName } from './agentSessions';
+import { LEGACY_DATA_DIR_NAME } from '../../../shared/legacy-data-dir';
 
 type Raw = Record<string, unknown>;
 
@@ -111,13 +112,12 @@ export function doctorVerdict(raw: unknown): DoctorVerdict | null {
 const GROUP_ORDER = ['Claude Code', 'Codex e jcode', agentName(MAIN_AGENT)];
 
 /**
- * The hub names our agent's harness two ways: by the product it ran on
- * («OpenClaw», «OpenClaw (via claude-cli)», older hubs) and by harness plus
- * workspace id («Jarvis · main», «Jarvis · gtm», the current hub). On screen
+ * The hub names our agent's harness by name plus workspace id («Jarvis ·
+ * main», «Jarvis · gtm») or by name and qualifier («Jarvis (via claude)»). On screen
  * it is the agent's own name, the one the Agents view uses: `gtm` is Visione
  * there, so it is Visione here too, and a qualifier stays as it is.
  */
-const AGENT_HARNESSES = new Set(['OpenClaw', agentName(MAIN_AGENT)]);
+const AGENT_HARNESSES = new Set([agentName(MAIN_AGENT)]);
 /** The workspace id of the main agent in the hub's labels. */
 const MAIN_WORKSPACE = 'main';
 
@@ -162,7 +162,7 @@ function splitLoader(name: string): { base: string; note: string | null } {
 /**
  * One row per harness, heaviest first. A loader that only qualifies another
  * (Claude Code for the home sessions) is that harness's extra, not a fifth
- * harness; one that qualifies nothing else («OpenClaw (via claude-cli)») is
+ * harness; one that qualifies nothing else («Jarvis (via claude-cli)») is
  * the harness of its base name.
  */
 export function harnessWeights(byLoader: unknown): HarnessWeight[] {
@@ -220,12 +220,12 @@ export interface UnlistedRef {
 
 const OWNERS: Record<string, string> = { '.claude': 'Claude Code', '.jcode': 'jcode', '.codex': 'Codex', '.agents': 'Agents' };
 /** The agents' home: its files belong to the agent of their workspace (`workspace-gtm` is Visione). */
-const AGENT_HOME = '.openclaw';
+const AGENT_HOME = LEGACY_DATA_DIR_NAME;
 const KINDS: Record<string, UnlistedRef['kind']> = { AGENTS: 'rules', CLAUDE: 'rules', USER: 'profile', MEMORY: 'memory' };
 
 /**
  * The hub names a contradiction's files by path, and its lists do not hold
- * every file an agent may cite (OpenClaw's workspaces): those are told apart by
+ * every file an agent may cite (the agents' workspaces): those are told apart by
  * whose they are, not shown as a bare file name that two files can share.
  */
 export function unlistedRef(ref: string): UnlistedRef {
@@ -360,3 +360,4 @@ export function checkStart(status: number, body: unknown): CheckStart {
   if (status >= 200 && status < 300 && b.ok === true) return { ok: true, already: b.already === true };
   return { ok: false, why: str(b.error) ?? `HTTP ${status}` };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

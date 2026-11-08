@@ -35,3 +35,4 @@ export function modelCommandSuggestions(
     })
     .filter((model) => words.every((word) => fold(`${model.id} ${model.label}`).includes(word)));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -124,13 +124,8 @@ export function envDataDir(env: NodeJS.ProcessEnv = process.env): string | undef
   return env.DATA_DIR || env.TOPICS_DATA_DIR || undefined;
 }
 
-/**
- * The name of the app's old data root, under the home dir. It stays because
- * existing installs hold real media and workspaces there, and the paths
- * saved in the DB point at it: moving them is a data migration with a change
- * of its own. This is the only place in the server where this name may appear.
- */
-export const LEGACY_DATA_DIR_NAME = ".openclaw";
+// The old data root's name lives in shared/, the one place the client can read it from too.
+export { LEGACY_DATA_DIR_NAME } from "../../shared/legacy-data-dir";
 
 /** Injectable inputs of `resolveAppDataDir`, so the rule can be tested without a real home. */
 export interface AppDataDirInputs {
@@ -242,3 +237,4 @@ export function assertNotLiveStateUnderTest(
       `testTmpDir() before creating the context`,
   );
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

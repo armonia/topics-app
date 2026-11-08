@@ -880,3 +880,4 @@ export function providerNameForConfig(config: ProviderConfig): string {
 // ProviderSnapshotEntry + ProvidersSnapshot live in shared/types.ts so
 // the WS payload shape can be type-checked symmetrically on both sides.
 export type { ProviderSnapshotEntry, ProvidersSnapshot } from "../../shared/types";
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

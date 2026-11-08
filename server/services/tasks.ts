@@ -7201,3 +7201,4 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   // (`server/attention/card-sync.ts`): the store announces review and park.
   return withCardAttention(db, service, commentAsksHuman);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

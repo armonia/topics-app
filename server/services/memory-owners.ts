@@ -307,3 +307,4 @@ export function memoryOwnersLogField(families: readonly MemoryFamily[]): string 
   if (families.length === 0) return "-";
   return families.map((f) => `${f.name.replace(/\s+/g, "_")}:${f.gb.toFixed(1)}`).join(",");
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

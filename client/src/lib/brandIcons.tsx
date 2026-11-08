@@ -27,3 +27,4 @@ export const TelegramIcon = brand('Telegram', 'M11.944 0A12 12 0 0 0 0 12a12 12 
 // Only they draw a leading mark in the sidebar: a person reads the channel before the name.
 // eslint-disable-next-line react-refresh/only-export-components -- lookup table colocated with the marks it maps
 export const CHANNEL_MARKS: Record<string, LucideIcon> = { WhatsApp: WhatsAppIcon, Discord: DiscordIcon, Telegram: TelegramIcon };
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

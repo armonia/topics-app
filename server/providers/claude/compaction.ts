@@ -58,3 +58,4 @@ export function parseCompactBoundary(event: unknown): CompactionMarker | null {
   if (preTokens != null) marker.preTokens = preTokens;
   return marker;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

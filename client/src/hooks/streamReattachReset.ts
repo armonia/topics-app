@@ -73,3 +73,4 @@ export function reviveClosedBubble(messages: ChatMessage[], id: string): ChatMes
   delete revived.blocks;
   return [...messages.slice(0, i), revived, ...messages.slice(i + 1)];
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

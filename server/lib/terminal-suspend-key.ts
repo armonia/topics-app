@@ -40,3 +40,4 @@ export function bridgeWriteForSession(sessionType: string | undefined, data: str
   const filtered = withoutSuspendKey(sessionType, data);
   return filtered.length > 0 ? filtered : null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

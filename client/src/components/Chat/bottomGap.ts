@@ -68,3 +68,4 @@ export function isParkedAtBottom(distance: number): boolean {
 export function endOfLoadingPinRoute(at: { carriedTurn: boolean; distance: number }): { frames: 2; viaVirtuoso?: true } {
   return at.carriedTurn && isParkedAtBottom(at.distance) ? { frames: 2 } : { viaVirtuoso: true, frames: 2 };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

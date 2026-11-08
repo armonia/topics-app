@@ -34,3 +34,4 @@ export function formatBytes(chars: number): string {
   if (chars < 1024 * 1024) return `${(chars / 1024).toFixed(0)} KB`;
   return `${(chars / (1024 * 1024)).toFixed(1)} MB`;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

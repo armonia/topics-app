@@ -158,3 +158,4 @@ export function closeAfterTail(
     .then(() => { c.exitTail = undefined; close(wasAlive); })
     .catch((err) => console.error(`[claude-code] closing ${c.sessionKey} after its tail threw:`, err));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

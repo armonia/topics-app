@@ -101,3 +101,4 @@ export function resolveSearchRoot(workspace: string, root: string): SearchRoot {
   if (!isInsideDir(followed.path, ws)) return { ok: false, reason: `outside the workspace once its links are followed: ${root}` };
   return { ok: true, root: followed.path, home };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

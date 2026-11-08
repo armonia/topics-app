@@ -100,3 +100,4 @@ export function parseZoomStyle(raw: string | null | undefined): number {
 export function zoomDrifted(want: number, reported: string | null | undefined): boolean {
   return Math.abs(parseZoomStyle(reported) - want) > 0.5;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

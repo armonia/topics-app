@@ -222,3 +222,4 @@ export function edgeStripGutters(o: {
     bottom: (o.atContainerBottom && o.extremeStrips) || o.gapBandBelow ? FULL_ROW_GUTTER_PX : 0,
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

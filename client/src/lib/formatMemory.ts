@@ -29,3 +29,4 @@ export function formatMemoryMB(mb: number, opts?: { partial?: boolean }): string
   const text = mb >= GB ? `${(mb / GB).toFixed(1)} GB` : `${mb} MB`;
   return opts?.partial ? `~${text}` : text;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

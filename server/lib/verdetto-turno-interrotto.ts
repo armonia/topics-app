@@ -151,3 +151,4 @@ interface DbLike {
   // usano, sotto, dicono la forma vera.
   prepare(sql: string): any; // allow-any: il driver tipizza `prepare` con generici che obbligherebbero questa regola a dichiarare la forma di ogni riga
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -330,3 +330,4 @@ export function allPendingResults(db: Db): Array<{ row: SubagentRow; results: Su
     return rows.map((r) => ({ row: fromRaw(r), results: pendingResultsOf(db, r.id) })).filter((x) => x.results.length > 0);
   });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

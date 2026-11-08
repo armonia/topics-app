@@ -28,3 +28,4 @@ export function viewPageUrl(id: string): string {
 export function viewImageUrl(src: string): string {
   return /^https?:\/\//i.test(src) ? src : getMediaUrl(src);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

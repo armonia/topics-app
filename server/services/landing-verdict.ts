@@ -646,3 +646,4 @@ export async function classifyCommitLanding(
     motivo: `non decidibile: nessuna riga distintiva (solo ${righe.cercate} righe da ${RIGA_DISTINTIVA_MIN} caratteri in su)`,
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

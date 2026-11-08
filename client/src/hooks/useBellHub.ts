@@ -186,3 +186,4 @@ export function useBellActions(): {
 export function retryHub(): Promise<void> {
   return refreshHubLive();
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

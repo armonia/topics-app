@@ -36,3 +36,4 @@ export function setFramesCovered(next: boolean): void {
   const layer = document.querySelector<HTMLElement>(`[${FRAME_LAYER_ATTR}]`);
   if (layer) layer.style.visibility = next ? 'hidden' : '';
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

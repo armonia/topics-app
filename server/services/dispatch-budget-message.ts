@@ -82,3 +82,4 @@ export function memoryClause(
   if (verdict.freeQuotaMemGB != null && verdict.costMemGB > verdict.freeQuotaMemGB) return "quota";
   return mem.ourMemGB > mem.usableMemGB ? "footprint" : "quota";
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

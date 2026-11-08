@@ -313,3 +313,4 @@ export function describeTabTarget(target: TabTarget): string {
     default: return String(target.kind);
   }
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

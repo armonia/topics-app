@@ -34,3 +34,4 @@ export function touchReloadDeferred(): void {
 export function clearReloadDeferred(): void {
   try { rmSync(join(topicsHome(), RELOAD_DEFERRED_FILE), { force: true }); } catch { /* already gone */ }
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

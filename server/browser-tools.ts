@@ -48,3 +48,4 @@ export const browserTools: Tool[] = BROWSER_TOOL_SPECS.filter(
   description: s.description,
   input_schema: s.schema as Tool["input_schema"],
 }));
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

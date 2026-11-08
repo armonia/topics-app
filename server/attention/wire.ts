@@ -104,3 +104,4 @@ export function paneTombstoned(paneId: string): void {
 export function terminalClosed(terminalId: string): void {
   setClosed(terminalSubject(terminalId), { closed: true });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

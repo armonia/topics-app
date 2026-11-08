@@ -131,3 +131,4 @@ export function armStallDetector(opts: StallDetectorOptions): StallDetector {
     noteActivity: () => { inner?.noteActivity(); },
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

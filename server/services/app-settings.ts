@@ -538,3 +538,4 @@ export function resolveAgentRuntime(s = getAppSettings()): AgentRuntime {
 export function resolveTurnCheckpointsEnabled(s = getAppSettings()): boolean {
   return s.turnCheckpointsEnabled === true;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

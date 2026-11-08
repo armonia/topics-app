@@ -798,3 +798,4 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
     lastActionAt: () => lastFreezeAt,
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

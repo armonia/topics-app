@@ -156,3 +156,4 @@ export function regenerationPromptBlock(
   const evidence = formatRegenerationEvidence(calls, limits);
   return evidence ? `${NO_TOOLS_NOTICE}\n\n${evidence}` : NO_TOOLS_NOTICE;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

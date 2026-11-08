@@ -116,3 +116,4 @@ export async function classifyIntent(text: string, deps: IntentClassifierDeps = 
   }
   return classifyByKeyword(clipped);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

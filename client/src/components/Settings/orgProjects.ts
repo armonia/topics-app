@@ -27,3 +27,4 @@ export function scopeProjectsToOrg(projects: readonly OrgProjectRow[], orgId: st
   if (!orgId) return [];
   return projects.filter((p) => !p.incognito && p.orgId === orgId);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

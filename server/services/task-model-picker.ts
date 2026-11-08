@@ -479,3 +479,4 @@ export async function pickTaskPlan(
     return { model: deps.fallback, effort: null, weight: null };
   }
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

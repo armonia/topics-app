@@ -316,3 +316,4 @@ export function checkConstraintBody(e: unknown): { error: string; code: string; 
     fields: known ? [known.field] : [],
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

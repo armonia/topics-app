@@ -126,3 +126,4 @@ export function resetTurnEndRegistry(): void {
 export function turnEndRegistrySize(): number {
   return lastTurnEnd.size;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

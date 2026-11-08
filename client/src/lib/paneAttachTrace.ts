@@ -159,3 +159,4 @@ export function __retryDelayForTests(): number {
 export function __queuedPaneAttachTraceForTests(): TraceEvent[] {
   return [...queue];
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

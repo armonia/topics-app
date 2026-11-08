@@ -267,3 +267,4 @@ export async function showViewCallResult(args: ParsedArgs, toolArgs: Record<stri
   const r = await showView(args, toolArgs);
   return { content: [{ type: "text", text: r.text }], structuredContent: r.structuredContent, _meta: r._meta };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

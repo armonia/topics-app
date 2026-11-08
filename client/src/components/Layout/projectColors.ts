@@ -19,3 +19,4 @@ export function getProjectName(projectPath: string): string {
   const parts = projectPath.split('/').filter(Boolean);
   return parts[parts.length - 1] || projectPath;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

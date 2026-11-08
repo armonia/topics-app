@@ -157,3 +157,4 @@ export function planModeFor(opts: { turnFlag?: boolean; autonomy?: string | null
  * was. Task 46480579 asked for it to go and for a real single source in
  * `shared/`; this is the first half. The second is still open — see the task.
  */
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

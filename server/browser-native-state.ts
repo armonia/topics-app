@@ -156,3 +156,4 @@ export async function nativeStateOp(
   if (appBoundEncrypted) out.appBoundEncrypted = appBoundEncrypted;
   return out;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -1215,3 +1215,4 @@ export async function runAgentTurn(
   // free retries (`end === "error"`), so a card loses nothing.
   return { turnEnd: { end: "error", cause: "tool-budget", detail }, text: finalText, usage: total };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

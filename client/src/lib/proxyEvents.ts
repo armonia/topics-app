@@ -163,3 +163,4 @@ export function accountNotes(raw: Record<string, unknown>, profiles: unknown): P
   const mode = SWITCH_MODE[String(raw.type)];
   return [...(mode ? [{ key: mode }] : []), ...(detail ? [detail] : [])];
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

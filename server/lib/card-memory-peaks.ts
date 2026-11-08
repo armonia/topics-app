@@ -72,3 +72,4 @@ export async function treeFootprintKB(pid: number): Promise<number | null> {
   }
   return measured ? total : null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -372,3 +372,4 @@ export function claudeModelGenerations(models: readonly string[]): Record<string
   }
   return out;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

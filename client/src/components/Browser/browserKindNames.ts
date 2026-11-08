@@ -73,3 +73,4 @@ export function useBrowserKindNames(paneIds: readonly string[]): ReadonlyMap<str
     snapshot.split(ROW_SEP).filter(Boolean).map((row) => row.split(FIELD_SEP) as [string, string]),
   ), [snapshot]);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

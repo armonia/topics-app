@@ -120,3 +120,4 @@ export function scheduleBrowserDataStoreReap(): void {
   started = true;
   setTimeout(() => { void reapBrowserDataStores(); }, START_DELAY_MS);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

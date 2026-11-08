@@ -85,3 +85,4 @@ export function animateEl(
     fill: opts.fill ?? 'none',
   });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

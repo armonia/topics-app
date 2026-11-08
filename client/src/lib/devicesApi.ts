@@ -39,3 +39,4 @@ export function moveDevice(id: string, personId: string | null): Promise<string 
 export function revokeDevice(id: string): Promise<string | null> {
   return act(id, { method: 'DELETE' });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

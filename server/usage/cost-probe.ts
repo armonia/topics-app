@@ -291,3 +291,4 @@ export function probeSessionCost(
   const agent = agentSpendForSession(db, sessionKey);
   return { ...probe, agentUsd: agent.cents / 100, agentUnpricedCostTokens: agent.unpricedCostTokens };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

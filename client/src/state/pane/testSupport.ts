@@ -56,3 +56,4 @@ export const blankPaneState = (): PaneState => ({
 export function overTheWire(snapshot: object): Record<string, unknown> {
   return JSON.parse(JSON.stringify(snapshot));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

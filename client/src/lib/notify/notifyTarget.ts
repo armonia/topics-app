@@ -82,3 +82,4 @@ export function openNotifyTarget(target: NotifyTarget | null | undefined): boole
 export function openNotifyToken(token: string | null | undefined): boolean {
   return openNotifyTarget(decodeNotifyTarget(token));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

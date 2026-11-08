@@ -66,3 +66,4 @@ function parseVersion(output: string): string | undefined {
   const semver = firstLine?.match(/v?\d+\.\d+(\.\d+)?(-[\w.]+)?/)?.[0];
   return semver || firstLine;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -235,3 +235,4 @@ export function intestazioniUpgrade(h: Intestazioni | undefined): Intestazioni {
 export function codiceInviabile(c: number): boolean {
   return c === WS_CHIUSURA_NORMALE || (c >= 3000 && c <= 4999);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -113,3 +113,4 @@ export function CrossOriginFrameOverlay({ rootRef, replayerRef, pageUrl, active 
     {notice && <div role="status" data-testid="browser-cross-origin-notice" className="absolute bottom-3 left-1/2 z-[5] -translate-x-1/2 rounded bg-app-bg px-3 py-2 text-mini text-app-text shadow-lg">{notice}</div>}
   </> : null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

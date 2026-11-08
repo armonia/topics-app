@@ -108,3 +108,4 @@ export function paginaProfiloChiesta(ora = Date.now()): PageProfile | null {
 export function dimenticaPaginaProfilo(): void {
   richiesta = null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

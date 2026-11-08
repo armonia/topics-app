@@ -358,3 +358,4 @@ export function coalesceToolRuns(messages: ChatMessage[], now: number = Date.now
   storeCache({ input: messages, items, carrierById, itemEnd, carrierEntries, carrierCount, touchedAt: now });
   return { items, carrierById };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

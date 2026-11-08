@@ -168,3 +168,4 @@ export function placeAtPoint(
   };
   return { left: axis(point.x, menu.width, vw), top: axis(point.y, menu.height, vh) };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

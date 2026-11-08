@@ -176,3 +176,4 @@ export async function refreshProvidersSnapshot(name?: string): Promise<void> {
 export async function reloadProvidersSnapshot(): Promise<ProvidersSnapshot | null> {
   return fetchOnce({ force: true });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

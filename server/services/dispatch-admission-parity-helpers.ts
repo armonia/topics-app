@@ -182,3 +182,4 @@ export function sharedWindowHarness(mode: "resources" | "count", overrides: Part
 }
 
 export const repeatMemoryReading = (gb: number, n: number) => Array<number>(n).fill(gb);
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

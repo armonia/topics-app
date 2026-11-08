@@ -9,6 +9,8 @@ import { describe, test, expect } from "bun:test";
 import { agentOfPath, agentSessionName, agentTerminalIds, agentTotals, groupAgentSessions, isErrorText } from "./agentSessions";
 import { buildSidebarItems } from "./buildSidebarItems";
 import type { TerminalSessionInfo, Topic } from "../types";
+import { LEGACY_DATA_DIR_NAME } from "../../../shared/legacy-data-dir";
+const OLD_HOME = LEGACY_DATA_DIR_NAME;
 
 const H = "/Users/me";
 const topic = (id: string, projectPath: string, extra: Partial<Topic> = {}): Topic =>
@@ -19,26 +21,26 @@ const topic = (id: string, projectPath: string, extra: Partial<Topic> = {}): Top
 
 describe("agentOfPath", () => {
   test("reads the agent from the folder", () => {
-    expect(agentOfPath(`${H}/.openclaw`)).toBe("jarvis");
-    expect(agentOfPath(`${H}/.openclaw/workspace`)).toBe("jarvis");
+    expect(agentOfPath(`${H}/${OLD_HOME}`)).toBe("jarvis");
+    expect(agentOfPath(`${H}/${OLD_HOME}/workspace`)).toBe("jarvis");
     expect(agentOfPath(`${H}/.claude/jarvis/home`)).toBe("jarvis");
-    expect(agentOfPath(`${H}/.openclaw/workspace-gtm`)).toBe("gtm");
+    expect(agentOfPath(`${H}/${OLD_HOME}/workspace-gtm`)).toBe("gtm");
     expect(agentOfPath(`${H}/.claude/jarvis/home/workspace-gtm/sub`)).toBe("gtm");
   });
   test("a normal project is not an agent's", () => {
     expect(agentOfPath(`${H}/Projects/acme`)).toBeNull();
-    expect(agentOfPath(`${H}/.openclawish`)).toBeNull();
+    expect(agentOfPath(`${H}/${OLD_HOME}ish`)).toBeNull();
     expect(agentOfPath(undefined)).toBeNull();
   });
 });
 
 describe("groupAgentSessions", () => {
   const topics = {
-    a: topic("a", `${H}/.openclaw`, { updatedAt: "2026-11-08T09:00:00.000Z" }),
+    a: topic("a", `${H}/${OLD_HOME}`, { updatedAt: "2026-11-08T09:00:00.000Z" }),
     b: topic("b", `${H}/.claude/jarvis/home`),
-    c: topic("c", `${H}/.openclaw/workspace-gtm`),
-    sub: topic("sub", `${H}/.openclaw`, { subagentOf: "topic:a" }),
-    old: topic("old", `${H}/.openclaw`, { archived: true }),
+    c: topic("c", `${H}/${OLD_HOME}/workspace-gtm`),
+    sub: topic("sub", `${H}/${OLD_HOME}`, { subagentOf: "topic:a" }),
+    old: topic("old", `${H}/${OLD_HOME}`, { archived: true }),
     p: topic("p", `${H}/Projects/acme`),
   };
 
@@ -72,9 +74,9 @@ describe("groupAgentSessions", () => {
 describe("group order and errors", () => {
   test("waiting first, then working, then the rest; errors counted per agent", () => {
     const topics = {
-      j: topic("j", `${H}/.openclaw`),
-      v: topic("v", `${H}/.openclaw/workspace-gtm`),
-      x: topic("x", `${H}/.openclaw/workspace-ops`),
+      j: topic("j", `${H}/${OLD_HOME}`),
+      v: topic("v", `${H}/${OLD_HOME}/workspace-gtm`),
+      x: topic("x", `${H}/${OLD_HOME}/workspace-ops`),
     };
     const groups = groupAgentSessions(topics, new Set(["x"]), new Set(["v"]), new Set(["j"]));
     expect(groups.map((g) => g.id)).toEqual(["gtm", "ops", "jarvis"]);
@@ -103,14 +105,14 @@ describe("agentSessionName", () => {
 
 describe("buildSidebarItems leaves agent homes out of the project list", () => {
   test("no project row for an agent's folder, even open or in the workspace", () => {
-    const topics = { a: topic("a", `${H}/.openclaw`), p: topic("p", `${H}/Projects/acme`) };
+    const topics = { a: topic("a", `${H}/${OLD_HOME}`), p: topic("p", `${H}/Projects/acme`) };
     const items = buildSidebarItems({
       topics,
-      workspaceProjects: [`${H}/.openclaw`, `${H}/Projects/acme`],
+      workspaceProjects: [`${H}/${OLD_HOME}`, `${H}/Projects/acme`],
       browserContexts: [],
       showArchived: false,
       openPanels: [`project:${encodeURIComponent(`${H}/Projects/acme`)}`, `project:${encodeURIComponent(`${H}/.claude/jarvis/home`)}`],
-      pinnedIds: new Set([`project:${H}/.openclaw/workspace-gtm`]),
+      pinnedIds: new Set([`project:${H}/${OLD_HOME}/workspace-gtm`]),
     });
     const projects = items.filter((i) => i.type === "project").map((i) => i.projectPath);
     expect(projects).toEqual([`${H}/Projects/acme`]);
@@ -118,7 +120,7 @@ describe("buildSidebarItems leaves agent homes out of the project list", () => {
 
   test("an agent session open as a tab, pinned or lit does NOT show in the normal list", () => {
     const topics = {
-      a: topic("a", `${H}/.openclaw/workspace-gtm`),
+      a: topic("a", `${H}/${OLD_HOME}/workspace-gtm`),
       sub: topic("sub", `${H}/Projects/acme`, { subagentOf: "topic:a" }),
       n: topic("n", `${H}/Projects/acme`),
     };
@@ -139,8 +141,8 @@ const term = (id: string, parentSessionKey: string | null, extra: Partial<Termin
 describe("terminal sub-agents of an agent's chat", () => {
   const topics = {
     a: topic("a", `${H}/.claude/jarvis/home`, { updatedAt: "2026-11-08T08:00:00.000Z" }),
-    b: topic("b", `${H}/.openclaw`, { updatedAt: "2026-11-08T09:00:00.000Z" }),
-    gone: topic("gone", `${H}/.openclaw`, { archived: true }),
+    b: topic("b", `${H}/${OLD_HOME}`, { updatedAt: "2026-11-08T09:00:00.000Z" }),
+    gone: topic("gone", `${H}/${OLD_HOME}`, { archived: true }),
     n: topic("n", `${H}/Projects/acme`),
   };
   const terminals = [

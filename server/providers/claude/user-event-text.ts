@@ -37,3 +37,4 @@ export function skillBodyFromInjectedText(text: string): { baseDir?: string; bod
   const baseDir = m ? m[1].trim() : "";
   return baseDir ? { baseDir, body } : { body };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

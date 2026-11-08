@@ -31,3 +31,4 @@ export const CHAT_STRIP_NEUTRAL = `${CHAT_STRIP} border border-app-border/60 bg-
 /** La riga cliccabile che apre/chiude una striscia espandibile. */
 /** `coarse:min-h-11`: a strip row is a target, 44 tall under a finger (it was 29, usability audit 04/10). */
 export const CHAT_STRIP_ROW = 'flex w-full items-center gap-2 px-2.5 py-1.5 text-left coarse:min-h-11';
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

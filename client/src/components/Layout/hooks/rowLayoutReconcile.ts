@@ -129,3 +129,4 @@ export function reconcileRowsWithGroups(
 
   return { rows: newRows, rowHeights: newHeights };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -176,3 +176,4 @@ export function aggregateProxyUsage(rawRows: unknown[], days: HubUsageDays, now:
     coverage: { partial: rawRows.length >= PROXY_ROW_CAP && fromMs !== null && fromMs > sinceMs, fromMs },
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

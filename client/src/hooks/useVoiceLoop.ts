@@ -170,3 +170,4 @@ export function useVoiceLoop({ onWSMessage, mode }: VoiceLoopProps): void {
     }
   }, [mode, stopSpeaking]);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

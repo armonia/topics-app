@@ -93,3 +93,4 @@ export function readRunCost(raw: unknown): { agents: number; weekPct: number | n
   return { agents: num(o.agents) ?? 0, weekPct: num(o.weekPct) };
 }
 
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

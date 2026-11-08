@@ -124,3 +124,4 @@ export function decideTerminalPaneStatus(i: TerminalPaneStatusInput): TerminalPa
   if (i.dormantResumable) return 'resting';
   return shouldDeclareExpired(i) ? 'expired' : 'waiting';
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

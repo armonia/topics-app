@@ -231,3 +231,4 @@ export function endDragPreview(): void {
 export function dragPreviewActive(): boolean {
   return nodo !== null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

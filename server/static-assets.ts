@@ -117,3 +117,4 @@ export function classifyStaticAsset(pathname: string, publicDir: string): Static
     cacheControl: immutable ? "public, max-age=31536000, immutable" : "no-cache",
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

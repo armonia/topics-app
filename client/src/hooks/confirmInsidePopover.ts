@@ -12,3 +12,4 @@
 import { createContext } from 'react';
 
 export const ConfirmInsidePopoverContext = createContext(false);
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

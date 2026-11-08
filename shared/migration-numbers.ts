@@ -110,3 +110,4 @@ export function findNumberCollisions(branchFiles: string[], baseFiles: string[])
   }
   return collisions.sort((a, b) => a.version - b.version);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

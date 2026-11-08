@@ -226,3 +226,4 @@ export function stripAnsi(input: string): string {
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "");
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -81,3 +81,4 @@ export function allWideRows(statement: Statement, names: readonly string[] | nul
   if (!build) return statement.all(...params) as Row[];
   return (statement.values(...params) as unknown[][]).map(build);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -27,3 +27,4 @@ export function keepOrder<T extends { id: string }>(
 export function rankOf(ordered: readonly { id: string }[]): Map<string, number> {
   return new Map(ordered.map((item, i) => [item.id, i]));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

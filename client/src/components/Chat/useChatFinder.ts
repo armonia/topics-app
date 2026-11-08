@@ -333,3 +333,4 @@ export function useChatFinder(args: {
     }, () => { /* the next keystroke or Enter asks again */ });
   }, [args.streaming, paneId, sessionKey]);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

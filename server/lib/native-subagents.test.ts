@@ -7,6 +7,8 @@ import { join } from "node:path";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 import { engineModelOf, nativeChildPlace, nativeTurnOutcome, placeableUnderKnownProject } from "./native-subagents";
 import { engineToolsOfProfile, toolAllowedByPolicy } from "./subagent-tool-policy";
+import { LEGACY_DATA_DIR_NAME } from "../../shared/legacy-data-dir";
+const OLD_HOME = LEGACY_DATA_DIR_NAME;
 
 describe("how a child chat's turn ended, as a result (SUBAGENT-11)", () => {
   test("an end_turn with words is completed", () => {
@@ -93,9 +95,9 @@ describe("a folder a native child may call home (SUBAGENT-17)", () => {
 
   test("through nativeChildPlace: the worktree becomes the child's home", () => {
     const knownProject = (p: string) => placeableUnderKnownProject(p, isProject, git);
-    expect(nativeChildPlace({ explicitCwd: "/Users/x/Projects/acme-night/feature-2", parentTopic: { projectPath: "/Users/x/.openclaw" }, parentCwd: null, knownProject }))
+    expect(nativeChildPlace({ explicitCwd: "/Users/x/Projects/acme-night/feature-2", parentTopic: { projectPath: `/Users/x/${OLD_HOME}` }, parentCwd: null, knownProject }))
       .toEqual({ ok: true, projectPath: "/Users/x/Projects/acme-night/feature-2", worktreeId: null });
-    expect(nativeChildPlace({ explicitCwd: "/Users/x/Projects", parentTopic: { projectPath: "/Users/x/.openclaw" }, parentCwd: null, knownProject }).ok).toBe(false);
+    expect(nativeChildPlace({ explicitCwd: "/Users/x/Projects", parentTopic: { projectPath: `/Users/x/${OLD_HOME}` }, parentCwd: null, knownProject }).ok).toBe(false);
   });
 
   test("with the real git: a worktree of a known repository passes, a missing folder does not", () => {

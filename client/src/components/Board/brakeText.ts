@@ -119,3 +119,4 @@ export function columnNoteView(state: DispatchBrakeState, todoIds: ReadonlySet<s
   if (ends.length < brakes.length) return { head, tail: tr(one ? 'brake.column.apiOne' : 'brake.column.api') };
   return { head, tail: tr(one ? 'brake.column.tailOne' : 'brake.column.tail', { when: whenLabel(Math.max(...ends), nowMs, tr, locale) }) };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

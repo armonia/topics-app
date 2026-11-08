@@ -48,3 +48,4 @@ export function teardownNativeBrowserPane(contextId: string, invoke: Invoke): vo
     void invoke(cmd, { id: contextId }).catch(() => {});
   }
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

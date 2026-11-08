@@ -108,3 +108,4 @@ export function personalTermEntries(root: string): PersonalTerm[] {
 export function personalTerms(root: string): string[] {
   return personalTermEntries(root).map((entry) => entry.term);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

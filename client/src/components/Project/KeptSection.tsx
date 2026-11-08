@@ -17,3 +17,4 @@ export function KeptSection({ open, children }: { open: boolean; children: React
   if (!everOpened) return null;
   return <Activity mode={open ? 'visible' : 'hidden'}>{children}</Activity>;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

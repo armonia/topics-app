@@ -106,3 +106,4 @@ export const paneZoomActions = {
   exit: (surfaceId: string) => usePaneZoomStore.getState().exit(surfaceId),
   exitTop: (): boolean => usePaneZoomStore.getState().exitTop(),
 };
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

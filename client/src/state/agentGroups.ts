@@ -47,3 +47,4 @@ export function useAgentGroups(): AgentGroup[] {
     return groupAgentSessions(topics, ids(rows.working), ids(rows.awaitingInput), errored, terminals);
   }, [topics, rows, terminals]);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -61,3 +61,4 @@ export function claudeCliUserAgent(versionsDir = join(homedir(), ".local", "shar
 export function _resetClaudeCliUserAgent(): void {
   cached = null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

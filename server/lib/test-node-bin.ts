@@ -65,3 +65,4 @@ export function nodeMancanteMessage(bin: string, causa: unknown): string {
     `Aggiungi Node al PATH (es. /opt/homebrew/bin) oppure indica l'eseguibile con TOPICS_TEST_NODE=/percorso/di/node.`
   );
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

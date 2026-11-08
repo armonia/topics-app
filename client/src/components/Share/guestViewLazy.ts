@@ -43,3 +43,4 @@ export const GuestView: ComponentType<ComponentProps<typeof Body>> = lazyWarm(
 export function warmGuestView(): Promise<unknown> {
   return warm(loadGuestView);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -211,3 +211,4 @@ export async function decryptChromeCookies({ domains = [], profile = "Default", 
   }
   return { browser: cleanBrowser, profile: cleanProfile, domains: cleanDomains, cookies, decrypted: cookies.length, decryptFailed, skippedEmpty, appBoundEncrypted };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

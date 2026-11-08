@@ -48,3 +48,4 @@ export function splitCreatedBy(value: string | null | undefined): CreatedByParts
   const i = v.indexOf(":");
   return { kind: v.slice(0, i) as CreatedByKind, name: v.slice(i + 1) };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -116,3 +116,4 @@ export function morphWordChunks(changed: string): string[] {
   if (changed.length === 0) return [];
   return changed.split(/(\s+)/u).filter((piece) => piece.length > 0);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

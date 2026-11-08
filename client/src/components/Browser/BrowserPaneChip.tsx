@@ -81,3 +81,4 @@ export function BrowserPaneChip({
 // so the dot had no caller left. What remains of this module is the one chip
 // that is still allowed above a page: the element-select mode in `DomCoBrowse`,
 // which is temporary and armed by the user.
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

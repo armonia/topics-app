@@ -109,3 +109,4 @@ export const LIVE_CHECKOUT_GUARD_SETTINGS = {
     PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command" as const, command: LIVE_CHECKOUT_GUARD_CMD }] }],
   },
 };
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

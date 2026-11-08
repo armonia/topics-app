@@ -148,3 +148,4 @@ export function clearProjectGridWeight(projectPath: string): void {
   const prev = weights.get(projectPath);
   if (weights.delete(projectPath)) notifyWeightChange(projectPath, prev);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

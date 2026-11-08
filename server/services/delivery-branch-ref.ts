@@ -103,3 +103,4 @@ export async function resolveDeliveryBranch(
   if (!(await deps.branchExists(repoPath, branch))) return null;
   return { repoPath, branch, worktreePath: null, source: "card" };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

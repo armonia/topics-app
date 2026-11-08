@@ -167,3 +167,4 @@ export function deleteTerminalSession(sessionId: string): void {
   void fetchWhileRosterWarms(`/api/terminal/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE', keepalive: true })
     .catch(() => { /* unreachable: the 1h dormant sweep is the backstop */ });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

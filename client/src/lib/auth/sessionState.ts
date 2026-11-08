@@ -160,3 +160,4 @@ export function __resetSessionForTests(): void {
 
 /** For `refreshSession` (./session.ts): the one other writer of the state. */
 export { emit as publishSession };
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -36,3 +36,4 @@ export const SETTINGS_HOMES: Record<keyof AppSettings, readonly SettingSurface[]
   sidebarCollapsed: ['sidebar-column'],
   sidebarWidthExpanded: ['sidebar-column'],
 };
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

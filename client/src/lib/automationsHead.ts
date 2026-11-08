@@ -135,3 +135,4 @@ export function readHead(m: Raw): AutomationsHead {
 export function silentSources(sources: HubSource[]): HubSource[] {
   return sources.filter((s) => !s.ok && !s.asleep);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

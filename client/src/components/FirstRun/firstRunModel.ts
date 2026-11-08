@@ -30,3 +30,4 @@ export function firstRunProviderView(
     requirements: provider?.requirements.filter((requirement) => !requirement.present) ?? [],
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

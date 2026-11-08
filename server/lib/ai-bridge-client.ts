@@ -775,3 +775,4 @@ export function __resetAiBridgeClientForTests(): void {
   try { singleton?.dispose(); } catch { /* best effort */ }
   singleton = null;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

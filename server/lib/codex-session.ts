@@ -313,3 +313,4 @@ function rolloutFilesWrittenSince(root: string, fromDay: string, sinceMs: number
   // The filename starts with the thread's start time, so the path sorts by it.
   return out.sort();
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

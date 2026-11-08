@@ -205,3 +205,4 @@ export function osOpenTarget(rawPath: string, facts: OsPathFacts): TabTarget | n
   if (facts.isDirectory) return { kind: 'project', key: path };
   return { kind: 'file', key: path, projectPath: projectRootForFile(path, facts) };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

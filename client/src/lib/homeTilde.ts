@@ -21,3 +21,4 @@ export function homeTilde(path: string): string {
   // Esattamente la home, senza niente dentro: `~`, non `~/`.
   return path.length === m[1].length ? '~' : '~' + path.slice(m[1].length);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

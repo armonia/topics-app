@@ -339,3 +339,4 @@ export function sessionHasOpenQuestion(
   try { return openQuestionsOnRows(recentActiveRows(src, sessionKey), decode).length > 0; }
   catch { return false; }
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

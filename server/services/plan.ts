@@ -479,3 +479,4 @@ export function deleteSource(db: Database, id: string): void {
   if (!db.query(`SELECT 1 FROM plan_sources WHERE id = ?`).get(id)) throw new PlanError("not_found", "source not found");
   db.query(`DELETE FROM plan_sources WHERE id = ?`).run(id);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -199,3 +199,4 @@ function flushPendingScroll(previous: TouchState, options: Options): void {
   if (previous.moves.length > 16) previous.moves.splice(0, previous.moves.length - 16);
   previous.pendingMoves.length = 0;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

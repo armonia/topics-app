@@ -53,3 +53,4 @@ export function takePendingTerminalPaste(sessionId: string): string | undefined 
 export function pasteDecision(text: string, bracketedPaste: boolean): 'paste' | 'clipboard' {
   return bracketedPaste || !/[\n\r]/.test(text) ? 'paste' : 'clipboard';
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

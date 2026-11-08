@@ -15,3 +15,4 @@ export function mountViewPage(container: HTMLElement, id: string): void {
     </StrictMode>,
   );
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

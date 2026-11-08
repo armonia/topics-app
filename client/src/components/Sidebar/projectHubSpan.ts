@@ -14,3 +14,4 @@ export function spanWords(tr: Tr, ms: number): string {
   if (h < 48) return tr('projectHub.span.h', { n: h });
   return tr('projectHub.span.d', { n: Math.round(h / 24) });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

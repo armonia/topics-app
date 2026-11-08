@@ -292,3 +292,4 @@ export function usePaneWindowDoor(topicId: string, presence: TopicBrowserPresenc
 export function reopenTopicBrowserWindow(topicId: string): void {
   void store().then((s) => s.topicBrowserWindow.setMode(topicId, 'min'));
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

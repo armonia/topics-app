@@ -136,3 +136,4 @@ export function storableTopicColor(picked: string): string {
   const rgb = fromHex(value)!;
   return toHex({ ...rgb, b: rgb.b > 0 ? rgb.b - 1 : 1 });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

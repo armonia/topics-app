@@ -215,3 +215,4 @@ export function getFileIconDef(name: string, isDirectory = false, isOpen = false
   const ext = name.includes('.') ? name.split('.').pop()!.toLowerCase() : '';
   return EXT_MAP[ext] || DEFAULT_ICON;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

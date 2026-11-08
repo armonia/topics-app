@@ -275,3 +275,4 @@ export function overheadCharsFor(
     + (opts.system?.length ?? 0)
     + (tools.length > 0 ? JSON.stringify(tools).length : 0);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

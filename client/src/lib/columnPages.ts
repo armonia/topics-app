@@ -26,3 +26,4 @@ export function rememberColumnPages(view: string, status: string, shown: number)
   if (shown <= COLUMN_PAGE) reached.delete(slot(view, status));
   else reached.set(slot(view, status), shown);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

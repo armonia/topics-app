@@ -426,3 +426,4 @@ export function BrowserStreamingSpinner({
   if (!active) return null;
   return <LoaderSlot title={title ?? 'Browser is working'} className={className} />;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -61,3 +61,4 @@ export function promptNumbers(
   for (const m of thread) if (isPersonPrompt(m, machineIds)) out.set(m.id, ++n);
   return out;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

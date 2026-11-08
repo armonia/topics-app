@@ -148,3 +148,4 @@ export function protectedDirExcludes(root: string, home: string = homeDir()): st
 function caseless(pattern: string): string {
   return pattern.replace(/[a-z]/gi, (c) => `[${c.toLowerCase()}${c.toUpperCase()}]`);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -231,3 +231,4 @@ function dissolveIfEmptied(spaceId: string): void {
   const next = firstOtherLiveSpace(after.spaces, spaceId, spaceWindowsNow());
   if (next) after.dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: next } });
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

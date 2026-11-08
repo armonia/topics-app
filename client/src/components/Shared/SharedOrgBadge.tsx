@@ -63,3 +63,4 @@ export function SharedOrgBadge({ path, size = 12, className = '' }: { path: stri
     </span>
   );
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

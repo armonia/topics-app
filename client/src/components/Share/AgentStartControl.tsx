@@ -431,3 +431,4 @@ export function AgentStartControl({ projectId, subjects }: {
     </section>
   );
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

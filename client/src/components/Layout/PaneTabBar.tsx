@@ -1727,3 +1727,4 @@ function PaneTabPendingOverlay({ paneId }: { paneId: string }) {
  * `panes.map(...)` loop. Translucent fill + gentle pulse, painted over the tab
  * content so it layers atop the neutral selection surface without clobbering it.
  */
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

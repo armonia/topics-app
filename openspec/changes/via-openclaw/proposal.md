@@ -34,7 +34,7 @@ servizio ora è nostro, la parola OpenClaw non deve comparire.
 - Spostare i dati di Topics fuori da `~/.openclaw` (media, workspace): è una
   migrazione di dati con la sua change; quella cartella è condivisa con Jarvis.
   Resta l'unico riferimento, come percorso: la costante della vecchia radice in
-  `server/lib/data-dir.ts`.
+  `shared/legacy-data-dir.ts` (server e client la leggono da lì).
 - La storia: `CHANGELOG.md`, `openspec/changes/archive/`, `bench/results/`, le
   migrazioni SQL già applicate (`server/db/migrations/`): sono registri, non si
   riscrivono.
@@ -42,7 +42,7 @@ servizio ora è nostro, la parola OpenClaw non deve comparire.
 
 ## Elenco chiuso delle eccezioni (barra 3)
 `CHANGELOG.md` · `client/public/changelog.json` (generato dalla storia git) · `openspec/changes/archive/**` · `bench/results/**` ·
-`server/db/migrations/**` · `server/lib/data-dir.ts` (la vecchia radice) ·
+`server/db/migrations/**` · `shared/legacy-data-dir.ts` (la vecchia radice) ·
 `tests/unit/no-openclaw-name.test.ts` · questa change.
 
 ## Non ancora specificato

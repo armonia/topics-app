@@ -650,3 +650,4 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
     return null;
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

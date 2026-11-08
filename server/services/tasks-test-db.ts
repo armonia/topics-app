@@ -83,3 +83,4 @@ export function svc(db: Database, clock = { t: Date.parse("2026-07-09T10:00:00.0
 }
 
 export const PID = "topics-app-abc123";
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

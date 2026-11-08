@@ -33,3 +33,4 @@ export function dragLeftHost(host: LeaveHost, e: LeaveEvent): boolean {
   const inside = e.clientX > r.left && e.clientX < r.right && e.clientY > r.top && e.clientY < r.bottom;
   return !inside;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

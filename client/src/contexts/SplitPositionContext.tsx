@@ -46,3 +46,4 @@ export function useSplitPosition(topicId: string | undefined | null): SplitMapDe
 export function usePublishSplitPositions(): (m: PositionMap) => void {
   return useContext(PublishCtx);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -21,3 +21,4 @@ export function setNativeFileTreeEnabled(enabled: boolean): void {
 export function useNativeFileTreeEnabled(): boolean {
   return useSyncExternalStore(subscribe, isNativeFileTreeEnabled, () => true);
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

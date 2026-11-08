@@ -152,3 +152,4 @@ export function withToolAnnouncement(tc: ToolCall, announced: ToolCall): ToolCal
     || (tc.status === 'running' && announced.status === 'pending');
   return keepStatus ? { ...tc, ...announced, status: tc.status } : { ...tc, ...announced };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

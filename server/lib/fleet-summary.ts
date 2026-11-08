@@ -470,3 +470,4 @@ export function summarizeFleet(
     otherCpuPercent: Math.round((otherCpu / divisor) * 10) / 10,
   };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

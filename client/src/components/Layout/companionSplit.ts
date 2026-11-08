@@ -25,3 +25,4 @@ export const COMPANION_SPLIT_TTL_MS = 10_000;
 export function companionSplitIsFresh(askedAt: number, now: number): boolean {
   return now - askedAt < COMPANION_SPLIT_TTL_MS;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

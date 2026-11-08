@@ -95,3 +95,4 @@ export function decideCacheWrite<T>(input: CacheWriteInput<T>): CacheWriteDecisi
 
   return { action: 'write', payload, kept: take };
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -145,3 +145,4 @@ export function buildCodexOneshotArgs(opts: { model?: string | null; reasoningEf
   );
   return args;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -49,3 +49,4 @@ export function runDraftText(run: { command: string; output: string; outcome: st
   const fence = '`'.repeat(inner + 1);
   return `${fence}console\n${body}\n${fence}`;
 }
+export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala
