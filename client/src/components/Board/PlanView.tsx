@@ -87,11 +87,12 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
     </div>
   );
 
-  const renderCard = (c: PlanCard, project: PlanProject, depth: number) => {
+  const renderCard = (c: PlanCard, project: PlanProject, depth: number): ReactNode => {
     const choices = milestoneChoices(project);
     return (
-      <div key={c.id} data-testid="plan-card" className="group rounded-md py-1 pr-2 hover:bg-app-hover/60" style={{ paddingLeft: depth * INDENT + 4 }}>
-        <div className="flex items-center gap-2">
+      <div key={c.id}>
+      <div data-testid="plan-card" className="rounded-md py-1 pr-2" style={{ paddingLeft: depth * INDENT + 4 }}>
+        <div className="group flex items-center gap-2 rounded-md hover:bg-app-hover/60">
           <StatusIcon status={c.status as Parameters<typeof StatusIcon>[0]['status']} />
           <button type="button" onClick={() => onOpenTask(c.id)} className="min-w-0 flex-1 truncate text-left text-compact text-app-text hover:underline">{c.text}</button>
           <SignalBadges signals={c.signals} />
@@ -119,6 +120,8 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
             ) : !s.implicit ? <span key={i}>{s.label}</span> : null)}
           </div>
         )}
+      </div>
+      {c.children?.map((child) => renderCard(child, project, depth + 1))}
       </div>
     );
   };

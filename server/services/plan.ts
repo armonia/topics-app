@@ -27,7 +27,7 @@ interface TaskRow {
   id: string; project_id: string; text: string; status: string;
   assigned_topic_id: string | null; origin_topic_id: string | null;
   delivery_branch: string | null; delivery_commit: string | null; checks_state: string | null;
-  updated_at: string; created_at: string;
+  updated_at: string; created_at: string; parent_task_id?: string | null;
 }
 
 export function countCards(cards: readonly { status: string }[]): PlanCounts {
@@ -82,7 +82,7 @@ export function buildPlan(
 
   const tasks = db.query(
     `SELECT id, project_id, text, status, assigned_topic_id, origin_topic_id, delivery_branch,
-            delivery_commit, checks_state, updated_at, created_at
+            delivery_commit, checks_state, updated_at, created_at, parent_task_id
        FROM tasks WHERE archived = 0 ${where}`,
   ).all(...params) as TaskRow[];
   const areas = db.query(
@@ -105,6 +105,25 @@ export function buildPlan(
   } catch { /* projects table absent (test bench): fall back to the id */ }
 
   const milestoneOf = new Map(links.map((l) => [l.task_id, l.milestone_id]));
+  // Una sotto-card sta dove sta la sua madre (stessa board): il piano la mostra
+  // sotto la madre, non sciolta in «Da collocare». Si risale fino alla radice
+  // presente fra le card lette; un ciclo si ferma al primo giro ripetuto.
+  const taskById = new Map(tasks.map((t) => [t.id, t]));
+  const rootOf = (t: TaskRow): TaskRow => {
+    const seen = new Set<string>([t.id]);
+    let cur = t;
+    while (cur.parent_task_id) {
+      const up = taskById.get(cur.parent_task_id);
+      if (!up || up.project_id !== cur.project_id || seen.has(up.id)) break;
+      seen.add(up.id); cur = up;
+    }
+    return cur;
+  };
+  const rootIdOf = new Map(tasks.map((t) => [t.id, rootOf(t).id]));
+  for (const t of tasks) {
+    const root = rootIdOf.get(t.id)!;
+    if (root !== t.id && !milestoneOf.has(t.id) && milestoneOf.has(root)) milestoneOf.set(t.id, milestoneOf.get(root)!);
+  }
   const milestoneById = new Map(milestones.map((m) => [m.id, m]));
   const srcByTask = new Map<string, PlanSource[]>();
   const srcByMilestone = new Map<string, PlanSource[]>();
@@ -141,6 +160,8 @@ export function buildPlan(
       updatedAt: t.updated_at, signals,
       sources: [...implicitSources(t), ...(srcByTask.get(t.id) ?? [])],
     };
+    const root = rootIdOf.get(t.id);
+    if (root && root !== t.id) card.parentTaskId = root;
     if (survivor) {
       // The survivor only heads the group: the signal goes on the duplicates.
       if (survivor !== t.id) { card.signals.unshift("duplicate"); card.duplicateOf = survivor; }
@@ -167,6 +188,20 @@ export function buildPlan(
     if (visible(card)) {
       const bucket = valid ? cardsByMilestone : unplacedByProject;
       bucket.set(key, [...(bucket.get(key) ?? []), card]);
+    }
+  }
+  // Le figlie visibili vanno sotto la madre visibile; se la madre non si vede
+  // (chiusa, senza «Mostra completate») la figlia resta in lista da sola.
+  for (const bucket of [cardsByMilestone, unplacedByProject]) {
+    for (const [key, list] of bucket) {
+      const byId = new Map(list.map((c) => [c.id, c]));
+      const top: PlanCard[] = [];
+      for (const c of list) {
+        const mother = c.parentTaskId ? byId.get(c.parentTaskId) : undefined;
+        if (mother) (mother.children ??= []).push(c);
+        else top.push(c);
+      }
+      bucket.set(key, top);
     }
   }
 

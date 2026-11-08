@@ -36,6 +36,24 @@ describe("plan tree", () => {
     expect(p.progress).toMatchObject({ total: 3, done: 1 });
   });
 
+  test("sub-cards follow their mother's milestone and show under her, grandchildren under the root", () => {
+    const a = createArea(db, { projectId: "p1", name: "Auth" }) as any;
+    const m = createMilestone(db, { areaId: a.id, title: "Login" }) as any;
+    task("mom"); task("kid"); task("grandkid"); task("orphan"); task("gone");
+    db.query(`UPDATE tasks SET parent_task_id = ? WHERE id = ?`).run("mom", "kid");
+    db.query(`UPDATE tasks SET parent_task_id = ? WHERE id = ?`).run("kid", "grandkid");
+    db.query(`UPDATE tasks SET parent_task_id = ? WHERE id = ?`).run("gone", "orphan");
+    db.query(`UPDATE tasks SET archived = 1 WHERE id = 'gone'`).run();
+    linkTask(db, "mom", m.id);
+    const p = buildPlan(db, { now: T0 }).projects[0]!;
+    const ms = p.areas[0]!.milestones[0]!;
+    expect(ms.tasks.map((c) => c.id)).toEqual(["mom"]);
+    expect(ms.tasks[0]!.children!.map((c) => c.id)).toEqual(["kid", "grandkid"]);
+    expect(ms.progress.total).toBe(3);
+    // Una madre che non c'è (archiviata, altra board) non nasconde la figlia.
+    expect(p.unplaced.tasks.map((c) => c.id)).toEqual(["orphan"]);
+  });
+
   test("projects with nothing open stay out, the rest goes by open work", () => {
     task("a1", { project_id: "zeta" }); task("a2", { project_id: "zeta" });
     task("b1", { project_id: "alfa" });
