@@ -79,42 +79,10 @@ const PROJECT_TEMPLATE_FILES = ["CLAUDE.md", "README.md", ".cursorrules", "AGENT
  */
 export const README_MAX_CHARS = 20_000;
 
-/** OpenClaw workspace files injected gateway-side; listed for inspector visibility. */
-const OPENCLAW_WORKSPACE_FILES = ["SOUL.md", "MEMORY.md", "AGENTS.md", "TOOLS.md", "IDENTITY.md", "USER.md"];
-
 const CHAT_CONTEXT_PREFIX = "[Chat messages since your last reply";
 // Marker detection/stripping uses the canonical grammar in `../lib/markers`
 // (all 5 families incl. PROJECT_*). The local copy here covered only 3 and
 // leaked {{PROJECT_OPEN/CREATE:…}} into replayed history (audit #4).
-
-/**
- * openclaw decision gate (spec: replace-markers-with-tools, step 4 / design
- * open-question #1).
- *
- * The browser/project/topic control TOOLS reach the model on two tiers:
- *   - claude-code / codex → the topics-app MCP bridge (--mcp-config), and
- *   - claude / openai      → the SDK `sendOptions.tools` passthrough.
- * The `openclaw` provider is different: its tool surface is owned by the gateway,
- * not this app, so we cannot inject these tools into it. The gateway does not
- * expose equivalent control tools either (verified — no open_project/switch_topic
- * /create_project in the gateway surface). So openclaw keeps NO AI-initiated
- * control after the marker removal; it degrades to the always-available user-
- * driven path (sidebar drag / context-menu / `/project`).
- *
- * This returns whether a provider can actually reach the control tools. When it
- * is false we (a) skip the tool-instruction blocks (instructing openclaw to call
- * a tool it doesn't have would be misleading noise and could make it emit a call
- * that silently no-ops), and (b) log a one-line warning so the degradation is
- * visible, never a silent no-op.
- */
-function providerHasControlTools(providerName: string): boolean {
-  // claude-code/codex via MCP; claude/openai via SDK passthrough. openclaw (and
-  // any future gateway-owned provider) does not.
-  return providerName !== "openclaw";
-}
-
-/** Warn ONCE per provider so the openclaw degradation is logged, not spammed. */
-const controlToolWarningLogged = new Set<string>();
 
 // ────────────────────────────────────────────────────────────────────────────
 // Public API
@@ -239,22 +207,7 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
   // `streamEditResponse` after all the splice() calls. See the table in
   // openspec/changes/topic-context-canonical/design.md.
 
-  // (a) Informational only — OpenClaw workspace files (SOUL.md, MEMORY.md,
-  //     AGENTS.md, TOOLS.md, IDENTITY.md, USER.md, plus the memory tree).
-  //     These are injected by the OPENCLAW GATEWAY itself, not by
-  //     topics-app, so they only reach the model when the topic is wired
-  //     to the `openclaw` provider. For any other provider the gateway is
-  //     never called and these files would be misleading noise in the
-  //     inspector — so we skip them.
-  //
-  //     We surface them ONLY for openclaw (informational, with
-  //     `injectedByTopicsApp: false` so the adapter still skips them and
-  //     we don't double-inject).
-  if (!isRegisteredGlobalOrchestrator && (providerName === "openclaw" || providerStrategy === "gateway-stateful")) {
-    pushOpenClawInformationalBlocks(systemBlocks, ctx);
-  }
-
-  // (b) Topics-app-emitted blocks, in delivery order.
+  // Topics-app-emitted blocks, in delivery order.
   if (topic) {
     // The registered coordinator's role prompt is server-owned. A stale or
     // crafted `disabledContextSources` preference must not be able to silence
@@ -300,32 +253,19 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
     } else if (!leanContext && canUseOrdinaryTopicContext) {
       pushContextFileBlocks(systemBlocks, topic, isEnabled);
       pushProjectTemplateBlocks(systemBlocks, topic, ctx, isEnabled);
-      // Browser/project/topic control instructions steer the model to TOOLS. Only
-      // emit them for providers that can actually reach those tools (openclaw
-      // cannot — see providerHasControlTools). For openclaw, log the degradation
-      // to user-driven control once (never a silent no-op) and skip the blocks.
+      // Browser/project/topic control instructions steer the model to TOOLS:
+      // every provider reaches them (MCP bridge or SDK passthrough).
       // The coordinator never reaches this arm: it needs
       // `canUseOrdinaryTopicContext`, and a registered session is on the other
       // side of that flag. Which is the right answer for it too, since its
       // five-tool profile cannot call any of these.
-      if (providerHasControlTools(providerName)) {
-        pushBrowserInstructionBlock(systemBlocks);
-        pushProjectMarkersBlock(systemBlocks);
-        pushTopicSwitchDirectoryBlock(systemBlocks, topic, ctx, isEnabled);
-      } else if (!controlToolWarningLogged.has(providerName)) {
-        controlToolWarningLogged.add(providerName);
-        console.warn(
-          `[assemble] provider "${providerName}" has no AI-initiated control-tool channel ` +
-          `(browser/project/topic tools are not injectable into the gateway); ` +
-          `these actions degrade to user-driven control (sidebar drag / context-menu / /project).`,
-        );
-      }
-      // La lingua sta FUORI dal cancello qui sopra di proposito: quel cancello
-      // riguarda i tool, e i provider che non li hanno — codex, openai, gli
-      // agenti ACP — sono esattamente quelli che non hanno nemmeno un
-      // `--append-system-prompt` in cui infilare la direttiva. Questa è l'unica
-      // via che li raggiunge, ed è anche l'unica verificabile a occhio
-      // nell'ispettore del contesto invece che per fede.
+      pushBrowserInstructionBlock(systemBlocks);
+      pushProjectMarkersBlock(systemBlocks);
+      pushTopicSwitchDirectoryBlock(systemBlocks, topic, ctx, isEnabled);
+      // La lingua viaggia come blocco di contesto: codex, openai e gli agenti
+      // ACP non hanno un `--append-system-prompt` in cui infilare la
+      // direttiva. Questa è l'unica via che li raggiunge, ed è anche l'unica
+      // verificabile a occhio nell'ispettore del contesto invece che per fede.
       // Unconditional, and it used to read `canUseOrdinaryTopicContext ||
       // isGlobalOrchestrator`: inside an arm that already required the first
       // flag, the second could never be the reason a block got emitted. It read
@@ -421,12 +361,10 @@ function readSafe(filePath: string): string | null {
 }
 
 // ── Filesystem snapshot cache ───────────────────────────────────────────────
-// assembleTopicContext runs on EVERY production send (chat.ts). The OpenClaw
-// workspace files, the recursive memory-tree walk and the project template
-// reads are fs-derived inputs that change rarely compared to message cadence,
-// yet they were re-read synchronously per message on Bun's single event loop
-// (the memory tree in particular grows daily and the walk is unbounded).
-// Snapshot them for a few seconds instead. Tests bypass the cache: fixtures
+// assembleTopicContext runs on EVERY production send (chat.ts). The project
+// template reads are fs-derived inputs that change rarely compared to message
+// cadence, yet they were re-read synchronously per message on Bun's single
+// event loop. Snapshot them for a few seconds instead. Tests bypass the cache: fixtures
 // write files and assemble immediately, so even seconds of staleness would
 // couple tests that share a tmpdir.
 const FS_SNAPSHOT_TTL_MS = 10_000;
@@ -435,14 +373,6 @@ function fsCacheEnabled(): boolean {
   return process.env.NODE_ENV !== "test";
 }
 
-interface WorkspaceSnapshot {
-  at: number;
-  files: Array<{ name: string; path: string; content: string }>;
-  memTokens: number;
-  memoryDir: string;
-}
-const workspaceSnapshots = new Map<string, WorkspaceSnapshot>();
-
 interface TemplateSnapshot {
   at: number;
   listing: string;
@@ -450,55 +380,12 @@ interface TemplateSnapshot {
 }
 const templateSnapshots = new Map<string, TemplateSnapshot>();
 
-/** Both maps are keyed by absolute dir paths; the workspace one holds a single
- *  entry in practice (OPENCLAW_DIR is fixed), the template one grows with the
- *  distinct project roots a user touches. Cap defensively rather than LRU —
+/** Keyed by absolute dir paths, it grows with the distinct project roots a
+ *  user touches. Cap defensively rather than LRU —
  *  a full rebuild is what every call did before this cache existed. */
 function boundedSet<K, V>(map: Map<K, V>, key: K, value: V): void {
   if (map.size > 100) map.clear();
   map.set(key, value);
-}
-
-function getWorkspaceSnapshot(workspaceDir: string): WorkspaceSnapshot {
-  const now = Date.now();
-  const hit = workspaceSnapshots.get(workspaceDir);
-  if (hit && fsCacheEnabled() && now - hit.at < FS_SNAPSHOT_TTL_MS) return hit;
-
-  const files: WorkspaceSnapshot["files"] = [];
-  for (const name of OPENCLAW_WORKSPACE_FILES) {
-    const filePath = join(workspaceDir, name);
-    const content = readSafe(filePath);
-    if (content === null) continue;
-    files.push({ name, path: filePath, content });
-  }
-
-  const memoryDir = join(workspaceDir, "memory");
-  let memTokens = 0;
-  if (existsSync(memoryDir)) {
-    const visit = (dir: string) => {
-      try {
-        for (const entry of readdirSync(dir, { withFileTypes: true })) {
-          if (entry.name.startsWith(".")) continue;
-          const full = join(dir, entry.name);
-          if (entry.isDirectory()) {
-            visit(full);
-            continue;
-          }
-          // Size-based estimate: avoid reading bytes we immediately discard.
-          // Byte size slightly overestimates vs UTF-8 char length, but the
-          // /4 heuristic is already approximate.
-          memTokens += Math.round(statSync(full).size / 4);
-        }
-      } catch {
-        /* ignore */
-      }
-    };
-    visit(memoryDir);
-  }
-
-  const snap: WorkspaceSnapshot = { at: now, files, memTokens, memoryDir };
-  boundedSet(workspaceSnapshots, workspaceDir, snap);
-  return snap;
 }
 
 function getTemplateSnapshot(projectDir: string): TemplateSnapshot {
@@ -533,42 +420,6 @@ function getTemplateSnapshot(projectDir: string): TemplateSnapshot {
   const snap: TemplateSnapshot = { at: now, listing, files };
   boundedSet(templateSnapshots, projectDir, snap);
   return snap;
-}
-
-function pushOpenClawInformationalBlocks(blocks: SystemBlock[], ctx: AppContext): void {
-  const snap = getWorkspaceSnapshot(join(ctx.OPENCLAW_DIR, "workspace"));
-
-  for (const file of snap.files) {
-    blocks.push({
-      id: `openclaw:${file.name}`,
-      label: file.name,
-      category: "openclaw",
-      content: file.content,
-      tokens: estimateTokens(file.content),
-      enabled: true,         // Always enabled — toggling has no effect since we don't emit it.
-      countInBudget: true,
-      sourceUri: file.path,
-      editable: false,
-      injectedByTopicsApp: false,
-    });
-  }
-
-  // Memory tree aggregate — informational, not counted in budget by default
-  // (mirrors the legacy `/api/context/analyze` behaviour).
-  if (snap.memTokens > 0) {
-    blocks.push({
-      id: "openclaw:memory-tree",
-      label: "OpenClaw Memory Archive",
-      category: "openclaw",
-      content: "",                // We don't materialise the tree contents here.
-      tokens: snap.memTokens,
-      enabled: true,
-      countInBudget: false,
-      sourceUri: snap.memoryDir,
-      editable: false,
-      injectedByTopicsApp: false,
-    });
-  }
 }
 
 function pushSystemPromptBlock(
@@ -961,7 +812,7 @@ function pushGoalBlock(
  * NOT for a dispatched board agent (`bridge-only`): those two tools are outside
  * its profile, and its plan is the subtasks on the card. Not on a lean turn
  * either: the session heard it at kickoff, and a resume pays it again for
- * nothing. Not for `openclaw`, which cannot reach the tools at all.
+ * nothing.
  */
 function pushGoalHintBlock(
   blocks: SystemBlock[],
@@ -970,7 +821,6 @@ function pushGoalHintBlock(
   opts: { providerName: string; leanContext: boolean },
 ): void {
   if (opts.leanContext) return;
-  if (!providerHasControlTools(opts.providerName)) return;
   if (topic.mcpPolicy === "bridge-only") return;
   try {
     if (getActiveGoal(ctx.db, topic.id)) return;

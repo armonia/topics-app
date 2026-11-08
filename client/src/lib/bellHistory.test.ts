@@ -7,7 +7,7 @@ import { dayTally, diaryForFilter, diaryKindCounts, diaryMatches, historyCounts,
 import { diaryForHistory, type DiaryEntry } from './hubSystem';
 import type { ProxyEvent } from './proxyEvents';
 
-const row = (over: Partial<DiaryEntry>): DiaryEntry => ({ id: 'x', at: 1, kind: 'auto', who: 'OpenClaw', title: 'Brief', outcome: null, what: '', automationKey: null, taskId: null, ...over });
+const row = (over: Partial<DiaryEntry>): DiaryEntry => ({ id: 'x', at: 1, kind: 'auto', who: 'Jarvis', title: 'Brief', outcome: null, what: '', automationKey: null, taskId: null, ...over });
 
 describe('HUBBR-07: History filter, search and day tally', () => {
   const rows = [

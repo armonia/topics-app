@@ -5,7 +5,7 @@
  * name) against a set of candidate projects, WITHOUT touching the filesystem.
  * The fs-aware wrapper (resolveProjectRef in routes/topics.ts) builds the
  * candidate list from the real Topics projectStore, topic-bound projectPaths,
- * and the OpenClaw workspace, then validates the winning path on disk.
+ * and the app data workspace, then validates the winning path on disk.
  *
  * Matching is case-insensitive and tries, in order: exact slug, exact name,
  * folder basename. Absolute and `~/` paths are handled by the caller — this

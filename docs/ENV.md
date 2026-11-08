@@ -38,7 +38,6 @@ the env still wins, so nothing changes until a user edits Settings in the UI.
 | `ELEVENLABS_API_KEY` | ElevenLabs key — TTS **and** Scribe v2 speech-to-text | user |
 | `DEEPGRAM_API_KEY` | Deepgram key (Nova-3 speech-to-text) | user |
 | `GROQ_API_KEY` | Groq key (Whisper large-v3-turbo speech-to-text) | user |
-| `GATEWAY_TOKEN` | OpenClaw gateway token | user |
 | `VAPID_SUBJECT` | Web-push VAPID subject | user/deploy |
 
 ## bootstrap — env only
@@ -55,11 +54,10 @@ the env still wins, so nothing changes until a user edits Settings in the UI.
 | `TOPICS_TUNNEL_PORT` | Opens a **second listener on `127.0.0.1`** meant for a tunnel (Cloudflare, ngrok, …). Requests arriving there are **never** treated as local, even though the peer is loopback — that is the whole point. Unset by default; see `docs/tunnel.md`. **Never point a tunnel at the main port**: a tunnel terminates on this machine, so every visitor would arrive as loopback, which this server trusts as the owner with no credential at all. | user/shell |
 | `TOPICS_AUTH_OFF` | `1` disables the origin gate entirely — recovery hatch only. It no longer bypasses a token (there is none since `lan-open-same-origin`); what it switches off is the **CSRF defence**, i.e. the check that stops a website you visit from driving this server. | user/shell |
 | `NO_TLS` | Disable TLS (plain HTTP). Off a `localhost` origin this drops the browser's *secure context*: `clipboard`, `crypto.randomUUID`, `crypto.subtle`, `serviceWorker` and `mediaDevices` all become `undefined`, and terminal scrollback travels the LAN in the clear. | user/shell |
-| `GATEWAY_URL` | OpenClaw gateway URL | user |
 | `TOPICS_DATA_DIR` / `DATA_DIR` | App state root (topics, messages, uploads, DB). ONE door reads both, `server/lib/data-dir.ts`: `TOPICS_DATA_DIR` wins, then `DATA_DIR`, then the repo dir. Setting either isolates ALL the state, not half of it. `DATA_DIR` also names the `data/` folder inside the root (SQLite, `browser-state/`, `usage/`), which is why the desktop launcher sets it to `<TOPICS_DATA_DIR>/data`. | user/shell |
-| `APP_DATA_DIR` | Legacy OpenClaw data root (config and sessions read from `~/.openclaw`), unrelated to the state root above | user/shell |
+| `APP_DATA_DIR` | App data root (media, workspace, sessions), unrelated to the state root above; unset, the legacy folder in the home if it exists, else `TOPICS_HOME` (`server/lib/data-dir.ts`) | user/shell |
 | `TOPICS_HOME` | Topics home dir (state, backups, watchers) | shell |
-| `OPENCLAW_DIR` / `SESSIONS_DIR` | Legacy data/session dirs | runtime |
+| `SESSIONS_DIR` | Session dir (default `$APP_DATA_DIR/agents/main/sessions`) | runtime |
 | `TOPICS_WORKTREES_DIR` | Where git worktrees are created | shell |
 | `TOPICS_EXTERNAL_STATES_DIR` / `JARVIS_STATES_DIR` | Browser login-state dirs (`JARVIS_STATES_DIR` is a back-compat alias) | shell |
 | `XDG_DATA_HOME` | XDG data root (opencode session) | OS |
@@ -109,7 +107,7 @@ the env still wins, so nothing changes until a user edits Settings in the UI.
 
 | Var | Purpose | Default |
 |-----|---------|---------|
-| `AI_PROVIDER` | Default provider (`claude`/`openai`/`openclaw`/…) | auto-detected from keys |
+| `AI_PROVIDER` | Default provider (`claude-code`/`codex`/`claude`/`openai`/…) | auto-detected from keys |
 | `CLAUDE_MODEL` | Claude model id (claude **and** claude-code providers) | provider default |
 | `CLAUDE_MAX_TOKENS` | Claude max output tokens | provider default |
 | `OPENAI_MODEL` | OpenAI model id | provider default |

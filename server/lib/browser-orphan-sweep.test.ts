@@ -40,7 +40,7 @@ const CASA = "/Users/utente";
 const PW = `${CASA}/Library/Caches/ms-playwright/chromium-1217/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`;
 const HELPER = `${CASA}/Library/Caches/ms-playwright/chromium-1217/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/147.0.7727.15/Helpers/Google Chrome for Testing Helper.app/Contents/MacOS/Google Chrome for Testing Helper`;
 const CRASHPAD = `${CASA}/Library/Caches/ms-playwright/chromium-1217/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/147.0.7727.15/Helpers/chrome_crashpad_handler`;
-const SIDECAR_PROFILE = `${CASA}/.openclaw/chromium-sidecar`;
+const SIDECAR_PROFILE = `${CASA}/.app-data/chromium-sidecar`;
 const TMP_A = "/var/folders/d8/0rlg1q2x64gbx_cn5y2qjf8w0000gn/T/playwright_chromiumdev_profile-aaaaaa";
 const TMP_B = "/var/folders/d8/0rlg1q2x64gbx_cn5y2qjf8w0000gn/T/playwright_chromiumdev_profile-bbbbbb";
 

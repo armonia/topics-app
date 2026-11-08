@@ -6,7 +6,7 @@ import type { RouteHandler } from "./types";
  * The first router that returns a Response answers; a router that returns
  * null (or undefined) lets the request fall through to the next one. Order is
  * precedence: a broad matcher placed early hides a narrower one placed later,
- * which is how the Context Inspector went dark outside openclaw (d5f4ca354).
+ * which is how the Context Inspector once went dark on every provider but one (d5f4ca354).
  *
  * This list used to exist only as a 45-line `||` chain inside `fetch`. It now
  * lives here, so it can be read, pinned by a test
@@ -39,7 +39,6 @@ export const API_ROUTER_ORDER = [
   "checkpointsRouter",
   "goalsRouter",
   "openRouter",
-  "openclawContextRouter",
   "contextPreviewRouter",
   "authRouter",
   "accountRouter",
@@ -74,9 +73,8 @@ export type ApiRouterName = (typeof API_ROUTER_ORDER)[number];
  * Their slot in the order is fixed; when the condition is false the router is
  * null and the slot is skipped, exactly as `(x && await x(...))` did.
  */
-export const CONDITIONAL_API_ROUTERS = {
-  openclawContextRouter: "aiProvider.name === 'openclaw'",
-} as const;
+// None today: the last one (the gateway context) left with the gateway.
+export const CONDITIONAL_API_ROUTERS = {} as const;
 
 type ConditionalApiRouterName = keyof typeof CONDITIONAL_API_ROUTERS;
 

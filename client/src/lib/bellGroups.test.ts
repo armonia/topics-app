@@ -220,8 +220,8 @@ describe('HUBBR-07: the diary in History', () => {
   test('failed runs, agents, workflows and what you said; never a routine run that went well or was skipped', () => {
     const data = { items: [
       { at: NOW - 1, kind: 'auto', who: 'Mac', title: 'Backup', outcome: 'ok', what: '', link: '#automations/launchd%3Abackup' },
-      { at: NOW - 2, kind: 'auto', who: 'OpenClaw', title: 'Brief', outcome: 'skipped', what: '', link: '#automations/cron%3Abrief' },
-      { at: NOW - 3, kind: 'auto', who: 'OpenClaw', title: 'Docs reindex', outcome: 'error', what: 'exit 1' },
+      { at: NOW - 2, kind: 'auto', who: 'Jarvis', title: 'Brief', outcome: 'skipped', what: '', link: '#automations/cron%3Abrief' },
+      { at: NOW - 3, kind: 'auto', who: 'Jarvis', title: 'Docs reindex', outcome: 'error', what: 'exit 1' },
       { at: NOW - 4, kind: 'app', who: 'Mac', title: 'Delivery', outcome: 'undelivered', what: '' },
       { at: NOW - 5, kind: 'agente', who: 'Agente · Muse', title: 'Fixed the reindex', outcome: 'ok', what: '' },
       { at: NOW - 6, kind: 'workflow', who: 'Workflow', title: 'Dependency audit', outcome: 'ok', what: '' },

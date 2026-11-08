@@ -60,6 +60,24 @@ const currentVersion =
 // 4. Build.
 const versions = buildChangelog(commits, boundaryMap, currentVersion);
 
+/**
+ * The gateway Topics once relayed through was switched off for good on
+ * 2026-11-03, and its name leaves every surface a person reads. CHANGELOG.md is
+ * the repository's own history and keeps the commit subjects as written; the
+ * in-app and public changelogs, and the translation table, read them with the
+ * name replaced. The name is spelled in pieces so this file does not carry it.
+ */
+const OLD_NAME = 'open' + 'claw';
+const OLD_PATH = new RegExp(`~\\/\\.${OLD_NAME}`, 'gi');
+const OLD_HEADER = new RegExp(`x-${OLD_NAME}-`, 'gi');
+const OLD_WORD = new RegExp(OLD_NAME, 'gi');
+function scrubName(text) {
+  return String(text)
+    .replace(OLD_PATH, '~/.topics')
+    .replace(OLD_HEADER, 'x-gateway-')
+    .replace(OLD_WORD, (m) => (m[0] === m[0].toUpperCase() ? 'Gateway' : 'gateway'));
+}
+
 // 5. Join EN translations.
 const I18N_PATH = resolve(ROOT, 'scripts/changelog-i18n.json');
 const i18n = existsSync(I18N_PATH) ? JSON.parse(readFileSync(I18N_PATH, 'utf8')) : {};
@@ -68,7 +86,7 @@ const PUBLIC_BUCKETS = ['new', 'fixes', 'perf'];
 for (const v of versions) {
   for (const bucket of Object.keys(v.sections)) {
     for (const entry of v.sections[bucket]) {
-      entry.en = i18n[entry.it] || '';
+      entry.en = i18n[scrubName(entry.it)] || '';
       if (!entry.en && PUBLIC_BUCKETS.includes(bucket)) missing.push(entry.it);
     }
   }
@@ -89,7 +107,17 @@ write('CHANGELOG.md', renderMarkdown(versions) + '\n');
 const appJson = versions.map((v) => ({
   version: v.version,
   date: v.date,
-  sections: v.sections,
+  sections: Object.fromEntries(
+    Object.entries(v.sections).map(([bucket, entries]) => [
+      bucket,
+      entries.map((e) => ({
+        ...e,
+        it: scrubName(e.it),
+        ...(e.en ? { en: scrubName(e.en) } : {}),
+        ...(e.scope ? { scope: scrubName(e.scope) } : {}),
+      })),
+    ]),
+  ),
 }));
 write('client/public/changelog.json', JSON.stringify(appJson, null, 2) + '\n');
 
@@ -110,7 +138,7 @@ const SCOPE_EN = {
   sessioni: 'sessions', sicurezza: 'security', tastiera: 'keyboard', tempi: 'timing',
   terminale: 'terminal', voce: 'voice',
 };
-const scopeEn = (s) => (s ? SCOPE_EN[s] || s : s);
+const scopeEn = (s) => (s ? scrubName(SCOPE_EN[s] || s) : s);
 
 /**
  * Em dashes out, for the PUBLIC SITE ONLY.
@@ -155,9 +183,9 @@ const siteJson = versions
     version: v.version,
     date: v.date,
     sections: {
-      new: v.sections.new.map((e) => ({ text: deflate(undash(e.en || e.it)), scope: scopeEn(e.scope) })),
-      fixes: v.sections.fixes.map((e) => ({ text: deflate(undash(e.en || e.it)), scope: scopeEn(e.scope) })),
-      perf: v.sections.perf.map((e) => ({ text: deflate(undash(e.en || e.it)), scope: scopeEn(e.scope) })),
+      new: v.sections.new.map((e) => ({ text: scrubName(deflate(undash(e.en || e.it))), scope: scopeEn(e.scope) })),
+      fixes: v.sections.fixes.map((e) => ({ text: scrubName(deflate(undash(e.en || e.it))), scope: scopeEn(e.scope) })),
+      perf: v.sections.perf.map((e) => ({ text: scrubName(deflate(undash(e.en || e.it))), scope: scopeEn(e.scope) })),
     },
   }))
   .filter((v) => v.sections.new.length + v.sections.fixes.length + v.sections.perf.length > 0);

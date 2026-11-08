@@ -195,7 +195,7 @@ test.describe("agents' context and feature map", () => {
     await expect(found).toContainText("Una chiede i commenti in italiano, l'altra in inglese.");
     await expect(found).toContainText("CLAUDE.md globale");
     // A file the hub does not list is named by whose it is, not by a bare file name.
-    await expect(found).toContainText("Regole di studio-x");
+    await expect(found).toContainText("Regole di jcode studio-x");
     await expect(found).not.toContainText("AGENTS.md");
     // A long rule is one line until tapped, then reads whole: no tooltip needed.
     const rule = found.getByTestId("context-rule-text").first();
@@ -269,7 +269,7 @@ test.describe("agents' context and feature map", () => {
     await expect(pane).not.toContainText("Native WhatsApp bridge");
     // News are the upstream changelogs quoted as written, with who wrote them.
     await expect(first.getByTestId("features-news-hint")).toHaveText("dai changelog, nella lingua originale");
-    await expect(first.getByTestId("features-news-source").first()).toHaveText("OpenClaw");
+    await expect(first.getByTestId("features-news-source").first()).toHaveText("Aider");
     // Open, and still not in the sidebar: the tab bar holds it.
     await expect(page.getByTestId("pane-tab-__features__")).toHaveCount(1);
     await expect(sidebar).not.toContainText("Funzionalità");
@@ -372,7 +372,7 @@ test.describe("agents' context and feature map", () => {
     await expect(leaves).toHaveCount(172);
     const channels = pane.locator('[data-area="channels"]');
     await expect(channels.getByTestId("features-area-behind")).toHaveText("7 indietro");
-    await expect(channels.getByTestId("features-area-hint")).toHaveText("Jarvis 62%, 5° di 16 · davanti OpenClaw 74%");
+    await expect(channels.getByTestId("features-area-hint")).toHaveText("Jarvis 62%, 5° di 16 · davanti Aider 74%");
     await expect(channels.getByTestId("features-group")).toHaveCount(3);
     await expect(channels.locator('[data-group="ch.chat"]')).toContainText("Piattaforme di chat");
     await expect(channels.locator('[data-group="ch.chat"] [data-testid="features-group-ours"]')).toHaveText("Jarvis 17%");

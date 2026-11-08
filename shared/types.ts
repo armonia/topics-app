@@ -1501,17 +1501,13 @@ export interface ProviderChatMessage {
  * - `inline-system`     un solo turno utente: i blocchi di sistema vanno
  *                       concatenati in un preambolo (CLI claude-code). La
  *                       sessione vive nel processo.
- * - `gateway-stateful`  il gateway ha il suo stato di sessione ma accetta
- *                       ANCHE `history` come ripiego per la reidratazione dopo
- *                       un restart (gateway openclaw).
  *
  * Se un provider non dichiara `contextStrategy`, `getProviderStrategy()`
  * ripiega su: `capabilities.has("history") ? "history-aware" : "inline-system"`.
  */
 export type ProviderContextStrategy =
   | "history-aware"
-  | "inline-system"
-  | "gateway-stateful";
+  | "inline-system";
 
 /**
  * Una riga della tabella `compaction_markers`: dove la CLI ha compattato il

@@ -234,7 +234,7 @@ async function main(): Promise<void> {
         BUN_PORT: String(port),
         DATA_DIR: dataDir,
         TOPICS_HOME: join(dataDir, ".topics-home"),
-        OPENCLAW_DIR: join(dataDir, ".openclaw"),
+        APP_DATA_DIR: join(dataDir, ".app-data"),
         TOPICS_PTY_SOCKET: join(tempRoot, "pty.sock"),
         TOPICS_AI_BRIDGE_SOCKET: join(tempRoot, "ai.sock"),
         NO_TLS: "1",

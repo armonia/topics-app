@@ -17,11 +17,13 @@
  */
 
 import * as fs from "node:fs";
+import { randomBytes } from "node:crypto";
 import * as os from "node:os";
 import path from "node:path";
 import { closeDatabase, getDatabase } from "../../../server/db";
 import type { AppContext } from "../../../server/types";
 import { trackTestTmpDir } from "../../setup/test-tmp-dirs";
+import { topicsHome } from "../../../server/services/daemon-state";
 
 /**
  * Absolute path to the topics-app repo root, computed once from this
@@ -259,10 +261,10 @@ export async function spawnRealServer(root: string): Promise<RealServer> {
   const port = freePort();
   const dataDir = path.join(root, "data");
   const home = path.join(root, "home");
-  const openclaw = path.join(root, "openclaw");
+  const appData = path.join(root, "app-data");
   const topicsHome = path.join(root, "topics-home");
   const publicDir = path.join(root, "public");
-  for (const d of [dataDir, home, openclaw, topicsHome, publicDir]) fs.mkdirSync(d, { recursive: true });
+  for (const d of [dataDir, home, appData, topicsHome, publicDir]) fs.mkdirSync(d, { recursive: true });
 
   const child = Bun.spawn(["bun", "run", "server.ts"], {
     cwd: PROJECT_ROOT,
@@ -276,7 +278,7 @@ export async function spawnRealServer(root: string): Promise<RealServer> {
       DATA_DIR: dataDir,
       TOPICS_DATA_DIR: dataDir,
       HOME: home,
-      OPENCLAW_DIR: openclaw,
+      APP_DATA_DIR: appData,
       TOPICS_HOME: topicsHome,
       TOPICS_PUBLIC_DIR: publicDir,
       TOPICS_BROWSER_SWEEP: "0",
@@ -311,4 +313,19 @@ export async function spawnRealServer(root: string): Promise<RealServer> {
   child.kill("SIGKILL");
   const errorOutput = await new Response(child.stderr as ReadableStream).text().catch(() => "");
   throw new Error(`the spawned server never answered on ${port}\n${errorOutput.slice(-2000)}`);
+}
+
+/**
+ * The credential the agent and terminal routes accept (server/lib/agent-auth.ts):
+ * the daemon token, re-read from `<TOPICS_HOME>/daemon-state.json` on every
+ * request. Writes one under this process's TOPICS_HOME (call it AFTER the test
+ * pins TOPICS_HOME, if it does) and returns it, to send as `x-daemon-token`.
+ */
+export function installDaemonToken(): string {
+  const home = topicsHome();
+  fs.mkdirSync(home, { recursive: true });
+  const token = randomBytes(32).toString("hex");
+  const state = { pid: process.pid, port: 0, token, startedAt: new Date().toISOString() };
+  fs.writeFileSync(path.join(home, "daemon-state.json"), JSON.stringify(state), { mode: 0o600 });
+  return token;
 }

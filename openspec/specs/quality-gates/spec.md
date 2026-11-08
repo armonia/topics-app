@@ -562,8 +562,8 @@ pressione, mai sotto uno) e SHALL scriverlo nell'output. Un numero di shard
 scelto a mano via ambiente NON SHALL essere sovrascritto. Il timeout per test
 SHALL essere lo stesso per ogni file: 30 s oppure l'override esplicito
 `TOPICS_TEST_TIMEOUT_MS`, senza aumenti dovuti al carico. L'ambiente, incluso
-`CI`, SHALL essere ereditato, salvo `DATA_DIR`, `TOPICS_DATA_DIR`, `TOPICS_HOME` e
-`OPENCLAW_CONFIG_PATH`, che un file non eredita mai dal terminale di chi lancia.
+`CI`, SHALL essere ereditato, salvo `DATA_DIR`, `TOPICS_DATA_DIR` e `TOPICS_HOME`,
+che un file non eredita mai dal terminale di chi lancia.
 
 #### Scenario: macchina satura
 - **GIVEN** carico 46 su 12 core, nessuna scelta esplicita via ambiente
@@ -1028,3 +1028,16 @@ il commit precedente di main ha un push run di `ci.yml` concluso `success`.
 #### Scenario: un push dopo un commit rosso
 - **GIVEN** un push a main che tocca solo documenti, e il commit precedente di main senza un push run verde
 - **THEN** ogni job SHALL girare, su ogni sistema, e il confronto dei file NON SHALL essere nemmeno richiesto
+
+### Requirement: GATE-23 — Il nome del vecchio gateway non torna nel repo
+
+Il gateway esterno di agenti è spento dal 03/11/2026 e Topics ne ha tolto ogni
+pezzo. Il suo nome SHALL comparire solo nei registri dell'elenco chiuso
+(changelog, change archiviate, risultati dei banchi, migrazioni già applicate,
+la vecchia radice dati in `server/lib/data-dir.ts`). Un file fuori elenco che lo
+riporta SHALL far fallire il cancello, indicando il file.
+
+#### Scenario: La parola rimessa in un file qualunque
+- **GIVEN** il repo pulito
+- **WHEN** un file fuori elenco contiene il nome
+- **THEN** il test fallisce e stampa quel file

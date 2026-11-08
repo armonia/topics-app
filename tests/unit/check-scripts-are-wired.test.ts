@@ -23,7 +23,7 @@
  * sembrava una barra da tenere verde. Non puo' esserlo: legge lo STATO DELLA
  * BOARD da `data/topics.db`, che e' in .gitignore:174 e su un clone pulito non
  * esiste — lo script esce **2** senza guardare niente. E i checkout che
- * ispeziona arrivano anche da `~/.openclaw/workspace`, cioe' da altri progetti:
+ * ispeziona arrivano anche dal `workspace` dei dati dell'app, cioe' da altri progetti:
  * il 13/08, 2 dei suoi 4 debiti stavano in altri due repo della postazione. Un
  * cancello che diventa rosso per un ramo di un altro repo, o per un file che
  * nel repo non ci sara' mai, non e' un cancello: e' un referto. Il prefisso e'

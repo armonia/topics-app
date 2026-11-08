@@ -42,7 +42,6 @@ const GOLDEN_ORDER = [
   "checkpointsRouter",
   "goalsRouter",
   "openRouter",
-  "openclawContextRouter",
   "contextPreviewRouter",
   "authRouter",
   "accountRouter",
@@ -85,10 +84,10 @@ describe("API route table", () => {
     expect<string[]>(buildRouteTable(routers()).map((e) => e.name)).toEqual(GOLDEN_ORDER);
   });
 
-  test("only openclawContextRouter is conditional, on the openclaw provider", () => {
-    expect(CONDITIONAL_API_ROUTERS).toEqual({ openclawContextRouter: "aiProvider.name === 'openclaw'" });
+  test("no router is conditional today", () => {
+    expect(CONDITIONAL_API_ROUTERS).toEqual({});
     const conditional = buildRouteTable(routers()).filter((e) => e.condition !== null).map((e) => e.name);
-    expect(conditional).toEqual(["openclawContextRouter"]);
+    expect(conditional).toEqual([]);
   });
 
   test("the first router that answers wins, earlier nulls fall through", async () => {
@@ -108,12 +107,12 @@ describe("API route table", () => {
     expect(calls).toEqual(["topicsRouter", "voiceRouter", "mediaRouter"]);
   });
 
-  test("an absent conditional router is skipped, a present one keeps its slot", async () => {
+  test("an absent router is skipped, a present one keeps its slot", async () => {
     const answerFrom = (body: string): RouteHandler => async () => new Response(body);
-    const absent = buildRouteTable(routers({ openclawContextRouter: null, contextPreviewRouter: answerFrom("preview") }));
+    const absent = buildRouteTable(routers({ openRouter: null, contextPreviewRouter: answerFrom("preview") }));
     expect(await (await dispatchRouteTable(absent, req, url, "/api/x", "GET"))?.text()).toBe("preview");
-    const present = buildRouteTable(routers({ openclawContextRouter: answerFrom("openclaw"), contextPreviewRouter: answerFrom("preview") }));
-    expect(await (await dispatchRouteTable(present, req, url, "/api/x", "GET"))?.text()).toBe("openclaw");
+    const present = buildRouteTable(routers({ openRouter: answerFrom("open"), contextPreviewRouter: answerFrom("preview") }));
+    expect(await (await dispatchRouteTable(present, req, url, "/api/x", "GET"))?.text()).toBe("open");
   });
 
   test("nobody answers: null, so the caller sends its 404", async () => {

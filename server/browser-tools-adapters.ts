@@ -7,7 +7,6 @@
  *   - OpenAI Chat Completions (openai.ts): wrap each as { type:'function', function: {...} }
  *   - Codex CLI (codex.ts): tools managed by CLI itself; no inline registration
  *   - Claude Code CLI (claude-code.ts): tools managed by CLI; no inline registration
- *   - OpenClaw gateway (openclaw.ts): tools managed by gateway; no inline registration
  */
 
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
@@ -47,7 +46,6 @@ export function toOpenAIFunctions(tools: Tool[]): BrowserToolForOpenAI[] {
  *   openai   -> true  (Chat Completions function-calling format)
  *   codex    -> false (CLI tools are managed upstream by the codex binary)
  *   claude-code -> false (CLI tools are managed upstream by claude binary)
- *   openclaw -> false (gateway-managed, agents register tools via the OpenClaw protocol)
  */
 export function isPassthroughProvider(name: string): boolean {
   return name === "claude" || name === "openai";

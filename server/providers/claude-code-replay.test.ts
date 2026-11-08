@@ -163,7 +163,7 @@ describe("loadActiveBranchForReplay", () => {
     ]);
   });
 
-  test("strips browser/topic markers and skips OpenClaw context envelopes", () => {
+  test("strips browser/topic markers and skips legacy context envelopes", () => {
     const u = insertMsg("topic-C", "user", "{{TOPIC_NEW:Greeting}} ciao");
     const a1 = insertMsg(
       "topic-C",

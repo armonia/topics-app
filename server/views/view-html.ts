@@ -1,6 +1,6 @@
 /**
  * A view as ONE self-contained HTML document, for hosts that are not Topics
- * (GENUI-08): OpenClaw, Claude, ChatGPT, any MCP Apps host. They render a
+ * (GENUI-08): Claude, ChatGPT, any MCP Apps host. They render a
  * `ui://` resource in a sandboxed iframe that cannot load the Topics client,
  * so the document carries its own CSS, its own markup and the few lines of
  * the MCP Apps bridge (postMessage JSON-RPC: `ui/initialize`, theme from the

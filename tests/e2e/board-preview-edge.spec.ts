@@ -33,7 +33,7 @@ hermetic(test);
 
 const BASE = E2E_BASE;
 const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-preview-edge-${Date.now()}`;
-const MEDIA_DIR = join(E2E_DATA_DIR, ".openclaw", "media", "preview-edge");
+const MEDIA_DIR = join(E2E_DATA_DIR, ".app-data", "media", "preview-edge");
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
 const WHITE_SVG =

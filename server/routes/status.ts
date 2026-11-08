@@ -10,18 +10,15 @@ import { nativeGitStatusSnapshot } from "../lib/native-git-status";
 import { nativeFileTreeSnapshot } from "../lib/native-file-tree";
 import { unknownPricedModels } from "../usage/pricing";
 import { getProvider } from "../providers";
-import { checkGatewayHealth as pingGateway } from "../providers/health";
 import { detectAgents } from "../lib/detect-agents";
 import { computePresenceCounts } from "../services/profile-stats";
 import { countBusyAgentTerminals, getPtyBridgeRuntimeStatus } from "./terminal";
-import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 import { inspectHealth, ProbeTimeoutError, type HealthProbe, type HealthReading, type HealthSubsystemId } from "../../shared/system-health";
 import { registeredFleetSocketPath } from "../lib/fleet-usage";
 import { fileWatcherLastError, watchedProjectPaths } from "../file-watcher";
 import { browserEngineIsRunning, browserEngineLastLaunchFailure } from "../browser-engine-registry";
 import { resolveDataDir } from "../lib/data-dir";
 import { claudeLoginSource } from "../providers/native/login-source";
-import { gatewayToken } from "../lib/openclaw-gateway-token";
 
 const SERVER_START_TIME = Date.now();
 
@@ -124,8 +121,6 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
 
   // Cached state
   let lastGatewayCheck: (GatewayHealthResult & { checkedAt: string }) | null = null;
-  let lastCronStatus: CronJobsStatus | null = null;
-  let lastSessionsStatus: SessionsStatus | null = null;
   // Read when someone asks and at most every 10 minutes: one `security` call
   // (attributes only, ~30 ms) per reader, never a timer with nobody reading it.
   let claudeLogin: { source: "keychain" | "file" | null; expiresAt: number } = { source: null, expiresAt: 0 };
@@ -179,88 +174,22 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
     },
   };
 
+  // The default provider's state: it answers «connected» and nothing more, there is
+  // no HTTP gateway left to probe.
   async function checkGatewayHealth(): Promise<GatewayHealthResult> {
     const provider = getProvider();
-
-    // For non-OpenClaw providers, just check the connected flag
-    if (provider.name !== "openclaw") {
-      return {
-        status: provider.connected ? "online" : "offline",
-        online: provider.connected,
-        latencyMs: 0,
-      };
-    }
-
-    // OpenClaw: HTTP health check via shared helper
-    const gatewayUrl = process.env.GATEWAY_URL;
-    if (!gatewayUrl) {
-      return { status: provider.connected ? "online" : "offline", online: provider.connected, latencyMs: 0 };
-    }
-    const result = await pingGateway(gatewayUrl, gatewayToken());
     return {
-      status: result.status,
-      online: result.online,
-      latencyMs: result.latencyMs,
-      httpStatus: result.httpStatus,
+      status: provider.connected ? "online" : "offline",
+      online: provider.connected,
+      latencyMs: 0,
     };
-  }
-
-  async function fetchCronStatus(): Promise<CronJobsStatus> {
-    const provider = getProvider();
-    if (!provider.invokeTool) {
-      return { enabled: 0, disabled: 0, total: 0 };
-    }
-    try {
-      const data = await provider.invokeTool("cron", { action: "list" }) as
-        { result?: { jobs?: any[] }; jobs?: any[] } | undefined;
-      const jobs = data?.result?.jobs || data?.jobs || [];
-      let enabled = 0, disabled = 0;
-      let nextRun: string | undefined;
-      for (const job of jobs) {
-        if (job.enabled || job.active) enabled++;
-        else disabled++;
-        if (job.nextRun && (!nextRun || job.nextRun < nextRun)) nextRun = job.nextRun;
-      }
-      return { enabled, disabled, total: jobs.length, nextRun };
-    } catch {
-      return { enabled: 0, disabled: 0, total: 0 };
-    }
-  }
-
-  async function fetchSessionsStatus(): Promise<SessionsStatus> {
-    const provider = getProvider();
-    if (!provider.invokeTool) {
-      return { total: 0, byType: {} };
-    }
-    try {
-      const data = await provider.invokeTool("sessions_list", {}) as
-        { result?: { sessions?: any[] }; sessions?: any[] } | undefined;
-      const sessions = data?.result?.sessions || data?.sessions || [];
-      const byType: Record<string, number> = {};
-      for (const s of sessions) {
-        const type = s.type || "unknown";
-        byType[type] = (byType[type] || 0) + 1;
-      }
-      return { total: sessions.length, byType };
-    } catch {
-      return { total: 0, byType: {} };
-    }
   }
 
   // Periodic background checks (every 30s)
   async function runBackgroundChecks() {
     try {
-      // Cron/sessions polling only makes sense when the provider can invoke tools
-      // (e.g. OpenClaw); skip it otherwise so we don't spin no-op async calls.
-      const canInvokeTool = Boolean(getProvider().invokeTool);
-      const [health, cron, sessions] = await Promise.all([
-        checkGatewayHealth(),
-        canInvokeTool ? fetchCronStatus() : Promise.resolve(lastCronStatus),
-        canInvokeTool ? fetchSessionsStatus() : Promise.resolve(lastSessionsStatus),
-      ]);
+      const health = await checkGatewayHealth();
       lastGatewayCheck = { ...health, checkedAt: new Date().toISOString() };
-      lastCronStatus = cron;
-      lastSessionsStatus = sessions;
     } catch {
       // Update checkedAt even on failure so the status bar shows freshness
       lastGatewayCheck = { status: "offline", online: false, latencyMs: 0, checkedAt: new Date().toISOString() };
@@ -269,7 +198,7 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
 
   // Capture the interval id and unref it so the timer never keeps the
   // process alive on its own (avoids a leaked timer that polls forever,
-  // including on non-OpenClaw setups).
+  // whatever the provider).
   const backgroundCheckTimer = setInterval(runBackgroundChecks, 30000);
   if (typeof backgroundCheckTimer.unref === "function") backgroundCheckTimer.unref();
   runBackgroundChecks();
@@ -278,34 +207,6 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
 
     if (method === "GET" && pathname === "/api/system/health") {
       return json({ checkedAt: new Date().toISOString(), subsystems: await inspectHealth(healthProbes) });
-    }
-
-    // Restart OpenClaw gateway (only supported for openclaw provider)
-    if (method === "POST" && pathname === "/api/openclaw/restart") {
-      const provider = getProvider();
-      if (provider.name !== "openclaw") {
-        return json({ ok: false, error: "Restart is only supported with the OpenClaw provider" }, 404);
-      }
-      try {
-        // runtime-dep-ok: an OPTIONAL third-party integration, reachable only
-        // from a button that the guard above already restricts to installations
-        // whose provider IS OpenClaw. Nothing in Topics needs it; if the binary
-        // is absent this one route answers with the spawn error.
-        const proc = spawnBounded(["openclaw", "gateway", "restart"], {
-          stdout: "pipe",
-          stderr: "pipe",
-          env: { ...process.env },
-          timeoutMs: SPAWN_TIMEOUT.write,
-        });
-        const stdout = await new Response(proc.stdout).text();
-        const stderr = await new Response(proc.stderr).text();
-        const exitCode = (await proc.exited) ?? 124;
-        // Reset cached gateway status so next poll picks up fresh state
-        lastGatewayCheck = null;
-        return json({ ok: exitCode === 0, output: stdout || stderr, exitCode });
-      } catch (err: any) {
-        return json({ ok: false, error: err.message }, 500);
-      }
     }
 
     // Runtime app version — read fresh from package.json (mtime-cached). The
@@ -467,8 +368,10 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
           activeCount: activeTopicsCount,
           totalCount: totalTopicsCount,
         },
-        cronJobs: lastCronStatus || { enabled: 0, disabled: 0, total: 0 },
-        sessions: lastSessionsStatus || { total: 0, byType: {} },
+        // Scheduled jobs live in the Automations panel (`/api/cron`):
+        // here they stay zero for the response shape.
+        cronJobs: { enabled: 0, disabled: 0, total: 0 } satisfies CronJobsStatus,
+        sessions: { total: 0, byType: {} } satisfies SessionsStatus,
         processSpawns: serverSpawnCounts(),
         nativeGit: nativeGitStatusSnapshot(),
         nativeFileTree: nativeFileTreeSnapshot(),

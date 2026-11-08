@@ -400,12 +400,6 @@ describe("le altre strategie non deduplicano", () => {
     expect(payload.inlineSlots).toBeUndefined();
   });
 
-  it("gateway-stateful idem", () => {
-    const env = { ...inlineEnvelope([PROMPT, AWARE, README]), providerStrategy: "gateway-stateful" as const };
-    const payload = adaptEnvelope(env, { alreadySent: sentFrom([PROMPT, AWARE, README]) });
-    expect(payload.history?.filter((m) => m.role === "system")).toHaveLength(2);
-    expect(payload.inlineSlots).toBeUndefined();
-  });
 });
 
 describe("Claude Code's memory index (user:MEMORY.md)", () => {

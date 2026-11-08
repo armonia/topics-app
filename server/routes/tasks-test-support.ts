@@ -106,7 +106,7 @@ export const SESSIONS: Record<string, { projectPath: string; name: string; topic
   // A catch-all ("generale") dispatch: the topic's cwd is a per-task private dir
   // that maps to NO real board — the agent's own task lives on a different
   // project_id, reachable only via assigned_topic_id.
-  sCatch: { projectPath: "/home/.openclaw/workspace/tasks/abc123", name: "generale-agent", topicId: "top-catch" },
+  sCatch: { projectPath: "/home/.topics/workspace/tasks/abc123", name: "generale-agent", topicId: "top-catch" },
 };
 
 export function makeCtx(

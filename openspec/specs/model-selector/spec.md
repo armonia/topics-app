@@ -106,9 +106,9 @@ interruttore dentro la riga del modello, non una riga a sé.
 - **AND** compare aprendo «Precedenti», o cercandolo
 
 #### Scenario: nessun gruppo di ripiego
-- **GIVEN** Ollama con `gpt-oss:20b`, `gemma3:27b` e `llama3.3:70b`, e OpenClaw con `openclaw`
+- **GIVEN** Ollama con `gpt-oss:20b`, `gemma3:27b` e `llama3.3:70b`, e Muse con `muse-1`
 - **WHEN** l'utente apre il selettore
-- **THEN** `gpt-oss:20b` sta nella sezione OpenAI, `gemma3:27b` in Google, `llama3.3:70b` in Meta e `openclaw` in una sezione «OpenClaw»
+- **THEN** `gpt-oss:20b` sta nella sezione OpenAI, `gemma3:27b` in Google, `llama3.3:70b` in Meta e `muse-1` in una sezione «Muse»
 - **AND** nessuna sezione si chiama «Altri», «Other» o con un tipo di connessione
 
 #### Scenario: chat vuota, composer a metà schermo

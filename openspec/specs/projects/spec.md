@@ -439,7 +439,7 @@ Una cartella sparita SENZA gemello NON DEVE essere toccata: un disco esterno smo
 non perde i propri pannelli.
 
 #### Scenario: il pannello del percorso sparito confluisce in quello vero
-- **GIVEN** uno stato con un pannello su `~/.openclaw/workspace/x` (non esiste più) e uno su `~/Projects/x`
+- **GIVEN** uno stato con un pannello su `~/.topics/workspace/x` (non esiste più) e uno su `~/Projects/x`
 - **WHEN** il client scrive `pane-store-v2`
 - **THEN** resta il solo pannello di `~/Projects/x`, con il proprio contenuto
 - **AND** nella fila delle tab l'id vecchio è sostituito da quello vero, non rimosso

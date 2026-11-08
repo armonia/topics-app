@@ -809,7 +809,6 @@
         ]));
         if (/\/usage\//.test(u)) return Promise.resolve(J({ records: [], summary: {} }));
         if (/\/history\//.test(u)) return Promise.resolve(J({ messages: [] }));
-        if (/\/openclaw\/context\b/.test(u)) return Promise.resolve(J({ soul: null, memory: null, agents: null, tools: null, identity: null, user: null, memoryIndex: [], memoryTokens: 0, totalTokens: 0, workspacePath: PROJECT }));
 
         if (/snapshot|settings|status|state|kpis|summary|monitor|count|config/i.test(u)) { if (window.__DEMO_TRACE__) console.warn("[demo] fallback {} ←", u); return Promise.resolve(J({})); }
         if (window.__DEMO_TRACE__) console.warn("[demo] fallback [] ←", u);

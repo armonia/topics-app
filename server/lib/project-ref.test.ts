@@ -11,7 +11,7 @@ const slugify = (s: string) =>
 const candidates: ProjectRefCandidate[] = [
   { path: "/Users/z/Projects/topics-app", name: "Topics App", slug: "topics-app" },
   { path: "/Users/z/Projects/pix", name: "Pix", slug: "pix" },
-  { path: "/Users/z/.openclaw/workspace/scratch" }, // workspace dir, no name/slug
+  { path: "/Users/z/.app-data/workspace/scratch" }, // workspace dir, no name/slug
 ];
 
 // First match of `matchProjectRefAll`, or null.
@@ -37,7 +37,7 @@ describe("matchProjectRef", () => {
 
   it("falls back to folder basename for candidates without a name/slug", () => {
     expect(matchProjectRef("scratch", candidates, slugify)).toBe(
-      "/Users/z/.openclaw/workspace/scratch",
+      "/Users/z/.app-data/workspace/scratch",
     );
   });
 
@@ -60,11 +60,11 @@ describe("matchProjectRefAll", () => {
   it("returns EVERY basename collision, in candidate order (the two-topics-app case)", () => {
     const c: ProjectRefCandidate[] = [
       { path: "/Users/z/Projects/topics-app" },          // real repo (live topic binding)
-      { path: "/Users/z/.openclaw/workspace/topics-app" }, // stale husk (dead June binding)
+      { path: "/Users/z/.app-data/workspace/topics-app" }, // stale husk (dead June binding)
     ];
     expect(matchProjectRefAll("topics-app", c, slugify)).toEqual([
       "/Users/z/Projects/topics-app",
-      "/Users/z/.openclaw/workspace/topics-app",
+      "/Users/z/.app-data/workspace/topics-app",
     ]);
   });
 

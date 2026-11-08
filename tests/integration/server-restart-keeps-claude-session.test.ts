@@ -30,7 +30,6 @@ import { join, resolve } from "node:path";
 import { slackMs } from "../helpers/time-slack";
 
 const REPO = resolve(import.meta.dir, "..", "..");
-const TOKEN = "test-token";
 // Unix socket paths have a 104-byte cap on macOS: /tmp, not os.tmpdir().
 const DATA = mkdtempSync("/tmp/trs-");
 const HOME = join(DATA, ".home");
@@ -60,7 +59,6 @@ async function startServer(): Promise<void> {
       LANG: "C.UTF-8",
       BUN_PORT: String(port),
       DATA_DIR: DATA,
-      GATEWAY_TOKEN: TOKEN,
       TOPICS_AI_BRIDGE: "1",
       TOPICS_AI_BRIDGE_SOCKET: join(DATA, "ai.sock"),
       TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS: "60000",
@@ -73,7 +71,7 @@ async function startServer(): Promise<void> {
   closeSync(logFd);
   const until = Date.now() + slackMs(60_000);
   while (Date.now() < until) {
-    const r = await fetch(`${base()}/api/topics`, { headers: { "X-Gateway-Token": TOKEN } }).catch(() => null);
+    const r = await fetch(`${base()}/api/topics`).catch(() => null);
     if (r?.ok) return;
     await Bun.sleep(250);
   }
@@ -97,7 +95,7 @@ function sendTurn(sessionKey: string, content: string): Promise<void> {
   return (async () => {
     const res = await fetch(`${base()}/api/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Gateway-Token": TOKEN },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sessionKey, messages: [{ role: "user", content }] }),
     });
     if (!res.ok || !res.body) throw new Error(`POST /api/chat answered ${res.status}`);
@@ -181,7 +179,7 @@ describe("a Claude chat across server restarts", () => {
     await startServer();
     const created = await fetch(`${base()}/api/topics`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Gateway-Token": TOKEN },
+      headers: { "Content-Type": "application/json" },
       // A project folder, like the lost chat (cwd /Users/…/topics-app): the boot
       // sweep only judges sessions whose cwd it can resolve.
       body: JSON.stringify({ name: "Restart keeps session", provider: "claude-code", projectPath: PROJECT }),
@@ -192,7 +190,7 @@ describe("a Claude chat across server restarts", () => {
 
     const plain = await fetch(`${base()}/api/topics`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Gateway-Token": TOKEN },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "No project", provider: "claude-code" }),
     });
     const plainTopic = (await plain.json()) as { id: string; sessionKey?: string };
