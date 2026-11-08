@@ -53,8 +53,17 @@ export function splitIntoLanes(
       lane.total += 1;
     }
   }
-  return [...lanes.values()].sort((a, b) => {
-    const byName = nameOf(a.projectId).localeCompare(nameOf(b.projectId), undefined, { sensitivity: 'base' });
+  return sortProjectGroups([...lanes.values()], (lane) => nameOf(lane.projectId));
+}
+
+/**
+ * THE ORDER OF PROJECT GROUPS, one for the Kanban lanes and the Plan tiles: by
+ * name, ties on the id. The two views of one board list projects in the same
+ * order, so a project is found in the same place in both.
+ */
+export function sortProjectGroups<T extends { projectId: string }>(groups: readonly T[], nameOf: (group: T) => string): T[] {
+  return [...groups].sort((a, b) => {
+    const byName = nameOf(a).localeCompare(nameOf(b), undefined, { sensitivity: 'base' });
     return byName !== 0 ? byName : a.projectId.localeCompare(b.projectId);
   });
 }

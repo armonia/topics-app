@@ -5,7 +5,8 @@
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import type { BoardTask } from '../../lib/board';
-import { columnIdOfDropTarget, laneDropId, splitIntoLanes, toggleCollapsed } from './boardLanes';
+import { columnIdOfDropTarget, laneDropId, sortProjectGroups, splitIntoLanes, toggleCollapsed } from './boardLanes';
+import { draftLaneOf, type DraftPreview } from './draftPreview';
 import {
   BOARD_COLLAPSED_PROJECTS_STORAGE_KEY, BOARD_DENSITY_STORAGE_KEY, BOARD_GROUP_BY_STORAGE_KEY,
   readBoardDensity, readBoardGroupBy, readCollapsedProjects, writeBoardPreference, writeCollapsedProjects,
@@ -112,5 +113,23 @@ describe('view preferences', () => {
     expect(readBoardDensity()).toBe('full');
     expect(readCollapsedProjects().size).toBe(0);
     expect(() => writeBoardPreference(BOARD_DENSITY_STORAGE_KEY, 'compact')).not.toThrow();
+  });
+});
+
+describe('one order and one ghost for the grouped board', () => {
+  test('lanes and Plan tiles share the order: by name, ties on the id', () => {
+    const groups = [{ projectId: 'z', name: 'zeta' }, { projectId: 'b', name: 'Alfa' }, { projectId: 'a', name: 'alfa' }];
+    expect(sortProjectGroups(groups, (g) => g.name).map((g) => g.projectId)).toEqual(['a', 'b', 'z']);
+    // The input is not reordered in place: the Plan sorts the server's array.
+    expect(groups.map((g) => g.projectId)).toEqual(['z', 'b', 'a']);
+  });
+
+  test("the composer's ghost sits in its project's lane, else in the first, never in none", () => {
+    const draft: DraftPreview = { title: 't', description: null, status: 'todo', images: [], files: [], projectId: 'b' };
+    expect(draftLaneOf(draft, ['a', 'b'])).toBe('b');
+    expect(draftLaneOf({ ...draft, projectId: 'auto' }, ['a', 'b'])).toBe('a');
+    expect(draftLaneOf({ ...draft, projectId: undefined }, ['a', 'b'])).toBe('a');
+    expect(draftLaneOf(null, ['a'])).toBeNull();
+    expect(draftLaneOf(draft, [])).toBeNull();
   });
 });

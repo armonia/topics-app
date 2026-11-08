@@ -1056,7 +1056,8 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // `card-meta-row-completeness.test.ts` confronta questa riga con i chip
   // davvero disegnati sotto, così la prossima dimenticanza è un rosso e non
   // un'ora di indagine.
-  const hasMetaRow = !!(creator || incomplete || blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
+  // Compact cards skip the band: their live chips are drawn after it (`card-compact-chips`).
+  const hasMetaRow = !compact && !!(creator || incomplete || blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
 
   return (
     <div
@@ -1283,15 +1284,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           to be looked for in a different place. Title, how it stands (chips),
           what it holds (subtasks), what it asks (description): one reading,
           the same in every state. */}
-      {/* Compact: of the whole row only the blocker stays, it is the one chip that says the card cannot move. */}
-      {compact && blockedChip && (
-        <span
-          data-testid="card-blocked-by"
-          title={blockedChip.title}
-          className="mt-1 flex max-w-[11rem] items-center gap-1 truncate rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
-        ><Lock className="h-3 w-3 shrink-0" /> <span className="truncate">{blockedChip.label}</span></span>
-      )}
-      {!compact && hasMetaRow && (
+      {hasMetaRow && (
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           {/* PRIMO della riga, e non per gravità: è l'unico chip che cambia la
               DECISIONE. Gli altri dicono in che rapporti sta la card (aspetta,
@@ -1563,6 +1556,27 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               task={task} disabled={busy} onDone={choiceDone} onError={choiceFailed}
               ariaLabel={tr('board.card.blockedActions')}
             />
+          )}
+        </div>
+      )}
+      {/* COMPACT: of the whole band only the live facts stay, the ones that say
+          the card cannot move (blocker) or that a person is awaited (review age).
+          After the band in the source, so the band's chips keep their order. */}
+      {compact && (blockedChip || attesa) && (
+        <div className="mt-1 flex flex-wrap items-center gap-1.5" data-testid="card-compact-chips">
+          {blockedChip && (
+            <span
+              data-testid="card-blocked-by"
+              title={blockedChip.title}
+              className="flex max-w-[11rem] items-center gap-1 truncate rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
+            ><Lock className="h-3 w-3 shrink-0" /> <span className="truncate">{blockedChip.label}</span></span>
+          )}
+          {attesa && (
+            <span
+              data-testid="card-review-age"
+              title={tr('board.card.reviewAgeTitle', { when: task.reviewAt ? new Date(task.reviewAt).toLocaleString(locale) : '' })}
+              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
+            ><Hourglass className="h-3 w-3 shrink-0" /> {tr('board.card.reviewAge', { t: attesa })}</span>
           )}
         </div>
       )}

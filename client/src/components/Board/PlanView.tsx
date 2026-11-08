@@ -18,6 +18,7 @@ import { SEGNALE_ATTESA } from '../Sidebar/chromeSignals';
 import { StatusIcon } from './atoms';
 import { ActivityBadge, NeedsYouBox } from './PlanTileParts';
 import { ProjectGroupHeader } from './ProjectGroupHeader';
+import { sortProjectGroups } from './boardLanes';
 import { useCollapsedProjects } from './useCollapsedProjects';
 import {
   createArea, createMilestone, fetchPlan, linkCard, mergeDuplicate, updateMilestone,
@@ -110,16 +111,8 @@ export function PlanView({ onOpenTask, onOpenTopic, renderTaskCard }: Props) {
     const choices = milestoneChoices(project);
     const links = c.sources.filter((s) => (s.kind === 'topic' && s.topicId && onOpenTopic) || s.url);
     const boardCard = nested ? null : renderTaskCard?.(c.id) ?? null;
-    return (
-      <div key={c.id}>
-        <div data-testid="plan-card" data-board-card={boardCard ? '' : undefined}
-          className={boardCard
-            ? 'group/card relative flex items-start gap-1.5 py-0.5'
-            : `group/card relative flex items-center gap-1.5 rounded-md py-0.5 pr-1 hover:bg-app-hover/60 ${nested ? 'pl-5' : 'pl-1'}`}>
-          {boardCard ? <div className="min-w-0 flex-1">{boardCard}</div> : <>
-            <StatusIcon status={c.status} className="h-3 w-3" />
-            <button type="button" onClick={() => onOpenTask(c.id)} title={c.text} className="min-w-0 flex-1 truncate text-left text-compact text-app-text hover:underline">{c.text}</button>
-          </>}
+    const hasTrailing = c.signals.length > 0 || !!c.duplicateOf || links.length > 0;
+    const trailingFacts = <>
           <SignalBadges signals={c.signals} />
           {c.duplicateOf && (
             <button type="button" className="shrink-0 rounded px-1 text-mini text-app-text-secondary hover:bg-app-hover" onClick={() => void act(() => mergeDuplicate(c.projectId, c.id, c.duplicateOf!))}>{tr('plan.mergeInto')}</button>
@@ -131,6 +124,26 @@ export function PlanView({ onOpenTask, onOpenTopic, renderTaskCard }: Props) {
           ) : (
             <a key={i} href={s.url!} target="_blank" rel="noreferrer" title={s.label} className="shrink-0 truncate text-mini text-app-text-muted hover:underline max-w-[7rem]">{s.label}</a>
           ))}
+    </>;
+    return (
+      <div key={c.id}>
+        <div data-testid="plan-card" data-board-card={boardCard ? '' : undefined}
+          className={boardCard
+            ? 'group/card relative flex items-start gap-1.5 py-0.5'
+            : `group/card relative flex items-center gap-1.5 rounded-md py-0.5 pr-1 hover:bg-app-hover/60 ${nested ? 'pl-5' : 'pl-1'}`}>
+          {/* The status sign on both shapes: in the Plan no column says it. */}
+          <StatusIcon status={c.status} className={`h-3 w-3 shrink-0 ${boardCard ? 'mt-2.5' : ''}`} />
+          {boardCard ? (
+            // The facts the Plan adds go UNDER the card, not beside it: beside, they
+            // narrowed it, and cards of one tile had different widths.
+            <div className="min-w-0 flex-1">
+              {boardCard}
+              {hasTrailing && <div className="mt-0.5 flex flex-wrap items-center gap-1.5" data-testid="plan-card-facts">{trailingFacts}</div>}
+            </div>
+          ) : <>
+            <button type="button" onClick={() => onOpenTask(c.id)} title={c.text} className="min-w-0 flex-1 truncate text-left text-compact text-app-text hover:underline">{c.text}</button>
+            {trailingFacts}
+          </>}
           {/* Over the row, not beside it: hidden, it would still eat the title's width. */}
           {choices.length > 0 && (
             <span className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/card:pointer-events-auto group-hover/card:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
@@ -299,7 +312,8 @@ export function PlanView({ onOpenTask, onOpenTopic, renderTaskCard }: Props) {
         {/* Columns by width, not by breakpoint: the pane is narrower than the window whenever a chat sits beside it. */}
         {tree && tree.projects.length > 0 && (
           <div data-testid="plan-grid" style={{ columnWidth: 340, columnGap: 12 }}>
-            {tree.projects.map(renderProject)}
+            {/* The Kanban lanes' order, not the server's: one board, projects in the same place in both views. */}
+            {sortProjectGroups(tree.projects, (p) => p.name).map(renderProject)}
           </div>
         )}
       </div>

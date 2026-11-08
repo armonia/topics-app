@@ -27,6 +27,22 @@ export interface DraftPreview {
   images: string[];
   /** The names of the attachments that are not images. */
   files: string[];
+  /**
+   * The project the composer will create in, when it names one: on the board
+   * grouped by project the ghost sits in that lane only (`draftLaneOf`).
+   */
+  projectId?: string;
+}
+
+/**
+ * The lane the ghost belongs to, on the board grouped by project: the lane of
+ * the composer's project, or the first lane when that project has no lane yet
+ * (an empty project, or the composer choosing the project itself). One ghost
+ * for one card: never one per lane.
+ */
+export function draftLaneOf(draft: DraftPreview | null, laneIds: readonly string[]): string | null {
+  if (!draft || laneIds.length === 0) return null;
+  return draft.projectId && laneIds.includes(draft.projectId) ? draft.projectId : laneIds[0]!;
 }
 
 /**

@@ -303,8 +303,9 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   // of a composer that is gone.
   useEffect(() => {
     if (!onDraft) return;
-    onDraft(draftPreviewOf(text, attachments, birthStatus));
-  }, [onDraft, text, attachments, birthStatus]);
+    const preview = draftPreviewOf(text, attachments, birthStatus);
+    onDraft(preview && target ? { ...preview, projectId: target } : preview);
+  }, [onDraft, text, attachments, birthStatus, target]);
   useEffect(() => () => { onDraft?.(null); }, [onDraft]);
 
   // Interroga la board mentre scrivi, ma solo quando c'è abbastanza testo da

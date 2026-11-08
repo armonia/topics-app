@@ -64,7 +64,7 @@ import { FilterTokenField } from './FilterTokenField';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
 import { ProjectFilterPicker } from './ProjectFilterPicker';
 import { Card, Column } from './Card';
-import type { DraftPreview } from './draftPreview';
+import { draftLaneOf, type DraftPreview } from './draftPreview';
 import { taskActionErrorMessage } from './taskActionError';
 import { taskActionWord } from './taskActionWords';
 import { TaskDetail } from './TaskDetail';
@@ -1520,6 +1520,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     const names = new Map(resolveProjectRefs([...new Set(tasks.map((t) => t.projectId))], projectIndex).map((p) => [p.projectId, p.name]));
     return splitIntoLanes(byColumn, boardColumns.map((c) => c.id), (id) => names.get(id) ?? id);
   }, [grouped, tasks, byColumn, boardColumns, projectIndex]);
+  // The composer's ghost belongs to ONE lane, not to the same column of every lane.
+  const draftLane = useMemo(() => draftLaneOf(draft, lanes.map((l) => l.projectId)), [draft, lanes]);
   const laneNameById = useMemo(
     () => new Map(resolveProjectRefs(lanes.map((l) => l.projectId), projectIndex).map((p) => [p.projectId, p.name])),
     [lanes, projectIndex],
@@ -1755,7 +1757,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       justCreated={justCreated}
       archived={showArchived}
       onOpenSettings={toggleSettings}
-      draft={draft && draft.status === status && !showArchived && columnOfTask(boardColumns, { status })?.id === columnKey ? draft : undefined}
+      draft={draft && draft.status === status && !showArchived && columnOfTask(boardColumns, { status })?.id === columnKey
+        && (!lane || lane.projectId === draftLane) ? draft : undefined}
     />
   );
 

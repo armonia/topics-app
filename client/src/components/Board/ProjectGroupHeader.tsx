@@ -14,9 +14,11 @@ import type { BoardLane } from './boardLanes';
 
 /** A board with no folder (a virtual board, or cards with no project) gets a neutral glyph, so headers stay aligned. */
 export function ProjectGlyph({ projectId, path }: { projectId: string; path?: string | null }) {
-  if (path) return <ProjectFavicon path={path} size={16} className="shrink-0" />;
   const Glyph = projectId === '_none' ? Inbox : SquareKanban;
-  return <Glyph className="h-4 w-4 shrink-0 text-app-text-muted" aria-hidden />;
+  const glyph = <Glyph className="h-4 w-4 shrink-0 text-app-text-muted" aria-hidden />;
+  // A folder with no icon file gets the same glyph as no folder: the Kanban
+  // knows the folder and the Plan may not, and one project must read alike.
+  return path ? <ProjectFavicon path={path} size={16} className="shrink-0" fallback={glyph} /> : glyph;
 }
 
 interface Props {

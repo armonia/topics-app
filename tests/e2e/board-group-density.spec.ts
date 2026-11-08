@@ -11,6 +11,11 @@
  * the board, not component state. Folding a lane and then opening the Plan is
  * the proof the two views share one folded set.
  *
+ * The second project is named «zeta» and holds the card in review: the server
+ * puts a project that waits for a person first, so the Plan listing it AFTER
+ * «alfa», like the lanes, proves the two views share one order. The review
+ * card is also the proof the compact card keeps the wait in sight.
+ *
  * @covers KANBAN-106
  */
 import { test } from "./fixtures/layout.fixture";
@@ -27,7 +32,7 @@ hermetic(test);
 const BASE = E2E_BASE;
 const STAMP = Date.now();
 const PATH_A = `${canonicalTmpRoot()}/e2e-lane-alfa-${STAMP}`;
-const PATH_B = `${canonicalTmpRoot()}/e2e-lane-beta-${STAMP}`;
+const PATH_B = `${canonicalTmpRoot()}/e2e-lane-zeta-${STAMP}`;
 const ID_A = boardIdForPath(PATH_A);
 const ID_B = boardIdForPath(PATH_B);
 
@@ -55,9 +60,10 @@ test.describe("Board per progetto e card compatte", () => {
 
   let live = "";
   let plain = "";
+  let review = "";
 
   test.beforeAll(async ({ request }) => {
-    for (const [path, name] of [[PATH_A, "e2e-lane-alfa"], [PATH_B, "e2e-lane-beta"]] as const) {
+    for (const [path, name] of [[PATH_A, "e2e-lane-alfa"], [PATH_B, "e2e-lane-zeta"]] as const) {
       mkdirSync(path, { recursive: true });
       writeFileSync(`${path}/package.json`, JSON.stringify({ name }, null, 2));
       topics.push((await createTopic(request, name, { projectPath: path })).id);
@@ -66,8 +72,13 @@ test.describe("Board per progetto e card compatte", () => {
     topics.push(session);
     live = await createTask(request, ID_A, `Card con sessione ${STAMP}`, "in_progress", "Una descrizione che la card compatta non disegna.");
     plain = await createTask(request, ID_A, `Card in coda alfa ${STAMP}`, "todo", "Anche questa descrizione resta nella scheda.");
-    await createTask(request, ID_B, `Card in coda beta ${STAMP}`, "todo");
-    await createTask(request, ID_B, `Card in backlog beta ${STAMP}`, "backlog");
+    await createTask(request, ID_B, `Card in coda zeta ${STAMP}`, "todo");
+    await createTask(request, ID_B, `Card in backlog zeta ${STAMP}`, "backlog");
+    review = await createTask(request, ID_B, `Card in review zeta ${STAMP}`, "review");
+    // In review for two days: the age chip only speaks past the first hour.
+    const at = new Date(Date.now() - 2 * 24 * 3600_000).toISOString();
+    const seeded = await request.post(`${BASE}/api/test/tasks/${review}/review-at`, { data: { at } });
+    expect(seeded.ok(), `seed review-at: ${seeded.status()}`).toBe(true);
     const bind = await request.post(`${BASE}/api/test/tasks/${live}/bind-topic`, { data: { topicId: session, dispatchState: "working" } });
     expect(bind.ok()).toBe(true);
   });
@@ -115,6 +126,14 @@ test.describe("Board per progetto e card compatte", () => {
     await expect(laneA.getByTestId("board-lane-count-in_progress")).toHaveText("1");
     await expect(laneB.getByTestId("board-lane-count-todo")).toHaveText("1");
     await expect(laneB.getByTestId("board-lane-count-backlog")).toHaveText("1");
+    await expect(laneB.getByTestId("board-lane-count-review")).toHaveText("1");
+
+    // ── 2b. The composer's ghost: ONE, in one lane, not one per lane ───────
+    const textarea = page.getByTestId("board-task-composer").locator("textarea");
+    await textarea.fill(`Bozza nelle corsie ${STAMP}`);
+    await expect(page.getByTestId("kanban-draft-card")).toHaveCount(1);
+    await textarea.fill("");
+    await expect(page.getByTestId("kanban-draft-card")).toHaveCount(0);
 
     // ── 3. Compact: the description goes, the session door stays ──────────
     await density.click();
@@ -123,7 +142,12 @@ test.describe("Board per progetto e card compatte", () => {
     await expect(plainCard).not.toContainText("Anche questa descrizione");
     await expect(liveCard.getByTestId("card-open-session")).toBeVisible();
     await expect(liveCard.getByTestId("card-foot")).toBeVisible();
+    // The wait stays in sight on a compact card: the review age.
+    const reviewCard = page.locator(`[data-task-card="${review}"]`);
+    await expect(reviewCard).toHaveAttribute("data-density", "compact");
+    await expect(reviewCard.getByTestId("card-review-age")).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("dopo.png") });
+    const laneOrder = await page.getByTestId("board-lane").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
 
     // ── 4. Folding a lane hides its columns, the header stays ─────────────
     await laneB.getByTestId("board-lane-header").getByRole("button").click();
@@ -148,6 +172,15 @@ test.describe("Board per progetto e card compatte", () => {
     const planCard = tileA.locator(`[data-task-card="${live}"]`);
     await expect(planCard).toHaveAttribute("data-density", "compact");
     await expect(planCard.getByTestId("card-open-session")).toBeVisible();
+    // Every root card in the Plan carries its status sign: no column says it there.
+    const planRows = tileA.locator('[data-testid="plan-card"][data-board-card]');
+    await expect(planRows).toHaveCount(2);
+    for (const row of await planRows.all()) await expect(row.locator(":scope > svg")).toHaveCount(1);
+    // Same order as the lanes, for the two projects of this test.
+    const tileOrder = await plan.getByTestId("plan-project").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
+    const pick = (ids: (string | null)[]) => ids.filter((id) => id === ID_A || id === ID_B);
+    expect(pick(tileOrder)).toEqual(pick(laneOrder));
+    expect(pick(laneOrder)).toEqual([ID_A, ID_B]);
     await page.screenshot({ path: testInfo.outputPath("piano.png") });
   });
 });
