@@ -1,5 +1,45 @@
 [
   {
+    "version": "2.3.58",
+    "date": "2026-11-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-08 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "the row name stays whole, the tail gives way (#613)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "stato in testa alle tessere e riquadro «Ti aspetta» (#614)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Madri di raggruppamento: niente finte review, niente archivio a cascata (#615)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "le sessioni degli agenti in una riga loro, divise per agente (#612)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.57",
     "date": "2026-11-08",
     "sections": {

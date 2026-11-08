@@ -2,6 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.58 — 2026-11-08
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-08 [skip ci]
+- the row name stays whole, the tail gives way (#613)
+- stato in testa alle tessere e riquadro «Ti aspetta» (#614)
+- Madri di raggruppamento: niente finte review, niente archivio a cascata (#615)
+- le sessioni degli agenti in una riga loro, divise per agente (#612)
+
 ## 2.3.57 — 2026-11-08
 
 ### Sotto il cofano
