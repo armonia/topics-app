@@ -2,7 +2,7 @@
  * @covers PROJECT-08
  */
 import { describe, expect, it } from "bun:test";
-import { matchProjectRef, matchProjectRefAll, type ProjectRefCandidate } from "./project-ref";
+import { matchProjectRefAll, type ProjectRefCandidate } from "./project-ref";
 
 // Mirror the store's slugify closely enough for the matcher's purposes.
 const slugify = (s: string) =>
@@ -13,6 +13,11 @@ const candidates: ProjectRefCandidate[] = [
   { path: "/Users/z/Projects/pix", name: "Pix", slug: "pix" },
   { path: "/Users/z/.openclaw/workspace/scratch" }, // workspace dir, no name/slug
 ];
+
+// First match of `matchProjectRefAll`, or null.
+function matchProjectRef(ref: string, c: ProjectRefCandidate[], slug: (s: string) => string): string | null {
+  return matchProjectRefAll(ref, c, slug)[0] ?? null;
+}
 
 describe("matchProjectRef", () => {
   it("matches by the user's project name, case-insensitively (the 'open project Pix' case)", () => {

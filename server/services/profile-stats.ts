@@ -4,7 +4,7 @@
  * ── THE RULE THAT DECIDES EVERY QUERY IN THIS FILE ──────────────────────────
  * We read ONLY from tables that somebody writes. It sounds obvious, and instead
  * it is the fault the dashboard already had once: half its numbers came from
- * `usage_records` (a single INSERT in `server/db/seed.ts`, which nobody calls),
+ * `usage_records` (at the time nobody wrote it; `server/usage/side-calls.ts` does since then),
  * `agent_sessions` (zero INSERTs in the whole server) and `heartbeats`
  * (unreachable route). They were structural zeros, and a zero is the worst lie
  * a panel can tell - "0 sessions" reads as "you have not worked", not "I do not

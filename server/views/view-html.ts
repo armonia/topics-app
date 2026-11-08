@@ -217,11 +217,6 @@ export function documentOf(title: string, language: ViewLanguage, inner: string)
   return `<!doctype html><html lang="${language}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>${CSS}</style></head><body><main id="view">${inner}</main><script>${BRIDGE}</script></body></html>`;
 }
 
-/** One stored view as a whole document (`ui://topics/view/<id>`, `/api/views/:id/app`). */
-export function renderViewDocument(spec: ViewSpec, o: RenderOpts = {}): string {
-  return documentOf(spec.title, o.language ?? "it", renderViewFragment(spec, o));
-}
-
 /** The generic app (`ui://topics/view`): empty until the tool result brings a view. */
 export function renderViewAppShell(language: ViewLanguage = "it"): string {
   return documentOf("Topics", language, "").replace('<main id="view">', '<main id="view" aria-busy="true">');

@@ -60,12 +60,3 @@ export function matchProjectRefAll(
 
   return out;
 }
-
-/** First match of `matchProjectRefAll`, or null. */
-export function matchProjectRef(
-  ref: string,
-  candidates: ProjectRefCandidate[],
-  slugify: (s: string) => string,
-): string | null {
-  return matchProjectRefAll(ref, candidates, slugify)[0] ?? null;
-}

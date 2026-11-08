@@ -1753,7 +1753,7 @@ export const sessionEnvironmentApi = {
 // Profilo — chi sei qui dentro, cosa è passato di qui, e cosa ne vede Discord.
 //
 // Le statistiche NON vengono da `usage_records`/`agent_sessions`: quelle due
-// tabelle non hanno un solo scrittore in tutto il server, e un numero letto da
+// tabelle non coprono il lavoro vero (`usage_records` la scrivono solo le chiamate laterali), e un numero letto da
 // lì sarebbe zero per sempre. La fonte sono `messages`/`tasks`/`topics` — la
 // storia sta in cima a `server/services/profile-stats.ts`.
 // ─────────────────────────────────────────────────────────────────────────────

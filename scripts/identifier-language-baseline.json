@@ -4231,9 +4231,6 @@
       "Corsa",
       "corsa"
     ],
-    "server/services/claude-tasks-sync.ts": [
-      "projDir"
-    ],
     "server/services/daemon-state.ts": [
       "obj",
       "uptimeMsSince"
