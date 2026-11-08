@@ -256,20 +256,26 @@ describe("counts and states with the Kanban's rules", () => {
     expect(buildPlan(db, { now: T0 }).projects[0]!.activity).toEqual({ state: "working", count: 1 });
   });
 
-  test("a grouping parent with 2+ children stays out of openCount, activity and «no owner»", () => {
+  test("a grouping parent with 2+ children counts as a board card but stays out of activity and «no owner»", () => {
     task("box", { status: "backlog" }); task("k1"); task("k2"); task("solo");
     set("k1", { parent_task_id: "box" }); set("k2", { parent_task_id: "box" });
     const p = buildPlan(db, { now: T0 }).projects[0]!;
-    expect(p.openCount).toBe(1);
+    // Same number as the Kanban: «box» and «solo» are board cards, k1/k2 sit inside «box».
+    expect(p.openCount).toBe(2);
     expect(p.openSubCount).toBe(2);
     expect(p.activity).toEqual({ state: "todo", count: 3 });
     const box = p.unplaced.tasks.find((c) => c.id === "box")!;
     expect(box.grouping).toBe(true);
     expect(box.signals).not.toContain("no_owner");
     expect(box.children!.map((c) => c.id)).toEqual(["k1", "k2"]);
-    // A parent a turn touched is work of its own and counts.
+    // A parent a turn touched is work of its own: it joins the activity.
     set("box", { dispatch_attempts: 1 });
-    expect(buildPlan(db, { now: T0 }).projects[0]!.openCount).toBe(2);
+    expect(buildPlan(db, { now: T0 }).projects[0]!.activity.count).toBe(4);
+    // A sub-card whose mother is closed is a board card again, as on the Kanban.
+    set("box", { status: "done" });
+    const q = buildPlan(db, { now: T0 }).projects[0]!;
+    expect(q.openCount).toBe(3);
+    expect(q.openSubCount).toBe(0);
   });
 
   test("a sub-card in milestone M brings its unlinked mother into M, with the sub-card under her", () => {

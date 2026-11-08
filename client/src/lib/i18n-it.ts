@@ -2156,7 +2156,7 @@ const IT: Dict = {
   'plan.openRoots.many': '{n} card',
   'plan.openSubs.one': '1 sotto-card',
   'plan.openSubs.many': '{n} sotto-card',
-  'plan.openTotal.hint': 'Aperte: {roots} card sulla board e {subs} sotto-card dentro le loro madri. Le madri che raggruppano soltanto non contano.',
+  'plan.openTotal.hint': 'Aperte: {roots} card sulla board e {subs} sotto-card dentro le loro madri.',
   'plan.milestoneEmpty': 'Nessuna card aperta qui',
   'plan.showMore': 'altre {n}',
   'plan.showFewer': 'mostra meno',

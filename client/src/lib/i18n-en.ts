@@ -1934,7 +1934,7 @@ const EN = {
   'plan.openRoots.many': '{n} cards',
   'plan.openSubs.one': '1 sub-card',
   'plan.openSubs.many': '{n} sub-cards',
-  'plan.openTotal.hint': 'Open: {roots} cards on the board and {subs} sub-cards inside their mothers. Mothers that only group cards do not count.',
+  'plan.openTotal.hint': 'Open: {roots} cards on the board and {subs} sub-cards inside their mothers.',
   'plan.milestoneEmpty': 'No open card here',
   'plan.showMore': '{n} more',
   'plan.showFewer': 'show fewer',

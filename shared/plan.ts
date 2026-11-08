@@ -85,8 +85,8 @@ export interface PlanProject {
   /** Folder of the project, for its real icon (`ProjectFavicon`); null for virtual boards. */
   path: string | null;
   /**
-   * Open ROOT cards of the project (not done, grouping parents out), in
-   * milestones or not: the same set the Kanban shows as cards.
+   * Open cards the Kanban shows as cards (not done; no parent, or a parent no
+   * longer open), grouping parents included, in milestones or not.
    */
   openCount: number;
   /** Open sub-cards, shown under their mother: counted apart so the total does not read as board cards. */

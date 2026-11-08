@@ -5,7 +5,7 @@
  *
  * - question: an open question block in the thread, not answered yet;
  * - human_ask: what the workflow asked when it moved the card to human review;
- * - waits: a «aspetta: attilio» line in the description;
+ * - waits: a "waits for <person>" line in the description;
  * - review: in review and not in AI review (`awaitsHuman`);
  * - parked: in backlog with a stop chip (failed, blocked, waited out), the
  *   same set the attention light reads (server/attention/boot-reader.ts).

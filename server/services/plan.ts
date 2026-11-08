@@ -326,14 +326,19 @@ export function buildPlan(
     });
     const unplacedAll = allUnplaced.get(pid) ?? [];
     const everything = [...projectAreas.flatMap((a) => a.milestones.flatMap((m) => allByMilestone.get(m.id) ?? [])), ...unplacedAll];
-    const openCards = everything.filter((c) => c.status !== "done" && !c.grouping);
+    // Header counts follow the Kanban feed (`includeOrphanSubtasks`): a card is a
+    // board card when it has no parent or its parent is no longer open; grouping
+    // parents are board cards too, they only stay out of progress and activity.
+    const openCards = everything.filter((c) => c.status !== "done");
+    const openIds = new Set(openCards.map((c) => c.id));
+    const isBoardCard = (c: { parentTaskId?: string | null }) => !c.parentTaskId || !openIds.has(c.parentTaskId);
     const needsYou = (byProject.get(pid) ?? [])
       .map((t) => needOf(t, commentsOf.get(t.id) ?? []))
       .filter((x): x is PlanNeed => !!x);
     return {
       projectId: pid, name: names.get(pid) ?? pid, path: paths.get(pid) ?? null,
-      openCount: openCards.filter((c) => !c.parentTaskId).length,
-      openSubCount: openCards.filter((c) => !!c.parentTaskId).length,
+      openCount: openCards.filter(isBoardCard).length,
+      openSubCount: openCards.filter((c) => !isBoardCard(c)).length,
       progress: progressOf(everything), activity: activityOf(everything), needsYou, areas: projectAreas,
       unplaced: { progress: progressOf(unplacedAll), tasks: unplacedByProject.get(pid) ?? [] },
     };
