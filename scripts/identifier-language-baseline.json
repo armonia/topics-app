@@ -2658,10 +2658,6 @@
     "server/file-watcher.ts": [
       "unwatchProjectFiles"
     ],
-    "server/gateway-ws.ts": [
-      "idempotencyKey",
-      "unregisterSessionHandler"
-    ],
     "server/git-watcher.ts": [
       "unwatchGitDir"
     ],
@@ -3745,10 +3741,6 @@
       "ACP_STOP_REASONS",
       "cancelled",
       "isAcpStopReason"
-    ],
-    "server/providers/text-delta.test.ts": [
-      "eventi",
-      "pezzi"
     ],
     "server/providers/types.ts": [
       "AcpProviderConfig"
@@ -6193,9 +6185,6 @@
     ],
     "tests/e2e/helpers/node-websocket.ts": [
       "opzioni"
-    ],
-    "tests/e2e/helpers/openclaw.ts": [
-      "provs"
     ],
     "tests/e2e/helpers/ospite.ts": [
       "approvato",

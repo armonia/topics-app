@@ -24,7 +24,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTask, deleteTopic, patchTopic, seedProjectInnerChats, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
-import { E2E_BASE } from "./helpers/test-server";
+import { E2E_BASE, daemonAuthHeaders } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { installSlowTurnCli } from "./helpers/fake-claude-cli";
 import { projectIdForPath } from "../../shared/board";
@@ -33,7 +33,6 @@ hermetic(test);
 test.use({ video: "on" });
 test.describe.configure({ timeout: 120_000 });
 
-const TOKEN = process.env.GATEWAY_TOKEN ?? "test-token";
 // The card's loop, with 4 s between ticks instead of 20: the same shape (three
 // live ticks, a restart between two of them), a third of the wait. Without the
 // card's `zsh -c` around it: run_command already runs it in a shell, and the
@@ -49,7 +48,7 @@ async function sessionKeyOf(request: APIRequestContext, topicId: string): Promis
 async function chatTurn(sessionKey: string, content: string): Promise<void> {
   const res = await fetch(`${E2E_BASE}/api/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Gateway-Token": TOKEN },
+    headers: { "Content-Type": "application/json", ...daemonAuthHeaders() },
     body: JSON.stringify({ sessionKey, messages: [{ role: "user", content }] }),
   });
   if (!res.ok || !res.body) throw new Error(`POST /api/chat answered ${res.status}`);

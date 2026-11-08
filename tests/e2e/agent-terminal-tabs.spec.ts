@@ -25,7 +25,7 @@ import { execFileSync } from "node:child_process";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
 import { createTopic, deleteAllTerminalSessions, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
-import { E2E_BASE } from "./helpers/test-server";
+import { E2E_BASE, daemonAuthHeaders } from "./helpers/test-server";
 import { closeTabViaCommand } from "./helpers/layout";
 import { fakeTauriShell } from "./helpers/fake-tauri-shell";
 
@@ -35,7 +35,6 @@ hermetic(test);
 test.describe.configure({ timeout: 120_000 });
 
 const STAMP = Date.now();
-const TOKEN = { "x-gateway-token": process.env.GATEWAY_TOKEN ?? "test-token" };
 const TOPIC_NAME = `E2E agent tabs ${STAMP}`;
 const AGENT_NAME = `E2E tab agent ${STAMP}`;
 
@@ -69,7 +68,7 @@ test.beforeEach(async ({ request }) => {
 
   // `/tmp` is no project Topics knows: the child runs on the CLI, in a PTY.
   const spawned = await request.post(`${E2E_BASE}/api/sessions/${encodeURIComponent(sessionKey)}/agents/spawn`, {
-    headers: TOKEN,
+    headers: daemonAuthHeaders(),
     data: { prompt: "wait for instructions", name: AGENT_NAME, cwd: "/tmp" },
   });
   expect(spawned.ok(), `spawn refused: ${spawned.status()} ${await spawned.text()}`).toBe(true);

@@ -7,7 +7,10 @@
  *
  * @covers PROJECT-11
  */
-import { describe, expect, it, afterEach } from "bun:test";
+import { describe, expect, it, afterEach, beforeEach } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { clientProjectPathRefused } from "./client-project-path";
 
 const OUTSIDE = "/private/etc";
@@ -17,10 +20,19 @@ const ctx = {
   resolveProjectPath: () => null,
 };
 
-const tokenBefore = process.env.GATEWAY_TOKEN;
+// The agent presents itself with the daemon token, written in TOPICS_HOME.
+const AGENT_TOKEN = "a".repeat(64);
+const homeBefore = process.env.TOPICS_HOME;
+let home: string;
+beforeEach(() => {
+  home = mkdtempSync(join(tmpdir(), "client-project-path-"));
+  writeFileSync(join(home, "daemon-state.json"), JSON.stringify({ pid: 1, port: 1, token: AGENT_TOKEN, startedAt: "x" }));
+  process.env.TOPICS_HOME = home;
+});
 afterEach(() => {
-  if (tokenBefore === undefined) delete process.env.GATEWAY_TOKEN;
-  else process.env.GATEWAY_TOKEN = tokenBefore;
+  if (homeBefore === undefined) delete process.env.TOPICS_HOME;
+  else process.env.TOPICS_HOME = homeBefore;
+  rmSync(home, { recursive: true, force: true });
 });
 
 describe("clientProjectPathRefused", () => {
@@ -34,17 +46,15 @@ describe("clientProjectPathRefused", () => {
   });
 
   it("lets an agent through on its token", () => {
-    process.env.GATEWAY_TOKEN = "a-token-for-the-bridge";
     const req = new Request("http://x/api/projects", {
-      headers: { "x-test-paired": "1", "x-gateway-token": "a-token-for-the-bridge" },
+      headers: { "x-test-paired": "1", "x-daemon-token": AGENT_TOKEN },
     });
     expect(clientProjectPathRefused(req, OUTSIDE, ctx)).toBe(false);
   });
 
   it("a wrong token is not a token", () => {
-    process.env.GATEWAY_TOKEN = "a-token-for-the-bridge";
     const req = new Request("http://x/api/projects", {
-      headers: { "x-test-paired": "1", "x-gateway-token": "nope" },
+      headers: { "x-test-paired": "1", "x-daemon-token": "b".repeat(64) },
     });
     expect(clientProjectPathRefused(req, OUTSIDE, ctx)).toBe(true);
   });

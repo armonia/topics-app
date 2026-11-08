@@ -48,7 +48,7 @@ export function claudeProjectDirName(cwd: string): string {
  * derives the folder from its own `process.cwd()`, which the OS reports
  * RESOLVED; Topics holds the path the session was started with, which can be the
  * link. Measured on this machine: a live claude-code session with
- * `cwd = ~/.openclaw/workspace/neuture-proposal`, a symlink to
+ * `cwd = <app data>/workspace/neuture-proposal`, a symlink to
  * `~/Projects/neuture-proposal`. Looking only under the unresolved name finds
  * nothing, and "no transcript" is not a cosmetic answer - it is what makes
  * `decideOnRestart` return `drop`, i.e. the session is thrown away instead of

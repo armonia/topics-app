@@ -48,7 +48,7 @@ describe("E2E-ISO-01 · il banco non scrive nella cartella viva", () => {
   });
 
   test("la radice dati del banco e' CANONICA da entrambe le porte d'ingresso", () => {
-    // `${OPENCLAW_DIR}/workspace` hangs off this directory, and the server does
+    // `${APP_DATA_DIR}/workspace` hangs off this directory, and the server does
     // not spell a project the same way twice: reached by bare name it keeps the
     // raw path of the workspace scan, reached by absolute path it goes through
     // `canonicalProjectPath`. On macOS `/tmp` is a link to `/private/tmp`, so a

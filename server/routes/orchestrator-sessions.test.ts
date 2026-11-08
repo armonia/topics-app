@@ -174,7 +174,7 @@ describe("POST /api/orchestrator-sessions/global/ensure", () => {
     const { topicId } = await first.json() as { topicId: string; topic: Topic };
     const topic = h.topics.get(topicId)!;
     topic.archived = true;
-    topic.provider = "openclaw";
+    topic.provider = "claude";
     topic.systemPrompt = "stale prompt";
     h.saveTopic(topic);
 

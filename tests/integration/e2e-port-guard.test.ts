@@ -63,7 +63,7 @@ function recorders(name: string, commands: string[]): { dir: string; log: string
 /** The real global-setup, in a child, with `fetch` refused. Killed after `ms` if it hangs. */
 async function runSetup(port: number, home: string, spy: { dir: string; log: string }, ms = 30_000) {
   const env: Record<string, string> = { ...(process.env as Record<string, string>) };
-  for (const k of ["PORT", "DATA_DIR", "E2E_PORT", "OPENCLAW_DIR", "TOPICS_E2E_BUNDLE_DIR"]) delete env[k];
+  for (const k of ["PORT", "DATA_DIR", "E2E_PORT", "APP_DATA_DIR", "TOPICS_E2E_BUNDLE_DIR"]) delete env[k];
   Object.assign(env, {
     E2E_PORT: String(port), HOME: home, TOPICS_E2E_BUNDLE_DIR: root, PATH: `${spy.dir}:${process.env.PATH}`,
   });

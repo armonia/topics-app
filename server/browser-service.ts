@@ -117,7 +117,7 @@ interface BrowserServiceOptions {
   browserIdleTimeoutMs?: number;
   defaultViewport?: { width: number; height: number };
   screenshotQuality?: number;
-  /** CDP remote debugging port (default: 19222 — matches OpenClaw 'topics' browser profile) */
+  /** CDP remote debugging port (default: 19222, the production port) */
   cdpPort?: number;
   /** Callback invoked after successful navigate(); used to persist topic.browserState. */
   onNavigate?: (contextId: string, url: string, viewport: { width: number; height: number }) => void;
@@ -337,7 +337,7 @@ export type ScreencastOnFrame = (data: string, metadata: { timestamp: number; pa
 export interface BrowserService {
   launch(): Promise<void>;
   close(): Promise<void>;
-  /** Get the CDP target ID for a context's page (used for OpenClaw browser tool routing) */
+  /** Get the CDP target ID for a context's page (used for browser tool routing) */
   getTargetId(id: string): Promise<string | null>;
   createContext(id: string, opts?: { viewport?: { width: number; height: number }; persistCookies?: boolean; deviceScaleFactor?: number; engine?: "default" | "chromium"; cdpEndpoint?: string }): Promise<void>;
   destroyContext(id: string): Promise<void>;
@@ -517,8 +517,7 @@ export interface BrowserService {
 /**
  * The CDP port the headless Chromium listens on, derived from the server port.
  *
- * 19222 is the production number and stays the production number: it is what the
- * OpenClaw `topics` browser profile answers on, and the probe at
+ * 19222 is the production number and stays the production number: the probe at
  * `/json/list` below reaches an already-running browser through it.
  *
  * A TEST server must not take it. The number used to be a hard-coded constant

@@ -220,17 +220,12 @@ for the session, the provider SHALL fall back to the history the route passed.
 - **WHEN** the handoff is built with the default budget (60k estimated tokens)
 - **THEN** the thread SHALL be rebuilt without the native session's rebuild window, and the handoff SHALL come out close to its budget, not at the roughly 44k that window leaves
 
-### Requirement: MP-GWTOKEN-01 — The OpenClaw gateway token stays inside the server, and a rotation lands without a restart
+### Requirement: MP-AGENTAUTH-01 — An agent's bridge authenticates with the daemon token
 
-Topics SHALL read OpenClaw's `gateway.auth.token` either as a plain string or as an exec SecretRef, resolved the way OpenClaw resolves it (an empty base environment plus `passEnv` and `env`, the command's own directory as cwd, `protocolVersion` 1). An object SHALL never become a token. The server SHALL keep the token outside `process.env`, so no child it spawns inherits it, and the MCP bridge SHALL carry no gateway token at all: it authenticates with the daemon token, re-read on every request. A token read from the config SHALL be re-read at most every 30 s, at once after an authentication failure, without blocking the event loop; a token from the environment SHALL never be replaced by the config. No test SHALL read the real OpenClaw config, the Keychain or the real Topics home.
+The routes that let an agent drive Topics (the agents' and the terminals' send and read) SHALL accept the daemon token, re-read from the daemon state on every request so a rotation lands without a restart. The MCP bridge SHALL carry no other token. No test SHALL read the Keychain or the real Topics home.
 
-#### Scenario: OpenClaw rotates the token in the Keychain
-- **GIVEN** a running server holding the token it read at startup
-- **WHEN** the Keychain value changes and 30 s pass
-- **THEN** a request carrying the old token is refused and one carrying the new token is accepted, with no restart of Topics.
-
-#### Scenario: A server without OpenClaw
-- **GIVEN** no gateway token configured
+#### Scenario: The bridge with the daemon token
+- **GIVEN** a running server
 - **WHEN** an agent's bridge calls a gated route with the daemon token
 - **THEN** the route answers, and a wrong daemon token gets 401.
 

@@ -1554,7 +1554,7 @@ describe("task-dispatcher", () => {
 
   it("marks the session STANDALONE only for the catch-all path (project-less task), not a real project", async () => {
     // Catch-all: resolved path === catchAllProjectPath → standalone session.
-    const catchAll = "/Users/x/.openclaw/workspace/generale";
+    const catchAll = "/Users/x/.app-data/workspace/generale";
     const h = harness({
       catchAllProjectPath: catchAll,
       resolveProject: () => ({ path: catchAll, projectStoreId: null }),
@@ -1578,8 +1578,8 @@ describe("task-dispatcher", () => {
   });
 
   it("gives each catch-all task a PRIVATE per-task cwd (unique projectPath) but leaves a real project alone", async () => {
-    const catchAll = "/Users/x/.openclaw/workspace/generale";
-    const taskDir = (id: string) => `/Users/x/.openclaw/workspace/tasks/${id.slice(0, 8)}`;
+    const catchAll = "/Users/x/.app-data/workspace/generale";
+    const taskDir = (id: string) => `/Users/x/.app-data/workspace/tasks/${id.slice(0, 8)}`;
 
     // Two catch-all tasks → two DISTINCT per-task dirs, both standalone.
     const h = harness({

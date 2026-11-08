@@ -9,7 +9,7 @@
  * TOPICS_DATA_DIR, DATA_DIR, TOPICS_HOME, TOPICS_EMBEDDED), runs a session
  * through it, stops it, and then walks that home.
  *
- * Notably it does NOT set OPENCLAW_DIR the way `spawnRealServer` does: pinning
+ * Notably it does NOT set APP_DATA_DIR the way `spawnRealServer` does: pinning
  * every directory by hand is how a test about stray files never sees one.
  *
  * THE ROOTS THAT ARE ALLOWED, and each is a measurement, not an opinion:
@@ -38,8 +38,8 @@
  * That is the case this test is pointed at, and the reason it names no
  * exception for it.
  *
- * `.openclaw` USED TO BE ON THAT LIST, and taking it off is the point of card
- * 211605ee. The app data root fell back to `${HOME}/.openclaw` whenever the
+ * The LEGACY ROOT (`LEGACY_DIR` below) USED TO BE ON THAT LIST, and taking it
+ * off is the point of card 211605ee. The app data root fell back to it whenever the
  * shell had not pinned it, so a fresh install created `media/` and `workspace/`
  * under the name the product had before it was Topics: a second home, in
  * somebody's house, for a product they installed once. It is now resolved by a
@@ -47,7 +47,7 @@
  * are exactly the two tests below.
  *
  * NO DATA IS MOVED. The second test is the other half of the same decision: an
- * install that ALREADY has `~/.openclaw` keeps writing there, because its media
+ * install that ALREADY has the legacy root keeps writing there, because its media
  * paths are recorded in the DB and migrating them is a card of its own.
  *
  * @covers RUNTIME-19
@@ -56,11 +56,18 @@ import { afterAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { freePort, testTmpDir, spawnedServerHostEnv } from "./helpers";
+import { resolveAppDataDir } from "../../server/lib/data-dir";
 
 const PROJECT_ROOT = path.join(import.meta.dir, "..", "..");
 const ROOT = testTmpDir("home-isolation");
 const HOME = path.join(ROOT, "home");
-/** A second throwaway home, this one carrying a legacy `.openclaw` already. */
+/**
+ * The name of the legacy app data root, read off the rule itself: the root it
+ * picks when no variable pins one and that folder already exists. Written only
+ * in server/lib/data-dir.ts, so this test follows it if it ever changes.
+ */
+const LEGACY_DIR = path.basename(resolveAppDataDir({ env: {}, home: "/", exists: () => true }));
+/** A second throwaway home, this one carrying the legacy root already. */
 const LEGACY_HOME = path.join(ROOT, "legacy-home");
 
 /** Top-level names allowed to exist in HOME afterwards. See the note above. */
@@ -122,7 +129,7 @@ async function bootSessionAndStop(home: string, slug: string): Promise<void> {
     cwd: PROJECT_ROOT,
     // Built from scratch, never spread from process.env: an inherited data
     // dir or port would let the child touch the app the developer has open.
-    // And no APP_DATA_DIR/OPENCLAW_DIR: pinning the root by hand is exactly
+    // And no APP_DATA_DIR: pinning the root by hand is exactly
     // what would hide the behaviour these two tests are about.
     env: {
       PATH: process.env.PATH ?? "",
@@ -190,23 +197,23 @@ describe("an installed Topics writes only into its own home", () => {
     // And the app really did write: an empty home would pass vacuously.
     expect(filesUnder(path.join(HOME, ".topics")).length).toBeGreaterThan(0);
     // The name the app had before it was Topics is never born here again.
-    expect(fs.existsSync(path.join(HOME, ".openclaw"))).toBe(false);
+    expect(fs.existsSync(path.join(HOME, LEGACY_DIR))).toBe(false);
   }, 90_000);
 
-  test("a home that already has ~/.openclaw keeps using it", async () => {
+  test("a home that already has the legacy root keeps using it", async () => {
     // The precondition IS the legacy install: a root that exists before the
     // server starts, with something in it, the way a real one would be.
-    fs.mkdirSync(path.join(LEGACY_HOME, ".openclaw", "media"), { recursive: true });
-    fs.writeFileSync(path.join(LEGACY_HOME, ".openclaw", "media", "kept.txt"), "already here\n");
+    fs.mkdirSync(path.join(LEGACY_HOME, LEGACY_DIR, "media"), { recursive: true });
+    fs.writeFileSync(path.join(LEGACY_HOME, LEGACY_DIR, "media", "kept.txt"), "already here\n");
 
     await bootSessionAndStop(LEGACY_HOME, "legacy");
 
     // Still the app data root: the workspace of a dispatch is created under the
     // legacy name, not under a second one that appeared overnight.
-    expect(fs.existsSync(path.join(LEGACY_HOME, ".openclaw"))).toBe(true);
-    expect(fs.existsSync(path.join(LEGACY_HOME, ".openclaw", "media", "kept.txt"))).toBe(true);
+    expect(fs.existsSync(path.join(LEGACY_HOME, LEGACY_DIR))).toBe(true);
+    expect(fs.existsSync(path.join(LEGACY_HOME, LEGACY_DIR, "media", "kept.txt"))).toBe(true);
     // And nothing NEW outside the two roots this home legitimately owns.
-    const allowedHere = new Set([...ALLOWED_IN_HOME, ".openclaw"]);
+    const allowedHere = new Set([...ALLOWED_IN_HOME, LEGACY_DIR]);
     expect(homeEntries(LEGACY_HOME).filter((e) => !allowedHere.has(e))).toEqual([]);
     expect(filesUnder(path.join(LEGACY_HOME, ".claude"))).toEqual([]);
   }, 90_000);

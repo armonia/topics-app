@@ -86,7 +86,7 @@ Interception stays a two-layer allowlist (composer `ChatInput.tsx`, submit `Chat
 
 | Command | Handling |
 |---|---|
-| `/model <m>` | Drop the `openclaw`-only guard (`topics.ts:2151`). For claude-code, route to the existing respawn path: set the per-topic model (PATCH semantics) → `refreshSessionConfig` respawn with new `--model` (`claude-code.ts:1209`). Same code the UI picker already uses. |
+| `/model <m>` | Drop the gateway-only guard (`topics.ts:2151`). For claude-code, route to the existing respawn path: set the per-topic model (PATCH semantics) → `refreshSessionConfig` respawn with new `--model` (`claude-code.ts:1209`). Same code the UI picker already uses. |
 | `/reasoning` / `/effort <t>` | Same: drop the guard (`topics.ts:2158`), set per-topic effort → respawn with `--effort` (migration 033 already exists). |
 | `/clear` | Real reset: keep today's DB backup+wipe, AND rotate the CLI session — next spawn uses a fresh `--session-id` instead of `--resume <old>` (a new `provider.resetSession(sessionKey)` that clears the stored resume id and detaches/kills the current broker child so the next `sendChat` starts clean). Matches CLI `/clear` (drops model memory, keeps nothing). |
 | `/compact` | Best-effort. Task 0 tests whether the headless CLI honours `/compact` sent as a stream-json `user` message. If yes → forward and show the resulting `compact_boundary` (§1). If no → document as unsupported headless and expose only the auto-compaction indicator; do NOT fake a compaction. |

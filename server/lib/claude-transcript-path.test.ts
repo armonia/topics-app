@@ -104,7 +104,7 @@ describe("isTranscriptOrphaned", () => {
  * the link. Looking only under the unresolved name finds nothing, and "no
  * transcript" is what makes `decideOnRestart` return `drop` - the session is
  * thrown away instead of resumed. Measured on a live machine: a claude-code
- * session whose cwd was `~/.openclaw/workspace/<name>`, a symlink into
+ * session whose cwd was `~/.app-data/workspace/<name>`, a symlink into
  * `~/Projects/<name>`.
  */
 describe("claudeTranscriptCandidates", () => {

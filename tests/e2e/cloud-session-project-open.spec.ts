@@ -62,7 +62,7 @@ test.describe("cloud session opens as a Topics project", () => {
     // (1) persist projectPath on the topic, (2) ask clients to open + nest it.
     ws.send({
       type: "topic:updated",
-      topic: { id: topic.id, name: topic.name, slug: topic.slug, projectPath, provider: "openclaw", archived: false },
+      topic: { id: topic.id, name: topic.name, slug: topic.slug, projectPath, provider: "claude-code", archived: false },
     });
     ws.send({ type: "pane:focus-suggest", topicId: topic.id, projectPath });
 

@@ -1,7 +1,7 @@
 /**
  * ONE AUTOMATION, OPENED: its state and the sources behind it, what it is and
  * when it runs with every fact the hub knows (AutomationFacts), the commands
- * of an OpenClaw job, «Risolvi tu» on what is broken or waits on you, your
+ * of a Jarvis job, «Risolvi tu» on what is broken or waits on you, your
  * vote and your notes (HUBBR-15), its scheme step by step, its runs and the
  * technical details. Beside the list on a wide pane, as a sheet from the
  * bottom on a narrow one.

@@ -106,8 +106,8 @@ export function appFamilyName(command: string): string {
   const file = base(script).replace(/\.(m|c)?[jt]s$/, "");
   if (!GENERIC_ENTRY.has(file)) return file;
   // ...unless the file is the entry point every package has: nobody recognises
-  // `index`. `/opt/homebrew/lib/node_modules/openclaw/dist/index.js gateway` is
-  // the OpenClaw gateway, and it read as a family called `index` - the heaviest
+  // `index`. `/opt/homebrew/lib/node_modules/<pkg>/dist/index.js gateway` is
+  // a node gateway, and it read as a family called `index` - the heaviest
   // non-app node process on this Mac named after a file name.
   const parts = script.split("/").slice(0, -1).filter(Boolean);
   for (let k = parts.length - 1; k >= 0; k--) {
@@ -159,7 +159,7 @@ export interface MemoryOwnersInput {
    * ASKED ONLY OF AN XPC SERVICE, which is what it is for. It answers for 600
    * pids of 901 on this machine, and asking it about every row handed the NAME
    * of somebody else's process to whoever had launched it: `next-server` (pid
-   * 24276) is responsible to the OpenClaw gateway and was counted in a family
+   * 24276) is responsible to a node gateway and was counted in a family
    * called `index`, after the bundle's `dist/index.js` - the process the
    * sentence exists to name came out named after a file. That one lookup built
    * families of `index` (24 processes, 0.94 GB), `npm` and `mcp-remote` out of

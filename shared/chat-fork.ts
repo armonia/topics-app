@@ -11,7 +11,7 @@
  *     `codex exec fork <parent thread>`.
  *   - `db-history`: in Topics' own database, reread on every turn (the native
  *     engine, the SDK providers, the direct endpoints). The copy IS the memory.
- *   - `null`: a session of its own outside Topics (openclaw, the ACP agents). A
+ *   - `null`: a session of its own outside Topics (the ACP agents). A
  *     new session key would open an empty conversation under a chat that shows
  *     a history, so these runtimes do not offer the fork.
  *

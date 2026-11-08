@@ -159,7 +159,7 @@ describe("memory route topic isolation", () => {
     const coordinator = topic("registered-coordinator", {
       // It is deliberately malformed.  The raw registry role, not these
       // mutable fields, must be the denial boundary.
-      provider: "openclaw",
+      provider: "claude",
       projectPath: "/must-not-be-read",
     });
     const h = makeHarness({ topics: [coordinator], rawGlobalTopicIds: [coordinator.id] });

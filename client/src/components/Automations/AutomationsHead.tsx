@@ -9,7 +9,7 @@
  *
  * Foot: each source with the time it was read, «?» when it is silent, «PC
  * dorme» when the PC sleeps, and the jobs the hub hides (switched off,
- * silenced, paused with OpenClaw), which open into the list of why: the only
+ * silenced, paused in Jarvis), which open into the list of why: the only
  * place a silence given by mistake can be found again.
  */
 import { useState } from 'react';

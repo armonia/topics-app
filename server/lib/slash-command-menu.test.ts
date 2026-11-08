@@ -78,9 +78,9 @@ describe("slashMenuEntries", () => {
     expect(list.map((e) => [e.name, e.group, e.kind])).toEqual([["vai", "skills", "skill"]]);
   });
 
-  test("Codex, the API engines and OpenClaw: nothing (a typed /name is prose there)", () => {
+  test("Codex and the API engines: nothing (a typed /name is prose there)", () => {
     recordCliSlashCommands("topic:cc", { type: "system", subtype: "init", cwd, slash_commands: ["init"] });
-    for (const provider of ["codex", "openclaw", "anthropic"]) {
+    for (const provider of ["codex", "openai", "anthropic"]) {
       expect(slashMenuEntries({ provider, sessionKey: "topic:x", projectPath: cwd, cwd, home }), provider).toEqual([]);
     }
   });

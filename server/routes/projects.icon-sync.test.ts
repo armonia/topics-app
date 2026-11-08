@@ -58,7 +58,7 @@ beforeEach(() => {
   frames = [];
   const ctx = {
     db,
-    OPENCLAW_DIR: join(root, ".openclaw"),
+    APP_DATA_DIR: join(root, ".app-data"),
     loadTopics: () => (allowlistBuilds++, { topics: Object.fromEntries(topicPaths.map((p, i) => [`t${i}`, { projectPath: p }])) }),
     worktreeStore: { list: () => [] },
     projectStore: { list: () => [], getByPath: () => null },

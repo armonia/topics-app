@@ -135,7 +135,7 @@ describe("POST /api/chat — global coordinator Codex-only boundary", () => {
   test("rejects every non-Codex override before message persistence", async () => {
     const h = harness();
     try {
-      for (const provider of ["openclaw", "claude", "openai"]) {
+      for (const provider of ["muse", "claude", "openai"]) {
         const response = await h.send(provider);
         expect(response?.status).toBe(400);
         expect(await response!.json()).toMatchObject({ code: "orchestrator_provider_required" });
@@ -178,7 +178,7 @@ describe("POST /api/chat — global coordinator Codex-only boundary", () => {
   });
 
   test("a raw registered row with a non-Codex provider fails closed before fallback", async () => {
-    const h = harness("openclaw");
+    const h = harness("claude");
     try {
       const response = await h.send("codex");
       expect(response?.status).toBe(409);

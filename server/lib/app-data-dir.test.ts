@@ -1,11 +1,12 @@
 /**
  * THE APP DATA ROOT IS RESOLVED ONCE, AND A FRESH MACHINE NEVER SEES THE OLD NAME.
  *
- * Until card 211605ee the root was `${HOME}/.openclaw` whenever no variable
- * said otherwise, in four copies of the same expression. The desktop shell
- * exports TOPICS_HOME/TOPICS_DATA_DIR/DATA_DIR and not APP_DATA_DIR, so an
- * installed Topics created `~/.openclaw/media` and `~/.openclaw/workspace` in
- * the home of somebody who never ran the product under its previous name.
+ * Until card 211605ee the root was the legacy one (`LEGACY_DATA_DIR_NAME`
+ * under the home) whenever no variable said otherwise, in four copies of the
+ * same expression. The desktop shell exports TOPICS_HOME/TOPICS_DATA_DIR/
+ * DATA_DIR and not APP_DATA_DIR, so an installed Topics created `media/` and
+ * `workspace/` there in the home of somebody who never ran the product under
+ * its previous name.
  *
  * The three branches below are the whole rule. The fourth test is the one that
  * keeps it honest: resolving is a calculation, not a boot step, so it must
@@ -18,7 +19,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { appDataRoots, resolveAppDataDir } from "./data-dir";
+import { appDataRoots, LEGACY_DATA_DIR_NAME, resolveAppDataDir } from "./data-dir";
 import { testTmpDir } from "../../tests/integration/helpers";
 
 /** A home that exists on disk but holds nothing. */
@@ -31,20 +32,17 @@ function emptyHome(name: string): string {
 describe("resolveAppDataDir", () => {
   test("an explicit variable wins over everything", () => {
     const home = emptyHome("explicit");
-    mkdirSync(join(home, ".openclaw"), { recursive: true });
+    mkdirSync(join(home, LEGACY_DATA_DIR_NAME), { recursive: true });
     expect(resolveAppDataDir({ env: { APP_DATA_DIR: "/pinned/root" }, home })).toBe("/pinned/root");
-    expect(resolveAppDataDir({ env: { OPENCLAW_DIR: "/pinned/legacy" }, home })).toBe("/pinned/legacy");
-    // APP_DATA_DIR first when both are set.
-    expect(resolveAppDataDir({ env: { APP_DATA_DIR: "/a", OPENCLAW_DIR: "/b" }, home })).toBe("/a");
   });
 
-  test("a home that already has ~/.openclaw keeps using it", () => {
+  test("a home that already has the legacy root keeps using it", () => {
     const home = emptyHome("legacy");
-    mkdirSync(join(home, ".openclaw"), { recursive: true });
-    expect(resolveAppDataDir({ env: {}, home })).toBe(join(home, ".openclaw"));
+    mkdirSync(join(home, LEGACY_DATA_DIR_NAME), { recursive: true });
+    expect(resolveAppDataDir({ env: {}, home })).toBe(join(home, LEGACY_DATA_DIR_NAME));
   });
 
-  test("a home without ~/.openclaw gets the root under ~/.topics", () => {
+  test("a home without the legacy root gets the root under ~/.topics", () => {
     const home = emptyHome("fresh");
     expect(resolveAppDataDir({ env: {}, home })).toBe(join(home, ".topics"));
   });
@@ -66,12 +64,12 @@ describe("resolveAppDataDir", () => {
   test("both roots stay readable, whichever one is live", () => {
     const home = emptyHome("roots");
     const fresh = appDataRoots({ env: {}, home });
-    expect(fresh).toContain(join(home, ".openclaw"));
+    expect(fresh).toContain(join(home, LEGACY_DATA_DIR_NAME));
     expect(fresh).toContain(join(home, ".topics"));
 
-    mkdirSync(join(home, ".openclaw"), { recursive: true });
+    mkdirSync(join(home, LEGACY_DATA_DIR_NAME), { recursive: true });
     const legacy = appDataRoots({ env: {}, home });
-    expect(legacy[0]).toBe(join(home, ".openclaw"));
+    expect(legacy[0]).toBe(join(home, LEGACY_DATA_DIR_NAME));
     expect(legacy).toContain(join(home, ".topics"));
     // No duplicates: the live root is one of the two, not a third entry.
     expect(new Set(legacy).size).toBe(legacy.length);
