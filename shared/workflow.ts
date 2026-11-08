@@ -47,7 +47,12 @@ export const STAGE_TRIAGE = 'triage';
 export const STAGE_AI_REVIEW = 'ai_review';
 export const STAGE_HUMAN_REVIEW = 'human_review';
 
-const STATUS_COLUMN_LABEL: Record<TaskStatus, string> = {
+/**
+ * The one copy of the status words, shared by the client (`STATUS_LABEL` in
+ * `client/src/lib/board.ts` re-exports it) and mirrored by the tray in
+ * `desktop-tauri/src-tauri/src/lib.rs` (`tray_status_label`).
+ */
+export const STATUS_COLUMN_LABEL: Record<TaskStatus, string> = {
   backlog: 'Backlog',
   todo: 'Todo',
   in_progress: 'In Progress',

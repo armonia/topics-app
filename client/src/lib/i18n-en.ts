@@ -60,6 +60,8 @@ const EN = {
   'agents.sessionsOne': '1 session',
   'agents.last': 'last active {when}',
   'agents.waitingYou': '{n} waiting for you',
+  'agents.waitingYouOne': '1 waiting for you',
+  'agents.rowTitle': 'Counts only the always-on agents (Jarvis, Visione…). «Agents and jobs», in the System menu, also counts the jobs and the agents outside Topics.',
   'agents.error': 'failed',
   'agents.errors': '{n} failed',
   'agents.cli': 'Jarvis from the terminal',
