@@ -208,4 +208,3 @@ function writeWhenTurnCloses(ctx: NoticeCtx, target: { sessionKey: string; topic
     console.warn(`[background] cannot write the notice for ${target.sessionKey}:`, err);
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

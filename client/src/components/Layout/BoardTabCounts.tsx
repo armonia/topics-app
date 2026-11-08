@@ -114,4 +114,3 @@ export function useBoardTabCounts(projectPath?: string): StatusCount[] {
   useEffect(() => { if (loaded) rememberCounts(cacheKey, live); }, [loaded, live, cacheKey]);
   return loaded ? live : cached;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

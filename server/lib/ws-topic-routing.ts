@@ -37,4 +37,3 @@ export function clientReceivesTopicDelta(
   if (!state.openTopicIds) return true;
   return state.openTopicIds.has(topicId) || state.focusedTopicId === topicId;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

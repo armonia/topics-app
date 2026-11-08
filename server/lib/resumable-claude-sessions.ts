@@ -212,4 +212,3 @@ export async function listResumableClaudeSessions(opts: ListResumableOptions): P
   const last = ordered[i - 1];
   return { sessions, more, cursor: more && last ? `${last.mtimeMs}:${last.sessionId}` : null };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

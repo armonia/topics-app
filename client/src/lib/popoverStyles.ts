@@ -187,4 +187,3 @@ export const POPOVER_DIVIDER = 'my-1 h-px bg-app-border';
  */
 export const POPOVER_SHEET =
   'glass-surface border-t border-app-border rounded-t-xl shadow-lg py-2 bottom-sheet';
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

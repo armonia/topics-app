@@ -188,4 +188,3 @@ export function createHostViewport(deps: HostViewportDeps): HostViewport {
     driver: (contextId) => contexts.get(contextId)?.driver,
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

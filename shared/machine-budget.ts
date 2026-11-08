@@ -573,4 +573,3 @@ function nextVictim(targets: readonly FreezeTarget[], frozen: readonly string[])
   free.sort((a, b) => rank(a) - rank(b) || b.startedAt - a.startedAt);
   return free[0] ?? null;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

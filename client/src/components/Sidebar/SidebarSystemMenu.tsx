@@ -489,4 +489,3 @@ function formatBuildDate(iso: string): string {
     return new Date(iso).toLocaleString('it-IT', { dateStyle: 'medium', timeStyle: 'short' });
   } catch { return iso; }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -314,4 +314,3 @@ function startObserver(): void {
   // Initial state (in case an overlay is already open at subscribe time).
   recompute();
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

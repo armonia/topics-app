@@ -186,4 +186,3 @@ export function summarizeInventory(entries: readonly InventoryEntry[]): {
   }
   return { total: entries.length, orphan, onOpenTasks, onClosedTasks };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

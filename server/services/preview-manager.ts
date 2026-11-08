@@ -798,4 +798,3 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
 
   return { prepareForReview, ensurePreview, teardown, teardownAll, sweepOrphans, list: listPreviews };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -63,4 +63,3 @@ export function blankPaneFailure(requested: string, reached: string): string | n
     `(the file:// scheme cannot be rendered here), and a local port must be listening.`
   );
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -31,4 +31,3 @@ export function useTaskModelCatalog(selected?: string | null): string[] {
   const { snapshot } = useProvidersSnapshot();
   return useMemo(() => taskModelCatalog(snapshot, selected), [selected, snapshot]);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

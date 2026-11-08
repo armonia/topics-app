@@ -119,4 +119,3 @@ export function isReusableHeadstone(
   const eta = oraMs - nata;
   return eta >= 0 && eta <= finestraMs;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

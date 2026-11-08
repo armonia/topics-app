@@ -762,4 +762,3 @@ export function subscribeTopicWindows(listener: () => void): () => void {
   listeners.add(listener);
   return () => { listeners.delete(listener); };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

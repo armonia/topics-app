@@ -36,4 +36,3 @@ export function isInsideDir(candidate: string, dir: string): boolean {
   if (!rel || isAbsolute(rel)) return false;
   return rel !== ".." && !rel.startsWith(".." + sep);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

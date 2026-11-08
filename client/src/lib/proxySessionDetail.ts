@@ -121,4 +121,3 @@ export function proxyState(raw: unknown): ProxyState {
   if (!isObject(raw)) return 'silent';
   return raw.enabled === false ? 'monitorOff' : 'ok';
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

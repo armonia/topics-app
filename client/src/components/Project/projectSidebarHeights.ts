@@ -80,4 +80,3 @@ export function readProjectSidebarWidth(projectPath: string): number {
 export function clampSidebarWidth(w: number): number {
   return Math.min(MAX_SIDEBAR_W, Math.max(MIN_SIDEBAR_W, w));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -180,4 +180,3 @@ export function quantitaBreve(v: VocePeso): string {
   if (i > 0) return `${fmt(i)} ${nome(v.id, i, true)}`;
   return `${fmt(v.peso.entries)} ${nome(v.id, v.peso.entries)}`;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

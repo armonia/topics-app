@@ -237,4 +237,3 @@ export function useFpsActive(active: boolean): void {
     return requestActive();
   }, [active]);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

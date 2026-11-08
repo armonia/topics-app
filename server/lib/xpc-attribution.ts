@@ -123,4 +123,3 @@ export async function printPidDomain(pid: number, timeoutMs = 2_000): Promise<st
 export function looksLikeAppExecutable(command: string): boolean {
   return /\.app\/Contents\/MacOS\/[^/\s]+/.test(command.trim().split(" ")[0] ?? "");
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

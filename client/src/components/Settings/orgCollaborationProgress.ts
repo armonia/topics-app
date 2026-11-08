@@ -62,4 +62,3 @@ export function collaborationProgress(input: {
     start: input.projects.some((project) => project.starts.some(belongsToSelection)),
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

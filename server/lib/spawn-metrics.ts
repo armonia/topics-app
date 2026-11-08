@@ -25,4 +25,3 @@ export function serverSpawnCounts(now = Date.now()) {
   for (const event of events) counts[event.kind][event.cause] = (counts[event.kind][event.cause] ?? 0) + 1;
   return { windowMinutes: 15, sampledAt: new Date(now).toISOString(), counts };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

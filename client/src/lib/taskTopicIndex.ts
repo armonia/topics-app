@@ -40,4 +40,3 @@ export function buildTopicTaskIndex(tasks: readonly BoardTask[]): TopicTaskIndex
   }
   return { byTopic, forStore };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

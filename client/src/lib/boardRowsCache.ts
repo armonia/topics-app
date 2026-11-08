@@ -89,4 +89,3 @@ export function writeBoardRowsCache(scope: string, rows: readonly BoardTask[]): 
 export function serializeBoardRowsCache(rows: readonly BoardTask[]): string {
   return JSON.stringify(rows.slice(0, MAX_ROWS));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

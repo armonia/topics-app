@@ -248,4 +248,3 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
     },
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

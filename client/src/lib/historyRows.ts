@@ -144,4 +144,3 @@ export function buildHistoryRows(input: {
   filtered.sort((a, b) => b.at - a.at);
   return typeof input.limit === 'number' ? filtered.slice(0, Math.max(0, input.limit)) : filtered;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

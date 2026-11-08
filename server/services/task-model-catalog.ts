@@ -86,4 +86,3 @@ export function isStaleModelChange(next: unknown, current: () => string | null |
   if (String(next ?? "").trim() === (current() ?? "").trim()) return false;
   return !taskModelIsCurrent(next, sources.taskModelSnapshot?.() ?? null);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

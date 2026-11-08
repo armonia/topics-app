@@ -124,4 +124,3 @@ export function shouldCompressFrame(args: {
   if (args.bytes < (args.threshold ?? MIN_COMPRESS_BYTES)) return false;
   return true;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

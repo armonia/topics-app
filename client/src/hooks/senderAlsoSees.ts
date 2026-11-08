@@ -102,4 +102,3 @@ export function senderAlsoSeesFrame(frame: { type: string; late?: unknown }): bo
 export function ownTurnEcho(frame: { role?: string; blocks?: readonly unknown[] | null }): boolean {
   return frame.role === 'assistant' && (!frame.blocks || frame.blocks.length === 0);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

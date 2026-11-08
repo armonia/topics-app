@@ -478,4 +478,3 @@ export function portTakenMessage(port: number, outcome: PortVerdict): string {
       return `port ${port} is held by a foreign process.`;
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

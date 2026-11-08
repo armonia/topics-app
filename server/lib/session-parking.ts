@@ -71,4 +71,3 @@ export function parkTopicSession(sessionKey: string | null | undefined): void {
     console.warn(`[session-parking] park di ${sessionKey} fallito:`, (err as Error)?.message ?? err);
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

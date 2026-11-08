@@ -11,4 +11,3 @@ export function withoutGatewayToken(env: NodeJS.ProcessEnv = process.env): NodeJ
   const { GATEWAY_TOKEN: _token, ...rest } = env;
   return rest;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

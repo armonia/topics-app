@@ -260,4 +260,3 @@ export const taskCopyText = (task: { text: string; description?: string | null }
   const desc = (task.description ?? '').trim();
   return desc ? `${title}\n\n${desc}` : title;
 };
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

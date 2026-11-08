@@ -72,4 +72,3 @@ export function deliverableSubscriptions(db: RecipientsDb): DeliverableSubscript
         AND (ps.auth_device_id IS NULL OR (d.id IS NOT NULL AND d.revoked_at IS NULL))`,
   ).all() as DeliverableSubscription[];
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

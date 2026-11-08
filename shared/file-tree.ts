@@ -4,4 +4,3 @@
  * (`tests/unit/no-type-mirrors.test.ts`).
  */
 export interface FileNode { name: string; type: "file" | "dir"; path: string; size?: number; modified?: string; children?: FileNode[]; }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

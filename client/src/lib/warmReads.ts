@@ -35,4 +35,3 @@ export async function adoptWarmRead<T>(key: string): Promise<T | null> {
   if (Date.now() - held.at >= WARM_READ_TTL_MS) return null;
   return (await held.promise.catch(() => null)) as T | null;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

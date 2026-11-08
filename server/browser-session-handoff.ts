@@ -247,4 +247,3 @@ export async function seedNativeFromShared(
   const applied = (raw as { cookies?: unknown } | null)?.cookies;
   return { ok: true, cookies: typeof applied === "number" ? applied : cookies.length };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

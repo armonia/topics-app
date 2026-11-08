@@ -82,4 +82,3 @@ export function resolveStoreFocus(args: ResolveStoreFocusArgs): string | null {
   if (prev && storeOrder.includes(prev)) return prev;
   return visibleOrder[0] ?? storeFocus ?? null;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

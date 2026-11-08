@@ -129,4 +129,3 @@ export function rehypeStreamFade(options: { base: number; arrivals: Arrival[]; t
   };
   return (tree: Root) => wrap(tree.children);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

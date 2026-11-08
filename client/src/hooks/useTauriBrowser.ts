@@ -2196,4 +2196,3 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     freeze, thaw,
   ]);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

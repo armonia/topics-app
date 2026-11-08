@@ -44,4 +44,3 @@ export function TopicColorDot({ color, onFill, className }: { color: string | nu
     />
   );
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

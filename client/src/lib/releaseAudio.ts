@@ -33,4 +33,3 @@ export function releaseAudio(el: HTMLAudioElement | null): void {
     /* un rilascio non deve mai far fallire il chiamante */
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

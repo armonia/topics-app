@@ -312,4 +312,3 @@ export function _setPaneUsageSnapshot(
     memMetric: opts?.memMetric ?? 'footprint',
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

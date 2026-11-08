@@ -328,4 +328,3 @@ export function frameResource(frame: unknown): { type: ResourceType; id: string 
   if (typeof f.topicId === 'string' && f.topicId) return { type: 'topic', id: f.topicId };
   return null;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

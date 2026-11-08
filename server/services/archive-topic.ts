@@ -203,4 +203,3 @@ export function reopenTopicFully(deps: ReopenTopicDeps, topicId: string): Topic 
   setClosed(topicSubject(topicId), { archived: false });
   return topic;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

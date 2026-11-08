@@ -247,4 +247,3 @@ const CHAT_IT: Dict = {
 };
 
 export default CHAT_IT;
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

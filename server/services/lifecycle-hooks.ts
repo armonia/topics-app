@@ -312,4 +312,3 @@ export function defaultLifecycleHooks(): LifecycleHookRunner {
   if (!shared) shared = createLifecycleHooks({ file: () => join(topicsHome(), "hooks.json") });
   return shared;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

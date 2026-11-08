@@ -1293,4 +1293,3 @@ export function governorRead(
   const sample = budgetSample(fleet, availMemGB, cores, totalMemGB, running);
   return { ...governorReading(sample, share), at: fleet.at };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

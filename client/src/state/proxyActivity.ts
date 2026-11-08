@@ -100,4 +100,3 @@ export function _resetProxyActivityForTests(next: ProxyActivityDeps): void {
   listeners.clear();
   deps = next;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

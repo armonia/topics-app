@@ -58,4 +58,3 @@ export function etichettaAutore(
   if (authorDeviceId) return `dispositivo ${authorDeviceId.slice(0, 8)}`;
   return "questo computer";
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

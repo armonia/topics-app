@@ -391,4 +391,3 @@ export function checkReport(report: string, probe: RepoProbe): Finding[] {
   }
   return findings;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

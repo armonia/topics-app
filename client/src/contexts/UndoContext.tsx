@@ -77,4 +77,3 @@ export function isTextInputFocused(target: EventTarget | null): boolean {
   if (target.isContentEditable) return true;
   return isRawKeySurfaceFocused(target);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

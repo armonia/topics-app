@@ -665,4 +665,3 @@ export function backgroundOfTurn(
     backgroundWakeOnly: states.includes("wake-queued") && states.every((s) => s === "wake-queued" || s === "none"),
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

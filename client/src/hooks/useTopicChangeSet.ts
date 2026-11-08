@@ -57,4 +57,3 @@ export function useTopicChangeSet(
   const changeSet = loaded && loaded.topicId === topicId ? loaded.set : undefined;
   return { changeSet, reload };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

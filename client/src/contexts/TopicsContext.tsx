@@ -100,4 +100,3 @@ export function useTerminalRosterAuthoritative(): boolean {
 export function useTopicsPending(): boolean {
   return useContext(Ctx).topicsPending;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

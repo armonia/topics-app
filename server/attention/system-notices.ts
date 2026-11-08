@@ -40,4 +40,3 @@ export function closeSystemCycle(key: string, notice: { title: string; body?: st
   openCycles.delete(key);
   recordSystemNotice({ key, cycle, ...notice });
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

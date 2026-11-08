@@ -212,4 +212,3 @@ export function SkeletonChatMessages({ isMobile = false, count = FILL_BUBBLES, b
     </div>
   );
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -54,4 +54,3 @@ export function niceMax(v: number): number {
   for (const m of [1, 2, 5, 10]) if (m * p >= v) return m * p;
   return 10 * p;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

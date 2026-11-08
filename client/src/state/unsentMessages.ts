@@ -163,4 +163,3 @@ export function onScreenSessions(): ReadonlySet<string> {
 export function useOnScreenSessions(): ReadonlySet<string> {
   return useSyncExternalStore(subscribe, read, read);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

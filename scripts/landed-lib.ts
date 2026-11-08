@@ -142,4 +142,3 @@ export function isSafeToDelete(v: Landed): boolean {
 export function isDisposableBranchName(branch: string): boolean {
   return /^(topics\/|task\/|worktree-|wf_)/.test(branch);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

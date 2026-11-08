@@ -196,4 +196,3 @@ export async function probeFraming(
   cache.set(url, { framable, expiresAt: now + FRAMING_TTL_MS });
   return framable;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

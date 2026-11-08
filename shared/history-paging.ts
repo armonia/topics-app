@@ -78,4 +78,3 @@ export const HISTORY_FETCH_ALL = 0;
  */
 export const OLDER_STAGE_SCREENS = 6;
 export const OLDER_MERGE_SCREENS = 2;
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

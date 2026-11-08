@@ -40,4 +40,3 @@ export function shouldAnnounceResume(status: string | null | undefined): boolean
  * from here and never be retyped at the call site.
  */
 export const DEAD_SESSION_NOTE = "La sessione dell'agent è morta";
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

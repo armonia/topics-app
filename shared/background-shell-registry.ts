@@ -34,4 +34,3 @@ export function stripBackgroundShellBanner(log: string, shellId: string): string
   if (log === banner) return "";
   return log.startsWith(`${banner}\n`) ? log.slice(banner.length + 1) : log;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

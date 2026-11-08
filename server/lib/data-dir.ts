@@ -2,6 +2,7 @@ import { homedir } from "os";
 import { accessSync, constants, existsSync, mkdirSync } from "fs";
 import { join, resolve } from "path";
 import { topicsHome } from "../services/daemon-state";
+import { LEGACY_DATA_DIR_NAME } from "../../shared/legacy-data-dir";
 
 /**
  * Resolve the WRITABLE root for all mutable server state (SQLite DB, messages,
@@ -125,7 +126,7 @@ export function envDataDir(env: NodeJS.ProcessEnv = process.env): string | undef
 }
 
 // The old data root's name lives in shared/, the one place the client can read it from too.
-export { LEGACY_DATA_DIR_NAME } from "../../shared/legacy-data-dir";
+export { LEGACY_DATA_DIR_NAME };
 
 /** Injectable inputs of `resolveAppDataDir`, so the rule can be tested without a real home. */
 export interface AppDataDirInputs {
@@ -237,4 +238,3 @@ export function assertNotLiveStateUnderTest(
       `testTmpDir() before creating the context`,
   );
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -354,4 +354,3 @@ async function main(argv: string[]): Promise<number> {
 }
 
 if (import.meta.main) process.exit(await main(process.argv.slice(2)));
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

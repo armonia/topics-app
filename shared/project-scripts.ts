@@ -24,4 +24,3 @@ export interface DetectedScript {
   /** Da quale file viene: `package.json`, `Makefile`, `Cargo.toml`… */
   from: string;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

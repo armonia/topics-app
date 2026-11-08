@@ -147,4 +147,3 @@ export const ORG_MARKS_IN_CHIP = 2;
  * composited pixels, not off this comment.
  */
 export const CHIP_INK_DIM = 'text-app-text-secondary';
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

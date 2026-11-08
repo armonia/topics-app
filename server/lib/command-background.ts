@@ -98,4 +98,3 @@ export function commandLabel(command: string, description?: unknown): string {
   const first = (command.split("\n").find((l) => l.trim()) ?? command).replace(/\s+/g, " ").trim();
   return first.length > 48 ? `${first.slice(0, 47)}…` : first || "shell";
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

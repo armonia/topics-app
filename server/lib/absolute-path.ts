@@ -17,4 +17,3 @@ export function isAbsoluteServerPath(p: unknown, platform: NodeJS.Platform = pro
   if (typeof p !== "string" || p.length === 0) return false;
   return platform === "win32" ? win32.isAbsolute(p) : posix.isAbsolute(p);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

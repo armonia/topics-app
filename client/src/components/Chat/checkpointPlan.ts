@@ -100,4 +100,3 @@ export function rollbackDialogText(
   const hidden = skipped.length - shown.length;
   return { lines, skippedPaths: shown, more: hidden > 0 ? tr('checkpoint.plan.more', { n: hidden }) : null };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -251,4 +251,3 @@ export const AI_REVIEW_REMIND_MS = 30 * 60 * 1000;
  * log the same failed reminder at every reconcile.
  */
 export const AI_REVIEW_RETRY_MS = 5 * 60 * 1000;
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

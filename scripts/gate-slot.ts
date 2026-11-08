@@ -462,4 +462,3 @@ export function claimOutfile(absolutePath: string): (() => void) | null {
     return () => {};
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

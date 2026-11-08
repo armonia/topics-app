@@ -117,4 +117,3 @@ export async function endReattachLeg(
   } catch { /* the next boot's reset catches it */ }
   return { relit: false, closed };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

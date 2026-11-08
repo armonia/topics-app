@@ -31,4 +31,3 @@ export function commandRows(scripts: readonly ScriptProcessInfo[]): ScriptProces
   const commands = scripts.filter((s) => s.source === 'command');
   return [...commands.filter((s) => s.status === 'running'), ...commands.filter((s) => s.status !== 'running')];
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

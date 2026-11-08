@@ -182,4 +182,3 @@ export function unwatchProjectFiles(projectPath: string): void {
     watchers.delete(projectPath);
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

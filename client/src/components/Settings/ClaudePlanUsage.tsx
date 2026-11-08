@@ -75,4 +75,3 @@ function UsageBar({ window, line, testId }: { window: { utilization: number }; l
     </>
   );
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

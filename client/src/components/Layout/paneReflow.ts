@@ -19,4 +19,3 @@ export function notifyPaneReflow(): void {
   window.dispatchEvent(new CustomEvent('topics:pane-resize-start', { detail: { reflow: true } }));
   setTimeout(() => window.dispatchEvent(new CustomEvent('topics:pane-resize-end', { detail: { reflow: true } })), 400);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

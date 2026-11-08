@@ -18,4 +18,3 @@ export function reapBrowserSocket<T>(contextId: string, socket: T, sockets: Set<
   deps.hostClosed(socket, contextId);
   try { deps.close(1001, "Connection timeout"); } catch { /* the half-open socket may already be gone */ }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

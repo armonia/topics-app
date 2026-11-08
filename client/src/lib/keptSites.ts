@@ -37,4 +37,3 @@ export function forgetKeptSite(origin: string): void {
   const cur = s.keepLiveSites ?? [];
   if (cur.includes(origin)) saveSettings({ ...s, keepLiveSites: cur.filter((o) => o !== origin) });
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

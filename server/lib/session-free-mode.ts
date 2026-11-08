@@ -91,4 +91,3 @@ export function switchSessionToFree(ctx: FreeModeCtx, sessionKey: string): FreeM
   ctx.broadcastToAll({ type: 'topic:updated', topic });
   return { topic, previous, changed: true };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

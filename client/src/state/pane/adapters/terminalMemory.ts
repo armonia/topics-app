@@ -42,4 +42,3 @@ export function rememberedAgentType(t: RememberedTerminal | undefined): Terminal
 export function __resetTerminalMemory(): void {
   memory.clear();
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

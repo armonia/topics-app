@@ -269,4 +269,3 @@ function readTruncated(text: string, start: number): ReadableVerdict {
 
   return { headline, details: text.slice(start), truncated: true };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

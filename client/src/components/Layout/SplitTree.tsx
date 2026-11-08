@@ -334,4 +334,3 @@ function Divider({ dir, gutter, onResize, onEqualize }: DividerProps): React.Rea
     />
   );
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

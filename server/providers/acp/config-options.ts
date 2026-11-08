@@ -232,4 +232,3 @@ export async function applyEffort(
     console.warn(`[ACP:${ctx.name}] effort "${effort}" non applicato: ${errText(err)}`);
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

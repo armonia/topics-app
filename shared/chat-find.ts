@@ -197,4 +197,3 @@ export function mergeLiveHits(base: readonly ChatFindHit[], messageId: string, l
   if (first < 0) return [...rest, ...live];
   return [...rest.slice(0, first), ...live, ...rest.slice(first)];
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -221,4 +221,3 @@ export function isIdentityExemptPath(pathname: string, method?: string): boolean
     (m === "DELETE" && /^\/api\/nodes\/delegated-requests\/[^/]+$/.test(pathname))
   );
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

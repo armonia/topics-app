@@ -191,4 +191,3 @@ export function ratesForPrompt(row: ModelPrice, promptTokens: number, fastMode =
   }
   return { input: row.input, output: row.output };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

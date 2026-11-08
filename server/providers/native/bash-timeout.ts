@@ -43,4 +43,3 @@ export const BASH_TIMEOUT_PROPERTY = {
   type: "number",
   description: `Milliseconds before the command is killed. Default ${DEFAULT_BASH_TIMEOUT_MS}, maximum ${MAX_BASH_TIMEOUT_MS}: a larger value is capped.`,
 };
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

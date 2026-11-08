@@ -41,4 +41,3 @@ export function agentAuthOk(req: Request): boolean {
   } catch {}
   return false;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

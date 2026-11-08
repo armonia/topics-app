@@ -38,4 +38,3 @@ export function openExternalOnce(url: string): void {
   // window.open on web — one decision point for every host (PORTING-PLAN.md §5b).
   void openExternal(url);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

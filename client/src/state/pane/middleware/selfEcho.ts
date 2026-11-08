@@ -122,4 +122,3 @@ export function resetSelfEcho(): void {
   acks.clear();
   lastEmittedServerSeq = 0;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

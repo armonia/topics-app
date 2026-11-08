@@ -109,4 +109,3 @@ function clampPct(p: number | null | undefined): number | null {
 
 /** The process-wide sampler the capacity reading uses. */
 export const machineCpuPct: MachineCpuSampler = createMachineCpuSampler();
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

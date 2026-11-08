@@ -27,4 +27,3 @@ const SPEND_EN: Dict = {
 };
 
 export default SPEND_EN;
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

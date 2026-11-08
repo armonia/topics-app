@@ -1229,4 +1229,3 @@ export function sidebarRowCard(
   if (open) return `${base}${riposo} text-app-text ${SIDEBAR_HOVER}`;
   return `${base}${riposo} text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

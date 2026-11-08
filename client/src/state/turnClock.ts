@@ -103,4 +103,3 @@ export function turnClock({ elapsedMs, waitedMs, waitingMs }: TurnClockInput): T
   // un numero che non ha sorprese dentro.
   return { primaryMs: total, workedMs, totalWaitedMs: 0 };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

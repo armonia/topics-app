@@ -253,4 +253,3 @@ function run(): () => void {
   const timer = setTimeout(finish, WINDOW_MS);
   return finish;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

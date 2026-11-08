@@ -102,4 +102,3 @@ export const ADD_MENU_ROWS_BY_SCOPE: Record<'project' | 'standalone', readonly A
   project: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'kimi-code', 'muse', 'browser', 'git', 'files', 'kanban'],
   standalone: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'kimi-code', 'muse', 'browser', 'board', 'dashboard', 'profile', 'open-project'],
 };
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

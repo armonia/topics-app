@@ -106,4 +106,3 @@ export async function writeProbeState(key: string, value: unknown): Promise<void
     /* a probe must never make noise when the server does not answer */
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -40,4 +40,3 @@ export async function authRefusalKey(r: Response): Promise<string> {
   const body = await r.json().catch(() => null) as { error?: string } | null;
   return chiaveErroreAuth(body?.error);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

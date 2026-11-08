@@ -78,4 +78,3 @@ export function clearBannerTimers(handles: Map<string, number>, timers: BannerTi
   for (const handle of handles.values()) timers.clear(handle);
   handles.clear();
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

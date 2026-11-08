@@ -91,4 +91,3 @@ export function endLabel(end: DiffEnd): string {
   if (end.from === 'index') return 'in stage';
   return end.rev === 'HEAD' ? 'HEAD' : end.rev.slice(0, 7);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

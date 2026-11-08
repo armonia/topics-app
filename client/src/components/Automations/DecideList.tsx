@@ -103,4 +103,3 @@ export function DecideList({ rows, gates, selectedKey, data, onSelect, onRun }: 
     </>
   );
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

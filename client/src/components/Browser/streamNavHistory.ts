@@ -46,4 +46,3 @@ export function applyHistoryUpdate<S extends StreamNavHistory & { url: string }>
 export function arrowEnabled(flag: boolean | undefined): boolean {
   return flag ?? true;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

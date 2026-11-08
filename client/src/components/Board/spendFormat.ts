@@ -26,4 +26,3 @@ export function spendLabel(cents: number): string {
 export function capBoxValue(cents: number): string {
   return cents > 0 ? String(Math.round(cents / 100)) : '';
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

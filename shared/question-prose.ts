@@ -48,4 +48,3 @@ export function questionToProse(content: string): string {
   const prosa = opzioni ? `${q.question}\n\n${opzioni}` : q.question;
   return content.replace(/```question[\s\S]*?```/, prosa).trim();
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

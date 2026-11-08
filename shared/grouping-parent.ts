@@ -24,4 +24,3 @@ export function isGroupingParent(t: GroupingParentFields, openChildren: number):
     && t.delivered_by == null
     && t.dispatch_state == null;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

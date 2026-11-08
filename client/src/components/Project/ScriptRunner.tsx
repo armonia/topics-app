@@ -517,4 +517,3 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
     </div>
   );
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

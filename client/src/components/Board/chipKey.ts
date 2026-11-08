@@ -109,4 +109,3 @@ export function commentChipTestId(chip: CommentChip): string {
   if (chip === 'note' || chip === 'saved') return 'task-comment-receipt';
   return 'task-comment-queued';
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -182,4 +182,3 @@ export function closeLostRun(ctx: Pick<AppContext, "db" | "broadcastToAll">, run
     completedAt: endedWhileAway(run.exitPath, run.logPath, run.startedAt), output: lines,
   });
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

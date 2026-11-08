@@ -225,4 +225,3 @@ export function purgeOrphanTopicRefs(db: Database): CleanupReport {
     perKey: plans.map((p) => ({ key: p.key, removed: p.removed })),
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

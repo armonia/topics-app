@@ -142,4 +142,3 @@ export function machineLabel(all: Machine[] | null, id: string): string {
 export function reloadMachines(): void {
   void load();
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

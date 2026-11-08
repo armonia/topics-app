@@ -17,4 +17,3 @@ export function useClaudeSkipPermissions(
 
   return [value, set];
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

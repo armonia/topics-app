@@ -36,4 +36,3 @@ export function paneLive(i: PaneLiveInput): boolean {
   if (i.agentActive || i.opsInFlight > 0 || i.devtoolsOpen || i.keptLive) return true;
   return i.windowFocused !== false && i.paneFocused;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

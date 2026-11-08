@@ -88,4 +88,3 @@ export function buildMuseSingleShotArgs(opts: { model?: string | null; reasoning
   args.push("--prompt-file", opts.promptFile);
   return args;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

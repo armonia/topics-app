@@ -24,4 +24,3 @@ export function splitCompactionSummary(text: string): { before: string; summary:
   if (idx < 0) return { before: text, summary: null };
   return { before: text.slice(0, idx).replace(/\s+$/, ""), summary: text.slice(idx) };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

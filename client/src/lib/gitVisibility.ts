@@ -70,4 +70,3 @@ export function deliveryMeasure(
   if (counter.files === null) return null;
   return { files: counter.files, insertions: counter.insertions, deletions: counter.deletions };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

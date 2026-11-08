@@ -326,4 +326,3 @@ export function reconcile(db: Database, deps: ReconcileDeps): ReconcileResult {
 
   return { topicsArchived, terminalsRetired, topicsStamped, examined: inv.divergences.length };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

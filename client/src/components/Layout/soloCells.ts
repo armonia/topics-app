@@ -147,4 +147,3 @@ export function pruneSoloCells(cells: SoloCells, openIds: ReadonlySet<string>): 
 export function soloCellsFromFlat(flat: readonly string[]): SoloCells {
   return flat.map((id) => [id]);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

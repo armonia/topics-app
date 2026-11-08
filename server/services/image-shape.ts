@@ -240,4 +240,3 @@ export function isBlankLikeImage(i: { bytes: number; width: number; height: numb
   if (i.vector) return false;
   return i.bytes / pixelCount < BLANK_DENSITY_FLOOR;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

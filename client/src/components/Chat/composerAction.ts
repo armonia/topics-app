@@ -78,4 +78,3 @@ export function decideComposerAction(input: ComposerActionInput): ComposerAction
   if (input.hasContent) return { kind: "send" };
   return input.backgroundWork ? { kind: "stop" } : { kind: "disabled" };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

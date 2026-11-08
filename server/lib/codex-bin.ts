@@ -95,4 +95,3 @@ export function resolveCodexBin(): string | null {
 export function _resetCodexBinCache(): void {
   cached = null;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

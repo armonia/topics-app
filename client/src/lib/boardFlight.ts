@@ -150,4 +150,3 @@ export function planBoardMoves(args: {
   // quando il tetto taglia il resto.
   return [...voli.slice(0, MAX_FLIGHTS), ...scivolate.slice(0, MAX_SHIFTS)];
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

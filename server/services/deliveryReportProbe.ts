@@ -516,4 +516,3 @@ return {
 
 /** This server's own checkout: the fallback when a card names no repository. */
 export const repoProbe: RepoProbe = probeForRoot(SERVER_ROOT);
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

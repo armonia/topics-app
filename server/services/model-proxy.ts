@@ -275,4 +275,3 @@ export function createModelProxyListener(port: number, deps: ModelProxyDeps) {
     fetch: (req) => handler(req),
   });
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

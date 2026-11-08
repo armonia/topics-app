@@ -365,4 +365,3 @@ export const FindPaneContext = createContext<string | null>(null);
 export function useFindPaneId(): string | null {
   return useContext(FindPaneContext);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -118,4 +118,3 @@ export const MODAL_PAGE_PANEL =
  * press.
  */
 export const MODAL_PAGE_INSET = { paddingTop: 'var(--sat, 0px)', paddingBottom: 'var(--sab, 0px)' } as const;
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

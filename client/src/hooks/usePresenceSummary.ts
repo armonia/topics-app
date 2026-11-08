@@ -88,4 +88,3 @@ export function usePresenceSummary(enabled = true, intervalMs = INTERVALLO_MS): 
 
   return { counts };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

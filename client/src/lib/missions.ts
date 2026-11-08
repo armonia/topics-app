@@ -140,4 +140,3 @@ export function missionPrompt(mission: Mission, projectName: string): string {
 export function draftWithMission(existingDraft: string, missionText: string): string {
   return existingDraft.trim() ? `${existingDraft.trimEnd()}\n\n${missionText}` : missionText;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

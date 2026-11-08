@@ -40,4 +40,3 @@ export function sleepLeftMs(command: string | undefined, elapsedMs: number): num
   const left = total - elapsedMs;
   return left > 0 ? left : undefined;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

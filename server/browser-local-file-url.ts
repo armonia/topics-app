@@ -150,4 +150,3 @@ export function toServableUrl(raw: string, deps: LocalFileServing | null = servi
   const ref = `${MEDIA_REF_PREFIX}${encodeURIComponent(allowed)}`;
   return { kind: "rewritten", url: `${deps.origin.replace(/\/$/, "")}${ref}`, ref, path: allowed };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

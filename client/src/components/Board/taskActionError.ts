@@ -39,4 +39,3 @@ export function taskActionErrorMessage(raw: unknown, tr: Translate, fallback?: s
   }
   return text;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

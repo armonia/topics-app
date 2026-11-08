@@ -71,4 +71,3 @@ export function taskTabContextIdOf(contextId: string): string {
 export function isTaskContextId(contextId: string): boolean {
   return typeof contextId === "string" && contextId.startsWith("task-");
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

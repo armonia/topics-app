@@ -27,4 +27,3 @@ export function sliceCodePoints(s: string, max: number): string {
   }
   return s.slice(0, end);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

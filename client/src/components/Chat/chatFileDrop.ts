@@ -49,4 +49,3 @@ export function watchFileDragEnd(source: DragEndSource, onEnd: () => void): () =
     source.removeEventListener('blur', end);
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

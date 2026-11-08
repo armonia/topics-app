@@ -174,4 +174,3 @@ export function FilePill({ file, onRemove }: { file: MentionedFile; onRemove: ()
     />
   );
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

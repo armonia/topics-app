@@ -89,4 +89,3 @@ export function timeSlack(input: { load: number; cores: number; forced?: string 
 export function timeSlackNote(slack: number, load: number, cores: number): string {
   return `time slack x${slack.toFixed(1)}, load ${load.toFixed(1)}/${Math.max(1, cores)}`;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

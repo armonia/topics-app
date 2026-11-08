@@ -15,4 +15,3 @@
  * itself, and the question goes to a person instead of another paid turn.
  */
 export const AGENT_WAIT_STREAK_CAP = 1;
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

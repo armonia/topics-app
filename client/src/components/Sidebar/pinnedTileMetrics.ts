@@ -311,4 +311,3 @@ export const PINNED_GRID_CHEVRON_CLASS = 'absolute inset-y-0 left-2';
  * padding does not move it.
  */
 export const PINNED_GRID_CLEAR_CLASS = '@min-[76px]/tile:px-7';
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

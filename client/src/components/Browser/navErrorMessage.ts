@@ -217,4 +217,3 @@ export function serverNavErrorText(url: string, error: string, tr: Translate): N
               : 0;
   return navErrorMessage({ url, description: error.replace(/^\w+: /, ''), code }, tr);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

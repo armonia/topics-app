@@ -145,4 +145,3 @@ export function subscribeRestoredProjectBrowserPanes(listener: (contextIds: stri
   restoredListeners.add(listener);
   return () => { restoredListeners.delete(listener); };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

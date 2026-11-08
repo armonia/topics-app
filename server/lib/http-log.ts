@@ -54,4 +54,3 @@ export function httpLogLine(now: Date, method: string, pathname: string, status:
   if (!shouldLogHttp(pathname, status, durationMs)) return null;
   return formatHttpLine(now, method, pathname, status, durationMs);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

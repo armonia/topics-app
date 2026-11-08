@@ -186,4 +186,3 @@ export function boardAttention(
 ): { tier: AttentionTier | null; count: number } {
   return rollupAttention(boardLitCards(rows, cards, projectId).map((c) => c.attention));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

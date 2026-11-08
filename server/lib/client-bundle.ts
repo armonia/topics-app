@@ -164,4 +164,3 @@ export function bundleBreakageReason(dir: string): string | null {
   const rest = missing.length > 5 ? ` (+${missing.length - 5})` : "";
   return `${dir}: ${head}${rest}`;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

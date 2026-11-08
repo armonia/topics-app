@@ -73,4 +73,3 @@ export async function judgeStall(deps: StallJudgeDeps, transcriptTail: string): 
     return "alive";
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

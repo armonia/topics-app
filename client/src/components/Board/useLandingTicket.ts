@@ -40,4 +40,3 @@ export function useLandingTicket(projectId: string, taskId: string, onSettled: (
 
   return { landing, setLanding };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

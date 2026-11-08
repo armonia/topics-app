@@ -257,4 +257,3 @@ export function useProjectTerminalSync({
     return () => { guard.dispose(); stopEnded(); stopRoster(); };
   }, [onWSMessage, projectPath, topicsRef, setPanes]);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

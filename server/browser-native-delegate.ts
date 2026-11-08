@@ -250,4 +250,3 @@ export function isNativeDelegateFrameAllowed(raw: unknown): boolean {
   const type = (raw as { type?: unknown }).type;
   return typeof type === 'string' && NATIVE_DELEGATE_FRAME_TYPES.has(type);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

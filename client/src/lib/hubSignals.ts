@@ -66,4 +66,3 @@ export function machineAlerts(mac: unknown, pc: unknown): MachineAlert[] {
   else if (state === 'sconosciuto') out.push({ machine: 'pc', state: 'unknown', why: null, tone: 'bad' }); // allow-italian: the hub's wire value
   return out;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

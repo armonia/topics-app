@@ -438,4 +438,3 @@ export const NATIVE_EXECUTOR_PARAM = 'executor';
 
 /** Viewer remembers that this context was hosted before the server restarted. */
 export const NATIVE_HOST_PARAM = 'host';
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

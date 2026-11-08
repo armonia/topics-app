@@ -616,4 +616,3 @@ export function deriveToolDetail(
 export function deriveToolDetailFromCall(tc: ToolCall): ToolCallDetail {
   return deriveToolDetail(tc.name, tc.args, tc.result);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

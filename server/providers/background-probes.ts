@@ -222,4 +222,3 @@ export function sessionAttentionBackground(sessionKey: string): { tasks: Attenti
   }
   return answer;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -156,4 +156,3 @@ export function archivedSessionKeys(db: AskRowReader): Set<string> {
   } catch { /* no readable topics table: nothing is known archived */ }
   return out;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

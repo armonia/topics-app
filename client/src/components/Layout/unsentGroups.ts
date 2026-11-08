@@ -49,4 +49,3 @@ export function previewLine(content: string, max = 80): string {
   const oneLine = content.replace(/\s+/g, ' ').trim();
   return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

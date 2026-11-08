@@ -29,4 +29,3 @@ export function prefixRoutedResources<T>(event: T, base: string): T {
   };
   return walk(event) as T;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

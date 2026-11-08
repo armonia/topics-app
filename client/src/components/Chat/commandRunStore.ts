@@ -90,4 +90,3 @@ export function noteCommandRunFrame(msg: { type?: string; sessionKey?: string; m
     for (const fn of outputPokes.get(msg.processId) ?? []) fn();
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

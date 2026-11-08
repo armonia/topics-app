@@ -93,4 +93,3 @@ export function findEmptyDraftPane(paneIds: readonly string[]): string | null {
 export function isDraftDisposable(paneId: string): boolean {
   return paneId.startsWith('draft:') && !isDraftTouched(paneId) && isDraftPaneEmpty(paneId);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -489,4 +489,3 @@ export function DispatchHolders() {
   const { capacity } = useGlobalDispatchCap();
   return <HoldersFold consumers={snapshot?.consumers ?? []} total={capacity?.totalMemGB ?? null} />;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

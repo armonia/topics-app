@@ -128,4 +128,3 @@ export function secondsWords(ms: number, locale: string): string {
   if (ms >= 120_000) return `${Math.round(ms / 60_000)} min`;
   return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1, minimumFractionDigits: 1 }).format(ms / 1000)} s`;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

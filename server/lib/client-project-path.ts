@@ -42,4 +42,3 @@ export function clientProjectPathRefused(
 
 /** The message every refusal carries, so a client can match one string. */
 export const CLIENT_PROJECT_PATH_ERROR = "path must be inside a known project";
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

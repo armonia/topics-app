@@ -46,4 +46,3 @@ export const INCOMPLETE_CARD_NOTICE_PREFIX = "Incomplete card:";
 export function incompleteCardNotice(gaps: readonly AgentCardGap[]): string {
   return `${INCOMPLETE_CARD_NOTICE_PREFIX} an agent opened it without ${gaps.map((g) => GAP_SENTENCES[g]).join("; ")}. It was accepted for now; the creation will be refused once the callers send these fields.`;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

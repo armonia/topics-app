@@ -95,4 +95,3 @@ export function chiaveFrase(motivo: MotivoPairing): string {
 export function chiaveStato(motivo: MotivoPairing | null): string {
   return motivo === null ? 'pair.state.connected' : 'pair.state.retrying';
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

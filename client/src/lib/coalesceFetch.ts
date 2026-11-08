@@ -175,4 +175,3 @@ export const coalescedFetch: FetchCoalescer['fetch'] = (url, init, options) => s
  * without turning a reconnect after a server restart into a stale read.
  */
 export const BOOT_READ_TTL_MS = 2000;
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

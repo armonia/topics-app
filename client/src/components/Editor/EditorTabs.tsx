@@ -429,4 +429,3 @@ export type EditorTabsHandle = {
   openFile: (path: string, name: string, lineNumber?: number, preview?: boolean) => void;
   pinTab: (path: string) => void;
 };
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

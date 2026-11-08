@@ -128,4 +128,3 @@ export function delegatedRequestStatus(raw: unknown, prior: DelegatedMachineRequ
     ? { ...(request as Record<string, unknown>), purpose: prior.purpose, capabilityId: prior.capabilityId }
     : null) ?? prior;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

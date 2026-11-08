@@ -10,4 +10,3 @@ export function stepFocus<T>(items: readonly T[], active: T | null, back: boolea
   const next = (at + (back ? -1 : 1) + items.length) % items.length;
   return items[next]!;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

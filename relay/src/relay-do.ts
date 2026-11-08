@@ -646,4 +646,3 @@ export class SessioneRelay {
     this.diciAllaMacchina({ t: "guest-left", sessionId: chi.sid, ruolo: chi.ruolo });
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

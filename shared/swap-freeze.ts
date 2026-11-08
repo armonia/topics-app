@@ -84,4 +84,3 @@ export const SWAP_EPISODE_CALM_MS = 5 * 60_000;
 
 /** Why a tree was continued. The log line and the notification carry it. */
 export type ThawReason = "room" | "no effect" | "max" | "owner gone" | "shutdown" | "boot";
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

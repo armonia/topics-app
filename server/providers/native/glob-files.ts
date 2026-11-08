@@ -137,4 +137,3 @@ export function globAnswer(found: { files: string[]; truncated: boolean; skipped
   ].filter(Boolean);
   return [found.files.join("\n") || "nessun file", ...notes].join("\n");
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

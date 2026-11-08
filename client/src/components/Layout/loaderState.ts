@@ -69,4 +69,3 @@ export function loaderActivityForTool(name: string): 'search' | 'write' | 'tool'
   if (bare === 'edit' || bare === 'write' || bare === 'multiedit' || bare === 'notebookedit') return 'write';
   return 'tool';
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

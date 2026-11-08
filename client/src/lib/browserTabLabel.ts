@@ -80,4 +80,3 @@ export function browserTabSubtitle(input: BrowserTabLabelInput): string {
   const candidates = [tabAddress(input.url), named];
   return candidates.find((c) => c && c !== label) ?? '';
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

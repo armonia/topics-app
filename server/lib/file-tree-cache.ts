@@ -59,4 +59,3 @@ export function setFileTreeWatcher(root: string, active: boolean): void {
   if (active) watchedPaths.add(root);
   else watchedPaths.delete(root);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

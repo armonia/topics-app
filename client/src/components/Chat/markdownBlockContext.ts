@@ -22,4 +22,3 @@ export interface MarkdownBlockPlace {
 export const WHOLE_MESSAGE: MarkdownBlockPlace = { offset: 0, openFenceFrom: null };
 
 export const MarkdownBlockContext = createContext<MarkdownBlockPlace>(WHOLE_MESSAGE);
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

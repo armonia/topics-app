@@ -37,4 +37,3 @@ export function scrollDelta(container: Span, target: Span, margin = 0): number {
   if (target.end > end) return target.end - end;
   return 0;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

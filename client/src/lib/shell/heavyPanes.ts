@@ -313,4 +313,3 @@ export function holdSampleFallback(fetchRows: () => Promise<readonly ShellWebvie
     }
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

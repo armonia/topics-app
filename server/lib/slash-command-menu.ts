@@ -120,4 +120,3 @@ export function slashMenuEntries(q: SlashMenuQuery): SlashMenuEntry[] {
 function sortByName(list: SlashMenuEntry[]): SlashMenuEntry[] {
   return list.sort((a, b) => a.name.localeCompare(b.name));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -14,4 +14,3 @@ export function selectToEnabled(v: string | null): boolean | null {
   if (v == null) return null;
   return v === 'on';
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

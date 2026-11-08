@@ -760,4 +760,3 @@ export function assertUiStateMigrationApplied(db: import("bun:sqlite").Database)
     throw new Error("[ui-state] boot check: migration 012 not applied: server_seq column missing. Run `bun run db:migrate`.");
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

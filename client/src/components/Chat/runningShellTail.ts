@@ -50,4 +50,3 @@ export function runningShellOutput(tc: ToolCall): string | undefined {
   if (tc.detail?.type === 'shell' && tc.detail.output) return undefined;
   return tc.result;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

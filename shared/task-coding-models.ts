@@ -358,4 +358,3 @@ export function taskModelMatchesSession(
   }
   return CLAUDE_CODING_PROVIDERS.includes(provider) && selected.model === session.model;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

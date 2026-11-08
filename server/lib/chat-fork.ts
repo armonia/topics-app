@@ -208,4 +208,3 @@ export function forkStartFor(
   if (origin.branchRef !== claudeSessionId || branchTranscriptExists) return null;
   return { sessionId: origin.parentRef, atUuid: origin.parentAt };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

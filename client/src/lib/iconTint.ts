@@ -343,4 +343,3 @@ export function sampleIconPalette(url: string): Promise<string[] | null> {
   paletteInflight.set(url, job);
   return job;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -45,4 +45,3 @@ export function rowCommandSequence(canStop: boolean, closable = true): RowComman
   if (closable) commands.push('close');
   return commands;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -530,4 +530,3 @@ export function useWebSocket(): UseWebSocketReturn {
 
   return { status: displayStatus, sendWS, onMessage, reconnect, lastConnectedAt };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

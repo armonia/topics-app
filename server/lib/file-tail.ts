@@ -140,4 +140,3 @@ export function shrinkLog(tail: FileTail, keepBytes: number): void {
     closeSync(fd);
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

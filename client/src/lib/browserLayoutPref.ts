@@ -50,4 +50,3 @@ export function subscribeBrowserLayout(fn: () => void): () => void {
 export function useBrowserLayout(): BrowserLayout {
   return useSyncExternalStore(subscribeBrowserLayout, readBrowserLayout, () => 'own');
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -101,4 +101,3 @@ export function sliceFromCursor(buf: LogBuffer, offset: number): LogSlice {
     truncatedLines: Math.max(0, buf.droppedLines - offset),
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

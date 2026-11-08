@@ -727,4 +727,3 @@ export function openingFilter(view: AgentsJobsView): JobFilter {
 export function cancelRequest(id: string): { path: string; init: { method: 'DELETE' } } {
   return { path: `/api/hub/queue?id=${encodeURIComponent(id)}`, init: { method: 'DELETE' } };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

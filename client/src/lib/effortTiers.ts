@@ -87,4 +87,3 @@ export function resolveShownEffortTier(
   const effective = resolveEffectiveProvider(entries, providerOverride, defaultProviderLabel);
   return effort ?? providerEffortTier(entries, effective, providerOverride) ?? null;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

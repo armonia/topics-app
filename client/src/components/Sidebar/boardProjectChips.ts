@@ -419,4 +419,3 @@ export function fitBoardRow(
   const chipSpace = Math.max(0, width - (used > 0 ? used + GROUP_SPACING : 0));
   return { chips: fitProjectChips(chipSpace, chips, (c) => chipWidth(c.n)), counts: fittedCounts };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -61,4 +61,3 @@ export function holdsOwnEvidence(
   if (explain) return false;
   return isDurablePreviewEvidence(current, exists);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

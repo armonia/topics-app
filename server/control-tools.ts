@@ -247,4 +247,3 @@ export async function dispatchControlToolCall(
       throw new ControlToolError(`unknown control tool: ${name}`, "unknown_tool");
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

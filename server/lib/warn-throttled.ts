@@ -22,4 +22,3 @@ export function warnThrottled(key: string, ...args: unknown[]): void {
   lastWarnAt.set(key, now);
   console.warn(...args);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

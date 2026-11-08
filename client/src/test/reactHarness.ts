@@ -333,4 +333,3 @@ export function mount(element: React.ReactNode): Harness {
     unmount: () => { if (disposed) return; disposed = true; teardown(root); },
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

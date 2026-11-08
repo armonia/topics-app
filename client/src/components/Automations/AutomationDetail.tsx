@@ -313,4 +313,3 @@ function VotePart({ row, clock, disabled, feedback, undo }: { row: AutomationRow
     </div>
   );
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

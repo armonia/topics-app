@@ -307,4 +307,3 @@ export function agentTerminalIds(topics: Record<string, Topic>, terminals: Reado
   }
   return out;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

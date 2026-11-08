@@ -173,4 +173,3 @@ export function checkStage(
   if (status !== undefined && status !== col.base) return { error: `stage "${stage}" holds cards in status "${col.base}", not "${status}"` };
   return { stage: col.id === col.base ? null : col.id };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

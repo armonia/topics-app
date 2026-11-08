@@ -42,4 +42,3 @@ export function markBrowserViewDead(id: string): void {
 export function liveBrowserViews(): ReadonlySet<string> {
   return liveViews;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

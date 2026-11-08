@@ -9,4 +9,3 @@ export const WS_TRANSPORT_OPTIONS = {
   maxPayloadLength: 1024 * 1024,
   perMessageDeflate: true,
 } as const;
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

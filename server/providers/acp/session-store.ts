@@ -79,4 +79,3 @@ export function sessionMatchesCwd(row: ProviderSessionRow, cwd: string | null): 
   if (!cwd || !row.cwd) return true;
   return row.cwd === cwd;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

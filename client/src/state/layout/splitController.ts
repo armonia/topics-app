@@ -45,4 +45,3 @@ export function resizeWeights(weights: number[], idx: number, delta: number, flo
   const nb = sum - na;
   return norm.map((w, i) => (i === idx ? na : i === idx + 1 ? nb : w));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -115,4 +115,3 @@ export function applyEvent(
       return; // env_manager_log, rate_limit_event, task_*: not needed by the chat for now
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

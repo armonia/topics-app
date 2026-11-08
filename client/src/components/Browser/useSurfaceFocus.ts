@@ -37,4 +37,3 @@ export function useSurfaceFocus(initial = true): SurfaceFocus {
   const captureProps = useMemo(() => ({ onPointerDownCapture: claim, onFocusCapture: claim }), [claim]);
   return { focused, claim, captureProps };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

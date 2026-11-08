@@ -317,4 +317,3 @@ export async function readNavigationHistoryFlags(cdp: CDPSession): Promise<Navig
 export async function stopLoading(cdp: CDPSession): Promise<void> {
   await cdp.send("Page.stopLoading");
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

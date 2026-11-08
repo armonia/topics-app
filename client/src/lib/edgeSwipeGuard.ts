@@ -171,4 +171,3 @@ export function initEdgeSwipeGuard(): () => void {
   document.addEventListener('touchstart', onTouchStart, { passive: false, capture: true });
   return () => document.removeEventListener('touchstart', onTouchStart, true);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

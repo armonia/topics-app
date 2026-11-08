@@ -98,4 +98,3 @@ export async function runWithDelegatedDeadline(input: {
   try { return await Promise.race([input.run(), deadline]); }
   finally { settled = true; if (timer !== null) clearTimer(timer); }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -87,4 +87,3 @@ export function attentionBootReader(src: AttentionBootSources): AttentionBootRea
     dispatched: src.dispatchedSubjects,
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

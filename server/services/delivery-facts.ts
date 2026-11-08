@@ -39,4 +39,3 @@ export async function deliveryFacts(runGit: GitRunner, repoPath: string, branch:
   const count = await runGit(repoPath, ["rev-list", "--count", `${baseSha}..refs/heads/${branch}`]);
   return { baseSha, commitCount: count.code === 0 ? Number(count.stdout.trim()) || 0 : 0 };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

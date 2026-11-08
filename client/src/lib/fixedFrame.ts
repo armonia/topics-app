@@ -44,4 +44,3 @@ export function toFixed<T extends { top: number; left: number }>(at: T, doc?: Do
   const frame = fixedFrame(doc);
   return { ...at, top: at.top - frame.top, left: at.left - frame.left };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

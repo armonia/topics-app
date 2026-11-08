@@ -25,4 +25,3 @@ export function getProviderStrategy(provider: AIProvider): ProviderContextStrate
   if (provider.contextStrategy) return provider.contextStrategy;
   return provider.capabilities.has("history") ? "history-aware" : "inline-system";
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

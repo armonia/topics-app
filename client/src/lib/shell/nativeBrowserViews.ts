@@ -257,4 +257,3 @@ export function installHideOnPageExit(heldIds: () => Iterable<string>, invoke: I
   if (typeof window === 'undefined') return;
   window.addEventListener('pagehide', () => hideNativeViewsOnPageExit(heldIds(), invoke));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

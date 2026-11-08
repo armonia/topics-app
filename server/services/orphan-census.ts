@@ -141,4 +141,3 @@ export function createOrphanCensusRunner(deps: CensusRunnerDeps): () => void {
     if (plan.park.length > 0) deps.park(plan.park);
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

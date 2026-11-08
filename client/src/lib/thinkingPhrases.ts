@@ -42,4 +42,3 @@ export function phraseAt(elapsedMs: number): string {
   const idx = Math.floor(elapsedMs / ROTATE_MS) % PHRASES.length;
   return PHRASES[idx];
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

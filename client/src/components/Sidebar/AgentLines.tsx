@@ -57,4 +57,3 @@ const SIGNALS: Record<SignalKind, {
   working: { Icon: Bot, tint: SEGNALE_OK, label: 'statusBar.signals.working', alive: true },
   open: { Icon: MessagesSquare, tint: CHIP_INK_DIM, label: 'statusBar.signals.open' },
 };
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

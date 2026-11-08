@@ -60,4 +60,3 @@ export function DropNotice({ text, onDone }: { text: string; onDone: () => void 
     </div>
   );
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

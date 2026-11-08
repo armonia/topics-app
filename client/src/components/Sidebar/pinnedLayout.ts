@@ -404,4 +404,3 @@ export function samePinnedLayout(a: readonly PinnedRow[], b: readonly PinnedRow[
 export function flattenPinnedLayout(layout: readonly PinnedRow[]): string[] {
   return layout.flatMap(r => r.keys);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -50,4 +50,3 @@ export function draftPreviewOf(
   const { title, description } = titoloDaTesto(raw);
   return { title, description, status, images, files };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

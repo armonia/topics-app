@@ -19,4 +19,3 @@ export function topicIdFromKey(key: string): string | null {
     ? key.slice(TOPIC_BROWSER_KEY_PREFIX.length)
     : null;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

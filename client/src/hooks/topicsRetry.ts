@@ -78,4 +78,3 @@ export function topicsRetryDelayMs(attempt: number): number {
   const steps = Math.max(0, Math.min(attempt, 30));
   return Math.min(TOPICS_RETRY_BASE_MS * 2 ** steps, TOPICS_RETRY_CEILING_MS);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

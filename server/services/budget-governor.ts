@@ -289,4 +289,3 @@ export function setActiveBudgetGovernor(g: BudgetGovernor | null): void {
 export function activeFrozenCount(): number {
   try { return active?.frozenCount() ?? 0; } catch { return 0; }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

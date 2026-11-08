@@ -41,4 +41,3 @@ export function clearSessionCliPid(sessionKey: string): void {
 export function listSessionCliPids(): { sessionKey: string; pid: number }[] {
   return [...cliPids].map(([sessionKey, pid]) => ({ sessionKey, pid }));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

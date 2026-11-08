@@ -134,4 +134,3 @@ function clamp(s: string, n: number): string {
 export function isPermissionDecision(value: unknown): value is PermissionDecision {
   return value === 'allow' || value === 'allow_always' || value === 'deny' || value === 'allow_free';
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

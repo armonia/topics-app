@@ -22,4 +22,3 @@ export const scheduledCardsApi = {
   remove: (projectId: string, id: string) =>
     req<{ ok: boolean }>(`${base(projectId)}/${encode(id)}`, { method: 'DELETE' }),
 };
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

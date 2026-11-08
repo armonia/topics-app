@@ -383,4 +383,3 @@ export function splitFitsCaps(
   if (vertical) return columnDepth(rows[loc.rowIdx], loc.primaryId) < MAX_STACK_DEPTH;
   return rows[loc.rowIdx].groupIds.length < MAX_COLS_PER_ROW;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

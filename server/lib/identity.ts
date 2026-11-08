@@ -147,4 +147,3 @@ export function resolveIdentity(db: Db, cookieHeader: string | null, locale: boo
 export function confinamentoDerivato(db: Db, deviceId: string): boolean {
   return resolvePrincipals(db, deviceId).confined;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

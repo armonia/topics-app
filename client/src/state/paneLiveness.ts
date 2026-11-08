@@ -35,4 +35,3 @@ export function usePaneAlive(): boolean {
 // che è la forma giusta — non serve ri-renderizzare un componente per spegnere
 // un `setInterval`. Un wrapper reattivo senza consumatori teneva in piedi uno
 // store `useSyncExternalStore` con listener globali per nessuno.
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

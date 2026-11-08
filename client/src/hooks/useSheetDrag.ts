@@ -280,4 +280,3 @@ export function useSheetDrag({ enabled, sheetRef, scrimRef, onClose }: SheetDrag
     };
   }, [enabled, sheetRef, scrimRef]);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

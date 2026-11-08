@@ -45,4 +45,3 @@ export function cellText(v: TableCell, col: TableColumn, locale: string): string
   }
   return col.unit && col.format !== 'price' ? `${v} ${col.unit}` : v;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

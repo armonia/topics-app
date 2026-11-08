@@ -410,4 +410,3 @@ function BoardWork({ kpis, locale, tr }: { kpis: DashboardKPIs | null; locale: s
     </Box>
   );
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

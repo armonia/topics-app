@@ -68,4 +68,3 @@ export function pickMissionSession(input: MissionTargetInput): string | null {
     .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
   return closed[0]?.id ?? null;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

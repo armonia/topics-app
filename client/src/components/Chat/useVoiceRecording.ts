@@ -192,4 +192,3 @@ export function useVoiceRecording(
 
   return { isRecording, recordingTime, voiceUploading: uploading, startRecording, stopRecording, formatRecordingTime };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

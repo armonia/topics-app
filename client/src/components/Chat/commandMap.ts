@@ -130,4 +130,3 @@ export function invokedName(text: string): string | null {
   const first = t.slice(1).split(/\s/, 1)[0] ?? '';
   return COMMAND_NAME.test(first) ? first.toLowerCase() : null;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

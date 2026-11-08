@@ -211,4 +211,3 @@ export function createScheduledCards(db: Database, tasks: TaskService, now: () =
 
   return { create, update, setEnabled, remove, list, tick } satisfies ScheduledCardsService;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

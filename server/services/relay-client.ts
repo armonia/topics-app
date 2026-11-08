@@ -1298,4 +1298,3 @@ export function creaRelayClient(deps: RelayDeps) {
     __ruolo: (sid: string) => proxy.__ruolo(sid),
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

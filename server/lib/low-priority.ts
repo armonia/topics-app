@@ -223,4 +223,3 @@ export function isAgentWorkspace(cwd: string, parentSessionKey: string | undefin
   const dispatcherRoot = join(home, ".topics", "worktrees") + sep;
   return norm.startsWith(dispatcherRoot) || norm.includes(`${sep}.claude${sep}worktrees${sep}`);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

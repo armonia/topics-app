@@ -23,4 +23,3 @@ export type ProjectIconStatus = 'probing' | 'has' | 'none';
 export function projectGlyphSlotShown(status: ProjectIconStatus): boolean {
   return status !== 'none';
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

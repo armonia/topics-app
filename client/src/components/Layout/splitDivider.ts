@@ -15,4 +15,3 @@ import type { SplitChild } from '../../state/layout/layoutTree';
 export function gapHasDivider(children: readonly SplitChild[], i: number): boolean {
   return i > 0 && (children[i]?.weight ?? 0) > 0 && (children[i - 1]?.weight ?? 0) > 0;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

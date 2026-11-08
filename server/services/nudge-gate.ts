@@ -134,4 +134,3 @@ export function gateNudge(args: {
   }
   return { text, fresh: true, claim: { at: nowIso, fingerprint, repeats: 1 } };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

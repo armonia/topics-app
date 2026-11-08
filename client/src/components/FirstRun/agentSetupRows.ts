@@ -11,4 +11,3 @@ export interface AgentSetupRow {
 export function agentSetupRows(agents: CliAgentPresence[]): AgentSetupRow[] {
   return agents.map(({ id, name, installed, path, install }) => ({ id, name, installed, path, install }));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

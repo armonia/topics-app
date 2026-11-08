@@ -34,4 +34,3 @@ export interface ChangeSet {
   /** The two SHAs the set compares; `null` = no byte of a file can be asked for. */
   revs: DiffRevs | null;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

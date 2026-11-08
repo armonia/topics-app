@@ -188,4 +188,3 @@ export function parseShellIdFromStartResult(result: string | undefined): string 
   // has to drop it too, or it looks for a row that does not exist.
   return m?.[1]?.replace(/\.+$/, '') || undefined;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

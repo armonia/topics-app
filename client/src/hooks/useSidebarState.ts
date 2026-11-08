@@ -620,4 +620,3 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
     setBrowserExpanded,
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

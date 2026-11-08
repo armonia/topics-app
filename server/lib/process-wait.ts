@@ -221,4 +221,3 @@ export function closeWatchesOfSession(sessionKey: string): void {
 export function countWatches(): number {
   return watches.size;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

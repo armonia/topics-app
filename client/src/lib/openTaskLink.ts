@@ -301,4 +301,3 @@ export function openTaskInApp(target: TaskTarget, focusPaneId?: string): void {
   window.dispatchEvent(new CustomEvent('topics:open-task', { detail: focusPaneId ? { ...target, focusPaneId } : target }));
 }
 
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

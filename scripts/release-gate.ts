@@ -182,4 +182,3 @@ async function main(): Promise<void> {
 
 // Runs only when this file IS the process, so the test can import `decide`.
 if (import.meta.main) await main();
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

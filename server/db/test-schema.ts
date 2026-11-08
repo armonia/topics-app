@@ -323,4 +323,3 @@ export function alterMigrationsAfter(dopo: string, tabelle: string[], radice: st
  * itself so the test bench and production cannot drift.
  */
 export const PLAN_HIERARCHY_DDL = readFileSync(join(import.meta.dir, "migrations", "20261107200000-plan-hierarchy.sql"), "utf8");
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

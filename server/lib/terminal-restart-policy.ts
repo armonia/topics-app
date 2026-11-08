@@ -67,4 +67,3 @@ export function decideOnRestart(c: RestartCandidate): RestartAction {
   // recuperabile e, per le shell, la spazza comunque il giro orario.
   return { action: "park" };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -226,4 +226,3 @@ export function renderViewDocument(spec: ViewSpec, o: RenderOpts = {}): string {
 export function renderViewAppShell(language: ViewLanguage = "it"): string {
   return documentOf("Topics", language, "").replace('<main id="view">', '<main id="view" aria-busy="true">');
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

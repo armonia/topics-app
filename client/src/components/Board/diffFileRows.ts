@@ -90,4 +90,3 @@ export function chunkFromFilePatch(path: string, patch: string): DiffFileChunk |
   const chunks = splitPatch(patch);
   return chunks.find((c) => c.path === path) ?? chunks[0] ?? null;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

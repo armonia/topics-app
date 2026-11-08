@@ -418,4 +418,3 @@ export async function dropTurnCheckpoints(projectPath: string, sessionKey: strin
   for (const c of all) await runGit(["update-ref", "-d", c.ref, c.commit], projectPath);
   return all.length;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

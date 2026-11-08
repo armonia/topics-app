@@ -85,4 +85,3 @@ export function confirmCardOrigin(deps: CardOriginDeps, input: CardOriginInput):
   });
   return text;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

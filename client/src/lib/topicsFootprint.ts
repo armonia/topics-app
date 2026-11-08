@@ -185,4 +185,3 @@ export function serverMetricLabel(metric: ServerMemMetric): string {
   if (metric === 'mixed') return 'footprint parziale';
   return 'RSS (stima alta)';
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

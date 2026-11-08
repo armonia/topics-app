@@ -360,4 +360,3 @@ export function checkStart(status: number, body: unknown): CheckStart {
   if (status >= 200 && status < 300 && b.ok === true) return { ok: true, already: b.already === true };
   return { ok: false, why: str(b.error) ?? `HTTP ${status}` };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

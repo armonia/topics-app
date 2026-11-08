@@ -134,4 +134,3 @@ export function removeToolGrant(pattern: string): boolean {
 export function decideGrantForTool(toolName: string): GrantDecision {
   return decideGrant({ toolName, patterns: listGrantPatterns() });
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

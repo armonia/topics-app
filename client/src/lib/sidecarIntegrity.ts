@@ -65,4 +65,3 @@ export function useSidecarIntegrity(): SidecarReport | null {
 export function shouldWarnAboutSidecars(report: SidecarReport | null): boolean {
   return !!report && report.checked && !report.ok && report.bad.length > 0;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

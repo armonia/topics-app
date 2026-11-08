@@ -91,4 +91,3 @@ export async function popOutTopics(topicIds: string[]): Promise<boolean> {
 export async function popOutTopic(topicId: string): Promise<boolean> {
   return popOutTopics([topicId]);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

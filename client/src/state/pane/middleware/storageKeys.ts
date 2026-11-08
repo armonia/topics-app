@@ -25,4 +25,3 @@
 
 /** Snapshot completo dello store (panes/groups/closedStack). */
 export const PANE_STORE_LOCAL_KEY = 'pane-store-v2';
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

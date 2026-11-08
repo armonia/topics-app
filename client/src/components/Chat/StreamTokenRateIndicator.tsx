@@ -58,4 +58,3 @@ function StreamTokenRateIndicatorComponent({ sessionKey }: StreamTokenRateIndica
 }
 
 export const StreamTokenRateIndicator = memo(StreamTokenRateIndicatorComponent);
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

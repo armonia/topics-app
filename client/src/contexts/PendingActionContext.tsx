@@ -458,4 +458,3 @@ export const flushPendingActions = withApi('flushAll');
 export function cancelLatestPendingClose(): boolean {
   return withApi('cancelLatest')('close-tab:') === true;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

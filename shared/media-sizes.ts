@@ -11,4 +11,3 @@ export type MediaSize = [number, number];
 
 /** By the path the client looks the picture up with. */
 export type MediaSizes = Record<string, MediaSize>;
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

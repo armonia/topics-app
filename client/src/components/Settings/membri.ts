@@ -43,4 +43,3 @@ export function splitMembri(membri: Membro[]): { presenti: Membro[]; tolti: Memb
     tolti: membri.filter((m) => m.blocked),
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

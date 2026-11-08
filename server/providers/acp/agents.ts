@@ -107,4 +107,3 @@ export function mergeAcpAgents(
   for (const spec of declared) byName.set(spec.name, spec);
   return [...byName.values()];
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

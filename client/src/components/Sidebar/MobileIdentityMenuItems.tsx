@@ -21,4 +21,3 @@ export function MobileIdentityMenuItems({ onClose, openLevel = null }: {
   if (identity.session.status !== 'paired') return null;
   return <IdentityMenuItems data={identity} width={LEVEL_WIDTH} onClose={onClose} openLevel={openLevel} />;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

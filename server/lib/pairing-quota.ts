@@ -150,4 +150,3 @@ export function sceltoPerSfratto(pending: readonly PendingLike[]): string | null
 
   return peggiore.reduce((a, b) => (a.createdAt <= b.createdAt ? a : b)).id;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

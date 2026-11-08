@@ -127,4 +127,3 @@ export const CONTENT_CHROME_INSET_PX =
  * must run on the same clock.
  */
 export const CONTENT_CHROME_INSET_PROPERTY = '--content-chrome-inset';
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

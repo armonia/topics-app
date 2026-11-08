@@ -91,4 +91,3 @@ export function readElsewhere(db: Database, rows: Row[]): Map<string, Elsewhere>
   }
   return out;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

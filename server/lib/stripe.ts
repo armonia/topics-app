@@ -434,4 +434,3 @@ export async function creaCheckout(o: OptionsCheckout): Promise<OutcomeCheckout>
   if (!url || !id) return { ok: false, codice: "upstream_error" };
   return { ok: true, url, id };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

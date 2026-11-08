@@ -356,4 +356,3 @@ export function closeMcpFleet(): void {
   mountPromise = null;
   mounted = false;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

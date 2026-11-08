@@ -411,4 +411,3 @@ export function cancelPermissionsForSession(sessionKey: string, reason = 'cancel
   // non hanno mai aperto un pannello.
   if (wasHeld) emitHumanHoldChange({ sessionKey, phase: 'released', source: 'permission' });
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

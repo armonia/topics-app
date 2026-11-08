@@ -73,4 +73,3 @@ export function snapshotCounts(): Record<string, number> {
   for (const [k, v] of store.entries()) out[k] = v.length;
   return out;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

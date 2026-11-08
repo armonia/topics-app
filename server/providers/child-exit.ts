@@ -17,4 +17,3 @@ export function childExited(proc: ChildProcess, capMs: number): Promise<void> {
     proc.once("exit", () => { clearTimeout(timer); resolve(); });
   });
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

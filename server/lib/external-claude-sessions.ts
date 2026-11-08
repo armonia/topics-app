@@ -275,4 +275,3 @@ export function scanExternalClaudeSessions(opts: ScanOptions): ExternalClaudeSes
 export function clearExternalSessionCache(): void {
   factsCache.clear();
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

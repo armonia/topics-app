@@ -57,4 +57,3 @@ export function landedInColumn(
 export function statusSnapshot(tasks: readonly StatusSnapshot[]): Map<string, TaskStatus> {
   return new Map(tasks.map((t) => [t.id, t.status]));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

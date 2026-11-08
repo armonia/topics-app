@@ -231,4 +231,3 @@ function languageSupport(
     ? { key: 'appearance.language.support.confirmed', params: { engine: named }, tone: good }
     : { key: 'appearance.language.support.missing', params: { engine: named }, tone: warn };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

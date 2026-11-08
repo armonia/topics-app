@@ -628,4 +628,3 @@ export function fleetSessionCoreUnits(): number[] {
     .filter((s) => s.cpuPercent != null)
     .map((s) => (s.cpuPercent! / 100) * cores);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

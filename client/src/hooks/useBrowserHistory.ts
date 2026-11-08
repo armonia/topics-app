@@ -48,4 +48,3 @@ export function useBrowserHistory(topicId: string) {
 
   return { history, push, clear };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

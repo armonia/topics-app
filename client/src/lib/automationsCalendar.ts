@@ -65,4 +65,3 @@ export function calendarDays(items: CalendarEntry[], now: number, kind: Calendar
   }
   return [...days.entries()].map(([day, list]) => ({ day, offset: day === null ? null : Math.round((day - today) / 86_400_000), items: list }));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

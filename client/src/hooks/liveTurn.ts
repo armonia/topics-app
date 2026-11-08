@@ -190,4 +190,3 @@ export function shouldFillFromBroadcast(existing: ChatMessage | undefined, incom
   if (held.length > 0 && !existing.partial) return false;
   return incomingContent.length > held.length;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

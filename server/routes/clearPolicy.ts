@@ -52,4 +52,3 @@ export function clearActionFor(provider: ClearCapableProvider | null | undefined
   if (typeof provider?.sendToSession === "function") return { kind: "in-band" };
   return { kind: "none" };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

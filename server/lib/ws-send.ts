@@ -12,4 +12,3 @@ export function sendWsFrame(
   // estimate and avoids rescanning the same payload for every subscriber.
   return ws.send(payload, shouldCompressFrame({ type, bytes: payload.length, remote: ws.data.remote === true }));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

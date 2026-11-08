@@ -124,4 +124,3 @@ export function isPlanApprovalAnswer(response: { kind: string; answers?: Record<
 }
 
 export { planDecisionFrom } from "../../shared/plan-decision";
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

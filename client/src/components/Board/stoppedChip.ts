@@ -29,4 +29,3 @@ export function showsStoppedChip(task: StoppedChipTask): boolean {
   if (task.status === 'done') return false;
   return !task.dispatchState && !!task.dispatchError;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

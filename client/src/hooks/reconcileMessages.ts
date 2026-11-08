@@ -266,4 +266,3 @@ export function reconcileMessages(prev: ChatMessage[], next: ChatMessage[]): Cha
   });
   return identico ? prev : out;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

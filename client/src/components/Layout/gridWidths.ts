@@ -149,4 +149,3 @@ export function keepColumnWidths(
 ): number[] {
   return normalizeWidths(keepIdx.map((i) => widths[i] ?? 0));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

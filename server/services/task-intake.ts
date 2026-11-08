@@ -218,4 +218,3 @@ export function linkNotes(args: {
     onTargetTask: `Intake: «${newTaskText}» è **in attesa di questa card**. Parte da solo quando questa chiude, riprendendo questa conversazione.\n\n${reason}`,
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

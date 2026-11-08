@@ -26,4 +26,3 @@ export const DEFAULT_WHEN_OPEN: PushWhenOpen = "native";
 export function parseWhenOpen(value: unknown): PushWhenOpen | null {
   return value === "native" || value === "in-app" ? value : null;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

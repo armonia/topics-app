@@ -41,4 +41,3 @@ export function terminalActivity(id: string, session: TerminalLike, busy: boolea
 export function terminalExited(id: string, byPerson: boolean): void {
   processEnded(terminalSubject(id), { cause: "pty-exit", byPerson });
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

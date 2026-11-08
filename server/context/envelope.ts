@@ -41,4 +41,3 @@ export type { ProviderContextStrategy } from "../../shared/types";
  * default `unknown` — non li renderizza, quindi non gli serve saperne di più.
  */
 export type ProviderPayload = SharedProviderPayload<Tool>;
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

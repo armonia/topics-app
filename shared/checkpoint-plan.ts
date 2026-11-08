@@ -73,4 +73,3 @@ export interface RestoreVerdict {
   /** False when nothing on disk will be touched, whatever the reason. */
   filesRestorable: boolean;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

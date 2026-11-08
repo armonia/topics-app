@@ -20,4 +20,3 @@ export function changedFileOpen(changes: TopicChanges | null, path: string, proj
   if (!root) return null;
   return changes?.git ? { kind: 'diff', filePath: path, projectPath: root } : { kind: 'file', path };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -44,4 +44,3 @@ export function isOwnFrame(frameClientId: string | null | undefined): boolean {
   if (!clientId || !frameClientId) return false;
   return frameClientId === clientId;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

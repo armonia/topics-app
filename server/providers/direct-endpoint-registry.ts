@@ -35,4 +35,3 @@ export function syncDirectEndpointProviders(registry: RegistryPort, root?: strin
   for (const config of configs) registry.registerProvider(config);
   return [...wanted];
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -159,4 +159,3 @@ export function augmentedPath(env, home, platform = process.platform) {
   }
   return { key, value: parts.join(separator), drop: spellings.filter((k) => k !== key) };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

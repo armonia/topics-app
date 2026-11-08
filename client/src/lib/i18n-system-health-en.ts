@@ -50,4 +50,3 @@ const SYSTEM_HEALTH_EN: Dict = {
 };
 
 export default SYSTEM_HEALTH_EN;
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

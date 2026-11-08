@@ -288,4 +288,3 @@ export function glintPoints(f: IceFields, keepOut: Float32Array | undefined, max
   }
   return out;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

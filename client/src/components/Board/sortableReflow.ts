@@ -22,4 +22,3 @@ export function reflowTransform(transform: Transform | null, isDragging: boolean
   if (transform.x === 0 && transform.y === 0 && transform.scaleX === 1 && transform.scaleY === 1) return undefined;
   return CSS.Transform.toString(transform);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

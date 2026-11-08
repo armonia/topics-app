@@ -118,4 +118,3 @@ export function agentTypeDescription(profiles: ReadonlyMap<string, AgentProfile>
     .map((p) => `- ${p.name}: ${profileSummary(p.description) || "(no description)"}`);
   return `${head} Available:\n${lines.join("\n")}`;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

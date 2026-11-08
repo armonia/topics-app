@@ -529,4 +529,3 @@ export function loadProjectLayout(
 export function unsubscribeProjectLayout(localKey: string): void {
   onUpdateByKey.delete(localKey);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

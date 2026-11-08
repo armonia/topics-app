@@ -101,4 +101,3 @@ export function stepAutoShare(state: AutoShareState, want: boolean): AutoShareSt
   if (agreeing < needed) return { ...state, agreeing };
   return { shared: want, agreeing: 0 };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

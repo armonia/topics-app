@@ -30,4 +30,3 @@ export function goalLoopRowOf(blocks: ContentBlock[] | undefined | null): GoalLo
   }
   return null;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

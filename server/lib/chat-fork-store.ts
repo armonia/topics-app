@@ -57,4 +57,3 @@ export function pendingForkSessions(db: Database): Set<string> {
     .all() as Array<{ branch_ref: string }>;
   return new Set(rows.map((row) => row.branch_ref));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

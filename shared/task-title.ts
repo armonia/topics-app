@@ -98,4 +98,3 @@ export function accorcia(riga: string): string {
   //    si taglia al limite, che è quel che si può fare onestamente.
   return `${finestra.trimEnd()}…`;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

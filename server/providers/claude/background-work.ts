@@ -489,4 +489,3 @@ export function attentionBackgroundOf(work: BackgroundWork | undefined, now: num
   const counting = Object.values(tasks).filter((t) => !t.recurring);
   return { tasks, count: counting.length, kinds: [...new Set(counting.map((t) => t.kind))] };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

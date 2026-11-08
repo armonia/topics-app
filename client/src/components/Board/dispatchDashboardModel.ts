@@ -126,4 +126,3 @@ export function brokenCards(tasks: readonly BoardTask[]): { total: number; liste
 export function rowReason(reason: string): string {
   return reason.replace(/^(?:ferma|in coda|rinviata|in attesa): /, '');
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -166,4 +166,3 @@ export function backfillPostTokens(
     .get(String(target.id)) as Record<string, unknown> | undefined;
   return row ? mapRow(row) : null;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

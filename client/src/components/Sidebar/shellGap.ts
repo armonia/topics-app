@@ -82,4 +82,3 @@ export function versionBadgeText(
   if (devInstall) return 'dev';
   return gap ? `v${gap.shell}` : null;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

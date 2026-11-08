@@ -254,4 +254,3 @@ export function surfaceForPaneType(type: PaneType): ChromeBarSurface {
 export function paneTypesWithoutSurface(): PaneType[] {
   return PANE_TYPES.filter((type) => !BY_PANE_TYPE.has(type));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

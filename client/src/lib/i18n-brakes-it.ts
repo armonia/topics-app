@@ -54,4 +54,3 @@ const BRAKES_IT: Dict = {
 };
 
 export default BRAKES_IT;
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

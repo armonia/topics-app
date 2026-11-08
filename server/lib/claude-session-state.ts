@@ -1030,4 +1030,3 @@ function extractApprovalPrompt(hook: HookPayload): string {
   if (typeof hook.title === 'string') return hook.title;
   return 'Approval requested';
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

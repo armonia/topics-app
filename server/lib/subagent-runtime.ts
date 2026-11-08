@@ -759,4 +759,3 @@ export async function readAgentOutput(
   return { events: [], nextOffset: Number.isFinite(since) ? since : 0, source: "buffer", buffer };
 }
 
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

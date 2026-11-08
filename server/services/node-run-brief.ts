@@ -135,4 +135,3 @@ export function withNodeRunLanguage(description: string, lang: OutputLanguage | 
   if (!block) return description;
   return description.trim() ? `${description.trim()}\n\n${block}` : block;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -188,4 +188,3 @@ export function useDismissable({ open, onClose, refs, restoreFocus = true, exclu
     if (wasOpen.current) giveFocusBack();
   }, [giveFocusBack]);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

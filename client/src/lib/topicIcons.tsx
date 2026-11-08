@@ -86,4 +86,3 @@ export const TopicIcon = memo(function TopicIcon({
   const Icon = getTopicIcon(name);
   return createElement(Icon, { size, style: color ? { color } : undefined, className });
 });
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

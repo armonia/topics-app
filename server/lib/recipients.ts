@@ -139,4 +139,3 @@ export function subjectRejection(db: Db, kind: SubjectKind, id: string): Recipie
 export function canReceive(db: Db, kind: SubjectKind, id: string): boolean {
   return subjectRejection(db, kind, id) === null;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -1678,4 +1678,3 @@ function rememberFramable(url: string, framable: boolean): void {
     clearConsole,
   }), [state, framable, consoleSummary, clearConsole, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement, setEngine, setStreamActive, setWatching, retryWebrtc, setRenderMode, registerDomSink, registerFocusSink, sendInput, dismissDownload, clearDownloads]);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

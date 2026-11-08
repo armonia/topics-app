@@ -26,4 +26,3 @@ export function AddMenuIcon({ item, size }: { item: AddMenuItem; size: number })
   if (!Component) return null;
   return <Component size={size} className="flex-shrink-0" style={icon.color ? { color: icon.color } : undefined} />;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

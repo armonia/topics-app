@@ -148,4 +148,3 @@ export function recordResend(db: Pick<Database, "prepare">, sessionKey: string, 
 export function noteResendCopy(db: Pick<Database, "prepare">, sessionKey: string, messageId: string, copyId: string): void {
   db.prepare(`UPDATE resend_counts SET last_copy_id = ? WHERE message_id = ? AND session_key = ?`).run(copyId, messageId, sessionKey);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -41,4 +41,3 @@ export function parseUtilityPanelType(id: string): UtilityPanelType | null {
   if (!isUtilityPanelId(id)) return null;
   return id.slice(UTILITY_PREFIX.length, -2) as UtilityPanelType;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

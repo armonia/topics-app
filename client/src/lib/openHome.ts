@@ -81,4 +81,3 @@ export const HOME_ANCHOR_ATTR = 'data-home-anchor';
 export function isPanelHome(home: SettingHome): home is PanelHome {
   return home === 'providers' || home === 'tools' || home === 'calendar';
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

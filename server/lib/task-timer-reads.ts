@@ -102,4 +102,3 @@ export const PARKED_CHILDREN_CANDIDATES_SQL = `SELECT p.id, p.project_id FROM ta
               AND EXISTS (SELECT 1 FROM tasks c
                            WHERE c.parent_task_id = p.id AND c.archived = 0 AND c.status != 'done')
             ORDER BY p.updated_at`;
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

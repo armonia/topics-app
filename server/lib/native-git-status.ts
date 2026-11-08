@@ -110,4 +110,3 @@ export function setNativeGitStatusTestOverrides(overrides: {
   metrics.numstatFallbacks = 0;
   metrics.lastError = null;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

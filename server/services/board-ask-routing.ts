@@ -469,4 +469,3 @@ export function closeRoutedAsk(deps: AskRoutingDeps, askId: string | undefined, 
 export function _resetRoutedAsks(): void {
   routed.clear();
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

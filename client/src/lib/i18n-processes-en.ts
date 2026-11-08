@@ -98,4 +98,3 @@ const PROCESSES_EN: Dict = {
 };
 
 export default PROCESSES_EN;
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

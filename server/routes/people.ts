@@ -614,4 +614,3 @@ export function createPeopleRouter(ctx: AppContext, deps: DepsPeople = {}): Rout
     return errorResponse(405, "method not allowed");
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -183,4 +183,3 @@ export function usePerfMetrics(active: boolean, intervalMs = 1500): PerfMetrics 
 
   return metrics;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

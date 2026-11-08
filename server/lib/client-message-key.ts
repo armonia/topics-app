@@ -37,4 +37,3 @@ export function keyTakenBy(err: unknown, db: Database | undefined, sessionKey: s
   if (!key || !(err instanceof Error) || !KEY_TAKEN.test(err.message)) return null;
   return rowStoredUnderKey(db, sessionKey, key);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

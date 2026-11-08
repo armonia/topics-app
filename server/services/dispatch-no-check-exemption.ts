@@ -67,4 +67,3 @@ export class NoCheckExemptionLedger {
     return [...this.reservations.keys()].filter((taskId) => !trackedTaskIds.has(taskId)).length;
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

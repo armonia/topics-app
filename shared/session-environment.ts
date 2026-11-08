@@ -140,4 +140,3 @@ export interface SessionEnvironment {
   /** The files read to produce this answer, so the screen can point at them. */
   settingsFiles: SessionEnvSettingsFile[];
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

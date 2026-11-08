@@ -63,4 +63,3 @@ export function saveApiProviderKey(name: ApiProviderName, key: string, root = st
     try { unlinkSync(temp); } catch { /* renamed or never created */ }
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

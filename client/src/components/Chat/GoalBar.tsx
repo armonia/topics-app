@@ -315,4 +315,3 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
     </div>
   );
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

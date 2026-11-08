@@ -67,4 +67,3 @@ export function applySpendCapPatch(svc: TaskService, body: unknown): void {
     perDayCents: Number.isFinite(b?.agentCostCapCents24h) ? b!.agentCostCapCents24h : undefined,
   });
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

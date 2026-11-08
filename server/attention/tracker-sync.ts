@@ -198,4 +198,3 @@ export function createTranscriptEnds() {
     parked: (subject: string): void => { drained.delete(subject); emptiedAt.delete(subject); },
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

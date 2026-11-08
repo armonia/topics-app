@@ -55,4 +55,3 @@ export function useUserMenuRequest(enabled: boolean, open: () => void): [UserMen
   const reset = useCallback(() => setRequest((r) => ({ level: null, n: r.n })), []);
   return [request, reset];
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -97,4 +97,3 @@ export async function ensurePushRegistration(): Promise<ServiceWorkerRegistratio
   if (!existing) await navigator.serviceWorker.register('/sw.js');
   return navigator.serviceWorker.ready;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

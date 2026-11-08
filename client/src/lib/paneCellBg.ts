@@ -70,4 +70,3 @@ export function paneCellBg(type: PaneType): string {
 export function paneCellTopInset(_type: PaneType): string {
   return 'pt-[var(--chrome-bar-h,0px)]';
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

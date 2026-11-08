@@ -217,4 +217,3 @@ function Detail({ children, muted }: { children: React.ReactNode; muted?: boolea
 function Note({ children, testId }: { children: React.ReactNode; testId?: string }) {
   return <div data-testid={testId} className="break-words text-mini text-app-text-muted">{children}</div>;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

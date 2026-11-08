@@ -65,4 +65,3 @@ export function looksBinary(text: string, campione = 4096): boolean {
 export function isTooLarge(err: unknown): boolean {
   return err instanceof ApiError && err.status === 413;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

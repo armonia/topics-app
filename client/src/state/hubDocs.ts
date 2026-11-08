@@ -70,4 +70,3 @@ export function useHubDoc(path: string, enabled: boolean, maxAgeMs: number): Hub
   const reread = useCallback(() => readHubDoc(path, true), [path]);
   return { ...doc, reread };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

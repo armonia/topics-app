@@ -36,4 +36,3 @@ export function WorktreeChip({ worktree, onFill }: { worktree: WorktreeLabel; on
     </span>
   );
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

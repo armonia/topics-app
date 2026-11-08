@@ -26,4 +26,3 @@ export function insertAtCaret(current: string, at: number, text: string): { next
   const head = before + sepBefore + text;
   return { next: head + sepAfter + after, caret: head.length };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

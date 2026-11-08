@@ -130,4 +130,3 @@ export function ansiLines(text: string): AnsiSpan[][] {
 export function plainLines(text: string): string[] {
   return ansiLines(text).map((spans) => spans.map((s) => s.text).join(''));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

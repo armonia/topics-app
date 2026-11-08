@@ -58,4 +58,3 @@ export function stripSlowAnnotation(content: string): string {
   if (!content.endsWith(STREAM_SLOW_ANNOTATION)) return content;
   return content.slice(0, -STREAM_SLOW_ANNOTATION.length);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

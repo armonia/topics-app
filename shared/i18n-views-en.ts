@@ -41,4 +41,3 @@ export const VIEWS_EN: Record<string, string> = {
   'views.page.from': 'View created in Topics on {date}',
   'views.page.openInTopics': 'Open in Topics',
 };
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

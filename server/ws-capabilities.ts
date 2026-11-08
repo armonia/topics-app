@@ -66,4 +66,3 @@ export const SERVER_VERSION: string = (() => {
     return '0.0.0-unknown';
   }
 })();
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

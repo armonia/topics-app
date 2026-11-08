@@ -116,4 +116,3 @@ export function messageToSpeak<M extends { role: string; content?: string | null
   const last = lastConversationMessage(messages);
   return last?.role === 'assistant' && last.content && !isMachineRow(last.blocks) ? last : undefined;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

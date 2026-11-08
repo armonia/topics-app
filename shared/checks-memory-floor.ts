@@ -62,4 +62,3 @@ export function checksMemFloorGB(s: ChecksMemoryFloorSetting): number {
  *  field that changes meaning at one end has to say so, or the only way to know
  *  what `0` does is to open the code. */
 export const checksMemFloorIsOff = (gb: number): boolean => gb <= 0;
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

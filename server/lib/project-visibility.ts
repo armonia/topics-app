@@ -170,4 +170,3 @@ export function envelopeProgettoPer(
   }
   return { type: "project:deleted", project: { id: progetto.id }, payload_version: 1 };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

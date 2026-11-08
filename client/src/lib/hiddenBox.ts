@@ -12,4 +12,3 @@
 export function hasNoBox(rect: { readonly width: number; readonly height: number }): boolean {
   return rect.width === 0 && rect.height === 0;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

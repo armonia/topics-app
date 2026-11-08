@@ -97,4 +97,3 @@ export function offeredSlashCommands(provider: string | null | undefined): reado
     (!c.onlyOn || (!!provider && c.onlyOn.includes(provider)))
     && (!c.onlyIf || !provider || c.onlyIf(provider)));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

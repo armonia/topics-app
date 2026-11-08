@@ -31,4 +31,3 @@ export const LazySpinner = <SpinnerFallback />;
 export function LazyPane({ children, kind = 'spinner' }: { children: ReactNode; kind?: PaneSkeletonKind }) {
   return <Suspense fallback={kind === 'spinner' ? LazySpinner : <PaneSkeleton kind={kind} />}>{children}</Suspense>;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

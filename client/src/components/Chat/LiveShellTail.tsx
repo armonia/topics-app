@@ -107,4 +107,3 @@ export function LaunchedProcessTail({ answer }: { answer?: string }) {
 export function ProcessTail({ processId, variant }: { processId: string; variant?: 'card' | 'row' }) {
   return <LiveShellTail live={useLaunchedProcess(processId)} variant={variant} />;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

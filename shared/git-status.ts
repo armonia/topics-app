@@ -50,4 +50,3 @@ export interface GitStatus {
   /** The repo that HOSTS the opened folder (empty at the repo root). */
   repoName?: string;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

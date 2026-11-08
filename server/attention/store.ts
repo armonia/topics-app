@@ -1290,4 +1290,3 @@ export function recomposeAttentionOnBoot(reader: AttentionBootReader = {}): void
     recompose(subject, { live: false, boot: true });
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

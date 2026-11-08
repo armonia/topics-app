@@ -32,4 +32,3 @@ export function socketMayReadTopic(db: Db, data: WSData, topicId: string): boole
   return !isGuestSocketData(data) || (!!data.principal
     && hasGrant(db, data.principal.principals, "topic", topicId));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

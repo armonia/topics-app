@@ -19,4 +19,3 @@ export function readVirtualViewport(body: HTMLDivElement): { top: number; height
   const bottom = Math.min(bodyRect.height, clipBottom - bodyRect.top);
   return { top: Math.floor(top / 32) * 32, height: Math.max(0, bottom - top) };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

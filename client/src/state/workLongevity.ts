@@ -172,4 +172,3 @@ export function formatRelative(at: number, now: number): string {
   if (diffD < 30) return `${diffD}d`;
   return `${Math.floor(diffD / 30)}mo`;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

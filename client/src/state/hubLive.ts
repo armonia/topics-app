@@ -137,4 +137,3 @@ export function _resetForTests(): void {
 
 /** Test seam: the ever-read flag without React. */
 export const _everReadForTests = (): boolean => everRead;
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

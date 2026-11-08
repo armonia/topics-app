@@ -292,4 +292,3 @@ export function isTopicSilenced(
   if (!proj) return false;
   return (mutedProjects ?? []).includes(proj);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -218,4 +218,3 @@ export function messaggioTrascrittoVuoto(opts: {
   }
   return `Non ho sentito parole (${opts.provider}, ${secondi}s). Riprova parlando piu' vicino al microfono.`;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

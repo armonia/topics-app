@@ -362,4 +362,3 @@ export function formatCurrency(usd: number, exchangeRate: number, locale: string
     style: 'currency', currency: 'EUR', maximumFractionDigits: Math.abs(v) >= 100 ? 0 : 2, minimumFractionDigits: 0,
   }).format(v);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

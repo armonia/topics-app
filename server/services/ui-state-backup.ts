@@ -111,4 +111,3 @@ export function listUiStateBackups(): string[] {
     .sort((a, b) => b.mtime - a.mtime)
     .map((e) => join(dir, e.f));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -102,4 +102,3 @@ export function trustCursorOnYes(screen: string): boolean {
   const cursor = seen.lastIndexOf("❯");
   return cursor >= 0 && /^(\d\.)?yes/.test(seen.slice(cursor + 1));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

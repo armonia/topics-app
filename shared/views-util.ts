@@ -82,4 +82,3 @@ export function linkOf(v: unknown): { url: string; label?: string } | undefined 
 
 export const asRecord = (v: unknown): Record<string, unknown> =>
   (v && typeof v === 'object' && !Array.isArray(v) ? v : {}) as Record<string, unknown>;
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

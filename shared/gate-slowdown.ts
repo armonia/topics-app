@@ -59,4 +59,3 @@ export function parseGateSlowdown(text: string): number | null {
   const m = SLOWDOWN_RE.exec(text);
   return m ? clampSlowdown(Number(m[1])) : null;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

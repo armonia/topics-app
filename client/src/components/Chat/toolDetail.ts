@@ -274,4 +274,3 @@ export function elideMiddle(p: string, max: number = PATH_MAX): string {
   const short = `${head}/…/${tail}`;
   return short.length < p.length ? short : p;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

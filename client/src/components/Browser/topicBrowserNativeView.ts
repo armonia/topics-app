@@ -23,4 +23,3 @@ export function requestReflow(contextId?: string, atAnimationFrame = false): voi
   const detail = contextId || atAnimationFrame ? { contextId, atAnimationFrame } : undefined;
   window.dispatchEvent(new CustomEvent('browser:reflow-request', { detail }));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

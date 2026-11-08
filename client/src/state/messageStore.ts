@@ -181,4 +181,3 @@ export function __messageStoreDebug(): { sessioni: number; iscritti: number; glo
   for (const s of perSession.values()) iscritti += s.size;
   return { sessioni: Object.keys(state).length, iscritti, globali: global.size };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

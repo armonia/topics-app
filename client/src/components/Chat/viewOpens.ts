@@ -39,4 +39,3 @@ export function messageHasView(
   const calls = [...(blocks ?? []).flatMap((b) => (b.kind === 'tool' && b.toolCall ? [b.toolCall] : [])), ...(toolCalls ?? [])];
   return calls.some((tc) => VIEW_TOOL.test(tc.name) && tc.status === 'success');
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

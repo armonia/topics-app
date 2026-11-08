@@ -1194,4 +1194,3 @@ function MobileFindButton({ paneId }: { paneId: string | null | undefined }) {
     </button>
   );
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

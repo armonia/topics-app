@@ -336,4 +336,3 @@ export function __resetTopicPreviews(): void {
   if (cacheTimer) { clearTimeout(cacheTimer); cacheTimer = null; }
   try { localStorage.removeItem(CACHE_KEY); } catch { /* niente localStorage */ }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

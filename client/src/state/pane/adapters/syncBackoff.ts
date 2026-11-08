@@ -17,4 +17,3 @@ export function backoff(attempt: number, baseMs: number = DEFAULT_BASE_BACKOFF_M
   const ms = baseMs * Math.pow(2, attempt) * (0.8 + Math.random() * 0.4);
   return new Promise((r) => setTimeout(r, ms));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

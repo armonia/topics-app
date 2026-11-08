@@ -68,4 +68,3 @@ export function checklistWindow<T extends ChecklistRow>(
   const shown = rows.filter((_, i) => picked.has(i));
   return { shown, hidden: rows.length - shown.length };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -142,4 +142,3 @@ export const UI_COPY_WORDS = new Set<string>([
   "ferme", "fermi", "fermo", "rinviata", "rinviato", "coda",
   "piano", "obiettivo", "obiettivi", "permesso", "permessi", "decisione", "decisioni",
 ]);
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

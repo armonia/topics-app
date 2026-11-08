@@ -1016,4 +1016,3 @@ function resolveState(
   if (presence) return presence.state;
   return subjectFound ? "closed" : "unknown";
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

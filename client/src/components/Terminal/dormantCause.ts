@@ -71,4 +71,3 @@ export function causeClock(iso: string): string {
   if (Number.isNaN(d.getTime())) return '';
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

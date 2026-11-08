@@ -318,4 +318,3 @@ export function useNativePanePause(d: PauseDeps): NativePanePause {
 
   return { heavy: heavyNow, pauseState, pausedImage, resume, keepOnce, keepAlways };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

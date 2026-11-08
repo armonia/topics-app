@@ -33,4 +33,3 @@ export function gitRelativeDate(authorTime: number, now = Math.floor(Date.now() 
 function relative(label: string, future: boolean): string {
   return future ? "in the future" : `${label} ago`;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

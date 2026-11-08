@@ -37,4 +37,3 @@ export const CORNER: Record<ChipCorner, string> = {
   'bottom-left': 'bottom-2 left-2',
   'top-center': 'top-2 left-1/2 -translate-x-1/2',
 };
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

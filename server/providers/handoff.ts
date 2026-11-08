@@ -196,4 +196,3 @@ export function freshSessionPreamble(sessionKey: string, history: readonly ChatM
   const [heading, ...rest] = conversation.split("\n");
   return [heading, "", ...context.flatMap((c) => [c, ""]), ...rest].join("\n").replace(/\n{3,}/g, "\n\n");
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

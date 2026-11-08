@@ -196,4 +196,3 @@ export function classifyContext(used: number, window: ContextWindow): ContextUsa
     level === "ok" ? undefined : LEVEL_RANK[byPercent] >= LEVEL_RANK[byTokens] ? "window" : "cost";
   return { used: safeUsed, size, percent, level, ...(reason ? { reason } : {}), estimated: !window.known };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

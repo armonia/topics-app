@@ -46,4 +46,3 @@ export function parseCloudWeeklyLimit(message: string, nowMs: number = Date.now(
   if (!Number.isFinite(untilMs) || untilMs <= nowMs) return fallback;
   return { untilMs, reason };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

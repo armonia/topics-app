@@ -435,4 +435,3 @@ export const CLOSED_STACK_MAX = 50;
  * the most-recently-closed ids (mirrors closedStack's keep-the-tail rule).
  */
 export const TOMBSTONES_MAX = 500;
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

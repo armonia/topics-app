@@ -55,4 +55,3 @@ export function forgetHandedOver(replayer: object): void {
   // The last one stays: rrweb compares against it to tell it has caught up.
   if (events.length > 1) events.splice(0, events.length - 1);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

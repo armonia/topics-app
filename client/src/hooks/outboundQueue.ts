@@ -200,4 +200,3 @@ export function decideQueuedMessage(item: QueuedMessage, ctx: DecisionContext): 
   if (ctx.locked) return { action: 'defer', reason: 'locked' };
   return { action: 'send' };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

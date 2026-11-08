@@ -83,4 +83,3 @@ export function invalidateProbeCache(url: string): void {
 export function __clearProbeCacheForTests(): void {
   probeCache.clear();
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

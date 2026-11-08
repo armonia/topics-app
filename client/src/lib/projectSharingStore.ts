@@ -201,4 +201,3 @@ export function useSharedOrg(path: string | null | undefined): OrgRef | null {
   // Server-side / first paint: nothing is known, so nothing is claimed.
   return useSyncExternalStore(subscribeProjectSharing, read, () => null);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

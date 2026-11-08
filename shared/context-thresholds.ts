@@ -85,4 +85,3 @@ export function contextLevel(percent: number, used?: number): ContextLevel {
   const abs = typeof used === "number" && Number.isFinite(used) ? used : 0;
   return worseLevel(levelFromPercent(percent), levelFromTokens(abs));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

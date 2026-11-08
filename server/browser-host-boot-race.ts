@@ -70,4 +70,3 @@ export function createBrowserHostBootRace<T extends BootRaceSocket>(deps: {
     cancel(socket: T): void { const wait = waits.get(socket); if (wait) { waits.delete(socket); wait.cancel(); } },
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

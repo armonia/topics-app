@@ -76,4 +76,3 @@ export function announceText(item: AnnounceItem): string {
 export function rollupText(items: readonly AnnounceItem[]): string {
   return `${items.length} tasks ready for review: ${items.map((i) => i.title).join(', ')}.`;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

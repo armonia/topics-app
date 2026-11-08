@@ -522,4 +522,3 @@ export async function computeTopicChanges(
   // not the dirt of the whole repository: the panel is about this topic.
   return { files, git: { root, branch, dirty }, revs };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

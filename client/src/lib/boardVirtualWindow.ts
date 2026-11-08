@@ -22,4 +22,3 @@ export function visibleVirtualIds<T extends { id: string }>(rows: readonly Virtu
   if (pinnedId) visible.add(pinnedId);
   return visible;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

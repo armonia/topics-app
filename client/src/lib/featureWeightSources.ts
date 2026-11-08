@@ -114,4 +114,3 @@ export function registerFeatureWeightSources(): () => void {
 
   return () => { for (const f of off) f(); };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -117,4 +117,3 @@ export function installOsOpenPathBridge(deps: OsOpenDeps = defaultOsOpenDeps()):
   drain();
   return () => window.removeEventListener(OS_OPEN_PATH_EVENT, drain);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

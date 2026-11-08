@@ -150,4 +150,3 @@ export function createTurnBodyPersist(opts: TurnBodyPersistOptions): TurnBodyPer
     throttle.persist(lastSizeBytes, true);
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

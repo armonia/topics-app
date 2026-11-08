@@ -11,4 +11,3 @@
 // component gone this file exports nothing but pure functions, so the rule
 // never fires — the directive it used to carry was itself dead.)
 export { isUtilityPanelId, utilityPanelId, parseUtilityPanelType } from '../../state/pane/adapters/utilityPanelId';
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

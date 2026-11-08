@@ -85,4 +85,3 @@ export function onWindowAwakeChange(onChange: () => void): () => void {
 // dentro il suo effetto, ed è l'unico caso); chi deve solo decidere se un ciclo
 // gira chiama il predicato sincrono qui sopra DENTRO il timer — spegnere un
 // `setInterval` non richiede un render.
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

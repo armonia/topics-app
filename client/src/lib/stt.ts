@@ -231,4 +231,3 @@ export function micErrorMessage(err: unknown, tr: Translate): string {
   }
   return tr('stt.micFailed', { reason: msg });
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

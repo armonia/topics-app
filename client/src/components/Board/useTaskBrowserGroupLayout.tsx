@@ -360,4 +360,3 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
     },
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

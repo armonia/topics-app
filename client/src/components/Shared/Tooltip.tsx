@@ -171,4 +171,3 @@ export function Tooltip({ content, children, side = 'bottom', disabled = false }
     </>
   );
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

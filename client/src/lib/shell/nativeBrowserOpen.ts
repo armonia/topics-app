@@ -92,4 +92,3 @@ export function settleOpenedView(answer: unknown, openUrl: string, landOn: boole
   if (opened.reused && landOn && opened.url !== openUrl) return { navigate: true, url: openUrl };
   return { navigate: false, url: opened.url };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

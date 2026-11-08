@@ -183,4 +183,3 @@ export function isInsideKnownProject(real: string, allowed: Set<string>): boolea
   }
   return false;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -57,4 +57,3 @@ const SCREEN_EDGE_PX = 28;
 export function startsOnScreenEdge(clientX: number, screenWidth: number): boolean {
   return clientX <= SCREEN_EDGE_PX || clientX >= screenWidth - SCREEN_EDGE_PX;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

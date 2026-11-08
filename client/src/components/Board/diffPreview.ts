@@ -114,4 +114,3 @@ export async function fetchDiffText(source: DiffPanelSource, side: PreviewSide, 
   if (!res.ok) throw new Error(res.statusText);
   return res.text();
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

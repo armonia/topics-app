@@ -290,4 +290,3 @@ export function ProxyHealthLine({ health }: { health: ProxyHealth }) {
     </div>
   );
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

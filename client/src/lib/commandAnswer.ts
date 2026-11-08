@@ -67,4 +67,3 @@ export function reportRows(report: string): CommandAnswerRow[] {
 export function statusRows(report: string): CommandAnswerRow[] {
   return reportRows(report).filter((r) => !/^(sessione|session)$/i.test(r.label));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

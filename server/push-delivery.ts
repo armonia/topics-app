@@ -171,4 +171,3 @@ export async function deliverPush(
     + (summary.expired.length ? `, expired ${summary.expired.length}` : ""));
   return summary;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

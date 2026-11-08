@@ -112,4 +112,3 @@ if (import.meta.main) {
     console.error(`[db-snapshot] off-disk copy FAILED: ${(err as Error).message}`);
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

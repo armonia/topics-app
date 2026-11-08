@@ -435,4 +435,3 @@ export function sanitizeSnapshot(raw: unknown): SanitizedSnapshot | null {
   // Symmetric with the outbound exclusion in selectors.ts — drop it silently.
   return out;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

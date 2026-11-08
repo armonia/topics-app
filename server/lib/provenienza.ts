@@ -99,4 +99,3 @@ export function provenienzaDi(ip: string | null | undefined): Provenienza {
   const paIPv6 = a.includes(":");
   return paIPv4 || paIPv6 ? "internet" : "ignota";
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

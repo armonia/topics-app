@@ -227,4 +227,3 @@ export function viewSummary(spec: ViewSpec): { kind: ViewKind; count: number; un
 export function viewIdFromResult(text: string | undefined): string | undefined {
   return text?.match(/\/v\/([0-9a-f]{16})\b/)?.[1];
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

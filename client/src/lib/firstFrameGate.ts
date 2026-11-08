@@ -75,4 +75,3 @@ export function recordFirstFrameGate(outcome: FirstFrameGateOutcome, waitedMs: n
     /* private mode / storage denied: the measure above is the fallback */
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

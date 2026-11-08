@@ -253,4 +253,3 @@ export function flingVelocity(moves: readonly { t: number; dx: number; dy: numbe
   }
   return { vx: dx / span, vy: dy / span };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

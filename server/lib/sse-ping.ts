@@ -145,4 +145,3 @@ export function isSseCommentOnly(chunk: Uint8Array | undefined): boolean {
   const lines = decoder.decode(chunk).split("\n").filter((line) => line.trim() !== "");
   return lines.length > 0 && lines.every((line) => line.startsWith(":"));
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

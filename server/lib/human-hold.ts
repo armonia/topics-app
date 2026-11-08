@@ -86,4 +86,3 @@ export function releaseHumanHold(sessionKey: string, reason: string): void {
   cancelAsk(sessionKey, reason);
   cancelPermissionsForSession(sessionKey, reason);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

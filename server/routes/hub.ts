@@ -191,4 +191,3 @@ export function createHubRouter(ctx: Pick<AppContext, "json">, deps: HubBridgeDe
     return new Response(resp.body, { status: resp.status, headers: out });
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

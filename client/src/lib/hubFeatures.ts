@@ -324,4 +324,3 @@ export function visibleAreas(view: FeaturesView, filter: FeatureFilter, query: s
     .map((a) => ({ ...a, leaves: a.leaves.filter((l) => passes(l, filter) && hit(l)) }))
     .filter((a) => a.leaves.length > 0);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

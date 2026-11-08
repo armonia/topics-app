@@ -34,4 +34,3 @@ export function announceTurnEnded(sessionKey: string): void {
 export function turnEndedListenerCount(): number {
   return listeners.size;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

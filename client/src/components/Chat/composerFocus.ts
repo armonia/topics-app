@@ -20,4 +20,3 @@ export function composerMayTakeFocus(active: Element | null, paneRoot: Element |
   if (!active || !paneRoot || !paneRoot.contains(active)) return true;
   return !active.matches(CONTROL);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

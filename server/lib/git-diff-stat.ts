@@ -217,4 +217,3 @@ export async function gitDiffBundle(
   const truncated = full.length > DIFF_PATCH_CAP;
   return { stat, patch: truncated ? full.slice(0, DIFF_PATCH_CAP) : full, truncated };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

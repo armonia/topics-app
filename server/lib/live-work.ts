@@ -108,4 +108,3 @@ export function liveWorkRows(input: LiveWorkInput, now: number, ttlMs = LIVE_WOR
     }));
   return [...agents, ...commands];
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

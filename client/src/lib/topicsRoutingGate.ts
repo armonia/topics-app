@@ -119,4 +119,3 @@ export function cardRunsThroughTopics(
   const provider = selection.provider ?? (selection.model?.startsWith('claude-') ? 'claude-code' : null);
   return topicsRoute(true, { provider, model: selection.model ?? null }, snapshot, 'task').via === 'topics';
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

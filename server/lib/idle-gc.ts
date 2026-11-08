@@ -164,4 +164,3 @@ export async function giroIdleGc(deps: IdleGcDeps): Promise<OutcomeIdleGc> {
   }
   return { azione: "raccolto", primaMB: prima, dopoMB: dopo };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

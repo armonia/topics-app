@@ -174,4 +174,3 @@ export function AutonomyPicker({ value, onChange, openRef }: {
     </div>
   );
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

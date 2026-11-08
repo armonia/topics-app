@@ -141,4 +141,3 @@ export function __resetFocusForTests(): void {
   cache = { supported: false, active: false, reason: 'unknown' };
   queried = false;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

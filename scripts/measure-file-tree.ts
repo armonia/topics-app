@@ -35,4 +35,3 @@ export async function measureFileTree(roots = process.argv.slice(2).map((root) =
 }
 
 if (import.meta.main) await measureFileTree();
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

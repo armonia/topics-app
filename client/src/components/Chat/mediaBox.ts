@@ -63,4 +63,3 @@ export function mergeMediaSizes(a: MediaSizes | undefined, b: MediaSizes | undef
   if (!a) return b;
   return { ...a, ...b };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

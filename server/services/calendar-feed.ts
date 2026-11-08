@@ -226,4 +226,3 @@ export async function probeFeed(rawUrl: string, now = Date.now()): Promise<FeedP
 export function resetCalendarCache(): void {
   cached = null;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

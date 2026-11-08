@@ -133,4 +133,3 @@ export function markerFaviconUrl(url: string, appProtocol: string): string | und
     return undefined;
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -117,4 +117,3 @@ export function mostraResidenteInBarra(x: {
   const compressi = Math.max(0, x.totalMB - x.residentMB - (x.serverMB ?? 0));
   return compressi >= MIN_COMPRESSI_MB && compressi > x.totalMB * QUOTA_SWAPPATA;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

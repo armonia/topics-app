@@ -51,4 +51,3 @@ export function credentialsFor(account?: string): () => Promise<CloudCredentials
     return { accessToken, orgUuid: await orgFor(account, accessToken) };
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

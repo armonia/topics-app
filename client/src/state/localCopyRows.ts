@@ -34,4 +34,3 @@ export function showsLocalCopyRows(sessionKey: string): boolean {
 export function settleLocalCopyRows(sessionKey: string): void {
   fromLocalCopy.delete(sessionKey);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

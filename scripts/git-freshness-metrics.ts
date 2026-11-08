@@ -36,4 +36,3 @@ export function isMatchingGitStatus(
 export function freshnessExitCode(p95Ms: number, budgetMs: number): number {
   return p95Ms <= budgetMs ? 0 : 1;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

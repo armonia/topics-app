@@ -638,4 +638,3 @@ export function sulFilo(e: Entitlement): EntitlementSulFilo {
     installationId: e.installationId,
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

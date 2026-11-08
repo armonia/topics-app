@@ -230,4 +230,3 @@ async function computeGitStatusOnce(resolvedDir: string, cause: string): Promise
     repoName: scope.repoName,
   };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

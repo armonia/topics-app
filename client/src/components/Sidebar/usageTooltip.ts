@@ -139,4 +139,3 @@ export function composeUsageTooltip(input: UsageTooltipInput): string {
     + `\n\n${deviceTitle}\n\n${serverTitle}`
     + (inventory ? `\n\n${inventory}` : '');
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

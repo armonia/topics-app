@@ -57,4 +57,3 @@ export function appendFrozenNote(path: string, frozenMs: number): boolean {
   try { appendFileSync(path, frozenNoteLine(frozenMs)); return true; }
   catch { return false; }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

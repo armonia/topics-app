@@ -363,4 +363,3 @@ export function getDiscordPresence(): DiscordPresenceService | null {
 export async function reconcileDiscordPresence(): Promise<void> {
   await service?.tick();
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

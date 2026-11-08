@@ -104,4 +104,3 @@ export function leaveMachineStopNotice(
     messageId: notice.id, content: blocks.map((b) => ("text" in b ? b.text : "")).join(" "), preview: "", blocks,
   });
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

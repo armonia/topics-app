@@ -15,4 +15,3 @@ export function deliveryNotesToFold(comments: readonly TaskComment[]): Set<strin
   }
   return notes;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

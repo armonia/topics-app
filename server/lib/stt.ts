@@ -752,4 +752,3 @@ export function realtimeSttReason(env: SttDeps["env"]): string | null {
   if (head.id !== "elevenlabs") return `only ElevenLabs transcribes live, here ${head.id} does`;
   return null;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

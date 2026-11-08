@@ -153,4 +153,3 @@ export function commentAuthorLabel(author: string | null | undefined): CommentAu
   }
   return { kind: 'agent', label: AGENT_AUTHOR, agentId: null, guestDeviceId: null, derived: true };
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

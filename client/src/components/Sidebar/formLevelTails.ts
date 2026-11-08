@@ -242,4 +242,3 @@ export function usageLine(
     ? tr('userMenu.usage.fiveHours', { pct })
     : tr('userMenu.usage.fiveHoursReset', { pct, time: formatTime(window.resetsAtMs) });
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

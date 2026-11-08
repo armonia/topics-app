@@ -130,4 +130,3 @@ export function useSubagentResult(sessionKey: string | undefined, agentId: strin
   );
   return useSyncExternalStore(subscribe, snapshot, snapshot);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

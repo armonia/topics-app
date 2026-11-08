@@ -164,4 +164,3 @@ function subscribe(cb: () => void): () => void {
 export function useDispatchBrakes(): DispatchBrakeState {
   return useSyncExternalStore(subscribe, () => current, () => current);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

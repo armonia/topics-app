@@ -171,4 +171,3 @@ export function renderReplayPrologue(turns: ReplayTurn[]): string {
   lines.push("</conversation_recap>", "");
   return lines.join("\n");
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

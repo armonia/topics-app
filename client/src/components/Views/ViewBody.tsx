@@ -20,4 +20,3 @@ export function ViewBody({ spec, variant, locale }: { spec: ViewSpec; variant: V
     }
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

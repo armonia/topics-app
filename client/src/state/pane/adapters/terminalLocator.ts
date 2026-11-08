@@ -185,4 +185,3 @@ export function locateByPaneId(
   if (!sessionId) return { kind: 'none' };
   return locateTerminalPane(sessionId, appLevelPaneIds, knownProjectPaths, store);
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

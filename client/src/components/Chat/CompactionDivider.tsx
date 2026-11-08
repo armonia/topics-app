@@ -85,4 +85,3 @@ export function CompactionDivider({ marker, summary }: { marker: CompactionMarke
     </div>
   );
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -66,4 +66,3 @@ export function friendshipNoteKey(state: FriendshipState): string | null {
   if (state === 'friends') return 'profile.friend.areFriends';
   return null;
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

@@ -73,4 +73,3 @@ export function statistichePersona(db: Db, personId: string): StatistichePersona
     return { ...VUOTE };
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala

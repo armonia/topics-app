@@ -36,4 +36,3 @@ export async function classifyVoiceIntent(text: string): Promise<VoiceIntentResu
     return { intent: 'feedback', text, source: 'keyword' };
   }
 }
-export const __knipBlindspotProbe = 1; // KNIP-BLINDSPOT-PROBE — sonda temporanea, se la vedi committata cancellala
