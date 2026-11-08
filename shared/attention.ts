@@ -68,6 +68,13 @@ export interface AttentionSnapshot {
    * waits on, what a list answers with no chat open. Absent or null otherwise.
    */
   permissionCall?: string | null;
+  /**
+   * A board card's project and title (`task:` subjects in review or parked),
+   * from its row. The board feed holds roots only, so a step in review has no
+   * other way to say which board it lights or what the tray should call it.
+   */
+  projectId?: string | null;
+  cardTitle?: string | null;
 }
 
 /** The banner and push of a new epoch, decided once on the server (design §10.1). */

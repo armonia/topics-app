@@ -20,6 +20,16 @@ import { planApprovalSchema } from "../lib/plan-approval";
 import { attentionBootReader, type AttentionBootSources } from "./boot-reader";
 import { configureAttentionStore, getAttention, markAttentionSeen, openHold, recomposeAttentionOnBoot, resetAttentionStore, turnEnded, turnStarted } from "./store";
 import type { AppContext, Topic } from "../types";
+import type { Database } from "bun:sqlite";
+import { freshDb } from "../routes/tasks-test-support";
+import { PLAN_HIERARCHY_DDL } from "../db/test-schema";
+import { createTaskService } from "../services/tasks";
+import { buildPlan } from "../services/plan";
+import { toFeedTask } from "../../shared/board-feed";
+import { trayBoardAttention, trayBoardGroups } from "../../shared/tray-board";
+import { boardTabCounts } from "../../client/src/lib/boardTabCounts";
+import { boardAttention, boardLitCards } from "../../client/src/state/attentionRollups";
+import type { BoardTask } from "../../client/src/lib/board";
 
 const ROOT = testTmpDir("attention-boot-reader");
 beforeAll(() => setupTestDataDir(`${ROOT}/data`));
@@ -153,5 +163,76 @@ describe("a plan to approve across a restart (B4)", () => {
     restart();
     recomposeAttentionOnBoot(attentionBootReader(sources()));
     expect(getAttention(subject).state).not.toBe("needs-you");
+  });
+});
+
+/**
+ * ONE NUMBER FOR «WAITS ON YOU», on every surface (SV-01, DEF-01/02/03). The
+ * feed holds roots only: a step in review under a parent in backlog was in the
+ * Plan's count and the attention's, and in no Kanban, tab tooltip or tray
+ * group, and its project tab never lit. Same synthetic database, read the way
+ * each surface reads it: they all say 5, and the project tabs add up to the
+ * Board row.
+ */
+describe("review parity: Kanban, tab, tray, attention and Plan count the same cards", () => {
+  function parityDb(): Database {
+    const db = freshDb();
+    db.run(PLAN_HIERARCHY_DDL);
+    const now = new Date().toISOString();
+    const insert = db.query(`INSERT INTO tasks (id, project_id, text, status, stage, parent_task_id, archived, created_at, updated_at)
+                             VALUES (?,?,?,?,?,?,?,?,?)`);
+    const card = (id: string, projectId: string, status: string, o: { parent?: string; stage?: string; archived?: boolean } = {}) =>
+      insert.run(id, projectId, `card ${id}`, status, o.stage ?? null, o.parent ?? null, o.archived ? 1 : 0, now, now);
+    // Two roots in review.
+    card("rootA", "p1", "review");
+    card("rootC", "p2", "review");
+    // Three steps in review under parents in backlog, one of them two levels down.
+    card("parentB", "p1", "backlog");
+    card("b1", "p1", "review", { parent: "parentB" });
+    card("b2", "p1", "review", { parent: "parentB" });
+    card("b3", "p1", "todo", { parent: "parentB" });
+    card("parentD", "p2", "backlog");
+    card("d1", "p2", "in_progress", { parent: "parentD" });
+    card("d1a", "p2", "review", { parent: "d1" });
+    // Not a person's: AI review, and an archived step.
+    card("rootE", "p2", "review", { stage: "ai_review" });
+    card("b4", "p1", "review", { parent: "parentB", archived: true });
+    return db;
+  }
+
+  test("all say 5, and the project tabs add up to the Board row", () => {
+    const db = parityDb();
+    const feed = createTaskService(db)
+      .list({ scope: "all", rootsOnly: true, includeOrphanSubtasks: true })
+      .map(toFeedTask) as unknown as BoardTask[];
+    // The feed itself still holds roots only (the columns' rule).
+    expect(feed.map((t) => t.id).sort()).toEqual(["parentB", "parentD", "rootA", "rootC", "rootE"]);
+    expect(Object.fromEntries(feed.map((t) => [t.id, t.subtaskReviewCount ?? 0]))).toEqual({ parentB: 2, parentD: 1, rootA: 0, rootC: 0, rootE: 0 });
+
+    // Kanban / tab counts: roots waiting on a person + their steps.
+    const kanban = boardTabCounts(feed).find((c) => c.status === "review")?.n ?? 0;
+
+    // Attention: the boot read lights every card, steps included, with its project.
+    const reader = attentionBootReader({ ...sources(), db: db as AttentionBootSources["db"] });
+    recomposeAttentionOnBoot({ cards: reader.cards });
+    const subjects = reader.cards!().map((c) => `task:${c.taskId}`);
+    const rows = new Map(subjects.map((s) => [s, getAttention(s)]));
+    expect(getAttention("task:d1a")).toMatchObject({ lit: true, projectId: "p2", cardTitle: "card d1a" });
+    const lit = boardLitCards(rows, feed, null);
+
+    // Tray: the review group is the lit cards, and the glyph sums them.
+    const tray = trayBoardGroups(feed, { lit: lit.map((c) => ({ id: c.id, title: c.title, projectId: c.projectId ?? "", reason: c.reason })) });
+    const trayReview = tray.find((g) => g.status === "review")?.count ?? 0;
+
+    // Plan: what needs the person, every card.
+    const plan = buildPlan(db).projects.reduce((n, p) => n + p.needsYou.length, 0);
+
+    expect({ kanban, attention: lit.length, tray: trayReview, glyph: trayBoardAttention(tray), plan })
+      .toEqual({ kanban: 5, attention: 5, tray: 5, glyph: 5, plan: 5 });
+    // Per project the tab badges add up to the Board row (the steps light their own project).
+    const perProject = ["p1", "p2"].map((p) => boardAttention(rows, feed, p).count);
+    expect(perProject).toEqual([3, 2]);
+    expect(perProject[0]! + perProject[1]!).toBe(boardAttention(rows, feed, null).count);
+    expect(["p1", "p2"].map((p) => boardTabCounts(feed, p).find((c) => c.status === "review")?.n ?? 0)).toEqual([3, 2]);
   });
 });

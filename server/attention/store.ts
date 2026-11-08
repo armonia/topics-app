@@ -180,7 +180,7 @@ interface LiveInputs {
   dispatched?: boolean;
   holds: Record<string, AttentionHold>;
   /** The card's state, and the words of its announce, which the task service knows. */
-  card?: (AttentionCard & { words?: SubjectDescription }) | null;
+  card?: (AttentionCard & { words?: SubjectDescription; projectId?: string | null; title?: string | null }) | null;
   turnOpen?: boolean;
   backgroundGrace?: boolean;
 }
@@ -455,7 +455,17 @@ function snapshotOf(e: Entry): AttentionSnapshot {
     lastTurnAt: r.lastTurn?.at ?? null,
     background: taskList(r.background),
     permissionCall: permissionCallOf(e),
+    ...cardPlaceOf(e),
   };
+}
+
+/** A card's project and title, from the task service's words or the boot read; nothing for any other subject. */
+function cardPlaceOf(e: Entry): Pick<AttentionSnapshot, "projectId" | "cardTitle"> {
+  const card = e.live.card;
+  if (!card) return {};
+  const projectId = card.projectId ?? card.words?.projectId ?? null;
+  const cardTitle = card.title ?? card.words?.name ?? null;
+  return { ...(projectId ? { projectId } : {}), ...(cardTitle ? { cardTitle } : {}) };
 }
 
 /**
@@ -1199,7 +1209,7 @@ export interface AttentionBootReader {
   /** The plan panel this subject was waiting on when the server stopped is still unanswered on its row. */
   planWaiting?: (subject: string, toolCallId: string) => boolean;
   /** Cards in review or parked, read from `tasks`. */
-  cards?: () => Array<{ taskId: string; status: AttentionCard["status"]; since?: string | null; detail?: string | null }>;
+  cards?: () => Array<{ taskId: string; status: AttentionCard["status"]; since?: string | null; detail?: string | null; projectId?: string | null; title?: string | null }>;
   /** Of these subjects, the ones archived or deleted (`topics`). */
   archived?: (subjects: string[]) => Set<string>;
   /** Of these subjects, the terminals closed (roster and pane store). */
@@ -1250,7 +1260,7 @@ export function recomposeAttentionOnBoot(reader: AttentionBootReader = {}): void
     const e = entryOf(subject);
     let since = e.row.epochCause?.startsWith(`card:${c.status}:`) ? e.row.epochCause.slice(`card:${c.status}:`.length) : null;
     since ??= c.since ?? nowIso();
-    e.live.card = { status: c.status, since, detail: c.detail ?? null };
+    e.live.card = { status: c.status, since, detail: c.detail ?? null, projectId: c.projectId ?? null, title: c.title ?? null };
   }
   const subjects = [...entries.keys()];
   const archived = reader.archived?.(subjects) ?? new Set<string>();

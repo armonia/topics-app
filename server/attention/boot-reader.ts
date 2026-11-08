@@ -13,7 +13,7 @@ import { terminalIdOfSubject, topicIdOfSubject } from "../../shared/attention";
 import { recentActiveRows, type ActiveRowsSource } from "../lib/ask-answer-routing";
 import { toolCallWaitingOnRows } from "../lib/question-outlives-asker";
 import type { AttentionBootReader } from "./store";
-import { STAGE_AI_REVIEW } from "../../shared/workflow";
+import { awaitsHumanSql } from "../../shared/workflow";
 
 export interface AttentionBootSources extends ActiveRowsSource {
   db: Database & ActiveRowsSource["db"];
@@ -31,7 +31,7 @@ export interface AttentionBootSources extends ActiveRowsSource {
 function reviewWaitsOnPerson(db: Database): string {
   let hasStage = false;
   try { hasStage = (db.query("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).some((c) => c.name === "stage"); } catch { /* the plain predicate */ }
-  return hasStage ? `(status = 'review' AND (stage IS NULL OR stage != '${STAGE_AI_REVIEW}'))` : "status = 'review'";
+  return awaitsHumanSql(hasStage);
 }
 
 export function attentionBootReader(src: AttentionBootSources): AttentionBootReader {
@@ -64,13 +64,15 @@ export function attentionBootReader(src: AttentionBootSources): AttentionBootRea
     // A card in AI review (`stage = 'ai_review'`, shared/workflow.ts) waits on
     // whoever opened it, not on a person: it is not lit. The migrated DB has
     // the column; a reduced one reads every review card, as before.
+    // Every card, steps included: a step's project and title ride on its row,
+    // because the board feed holds roots only and cannot place it.
     cards: () => (src.db.query(
-      `SELECT id, status, dispatch_error, review_at, updated_at FROM tasks
+      `SELECT id, project_id, text, status, dispatch_error, review_at, updated_at FROM tasks
         WHERE archived = 0 AND (${reviewWaitsOnPerson(src.db)} OR (status = 'backlog' AND dispatch_state IN ('failed', 'blocked', 'waited_out')))`,
-    ).all() as Array<{ id: string; status: string; dispatch_error: string | null; review_at: string | null; updated_at: string }>)
+    ).all() as Array<{ id: string; project_id: string | null; text: string | null; status: string; dispatch_error: string | null; review_at: string | null; updated_at: string }>)
       .map((r) => r.status === "review"
-        ? { taskId: r.id, status: "review" as const, since: r.review_at ?? r.updated_at }
-        : { taskId: r.id, status: "parked" as const, since: r.updated_at, detail: r.dispatch_error }),
+        ? { taskId: r.id, status: "review" as const, since: r.review_at ?? r.updated_at, projectId: r.project_id ?? null, title: r.text ?? null }
+        : { taskId: r.id, status: "parked" as const, since: r.updated_at, detail: r.dispatch_error, projectId: r.project_id ?? null, title: r.text ?? null }),
     archived: (subjects) => new Set(subjects.filter((subject) => {
       const topicId = topicIdOfSubject(subject);
       if (!topicId) return false;

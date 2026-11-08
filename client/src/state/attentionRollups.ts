@@ -14,6 +14,7 @@ import { getTerminalSessionFromPaneId } from './pane/adapters';
 import { liveTopicsOfProject } from './projectAttentionIndex';
 import { attentionOf, rollupAttention, type AttentionRows, type AttentionTier, type SubjectAttention } from './attention';
 import { TASK_SUBJECT_PREFIX, terminalSubject, topicSubject } from '../../../shared/attention';
+import { trayLitReason, type TrayLitReason } from '../../../shared/tray-board';
 
 function terminalBelongsToProject(cwd: string, projectPath: string): boolean {
   return cwd === projectPath || cwd.startsWith(projectPath + '/');
@@ -131,32 +132,57 @@ export function spaceAttention(
   return rollupAttention(views);
 }
 
-/** The board's cards as the store knows them: id and project. */
+/** The board's cards as the store knows them: id, project and title. */
 export interface BoardCardRef {
   id: string;
   projectId?: string | null;
+  text?: string | null;
+}
+
+/** One lit card of a board, with where it lives and why it waits. */
+export interface BoardLitCard {
+  id: string;
+  projectId: string | null;
+  title: string;
+  reason: TrayLitReason;
+  attention: SubjectAttention;
 }
 
 /**
- * A board tab and the Board row: the lit `task:` subjects, of one project's
- * board or (with `projectId` null) of every board. Review, parked, and a card
- * whose agent asks something mid-turn (ATTN-16). A card the board list does
- * not hold yet counts on the general board only: there is nothing to say
- * which project it belongs to.
+ * The lit `task:` subjects of one project's board or (with `projectId` null)
+ * of every board: review, parked, and a card whose agent asks something
+ * mid-turn (ATTN-16). The project is the row's own (`projectId`, written by
+ * the server for every card, steps included); the feed's map is the fallback
+ * for a row that does not carry it. Steps are not in the feed (it holds roots
+ * only), so before the row carried the project a lit step lit the general
+ * board and never its project's.
  */
+export function boardLitCards(
+  rows: AttentionRows,
+  cards: readonly BoardCardRef[] | null | undefined,
+  projectId: string | null,
+): BoardLitCard[] {
+  const byId = new Map<string, BoardCardRef>();
+  for (const c of cards ?? []) byId.set(c.id, c);
+  const out: BoardLitCard[] = [];
+  for (const [subject, row] of rows) {
+    if (!subject.startsWith(TASK_SUBJECT_PREFIX)) continue;
+    const id = subject.slice(TASK_SUBJECT_PREFIX.length);
+    const known = byId.get(id);
+    const project = row.projectId ?? known?.projectId ?? null;
+    if (projectId !== null && project !== projectId) continue;
+    const attention = attentionOf(rows, subject);
+    if (!attention.lit) continue;
+    out.push({ id, projectId: project, title: row.cardTitle ?? known?.text ?? id, reason: trayLitReason(row.reason), attention });
+  }
+  return out;
+}
+
+/** A board tab and the Board row: the loudest lit card and how many are lit (`boardLitCards`). */
 export function boardAttention(
   rows: AttentionRows,
   cards: readonly BoardCardRef[] | null | undefined,
   projectId: string | null,
 ): { tier: AttentionTier | null; count: number } {
-  const projectOf = new Map<string, string | null | undefined>();
-  for (const c of cards ?? []) projectOf.set(c.id, c.projectId);
-  const views: SubjectAttention[] = [];
-  for (const subject of rows.keys()) {
-    if (!subject.startsWith(TASK_SUBJECT_PREFIX)) continue;
-    const id = subject.slice(TASK_SUBJECT_PREFIX.length);
-    if (projectId !== null && projectOf.get(id) !== projectId) continue;
-    views.push(attentionOf(rows, subject));
-  }
-  return rollupAttention(views);
+  return rollupAttention(boardLitCards(rows, cards, projectId).map((c) => c.attention));
 }

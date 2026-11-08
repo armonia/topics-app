@@ -132,11 +132,17 @@ function BrowserSlot(props: TabSlotProps) {
  * room for one number.
  */
 function BoardSlot(props: TabSlotProps) {
+  const tr = useT();
   const projectPath = props.type === 'kanban' ? props.boardProjectPath : undefined;
   const counts = useBoardTabCounts(projectPath);
   const lit = useBoardAttention(projectPath);
   const inProgress = counts.find((c) => c.status === 'in_progress')?.n ?? 0;
-  const summary = counts.map((c) => `${STATUS_LABEL[c.status]}: ${c.n}`).join(' · ');
+  // The tooltip says what the NUMBER is made of: the same lit cards, by why
+  // they wait (steps included), then the cards in progress the ring stands for.
+  const summary = [
+    ...lit.groups.map((g) => tr(`attention.board.reason.${g.status}`, { n: g.count })),
+    ...(inProgress > 0 ? [`${STATUS_LABEL.in_progress}: ${inProgress}`] : []),
+  ].join(' · ');
   return (
     <SlotView
       {...props}

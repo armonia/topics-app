@@ -592,6 +592,8 @@ export interface BoardTask {
   /** Direct-children counters (board badges: "↳ done/total"). */
   subtaskCount: number;
   subtaskDoneCount: number;
+  /** Steps at any depth in review waiting on a person; absent when none. */
+  subtaskReviewCount?: number;
   /** Human interactions in the thread: 'user' comments (kind='comment') — the
    *  AI/agent, system notes and status events are excluded. Shown on the card. */
   userCommentCount: number;
