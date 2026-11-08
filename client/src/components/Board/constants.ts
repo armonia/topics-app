@@ -102,7 +102,7 @@ export const DISPATCH_CHIP: Record<string, { textKey: string; cls: string; title
   // se quella manca — cioè se il server non è riuscito a calcolarla. Restano
   // perché un chip vuoto sarebbe peggio, ma «in coda» da solo è esattamente la
   // parola che non dice niente.
-  queued: { textKey: 'board.dispatch.queued', cls: 'bg-white/10 text-app-text-heading' },
+  queued: { textKey: 'board.dispatch.queued', cls: 'bg-black/10 dark:bg-white/10 text-app-text-heading' },
   // The agent DECLARED an external-condition wait: back in the queue, slot freed,
   // re-dispatched when its window elapses. NOT a delivery — never in review. The
   // reason rides in task.dispatchError → shown as the chip tooltip.
@@ -136,7 +136,7 @@ export const DISPATCH_CHIP: Record<string, { textKey: string; cls: string; title
   // red: it is not a failure, it is an empty hand.
   delivered_empty: {
     textKey: 'board.dispatch.deliveredEmpty',
-    cls: 'bg-white/10 text-app-text-secondary',
+    cls: 'bg-black/10 dark:bg-white/10 text-app-text-secondary',
     titleKey: 'board.dispatch.deliveredEmpty.title',
   },
   // Parked in backlog after a dispatch ended badly. 'failed' = the agent genuinely
@@ -154,7 +154,7 @@ export const DISPATCH_CHIP: Record<string, { textKey: string; cls: string; title
   // Il motivo NON è scritto qui: come per 'failed'/'blocked' viaggia in
   // `task.dispatchError` («Fermato da te: … Rimetti il task in Todo per
   // ripartire») e diventa il tooltip. Un titolo fisso lo coprirebbe.
-  [PARKED_STOPPED]: { textKey: 'board.dispatch.stopped', cls: 'bg-white/10 text-app-text-secondary', Icon: Square },
+  [PARKED_STOPPED]: { textKey: 'board.dispatch.stopped', cls: 'bg-black/10 dark:bg-white/10 text-app-text-secondary', Icon: Square },
   // 'waited_out' = la SERIE di attese dichiarate ha sfondato il tetto. Il task è
   // in Backlog e non riparte da solo, ma non ha fallito niente: aspettava, e
   // quello che aspettava non è arrivato. Perciò indigo come 'in attesa' (è la

@@ -177,8 +177,8 @@ export function loadToneClass(r: DispatchLoadReading): string {
   if (r.loading) return 'text-app-text-muted';
   // Tone before "unbounded": no ceiling is neutral only while nothing holds, and
   // an unbounded reading has no tone of its own except the one a hold gives it.
-  if (r.tone === 'over') return 'text-rose-300';
-  if (r.tone === 'full') return 'text-amber-300';
+  if (r.tone === 'over') return 'text-rose-800 dark:text-rose-300';
+  if (r.tone === 'full') return 'text-amber-800 dark:text-amber-300';
   if (r.unbounded) return 'text-app-text-muted';
   return 'text-app-text-secondary';
 }

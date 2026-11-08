@@ -76,6 +76,7 @@ function Lightbox({ url, video, onClose, su, giu, posizione }: {
       <button
         onClick={onClose}
         title={tr('board.preview.close')}
+        // Exception to the light-theme pair rule: this overlay sits on a backdrop that is dark in both themes.
         className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-app-text hover:bg-white/20"
       ><X className="h-5 w-5" /></button>
       {/* THE COUNTER PROMISED A NAVIGATION THAT DID NOT EXIST: «2 / 5» was on
