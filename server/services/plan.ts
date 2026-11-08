@@ -6,11 +6,12 @@
  * every read and never stored (a stored value goes stale, a computed one cannot).
  */
 import type { Database } from "bun:sqlite";
-import { projectIdForPath } from "../../shared/board";
+import { pendingQuestionComment, parseQuestionBlock, projectIdForPath } from "../../shared/board";
+import { STAGE_AI_REVIEW } from "../../shared/workflow";
 import { findDuplicateGroups } from "../../shared/task-similarity";
 import {
   PLAN_SOURCE_KINDS,
-  type PlanArea, type PlanCard, type PlanCounts, type PlanMilestone, type PlanProgress,
+  type PlanActivity, type PlanArea, type PlanCard, type PlanCounts, type PlanMilestone, type PlanNeed, type PlanProgress,
   type PlanProject, type PlanSignal, type PlanSource, type PlanSourceKind, type PlanTree,
 } from "../../shared/plan";
 
@@ -28,6 +29,49 @@ interface TaskRow {
   assigned_topic_id: string | null; origin_topic_id: string | null;
   delivery_branch: string | null; delivery_commit: string | null; checks_state: string | null;
   updated_at: string; created_at: string; parent_task_id?: string | null;
+  description?: string | null; stage?: string | null; human_ask?: string | null;
+}
+
+/** The «waits for Attilio» line a card description carries when it is the person's turn (see the test). */
+const WAITS_LINE = /aspetta:\s*attilio\b[\s\u2013\u2014:-]*(.*)/i;
+
+interface CommentRow { task_id: string; content: string; kind: string | null; author: string | null; message_id: string | null; quiet: number | null }
+
+/**
+ * Does this open card need the person, and why? One reason per card, the most
+ * specific first: a question to answer says more than «to approve».
+ * An `ai_review` card is the reviewer agent's turn, not the person's.
+ */
+export function needOf(t: Pick<TaskRow, "id" | "text" | "status" | "description" | "stage" | "human_ask">, comments: readonly CommentRow[]): PlanNeed | null {
+  if (t.status === "done") return null;
+  const q = pendingQuestionComment(comments.map((c) => ({
+    content: c.content, kind: c.kind, author: c.author, messageId: c.message_id, quiet: !!c.quiet,
+  })));
+  const parsed = q ? parseQuestionBlock(q.content) : null;
+  if (parsed) return { taskId: t.id, text: t.text, reason: "question", detail: parsed.question };
+  if (t.human_ask?.trim()) return { taskId: t.id, text: t.text, reason: "human_ask", detail: t.human_ask.trim() };
+  const waits = t.description?.match(WAITS_LINE);
+  // The line is often quoted inside a sentence: drop the closing quote and full stop.
+  const said = waits?.[1]?.replace(/[»"”'.\s]+$/, "").trim();
+  if (waits) return { taskId: t.id, text: t.text, reason: "waits", ...(said ? { detail: said } : {}) };
+  if (t.status === "review" && t.stage !== STAGE_AI_REVIEW) return { taskId: t.id, text: t.text, reason: "review" };
+  return null;
+}
+
+/**
+ * The header state of a group of cards. In progress wins (that is what
+ * «moving» means); then what waits for approval, then what is left to do, and
+ * «stale» only when every open card has been idle past STALE_DAYS.
+ */
+export function activityOf(cards: readonly Pick<PlanCard, "status" | "signals">[]): PlanActivity {
+  const n = (s: string) => cards.filter((c) => c.status === s).length;
+  const open = cards.filter((c) => c.status !== "done");
+  if (n("in_progress") > 0) return { state: "working", count: n("in_progress") };
+  if (n("review") > 0) return { state: "review", count: n("review") };
+  if (open.length > 0 && open.every((c) => c.signals.includes("stale"))) return { state: "stale", count: open.length };
+  if (open.length > 0) return { state: "todo", count: open.length };
+  if (cards.length > 0) return { state: "done", count: cards.length };
+  return { state: "empty", count: 0 };
 }
 
 export function countCards(cards: readonly { status: string }[]): PlanCounts {
@@ -82,9 +126,22 @@ export function buildPlan(
 
   const tasks = db.query(
     `SELECT id, project_id, text, status, assigned_topic_id, origin_topic_id, delivery_branch,
-            delivery_commit, checks_state, updated_at, created_at, parent_task_id
+            delivery_commit, checks_state, updated_at, created_at, parent_task_id,
+            description, stage, human_ask
        FROM tasks WHERE archived = 0 ${where}`,
   ).all(...params) as TaskRow[];
+  // Threads of OPEN cards only: a closed card asks nothing, and the full
+  // history is tens of thousands of rows.
+  const openIds = tasks.filter((t) => t.status !== "done").map((t) => t.id);
+  const commentsOf = new Map<string, CommentRow[]>();
+  for (let i = 0; i < openIds.length; i += 500) {
+    const chunk = openIds.slice(i, i + 500);
+    const rows = db.query(
+      `SELECT task_id, content, kind, author, message_id, quiet FROM task_comments
+        WHERE task_id IN (${chunk.map(() => "?").join(",")}) ORDER BY created_at, rowid`,
+    ).all(...chunk) as CommentRow[];
+    for (const c of rows) commentsOf.set(c.task_id, [...(commentsOf.get(c.task_id) ?? []), c]);
+  }
   const areas = db.query(
     `SELECT id, project_id, name, position FROM plan_areas ${opts.projectId ? "WHERE project_id = ?" : ""} ORDER BY position, created_at`,
   ).all(...params) as { id: string; project_id: string; name: string; position: number }[];
@@ -216,7 +273,7 @@ export function buildPlan(
           id: m.id, areaId: m.area_id, title: m.title,
           expectedResult: m.expected_result, completionCriteria: m.completion_criteria,
           owner: m.owner, status: m.status, targetDate: m.target_date, position: m.position,
-          progress: progressOf(all), signals, sources: srcByMilestone.get(m.id) ?? [], tasks: shown,
+          progress: progressOf(all), activity: activityOf(all), signals, sources: srcByMilestone.get(m.id) ?? [], tasks: shown,
         };
       });
       const allCards = ms.flatMap((m) => allByMilestone.get(m.id) ?? []);
@@ -224,19 +281,25 @@ export function buildPlan(
     });
     const unplacedAll = allUnplaced.get(pid) ?? [];
     const everything = [...projectAreas.flatMap((a) => a.milestones.flatMap((m) => allByMilestone.get(m.id) ?? [])), ...unplacedAll];
+    const needsYou = (byProject.get(pid) ?? [])
+      .map((t) => needOf(t, commentsOf.get(t.id) ?? []))
+      .filter((x): x is PlanNeed => !!x);
     return {
       projectId: pid, name: names.get(pid) ?? pid, path: paths.get(pid) ?? null,
       openCount: everything.filter((c) => c.status !== "done").length,
-      progress: progressOf(everything), areas: projectAreas,
+      progress: progressOf(everything), activity: activityOf(everything), needsYou, areas: projectAreas,
       unplaced: { progress: progressOf(unplacedAll), tasks: unplacedByProject.get(pid) ?? [] },
     };
   });
   // A project with nothing open and no plan of its own is history: it stays out
-  // unless done cards were asked for. Projects with a plan come first (that is
-  // where the work has been ordered), then by open work, largest first.
+  // unless done cards were asked for. Order: projects with something waiting
+  // for the person first (that is why one opens the view), then projects at
+  // work, then those with a plan of their own, then by open work.
   const projects = built
     .filter((p) => includeDone || p.openCount > 0 || p.areas.length > 0)
-    .sort((a, b) => Number(b.areas.length > 0) - Number(a.areas.length > 0) || b.openCount - a.openCount || a.name.localeCompare(b.name));
+    .sort((a, b) => Number(b.needsYou.length > 0) - Number(a.needsYou.length > 0)
+      || Number(b.activity.state === "working") - Number(a.activity.state === "working")
+      || Number(b.areas.length > 0) - Number(a.areas.length > 0) || b.openCount - a.openCount || a.name.localeCompare(b.name));
   // Two boards can carry the same project name (`attilio` and `attilio-mn52yh`):
   // without the id the list shows two identical rows and nobody can tell them apart.
   const seenNames = new Map<string, number>();
