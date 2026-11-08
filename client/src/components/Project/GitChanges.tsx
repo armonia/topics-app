@@ -35,6 +35,7 @@ import { Spinner } from '../Shared/Spinner';
 import { SkeletonRows } from '../Shared/Skeleton';
 import { shortcut } from '../../lib/shortcutLabel';
 
+import { isConflicted } from '../../../../shared/git-conflict';
 interface GitChangesProps {
   projectPath: string;
   compact?: boolean;
@@ -44,20 +45,6 @@ interface GitChangesProps {
 
 function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-/**
- * Un file in conflitto di merge. Va SEPARATO, non messo in una delle due liste
- * normali: i suoi codici (`UU`, `AA`, `DD`, `AU`, …) hanno una lettera diversa
- * da spazio in ENTRAMBE le posizioni, quindi soddisfacevano insieme
- * `isFileStaged` e `hasUnstagedChanges` e lo stesso file compariva due volte —
- * una fra le modifiche in stage e una fra quelle da mettere. Con l'etichetta
- * grigia anonima del ramo `default`, per giunta: nessun segnale che ci fosse un
- * conflitto da risolvere, e uno Stage lì sopra marca il file come risolto anche
- * con i marker `<<<<<<<` ancora dentro.
- */
-function isConflicted(status: string): boolean {
-  return status === 'AA' || status === 'DD' || status[0] === 'U' || status[1] === 'U';
 }
 
 function isFileStaged(status: string): boolean {

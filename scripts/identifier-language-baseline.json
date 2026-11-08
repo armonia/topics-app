@@ -3459,9 +3459,6 @@
       "buf",
       "satisfies"
     ],
-    "server/media-error-page.ts": [
-      "esc"
-    ],
     "server/providers/acp-jcode-model.integration.test.ts": [
       "CHIESTI",
       "rec"
@@ -4016,7 +4013,6 @@
     "server/routes/public-profile.ts": [
       "cifra",
       "compatto",
-      "esc",
       "mostraCosto",
       "sparklineSvg"
     ],
