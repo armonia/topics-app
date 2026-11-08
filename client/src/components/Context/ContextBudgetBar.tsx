@@ -3,6 +3,7 @@ import type { ContextUsage } from '../../types';
 import { useT } from '../../hooks/useT';
 import { contextLevel } from '../../../../shared/context-thresholds';
 import { formatTokens } from '../../lib/formatTokens';
+import { MAIN_AGENT, agentName } from '../../lib/agentSessions';
 
 const CATEGORY_COLORS: Record<string, string> = {
   openclaw: '#3b82f6',   // blue
@@ -140,7 +141,7 @@ export function ContextBudgetBar({ sources, totalTokens, budgetLimit, budgetPerc
           return (
             <div key={cat} className="flex items-center gap-1 text-mini text-app-text-muted">
               <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-              <span className="capitalize">{cat === 'openclaw' ? 'OpenClaw' : cat}</span>
+              <span className="capitalize">{cat === 'openclaw' ? agentName(MAIN_AGENT) : cat}</span>
               <span className="tabular-nums">{formatTokens(catTokens)}</span>
             </div>
           );

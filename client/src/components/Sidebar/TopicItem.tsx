@@ -1,5 +1,5 @@
 import { useCallback, memo, createElement } from 'react';
-import { ChevronRight, Cloud, Pin, AppWindow } from 'lucide-react';
+import { ChevronRight, Pin, AppWindow } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Topic } from '@/types';
 import { useTopicPendingStatus } from '@/contexts/PendingActionContext';
@@ -464,18 +464,10 @@ export const TopicItem = memo(function TopicItem({
           : <TopicSubline topicId={topic.id} onFill={onFill} />}
       </div>
 
-      {/* The worktree this topic works in — an attribute of the row, beside
-          the cloud glyph and outside the quiet rail. Same source of truth as
+      {/* The worktree this topic works in — an attribute of the row, outside
+          the quiet rail. Same source of truth as
           the changed-files strip: `topic.worktreeId`, resolved by the tree. */}
       {worktree && <WorktreeChip worktree={worktree} onFill={onFill} />}
-
-      {/* Cloud (OpenClaw) attribute — a quiet glyph marking this row as a cloud
-          session, not a local one. Muted tone (not the attention axis). */}
-      {topic.provider === 'openclaw' && (
-        <span className={cn("flex-shrink-0 flex items-center", onFill ? ON_FILL_TEXT_SOFT : "text-app-text-tertiary")} title="Cloud (OpenClaw)" aria-label={tr('topic.cloudSession')}>
-          <Cloud size={12} />
-        </span>
-      )}
 
       {/* Split position — the same proportional mini-map every other sidebar
           row shows, this topic's cell lit, and it comes from the ONE component
