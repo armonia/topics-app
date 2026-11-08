@@ -160,6 +160,8 @@ export interface DispatcherDeps {
    * scriveva mai. Vedi `services/task-delivery-capture.ts`.
    */
   captureDelivery?: (taskId: string) => Promise<boolean>;
+  /** Measure a planted node delivery's bar and offer it to the automatic land (`services/node-delivery-meter.ts`). */
+  measureDelivery?: (taskId: string) => Promise<void>;
   /**
    * I FILE LASCIATI NEL WORKTREE E MAI COMMITTATI, o `null` se non si sa.
    *
@@ -1974,7 +1976,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * requeue after a restart.
    */
   const remote = createRemoteNodeLane({
-    client: deps.node, svc: deps.svc, broadcast: deps.broadcast, captureDelivery: deps.captureDelivery,
+    client: deps.node, svc: deps.svc, broadcast: deps.broadcast, captureDelivery: deps.captureDelivery, measureDelivery: deps.measureDelivery,
     log, emit, inFlight, beginRun, endRun, ownsRun, bindRunSession, releaseAndEmit, deferWait,
     delegatedPolicyForTask: deps.delegatedPolicyForTask,
     recordDelegatedPhase: deps.recordDelegatedPhase,
@@ -3362,6 +3364,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           : []),
         ciE2e ? E2E_CI_KICKOFF_LINE : E2E_NOT_MEASURED_KICKOFF_LINE,
         ...(ciUnit ? [UNIT_CI_KICKOFF_LINE] : []),
+        // The board lands a card by itself when it is labelled `invisibile`, its bar is green on the
+        // delivered commit and nobody asked anything (`services/auto-land.ts`). The label comes from
+        // the paths (`client/src` = visible), so a text a person reads outside it, or an effect no
+        // path shows, is only caught if the agent says so: `human_ask` is that statement.
+        `- ATTACH \`human_ask\` WHEN A PERSON MUST LOOK: if your delivery spends money, goes public, touches real people's data, cannot be undone, needs a login, or changes a text a person reads (UI copy, but also push notifications, Discord presence, messages to channels, emails), move to review with update_task(task_id="${task.id}", status="review", human_ask=<what to look at or decide>). A delivery with a green bar that changes none of the above and asks nothing is landed by the board itself, with no one reading it first.`,
         `- When the work is complete move the task to \`review\` with: update_task(task_id="${task.id}", status="review"). You can NOT take it to \`done\` (that needs the human's ok).`,
         "- If you need a human decision to go on:",
         `  1. comment_task(task_id="${task.id}", content=<the question, on one line>, options=[<option 1>, <option 2>, ...])`,

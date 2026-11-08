@@ -94,6 +94,8 @@ import { conditionalJson } from "../lib/conditional-json";
 import { attemptHasWork, formatAttemptStat } from "../../shared/task-attempt";
 import { listOwnCommits, mergeNameStatus } from "../services/own-commits";
 import { createDeliveryCapture } from "../services/task-delivery-capture";
+import { createAutoLander } from "../services/auto-land";
+import { createNodeDeliveryMeter, type NodeDeliveryCheckout } from "../services/node-delivery-meter";
 import { makeSheetWriter } from "../services/delivery-sheet";
 import { resolveTaskDiffRange, revsOfRange } from "../services/task-diff-range";
 import { gitDiffFilePatch, serveDiffBlob } from "../services/task-diff-file";
@@ -366,6 +368,35 @@ export interface TasksRouterOpts {
    */
   realignForChecks?: (taskId: string) => Promise<RealignOutcome>;
   /**
+   * AUTOMATIC LAND (`services/auto-land.ts`). Files the delivered branch
+   * touches, to know whether the merge reloads the live server (`null` =
+   * unknown, read as yes); the turns open on this server right now; the poll
+   * beat of the wait for zero turns.
+   */
+  deliveryFiles?: (taskId: string) => Promise<string[] | null>;
+  liveTurnCount?: () => number;
+  autoLandPollMs?: number;
+  /**
+   * A delivery planted from another machine has a branch and no worktree: a
+   * throwaway checkout of it, so the board's bar can be measured on the commit
+   * that will land. `null` = cannot make one (the card stays unmeasured).
+   */
+  nodeDeliveryCheckout?: (taskId: string) => Promise<NodeDeliveryCheckout | null>;
+  /** Files of the branch's own commits, for the labels of a card with no worktree. */
+  ownBranchFiles?: (repoPath: string, branch: string) => Promise<TaskFile[] | null>;
+  /** Replaces the git-backed reader of own-commit files (tests). */
+  ownCommitFiles?: (cwd: string) => Promise<TaskFile[] | null>;
+  /**
+   * Called once when the router exists, with the two doors the node lane and the
+   * boot sweep need and cannot reach any other way.
+   */
+  onAutoLand?: (api: {
+    /** Measure a node delivery's bar, then land it by itself if the verdict allows. */
+    measureNodeDelivery: (taskId: string) => Promise<void>;
+    /** Re-run the verdict over every review card: lost timers do not strand a card. */
+    sweepAutoLand: () => Promise<number>;
+  }) => void;
+  /**
    * Il provider con cui ricavare un titolo leggibile da una card dettata.
    *
    * Assente ⇒ nessun titolo generato, resta quello del composer: è una
@@ -552,6 +583,15 @@ export async function ownCommitFiles(cwd: string, mainRef = "main"): Promise<Tas
   const head = await runGitCap(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
   const branch = head.code === 0 ? head.out.trim() : "";
   if (!branch || branch === "HEAD") return null; // detached: non c'è un ramo di cui dire "suo"
+  return ownBranchFiles(cwd, branch, mainRef);
+}
+
+/**
+ * The same files, for a branch named from outside: the repo's checkout answers,
+ * the branch need not be checked out anywhere (a branch planted from another
+ * machine's run is only a ref).
+ */
+export async function ownBranchFiles(cwd: string, branch: string, mainRef = "main"): Promise<TaskFile[] | null> {
   const commits = await listOwnCommits(cwd, branch, { mainRef, runGit: gitRunner });
   if (commits === null) return null;
   const outputs: string[] = [];
@@ -947,7 +987,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     svc,
     taskDeliveryRef: opts?.taskDeliveryRef,
     taskCheckoutRef: opts?.taskCheckoutRef,
-    ownCommitFiles: (cwd) => ownCommitFiles(cwd),
+    ownCommitFiles: (cwd) => (opts?.ownCommitFiles ?? ownCommitFiles)(cwd),
+    ownBranchFiles: opts?.ownBranchFiles,
   });
 
   async function captureDelivery<T extends { id: string; status: string }>(task: T, prevStatus?: string): Promise<T> {
@@ -1312,8 +1353,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     taskId: string,
     projectId: string,
     legMs: number,
+    // A delivery planted from another machine has no worktree of its own: the
+    // meter (`node-delivery-meter.ts`) hands in a throwaway checkout instead.
+    checkout?: () => Promise<{ cwd: string; commit: string | null } | null>,
   ): Promise<ChecksLeg> {
-    if (!opts?.taskCheckoutRef) return null;
+    const checkoutRef = checkout ?? (opts?.taskCheckoutRef ? () => opts!.taskCheckoutRef!(taskId) : null);
+    if (!checkoutRef || !opts) return null;
     let checks: ReviewCheck[] = [];
     try { checks = svc.getBoardSettings(projectId).reviewChecks; } catch { return null; }
     if (!checks.length) return null;
@@ -1340,7 +1385,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // merely "known"). A realign that cannot happen - conflict, dirty tree -
     // IS the verdict: not a single command runs, and the agent gets the file
     // list instead of a timeout.
-    const before = await opts.taskCheckoutRef(taskId).catch(() => null);
+    const before = await checkoutRef().catch(() => null);
     // A round the swap brake interrupted restarts as the SAME delivery: realigned
     // again, two `git merge main` in one worktree (a server re-issue and a client
     // leg) race on index.lock and write a failed realign as a red.
@@ -1380,7 +1425,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         catch { /* a trace, not the gate */ }
       }
     }
-    const ref = await opts.taskCheckoutRef(taskId).catch(() => null);
+    const ref = await checkoutRef().catch(() => null);
     if (!ref) return null;
     // Past the realign, on a known checkout: from here on THIS is the commit
     // the delivery is measuring, and the one a restart has to carry over.
@@ -1524,22 +1569,35 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * prima di chiudere la card significa quindi farla ripartire — su `done` la
    * stessa strada si limita a spegnere il chip.
    */
+  /** The `running` attempts of a card; none when the table is missing (degraded host). */
+  function runningAttempts(taskId: string): TaskAttempt[] {
+    try { return attempts.list(taskId).filter((a) => a.state === "running"); }
+    catch { return []; }
+  }
+
+  /**
+   * A live turn exists if the card declares an agent at work, has `running`
+   * attempts, or its topic has an open stream right now. `assignedTopicId`
+   * alone is NOT enough: the topic stays bound to the card forever, even one
+   * closed months ago (card 47b63de2). The stream has to be asked, because
+   * after a land `dispatch_state` is already cleared and the process still runs.
+   */
+  function cardTurnIsLive(
+    t: { id: string; assignedTopicId: string | null; dispatchState: string | null },
+    running: TaskAttempt[] = runningAttempts(t.id),
+  ): boolean {
+    const streamLive = !!t.assignedTopicId && opts?.hasLiveTurn?.("topic:" + t.assignedTopicId.slice(0, 8)) === true;
+    return isAgentWorking(t.dispatchState) || running.length > 0 || streamLive;
+  }
+
   function cutLiveTurn(
     t: { id: string; assignedTopicId: string | null; dispatchState: string | null },
     reason: string,
     // A person's Stop on the card is `user`; the machine closing it is not (card C9).
     cause: StopCause,
   ): boolean {
-    let running: TaskAttempt[] = [];
-    try { running = attempts.list(t.id).filter((a) => a.state === "running"); }
-    catch { /* tabella assente (host degradato) ⇒ nessun fan-out */ }
-    // A live turn exists if the card declares an agent at work, has `running`
-    // attempts, or its topic has an open stream right now. `assignedTopicId`
-    // alone is NOT enough: the topic stays bound to the card forever, even one
-    // closed months ago (card 47b63de2). The stream has to be asked, because
-    // after a land `dispatch_state` is already cleared and the process still runs.
-    const streamLive = !!t.assignedTopicId && opts?.hasLiveTurn?.("topic:" + t.assignedTopicId.slice(0, 8)) === true;
-    if (!isAgentWorking(t.dispatchState) && running.length === 0 && !streamLive) return false;
+    const running = runningAttempts(t.id);
+    if (!cardTurnIsLive(t, running)) return false;
     // Dedup: il tentativo 1 è anche il topic legato al task.
     const keys = new Set<string>();
     for (const id of [t.assignedTopicId, ...running.map((a) => a.topicId)]) {
@@ -1575,7 +1633,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * aspettare git). Ogni percorso che atterra una card passa da qui: il bottone
    * «Landa», la quick-reply dell'agente, e il trascinamento in Done.
    */
-  function enqueueLand(projectId: string, taskId: string): LandingTicket {
+  function enqueueLand(projectId: string, taskId: string, landOpts?: { noRealign?: boolean }): LandingTicket {
     // PRIMA di accodare, non dopo: fra l'accodamento e la fusione la card non è
     // su main, e in quella finestra deve dirlo.
     try { opts?.markLandPending?.(taskId); } catch (err) { console.warn("[land] timbro di attesa fallito per", taskId, err); }
@@ -1595,8 +1653,64 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const t = svc.get(taskId, { projectId })?.task;
       if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
     } catch (err) { console.warn("[land] traccia della richiesta non scritta per", taskId, err); }
-    return landings.enqueue(projectId, taskId, () => landTask(projectId, taskId));
+    return landings.enqueue(projectId, taskId, () => landTask(projectId, taskId, landOpts));
   }
+
+  /**
+   * THE CARD THAT NEEDS NO ONE LANDS ITSELF (`services/auto-land.ts`).
+   * Called after a delivery enters review, from the agent's door and from the
+   * node lane once its bar is measured. The land it queues is told not to
+   * realign the branch: the bar measured the delivered commit.
+   */
+  const autoLander = createAutoLander({
+    read: (taskId, projectId) => svc.get(taskId, { projectId }) as ReturnType<Parameters<typeof createAutoLander>[0]["read"]>,
+    board: (projectId) => {
+      const settings = svc.getBoardSettings(projectId);
+      return { autoMerge: settings.dispatchAutoMerge, declaredChecks: settings.reviewChecks.length };
+    },
+    land: (projectId, taskId) => enqueueLand(projectId, taskId, { noRealign: true }),
+    note: (taskId, text) => {
+      svc.addComment({ taskId, author: "system", kind: "service", content: text });
+    },
+    files: opts?.deliveryFiles,
+    liveTurns: opts?.liveTurnCount,
+    cardTurnLive: (taskId) => {
+      const t = svc.get(taskId)?.task;
+      return !!t && cardTurnIsLive(t);
+    },
+    pollMs: opts?.autoLandPollMs,
+    log: (line) => console.warn(line),
+  });
+
+  const nodeMeter = createNodeDeliveryMeter({
+    readTask: (taskId) => svc.get(taskId)?.task,
+    declaredChecks: (projectId) => svc.getBoardSettings(projectId).reviewChecks,
+    checkout: opts?.nodeDeliveryCheckout,
+    runGate: (taskId, projectId, legMs, checkout) => runChecksGate(taskId, projectId, legMs, checkout),
+    recapture: async (taskId) => {
+      await capturaConsegna(taskId);
+      const t = svc.get(taskId)?.task;
+      if (t) broadcastToAll({ type: "task:updated", projectId: t.projectId, task: t });
+    },
+    tryLand: (projectId, taskId) => autoLander.tryLand(projectId, taskId),
+    log: (line) => console.warn(line),
+  });
+
+  /** Every review card gets the verdict again: a timer lost to a reload strands nothing. */
+  async function sweepAutoLand(): Promise<number> {
+    let asked = 0;
+    const rows = svc.list({ scope: "all", status: "review", rootsOnly: true });
+    autoLander.forgetExcept(new Set(rows.map((t) => t.id)));
+    for (const t of rows) {
+      if (!t.labels.some((l) => l.label === "invisibile") || t.checksState !== "pass") continue;
+      asked += 1;
+      await autoLander.tryLand(t.projectId, t.id, { quiet: true });
+    }
+    return asked;
+  }
+  try {
+    opts?.onAutoLand?.({ measureNodeDelivery: (taskId) => nodeMeter.measure(taskId), sweepAutoLand });
+  } catch { /* the host wiring is best-effort */ }
 
   /**
    * REACHING DONE IS NOT PRESSING "LANDA": the board has a switch, and it has
@@ -1712,7 +1826,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     } catch (err) { console.warn(`[land] nota «niente da atterrare» non scritta per ${taskId}:`, err); }
   }
 
-  async function landTask(projectId: string, taskId: string): Promise<LandOutcomeResult | void> {
+  async function landTask(projectId: string, taskId: string, landOpts?: { noRealign?: boolean }): Promise<LandOutcomeResult | void> {
     const autoMerge = opts?.autoMerge;
     if (!autoMerge) {
       svc.addComment({ taskId, author: "system", content: "Landing non disponibile: merge automatico non configurato per questo host." });
@@ -1733,6 +1847,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const res = await autoMerge.tryMerge(taskId, task.text, {
         branch: task.deliveryBranch ?? null,
         commit: task.deliveryCommit ?? null,
+        ...(landOpts?.noRealign ? { noRealign: true } : {}),
       });
       // Il ramo era vecchio e il land l'ha riportato al passo con main da sé: è
       // un commit che nessun umano ha fatto, quindi lo si dice — e per PRIMO,
@@ -2765,6 +2880,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (prevStatus !== "done" && task.status === "done") requestCardProcessStop(opts, taskId);
       task = await captureDelivery(task, prevStatus);
       broadcastToAll({ type: "task:updated", projectId, task });
+      if (task.status === "review" && prevStatus !== "review") void autoLander.tryLand(projectId, taskId);
       // A registry-backed update changes a normal board card, not a parallel
       // status model. Preserve the board's queue accounting exactly: entering
       // Todo may be picked up by that board's configured dispatcher, while
@@ -4095,6 +4211,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           if (prevStatus !== "done" && task.status === "done") requestCardProcessStop(opts, item.taskId);
           task = await captureDelivery(task, prevStatus);
           broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
+          if (task.status === "review" && prevStatus !== "review") void autoLander.tryLand(sess.projectId, item.taskId);
           // È QUESTA la porta che conta per i tasti del banner: l'agente commenta
           // la domanda con `options` e poi si sposta in review da qui (MCP
           // update_task). Al momento del fronte la domanda è l'ultima riga del

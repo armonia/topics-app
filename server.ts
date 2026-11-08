@@ -207,7 +207,7 @@ import { startProcessExitWakes } from "./server/lib/process-exit-wake";
 import { startSubagentWakes } from "./server/services/subagent-wake";
 import { abandonCutTurn, adoptNativeChildrenAtBoot, configureNativeSubagents } from "./server/lib/native-subagents";
 import { awaitsForegroundChild, subagentWakeOwed } from "./server/lib/subagent-runtime";
-import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
+import { createTasksRouter, ownBranchFiles, ownCommitFiles, runGitCap } from "./server/routes/tasks";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
 import { createDeliveryCapture, type DeliveryCapture } from "./server/services/task-delivery-capture";
 import { createPushRouter } from "./server/routes/push";
@@ -258,7 +258,7 @@ import { createWorktreeGcRunner } from "./server/services/worktree-gc-runner";
 import { createWorktreesRouter } from "./server/routes/worktrees";
 import { createMachinesRouter, revokeRemoteDelegatedCapability } from "./server/routes/machines";
 import { createNodesRouter } from "./server/routes/nodes";
-import { hostname as osHostname, totalmem as osTotalmem } from "node:os";
+import { hostname as osHostname, tmpdir as osTmpdir, totalmem as osTotalmem } from "node:os";
 import { createNodeClient, readDelegatedNodeToken, readNodeToken } from "./server/services/node-client";
 import { createNodeProbe } from "./server/services/node-heartbeat";
 import { appendDelegatedRunAudit, delegatedPolicyForTask } from "./server/lib/delegated-agent-start";
@@ -1734,6 +1734,13 @@ async function deliveryIsOnMain(repoPath: string, commit: string): Promise<boole
  */
 let capturaConsegna: DeliveryCapture | null = null;
 /**
+ * Assigned where the tasks router exists. The dispatcher's node lane calls it
+ * once a delivery planted from another machine is in review (its bar is
+ * measured on a throwaway checkout, then the card is offered to the automatic
+ * land). Forward reference, same reasoning as `capturaConsegna`.
+ */
+let misuraConsegnaNodo: ((taskId: string) => Promise<void>) | null = null;
+/**
  * I file lasciati nel worktree e mai committati, per la consegna forzata.
  *
  * Tardiva come `capturaConsegna` e per la stessa ragione: `worktreeOfTask`
@@ -1949,6 +1956,7 @@ const dispatchMemoryInputs = createDispatchMemoryInputs({
 const taskDispatcher = createTaskDispatcher({
   stopCardProcesses: stopCardCommandProcesses,
   captureDelivery: (taskId) => capturaConsegna ? capturaConsegna(taskId) : Promise.resolve(false),
+  measureDelivery: (taskId) => misuraConsegnaNodo ? misuraConsegnaNodo(taskId) : Promise.resolve(),
   uncommittedInWorktree: (taskId) =>
     sondaLavoroNonCommittato ? sondaLavoroNonCommittato(taskId) : Promise.resolve(null),
   svc: dispatcherSvc,
@@ -2795,6 +2803,7 @@ capturaConsegna = createDeliveryCapture({
   taskCheckoutRef,
   ownCommitFiles,
   keepDeliveryCommit,
+  ownBranchFiles: (repoPath, branch) => ownBranchFiles(repoPath, branch),
 });
 
 // Stessa sonda che il pannello delle modifiche usa gia' (`taskWorktreeDirt`):
@@ -2895,6 +2904,41 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   taskCheckoutRef,
   // The user's `task-deliver` hook, the first gate on the move to review (HOOKS-02).
   hooks: defaultLifecycleHooks(),
+  // The automatic land (`services/auto-land.ts`): which files the branch
+  // touches (a server file reloads the live server on landing), and how many
+  // turns are open right now (the land waits for none).
+  deliveryFiles: async (taskId) => {
+    const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
+    if (!ref) return null;
+    const files = await ownBranchFiles(ref.repoPath, ref.branch);
+    return files ? files.map((f) => f.path) : null;
+  },
+  liveTurnCount: () => activeStreams.size,
+  ownBranchFiles: (repoPath, branch) => ownBranchFiles(repoPath, branch),
+  // A throwaway checkout of a branch planted from another machine, so its bar
+  // can be measured on the commit that will land (`services/node-delivery-meter.ts`).
+  nodeDeliveryCheckout: async (taskId) => {
+    const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
+    if (!ref) return null;
+    const path = join(osTmpdir(), "topics-node-checks", taskId.slice(0, 8));
+    await runGitCap(ref.repoPath, ["worktree", "remove", "--force", path]);
+    await runGitCap(ref.repoPath, ["worktree", "prune"]);
+    const added = await runGitCap(ref.repoPath, ["worktree", "add", path, ref.branch]);
+    if (added.code !== 0) return null;
+    return {
+      cwd: path,
+      head: () => resolveCommit(path, "HEAD"),
+      release: async () => { await runGitCap(ref.repoPath, ["worktree", "remove", "--force", path]); },
+    };
+  },
+  onAutoLand: (api) => {
+    misuraConsegnaNodo = api.measureNodeDelivery;
+    // A wait for zero turns lives in memory and a reload loses it: the verdict
+    // is asked again at boot and every ten minutes, so no card is stranded.
+    const sweep = () => { void api.sweepAutoLand().catch((err) => console.warn("[auto-land] spazzata fallita", err)); };
+    setTimeout(sweep, 90_000).unref?.();
+    setInterval(sweep, 10 * 60_000).unref?.();
+  },
   // Main dentro il ramo PRIMA dei check, come fa il land prima di fondere: il
   // cancello misura l'albero che atterra, non una base invecchiata.
   realignForChecks: (taskId) => taskAutoMerge.realign(taskId),

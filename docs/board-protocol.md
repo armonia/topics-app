@@ -427,6 +427,53 @@ queste regole.
      anche con la barra verde. «Nessun check» (`null`) non è un verde e non
      autorizza nessuno. Il predicato è `whoCloses`, e la board lo disegna sulla
      card in review.
+   - **Il conduttore adesso esegue (`server/services/auto-land.ts`).** Fino al
+     08/11/2026 `conductor` era solo il disegno di un chip: 27 card in review, 2
+     con la barra verde, e l'unica uscita era un gesto di Attilio. Dopo una
+     consegna (porta dell'agente e porta del nodo) la card atterra da sola se
+     TUTTO questo è vero: barra della board verde per intero SUL COMMIT
+     CONSEGNATO (`checksCommit` = `deliveryCommit`), etichetta `invisibile`,
+     nessun `human_ask` e nessuna domanda dell'agente come ultima parola del
+     thread, merge automatico della board acceso, nessun sottotask aperto, un
+     commit proprio. Il land parte con `noRealign`: se il ramo è rimasto
+     indietro su main NON lo riallinea (atterrerebbe un commit diverso da quello
+     misurato) e la card resta in review con la ragione scritta. Se il diff
+     tocca `server/`, `server.ts` o `shared/` (il watcher ricarica il server sul
+     merge) aspetta ZERO turni aperti. Una card chiusa non lo è da sé: la
+     chiude il merge CONFERMATO su main, come per ogni land. Ad Attilio restano
+     `visibile`, `decisione`, ogni domanda, barra rossa o non misurata, board
+     senza barra o con merge automatico spento.
+   - **Le protezioni del verdetto oltre alle precedenti** (dalla revisione del
+     09/11/2026). La card resta in review se: il diff tocca un percorso che una
+     persona deve guardare anche quando l'etichetta dice `invisibile`
+     (`needsAPerson`: push, presence Discord, canali, viste, `shared/tool-detail`,
+     guscio `desktop-tauri/`, migration, `.github/`, billing e licenze), o se i
+     file non si leggono; la corsa è finita su un errore (`dispatchError`: una
+     consegna parziale piantata dal PC si guarda, non si misura); una persona ha
+     scritto sulla card dopo che è entrata in review. Il land pubblica ESATTAMENTE
+     il commit misurato: ramo consegnato sparito, punta spostata da un commit
+     aggiunto dopo, o commit di altre card che andrebbero ricopiati →
+     `not-as-measured`, nessun merge. Un commit già offerto al land non si
+     rioffre a ogni spazzata (un rifiuto non cambia finché non cambia il ramo). Se
+     l'agente della card è ancora dentro il suo turno aspetta la fine, quale che
+     sia il diff: il land taglia quel turno e una domanda scritta subito dopo
+     sarebbe tagliata prima di essere letta.
+   - **Cosa tocca una persona senza passare da `client/src`: `human_ask`.**
+     L'etichetta la deriva dai percorsi, e un testo che una persona legge può
+     stare fuori da `client/src` (notifiche push, presence Discord, messaggi ai
+     canali). Il kickoff (`buildKickoff`) obbliga l'agente a mettere `human_ask`
+     quando la consegna tocca spesa, pubblico, dati di persone vere,
+     irreversibile, login o un testo letto da una persona: una card con
+     `human_ask` non atterra da sola.
+   - **La porta del nodo consegna come una locale.** Il ramo piantato dal PC
+     prende le etichette dai suoi commit propri e, se la barra della board è
+     fatta solo di righe CI (`github-ci:*`), la barra misurata sul commit
+     piantato (checkout usa-e-getta del ramo, push e PR in bozza come per una
+     locale). Una barra con comandi locali non si misura lì: niente
+     `node_modules`, il rosso direbbe «non è installato» e non «è sbagliato».
+     Una corsa sul nodo con ZERO commit propri, messa lì dal sistema (non da una
+     persona), torna in `todo` con `stay_local`: sul PC mancano strumenti che la
+     card usa.
    - **Quanto vale la scorciatoia, onestamente: 2 card su ~30.** Il grosso della
      coda è roba visiva e resta di Attilio. L'etichetta serve lo stesso — 2 card
      al giorno diventano tante in un mese, e soprattutto il FILTRO «solo le
