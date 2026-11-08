@@ -236,7 +236,7 @@ export interface StoredMessage {
   siblingCount?: number;
   activeBranchIndex?: number;
   // Per-message footer metadata. Populated when a provider reports usage in
-  // its final stream event (claude-code/codex/openclaw). All optional —
+  // its final stream event (claude-code/codex). All optional —
   // older rows render no footer. Mirrors `client/src/types:ChatMessage`.
   /** Total stream wall-clock duration in milliseconds. */
   latencyMs?: number;
@@ -403,9 +403,6 @@ export interface ErrorResponseOptions {
 }
 
 export interface AppContext {
-  // Gateway WebSocket client (optional — lazy init)
-  gatewayWS?: import("./gateway-ws").GatewayWS;
-
   // Database
   db: Database;
 
@@ -427,15 +424,13 @@ export interface AppContext {
 
   // Paths
   PORT: number;
-  GATEWAY_URL: string;
-  GATEWAY_TOKEN: string;
-  refreshGatewayToken: (force?: boolean) => string;
   TOPICS_FILE: string;
   UNREAD_FILE: string;
   PUBLIC_DIR: string;
   UPLOADS_DIR: string;
   CONTEXT_DIR: string;
-  OPENCLAW_DIR: string;
+  /** App data root (media/, workspace/, agents/): `resolveAppDataDir` in lib/data-dir.ts. */
+  APP_DATA_DIR: string;
   SESSIONS_DIR: string;
   MESSAGES_DIR: string;
   BASE_DIR: string;

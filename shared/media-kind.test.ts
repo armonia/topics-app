@@ -48,9 +48,9 @@ describe("a photo we took ourselves is not somebody's evidence", () => {
   // panel» one portrayed the «Welcome to Topics» screen, the «remove profile
   // tab» one portrayed the kanban.
   test("the server's own screenshots are recognised by their directory", () => {
-    expect(isAutoCapturedPreview("/Users/x/.openclaw/media/task-previews/abc.png")).toBe(true);
-    expect(isAutoCapturedPreview("/Users/x/.openclaw/media/task-previews/abc.jpeg")).toBe(true);
-    expect(isAutoCapturedPreview("/Users/x/.openclaw/media/task-previews/abc.webp?v=2")).toBe(true);
+    expect(isAutoCapturedPreview("/Users/x/.app-data/media/task-previews/abc.png")).toBe(true);
+    expect(isAutoCapturedPreview("/Users/x/.app-data/media/task-previews/abc.jpeg")).toBe(true);
+    expect(isAutoCapturedPreview("/Users/x/.app-data/media/task-previews/abc.webp?v=2")).toBe(true);
   });
 
   test("evidence the agent attached is NOT an auto-capture", () => {
@@ -59,10 +59,10 @@ describe("a photo we took ourselves is not somebody's evidence", () => {
   });
 
   test("a delivery sheet is neither, and the two predicates never overlap", () => {
-    const sheet = "/Users/x/.openclaw/media/task-sheets/abc.svg";
+    const sheet = "/Users/x/.app-data/media/task-sheets/abc.svg";
     expect(isDeliverySheetPath(sheet)).toBe(true);
     expect(isAutoCapturedPreview(sheet)).toBe(false);
-    const shot = "/Users/x/.openclaw/media/task-previews/abc.png";
+    const shot = "/Users/x/.app-data/media/task-previews/abc.png";
     expect(isAutoCapturedPreview(shot)).toBe(true);
     expect(isDeliverySheetPath(shot)).toBe(false);
   });

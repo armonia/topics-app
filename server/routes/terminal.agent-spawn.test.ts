@@ -1,16 +1,22 @@
-/** @covers CODEX-01 */
+/** @covers CODEX-01 MP-AGENTAUTH-01 */
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import net from "net";
 import { _setPtyBridgeSocketPath, createTerminalRouter, disconnectBridge } from "./terminal";
 import type { AppContext } from "../types";
 
-const originalGatewayToken = process.env.GATEWAY_TOKEN;
+const originalTopicsHome = process.env.TOPICS_HOME;
+const AGENT_TOKEN = "f".repeat(64);
+let topicsHome: string | null = null;
 const originalStandalone = process.env.TOPICS_DISABLE_PTY_BRIDGE;
 
 afterEach(() => {
-  if (originalGatewayToken === undefined) delete process.env.GATEWAY_TOKEN;
-  else process.env.GATEWAY_TOKEN = originalGatewayToken;
+  if (originalTopicsHome === undefined) delete process.env.TOPICS_HOME;
+  else process.env.TOPICS_HOME = originalTopicsHome;
+  if (topicsHome) rmSync(topicsHome, { recursive: true, force: true });
+  topicsHome = null;
   // Closing the fake bridge schedules its ordinary reconnect. Make that inert
   // before disconnecting so this test can never start a real bridge later.
   process.env.TOPICS_DISABLE_PTY_BRIDGE = "1";
@@ -41,7 +47,9 @@ test("Codex bridge-only HTTP spawn is refused before a Claude PTY create frame",
     bridge.listen(socketPath, resolve);
   });
   _setPtyBridgeSocketPath(socketPath);
-  process.env.GATEWAY_TOKEN = "test-agent-token";
+  topicsHome = mkdtempSync(join(tmpdir(), "agent-spawn-home-"));
+  writeFileSync(join(topicsHome, "daemon-state.json"), JSON.stringify({ pid: 1, port: 1, token: AGENT_TOKEN, startedAt: "x" }));
+  process.env.TOPICS_HOME = topicsHome;
 
   const ctx = {
     db: {
@@ -74,7 +82,7 @@ test("Codex bridge-only HTTP spawn is refused before a Claude PTY create frame",
     const response = await router(
       new Request(url, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-gateway-token": "test-agent-token" },
+        headers: { "content-type": "application/json", "x-daemon-token": AGENT_TOKEN },
         body: JSON.stringify({ prompt: "must not start" }),
       }),
       url,

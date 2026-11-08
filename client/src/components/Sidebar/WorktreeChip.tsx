@@ -7,7 +7,7 @@ import type { WorktreeLabel } from '@/lib/sidebarWorktrees';
 /**
  * The worktree a topic row works in, as a compact chip beside the name.
  *
- * An ATTRIBUTE of the row, like the cloud glyph of an OpenClaw session: it
+ * An ATTRIBUTE of the row, like the pin and the split map: it
  * says what the row is, not what it needs, so it sits outside the quiet rail
  * (`ROW_TRAIL`) where the signals live, and it takes no colour of its own.
  * On an attention fill it inherits the on-fill treatment like every other

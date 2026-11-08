@@ -37,7 +37,7 @@ un branch da `main`. Ordine dei commit: 1 → 3 → 2 → 4 → 5 (vedi `design.
   nome «auth» mente); elenco dei prefissi invariato. Riscrivere per intero il blocco
   di commento `auth-gate.ts:1-24` e `server.ts:1502-1513`, che descrivono un modello
   che non esiste più. Correggere nello stesso passaggio la bugia `~/.topics/media`
-  (l'handler a `server.ts:1679` legge `~/.openclaw/media`), ripetuta in
+  (l'handler a `server.ts:1679` legge la vecchia radice dei dati dell'app), ripetuta in
   `auth-gate.ts:65-66`. **Verifica:** `bun run typecheck` + rilettura.
 - [x] 1.8 `corsAllowOrigin` (`server.ts:1379-1385`): **non toccare il codice**,
   aggiungere il commento che dichiara perché quell'assenza è ciò che protegge le GET.

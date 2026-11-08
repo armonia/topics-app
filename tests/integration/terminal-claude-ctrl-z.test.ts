@@ -24,7 +24,7 @@ import * as fs from "node:fs";
 import * as net from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
+import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir, installDaemonToken } from "./helpers";
 import { getDatabase } from "../../server/db";
 import { getSubagent, setSubagentState } from "../../server/lib/subagent-store";
 import { transcriptHasPrompt } from "../../server/lib/claude-subagent-transcript";
@@ -35,6 +35,8 @@ const TEST_ROOT = testTmpDir("terminal-ctrl-z");
 const SOCKET_PATH = `${TEST_ROOT}/b.sock`;
 const CWD = `${TEST_ROOT}/wt`;
 const TOPICS_HOME = join(TEST_ROOT, "topics-home");
+/** The daemon token the agent routes accept, installed under TOPICS_HOME by the tests that need it. */
+let daemonToken = "";
 const SENTINEL = "\u0007sentinel";
 
 let bridgeServer: net.Server;
@@ -100,7 +102,7 @@ async function spawnCliChild(parentId: string, prompt: string): Promise<{ agentI
   const response = await terminalRouter(
     new Request(url, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-gateway-token": process.env.GATEWAY_TOKEN! },
+      headers: { "content-type": "application/json", "x-daemon-token": daemonToken },
       body: JSON.stringify({ prompt, cwd: CWD, runtime: "claude-code" }),
     }),
     url,
@@ -127,7 +129,7 @@ async function stopCliChild(parentId: string, agentId: string): Promise<void> {
   await terminalRouter(
     new Request(url, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-gateway-token": process.env.GATEWAY_TOKEN! },
+      headers: { "content-type": "application/json", "x-daemon-token": daemonToken },
       body: "{}",
     }),
     url,
@@ -221,14 +223,13 @@ test("sent by an agent through the live-terminals path, it is dropped the same w
 
 test("the agents' /send takes text only: an array of bytes would carry ctrl+z past the filter", async () => {
   const id = await createSession("claude-code");
-  const gateway = crypto.randomUUID();
-  setEnv("GATEWAY_TOKEN", gateway);
+  const token = installDaemonToken();
   const send = async (input: unknown) => {
     const url = new URL(`http://h/api/terminal/sessions/${id}/send`);
     const res = await terminalRouter(
       new Request(url, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-gateway-token": gateway },
+        headers: { "content-type": "application/json", "x-daemon-token": token },
         body: JSON.stringify({ input }),
       }),
       url,
@@ -250,7 +251,7 @@ test("the agents' /send takes text only: an array of bytes would carry ctrl+z pa
 
 test("seed writes the filtered prompt once and fingerprints the same transcript text", async () => {
   const parentId = await createSession("claude-code");
-  setEnv("GATEWAY_TOKEN", crypto.randomUUID());
+  daemonToken = installDaemonToken();
   const rawPrompt = "do it\x1a now";
   const { agentId } = await spawnCliChild(parentId, rawPrompt);
 
@@ -273,7 +274,7 @@ test("seed writes the filtered prompt once and fingerprints the same transcript 
 
 test("send_to_agent drops an all-filtered prompt and counts the bytes written", async () => {
   const parentId = await createSession("claude-code");
-  setEnv("GATEWAY_TOKEN", crypto.randomUUID());
+  daemonToken = installDaemonToken();
   const { agentId } = await spawnCliChild(parentId, "ready");
   const { writeTopicsTerminal } = await import("../../server/routes/terminal");
   const row = getSubagent(getDatabase(), agentId);
@@ -286,7 +287,7 @@ test("send_to_agent drops an all-filtered prompt and counts the bytes written", 
       const response = await terminalRouter(
         new Request(url, {
           method: "POST",
-          headers: { "content-type": "application/json", "x-gateway-token": process.env.GATEWAY_TOKEN! },
+          headers: { "content-type": "application/json", "x-daemon-token": daemonToken },
           body: JSON.stringify({ input }),
         }),
         url,

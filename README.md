@@ -159,7 +159,7 @@ containers. Copy `.env.example` to `.env`.
 | Variable | Description | Default |
 |---|---|---|
 | `PORT` | Local server port | `3333` |
-| `APP_DATA_DIR` | Where conversations and app data live | `~/.openclaw` |
+| `APP_DATA_DIR` | Where media, workspace and sessions live | `~/.topics` (or the legacy folder if present) |
 | `SERVER_HOST` | `127.0.0.1` keeps the server on this machine only | all interfaces |
 | `ANTHROPIC_API_KEY` | Only for the direct `claude` provider, not the CLI | — |
 | `OPENAI_API_KEY` | Only for the direct `openai` provider | — |
@@ -167,15 +167,13 @@ containers. Copy `.env.example` to `.env`.
 | `MOONDREAM_API_KEY` | Browser vision grounding | — |
 | `AI_PROVIDER` | Pins one provider | auto |
 | `CLAUDE_MODEL` · `OPENAI_MODEL` | Model ids | — |
-| `GATEWAY_URL` · `GATEWAY_TOKEN` | OpenClaw gateway | `http://127.0.0.1:18789` |
 | `STT_PROVIDER` · `STT_LANGUAGE` | Dictation engine and language | `auto` |
 
 **Picking the default provider.** With `AI_PROVIDER` unset your keys decide:
 `ANTHROPIC_API_KEY` → `claude`, else `OPENAI_API_KEY` → `openai`, else
-`GATEWAY_URL` → `openclaw`, else `claude`. That choice holds as long as it stays
-connected.
+`claude`. That choice holds as long as it stays connected.
 
-The order `claude-code` → `codex` → `muse` → `claude` → `openai` → `openclaw` only picks
+The order `claude-code` → `codex` → `muse` → `claude` → `openai` only picks
 the *replacement* once the current default goes offline, so with an API key set
 the CLIs above it never get a turn.
 
@@ -193,7 +191,7 @@ you have.
 MIT licensed, provided "as is" without warranty of any kind.
 
 Topics is an independent project by [Armonia](https://armonia.io), not
-affiliated with or endorsed by Anthropic, OpenClaw or ElevenLabs. It talks to
+affiliated with or endorsed by Anthropic, OpenAI or ElevenLabs. It talks to
 third-party services with keys you provide, under each provider's own terms. See
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 

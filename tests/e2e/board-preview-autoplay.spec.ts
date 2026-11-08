@@ -40,9 +40,9 @@ hermetic(test);
 
 const BASE = E2E_BASE;
 const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-preview-autoplay-${Date.now()}`;
-// Allowlist di /api/media: `${OPENCLAW_DIR}/media/`, e OPENCLAW_DIR del server
+// Allowlist di /api/media: `${APP_DATA_DIR}/media/`, e APP_DATA_DIR del server
 // di test sta dentro la sua DATA_DIR (helpers/test-server.ts).
-const MEDIA_DIR = join(E2E_DATA_DIR, ".openclaw", "media", "preview-autoplay");
+const MEDIA_DIR = join(E2E_DATA_DIR, ".app-data", "media", "preview-autoplay");
 
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
@@ -87,7 +87,7 @@ async function seedReviewTask(request: Req, text: string, previewImage: string):
   });
   expect(patch.ok(), `PATCH previewImage per ${text}`).toBe(true);
   // Il semino ATTECCHISCE, o si ferma qui: l'allowlist di `previewImage`
-  // scarta in silenzio un percorso fuori da `${OPENCLAW_DIR}/media/`, e il
+  // scarta in silenzio un percorso fuori da `${APP_DATA_DIR}/media/`, e il
   // test misurerebbe sei card senza video.
   const back = (await (await request.get(`${BASE}/api/boards/${PROJECT_ID}/tasks/${id}`)).json()) as {
     task?: { previewImage?: string | null };

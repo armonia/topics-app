@@ -18,23 +18,10 @@ if [ ${#SCREENSHOTS[@]} -eq 0 ]; then
 fi
 
 # Get API key
-API_KEY=$(python3 -c "
-import json, os
-try:
-    d = json.load(open(os.path.expanduser('~/.openclaw/agents/main/agent/auth-profiles.json')))
-    profiles = d.get('profiles', {})
-    if isinstance(profiles, dict):
-        for k, p in profiles.items():
-            if p.get('provider') == 'anthropic' and p.get('token'):
-                print(p['token']); break
-    elif isinstance(profiles, list):
-        print([p['token'] for p in profiles if p.get('provider') == 'anthropic'][0])
-except Exception as e:
-    print('')
-" 2>/dev/null)
+API_KEY="${ANTHROPIC_API_KEY:-}"
 
 if [ -z "$API_KEY" ]; then
-  echo -e "${RED}ERROR: Could not read Anthropic API key from auth-profiles.json${NC}"
+  echo -e "${RED}ERROR: ANTHROPIC_API_KEY is not set${NC}"
   exit 1
 fi
 

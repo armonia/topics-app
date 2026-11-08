@@ -52,8 +52,8 @@ export const TOPIC_PREVIEW_MAX = 120;
  *  seconda di chi l'avesse riempita. */
 export const TOPIC_PREVIEW_SOURCE_MAX = 600;
 
-/** Il prefisso delle buste di contesto di OpenClaw: impalcatura, non un
- *  messaggio. Il server le esclude già in SQL; qui serve per il canale WS. */
+/** Il prefisso delle buste di contesto del vecchio gateway (restano nella
+ *  storia delle chat): impalcatura, non un messaggio. Il server le esclude già in SQL; qui serve per il canale WS. */
 const CONTEXT_ENVELOPE_PREFIX = '[Chat messages since your last reply';
 
 export interface TopicPreview {

@@ -6,7 +6,7 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 import { processRows } from "./helpers/platform";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore, waitForTopicVisible } from "./helpers/api-fixtures";
-import { E2E_BASE, E2E_PORT, testServerEnv } from "./helpers/test-server";
+import { E2E_BASE, E2E_PORT, testServerEnv, daemonAuthHeaders } from "./helpers/test-server";
 import { portHolders } from "./helpers/server-death";
 import { hermetic } from "./fixtures/hermetic";
 import { installSlowTurnCli } from "./helpers/fake-claude-cli";
@@ -15,7 +15,6 @@ hermetic(test);
 test.use({ video: "on" });
 test.describe.configure({ timeout: 300_000 });
 
-const TOKEN = process.env.GATEWAY_TOKEN ?? "test-token";
 const STOP_MS = 60_000;
 const SERVER_STOP_MS = 100_000;
 const CHUNKS = 90;
@@ -25,7 +24,7 @@ function startTurn(sessionKey: string, content: string): { said: () => string; d
   const done = (async () => {
     const res = await fetch(`${E2E_BASE}/api/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Gateway-Token": TOKEN },
+      headers: { "Content-Type": "application/json", ...daemonAuthHeaders() },
       body: JSON.stringify({ sessionKey, messages: [{ role: "user", content }] }),
     });
     if (!res.ok || !res.body) throw new Error(`POST /api/chat answered ${res.status}`);

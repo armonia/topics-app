@@ -626,7 +626,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   // La SCHEDA DI CONSEGNA (l'anteprima disegnata quando non ce n'e' nessuna)
   // si scrive sotto `<dati>/media/`, cioe' dentro l'allowlist che la serve.
   const svc = createTaskService(db, {
-    writeDeliverySheet: makeSheetWriter(ctx.OPENCLAW_DIR),
+    writeDeliverySheet: makeSheetWriter(ctx.APP_DATA_DIR),
     repoRootFor: opts?.repoRootFor,
     listRepoRoots: opts?.listRepoRoots,
     listProjectDirs: opts?.listProjectDirs,
@@ -2209,7 +2209,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (typeof raw !== "string") return { ok: false, reason: "atteso il path (string) di uno screenshot, video o diagramma" };
     if (raw.trim() === "") return { ok: true, value: "" };
     if (!filterMedia([raw])?.length) {
-      return { ok: false, reason: "path outside the allowed folders (~/.topics/media, ~/.openclaw/media, workspace)" };
+      return { ok: false, reason: "path outside the allowed folders (~/.topics/media, the app data media folder, workspace)" };
     }
     if (!isPreviewablePath(raw)) {
       return { ok: false, reason: "extension not previewable: it takes a .png/.jpg, a video or an .svg" };
@@ -2331,7 +2331,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (topic?.projectPath) {
       // A dispatched agent's board is the board of the task bound to its topic,
       // NOT the topic's cwd: a catch-all ("generale") task runs in a per-task
-      // private dir (~/.openclaw/workspace/tasks/<id8>) that maps to no real
+      // private dir (<app data>/workspace/tasks/<id8>) that maps to no real
       // board, so cwd-derived scoping 404s every one of the agent's own task
       // ops. When the topic carries a bound task, scope to THAT board.
       const boundProject = topic.id ? svc.boardProjectForTopic(topic.id) : null;

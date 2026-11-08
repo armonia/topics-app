@@ -44,7 +44,7 @@ import { join } from "node:path";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
-import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
+import { E2E_BASE, E2E_HOME, daemonAuthHeaders } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { installQueueTurnsCli } from "./helpers/fake-claude-cli";
 import { restartTestServer } from "./helpers/restart-test-server";
@@ -53,7 +53,6 @@ hermetic(test);
 test.use({ video: "on" });
 test.describe.configure({ timeout: 150_000 });
 
-const TOKEN = process.env.GATEWAY_TOKEN ?? "test-token";
 const LOG = join(E2E_HOME, "fake-cli-queue-turns.jsonl");
 
 interface LogLine { at: number; event: string; text?: string; busy?: boolean; tag?: string }
@@ -73,7 +72,7 @@ function startTurn(sessionKey: string, content: string): Promise<void> {
   const done = (async () => {
     const res = await fetch(`${E2E_BASE}/api/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Gateway-Token": TOKEN },
+      headers: { "Content-Type": "application/json", ...daemonAuthHeaders() },
       body: JSON.stringify({ sessionKey, messages: [{ role: "user", content }] }),
     });
     if (!res.ok || !res.body) throw new Error(`POST /api/chat answered ${res.status}`);
@@ -93,7 +92,7 @@ const queueHeld = (page: Page, sessionKey: string) =>
 /** POST /api/chat/abort from outside the page: the person's Stop on another device. */
 const remoteStop = (sessionKey: string) => fetch(`${E2E_BASE}/api/chat/abort`, {
   method: "POST",
-  headers: { "Content-Type": "application/json", "X-Gateway-Token": TOKEN },
+  headers: { "Content-Type": "application/json", ...daemonAuthHeaders() },
   body: JSON.stringify({ sessionKey }),
 });
 
@@ -250,7 +249,7 @@ test.describe("the turn queue waits for the real end of the turn", () => {
     // The other device: POST /api/chat/abort from outside the page, the person's Stop.
     const stop = await fetch(`${E2E_BASE}/api/chat/abort`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Gateway-Token": TOKEN },
+      headers: { "Content-Type": "application/json", ...daemonAuthHeaders() },
       body: JSON.stringify({ sessionKey: topic.sk }),
     });
     expect(stop.status).toBe(200);
@@ -344,7 +343,7 @@ test.describe("the turn queue waits for the real end of the turn", () => {
     expect((await remoteStop(topic.sk)).status).toBe(200);
     await turn;
     await expect.poll(async () => {
-      const res = await fetch(`${E2E_BASE}/api/history/${encodeURIComponent(topic.sk)}?limit=1`, { headers: { "X-Gateway-Token": TOKEN } });
+      const res = await fetch(`${E2E_BASE}/api/history/${encodeURIComponent(topic.sk)}?limit=1`, { headers: daemonAuthHeaders() });
       return ((await res.json()) as { turn?: { open: boolean } }).turn?.open;
     }, { timeout: 15_000, message: "the server closes the turn while the phone is away" }).toBe(false);
 

@@ -25,7 +25,7 @@ export function defaultContextCheck(): FakeContextCheck {
 /** What the agent «finds» when the fake check ends. */
 export const FOUND_CONTRADICTION = {
   a: { file: "~/.claude/CLAUDE.md", text: "Codice in inglese, commenti in italiano: i nomi di funzioni, tipi e file restano in inglese, i commenti si scrivono in italiano, salvo i termini di dominio." },
-  b: { file: "~/.openclaw/workspace-studio-x/AGENTS.md", text: "Code comments in English only: the gate check:comment-language fails on any Italian comment in a new file." },
+  b: { file: "~/.jcode/workspace-studio-x/AGENTS.md", text: "Code comments in English only: the gate check:comment-language fails on any Italian comment in a new file." },
   why: "Una chiede i commenti in italiano, l'altra in inglese.",
 };
 
@@ -48,8 +48,8 @@ export function contextModel(now: number, check: FakeContextCheck, doctor: Recor
   return {
     at: now - 60_000,
     files: [
-      file("claude-md", "CLAUDE.md globale", "~/.claude/CLAUDE.md", "Claude Code", ["Claude Code", "OpenClaw (via claude-cli)"], 4443),
-      file("inc:tools.md", "TOOLS.md", "~/.claude/tools.md", "Claude Code", ["Claude Code", "OpenClaw (via claude-cli)"], 6282, "incluso da CLAUDE.md", "claude-md"),
+      file("claude-md", "CLAUDE.md globale", "~/.claude/CLAUDE.md", "Claude Code", ["Claude Code", "Jarvis (via claude-cli)"], 4443),
+      file("inc:tools.md", "TOOLS.md", "~/.claude/tools.md", "Claude Code", ["Claude Code", "Jarvis (via claude-cli)"], 6282, "incluso da CLAUDE.md", "claude-md"),
       file("agents-md", "AGENTS.md dell'hub", "~/.agents/AGENTS.md", "Codex e jcode", ["Codex", "jcode"], 13110, "generato da CLAUDE.md e inclusioni"),
       file("memory-index", "Indice della memoria", "~/.claude/memory/MEMORY.md", "Claude Code", ["Claude Code (sessioni nate in ~)"], 4907),
       file("style", "Stile di output", "~/.claude/output-styles/kind.md", "Claude Code", ["Claude Code"], 1946),
@@ -60,9 +60,9 @@ export function contextModel(now: number, check: FakeContextCheck, doctor: Recor
     ],
     otherSources: [
       file("project:acme-web", "CLAUDE.md · acme-web", "~/Projects/acme-web/CLAUDE.md", "CLAUDE.md dei progetti", [], 302, "letto nelle sessioni di quel progetto"),
-      file("ops", "Memoria operativa", "~/.openclaw/OPS.md", "Memoria operativa di OpenClaw", [], 7035, "letto su richiesta"),
+      file("ops", "Memoria operativa", "~/.jarvis/OPS.md", "Memoria operativa di Jarvis", [], 7035, "letto su richiesta"),
     ],
-    skills: { count: 41, tokens: 1780, loaders: ["Claude Code", "Codex", "jcode", "OpenClaw"], items: [{ name: "senior-pass", tokens: 61 }, { name: "commit", tokens: 22 }, { name: "graphify", tokens: 74 }] },
+    skills: { count: 41, tokens: 1780, loaders: ["Claude Code", "Codex", "jcode", "Jarvis"], items: [{ name: "senior-pass", tokens: 61 }, { name: "commit", tokens: 22 }, { name: "graphify", tokens: 74 }] },
     duplicates: [
       { text: "Mai inviare email senza conferma esplicita dell'utente, nemmeno in bozza.", files: ["claude-md", "project:acme-web"] },
     ],
@@ -73,7 +73,7 @@ export function contextModel(now: number, check: FakeContextCheck, doctor: Recor
       { file: "claude-md", line: 12, text: "Nuovo stile dal 12 settembre", date: "2026-09-12", days: 54 },
     ],
     doctor,
-    totals: { byLoader: { "Claude Code": 14888, "OpenClaw (via claude-cli)": 11162, Codex: 14890, jcode: 14890, "Claude Code (sessioni nate in ~)": 4907 } },
+    totals: { byLoader: { "Claude Code": 14888, "Jarvis (via claude-cli)": 11162, Codex: 14890, jcode: 14890, "Claude Code (sessioni nate in ~)": 4907 } },
     contradictions: { at: check.at, items: check.items, running: check.running, startedAt: check.startedAt },
   };
 }
@@ -86,7 +86,7 @@ export function contextText(path: string): Record<string, unknown> | null {
 // ── The feature map: 16 systems, 172 features, 47 where Jarvis is behind ────
 
 const SYSTEMS = [
-  ["jarvis", "Jarvis (jarvis-channels)"], ["openclaw", "OpenClaw"], ["hermes", "Hermes"], ["claude", "Claude Code"],
+  ["jarvis", "Jarvis (jarvis-channels)"], ["aider", "Aider"], ["hermes", "Hermes"], ["claude", "Claude Code"],
   ["codex", "Codex"], ["goose", "Goose"], ["openhands", "OpenHands"], ["letta", "Letta"], ["crewai", "CrewAI"],
   ["langgraph", "LangGraph"], ["ag2", "AG2"], ["manus", "Manus"], ["devin", "Devin"], ["cursor", "Cursor"], ["n8n", "n8n"], ["agno", "Agno"],
 ] as const;
@@ -172,12 +172,12 @@ function planOf(i: number, behind: boolean): Record<string, unknown> | undefined
   return undefined;
 }
 
-/** The first feature has more news than the view shows: ten, the first from OpenClaw. */
+/** The first feature has more news than the view shows: ten, the first from Aider. */
 function newsOf(i: number, id: string, name: string, now: number): Array<Record<string, unknown>> {
   if (i % 4 !== 0) return [];
   const n = i === 0 ? 10 : 1;
   return Array.from({ length: n }, (_, k) => ({
-    system: i % 8 === 0 && k === 0 ? "openclaw" : "example/agents",
+    system: i % 8 === 0 && k === 0 ? "aider" : "example/agents",
     title: `fix(${id}): keep the queue when the gateway restarts (#${1000 + i + k})`,
     url: `https://example.com/news/${i}-${k}`,
     date: new Date(now - ((i + k) % 9) * DAY).toISOString(),

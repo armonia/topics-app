@@ -4,8 +4,8 @@
  *
  * PERCHE' ESISTE, ed e' una lezione pagata. Il 2026-08-16 una misura frettolosa
  * ha contato «18-20 processi WebContent per 2,2 GB» e li ha attribuiti a
- * Topics, aprendo una card su una perdita del guscio. Erano di Mail.app e di
- * OpenClaw: Topics ne aveva UNO, vivo e legittimo. Anche i due «orfani da tre
+ * Topics, aprendo una card su una perdita del guscio. Erano di Mail.app e del
+ * gateway di Jarvis: Topics ne aveva UNO, vivo e legittimo. Anche i due «orfani da tre
  * giorni con ppid=1» erano di Mail.
  *
  * L'ERRORE ERA STRUTTURALE, non di distrazione. Tutti i WebContent del sistema

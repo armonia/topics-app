@@ -49,7 +49,7 @@ export type ProviderModelField = 'claudeModel' | 'openaiModel' | 'codexModel' | 
  *
  * È la tabella che rende il modello un controllo della RIGA del provider invece
  * che un'impostazione globale senza padrone. Chi non è qui dentro non ha una
- * colonna (openclaw e gli agenti ACP): il modello lo decide l'altro capo, e una
+ * colonna (gli agenti ACP): il modello lo decide l'altro capo, e una
  * tendina che scrive su una colonna inesistente sarebbe una scrittura morta.
  *
  * `claude` e `claude-code` puntano allo STESSO campo, e non è una svista: sul

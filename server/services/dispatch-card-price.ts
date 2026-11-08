@@ -12,8 +12,8 @@
  *  - the line is out of reach, whatever a card costs. The lowest reading of the
  *    last two minutes (`held2m`) was at or above 10 GB in 0.3% of the 3 799
  *    samples of 24-26/10, at or above 7 GB in 3.1%, at or above 6 GB (the floor
- *    alone) in 6.9%. The other applications hold the RAM: Helium 3.7, OpenClaw
- *    3.2, Claude 3.0, Beeper 2.0.
+ *    alone) in 6.9%. The other applications hold the RAM: Helium 3.7, the Jarvis
+ *    gateway 3.2, Claude 3.0, Beeper 2.0.
  *  - the floor itself is right. Share of samples with sustained swap, by the
  *    held reading: 3-4 GB 46%, 4-5 GB 21%, 5-6 GB 9%, 6-7 GB 7%, 7+ GB 4%. The
  *    knee is at 5 GB.

@@ -3,7 +3,7 @@
  *
  * Reads: the hub's model (`/api/hub/automations`, about a megabyte, so it is
  * read when the view opens and again only when the hub's live summary changes,
- * never on a timer), the OpenClaw jobs as Topics lists them (`/api/cron/jobs`),
+ * never on a timer), the Jarvis jobs as Topics lists them (`/api/cron/jobs`),
  * the calendar and the queue (to know which «Risolvi tu» agents are already at
  * work). Writes: the commands on a job go to Topics' cron routes, the votes and
  * notes to the hub's feedback log, «Risolvi tu» to the hub's `fix`. After every
@@ -58,7 +58,7 @@ export interface AutomationsData {
   readAt: number | null;
   /** The hub answers neither the model nor the live summary. */
   hubDown: boolean;
-  /** The gateway did not list the OpenClaw jobs: their commands are off. */
+  /** jarvis-channels did not list the Jarvis jobs: their commands are off. */
   gatewayDown: boolean;
   calendar: CalendarEntry[] | null;
   /** Who runs each dated reminder, by its key, from the hub's model. */
@@ -76,7 +76,7 @@ export interface AutomationsData {
   fix(key: string): Promise<{ ok: boolean; already: boolean; why: string | null }>;
 }
 
-/** `describe` words the schedule of an OpenClaw job the hub leaves out (a switched-off one). */
+/** `describe` words the schedule of a Jarvis job the hub leaves out (a switched-off one). */
 export function useAutomationsData(describe?: (job: CronJob) => string | null): AutomationsData {
   const summary = useHubLive().automations;
   const [model, setModel] = useState<AutomationsModel | null>(null);
@@ -88,7 +88,7 @@ export function useAutomationsData(describe?: (job: CronJob) => string | null): 
   const [fixing, setFixing] = useState<Set<string>>(() => new Set());
   const [ranAt, setRanAt] = useState<Record<string, number>>({});
   const [refusal, setRefusal] = useState<JobRefusal | null>(null);
-  // Jobs deleted from here: the hub keeps their card until its next round of the gateway.
+  // Jobs deleted from here: the hub keeps their card until its next round of jarvis-channels.
   const [removed, setRemoved] = useState<ReadonlySet<string>>(() => new Set());
   const alive = useRef(true);
 
@@ -152,7 +152,7 @@ export function useAutomationsData(describe?: (job: CronJob) => string | null): 
     if (c.kind === 'run') setRanAt((prev) => ({ ...prev, [row.key]: Date.now() }));
     if (c.kind === 'remove') setRemoved((prev) => new Set(prev).add(row.key));
     await readJobs();
-    // The hub reads the gateway on its own round: the run's outcome reaches the model a little later.
+    // The hub reads jarvis-channels on its own round: the run's outcome reaches the model a little later.
     if (c.kind !== 'enable') window.setTimeout(() => { void readModel(); }, 1500);
     return true;
   }, [readJobs, readModel]);

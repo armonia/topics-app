@@ -69,7 +69,7 @@ test.describe.serial("Effort — una sola superficie, uno slider", () => {
       // il difetto che questa spec esiste per chiudere. Ora si legge in un posto
       // solo, il pannello che lo cambia.
       await expect(page.getByTestId("effort-tier-badge")).toHaveCount(0);
-      for (const prov of ["claude-code", "claude", "codex", "openai", "openclaw"]) {
+      for (const prov of ["claude-code", "claude", "codex", "openai"]) {
         await expect(popover.getByTestId(`effort-tier-${prov}`)).toHaveCount(0);
       }
     };

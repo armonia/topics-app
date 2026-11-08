@@ -217,7 +217,7 @@ export interface PreviewManagerDeps {
    * Assente ⇒ non si protegge nessuno (il comportamento vecchio).
    */
   protectedPids?(): Promise<Set<number>> | Set<number>;
-  /** Dir for screenshots (allowlisted): ~/.openclaw/media/task-previews. */
+  /** Dir for screenshots (allowlisted): <APP_DATA_DIR>/media/task-previews. */
   mediaDir: string;
   /** Ensure `mediaDir` exists (injected so tests skip real fs). */
   ensureMediaDir(): void;

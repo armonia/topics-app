@@ -55,7 +55,7 @@ import type { LiveTerminal } from "../../shared/live-terminals";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { liveClaudeSessionId, panesToFollow } from "../lib/claude-live-session";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
-import { withoutGatewayToken } from "../lib/openclaw-gateway-token";
+import { withoutGatewayToken } from "../lib/child-env";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
 import { restoreSweptTranscript } from "../lib/transcript-keeper";
 import { discoverClaudeSubAgentSessionId, normalizePromptSnippet, transcriptHasPrompt } from "../lib/claude-subagent-transcript";

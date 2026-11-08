@@ -34,7 +34,7 @@ separate human clicks, because "done" should mean you said so.
 
 ## What it costs you
 
-- [Privacy](https://github.com/armonia/topics-app/blob/main/PRIVACY.md): no analytics, no crash reporting, nothing phones home. Conversations and project data sit in `~/.openclaw` on your disk.
+- [Privacy](https://github.com/armonia/topics-app/blob/main/PRIVACY.md): no analytics, no crash reporting, nothing phones home. Conversations and project data sit in `~/.topics` on your disk.
 - [Security](https://github.com/armonia/topics-app/blob/main/SECURITY.md): the server listens on every interface by default, and reaching the port is not the same as getting in. The machine Topics runs on is the owner; every other device is authorized once from that machine, holds its own token afterwards, and can be revoked. Set `SERVER_HOST=127.0.0.1` to keep it on loopback. Exposing it to the public internet through a tunnel is discouraged and stays your responsibility.
 - Model billing is yours and stays between you and the provider. Topics never proxies inference, never holds a key of its own, and takes no cut.
 

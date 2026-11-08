@@ -149,7 +149,7 @@ describe('applyMessagePreview', () => {
     expect(getTopicPreview('t1')?.text).toBe('eccomi');
   });
 
-  test('le buste di contesto di OpenClaw non sono messaggi', () => {
+  test('le buste di contesto del vecchio gateway non sono messaggi', () => {
     applyMessagePreview('t1', 'user', '[Chat messages since your last reply] tre nuovi', 1000);
     expect(getTopicPreview('t1')).toBeUndefined();
   });

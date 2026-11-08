@@ -13,7 +13,7 @@ import { defaultCdpPort } from "./browser-service";
  * exemptions that keep production behaviour identical.
  */
 describe("defaultCdpPort", () => {
-  test("production keeps 19222, so the OpenClaw profile probe still finds it", () => {
+  test("production keeps 19222, so the probe of a running browser still finds it", () => {
     expect(defaultCdpPort({ BUN_PORT: "3333" })).toBe(19222);
     expect(defaultCdpPort({ PORT: "3333" })).toBe(19222);
   });

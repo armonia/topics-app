@@ -91,13 +91,13 @@ describe("pane-id prefix predicates + extractors round-trip", () => {
   });
 
   test("isTaskWorkspacePath: only …/workspace/tasks/<id> paths, not real projects", () => {
-    expect(isTaskWorkspacePath("/Users/x/.openclaw/workspace/tasks/92a1091a")).toBe(true);
-    expect(isTaskWorkspacePath("/Users/x/.openclaw/workspace/tasks/92a1091a/")).toBe(true);
+    expect(isTaskWorkspacePath("/Users/x/.topics/workspace/tasks/92a1091a")).toBe(true);
+    expect(isTaskWorkspacePath("/Users/x/.topics/workspace/tasks/92a1091a/")).toBe(true);
     // Real projects and the shared catch-all dir are NOT task workspaces.
     expect(isTaskWorkspacePath("/Users/x/Projects/alpha")).toBe(false);
-    expect(isTaskWorkspacePath("/Users/x/.openclaw/workspace/generale")).toBe(false);
+    expect(isTaskWorkspacePath("/Users/x/.topics/workspace/generale")).toBe(false);
     // A deeper path inside a task dir is not the workspace root itself.
-    expect(isTaskWorkspacePath("/Users/x/.openclaw/workspace/tasks/92a1091a/src")).toBe(false);
+    expect(isTaskWorkspacePath("/Users/x/.topics/workspace/tasks/92a1091a/src")).toBe(false);
     expect(isTaskWorkspacePath(null)).toBe(false);
     expect(isTaskWorkspacePath(undefined)).toBe(false);
   });
@@ -187,18 +187,18 @@ describe("getAddableTypesForScope — scope + singleton filtering", () => {
     // menu («Statistics») e senza passare da qui. `addableScopes` è l'unica
     // cosa che serve per farla comparire ovunque si costruisca un menu di
     // creazione: questo test è il cancello di quella promessa.
-    const types = getAddableTypesForScope("standalone", new Set(), new Set(["openclaw"]));
+    const types = getAddableTypesForScope("standalone");
     expect(types).toContain("dashboard");
     // Resta fuori dallo scope progetto: è una pagina dell'APP, non del progetto.
-    const projectTypes = getAddableTypesForScope("project", new Set(), new Set(["openclaw"]));
+    const projectTypes = getAddableTypesForScope("project");
     expect(projectTypes).not.toContain("dashboard");
   });
 
   test("le Automazioni non sono nel «+»: si aprono dalla riga sopra la Board, e il pannello Cron non c'è più", () => {
-    // HUBBR-14: i lavori di OpenClaw vivono in Automazioni, che esiste solo
+    // HUBBR-14: i lavori di Jarvis vivono in Automazioni, che esiste solo
     // dove c'è l'hub. Una voce Cron nel «+» sarebbe il secondo posto per gli
     // stessi lavori.
-    const types = getAddableTypesForScope("standalone", new Set(), new Set(["openclaw"]));
+    const types = getAddableTypesForScope("standalone");
     expect(types).not.toContain("automations");
     expect(types as string[]).not.toContain("cron");
   });

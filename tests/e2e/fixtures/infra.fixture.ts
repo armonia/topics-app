@@ -1,5 +1,4 @@
 import { test as base, type Page } from "@playwright/test";
-import { mockOpenClawAvailable } from "../helpers/openclaw";
 import { openMachinePanel } from "../helpers/open-perf-panel";
 
 /**
@@ -74,9 +73,6 @@ export class InfraPage {
   // --- Mock methods (call BEFORE page.goto) ---
 
   async mockSystemStatus(status = MOCK_SYSTEM_STATUS) {
-    // OpenClaw on: the panel used to grow Gateway, Cron Jobs and Restart rows
-    // with it, and the tests prove they are gone even in that state.
-    await mockOpenClawAvailable(this.page);
     await this.page.route("**/api/system/status", async (route) => {
       await route.fulfill({
         status: 200,
