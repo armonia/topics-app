@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.59",
+    "date": "2026-11-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Madri contenitore: niente «Incomplete card» quando ci appendi le figlie (#616)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.58",
     "date": "2026-11-08",
     "sections": {

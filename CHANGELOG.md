@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.59 — 2026-11-08
+
+### Sotto il cofano
+- Madri contenitore: niente «Incomplete card» quando ci appendi le figlie (#616)
+
 ## 2.3.58 — 2026-11-08
 
 ### Sotto il cofano
