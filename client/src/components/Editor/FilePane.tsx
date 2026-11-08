@@ -1,6 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, lazy, Suspense } from 'react';
-import { copyText } from '../../lib/clipboard';
-import { GitBranch, WrapText, Eye, Code, Copy, Check } from 'lucide-react';
+import { GitBranch } from 'lucide-react';
 import { filesApi, gitApi } from '../../lib/api';
 import { HunkActions } from '../Git/HunkActions';
 import { fetchHunks, type HunkSeed } from '../Git/hunkSeed';
@@ -15,6 +14,7 @@ import { EditorSkeleton } from '../Layout/PaneSkeletons';
 import { readFileContentCache, writeFileContentCache } from '../../lib/fileContentCache';
 import { lazyWarm, warm } from '../../lib/lazyWarm';
 import { loadCodeEditor } from '../../state/pane/panePreload';
+import { CopyPathBtn, WrapBtn, PreviewBtn } from './ToolbarButtons';
 
 // `lazyWarm` and not `lazy`: this pane arrives warm at boot (`panePreload`
 // asks for its chunk before React renders) and then stopped HERE, on a second
@@ -409,42 +409,6 @@ function DiffModeStrip() {
       <span>|</span>
       <span>Modified (Working)</span>
     </div>
-  );
-}
-
-// ── Toolbar Buttons ──
-
-function CopyPathBtn({ filePath, projectPath }: { filePath: string; projectPath: string }) {
-  const [copied, setCopied] = useState(false);
-  const copyPath = async () => {
-    const rel = filePath.replace(projectPath, '').replace(/^\//, '');
-    if (!(await copyText(rel))) return;
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-  return (
-    <button onClick={copyPath} title="Copy Path" className="p-0.5 rounded hover:bg-app-hover transition-colors text-app-text-muted">
-      {copied ? <Check size={13} /> : <Copy size={13} />}
-    </button>
-  );
-}
-
-function WrapBtn({ active, onClick }: { active: boolean; onClick: () => void }) {
-  return (
-    // `aria-pressed` e non solo la tinta: acceso e spento si distinguevano solo
-    // per il colore dell'icona, cioe' per niente che un lettore di schermo (o
-    // una spec) possa leggere.
-    <button onClick={onClick} title="Word Wrap" aria-pressed={active} data-testid="editor-wrap-toggle" className={`p-0.5 rounded hover:bg-app-hover transition-colors ${active ? 'text-primary' : 'text-app-text-muted'}`}>
-      <WrapText size={13} />
-    </button>
-  );
-}
-
-function PreviewBtn({ previewing, onClick, label = 'Markdown' }: { previewing: boolean; onClick: () => void; label?: string }) {
-  return (
-    <button onClick={onClick} title={previewing ? 'Show Source' : `Preview ${label}`} className={`p-0.5 rounded hover:bg-app-hover transition-colors ${previewing ? 'text-primary' : 'text-app-text-muted'}`}>
-      {previewing ? <Code size={13} /> : <Eye size={13} />}
-    </button>
   );
 }
 

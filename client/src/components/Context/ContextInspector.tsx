@@ -17,6 +17,7 @@ import { ContextEnvelopeView } from './ContextEnvelopeView';
 import { SessionEnvironmentPanel } from './SessionEnvironmentPanel';
 import { useToast } from '../Shared/Toast';
 import { Spinner } from '../Shared/Spinner';
+import { errMessage } from '../../lib/errMessage';
 
 /**
  * L'intestazione di una sezione: sempre la stessa, in un posto solo.
@@ -26,16 +27,6 @@ import { Spinner } from '../Shared/Spinner';
  */
 const SECTION_HEADER =
   'flex items-center px-4 py-1 text-mini font-semibold text-app-text-tertiary uppercase tracking-wider bg-black/2 dark:bg-white/2';
-
-/** Extract a human-readable message from an unknown thrown value. */
-function errMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === 'string') return err;
-  if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
-    return (err as { message: string }).message;
-  }
-  return String(err);
-}
 
 interface ContextInspectorProps {
   topic: Topic;

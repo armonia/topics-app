@@ -7,7 +7,8 @@
  * @covers HUBBR-17
  */
 import { describe, expect, test } from 'bun:test';
-import { CHECK_STALE_MS, checkStart, contextCheck, contextView, doctorVerdict, fileAgeDays, fileGroups, harnessWeights, plainRule, shortTokens, unlistedRef } from './hubContext';
+import { CHECK_STALE_MS, checkStart, contextCheck, contextView, doctorVerdict, fileAgeDays, fileGroups, harnessWeights, plainRule, unlistedRef } from './hubContext';
+import { shortTokens } from './formatTokens';
 
 const HUB = {
   at: 1_793_901_551_906,

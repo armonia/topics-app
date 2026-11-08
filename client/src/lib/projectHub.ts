@@ -260,14 +260,6 @@ export function agentOpen(open: HubAgent['open']): { kind: 'topic'; id: string }
   return /^(https?|claude):\/\//.test(open.url) ? { kind: 'external', url: open.url } : null;
 }
 
-/** Tokens as the menu says them: `786 k`, `1.2 M` in the reader's locale. */
-export function shortTokens(n: number, locale: string): string {
-  const f = (v: number) => v.toLocaleString(locale, { maximumFractionDigits: 1 });
-  if (n >= 1e6) return `${f(n / 1e6)} M`;
-  if (n >= 1e3) return `${Math.round(n / 1e3)} k`;
-  return String(Math.round(n));
-}
-
 /** A share of the week as the row says it: whole numbers, and «<1» for a trace. */
 export function weekShare(total: number): string {
   if (total <= 0) return '0';

@@ -10,7 +10,7 @@
  * @covers CTX-01
  */
 import { describe, expect, test } from 'bun:test';
-import { formatTokens } from './formatTokens';
+import { formatTokens, shortTokens } from './formatTokens';
 
 // Le opzioni di ciascuna superficie, come nei rispettivi call site.
 const RING = {} as const;                                   // useRealContext / context ring
@@ -71,5 +71,20 @@ describe('formatTokens — il confine con i milioni, che era il bug', () => {
   test('un valore non finito non esplode', () => {
     expect(formatTokens(NaN, RING)).toBe('NaN');
     expect(formatTokens(Infinity, RING)).toBe('Infinity');
+  });
+});
+
+describe('shortTokens: one spelling for every sidebar row', () => {
+  test('same number, same words', () => {
+    expect(shortTokens(950, 'en')).toBe('950');
+    expect(shortTokens(4907, 'it')).toBe('4,9 k');
+    expect(shortTokens(4907, 'en')).toBe('4.9 k');
+    expect(shortTokens(14_888, 'it')).toBe('15 k');
+    expect(shortTokens(1_250_000, 'it-IT')).toBe('1,3 M');
+  });
+
+  test('no «1000 k» at the edge of the millions', () => {
+    expect(shortTokens(999_600, 'en')).toBe('1 M');
+    expect(shortTokens(999_400, 'en')).toBe('999 k');
   });
 });
