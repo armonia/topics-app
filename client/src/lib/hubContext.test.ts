@@ -48,6 +48,17 @@ describe('harnessWeights', () => {
     expect(w.find((h) => h.name === 'Jarvis')!.extra).toBeNull();
   });
 
+  test('the current hub names the agent by harness and workspace: one Jarvis row, gtm is Visione as in Agents', () => {
+    // byLoader as /api/contesto sends it today (read off the live hub, 08/11).
+    const live = { 'Claude Code': 15689, 'Jarvis (via claude)': 11816, Codex: 15690, jcode: 15690, 'Claude Code (sessioni nate in ~)': 4937, 'Jarvis · main': 21905, 'Jarvis · gtm': 16565 };
+    const w = harnessWeights(live);
+    expect(w.map((h) => h.name)).toEqual(['Jarvis', 'Visione', 'Codex', 'jcode', 'Claude Code']);
+    expect(w.find((h) => h.name === 'Jarvis')!.extra).toEqual({ tokens: 11816, home: false });
+    const v = contextView({ ...HUB, files: [{ id: 'agents', label: 'AGENTS.md', path: '~/.openclaw/workspace-gtm/AGENTS.md', group: 'Jarvis', loaders: ['Jarvis · gtm', 'Jarvis · main', 'Jarvis (via claude)'], tokens: 10 }], totals: { byLoader: live } })!;
+    expect(v.files[0]!.readers).toEqual(['Visione', 'Jarvis']);
+    expect(v.files[0]!.loaders).toEqual(['Visione', 'Jarvis', 'Jarvis (via claude)']);
+  });
+
   test('garbage in, nothing out', () => {
     expect(harnessWeights(null)).toEqual([]);
     expect(harnessWeights({ a: 'x', b: 0 })).toEqual([]);

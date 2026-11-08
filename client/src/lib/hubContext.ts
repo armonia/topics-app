@@ -111,16 +111,23 @@ export function doctorVerdict(raw: unknown): DoctorVerdict | null {
 const GROUP_ORDER = ['Claude Code', 'Codex e jcode', agentName(MAIN_AGENT)];
 
 /**
- * The hub still names our agent's harness by the product it ran on
- * («OpenClaw», «OpenClaw (via claude-cli)»); on screen it is the agent's own
- * name, the one the Agents view uses, and a qualifier stays as it is.
+ * The hub names our agent's harness two ways: by the product it ran on
+ * («OpenClaw», «OpenClaw (via claude-cli)», older hubs) and by harness plus
+ * workspace id («Jarvis · main», «Jarvis · gtm», the current hub). On screen
+ * it is the agent's own name, the one the Agents view uses: `gtm` is Visione
+ * there, so it is Visione here too, and a qualifier stays as it is.
  */
-const HARNESS_ALIASES: Record<string, string> = { OpenClaw: agentName(MAIN_AGENT) };
+const AGENT_HARNESSES = new Set(['OpenClaw', agentName(MAIN_AGENT)]);
+/** The workspace id of the main agent in the hub's labels. */
+const MAIN_WORKSPACE = 'main';
 
 function harnessName(name: string): string {
   const { base, note } = splitLoader(name);
-  const alias = Object.prototype.hasOwnProperty.call(HARNESS_ALIASES, base) ? HARNESS_ALIASES[base] : undefined;
-  if (!alias) return name;
+  const ws = /^(.+?)\s+·\s+(.+)$/.exec(base);
+  let alias: string | null = null;
+  if (ws && ws[1] && ws[2] && AGENT_HARNESSES.has(ws[1])) alias = agentName(ws[2] === MAIN_WORKSPACE ? MAIN_AGENT : ws[2]);
+  else if (AGENT_HARNESSES.has(base)) alias = agentName(MAIN_AGENT);
+  if (alias === null) return name;
   return note === null ? alias : `${alias} (${note})`;
 }
 
@@ -195,7 +202,7 @@ function readFile(raw: unknown): ContextFile | null {
     path,
     group: harnessName(str(raw.group) ?? ''),
     tokens: num(raw.tokens) ?? 0,
-    readers: list(raw.loaders).map(str).filter((s): s is string => s !== null).map((s) => splitLoader(harnessName(s)).base),
+    readers: [...new Set(list(raw.loaders).map(str).filter((s): s is string => s !== null).map((s) => splitLoader(harnessName(s)).base))],
     loaders: list(raw.loaders).map(str).filter((s): s is string => s !== null).map(harnessName),
     mtime: num(raw.mtime),
     note: str(raw.note),

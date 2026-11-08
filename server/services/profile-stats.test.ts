@@ -292,6 +292,21 @@ describe("computePresenceCounts", () => {
     expect(computePresenceCounts(db, 0).focusProject).toBeNull();
   });
 
+  test("board al lavoro su una cartella di sistema ⇒ null, né «.openclaw» né un altro progetto", () => {
+    // The `.openclaw` board has dispatched tasks on the production DB: while
+    // they ran the board branch named it, unfiltered.
+    progetto("p1", "Pix", "/tmp/pix");
+    progetto("p2", ".openclaw", "/Users/x/.openclaw");
+    db.run(
+      "INSERT INTO topics (id, name, slug, session_key, created_at, updated_at, archived, project_path) VALUES (?,?,?,?,?,?,0,?)",
+      ["a", "a", "a", "sk-a", iso(0), iso(0), "/tmp/pix"],
+    );
+    task({ id: "t1", project: projectIdForPath("/Users/x/.openclaw"), status: "in_progress", dispatch: "working", inProgressAgeMs: 60_000 });
+    const c = computePresenceCounts(db, 0);
+    expect(c.activeTasks).toBe(1);
+    expect(c.focusProject).toBeNull();
+  });
+
   test("niente progetti ⇒ null, che il livello `detailed` sa degradare", () => {
     topic("a");
     expect(computePresenceCounts(db, 1).focusProject).toBeNull();
