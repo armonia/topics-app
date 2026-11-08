@@ -63,7 +63,7 @@ import { readAgentProfiles } from "../lib/agent-profiles";
 import { resolveSubagentLaunch, launchArgs } from "../lib/subagent-launch";
 import { endedSubagents, getSubagent, insertSubagent, resumeVerdict, setSubagentSessionId, setSubagentState } from "../lib/subagent-store";
 import {
-  childRuntimeFor, engineLaunchOf, liveNativeChildren, moveCliChildToEngine, nativeChildPlace, readNativeChildOutput, sendToNativeChild,
+  childRuntimeFor, engineLaunchOf, liveNativeChildren, moveCliChildToEngine, nativeChildPlace, placeableUnderKnownProject, readNativeChildOutput, sendToNativeChild,
   setCliChildStopper, spawnNativeChild, stopNativeChild,
 } from "../lib/native-subagents";
 import {
@@ -3860,7 +3860,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             explicitCwd: typeof body.cwd === "string" && body.cwd ? body.cwd : null,
             parentTopic,
             parentCwd: parent?.cwd ?? null,
-            knownProject: (p) => !!ctx.projectStore.getByPath(p),
+            knownProject: (p) => placeableUnderKnownProject(p, (x) => !!ctx.projectStore.getByPath(x)),
           }));
         if (!choice.ok) return errorResponse(choice.status, choice.error);
         let nativePlace = choice.runtime === "topics" ? choice.place : null;
@@ -4037,7 +4037,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             const moved = await moveCliChildToEngine(row, cliSend.data, {
               parentTopic: parentKey.startsWith("topic:") ? ctx.getTopicBySessionKey(parentKey) : null,
               parentCwd: sessions.get(parentKey)?.cwd ?? null,
-              knownProject: (p) => !!ctx.projectStore.getByPath(p),
+              knownProject: (p) => placeableUnderKnownProject(p, (x) => !!ctx.projectStore.getByPath(x)),
               profileOf: (cwd, agentType) => agentProfilesFor(cwd).get(agentType) ?? null,
             });
             if (moved) return json({ ok: true, sent: cliSend.sent, resumed: true, runtime: "topics", sessionKey: moved.sessionKey });

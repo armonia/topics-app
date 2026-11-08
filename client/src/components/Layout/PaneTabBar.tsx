@@ -501,6 +501,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     mode: TabDensityMode;
     widthsByPaneId: Map<string, number>;
     spacer: { beforePaneId?: string; afterPaneId?: string; width: number } | null;
+    /** The tab whose close froze the strip: the spacer takes its slot only once it is gone. */
+    closedPaneId: string;
   } | null>(null);
   const pointerClosePaneRef = useRef<string | null>(null);
   const densityPlan = useMemo(
@@ -874,6 +876,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       const previousPane = panes[closedIndex - 1];
       setFrozenDensity({
         mode: densityMode,
+        closedPaneId: paneId,
         widthsByPaneId,
         spacer: nextPane
           ? { beforePaneId: nextPane.id, width: closedWidth }
@@ -899,7 +902,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       : frozenActiveIndex >= 0
         ? naturalTabs[frozenActiveIndex]!.naturalPx
         : 0;
-  const frozenSpacerWidth = Math.max(
+  // The closing tab stays in the strip for its countdown (and while a stop
+  // confirm is open): a spacer there too pushed every tab after it one slot to
+  // the right, an empty slot that snapped back when the tab left.
+  const closedTabStillShown = !!frozenDensity && panes.some((pane) => pane.id === frozenDensity.closedPaneId);
+  const frozenSpacerWidth = closedTabStillShown ? 0 : Math.max(
     0,
     (frozenDensity?.spacer?.width ?? 0) - Math.max(0, frozenActiveMinimum - frozenActiveWidth),
   );

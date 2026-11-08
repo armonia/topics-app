@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, lazy, Suspense } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect, useLayoutEffect, lazy, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
 import { Search } from 'lucide-react';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
@@ -491,6 +491,28 @@ export function StandaloneChatGroup({
     handleSplitRight, handleSplitDown, handleDetach, handleUnsolo,
     handleCloseOthers,
   } = lifecycle.handlers;
+
+  // ⌘W on a terminal tab of this group closes it the way its × does: the stop
+  // confirm for a working sub-agent, the countdown, the PTY retired at commit.
+  // The App fallback closed it on the spot, asked nothing and left the process
+  // running behind a tab that was gone.
+  const closePaneRef = useRef(handleClosePane);
+  const ownIdsRef = useRef(validatedOrderedIds);
+  useLayoutEffect(() => {
+    closePaneRef.current = handleClosePane;
+    ownIdsRef.current = validatedOrderedIds;
+  });
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ panelId?: string }>;
+      const id = ce.detail?.panelId;
+      if (ce.defaultPrevented || !id || !isTerminalPaneId(id) || !ownIdsRef.current.includes(id)) return;
+      ce.preventDefault();
+      closePaneRef.current(id);
+    };
+    window.addEventListener('close-focused-pane', handler);
+    return () => window.removeEventListener('close-focused-pane', handler);
+  }, []);
 
   // THE PHONE'S DOOR TO THE TAB'S COMMANDS (TABSHEET-04, model-selector
   // AC-39). Under 768px the name of the surface replaces the tab strip, and

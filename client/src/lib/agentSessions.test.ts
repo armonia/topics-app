@@ -6,9 +6,9 @@
  * @covers TOPIC-02
  */
 import { describe, test, expect } from "bun:test";
-import { agentOfPath, agentSessionName, agentTotals, groupAgentSessions, isErrorText } from "./agentSessions";
+import { agentOfPath, agentSessionName, agentTerminalIds, agentTotals, groupAgentSessions, isErrorText } from "./agentSessions";
 import { buildSidebarItems } from "./buildSidebarItems";
-import type { Topic } from "../types";
+import type { TerminalSessionInfo, Topic } from "../types";
 
 const H = "/Users/me";
 const topic = (id: string, projectPath: string, extra: Partial<Topic> = {}): Topic =>
@@ -26,7 +26,7 @@ describe("agentOfPath", () => {
     expect(agentOfPath(`${H}/.claude/jarvis/home/workspace-gtm/sub`)).toBe("gtm");
   });
   test("a normal project is not an agent's", () => {
-    expect(agentOfPath(`${H}/Projects/quadra`)).toBeNull();
+    expect(agentOfPath(`${H}/Projects/acme`)).toBeNull();
     expect(agentOfPath(`${H}/.openclawish`)).toBeNull();
     expect(agentOfPath(undefined)).toBeNull();
   });
@@ -39,7 +39,7 @@ describe("groupAgentSessions", () => {
     c: topic("c", `${H}/.openclaw/workspace-gtm`),
     sub: topic("sub", `${H}/.openclaw`, { subagentOf: "topic:a" }),
     old: topic("old", `${H}/.openclaw`, { archived: true }),
-    p: topic("p", `${H}/Projects/quadra`),
+    p: topic("p", `${H}/Projects/acme`),
   };
 
   test("groups by agent, sub-agents under the parent, archived and projects out", () => {
@@ -103,24 +103,24 @@ describe("agentSessionName", () => {
 
 describe("buildSidebarItems leaves agent homes out of the project list", () => {
   test("no project row for an agent's folder, even open or in the workspace", () => {
-    const topics = { a: topic("a", `${H}/.openclaw`), p: topic("p", `${H}/Projects/quadra`) };
+    const topics = { a: topic("a", `${H}/.openclaw`), p: topic("p", `${H}/Projects/acme`) };
     const items = buildSidebarItems({
       topics,
-      workspaceProjects: [`${H}/.openclaw`, `${H}/Projects/quadra`],
+      workspaceProjects: [`${H}/.openclaw`, `${H}/Projects/acme`],
       browserContexts: [],
       showArchived: false,
-      openPanels: [`project:${encodeURIComponent(`${H}/Projects/quadra`)}`, `project:${encodeURIComponent(`${H}/.claude/jarvis/home`)}`],
+      openPanels: [`project:${encodeURIComponent(`${H}/Projects/acme`)}`, `project:${encodeURIComponent(`${H}/.claude/jarvis/home`)}`],
       pinnedIds: new Set([`project:${H}/.openclaw/workspace-gtm`]),
     });
     const projects = items.filter((i) => i.type === "project").map((i) => i.projectPath);
-    expect(projects).toEqual([`${H}/Projects/quadra`]);
+    expect(projects).toEqual([`${H}/Projects/acme`]);
   });
 
   test("an agent session open as a tab, pinned or lit does NOT show in the normal list", () => {
     const topics = {
       a: topic("a", `${H}/.openclaw/workspace-gtm`),
-      sub: topic("sub", `${H}/Projects/quadra`, { subagentOf: "topic:a" }),
-      n: topic("n", `${H}/Projects/quadra`),
+      sub: topic("sub", `${H}/Projects/acme`, { subagentOf: "topic:a" }),
+      n: topic("n", `${H}/Projects/acme`),
     };
     const items = buildSidebarItems({
       topics, browserContexts: [], showArchived: false,
@@ -130,5 +130,57 @@ describe("buildSidebarItems leaves agent homes out of the project list", () => {
     expect(all).not.toContain('"id":"a"');
     expect(all).not.toContain('"id":"sub"');
     expect(all).toContain('"id":"n"');
+  });
+});
+
+const term = (id: string, parentSessionKey: string | null, extra: Partial<TerminalSessionInfo> = {}): TerminalSessionInfo =>
+  ({ id, name: id, createdAt: "2026-11-08T10:00:00.000Z", cwd: `${H}/Projects/acme-night/x`, command: "claude", clients: 0, type: "claude-code", parentSessionKey, ...extra }) as TerminalSessionInfo;
+
+describe("terminal sub-agents of an agent's chat", () => {
+  const topics = {
+    a: topic("a", `${H}/.claude/jarvis/home`, { updatedAt: "2026-11-08T08:00:00.000Z" }),
+    b: topic("b", `${H}/.openclaw`, { updatedAt: "2026-11-08T09:00:00.000Z" }),
+    gone: topic("gone", `${H}/.openclaw`, { archived: true }),
+    n: topic("n", `${H}/Projects/acme`),
+  };
+  const terminals = [
+    term("t1", "topic:a"),
+    term("t1kid", "t1"),
+    term("t2", "topic:gone"),
+    term("mine", "topic:n"),
+    term("loose", null),
+  ];
+
+  test("belong to the agent: the chat's terminals, theirs, and those of an archived chat", () => {
+    expect([...agentTerminalIds(topics, terminals)].sort()).toEqual(["t1", "t1kid", "t2"]);
+  });
+
+  test("sit under the chat that opened them; an archived chat's stay at the agent's top", () => {
+    const [jarvis] = groupAgentSessions(topics, new Set(), new Set(), new Set(), terminals);
+    const a = jarvis.sessions.find((s) => s.topic.id === "a")!;
+    expect(a.terminals.map((t) => t.terminal.id)).toEqual(["t1"]);
+    expect(a.terminals[0].children.map((t) => t.terminal.id)).toEqual(["t1kid"]);
+    expect(jarvis.terminals.map((t) => t.terminal.id)).toEqual(["t2"]);
+    expect(jarvis.total).toBe(5);
+  });
+
+  test("a terminal at work counts for the agent and lifts its chat above the others", () => {
+    const groups = groupAgentSessions(topics, new Set(["t1"]), new Set(), new Set(), terminals);
+    expect(groups[0].working).toBe(1);
+    expect(agentTotals(groups).working).toBe(1);
+    // «a» was updated before «b»: only its working terminal puts it first.
+    expect(groups[0].sessions.map((s) => s.topic.id)).toEqual(["a", "b"]);
+  });
+
+  test("the sidebar leaves them out with their chat, and keeps a normal chat's terminal under it", () => {
+    const items = buildSidebarItems({
+      topics, terminalSessions: terminals, browserContexts: [], showArchived: false,
+      openPanels: ["terminal:t1", "terminal:t2", "n"],
+    });
+    const all = JSON.stringify(items);
+    expect(all).not.toContain('"id":"terminal:t1"');
+    expect(all).not.toContain('"id":"terminal:t1kid"');
+    expect(all).not.toContain('"id":"terminal:t2"');
+    expect(all).toContain('"id":"terminal:mine"');
   });
 });

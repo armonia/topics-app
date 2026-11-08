@@ -34,14 +34,16 @@ export function useChannelTitles(): Record<string, string> {
 
 export function useAgentGroups(): AgentGroup[] {
   const topics = useTopics();
-  const rows = useActiveAgentRows(useTerminalSessions(), topics);
+  const terminals = useTerminalSessions();
+  const rows = useActiveAgentRows(terminals, topics);
   return useMemo(() => {
-    const ids = (list: { id: string; kind: string }[]) => new Set(list.filter((r) => r.kind === 'topic').map((r) => r.id));
+    // Topic and terminal ids together: the terminal sub-agents of an agent count too.
+    const ids = (list: { id: string }[]) => new Set(list.map((r) => r.id));
     const errored = new Set<string>();
     for (const id of agentTopicIds(topics)) {
       const p = getTopicPreview(id);
       if (p && p.role !== 'user' && isErrorText(p.text)) errored.add(id);
     }
-    return groupAgentSessions(topics, ids(rows.working), ids(rows.awaitingInput), errored);
-  }, [topics, rows]);
+    return groupAgentSessions(topics, ids(rows.working), ids(rows.awaitingInput), errored, terminals);
+  }, [topics, rows, terminals]);
 }

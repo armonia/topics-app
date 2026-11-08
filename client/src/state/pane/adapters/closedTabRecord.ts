@@ -21,6 +21,7 @@ import type { Pane } from '../../../types';
 import type { ClosedTerminalMeta } from '../types';
 import { createPaneId, getTerminalSessionFromPaneId } from './paneConfig';
 import { apiFetch } from '../../../lib/shell/net';
+import { rememberedTerminal } from './terminalMemory';
 import { deleteTerminalSession } from '../../../lib/terminalRosterRetry';
 
 /**
@@ -376,6 +377,10 @@ async function reopenClosedTabImpl(record: ClosedTabRecord): Promise<Pane> {
     // X-Idempotency-Key via an in-memory 60 s cache in
     // server/routes/terminal.ts.
     const idempotencyKey = `${record.pane.id}:${record.closedAt}`;
+    // What the record lacks, the roster told us while the session was alive:
+    // its real folder and its conversation, so `claude` comes back resumed
+    // where it worked instead of empty in the project root.
+    const known = rememberedTerminal(getTerminalSessionFromPaneId(record.pane.id));
 
     const res = await apiFetch('/api/terminal/sessions', {
       method: 'POST',
@@ -384,14 +389,14 @@ async function reopenClosedTabImpl(record: ClosedTabRecord): Promise<Pane> {
         'X-Idempotency-Key': idempotencyKey,
       },
       body: JSON.stringify({
-        cwd: record.terminal.cwd,
+        cwd: known?.cwd || record.terminal.cwd,
         // ClosedTerminalMeta fields are all optional (records can hydrate
         // from older snapshots that lack them) — default to a plain shell
         // rather than sending `type: undefined` to the server.
-        type: record.terminal.sessionType ?? 'shell',
-        name: record.terminal.name,
+        type: record.terminal.sessionType ?? known?.type ?? 'shell',
+        name: record.terminal.name ?? known?.name,
         skipPermissions: record.terminal.skipPermissions ?? false,
-        claudeSessionId: record.terminal.claudeSessionId,
+        claudeSessionId: record.terminal.claudeSessionId || known?.claudeSessionId || undefined,
       }),
     });
 
