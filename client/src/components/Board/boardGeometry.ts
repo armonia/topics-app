@@ -44,7 +44,7 @@ export function columnWidthClass(layout: BoardLayout, isReview: boolean, reviewH
 }
 
 /** The column frame, minus the width: the same box in the board and in the skeleton. */
-export const COLUMN_FRAME = 'flex flex-col rounded-lg border border-app-border bg-white/5';
+export const COLUMN_FRAME = 'flex flex-col rounded-lg border border-app-border bg-black/5 dark:bg-white/5';
 
 /** The columns row in the kanban grid (snap classes are added by the board). */
 export const COLUMNS_ROW_GRID = 'flex h-full min-w-0 gap-2 overflow-x-auto px-2 py-3 sm:gap-3 sm:px-3';

@@ -16,7 +16,7 @@ import type { AppContext } from "../types";
 import { normalizeViewSpec, type ViewSpec } from "../../shared/views";
 import { doorToDoorTimeline, trainsTable } from "../../tests/e2e/fixtures/trip-views";
 import { staysCompare } from "../../tests/e2e/fixtures/sitges-compare";
-import { MCP_APP_MIME, VIEW_APP_URI, VIEW_META_KEY, renderViewDocument, renderViewFragment } from "./view-html";
+import { MCP_APP_MIME, VIEW_APP_URI, VIEW_META_KEY, documentOf, renderViewFragment } from "./view-html";
 
 const dir = mkdtempSync(join(tmpdir(), "views-mcp-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -129,9 +129,10 @@ describe("show_view over MCP", () => {
 describe("the document", () => {
   test("a model's text is escaped everywhere it lands", () => {
     const evil = '<img src=x onerror="alert(1)">';
-    const html = renderViewDocument(spec({
+    const evilSpec = spec({
       view: "table", title: evil, verdict: evil, columns: [evil, "n"], rows: [{ cells: [evil, 1], note: evil }], footnote: evil,
-    }));
+    });
+    const html = documentOf(evilSpec.title, "it", renderViewFragment(evilSpec));
     expect(html).not.toContain("<img src=x");
     expect(html).toContain("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
   });

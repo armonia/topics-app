@@ -197,8 +197,8 @@ export interface DiscordPresenceStatus {
 /**
  * Quanto lavoro è passato di qui, misurato su tabelle che qualcuno SCRIVE
  * (`messages`/`tasks`/`topics`/`projects`) — non su `usage_records` e
- * `agent_sessions`, che non hanno un solo INSERT in tutto il server e
- * darebbero zeri per sempre. La storia sta in cima a
+ * `agent_sessions`, che non coprono il lavoro vero (`usage_records` ha solo gli
+ * INSERT delle chiamate laterali) e darebbero zeri per sempre. La storia sta in cima a
  * `server/services/profile-stats.ts`.
  *
  * Attraversa il filo intera (`GET /api/profile/stats`), quindi vive qui: il
