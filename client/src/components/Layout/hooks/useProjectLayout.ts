@@ -62,6 +62,8 @@ import type { ClosedTabRecord } from '../../../state/pane/adapters/hooks/useClos
 import { findPreviewPane, replacePaneInGroup } from '../../../lib/previewTabs';
 import { buildTerminalSessionBody, normalizeTerminalAgent, TERMINAL_AGENT_LABELS } from '../../../lib/terminalAgents';
 import { pushUndo } from '../../../contexts/UndoContext';
+import { rememberedAgentType, rememberedTerminal } from '../../../state/pane/adapters/terminalMemory';
+import { useConfirmTerminalStop } from '../../../lib/subagentStopGuard';
 import { enqueuePendingAction, tickPendingAction, cancelPendingAction } from '../../../contexts/PendingActionContext';
 import { useRefMirror } from '../../../hooks/useRefMirror';
 import { splitColumnWidths, appendColumnWidths } from '../gridWidths';
@@ -669,15 +671,20 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       const groupIndex = group ? group.paneIds.indexOf(paneId) : 0;
 
       if (pane) {
+        // The session's own folder and conversation, from the roster: the
+        // project root and a bare type recreated it as an empty shell or an
+        // empty `claude` in the wrong folder once its PTY was retired.
+        const known = pane.type === 'terminal' ? rememberedTerminal(getTerminalSessionFromPaneId(paneId)) : undefined;
         const record = captureClosedTab(pane, groupId, groupIndex, 'project', {
           projectPath,
           terminal:
             pane.type === 'terminal'
               ? {
-                  sessionType: pane.terminalType || 'shell',
-                  cwd: projectPath,
-                  name: pane.title || 'Terminal',
+                  sessionType: pane.terminalType || rememberedAgentType(known) || 'shell',
+                  cwd: known?.cwd || projectPath,
+                  name: pane.title || known?.name || 'Terminal',
                   skipPermissions: true,
+                  ...(known?.claudeSessionId ? { claudeSessionId: known.claudeSessionId } : {}),
                 }
               : undefined,
         });
@@ -1078,6 +1085,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // App-level handler close the whole project. preventDefault marks the
   // event handled so App falls through.
   handleClosePaneRef.current = handleClosePane;
+  // ⌘W asks what the tab's × asks: a working sub-agent's terminal is another
+  // session's work (SUBAGENT-20). Without this the shortcut closed it silently.
+  const confirmTerminalStop = useConfirmTerminalStop();
+  const confirmTerminalStopRef = useRef(confirmTerminalStop);
+  confirmTerminalStopRef.current = confirmTerminalStop;
   useEffect(() => {
     const handler = (e: Event) => {
       const ce = e as CustomEvent<{ panelId?: string }>;
@@ -1087,7 +1099,10 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       const group = groupsRef.current.find(g => g.id === fgid);
       if (!group?.activePaneId) return;
       ce.preventDefault();
-      handleClosePaneRef.current?.(fgid, group.activePaneId);
+      const paneId = group.activePaneId;
+      const sessionId = getTerminalSessionFromPaneId(paneId);
+      if (!sessionId) { handleClosePaneRef.current?.(fgid, paneId); return; }
+      void confirmTerminalStopRef.current(sessionId).then((ok) => { if (ok) handleClosePaneRef.current?.(fgid, paneId); });
     };
     window.addEventListener('close-focused-pane', handler);
     return () => window.removeEventListener('close-focused-pane', handler);

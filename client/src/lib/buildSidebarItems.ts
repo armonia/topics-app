@@ -6,7 +6,7 @@ import { attentionOf, type AttentionRows } from '../state/attention';
 import { projectAttentionChildren } from '../state/attentionRollups';
 import { terminalSubject, topicSubject } from '../../../shared/attention';
 import { basename, tryHostname } from './path-utils';
-import { agentTopicIds, isAgentPath } from './agentSessions';
+import { agentTerminalIds, agentTopicIds, isAgentPath } from './agentSessions';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -249,7 +249,10 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   // open tab or not: the normal list never shows them.
   const agentIds = agentTopicIds(opts.topics);
   const topics = agentIds.size === 0 ? opts.topics : Object.fromEntries(Object.entries(opts.topics).filter(([id]) => !agentIds.has(id)));
-  const { workspaceProjects = [], terminalSessions = [], browserContexts = [], showArchived, openPanels = [], projectOpenPanes = {}, attention = new Map(), pinnedIds = new Set<string>(), detachedTopicIds = new Map<string, { windowId: string; windowLabel?: string }>(), paneTitleById = new Map<string, string>(), browserOriginById = new Map<string, BrowserOrigin>(), sessionLastActivityById = new Map<string, number>() } = opts;
+  const { workspaceProjects = [], terminalSessions: allTerminals = [], browserContexts = [], showArchived, openPanels = [], projectOpenPanes = {}, attention = new Map(), pinnedIds = new Set<string>(), detachedTopicIds = new Map<string, { windowId: string; windowLabel?: string }>(), paneTitleById = new Map<string, string>(), browserOriginById = new Map<string, BrowserOrigin>(), sessionLastActivityById = new Map<string, number>() } = opts;
+  // Their terminal sub-agents go with them: here they would have no parent row.
+  const agentTerms = agentIds.size === 0 ? null : agentTerminalIds(opts.topics, allTerminals);
+  const terminalSessions = agentTerms?.size ? allTerminals.filter((t) => !agentTerms.has(t.id)) : allTerminals;
   const openPanelSet = new Set(openPanels);
 
   const items: SidebarItem[] = [];

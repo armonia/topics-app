@@ -25,6 +25,7 @@ import { hasOpenModalSurface } from '../lib/modalSurface';
 import { openUserMenu } from '../lib/openUserMenu';
 import type { Topic } from '../types';
 import { undo as undoUndo, redo as undoRedo, isTextInputFocused, isRawKeySurfaceFocused } from '../contexts/UndoContext';
+import { cancelLatestPendingClose } from '../contexts/PendingActionContext';
 import { isProjectPaneId, getProjectPathFromPaneId, sessionKeyForPaneId, type ClosedTabRecord } from '../state/pane/adapters';
 import { OPEN_ADD_PALETTE_EVENT } from '../components/Shared/PaneAddMenu';
 import type { ZoomScope } from '../components/Layout/zoomScope';
@@ -497,6 +498,10 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         (e.key === 't' || e.key === 'T' || e.key === 'u' || e.key === 'U')
       ) {
         e.preventDefault();
+        // A close still counting down is undone first: its record is not on
+        // the stack yet, so popping would reopen an OLDER tab (often a dead
+        // terminal, recreated empty) while this one still closes.
+        if (cancelLatestPendingClose()) return;
         const last = closedTabsRef.current[0];
         if (last) handleReopenClosedTab(last);
         return;

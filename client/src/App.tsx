@@ -101,6 +101,7 @@ import { ToastProvider, ToastOutlet, useToast } from './components/Shared/Toast'
 import { ConfirmProvider } from './hooks/useConfirm';
 import { CompletionNotifierBridge } from './hooks/useCompletionNotifier';
 import { useVoiceLoop } from './hooks/useVoiceLoop';
+import { rememberTerminals } from './state/pane/adapters/terminalMemory';
 import { PendingActionProvider, enqueuePendingAction, tickPendingAction, cancelPendingAction } from './contexts/PendingActionContext';
 import { flushAtPageExit } from './lib/pageExitFlush';
 import { DRAG_REGION, NO_DRAG_REGION } from './lib/shell/dragRegion';
@@ -680,6 +681,9 @@ function App() {
   // setOpenPanels crosses the seam).
   const terminals = useTerminalLifecycle({ wsStatus, lastConnectedAt, onWSMessage });
   const terminalSessions = terminals.sessions;
+  // Every session seen, kept past its retirement: ⇧⌘T recreates it in its own
+  // folder with its conversation (state/pane/adapters/terminalMemory.ts).
+  useEffect(() => { rememberTerminals(terminalSessions); }, [terminalSessions]);
 
   // Phase 30 PANE-01: cross-device panels sync is owned by state/pane/middleware/syncWS.ts.
   // The middleware subscribes to the pane-store reducer's lastSeq and applies

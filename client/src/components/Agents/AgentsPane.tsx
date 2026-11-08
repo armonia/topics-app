@@ -5,13 +5,14 @@
  * A session opens as from the sidebar. The grouping is `lib/agentSessions`.
  */
 import { useMemo, useState } from 'react';
-import { Bot, ChevronRight, TriangleAlert } from 'lucide-react';
+import { Bot, ChevronRight, SquareTerminal, TriangleAlert } from 'lucide-react';
+import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { useLocale, useT } from '../../hooks/useT';
 import { useAgentGroups, useChannelTitles } from '../../state/agentGroups';
 import { agentSessionName } from '../../lib/agentSessions';
 import { DANGER_TEXT } from '../../lib/popoverStyles';
 import { useSharedNow } from '../../state/useSharedNow';
-import type { AgentSession, AgentSessionState } from '../../lib/agentSessions';
+import type { AgentSession, AgentSessionState, AgentTerminal } from '../../lib/agentSessions';
 import { PALLINO_ATTESA, PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from '../Sidebar/chromeSignals';
 
 type Tr = ReturnType<typeof useT>;
@@ -21,6 +22,10 @@ const TEXT: Record<AgentSessionState, string> = { working: SEGNALE_OK, waiting: 
 
 function openSession(id: string) {
   window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId: id, mode: 'permanent', reveal: true } }));
+}
+
+function openTerminal(id: string, name: string) {
+  window.dispatchEvent(new CustomEvent('topics:open-terminal-pane', { detail: { sessionId: id, name } }));
 }
 
 function useAgo() {
@@ -60,6 +65,35 @@ function SessionRow({ s, depth, tr, ago, name }: { s: AgentSession; depth: numbe
         </button>
       </li>
       {s.children.map((c) => <SessionRow key={c.topic.id} s={c} depth={depth + 1} tr={tr} ago={ago} name={name} />)}
+      {s.terminals.map((t) => <TerminalRow key={t.terminal.id} t={t} depth={depth + 1} tr={tr} ago={ago} />)}
+    </>
+  );
+}
+
+/** A sub-agent running in a terminal (the CLI): it opens as a terminal pane. */
+function TerminalRow({ t, depth, tr, ago }: { t: AgentTerminal; depth: number; tr: Tr; ago: (at: number) => string }) {
+  const { id, name, type } = t.terminal;
+  return (
+    <>
+      <li>
+        <button
+          type="button"
+          data-testid="agents-terminal"
+          onClick={() => openTerminal(id, name)}
+          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-app-hover"
+          style={{ paddingLeft: 8 + depth * 18 }}
+        >
+          <span className={`h-2 w-2 flex-shrink-0 rounded-full ${DOT[t.state]}`} aria-hidden="true" />
+          {type === 'claude-code'
+            ? <ClaudeIcon size={12} className="flex-shrink-0 text-app-text-secondary" />
+            : <SquareTerminal size={12} className="flex-shrink-0 text-app-text-secondary" aria-hidden="true" />}
+          <span className="min-w-0 flex-1 truncate text-prose text-app-text">{name}</span>
+          {t.state !== 'idle' && <span className={`flex-shrink-0 text-mini ${TEXT[t.state]}`}>{tr(`agents.state.${t.state}`)}</span>}
+          <span className="flex-shrink-0 text-mini tabular-nums text-app-text-muted">{ago(t.lastActivity)}</span>
+          <ChevronRight size={12} className="flex-shrink-0 text-app-text-muted" aria-hidden="true" />
+        </button>
+      </li>
+      {t.children.map((c) => <TerminalRow key={c.terminal.id} t={c} depth={depth + 1} tr={tr} ago={ago} />)}
     </>
   );
 }
@@ -115,6 +149,7 @@ export function AgentsPane() {
             </header>
             <ul className="p-1">
               {(open.has(g.id) ? g.sessions : g.sessions.slice(0, VISIBLE)).map((s) => <SessionRow key={s.topic.id} s={s} depth={0} tr={tr} ago={ago} name={name} />)}
+              {g.terminals.map((t) => <TerminalRow key={t.terminal.id} t={t} depth={0} tr={tr} ago={ago} />)}
               {!open.has(g.id) && g.sessions.length > VISIBLE && (
                 <li>
                   <button
