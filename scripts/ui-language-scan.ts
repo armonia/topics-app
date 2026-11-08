@@ -73,6 +73,8 @@ export const I18N_CATALOGUES = new Set([
   "client/src/lib/i18n-processes-en.ts",
   "client/src/lib/i18n-loadscreen-it.ts",
   "client/src/lib/i18n-loadscreen-en.ts",
+  "client/src/lib/i18n-consumption-it.ts",
+  "client/src/lib/i18n-consumption-en.ts",
   "client/src/lib/i18n-proxy-events-it.ts",
   "client/src/lib/i18n-proxy-events-en.ts",
   "client/src/lib/i18n-accounts-it.ts",

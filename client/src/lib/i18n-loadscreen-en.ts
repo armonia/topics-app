@@ -30,6 +30,7 @@ const LOAD_SCREEN_EN: Dict = {
   'loadScreen.weight.sub': '{n} processes · {cores} cores · {mem} of memory',
   'loadScreen.weight.metric.rss': 'resident memory per program',
   'loadScreen.weight.metric.working-set': 'memory in use (working set) per program',
+  'loadScreen.weight.cpuNote': 'CPU in % of one core',
   'loadScreen.weight.fromMac': 'from the Mac',
   'loadScreen.weight.processes': '{n} processes',
   'loadScreen.weight.rest': '{n} more processes · {mem}',

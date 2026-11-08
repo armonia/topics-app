@@ -31,6 +31,7 @@ export interface ScreenDataDeps {
 }
 
 type ReadoutAnswer = {
+  machine?: { name?: string } | null;
   readout?: {
     procs?: Array<{ memMB?: number; cpuPct?: number | null; job?: boolean }>;
     cores?: number;
@@ -77,6 +78,7 @@ export function remoteReportOf(answer: ReadoutAnswer): RemoteReport | null {
   const cores = r.cores && r.cores > 0 ? r.cores : null;
   const cpuOfOneCore = sent.some((p) => typeof p.cpuPct === "number") ? sent.reduce((s, p) => s + (p.cpuPct ?? 0), 0) : null;
   return {
+    machine: typeof answer.machine?.name === "string" && answer.machine.name ? answer.machine.name : null,
     jobs,
     load: {
       memMB: sent.length ? sent.reduce((s, p) => s + (p.memMB ?? 0), 0) : null,

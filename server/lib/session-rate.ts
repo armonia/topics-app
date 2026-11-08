@@ -17,6 +17,12 @@
 export const RATE_WINDOW_MS = 30_000;
 /** Below this span between the two samples the rate is not stated: two reads a heartbeat apart say nothing. */
 export const MIN_SPAN_MS = 3_000;
+/**
+ * A read just before the window's start still serves as its baseline (the reads come every few seconds, so
+ * there is rarely one exactly on the edge); one older than this is a stale picture and is not used, or a
+ * panel left closed for minutes would print the average of those minutes as «the last 30 s».
+ */
+export const BASELINE_SLACK_MS = 5_000;
 /** Samples older than window + this are dropped: one older than the window is kept as the baseline. */
 const KEEP_SLACK_MS = 30_000;
 const MAX_SAMPLES = 64;
@@ -24,20 +30,24 @@ const MAX_SAMPLES = 64;
 interface Sample { at: number; out: number }
 
 /**
- * `null` = not measurable (fewer than two samples, a span too short, or a
+ * `null` = not measurable (fewer than two samples inside the window, a span too short, or a
  * counter that went backwards, which means it was reset and the old baseline
  * is gone). 0 = measured, and nothing was produced.
  */
 export function outputRate(samples: readonly Sample[], now: number, windowMs = RATE_WINDOW_MS): number | null {
   if (samples.length < 2) return null;
   const newest = samples[samples.length - 1]!;
-  // The baseline is the newest sample at or before the window's start; with none that old, the oldest we have.
   const start = now - windowMs;
+  // The newest read is itself older than the window: nobody has looked since, there is no «now» to state.
+  if (newest.at < start) return null;
+  // The baseline is the newest sample at or before the window's start; with none that old, the oldest we have.
   let base = samples[0]!;
   for (const s of samples) {
     if (s.at <= start) base = s;
     else break;
   }
+  // That one is too old to stand for the window's start: fall back on the first read inside the window.
+  if (base.at < start - BASELINE_SLACK_MS) base = samples.find((s) => s.at >= start) ?? newest;
   const span = newest.at - base.at;
   if (span < MIN_SPAN_MS) return null;
   const delta = newest.out - base.out;

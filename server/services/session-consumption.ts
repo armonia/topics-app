@@ -95,6 +95,8 @@ export interface ConsumptionDeps {
 
 /** What the paired machine reports of the work the Mac sent it. */
 export interface RemoteReport {
+  /** The machine's name, for the row to say where the work runs. */
+  machine?: string | null;
   jobs: RemoteJob[];
   load: { memMB: number | null; cpuPct: number | null };
 }
@@ -260,7 +262,7 @@ export function createSessionConsumption(deps: ConsumptionDeps): SessionConsumpt
           name: p.name, count: p.count, memMB: Math.round(p.memKB / 1024), cpuPct: p.cpu === null ? null : round1(p.cpu / cores),
         })) : [],
         remote: (placed?.bySession.get(c.key) ?? []).map((r) => ({
-          what: r.job.what, who: r.job.who, since: r.job.since, of: r.of,
+          what: r.job.what, where: remote?.machine ?? null, who: r.job.who, since: r.job.since, of: r.of,
           memMB: r.memMB === null ? null : Math.round(r.memMB), cpuPct: r.cpuPct,
         })),
         awaiting: c.task?.awaitingAnswer === true,
@@ -270,14 +272,30 @@ export function createSessionConsumption(deps: ConsumptionDeps): SessionConsumpt
 
     let idleSessions = 0;
     let idleKB = 0;
+    // Processes this machine still holds for a card that runs elsewhere: no session here carries them, so they
+    // are counted as nobody's rather than dropped, or billed + idle + unattributed would fall short of the table.
+    let strandedKB = 0;
+    let strandedProcesses = 0;
+    let strandedCpu: number | null = null;
     if (attribution) {
       const liveSet = new Set(live.map((c) => c.key));
+      const measuredSet = new Set(liveKeys);
       for (const [key, u] of attribution.units) {
-        if (liveSet.has(key) || u.ownProcesses === 0) continue;
+        if (u.ownProcesses === 0) continue;
+        if (liveSet.has(key)) {
+          if (!measuredSet.has(key)) {
+            strandedKB += u.ownKB;
+            strandedProcesses += u.ownProcesses;
+            if (u.ownCpu !== null) strandedCpu = (strandedCpu ?? 0) + u.ownCpu;
+          }
+          continue;
+        }
         idleSessions += 1;
         idleKB += u.ownKB;
       }
     }
+    const looseCpu = attribution?.unattributed.cpu ?? null;
+    const restCpu = looseCpu === null && strandedCpu === null ? null : (looseCpu ?? 0) + (strandedCpu ?? 0);
     tracker.prune(now - FORGET_AFTER_MS);
 
     return {
@@ -285,10 +303,11 @@ export function createSessionConsumption(deps: ConsumptionDeps): SessionConsumpt
       windowS: RATE_WINDOW_MS / 1000,
       rule: "equal",
       sessions,
+      sent: remote && placed ? { jobs: remote.jobs, unplaced: placed.unmatched } : null,
       unattributed: {
-        memMB: Math.round((attribution?.unattributed.kb ?? 0) / 1024),
-        cpuPct: attribution?.unattributed.cpu == null ? null : round1(attribution.unattributed.cpu / cores),
-        processes: attribution?.unattributed.processes ?? 0,
+        memMB: Math.round(((attribution?.unattributed.kb ?? 0) + strandedKB) / 1024),
+        cpuPct: restCpu === null ? null : round1(restCpu / cores),
+        processes: (attribution?.unattributed.processes ?? 0) + strandedProcesses,
       },
       idle: { sessions: idleSessions, memMB: Math.round(idleKB / 1024) },
     };

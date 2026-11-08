@@ -68,9 +68,20 @@ interface ReadoutAnswer {
 export function createMachineReadoutRoute(ctx: AppContext): (url: URL) => Promise<Response> {
   const remoteCache = new Map<string, { at: number; answer: ReadoutAnswer }>();
 
-  async function remote(id: string, name: string, baseUrl: string): Promise<ReadoutAnswer> {
+  // Two routes of the screen ask for the same node at the same moment: one call to the PC serves both, so they see one picture of it.
+  const inFlight = new Map<string, Promise<ReadoutAnswer>>();
+
+  function remote(id: string, name: string, baseUrl: string): Promise<ReadoutAnswer> {
     const hit = remoteCache.get(id);
-    if (hit && Date.now() - hit.at < REMOTE_TTL_MS) return hit.answer;
+    if (hit && Date.now() - hit.at < REMOTE_TTL_MS) return Promise.resolve(hit.answer);
+    const pending = inFlight.get(id);
+    if (pending) return pending;
+    const p = fetchRemote(id, name, baseUrl).finally(() => inFlight.delete(id));
+    inFlight.set(id, p);
+    return p;
+  }
+
+  async function fetchRemote(id: string, name: string, baseUrl: string): Promise<ReadoutAnswer> {
     const token = readNodeToken(ctx.STATE_DIR, id);
     let answer: ReadoutAnswer;
     if (!token) {

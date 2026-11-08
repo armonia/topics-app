@@ -15,13 +15,14 @@
  * server registered as their CLIs. The hub is a fake on the port the test
  * server reads. Names are placeholders; the real :3333 is never touched.
  *
- * Mutation: with the attribution billing every process to the first session
- * (`attributeProcesses` ignoring the nearest head), «the two sessions are billed
- * apart» is red; with the split ignoring the number of users, «1/2» is red.
+ * Mutation: with the split ignoring the number of users, the «1/2» assertions
+ * are red. The «billed apart» assertion (each session owns a program of its
+ * own in `/api/usage/consumption`) is red when every process goes to the first
+ * session; the unit test of the attribution covers that point too.
  *
  * Video on: the recording is the proof. Screenshots go to the test's output
- * (`vero-sessioni-*.png`) and, with CONSUMPTION_SHOTS set, to that folder too
- * (`sessioni-topics.png`).
+ * and, with CONSUMPTION_SHOTS set, are copied to that folder under their
+ * delivery names.
  *
  * @covers HUBBR-08
  */
@@ -124,7 +125,9 @@ test.describe("what each session costs", () => {
     await expect(rowA.getByTestId("session-procs-list")).toContainText("bun");
     await expect(panel.getByTestId("consumption-notes")).toContainText("diviso in parti uguali");
     // One answer for every surface: the owner's route and the numbers the sessions carry are the same.
-    const api = (await (await request.get(`${E2E_BASE}/api/usage/consumption`)).json()) as { sessions: Array<{ key: string; model: string | null; tokens: { total: number } | null }> };
+    const api = (await (await request.get(`${E2E_BASE}/api/usage/consumption`)).json()) as { sessions: Array<{ key: string; model: string | null; tokens: { total: number } | null; procs: Array<{ name: string }> }> };
+    // The two sessions are billed apart: each carries a program of its own, none was swallowed by the other.
+    for (const s of api.sessions) expect(s.procs.length, `session ${s.key} owns no process`).toBeGreaterThan(0);
     expect(api.sessions.map((s) => s.key).sort()).toEqual([`card:${cards[0].taskId}`, `card:${cards[1].taskId}`].sort());
     expect(api.sessions.find((s) => s.key === `card:${cards[0].taskId}`)!.model).toBe("claude-opus-5");
     const shot = testInfo.outputPath("vero-sessioni-topics.png");
@@ -139,7 +142,7 @@ test.describe("what each session costs", () => {
     await page.goto(`/task/${cards[0].taskId}`);
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 30_000 });
-    // What a card costs lives behind the "Dettagli" tab, next to the attempts and the changes.
+    // What a card costs lives behind the details tab, next to the attempts and the changes.
     await drawer.getByTestId("task-details-toggle").click();
     const block = drawer.getByTestId("card-consumption");
     await expect(block).toBeVisible({ timeout: 30_000 });

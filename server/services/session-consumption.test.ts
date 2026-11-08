@@ -134,14 +134,19 @@ describe("session consumption", () => {
     expect(r.cpuPct).toBeNull();
     expect(r.procs).toEqual([]);
     expect(r.shares).toEqual([]);
+    // What this machine still holds for that card is nobody's here, but it is counted: nothing falls out of the sum.
+    const tableKB = 400_000 + 300_000 + 100_000 + 40_000 + 500_000 + 80_000 + 600_000;
+    const billedMB = answer.sessions.reduce((n, x) => n + (x.memMB ?? 0), 0);
+    const accountedKB = (billedMB + answer.idle.memMB + answer.unattributed.memMB) * 1024;
+    expect(Math.abs(accountedKB - tableKB)).toBeLessThan(8 * 1024);
   });
 
   test("work sent to the PC is billed to the sessions of its project and divided, and the rule is stated", async () => {
     const answer = await createSessionConsumption(deps()).read({
-      remote: { jobs: [{ what: "i test nel browser", project: "acme-web", who: "Mac", since: 5 }], load: { memMB: 3000, cpuPct: 400 } },
+      remote: { machine: "Studio PC", jobs: [{ what: "i test nel browser", project: "acme-web", who: "Mac", since: 5 }], load: { memMB: 3000, cpuPct: 400 } },
     });
     // Both cards belong to acme-web: each takes half of the job's part.
-    for (const s of answer.sessions) expect(s.remote).toEqual([{ what: "i test nel browser", who: "Mac", since: 5, of: 2, memMB: 1500, cpuPct: 200 }]);
+    for (const s of answer.sessions) expect(s.remote).toEqual([{ what: "i test nel browser", where: "Studio PC", who: "Mac", since: 5, of: 2, memMB: 1500, cpuPct: 200 }]);
     expect(answer.rule).toBe("equal");
   });
 

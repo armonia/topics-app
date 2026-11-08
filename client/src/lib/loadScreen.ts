@@ -14,6 +14,7 @@
  * countdown is a function of two numbers and is tested as one.
  */
 import type { ProcessRow, UnitKind } from './machineProcesses';
+import type { SessionConsumption } from '../../../shared/session-consumption';
 
 type JsonRecord = Record<string, unknown>;
 const isRecord = (v: unknown): v is JsonRecord => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -147,15 +148,26 @@ export type SleepView =
  * to sleep; the countdown when it does, in whole minutes rounded UP (at 30 s
  * left it still says 1 minute, never 0 while it is awake).
  */
-export function sleepView(r: Readout, busy: number, now: number): SleepView {
+export function sleepView(r: Readout, busy: number, now: number, sentJobs: number | null = null): SleepView {
   const s = r.screen;
-  if (busy > 0 || (s?.jobs.length ?? 0) > 0) return { kind: 'working' };
+  // `sentJobs` comes from the same reading as the sessions, so the header and the list never disagree; the readout's own list is the fallback.
+  if (busy > 0 || (sentJobs ?? s?.jobs.length ?? 0) > 0) return { kind: 'working' };
   if (s?.sleepsAt != null) {
     const left = s.sleepsAt - now;
     return left <= 0 ? { kind: 'sleeping' } : { kind: 'countdown', minutes: Math.max(1, Math.ceil(left / 60_000)), at: s.sleepsAt };
   }
   if (s && s.reasons.length > 0) return { kind: 'working' };
   return { kind: 'idle', thresholdMin: s?.thresholdMin ?? null };
+}
+
+/**
+ * The sessions that are on the watched machine: on the Mac screen the ones that
+ * run here, on a node's screen the ones that sent work to it or run there. The
+ * header's «at work» reads THIS count, not every session of the Mac: a card
+ * running on the Mac does not keep the PC awake.
+ */
+export function sessionsOn(sessions: readonly SessionConsumption[], local: boolean, machineName: string): SessionConsumption[] {
+  return sessions.filter((s) => (local ? s.machine === null : s.remote.length > 0 || s.machine === machineName));
 }
 
 /** The screen's slow answer (`GET /api/system/screen-data`), defensively: a wrong-typed part is absent, never a crash. */

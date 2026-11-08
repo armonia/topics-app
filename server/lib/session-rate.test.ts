@@ -23,6 +23,21 @@ describe("outputRate", () => {
     expect(outputRate([{ at: 0, out: 5 }, { at: 1_000, out: 500 }], 1_000)).toBeNull();
   });
 
+  test("two reads minutes apart are not «the last 30 s»: stale reads state nothing", () => {
+    // observe(0), then observe(300 s) with nobody looking in between: 3000 tokens is a 5-minute average, not a 30 s speed.
+    expect(outputRate([{ at: 0, out: 0 }, { at: 300_000, out: 3000 }], 300_000)).toBeNull();
+    // once a second read lands inside the window the speed is the window's own
+    expect(outputRate([{ at: 0, out: 0 }, { at: 300_000, out: 3000 }, { at: 310_000, out: 3200 }], 310_000)).toBe(20);
+    // and a tracker nobody has read for longer than the window says nothing either
+    expect(outputRate([{ at: 0, out: 0 }, { at: 10_000, out: 300 }], 100_000)).toBeNull();
+  });
+
+  test("a read a few seconds before the window start still serves as its baseline", () => {
+    const s = [{ at: 66_000, out: 0 }, { at: 100_000, out: 3400 }];
+    // now 100 s: window starts at 70 s; the read at 66 s is 4 s before it, inside the slack.
+    expect(outputRate(s, 100_000)).toBe(100);
+  });
+
   test("a counter that went backwards is not negative speed", () => {
     expect(outputRate([{ at: 0, out: 900 }, { at: 10_000, out: 10 }], 10_000)).toBeNull();
   });

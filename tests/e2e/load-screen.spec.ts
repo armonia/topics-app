@@ -285,6 +285,10 @@ test.describe("the load screen of the PC", () => {
     const a = await seedRunningCard(request, { boardId: PROJECT_ID, topicId: topicIds["acme-web"], text: "Rifare la sincronizzazione del calendario", model: "claude-opus-5", holdMB: 640, burnPct: 30, input: 38_000, output: 12_400, cacheRead: 410_000 });
     const b = await seedRunningCard(request, { boardId: OTHER_ID, topicId: topicIds["studio-x"], text: "Migrare le notifiche push", model: "claude-sonnet-5", holdMB: 310, burnPct: 12, input: 9_000, output: 3_100, cacheRead: 88_000 });
     cards.push(a, b);
+    // Two cards run on the Mac and nothing was sent to the PC: the PC's own countdown stays, its header does not borrow the Mac's sessions.
+    await expect(page.getByTestId("session-row")).toHaveCount(2, { timeout: 30_000 });
+    await expect(screen).toHaveAttribute("data-state", "countdown");
+    await expect(page.getByTestId("load-screen-headline")).toHaveText(/Dorme fra/);
     // A card that runs on the PC itself: nothing of it is measured on the Mac, and the row says where it is.
     tasks.push([OTHER_ID, await createTask(request, OTHER_ID, { text: "Card che gira sul PC", status: "in_progress", machineId: nodeId })]);
     const stopFeeding = feedRounds([{ card: a, perRound: 140 }, { card: b, perRound: 45 }], 2_000);
@@ -293,7 +297,10 @@ test.describe("the load screen of the PC", () => {
       hub!.answersOverride = { machines: machines(true, Date.now()) };
       await expect(screen).toHaveAttribute("data-state", "working", { timeout: 60_000 });
       await expect(page.getByTestId("load-screen-headline")).toHaveText("Sta lavorando");
-      await expect(page.getByTestId("load-screen-subline")).toHaveText("3 sessioni · 1 lavoro mandato", { timeout: 40_000 });  // the sent jobs ride the slow read (20 s)
+      // The header counts the sessions on the PC (the one that runs there and the one that sent work to it) and the job, from the sessions' own reading.
+      await expect(page.getByTestId("load-screen-subline")).toHaveText("2 sessioni · 1 lavoro mandato", { timeout: 40_000 });
+      // The job is placed inside a session, so it is not listed a second time as sent work.
+      await expect(page.getByTestId("load-screen-sent")).toHaveCount(0);
       const sessions = page.getByTestId("session-row");
       await expect(sessions).toHaveCount(3, { timeout: 30_000 });
       const rowA = sessions.filter({ hasText: "Rifare la sincronizzazione del calendario" });
@@ -309,7 +316,7 @@ test.describe("the load screen of the PC", () => {
       await expect(rowA.getByTestId("session-memory")).toContainText("condivisi");
       await expect(rowA.getByTestId("session-memory")).toContainText("1/");
       // The sent work is billed to the session of its project, as «from the Mac».
-      await expect(rowB.getByTestId("session-remote")).toContainText("Sul PC · i test nel browser");
+      await expect(rowB.getByTestId("session-remote")).toContainText("Su PC · i test nel browser");
       // A card on the PC is listed, with nothing measured here and its machine named.
       const onPc = sessions.filter({ hasText: "Card che gira sul PC" });
       await expect(onPc.getByTestId("session-memory-value")).toHaveText("-");

@@ -9,7 +9,7 @@
  * null and is drawn as a dash, never as 0.
  */
 import type {
-  ConsumptionAnswer, ConsumptionProc, ConsumptionRemote, ConsumptionShare, ConsumptionTokens, SessionConsumption, SessionKind,
+  ConsumptionAnswer, ConsumptionProc, ConsumptionSent, SentJob, ConsumptionRemote, ConsumptionShare, ConsumptionTokens, SessionConsumption, SessionKind,
 } from '../../../shared/session-consumption';
 
 type JsonRecord = Record<string, unknown>;
@@ -26,6 +26,14 @@ function readTokens(v: unknown): ConsumptionTokens | null {
   if (total === null) return null;
   const source = v.source === 'native' || v.source === 'transcript' || v.source === 'card' ? v.source : 'card';
   return { input: num(v.input), output: num(v.output), cacheRead: num(v.cacheRead), cacheWrite: num(v.cacheWrite), total, source };
+}
+
+function readJobs(v: unknown): SentJob[] {
+  return list(v).map((j) => ({ project: str(j.project), what: str(j.what) ?? '', who: str(j.who), since: num(j.since) }));
+}
+
+function readSent(v: unknown): ConsumptionSent | null {
+  return isRecord(v) ? { jobs: readJobs(v.jobs), unplaced: readJobs(v.unplaced) } : null;
 }
 
 /** The answer, defensively: a field of the wrong type is absent, never a crash. */
@@ -49,7 +57,7 @@ export function readConsumption(raw: unknown): ConsumptionAnswer {
         return name && memMB !== null ? [{ name, memMB, count: num(p.count) ?? 1, cpuPct: num(p.cpuPct) }] : [];
       });
       const remote: ConsumptionRemote[] = list(s.remote).map((r) => ({
-        what: str(r.what) ?? '', who: str(r.who), since: num(r.since), of: num(r.of) ?? 1, memMB: num(r.memMB), cpuPct: num(r.cpuPct),
+        what: str(r.what) ?? '', where: str(r.where), who: str(r.who), since: num(r.since), of: num(r.of) ?? 1, memMB: num(r.memMB), cpuPct: num(r.cpuPct),
       }));
       return [{
         key,
@@ -71,6 +79,7 @@ export function readConsumption(raw: unknown): ConsumptionAnswer {
         from: str(s.from),
       }];
     }),
+    sent: readSent(top.sent),
     unattributed: { memMB: num(un.memMB) ?? 0, cpuPct: num(un.cpuPct), processes: num(un.processes) ?? 0 },
     idle: { sessions: num(idle.sessions) ?? 0, memMB: num(idle.memMB) ?? 0 },
   };

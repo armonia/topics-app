@@ -56,6 +56,8 @@ export interface ConsumptionShare {
 /** Work this session sent to another machine (a test suite on the PC) and the slice of that machine it is billed. */
 export interface ConsumptionRemote {
   what: string;
+  /** The machine it runs on, by the name its row has; null when it did not say. */
+  where: string | null;
   who: string | null;
   since: number | null;
   /** How many sessions or jobs divide the machine's load of sent work. */
@@ -98,6 +100,16 @@ export interface SessionConsumption {
   from: string | null;
 }
 
+/** A job the Mac sent to another machine, as that machine listed it. */
+export interface SentJob { project: string | null; what: string; who: string | null; since: number | null }
+
+/**
+ * The work sent to the machine a screen watches, in the SAME reading the sessions
+ * come from: `jobs` is all of it, `unplaced` the part no live session carries.
+ * One snapshot, so a job is never at once «sent» and «placed in a session».
+ */
+export interface ConsumptionSent { jobs: SentJob[]; unplaced: SentJob[] }
+
 export interface ConsumptionAnswer {
   at: number;
   /** The window `tps` is averaged over, in seconds. */
@@ -105,6 +117,8 @@ export interface ConsumptionAnswer {
   /** The split rule, in a word, so a surface can print it: `equal` = 1/N among the sessions that use the process. */
   rule: 'equal';
   sessions: SessionConsumption[];
+  /** The work sent to the watched machine; null when the answer is not about another machine. */
+  sent: ConsumptionSent | null;
   /** Topics' processes no session owns or uses (a dev server, a bridge nobody is on): never folded into a session. */
   unattributed: { memMB: number; cpuPct: number | null; processes: number };
   /** Sessions alive here with nothing running (a chat left open): their memory is theirs, counted here and not shared out. */

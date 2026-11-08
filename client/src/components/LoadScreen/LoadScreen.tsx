@@ -34,7 +34,7 @@ import { apiFetch } from '../../lib/shell/net';
 import { startVisibleInterval } from '../../state/documentVisibility';
 import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { formatMem, formatPct, macGauges, pcView } from '../../lib/machineProcesses';
-import { readScreenData, readoutRows, screenZoom, sleepView, type Readout, type ScreenJob, type ScreenOutcome, type SleepView } from '../../lib/loadScreen';
+import { readScreenData, readoutRows, screenZoom, sessionsOn, sleepView, type Readout, type ScreenJob, type ScreenOutcome, type SleepView } from '../../lib/loadScreen';
 import { FAINT, SECTION, SECTION_HEAD } from '../Processes/processesStyles';
 import { Gauge, PcStateBadge, ProcessRowView } from '../Processes/MachineProcessesPane';
 import { ConsumptionNotes, SessionRowView, useSecondTick, useSessionConsumption } from '../Processes/SessionConsumption';
@@ -154,11 +154,14 @@ export function LoadScreen({ machine }: { machine: string | null }) {
   const r = reads.readout;
   const local = r?.machine.local ?? machine === null;
   const sessions = sessionReads.answer?.sessions ?? [];
-  const jobs = r?.screen?.jobs ?? [];
-  const view = r ? sleepView(r, sessions.length, now) : null;
+  const name = r?.machine.name || (local ? tr('processes.mac') : tr('processes.pc'));
+  // The header and the list read ONE snapshot (the sessions' answer, which carries the jobs it placed): the readout is slower and could disagree.
+  const sent = sessionReads.answer?.sent ?? null;
+  const jobCount = sent?.jobs.length ?? r?.screen?.jobs.length ?? 0;
+  const here = useMemo(() => sessionsOn(sessions, local, name), [sessions, local, name]);
+  const view = r ? sleepView(r, here.length, now, sent ? sent.jobs.length : null) : null;
   const pc = useMemo(() => (local ? null : pcView(reads.machines)), [reads.machines, local]);
   const mac = useMemo(() => (local ? macGauges(null, reads.machines, null) : null), [reads.machines, local]);
-  const name = r?.machine.name || (local ? tr('processes.mac') : tr('processes.pc'));
 
   useEffect(() => { document.title = `${name} · Topics`; }, [name]);
 
@@ -190,7 +193,7 @@ export function LoadScreen({ machine }: { machine: string | null }) {
           <SessionsSection sessions={sessions} answer={sessionReads.answer} now={now} read={sessionReads.at !== null} failing={sessionReads.failing} />
           <div className="flex min-h-0 min-w-0 flex-col gap-3">
             <section className={SECTION} data-testid="load-screen-hero">
-              <Hero view={view} sessions={sessions.length} jobs={jobs.length} threshold={r?.screen?.thresholdMin ?? null} locale={locale} />
+              <Hero view={view} sessions={here.length} jobs={jobCount} threshold={r?.screen?.thresholdMin ?? null} locale={locale} />
               {pc && pc.metrics.length > 0 && (
                 <div className="grid grid-cols-4 border-t border-app-border-subtle tabular-nums">
                   {pc.metrics.slice(0, 4).map((m) => <Gauge key={m.key} label={m.name} value={formatPct(m.pct)} share={m.pct === null ? null : m.pct / 100} warn={m.pct !== null && m.pct >= 85} history={m.history} note={m.note} />)}
@@ -205,7 +208,7 @@ export function LoadScreen({ machine }: { machine: string | null }) {
                 </div>
               )}
             </section>
-            <SentWorkSection jobs={unplacedJobs(jobs, sessions)} />
+            <SentWorkSection jobs={sent ? sent.unplaced : r?.screen?.jobs ?? []} />
             <WeightSection readout={r} failed={reads.readoutFailed} />
             {(r?.screen?.outcomes.length ?? 0) > 0 && <OutcomesSection outcomes={r!.screen!.outcomes} locale={locale} />}
           </div>
@@ -220,12 +223,6 @@ function useSecondTickedSessions(path: string) {
   const reads = useSessionConsumption(path, SESSIONS_POLL_MS);
   const now = useSecondTick();
   return { ...reads, now };
-}
-
-/** The jobs sent from the Mac that no session carries: they stay visible as work, apart. */
-function unplacedJobs(jobs: ScreenJob[], sessions: SessionConsumption[]): ScreenJob[] {
-  const placed = new Set(sessions.flatMap((s) => s.remote.map((x) => `${x.what}|${x.since ?? ''}`)));
-  return jobs.filter((j) => !placed.has(`${j.what}|${j.since ?? ''}`));
 }
 
 function Hero({ view, sessions, jobs, threshold, locale }: { view: SleepView | null; sessions: number; jobs: number; threshold: number | null; locale: string }) {
@@ -331,7 +328,7 @@ function WeightSection({ readout: r, failed }: { readout: Readout | null; failed
   const restCount = (r?.rest.count ?? 0) + hidden.reduce((s, p) => s + p.count, 0);
   const restMem = (r?.rest.memMB ?? 0) + hidden.reduce((s, p) => s + p.memMB, 0);
   const sub = r && r.total > 0
-    ? [tr('loadScreen.weight.sub', { n: r.total, cores: r.cores ?? '-', mem: r.memTotalMB === null ? '-' : formatMem(r.memTotalMB) }), r.memMetric ? tr(`loadScreen.weight.metric.${r.memMetric}`) : null].filter(Boolean).join(' · ')
+    ? [tr('loadScreen.weight.sub', { n: r.total, cores: r.cores ?? '-', mem: r.memTotalMB === null ? '-' : formatMem(r.memTotalMB) }), r.memMetric ? tr(`loadScreen.weight.metric.${r.memMetric}`) : null, tr('loadScreen.weight.cpuNote')].filter(Boolean).join(' · ')
     : undefined;
   // Before the first answer the screen is reading, not failing.
   const reading = !r && !failed;
