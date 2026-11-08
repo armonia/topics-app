@@ -1,6 +1,8 @@
 /**
  * Declared slots: the column, the store, the PATCH route and the overflow
  * that reads them (card cbf3b91d).
+ *
+ * @covers KANBAN-76
  */
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
