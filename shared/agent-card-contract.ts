@@ -39,7 +39,10 @@ const GAP_SENTENCES: Record<AgentCardGap, string> = {
   source: "where it comes from (`source`: the session or channel opening it)",
 };
 
+/** How the system comment starts: the key to find it again on the card. */
+export const INCOMPLETE_CARD_NOTICE_PREFIX = "Incomplete card:";
+
 /** The system comment written on a card born incomplete. */
 export function incompleteCardNotice(gaps: readonly AgentCardGap[]): string {
-  return `Incomplete card: an agent opened it without ${gaps.map((g) => GAP_SENTENCES[g]).join("; ")}. It was accepted for now; the creation will be refused once the callers send these fields.`;
+  return `${INCOMPLETE_CARD_NOTICE_PREFIX} an agent opened it without ${gaps.map((g) => GAP_SENTENCES[g]).join("; ")}. It was accepted for now; the creation will be refused once the callers send these fields.`;
 }
