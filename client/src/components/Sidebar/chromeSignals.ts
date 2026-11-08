@@ -1,3 +1,5 @@
+import { STATUS_DOT, STATUS_INK } from '../../lib/statusVisual';
+
 /**
  * THE THREE SIGNALS OF THE BAR, MEASURED ON THE CHROME AND NOT ON A PANE.
  *
@@ -34,8 +36,8 @@
  * ITS own tuning in `lib/gitStatusColors.ts`, where the 700 ramp is enough. Two
  * surfaces, two measurements: it is the same reason the chrome re-tunes its
  * tertiary text and its borders in index.css.) */
-export const SEGNALE_OK = 'text-emerald-800 dark:text-emerald-400';
-export const SEGNALE_ATTESA = 'text-amber-800 dark:text-amber-400';
-export const SEGNALE_GUASTO = 'text-red-700 dark:text-red-400';
-export const PALLINO_OK = 'bg-emerald-600 dark:bg-emerald-400';
-export const PALLINO_ATTESA = 'bg-amber-700 dark:bg-amber-400';
+export const SEGNALE_OK = STATUS_INK.ok;
+export const SEGNALE_ATTESA = STATUS_INK.wait;
+export const SEGNALE_GUASTO = STATUS_INK.danger;
+export const PALLINO_OK = STATUS_DOT.ok;
+export const PALLINO_ATTESA = STATUS_DOT.wait;
