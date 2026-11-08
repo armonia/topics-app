@@ -2049,6 +2049,7 @@ function App() {
             boardByStatus={boardByStatus}
             boardOpen={openPanels.includes('__board__')}
             automationsOpen={openPanels.includes('__automations__')}
+            agentsOpen={openPanels.includes('__agents__')}
             // Preferenza, non segnale: passa da qui (e non da un `loadSettings()`
             // dentro l'albero) perché deve far RIDISEGNARE la sidebar quando si
             // cambia l'interruttore — `appSettings` è già lo stato che si

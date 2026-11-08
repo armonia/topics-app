@@ -210,6 +210,7 @@ export const CHROME_BAR_SURFACES: readonly ChromeBarSurface[] = [
       'processes',
       'accounts',
       'automations',
+      'agents',
       'features',
     ],
     cellBg: 'bg-surface',

@@ -488,6 +488,7 @@ export function CommandPalette({
         ['features', 'features.open', 'features.openHint', <Blocks size={14} />, utility('features')],
         ['log', 'palette.log', 'palette.logHint', <ScrollText size={14} />, () => openProcessesLog()],
         ['automations', 'automations.open', 'automations.openHint', <Workflow size={14} />, utility('automations')],
+        ['agent-sessions', 'agents.open', 'agents.openHint', <Bot size={14} />, utility('agents')],
       ];
       for (const [id, label, hint, icon, open] of places) {
         items.push({

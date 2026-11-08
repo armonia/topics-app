@@ -60,6 +60,7 @@ import type { BoardTask, TaskStatus } from '@/lib/board';
 import { BoardRowSummary } from './BoardStatusCounts';
 import { BoardBrakeTag } from './BoardBrakeTag';
 import { AutomationsRow } from './AutomationsRow';
+import { AgentsRow } from './AgentsRow';
 import { useHubEverRead } from '@/state/hubLive';
 import { utilityPanelId } from '@/state/pane/adapters/utilityPanelId';
 import { getPaneConfig } from '@/state/pane/adapters/paneConfig';
@@ -378,6 +379,8 @@ export interface TopicTreeProps {
   boardOpen?: boolean;
   /** True while the Automations tab is open: its row above the Board shows selection like a tab. */
   automationsOpen?: boolean;
+  /** True while the Agents tab is open. */
+  agentsOpen?: boolean;
   /**
    * LA RIGA «BOARD GENERALE» C'È? — una preferenza, e nient'altro.
    *
@@ -469,6 +472,7 @@ export function TopicTree({
   boardByStatus,
   boardOpen = false,
   automationsOpen = false,
+  agentsOpen = false,
   showBoardRow = true,
   onOpenBoard,
   spaceScoped = false,
@@ -1958,7 +1962,9 @@ export function TopicTree({
             // suo corpo e le baseline tornano in fila. Chi TRONCA se ne sfila
             // (`leading-tight` sul nome di una pastiglia): `leading-none` e
             // `overflow-hidden` insieme tranciano le code di g, p, q.
-            className={`flex items-center gap-2 leading-none ${ROW_PX} ${ROW_H} select-none ${
+            // flex-shrink-0: in a list taller than the column the scroller
+            // squeezed this row to zero height.
+            className={`flex flex-shrink-0 items-center gap-2 leading-none ${ROW_PX} ${ROW_H} select-none ${
               sidebarRowCard({ focused: boardOpen })
             }`}
             style={{ width: `calc(100% - ${ROW_INSET * 2}px)` }}
@@ -2107,6 +2113,8 @@ export function TopicTree({
             `onOpenBoard` in App). */}
         {/* Automations sit above the Board, with how many need fixing (HUBBR-14). */}
         <AutomationsRow open={automationsOpen} />
+        {/* The always-on agents' sessions, by agent, out of the project list. */}
+        <AgentsRow open={agentsOpen} />
         {boardRow}
 
         {spaceScoped ? (
