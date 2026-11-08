@@ -228,10 +228,10 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
   // lavoro che non è su main è un problema (rosa), un commit da pubblicare è
   // un'azione pronta (ambra), niente dei due è riposo (neutro).
   const tone = unlanded.length > 0
-    ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'
+    ? 'bg-rose-500/15 text-rose-800 dark:text-rose-300 hover:bg-rose-500/25'
     : total > 0
-      ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
-      : 'bg-white/10 text-app-text-secondary hover:bg-white/15';
+      ? 'bg-amber-500/15 text-amber-800 dark:text-amber-300 hover:bg-amber-500/25'
+      : 'bg-black/10 dark:bg-white/10 text-app-text-secondary hover:bg-white/15';
   const title = [
     unlanded.length > 0 ? tr('board.delivery.unlandedTitle', { n: unlanded.length }) : null,
     total > 0 ? tr('board.delivery.toPublishTitle', { n: total }) : tr('board.delivery.nothingTitle'),
@@ -264,7 +264,7 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
               chiuso il cui lavoro non risulta da nessuna parte. */}
           {unlanded.length > 0 && (
             <div className="border-b border-app-border pb-1">
-              <div className="px-3 pb-1 pt-2 text-mini font-semibold uppercase tracking-wide text-rose-300/90">
+              <div className="px-3 pb-1 pt-2 text-mini font-semibold uppercase tracking-wide text-rose-800/90 dark:text-rose-300/90">
                 {tr('board.unlanded.title')}
               </div>
               {unlanded.map((t) => (
@@ -398,8 +398,8 @@ function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: {
         onClick={() => setOpen((o) => !o)}
         data-testid="worktree-count-badge"
         className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-mini ${orphan > 0
-          ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
-          : 'bg-white/10 text-app-text-secondary hover:bg-white/20'}`}
+          ? 'bg-amber-500/15 text-amber-800 dark:text-amber-300 hover:bg-amber-500/25'
+          : 'bg-black/10 dark:bg-white/10 text-app-text-secondary hover:bg-white/20'}`}
       >{tr('board.worktree.count', { n: count })}{orphan > 0 && <span className="tabular-nums">{tr('board.worktree.orphanBranches', { n: orphan })}</span>}</button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={320}>
         <div className="space-y-1.5 px-3 py-2.5 text-mini leading-snug text-app-text-secondary">
@@ -408,7 +408,7 @@ function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: {
           {branches && branches.total > 0 && (
             <p data-testid="worktree-branches-line">
               {tr('board.worktree.branchesStart')}<span className="text-app-text-heading">{tr('board.worktree.branchesCount', { n: branches.total })}</span>{tr('board.worktree.branchesMid')}
-              {branches.orphan > 0 && <> <span className="text-amber-300">{branches.orphan}</span>{tr('board.worktree.branchesOrphan')}</>}
+              {branches.orphan > 0 && <> <span className="text-amber-800 dark:text-amber-300">{branches.orphan}</span>{tr('board.worktree.branchesOrphan')}</>}
               {branches.onOpenTasks > 0 && <>{tr('board.worktree.branchesOpen', { n: branches.onOpenTasks })}</>}
             </p>
           )}
@@ -418,7 +418,7 @@ function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: {
           <button
             onClick={onGc}
             disabled={gcRunning}
-            className="shrink-0 rounded bg-white/10 px-2 py-1 text-mini text-app-text-secondary hover:bg-white/20 disabled:opacity-50"
+            className="shrink-0 rounded bg-black/10 dark:bg-white/10 px-2 py-1 text-mini text-app-text-secondary hover:bg-white/20 disabled:opacity-50"
             data-testid="worktree-gc-button"
           >{tr(gcRunning ? 'board.worktree.gcRunning' : 'board.worktree.gc')}</button>
           <span className="text-mini leading-snug text-app-text-muted">
@@ -476,8 +476,8 @@ function LoadAdviceChip() {
   if (!cap || !advice) return null;
   const { over, severe } = advice;
   const cls = severe
-    ? 'bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/30 hover:bg-rose-500/25'
-    : 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30 hover:bg-amber-500/25';
+    ? 'bg-rose-500/15 text-rose-800 dark:text-rose-300 ring-1 ring-rose-500/30 hover:bg-rose-500/25'
+    : 'bg-amber-500/15 text-amber-800 dark:text-amber-300 ring-1 ring-amber-500/30 hover:bg-amber-500/25';
   return (
     <>
       <button
@@ -540,7 +540,7 @@ function MissionsMenu({ onStart }: { onStart: (m: Mission) => void }) {
         onClick={() => setOpen((o) => !o)}
         data-testid="missions-button"
         title={tr('board.toolbar.missionsTitle')}
-        className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-mini ${open ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10'}`}
+        className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-mini ${open ? 'bg-black/15 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10'}`}
       ><Target className="h-3 w-3 shrink-0" /><span className="hidden sm:inline">{tr('board.toolbar.missions')}</span></button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={330}>
         <div className="px-3 pb-1 pt-2 text-mini font-semibold uppercase tracking-wide text-app-text-muted">
@@ -636,7 +636,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
         data-creator={filters.creator ?? 'all'}
         title={tr('board.filter.creatorTitle')}
         onClick={() => onFiltersChange({ ...filters, creator: (filters.creator ?? 'all') === 'all' ? 'mine' : filters.creator === 'mine' ? 'others' : 'all' })}
-        className={`ml-1 flex ${TOOLBAR_CONTROL_H} shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded px-2 text-mini coarse:min-w-11 ${filterFocusRingClass} ${(filters.creator ?? 'all') === 'all' ? 'text-app-text-muted' : 'bg-white/10 text-app-text'} hover:bg-white/10 hover:text-app-text`}
+        className={`ml-1 flex ${TOOLBAR_CONTROL_H} shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded px-2 text-mini coarse:min-w-11 ${filterFocusRingClass} ${(filters.creator ?? 'all') === 'all' ? 'text-app-text-muted' : 'bg-black/10 dark:bg-white/10 text-app-text'} hover:bg-white/10 hover:text-app-text`}
       >{tr(`board.filter.creator.${filters.creator ?? 'all'}`)}</button>
 
       {/* Reset — only when something is active */}
@@ -1920,17 +1920,17 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           <>
             <button
               onClick={() => setMode('project')}
-              className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact leading-4 ${mode === 'project' ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+              className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact leading-4 ${mode === 'project' ? 'bg-black/15 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
             >{tr('board.toolbar.thisProject')}</button>
             <button
               onClick={() => setMode('all')}
-              className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact leading-4 ${mode === 'all' ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+              className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact leading-4 ${mode === 'all' ? 'bg-black/15 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
             >{tr('board.toolbar.allProjects')}</button>
           </>
         )}
         {mode === 'all' && <button type="button" data-testid="board-plan-toggle" aria-pressed={planVisible}
           onClick={() => setPlanVisible((v) => !v)}
-          className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact leading-4 ${planVisible ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+          className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact leading-4 ${planVisible ? 'bg-black/15 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
         >{tr(planVisible ? 'plan.buttonBack' : 'plan.button')}</button>}
         <LoadAdviceChip />
         <WorktreeControl
@@ -1956,7 +1956,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           data-testid="board-layout-toggle"
           aria-pressed={boardLayout === 'list'}
           onClick={() => setBoardLayout((v) => (v === 'list' ? 'grid' : 'list'))}
-          className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} shrink-0 place-items-center rounded ${boardLayout === 'list' ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`}
+          className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} shrink-0 place-items-center rounded ${boardLayout === 'list' ? 'bg-black/15 dark:bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`}
           title={boardLayout === 'list' ? tr('board.toolbar.viewMode.list') : tr('board.toolbar.viewMode.kanban')}
         >{boardLayout === 'list' ? <Kanban className="h-3.5 w-3.5" /> : <List className="h-3.5 w-3.5" />}</button>
         <div className="ml-auto flex items-center gap-2">
@@ -1990,7 +1990,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
               // `py-0.5` it was 21px tall, and under a finger the 44px band its
               // `.tap-expand-y` projected ran over the layout toggle beside it.
               className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-mini disabled:cursor-wait disabled:opacity-60 ${
-                orchestratorTopic ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10 hover:text-app-text'
+                orchestratorTopic ? 'bg-black/15 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10 hover:text-app-text'
               }`}
             >
               {/* THE NOTES, not the speech bubble. The bubble said "you can
@@ -2017,7 +2017,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
               data-testid="board-archived-toggle"
               aria-pressed={showArchived}
               onClick={() => setShowArchived((v) => !v)}
-              className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} place-items-center rounded ${showArchived ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`}
+              className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} place-items-center rounded ${showArchived ? 'bg-black/15 dark:bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`}
               title={showArchived ? tr('board.archive.hide') : tr('board.archive.show')}
             ><Archive className="h-3.5 w-3.5" /></button>
           )}
@@ -2032,7 +2032,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             onClick={toggleSettings}
             aria-expanded={showSettings}
             aria-haspopup="menu"
-            className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} place-items-center rounded ${showSettings ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+            className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} place-items-center rounded ${showSettings ? 'bg-black/15 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
             title={tr('board.toolbar.dispatchSettings')}
           ><Settings className="h-3.5 w-3.5" /></button>
         </div>
@@ -2047,7 +2047,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       )}
       </div>
       <div className="shrink-0 px-2 pb-1.5 empty:hidden sm:hidden"><BrakeChip band /></div>
-      {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-compact leading-4 text-rose-300">{error}</div>}
+      {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-compact leading-4 text-rose-800 dark:text-rose-300">{error}</div>}
       {/* La striscia dice DUE cose, e la seconda è quella che mancava: dove sta
           il gesto. Un archivio in cui si guarda soltanto è il punto da cui
           siamo partiti. */}
@@ -2223,7 +2223,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                         {dragPreview.badges.length > 0 && (
                           <div className="mt-1.5 flex flex-wrap items-center gap-1">
                             {dragPreview.badges.map((b) => (
-                              <span key={b} className="rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary">{b}</span>
+                              <span key={b} className="rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary">{b}</span>
                             ))}
                           </div>
                         )}

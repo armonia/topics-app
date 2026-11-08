@@ -1,6 +1,6 @@
 {
   "name": "topics-app",
-  "version": "2.3.60",
+  "version": "2.3.64",
   "description": "Desktop workspace for coding agents: editor, diff viewer, terminal, browser and a task board, one topic at a time. Agents run inside Topics, not one process each: 200 sessions answering at once fit in 162 MB.",
   "author": "Armonia",
   "license": "MIT",
@@ -118,7 +118,6 @@
     "typecheck:server": "bun run scripts/typecheck-server.ts",
     "typecheck:e2e": "node client/node_modules/typescript7/bin/tsc -p tsconfig.e2e.json",
     "typecheck:relay": "node client/node_modules/typescript7/bin/tsc -p relay/tsconfig.json",
-    "barra:toolchain": "node spec-flow/scripts/toolchain/ts-parity.mjs",
     "test:agents": "TOPICS_REAL_AGENT_TESTS=1 bun test --timeout ${TOPICS_TEST_TIMEOUT_MS:-30000} ./server/providers/acp-jcode-model.integration.test.ts",
     "test:e2e:shards": "./scripts/e2e-shards.sh",
     "test:e2e:plan": "bun run scripts/e2e-plan-shards.ts",

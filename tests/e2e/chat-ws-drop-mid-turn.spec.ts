@@ -16,14 +16,13 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
-import { E2E_BASE } from "./helpers/test-server";
+import { E2E_BASE, daemonAuthHeaders } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { installSlowTurnCli } from "./helpers/fake-claude-cli";
 
 hermetic(test);
 test.describe.configure({ timeout: 150_000 });
 
-const TOKEN = process.env.GATEWAY_TOKEN ?? "test-token";
 
 async function sessionKeyOf(request: APIRequestContext, topicId: string): Promise<string> {
   const body = (await (await request.get(`${E2E_BASE}/api/topics`)).json()) as { topics: Record<string, { id: string; sessionKey: string }> };
@@ -36,7 +35,7 @@ function startTurn(sessionKey: string, content: string): { said: () => string; d
   const done = (async () => {
     const res = await fetch(`${E2E_BASE}/api/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Gateway-Token": TOKEN },
+      headers: { "Content-Type": "application/json", ...daemonAuthHeaders() },
       body: JSON.stringify({ sessionKey, messages: [{ role: "user", content }] }),
     });
     if (!res.ok || !res.body) throw new Error(`POST /api/chat answered ${res.status}`);

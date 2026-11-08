@@ -21,9 +21,6 @@ import type { ProviderChatMessage, ProviderContextStrategy } from './types';
  * Origin of a system block. Categories are stable identifiers used for
  * filtering, grouping in the inspector UI, and deciding editability.
  *
- * - `openclaw`  — files injected by the OpenClaw workspace
- *                 (SOUL.md, MEMORY.md, AGENTS.md, TOOLS.md, IDENTITY.md,
- *                 USER.md, plus the aggregated memory tree).
  * - `memory`    — topic-specific memory (`memory/${topicId}.md`). The global
  *                 one is retired: shared rules come from the hub (`template`).
  * - `prompt`    — `topic.systemPrompt` configured by the user.
@@ -36,7 +33,6 @@ import type { ProviderChatMessage, ProviderContextStrategy } from './types';
  *                 plan-mode banner, browser-tool instructions, etc.).
  */
 export type SystemBlockCategory =
-  | "openclaw"
   | "memory"
   | "prompt"
   | "template"
@@ -60,9 +56,9 @@ export type SystemBlockCategory =
 export interface SystemBlock {
   /**
    * Stable identifier used for toggling and tracking across reloads.
-   * Examples: `"openclaw:SOUL.md"`, `"memory:topic"`, `"prompt:system"`,
+   * Examples: `"memory:topic"`, `"prompt:system"`,
    * `"template:CLAUDE.md"`, `"file:/abs/path/to/foo.md"`,
-   * `"pinned:messages"`, `"openclaw:memory-tree"`.
+   * `"pinned:messages"`.
    *
    * MUST match the ids used by `topic.disabledContextSources[]` so the
    * inspector toggle persists correctly.
@@ -92,7 +88,7 @@ export interface SystemBlock {
 
   /**
    * Whether this block contributes to the budget bar. Reference-only blocks
-   * (e.g. the OpenClaw memory tree aggregate) MAY be excluded so the user
+   * MAY be excluded so the user
    * sees the realistic cost of what is actually inlined.
    */
   countInBudget: boolean;
@@ -105,7 +101,7 @@ export interface SystemBlock {
 
   /**
    * Editable inline in the inspector (memory, prompt). Read-only for
-   * filesystem templates and OpenClaw workspace files.
+   * filesystem templates.
    */
   editable: boolean;
 
@@ -117,11 +113,8 @@ export interface SystemBlock {
    * (browser, project markers, topic-switch, plan mode).
    *
    * `false` for *informational* blocks shown in the inspector but injected
-   * elsewhere — the OpenClaw workspace files (SOUL.md, MEMORY.md, AGENTS.md,
-   * TOOLS.md, IDENTITY.md, USER.md, plus the memory tree aggregate) are
-   * pushed gateway-side by the openclaw provider, not by topics-app.
-   * The inspector lists them so the user understands what the model sees in
-   * total; the adapter MUST skip them so we don't double-inject.
+   * elsewhere: the inspector lists them so the user understands what the
+   * model sees in total; the adapter MUST skip them so we don't double-inject.
    */
   injectedByTopicsApp: boolean;
 
@@ -149,7 +142,7 @@ export interface SystemBlock {
  * provider. Ordered by precedence in `assembleTopicContext`:
  *
  * 1. `partial`              — assistant message still streaming.
- * 2. `context-message`      — legacy OpenClaw envelope marker
+ * 2. `context-message`      — legacy gateway envelope marker
  *                             ("[Chat messages since your last reply…").
  * 3. `empty-after-strip`    — content was only markers; nothing left.
  * 4. `duplicate-last-user`  — the caller passes the last user turn separately

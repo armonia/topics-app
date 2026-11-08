@@ -1,51 +1,26 @@
 import { describe, test, expect } from "bun:test";
-import { declaredProviderName, fallbackModelFor, reasoningCommandText, reasoningElsewhereMessage, routesThroughGateway } from "./commandRouting";
+import { declaredProviderName, fallbackModelFor, reasoningElsewhereMessage } from "./commandRouting";
 import { sessionStatus } from "./sessionStatus";
 
 /**
- * Il difetto che questi test bloccano: `/model` si biforcava su
- * `providerForSessionKey(sessionKey).name === 'openclaw'`, cioè sul provider
- * RISOLTO. Su un runner senza la CLI `claude` il provider `claude-code` non
- * viene registrato, la risoluzione ripiega sul default (openclaw) e il comando
- * partiva verso il gateway inesistente: 500 «Command failed: Unable to connect».
- * Verde in locale, rosso solo in CI — per sei giorni.
- *
- * La riga che conta è la prima: topic claude-code + default openclaw NON è una
- * rotta verso il gateway.
+ * Il provider DICHIARATO decide, non quello risolto: su un runner senza la CLI
+ * `claude` il provider `claude-code` non è registrato e la risoluzione ripiega
+ * sul default, ma un topic non cambia natura per un binario mancante.
  *
  * @covers CMD-08
  */
-describe("routesThroughGateway", () => {
-  test("topic claude-code su una macchina il cui default è openclaw → NON passa dal gateway", () => {
-    expect(routesThroughGateway("claude-code", "openclaw")).toBe(false);
-  });
-
-  test("topic openclaw → passa dal gateway", () => {
-    expect(routesThroughGateway("openclaw", "openclaw")).toBe(true);
-  });
-
-  test("topic senza provider esplicito → eredita il default del server", () => {
-    expect(routesThroughGateway(null, "openclaw")).toBe(true);
-    expect(routesThroughGateway(undefined, "claude-code")).toBe(false);
-  });
-
-  test("nessun provider dichiarato e nessun default → non si inventa il gateway", () => {
-    expect(routesThroughGateway(null, undefined)).toBe(false);
-  });
-});
-
 describe("declaredProviderName", () => {
   test("il nome dichiarato vince sul default, sempre", () => {
-    expect(declaredProviderName("codex", "openclaw")).toBe("codex");
+    expect(declaredProviderName("codex", "native")).toBe("codex");
   });
 
   test("claude-code-team è il vecchio nome di claude-code", () => {
-    expect(declaredProviderName("claude-code-team", "openclaw")).toBe("claude-code");
+    expect(declaredProviderName("claude-code-team", "native")).toBe("claude-code");
   });
 
   test("stringa vuota o soli spazi valgono come «non dichiarato»", () => {
-    expect(declaredProviderName("", "openclaw")).toBe("openclaw");
-    expect(declaredProviderName("   ", "openclaw")).toBe("openclaw");
+    expect(declaredProviderName("", "native")).toBe("native");
+    expect(declaredProviderName("   ", "native")).toBe("native");
   });
 
   test("senza dichiarazione né default resta undefined, non una stringa vuota", () => {
@@ -53,19 +28,7 @@ describe("declaredProviderName", () => {
   });
 });
 
-describe("/reasoning carries what was typed (CMD-08)", () => {
-  // The client never sent a level and the route defaulted to "on": on openclaw
-  // a «toggle» could only switch reasoning on.
-  test("the typed level is passed through", () => {
-    expect(reasoningCommandText("off")).toBe("/reasoning off");
-    expect(reasoningCommandText(" stream ")).toBe("/reasoning stream");
-  });
-
-  test("bare is forwarded bare: the gateway toggles it", () => {
-    expect(reasoningCommandText(undefined)).toBe("/reasoning");
-    expect(reasoningCommandText("  ")).toBe("/reasoning");
-  });
-
+describe("/reasoning (CMD-08)", () => {
   test("elsewhere the answer names the DECLARED provider, not claude-code everywhere", () => {
     expect(reasoningElsewhereMessage("codex")).toContain("Su codex");
     expect(reasoningElsewhereMessage("codex")).not.toContain("claude-code");

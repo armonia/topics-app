@@ -19,7 +19,7 @@ import { createProjectsRouter } from "./projects";
  * (`services/known-project-dirs.ts`) e non `projectStore`.
  *
  * Il caso che questo file inchioda — misurato il 2026-08-07 sul server vivo, su
- * cinque progetti del workspace di OpenClaw:
+ * cinque progetti del workspace della cartella dati:
  *
  *     open-carousel  204   match-compass  204   generale  204
  *     dashboard      403   dancerooms     403
@@ -54,7 +54,7 @@ const PNG_1x1 = Buffer.from(
 );
 
 let root: string;
-let openclawDir: string;
+let appDataDir: string;
 let workspaceDir: string;
 let db: Database;
 let router: (req: Request, url: URL, pathname: string, method: string) => Promise<Response | null>;
@@ -78,8 +78,8 @@ function icon(dir: string): Promise<Response | null> {
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "icon-gate-"));
-  openclawDir = join(root, ".openclaw");
-  workspaceDir = join(openclawDir, "workspace");
+  appDataDir = join(root, ".app-data");
+  workspaceDir = join(appDataDir, "workspace");
   mkdirSync(workspaceDir, { recursive: true });
 
   db = new Database(":memory:");
@@ -89,7 +89,7 @@ beforeEach(() => {
   topicPaths = [];
   const ctx = {
     db,
-    OPENCLAW_DIR: openclawDir,
+    APP_DATA_DIR: appDataDir,
     loadTopics: () => ({ topics: Object.fromEntries(topicPaths.map((p, i) => [`t${i}`, { projectPath: p }])) }),
     worktreeStore: { list: () => [] },
     projectStore: { list: () => [], getByPath: () => null },

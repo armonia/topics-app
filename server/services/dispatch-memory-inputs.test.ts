@@ -64,7 +64,7 @@ describe("createDispatchMemoryInputs", () => {
       memoryOwners: () => [
         { name: "Claude", gb: 1.4, procs: 2 },
         { name: "claude-code", gb: 0.8, procs: 1 },
-        { name: "openclaw", gb: 0.6, procs: 3 },
+        { name: "jarvis-channels", gb: 0.6, procs: 3 },
       ],
     });
 

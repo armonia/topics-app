@@ -354,7 +354,7 @@ function resolveInheritedMcpServers(): Record<string, unknown> | null {
  *
  * No secret travels with it. The bridge authenticates with the server's own
  * daemon token, which it reads from `--topics-home` on every request (a path,
- * not a secret: argv is fine). The OpenClaw gateway token used to ride in argv,
+ * not a secret: argv is fine). The old gateway token used to ride in argv,
  * where every `ps` printed it, and that is how it reached dozens of transcripts.
  */
 export function topicsMcpBridgeSpec(sessionKey: string, profile?: string): { command: string; args: string[] } {

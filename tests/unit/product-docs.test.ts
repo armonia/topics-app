@@ -7,7 +7,7 @@
  * Because each of these was true when it was written, and stopped being true
  * without breaking a build:
  *
- *  - `.env.example` pinned `AI_PROVIDER=openclaw`. README says
+ *  - `.env.example` pinned `AI_PROVIDER` to a gateway mode. README says
  *    `cp .env.example .env`, and Bun auto-loads `.env`, so the pin reached
  *    every fresh clone. An explicit `AI_PROVIDER` beats connectivity in
  *    `recomputeDefault()` (server/providers/index.ts), so a first boot routed
@@ -80,8 +80,8 @@ function bootDefaultChain(): { pairs: [string, string][]; fallback: string } {
   );
   const tail = decl![1].match(/['"]([a-z0-9-]+)['"]\s*\)?\s*$/);
   expect(tail, "the keyless fallback no longer parses out of server.ts").toBeTruthy();
-  // Fewer than three pairs means the parse broke, not that the rule got simpler.
-  expect(pairs.length).toBeGreaterThanOrEqual(3);
+  // Fewer than two pairs means the parse broke, not that the rule got simpler.
+  expect(pairs.length).toBeGreaterThanOrEqual(2);
   return { pairs, fallback: tail![1] };
 }
 
@@ -134,7 +134,7 @@ function linuxBundles(): string[] {
 function readmeBlock(label: string, options: { prose?: boolean } = {}): string {
   const lines = read("README.md").split("\n");
   // `prose: true` skips the variables TABLE. Anchoring on the `AI_PROVIDER` row
-  // dragged in the rows under it — `GATEWAY_URL` among them — so "the keys are
+  // dragged in the rows under it — `OPENAI_API_KEY` among them — so "the keys are
   // listed in the order server.ts tests them" measured the table's alphabet
   // instead of the paragraph's argument. The rule is explained in prose; that
   // is the text to read.
@@ -211,10 +211,10 @@ describe("product docs match the code", () => {
 
   it("both documents state the env key that actually decides the default", () => {
     // The claim they used to make ("auto-detect, first one connected wins") is
-    // false the moment any of these three variables is set: server.ts picks the
+    // false the moment any of these variables is set: server.ts picks the
     // default from them, and recomputeDefault() keeps it while it is connected.
     // Naming the variables IN THE ORDER THE CODE TESTS THEM is the whole point:
-    // a reader with both ANTHROPIC_API_KEY and GATEWAY_URL set has to be able to
+    // a reader with both ANTHROPIC_API_KEY and OPENAI_API_KEY set has to be able to
     // work out which one wins.
     const { pairs, fallback } = bootDefaultChain();
     for (const [where, text] of [
@@ -235,7 +235,7 @@ describe("product docs match the code", () => {
       expect(text, `${where} omits the keyless fallback (${fallback})`).toContain(fallback);
 
       // Order on the page, not just presence. Both documents already happened
-      // to mention the three variables somewhere; what made them wrong is that
+      // to mention the variables somewhere; what made them wrong is that
       // they led with PROVIDER_PREFERENCE_ORDER, so a reader took the ranking
       // for the rule and the keys for a detail. The rule comes first.
       const chain = preferenceChainIndex(text);
@@ -248,13 +248,8 @@ describe("product docs match the code", () => {
   });
 
   it("neither document promises that an offline provider fails silently", () => {
-    // `.env.example` said a chat aimed at a gateway you never installed "does
-    // not error, it simply never answers". server/providers/index.ts documents
-    // the opposite outcome at the point where it re-picks the default.
-    expect(
-      read("server/providers/index.ts"),
-      "the error this doc line was corrected against is gone: re-read the doc",
-    ).toContain("Gateway unreachable");
+    // `.env.example` said a chat aimed at a provider you never installed "does
+    // not error, it simply never answers": the opposite of what happens.
     expect(envProviderBlock(), ".env.example still promises a silent no-answer").not.toMatch(
       /does not error/i,
     );

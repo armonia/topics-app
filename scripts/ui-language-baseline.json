@@ -80,7 +80,6 @@
     "client/src/lib/livello-audio.ts": 6,
     "client/src/lib/missions.ts": 39,
     "client/src/lib/notificationStatus.ts": 9,
-    "client/src/lib/openclawRestart.ts": 1,
     "client/src/lib/osOpenPath.ts": 1,
     "client/src/lib/paneUsage.ts": 6,
     "client/src/lib/popOutSpace.ts": 4,

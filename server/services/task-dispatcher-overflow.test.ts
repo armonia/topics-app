@@ -308,7 +308,7 @@ describe("overflow: una card ferma per la memoria del Mac va dove il pavimento n
 
   it("una card nata «solo Mac» (marcata alla creazione) resta ferma", async () => {
     const h = harness();
-    const born = h.svc.create({ projectId: PID, text: "riavvia OpenClaw", status: "todo", stayLocal: true });
+    const born = h.svc.create({ projectId: PID, text: "riavvia Jarvis", status: "todo", stayLocal: true });
     expect(born.stayLocal).toBe(true);
     await holdPastThreshold(h);
     expect(h.task(born.id).machineId).toBeNull();

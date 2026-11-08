@@ -1,7 +1,7 @@
 /**
  * AUTOMAZIONI (hub-smistamento, HUBBR-14 and HUBBR-15): the hub's scheduled
  * jobs in a whole view, opened from the row above the Board. It takes the
- * place of the Cron panel: the OpenClaw jobs are one of its systems, with
+ * place of the Cron panel: the Jarvis jobs are one of its systems, with
  * their commands, so the same jobs are no longer in two places.
  *
  * At the top the verdict (how many need fixing, the rest in order, how fresh
@@ -9,8 +9,8 @@
  * what is broken or waits on you, oldest first, each with «Risolvi tu». A
  * status filter (all, in order, problems) and a search («/» brings the
  * focus there) narrow every list. The rows are grouped by system or, as the
- * hub grouped them, by what they do for you. By system: Jarvis (OpenClaw: run, switch on and off,
- * delete, through Topics' cron routes, off when the gateway does not answer),
+ * hub grouped them, by what they do for you. By system: Jarvis (run, switch on and off,
+ * delete, through Topics' cron routes, off when jarvis-channels does not answer),
  * Mac and GitHub read-only, PC and the workflows. A system all in order folds
  * into the "other areas" block. A row opens its detail: votes and notes written to the
  * hub's feedback log and read back, and the runs. The Calendar tab holds the

@@ -266,14 +266,14 @@ export function redTestNames(output: string): string[] {
 /**
  * The environment every file is born with, before its own scratch directory.
  *
- * The home and the OpenClaw config are taken out of the inherited environment
+ * The home is taken out of the inherited environment
  * so the preload derives them INSIDE the file's `TMPDIR` (it only does so when
  * none is chosen), and `DATA_DIR` goes for the same reason: a runner started
  * from the owner's terminal must not hand its live state folder to a test.
  */
 export function fileEnv(base: NodeJS.ProcessEnv): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = gitIsolationEnv({ ...base });
-  for (const key of ["DATA_DIR", "TOPICS_DATA_DIR", "TOPICS_HOME", "OPENCLAW_CONFIG_PATH"]) delete env[key];
+  for (const key of ["DATA_DIR", "TOPICS_DATA_DIR", "TOPICS_HOME"]) delete env[key];
   return env;
 }
 

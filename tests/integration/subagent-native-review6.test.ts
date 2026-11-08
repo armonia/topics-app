@@ -12,7 +12,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import { join } from "node:path";
-import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
+import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir, installDaemonToken } from "./helpers";
 import { startFakeClaudeBridge, type FakeBridge } from "./helpers/fake-claude-bridge";
 import type { SubAgentExitInfo } from "../../server/routes/subagent-exit";
 import type { AppContext, Topic } from "../../server/types";
@@ -21,7 +21,7 @@ const ROOT = testTmpDir("review6-repro");
 const SOCKET_PATH = `${ROOT}/b.sock`;
 const PROJECT = `${ROOT}/proj`;
 const AGENTS_HOME = `${ROOT}/agents-home`;
-const TOKEN = "native-lifecycle-token";
+let TOKEN = "";
 const ROOT_KEY = "topic:e6e6e6e6";
 const REAL_HOME = process.env.HOME;
 const realFetch = globalThis.fetch;
@@ -134,7 +134,7 @@ async function fakeNetwork(_input: string | URL | Request, init?: RequestInit): 
 
 async function call(path: string, method: string, body?: object): Promise<Response> {
   const url = new URL(`http://h${path}`);
-  const res = await terminalRouter(new Request(url, { method, headers: { "content-type": "application/json", "x-gateway-token": TOKEN }, body: body ? JSON.stringify(body) : undefined }), url, url.pathname, method);
+  const res = await terminalRouter(new Request(url, { method, headers: { "content-type": "application/json", "x-daemon-token": TOKEN }, body: body ? JSON.stringify(body) : undefined }), url, url.pathname, method);
   if (!res) throw new Error(`no route for ${method} ${path}`);
   return res;
 }
@@ -185,7 +185,7 @@ beforeAll(async () => {
   globalThis.fetch = fakeNetwork as typeof fetch;
   delete process.env.TOPICS_DISABLE_PTY_BRIDGE;
   delete process.env.TOPICS_EMBEDDED;
-  process.env.GATEWAY_TOKEN = TOKEN;
+  TOKEN = installDaemonToken();
   process.env.CLAUDE_BIN = "/bin/echo";
   { const { _resetClaudeBinCache } = await import("../../server/lib/claude-bin"); _resetClaudeBinCache(); }
   bridge = await startFakeClaudeBridge(ROOT, SOCKET_PATH);
@@ -298,7 +298,6 @@ afterAll(async () => {
   globalThis.fetch = realFetch;
   if (REAL_HOME === undefined) delete process.env.HOME; else process.env.HOME = REAL_HOME;
   delete process.env.CLAUDE_BIN;
-  delete process.env.GATEWAY_TOKEN;
   { const { _resetClaudeBinCache } = await import("../../server/lib/claude-bin"); _resetClaudeBinCache(); }
   await cleanupTestDataDir(ROOT);
 });
@@ -468,7 +467,7 @@ describe("one result per turn, and only the parent or a person drives a child's 
     await until("free", () => !busy(sk));
     await sleep(500);
     // The exact request postChatReadSSE (topics-mcp-server.ts) sends.
-    const res = await postChat(sk, "another agent writes here", { headers: { "X-Gateway-Token": TOKEN }, fromAgent: true });
+    const res = await postChat(sk, "another agent writes here", { headers: { "x-daemon-token": TOKEN }, fromAgent: true });
     expect(res.status).toBe(409);
     expect(res.body).toContain(`send_to_agent(agent_id=\\"${id}\\")`);
     await sleep(1_000);
@@ -482,12 +481,12 @@ describe("one result per turn, and only the parent or a person drives a child's 
     const id = c.body.agentId as string; const sk = c.body.sessionKey as string;
     await until("turn 1", () => reportsFor(id)[0]);
     await until("retired", () => !busy(sk) && rowOf(id)?.state === "retired");
-    expect((await postChat(sk, "no fromAgent, but the gateway token", { headers: { "X-Gateway-Token": TOKEN } })).status).toBe(409);
+    expect((await postChat(sk, "no fromAgent, but the gateway token", { headers: { "x-daemon-token": TOKEN } })).status).toBe(409);
     await sleep(500);
     expect(statusesOf(id)).toEqual([[1, "completed", false]]);
     const ORDINARY = "topic:a6a6a6a6";
     topic(ORDINARY);
-    expect((await postChat(ORDINARY, "an agent writes in an ordinary chat", { headers: { "X-Gateway-Token": TOKEN }, fromAgent: true })).status).toBe(200);
+    expect((await postChat(ORDINARY, "an agent writes in an ordinary chat", { headers: { "x-daemon-token": TOKEN }, fromAgent: true })).status).toBe(200);
     await until("closed", () => !busy(ORDINARY));
   }, 30_000);
 

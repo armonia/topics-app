@@ -38,7 +38,7 @@ export BUN_PORT="${DEVQA_PORT:-13400}"
 DEVQA_ROOT="${DEVQA_ROOT:-$HOME/.topics-devqa/$BUN_PORT}"
 export DATA_DIR="$DEVQA_ROOT/data"
 export TOPICS_HOME="$DEVQA_ROOT/.topics-home"
-export OPENCLAW_DIR="$DEVQA_ROOT/.openclaw"
+export APP_DATA_DIR="$DEVQA_ROOT/.app-data"
 export TOPICS_PTY_SOCKET="$DEVQA_ROOT/pty-bridge.sock"
 export TOPICS_AI_BRIDGE_SOCKET="$DEVQA_ROOT/ai-bridge.sock"
 export TOPICS_E2E=1
@@ -48,15 +48,6 @@ export TOPICS_E2E=1
 # armato, che svuota ogni tabella senza chiedere niente a nessuno, e non c'e'
 # nessun motivo per cui debba essere raggiungibile dal wifi di casa.
 export SERVER_HOST="${SERVER_HOST:-127.0.0.1}"
-# Il relay OpenClaw resta SPENTO se non lo si chiede. Con un token finto il
-# server trova qualcosa in ascolto sulla porta di default, fallisce la stretta
-# di mano e riprova in loop: rumore puro nel log di una istanza che quel canale
-# non lo usa. Per provarlo davvero: GATEWAY_TOKEN=... GATEWAY_URL=... .
-if [ -n "${GATEWAY_TOKEN:-}" ]; then
-  export GATEWAY_TOKEN GATEWAY_URL="${GATEWAY_URL:-http://127.0.0.1:18789}"
-else
-  unset GATEWAY_TOKEN GATEWAY_URL 2>/dev/null || true
-fi
 # Nessun tunnel, nessun relay: questa istanza non esce dalla macchina.
 unset TOPICS_TUNNEL_PORT TOPICS_RELAY_URL TOPICS_SECRETS_DIR 2>/dev/null || true
 
@@ -65,7 +56,7 @@ if [ "${DEVQA_RESET:-0}" = "1" ]; then
   rm -rf "$DEVQA_ROOT"
 fi
 
-mkdir -p "$DATA_DIR" "$TOPICS_HOME" "$OPENCLAW_DIR"
+mkdir -p "$DATA_DIR" "$TOPICS_HOME" "$APP_DATA_DIR"
 
 if [ ! -f "$REPO_ROOT/public/index.html" ]; then
   echo "[dev-qa] manca public/index.html. Costruiscilo: cd client && bun run build" >&2

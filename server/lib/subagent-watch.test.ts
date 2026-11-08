@@ -7,8 +7,7 @@
  * transcript finto. Ora il modulo prende `transcriptDir` e espone `pollOnce`,
  * quindi la logica che decide COSA è già stato letto si può interrogare.
  *
- * Il provider finto NON è `openclaw`, così il recapito prende la strada del
- * risultato grezzo e nessun test tocca la rete.
+ * Il recapito è sempre il risultato grezzo: nessun test tocca la rete.
  * @covers SUBAGENT-06, SUBAGENT-07
  */
 import { afterEach, describe, expect, it } from "bun:test";
@@ -17,7 +16,6 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { createSubagentWatcher, extractTextContent, type SubagentWatcher } from "./subagent-watch";
 import type { Topic, StoredMessage } from "../types";
-import type { AIProvider } from "../providers";
 import { createSubagentWake, type SubagentWakeRequest } from "../services/subagent-wake";
 
 const SESSION_KEY = "topic:abc123";
@@ -45,8 +43,6 @@ function harness(opts: { watchTimeoutMs?: number } = {}) {
   const unreadBumps: string[] = [];
 
   const watcher = createSubagentWatcher({
-    gatewayUrl: "http://gateway.invalid",
-    gatewayToken: "t",
     getTopicById: () => topic,
     getTopicBySessionKey: () => topic,
     saveSingleTopic: () => {},
@@ -56,8 +52,6 @@ function harness(opts: { watchTimeoutMs?: number } = {}) {
     },
     broadcastToAll: (m) => { broadcasts.push(m as unknown as Record<string, unknown>); },
     bumpUnread: (id) => { unreadBumps.push(id); },
-    // Non-openclaw ⇒ recapito grezzo, nessuna fetch.
-    resolveProvider: () => ({ name: "anthropic" }) as unknown as AIProvider,
     transcriptDir: dir,
     pollIntervalMs: 60_000, // il timer non deve mai scattare da sé: comanda pollOnce
     watchTimeoutMs: opts.watchTimeoutMs,
@@ -230,8 +224,6 @@ describe("deliverExit - the report of a spawn_agent child", () => {
     const topic = { id: TOPIC_ID, sessionKey: SESSION_KEY, name: "Chat" } as unknown as Topic;
     const appended: string[] = [];
     const watcher = createSubagentWatcher({
-      gatewayUrl: "http://gateway.invalid",
-      gatewayToken: "t",
       getTopicById: () => topic,
       getTopicBySessionKey: () => topic,
       saveSingleTopic: () => {},
@@ -241,7 +233,6 @@ describe("deliverExit - the report of a spawn_agent child", () => {
       },
       broadcastToAll: () => {},
       bumpUnread: () => {},
-      resolveProvider: () => ({ name: "anthropic" }) as unknown as AIProvider,
       pollIntervalMs: 60_000,
     });
     live = watcher;
@@ -263,8 +254,6 @@ describe("deliverExit - one report per turn, and the wake (SUBAGENT-11, SUBAGENT
     const topic = { id: TOPIC_ID, sessionKey: SESSION_KEY, name: "Chat" } as unknown as Topic;
     const rows: Array<{ content: string; blocks?: unknown }> = [];
     const watcher = createSubagentWatcher({
-      gatewayUrl: "http://gateway.invalid",
-      gatewayToken: "t",
       getTopicById: () => topic,
       getTopicBySessionKey: () => topic,
       saveSingleTopic: () => {},
@@ -274,7 +263,6 @@ describe("deliverExit - one report per turn, and the wake (SUBAGENT-11, SUBAGENT
       },
       broadcastToAll: () => {},
       bumpUnread: () => {},
-      resolveProvider: () => ({ name: "anthropic" }) as unknown as AIProvider,
       pollIntervalMs: 60_000,
       ...(requestWake ? { requestWake } : {}),
     });

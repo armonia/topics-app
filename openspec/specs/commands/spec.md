@@ -522,8 +522,8 @@ skipped rather than failing the listing.
 
 They SHALL be offered only on an engine that expands them: Claude Code offers both
 commands and skills; Topics' native engine offers skills only, the ones its prompt
-lists and its `skill` tool loads. Codex, the API engines, the ACP agents and
-OpenClaw SHALL NOT be offered them, because there a typed `/name` is prose. A skill
+lists and its `skill` tool loads. Codex, the API engines and the ACP agents
+SHALL NOT be offered them, because there a typed `/name` is prose. A skill
 switched off in the user's `skillOverrides` SHALL NOT be offered, and SHALL NOT be
 listed in the native engine's prompt either.
 
@@ -673,7 +673,7 @@ without being a command SHALL render no such marker.
 
 ### Requirement: TOOL-PARITY-01 — Ogni tool che la CLI emette ha una riga leggibile
 
-Topics rende le chiamate a tool di Claude Code, Codex e OpenClaw traducendole in
+Topics rende le chiamate a tool di Claude Code e Codex traducendole in
 un `ToolCallDetail` tipizzato. Quando un nome non corrisponde a nessun tipo noto
 il sistema NON DEVE perdere la chiamata: risponde `type: "unknown"` e il
 renderer mostra un JSON generico. Quel ripiego è corretto come rete di
@@ -1191,15 +1191,15 @@ Topics esegue o i controlli che apre), il gruppo del motore, «Le tue skill».
 
 Il gruppo del motore SHALL venire dall'elenco che il motore stesso dà: per Claude
 Code `system/init.slash_commands` e `system/commands_changed`; per gli agenti ACP
-`available_commands_update`. Codex, le API, OpenClaw e il motore di Topics NON SHALL
+`available_commands_update`. Codex, le API e il motore di Topics NON SHALL
 avere un gruppo del motore. Prima che la chat abbia un elenco suo il menu SHALL
 usare l'ultimo elenco visto per lo stesso progetto e motore, e NON SHALL avviare un
 processo solo per leggerlo.
 
 Il gruppo «Le tue skill» SHALL esserci sui motori che le espandono, come dice
 SKILL-01: su Claude Code le skill e i comandi tuoi, sul motore di Topics le skill
-(quelle che il suo prompt elenca e il suo tool `skill` carica). Su Codex, sulle API,
-sugli agenti ACP e su OpenClaw NON SHALL esserci.
+(quelle che il suo prompt elenca e il suo tool `skill` carica). Su Codex, sulle API
+e sugli agenti ACP NON SHALL esserci.
 
 Ogni nome SHALL passare per la mappa dei comandi di Topics, che gli dà un tipo
 (`topics`, `control`, `engine`, `refused`, `hidden`), dice se fa lavorare il
@@ -1411,15 +1411,14 @@ pannello SHALL dirlo.
 
 ### Requirement: CMDUI-06 — Ogni motore ha i suoi comandi, detti per nome
 
-/compact SHALL compattare su Claude Code (la CLI), su OpenClaw (il gateway) e sul
+/compact SHALL compattare su Claude Code (la CLI) e sul
 motore di Topics (la sua compattazione chiamata subito, con lo stesso separatore
 di quella automatica); sugli altri motori NON SHALL essere offerto, e scritto SHALL
 rispondere che quel motore non compatta a richiesta.
 
 /clear, /new e /reset SHALL far dimenticare la sessione su ogni motore che ne ha
-una, gli agenti ACP compresi (CMD-09). /reasoning SHALL esserci solo su OpenClaw,
-SHALL dire che decide se il ragionamento si vede, e SHALL passare il suo argomento
-(`on`, `off`, `stream`) anche quando è scritto nello stesso messaggio.
+una, gli agenti ACP compresi (CMD-09). /reasoning NON SHALL essere offerto: lo
+aveva solo il gateway esterno, tolto il 07/11/2026.
 
 #### Scenario: /compact sul motore di Topics
 - **GIVEN** una chat sul motore di Topics sotto la soglia della compattazione, senza un turno in volo
@@ -1432,11 +1431,6 @@ SHALL dire che decide se il ragionamento si vede, e SHALL passare il suo argomen
 - **WHEN** scrivo `/compact` e lo mando
 - **THEN** una scheda dice che Codex non compatta a richiesta
 - **AND** Codex non ha ricevuto nessun messaggio
-
-#### Scenario: /reasoning con l'argomento
-- **GIVEN** una chat OpenClaw
-- **WHEN** mando `/reasoning off`
-- **THEN** l'argomento `off` arriva al gateway
 
 ### Requirement: CMDUI-07 — Il menu si usa da tastiera e dal telefono, e /help è il menu
 

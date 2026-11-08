@@ -2,7 +2,7 @@
  * WHAT IS LEFT OF «THIS COMPUTER»: facts of this installation, not of the
  * machine. Open tabs, archived chats, models with no price and the health of
  * the bridges. The server and the gateway are services of the machine's
- * Processes view now, the OpenClaw jobs live in Automations, and nothing here
+ * Processes view now, Jarvis's jobs live in Automations, and nothing here
  * restarts anything: two views of the same machine, one with a restart button
  * the other lacks, was the mess this panel used to be.
  */

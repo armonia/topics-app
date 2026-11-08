@@ -7,7 +7,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import net from "node:net";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { closeDatabase, getDatabase, initDatabase } from "../db";
@@ -24,8 +24,9 @@ import {
 import type { AppContext, RouteHandler } from "../types";
 
 const SUSPEND = String.fromCharCode(26);
-const gatewayAuthToken = crypto.randomUUID();
-const HOME_KEYS = ["HOME", "DATA_DIR", "TOPICS_DATA_DIR", "APP_DATA_DIR", "CLAUDE_BIN", "GATEWAY_TOKEN", "TOPICS_DISABLE_PTY_BRIDGE"] as const;
+// The daemon token, the only credential of the agent routes.
+const daemonToken = crypto.randomUUID().replace(/-/g, "").repeat(2);
+const HOME_KEYS = ["HOME", "DATA_DIR", "TOPICS_DATA_DIR", "APP_DATA_DIR", "CLAUDE_BIN", "TOPICS_HOME", "TOPICS_DISABLE_PTY_BRIDGE"] as const;
 const priorEnv = new Map<string, string | undefined>();
 const bridgeFrames: Array<Record<string, unknown>> = [];
 let tempRoot = "";
@@ -42,7 +43,9 @@ beforeAll(async () => {
   process.env.TOPICS_DATA_DIR = join(tempRoot, "state");
   process.env.APP_DATA_DIR = join(tempRoot, "app");
   process.env.CLAUDE_BIN = "/bin/sh";
-  process.env.GATEWAY_TOKEN = gatewayAuthToken;
+  process.env.TOPICS_HOME = join(tempRoot, "topics-home");
+  mkdirSync(process.env.TOPICS_HOME, { recursive: true });
+  writeFileSync(join(process.env.TOPICS_HOME, "daemon-state.json"), JSON.stringify({ pid: 1, port: 1, token: daemonToken, startedAt: "x" }));
   delete process.env.TOPICS_DISABLE_PTY_BRIDGE;
   mkdirSync(process.env.HOME, { recursive: true });
   mkdirSync(join(tempRoot, "project"), { recursive: true });
@@ -140,7 +143,7 @@ async function requestSend(agentId: string, input: string): Promise<Response> {
     const response = await router(
       new Request(url, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-gateway-token": gatewayAuthToken },
+        headers: { "content-type": "application/json", "x-daemon-token": daemonToken },
         body: JSON.stringify({ input }),
       }),
       url,

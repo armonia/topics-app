@@ -6,7 +6,7 @@
  * native runtime is the default one, and it was the only runtime with output
  * that sent none: `runCommand` kept stdout/stderr in `out` and handed it back
  * only at the close, `ToolContext` had no progress hook, and the agent loop
- * called `executeTool` without one. Codex, acp and openclaw already stream their
+ * called `executeTool` without one. Codex and acp already stream their
  * partial output through `handler.onToolUpdate`.
  *
  * What is pinned here is the contract of the new hook: the WHOLE current tail on

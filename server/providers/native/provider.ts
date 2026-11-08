@@ -61,7 +61,6 @@ import { cancelled, stopCauseFromSignal, type StopCause, type TurnEndInfo } from
 import { nativeModelId } from "../../../shared/task-coding-models";
 import { apiCallCostUsd } from "../../usage/pricing";
 import { nativeSubagentToolPolicy, toolAllowedByPolicy } from "../../lib/subagent-tool-policy";
-import { gatewayToken } from "../../lib/openclaw-gateway-token";
 import { topicsHome } from "../../services/daemon-state";
 import {
   nativeDetachedEnabled,
@@ -524,9 +523,8 @@ export class NativeProvider implements AIProvider {
       return {
         baseUrl: topicsAppBaseUrl(),
         sessionKey,
-        gatewayToken: gatewayToken(),
         // In-process, so the server's own home: its daemon token opens the
-        // gated routes for users without OpenClaw too.
+        // gated routes.
         topicsHome: topicsHome(),
         // The mapping, not mcp_policy, owns the global coordinator role.
         // mcp_policy remains an ordinary session's fleet-scoping preference.
@@ -1005,7 +1003,7 @@ export class NativeProvider implements AIProvider {
           autonomy: turnOpts.autonomy,
           workspace: workspace ?? "",
           topics: topics ?? null,
-          server: { baseUrl: topicsAppBaseUrl(), topicsHome: topicsHome(), gatewayToken: gatewayToken() },
+          server: { baseUrl: topicsAppBaseUrl(), topicsHome: topicsHome() },
           hold: providerHold(),
         };
         const r = await this.runDetached(sessionKey, session, spec, handler, abort, turnModel);

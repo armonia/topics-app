@@ -40,8 +40,8 @@ export function commandDirs(home = homedir(), cwd = process.cwd()): string[] {
 /**
  * The skill folders, in order of precedence.
  *
- * The hub `~/.agents/skills` is the single source Claude Code, Codex, jcode and
- * OpenClaw already read (`~/.claude/skills` links to it): when present, it is
+ * The hub `~/.agents/skills` is the single source Claude Code, Codex and jcode
+ * already read (`~/.claude/skills` links to it): when present, it is
  * the only folder. The two older ones remain only for a machine without the
  * hub, where the listing would otherwise vanish entirely.
  */

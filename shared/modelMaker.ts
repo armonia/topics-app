@@ -1,7 +1,7 @@
 /**
  * MSEL-02, revision 2026-10-04 §3.2: the company that makes a model, read from
  * its id. There is no catch-all: every model has a company, and a model whose
- * company cannot be read is named by the provider that offers it (OpenClaw).
+ * company cannot be read is named by the provider that offers it.
  *
  * Tables of PREFIXES and vendor names, not a catalog of models: a new model of
  * a known company needs no change here, and a new company almost always comes

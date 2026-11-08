@@ -730,7 +730,7 @@ async function main(): Promise<void> {
       BUN_PORT: String(port),
       DATA_DIR: dataDir,
       TOPICS_HOME: `${dataDir}/.topics-home`,
-      OPENCLAW_DIR: `${dataDir}/.openclaw`,
+      APP_DATA_DIR: `${dataDir}/.app-data`,
       // Dedicated sockets: without them the bench server would derive them from
       // the cwd, which it shares with the development one, and its reconcile
       // would see development's live PTYs as orphans and kill them.

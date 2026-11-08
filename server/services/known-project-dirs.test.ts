@@ -44,7 +44,7 @@ beforeEach(() => {
   // è un symlink per `/private/var/folders/…`), e senza questo il confronto
   // fallirebbe per il symlink, non per la logica.
   root = realpathSync(mkdtempSync(join(tmpdir(), "known-dirs-")));
-  workspaceDir = join(root, ".openclaw", "workspace");
+  workspaceDir = join(root, "app-data", "workspace");
   mkdirSync(workspaceDir, { recursive: true });
   db = new Database(":memory:");
   db.run(`CREATE TABLE terminal_sessions (id TEXT PRIMARY KEY, cwd TEXT NOT NULL)`);
@@ -69,16 +69,13 @@ describe("knownProjectDirs — le sorgenti", () => {
 
   test("senza `workspaceDir` esplicito si deduce dall'ambiente (le rotte dei file non ce l'hanno)", () => {
     const prevApp = process.env.APP_DATA_DIR;
-    const prevOc = process.env.OPENCLAW_DIR;
-    process.env.APP_DATA_DIR = join(root, ".openclaw");
-    delete process.env.OPENCLAW_DIR;
+    process.env.APP_DATA_DIR = join(root, "app-data");
     try {
       const vero = wsDir("dancerooms");
       const { workspaceDir: _omesso, ...senza } = ctxBase();
       expect(knownProjectDirs(senza).has(vero)).toBe(true);
     } finally {
       if (prevApp === undefined) delete process.env.APP_DATA_DIR; else process.env.APP_DATA_DIR = prevApp;
-      if (prevOc !== undefined) process.env.OPENCLAW_DIR = prevOc;
     }
   });
 

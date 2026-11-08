@@ -27,7 +27,7 @@
 
 import { spawn, type ChildProcess } from "child_process";
 import type { McpServerDef } from "../mcp-inheritance";
-import { withoutGatewayToken } from "../../lib/openclaw-gateway-token";
+import { withoutGatewayToken } from "../../lib/child-env";
 
 /** The protocol revision we speak. Same one the Topics bridge answers with. */
 const MCP_PROTOCOL_VERSION = "2024-11-05";

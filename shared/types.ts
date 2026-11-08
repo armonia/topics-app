@@ -197,8 +197,8 @@ export interface DiscordPresenceStatus {
 /**
  * Quanto lavoro è passato di qui, misurato su tabelle che qualcuno SCRIVE
  * (`messages`/`tasks`/`topics`/`projects`) — non su `usage_records` e
- * `agent_sessions`, che non hanno un solo INSERT in tutto il server e
- * darebbero zeri per sempre. La storia sta in cima a
+ * `agent_sessions`, che non coprono il lavoro vero (`usage_records` ha solo gli
+ * INSERT delle chiamate laterali) e darebbero zeri per sempre. La storia sta in cima a
  * `server/services/profile-stats.ts`.
  *
  * Attraversa il filo intera (`GET /api/profile/stats`), quindi vive qui: il
@@ -1501,17 +1501,13 @@ export interface ProviderChatMessage {
  * - `inline-system`     un solo turno utente: i blocchi di sistema vanno
  *                       concatenati in un preambolo (CLI claude-code). La
  *                       sessione vive nel processo.
- * - `gateway-stateful`  il gateway ha il suo stato di sessione ma accetta
- *                       ANCHE `history` come ripiego per la reidratazione dopo
- *                       un restart (gateway openclaw).
  *
  * Se un provider non dichiara `contextStrategy`, `getProviderStrategy()`
  * ripiega su: `capabilities.has("history") ? "history-aware" : "inline-system"`.
  */
 export type ProviderContextStrategy =
   | "history-aware"
-  | "inline-system"
-  | "gateway-stateful";
+  | "inline-system";
 
 /**
  * Una riga della tabella `compaction_markers`: dove la CLI ha compattato il

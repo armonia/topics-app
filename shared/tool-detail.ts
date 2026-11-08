@@ -2,7 +2,7 @@
  * Tool detail normalizer: the ONE implementation.
  *
  * Translates a raw tool name + args (as emitted by the Claude Code CLI, the
- * Codex CLI, the OpenClaw gateway, the native provider, etc.) into the typed
+ * Codex CLI, the native provider, etc.) into the typed
  * `ToolCallDetail` union the renderer branches on. The server runs it at the
  * provider boundary, so:
  *   1. The wire format the client sees is uniform across providers.
@@ -25,7 +25,7 @@
  * renderer falls back to a generic JSON view instead of dropping the call.
  */
 
-import type { ToolCall, ToolCallDetail } from "./types";
+import type { ToolCallDetail } from "./types";
 import { isPlanFile } from "./plan-file";
 import { batchEditUnifiedDiff } from "./multi-edit-diff";
 import { normalizeViewSpec, viewIdFromResult } from "./views";
@@ -607,12 +607,4 @@ export function deriveToolDetail(
       ...(result ? { result } : {}),
     },
   };
-}
-
-/**
- * Convenience: derive detail from a ToolCall, merging args + result. Used by
- * code that already has a ToolCall in hand and wants to attach `detail` to it.
- */
-export function deriveToolDetailFromCall(tc: ToolCall): ToolCallDetail {
-  return deriveToolDetail(tc.name, tc.args, tc.result);
 }
