@@ -3,6 +3,8 @@
  * WORKING_TASKS_COUNT_SQL and OLDEST_WORKING_BOARD_SQL. Archiving a working card
  * sets `archived = 1` and leaves `dispatch_state = 'working'`: these reads must
  * not count it, nor name its board.
+ *
+ * @covers DISCORD-01
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
