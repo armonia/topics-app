@@ -16,6 +16,7 @@ import { SparkLoader } from '../Layout/StreamingIndicator';
 import { Select } from '../Shared/Select';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { StatusIcon } from './atoms';
+import { ActivityBadge, NeedsYouBox } from './PlanTileParts';
 import {
   createArea, createMilestone, fetchPlan, linkCard, mergeDuplicate, updateMilestone,
   type PlanArea, type PlanCard, type PlanMilestone, type PlanProject, type PlanProgress, type PlanSignal, type PlanTree,
@@ -138,6 +139,7 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
       <div key={m.id} data-testid="plan-milestone" className="rounded-lg bg-app-hover/40 px-2 py-1.5">
         <div className="flex items-center gap-2">
           <button type="button" aria-expanded={open.has(k)} onClick={() => toggle(k)} className="min-w-0 flex-1 truncate text-left text-compact font-medium text-app-text-heading hover:underline">{m.title}</button>
+          <ActivityBadge activity={m.activity} />
           {m.targetDate && <span className="shrink-0 text-mini tabular-nums text-app-text-muted">{shortDate(m.targetDate)}</span>}
           <ProgressBar p={m.progress} />
         </div>
@@ -209,8 +211,10 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
           {project.path && <ProjectFavicon path={project.path} size={16} className="shrink-0" />}
           <h3 className="min-w-0 flex-1 truncate text-compact font-semibold text-app-text-heading">{project.name}</h3>
           <button type="button" className={HOVER_ACTION} onClick={() => setForm(`area:${project.projectId}`)}><Plus className="h-3 w-3" />{tr('plan.newArea')}</button>
+          <ActivityBadge activity={project.activity} />
           <OpenCount n={project.openCount} />
         </header>
+        <NeedsYouBox needs={project.needsYou} onOpenTask={onOpenTask} />
         {form === `area:${project.projectId}` && <AreaForm project={project} />}
         {project.areas.map((a) => (
           <div key={a.id} data-testid="plan-area" className="flex flex-col gap-1.5">
@@ -238,11 +242,15 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
     );
   };
 
+  const waiting = tree?.projects.reduce((n, p) => n + p.needsYou.length, 0) ?? 0;
   return (
     <div data-testid="plan-view" className="min-h-0 flex-1 overflow-auto px-3 py-3 text-app-text sm:px-5">
       <div className="mx-auto max-w-[1440px]">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 className="text-title font-semibold">{tr('plan.title')}</h2>
+          <div className="flex min-w-0 items-baseline gap-3">
+            <h2 className="text-title font-semibold">{tr('plan.title')}</h2>
+            {waiting > 0 && <span data-testid="plan-needs-total" className="truncate text-compact font-medium text-amber-800 dark:text-amber-400">{tr('plan.needsYou.total', { n: waiting })}</span>}
+          </div>
           <div className="flex items-center gap-2">
             <label className="flex items-center gap-1 text-compact text-app-text-secondary">
               <input type="checkbox" checked={includeDone} onChange={(e) => setIncludeDone(e.target.checked)} />{tr('plan.showDone')}

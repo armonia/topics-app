@@ -37,6 +37,26 @@ export interface PlanCard {
   sources: PlanSource[];
 }
 
+/**
+ * Why a card waits for the person: an approval in review, an open question in
+ * its thread, a «waits for Attilio» line in its description, or the `human_ask`
+ * the workflow set when it moved the card to human review.
+ */
+export type PlanNeedReason = "question" | "human_ask" | "waits" | "review";
+export interface PlanNeed {
+  taskId: string;
+  text: string;
+  reason: PlanNeedReason;
+  /** The question or the line to read, when there is one. */
+  detail?: string;
+}
+/**
+ * The summary of a group of cards for its header: `working` as soon as one
+ * card is in progress, otherwise the state that best says where it stands.
+ */
+export type PlanActivityState = "working" | "review" | "todo" | "stale" | "done" | "empty";
+export interface PlanActivity { state: PlanActivityState; count: number }
+
 export interface PlanCounts { total: number; done: number; byStatus: Record<string, number> }
 export interface PlanProgress extends PlanCounts { ratio: number }
 
@@ -47,6 +67,7 @@ export interface PlanMilestone {
   // its test fails on any client read of that word.
   owner: string | null; status: string; targetDate: string | null; position: number;
   progress: PlanProgress;
+  activity: PlanActivity;
   signals: PlanSignal[];
   sources: PlanSource[];
   tasks: PlanCard[];
@@ -62,6 +83,9 @@ export interface PlanProject {
   /** Open cards of the project (not done), in milestones or not. */
   openCount: number;
   progress: PlanProgress;
+  activity: PlanActivity;
+  /** Open cards that need the person, one line each; empty when none. */
+  needsYou: PlanNeed[];
   areas: PlanArea[];
   /** Project cards not yet linked to a milestone: the "to place" group. */
   unplaced: { progress: PlanProgress; tasks: PlanCard[] };

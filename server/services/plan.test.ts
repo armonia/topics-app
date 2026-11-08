@@ -179,3 +179,50 @@ describe("sources", () => {
 test("countCards", () => {
   expect(countCards([{ status: "done" }, { status: "todo" }, { status: "todo" }])).toEqual({ total: 3, done: 1, byStatus: { done: 1, todo: 2 } });
 });
+
+describe("what waits for the person, and the header state", () => {
+  const comment = (taskId: string, content: string, author = "agent:claude") =>
+    db.query(`INSERT INTO task_comments (id, task_id, author, content, created_at) VALUES (?,?,?,?,?)`)
+      .run(crypto.randomUUID(), taskId, author, content, iso(0));
+
+  test("needsYou: review, open question, «aspetta: attilio», human_ask; nothing for done or ai_review", () => {
+    task("rev", { status: "review" });
+    task("ai", { status: "review" }); db.query(`UPDATE tasks SET stage = 'ai_review' WHERE id = 'ai'`).run();
+    task("ask", { status: "in_progress" }); comment("ask", "Prima di andare avanti:\n```question\nUso Postgres o SQLite?\n- Postgres\n- SQLite\n```");
+    task("answered"); comment("answered", "```question\nVa bene?\n- sì\n```"); comment("answered", "sì", "user");
+    task("waits", { status: "backlog" }); db.query(`UPDATE tasks SET description = ? WHERE id = 'waits'`).run("Piano.\naspetta: attilio — l'elenco è completo?");
+    task("human", { status: "review" }); db.query(`UPDATE tasks SET stage = 'human_review', human_ask = 'Ti piace il colore?' WHERE id = 'human'`).run();
+    task("closed", { status: "done" }); db.query(`UPDATE tasks SET description = 'aspetta: attilio' WHERE id = 'closed'`).run();
+    comment("closed", "```question\nE questa?\n```");
+    const p = buildPlan(db, { now: T0 }).projects[0]!;
+    const by = Object.fromEntries(p.needsYou.map((n) => [n.taskId, n]));
+    expect(Object.keys(by).sort()).toEqual(["ask", "human", "rev", "waits"]);
+    expect(by.rev!.reason).toBe("review");
+    expect(by.ask).toMatchObject({ reason: "question", detail: "Uso Postgres o SQLite?" });
+    expect(by.waits).toMatchObject({ reason: "waits", detail: "l'elenco è completo?" });
+    expect(by.human).toMatchObject({ reason: "human_ask", detail: "Ti piace il colore?" });
+  });
+
+  test("activity: working as soon as one card is in progress, else the prevailing state", () => {
+    const a = createArea(db, { projectId: "p1", name: "A" }) as any;
+    const m1 = createMilestone(db, { areaId: a.id, title: "M1" }) as any;
+    const m2 = createMilestone(db, { areaId: a.id, title: "M2" }) as any;
+    task("w1", { status: "in_progress" }); task("w2", { status: "in_progress" }); task("t1");
+    task("r1", { status: "review" }); task("old", { updated_at: iso(30) });
+    linkTask(db, "w1", m1.id); linkTask(db, "t1", m1.id); linkTask(db, "r1", m2.id);
+    task("q1", { project_id: "p2", updated_at: iso(30) });
+    const plan = buildPlan(db, { now: T0 });
+    const p1 = plan.projects.find((p) => p.projectId === "p1")!;
+    expect(p1.activity).toEqual({ state: "working", count: 2 });
+    expect(p1.areas[0]!.milestones[0]!.activity).toEqual({ state: "working", count: 1 });
+    expect(p1.areas[0]!.milestones[1]!.activity).toEqual({ state: "review", count: 1 });
+    expect(plan.projects.find((p) => p.projectId === "p2")!.activity).toEqual({ state: "stale", count: 1 });
+  });
+
+  test("order: waiting for the person, then at work, then the rest", () => {
+    task("a", { project_id: "idle" }); task("b", { project_id: "idle" }); task("c", { project_id: "idle" });
+    task("d", { project_id: "busy", status: "in_progress" });
+    task("e", { project_id: "needs", status: "review" });
+    expect(buildPlan(db, { now: T0 }).projects.map((p) => p.projectId)).toEqual(["needs", "busy", "idle"]);
+  });
+});
