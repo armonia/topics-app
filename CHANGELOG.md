@@ -2,6 +2,36 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.64 — 2026-11-08
+
+### Sotto il cofano
+- e2e più veloci: due processi per runner, file lento spezzato, instabile peggiore curato (#637)
+
+## 2.3.63 — 2026-11-08
+
+### Sotto il cofano
+- Via OpenClaw da Topics (#606)
+
+## 2.3.62 — 2026-11-08
+
+### Sotto il cofano
+- E2e sul PC: Chromium con la GPU, le spec a pixel su SwiftShader (#631)
+- Smoke di installazione: aggiorna l'elenco dei pacchetti prima del .deb (#635)
+
+## 2.3.61 — 2026-11-08
+
+### Sotto il cofano
+- una card archiviata mentre lavora non conta più come «al lavoro» (#619)
+- Review delle figlie: Kanban, tab, tray e Piano dicono lo stesso numero (#624)
+- Tauri è il guscio, non più Electron (#626)
+- Parole di stato: una copia sola, «1 aspetta te», l'agente a riposo non è «fermo» (#620)
+- conteggi e stati con le stesse regole della Kanban, madri sopra le figlie (#623)
+- Radice del repo: archiviate le due revisioni dell'08/09 e tolto lo SVG orfano (#625)
+- Sotto-agenti: il brief arriva intero, anche oltre 1022 byte (#627)
+- titoli senza emoji, l'icona dal genere della riga (#621)
+- il nome OpenClaw sparisce dalla presence Discord e dall'interfaccia (#622)
+- un TERM durante l'attesa dei figli non fa più perdere il codice d'uscita (#628)
+
 ## 2.3.60 — 2026-11-08
 
 ### Sotto il cofano

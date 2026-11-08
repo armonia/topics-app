@@ -1,6 +1,5 @@
 import { timingSafeEqualStr } from "../utils";
 import { readState } from "../services/daemon-state";
-import { freshGatewayToken } from "./openclaw-gateway-token";
 
 /** Hard-gate the /agents/* routes and the raw terminal send/buffer routes.
  *  spawn_agent launches `claude --dangerously-skip-permissions` with a
@@ -8,8 +7,8 @@ import { freshGatewayToken } from "./openclaw-gateway-token";
  *  0.0.0.0, so an UNGUARDED route would be unauthenticated RCE for any LAN
  *  peer / local process.
  *
- *  Two credentials are accepted, either one suffices:
- *   1. The DAEMON token (`Authorization: Bearer <64-hex>` or `X-Daemon-Token`),
+ *  One credential is accepted:
+ *   - The DAEMON token (`Authorization: Bearer <64-hex>` or `X-Daemon-Token`),
  *      the same 32-byte secret `~/.topics/daemon-state.json` hands to
  *      `/__daemon/*` — the PRIMARY path. It is Topics' own credential: written
  *      by the running server, readable only by the user who owns the file, and
@@ -17,9 +16,8 @@ import { freshGatewayToken } from "./openclaw-gateway-token";
  *      It replaced the old per-agent `X-Agent-Token` (a pbkdf2 hash column on
  *      `agent_profiles`) when the named-agent roster was removed: nothing could
  *      mint one any more, so keeping it would have been a gate with no key.
- *   2. The shared GATEWAY_TOKEN (`x-gateway-token`) — kept for backward
- *      compatibility with the MCP bridge, but no longer REQUIRED. OpenClaw is
- *      dismissed; we must not depend on its secret for a core function.
+ *  The old shared gateway token (`x-gateway-token`) no longer opens
+ *  anything: the gateway is off and the MCP bridge sends the daemon token.
  *
  *  The ownership guard on send/read/stop is defence-in-depth ON TOP of this,
  *  never instead of it.
@@ -41,13 +39,5 @@ export function agentAuthOk(req: Request): boolean {
       if (timingSafeEqualStr(bearer, state.token) || timingSafeEqualStr(header, state.token)) return true;
     }
   } catch {}
-  // Legacy gateway token (retro-compat; unset ⇒ this path simply doesn't match).
-  // Compared with the CURRENT value: after an OpenClaw rotation the old one,
-  // the one that leaked, stops opening these routes within 30 s, restart or not.
-  const header = req.headers.get("x-gateway-token");
-  if (header) {
-    const expected = freshGatewayToken();
-    if (expected && timingSafeEqualStr(header, expected)) return true;
-  }
   return false;
 }

@@ -4,7 +4,6 @@
 import { describe, test, expect } from "bun:test";
 import { clearActionFor } from "./clearPolicy";
 import { ClaudeCodeProvider } from "../providers/claude-code";
-import { OpenClawProvider } from "../providers/openclaw";
 import { CodexProvider } from "../providers/codex";
 import { AcpProvider } from "../providers/acp";
 
@@ -44,7 +43,6 @@ describe("clearActionFor", () => {
 
   test("i provider VERI cadono nel ramo giusto (prototipi, non finti oggetti)", () => {
     expect(clearActionFor(ClaudeCodeProvider.prototype as object)).toEqual({ kind: "reset" });
-    expect(clearActionFor(OpenClawProvider.prototype as object)).toEqual({ kind: "in-band" });
     expect(clearActionFor(CodexProvider.prototype as object)).toEqual({ kind: "reset" });
     // gemini and jcode: «Conversazione svuotata» used to be said while the
     // agent kept its whole session.

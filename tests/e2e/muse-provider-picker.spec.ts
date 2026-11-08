@@ -51,7 +51,7 @@ test.describe.serial("Muse provider picker", () => {
     await expect(card.getByTestId("provider-card-fact")).toContainText("Muse");
     await expect(card.getByTestId("provider-card-fact")).toContainText("2");
     // No `muse-` family in modelMaker: the company is named by the provider
-    // that offers it (the designed fallback, as for OpenClaw).
+    // that offers it (the designed fallback).
     await expect(card.getByTestId("provider-card-makers")).toContainText("Muse");
     await didascalia(page, "Muse è tra i provider, pronto con 2 modelli");
     await beat(page);

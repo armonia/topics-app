@@ -25,7 +25,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
-import { E2E_BASE } from "./helpers/test-server";
+import { E2E_BASE, daemonAuthHeaders } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { installSlowTurnCli } from "./helpers/fake-claude-cli";
 import { projectPanesKey } from "../../shared/project-keys";
@@ -35,7 +35,6 @@ test.use({ video: "on" });
 test.describe.configure({ timeout: 90_000 });
 
 const APP_WS = /\/ws(\?|$)/;
-const TOKEN = process.env.GATEWAY_TOKEN ?? "test-token";
 /** The fake turn: START, a Bash call, MIDDLE, END, this far apart. */
 const TURN = "TOOLTURN:1500";
 
@@ -92,7 +91,7 @@ function startTurn(sessionKey: string, content: string): Turn {
   const done = (async () => {
     const res = await fetch(`${E2E_BASE}/api/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Gateway-Token": TOKEN },
+      headers: { "Content-Type": "application/json", ...daemonAuthHeaders() },
       body: JSON.stringify({ sessionKey, messages: [{ role: "user", content }] }),
     });
     if (!res.ok || !res.body) throw new Error(`POST /api/chat answered ${res.status}`);
@@ -429,7 +428,7 @@ test.describe("a chat inside a project pane shows the true state of its turn", (
       await expect.poll(() => answers.state.held, { timeout: 15_000, message: "the reconnect reads the history" }).toBeGreaterThan(0);
       const stop = await fetch(`${E2E_BASE}/api/chat/abort`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-Gateway-Token": TOKEN },
+        headers: { "Content-Type": "application/json", ...daemonAuthHeaders() },
         body: JSON.stringify({ sessionKey: skC }),
       });
       expect(stop.ok, "the turn is stopped").toBeTruthy();
@@ -469,7 +468,7 @@ test.describe("a chat inside a project pane shows the true state of its turn", (
       await app.cut();
       const stop = await fetch(`${E2E_BASE}/api/chat/abort`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-Gateway-Token": TOKEN },
+        headers: { "Content-Type": "application/json", ...daemonAuthHeaders() },
         body: JSON.stringify({ sessionKey: skC }),
       });
       expect(stop.ok, "the turn is stopped").toBeTruthy();

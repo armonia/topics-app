@@ -20,7 +20,6 @@
  *   --topics-home=<dir>                  (optional) Topics home of the server; its
  *                                        daemon-state.json token goes out as
  *                                        X-Daemon-Token. Default: TOPICS_HOME or ~/.topics
- *   --gateway-token=<token>              (optional, legacy) sent as X-Gateway-Token header
  *
  * No external deps — keeps the spawn cold-start under 50ms.
  */
@@ -1002,7 +1001,6 @@ export function parseArgs(argv: string[]): ParsedArgs {
   return {
     baseUrl: baseUrl.replace(/\/$/, ""),
     sessionKey,
-    gatewayToken: map["gateway-token"],
     topicsHome: map["topics-home"],
     profile: map["profile"],
   };

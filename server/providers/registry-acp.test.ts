@@ -40,7 +40,6 @@ describe("providerNameForConfig", () => {
   test("per i provider storici il nome È il type (nessun comportamento cambia)", () => {
     expect(providerNameForConfig({ type: "claude-code" } as any)).toBe("claude-code");
     expect(providerNameForConfig({ type: "codex" } as any)).toBe("codex");
-    expect(providerNameForConfig({ type: "openclaw" } as any)).toBe("openclaw");
     expect(providerNameForConfig({ type: "claude" } as any)).toBe("claude");
     expect(providerNameForConfig({ type: "openai" } as any)).toBe("openai");
   });

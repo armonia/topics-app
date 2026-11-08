@@ -127,7 +127,7 @@ export function systemName(raw: unknown, id: string): string {
   return s.replace(/\s*\([^)]*\)\s*$/, '') || s;
 }
 
-/** «openclaw» → «OpenClaw», «HKUDS/nanobot» → «nanobot»: who the news is from, readable. */
+/** The hub's own name for a source, else «HKUDS/nanobot» → «nanobot»: who the news is from, readable. */
 function sourceName(raw: string | null, names: Map<string, string>): string {
   if (!raw) return '';
   return names.get(raw) ?? raw.split('/').pop() ?? raw;

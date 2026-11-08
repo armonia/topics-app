@@ -30,7 +30,7 @@ function makeCtx(opts: { topic: Topic; dbMessages: StoredMessage[]; projectDir?:
   return {
     BASE_DIR: ROOT,
     STATE_DIR: ROOT,
-    OPENCLAW_DIR: join(ROOT, "openclaw"),
+    APP_DATA_DIR: join(ROOT, "app-data"),
     getTopicBySessionKey: (sk: string) => (opts.topic.sessionKey === sk ? opts.topic : null),
     loadLocalMessages: () => opts.dbMessages,
     loadTopics: () => ({ topics: { [opts.topic.id]: opts.topic } }),

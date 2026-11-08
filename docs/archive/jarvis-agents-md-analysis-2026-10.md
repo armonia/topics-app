@@ -1,8 +1,9 @@
-# OpenClaw AGENTS.md size analysis — 2026-10
+# Jarvis gateway AGENTS.md size analysis — 2026-10
 
 ## Context
 
-AGENTS.md is the startup context for the OpenClaw gateway agent.
+AGENTS.md is the startup context for the Jarvis gateway agent (the external
+gateway Jarvis ran on until 03/11/2026).
 Hard limit: 20,000 characters (agents-doctor exits 1 above the limit).
 Current state at analysis time: 19,144 chars (96.7% of limit).
 
@@ -50,4 +51,4 @@ with detailed versions of:
 
 ## Detailed study
 
-Full analysis with context: `~/.openclaw/memory/studio-agents-md-dieta-2026-10-26.md`
+Full analysis with context: `memory/studio-agents-md-dieta-2026-10-26.md` in the gateway's old data folder

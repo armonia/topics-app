@@ -9,12 +9,15 @@
 import { describe, expect, test } from 'bun:test';
 import { CHECK_STALE_MS, checkStart, contextCheck, contextView, doctorVerdict, fileAgeDays, fileGroups, harnessWeights, plainRule, unlistedRef } from './hubContext';
 import { shortTokens } from './formatTokens';
+import { LEGACY_DATA_DIR_NAME } from '../../../shared/legacy-data-dir';
+
+const OLD_HOME = LEGACY_DATA_DIR_NAME;
 
 const HUB = {
   at: 1_793_901_551_906,
   files: [
-    { id: 'claude-md', label: 'CLAUDE.md globale', path: '~/.claude/CLAUDE.md', group: 'Claude Code', loaders: ['Claude Code', 'OpenClaw (via claude-cli)'], tokens: 4443, note: '', mtime: 1_793_000_000_000 },
-    { id: 'inc:tools.md', label: 'TOOLS.md', path: '~/.claude/tools.md', group: 'Claude Code', loaders: ['Claude Code', 'OpenClaw (via claude-cli)'], tokens: 6282, note: 'incluso da CLAUDE.md' },
+    { id: 'claude-md', label: 'CLAUDE.md globale', path: '~/.claude/CLAUDE.md', group: 'Claude Code', loaders: ['Claude Code', 'Jarvis (via claude-cli)'], tokens: 4443, note: '', mtime: 1_793_000_000_000 },
+    { id: 'inc:tools.md', label: 'TOOLS.md', path: '~/.claude/tools.md', group: 'Claude Code', loaders: ['Claude Code', 'Jarvis (via claude-cli)'], tokens: 6282, note: 'incluso da CLAUDE.md' },
     { id: 'memory-index', label: 'Indice della memoria', path: '~/.claude/memory/MEMORY.md', group: 'Claude Code', loaders: ['Claude Code (sessioni nate in ~)'], tokens: 4907, note: '' },
     { id: 'broken', label: '', path: '~/x.md' },
   ],
@@ -27,13 +30,13 @@ const HUB = {
     { file: 'project:studio-x', line: 212, text: '**Last Updated**: 2025-10-29', date: '2025-10-29', days: 372 },
   ],
   doctor: { ok: false, checks: [{ ok: true, text: 'nessun link rotto' }, { ok: false, text: 'skill fuori posto: demo' }], error: null },
-  totals: { byLoader: { 'Claude Code': 14888, 'OpenClaw (via claude-cli)': 11162, Codex: 14890, jcode: 14890, 'Claude Code (sessioni nate in ~)': 4907 } },
+  totals: { byLoader: { 'Claude Code': 14888, 'Jarvis (via claude-cli)': 11162, Codex: 14890, jcode: 14890, 'Claude Code (sessioni nate in ~)': 4907 } },
   contradictions: {
     at: 1_792_976_303_647,
     items: [
       { a: { file: '~/.claude/CLAUDE.md', text: 'niente closers' }, b: { file: '~/.claude/output-styles/kind.md', text: 'chiudi con un prossimo passo' }, why: 'una vieta i closers, l\'altra li chiede' },
       { a: { file: '~/x' }, b: { file: '~/y', text: 'y' }, why: 'senza testo da un lato' },
-      { a: { file: '~/.openclaw/AGENTS.md', text: 'a' }, b: { file: '~/.openclaw/workspace-gtm/AGENTS.md', text: '`b`' }, why: 'due AGENTS.md diversi' },
+      { a: { file: `~/${OLD_HOME}/AGENTS.md`, text: 'a' }, b: { file: `~/${OLD_HOME}/workspace-gtm/AGENTS.md`, text: '`b`' }, why: 'due AGENTS.md diversi' },
     ],
     running: false,
   },
@@ -55,7 +58,7 @@ describe('harnessWeights', () => {
     const w = harnessWeights(live);
     expect(w.map((h) => h.name)).toEqual(['Jarvis', 'Visione', 'Codex', 'jcode', 'Claude Code']);
     expect(w.find((h) => h.name === 'Jarvis')!.extra).toEqual({ tokens: 11816, home: false });
-    const v = contextView({ ...HUB, files: [{ id: 'agents', label: 'AGENTS.md', path: '~/.openclaw/workspace-gtm/AGENTS.md', group: 'Jarvis', loaders: ['Jarvis · gtm', 'Jarvis · main', 'Jarvis (via claude)'], tokens: 10 }], totals: { byLoader: live } })!;
+    const v = contextView({ ...HUB, files: [{ id: 'agents', label: 'AGENTS.md', path: `~/${OLD_HOME}/workspace-gtm/AGENTS.md`, group: 'Jarvis', loaders: ['Jarvis · gtm', 'Jarvis · main', 'Jarvis (via claude)'], tokens: 10 }], totals: { byLoader: live } })!;
     expect(v.files[0]!.readers).toEqual(['Visione', 'Jarvis']);
     expect(v.files[0]!.loaders).toEqual(['Visione', 'Jarvis', 'Jarvis (via claude)']);
   });
@@ -114,9 +117,9 @@ describe('contextView', () => {
     expect(a).toBe('rules · Jarvis');
     expect(b).toBe('rules · Visione');
     expect(v.check.items[1]!.b.text).toBe('b');
-    expect(unlistedRef('~/.openclaw/USER.md')).toEqual({ kind: 'profile', owner: 'Jarvis', name: 'USER' });
-    expect(unlistedRef('~/.openclaw/workspace-studio-x/AGENTS.md').owner).toBe('studio-x');
-    expect(unlistedRef('~/.openclaw/workspace/AGENTS.md').owner).toBe('Jarvis');
+    expect(unlistedRef(`~/${OLD_HOME}/USER.md`)).toEqual({ kind: 'profile', owner: 'Jarvis', name: 'USER' });
+    expect(unlistedRef(`~/${OLD_HOME}/workspace-studio-x/AGENTS.md`).owner).toBe('studio-x');
+    expect(unlistedRef(`~/${OLD_HOME}/workspace/AGENTS.md`).owner).toBe('Jarvis');
     expect(unlistedRef('~/Projects/acme-web/AGENTS.md')).toEqual({ kind: 'rules', owner: 'acme-web', name: 'AGENTS' });
     expect(unlistedRef('subagent:oracle.md')).toEqual({ kind: 'other', owner: '', name: 'oracle' });
   });

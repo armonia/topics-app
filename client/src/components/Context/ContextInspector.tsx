@@ -1,11 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useT } from '../../hooks/useT';
-import { X, ChevronLeft, FileText, FolderOpen, Upload, Trash2, ChevronsDownUp } from 'lucide-react';
+import { X, Upload, Trash2, ChevronsDownUp } from 'lucide-react';
 import type { Topic, UpdateTopicRequest, WSMessage } from '../../types';
 import { useContextInspector } from '../../hooks/useContextInspector';
-import { useOpenClawContext } from '../../hooks/useOpenClawContext';
 import { useMemory } from '../../hooks/useMemory';
-import { uploadApi, type MemoryTreeNode } from '../../lib/api';
+import { uploadApi } from '../../lib/api';
 import { ContextBudgetBar } from './ContextBudgetBar';
 import { CostProbePanel } from './CostProbePanel';
 import { useCostProbe } from '../../hooks/useCostProbe';
@@ -34,13 +33,12 @@ interface ContextInspectorProps {
   onClose: () => void;
   onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
-  onOpenFile?: (path: string) => void;
   /** Chiede la compattazione del contesto. Assente = l'azione non si mostra
    *  (es. su una topic bozza, che non ha ancora una sessione a cui chiederla). */
   onCompact?: () => void;
 }
 
-export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMessage, onOpenFile, onCompact }: ContextInspectorProps) {
+export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMessage, onCompact }: ContextInspectorProps) {
   const tr = useT();
   // Keep the latest topic in a ref so stable callbacks (handleToggleSource) read
   // current values without listing `topic` in their deps. Synced in an effect to
@@ -61,11 +59,9 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
   // il preventivo dell'envelope era rispondere a una domanda che nessuno aveva
   // fatto. L'hook è condiviso, quindi i due numeri non possono divergere.
   const live = useRealContext(topic.sessionKey ?? null, onMessage);
-  const { data: openclawData } = useOpenClawContext();
   const { saveTopicMemory } = useMemory(topic.id, { onMessage });
   const toast = useToast();
 
-  const [browsingMemoryTree, setBrowsingMemoryTree] = useState(false);
   /** La diagnostica dell'envelope è aperta? Vedi il `<details>` in fondo: da
    *  chiusa il suo contenuto non si monta, quindi non fa le sue due fetch. */
   const [envelopeAperto, setEnvelopeAperto] = useState(false);
@@ -99,16 +95,6 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
     setTimeout(reload, 300);
   }, [topic.id, saveTopicMemory, onUpdateTopic, reload]);
 
-  const handleBrowseMemory = useCallback(() => {
-    setBrowsingMemoryTree(true);
-  }, []);
-
-  const handleOpenMemoryFile = useCallback((path: string) => {
-    if (onOpenFile && openclawData?.workspacePath) {
-      onOpenFile(`${openclawData.workspacePath}/${path}`);
-    }
-  }, [onOpenFile, openclawData?.workspacePath]);
-
   const handleUploadContextFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const input = e.target;
     const files = Array.from(input.files || []);
@@ -137,7 +123,6 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
   if (!isOpen) return null;
 
   // Group sources by category
-  const openclawSources = sources.filter(s => s.category === 'openclaw');
   const memorySources = sources.filter(s => s.category === 'memory');
   const promptSources = sources.filter(s => s.category === 'prompt');
   // The user's global rules (hub `~/.agents/AGENTS.md`) ride in the `template`
@@ -158,7 +143,6 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
             source={source}
             onToggle={source.category === 'template' ? undefined : handleToggleSource}
             onEdit={source.editable ? handleEditSource : undefined}
-            onBrowseMemory={source.id === 'openclaw:memory-tree' ? handleBrowseMemory : undefined}
           />
         ))}
       </div>
@@ -185,68 +169,6 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
       </div>
     );
   };
-
-  // Memory tree browser view
-  if (browsingMemoryTree) {
-    const memoryIndex = openclawData?.memoryIndex || [];
-
-    const renderTree = (nodes: MemoryTreeNode[], depth = 0) => (
-      <div style={{ paddingLeft: depth > 0 ? 12 : 0 }}>
-        {nodes.map(node => (
-          <div key={node.path}>
-            {node.type === 'dir' ? (
-              <div>
-                <div className="flex items-center gap-1.5 py-1 px-2 text-compact text-app-text hover:bg-app-hover rounded cursor-default">
-                  <FolderOpen size={12} className="text-app-text-tertiary" />
-                  <span className="font-medium">{node.name}</span>
-                </div>
-                {node.children && renderTree(node.children, depth + 1)}
-              </div>
-            ) : (
-              <button
-                onClick={() => handleOpenMemoryFile(node.path)}
-                className="w-full flex items-center gap-1.5 py-1 px-2 text-compact text-app-text-secondary hover:bg-app-hover hover:text-app-text rounded transition-colors text-left"
-              >
-                <FileText size={12} className="text-app-text-tertiary flex-shrink-0" />
-                <span className="truncate flex-1">{node.name}</span>
-                {node.tokens !== undefined && (
-                  <span className="text-mini text-app-text-muted flex-shrink-0">~{node.tokens} tok</span>
-                )}
-              </button>
-            )}
-          </div>
-        ))}
-      </div>
-    );
-
-    return (
-      <div className="flex flex-col h-full bg-surface border-l border-app-border">
-        {/* Header */}
-        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-app-border flex-shrink-0">
-          <button aria-label="Indietro"
-            onClick={() => setBrowsingMemoryTree(false)}
-            className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary"
-          >
-            <ChevronLeft size={14} />
-          </button>
-          <span className="text-prose font-medium text-app-text truncate">
-            OpenClaw Memory Tree
-          </span>
-          <div className="flex-1" />
-          <button aria-label={tr('ctxInspector.close')} onClick={onClose} className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary">
-            <X size={14} />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-3">
-          {memoryIndex.length > 0 ? renderTree(memoryIndex) : (
-            <div className="text-compact text-app-text-muted text-center py-8">No memory files found</div>
-          )}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div data-testid="context-inspector" className="flex flex-col h-full bg-surface border-l border-app-border">
@@ -315,7 +237,6 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
                 qualcosa. Una sezione compare quando ha contenuto; l'unica che
                 resta sempre è quella dei file, perché lì l'intestazione porta
                 un'AZIONE (aggiungi). */}
-            {renderSection(tr('ctxInspector.section.openclaw'), openclawSources)}
             {renderSection(tr('ctxInspector.section.memory'), memorySources)}
             {renderSection(tr('ctxInspector.section.prompt'), promptSources)}
             {renderSection(tr('ctxInspector.section.rules'), rulesSources)}

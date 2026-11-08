@@ -10,7 +10,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { deriveToolDetail, deriveToolDetailFromCall, TOPICS_BRIDGE_TOOLS, TOPICS_BROWSER_TOOLS } from "../../../shared/tool-detail";
+import { deriveToolDetail, TOPICS_BRIDGE_TOOLS, TOPICS_BROWSER_TOOLS } from "../../../shared/tool-detail";
 import { TOOL_HANDLERS } from "../../mcp/topics-mcp-server";
 import { BROWSER_TOOL_SPECS } from "../../browser-tool-spec";
 import { parseToolCallDetail } from "../../../shared/tool-call-detail";
@@ -243,21 +243,6 @@ describe("deriveToolDetail", () => {
     const d = deriveToolDetail("Read", [1, 2, 3] as any);
     expect(d.type, "without this line the assertions below are skipped in silence").toBe("read");
     if (d.type === "read") expect(d.filePath).toBe("");
-  });
-
-  test("deriveToolDetailFromCall — convenience wrapper", () => {
-    const d = deriveToolDetailFromCall({
-      id: "x",
-      name: "Bash",
-      args: { command: "echo hi" },
-      result: "hi",
-      status: "success",
-    });
-    expect(d.type, "without this line the assertions below are skipped in silence").toBe("shell");
-    if (d.type === "shell") {
-      expect(d.command).toBe("echo hi");
-      expect(d.output).toBe("hi");
-    }
   });
 
   test("case-insensitive name matching", () => {

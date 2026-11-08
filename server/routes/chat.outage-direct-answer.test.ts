@@ -252,10 +252,10 @@ async function cutResent(cause: Outage): Promise<void> {
 
 /** A sub-agent's report, through the real watcher: written whole under the thread's last row when it lands. */
 const watcher = createSubagentWatcher({
-  gatewayUrl: "", gatewayToken: "", getTopicById: (id) => ctx.getTopicById(id),
+  getTopicById: (id) => ctx.getTopicById(id),
   getTopicBySessionKey: (k) => ctx.getTopicBySessionKey(k), saveSingleTopic: (t) => ctx.saveSingleTopic(t),
   appendLocalMessage: (sk, role, content) => ctx.appendLocalMessage(sk, role, content),
-  broadcastToAll: () => {}, bumpUnread: () => {}, resolveProvider: () => provider,
+  broadcastToAll: () => {}, bumpUnread: () => {},
 });
 afterAll(() => watcher.stop());
 let reports = 0;

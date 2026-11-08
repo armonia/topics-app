@@ -41,7 +41,7 @@ beforeAll(() => {
   }
   mkdirSync(join(tmpRoot, "public"), { recursive: true });
   process.env.DATA_DIR = join(tmpRoot, "data");
-  process.env.OPENCLAW_DIR = join(tmpRoot, "openclaw");
+  process.env.APP_DATA_DIR = join(tmpRoot, "app-data");
   ctx = createAppContext(tmpRoot);
   for (const id of ids) ctx.saveSingleTopic(topic(id));
   const put = ctx.db.prepare(`INSERT INTO unread (topic_id, last_read_at, unread_count) VALUES (?, ?, ?)`);

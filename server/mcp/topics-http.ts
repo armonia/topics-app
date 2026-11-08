@@ -20,8 +20,6 @@ import { join } from "node:path";
 export interface ParsedArgs {
   baseUrl: string;
   sessionKey: string;
-  /** Legacy: configs written before the daemon token carried `--gateway-token`. */
-  gatewayToken?: string;
   /**
    * The Topics home whose `daemon-state.json` holds the server's own token
    * (`--topics-home`). Unset = no daemon token sent (unit tests, in-process callers).
@@ -63,16 +61,13 @@ export function readDaemonToken(topicsHome: string): string | undefined {
 }
 
 /**
- * How the bridge proves it is ours: the daemon token (`agentAuthOk` accepts it
- * on every gated route), plus the legacy gateway token when an old config
- * still passes one. The OpenClaw token itself no longer reaches the bridge:
- * it rotates, and every `ps` printed it when it travelled in argv.
+ * How the bridge proves it is ours: the daemon token, which `agentAuthOk`
+ * accepts on every gated route. It is the only credential the bridge carries.
  */
-export function bridgeAuthHeaders(args: Pick<ParsedArgs, "gatewayToken" | "topicsHome">): Record<string, string> {
+export function bridgeAuthHeaders(args: Pick<ParsedArgs, "topicsHome">): Record<string, string> {
   const headers: Record<string, string> = {};
   const daemon = args.topicsHome ? readDaemonToken(args.topicsHome) : undefined;
   if (daemon) headers["X-Daemon-Token"] = daemon;
-  if (args.gatewayToken) headers["X-Gateway-Token"] = args.gatewayToken;
   return headers;
 }
 

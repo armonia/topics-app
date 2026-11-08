@@ -15,8 +15,8 @@ const REPO = join(import.meta.dir, "..", "..");
  * callbacks where an uncaught throw ends the process.
  *
  * It cost a red CI run on 2026-08-15: on a runner the only registered provider
- * is `openclaw`, so the stale-stream sweeper threw
- * `Provider "claude-code" not found. Available: openclaw` from a timer, Bun
+ * was the old gateway relay, so the stale-stream sweeper threw
+ * `Provider "claude-code" not found. Available: <relay>` from a timer, Bun
  * exited 1, the test server vanished mid-run and 15 tests after it failed at
  * 0 ms with ECONNREFUSED. A user without the claude-code CLI would have hit the
  * same crash the first time a stream went quiet for three minutes.

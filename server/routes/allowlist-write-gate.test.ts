@@ -49,7 +49,7 @@ const TOPIC_ID = "t1";
 const PAIRED = { "x-test-paired": "1" };
 
 let root: string;
-let openclawDir: string;
+let appDataDir: string;
 let workspaceDir: string;
 let sshDir: string;
 let projectDir: string;
@@ -89,8 +89,8 @@ beforeEach(() => {
   // A fake HOME: `~/.ssh` is the exact shape of the attack, and no test has
   // to go near the real home to show it.
   process.env.HOME = root;
-  openclawDir = join(root, ".openclaw");
-  workspaceDir = join(openclawDir, "workspace");
+  appDataDir = join(root, ".app-data");
+  workspaceDir = join(appDataDir, "workspace");
   sshDir = join(root, ".ssh");
   projectDir = join(root, "projects", "app");
   mkdirSync(workspaceDir, { recursive: true });
@@ -108,7 +108,7 @@ beforeEach(() => {
 
   ctx = {
     db,
-    OPENCLAW_DIR: openclawDir,
+    APP_DATA_DIR: appDataDir,
     loadTopics: () => ({ topics }),
     saveSingleTopic: (t: { id: string }) => { topics[t.id] = t as never; },
     getTopicById: (id: string) => topics[id] ?? null,

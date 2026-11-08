@@ -1,6 +1,6 @@
 /**
  * A view as ONE self-contained HTML document, for hosts that are not Topics
- * (GENUI-08): OpenClaw, Claude, ChatGPT, any MCP Apps host. They render a
+ * (GENUI-08): Claude, ChatGPT, any MCP Apps host. They render a
  * `ui://` resource in a sandboxed iframe that cannot load the Topics client,
  * so the document carries its own CSS, its own markup and the few lines of
  * the MCP Apps bridge (postMessage JSON-RPC: `ui/initialize`, theme from the
@@ -215,11 +215,6 @@ if(window.ResizeObserver)new ResizeObserver(size).observe(document.body);
 
 export function documentOf(title: string, language: ViewLanguage, inner: string): string {
   return `<!doctype html><html lang="${language}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>${CSS}</style></head><body><main id="view">${inner}</main><script>${BRIDGE}</script></body></html>`;
-}
-
-/** One stored view as a whole document (`ui://topics/view/<id>`, `/api/views/:id/app`). */
-export function renderViewDocument(spec: ViewSpec, o: RenderOpts = {}): string {
-  return documentOf(spec.title, o.language ?? "it", renderViewFragment(spec, o));
 }
 
 /** The generic app (`ui://topics/view`): empty until the tool result brings a view. */

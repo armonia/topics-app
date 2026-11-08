@@ -1,6 +1,6 @@
 /**
  * client/src/lib/i18n-automations-en.ts - the strings of «Automazioni»
- * (hub-smistamento): the verdict, the systems, the commands on the OpenClaw
+ * (hub-smistamento): the verdict, the systems, the commands on the Jarvis
  * jobs, the votes, the runs and the calendar; in English, the mirror of
  * `i18n-automations-it.ts`.
  *
@@ -36,12 +36,12 @@ const AUTOMATIONS_EN: Dict = {
   'auto.system.github': 'GitHub',
   'auto.system.pc': 'PC',
   'auto.system.workflow': 'Workflow',
-  'auto.systemNote.jarvis': 'OpenClaw jobs: run, switch on, delete from here',
+  'auto.systemNote.jarvis': 'Jarvis jobs: run, switch on, delete from here',
   'auto.systemNote.mac': 'launchd: read-only, changed from the file',
   'auto.systemNote.github': 'GitHub Actions: read-only',
   'auto.systemNote.pc': 'read-only',
   'auto.systemNote.workflow': 'the runs of the last 7 days',
-  'auto.source.jarvis': 'Jarvis · OpenClaw job',
+  'auto.source.jarvis': 'Jarvis · scheduled job',
   'auto.source.mac': 'Mac · launchd',
   'auto.source.github': 'GitHub Actions',
   'auto.source.pc': 'Home PC',
@@ -63,7 +63,7 @@ const AUTOMATIONS_EN: Dict = {
   'auto.areas.last': 'last run {time}',
   'auto.empty': 'No automation by that name.',
   'auto.readOnly': 'read-only',
-  'auto.gatewayOff': 'The Jarvis gateway does not answer: run, switch on and delete are off.',
+  'auto.gatewayOff': 'The Jarvis scheduler does not answer: run, switch on and delete are off.',
   'auto.off': 'off',
   'auto.cmd.run': 'Run now',
   'auto.cmd.retry': 'Retry',
@@ -73,10 +73,10 @@ const AUTOMATIONS_EN: Dict = {
   'auto.cmd.remove': 'Delete',
   'auto.cmd.ranNow': 'ran just now',
   'auto.confirm.remove': 'Delete «{title}»?',
-  'auto.confirm.removeBody': 'The OpenClaw job leaves the gateway: it cannot be recovered from here.',
-  'auto.refusal.gateway': '{what}: the Jarvis gateway does not answer.',
-  'auto.refusal.notRun': 'Not run: the gateway did not start it, it may be running already.',
-  'auto.refusal.refused': '{what}: the gateway refused it.',
+  'auto.confirm.removeBody': 'The job leaves Jarvis: it cannot be recovered from here.',
+  'auto.refusal.gateway': '{what}: the Jarvis scheduler does not answer.',
+  'auto.refusal.notRun': 'Not run: Jarvis did not start it, it may be running already.',
+  'auto.refusal.refused': '{what}: Jarvis refused it.',
   'auto.what.run': 'Run not started',
   'auto.what.enable': 'Not switched on',
   'auto.what.disable': 'Not switched off',
@@ -127,7 +127,7 @@ const AUTOMATIONS_EN: Dict = {
   'auto.runs.title': 'Runs',
   'auto.runs.today': '{n} today · {ok} went well',
   'auto.runs.none': 'No run recorded.',
-  'auto.runs.reading': 'Reading the runs from the gateway',
+  'auto.runs.reading': 'Reading the runs from Jarvis',
   'auto.runs.failed': 'The runs cannot be read now: the history below holds.',
   'auto.run.today': 'today {time}',
   'auto.run.yesterday': 'yesterday {time}',
@@ -317,7 +317,7 @@ const AUTOMATIONS_EN: Dict = {
   'auto.graph.did.skipped': 'was skipped',
   'auto.graph.did.unused': 'was not needed',
   'auto.graph.did.none': 'did not answer',
-  'auto.graph.likelyWhy': 'The run went well and OpenClaw always tries the first of the queue first, but it does not log who really answered.',
+  'auto.graph.likelyWhy': 'The run went well and Jarvis always tries the first of the queue first, but it does not log who really answered.',
   'auto.graph.firstWorked': 'It is the first of the queue and it worked, so the others were not needed.',
   'auto.graph.only': 'It is the only model planned.',
   'auto.graph.before': 'Before: {list}.',

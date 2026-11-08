@@ -239,17 +239,18 @@ test.describe("slash commands answered in the composer", () => {
 });
 
 test.describe("on a provider that is not Claude Code, the names travel as typed", () => {
-  // CMD-08: the refusals, the /new alias and the /mcp and /config panels are
-  // Claude Code's. openclaw has its own `/login`, `/export`, `/new`, `/reset`,
-  // `/mcp show|set|unset` and `/config show|set|unset`, gemini answers
-  // `/memory` itself. The bench runs no openclaw gateway, so what is asserted is the
-  // composer's side only: the message is SENT, nothing answers it here and no
-  // /clear confirmation opens. What openclaw does with it is not visible here.
-  for (const text of ["/login", "/new", "/mcp show", "/config", "/usage"]) {
-    test(`${text} on an openclaw topic is sent, not answered or confirmed in the composer`, async ({ page, request, chatPage }) => {
+  // CMD-08: the refusals are Claude Code's. On an API engine a typed `/name`
+  // is prose for the model, and gemini answers `/memory` itself. `/new`,
+  // bare `/config` and bare `/usage` are Topics' own on every declared engine
+  // (CMDUI-02, CMDUI-06), so they are not here; `/mcp` with an argument travels.
+  // The bench has no OpenAI key, so what is asserted is the composer's side
+  // only: the message is SENT, nothing answers it here and no /clear
+  // confirmation opens.
+  for (const text of ["/login", "/mcp show"]) {
+    test(`${text} on an openai topic is sent, not answered or confirmed in the composer`, async ({ page, request, chatPage }) => {
       test.info().annotations.push({ type: "spec", description: "CMD-08" });
-      const name = `slash-openclaw-${text.slice(1).replace(/\s+/g, "-")}-${Date.now()}`;
-      const topic = await createTopic(request, name, { provider: "openclaw" });
+      const name = `slash-openai-${text.slice(1).replace(/\s+/g, "-")}-${Date.now()}`;
+      const topic = await createTopic(request, name, { provider: "openai" });
       try {
         await resetPaneStore(request, [topic.id]);
         await goToApp(page);

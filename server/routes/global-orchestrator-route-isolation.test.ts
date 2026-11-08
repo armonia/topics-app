@@ -56,7 +56,7 @@ function coordinatorTopic(): Topic {
     // ordinary project/config/provider paths rather than treating it as a
     // normal bound Topic.
     projectPath: "/must-not-be-read",
-    provider: "openclaw",
+    provider: "claude",
   };
 }
 
@@ -81,12 +81,10 @@ describe("global coordinator route isolation", () => {
     expect(await response!.json()).toMatchObject({ code: "orchestrator_topic_invariant" });
   });
 
-  test("uses a local context estimate instead of the OpenClaw gateway", async () => {
+  test("uses a messages-only context estimate for the coordinator", async () => {
     const topic = coordinatorTopic();
     const router = createContextRouter({
       db: rawCoordinatorDb(),
-      GATEWAY_URL: "not-a-valid-url",
-      GATEWAY_TOKEN: "must-not-be-used",
       json,
       loadTopics: () => ({ topics: { [TOPIC_ID]: topic } }),
       loadLocalMessages: () => [{ role: "user", content: "1234" }],

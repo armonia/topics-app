@@ -1,6 +1,6 @@
 /**
  * AGENTI: the always-on agents' sessions grouped by agent (Jarvis, Visione,
- * any other OpenClaw agent), each with its state, its last activity and how
+ * any other always-on agent), each with its state, its last activity and how
  * many sessions it holds; sub-agents sit under the session that spawned them.
  * A session opens as from the sidebar. The grouping is `lib/agentSessions`.
  */

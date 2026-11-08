@@ -86,6 +86,8 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // gpu: the graphics card the e2e browser can render on (`tests/e2e/helpers/remote-gpu.ts`).
+  "gpu",
   // automation: a scheduled job of the usage hub (cron, launchd, workflow), the
   // hub's own word for its jobs page; `client/src/lib/hubSystem.ts` reads its summary.
   "automation",
@@ -381,7 +383,7 @@ export const PROJECT_WORDS = new Set([
   // `org_members`, the route is `/api/auth/orgs`, and the column every
   // visibility rule reads is `org_id`. A variable holding one of those rows
   // cannot be named after anything else without describing a different thing.
-  "topics", "topic", "openclaw", "armonia", "tauri", "kanban", "pane", "panes",
+  "topics", "topic", "armonia", "tauri", "kanban", "pane", "panes",
   "org", "orgs",
   // `desktop` is what this product calls its shell (`desktop-tauri/`) and the
   // address that shell proxies to (`DESKTOP_SERVER_HOST` in

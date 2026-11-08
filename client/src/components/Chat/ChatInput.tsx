@@ -59,7 +59,7 @@ const ComposerToolsRow = lazy(async () => {
 });
 import { HOME_ANCHOR_ATTR, HOME_ANCHOR_FOCUSED_ATTR, openHome } from '../../lib/openHome';
 
-// Lazily loaded — the inspector pulls in memory/openclaw hooks; keep it out of
+// Lazily loaded — the inspector pulls in the memory and context hooks; keep it out of
 // the composer's initial bundle and only fetch it the first time the popover opens.
 const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m => ({ default: m.ContextInspector })));
 

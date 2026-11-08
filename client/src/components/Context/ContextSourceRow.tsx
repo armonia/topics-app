@@ -1,9 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { ChevronRight, ChevronDown, Eye, EyeOff, Edit3, Save, X, FolderTree } from 'lucide-react';
+import { ChevronRight, ChevronDown, Eye, EyeOff, Edit3, Save, X } from 'lucide-react';
 import type { ContextSource } from '../../lib/api';
 
 const CATEGORY_ICONS: Record<string, string> = {
-  openclaw: '\u{1F535}',  // blue circle
   memory: '\u{1F7E3}',    // purple circle
   prompt: '\u{2728}',     // sparkles
   template: '\u{1F4C4}',  // page
@@ -12,7 +11,6 @@ const CATEGORY_ICONS: Record<string, string> = {
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
-  openclaw: '#3b82f6',
   memory: '#8b5cf6',
   prompt: '#f59e0b',
   template: '#22c55e',
@@ -24,10 +22,9 @@ interface ContextSourceRowProps {
   source: ContextSource;
   onToggle?: (id: string, enabled: boolean) => void;
   onEdit?: (id: string, content: string) => void;
-  onBrowseMemory?: () => void;
 }
 
-export function ContextSourceRow({ source, onToggle, onEdit, onBrowseMemory }: ContextSourceRowProps) {
+export function ContextSourceRow({ source, onToggle, onEdit }: ContextSourceRowProps) {
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
@@ -47,7 +44,6 @@ export function ContextSourceRow({ source, onToggle, onEdit, onBrowseMemory }: C
 
   const icon = CATEGORY_ICONS[source.category] || '\u{2753}';
   const color = CATEGORY_COLORS[source.category] || '#6b7280';
-  const isOpenClawMemoryTree = source.id === 'openclaw:memory-tree';
 
   const handleStartEdit = () => {
     setEditContent(source.preview || '');
@@ -83,17 +79,6 @@ export function ContextSourceRow({ source, onToggle, onEdit, onBrowseMemory }: C
           {!source.countInBudget && <span className="ml-1 text-app-text-muted italic">(archive)</span>}
         </span>
 
-        {/* Memory tree browse button */}
-        {isOpenClawMemoryTree && onBrowseMemory && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onBrowseMemory(); }}
-            className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-primary transition-colors flex-shrink-0"
-            title="Browse memory tree"
-          >
-            <FolderTree size={12} />
-          </button>
-        )}
-
         {/* Edit button */}
         {source.editable && !editing && (
           <button
@@ -106,7 +91,7 @@ export function ContextSourceRow({ source, onToggle, onEdit, onBrowseMemory }: C
         )}
 
         {/* Toggle */}
-        {onToggle && source.category !== 'openclaw' && (
+        {onToggle && (
           <button
             onClick={(e) => { e.stopPropagation(); onToggle(source.id, !source.enabled); }}
             className={`w-6 h-6 flex items-center justify-center rounded transition-colors flex-shrink-0 ${

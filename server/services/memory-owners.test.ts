@@ -87,7 +87,7 @@ describe("appFamilyName: the app, never the raw process name", () => {
     expect(appFamilyName("node /Users/tester/Projects/topics-app/server/pty-bridge.mjs --socket /tmp/x.sock")).toBe("pty-bridge");
     expect(appFamilyName("node --max-old-space-size=8192")).toBe("node");
     // `index` is a file name, not a program: the package above it is the answer.
-    expect(appFamilyName("/opt/homebrew/opt/node/bin/node --max-old-space-size=8192 /opt/homebrew/lib/node_modules/openclaw/dist/index.js gateway --port 18789")).toBe("openclaw");
+    expect(appFamilyName("/opt/homebrew/opt/node/bin/node --max-old-space-size=8192 /opt/homebrew/lib/node_modules/jarvis-gateway/dist/index.js gateway --port 18789")).toBe("jarvis-gateway");
     expect(appFamilyName("bun run /Users/tester/Projects/topics-app/server/index.ts")).toBe("server");
   });
 });
@@ -164,7 +164,7 @@ describe("memoryOwners: everything that is not Topics, heaviest first", () => {
  *    another repo's worktree and the `npm exec` above it) - 28 of them on the
  *    live machine;
  *  - a foreign process responsible to ANOTHER foreign process: `next-server`
- *    answers 19972, the OpenClaw gateway.
+ *    answers 19972, the Jarvis gateway.
  *
  * Every family here is far under the 0.5 GB floor, so these tests read the list
  * with the floor off: what is on trial is the NAME each row is counted under,
@@ -176,7 +176,7 @@ const PS_HOST = `
   808     1   5104 /Users/tester/Applications/Topics Host.app/Contents/MacOS/topics-host
   981   808    736 /bin/bash /Users/tester/Projects/topics-app/scripts/start-prod.sh
  5629   981 151584 /Users/tester/.bun/bin/bun run /Users/tester/Projects/topics-app/server.ts
-19972     1 247360 /opt/homebrew/opt/node/bin/node --max-old-space-size=8192 /opt/homebrew/lib/node_modules/openclaw/dist/index.js gateway --port 18789
+19972     1 247360 /opt/homebrew/opt/node/bin/node --max-old-space-size=8192 /opt/homebrew/lib/node_modules/jarvis-gateway/dist/index.js gateway --port 18789
 24226 24160   4576 node /Users/tester/Projects/quadra/node_modules/next/dist/bin/next dev
 24276 24226  37584 next-server (v15.5.23)
 41343     1   8096 npm exec astro dev --port 4444 --host 127.0.0.1 --force
@@ -217,13 +217,13 @@ describe("memoryOwners: the responsible pid names an XPC service and nothing els
   test("O10: `next-server` keeps its own name, not the name of the bundle that launched it", () => {
     const names = hostOwners().map((f) => f.name);
     expect(names).toContain("next-server");
-    // The gateway's own row is `.../openclaw/dist/index.js`: on the live machine
+    // The gateway's own row is `.../jarvis-gateway/dist/index.js`: on the live machine
     // its responsible-pid answer pulled 24 unrelated processes into a family
     // called `index`, `next-server` among them.
     expect(names).not.toContain("index");
     // The gateway keeps a name a person can act on: `dist/index.js` is a file
-    // name, `openclaw` is the program.
-    expect(names).toContain("openclaw");
+    // name, `jarvis-gateway` is the program.
+    expect(names).toContain("jarvis-gateway");
     expect(hostOwners().find((f) => f.name === "next-server")!.procs).toBe(1);
     // An XPC service still goes to whoever asked for it: 39946 is our shell's.
     expect(names).not.toContain("WebContent");
@@ -246,8 +246,8 @@ describe("memoryOwners: the responsible pid names an XPC service and nothing els
     // under Application Support, because the second is the one a rule written on
     // ".app" gets wrong.
     const named = hostOwners({ floorGB: 0.1, top: 3 });
-    expect(named.map((f) => f.name)).toEqual(["claude (in claude-code)", "openclaw", "Claude"]);
-    expect(formatMemoryOwners(named)).toBe("Fuori da Topics la memoria la tengono: claude (in claude-code) 0.3 GB, openclaw 0.2 GB, Claude 0.1 GB.");
+    expect(named.map((f) => f.name)).toEqual(["claude (in claude-code)", "jarvis-gateway", "Claude"]);
+    expect(formatMemoryOwners(named)).toBe("Fuori da Topics la memoria la tengono: claude (in claude-code) 0.3 GB, jarvis-gateway 0.2 GB, Claude 0.1 GB.");
     // A name with no twin is left alone.
     expect(hostOwners().map((f) => f.name)).toContain("astro");
   });

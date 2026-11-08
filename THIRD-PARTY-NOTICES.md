@@ -50,7 +50,6 @@ Agent backends:
 
 - **Anthropic** (Claude) — reached two ways. In `claude-code` mode Topics drives the `claude` CLI already installed on your machine, which signs in with your own Claude account or key. In `claude` mode it calls the Anthropic API directly with your `ANTHROPIC_API_KEY`.
 - **OpenAI** — reached two ways as well. In `codex` mode Topics drives the `codex` CLI installed on your machine, signed in with your own ChatGPT account or key. In `openai` mode it calls the OpenAI API with your `OPENAI_API_KEY`.
-- **OpenClaw** — an optional gateway backend, used in `openclaw` mode, running wherever you point `GATEWAY_URL`.
 - **ACP agents** (Gemini and friends) — optional, registered only when the agent's own executable is on your machine, and driven with whatever credentials that executable already holds.
 
 Optional extras:
@@ -63,4 +62,4 @@ You are responsible for complying with each provider's terms of service, accepta
 
 ## Trademarks & non-endorsement
 
-"OpenClaw", "Anthropic", "Claude", "OpenAI", "ChatGPT", "Codex", "Gemini", "ElevenLabs", "Deepgram", "Groq", "Moondream", and other names and logos are trademarks of their respective owners. Topics is an **independent** project by Armonia and is **not affiliated with, sponsored by, or endorsed by** any of these companies. Names are used only to describe interoperability.
+"Anthropic", "Claude", "OpenAI", "ChatGPT", "Codex", "Gemini", "ElevenLabs", "Deepgram", "Groq", "Moondream", and other names and logos are trademarks of their respective owners. Topics is an **independent** project by Armonia and is **not affiliated with, sponsored by, or endorsed by** any of these companies. Names are used only to describe interoperability.
