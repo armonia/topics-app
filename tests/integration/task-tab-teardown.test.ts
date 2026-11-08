@@ -136,7 +136,9 @@ describe("DELETE di un task: le sue tab se ne vanno con lui", () => {
     expect(deleted.taskIds).toEqual(["task-td-1"]);
   });
 
-  test("archiviare il padre porta via anche le tab dei figli (cascata)", async () => {
+  // The cascade is opt-in (?withChildren=1): a plain DELETE detaches the open
+  // children, and they keep their tabs (next test).
+  test("archiviare il padre con withChildren=1 porta via anche le tab dei figli (cascata)", async () => {
     const padreTopic = await seedTask("task-td-padre", "Padre");
     const childTopic = await seedTask("task-td-figlio", "Figlio", "task-td-padre");
     await call(topicsRouter, `/api/topics/${padreTopic}/browser/open-pane`, "POST", { url: "http://localhost:3501/p" });
@@ -145,12 +147,27 @@ describe("DELETE di un task: le sue tab se ne vanno con lui", () => {
     expect(uiKeys("task-td-figlio")).toHaveLength(2);
 
     broadcasts = [];
-    await call(tasksRouter, `/api/boards/${PROJ}/tasks/task-td-padre`, "DELETE");
+    await call(tasksRouter, `/api/boards/${PROJ}/tasks/task-td-padre?withChildren=1`, "DELETE");
 
     expect(uiKeys("task-td-padre")).toEqual([]);
     expect(uiKeys("task-td-figlio")).toEqual([]);
     const deleted = broadcasts.find((b) => b?.type === "task:deleted");
     expect([...deleted.taskIds].sort()).toEqual(["task-td-figlio", "task-td-padre"]);
+  });
+
+  test("archiviare il padre senza withChildren stacca il figlio aperto: le sue tab restano", async () => {
+    const padreTopic = await seedTask("task-td-padre2", "Padre");
+    const childTopic = await seedTask("task-td-figlio2", "Figlio", "task-td-padre2");
+    await call(topicsRouter, `/api/topics/${padreTopic}/browser/open-pane`, "POST", { url: "http://localhost:3503/p" });
+    await call(topicsRouter, `/api/topics/${childTopic}/browser/open-pane`, "POST", { url: "http://localhost:3503/f" });
+
+    broadcasts = [];
+    await call(tasksRouter, `/api/boards/${PROJ}/tasks/task-td-padre2`, "DELETE");
+
+    expect(uiKeys("task-td-padre2")).toEqual([]);
+    expect(uiKeys("task-td-figlio2")).toEqual(["task-browser-tabs:task-td-figlio2"]);
+    const deleted = broadcasts.find((b) => b?.type === "task:deleted");
+    expect(deleted.taskIds).toEqual(["task-td-padre2"]);
   });
 
   test("un task VIVO accanto non perde niente (si archivia solo chi è archiviato)", async () => {
