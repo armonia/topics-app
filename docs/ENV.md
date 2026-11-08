@@ -93,7 +93,6 @@ the env still wins, so nothing changes until a user edits Settings in the UI.
 | Var | Purpose | Set by |
 |-----|---------|--------|
 | `DEBUG_CLAUDE_CODE` | Verbose claude-code logging | dev |
-| `FALLBACK_TO_JSON` | Seed/DB fallback to JSON store | dev |
 | `TOPICS_ALLOW_WORKTREE_PROD` | Allow worktree flows in prod | dev |
 | `BROWSER_ALLOW_ALL_SCHEMES` | Relax browser URL-scheme allowlist | dev |
 | `TOPICS_SESSION_MCP_INHERIT_ALL` | Inherit all MCP servers into sessions | dev |

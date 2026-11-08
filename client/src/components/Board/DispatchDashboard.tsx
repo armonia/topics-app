@@ -432,19 +432,6 @@ export function DispatchDetailsView({ capacity, snapshot, queue, moved = [], now
   );
 }
 
-/** Summary and detail in one piece (tests and surfaces that do not split them). */
-export function DispatchDashboardView({ live, onTurnOn, ...rest }: Parameters<typeof DispatchDetailsView>[0] & DashboardInput & {
-  live?: boolean;
-  onTurnOn?: () => void;
-}) {
-  return (
-    <div className="space-y-2">
-      <DispatchSummaryView capacity={rest.capacity} snapshot={rest.snapshot} queue={rest.queue} broken={rest.broken} dispatchOn={rest.dispatchOn} live={live} onTurnOn={onTurnOn} />
-      <DispatchDetailsView {...rest} />
-    </div>
-  );
-}
-
 /** Capacity from the store, queue and series from the server every 15 s. */
 function useDashboardData(tasks: readonly BoardTask[]) {
   const tr = useT();

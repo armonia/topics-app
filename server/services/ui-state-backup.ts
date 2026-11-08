@@ -20,7 +20,7 @@ import type { Database } from "bun:sqlite";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
-  existsSync, mkdirSync, readdirSync, renameSync, statSync,
+  mkdirSync, readdirSync, renameSync, statSync,
   unlinkSync, writeFileSync,
 } from "node:fs";
 
@@ -97,17 +97,4 @@ export function startUiStateBackupTicker(db: Database): () => void {
  */
 export function snapshotUiStateNow(db: Database): void {
   snapshotOnce(db);
-}
-
-/**
- * List the available backups, newest first. Returns absolute paths.
- */
-export function listUiStateBackups(): string[] {
-  const dir = backupsDir();
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir)
-    .filter((f) => f.endsWith(".json"))
-    .map((f) => ({ f, mtime: statSync(join(dir, f)).mtimeMs }))
-    .sort((a, b) => b.mtime - a.mtime)
-    .map((e) => join(dir, e.f));
 }
