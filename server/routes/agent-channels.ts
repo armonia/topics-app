@@ -22,17 +22,23 @@ export function channelsDbPath(env: Record<string, string | undefined> = process
   return env.JARVIS_CHANNELS_DB?.trim() || join(homedir(), "Library", "Application Support", "jarvis-channels", "channels.sqlite");
 }
 
-/** The last non-empty title of every chat. */
+/**
+ * The last non-empty title of every chat+thread. A turn in a thread is keyed
+ * `<chat>:<thread>`; a turn with no thread (NULL or empty) is keyed by the
+ * bare chat id. Two threads of one chat never share a title.
+ */
 export function readChannelTitles(path: string): Record<string, string> {
   if (!existsSync(path)) return {};
   const db = new Database(path, { readonly: true });
   try {
+    const cols = db.query("PRAGMA table_info(turns)").all() as { name: string }[];
+    const threadSql = cols.some((c) => c.name === "thread") ? "COALESCE(thread, '')" : "''";
     const rows = db.query(
-      `SELECT chat, json_extract(meta, '$.chat_title') AS title FROM turns
-       WHERE id IN (SELECT max(id) FROM turns WHERE json_extract(meta, '$.chat_title') <> '' GROUP BY chat)`,
-    ).all() as { chat: string; title: string | null }[];
+      `SELECT chat, ${threadSql} AS thread, json_extract(meta, '$.chat_title') AS title FROM turns
+       WHERE id IN (SELECT max(id) FROM turns WHERE json_extract(meta, '$.chat_title') <> '' GROUP BY chat, ${threadSql})`,
+    ).all() as { chat: string; thread: string; title: string | null }[];
     const out: Record<string, string> = {};
-    for (const r of rows) if (r.title) out[r.chat] = r.title;
+    for (const r of rows) if (r.title) out[r.thread ? `${r.chat}:${r.thread}` : r.chat] = r.title;
     return out;
   } catch {
     return {};

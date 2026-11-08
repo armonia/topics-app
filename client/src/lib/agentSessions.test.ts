@@ -98,6 +98,10 @@ describe("agentSessionName", () => {
     expect(agentSessionName("cli", titles, "Jarvis da terminale")).toBe("Jarvis da terminale");
     expect(agentSessionName("WhatsApp, cli", titles, "Jarvis da terminale")).toBe("Jarvis da terminale");
     expect(agentSessionName("#lotto-siti", titles, "T")).toBe("#lotto-siti");
+    const threaded = { ...titles, "5": "#base", "5:a": "#thread-a" };
+    expect(agentSessionName("Gruppo 5:a", threaded, "T")).toBe("#thread-a");
+    expect(agentSessionName("Gruppo 5:b", threaded, "T")).toBe("#base");
+    expect(agentSessionName("Gruppo 5", threaded, "T")).toBe("#base");
   });
 });
 

@@ -66,8 +66,8 @@ export function agentName(id: string): string {
  * terminal chat («cli») gets a name in words, through `cliLabel`.
  */
 export function agentSessionName(name: string, titles: Readonly<Record<string, string>>, cliLabel: string): string {
-  const raw = /^(?:WhatsApp, )?gruppo ([\w.@-]+)$/i.exec(name.trim()); // allow-italian: the bridge's own chat names
-  if (raw) return titles[raw[1]] ?? name;
+  const raw = /^(?:WhatsApp, )?gruppo ([\w.@-]+)(?::([\w.@-]+))?$/i.exec(name.trim()); // allow-italian: the bridge's own chat names
+  if (raw) return (raw[2] ? titles[`${raw[1]}:${raw[2]}`] : undefined) ?? titles[raw[1]] ?? name;
   if (/^(?:WhatsApp, )?cli$/i.test(name.trim())) return cliLabel;
   return name;
 }

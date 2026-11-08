@@ -25,4 +25,19 @@ describe("readChannelTitles", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("one chat with a NULL thread and two threads gives three distinct titles", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-channels-"));
+    try {
+      const path = join(dir, "c.sqlite");
+      const db = new Database(path);
+      db.run("CREATE TABLE turns (id INTEGER PRIMARY KEY, chat TEXT, thread TEXT, meta TEXT)");
+      db.run(`INSERT INTO turns (chat, thread, meta) VALUES
+        ('7', NULL, '{"chat_title":"#main"}'), ('7', 'a', '{"chat_title":"#thread-a"}'), ('7', 'b', '{"chat_title":"#thread-b"}'), ('7', 'a', '{"chat_title":"#thread-a2"}')`);
+      db.close();
+      expect(readChannelTitles(path)).toEqual({ "7": "#main", "7:a": "#thread-a2", "7:b": "#thread-b" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
