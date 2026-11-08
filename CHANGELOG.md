@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.57 — 2026-11-08
+
+### Sotto il cofano
+- Piano a tessere: un riquadro per progetto, su più colonne, tutto visibile (#611)
+
 ## 2.3.56 — 2026-11-08
 
 ### Sotto il cofano

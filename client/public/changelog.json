@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.57",
+    "date": "2026-11-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Piano a tessere: un riquadro per progetto, su più colonne, tutto visibile (#611)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.56",
     "date": "2026-11-08",
     "sections": {
