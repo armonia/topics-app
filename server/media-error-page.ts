@@ -16,17 +16,15 @@
  * Il codice HTTP non cambia mai: 403 resta 403. Cambia solo la lingua.
  */
 
-/** `true` se la richiesta è una navigazione, non un sotto-fetch di pagina. */
+import { escapeHtml } from "./views/view-html";
+
+/** `true` when the request is a navigation, not a sub-fetch of a page. */
 export function wantsHtml(accept: string | null): boolean {
   if (!accept) return false;
   // `Accept: text/html,...` lo mandano le navigazioni; `image/*` un <img>,
   // `*/*` un fetch(). Il confronto è sul PRIMO tipo dichiarato, che è quello
   // che il browser preferisce davvero.
   return /^\s*text\/html\b/i.test(accept) || accept.includes("text/html,");
-}
-
-function esc(s: string): string {
-  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 }
 
 export interface MediaErrorPage {
@@ -45,7 +43,7 @@ export interface MediaErrorPage {
 export function mediaErrorHtml({ path, title, detail }: MediaErrorPage): string {
   return `<!doctype html><html lang="it"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)}</title>
+<title>${escapeHtml(title)}</title>
 <style>
 :root { color-scheme: light dark; }
 body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
@@ -58,8 +56,8 @@ p { margin:0 0 .75rem; opacity:.85; }
 code { font:13px ui-monospace,SFMono-Regular,Menlo,monospace; word-break:break-all;
   background:rgba(127,127,127,.14); padding:.15rem .35rem; border-radius:.3rem; }
 </style></head><body><main>
-<h1>${esc(title)}</h1>
-<p><code>${esc(path)}</code></p>
-<p>${esc(detail)}</p>
+<h1>${escapeHtml(title)}</h1>
+<p><code>${escapeHtml(path)}</code></p>
+<p>${escapeHtml(detail)}</p>
 </main></body></html>`;
 }
