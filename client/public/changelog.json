@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.64",
+    "date": "2026-11-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "e2e più veloci: due processi per runner, file lento spezzato, instabile peggiore curato (#637)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.63",
     "date": "2026-11-08",
     "sections": {
