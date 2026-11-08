@@ -2,6 +2,8 @@
  * Shapes of `/api/plan`: Project -> Area -> Milestone -> Card -> Sources.
  * One declaration for both sides: the server builds them, the client only shows.
  */
+import type { TaskStatus } from "./board";
+import type { WaitReason } from "./waits-on-person";
 
 export type PlanSignal = "duplicate" | "delivered_but_open" | "no_owner" | "stale";
 /** `topic` is a Topics session (chat), the one the card ran in or came from. */
@@ -22,7 +24,13 @@ export interface PlanSource {
 export interface PlanCard {
   id: string;
   text: string;
-  status: string;
+  status: TaskStatus;
+  /** Workflow stage: `ai_review` is the reviewer agent's turn, not the person's. */
+  stage: string | null;
+  /** The dispatch chip: «at work» means an agent is here now (`isAgentWorking`), not status in_progress. */
+  dispatchState: string | null;
+  /** A grouping parent (`isGroupingParent`): shown with its children, kept out of every count. */
+  grouping?: true;
   projectId: string;
   assignedTopicId: string | null;
   originTopicId: string | null;
@@ -37,12 +45,8 @@ export interface PlanCard {
   sources: PlanSource[];
 }
 
-/**
- * Why a card waits for the person: an approval in review, an open question in
- * its thread, a «waits for Attilio» line in its description, or the `human_ask`
- * the workflow set when it moved the card to human review.
- */
-export type PlanNeedReason = "question" | "human_ask" | "waits" | "review";
+/** Why a card waits for the person: the reasons of `waitOnPerson` (shared/waits-on-person.ts). */
+export type PlanNeedReason = WaitReason;
 export interface PlanNeed {
   taskId: string;
   text: string;
@@ -80,8 +84,13 @@ export interface PlanProject {
   projectId: string; name: string;
   /** Folder of the project, for its real icon (`ProjectFavicon`); null for virtual boards. */
   path: string | null;
-  /** Open cards of the project (not done), in milestones or not. */
+  /**
+   * Open ROOT cards of the project (not done, grouping parents out), in
+   * milestones or not: the same set the Kanban shows as cards.
+   */
   openCount: number;
+  /** Open sub-cards, shown under their mother: counted apart so the total does not read as board cards. */
+  openSubCount: number;
   progress: PlanProgress;
   activity: PlanActivity;
   /** Open cards that need the person, one line each; empty when none. */

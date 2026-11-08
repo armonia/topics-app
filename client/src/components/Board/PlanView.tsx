@@ -10,11 +10,12 @@
  * they are the progress of a result.
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { ExternalLink, Plus, RefreshCw } from 'lucide-react';
+import { ExternalLink, Inbox, Plus, RefreshCw, SquareKanban } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { Select } from '../Shared/Select';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
+import { SEGNALE_ATTESA } from '../Sidebar/chromeSignals';
 import { StatusIcon } from './atoms';
 import { ActivityBadge, NeedsYouBox } from './PlanTileParts';
 import {
@@ -51,10 +52,32 @@ function OpenCount({ n }: { n: number }) {
   return <span className="shrink-0 text-mini tabular-nums text-app-text-muted" data-testid="plan-open">{tr('plan.openCount', { n })}</span>;
 }
 
+/**
+ * The project's open work, roots and sub-cards apart: the Kanban shows only
+ * the roots, so one summed number read as «cards on the board» and was not.
+ */
+function ProjectOpenCount({ roots, subs }: { roots: number; subs: number }) {
+  const tr = useT();
+  const rootsLabel = tr(roots === 1 ? 'plan.openRoots.one' : 'plan.openRoots.many', { n: roots });
+  const subsLabel = subs > 0 ? tr(subs === 1 ? 'plan.openSubs.one' : 'plan.openSubs.many', { n: subs }) : null;
+  return (
+    <span className="shrink-0 text-mini tabular-nums text-app-text-muted" data-testid="plan-open" title={tr('plan.openTotal.hint', { roots, subs })}>
+      {subsLabel ? `${rootsLabel} · ${subsLabel}` : rootsLabel}
+    </span>
+  );
+}
+
+/** A board with no folder (a virtual board, or cards with no project) gets a neutral glyph, so headers stay aligned. */
+function ProjectGlyph({ project }: { project: PlanProject }) {
+  if (project.path) return <ProjectFavicon path={project.path} size={16} className="shrink-0" />;
+  const Glyph = project.projectId === '_none' ? Inbox : SquareKanban;
+  return <Glyph className="h-4 w-4 shrink-0 text-app-text-muted" aria-hidden />;
+}
+
 function SignalBadges({ signals }: { signals: readonly PlanSignal[] }) {
   const tr = useT();
   return <>{signals.map((s) => (
-    <span key={s} data-testid={`plan-signal-${s}`} className="shrink-0 whitespace-nowrap rounded bg-amber-500/15 px-1 py-px text-mini leading-tight text-amber-600 dark:text-amber-400">{tr(SIGNAL_KEY[s])}</span>
+    <span key={s} data-testid={`plan-signal-${s}`} className={`shrink-0 whitespace-nowrap rounded bg-amber-500/15 px-1 py-px text-mini leading-tight ${SEGNALE_ATTESA}`}>{tr(SIGNAL_KEY[s])}</span>
   ))}</>;
 }
 
@@ -86,7 +109,7 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
     return (
       <div key={c.id}>
         <div data-testid="plan-card" className={`group/card relative flex items-center gap-1.5 rounded-md py-0.5 pr-1 hover:bg-app-hover/60 ${nested ? 'pl-5' : 'pl-1'}`}>
-          <StatusIcon status={c.status as Parameters<typeof StatusIcon>[0]['status']} className="h-3 w-3" />
+          <StatusIcon status={c.status} className="h-3 w-3" />
           <button type="button" onClick={() => onOpenTask(c.id)} title={c.text} className="min-w-0 flex-1 truncate text-left text-compact text-app-text hover:underline">{c.text}</button>
           <SignalBadges signals={c.signals} />
           {c.duplicateOf && (
@@ -208,11 +231,11 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
       <section key={project.projectId} data-testid="plan-project"
         className="group/tile mb-3 flex break-inside-avoid flex-col gap-2 rounded-xl border border-app-border bg-surface p-3">
         <header className="flex items-center gap-2">
-          {project.path && <ProjectFavicon path={project.path} size={16} className="shrink-0" />}
+          <ProjectGlyph project={project} />
           <h3 className="min-w-0 flex-1 truncate text-compact font-semibold text-app-text-heading">{project.name}</h3>
           <button type="button" className={HOVER_ACTION} onClick={() => setForm(`area:${project.projectId}`)}><Plus className="h-3 w-3" />{tr('plan.newArea')}</button>
           <ActivityBadge activity={project.activity} />
-          <OpenCount n={project.openCount} />
+          <ProjectOpenCount roots={project.openCount} subs={project.openSubCount} />
         </header>
         <NeedsYouBox needs={project.needsYou} onOpenTask={onOpenTask} />
         {form === `area:${project.projectId}` && <AreaForm project={project} />}
@@ -249,7 +272,7 @@ export function PlanView({ onOpenTask, onOpenTopic }: Props) {
         <div className="mb-3 flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-baseline gap-3">
             <h2 className="text-title font-semibold">{tr('plan.title')}</h2>
-            {waiting > 0 && <span data-testid="plan-needs-total" className="truncate text-compact font-medium text-amber-800 dark:text-amber-400">{tr('plan.needsYou.total', { n: waiting })}</span>}
+            {waiting > 0 && <span data-testid="plan-needs-total" className={`truncate text-compact font-medium ${SEGNALE_ATTESA}`}>{tr('plan.needsYou.total', { n: waiting })}</span>}
           </div>
           <div className="flex items-center gap-2">
             <label className="flex items-center gap-1 text-compact text-app-text-secondary">
