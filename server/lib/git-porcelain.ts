@@ -96,15 +96,6 @@ export function parsePorcelainZ(text: string): PorcelainEntry[] {
   return out;
 }
 
-/** Un file in conflitto di merge. */
-export function isConflicted(status: string): boolean {
-  // I codici di conflitto di `git status`: entrambi modificati, entrambi
-  // aggiunti, entrambi cancellati, e i tre casi «uno dei due lati».
-  // `DD AU UD UA DU AA UU` — cioè: una `U` da una parte o dall'altra, più le
-  // due coppie senza `U`.
-  return status === "AA" || status === "DD" || status[0] === "U" || status[1] === "U";
-}
-
 /**
  * Ristretto ai file sotto `prefix`, con il prefisso tolto.
  *
