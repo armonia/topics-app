@@ -905,8 +905,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // The closing tab stays in the strip for its countdown (and while a stop
   // confirm is open): a spacer there too pushed every tab after it one slot to
   // the right, an empty slot that snapped back when the tab left.
-  const closingStillShown = !!frozenDensity && panes.some((pane) => pane.id === frozenDensity.closedPaneId);
-  const frozenSpacerWidth = closingStillShown ? 0 : Math.max(
+  const closedTabStillShown = !!frozenDensity && panes.some((pane) => pane.id === frozenDensity.closedPaneId);
+  const frozenSpacerWidth = closedTabStillShown ? 0 : Math.max(
     0,
     (frozenDensity?.spacer?.width ?? 0) - Math.max(0, frozenActiveMinimum - frozenActiveWidth),
   );
