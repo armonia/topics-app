@@ -51,6 +51,25 @@ function waitForGroupMembersScript(platform: NodeJS.Platform): string {
 const START_UNLESS_STOPPING = `/bin/sh -c 'if [ -e "$1" ]; then exit 143; fi; shift; exec "$@"' _`;
 
 /**
+ * The first step of both EXIT traps, before the drain: from here on the leader
+ * ignores TERM instead of trapping it.
+ *
+ * A trapped TERM interrupts whatever the drain is blocked in, and each place
+ * ended the leader too early. The open of the scan's FIFO fails: dash exits on
+ * it (a failed redirection of `exec`, a special builtin) before the exit code
+ * is written, so the row reads «unknown» and the FIFO stays behind; zsh goes on
+ * without a scan. The scan's read and wait return early: the drain stops and
+ * the leader leaves while a peer that outlives TERM still runs, and the delayed
+ * SIGKILL, which checks the leader first, no longer fires.
+ *
+ * Ignoring is right only here. The command has already ended, and what the
+ * drain starts (mkfifo, ps, sleep 1) inherits the ignore but lasts a second at
+ * most. Earlier the ignore would pass through exec and leave the command deaf
+ * to Stop, which is why the leader starts with `trap ':'`.
+ */
+const DRAIN_IGNORES_TERM = `trap "" TERM`;
+
+/**
  * Is there a POSIX shell to run a command in? Not on Windows. The one answer
  * the three places that depend on it read: the spawn below, the bridge that
  * offers `run_command` (`toolsForProfile`) and the system prompt that sends
@@ -74,7 +93,7 @@ export function hasCommandShell(platform: NodeJS.Platform = process.platform): b
 export function commandArgv(command: string, exitPath: string, stopPath: string, platform: NodeJS.Platform = process.platform): string[] | null {
   if (!hasCommandShell(platform)) return null;
   const shell = platform === "darwin" ? "/bin/zsh" : "/bin/sh";
-  const script = `${waitForGroupMembersScript(platform)}\ntrap ':' TERM; trap 'rc=$?; trap - EXIT; wait; _topics_wait_for_group_members; printf "%s\\n" "$rc" > "$3"; exit "$rc"' EXIT; ${START_UNLESS_STOPPING} "$4" "$1" -c "$2"; exit "$?"`;
+  const script = `${waitForGroupMembersScript(platform)}\ntrap ':' TERM; trap 'rc=$?; trap - EXIT; ${DRAIN_IGNORES_TERM}; wait; _topics_wait_for_group_members; printf "%s\\n" "$rc" > "$3"; exit "$rc"' EXIT; ${START_UNLESS_STOPPING} "$4" "$1" -c "$2"; exit "$?"`;
   return [shell, "-c", script, "_", shell, command, exitPath, stopPath];
 }
 
@@ -82,7 +101,7 @@ export function commandArgv(command: string, exitPath: string, stopPath: string,
 export function commandGroupArgv(argv: string[], stopPath: string, platform: NodeJS.Platform = process.platform): string[] {
   if (platform === "win32") return argv;
   const shell = platform === "darwin" ? "/bin/zsh" : "/bin/sh";
-  return [shell, "-c", `${waitForGroupMembersScript(platform)}\n_topics_stop=$1; shift; trap ':' TERM; trap 'trap - EXIT; wait; _topics_wait_for_group_members' EXIT; ${START_UNLESS_STOPPING} "$_topics_stop" "$@"`, "_", stopPath, ...argv];
+  return [shell, "-c", `${waitForGroupMembersScript(platform)}\n_topics_stop=$1; shift; trap ':' TERM; trap 'trap - EXIT; ${DRAIN_IGNORES_TERM}; wait; _topics_wait_for_group_members' EXIT; ${START_UNLESS_STOPPING} "$_topics_stop" "$@"`, "_", stopPath, ...argv];
 }
 
 /**

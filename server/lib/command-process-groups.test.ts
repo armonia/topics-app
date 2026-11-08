@@ -145,6 +145,45 @@ test("the group leader stays verifiable after its command leaves a child behind"
   }
 });
 
+// A Stop's TERM can land at any instant of the drain, the leader's wait for the
+// children its command left behind: in the open of the scan's FIFO, in its read,
+// in its wait. Sent to the leader alone and over and over, it lands in all of
+// them. None may end the leader while a peer lives (the delayed SIGKILL checks
+// the leader before it fires) or before it wrote the exit code. dash (Linux)
+// used to exit on the interrupted open without writing it; zsh skipped the scan.
+test("a TERM during the drain neither ends the leader early nor loses the exit code", async () => {
+  const processId = crypto.randomUUID();
+  const exitPath = join(instanceA, `${processId}.exit`);
+  const childPath = join(instanceA, `${processId}.child`);
+  const argv = commandArgv(`/bin/sh -c 'sleep 90 >/dev/null 2>&1 & echo $! > ${childPath}; exit 0'`, exitPath, commandProcessGroupStopPath(processId));
+  if (!argv) throw new Error("POSIX command shell is unavailable");
+  const proc = Bun.spawn(argv, { stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
+  live.push({ proc, pgid: proc.pid });
+  const identity = captureProcessGroup(proc.pid);
+  if (!identity) throw new Error(`could not capture group for ${proc.pid}`);
+  live[live.length - 1] = { proc, pgid: identity.pgid };
+
+  const childDeadline = Date.now() + 5_000;
+  const childText = () => (existsSync(childPath) ? readFileSync(childPath, "utf8").trim() : "");
+  while (!childText() && Date.now() < childDeadline) await Bun.sleep(10);
+  const childPid = Number(childText());
+  expect(readProcessGroupIdentity(childPid)?.pgid).toBe(identity.pgid);
+  try {
+    const until = Date.now() + 2_500;
+    while (Date.now() < until) {
+      try { process.kill(identity.pid, "SIGTERM"); } catch {}
+      await Bun.sleep(1);
+    }
+    expect(proc.exitCode).toBeNull();
+    expect(processGroupIdentityMatches(identity)).toBe(true);
+  } finally {
+    try { process.kill(childPid, "SIGKILL"); } catch {}
+  }
+  await Promise.race([proc.exited, Bun.sleep(5_000)]);
+  expect(proc.exitCode).toBe(0);
+  expect(readExitCode(exitPath)).toBe(0);
+});
+
 // Closed as it starts, like a Stop right after Run: the TERM can land between
 // the leader's trap and the command's exec, where it used to be lost and the
 // group lived until the SIGKILL after the grace.
