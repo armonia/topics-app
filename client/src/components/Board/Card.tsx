@@ -3,7 +3,8 @@ import { memo, useState, useEffect, useCallback, useMemo, useRef, useSyncExterna
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { reviewEvidence } from '../../lib/reviewEvidence';
-import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CircleSlash, ClipboardList, Copy, GitBranch, Hourglass, ListTree, Lock, MessageSquare, Plus, RotateCcw, Send, Server, ShieldCheck, Square, Terminal, Trash2, UserRound, X } from 'lucide-react';
+import { STATUS_CHIP } from '../../lib/statusVisual';
+import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CircleSlash, ClipboardList, Copy, CircleAlert, Clock, GitBranch, Link2, ListTree, Lock, MessageSquare, Plus, RotateCcw, Send, Server, ShieldCheck, Square, Terminal, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -1296,7 +1297,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               data-testid="card-waiting-on-this"
               title={waitingOnThis.title}
               className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
-            ><Hourglass className="h-3 w-3 shrink-0" /> {waitingOnThis.label}</span>
+            ><Link2 className="h-3 w-3 shrink-0" /> {waitingOnThis.label}</span>
           )}
           {task.parentTaskId && (
             <button
@@ -1347,7 +1348,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
                 when: task.reviewAt ? new Date(task.reviewAt).toLocaleString(locale) : '',
               })}
               className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
-            ><Hourglass className="h-3 w-3 shrink-0" /> {tr('board.card.reviewAge', { t: attesa })}</span>
+            ><CircleAlert className="h-3 w-3 shrink-0" /> {tr('board.card.reviewAge', { t: attesa })}</span>
           )}
           {senzaCommit && (
             <span
@@ -1407,7 +1408,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
                 : tr('board.card.checksRunningTitle')}
               className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
             >
-              <Hourglass className="h-3 w-3 shrink-0" />
+              <Clock className="h-3 w-3 shrink-0" />
               {/* A CHE PUNTO E', non solo «in corso». Segnalato: «vedo che c'e'
                   qualcosa in corso, ma se c'e' qualcosa in corso dovrebbe
                   esserci un progress». Il dato c'era gia' — `runReviewChecks`
@@ -1453,7 +1454,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               data-testid="card-checks-unknown"
               title={tr('board.card.checksUnknownTitle')}
               className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
-            ><Hourglass className="h-3 w-3 shrink-0" /> {tr('board.card.checksUnknown')}</span>
+            ><Clock className="h-3 w-3 shrink-0" /> {tr('board.card.checksUnknown')}</span>
           )}
           {checksRed && (
             <span
@@ -1825,12 +1826,12 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           // «al lavoro», e mostrarlo come tale e' la bugia che questo chip
           // esiste per togliere.
           <span
-            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-mini font-medium bg-rose-500/15 text-rose-800 dark:text-rose-300"
+            className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-mini font-medium ${STATUS_CHIP.wait}`}
             // Per RISPONDERE serve la sessione, non la scheda: il testo diceva
             // «il tab del task», che è l'altra superficie e non ha un campo
             // dove rispondere a un turno vivo.
             title={tr('board.task.awaitingYouTitle')}
-          >{tr('board.card.awaitingYou')}</span>
+          ><CircleAlert className="h-3 w-3 shrink-0" />{tr('board.card.awaitingYou')}</span>
         ) : (live && task.dispatchState === 'working') ? null : brakeHeld ? (
           <BrakeCardLine taskId={task.id} />
         ) : task.queueReason ? (

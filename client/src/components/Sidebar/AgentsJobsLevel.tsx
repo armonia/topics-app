@@ -26,7 +26,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  AlertTriangle, Bot, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, CloudOff, Hourglass, MessageCircleQuestion, MessageSquare, Pause, Route,
+  AlertTriangle, Bot, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, CircleAlert, CloudOff, MessageCircleQuestion, MessageSquare, Pause, Route,
   SquareKanban, SquareTerminal, Terminal, Workflow, Wrench, X, type LucideIcon,
 } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
@@ -162,7 +162,7 @@ function shortTokens(n: number, locale: string): string {
 }
 
 const STEP_FILL: Record<StepMark, string> = {
-  done: 'bg-emerald-600 dark:bg-emerald-400',
+  done: PALLINO_OK,
   active: 'bg-primary',
   failed: 'bg-red-600 dark:bg-red-400',
   todo: 'bg-app-border-light',
@@ -197,7 +197,7 @@ function leadOf(row: JobRow): { Icon: LucideIcon; tone: string } {
   if (row.tone === 'ok') return { Icon: Check, tone: SUCCESS_TEXT };
   if (row.tone === 'failed') return { Icon: X, tone: DANGER_TEXT };
   // At work but waiting: for its next input (proxy), on a live command (hub).
-  if (row.idleSince || row.onCommand) return { Icon: Hourglass, tone: 'text-app-text-secondary' };
+  if (row.idleSince || row.onCommand) return { Icon: Pause, tone: 'text-app-text-secondary' };
   return { Icon: SOURCE_ICON[row.source], tone: 'text-app-text-secondary' };
 }
 
@@ -297,7 +297,7 @@ const SECTION_TEXT: Record<SectionId, { label: string; hint?: string; tone?: str
   proxy: { label: 'agentsJobs.section.proxy', hint: 'agentsJobs.section.proxy.hint' },
   queue: { label: 'agentsJobs.section.queue', hint: 'agentsJobs.section.queue.hint' },
   workflows: { label: 'agentsJobs.section.workflows' },
-  decide: { label: 'agentsJobs.section.decide', hint: 'agentsJobs.section.decide.hint', tone: WARNING_TEXT, Icon: Hourglass },
+  decide: { label: 'agentsJobs.section.decide', hint: 'agentsJobs.section.decide.hint', tone: WARNING_TEXT, Icon: CircleAlert },
   line: { label: 'agentsJobs.section.line', hint: 'agentsJobs.section.line.hint' },
   quota: { label: 'agentsJobs.section.quota', hint: 'agentsJobs.section.quota.hint' },
   failed: { label: 'agentsJobs.section.failed', hint: 'agentsJobs.section.failed.hint', tone: DANGER_TEXT, Icon: X },

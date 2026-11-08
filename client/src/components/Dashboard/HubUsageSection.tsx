@@ -18,7 +18,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  AlertTriangle, BarChart3, Bot, CheckCircle, Clock, Coins, Hourglass, KeyRound, Loader, PiggyBank, Receipt, RefreshCw,
+  AlertTriangle, BarChart3, Bot, CheckCircle, Clock, Coins, CircleAlert, KeyRound, Loader, PiggyBank, Receipt, RefreshCw,
 } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
 import { addCatalogue } from '../../lib/i18n';
@@ -395,7 +395,7 @@ function BoardWork({ kpis, locale, tr }: { kpis: DashboardKPIs | null; locale: s
     { key: 'cycle', icon: <Clock size={12} />, label: tr('hubUsage.board.cycle'), value: kpis ? tr('hubUsage.hours', { n: oneDecimal(kpis.avgCycleTimeHours) }) : null },
     { key: 'wip', icon: <Loader size={12} />, label: tr('hubUsage.board.wip'), value: kpis ? String(kpis.wipCount) : null },
     { key: 'errors', icon: <AlertTriangle size={12} />, label: tr('hubUsage.board.errors'), value: kpis ? `${oneDecimal(kpis.errorRate * 100)}%` : null },
-    { key: 'approvals', icon: <Hourglass size={12} />, label: tr('hubUsage.board.approvals'), value: kpis ? (kpis.pendingApprovals > 0 ? String(kpis.pendingApprovals) : tr('hubUsage.board.none')) : null, empty: kpis?.pendingApprovals === 0 },
+    { key: 'approvals', icon: <CircleAlert size={12} />, label: tr('hubUsage.board.approvals'), value: kpis ? (kpis.pendingApprovals > 0 ? String(kpis.pendingApprovals) : tr('hubUsage.board.none')) : null, empty: kpis?.pendingApprovals === 0 },
   ];
   return (
     <Box testId="hub-usage-board" icon={<BarChart3 size={13} />} title={tr('hubUsage.board')} meta={tr('hubUsage.boardMeta')}>

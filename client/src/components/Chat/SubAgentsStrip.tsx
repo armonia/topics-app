@@ -1,5 +1,6 @@
 import { memo, useState, type MouseEvent } from 'react';
-import { AlarmClock, CircleCheck, ExternalLink, Hourglass, Server, Square, SquareTerminal, X } from 'lucide-react';
+import { STATUS_INK } from '../../lib/statusVisual';
+import { AlarmClock, CircleCheck, CircleAlert, ExternalLink, Server, Square, SquareTerminal, X } from 'lucide-react';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { useT } from '../../hooks/useT';
 import { scriptsApi } from '../../lib/api';
@@ -102,7 +103,7 @@ function AgentRow({ row }: { row: LiveAgentRow }) {
         {state === 'working'
           ? <SparkLoader className="flex-shrink-0" />
           : state === 'waiting'
-            ? <Hourglass size={11} aria-hidden="true" className="text-amber-500 flex-shrink-0" />
+            ? <CircleAlert size={11} aria-hidden="true" className={`${STATUS_INK.wait} flex-shrink-0`} />
             : <CircleCheck size={11} aria-hidden="true" className="text-blue-500 flex-shrink-0" />}
         <span className={`max-w-[40%] flex-shrink-0 truncate ${state === 'ended' ? 'text-app-text-muted' : 'text-app-text'}`}>{name}</span>
         {preview && <span data-testid="live-work-preview" className="min-w-0 flex-1 truncate text-app-text-tertiary">{preview}</span>}

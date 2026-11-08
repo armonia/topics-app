@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
-import { PackageCheck, Hourglass, Square, TimerOff } from 'lucide-react';
+import { PackageCheck, Square, TimerOff } from 'lucide-react';
+import { STATUS_CHIP, STATUS_ICON } from '../../lib/statusVisual';
 import { MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT } from '../../lib/board';
 import type { TaskLabel, TaskStatus } from '../../lib/board';
 import { EFFORT_TIERS } from '../../lib/effortTiers';
@@ -111,13 +112,13 @@ export const DISPATCH_CHIP: Record<string, { textKey: string; cls: string; title
   // CONTRARIO — «altri aspettano questa» (vedi `waitingOnThisChip`) — e due
   // fatti opposti non possono condividere un'etichetta, qualunque cosa dica il
   // tooltip. Un tooltip, poi, su un telefono non esiste.
-  waiting: { textKey: 'board.dispatch.waiting', cls: 'bg-indigo-500/15 text-indigo-800 dark:text-indigo-300', titleKey: 'board.dispatch.waiting.title', Icon: Hourglass },
+  waiting: { textKey: 'board.dispatch.waiting', cls: 'bg-indigo-500/15 text-indigo-800 dark:text-indigo-300', titleKey: 'board.dispatch.waiting.title', Icon: STATUS_ICON.postponed },
   starting: { textKey: 'board.dispatch.starting', cls: 'bg-amber-500/15 text-amber-800 dark:text-amber-300' },
-  working: { textKey: 'board.dispatch.working', cls: 'bg-sky-500/15 text-sky-800 dark:text-sky-300' },
+  working: { textKey: 'board.dispatch.working', cls: STATUS_CHIP.working },
   // Both live in Review, but they ask different things of the human:
   // needs_input = the agent ASKED (answer required); delivered = clean
   // hand-off, the agent believes it's done (approve/reject).
-  needs_input: { textKey: 'board.dispatch.needsInput', cls: 'bg-rose-500/15 text-rose-800 dark:text-rose-300' },
+  needs_input: { textKey: 'board.dispatch.needsInput', cls: STATUS_CHIP.wait, Icon: STATUS_ICON.wait },
   delivered: { textKey: 'board.dispatch.delivered', cls: 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300', titleKey: 'board.dispatch.delivered.title', Icon: PackageCheck },
   // Same state as `delivered`, opposite meaning: the reaper pushed the card into
   // review after every attempt was spent, so nobody handed anything over. Green
@@ -144,7 +145,7 @@ export const DISPATCH_CHIP: Record<string, { textKey: string; cls: string; title
   // ringed chip so it never reads as a neutral manual "fermato". 'blocked' = a
   // config issue the human must fix first (no worktree / project unresolvable).
   // The specific reason rides in task.dispatchError → shown as the chip tooltip.
-  failed: { textKey: 'board.dispatch.failed', cls: 'bg-rose-500/25 text-rose-800 dark:text-rose-200 ring-1 ring-rose-400/40' },
+  failed: { textKey: 'board.dispatch.failed', cls: `${STATUS_CHIP.danger} ring-1 ring-red-400/40` },
   blocked: { textKey: 'board.dispatch.blocked', cls: 'bg-amber-500/15 text-amber-800 dark:text-amber-300' },
   // 'stopped' = l'ha fermato una PERSONA (menu della card o bottone del
   // drawer). Neutro per costruzione: non è un fallimento e non c'è niente da
