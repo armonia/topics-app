@@ -71,7 +71,7 @@ import {
   chatParentModel, parentTranscriptModel, readAgentOutput, releaseForeground, reportChildEnd, startChildWatch, subagentLimitRefusal, waitForegroundLeg, type ChildRef,
 } from "../lib/subagent-runtime";
 export { noteSubAgentStopHook, retireIdleSubAgents, _forgetSubAgentMemory } from "../lib/subagent-runtime";
-import { composerHoldsPrompt, promptAsPaste, trustCursorOnYes, trustDialogShowing } from "../lib/subagent-seed";
+import { composerHoldsPrompt, promptAsPaste, splitSendText, trustCursorOnYes, trustDialogShowing } from "../lib/subagent-seed";
 import { boardSpawnRefusal, liveAgentCount } from "../services/agent-census";
 import { effectiveDispatchCap, readGlobalCap, computeDispatchCapacity } from "../services/dispatch-capacity";
 import { capMode, type DispatchAdmission } from "../../shared/board";
@@ -3584,8 +3584,22 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       const send = resolveTerminalSend(session?.type, input);
       if (send.dropped) return json({ ok: false, dropped: true, sent: 0 });
       noteTerminalInput(sendMatch.id);
+      // Long text bound for a Claude TUI goes in as a paste (lib/subagent-seed.ts);
+      // keys and every other session type are written as they came.
+      const claudeTui = session.type === "claude-code" || session.type === "claude-code-team";
+      const text = claudeTui ? splitSendText(send.data) : null;
+      if (text) {
+        sendToBridge({ type: "write", id: sendMatch.id, data: promptAsPaste(text.body) });
+        if (text.enter) {
+          // Enter as its own frame so the TUI acts on the pasted line.
+          await new Promise(r => setTimeout(r, 120));
+          noteTerminalInput(sendMatch.id);
+          sendToBridge({ type: "write", id: sendMatch.id, data: "\r" });
+        }
+        return json({ ok: true, sent: send.sent, pasted: true });
+      }
       sendToBridge({ type: "write", id: sendMatch.id, data: send.data });
-      return json({ ok: true, sent: send.sent });
+      return json({ ok: true, sent: send.sent, pasted: false });
     }
 
     const resizeMatch = matchRoute(pathname, "/api/terminal/sessions/:id/resize") || matchRoute(pathname, "/api/terminal/:id/resize");

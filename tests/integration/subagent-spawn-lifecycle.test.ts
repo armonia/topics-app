@@ -230,6 +230,29 @@ describe("spawn_agent from a chat", () => {
     }
   }, 30_000);
 
+  test("POST /send with a long text reaches the CLI whole and says it was pasted; keys are written as they came", async () => {
+    const { agentId, child } = await spawn("registro-invii-ter", "Aspetta le istruzioni.");
+    try {
+      await until("the prompt record", () => hasPrompt(child));
+      const send = (input: string) => call(`/api/terminal/sessions/${agentId}/send`, "POST", { input });
+      const text = briefOf("TERZA-APERTURA.");
+      expect(Buffer.byteLength(text, "utf8")).toBeGreaterThan(1022);
+      const res = await send(`${text}\r`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, sent: Buffer.byteLength(`${text}\r`, "utf8"), pasted: true });
+      await until("the third user record", () => userRecords(child).length > 1);
+      expect(userRecords(child)[1]).toContain(text);
+
+      // A key sequence is never wrapped in a paste.
+      const enters = child.enters;
+      const keys = await send("\x1b[B\r");
+      expect(await keys.json()).toEqual({ ok: true, sent: 4, pasted: false });
+      await until("the Enter", () => child.enters > enters);
+    } finally {
+      await stopChild(agentId);
+    }
+  }, 30_000);
+
   test("a stop mid-turn reports `stopped`, quoting the last line as partial, under the chosen name", async () => {
     const { agentId, child } = await spawn("native-image-view", "Mappa il tool_result del provider nativo.");
     await until("the prompt record", () => hasPrompt(child));

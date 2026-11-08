@@ -6,7 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { composerHoldsPrompt, promptAsPaste, trustCursorOnYes, trustDialogShowing } from "./subagent-seed";
+import { composerHoldsPrompt, promptAsPaste, splitSendText, trustCursorOnYes, trustDialogShowing } from "./subagent-seed";
 
 const LONG = "Sei il sotto-agente native-image-view. ".repeat(80);
 
@@ -59,5 +59,26 @@ describe("folder-trust dialog", () => {
   test("once the composer is drawn after it, the dialog is over", () => {
     expect(trustDialogShowing(`${captured}\n╭──╮\n│ > │\n? for shortcuts`)).toBe(false);
     expect(trustDialogShowing("╭──╮\n│ > Fai il build │\n? for shortcuts")).toBe(false);
+  });
+});
+
+describe("splitSendText", () => {
+  const long = "x".repeat(1100);
+
+  test("a long text is pasted, and its closing Enter is kept apart", () => {
+    expect(splitSendText(long)).toEqual({ body: long, enter: false });
+    expect(splitSendText(`${long}\r`)).toEqual({ body: long, enter: true });
+    expect(splitSendText(`riga\n${long}`)).toEqual({ body: `riga\n${long}`, enter: false });
+  });
+
+  test("keys are never text: arrows, a lone Enter, an escape inside a long body", () => {
+    expect(splitSendText("\x1b[B\r")).toBeNull();
+    expect(splitSendText("\r")).toBeNull();
+    expect(splitSendText(`${long}\x1b[B`)).toBeNull();
+  });
+
+  test("a short text arrives whole as typed, so it stays typed", () => {
+    expect(splitSendText("y")).toBeNull();
+    expect(splitSendText("x".repeat(1022))).toBeNull();
   });
 });

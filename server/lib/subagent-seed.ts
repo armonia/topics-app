@@ -74,6 +74,26 @@ export function promptAsPaste(prompt: string): string {
   return PASTE_START + prompt.replaceAll("\x1b", "") + PASTE_END;
 }
 
+/** Past this many bytes a plain write reaches the Claude composer without its head. */
+const PLAIN_WRITE_LIMIT = 1022;
+
+/**
+ * Splits what a caller of `/send` wrote into text and keys. Text is a body
+ * with no control character but newline and tab, optionally ended by one Enter
+ * (`\r`): that body is worth pasting. Anything else (arrows, ESC sequences, a
+ * lone `\r`, a menu answer) is keystrokes and must reach the TUI as typed.
+ * Only text past the plain-write limit needs the paste: a short one arrives
+ * whole either way, and a paste would not drive a menu that reads keys.
+ */
+export function splitSendText(input: string): { body: string; enter: boolean } | null {
+  const enter = input.endsWith("\r");
+  const body = enter ? input.slice(0, -1) : input;
+  // eslint-disable-next-line no-control-regex -- telling text from keystrokes is exactly a control-character test
+  if (!body || /[\x00-\x08\x0b-\x1f\x7f]/.test(body)) return null;
+  if (Buffer.byteLength(body, "utf8") <= PLAIN_WRITE_LIMIT) return null;
+  return { body, enter };
+}
+
 /**
  * THE FOLDER-TRUST DIALOG. A CLI started in a folder never opened before asks
  * "do you trust this folder?" with the cursor on «No, exit». The seed did not
