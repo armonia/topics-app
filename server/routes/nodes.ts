@@ -34,6 +34,7 @@ import { createDelegatedRevocationRetry, type DelegatedRevocationRetry } from ".
 import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 import { projectIdForPath } from "../../shared/board";
 import { canonicalProjectIdentity, projectPathOfAnyId } from "../lib/project-identity";
+import { stripCtrlOrNull } from "../lib/strip-ctrl";
 
 const RUN_KEY_PREFIX = "node-run:";
 
@@ -88,13 +89,6 @@ function normalizeRemoteUrl(raw: unknown): string | null {
   path = path.replace(/^\/+/, "").replace(/\/+$/, "").replace(/\.git$/i, "");
   if (!path) return null;
   return `${host.toLowerCase()}/${path.toLowerCase()}`;
-}
-
-function stripCtrl(input: unknown): string | null {
-  if (typeof input !== "string") return null;
-  // eslint-disable-next-line no-control-regex -- removes control characters from text that came from outside, on purpose
-  const s = input.replace(/[\x00-\x1f\x7f]/g, "").trim();
-  return s || null;
 }
 
 function statOf(task: Task): { filesChanged: number; insertions: number; deletions: number } | null {
@@ -309,13 +303,13 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
     if (pathname === "/api/nodes/delegated-requests" && method === "POST") {
       const body = await readJSON(req) as Record<string, unknown> | null;
       const purpose = body?.purpose === "catalog" ? "catalog" : body?.purpose === "authorization" ? "authorization" : null;
-      const capabilityId = stripCtrl(body?.capabilityId);
-      const repositoryKey = stripCtrl(body?.repositoryKey);
-      const originPersonId = body?.originPersonId === null ? null : stripCtrl(body?.originPersonId);
-      const originDeviceId = stripCtrl(body?.originDeviceId);
-      const originMachineId = stripCtrl(body?.originMachineId);
-      const model = stripCtrl(body?.model);
-      const effort = stripCtrl(body?.effort);
+      const capabilityId = stripCtrlOrNull(body?.capabilityId);
+      const repositoryKey = stripCtrlOrNull(body?.repositoryKey);
+      const originPersonId = body?.originPersonId === null ? null : stripCtrlOrNull(body?.originPersonId);
+      const originDeviceId = stripCtrlOrNull(body?.originDeviceId);
+      const originMachineId = stripCtrlOrNull(body?.originMachineId);
+      const model = stripCtrlOrNull(body?.model);
+      const effort = stripCtrlOrNull(body?.effort);
       const maxDurationMinutes = body?.maxDurationMinutes;
       const invalidAuthorization = purpose === "authorization" && (!capabilityId || !originDeviceId || !model || !effort
         || (body?.originPersonId !== null && !originPersonId)
@@ -405,8 +399,8 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       const owner = installationOwner(req);
       if (!owner) return json({ error: "installation owner required", code: "owner_required" }, 403);
       const body = await readJSON(req) as Record<string, unknown> | null;
-      const projectId = stripCtrl(body?.projectId);
-      const requestedPerson = body?.localPersonId == null ? owner : stripCtrl(body.localPersonId);
+      const projectId = stripCtrlOrNull(body?.projectId);
+      const requestedPerson = body?.localPersonId == null ? owner : stripCtrlOrNull(body.localPersonId);
       if (!projectId || requestedPerson !== owner) return json({ error: "local owner identity required", code: "owner_required" }, 403);
       const row = db.query("SELECT * FROM delegated_node_requests WHERE id=? AND direction='node'").get(approveRequest.id) as Record<string, any> | null;
       if (!row) return json({ error: "request not found", code: "not_found" }, 404);
@@ -536,8 +530,8 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       if (forbidden.some((key) => Object.hasOwn(body, key))) {
         return json({ error: "execution policy is derived by the node", code: "delegated_policy_in_body" }, 400);
       }
-      const originTaskId = stripCtrl(body.originTaskId);
-      const text = stripCtrl(body.text);
+      const originTaskId = stripCtrlOrNull(body.originTaskId);
+      const text = stripCtrlOrNull(body.text);
       const originKey = normalizeRemoteUrl(body.originUrl);
       if (!originTaskId || !text || !originKey) return errorResponse(400, "invalid delegated run input");
       const binding = nodeAuthorization(req, originKey);
@@ -596,8 +590,8 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
     if (method === "POST" && pathname === "/api/nodes/runs") {
       const body = await readJSON(req);
       if (!body) return errorResponse(400, "body required");
-      const originTaskId = stripCtrl(body.originTaskId);
-      const text = stripCtrl(body.text);
+      const originTaskId = stripCtrlOrNull(body.originTaskId);
+      const text = stripCtrlOrNull(body.text);
       if (!originTaskId) return errorResponse(400, "originTaskId required");
       if (!text) return errorResponse(400, "text required");
       const originKey = normalizeRemoteUrl(body.originUrl);
