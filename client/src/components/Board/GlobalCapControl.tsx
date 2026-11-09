@@ -573,7 +573,7 @@ function BudgetSlider({ share, onCommit, onDraft }: {
         max={BUDGET_SHARE_MAX}
         step={0.05}
         value={shown}
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-black/10 dark:bg-white/10"
+        className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-black/5 dark:bg-white/10"
         onPointerDown={() => { dragging.current = true; }}
         onPointerUp={() => { dragging.current = false; if (draft != null) commit(draft); }}
         onPointerCancel={() => { dragging.current = false; if (draft != null) commit(draft); }}

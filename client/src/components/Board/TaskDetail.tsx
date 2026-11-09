@@ -190,7 +190,7 @@ function ReviewDecisionRow({ task, busy, onAccept, onSendBack, onLand }: {
   const primaryCls = task.checksState === 'fail' && d.primary === 'accept'
     ? 'bg-amber-700 hover:bg-amber-800 text-white'
     : 'bg-emerald-700 hover:bg-emerald-800 text-white';
-  const neutralCls = 'bg-black/10 dark:bg-white/10 text-app-text hover:bg-white/20';
+  const neutralCls = 'bg-black/5 dark:bg-white/10 text-app-text hover:bg-white/20';
   // I GLIFI VENGONO DALLA TABELLA UNICA, non da qui. Erano `ShieldCheck` e
   // `ShieldX`, cioè gli scudi dei CHECKS: sulla stessa schermata lo scudo verde
   // è già il chip «checks verdi», quindi il bottone che chiude la card portava
@@ -683,7 +683,7 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
               <div className="flex items-center gap-1.5 text-mini">
                 <span className="font-medium text-app-text">{tr('board.task.attempt.n', { n: a.idx })}</span>
                 {won && <span className="rounded bg-emerald-500/25 px-1 text-mini text-emerald-200">{tr('board.task.attempt.selected')}</span>}
-                {dead && <span className="rounded bg-black/10 dark:bg-white/10 px-1 text-mini text-app-text-secondary">{tr('board.task.attempt.discarded')}</span>}
+                {dead && <span className="rounded bg-black/5 dark:bg-white/10 px-1 text-mini text-app-text-secondary">{tr('board.task.attempt.discarded')}</span>}
                 <span className="text-app-text-muted">{attemptStat(a, tr)}</span>
                 {a.branch && <span className="truncate font-mono text-mini text-app-text-faint">{a.branch}</span>}
               </div>
@@ -2347,7 +2347,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                   : task.labels.some((l) => l.label === 'decisione') // allow-italian: the label vocabulary IS the data, compared by value
                     ? tr('task.close.decision')
                     : tr('task.close.none')}
-              className="flex min-w-0 items-center gap-1.5 rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/20"
+              className="flex min-w-0 items-center gap-1.5 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/20"
             >
               <Tag className="h-3 w-3 shrink-0 text-app-text-muted" />
               <span className="truncate">{task.labels.length ? task.labels.map((l) => l.label).join(', ') : tr('board.task.labelsChip')}</span>
@@ -2391,7 +2391,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                     cache: task.agentCacheReadTokens > 0 ? tr('task.model.cachePart', { n: fmtTok(task.agentCacheReadTokens) }) : '',
                   })
                 : `${modelTrigger.line}. ${tr('task.model.hint')}`}
-              className="flex min-w-0 items-center gap-1.5 rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/20"
+              className="flex min-w-0 items-center gap-1.5 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/20"
             >
               <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />
               <span className="truncate">{modelTrigger.line}{(task.agentMs > 0 || task.agentTokens > 0) && <> · <Timer size={STATUS_GLYPH_PX} className="inline-block align-text-bottom" aria-hidden /> {fmtMs(task.agentMs)}{task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)} tok` : ''}</>}</span>
@@ -2425,7 +2425,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
               data-testid="task-node-chip"
               disabled={nodePickerLocked}
               title={nodePickerLocked ? tr('board.task.node.runningTitle') : tr('board.task.node.title')}
-              className="flex min-w-0 items-center gap-1.5 rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white/10"
+              className="flex min-w-0 items-center gap-1.5 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white/10"
             >
               <Server className="h-3 w-3 shrink-0 text-app-text-muted" />
               <span className="truncate">{task.machineId ? machineLabel(machines, task.machineId) : tr('board.task.node.chipLocal')}</span>
@@ -2484,7 +2484,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                 data-testid="task-subtask-work-chip"
                 data-kind="parent-turn"
                 title={tr('task.work.hint', { what: workChip.title })}
-                className="flex min-w-0 items-center gap-1 rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-muted hover:bg-white/20"
+                className="flex min-w-0 items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary dark:text-app-text-muted hover:bg-white/20"
               >
                 <UserRound className="h-3 w-3 shrink-0" />
                 <span className="max-w-[14rem] truncate">{workChip.label}</span>
@@ -2496,7 +2496,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                 title={workChip.title}
                 className={workChip.kind === 'unattended'
                   ? 'flex min-w-0 items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-mini text-rose-800 dark:text-rose-300'
-                  : 'flex min-w-0 items-center gap-1 rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-muted'}
+                  : 'flex min-w-0 items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary dark:text-app-text-muted'}
               >
                 {workChip.kind === 'unattended'
                   ? <AlertTriangle className="h-3 w-3 shrink-0" />
@@ -3227,7 +3227,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                     {a.isImage ? (
                       <ZoomableImage src={getMediaUrl(a.path)} alt={a.name} title={a.name} testId="task-composer-attachment-image" className="h-12 w-12 rounded object-cover" />
                     ) : (
-                      <span className="flex max-w-[10rem] items-center gap-1 rounded bg-black/10 dark:bg-white/10 px-1.5 py-1 text-mini text-app-text-heading">
+                      <span className="flex max-w-[10rem] items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-1 text-mini text-app-text-heading">
                         <Paperclip className="h-3 w-3 shrink-0" /><span className="truncate">{a.name}</span>
                       </span>
                     )}
@@ -3327,7 +3327,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                 <p className="text-compact leading-4 text-app-text-muted">{tr('board.task.noWorkspaceTabs')}</p>
                 <button
                   onClick={() => { setWorkspaceOpen(true); browser.addBrowserTab(); }}
-                  className="rounded bg-black/10 dark:bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20"
+                  className="rounded bg-black/5 dark:bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20"
                 >{tr('board.task.openTab')}</button>
               </div>
             )}
@@ -3478,7 +3478,7 @@ export function MediaViewer({ url, path }: { url: string; path: string }) {
       <p className="text-body-lg leading-5 text-app-text-secondary">{tr('board.task.noPreviewForType')}</p>
       <button
         onClick={(e) => openLink(url, { external: isExternalLinkGesture(e), origin: e.target })}
-        className="flex items-center gap-1 rounded bg-black/10 dark:bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20"
+        className="flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20"
       ><ExternalLink className="h-3.5 w-3.5" /> {tr('board.task.openInBrowser')}</button>
     </div>
   );
@@ -3519,7 +3519,7 @@ export function MediaStrip({ media, onPreview }: { media?: string[]; onPreview?:
         <a
           key={p} href={getMediaUrl(p)} target="_blank" rel="noreferrer" onClick={(e) => open(e, p)}
           title={onPreview ? tr('task.media.preview') : p.split('/').pop()}
-          className="flex max-w-[14rem] items-center gap-1.5 rounded-md bg-black/10 dark:bg-white/10 px-2 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20"
+          className="flex max-w-[14rem] items-center gap-1.5 rounded-md bg-black/5 dark:bg-white/10 px-2 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20"
         ><Paperclip className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{p.split('/').pop()}</span></a>
       ))}
     </div>

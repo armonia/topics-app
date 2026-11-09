@@ -16,7 +16,7 @@ import { TASK_STATUSES } from '../../lib/board';
 import { COLUMN_FRAME, COLUMNS_ROW_GRID, COLUMNS_ROW_LIST, columnWidthClass, readBoardLayout, type BoardLayout } from './boardGeometry';
 
 /** The theme-agnostic lift used by every skeleton bar (see `Shared/Skeleton`). */
-const BAR = 'rounded bg-black/10 dark:bg-white/10';
+const BAR = 'rounded bg-black/5 dark:bg-white/10';
 
 /** Placeholder cards per column, in board order: a plausible, fixed shape. */
 const CARDS_PER_COLUMN = [2, 3, 2, 2, 3];
