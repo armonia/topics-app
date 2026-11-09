@@ -101,6 +101,9 @@
         // `bun scripts/webrtc-probe.ts` — la sonda del percorso WebRTC: si lancia a
         // mano quando si vuole vedere encode/trasporto dal vivo, nessuno la importa.
         "scripts/webrtc-probe.ts!",
+        // `bun scripts/anti-bot/chromium-bar.ts` - la barra anti-bot del Chromium
+        // headless del server (Hetzner, sannysoft, Cloudflare). A mano, nessuno la importa.
+        "scripts/anti-bot/chromium-bar.ts!",
         // `bun run scripts/browser-qos-probe.ts` - the control measure of the
         // shared Chromium's QoS band (card 7f4d8f32): prints the process table
         // of the browser tree with only an agent using it and again with a

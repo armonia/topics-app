@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.73 — 2026-11-09
+
+### Sotto il cofano
+- passano i controlli anti-bot di Hetzner (outerWidth/outerHeight e webdriver) (#670)
+
 ## 2.3.72 — 2026-11-09
 
 ### Sotto il cofano
