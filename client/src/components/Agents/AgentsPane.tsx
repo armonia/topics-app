@@ -14,7 +14,8 @@ import { DANGER_TEXT } from '../../lib/popoverStyles';
 import { useSharedNow } from '../../state/useSharedNow';
 import type { AgentSession, AgentSessionState, AgentTerminal } from '../../lib/agentSessions';
 import { PALLINO_ATTESA, PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from '../Sidebar/chromeSignals';
-import { AgentProfiles, useAgentRegistry } from './AgentProfiles';
+import { AgentProfiles } from './AgentProfiles';
+import { useAgentRegistry } from '../../state/agentRegistry';
 
 type Tr = ReturnType<typeof useT>;
 
