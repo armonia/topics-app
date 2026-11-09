@@ -6,7 +6,7 @@
  * service); the personality is edited in place and saved explicitly.
  * Switches follow Bruno Delorence's «Weekly hours» pattern: one switch per row.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Activity, Bot, CalendarClock, MessagesSquare, Sparkles, TriangleAlert, UserRound } from 'lucide-react';
 import { apiFetch } from '../../lib/shell/net';
 import { useT } from '../../hooks/useT';
@@ -14,14 +14,9 @@ import { useChannelTitles } from '../../state/agentGroups';
 import { DANGER_TEXT } from '../../lib/popoverStyles';
 import { PALLINO_ATTESA, PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from '../Sidebar/chromeSignals';
 
-interface Chat { channel: string; chat: string; account: string; active: boolean; mention: boolean; senders: string[]; denied: string[]; hasSystem: boolean; routed: boolean }
-interface Job { id: string; name: string; paused: boolean; kind: string; schedule: string; model: string | null; deliver: string | null }
-interface Agent {
-  id: 'main' | 'gtm'; name: string; workspace: string; persona: Record<string, string>;
-  accounts: { channel: string; account: string; token: string }[]; chats: Chat[]; jobs: Job[];
-  model: { engine: string | null; perChannel: Record<string, Record<string, string>> };
-}
-export interface Registry { agents: Agent[]; issues: { agent: string | null; text: string }[]; health: { ok: boolean; text: string } | null }
+import type { Registry } from '../../state/agentRegistry';
+type Agent = Registry['agents'][number];
+type Chat = Agent['chats'][number];
 
 function Switch({ on, label, onChange, testId }: { on: boolean; label: string; onChange: (v: boolean) => void; testId?: string }) {
   return (
@@ -48,15 +43,6 @@ function Section({ icon: Icon, title, aside, children }: { icon: typeof Bot; tit
   );
 }
 
-export function useAgentRegistry() {
-  const [reg, setReg] = useState<Registry | null>(null);
-  const load = useCallback(() => {
-    void apiFetch('/api/agent-config', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((b) => b && setReg(b)).catch(() => {});
-  }, []);
-  useEffect(load, [load]);
-  return { reg, load };
-}
-
 export function AgentProfiles({ reg, reload }: { reg: Registry; reload: () => void }) {
   const tr = useT();
   const titles = useChannelTitles();
@@ -65,8 +51,11 @@ export function AgentProfiles({ reg, reload }: { reg: Registry; reload: () => vo
   const [filter, setFilter] = useState('');
   const [file, setFile] = useState('IDENTITY.md');
   const agent = reg.agents.find((a) => a.id === sel) ?? reg.agents[0];
-  const [draft, setDraft] = useState('');
-  useEffect(() => { setDraft(agent?.persona[file] ?? ''); }, [agent, file]);
+  // La bozza vale per un agente e un file: cambiando l'uno o l'altro riparte dal testo salvato.
+  const [edit, setEdit] = useState<{ key: string; text: string } | null>(null);
+  const draftKey = `${agent?.id}:${file}:${agent?.persona[file] ?? ''}`;
+  const draft = edit?.key === draftKey ? edit.text : agent?.persona[file] ?? '';
+  const setDraft = (text: string) => setEdit({ key: draftKey, text });
 
   const post = async (kind: string, body: object) => {
     const r = await apiFetch(`/api/agent-config/${kind}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
