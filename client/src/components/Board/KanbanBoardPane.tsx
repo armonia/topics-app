@@ -931,9 +931,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   }, [detail]);
   // The summary level has no columns; the row below it keeps the grid shape.
   const boardLayout: BoardLayout = detail === 'list' ? 'list' : 'grid';
-  // Two more per-viewer view choices, kept beside the layout for the same
-  // reason: one lane per project on the cross-project board, and the compact
-  // card. Neither changes what the board holds, only how much of it you read.
+  // Per-viewer view choices, kept beside the layout: lanes per project, and the Done column.
   const [groupByPref, setGroupByPref] = useState<BoardGroupBy>(readBoardGroupBy);
   // The Done column is out of the way until asked for: a board of live work.
   const [showDone, setShowDone] = useState(false);
@@ -1516,11 +1514,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // one project, its lane would be the board itself). Split after the columns
   // (`splitIntoLanes`), so a lane keeps the board's order inside each column.
   const grouped = mode === 'all' && groupByPref === 'project';
-  // The archive view keeps every column: what was closed is exactly what it is there to show.
-  const shownColumns = useMemo(
-    () => (showDone || showArchived ? boardColumns : boardColumns.filter((c) => c.base !== 'done')),
-    [boardColumns, showDone, showArchived],
-  );
+  // The archive view keeps every column: what was closed is what it is there to show.
+  const shownColumns = useMemo(() => (showDone || showArchived ? boardColumns : boardColumns.filter((c) => c.base !== 'done')), [boardColumns, showDone, showArchived]);
   const columnIds = useMemo(() => boardColumns.map((c) => c.id), [boardColumns]);
   const { lanes, draftPlacement, draftLane, laneNameById } = useProjectLanes({
     grouped, showArchived, draft, tasks, byColumn, columnIds, projectIndex,
