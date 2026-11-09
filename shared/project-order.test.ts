@@ -1,7 +1,7 @@
 /**
  * The one order of project groups, for the Kanban lanes and the Plan tiles.
  *
- * @covers KANBAN-106
+ * @covers KANBAN-107
  */
 import { describe, expect, test } from "bun:test";
 import { compareProjectGroups, sortProjectGroups } from "./project-order";

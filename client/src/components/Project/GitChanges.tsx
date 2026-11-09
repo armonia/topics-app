@@ -34,16 +34,13 @@ import { SECTION_CARD, SELECTED_SURFACE, SELECTED_SURFACE_SOFT, TREE_ROW_CARD } 
 import { Spinner } from '../Shared/Spinner';
 import { SkeletonRows } from '../Shared/Skeleton';
 import { shortcut } from '../../lib/shortcutLabel';
+import { errMessage } from '../../lib/errMessage';
 
 interface GitChangesProps {
   projectPath: string;
   compact?: boolean;
   expanded?: boolean;
   onToggle?: () => void;
-}
-
-function errMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 /**

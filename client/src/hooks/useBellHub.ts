@@ -29,15 +29,7 @@ import {
   type AccountEvent, type Contradiction, type DiaryEntry, type FailedJob, type JarvisLinks,
 } from '../lib/hubSystem';
 import { accountNotes, proxyEvents, type ProxyEvent } from '../lib/proxyEvents';
-
-async function readJson(path: string): Promise<unknown> {
-  try {
-    const resp = await apiFetch(path);
-    return resp.ok ? await resp.json() : null;
-  } catch {
-    return null;
-  }
-}
+import { readJson } from '../lib/readJson';
 
 async function post(path: string, body: unknown): Promise<string | null> {
   try {

@@ -1,7 +1,7 @@
 /**
  * One name per project, for the Kanban index and the Plan alike.
  *
- * @covers KANBAN-106
+ * @covers KANBAN-107
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

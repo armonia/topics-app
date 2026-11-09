@@ -26,6 +26,7 @@ import { fileTreeClaimsDrag } from './fileTreeDrag';
 import { revealOffered } from '../../lib/revealInFinder';
 import { shellKind } from '../../lib/shell';
 import { serverHttpBase } from '../../lib/shell/net';
+import { errMessage } from '../../lib/errMessage';
 
 /** «Mostra nel Finder» is offered here only on the server's own machine (FILE-03). */
 const REVEAL_OFFERED = revealOffered(shellKind, serverHttpBase());
@@ -35,10 +36,6 @@ const REVEAL_OFFERED = revealOffered(shellKind, serverHttpBase());
 // once - the chunk is warmed with the tree's own (`panePreload`), and a warm
 // module renders in the same pass instead of committing a fallback first.
 const EditorTabs = lazyWarm(loadEditorTabs, (m) => m.EditorTabs);
-
-function errMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 interface FileExplorerProps {
   projectPath: string;

@@ -2,7 +2,7 @@
  * The name of a project nobody registered: one function for the Kanban lanes
  * and the Plan tiles.
  *
- * @covers KANBAN-106
+ * @covers KANBAN-107
  */
 import { describe, expect, test } from "bun:test";
 import { UNKNOWN_PROJECT_NAME, projectNameFromId, unregisteredProjectName } from "./project-name";

@@ -3871,6 +3871,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const text = (input.text ?? "").trim();
       if (!text) throw new TaskServiceError("invalid_input", "task text is required");
       if (!input.projectId) throw new TaskServiceError("invalid_input", "projectId is required");
+      // A client that stringified a missing project ("null") would give birth to a card on a board nobody reads.
+      if (/^(null|undefined|nan)$/i.test(input.projectId.trim())) throw new TaskServiceError("invalid_input", `invalid projectId "${input.projectId}"`);
 
       // Default `backlog`, NON `todo`. `todo` è la coda di esecuzione: un task
       // che ci nasce fa partire un agente entro pochi secondi su un board con

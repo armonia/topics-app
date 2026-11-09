@@ -5,7 +5,7 @@
  *
  * Mounted with `renderToStaticMarkup` (no DOM library in this project).
  *
- * @covers KANBAN-106
+ * @covers KANBAN-107
  */
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';

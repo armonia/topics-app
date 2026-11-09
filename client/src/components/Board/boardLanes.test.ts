@@ -1,7 +1,7 @@
 /**
  * The board grouped by project, its drop ids and the view preferences.
  *
- * @covers KANBAN-106
+ * @covers KANBAN-107
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { AUTO_PROJECT_ID, type BoardTask } from '../../lib/board';

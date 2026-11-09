@@ -73,6 +73,14 @@ export interface DeliveryCaptureDeps {
   keepDeliveryCommit?: (args: { repoPath: string; taskId: string; commit: string }) => Promise<unknown>;
   /** I file dei commit propri, `null` quando non sono contabili. */
   ownCommitFiles: (cwd: string) => Promise<TaskFile[] | null>;
+  /**
+   * The same question for a branch that has NO worktree on this machine: one
+   * planted from another machine's run, or whose worktree was reaped. Asked of
+   * the repo (`ref.repoPath`) by branch name. Used only when `taskCheckoutRef`
+   * answers nothing; without it such a card is never labelled, and a card with
+   * no label is one a person has to close.
+   */
+  ownBranchFiles?: (repoPath: string, branch: string) => Promise<TaskFile[] | null>;
 }
 
 export interface DeliveryCapture {
@@ -86,9 +94,11 @@ export interface DeliveryCapture {
 export function createDeliveryCapture(deps: DeliveryCaptureDeps): DeliveryCapture {
   return async function capture(taskId: string): Promise<boolean> {
     let scritto = false;
+    let delivered: DeliveryRef | null = null;
     if (deps.taskDeliveryRef) {
       try {
         const ref = await deps.taskDeliveryRef(taskId);
+        delivered = ref;
         // `null` ⇒ task in-place senza branch: non c'e' niente contro cui
         // confrontarsi, e inventare uno zero direbbe «non ha prodotto niente».
         if (ref) {
@@ -125,16 +135,16 @@ export function createDeliveryCapture(deps: DeliveryCaptureDeps): DeliveryCaptur
     // gate. Lo pinna `tasks.test.ts` — «board senza comandi: nemmeno il git
     // viene disturbato» — che e' andato rosso appena l'ordine e' cambiato.
     if (!scritto) return false;
-    if (deps.taskCheckoutRef) {
-      try {
-        const ref = await deps.taskCheckoutRef(taskId).catch(() => null);
-        if (ref) {
-          const files = await deps.ownCommitFiles(ref.cwd);
-          // `null` ⇒ non contabile: non si scrive un verdetto a caso.
-          if (files !== null) deps.svc.deriveLabelsFromDiff({ taskId, files });
-        }
-      } catch { /* l'etichetta non puo' far fallire una consegna */ }
-    }
+    try {
+      const ref = deps.taskCheckoutRef ? await deps.taskCheckoutRef(taskId).catch(() => null) : null;
+      // `null` ⇒ non contabile: non si scrive un verdetto a caso.
+      const files = ref
+        ? await deps.ownCommitFiles(ref.cwd)
+        : delivered?.repoPath && deps.ownBranchFiles
+          ? await deps.ownBranchFiles(delivered.repoPath, delivered.branch)
+          : null;
+      if (files !== null) deps.svc.deriveLabelsFromDiff({ taskId, files });
+    } catch { /* l'etichetta non puo' far fallire una consegna */ }
     return scritto;
   };
 }

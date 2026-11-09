@@ -24,14 +24,18 @@ import { useT } from '../../hooks/useT';
 import { useScripts } from '../../hooks/useScripts';
 import { useHubEverRead, useHubLive, refreshHubLive } from '../../state/hubLive';
 import { startVisibleInterval } from '../../state/documentVisibility';
-import { apiFetch, serverHttpBase } from '../../lib/shell/net';
+import { serverHttpBase } from '../../lib/shell/net';
 import { scriptsApi } from '../../lib/api';
 import { PROCESSES_LOG_EVENT, takeProcessesLogRequest } from '../../state/processesLog';
 import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
+import { readJson } from '../../lib/readJson';
 import {
   NOT_MEASURED, PROXY_SERVICE_ID, censusAt, formatMem, formatPct, formatRate, macGauges, parseLogEvent, pcView,
   processRows, pushLogLine, serviceGroups, serviceRows, servicesReadAt, servicesToWatch, type HistoryPoint, type LogLine, type MacGauges, type PcView, type ProcessRow, type ServiceRow, type UnitKind,
 } from '../../lib/machineProcesses';
+
+import { SECTION, SECTION_HEAD, FAINT } from './processesStyles';
+import { SessionsPanel } from './SessionConsumption';
 
 type Tr = ReturnType<typeof useT>;
 
@@ -44,9 +48,6 @@ const KIND_ICON: Record<UnitKind, LucideIcon> = {
   app: AppWindow, servizio: Server, sessione: Asterisk, lavoro: Zap, devserver: Zap, mcp: Plug, macos: Monitor, altro: Cpu, resto: Box, // allow-italian: the census's wire values
 };
 
-const SECTION = 'min-w-0 overflow-hidden rounded border border-app-border bg-surface';
-const SECTION_HEAD = 'flex h-[38px] items-center gap-2 border-b border-app-border-subtle px-2.5';
-const FAINT = 'text-app-text-faint';
 const STOP_BUTTON = 'inline-flex h-6 items-center gap-1 justify-self-end rounded-sm bg-black/[0.035] px-[7px] text-mini text-app-text-secondary hover:bg-black/[0.06] hover:text-app-text dark:bg-white/[0.05] dark:hover:bg-white/[0.14] @max-3xl:h-9 @max-3xl:px-2.5 @max-3xl:text-compact disabled:opacity-60';
 const TRACK = 'bg-black/[0.07] dark:bg-white/[0.08]';
 const ROW_GRID = '@3xl:grid @3xl:grid-cols-[minmax(0,1fr)_46px_118px_42px_108px_64px] @3xl:items-center @3xl:gap-x-2.5';
@@ -55,15 +56,6 @@ interface HubReads {
   census: unknown;
   mac: unknown;
   machines: unknown;
-}
-
-async function readJson(path: string): Promise<unknown> {
-  try {
-    const r = await apiFetch(path);
-    return r.ok ? await r.json() : null;
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -132,6 +124,9 @@ export function MachineProcessesPane() {
             {at === null ? tr('processes.reading') : `${tr(stale ? 'processes.lastRead' : 'processes.now')} · ${updatedLabel(now - at, tr)}`}
           </span>
         </header>
+
+        {/* Topics' own sessions: they do not depend on the hub, so they are here even when it is gone. */}
+        <SessionsPanel />
 
         {present && stale && <HubDownBand onRetry={reread} />}
 
@@ -203,7 +198,7 @@ function Spark({ points, warn }: { points: HistoryPoint[]; warn: boolean }) {
   );
 }
 
-function Gauge({ label, value, unit, share, warn = false, history = [], note = null, testId }: { label: string; value: string; unit?: string; share: number | null; warn?: boolean; history?: HistoryPoint[]; note?: string | null; testId?: string }) {
+export function Gauge({ label, value, unit, share, warn = false, history = [], note = null, testId }: { label: string; value: string; unit?: string; share: number | null; warn?: boolean; history?: HistoryPoint[]; note?: string | null; testId?: string }) {
   return (
     <div className="min-w-0 border-r border-app-border-subtle px-2.5 pb-2.5 pt-[9px] last:border-r-0 @max-3xl:[&:nth-child(3)]:border-r-0 @max-3xl:[&:nth-child(n+4)]:border-t" data-testid={testId} title={note ?? undefined}>
       <div className={`text-mini uppercase tracking-[0.04em] ${FAINT}`}>{label}</div>
@@ -293,7 +288,7 @@ function Net({ inBps, outBps }: { inBps: number | null; outBps: number | null })
   );
 }
 
-function ProcessRowView({ row: r, onStopped }: { row: ProcessRow; onStopped: () => void }) {
+export function ProcessRowView({ row: r, onStopped }: { row: ProcessRow; onStopped: () => void }) {
   const tr = useT();
   const Icon = KIND_ICON[r.kind];
   const [stopping, setStopping] = useState(false);
@@ -369,19 +364,27 @@ function ProcessRowView({ row: r, onStopped }: { row: ProcessRow; onStopped: () 
 
 // ── PC ───────────────────────────────────────────────────────────────────────
 
+/** The PC's state as a coloured dot and its word: the Processes view's PC section and the load screen's header. */
+export function PcStateBadge({ state, className = '', dotClassName = 'h-[7px] w-[7px]', testId = 'machine-pc-state' }: { state: PcView['state']; className?: string; dotClassName?: string; testId?: string }) {
+  const tr = useT();
+  // On with ssh closed is a command away on the PC, not a dead machine: amber, as the hub had it.
+  const dot = state === 'lavora' || state === 'acceso' ? 'bg-emerald-500 dark:bg-emerald-400' : state === 'dorme' ? 'bg-app-text-faint opacity-50' : state === 'closed' ? 'bg-amber-500' : 'bg-red-500'; // allow-italian: the hub's wire values
+  const stateText = state === 'lavora' || state === 'acceso' ? SUCCESS_TEXT : state === 'dorme' ? FAINT : state === 'closed' ? WARNING_TEXT : DANGER_TEXT; // allow-italian: the hub's wire values
+  return (
+    <span className={`inline-flex items-center gap-[5px] ${stateText} ${className}`} data-testid={testId} data-state={state}><span className={`flex-none rounded-full ${dot} ${dotClassName}`} />{tr(`processes.pc.${state}`)}</span>
+  );
+}
+
 function PcSection({ pc, stale }: { pc: PcView; stale: boolean }) {
   const tr = useT();
   if (stale) return <PcUnread pc={pc} />;
-  // On with ssh closed is a command away on the PC, not a dead machine: amber, as the hub had it.
-  const dot = pc.state === 'lavora' || pc.state === 'acceso' ? 'bg-emerald-500 dark:bg-emerald-400' : pc.state === 'dorme' ? 'bg-app-text-faint opacity-50' : pc.state === 'closed' ? 'bg-amber-500' : 'bg-red-500'; // allow-italian: the hub's wire values
-  const stateText = pc.state === 'lavora' || pc.state === 'acceso' ? SUCCESS_TEXT : pc.state === 'dorme' ? FAINT : pc.state === 'closed' ? WARNING_TEXT : DANGER_TEXT; // allow-italian: the hub's wire values
   return (
     <section aria-label={tr('processes.pc')} className={SECTION} data-testid="machine-processes-pc">
       <div className={SECTION_HEAD}>
         <Cpu size={14} className="flex-none text-app-text-secondary" aria-hidden="true" />
         <span className="text-compact font-semibold text-app-text-heading">{tr('processes.pc')}</span>
         <span className={`min-w-0 flex-1 truncate text-mini ${FAINT} @max-3xl:text-compact`}>
-          <span className={`inline-flex items-center gap-[5px] ${stateText}`} data-testid="machine-pc-state" data-state={pc.state}><span className={`h-[7px] w-[7px] rounded-full ${dot}`} />{tr(`processes.pc.${pc.state}`)}</span>
+          <PcStateBadge state={pc.state} />
           {' · '}{pc.offload > 0 ? tr('processes.pc.jobs', { n: pc.offload }) : tr('processes.pc.noJobs')}
         </span>
       </div>

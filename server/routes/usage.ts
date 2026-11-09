@@ -15,6 +15,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { listNativeUsage } from "../providers/native-usage-registry";
 import { unknownPricedModels } from "../usage/pricing";
 import { projectUsage, type ProjectUsageResult } from "../usage/project-usage";
+import { getSessionConsumption } from "../services/session-consumption-wiring";
 // THE ANSWER IS TYPED AT THE DOOR, not just described in a comment. The shape
 // says the thing this route must never be read as - `absentMeansUnmeasured`,
 // and a `cacheWrite1hTokens` that is a SUBSET and not another addend - so the
@@ -78,6 +79,17 @@ export function createUsageRouter(ctx: AppContext): RouteHandler {
         absentMeansUnmeasured: true,
       };
       return json(body);
+    }
+
+    /**
+     * GET /api/usage/consumption: what each LIVE session costs, process by
+     * process: the same answer the load screen of the PC reads, joined from the
+     * existing sources (the fleet's process table, the native registry, the
+     * transcripts, the card's counter) and written nowhere. It reads a cached
+     * table (2 s), so it is safe to poll.
+     */
+    if (method === "GET" && pathname === "/api/usage/consumption") {
+      return json(await getSessionConsumption(ctx).read());
     }
 
     // GET /api/usage/projects?range=7d|30d|all

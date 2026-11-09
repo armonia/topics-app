@@ -28,7 +28,7 @@
  * its lane changes status, not project; and a card dropped in ANOTHER project's
  * lane changes nothing and says why.
  *
- * @covers KANBAN-106
+ * @covers KANBAN-107
  */
 import { test } from "./fixtures/layout.fixture";
 import { expect, type Page } from "@playwright/test";

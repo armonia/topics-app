@@ -509,9 +509,9 @@ describe("ci.yml obeys the answer: the workflow is evaluated, not read", () => {
     expect(run.e2e).toEqual([{ leg: "0", steps: [EXEMPT] }]);
   });
 
-  it("a client change: nine e2e legs with their steps, the exempt step nowhere, no tauri, no process-groups", () => {
+  it("a client change: eight e2e legs with their steps, the exempt step nowhere, no tauri, no process-groups", () => {
     const run = plan(answerOf(["client/src/App.tsx"]), "pull_request");
-    expect(run.e2e!.map((l) => l.leg)).toEqual(["0", "1", "2", "3", "4", "5", "6", "7", "8"]);
+    expect(run.e2e!.map((l) => l.leg)).toEqual(["0", "1", "2", "3", "4", "5", "6", "7"]);
     for (const leg of run.e2e!) expect(leg.steps).not.toContain(EXEMPT);
     expect(run.e2e![0]!.steps).toContain("E2E dei file toccati, anche fuori dal tier PR");
     expect(run.e2e![0]!.steps).not.toContain("Run E2E tests (Playwright)");
@@ -522,9 +522,9 @@ describe("ci.yml obeys the answer: the workflow is evaluated, not read", () => {
     expect(run.tauri).toBeUndefined();
   });
 
-  it("a push to main keeps its eight shards, and no `e2e (0)`", () => {
+  it("a push to main keeps its seven shards, and no `e2e (0)`", () => {
     const run = plan(answerOf(["client/src/App.tsx"]), "push");
-    expect(run.e2e!.map((l) => l.leg)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8"]);
+    expect(run.e2e!.map((l) => l.leg)).toEqual(["1", "2", "3", "4", "5", "6", "7"]);
   });
 
   it("a server change: process-groups on both systems, tauri on Ubuntu only", () => {
@@ -544,7 +544,7 @@ describe("ci.yml obeys the answer: the workflow is evaluated, not read", () => {
     const run = plan(silent, "pull_request");
     expect(run["process-groups"]).toBeDefined();
     expect(run.tauri!.map((l) => l.leg)).toEqual(["macos-latest", "windows-latest", "ubuntu-latest"]);
-    expect(run.e2e!.length).toBe(9);
+    expect(run.e2e!.length).toBe(8);
     for (const leg of run.e2e!) expect(leg.steps).not.toContain(EXEMPT);
   });
 

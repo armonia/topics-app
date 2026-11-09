@@ -33,6 +33,7 @@ import { createHash } from "crypto";
 import { worktreeRegistrationLost } from "./worktree-registration";
 import { findAttributionViolations } from "./land-attribution-gate";
 import { commitIsIn, countOwnCommits, otherLocalBranches } from "./own-commits";
+import { lastLook } from "./landing-last-look";
 import { branchContentIsOnMain, commitStatusFromRepo } from "./branch-status";
 import { landedMergeRange } from "./task-diff-range";
 import { fetchRemoteBase } from "./worktree-base-ref";
@@ -122,6 +123,17 @@ export type LandSkipCode =
    * un conflitto: nessuno ha ancora tentato una fusione.
    */
   | "realign-blocked"
+  /** The automatic land found the branch behind `main` and refused to realign it (`DeliverySnapshot.noRealign`). */
+  | "realign-needed"
+  /**
+   * The automatic land would publish something other than the commit the bar
+   * measured: the delivered branch is gone, its tip moved after the delivery, or
+   * it carries commits of other cards that would be cherry-picked apart
+   * (`DeliverySnapshot.noRealign`).
+   */
+  | "not-as-measured"
+  /** The automatic land's own last look (`DeliverySnapshot.beforeMerge`) said no: nothing was merged. */
+  | "auto-land-stopped"
   /** A commit of the branch credits an assistant, or has an author other than the repo identity (LAND-13). */
   | "attribution"
   /** Eccezione durante il land. */
@@ -212,6 +224,12 @@ export function landFallout(code: LandSkipCode | undefined, ctx: { deliveryCommi
       return { status: "review", reason: "origin/main non si fonde col main locale: va riconciliato a mano prima del land" };
     case "realign-blocked":
       return { status: "review", reason: "il ramo è indietro su main e il riallineamento non si è potuto provare" };
+    case "realign-needed":
+      return { status: "review", reason: "il ramo è indietro su main: l'atterraggio automatico non lo riallinea" };
+    case "not-as-measured":
+      return { status: "review", reason: "l'atterraggio automatico avrebbe pubblicato un commit diverso da quello misurato" };
+    case "auto-land-stopped":
+      return { status: "review", reason: "l'atterraggio automatico si è fermato prima del merge" };
     default:
       return { status: "review", reason: "il land non è riuscito e il codice non è su main" };
   }
@@ -242,6 +260,21 @@ export interface GitRunResult {
 export interface DeliverySnapshot {
   branch: string | null;
   commit: string | null;
+  /**
+   * The land refuses to bring `main` into the branch: a branch that is behind
+   * comes back as `skipped` / `realign-needed` and nothing is merged. Set by the
+   * automatic land only. The checks measured THE COMMIT THAT WAS DELIVERED; a
+   * realign would land a different one (17/09: 22 lands out of 32 did), and with
+   * nobody reading the result that is how a green card puts unmeasured code on
+   * main. A person pressing the button keeps the realign: they read the note.
+   */
+  noRealign?: boolean;
+  /**
+   * The automatic land's last word (`landing-last-look.ts`), asked inside this
+   * repo's queue, after the fetch, a moment before the merge: given the full sha
+   * about to be merged (`noRealign` only), a reason to stop or `null`.
+   */
+  beforeMerge?: (sha: string) => Promise<string | null>;
 }
 
 /**
@@ -704,7 +737,10 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
    * tree was dirty, and the checks must not measure a stale base.
    */
   async function realign(taskId: string): Promise<RealignOutcome> {
-    const target = deps.resolveTaskMerge(taskId);
+    // The agent's worktree when there is one, else the branch the card declares:
+    // a delivery planted from another machine has a branch and no worktree, and
+    // the checks must measure the tree that will land all the same.
+    const target = chooseMergeTarget(deps.resolveTaskMerge(taskId), deps.declaredDelivery?.(taskId) ?? null).target;
     if (!target) return { ok: true, note: null };
     return chain(target.repoPath, async () => {
       let note: string | null = null;
@@ -744,6 +780,9 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     let realigned: string | null = null;
 
     const mergeMsg = `merge task ${taskId}: ${title}`.replace(/\s+/g, " ").slice(0, 200);
+
+    /** The full sha the bar measured (`noRealign` only), set by the pin check below. The merge takes THIS, never the branch name: a name is read again at the merge. */
+    let pinnedSha: string | null = null;
 
     // First-parent diff = exactly what this landing introduced on main. `cwd` is
     // wherever the merge happened (the shared checkout, or the throwaway main
@@ -1051,6 +1090,26 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         branch = landing.branch;
         drift = landing.drift;
 
+        // The automatic land publishes EXACTLY the commit the bar measured, or
+        // nothing: the bar says nothing about a later commit, a branch that fell
+        // back to the live worktree's, or a cherry-pick of the card's own share.
+        if (delivery?.noRealign) {
+          const wanted = delivery.commit?.trim() || "";
+          const tip = await runGit(repoPath, ["rev-parse", "--verify", "--quiet", `${branch}^{commit}`]);
+          const measured = wanted ? await runGit(repoPath, ["rev-parse", "--verify", "--quiet", `${wanted}^{commit}`]) : null;
+          const notAsMeasured = (why: string): AutoMergeResult => ({
+            status: "skipped", code: "not-as-measured",
+            reason: `${why}: l'atterraggio automatico pubblica solo il commit che la barra ha misurato. Guardalo e premi «Landa su main»`,
+          });
+          if (!delivery.branch?.trim() || branch !== delivery.branch.trim()) {
+            return notAsMeasured("il ramo consegnato non esiste più o non è quello che atterrerebbe");
+          }
+          if (!measured || measured.code !== 0 || tip.code !== 0 || tip.stdout.trim() !== measured.stdout.trim()) {
+            return notAsMeasured(`la punta di '${branch}' non è più il commit consegnato (${wanted.slice(0, 8) || "sconosciuto"})`);
+          }
+          pinnedSha = measured.stdout.trim();
+        }
+
         // Does the branch exist and have commits main doesn't? (Refs are shared
         // across every worktree, so this reads the same from the shared checkout.)
         // "To land" = neither on origin/main nor on the local main (a land not yet published).
@@ -1206,6 +1265,24 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         // DOPO il controllo qui sopra, non prima: se il ramo non porta niente
         // non c'è nessun land da salvare, e riallinearlo sarebbe un merge
         // gratuito su un ramo che sta per essere potato.
+        if (delivery?.noRealign) {
+          // BOTH tips: the merge lands on the LOCAL main, which usually holds
+          // commits origin has not seen. A branch that has `origin/main` but not
+          // that tip was measured on a tree that is not the one that lands.
+          let behind: string | null = null;
+          for (const tipRef of new Set([base, defaultBranch])) {
+            const upToDate = await runGit(repoPath, ["merge-base", "--is-ancestor", tipRef, branch]);
+            if (upToDate.code !== 0) { behind = tipRef; break; }
+          }
+          if (behind !== null) {
+            return {
+              status: "skipped", code: "realign-needed",
+              reason:
+                `il ramo '${branch}' è indietro su '${behind}' e l'atterraggio automatico non lo riallinea: ` +
+                "i check hanno misurato il commit consegnato, non una fusione con main. Guardalo e premi «Landa su main»",
+            };
+          }
+        }
         const realign = await realignOnMain();
         if (realign) return realign;
         if (realigned) {
@@ -1295,6 +1372,22 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
               "non pubblico un ramo che potrebbe portare lavoro di un'altra sessione",
           };
         }
+        // With no other local branch there is nothing to subtract and the gate
+        // below is skipped, but the own-commit count still leaves out the pruning
+        // residue commit while the merge carries it. The automatic land publishes
+        // the measured tree only, so it compares the two counts either way.
+        if (others.length === 0 && delivery?.noRealign) {
+          const mine = await countOwnCommits(repoPath, branch, { mainRef: base, runGit, others });
+          const total = Number(ahead.stdout.trim());
+          if (mine === null || !Number.isFinite(total) || total !== mine) {
+            return {
+              status: "skipped", code: "not-as-measured",
+              reason:
+                `'${branch}' porta commit che non risultano suoi (${mine === null ? "conteggio non leggibile" : `${total - mine} su ${total}`}, ad esempio un residuo di potatura): ` +
+                "l'albero che atterrerebbe non è quello misurato. Guardalo e premi «Landa su main»",
+            };
+          }
+        }
         if (others.length > 0) {
           const mine = await countOwnCommits(repoPath, branch, { mainRef: base, runGit, others });
           const total = Number(ahead.stdout.trim());
@@ -1321,6 +1414,14 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
             // sul branch finché qualcuno non lo cherry-picka a mano, e nessuno
             // lo fa. Si portano i suoi e basta.
             onlyOwn = { total, mine, others };
+            if (delivery?.noRealign) {
+              return {
+                status: "skipped", code: "not-as-measured",
+                reason:
+                  `'${branch}' porta anche commit di altre card (${total - mine} su ${total}): per atterrare solo i suoi andrebbero ` +
+                  "ricopiati, e il risultato non sarebbe l'albero misurato. Guardalo e premi «Landa su main»",
+              };
+            }
           }
         }
 
@@ -1342,6 +1443,15 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
             reason: `${violations.length} commit di '${branch}' con attribuzione non voluta (${list}). Nessuna riscrittura automatica: ricrea quei commit sul ramo`,
           };
         }
+
+        /** The automatic land's last look (`landing-last-look.ts`), a moment before the merge. */
+        const lookBeforeMerge = async (cwd: string): Promise<AutoMergeResult | null> => {
+          if (!delivery?.noRealign || !pinnedSha) return null;
+          const stop = await lastLook({ runGit, cwd, branch, pinned: pinnedSha, beforeMerge: delivery.beforeMerge });
+          return stop ? { status: "skipped", code: stop.code, reason: stop.reason } : null;
+        };
+        /** What the merge is given: the measured sha when there is one, otherwise the branch. */
+        const mergeRef = () => pinnedSha ?? branch;
 
         // Fast path: the shared checkout is ALREADY on main → merge in place, so a
         // hot-reload/rebuild makes the landing live immediately. Requires a clean
@@ -1374,8 +1484,10 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
               reason: `non sono riuscito a isolare i ${onlyOwn.mine} commit di questa card su '${branch}'`,
             };
           }
+          const stopped = await lookBeforeMerge(repoPath);
+          if (stopped) return stopped;
           // --no-ff keeps a merge commit so the landing is auditable even for a FF.
-          const merge = await runGit(repoPath, ["merge", "--no-ff", "-m", mergeMsg, branch]);
+          const merge = await runGit(repoPath, ["merge", "--no-ff", "-m", mergeMsg, mergeRef()]);
           if (merge.code === 0) return finishMerged(repoPath, /*live*/ true, cur);
           await runGit(repoPath, ["merge", "--abort"]).catch(() => undefined);
           return { status: "conflict", branch };
@@ -1408,7 +1520,9 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
             }
             return conflictOrDependency(picked.missingBase, picked.dependsOn);
           } else {
-          const merge = await runGit(wtPath, ["merge", "--no-ff", "-m", mergeMsg, branch]);
+          const stopped = await lookBeforeMerge(wtPath);
+          if (stopped) return stopped;
+          const merge = await runGit(wtPath, ["merge", "--no-ff", "-m", mergeMsg, mergeRef()]);
           if (merge.code === 0) return await finishMerged(wtPath, /*live*/ false, cur || "detached HEAD");
           await runGit(wtPath, ["merge", "--abort"]).catch(() => undefined);
           }
