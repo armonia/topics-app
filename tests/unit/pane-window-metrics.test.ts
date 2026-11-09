@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
-// L'init script delle pane (desktop-tauri/src-tauri/src/pane_window_metrics.js):
-// un WKWebView figlio risponde 0 a outerWidth/outerHeight e Heray (anti-bot di
-// Hetzner) respinge la prova di lavoro. Qui si prova il comportamento del file
-// com'è, dentro un contesto che imita quel motore.
+// The pane init script (desktop-tauri/src-tauri/src/pane_window_metrics.js): a
+// child WKWebView answers 0 to outerWidth/outerHeight and Heray (Hetzner's
+// anti-bot) rejects the proof of work. This runs the file as shipped inside a
+// context that imitates that engine.
 const SRC = readFileSync(
   new URL("../../desktop-tauri/src-tauri/src/pane_window_metrics.js", import.meta.url),
   "utf8",
@@ -17,7 +17,7 @@ function paneWindow(real: { outerWidth: number; outerHeight: number }, inner = {
   const w = ctx as Record<string, unknown>;
   w.innerWidth = inner.w;
   w.innerHeight = inner.h;
-  // Come WebKit: accessor proprio sull'istanza, con get e set.
+  // Like WebKit: an own accessor on the instance, with get and set.
   let ow = real.outerWidth;
   let oh = real.outerHeight;
   Object.defineProperty(ctx, "outerWidth", { get: () => ow, set: (v) => { ow = v; }, configurable: true, enumerable: true });

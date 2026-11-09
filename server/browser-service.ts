@@ -788,7 +788,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         // Il pid dentro è il NOSTRO, non il suo: è il padre di cui si verifica
         // la morte. Vedi server/lib/browser-orphan-sweep.ts.
         browserMarkArg("agent", process.pid),
-        // Senza `navigator.webdriver`: vedi lib/headless-chromium-stealth.ts.
+        // No `navigator.webdriver`: see lib/headless-chromium-stealth.ts.
         ...HEADLESS_AUTOMATION_ARGS,
       ],
     });

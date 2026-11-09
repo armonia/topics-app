@@ -1,24 +1,25 @@
 /**
- * Il Chromium headless del server non deve presentarsi come automatizzato ai
- * siti dove entriamo con i NOSTRI account (Hetzner, console di fornitori).
+ * The server's headless Chromium must not present itself as automated to the
+ * sites we sign in to with OUR OWN accounts (Hetzner, supplier consoles).
  *
- * Misurato il 09/11 su console.hetzner.com, stesso IP, stessa ora, un tentativo
- * ogni 90 s: con `navigator.webdriver === true` l'anti-bot Heray rimanda in
- * ciclo alla pagina «Security Check» (40 s senza arrivare al login); con quel
- * solo valore a false, stesso browser e stesso UA «HeadlessChrome», il login
- * arriva in 3,7 s. Il resto (UA, viewport) non cambiava l'esito su Hetzner.
+ * Measured on 09/11 against console.hetzner.com, same IP, same hour, one try
+ * every 90 s: with `navigator.webdriver === true` the Heray anti-bot sends the
+ * browser back to the "Security Check" page in a loop (40 s without reaching
+ * the login); with only that value false, same browser and same
+ * "HeadlessChrome" UA, the login arrives in 3.7 s. UA and viewport did not
+ * change the outcome on Hetzner.
  */
 
-/** `--disable-blink-features=AutomationControlled` toglie `webdriver` dal motore. */
+/** `--disable-blink-features=AutomationControlled` removes `webdriver` from the engine. */
 export const HEADLESS_AUTOMATION_ARGS: readonly string[] = [
   "--disable-blink-features=AutomationControlled",
 ];
 
 /**
- * UA di un Chrome vero (formato «ridotto»: versione maggiore e `.0.0.0`) al posto
- * di `HeadlessChrome/...`. Gli hint `Sec-CH-UA` di questo Chromium dicono già
- * «Chromium», quindi UA e hint restano coerenti. Il sistema segue la piattaforma
- * su cui gira il server.
+ * A real Chrome UA (the "reduced" format: major version plus `.0.0.0`) instead
+ * of `HeadlessChrome/...`. This Chromium's `Sec-CH-UA` hints already say
+ * "Chromium", so UA and hints stay consistent. The OS part follows the platform
+ * the server runs on.
  */
 export function reducedChromeUserAgent(
   browserVersion: string,

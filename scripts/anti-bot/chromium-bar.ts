@@ -1,12 +1,12 @@
-// Barra del Chromium headless del server (quello che risponde quando nessuna
-// finestra mostra la pane). Stessi tre controlli di pane-bar.sh, stessi criteri:
-//   1. console.hetzner.com -> accounts.hetzner.com/login in meno di 60 s
-//   2. bot.sannysoft.com: righe fallite (misura)
-//   3. pagina Cloudflare con sfida (misura)
+// Bar for the server's headless Chromium (the one that answers when no window
+// shows the pane). Same three checks as pane-bar.sh, same criteria:
+//   1. console.hetzner.com -> accounts.hetzner.com/login in under 60 s
+//   2. bot.sannysoft.com: failed rows (measurement)
+//   3. a Cloudflare challenge page (measurement)
 //
-// uso: bun scripts/anti-bot/chromium-bar.ts [--prima] [--solo-misure]
-//   --prima  stesso browser SENZA lo switch e senza UA ridotto: riproduce il difetto
-// Esce 0 se Hetzner passa, 1 se no.
+// usage: bun scripts/anti-bot/chromium-bar.ts [--prima] [--solo-misure]
+//   --prima  the same browser WITHOUT the switch and the reduced UA: reproduces the defect
+// Exit 0 if Hetzner passes, 1 if not.
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -15,8 +15,8 @@ import { HEADLESS_AUTOMATION_ARGS, reducedChromeUserAgent } from "../../server/l
 
 const prima = process.argv.includes("--prima");
 const soloMisure = process.argv.includes("--solo-misure");
-// Stessa scelta del server: CHROMIUM_PATH, poi quello di Playwright; se manca
-// (versione del pacchetto diversa dalla cache) l'ultimo chromium-* installato.
+// Same choice as the server: CHROMIUM_PATH, then Playwright's own; when that is
+// missing (package version differs from the cache) the latest installed chromium-*.
 function findChromium(): string {
   if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
   const bundled = chromium.executablePath();
@@ -76,7 +76,7 @@ if (!soloMisure) {
   const { ctx, page } = await fresh();
   await page.goto("https://www.scrapingcourse.com/cloudflare-challenge", { waitUntil: "domcontentloaded", timeout: 30_000 }).catch(() => {});
   await page.waitForTimeout(20_000);
-  // Il passaggio della sfida ricarica la pagina: una lettura a meta' fallisce, si riprova.
+  // Passing the challenge reloads the page: a read in the middle fails, so retry.
   let text = "";
   for (let i = 0; i < 4 && !text; i++) {
     text = await page.evaluate(() => document.title + " | " + document.body.innerText.slice(0, 120).replace(/\n/g, " ")).catch(() => "");
