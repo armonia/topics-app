@@ -2,6 +2,8 @@
  * The hub's machines among the devices: which rows are kept, which hub paths
  * an action may reach, and that a hub that does not answer reads as "no rows".
  * `fetch` is replaced in place, so nothing reaches a real hub.
+ *
+ * @covers MACHINE-04
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { bridgePath, readHubMachines, remoteHubMachines, runHubMachineAction } from './hubMachines';

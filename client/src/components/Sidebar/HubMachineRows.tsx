@@ -13,31 +13,12 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Cloud, Monitor, Power } from 'lucide-react';
-import { PALLINO_ATTESA, PALLINO_OK } from './chromeSignals';
-import { formatMoney, readHubMachines, runHubMachineAction, type HubMachine, type HubMachineAction } from '../../lib/hubMachines';
+import { hubMachineDetail, hubMachineDot, type Tr } from './hubMachineView';
+import { readHubMachines, runHubMachineAction, type HubMachine, type HubMachineAction } from '../../lib/hubMachines';
 import { useActiveLocale, useT } from '../../hooks/useT';
 
 const ROW = 'flex items-center gap-2 px-3 py-1 text-mini coarse:min-h-11 coarse:text-compact';
 const TEXT_BUTTON = 'flex-shrink-0 rounded px-1.5 py-0.5 text-mini coarse:min-h-11 coarse:px-3';
-
-type Tr = (key: string, vars?: Record<string, string | number>) => string;
-
-/** The dot: red over the cap or strained, amber busy, green on, grey off. */
-export function hubMachineDot(m: HubMachine): string {
-  if (m.level >= 2) return 'bg-red-600 dark:bg-red-400';
-  const on = m.on ?? true;
-  if (!on) return 'bg-app-text-muted/40';
-  return m.level === 1 ? PALLINO_ATTESA : PALLINO_OK;
-}
-
-/** The second line: the spend on the cap when there is one, then what the hub says first. */
-export function hubMachineDetail(m: HubMachine, tr: Tr, locale: string): string {
-  const parts: string[] = [];
-  if (m.spend) parts.push(tr('devices.hubSpend', { eur: formatMoney(m.spend.eur, locale), cap: Math.round(m.spend.cap) }));
-  const first = m.lines?.[0] ?? m.caption ?? '';
-  if (first) parts.push(first);
-  return parts.join(' · ');
-}
 
 export function HubMachineList({ machines, confirming, busy, error, onAsk, onCancel, onRun, tr, locale, cancelRef }: {
   machines: HubMachine[];
@@ -128,11 +109,12 @@ export function HubMachineRows() {
   const [error, setError] = useState<string | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
 
-  const read = useCallback(async () => {
-    const list = await readHubMachines();
-    setMachines(list);
+  const read = useCallback(() => readHubMachines().then(setMachines), []);
+  useEffect(() => {
+    let alive = true;
+    void readHubMachines().then((list) => { if (alive) setMachines(list); });
+    return () => { alive = false; };
   }, []);
-  useEffect(() => { void read(); }, [read]);
   useEffect(() => { if (confirming) cancelRef.current?.focus(); }, [confirming]);
 
   const run = useCallback(async (action: HubMachineAction) => {

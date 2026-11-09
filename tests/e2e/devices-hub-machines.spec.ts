@@ -4,6 +4,8 @@
  * so the run never touches the real hub nor Hetzner. `HUB_MACHINES_FILE` swaps
  * the stub for a saved hub answer, and `HUB_SHOT` saves the open level as a
  * PNG: that is how the proof screenshot is taken without a real browser window.
+ *
+ * @covers MACHINE-04
  */
 import fs from "node:fs";
 import { test, expect, type Page } from "@playwright/test";

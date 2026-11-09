@@ -3,12 +3,15 @@
  * the spend on the cap and the dot's colour; "switch off all" asks first and
  * only the confirmation runs it. The list is a function of its props, so it is
  * called and rendered with `renderToStaticMarkup` (no DOM here).
+ *
+ * @covers MACHINE-04
  */
 import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { t } from '../../lib/i18n';
 import type { HubMachine, HubMachineAction } from '../../lib/hubMachines';
-import { HubMachineList, hubMachineDetail, hubMachineDot } from './HubMachineRows';
+import { HubMachineList } from './HubMachineRows';
+import { hubMachineDetail, hubMachineDot } from './hubMachineView';
 
 const tr = (key: string, vars?: Record<string, string | number>) => t(key, 'it', vars);
 const switchOff: HubMachineAction = { id: 'spegni', label: 'Spegni tutti', method: 'POST', url: '/api/hetzner/spegni', confirm: 'Cancellare il server acceso?' };
