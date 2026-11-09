@@ -77,9 +77,10 @@ function keeperScreenFile(working: boolean, now: number): string {
     sogliaMinuti: 20,
     sospendeAlle: working ? null : now + 13 * MIN + 20_000,
     motivi: working ? ["Il Mac è collegato al PC", "Una card di Topics sta lavorando su questo PC"] : [],
-    // As `offload` writes it and the keeper carries it: the label in words, humanized from the folder («Studio x»), and
-    // the repository, the folder of the main checkout. The label is NOT the name of the Topics project (`studio-x`).
-    lavori: working ? [{ progetto: "Studio x", repo: OTHER_PATH, cosa: "i test nel browser", chi: "Mac", da: iso(now - 7 * MIN), secondi: 420 }] : [],
+    // As `offload` writes it and the keeper carries it: the label in words, humanized from the folder it was started
+    // in (a worktree, «Studio x wt fix»), and the repository, the folder of the MAIN checkout. The label names no Topics
+    // project (`studio-x`): only the repository places the job.
+    lavori: working ? [{ progetto: "Studio x wt fix", repo: OTHER_PATH, cosa: "i test nel browser", chi: "Mac", da: iso(now - 7 * MIN), secondi: 420 }] : [],
     esiti: [
       { progetto: "Acme web", cosa: "test", esito: "fallito", secondi: 86, fine: iso(now - 9 * MIN) },
       { progetto: "Studio x", cosa: "preparazione delle dipendenze e test", esito: "ok", secondi: 78, fine: iso(now - 11 * MIN) },
