@@ -3285,6 +3285,10 @@ const IT: Dict = {
   'board.filter.creatorTitle': 'Di chi sono le card: tutte, mie, o aperte dagli agenti',
   'board.card.runInitiator': 'Avviato da {name}',
   'board.card.runInitiatorTitle': '{name} ha richiesto questa esecuzione delegata',
+  'board.card.due': 'Scade {date}',
+  'board.card.dueOverdue': 'Scaduta {date}',
+  'board.card.dueTitle': 'Scadenza: {date}',
+  'board.card.dueOverdueTitle': 'Scadenza superata: {date}',
   'board.card.runComputerTitle': 'Esecuzione delegata eseguita su {name}',
 
   // Permissions: the panel where a person decides whether the agent may act.

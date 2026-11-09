@@ -407,6 +407,33 @@ export function subtaskOpenable(
 }
 
 /**
+ * Deadline chip: a `dueDate` (ISO date or datetime) as a short label, flagged
+ * `overdue` once it is in the past and the card is not closed. `null` = no date.
+ * A bare date (no time) stays due through the end of that day.
+ */
+export function dueDateChip(
+  task: Pick<BoardTask, 'dueDate' | 'status'>,
+  tr: Translate,
+  now: number = Date.now(),
+  locale?: string,
+): { label: string; title: string; overdue: boolean } | null {
+  if (!task.dueDate) return null;
+  const when = new Date(task.dueDate);
+  if (Number.isNaN(when.getTime())) return null;
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(task.dueDate);
+  const end = dateOnly ? when.getTime() + 24 * 3600 * 1000 : when.getTime();
+  const overdue = task.status !== 'done' && now >= end;
+  const text = dateOnly
+    ? when.toLocaleDateString(locale, { timeZone: 'UTC', day: 'numeric', month: 'short' })
+    : when.toLocaleDateString(locale, { day: 'numeric', month: 'short' });
+  return {
+    label: tr(overdue ? 'board.card.dueOverdue' : 'board.card.due', { date: text }),
+    title: tr(overdue ? 'board.card.dueOverdueTitle' : 'board.card.dueTitle', { date: text }),
+    overdue,
+  };
+}
+
+/**
  * Il chip «riaperta»: una card che ERA consegnata e non lo è più lo dice sulla
  * card, dove si guarda — non solo nel thread.
  *
