@@ -178,7 +178,7 @@ test.describe("Scelte sempre presenti sulla card", () => {
     await seedProjectPane(page.request, REPO);
   });
 
-  test("quattro stati, quattro decisioni in un click — senza scrivere niente", async ({ page }) => {
+  test("quattro stati, quattro decisioni in un click. Senza scrivere niente", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-02" });
     // The working card is staged with no live turn behind it, the shape the
     // dispatcher's 10s reconcile recovers: re-queued, its DOM node replaced, and
@@ -214,10 +214,15 @@ test.describe("Scelte sempre presenti sulla card", () => {
     // card's context menu and the drawer's own buttons say.
     const piano = card(taskIds.piano);
     await expect(choice(taskIds.piano, "accept")).toHaveText("Approva");
-    await expect(choice(taskIds.piano, "redo")).toHaveText("Rifai così…");
-    await expect(choice(taskIds.piano, "drop")).toHaveText("Archivia");
-    // Il commento libero RESTA — ultima opzione, non l'unica.
-    await expect(piano.getByPlaceholder("…oppure commenta")).toBeVisible();
+    // 01/11: «Rifai così» is no longer a card button (the field sends the
+    // text back), and «Archivia» sits in the «…» menu.
+    await expect(choice(taskIds.piano, "redo")).toHaveCount(0);
+    await expect(choice(taskIds.piano, "drop")).toHaveCount(0);
+    await piano.getByTestId("task-choices-menu").click();
+    await expect(page.getByTestId("task-choices-panel").getByTestId("task-choice-drop")).toHaveText("Archivia");
+    await page.keyboard.press("Escape");
+    // The free comment stays: it is how the card goes back to the agent.
+    await expect(piano.getByPlaceholder("Commenta o correggi…")).toBeVisible();
     await beat(page);
     await choice(taskIds.piano, "accept").click();
     await expect(page.getByTestId("kanban-column-body-done").locator(`[data-task-card="${taskIds.piano}"]`))
