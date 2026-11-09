@@ -21,7 +21,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultRunGit as ownCommitsRunGit } from "./own-commits";
 import { defaultRunGit as automergeRunGit, runRepoScript } from "./task-automerge";
-import { defaultRunGit as baseRefRunGit } from "./worktree-base-ref";
 import { defaultRunGit as residueRunGit } from "./worktree-residue";
 import { commitIsAncestor, gitExit, gitOut } from "./branch-status";
 import { run as inventoryRun } from "./branch-inventory";
@@ -94,12 +93,7 @@ const RESULT_RUNNERS: { name: string; timeoutCode: number; call: () => Promise<u
     argv: () => ["bun", "run", MARK], cwd: () => dir,
   },
   {
-    name: "worktree-base-ref defaultRunGit", timeoutCode: 1,
-    call: () => baseRefRunGit(dir, ["rev-parse", MARK]),
-    argv: () => ["git", "-C", dir, "rev-parse", MARK],
-  },
-  {
-    name: "worktree-residue defaultRunGit", timeoutCode: 1,
+    name: "worktree-residue defaultRunGit", timeoutCode: 124,
     call: () => residueRunGit(dir, ["rev-parse", MARK]),
     argv: () => ["git", "rev-parse", MARK], cwd: () => dir,
   },

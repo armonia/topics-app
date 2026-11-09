@@ -26,6 +26,7 @@ import type { GitStatusFile, GitLineCounts } from '../../../../shared/git-status
 import type { TopicChangedFile } from '../../../../shared/topic-changes';
 import type { DiffFileStat } from '../../lib/board';
 
+import { isConflicted } from '../../../../shared/git-conflict';
 /** What happened to the file. Everything git can say, collapsed to what a list shows. */
 export type ChangedFileStatus =
   | 'added'
@@ -108,15 +109,6 @@ export function rowFromGitFile(
     binary: counts?.binary,
     origPath: file.origPath,
   };
-}
-
-/**
- * A merge conflict has a letter other than a space in BOTH positions, which is
- * why it satisfies "staged" and "unstaged" at once. It is its own state: the
- * only one that asks the person to do something before anything else works.
- */
-function isConflicted(code: string): boolean {
-  return code === 'AA' || code === 'DD' || code[0] === 'U' || code[1] === 'U';
 }
 
 /** The porcelain XY pair, collapsed. */
