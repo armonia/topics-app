@@ -21,6 +21,7 @@
 import { awaitsHuman } from "../../shared/workflow";
 import { NODE_UNREACHABLE_ERROR } from "../../shared/board";
 import type { Task, TaskService } from "./tasks";
+import { returnEmptyNodeRunToTodo } from "./task-dispatcher-remote-node-empty";
 import { isNodeError, type BundleResult, type CreateRunBody, type NodeRunBinding, type NodeRunReport } from "./node-client";
 import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import type { PlantBranchInput, PlantBranchResult } from "./node-branch-plant";
@@ -211,6 +212,8 @@ export interface RemoteNodeHost {
   svc: TaskService;
   broadcast: (message: OutboundMessage) => void;
   captureDelivery?: (taskId: string) => Promise<boolean>;
+  /** Measure the planted branch's bar and offer the card to the automatic land (fire and forget). */
+  measureDelivery?: (taskId: string) => Promise<void>;
   log: (msg: string, err?: unknown) => void;
   /** Broadcast the updated task so live boards move the chip. */
   emit: (task: Task) => void;
@@ -841,6 +844,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         }
       }
     }
+    const fresh = svc.get(taskId)?.task;
+    const producedNothing = planted.planted ? !!fresh && !fresh.deliveryCommit : !branch && !report.reason && !report.dispatchError;
+    if (fresh && producedNothing && returnEmptyNodeRunToTodo({ svc, releaseAndEmit, emit, log }, fresh, name)) return;
     const reason = planted.planted
       ? `Consegnato dal nodo «${name}»: il ramo \`${branch}\` è stato piantato in questo checkout` +
         (planted.commit ? ` su \`${planted.commit.slice(0, 8)}\`.` : ".")
@@ -876,6 +882,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
           });
         } catch { /* best-effort */ }
       }
+      // A run that closed on an error (a quota stop with half a commit) is planted so a person can
+      // see what it left, but it is never measured for a land of its own.
+      if (planted.planted && !report.dispatchError) void host.measureDelivery?.(taskId)?.catch((err) => log(`nodo: misura della consegna ${taskId} fallita`, err));
     } catch (err) { log(`nodo: consegna in review non riuscita per ${taskId}`, err); }
   }
 
