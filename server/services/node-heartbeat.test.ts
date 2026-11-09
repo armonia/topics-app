@@ -13,7 +13,7 @@ function machine(over: Partial<Machine> & { id: string }): Machine {
   return {
     name: over.id, hostname: over.id, arch: "", platform: "", daemonVersion: "0.0.0", status: "online",
     lastHeartbeatAt: "2026-10-26T15:53:00.000Z", lastSeenAt: "2026-10-26T15:53:00.000Z", acknowledgedWarnings: {},
-    baseUrl: `http://${over.id}.test`, createdAt: "2026-10-26T15:53:00.000Z", updatedAt: "2026-10-26T15:53:00.000Z",
+    baseUrl: `http://${over.id}.test`, slots: null, createdAt: "2026-10-26T15:53:00.000Z", updatedAt: "2026-10-26T15:53:00.000Z",
     ...over,
   };
 }
