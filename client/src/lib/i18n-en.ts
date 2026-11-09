@@ -2381,6 +2381,8 @@ const EN = {
   'auth.err.subject_required': 'The recipient is missing.',
   'auth.err.bad_person_id': 'The person given is not in a valid shape.',
   'auth.err.unknown_level': 'That access level does not exist.',
+  'devices.hubSpend': '{eur} € of {cap} € this month',
+  'devices.hubActionFailed': 'Not done: {why}',
   'devices.nodeOnline': 'online',
   'devices.nodeSeen': 'last beat {when}',
   'devices.youAreHere': 'you are here',
