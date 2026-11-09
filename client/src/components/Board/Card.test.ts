@@ -177,7 +177,9 @@ describe('the progress word', () => {
   });
 
   test('la nota di sistema e\' ripiegata sotto «mostra», mai sola nel corpo', () => {
-    const fold = src.slice(src.indexOf('function SystemNoteFold'), src.indexOf('const CardBody = memo'));
+    // The fold lives in its own file (Card.tsx sits at its size ceiling); Card only uses it.
+    const fold = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'SystemNoteFold.tsx'), 'utf8');
+    expect(src).toContain("import { SystemNoteFold } from './SystemNoteFold';");
     expect(fold).toContain('data-testid="card-system-note-toggle"');
     expect(fold).toContain("tr('board.card.noteShow')");
     expect(fold).toContain('{aperta && (');
