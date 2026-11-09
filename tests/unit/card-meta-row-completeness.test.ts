@@ -98,6 +98,7 @@ describe("la fascia dei chip conosce tutti i suoi chip", () => {
       "card-run-initiator": "runInitiator",
       "card-created-by": "openedBy",
       "card-run-computer": "task.runComputerName",
+      "card-due-date": "dueChip",
       "card-worked-in-place": "lavoroInPlace",
       "card-moved-by-hand": "spostataAMano",
       "card-nothing-delivered": "senzaConsegna",
