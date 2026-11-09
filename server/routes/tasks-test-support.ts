@@ -12,8 +12,7 @@
  */
 import { Database } from "bun:sqlite";
 import type { AppContext, RouteHandler } from "../types";
-import { mintSessionToken, SESSION_TOKEN_HEADER } from "../lib/session-token";
-import { topicsHome } from "../services/daemon-state";
+import { withOwnSessionToken } from "./session-caller";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
 export function freshDb(): Database {
@@ -146,22 +145,9 @@ export function makeCtx(
 export function call(router: RouteHandler, method: string, path: string, body?: unknown, headers?: HeadersInit) {
   const fromInterface = headers === undefined && method === "POST" && /^\/api\/boards\/[^/]+\/tasks$/.test(path);
   const base = fromInterface ? { "X-Topics-Action-Origin": "interface" } : headers;
+  // A session route called through `call` plays that session's own bridge, so it
+  // carries the session's token. `rawCall` sends none, as a bare shell would.
   return rawCall(router, method, path, body, withOwnSessionToken(path, base));
-}
-
-/**
- * A session route called through `call` plays that session's own bridge, so it
- * carries the session's token (`lib/session-token.ts`). A test that sends its
- * own token header keeps it; `rawCall` sends none, as a bare shell would.
- */
-export function withOwnSessionToken(path: string, headers?: HeadersInit): HeadersInit | undefined {
-  const session = path.match(/^\/api\/(?:sessions|orchestrator-sessions)\/([^/?]+)/)?.[1];
-  if (!session) return headers;
-  const merged = new Headers(headers);
-  if (!merged.has(SESSION_TOKEN_HEADER)) {
-    merged.set(SESSION_TOKEN_HEADER, mintSessionToken(topicsHome(), decodeURIComponent(session)));
-  }
-  return merged;
 }
 
 /** The request exactly as given: no interface marker, as a script would send it. */

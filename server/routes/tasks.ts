@@ -33,8 +33,7 @@ import { budgetShare, capMode, isAgentWorking, isCiEvidenceCheck, type CheckRun,
 import { toFeedTask } from "../../shared/board-feed";
 import { selectTaskSessionPeek } from "../../shared/task-session-peek";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
-import { sessionProof } from "../lib/session-token";
-import { topicsHome } from "../services/daemon-state";
+import { coordinatorCaller, sessionCaller, withOwnSessionToken } from "./session-caller";
 import { isPreviewablePath } from "../../shared/media-kind";
 import { isBlankLikeImage } from "../services/image-shape";
 import { parseTaskPatch, unapplicableFieldsBody, checkConstraintBody, type FieldRead } from "./task-patch";
@@ -1234,7 +1233,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   function reissueDelivery(taskId: string, pathname: string, body: Record<string, unknown>, why: string): void {
     const url = new URL(`http://localhost${pathname}`);
     const req = new Request(url, {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
+      method: "PATCH", headers: withOwnSessionToken(pathname, { "Content-Type": "application/json" }),
       body: JSON.stringify({ ...body, legMs: 1_000 }),
     });
     tasksRouter(req, url, pathname, "PATCH")
@@ -2529,48 +2528,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     };
   }
 
-  /**
-   * The session a request speaks AS, which is not the session its URL names
-   * (`lib/session-token.ts`, card cedadfc6). Every write below signs with the
-   * returned actor and topic, never with `resolveSession`'s directly:
-   *  - the session's token: the session itself;
-   *  - someone else's token: 403, a forged signature is refused, not rewritten;
-   *  - no token: an anonymous agent with no topic, so no comment, status row,
-   *    step provenance or own-steps carve-out is credited to the topic in the
-   *    path. The board scope stays the URL's: that is where, not who.
-   */
-  function provenSession(
-    req: Request,
-    sessionKey: string,
-  ): { projectId: string; actor: string; topicId: string | null } | Response {
-    const sess = resolveSession(sessionKey);
-    if (!sess) return json({ error: "session is not bound to a project", code: "no_project" }, 400);
-    const proof = sessionProof(req, topicsHome(), sessionKey);
-    if (proof === "invalid") return sessionTokenRefusal();
-    if (proof === "absent") return { projectId: sess.projectId, actor: AGENT_AUTHOR, topicId: null };
-    return sess;
-  }
-
-  function sessionTokenRefusal(): Response {
-    return json({
-      error: "the session token does not belong to this session: an agent can only act as its own session",
-      code: "session_token_mismatch",
-    }, 403);
-  }
-
-  /**
-   * The coordinator's cross-board surface is a capability, not a signature: a
-   * caller that cannot prove it IS the registered coordinator gets nothing, so
-   * here a missing token is a refusal too.
-   */
-  function provenGlobalOrchestrator(req: Request, sessionKey: string): { actor: string; topicId: string } | Response {
-    const registered = resolveGlobalOrchestratorSession(sessionKey);
-    if (!registered) {
-      return json({ error: "global orchestrator session required", code: "global_orchestrator_required" }, 403);
-    }
-    if (sessionProof(req, topicsHome(), sessionKey) !== "valid") return sessionTokenRefusal();
-    return registered;
-  }
+  // Who a session route speaks AS, not who its URL names (`./session-caller.ts`).
+  const provenSession = (req: Request, sk: string) => sessionCaller(req, sk, resolveSession, json);
+  const provenGlobalOrchestrator = (req: Request, sk: string) =>
+    coordinatorCaller(req, sk, resolveGlobalOrchestratorSession, json);
 
   /**
    * Global reads/mutations start from the task id and discover its board in

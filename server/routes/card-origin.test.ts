@@ -8,7 +8,8 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { projectIdForPath } from "../services/tasks";
 import { createTasksRouter } from "./tasks";
-import { call, freshDb, makeCtx, rawCall, withOwnSessionToken } from "./tasks-test-support";
+import { call, freshDb, makeCtx, rawCall } from "./tasks-test-support";
+import { withOwnSessionToken } from "./session-caller";
 
 const GLOBAL_TOPIC_ID = "global-orchestrator-topic";
 const GLOBAL_KEY = "topic:global-orchestrator";
