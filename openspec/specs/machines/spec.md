@@ -104,3 +104,14 @@ MISURA: `bun test server/routes/machines.model-token.test.ts` verde.
 #### Scenario: nessuna identità
 - **GIVEN** `requestIdentity` restituisce null
 - **THEN** la risposta SHALL essere 403
+
+### Requirement: MACHINE-04 — Il PC e il server Hetzner stanno tra i dispositivi come li vede l'hub
+
+Il livello Dispositivi SHALL elencare, sotto «questo computer», le macchine non locali
+dell'hub (`GET /api/hub/machines`: il PC e il server Hetzner a consumo) con stato,
+spesa sul tetto e pallino; un hub che non risponde SHALL non produrre righe, mai un
+errore. Un comando della macchina («Spegni tutti») SHALL chiedere conferma con la
+frase dell'hub e partire solo dal secondo tasto, verso un percorso `/api/...` del
+solo hub (`/api/hub/<resto>`).
+
+MISURA: `cd client && bun test src/lib/hubMachines.test.ts src/components/Sidebar/HubMachineRows.test.tsx` verde.
