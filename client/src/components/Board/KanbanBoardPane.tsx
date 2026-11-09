@@ -801,7 +801,14 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // What the floating composer is about to create: previewed as a ghost card
   // at the top of its birth column (card 058ea722). Only in the column it
   // will land in; the others see nothing.
-  const [draft, setDraft] = useState<DraftPreview | null>(null);
+  const [typedDraft, setTypedDraft] = useState<DraftPreview | null>(null);
+  // The last ghost the composer drew, kept so the column can hold it between the send and the real card.
+  const lastDraftRef = useRef<DraftPreview | null>(null);
+  const [heldDraft, setHeldDraft] = useState<{ id: string; draft: DraftPreview } | null>(null);
+  const setDraft = useCallback((next: DraftPreview | null) => {
+    if (next) lastDraftRef.current = next;
+    setTypedDraft(next);
+  }, []);
   const columnsScrollRef = useRef<HTMLDivElement>(null);
   // The card in hand, if any. Declared here because the snap hold below reads
   // it: the finger that carries a card is not a finger scrolling the row.
@@ -1014,9 +1021,24 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   /** Spegne la sorveglianza «la card resta fuori dal composer» (vedi sotto). */
   const keepClearRef = useRef<(() => void) | null>(null);
   useEffect(() => () => keepClearRef.current?.(), []);
+  // The ghost goes with the typed text, but the card only arrives with the
+  // refetch: without this hold the task was on no column in between and looked
+  // lost. The hold ends when the card is in the feed, or after a few seconds.
+  const heldId = heldDraft?.id ?? null;
+  const heldArrived = heldId !== null && tasks.some((t) => t.id === heldId);
+  useEffect(() => {
+    if (heldId === null) return;
+    if (heldArrived) { setHeldDraft(null); return; }
+    const timer = setTimeout(() => setHeldDraft(null), 8000);
+    return () => clearTimeout(timer);
+  }, [heldId, heldArrived]);
+  const draft = typedDraft ?? (heldDraft && !heldArrived ? heldDraft.draft : null);
   /** Creazione partita da questa finestra: lampo + la board ci va sopra. */
   const onCreatedHere = useCallback((taskId?: string) => {
-    if (taskId) { flashCreated(taskId); setScrollTarget(taskId); }
+    if (taskId) {
+      flashCreated(taskId); setScrollTarget(taskId);
+      if (lastDraftRef.current) setHeldDraft({ id: taskId, draft: lastDraftRef.current });
+    }
     refetch();
   }, [flashCreated, refetch]);
 
