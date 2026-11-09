@@ -7,6 +7,7 @@
  * Review column (approve → done / reject → in_progress). Talks only to the
  * project-scoped board API (client/src/lib/board.ts).
  */
+import { useHeldDraft } from './useHeldDraft';
 import { useT } from '../../hooks/useT';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -798,17 +799,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       detail: { topicId: topic.id, topic, mode: 'permanent' },
     }));
   }, [orchestratorTopic]);
-  // What the floating composer is about to create: previewed as a ghost card
-  // at the top of its birth column (card 058ea722). Only in the column it
-  // will land in; the others see nothing.
-  const [typedDraft, setTypedDraft] = useState<DraftPreview | null>(null);
-  // The last ghost the composer drew, kept so the column can hold it between the send and the real card.
-  const lastDraftRef = useRef<DraftPreview | null>(null);
-  const [heldDraft, setHeldDraft] = useState<{ id: string; draft: DraftPreview } | null>(null);
-  const setDraft = useCallback((next: DraftPreview | null) => {
-    if (next) lastDraftRef.current = next;
-    setTypedDraft(next);
-  }, []);
   const columnsScrollRef = useRef<HTMLDivElement>(null);
   // The card in hand, if any. Declared here because the snap hold below reads
   // it: the finger that carries a card is not a finger scrolling the row.
@@ -972,6 +962,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // Le voci si tolgono quando la PATCH ha finito: da lì in poi il server sa.
   const [pendingWrites, setPendingWrites] = useState<ReadonlyMap<string, Partial<BoardTask>>>(EMPTY_WRITES);
   const tasks = useMemo(() => applyPendingWrites(feedTasks, pendingWrites), [feedTasks, pendingWrites]);
+  // Ghost card of what the composer is about to create (card 058ea722), held until the real one arrives.
+  const { draft, setDraft, holdCreated } = useHeldDraft(tasks);
 
   // ── Un task appena NATO ────────────────────────────────────────────────────
   // Scrivevi nel composer, quello si svuotava, e la card atterrava in fondo a
@@ -1021,26 +1013,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   /** Spegne la sorveglianza «la card resta fuori dal composer» (vedi sotto). */
   const keepClearRef = useRef<(() => void) | null>(null);
   useEffect(() => () => keepClearRef.current?.(), []);
-  // The ghost goes with the typed text, but the card only arrives with the
-  // refetch: without this hold the task was on no column in between and looked
-  // lost. The hold ends when the card is in the feed, or after a few seconds.
-  const heldId = heldDraft?.id ?? null;
-  const heldArrived = heldId !== null && tasks.some((t) => t.id === heldId);
-  useEffect(() => {
-    if (heldId === null) return;
-    if (heldArrived) { setHeldDraft(null); return; }
-    const timer = setTimeout(() => setHeldDraft(null), 8000);
-    return () => clearTimeout(timer);
-  }, [heldId, heldArrived]);
-  const draft = typedDraft ?? (heldDraft && !heldArrived ? heldDraft.draft : null);
   /** Creazione partita da questa finestra: lampo + la board ci va sopra. */
   const onCreatedHere = useCallback((taskId?: string) => {
-    if (taskId) {
-      flashCreated(taskId); setScrollTarget(taskId);
-      if (lastDraftRef.current) setHeldDraft({ id: taskId, draft: lastDraftRef.current });
-    }
+    if (taskId) { flashCreated(taskId); setScrollTarget(taskId); holdCreated(taskId); }
     refetch();
-  }, [flashCreated, refetch]);
+  }, [flashCreated, holdCreated, refetch]);
 
   // Live updates. In 'all' mode any task event is relevant; in 'project' mode
   // only events for this project (or project-less broadcasts) trigger a refetch.
