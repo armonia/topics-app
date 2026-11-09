@@ -2170,6 +2170,12 @@ const IT: Dict = {
   'board.toolbar.dispatchSettings': 'Impostazioni auto-dispatch',
   'board.toolbar.viewMode.kanban': 'Passa alla vista a lista',
   'board.toolbar.viewMode.list': 'Passa alla vista kanban',
+  'board.toolbar.detail.label': 'Livello di dettaglio',
+  'board.toolbar.detail.summary': 'Progetti e conteggi',
+  'board.toolbar.detail.list': 'Lista',
+  'board.toolbar.detail.grid': 'Board kanban',
+  'board.summary.empty': 'Nessuna card da contare',
+
   'board.toolbar.groupBy.project': 'Raggruppa per progetto',
   'board.toolbar.groupBy.off': 'Togli il raggruppamento per progetto',
   'board.toolbar.density.compact': 'Card compatte',
