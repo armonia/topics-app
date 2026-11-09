@@ -3422,7 +3422,7 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
             className="flex shrink-0 text-app-text-muted"
           ><UserRound className="h-2.5 w-2.5" /></span>
         ))}
-        {hasKids && <span className="shrink-0 text-mini text-app-text-muted"><ListTree size={STATUS_GLYPH_PX} className="inline-block align-text-bottom" aria-hidden /> {node.subtaskDoneCount}/{node.subtaskCount}</span>}
+        {hasKids && <span data-testid={`subtask-count-${node.id}`} className="shrink-0 text-mini text-app-text-muted"><ListTree size={STATUS_GLYPH_PX} className="inline-block align-text-bottom" aria-hidden /> {node.subtaskDoneCount}/{node.subtaskCount}</span>}
       </div>
       {open && kids?.map((k) => (
         <SubtaskNode key={k.id} projectId={projectId} node={k} depth={depth + 1} onOpenTask={onOpenTask} />
