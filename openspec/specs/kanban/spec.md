@@ -5477,3 +5477,12 @@ storage, like the layout. The full card SHALL stay unchanged.
 #### Scenario: a drop in another project's lane changes nothing
 - **WHEN** a card is dropped in a lane of another project on the grouped board
 - **THEN** the card SHALL keep its status and its project, and a notice SHALL say that a card stays in its own project
+
+### Requirement: KANBAN-108 - A card in progress shows one progress line and a measure band
+
+The body of a card in progress SHALL show ONE progress line: the last step of the running tool, or the first line of the agent's last word when no tool is running. An empty line SHALL NOT be shown. The model, the cost, the time and the last update SHALL live in a measure band that writes the whole model name, holds the «now» mark inside it, and stays visibly apart from the card in both themes, with text that reaches WCAG AA.
+
+#### Scenario: a working card
+- **WHEN** a task is in progress and a tool is running
+- **THEN** the body SHALL show the tool step as its single progress line
+- **AND** the measure band SHALL show the full model name and the time without cutting either

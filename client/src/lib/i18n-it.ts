@@ -1392,7 +1392,6 @@ const IT: Dict = {
    * riga sopra, chiamando il bottone col suo nome vero, che su una card mai
    * consegnata e' «Rimandalo avanti».
    */
-  'board.task.replyPlaceholderShort': 'Una nota, che resta qui: «{sendBack}» qui sopra la porta all\'agent.',
   'board.task.sendBackReply': 'Rimanda',
   'board.task.sendBackReplyTitle': "Rimanda il task all'agent con questa nota. Riparte e la card torna In Progress.",
   'board.task.quietNote': 'Nota',
@@ -1628,6 +1627,7 @@ const IT: Dict = {
   'board.card.systemNote': 'Nota di sistema',
   'board.card.noSummary': 'Nessun riassunto della consegna: sotto c’è solo la cronaca della macchina',
   'board.card.commentMore': 'Mostra tutto',
+  'board.card.noteShow': 'mostra',
   'board.card.commentLess': 'Mostra meno',
   /**
    * NIENTE CONSEGNATO, detto dalla colonna.
@@ -2087,7 +2087,7 @@ const IT: Dict = {
   'board.card.turnActions': 'Azioni su questo turno',
   'board.card.blockedActions': 'Uscite dall\'attesa',
   'board.card.yourRequest': 'La tua richiesta: {text}',
-  'board.card.commentPlaceholder': '…oppure commenta',
+  'board.card.commentPlaceholder': 'Commenta o correggi…',
   'board.card.comment': 'Commenta',
   'board.card.copyTask': 'Copia task',
   'board.preview.label': 'Anteprima',
@@ -2662,6 +2662,8 @@ const IT: Dict = {
   // ── I DISPOSITIVI autorizzati. Superficie migrata al dizionario insieme
   //    all'area account/gruppi: prima era interamente in italiano in chiaro,
   //    accanto a pannelli inglesi, e i due si vedevano nella stessa finestra.
+  'devices.hubSpend': '{eur} € su {cap} € questo mese',
+  'devices.hubActionFailed': 'Non riuscito: {why}',
   'devices.nodeOnline': 'in linea',
   'devices.nodeSeen': 'ultimo battito {when}',
   'devices.youAreHere': 'stai qui',
