@@ -1,9 +1,9 @@
 /**
- * THE BELL'S HUB SIDE (hub-tutto-in-topics, track S1).
+ * Bell, hub side (track S1 of the hub-in-Topics change).
  *
  * The bell's «Now» tab lists the hub's «waiting for you» items with the
  * deadlines first, the broken and quota groups from the hub's services,
- * alerts and gates, and «Fatto» writes `{kind: "chiudi"}` to the hub's
+ * alerts and gates; the done button posts a close to the hub's
  * waiting-list route. The hub is a fake (helpers/fake-hub.ts) on the port the
  * test server reads; the real ones are never touched.
  *
