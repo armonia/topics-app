@@ -26,7 +26,7 @@ export function CompactQuestion({ question, options, busy, onAnswer }: {
             key={i} type="button" disabled={busy}
             data-testid="card-compact-reply"
             onClick={() => onAnswer(opt)}
-            className="rounded-md bg-white/10 px-2 py-1 text-compact leading-4 text-app-text hover:bg-white/20 disabled:opacity-50 coarse:min-h-11"
+            className="rounded-md bg-black/10 dark:bg-white/10 px-2 py-1 text-compact leading-4 text-app-text hover:bg-black/20 dark:hover:bg-white/20 disabled:opacity-50 coarse:min-h-11"
           >{opt}</button>
         ))}
       </div>}

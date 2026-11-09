@@ -1611,7 +1611,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
             <span
               data-testid="card-review-age"
               title={tr('board.card.reviewAgeTitle', { when: task.reviewAt ? new Date(task.reviewAt).toLocaleString(locale) : '' })}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
+              className="flex items-center gap-1 rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
             ><Hourglass className="h-3 w-3 shrink-0" /> {tr('board.card.reviewAge', { t: attesa })}</span>
           )}
         </div>

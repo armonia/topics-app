@@ -16,7 +16,7 @@ import { DraftCard } from './DraftCard';
 import type { DraftPreview } from './draftPreview';
 
 const toggleClass = (on: boolean) =>
-  `grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} shrink-0 place-items-center rounded ${on ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`;
+  `grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} shrink-0 place-items-center rounded ${on ? 'bg-black/10 dark:bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'}`;
 
 /**
  * GROUP BY PROJECT and COMPACT CARDS: two view choices in the same spot and
