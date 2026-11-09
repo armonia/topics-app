@@ -250,11 +250,11 @@ describe("what waits for the person, and the header state", () => {
   });
 
   test("a project nobody registered is named from its id: the folder of a path, the slug without its hash, a sentence for a code", () => {
-    task("t1", { project_id: "/Users/x/.openclaw/workspace/topics-app" });
+    task("t1", { project_id: "/Users/x/workspace/topics-app" });
     task("t2", { project_id: "quadra-lh40qh" });
     task("t3", { project_id: "405fbb0d-6fdd-4874-b52d-ce96180f9e2a" });
     const names = new Map(buildPlan(db, { now: T0 }).projects.map((p) => [p.projectId, p.name]));
-    expect(names.get("/Users/x/.openclaw/workspace/topics-app")).toBe("topics-app");
+    expect(names.get("/Users/x/workspace/topics-app")).toBe("topics-app");
     expect(names.get("quadra-lh40qh")).toBe("quadra");
     expect(names.get("405fbb0d-6fdd-4874-b52d-ce96180f9e2a")).toBe(UNKNOWN_PROJECT_NAME);
   });

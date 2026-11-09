@@ -13,7 +13,7 @@
  */
 
 /** What is written when the project cannot be told: a sentence, not a code. */
-export const UNKNOWN_PROJECT_NAME = "Progetto sconosciuto";
+export const UNKNOWN_PROJECT_NAME = "Progetto sconosciuto"; // allow-italian: the name is data, written by the server (Plan tile) and the client (lane heading) from this one place
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** A POSIX or Windows absolute path. */
@@ -22,7 +22,7 @@ const ABSOLUTE_PATH = /^(?:\/|[A-Za-z]:[\\/]|\\\\)/;
 /**
  * The readable name carried by a project id, or `null` when it has none.
  *
- * - a PATH used as the id: its last folder, so `/Users/x/.openclaw/workspace/topics-app`
+ * - a PATH used as the id: its last folder, so `/Users/x/workspace/topics-app`
  *   is «topics-app» (no hash to cut: the folder name is the whole name);
  * - a board slug `name-hash` (`quadra-lh40qh`): the name without the hash;
  * - an UUID, or an id that is all hexadecimal: `null`. Cutting the last piece of

@@ -48,9 +48,9 @@ describe('un id non è un nome', () => {
   });
 
   test('un id che è un percorso ha il nome della cartella, lo stesso che il Piano dà alla tessera', () => {
-    const [ref] = resolveProjectRefs(['/Users/x/.openclaw/workspace/topics-app'], []);
+    const [ref] = resolveProjectRefs(['/Users/x/workspace/topics-app'], []);
     expect(ref.name).toBe('topics-app');
-    expect(ref.projectId).toBe('/Users/x/.openclaw/workspace/topics-app');
+    expect(ref.projectId).toBe('/Users/x/workspace/topics-app');
   });
 
   test('se l\'indice il progetto lo conosce, vince il nome vero', () => {

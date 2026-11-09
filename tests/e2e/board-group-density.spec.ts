@@ -413,19 +413,28 @@ test.describe("Board per progetto e card compatte", () => {
     const moving = await createTask(request, ID_A, `Card che resta in alfa ${STAMP}`, "todo");
     await freshGrouped(page, null);
     const own = laneOf(page, ID_A);
-    const other = laneOf(page, ID_B);
+    // The lane NEXT to the card's own, whatever the order is (projects waiting
+    // for the person lead): the two then fit the viewport together, which a
+    // drag between the first and the last of many lanes does not.
+    const lanes = await page.getByTestId("board-lane").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
+    const next = lanes[lanes.indexOf(ID_A) - 1] ?? lanes[lanes.indexOf(ID_A) + 1];
+    expect(next, "a second lane next to the card's own").toBeTruthy();
+    const other = laneOf(page, next!);
     const card = own.locator(`[data-task-card="${moving}"]`);
     await expect(card).toBeVisible();
     await card.scrollIntoViewIfNeeded();
     const target = other.getByTestId("kanban-column-body-backlog");
     await target.scrollIntoViewIfNeeded();
-    // Both visible at once is not guaranteed: grab, then bring the other lane's column under the pointer.
+    // Both ends must be on screen at once: a pointer sent to a coordinate outside the viewport drops nowhere.
     const from = (await card.boundingBox())!;
+    const to = (await target.boundingBox())!;
+    expect(from.y, "the card is inside the viewport").toBeGreaterThan(0);
+    expect(to.y + 60, "the other lane's column is inside the viewport").toBeGreaterThan(0);
+    expect(to.y + 60, "the other lane's column is inside the viewport").toBeLessThan(840);
     await page.mouse.move(from.x + from.width / 2, from.y + 12);
     await page.mouse.down();
     await page.mouse.move(from.x + from.width / 2 + 8, from.y + 20, { steps: 4 });
-    const to = (await target.boundingBox())!;
-    await page.mouse.move(to.x + to.width / 2, Math.min(to.y + 60, 840), { steps: 14 });
+    await page.mouse.move(to.x + to.width / 2, to.y + 60, { steps: 14 });
     await page.screenshot({ path: testInfo.outputPath("trascinamento-altro-progetto.png") });
     await page.mouse.up();
 
