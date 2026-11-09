@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.69",
+    "date": "2026-11-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Board per progetto: l'elenco dei progetti del selettore esce da tasks.ts",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.67",
     "date": "2026-11-09",
     "sections": {
@@ -40,6 +56,11 @@
           "scope": null
         },
         {
+          "it": "Corsie e Piano: un solo ordine (chi aspetta Attilio, poi per nome) e un solo nome per i progetti non registrati",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Migration screen_devices con timestamp dopo quella delle slot (#636), manifest rigenerato",
           "en": "",
           "scope": null
@@ -61,6 +82,11 @@
         },
         {
           "it": "Proxy esterno: tailnet e interfacce proprie rifiutate, relay WebSocket senza perdite, codici di chiusura veri",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Corsie e Piano: i tre rossi della CI (nome vietato nei test, testo italiano condiviso, trascinamento fra corsie lontane)",
           "en": "",
           "scope": null
         },
@@ -167,6 +193,11 @@
           "scope": null
         },
         {
+          "it": "Board per progetto: stesso nome da una sola fonte, domanda sulla card compatta sempre, drop fra corsie rifiutato",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "La card invisibile con la barra verde atterra da sola",
           "en": "",
           "scope": null
@@ -178,6 +209,17 @@
         },
         {
           "it": "Toglie un import inutilizzato dal test della porta del nodo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "i test dell'ordine dei progetti seguono il contratto nuovo (per nome, come le corsie)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "known-dirs-cache.test: dichiara cosa copre (PROJECT-11), il cancello dei test senza requisito era rosso su main",
           "en": "",
           "scope": null
         },
@@ -228,6 +270,11 @@
       "perf": [],
       "internal": [
         {
+          "it": "Corsie per progetto: l'hook va nel suo file, il lint vuole che un file di componenti esporti solo componenti",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "e2e più veloci: due processi per runner, file lento spezzato, instabile peggiore curato (#637)",
           "en": "",
           "scope": null
@@ -257,6 +304,16 @@
           "it": "Via Gateway da Topics (#606)",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Board per progetto: stesso nome e stesso ordine nel Kanban e nel Piano, una sola bozza, domanda sulla card compatta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nomi dei progetti: un identificatore che il cancello della lingua accettava prima del merge con main",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -270,6 +327,12 @@
       "perf": [],
       "internal": [
         {
+          "it": "card raggruppate per progetto e card compatte, uguali in Kanban e Piano",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "E2e sul PC: Chromium con la GPU, le spec a pixel su SwiftShader (#631)",
           "en": "",
           "scope": null
@@ -279,6 +342,11 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Board per progetto: una bozza sola, stesso ordine nel Piano, stato e attesa sulla card compatta",
+          "en": "",
+          "scope": null
         },
         {
           "it": "machine-slots.test: @covers",
