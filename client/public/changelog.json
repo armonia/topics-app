@@ -60,7 +60,22 @@
           "scope": null
         },
         {
+          "it": "Proxy esterno: tailnet e interfacce proprie rifiutate, relay WebSocket senza perdite, codici di chiusura veri",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Proxy esterno: import inutilizzati nel test, a connessione abbandonata il relay non attende il close di Anthropic",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Intake e2e: wait for the proposal rows before unticking them",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Proxy sessioni esterne: tetti al relay WebSocket (16 relay, 16 MB a messaggio, 1009)",
           "en": "",
           "scope": null
         },
@@ -182,7 +197,22 @@
           "scope": null
         },
         {
+          "it": "Proxy delle sessioni Claude esterne dentro il server di Topics",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Proxy esterno: CA e stato nella home di Topics, non nel checkout",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Schermo del PC: e2e su lavoro intero, da quando e CPU del Mac, e fine lavoro senza fantasmi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Proxy esterno: upgrade WebSocket inoltrato, CONNECT verso loopback e reti private rifiutato",
           "en": "",
           "scope": null
         }

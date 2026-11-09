@@ -17,7 +17,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il land automatico giudica uno sha solo, rifà il verdetto prima del merge e lascia a una persona tutto ciò che protegge, costa, giudica o cancella
 - Schermo del PC: il lavoro mandato va alla sessione dal repo che lo ha mandato, e si marca l'albero dei processi del lavoro
 - e2e schermo del PC: l'etichetta del lavoro e' quella di un worktree, cosi' lo piazza solo il repo
+- Proxy esterno: tailnet e interfacce proprie rifiutate, relay WebSocket senza perdite, codici di chiusura veri
+- Proxy esterno: import inutilizzati nel test, a connessione abbandonata il relay non attende il close di Anthropic
 - Intake e2e: wait for the proposal rows before unticking them
+- Proxy sessioni esterne: tetti al relay WebSocket (16 relay, 16 MB a messaggio, 1009)
 - timeout-minutes on every job, e2e shards 8 to 7
 - ci-changes expects seven e2e shards, not eight
 - Il land automatico lascia da solo solo testo e test, manda il codice del server alla revisione AI e rilegge la card dentro il merge
@@ -42,7 +45,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - CI di main rossa dopo i land della sera: un test senza requisito e due spec che dipendono dal tempo
 - Schermo del PC: schermo come tabella a parte, lavori e sessioni da una sola lettura, orologio della chat dal suo turno, lint e tipi in regola
 - L'atterraggio automatico guarda il main che atterra, i percorsi ammessi e l'archivio
+- Proxy delle sessioni Claude esterne dentro il server di Topics
+- Proxy esterno: CA e stato nella home di Topics, non nel checkout
 - Schermo del PC: e2e su lavoro intero, da quando e CPU del Mac, e fine lavoro senza fantasmi
+- Proxy esterno: upgrade WebSocket inoltrato, CONNECT verso loopback e reti private rifiutato
 
 ## 2.3.64 — 2026-11-08
 
