@@ -1420,6 +1420,8 @@ export interface Machine {
    * lives in a 0600 file under the state dir and never reaches the client.
    */
   baseUrl: string | null;
+  /** Cards this node may run at once, as declared (1-8). `null` = the default of its kind. */
+  slots: number | null;
   createdAt: string;
   updatedAt: string;
 }

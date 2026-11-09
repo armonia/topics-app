@@ -2,6 +2,7 @@
  * A project created right after a denial must be reachable at once: the denial
  * refresh is rate limited and the allowlist cache lives 5 s, so neither may
  * hide a project that was just created.
+ * @covers PROJECT-11
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";

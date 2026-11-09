@@ -11,7 +11,7 @@
 import { useEffect, useState } from 'react';
 import { Server } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import { reloadMachines } from '../../state/machinesStore';
+import { nodesOf, reloadMachines, useMachines } from '../../state/machinesStore';
 import { RemoteNodeRequests } from './RemoteNodeRequests';
 import { apiFetch } from '../../lib/shell/net';
 
@@ -210,7 +210,45 @@ export function NodesSection() {
           </div>
         )}
       </div>
+      <NodeSlots />
       <RemoteNodeRequests />
+    </div>
+  );
+}
+
+/** One field per paired node: how many cards it may run at once (1-8). */
+function NodeSlots() {
+  const t = useT();
+  const nodes = nodesOf(useMachines());
+  if (nodes.length === 0) return null;
+  const save = async (id: string, value: string) => {
+    const slots = Number(value);
+    if (!Number.isInteger(slots) || slots < 1 || slots > 8) { reloadMachines(); return; }
+    await apiFetch(`/api/machines/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slots }),
+      credentials: 'same-origin',
+    });
+    reloadMachines();
+  };
+  return (
+    <div className="space-y-2" data-testid="node-slots">
+      {nodes.map((m) => (
+        <label key={`${m.id}:${m.slots ?? ''}`} className="flex items-center justify-between gap-3 text-compact text-app-text">
+          <span>{m.name}: {t('settings.machines.slots.label')}</span>
+          <input
+            type="number"
+            min={1}
+            max={8}
+            defaultValue={m.slots ?? ''}
+            placeholder="2"
+            data-testid={`node-slots-${m.id}`}
+            onBlur={(e) => { void save(m.id, e.target.value); }}
+            className="w-16 rounded-md border border-app-border bg-app-surface px-2 py-1 text-right"
+          />
+        </label>
+      ))}
     </div>
   );
 }
