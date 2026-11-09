@@ -16,6 +16,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { basename, join } from "path";
+import { runBounded } from "../lib/bounded-spawn";
 import type { AppContext, RouteHandler } from "../types";
 
 export type AgentId = "main" | "gtm";
@@ -154,15 +155,8 @@ export function applyEdit(paths: Paths, e: Edit): { file: string; backup: string
 }
 
 async function run(cmd: string[], timeoutMs = 10_000): Promise<{ code: number; out: string }> {
-  try {
-    const p = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
-    const t = setTimeout(() => p.kill(), timeoutMs);
-    const out = (await new Response(p.stdout).text()) + (await new Response(p.stderr).text());
-    clearTimeout(t);
-    return { code: await p.exited, out: out.trim() };
-  } catch (err) {
-    return { code: 127, out: String(err) };
-  }
+  const r = await runBounded(cmd, { timeoutMs });
+  return { code: r.spawnFailed || r.exitCode === null ? 127 : r.exitCode, out: (r.stdout + r.stderr).trim() };
 }
 
 /** Restart only when no turn is in flight: a restart would cut a live reply. */
