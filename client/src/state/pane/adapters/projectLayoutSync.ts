@@ -10,9 +10,9 @@
  * dispatch + the matching `projects` field in selectSyncableSnapshot were
  * effectively dead data spamming the server with garbage.
  *
- * This adapter is now a thin localStorage wrapper. Cross-device project
- * layout sync is a TODO that needs a properly-shaped server channel
- * mirroring the project-window's inner state (panes/groups/rows).
+ * The adapter now keeps the layout in localStorage and mirrors it to the
+ * generic `ui_state` channel for cross-device sync; see the "Cross-device
+ * sync" block below and `saveProjectLayout`.
  */
 import { getTabId } from '../middleware/syncCrossTab';
 import { subscribeFrames, subscribeLifecycle, subscribeReconnect } from '../../../lib/wsFrameBus';

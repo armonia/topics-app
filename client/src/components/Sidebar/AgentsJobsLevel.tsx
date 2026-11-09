@@ -50,6 +50,8 @@ import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { PALLINO_ATTESA, PALLINO_OK } from './chromeSignals';
+import { readJson } from '../../lib/readJson';
+import { shortTokens } from '../../lib/formatTokens';
 import {
   agentsJobs, cancelRequest, openingFilter,
   type AgentsJobsView, type JobFilter, type JobRow, type JobSection, type SectionId, type StepMark,
@@ -60,6 +62,8 @@ addCatalogue('en', AGENTS_JOBS_EN);
 
 type Tr = ReturnType<typeof useT>;
 
+/** Hub polls must never be answered from the HTTP cache. */
+const NO_STORE: RequestInit = { cache: 'no-store' };
 const POLL_MS = 15_000;
 /** The automations are read one round in four: once a minute. */
 const AUTOMATIONS_EVERY = 4;
@@ -85,15 +89,6 @@ interface HubReads {
   downSince: number | null;
 }
 
-async function readJson(path: string): Promise<unknown> {
-  try {
-    const r = await apiFetch(path, { cache: 'no-store' });
-    return r.ok ? await r.json() : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * The hub's queue, diary and automations and the proxy's sessions, while the
  * level is open. The automations answer last (their first read after a cold
@@ -107,21 +102,21 @@ function useHubJobs(enabled: boolean): HubReads & { reread: () => void } {
   const read = useCallback(async (force = false) => {
     const first = round.current === 0;
     if (force || round.current++ % AUTOMATIONS_EVERY === 0) {
-      void readJson('/api/hub/automations').then((automations) => {
+      void readJson('/api/hub/automations', NO_STORE).then((automations) => {
         if (alive.current && automations !== null) setReads((r) => ({ ...r, automations }));
       });
     }
     if (first) {
-      void readJson('/api/switchboard/settings').then((settings) => {
+      void readJson('/api/switchboard/settings', NO_STORE).then((settings) => {
         if (alive.current && settings !== null) setReads((r) => ({ ...r, rate: exchangeRateOf(settings) }));
       });
     }
     const [queue, diary, proxy, board, live] = await Promise.all([
-      readJson('/api/hub/queue'),
-      readJson('/api/hub/diario?days=2'),
-      readJson('/api/switchboard/sessions'),
-      readJson('/api/hub/board'),
-      readJson('/api/hub/live'),
+      readJson('/api/hub/queue', NO_STORE),
+      readJson('/api/hub/diario?days=2', NO_STORE),
+      readJson('/api/switchboard/sessions', NO_STORE),
+      readJson('/api/hub/board', NO_STORE),
+      readJson('/api/hub/live', NO_STORE),
     ]);
     if (!alive.current) return;
     if (queue !== null || diary !== null) {
@@ -152,13 +147,6 @@ function elapsed(tr: Tr, ms: number): string {
   const min = Math.max(1, Math.round(ms / 60_000));
   if (min < 60) return tr('agentsJobs.min', { n: min });
   return tr('agentsJobs.hours', { h: Math.floor(min / 60), m: String(min % 60).padStart(2, '0') });
-}
-
-function shortTokens(n: number, locale: string): string {
-  const fmt = (v: number) => v.toLocaleString(locale === 'en' ? 'en-GB' : 'it-IT', { maximumFractionDigits: 1 });
-  if (n >= 1_000_000) return `${fmt(n / 1_000_000)}M`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
-  return String(n);
 }
 
 const STEP_FILL: Record<StepMark, string> = {
