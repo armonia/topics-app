@@ -76,7 +76,7 @@ function viaProxy(proxy: ExternalProxy, path: string, init: { method?: string; b
     body: (init.method ?? "POST") === "GET" ? undefined : init.body ?? "",
     headers: { authorization: `Bearer ${CALLER_AUTH}`, "anthropic-beta": "oauth-2025-04-20", ...init.headers },
     proxy: `http://127.0.0.1:${proxy.port}`,
-    tls: { ca: readFileSync(leaf.caPem, "utf8") },
+    tls: { ca: readFileSync(leaf.caCertificatePath, "utf8") },
   } as RequestInit);
 }
 
@@ -252,12 +252,12 @@ describe("fail-open", () => {
     } finally { await proxy.close(); dropper.close(); upstream.stop(); }
   });
 
-  test("engine accepts but stays mute, /health mute too: it is bypassed after failoverMs", async () => {
+  test("engine accepts but stays mute, /health mute too: it is bypassed after silenceMs", async () => {
     const mute = net.createServer((s) => s.on("error", () => {}));
     await new Promise<void>((r) => mute.listen(0, "127.0.0.1", r));
     const upstream = fake(() => new Response("ok-anthropic"));
     const { proxy, lines } = await start({
-      enginePort: (mute.address() as net.AddressInfo).port, upstreamPort: upstream.port, failoverMs: 150, healthMs: 150,
+      enginePort: (mute.address() as net.AddressInfo).port, upstreamPort: upstream.port, silenceMs: 150, healthMs: 150,
     });
     try {
       const t0 = Date.now();
@@ -277,7 +277,7 @@ describe("fail-open", () => {
       return Response.json({ via: "engine-slow" });
     });
     const upstream = fake(() => new Response("anthropic"));
-    const { proxy } = await start({ enginePort: engine.port, upstreamPort: upstream.port, failoverMs: 150, healthMs: 150 });
+    const { proxy } = await start({ enginePort: engine.port, upstreamPort: upstream.port, silenceMs: 150, healthMs: 150 });
     try {
       const r = await viaProxy(proxy, "/v1/messages", { body: "{}" });
       expect(await r.json()).toEqual({ via: "engine-slow" });
@@ -293,10 +293,10 @@ describe("streamed answers", () => {
   const pieces = ['event: message_start\ndata: {"type":"mess', 'age_start"}\n\n', 'event: content_block_delta\ndata: {"d":"ciao"}\n\n', "event: message_stop\ndata: {}\n\n"];
 
   function sseResponse(wrote: number[]): Response {
-    const enc = new TextEncoder();
+    const encoder = new TextEncoder();
     return new Response(new ReadableStream({
       async start(c) {
-        for (const piece of pieces) { c.enqueue(enc.encode(piece)); wrote.push(Date.now()); await sleep(150); }
+        for (const piece of pieces) { c.enqueue(encoder.encode(piece)); wrote.push(Date.now()); await sleep(150); }
         c.close();
       },
     }), { headers: { "content-type": "text/event-stream", "cache-control": "no-cache" } });
@@ -347,54 +347,54 @@ describe("CA and state", () => {
     const caDir = join(dir, "ca");
     expect(statSync(caDir).mode & 0o777).toBe(0o700);
     expect(statSync(join(caDir, "ca-key.pem")).mode & 0o777).toBe(0o600);
-    expect(statSync(leaf.keyFile).mode & 0o777).toBe(0o600);
-    const before = readFileSync(leaf.certFile);
+    expect(statSync(leaf.leafKeyPath).mode & 0o777).toBe(0o600);
+    const before = readFileSync(leaf.leafCertificatePath);
     ensureExternalProxyLeaf(caDir);
-    expect(readFileSync(leaf.certFile).equals(before)).toBe(true);
+    expect(readFileSync(leaf.leafCertificatePath).equals(before)).toBe(true);
 
     // the CA signs a certificate for another site, but no verifier accepts it
     const other = ensureExternalProxyLeaf(caDir, "example.com");
     let rejected = false;
     try {
-      execFileSync("openssl", ["verify", "-CAfile", leaf.caPem, other.certFile], { stdio: "pipe" });
+      execFileSync("openssl", ["verify", "-CAfile", leaf.caCertificatePath, other.leafCertificatePath], { stdio: "pipe" });
     } catch { rejected = true; }
     expect(rejected).toBe(true);
-    const ok = execFileSync("openssl", ["verify", "-CAfile", leaf.caPem, leaf.certFile], { encoding: "utf8" });
+    const ok = execFileSync("openssl", ["verify", "-CAfile", leaf.caCertificatePath, leaf.leafCertificatePath], { encoding: "utf8" });
     expect(ok).toMatch(/OK/);
   });
 
   test("boot writes host, port and CA path where other tools read them, and the file goes away on close", async () => {
-    const stateDir = mkdtempSync(join(tmpdir(), "external-proxy-state-"));
+    const homeDir = mkdtempSync(join(tmpdir(), "external-proxy-state-"));
     try {
-      const booted = await bootExternalProxy({ stateDir, port: 0 });
-      const file = externalProxyStatePath(stateDir);
+      const booted = await bootExternalProxy({ homeDir, port: 0 });
+      const file = externalProxyStatePath(homeDir);
       const state = JSON.parse(readFileSync(file, "utf8"));
       expect(state).toMatchObject({ host: "127.0.0.1", port: booted.port, intercepting: true, pid: process.pid });
-      expect(existsSync(state.caPem)).toBe(true);
-      expect(state.caPem).toBe(join(stateDir, "external-proxy-ca", "ca.pem"));
-      expect(statSync(join(stateDir, "external-proxy-ca")).mode & 0o777).toBe(0o700);
+      expect(existsSync(state.caCertificatePath)).toBe(true);
+      expect(state.caCertificatePath).toBe(join(homeDir, "external-proxy-ca", "ca.pem"));
+      expect(statSync(join(homeDir, "external-proxy-ca")).mode & 0o777).toBe(0o700);
       const health = await fetch(`http://127.0.0.1:${state.port}/health`);
       expect(health.status).toBe(200);
       await booted.close();
       expect(existsSync(file)).toBe(false);
-    } finally { rmSync(stateDir, { recursive: true, force: true }); }
+    } finally { rmSync(homeDir, { recursive: true, force: true }); }
   });
 
   test("a port still held by the previous server process is retried, and the state appears only once listening", async () => {
-    const stateDir = mkdtempSync(join(tmpdir(), "external-proxy-state-"));
+    const homeDir = mkdtempSync(join(tmpdir(), "external-proxy-state-"));
     const holder = net.createServer();
     await new Promise<void>((r) => holder.listen(0, "127.0.0.1", r));
     const port = (holder.address() as net.AddressInfo).port;
     try {
-      const pending = bootExternalProxy({ stateDir, port, bindRetries: 30, bindRetryMs: 100 });
+      const pending = bootExternalProxy({ homeDir, port, bindRetries: 30, bindRetryMs: 100 });
       await sleep(250);
-      expect(existsSync(externalProxyStatePath(stateDir))).toBe(false);
+      expect(existsSync(externalProxyStatePath(homeDir))).toBe(false);
       await new Promise((r) => holder.close(r));
       const booted = await pending;
       expect(booted.port).toBe(port);
-      expect(existsSync(externalProxyStatePath(stateDir))).toBe(true);
+      expect(existsSync(externalProxyStatePath(homeDir))).toBe(true);
       await booted.close();
-    } finally { holder.close(); rmSync(stateDir, { recursive: true, force: true }); }
+    } finally { holder.close(); rmSync(homeDir, { recursive: true, force: true }); }
   });
 
   test("the port variable: unset, empty or invalid means off", () => {

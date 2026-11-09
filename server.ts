@@ -37,7 +37,7 @@ import { startToolOutputBackfill } from "./server/lib/tool-output-store";
 import { shouldServeSpaFallback } from "./server/spa-fallback";
 import { classifyStaticAsset, pickPrecompressed } from "./server/static-assets";
 import {
-  acquireLock, releaseLock, writeState, readState,
+  acquireLock, releaseLock, writeState, readState, topicsHome,
   uptimeMsSince, LiveLockError, worktreeIsolationHome, worktreeIsolationEnv,
   listenWithSquatterFallback, PortTakenError,
 } from "./server/services/daemon-state";
@@ -5313,8 +5313,9 @@ if (serverModelProxy) {
 // app, relaunched with HTTPS_PROXY + NODE_EXTRA_CA_CERTS): their Messages calls
 // go through the account engine instead of straight to Anthropic. Off unless
 // TOPICS_EXTERNAL_PROXY_PORT is set; loopback only, on a port of its own. The
-// state file `<stateDir>/external-proxy.json` tells `claude-account` where it is
-// and where the CA is. See docs/ENV.md.
+// state file `<topics home>/external-proxy.json` (next to daemon-state.json) tells
+// `claude-account` where it is and where the CA is. The CA key lives in the Topics
+// home, never in STATE_DIR (the checkout root in production). See docs/ENV.md.
 const portaExternalProxy = externalProxyPort(process.env);
 let externalProxy: BootedExternalProxy | null = null;
 let externalProxyStopped = false; // set by gracefulShutdown: a boot that finishes after it must close itself
@@ -5322,7 +5323,7 @@ if (portaExternalProxy) {
   // Not awaited: a port still held by the previous process is retried for a few
   // seconds, and the rest of the boot must not wait for it.
   void bootExternalProxy({
-    stateDir: ctx.STATE_DIR,
+    homeDir: topicsHome(),
     port: portaExternalProxy,
     log: (event, fields) => console.log(`[ExternalProxy] ${event}${fields ? " " + Object.entries(fields).map(([k, v]) => `${k}=${v}`).join(" ") : ""}`),
   }).then((proxy) => {

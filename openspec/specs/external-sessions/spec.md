@@ -381,9 +381,9 @@ SHALL andare ad Anthropic con le intestazioni originali. Una risposta lenta con
 `/health` vivo NON è un guasto e NON SHALL partire due volte. I log NON SHALL
 contenere corpi, intestazioni, token, query né UUID.
 
-La CA SHALL stare nella cartella dati di Topics (0700, chiavi 0600), vincolata a
+La CA SHALL stare nella cartella di Topics (`~/.topics`, mai nel checkout; 0700, chiavi 0600), vincolata a
 `api.anthropic.com`; host, porta e percorso della CA SHALL essere scritti in
-`external-proxy.json` nella stessa cartella e tolti allo spegnimento.
+`external-proxy.json` nella stessa cartella (accanto a `daemon-state.json`) e tolti allo spegnimento.
 
 #### Scenario: il motore è giù
 - **GIVEN** il motore non risponde

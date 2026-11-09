@@ -28,16 +28,16 @@ const DAY_MS = 86_400_000;
 export const INTERCEPTED_HOST = "api.anthropic.com";
 
 export interface ExternalProxyLeaf {
-  caPem: string;
-  certFile: string;
-  keyFile: string;
+  caCertificatePath: string;
+  leafCertificatePath: string;
+  leafKeyPath: string;
   key: Buffer;
   cert: Buffer;
 }
 
-/** Where the CA lives inside the Topics state directory. */
-export function externalProxyCaDir(stateDir: string): string {
-  return join(stateDir, "external-proxy-ca");
+/** Where the CA lives: inside the Topics home (`~/.topics`), never in a checkout. */
+export function externalProxyCaDir(homeDir: string): string {
+  return join(homeDir, "external-proxy-ca");
 }
 
 function findOpenssl(): string {
@@ -57,7 +57,7 @@ function runOpenssl(args: string[], cwd: string): void {
   }
 }
 
-function readCert(file: string): X509Certificate | null {
+function readCertificate(file: string): X509Certificate | null {
   try {
     return new X509Certificate(readFileSync(file));
   } catch {
@@ -69,7 +69,7 @@ function daysLeft(cert: X509Certificate): number {
   return (new Date(cert.validTo).getTime() - Date.now()) / DAY_MS;
 }
 
-const CA_CNF = `[req]
+const CA_CONFIG_TEXT = `[req]
 distinguished_name = dn
 x509_extensions = v3_ca
 prompt = no
@@ -82,7 +82,7 @@ subjectKeyIdentifier = hash
 nameConstraints = critical,permitted;DNS:${INTERCEPTED_HOST}
 `;
 
-const leafCnf = (host: string): string => `[req]
+const leafConfigText = (host: string): string => `[req]
 distinguished_name = dn
 prompt = no
 [dn]
@@ -97,27 +97,27 @@ subjectKeyIdentifier = hash
 `;
 
 /** Creates the directory (0700) and the CA when they are missing or about to expire. */
-export function ensureExternalProxyCa(dir: string): { caPem: string; caKey: string; created: boolean } {
+export function ensureExternalProxyCa(dir: string): { caCertificatePath: string; caKey: string; created: boolean } {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   chmodSync(dir, 0o700);
-  const caPem = join(dir, "ca.pem");
+  const caCertificatePath = join(dir, "ca.pem");
   const caKey = join(dir, "ca-key.pem");
-  const existing = readCert(caPem);
+  const existing = readCertificate(caCertificatePath);
   if (existing && existsSync(caKey) && daysLeft(existing) > RENEW_BEFORE_DAYS) {
     chmodSync(caKey, 0o600);
-    return { caPem, caKey, created: false };
+    return { caCertificatePath, caKey, created: false };
   }
-  const cnf = join(dir, ".ca.cnf");
-  writeFileSync(cnf, CA_CNF, { mode: 0o600 });
+  const configFile = join(dir, ".ca.configFile");
+  writeFileSync(configFile, CA_CONFIG_TEXT, { mode: 0o600 });
   try {
     runOpenssl(["ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", caKey], dir);
     chmodSync(caKey, 0o600);
-    runOpenssl(["req", "-x509", "-new", "-key", caKey, "-sha256", "-days", String(CA_DAYS), "-config", cnf, "-out", caPem], dir);
-    chmodSync(caPem, 0o644); // the app has to read it: it is public
+    runOpenssl(["req", "-x509", "-new", "-key", caKey, "-sha256", "-days", String(CA_DAYS), "-config", configFile, "-out", caCertificatePath], dir);
+    chmodSync(caCertificatePath, 0o644); // the app has to read it: it is public
   } finally {
-    rmSync(cnf, { force: true });
+    rmSync(configFile, { force: true });
   }
-  return { caPem, caKey, created: true };
+  return { caCertificatePath, caKey, created: true };
 }
 
 /**
@@ -125,28 +125,28 @@ export function ensureExternalProxyCa(dir: string): { caPem: string; caKey: stri
  * expires within 30 days, or is no longer a child of this CA (the CA was renewed).
  */
 export function ensureExternalProxyLeaf(dir: string, host: string = INTERCEPTED_HOST): ExternalProxyLeaf {
-  const { caPem, caKey, created } = ensureExternalProxyCa(dir);
-  const certFile = join(dir, `leaf-${host}.pem`);
-  const keyFile = join(dir, `leaf-${host}-key.pem`);
-  const ca = readCert(caPem);
-  const leaf = readCert(certFile);
-  const fresh = !!ca && !!leaf && existsSync(keyFile) && !created
+  const { caCertificatePath, caKey, created } = ensureExternalProxyCa(dir);
+  const leafCertificatePath = join(dir, `leaf-${host}.pem`);
+  const leafKeyPath = join(dir, `leaf-${host}-key.pem`);
+  const ca = readCertificate(caCertificatePath);
+  const leaf = readCertificate(leafCertificatePath);
+  const fresh = !!ca && !!leaf && existsSync(leafKeyPath) && !created
     && leaf.checkIssued(ca) && leaf.verify(ca.publicKey) && daysLeft(leaf) > RENEW_BEFORE_DAYS;
   if (!fresh) {
-    const cnf = join(dir, ".leaf.cnf");
-    const csr = join(dir, ".leaf.csr");
-    const srl = join(dir, "ca.srl");
-    writeFileSync(cnf, leafCnf(host), { mode: 0o600 });
+    const configFile = join(dir, ".leaf.configFile");
+    const requestFile = join(dir, ".leaf.requestFile");
+    const serialFile = join(dir, "ca.serialFile");
+    writeFileSync(configFile, leafConfigText(host), { mode: 0o600 });
     try {
-      runOpenssl(["ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", keyFile], dir);
-      chmodSync(keyFile, 0o600);
-      runOpenssl(["req", "-new", "-key", keyFile, "-config", cnf, "-out", csr], dir);
-      runOpenssl(["x509", "-req", "-in", csr, "-CA", caPem, "-CAkey", caKey, "-CAcreateserial", "-days", String(LEAF_DAYS),
-        "-sha256", "-extfile", cnf, "-extensions", "v3_leaf", "-out", certFile], dir);
-      chmodSync(certFile, 0o644);
+      runOpenssl(["ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", leafKeyPath], dir);
+      chmodSync(leafKeyPath, 0o600);
+      runOpenssl(["req", "-new", "-key", leafKeyPath, "-config", configFile, "-out", requestFile], dir);
+      runOpenssl(["x509", "-req", "-in", requestFile, "-CA", caCertificatePath, "-CAkey", caKey, "-CAcreateserial", "-days", String(LEAF_DAYS),
+        "-sha256", "-extfile", configFile, "-extensions", "v3_leaf", "-out", leafCertificatePath], dir);
+      chmodSync(leafCertificatePath, 0o644);
     } finally {
-      for (const f of [cnf, csr, srl]) rmSync(f, { force: true });
+      for (const f of [configFile, requestFile, serialFile]) rmSync(f, { force: true });
     }
   }
-  return { caPem, certFile, keyFile, key: readFileSync(keyFile), cert: readFileSync(certFile) };
+  return { caCertificatePath, leafCertificatePath, leafKeyPath, key: readFileSync(leafKeyPath), cert: readFileSync(leafCertificatePath) };
 }

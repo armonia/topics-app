@@ -20,15 +20,15 @@
  *       anything else             -> https://api.anthropic.com as it is (OAuth,
  *                                    profile, telemetry), headers untouched
  *
- * The internal server is a `Bun.serve` on purpose: Bun's `node:http` is not built
- * on sockets, so a decrypted stream cannot be handed to it. `Bun.serve` brings
- * the HTTP parsing, TLS, and streamed responses (SSE) for free.
+ * The inner TLS endpoint is a native Bun listener, deliberately. The node:http server of Bun
+ * is not built over sockets, so a decrypted stream cannot be handed to it. The native one
+ * already provides HTTP parsing, TLS and streamed responses (SSE).
  *
  * FAIL-OPEN. When the engine is down the app must keep working, without caps:
  * the request goes to Anthropic with the original headers (the app's own token).
  * The engine counts as down when
  *   - the connection is refused or closed before any response, or
- *   - it gives no response headers within `failoverMs` AND its /health is also
+ *   - it gives no response headers within `silenceMs` AND its /health is also
  *     silent for another `healthMs`.
  * A slow answer is NOT a failure: the engine may hold a request for hours (usage
  * cap waiting), and sending it on to Anthropic would run it twice. That is why
@@ -52,7 +52,7 @@ export const EXTERNAL_PROXY_HOST = "127.0.0.1";
 /** Largest request body accepted (a Messages call with images is the heavy case). */
 export const EXTERNAL_PROXY_MAX_BODY_BYTES = 50 * 1024 * 1024;
 /** No response headers from the engine for this long: ask its /health. */
-export const EXTERNAL_PROXY_FAILOVER_MS = 2000;
+export const EXTERNAL_PROXY_SILENCE_MS = 2000;
 /** /health silent for this long: the engine is really down. */
 export const EXTERNAL_PROXY_HEALTH_MS = 5000;
 
@@ -91,7 +91,7 @@ export interface ExternalProxyOptions {
   messagesUrl?: () => string;
   /** Where everything else, and the fail-open, goes. Tests point it at a plain-HTTP fake. */
   upstreamBase?: string;
-  failoverMs?: number;
+  silenceMs?: number;
   healthMs?: number;
   maxBodyBytes?: number;
   fetch?: typeof fetch;
@@ -99,8 +99,8 @@ export interface ExternalProxyOptions {
 }
 
 /** The path without query and without UUIDs (organizations, sessions): nothing else may reach a log. */
-function bareUrl(pathname: string): string {
-  return pathname.replace(UUID_RE, ":id").slice(0, 120);
+function bareUrl(urlPath: string): string {
+  return urlPath.replace(UUID_RE, ":id").slice(0, 120);
 }
 
 function parseAuthority(authority: string): { host: string; port: number } | null {
@@ -155,7 +155,7 @@ export interface ExternalProxy {
 
 export async function startExternalProxy(options: ExternalProxyOptions): Promise<ExternalProxy> {
   const host = options.host ?? EXTERNAL_PROXY_HOST;
-  const failoverMs = options.failoverMs ?? EXTERNAL_PROXY_FAILOVER_MS;
+  const silenceMs = options.silenceMs ?? EXTERNAL_PROXY_SILENCE_MS;
   const healthMs = options.healthMs ?? EXTERNAL_PROXY_HEALTH_MS;
   const maxBodyBytes = options.maxBodyBytes ?? EXTERNAL_PROXY_MAX_BODY_BYTES;
   const messagesUrl = options.messagesUrl ?? anthropicMessagesUrl;
@@ -174,7 +174,7 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
   /** Straight to Anthropic. With `body` the send is redone from the buffer; without, the request stream is piped. */
   async function toUpstream(req: Request, pathAndQuery: string, body: Uint8Array<ArrayBuffer> | undefined, why: string): Promise<Response> {
     const started = Date.now();
-    const pathname = new URL(pathAndQuery, "http://x").pathname;
+    const urlPath = new URL(pathAndQuery, "http://x").pathname;
     try {
       const hasBody = req.method !== "GET" && req.method !== "HEAD";
       // `duplex` is required by the spec when the body is a stream, but missing from the typings.
@@ -188,11 +188,11 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
       };
       const res = await doFetch(upstreamBase + pathAndQuery, init);
       stats.direct++;
-      log(why, { method: req.method, path: bareUrl(pathname), status: res.status, ms: Date.now() - started });
+      log(why, { method: req.method, path: bareUrl(urlPath), status: res.status, ms: Date.now() - started });
       return new Response(res.body, { status: res.status, statusText: res.statusText, headers: cleanResponseHeaders(res.headers) });
     } catch (e) {
       if (req.signal.aborted) return new Response(null, { status: 499 }); // the client left: not a fault to note
-      log(`${why}-error`, { method: req.method, path: bareUrl(pathname), code: errorCode(e) });
+      log(`${why}-error`, { method: req.method, path: bareUrl(urlPath), code: errorCode(e) });
       return proxyError(502, `${INTERCEPTED_HOST} unreachable from the Topics proxy`);
     }
   }
@@ -215,7 +215,7 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
     let timer: ReturnType<typeof setTimeout> | undefined;
     const attempt = doFetch(target, { method: "POST", headers: cleanRequestHeaders(req.headers), body, signal, redirect: "manual" });
     attempt.catch(() => {}); // when the watchdog wins, this one rejects on the abort: already handled
-    // connected but mute: after failoverMs the engine's /health decides
+    // connected but mute: after silenceMs the engine's /health decides
     const watchdog = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
         void engineAlive(new URL(target).origin).then((alive) => {
@@ -223,7 +223,7 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
           abort.abort();
           reject(new FailOver("no-response-health-down"));
         });
-      }, failoverMs);
+      }, silenceMs);
     });
     watchdog.catch(() => {});
     try {
@@ -259,7 +259,7 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
   }
 
   // The internal TLS server. Only the front listener reaches it (random loopback port).
-  const mitm = options.tls?.key && options.tls?.cert
+  const innerServer = options.tls?.key && options.tls?.cert
     ? Bun.serve({
         port: 0,
         hostname: "127.0.0.1",
@@ -303,7 +303,7 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
       const rest = buffered.subarray(end + 4);
       const [method, target] = (lines[0] ?? "").split(" ");
       if (method === "GET" && target === "/health") {
-        client.end(`HTTP/1.1 200 OK\r\ncontent-type: application/json\r\nconnection: close\r\n\r\n${JSON.stringify({ status: "ok", intercepting: !!mitm, ...stats })}`);
+        client.end(`HTTP/1.1 200 OK\r\ncontent-type: application/json\r\nconnection: close\r\n\r\n${JSON.stringify({ status: "ok", intercepting: !!innerServer, ...stats })}`);
       } else if (method === "CONNECT") {
         onConnect(client, target ?? "", rest);
       } else {
@@ -320,11 +320,11 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
       client.end("HTTP/1.1 400 Bad Request\r\n\r\n");
       return;
     }
-    const intercept = !!mitm && parsed.host === INTERCEPTED_HOST && parsed.port === 443;
+    const intercept = !!innerServer && parsed.host === INTERCEPTED_HOST && parsed.port === 443;
     if (intercept) stats.intercepted++;
     else stats.tunnel++;
     // Both cases are a byte tunnel; they differ only in where it ends.
-    const upstream = net.connect(intercept ? { host: "127.0.0.1", port: mitm!.port! } : { host: parsed.host, port: parsed.port });
+    const upstream = net.connect(intercept ? { host: "127.0.0.1", port: innerServer!.port! } : { host: parsed.host, port: parsed.port });
     track(upstream);
     upstream.setNoDelay(true);
     client.setNoDelay(true);
@@ -357,7 +357,7 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
       resolve();
     });
   }).catch((e) => {
-    mitm?.stop(true);
+    innerServer?.stop(true);
     throw e;
   });
   const address = front.address() as net.AddressInfo;
@@ -365,11 +365,11 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
   return {
     port: address.port,
     stats,
-    intercepting: !!mitm,
+    intercepting: !!innerServer,
     close() {
       return new Promise<void>((resolve) => {
         front.close(() => resolve());
-        void mitm?.stop(true);
+        void innerServer?.stop(true);
         // long connections (SSE, tunnels) are not worth waiting for
         setTimeout(() => {
           for (const s of sockets) s.destroy();
@@ -389,24 +389,27 @@ function errorCode(e: unknown): string {
 // Boot wiring + the state file other tools read
 // ---------------------------------------------------------------------------
 
-/** What `claude-account` (and anything else that relaunches an external app) reads instead of hard-coding it. */
+/**
+ * What `claude-account` (and anything else that relaunches an external app) reads instead of
+ * hard-coding it: `<topics home>/external-proxy.json`, next to `daemon-state.json`.
+ */
 export interface ExternalProxyState {
   host: string;
   port: number;
   /** Absolute path of the public CA certificate for `NODE_EXTRA_CA_CERTS`; null when the proxy only tunnels. */
-  caPem: string | null;
+  caCertificatePath: string | null;
   intercepting: boolean;
   pid: number;
   startedAt: string;
 }
 
-export function externalProxyStatePath(stateDir: string): string {
-  return join(stateDir, "external-proxy.json");
+export function externalProxyStatePath(homeDir: string): string {
+  return join(homeDir, "external-proxy.json");
 }
 
-function writeState(stateDir: string, state: ExternalProxyState): void {
-  const file = externalProxyStatePath(stateDir);
-  mkdirSync(stateDir, { recursive: true });
+function writeState(homeDir: string, state: ExternalProxyState): void {
+  const file = externalProxyStatePath(homeDir);
+  mkdirSync(homeDir, { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o644 });
   renameSync(tmp, file);
@@ -417,26 +420,27 @@ export interface BootedExternalProxy extends ExternalProxy {
 }
 
 /**
- * Starts the proxy for the server: CA in the state directory, listener on `port`,
+ * Starts the proxy for the server: CA in `homeDir` (the Topics home, `~/.topics`),
+ * listener on `port`,
  * state file written. A CA that cannot be built does not stop it (it tunnels only,
  * the app keeps its network). A port still held by the previous server process
  * (reload overlap) is retried for a few seconds, and the state file is written only
  * once the proxy is really listening.
  */
 export async function bootExternalProxy(opts: {
-  stateDir: string;
+  homeDir: string;
   port: number;
   log?: ExternalProxyOptions["log"];
   bindRetries?: number;
   bindRetryMs?: number;
 }): Promise<BootedExternalProxy> {
   const log = opts.log ?? (() => {});
-  let tls: ExternalProxyOptions["tls"] = null;
-  let caPem: string | null = null;
+  let leafPair: ExternalProxyOptions["tls"] = null;
+  let caCertificatePath: string | null = null;
   try {
-    const leaf = ensureExternalProxyLeaf(externalProxyCaDir(opts.stateDir));
-    tls = { key: leaf.key, cert: leaf.cert };
-    caPem = leaf.caPem;
+    const leaf = ensureExternalProxyLeaf(externalProxyCaDir(opts.homeDir));
+    leafPair = { key: leaf.key, cert: leaf.cert };
+    caCertificatePath = leaf.caCertificatePath;
   } catch (e) {
     log("ca-failed-tunnel-only", { reason: errorCode(e) });
   }
@@ -445,7 +449,7 @@ export async function bootExternalProxy(opts: {
   let proxy: ExternalProxy | null = null;
   for (let attempt = 0; !proxy; attempt++) {
     try {
-      proxy = await startExternalProxy({ port: opts.port, tls, log });
+      proxy = await startExternalProxy({ port: opts.port, tls: leafPair, log });
     } catch (e) {
       if ((e as { code?: string }).code !== "EADDRINUSE" || attempt >= retries) throw e;
       await new Promise((r) => setTimeout(r, wait));
@@ -454,18 +458,18 @@ export async function bootExternalProxy(opts: {
   const state: ExternalProxyState = {
     host: EXTERNAL_PROXY_HOST,
     port: proxy.port,
-    caPem,
+    caCertificatePath,
     intercepting: proxy.intercepting,
     pid: process.pid,
     startedAt: new Date().toISOString(),
   };
-  writeState(opts.stateDir, state);
+  writeState(opts.homeDir, state);
   const close = proxy.close.bind(proxy);
   return {
     ...proxy,
     state,
     async close() {
-      rmSync(externalProxyStatePath(opts.stateDir), { force: true });
+      rmSync(externalProxyStatePath(opts.homeDir), { force: true });
       await close();
     },
   };

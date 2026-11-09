@@ -86,6 +86,8 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // openssl: the binary that builds the local CA of the external-sessions proxy (`server/services/external-proxy-ca.ts`).
+  "openssl",
   // gpu: the graphics card the e2e browser can render on (`tests/e2e/helpers/remote-gpu.ts`).
   "gpu",
   // automation: a scheduled job of the usage hub (cron, launchd, workflow), the
