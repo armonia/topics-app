@@ -185,6 +185,24 @@ describe("tunnel", () => {
     } finally { await proxy.close(); }
   });
 
+  test("the listener is bound to the loopback only: no other address of this machine accepts a connection on its port", async () => {
+    const { proxy } = await start({ enginePort: await closedPort() });
+    try {
+      const others = Object.values(os.networkInterfaces()).flatMap((list) => (list ?? []).filter((a) => !a.internal));
+      // refused is the usual answer; a VPN that swallows packets for its own address (a timeout) is as good: nobody accepted
+      const outcomes = await Promise.all(others.map(({ address }) => new Promise<{ address: string; outcome: string }>((resolve) => {
+        const socket = net.connect({ host: address, port: proxy.port });
+        const done = (outcome: string) => { socket.destroy(); resolve({ address, outcome }); };
+        socket.once("connect", () => done("CONNECTED"));
+        socket.once("error", (e) => done((e as NodeJS.ErrnoException).code ?? "error"));
+        setTimeout(() => done("TIMEOUT"), 1500).unref();
+      })));
+      expect(outcomes.filter((o) => o.outcome === "CONNECTED")).toEqual([]);
+      // on the loopback it does answer
+      expect((await fetch(`http://127.0.0.1:${proxy.port}/health`)).status).toBe(200);
+    } finally { await proxy.close(); }
+  });
+
   test("without a CA the proxy only tunnels: api.anthropic.com is not intercepted", async () => {
     const { proxy } = await start({ enginePort: await closedPort(), tls: null });
     try {

@@ -387,8 +387,27 @@ RISOLVE, e la connessione SHALL aprirsi proprio su quella risposta.
 Una richiesta di upgrade WebSocket verso api.anthropic.com SHALL ricevere il 101
 solo se la stretta di mano con Anthropic è riuscita (altrimenti 502), e i messaggi,
 testo e binari, SHALL passare nei due sensi. Un client che legge piano NON SHALL
-perdere messaggi: il relay li trattiene fino a un tetto per connessione e direzione,
-oltre il quale chiude con 1013 (1011 verso Anthropic), mai con un buco nel mezzo.
+perdere messaggi: il relay li trattiene fino a un tetto per connessione (64 MB,
+SOLO nel verso Anthropic -> client), oltre il quale chiude con 1013 (1011 verso
+Anthropic), mai con un buco nel mezzo.
+
+Limiti del relay WebSocket: al massimo 16 relay aperti insieme, il 17o upgrade
+SHALL ricevere 503 prima ancora di interpellare Anthropic, e il posto SHALL
+tornare libero alla chiusura (o a un handshake fallito); un messaggio dal client
+oltre 16 MB SHALL essere rifiutato con la chiusura 1009 e NON SHALL essere
+inoltrato. Nel verso client -> Anthropic NON esiste un tetto in byte, ed è un
+limite noto e non una scelta: il WebSocket client di Bun dà `bufferedAmount`
+sempre 0 e non ha né evento di svuotamento né pausa, quindi il relay non può
+sapere quanto sta in coda, e nemmeno il socket del client può essere messo in
+pausa. La memoria di un relay è quindi al più 16 MB per ogni messaggio in volo,
+SENZA tetto sul loro numero: la contiene solo chi può farlo (un processo di
+questa macchina, perché il listener sta solo su 127.0.0.1), e al massimo 16
+connessioni alla volta, ciascuna una sessione vera verso Anthropic. Un tetto
+vero chiede un segnale di svuotamento dal runtime.
+
+Il listener del proxy SHALL essere legato solo a 127.0.0.1: nessun altro
+indirizzo di questa macchina (LAN, Tailscale) SHALL accettare una connessione
+sulla sua porta, e l'indirizzo non è configurabile.
 Il codice di chiusura SHALL passare uguale nei due sensi, con la reason dove il
 socket la porta; una chiusura anomala di Anthropic (1006) SHALL arrivare al client
 come 1011, mai come 1000, e un client sparito senza chiusura SHALL essere un
@@ -425,6 +444,18 @@ La CA SHALL stare nella cartella di Topics (`~/.topics`, mai nel checkout; 0700,
 #### Scenario: un client lento
 - **GIVEN** un client che smette di leggere per 4 secondi mentre Anthropic manda 160 messaggi da 256 KB
 - **THEN** SHALL ricevere tutti e 160, in ordine
+
+#### Scenario: un messaggio troppo grande
+- **GIVEN** un messaggio dal client di 16 MB e poi uno di 16 MB più un byte
+- **THEN** il primo SHALL arrivare ad Anthropic, il secondo SHALL chiudere la connessione con 1009 senza essere inoltrato
+
+#### Scenario: troppi relay insieme
+- **GIVEN** 16 relay WebSocket aperti
+- **THEN** il 17o upgrade SHALL ricevere 503 senza che Anthropic sia interpellato, e dopo la chiusura di uno un nuovo upgrade SHALL riuscire
+
+#### Scenario: il listener è solo sul loopback
+- **GIVEN** il proxy acceso
+- **THEN** una connessione alla sua porta da un altro indirizzo di questa macchina NON SHALL riuscire
 
 #### Scenario: un CONNECT verso la tailnet
 - **GIVEN** un CONNECT verso un indirizzo 100.64/10 o verso un nome `*.ts.net`

@@ -28,8 +28,9 @@
  *                                    upstream handshake is made first, the client gets its 101 only
  *                                    if that one worked (otherwise a 502), headers and subprotocol
  *                                    are carried across, close codes too (an abnormal end stays one).
- *                                    A side that reads too slowly cannot be paused: the relay holds its
- *                                    bytes up to a limit and then CLOSES with 1013, never skips one
+ *                                    A slow client cannot be paused: the relay holds the bytes up to a
+ *                                    limit, then CLOSES with 1013, never skips one. Client -> Anthropic has
+ *                                    NO byte limit, a known gap (see "WebSocket limits" below).
  *
  * The inner TLS endpoint is a native Bun listener, deliberately. The node:http server of Bun
  * is not built over sockets, so a decrypted stream cannot be handed to it. The native one
@@ -81,13 +82,23 @@ const HEAD_TIMEOUT_MS = 10_000;
 const CONNECT_TIMEOUT_MS = 15_000;
 const WS_OPEN_TIMEOUT_MS = 15_000;
 /**
- * What the relay holds, per connection and per direction, for a side that reads too slowly.
- * Neither WebSocket API here can pause the other side, so the bytes wait in the relay up to this
- * limit; past it the connection is CLOSED with 1013. A message is never skipped silently.
+ * WebSocket limits. Bounded: relays open together (`WS_MAX_RELAYS`, the next gets a 503 before Anthropic
+ * is asked), one message from the client (`WS_MAX_MESSAGE_BYTES`, above it a close 1009, never handed on),
+ * and what a slow CLIENT makes the relay hold (`RELAY_BACKLOG_LIMIT_BYTES`: past it a close 1013, never a
+ * skipped message). NOT bounded: client -> Anthropic in total. Bun's client WebSocket reports
+ * `bufferedAmount` as always 0 (checked on 1.3.8) and has neither a drain event nor a pause, so the relay
+ * cannot know what sits unsent, and the server socket cannot be paused either: a client that sends faster
+ * than Anthropic reads makes the relay hold every message, each up to `WS_MAX_MESSAGE_BYTES`, with no
+ * ceiling on how many. Acceptable only because of who can do it: a process on this machine (the listener
+ * is loopback-only), through at most `WS_MAX_RELAYS` sessions. A real bound needs a drain signal.
  */
 const RELAY_BACKLOG_LIMIT_BYTES = 64 * 1024 * 1024;
 /** The largest single WebSocket message accepted from the client. */
 const WS_MAX_MESSAGE_BYTES = 16 * 1024 * 1024;
+/** Bun drops a message above its `maxPayloadLength` without a close frame: its limit sits above ours, so 1009 can be sent. */
+const WS_FRAME_MARGIN_BYTES = 1024 * 1024;
+/** WebSocket relays open at the same time; one more is refused with a 503. */
+const WS_MAX_RELAYS = 16;
 
 /**
  * Where a CONNECT may NOT lead: this machine and its local networks. The main port of
@@ -193,7 +204,6 @@ export interface ExternalProxyStats {
 export interface ExternalProxyOptions {
   /** 0 = ephemeral (tests). */
   port: number;
-  host?: string;
   /** The leaf for api.anthropic.com. Without it the proxy only tunnels (the app keeps working, without caps). */
   tls?: { key: Buffer | string; cert: Buffer | string } | null;
   /** Where the Messages calls go; read at every request, so a changed engine address is followed. */
@@ -211,7 +221,7 @@ export interface ExternalProxyOptions {
   allowLocalTargets?: boolean;
   /** The addresses of this machine's interfaces; read at every CONNECT. Tests inject one a table cannot know. */
   interfaceAddresses?: () => readonly string[];
-  /** Per connection and per direction, what the relay may hold for a side that reads too slowly; past it the connection is closed (1013). */
+  /** Per connection, what the relay may hold for a CLIENT that reads too slowly (Anthropic -> client); past it the connection is closed (1013). */
   relayBacklogLimitBytes?: number;
   log?: (event: string, fields?: Record<string, string | number>) => void;
 }
@@ -272,7 +282,6 @@ export interface ExternalProxy {
 }
 
 export async function startExternalProxy(options: ExternalProxyOptions): Promise<ExternalProxy> {
-  const host = options.host ?? EXTERNAL_PROXY_HOST;
   const silenceMs = options.silenceMs ?? EXTERNAL_PROXY_SILENCE_MS;
   const healthMs = options.healthMs ?? EXTERNAL_PROXY_HEALTH_MS;
   const maxBodyBytes = options.maxBodyBytes ?? EXTERNAL_PROXY_MAX_BODY_BYTES;
@@ -286,6 +295,8 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
   const log = options.log ?? (() => {});
   const stats: ExternalProxyStats = { connect: 0, tunnel: 0, intercepted: 0, viaEngine: 0, failOpen: 0, direct: 0, websocket: 0, refused: 0 };
   const sockets = new Set<net.Socket>();
+  /** WebSocket relays holding a place: from the admission to the close of the server socket. */
+  let openRelays = 0;
   const track = (s: net.Socket) => {
     sockets.add(s);
     s.once("close", () => sockets.delete(s));
@@ -390,7 +401,7 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
     backlogBytes: number;
     ended: { code: number; reason: string } | null;
     client: ServerWebSocket<RelayData> | null;
-    /** Set once a side was too slow and the connection was closed for it: from then on nothing more is relayed. */
+    /** Set once the relay ended the connection by its own decision (a slow client, an oversized message): from then on nothing more is relayed. */
     overflowed: boolean;
     started: number;
     path: string;
@@ -405,33 +416,30 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
     return typeof message === "string" ? Buffer.byteLength(message) : message.byteLength;
   }
 
-  /**
-   * Neither side of a relay can be paused, so a side that reads too slowly makes the relay hold
-   * its bytes. Past `backlogLimit` the connection is CLOSED, both ends told (1013 to the client,
-   * 1011 to Anthropic): what the client has seen is a prefix, never a sequence with a hole.
-   */
-  function overflow(data: RelayData, side: "client" | "upstream"): void {
+  /** The relay ends the connection by its own decision: the client is told `code`, Anthropic 1011, nothing more is relayed (a prefix, never a hole). */
+  function giveUp(data: RelayData, code: number, reason: string, event: string): void {
     if (data.overflowed) return;
     data.overflowed = true;
     data.backlog.length = 0;
     data.backlogBytes = 0;
-    log("ws-backpressure", { path: data.path, side, ms: Date.now() - data.started });
-    try { data.client?.close(1013, "relay buffer full"); } catch { /* already closed */ }
-    try { data.upstream.close(1011, "relay buffer full"); } catch { /* already closed */ }
+    log(event, { path: data.path, ms: Date.now() - data.started });
+    try { data.client?.close(code, reason); } catch { /* already closed */ }
+    try { data.upstream.close(1011, reason); } catch { /* already closed */ }
   }
+  const overflow = (data: RelayData) => giveUp(data, 1013, "relay buffer full", "ws-backpressure");
 
   /** Anthropic -> client. */
   function deliverToClient(data: RelayData, message: string | ArrayBuffer): void {
     if (data.overflowed) return;
     const size = messageBytes(message);
     if (!data.client) {
-      if (data.backlogBytes + size > backlogLimit) return overflow(data, "client");
+      if (data.backlogBytes + size > backlogLimit) return overflow(data);
       data.backlogBytes += size;
       data.backlog.push(message);
       return;
     }
-    if (data.client.getBufferedAmount() + size > backlogLimit) return overflow(data, "client");
-    if (data.client.send(message) === 0) overflow(data, "client"); // 0 = the socket dropped it: say so, do not leave a hole
+    if (data.client.getBufferedAmount() + size > backlogLimit) return overflow(data);
+    if (data.client.send(message) === 0) overflow(data); // 0 = the socket dropped it: say so, do not leave a hole
   }
 
   /** What the client is told when Anthropic's side ended: the same code and reason, and an abnormal end stays abnormal (never a 1000). */
@@ -495,10 +503,17 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
     const protocols = (req.headers.get("sec-websocket-protocol") ?? "").split(",").map((p) => p.trim()).filter(Boolean);
     const headers = cleanRequestHeaders(req.headers); // the handshake of our own socket redoes upgrade/connection/host
     for (const key of [...headers.keys()]) if (key.startsWith("sec-websocket-")) headers.delete(key);
+    // The place is taken before the handshake (a burst must not all get in) and given back on every way out.
+    if (openRelays >= WS_MAX_RELAYS) {
+      log("ws-refused", { path, open: openRelays });
+      return proxyError(503, "too many WebSocket connections through the Topics proxy");
+    }
+    openRelays++;
     let data: RelayData;
     try {
       data = await openRelay(upstreamBase.replace(/^http/, "ws") + url.pathname + url.search, protocols, headers, req.signal, path);
     } catch (e) {
+      openRelays--;
       if (req.signal.aborted) return new Response(null, { status: 499 });
       log("ws-error", { path, code: errorCode(e) });
       return proxyError(502, `${INTERCEPTED_HOST} unreachable from the Topics proxy`);
@@ -506,6 +521,7 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
     // The subprotocol is the one Anthropic chose, not the first one the client offered.
     const chosen = data.upstream.protocol;
     if (!server.upgrade(req, { data, headers: chosen ? { "sec-websocket-protocol": chosen } : undefined })) {
+      openRelays--;
       data.upstream.close();
       return proxyError(400, "websocket upgrade refused");
     }
@@ -527,22 +543,24 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
         websocket: {
           backpressureLimit: backlogLimit + WS_MAX_MESSAGE_BYTES,
           closeOnBackpressureLimit: true,
-          maxPayloadLength: WS_MAX_MESSAGE_BYTES,
+          maxPayloadLength: WS_MAX_MESSAGE_BYTES + WS_FRAME_MARGIN_BYTES,
           open(ws) {
             ws.data.client = ws;
             const queued = ws.data.backlog.splice(0);
             ws.data.backlogBytes = 0;
-            if (ws.data.overflowed) ws.close(1013, "relay buffer full");
+            if (ws.data.overflowed) ws.close(1013, "relay buffer full"); // gave up while the client was still being upgraded
             for (const message of queued) deliverToClient(ws.data, message);
             endClient(ws.data);
           },
           message(ws, message) {
             const data = ws.data;
             if (data.overflowed || data.upstream.readyState !== WebSocket.OPEN) return; // the connection is already ending
-            if (data.upstream.bufferedAmount + messageBytes(message) > backlogLimit) return overflow(data, "upstream");
+            if (messageBytes(message) > WS_MAX_MESSAGE_BYTES) return giveUp(data, 1009, "message too big", "ws-too-big");
+            // No byte count toward Anthropic: see "WebSocket limits". `upstream.bufferedAmount` is always 0 on Bun's client socket.
             data.upstream.send(message);
           },
           close(ws, code, reason) {
+            openRelays--;
             ws.data.client = null;
             log("ws-closed", { path: ws.data.path, ms: Date.now() - ws.data.started });
             endUpstream(ws.data, code, reason);
@@ -656,7 +674,7 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
   const front = net.createServer(onClient);
   await new Promise<void>((resolve, reject) => {
     front.once("error", reject);
-    front.listen(options.port, host, () => {
+    front.listen(options.port, EXTERNAL_PROXY_HOST, () => {
       front.off("error", reject);
       resolve();
     });

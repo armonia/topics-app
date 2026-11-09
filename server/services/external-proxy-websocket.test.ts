@@ -99,9 +99,14 @@ class Wire {
 
 /** A masked client frame (the protocol requires the mask), short payloads only. */
 function clientFrame(opcode: number, payload: Buffer): Buffer {
-  const mask = Buffer.from([0x11, 0x22, 0x33, 0x44]);
-  const masked = Buffer.from(payload.map((byte, i) => byte ^ mask[i % 4]!));
-  return Buffer.concat([Buffer.from([0x80 | opcode, 0x80 | payload.length]), mask, masked]);
+  // a zero key leaves the payload as it is: the protocol only asks for a key, and a 17 MB XOR in a test is a waste
+  const mask = payload.length > 65535 ? Buffer.alloc(4) : Buffer.from([0x11, 0x22, 0x33, 0x44]);
+  const masked = payload.length > 65535 ? payload : Buffer.from(payload.map((byte, i) => byte ^ mask[i % 4]!));
+  let head: Buffer;
+  if (payload.length < 126) head = Buffer.from([0x80 | opcode, 0x80 | payload.length]);
+  else if (payload.length <= 65535) { head = Buffer.alloc(4); head[0] = 0x80 | opcode; head[1] = 0x80 | 126; head.writeUInt16BE(payload.length, 2); }
+  else { head = Buffer.alloc(10); head[0] = 0x80 | opcode; head[1] = 0x80 | 127; head.writeBigUInt64BE(BigInt(payload.length), 2); }
+  return Buffer.concat([head, mask, masked]);
 }
 
 function upgradeRequest(path: string, extra: Record<string, string> = {}): string {
@@ -116,6 +121,7 @@ function upgradeRequest(path: string, extra: Record<string, string> = {}): strin
 function fakeWebSocketUpstream(opts: { protocol?: string; refuse?: boolean; dropAfterOpen?: boolean } = {}) {
   const handshakes: { path: string; headers: Headers }[] = [];
   const closed: { code: number; reason: string }[] = [];
+  const received: unknown[] = [];
   const server = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -130,11 +136,11 @@ function fakeWebSocketUpstream(opts: { protocol?: string; refuse?: boolean; drop
         ws.send("hello");
         if (opts.dropAfterOpen) setTimeout(() => ws.terminate(), 100); // the TCP connection goes, with no close frame
       },
-      message(ws, message) { ws.send(typeof message === "string" ? `echo:${message}` : message); },
+      message(ws, message) { received.push(message); ws.send(typeof message === "string" ? `echo:${message}` : message); },
       close(_ws, code, reason) { closed.push({ code, reason }); },
     },
   });
-  return { port: server.port as number, handshakes, closed, stop: () => server.stop(true) };
+  return { port: server.port as number, handshakes, closed, received, stop: () => server.stop(true) };
 }
 
 describe("WebSocket", () => {
@@ -255,7 +261,7 @@ describe("WebSocket", () => {
       // a client that vanishes without a close frame is an abnormal close upstream too, not a polite 1000
       expect((await closedBy((s) => s.destroy()))?.code).toBe(1006);
     } finally { await proxy.close(); ws.stop(); }
-  });
+  }, 20_000); // five relays in a row: under a loaded machine the default 5 s is not a measure of the proxy
 
   test("an upstream that drops without a close frame is an ABNORMAL close for the client, never a 1000", async () => {
     const ws = fakeWebSocketUpstream({ dropAfterOpen: true });
@@ -334,6 +340,64 @@ describe("WebSocket", () => {
     // Anthropic is let go too, with the close we send (1011), or as a drop when it is still busy sending and never reads the close
     expect([1011, 1006]).toContain(run.upstreamClosed[0]?.code);
   }, 60_000);
+
+  test("a message of 16 MB goes through; one byte more is refused with 1009 and never reaches Anthropic", async () => {
+    const ws = fakeWebSocketUpstream();
+    const { proxy, lines } = await start({ enginePort: await closedPort(), upstreamPort: ws.port });
+    const limit = 16 * 1024 * 1024;
+    try {
+      const secure = await secureSocketViaProxy(proxy);
+      secure.on("error", () => {});
+      const wire = new Wire(secure);
+      secure.write(upgradeRequest("/v1/ws"));
+      await wire.head();
+      await wire.frame(); // "hello"
+
+      secure.write(clientFrame(2, Buffer.alloc(limit, 0x61)));
+      const echoed = await wire.frame(20_000);
+      expect([echoed.opcode, echoed.payload.length]).toEqual([2, limit]);
+      expect(ws.received).toHaveLength(1);
+
+      secure.write(clientFrame(2, Buffer.alloc(limit + 1, 0x62)));
+      const close = await wire.frame(20_000);
+      expect(close.opcode).toBe(8);
+      expect(close.payload.readUInt16BE(0)).toBe(1009);
+      expect(ws.received).toHaveLength(1); // the second one was not handed on, not even in part
+      expect(lines.some((l) => l.startsWith("ws-too-big "))).toBe(true);
+      secure.destroy();
+    } finally { await proxy.close(); ws.stop(); }
+  }, 60_000);
+
+  test("at most 16 relays at once: the 17th upgrade is a 503 before Anthropic is even asked, and a closed one frees its place", async () => {
+    const ws = fakeWebSocketUpstream();
+    const { proxy, lines } = await start({ enginePort: await closedPort(), upstreamPort: ws.port });
+    const open = async () => {
+      const secure = await secureSocketViaProxy(proxy);
+      secure.on("error", () => {});
+      const wire = new Wire(secure);
+      secure.write(upgradeRequest("/v1/ws"));
+      return { secure, wire, status: (await wire.head()).split("\r\n")[0] };
+    };
+    try {
+      const held = [];
+      for (let i = 0; i < 16; i++) held.push(await open());
+      expect(held.map((h) => h.status)).toEqual(Array(16).fill("HTTP/1.1 101 Switching Protocols"));
+      expect(ws.handshakes).toHaveLength(16);
+
+      const refused = await open();
+      expect(refused.status).toMatch(/^HTTP\/1\.1 503/);
+      expect(ws.handshakes).toHaveLength(16); // the 17th never reached the upstream
+      expect(lines.some((l) => l.startsWith("ws-refused "))).toBe(true);
+      expect(proxy.stats.websocket).toBe(16);
+
+      // one leaves, one fits again
+      held[0]!.secure.destroy();
+      for (let i = 0; i < 60 && ws.closed.length === 0; i++) await sleep(50);
+      expect((await open()).status).toBe("HTTP/1.1 101 Switching Protocols");
+      for (const h of held) h.secure.destroy();
+      refused.secure.destroy();
+    } finally { await proxy.close(); ws.stop(); }
+  }, 30_000);
 
   test("a request that is not an upgrade still goes the normal way on the same connection", async () => {
     const ws = fakeWebSocketUpstream();
