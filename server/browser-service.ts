@@ -47,6 +47,7 @@ import { createNavHistoryPublisher, isPublishableUrl, type NavHistoryPublisher }
 import { setBackgroundTree, type AgentOwnerTest, type BrowserContextOwner } from "./lib/low-priority";
 import { createBrowserQosGovernor, markedBrowserPid } from "./lib/browser-qos";
 import { getRrwebRecorderSource } from "./lib/rrweb-recorder";
+import { HEADLESS_AUTOMATION_ARGS, reducedChromeUserAgent } from "./lib/headless-chromium-stealth";
 
 interface BrowserContextEntry {
   context: BrowserContext;
@@ -787,6 +788,8 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         // Il pid dentro è il NOSTRO, non il suo: è il padre di cui si verifica
         // la morte. Vedi server/lib/browser-orphan-sweep.ts.
         browserMarkArg("agent", process.pid),
+        // No `navigator.webdriver`: see lib/headless-chromium-stealth.ts.
+        ...HEADLESS_AUTOMATION_ARGS,
       ],
     });
     console.log(`[BrowserService] Chromium launched (CDP port: ${cdpPort})`);
@@ -1380,8 +1383,10 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // Load persisted storageState if available (cookies + localStorage).
       // null is fine — newContext accepts undefined storageState.
       const persistedState = await loadStorageState(id);
+      const stealthUA = typeof b.version === "function" ? reducedChromeUserAgent(b.version()) : undefined;
       const context = await b.newContext({
         viewport,
+        ...(stealthUA ? { userAgent: stealthUA } : {}),
         // deviceScaleFactor is immutable per context — this is the ONLY place it
         // is set. >1 makes CDP render the page at retina backing-store size; the
         // screencast then clamps frames to width*dsf (see startScreencast/resize).

@@ -4714,6 +4714,10 @@ const CONSOLE_PROXY_JS: &str = r#"(function(){
   window.addEventListener('unhandledrejection',function(e){push('error','Unhandled promise rejection: '+((e&&e.reason)||''))});
 })();"#;
 
+/// `outerWidth`/`outerHeight` di una pane non sono mai 0: vedi il file. Senza,
+/// Heray (anti-bot di Hetzner) respinge la prova di lavoro in ciclo.
+const PANE_WINDOW_METRICS_JS: &str = include_str!("pane_window_metrics.js");
+
 /// Disable the WKWebView layer's IMPLICIT Core Animation actions (position/bounds/
 /// frame/…). A layer-backed NSView animates its frame over ~0.25s by default; for a
 /// browser pane that the layout moves every frame — a divider drag, a PUSH-mode
@@ -5356,6 +5360,7 @@ fn browser_open_inner(
     remember_pane_url(&label, &url);
     let mut builder = tauri::webview::WebviewBuilder::new(&label, tauri::WebviewUrl::External(parsed))
         .initialization_script(CONSOLE_PROXY_JS)
+        .initialization_script(PANE_WINDOW_METRICS_JS)
         // Il pid del WebContent si registra QUI, a pagina caricata, non solo al
         // campionamento di `perf_metrics`.
         //

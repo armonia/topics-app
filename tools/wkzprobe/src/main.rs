@@ -124,16 +124,21 @@ fn main() {
     }
     #[cfg(any(target_os = "macos", windows, all(unix, not(target_os = "macos"))))]
     {
-        std::thread::spawn(|| {
-            std::thread::sleep(Duration::from_secs(40));
-            println!("WATCHDOG: no verdict after 40s");
+        let arm_for_watchdog = arm.clone();
+        std::thread::spawn(move || {
+            // L'arm `antibot` aspetta fino a 60 s da sola: il cane da guardia
+            // le lascia il margine, gli altri restano a 40.
+            let limit = if arm_for_watchdog == "antibot" { 80 } else { 40 };
+            std::thread::sleep(Duration::from_secs(limit));
+            println!("WATCHDOG: no verdict after {limit}s");
             std::process::exit(3);
         });
         match arm.as_str() {
             "z" => run_z(),
             "drag" => run_drag(),
+            "antibot" => run_antibot(),
             other => {
-                println!("unknown arm {other}: use z or drag");
+                println!("unknown arm {other}: use z, drag or antibot");
                 std::process::exit(2);
             }
         }
@@ -327,4 +332,98 @@ fn child(
     {
         builder.build_as_child(window).expect("child webview")
     }
+}
+
+/// Arm `antibot`: apre UN URL in un WKWebView figlio, come una pane di Topics
+/// (finestra fuori schermo, nessuna attivazione), e dice se la pagina arriva
+/// dove deve entro 60 s.
+///
+///   wkzprobe antibot <url> <prefisso-url-di-arrivo> [file-init-script]
+///   wkzprobe antibot <url> - [file-init-script]     con WKZ_EVAL="<js>" e WKZ_WAIT=<s>
+///
+/// Con `-` al posto del prefisso non si aspetta una pagina: dopo WKZ_WAIT secondi
+/// (default 12) si valuta WKZ_EVAL nella pagina e se ne stampa il valore.
+///
+/// Serve a misurare, sul motore vero e non su un suo sostituto, se un controllo
+/// anti-bot lascia passare la pane col file `pane_window_metrics.js` e la
+/// respinge senza. Esce 0 se la pagina arriva, 1 se no (con l'URL dove e'
+/// rimasta e i valori che la pagina legge di se').
+#[cfg(any(target_os = "macos", windows, all(unix, not(target_os = "macos"))))]
+fn run_antibot() {
+    use std::sync::{Arc, Mutex};
+    let mut args = std::env::args().skip(2);
+    let url = args.next().expect("antibot: manca l'URL");
+    let goal = args.next().expect("antibot: manca il prefisso dell'URL di arrivo");
+    let init = args.next().map(|p| std::fs::read_to_string(&p).expect("antibot: file init script illeggibile"));
+
+    #[allow(unused_mut)]
+    let mut event_loop = EventLoopBuilder::<u32>::with_user_event().build();
+    #[cfg(target_os = "macos")]
+    {
+        use tao::platform::macos::{ActivationPolicy, EventLoopExtMacOS};
+        // Mai in primo piano, mai nel Dock: il Mac e' di chi ci lavora.
+        event_loop.set_activation_policy(ActivationPolicy::Accessory);
+    }
+    tick_every(event_loop.create_proxy(), Duration::from_millis(500));
+    let window = WindowBuilder::new()
+        .with_title("wkzprobe antibot")
+        .with_inner_size(LogicalSize::new(1425.0, 700.0))
+        .with_position(LogicalPosition::new(-30000.0, 0.0))
+        .build(&event_loop)
+        .expect("window");
+
+    let mut wb = WebViewBuilder::new()
+        .with_url(&url)
+        .with_bounds(rect(0.0, 0.0, 1425.0, 628.0));
+    if let Some(js) = init.as_ref() {
+        wb = wb.with_initialization_script(js.as_str());
+    }
+    let view = wb.build_as_child(&window).expect("child webview");
+
+    let href = Arc::new(Mutex::new(String::new()));
+    let env = Arc::new(Mutex::new(String::new()));
+    let started = Instant::now();
+    let mut tick = 0u32;
+    let eval_mode = goal == "-";
+    let eval_js = std::env::var("WKZ_EVAL").unwrap_or_else(|_| "document.title".to_string());
+    let wait_ticks: u32 = std::env::var("WKZ_WAIT").ok().and_then(|v| v.parse::<u32>().ok()).unwrap_or(12) * 2;
+    let value = Arc::new(Mutex::new(String::new()));
+    event_loop.run(move |event, _target, control| {
+        *control = ControlFlow::Wait;
+        if !matches!(event, Event::UserEvent(_)) {
+            return;
+        }
+        tick += 1;
+        let h = href.lock().unwrap().clone();
+        let secs = started.elapsed().as_secs_f32();
+        if eval_mode {
+            if tick == wait_ticks {
+                let vv = value.clone();
+                let _ = view.evaluate_script_with_callback(eval_js.as_str(), move |v| *vv.lock().unwrap() = v);
+            }
+            if tick == wait_ticks + 3 {
+                println!("RESULT eval secs={secs:.1} href={h} value={}", value.lock().unwrap());
+                std::process::exit(0);
+            }
+        } else if h.starts_with(goal.as_str()) {
+            println!("RESULT pass secs={secs:.1} href={h} env={}", env.lock().unwrap());
+            std::process::exit(0);
+        }
+        if !eval_mode && secs > 60.0 {
+            println!("RESULT fail secs={secs:.1} href={h} env={}", env.lock().unwrap());
+            std::process::exit(1);
+        }
+        let hh = href.clone();
+        let _ = view.evaluate_script_with_callback("location.href", move |v| {
+            // wry rende il valore JSON-serializzato: virgolette e `\/` da togliere.
+            *hh.lock().unwrap() = v.trim_matches('"').replace("\\/", "/");
+        });
+        if tick == 6 {
+            let ee = env.clone();
+            let _ = view.evaluate_script_with_callback(
+                "JSON.stringify({outer:[outerWidth,outerHeight],inner:[innerWidth,innerHeight],hidden:document.hidden,wd:navigator.webdriver,title:document.title})",
+                move |v| *ee.lock().unwrap() = v,
+            );
+        }
+    });
 }
