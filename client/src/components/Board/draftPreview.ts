@@ -1,5 +1,6 @@
 import { titoloDaTesto } from '../../../../shared/task-title';
 import type { StagedAttachment } from '../../lib/attachments';
+import { AUTO_PROJECT_ID, UNASSIGNED_PROJECT_ID } from '../../lib/board';
 
 /**
  * THE CARD BEFORE IT EXISTS: what the floating composer is about to create,
@@ -27,6 +28,34 @@ export interface DraftPreview {
   images: string[];
   /** The names of the attachments that are not images. */
   files: string[];
+  /**
+   * The project the composer will create in, when it names one: on the board
+   * grouped by project the ghost sits in that lane only (`draftLaneOf`).
+   */
+  projectId?: string;
+}
+
+/**
+ * WHERE THE GHOST SITS on the board grouped by project:
+ * - `lane`: the composer's project has a lane, the ghost goes in it;
+ * - `new-lane`: the composer chose a project that has no card yet, so it has
+ *   no lane: the board shows a temporary lane of THAT project with the ghost
+ *   alone (never the first lane, which would name the wrong project);
+ * - `above`: the composer is on «Automatico» (the project is decided later),
+ *   so the ghost belongs to no project and sits above the lanes, with no
+ *   project header.
+ * One ghost for one card: never one per lane.
+ */
+export type DraftPlacement =
+  | { kind: 'lane'; projectId: string }
+  | { kind: 'new-lane'; projectId: string }
+  | { kind: 'above' };
+
+export function draftLaneOf(draft: DraftPreview | null, laneIds: readonly string[]): DraftPlacement | null {
+  if (!draft) return null;
+  const projectId = draft.projectId;
+  if (!projectId || projectId === AUTO_PROJECT_ID || projectId === UNASSIGNED_PROJECT_ID) return { kind: 'above' };
+  return laneIds.includes(projectId) ? { kind: 'lane', projectId } : { kind: 'new-lane', projectId };
 }
 
 /**

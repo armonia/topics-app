@@ -19,6 +19,9 @@ import { fileWatcherLastError, watchedProjectPaths } from "../file-watcher";
 import { browserEngineIsRunning, browserEngineLastLaunchFailure } from "../browser-engine-registry";
 import { resolveDataDir } from "../lib/data-dir";
 import { claudeLoginSource } from "../providers/native/login-source";
+import { createMachineReadoutRoute } from "./machine-readout";
+import { createScreenDataRoute, createScreenSessionsRoute } from "./screen";
+import { SCREEN_DATA_PATH, SCREEN_SESSIONS_PATH } from "../lib/screen-scope";
 
 const SERVER_START_TIME = Date.now();
 
@@ -111,6 +114,9 @@ interface SessionsStatus {
 
 export function createStatusRouter(ctx: AppContext): RouteHandler {
   const { json, wsClients, activeStreams, db } = ctx;
+  const machineReadout = createMachineReadoutRoute(ctx);
+  const screenData = createScreenDataRoute(machineReadout);
+  const screenSessions = createScreenSessionsRoute(ctx, machineReadout);
 
   // Topic counts come straight from indexed COUNT(*) queries — this endpoint is
   // polled by the status bar, so it must not pay a full loadTopics() table-scan
@@ -243,6 +249,19 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
         ctx.externalSessionsCount?.() ?? 0,
         ctx.externalSessionsWorking?.() ?? 0,
       ));
+    }
+
+    // The load screen's process list and sleep countdown, of this machine or of a paired node.
+    if (method === "GET" && pathname === "/api/system/machine-readout") {
+      return machineReadout(_url);
+    }
+
+    // What the load screen draws: the slow data and the live sessions, the only routes a device paired as a screen may read.
+    if (method === "GET" && pathname === SCREEN_DATA_PATH) {
+      return screenData(_url);
+    }
+    if (method === "GET" && pathname === SCREEN_SESSIONS_PATH) {
+      return screenSessions(_url);
     }
 
     /**

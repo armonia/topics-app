@@ -214,18 +214,24 @@ export function TaskChoiceRow({ task, exclude, disabled, onDone, onError, onNeed
  * risposta lenta del server lascia sullo schermo un pannello a cui non si può
  * più chiedere niente.
  */
-export function TaskChoiceMenu({ task, disabled, onDone, onError, ariaLabel, className }: {
+export function TaskChoiceMenu({ task, exclude, disabled, onDone, onError, onNeedText, pendingText, onLanding, ariaLabel, className }: {
   task: BoardTask;
+  /** Choices the caller already shows on its face, or that must not appear here. */
+  exclude?: TaskChoiceId[];
   disabled?: boolean;
   onDone: () => void;
   onError: (message: string) => void;
+  /** As the row: the field's text travels with «Rimanda indietro» from the menu too. */
+  onNeedText?: () => void;
+  pendingText?: () => string;
+  onLanding?: (ticket: LandingTicket) => void;
   /** Cosa apre questo tasto, detto a chi non vede l'icona. */
   ariaLabel: string;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLButtonElement>(null);
-  const { choices, run } = useTaskChoiceRunner(task, { onDone, onError });
+  const { choices, run } = useTaskChoiceRunner(task, { exclude, onDone, onError, onNeedText, pendingText, onLanding });
   if (choices.length === 0) return null;
 
   return (
@@ -239,7 +245,7 @@ export function TaskChoiceMenu({ task, disabled, onDone, onError, ariaLabel, cla
         title={ariaLabel}
         disabled={disabled}
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-        className={`flex shrink-0 items-center rounded-md px-1.5 py-1.5 text-app-text-secondary hover:bg-white/10 hover:text-app-text disabled:opacity-50 ${className ?? ''}`}
+        className={`flex shrink-0 items-center justify-center rounded-md px-1.5 coarse:min-h-[44px] coarse:min-w-[44px] py-1.5 text-app-text-secondary hover:bg-white/10 hover:text-app-text disabled:opacity-50 ${className ?? ''}`}
       ><MoreHorizontal className="h-3.5 w-3.5" /></button>
       {/* `task-choices-panel`, non `task-choices`: quello è la RIGA di bottoni,
           che vive nel drawer sopra il composer, e il drawer si apre SOPRA la

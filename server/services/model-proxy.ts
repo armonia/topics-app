@@ -128,7 +128,7 @@ function apiError(status: number, type: ErrorType, message: string): Response {
   });
 }
 
-const HOP_BY_HOP = new Set([
+export const HOP_BY_HOP = new Set([
   "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "proxy-connection",
   "te", "trailer", "transfer-encoding", "upgrade",
 ]);

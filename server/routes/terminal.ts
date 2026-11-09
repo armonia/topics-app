@@ -389,6 +389,33 @@ export function getAgentPtyCliPids(): { sessionId: string; pid: number; topicId:
   return out;
 }
 
+/**
+ * The PTYs as owners of work, for the per-session consumption: who started
+ * each one (a sub-agent names its coordinator), which topic it belongs to and
+ * whether it is producing output right now.
+ */
+export interface TerminalOwner {
+  id: string;
+  name: string;
+  topicId: string | null;
+  parentSessionKey: string | null;
+  createdAt: string;
+  busy: boolean;
+  pid: number | null;
+}
+
+export function listTerminalOwners(): TerminalOwner[] {
+  const out: TerminalOwner[] = [];
+  for (const s of sessions.values()) {
+    out.push({
+      id: s.id, name: s.name, topicId: s.topicId ?? null, parentSessionKey: s.parentSessionKey ?? null,
+      createdAt: s.createdAt, busy: terminalActivity.get(s.id)?.busy ?? false,
+      pid: s.ptyPid && s.ptyPid > 0 ? s.ptyPid : null,
+    });
+  }
+  return out;
+}
+
 export function getFleetSessionRefs(): FleetSessionRef[] {
   const out: FleetSessionRef[] = [];
   const seen = new Set<string>();
