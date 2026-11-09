@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.74 — 2026-11-09
+
+### Sotto il cofano
+- Agent environment on Windows keeps the CLIs' config folders (#691)
+
 ## 2.3.73 — 2026-11-09
 
 ### Sotto il cofano

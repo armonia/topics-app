@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.74",
+    "date": "2026-11-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Agent environment on Windows keeps the CLIs' config folders (#691)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.73",
     "date": "2026-11-09",
     "sections": {
