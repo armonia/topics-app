@@ -23,11 +23,15 @@ const { getDescendantPids } = await import("../lib/process-tree");
 
 const DIR = realpathSync(mkdtempSync(join(tmpdir(), "topics-stop-fresh-")));
 const spawned: number[] = [];
-afterAll(() => {
+afterAll(async () => {
   // The loop this file started is module state: left running, it closed the
   // ownerless background shells of the files after it (processes.shell-file).
   stopProcessDetectionForTests();
-  for (const pid of spawned) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
+  // On Windows killing the outer bash leaves its children running, so the
+  // whole tree is collected first.
+  const tree: number[] = [];
+  for (const pid of spawned) tree.push(...(await getDescendantPids(pid, { fresh: true }).catch(() => new Set<number>())));
+  for (const pid of [...tree, ...spawned]) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
   if (previousDataDir === undefined) delete process.env.DATA_DIR;
   else process.env.DATA_DIR = previousDataDir;
   rmSync(STATE, { recursive: true, force: true });
@@ -42,9 +46,14 @@ async function until(ok: () => boolean, ms = 10_000): Promise<void> {
 }
 
 describe("Stop on an agent's background shell", () => {
-  test("signals a child forked after the process table was cached", async () => {
-    const go = join(DIR, "go");
-    const childPidFile = join(DIR, "child.pid");
+  // Skipped on Windows: the MSYS bash tree is not visible to the process-table
+  // walk there, so the shell is never detected and the child is never signalled.
+  test.skipIf(process.platform === "win32")("signals a child forked after the process table was cached", async () => {
+    // Forward slashes: bash reads the backslashes of a Windows path as escapes,
+    // the go file is then never found and the loop spins forever.
+    const posix = (p: string) => p.replaceAll("\\", "/");
+    const go = posix(join(DIR, "go"));
+    const childPidFile = posix(join(DIR, "child.pid"));
     // The shell waits for the go-ahead, then forks its long-lived child.
     const command = `while [ ! -f ${go} ]; do sleep 0.05; done; sleep 297 & echo $! > ${childPidFile}; wait`;
     const cli = Bun.spawn(["bash", "-c", `bash -c '${command}' & wait`], { stdout: "ignore", stderr: "ignore" });
@@ -61,7 +70,7 @@ describe("Stop on an agent's background shell", () => {
     // The cache is filled NOW, before the child exists; Stop lands well inside
     // its 2-second life.
     await getDescendantPids(cli.pid, { fresh: true });
-    writeFileSync(go, "");
+    writeFileSync(join(DIR, "go"), "");
     await until(() => existsSync(childPidFile) && readFileSync(childPidFile, "utf-8").trim() !== "");
     const child = Number(readFileSync(childPidFile, "utf-8").trim());
     spawned.push(child);
