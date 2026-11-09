@@ -17,6 +17,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFil
 import { homedir } from "os";
 import { basename, join } from "path";
 import type { AppContext, RouteHandler } from "../types";
+import { runBounded } from "../lib/bounded-spawn";
 
 export type AgentId = "main" | "gtm";
 const AGENTS: Record<AgentId, { name: string; workspace: string; account: string }> = {
@@ -154,15 +155,11 @@ export function applyEdit(paths: Paths, e: Edit): { file: string; backup: string
 }
 
 async function run(cmd: string[], timeoutMs = 10_000): Promise<{ code: number; out: string }> {
-  try {
-    const p = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
-    const t = setTimeout(() => p.kill(), timeoutMs);
-    const out = (await new Response(p.stdout).text()) + (await new Response(p.stderr).text());
-    clearTimeout(t);
-    return { code: await p.exited, out: out.trim() };
-  } catch (err) {
-    return { code: 127, out: String(err) };
-  }
+  // runBounded uccide anche i nipoti alla scadenza: il vecchio p.kill() lasciava
+  // appeso il pipe se launchctl o jarvis-channels avevano figli.
+  const r = await runBounded(cmd, { timeoutMs });
+  if (r.spawnFailed) return { code: 127, out: r.spawnError ?? "spawn fallito" };
+  return { code: r.exitCode ?? 124, out: (r.stdout + r.stderr).trim() };
 }
 
 /** Restart only when no turn is in flight: a restart would cut a live reply. */
