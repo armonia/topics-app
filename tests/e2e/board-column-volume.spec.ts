@@ -264,15 +264,15 @@ test.describe("Kanban — il volume di una colonna", () => {
     await page.goto("/");
     await openProjectBoard(page);
     await expect(cardsIn(page, "done").first()).toBeVisible({ timeout: 20000 });
-    const toggle = page.getByTestId("board-layout-toggle");
-    if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    const toggle = page.getByTestId("board-detail-slider");
+    await toggle.press("End");
+    await expect(toggle).toHaveAttribute("aria-valuenow", "2");
     expect(await cardsIn(page, "done").count()).toBe(COLUMN_PAGE);
 
     // The switch takes the scroll away from the column body. An observer left on it saw the
     // show-more row in view forever and chained every page of the archive, with nobody scrolling.
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await toggle.press("ArrowLeft");
+    await expect(toggle).toHaveAttribute("aria-valuenow", "1");
     await afterFrames(page, 120);
     expect(await cardsIn(page, "done").count(), "no page without a reader").toBe(COLUMN_PAGE);
 
@@ -314,9 +314,9 @@ test.describe("Kanban — il volume di una colonna", () => {
     await page.goto("/");
     await openProjectBoard(page);
     await expect(cardsIn(page, "done").first()).toBeAttached({ timeout: 20000 });
-    const toggle = page.getByTestId("board-layout-toggle");
-    if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    const toggle = page.getByTestId("board-detail-slider");
+    await toggle.press("End");
+    await expect(toggle).toHaveAttribute("aria-valuenow", "2");
     const rowPastColumn = () => page.evaluate(() => {
       const row = document.querySelector('[data-testid="kanban-column-more-done"]')!.getBoundingClientRect();
       return Math.round(row.top - document.querySelector('[data-testid="kanban-column-body-done"]')!.getBoundingClientRect().bottom);
@@ -325,8 +325,8 @@ test.describe("Kanban — il volume di una colonna", () => {
     await afterFrames(page, 120);
     expect(await cardsIn(page, "done").count()).toBe(COLUMN_PAGE);
 
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await toggle.press("ArrowLeft");
+    await expect(toggle).toHaveAttribute("aria-valuenow", "1");
     await afterFrames(page, 120);
     expect(await cardsIn(page, "done").count()).toBe(COLUMN_PAGE);
 
@@ -366,10 +366,10 @@ test.describe("Kanban — il volume di una colonna", () => {
     // Away (the archive) and back: the board remounts its columns on each read.
     const archive = page.getByTestId("board-archived-toggle");
     await archive.click();
-    await expect(archive).toHaveAttribute("aria-pressed", "true");
+    await expect(archive).toHaveAttribute("aria-valuenow", "1");
     await expect(page.getByTestId("board-archived-banner")).toBeVisible({ timeout: 10000 });
     await archive.click();
-    await expect(archive).toHaveAttribute("aria-pressed", "false");
+    await expect(archive).toHaveAttribute("aria-valuenow", "2");
     await expect(cardsIn(page, "done").first()).toBeAttached({ timeout: 20000 });
     await afterFrames(page, 60);
     expect(await cardsIn(page, "done").count(), "the pages already loaded survive the remount").toBe(COLUMN_PAGE * 2);
@@ -392,14 +392,14 @@ test.describe("Kanban — il volume di una colonna", () => {
     await page.goto("/");
     await openProjectBoard(page);
     await expect(cardsIn(page, "done").first()).toBeAttached({ timeout: 20000 });
-    const toggle = page.getByTestId("board-layout-toggle");
-    if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-pressed", "false");
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    const toggle = page.getByTestId("board-detail-slider");
+    await toggle.press("End");
+    await expect(toggle).toHaveAttribute("aria-valuenow", "2");
+    await toggle.press("ArrowLeft");
+    await expect(toggle).toHaveAttribute("aria-valuenow", "1");
     await afterFrames(page, 30);
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await toggle.press("ArrowRight");
+    await expect(toggle).toHaveAttribute("aria-valuenow", "2");
     await afterFrames(page, 30);
     expect(await cardsIn(page, "done").count()).toBe(COLUMN_PAGE);
 
