@@ -119,18 +119,18 @@ export type Edit =
 /** Applies one edit; returns what changed and whether the service must be restarted. */
 export function applyEdit(paths: Paths, e: Edit): { file: string; backup: string | null; restart: boolean } {
   if (e.kind === "job") {
-    if (typeof e.paused !== "boolean") throw new Error("paused deve essere true o false");
+    if (typeof e.paused !== "boolean") throw new Error("paused must be true or false");
     const file = join(paths.home, "jobs.json");
     const jobs: Json[] = readJson(file);
     const j = jobs.find((x) => x.id === e.id);
-    if (!j) throw new Error(`lavoro ${e.id} non trovato`);
+    if (!j) throw new Error(`job ${e.id} not found`);
     j.paused = e.paused;
     return { file, backup: safeWrite(file, JSON.stringify(jobs, null, 2) + "\n", paths.home), restart: false };
   }
   if (e.kind === "persona") {
-    if (!(e.agent in AGENTS)) throw new Error("agente sconosciuto");
-    if (!(PERSONA_FILES as readonly string[]).includes(e.file)) throw new Error("file non modificabile da qui");
-    if (typeof e.text !== "string" || e.text.trim().length < 20) throw new Error("testo vuoto o troppo corto");
+    if (!(e.agent in AGENTS)) throw new Error("unknown agent");
+    if (!(PERSONA_FILES as readonly string[]).includes(e.file)) throw new Error("file not editable from here");
+    if (typeof e.text !== "string" || e.text.trim().length < 20) throw new Error("text empty or too short");
     const engine: Json = existsSync(join(paths.home, "engine.json")) ? readJson(join(paths.home, "engine.json")) : {};
     const ws = paths.expand(engine.agents?.[e.agent]?.workspace ?? AGENTS[e.agent].workspace);
     const file = join(ws, e.file);
@@ -141,17 +141,17 @@ export function applyEdit(paths: Paths, e: Edit): { file: string; backup: string
     const cfg: Json = readJson(file);
     const acc = (e.account ?? "default");
     const g = (cfg.rules?.groups ?? []).find((x: Json) => x.channel === e.channel && x.chat === e.chat && (x.account ?? "default") === acc);
-    if (!g) throw new Error(`chat ${e.channel}:${e.chat} non trovata per ${acc}`);
+    if (!g) throw new Error(`chat ${e.channel}:${e.chat} not found for ${acc}`);
     for (const k of ["active", "mention"] as const) {
       if (e[k] === undefined) continue;
-      if (typeof e[k] !== "boolean") throw new Error(`${k} deve essere true o false`);
+      if (typeof e[k] !== "boolean") throw new Error(`${k} must be true or false`);
       g[k] = e[k];
     }
     const text = JSON.stringify(cfg, null, 2) + "\n";
     JSON.parse(text);
     return { file, backup: safeWrite(file, text, paths.home), restart: true };
   }
-  throw new Error("modifica sconosciuta");
+  throw new Error("unknown edit");
 }
 
 async function run(cmd: string[], timeoutMs = 10_000): Promise<{ code: number; out: string }> {
@@ -184,14 +184,14 @@ export function createAgentConfigRouter(ctx: Pick<AppContext, "json">, paths: ()
       try {
         return ctx.json({ ...readRegistry(p), health: { ok: health.ok, text: health.text } });
       } catch (err) {
-        return ctx.json({ error: `config non leggibile: ${String(err)}` }, 500);
+        return ctx.json({ error: `config not readable: ${String(err)}` }, 500);
       }
     }
     if (method !== "POST") return null;
     const kind = pathname.slice("/api/agent-config/".length);
     if (!["chat", "job", "persona"].includes(kind)) return null;
     let body: Json;
-    try { body = await req.json(); } catch { return ctx.json({ error: "corpo JSON non valido" }, 400); }
+    try { body = await req.json(); } catch { return ctx.json({ error: "invalid JSON body" }, 400); }
     try {
       const res = applyEdit(p, { ...body, kind } as Edit);
       const service = res.restart ? await reload(p) : "live";

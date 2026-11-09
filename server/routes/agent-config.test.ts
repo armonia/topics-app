@@ -80,10 +80,10 @@ describe("applyEdit", () => {
   test("bad input is refused and the file is untouched", () => {
     const p = fixture();
     const before = readFileSync(join(p.home, "config.json"), "utf8");
-    expect(() => applyEdit(p, { kind: "chat", channel: "discord", chat: "nope", mention: true })).toThrow("non trovata");
-    expect(() => applyEdit(p, { kind: "chat", channel: "discord", chat: "42", mention: "si" as any })).toThrow("true o false");
-    expect(() => applyEdit(p, { kind: "persona", agent: "main", file: "../x.md", text: "x".repeat(30) })).toThrow("non modificabile");
-    expect(() => applyEdit(p, { kind: "persona", agent: "main", file: "SOUL.md", text: "" })).toThrow("troppo corto");
+    expect(() => applyEdit(p, { kind: "chat", channel: "discord", chat: "nope", mention: true })).toThrow("not found");
+    expect(() => applyEdit(p, { kind: "chat", channel: "discord", chat: "42", mention: "si" as any })).toThrow("true or false");
+    expect(() => applyEdit(p, { kind: "persona", agent: "main", file: "../x.md", text: "x".repeat(30) })).toThrow("not editable");
+    expect(() => applyEdit(p, { kind: "persona", agent: "main", file: "SOUL.md", text: "" })).toThrow("too short");
     expect(readFileSync(join(p.home, "config.json"), "utf8")).toBe(before);
   });
 
