@@ -1,4 +1,5 @@
 import { pointerWithin, closestCorners, type CollisionDetection } from '@dnd-kit/core';
+import { columnIdOfDropTarget } from './boardLanes';
 import { TASK_STATUSES, attemptHasWork, type TaskAttempt, type TaskStatus } from '../../lib/board';
 // Re-exported, not defined here any more: this module opens with `@dnd-kit/core`
 // (the board's collision detection), and a ten-line string function must not
@@ -83,7 +84,8 @@ export const boardCollision: CollisionDetection = (args) => {
   const settled = { ...args, droppableRects: settledRects(args.droppableRects) };
   const within = pointerWithin(settled);
   if (within.length) {
-    const card = within.find((c) => !TASK_STATUSES.includes(String(c.id) as TaskStatus));
+    // A project lane's column carries its lane in the id (`laneDropId`): still a column, not a card.
+    const card = within.find((c) => !TASK_STATUSES.includes(columnIdOfDropTarget(String(c.id)) as TaskStatus));
     return card ? [card] : within;
   }
   const p = args.pointerCoordinates;

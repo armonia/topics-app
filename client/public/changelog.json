@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.69",
+    "date": "2026-11-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Board per progetto: l'elenco dei progetti del selettore esce da tasks.ts",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.67",
     "date": "2026-11-09",
     "sections": {
@@ -40,12 +56,52 @@
           "scope": null
         },
         {
+          "it": "Corsie e Piano: un solo ordine (chi aspetta Attilio, poi per nome) e un solo nome per i progetti non registrati",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Migration screen_devices con timestamp dopo quella delle slot (#636), manifest rigenerato",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il land automatico giudica uno sha solo, rifà il verdetto prima del merge e lascia a una persona tutto ciò che protegge, costa, giudica o cancella",
           "en": "",
           "scope": null
         },
         {
+          "it": "Schermo del PC: il lavoro mandato va alla sessione dal repo che lo ha mandato, e si marca l'albero dei processi del lavoro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "e2e schermo del PC: l'etichetta del lavoro e' quella di un worktree, cosi' lo piazza solo il repo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Proxy esterno: tailnet e interfacce proprie rifiutate, relay WebSocket senza perdite, codici di chiusura veri",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Corsie e Piano: i tre rossi della CI (nome vietato nei test, testo italiano condiviso, trascinamento fra corsie lontane)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Proxy esterno: import inutilizzati nel test, a connessione abbandonata il relay non attende il close di Anthropic",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Intake e2e: wait for the proposal rows before unticking them",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Proxy sessioni esterne: tetti al relay WebSocket (16 relay, 16 MB a messaggio, 1009)",
           "en": "",
           "scope": null
         },
@@ -111,6 +167,16 @@
           "breaking": false
         },
         {
+          "it": "Consumo per sessione: ogni processo ha un proprietario, il condiviso si divide in parti uguali e la riga lo dice",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Schermo del PC e pannello Processi: le sessioni al centro, non i processi",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Strip the silent-reply marker from content and text blocks instead of hiding the turn",
           "en": "",
           "scope": null
@@ -122,7 +188,22 @@
           "breaking": false
         },
         {
+          "it": "Schermo del PC: intestazione e lavori mandati dalla stessa lettura, token/s su finestra vera, rails e spec allineati",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Board per progetto: stesso nome da una sola fonte, domanda sulla card compatta sempre, drop fra corsie rifiutato",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "La card invisibile con la barra verde atterra da sola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test della lettura del PC: dichiara il requisito che copre",
           "en": "",
           "scope": null
         },
@@ -132,12 +213,48 @@
           "scope": null
         },
         {
+          "it": "i test dell'ordine dei progetti seguono il contratto nuovo (per nome, come le corsie)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "known-dirs-cache.test: dichiara cosa copre (PROJECT-11), il cancello dei test senza requisito era rosso su main",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "CI di main rossa dopo i land della sera: un test senza requisito e due spec che dipendono dal tempo",
           "en": "",
           "scope": null
         },
         {
+          "it": "Schermo del PC: schermo come tabella a parte, lavori e sessioni da una sola lettura, orologio della chat dal suo turno, lint e tipi in regola",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "L'atterraggio automatico guarda il main che atterra, i percorsi ammessi e l'archivio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Proxy delle sessioni Claude esterne dentro il server di Topics",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Proxy esterno: CA e stato nella home di Topics, non nel checkout",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Schermo del PC: e2e su lavoro intero, da quando e CPU del Mac, e fine lavoro senza fantasmi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Proxy esterno: upgrade WebSocket inoltrato, CONNECT verso loopback e reti private rifiutato",
           "en": "",
           "scope": null
         }
@@ -152,6 +269,11 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "Corsie per progetto: l'hook va nel suo file, il lint vuole che un file di componenti esporti solo componenti",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "e2e più veloci: due processi per runner, file lento spezzato, instabile peggiore curato (#637)",
           "en": "",
@@ -169,12 +291,27 @@
       "perf": [],
       "internal": [
         {
+          "it": "Schermo del carico: tolta la parte di board raggruppata e compatta, e' della PR #634",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "machine-slots e2e: la lista arriva come { machines }",
           "en": "",
           "scope": null
         },
         {
           "it": "Via Gateway da Topics (#606)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Board per progetto: stesso nome e stesso ordine nel Kanban e nel Piano, una sola bozza, domanda sulla card compatta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nomi dei progetti: un identificatore che il cancello della lingua accettava prima del merge con main",
           "en": "",
           "scope": null
         }
@@ -190,6 +327,12 @@
       "perf": [],
       "internal": [
         {
+          "it": "card raggruppate per progetto e card compatte, uguali in Kanban e Piano",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "E2e sul PC: Chromium con la GPU, le spec a pixel su SwiftShader (#631)",
           "en": "",
           "scope": null
@@ -201,12 +344,22 @@
           "breaking": false
         },
         {
+          "it": "Board per progetto: una bozza sola, stesso ordine nel Piano, stato e attesa sulla card compatta",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "machine-slots.test: @covers",
           "en": "",
           "scope": null
         },
         {
           "it": "Smoke di installazione: aggiorna l'elenco dei pacchetti prima del .deb (#635)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Schermo del carico sui dati veri del PC, e board raggruppata per progetto con card compatte",
           "en": "",
           "scope": null
         }
@@ -305,6 +458,11 @@
         },
         {
           "it": "Remove dead server code (claude-tasks-sync, seed, test-only exports) and fix stale usage_records comments",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Schermo del carico: il monitor del PC mostra Topics, non una finestra PowerShell",
           "en": "",
           "scope": null
         },

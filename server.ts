@@ -24,6 +24,7 @@ import { listNativeCommands, nativeCommandByPid } from "./server/lib/native-comm
 import { listSessionCliPids } from "./server/providers/session-pids";
 import { getAccessToken, recoverAfter401 } from "./server/providers/native/auth";
 import { createModelProxyListener, modelProxyPort } from "./server/services/model-proxy";
+import { bootExternalProxy, externalProxyPort, type BootedExternalProxy } from "./server/services/external-proxy";
 import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
 import { existsSync, readFileSync, mkdirSync, statSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
@@ -36,7 +37,7 @@ import { startToolOutputBackfill } from "./server/lib/tool-output-store";
 import { shouldServeSpaFallback } from "./server/spa-fallback";
 import { classifyStaticAsset, pickPrecompressed } from "./server/static-assets";
 import {
-  acquireLock, releaseLock, writeState, readState,
+  acquireLock, releaseLock, writeState, readState, topicsHome,
   uptimeMsSince, LiveLockError, worktreeIsolationHome, worktreeIsolationEnv,
   listenWithSquatterFallback, PortTakenError,
 } from "./server/services/daemon-state";
@@ -1011,7 +1012,8 @@ const mcpRouter = createMcpRouter(ctx);
 const sessionEnvironmentRouter = createSessionEnvironmentRouter(ctx);
 const checkpointsRouter = createCheckpointsRouter(ctx);
 const goalsRouter = createGoalsRouter(ctx);
-const planRouter = createPlanRouter(ctx);
+// The same list the board index uses, so the Plan names projects the way the Kanban does.
+const planRouter = createPlanRouter(ctx, { listProjectDirs: () => listSelectableProjectDirs() });
 // Always-on: serves /api/topics/:id/context-preview and /context-snapshots.
 // Independent of which provider is the default — every provider benefits
 // from the canonical envelope inspector (change `topic-context-canonical`).
@@ -1582,6 +1584,20 @@ function dispatchExtraPaths(): string[] {
     }
   } catch { /* best-effort source */ }
   return paths;
+}
+
+/**
+ * The dirs that are actually SELECTABLE boards: the dispatcher's union minus
+ * internal catch-all plumbing, the home dir, config dot-dirs and vanished paths.
+ */
+function listSelectableProjectDirs(): string[] {
+  return buildProjectCandidates({
+    projectStore: ctx.projectStore,
+    workspaceDir: DISPATCH_WORKSPACE_DIR,
+    extraPaths: dispatchExtraPaths,
+  })
+    .map((c) => c.path)
+    .filter((p) => isSelectableProjectDir(p, { workspaceDir: DISPATCH_WORKSPACE_DIR, homeDir: homedir() }));
 }
 
 // Incremental, dedup-by-message-id usage accounting over Claude Code
@@ -3049,14 +3065,7 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // `generale` dir, the per-task `tasks/<id8>` cwds), the home dir, config
   // dot-dirs and vanished paths are dropped so the picker/sidebar stay clean;
   // the resolver above keeps the FULL union so those hashes still invert.
-  listProjectDirs: () =>
-    buildProjectCandidates({
-      projectStore: ctx.projectStore,
-      workspaceDir: DISPATCH_WORKSPACE_DIR,
-      extraPaths: dispatchExtraPaths,
-    })
-      .map((c) => c.path)
-      .filter((p) => isSelectableProjectDir(p, { workspaceDir: DISPATCH_WORKSPACE_DIR, homeDir: homedir() })),
+  listProjectDirs: listSelectableProjectDirs,
   listRepoRoots: listKnownDeliveryRepoRoots,
 });
 // Auto-register servers Claude starts inside its PTY sessions (bare `bun run dev`
@@ -5372,6 +5381,33 @@ if (serverModelProxy) {
   console.log(`[ModelProxy] listening on 127.0.0.1:${portaModelProxy} (Messages API only, per-machine token)`);
 }
 
+// The proxy for Claude Code sessions opened OUTSIDE Topics (the Claude desktop
+// app, relaunched with HTTPS_PROXY + NODE_EXTRA_CA_CERTS): their Messages calls
+// go through the account engine instead of straight to Anthropic. Off unless
+// TOPICS_EXTERNAL_PROXY_PORT is set; loopback only, on a port of its own. The
+// state file `<topics home>/external-proxy.json` (next to daemon-state.json) tells
+// `claude-account` where it is and where the CA is. The CA key lives in the Topics
+// home, never in STATE_DIR (the checkout root in production). See docs/ENV.md.
+const portaExternalProxy = externalProxyPort(process.env);
+let externalProxy: BootedExternalProxy | null = null;
+let externalProxyStopped = false; // set by gracefulShutdown: a boot that finishes after it must close itself
+if (portaExternalProxy) {
+  // Not awaited: a port still held by the previous process is retried for a few
+  // seconds, and the rest of the boot must not wait for it.
+  void bootExternalProxy({
+    homeDir: topicsHome(),
+    port: portaExternalProxy,
+    log: (event, fields) => console.log(`[ExternalProxy] ${event}${fields ? " " + Object.entries(fields).map(([k, v]) => `${k}=${v}`).join(" ") : ""}`),
+  }).then((proxy) => {
+    if (externalProxyStopped) { void proxy.close(); return; }
+    externalProxy = proxy;
+    console.log(`[ExternalProxy] listening on 127.0.0.1:${proxy.port} (CONNECT proxy, ${proxy.intercepting ? "api.anthropic.com terminated with the local CA" : "tunnel only, no CA"})`);
+  }).catch((err) => {
+    // A proxy that does not start must not take the server down with it.
+    console.error(`[ExternalProxy] not started: ${err instanceof Error ? err.message : String(err)}`);
+  });
+}
+
 // Stale stream cleanup
 const STALE_STREAM_CHECK_INTERVAL_MS = 30_000;
 const STALE_STREAM_TIMEOUT_MS = 3 * 60 * 1000;
@@ -7411,6 +7447,9 @@ async function gracefulShutdown(signal: string) {
   clearInterval(idleGcTimer);
   clearInterval(incrementalVacuumTimer);
   clearInterval(loopLagTimer);
+  // First of all: the state file goes away and the port is freed for the next process.
+  externalProxyStopped = true;
+  void externalProxy?.close();
   stopToolOutputBackfill();
   // A process left STOPped by the governor is a process nobody will ever
   // continue: the one thing that could send it SIGCONT is the loop that is

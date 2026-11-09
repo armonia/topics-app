@@ -9,7 +9,7 @@ import {
   deleteSource, linkTask, unlinkTask, updateArea, updateMilestone,
 } from "../services/plan";
 
-export function createPlanRouter(ctx: AppContext): RouteHandler {
+export function createPlanRouter(ctx: AppContext, opts?: { listProjectDirs?: () => string[] }): RouteHandler {
   const { db, json, readJSON, matchRoute } = ctx;
 
   const fail = (e: unknown): Response => {
@@ -30,7 +30,9 @@ export function createPlanRouter(ctx: AppContext): RouteHandler {
     try {
       if (pathname === "/api/plan" && method === "GET") {
         const p = url.searchParams;
-        return json(buildPlan(db, { projectId: p.get("projectId") ?? undefined, includeDone: p.get("includeDone") === "1" }));
+        let knownDirs: string[] = [];
+        try { knownDirs = opts?.listProjectDirs?.() ?? []; } catch { /* best-effort: names fall back to the registered ones */ }
+        return json(buildPlan(db, { projectId: p.get("projectId") ?? undefined, includeDone: p.get("includeDone") === "1", knownDirs }));
       }
       if (pathname === "/api/plan/areas" && method === "POST") return json(createArea(db, await body(req)), 201);
       const area = matchRoute(pathname, "/api/plan/areas/:id");

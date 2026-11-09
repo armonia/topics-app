@@ -79,6 +79,15 @@ echo "[start-prod] descrittori disponibili: $(ulimit -n)"
 # install, so released builds stay clean — this line is a harmless no-op there.
 [ -f "$HOME/.topics-server-env" ] && source "$HOME/.topics-server-env"
 
+# Optional: proxy for Claude Code sessions opened OUTSIDE Topics (the Claude
+# desktop app). `export TOPICS_EXTERNAL_PROXY_PORT=3350` in ~/.topics-server-env
+# turns it on; unset (the default) nothing listens. The listener lives INSIDE the
+# server process (server/services/external-proxy.ts), so there is nothing to
+# start here: this only makes the state visible in the boot log. docs/ENV.md.
+if [ -n "${TOPICS_EXTERNAL_PROXY_PORT:-}" ]; then
+  echo "[start-prod] proxy for external Claude sessions requested on 127.0.0.1:${TOPICS_EXTERNAL_PROXY_PORT} (started by the server)"
+fi
+
 # ─── Single-instance guard (2026-05-11) ────────────────────────────────────
 # Without this, every `launchctl bootout`/`bootstrap` cycle (or any glitchy
 # `KeepAlive=true` restart) leaves a SECOND `start-prod.sh` running in

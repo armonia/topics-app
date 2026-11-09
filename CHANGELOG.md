@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.69 — 2026-11-09
+
+### Sotto il cofano
+- Board per progetto: l'elenco dei progetti del selettore esce da tasks.ts
+
 ## 2.3.67 — 2026-11-09
 
 ### Sotto il cofano
@@ -13,8 +18,16 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - L'atterraggio automatico rilegge tutto prima del merge e non lascia passare file di guardia, spesa o giudizio
 - Un sottoagente nativo non vede ask_user_question: le scelte tornano nel risultato al genitore
+- Corsie e Piano: un solo ordine (chi aspetta Attilio, poi per nome) e un solo nome per i progetti non registrati
+- Migration screen_devices con timestamp dopo quella delle slot (#636), manifest rigenerato
 - Il land automatico giudica uno sha solo, rifà il verdetto prima del merge e lascia a una persona tutto ciò che protegge, costa, giudica o cancella
+- Schermo del PC: il lavoro mandato va alla sessione dal repo che lo ha mandato, e si marca l'albero dei processi del lavoro
+- e2e schermo del PC: l'etichetta del lavoro e' quella di un worktree, cosi' lo piazza solo il repo
+- Proxy esterno: tailnet e interfacce proprie rifiutate, relay WebSocket senza perdite, codici di chiusura veri
+- Corsie e Piano: i tre rossi della CI (nome vietato nei test, testo italiano condiviso, trascinamento fra corsie lontane)
+- Proxy esterno: import inutilizzati nel test, a connessione abbandonata il relay non attende il close di Anthropic
 - Intake e2e: wait for the proposal rows before unticking them
+- Proxy sessioni esterne: tetti al relay WebSocket (16 relay, 16 MB a messaggio, 1009)
 - timeout-minutes on every job, e2e shards 8 to 7
 - ci-changes expects seven e2e shards, not eight
 - Il land automatico lascia da solo solo testo e test, manda il codice del server alla revisione AI e rilegge la card dentro il merge
@@ -28,31 +41,50 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - Multi-project intake e2e: archive whole trees between tests and count only each test's own cards
 - helper duplicati unificati (errMessage, readJson, shortTokens, toolbar editor, header File)
+- Consumo per sessione: ogni processo ha un proprietario, il condiviso si divide in parti uguali e la riga lo dice
+- Schermo del PC e pannello Processi: le sessioni al centro, non i processi
 - Strip the silent-reply marker from content and text blocks instead of hiding the turn
 - tema chiaro della Board (a7286fe8) torna fuori da main
+- Schermo del PC: intestazione e lavori mandati dalla stessa lettura, token/s su finestra vera, rails e spec allineati
+- Board per progetto: stesso nome da una sola fonte, domanda sulla card compatta sempre, drop fra corsie rifiutato
 - La card invisibile con la barra verde atterra da sola
+- Test della lettura del PC: dichiara il requisito che copre
 - Toglie un import inutilizzato dal test della porta del nodo
+- i test dell'ordine dei progetti seguono il contratto nuovo (per nome, come le corsie)
+- known-dirs-cache.test: dichiara cosa copre (PROJECT-11), il cancello dei test senza requisito era rosso su main
 - CI di main rossa dopo i land della sera: un test senza requisito e due spec che dipendono dal tempo
+- Schermo del PC: schermo come tabella a parte, lavori e sessioni da una sola lettura, orologio della chat dal suo turno, lint e tipi in regola
 - L'atterraggio automatico guarda il main che atterra, i percorsi ammessi e l'archivio
+- Proxy delle sessioni Claude esterne dentro il server di Topics
+- Proxy esterno: CA e stato nella home di Topics, non nel checkout
+- Schermo del PC: e2e su lavoro intero, da quando e CPU del Mac, e fine lavoro senza fantasmi
+- Proxy esterno: upgrade WebSocket inoltrato, CONNECT verso loopback e reti private rifiutato
 
 ## 2.3.64 — 2026-11-08
 
 ### Sotto il cofano
+- Corsie per progetto: l'hook va nel suo file, il lint vuole che un file di componenti esporti solo componenti
 - e2e più veloci: due processi per runner, file lento spezzato, instabile peggiore curato (#637)
 
 ## 2.3.63 — 2026-11-08
 
 ### Sotto il cofano
+- Schermo del carico: tolta la parte di board raggruppata e compatta, e' della PR #634
 - machine-slots e2e: la lista arriva come { machines }
 - Via OpenClaw da Topics (#606)
+- Board per progetto: stesso nome e stesso ordine nel Kanban e nel Piano, una sola bozza, domanda sulla card compatta
+- Nomi dei progetti: un identificatore che il cancello della lingua accettava prima del merge con main
 
 ## 2.3.62 — 2026-11-08
 
 ### Sotto il cofano
+- card raggruppate per progetto e card compatte, uguali in Kanban e Piano
 - E2e sul PC: Chromium con la GPU, le spec a pixel su SwiftShader (#631)
 - posti dichiarabili per macchina (slots), PATCH e campo Card insieme
+- Board per progetto: una bozza sola, stesso ordine nel Piano, stato e attesa sulla card compatta
 - machine-slots.test: @covers
 - Smoke di installazione: aggiorna l'elenco dei pacchetti prima del .deb (#635)
+- Schermo del carico sui dati veri del PC, e board raggruppata per progetto con card compatte
 
 ## 2.3.61 — 2026-11-08
 
@@ -73,6 +105,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Multi-project intake: drop the known-board guard that starved other e2e seeds, and clear both boards before each intake test so earlier cards never count (card a5906c31)
 - Cancelli allineati a TS 7: gate-coverage usa typescript7, tolta la barra toolchain senza script
 - Remove dead server code (claude-tasks-sync, seed, test-only exports) and fix stale usage_records comments
+- Schermo del carico: il monitor del PC mostra Topics, non una finestra PowerShell
 - Drop TASKSYNC-01 requirement along with the removed watcher
 
 ## 2.3.60 — 2026-11-08
