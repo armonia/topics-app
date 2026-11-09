@@ -202,7 +202,10 @@ test.describe("Multi-project intake proposal", () => {
 - Zeta task`;
     await composer.fill(text);
     await composer.press("Enter");
+    // Wait for the panel and its rows: unticking before they render would leave the second Enter to submit the text.
+    await expect(page.getByTestId("intake-plan")).toBeVisible({ timeout: 10000 });
     const checks = page.getByTestId("intake-plan-check");
+    await expect(checks).toHaveCount(2);
     for (let n = (await checks.count()) - 1; n >= 0; n--) await checks.nth(n).uncheck();
     await composer.press("Enter");
     await expect(page.getByTestId("intake-plan")).toBeVisible();
