@@ -45,8 +45,8 @@ import { useRowSnapHold } from './useRowSnapHold';
 import { BoardSkeleton } from './BoardSkeleton';
 import { DropNotice } from './DropNotice';
 import {
-  BOARD_DENSITY_STORAGE_KEY, BOARD_GROUP_BY_STORAGE_KEY, BOARD_LAYOUT_STORAGE_KEY, COLUMNS_ROW_GRID, COLUMNS_ROW_LIST,
-  readBoardDensity, readBoardGroupBy, writeBoardPreference, type BoardDensity, type BoardGroupBy,
+  BOARD_GROUP_BY_STORAGE_KEY, BOARD_LAYOUT_STORAGE_KEY, COLUMNS_ROW_GRID, COLUMNS_ROW_LIST,
+  readBoardGroupBy, writeBoardPreference, type BoardGroupBy,
 } from './boardGeometry';
 import { columnIdOfDropTarget, dropsOnOtherProject, laneDropId, type BoardLane } from './boardLanes';
 import { BoardViewToggles, ProjectLanes } from './ProjectLanes';
@@ -937,9 +937,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // reason: one lane per project on the cross-project board, and the compact
   // card. Neither changes what the board holds, only how much of it you read.
   const [groupByPref, setGroupByPref] = useState<BoardGroupBy>(readBoardGroupBy);
-  const [density, setDensity] = useState<BoardDensity>(readBoardDensity);
+  // The Done column is out of the way until asked for: a board of live work.
+  const [showDone, setShowDone] = useState(false);
   useEffect(() => { writeBoardPreference(BOARD_GROUP_BY_STORAGE_KEY, groupByPref); }, [groupByPref]);
-  useEffect(() => { writeBoardPreference(BOARD_DENSITY_STORAGE_KEY, density); }, [density]);
   const { collapsed: collapsedProjects, toggle: toggleProjectCollapsed } = useCollapsedProjects();
   // Le righe non le legge più questa pane: le legge `useBoardFeed`, che in
   // modalità 'all' NON fetcha affatto (il feed globale ha già un proprietario,
@@ -1516,6 +1516,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // one project, its lane would be the board itself). Split after the columns
   // (`splitIntoLanes`), so a lane keeps the board's order inside each column.
   const grouped = mode === 'all' && groupByPref === 'project';
+  // The archive view keeps every column: what was closed is exactly what it is there to show.
+  const shownColumns = useMemo(
+    () => (showDone || showArchived ? boardColumns : boardColumns.filter((c) => c.base !== 'done')),
+    [boardColumns, showDone, showArchived],
+  );
   const columnIds = useMemo(() => boardColumns.map((c) => c.id), [boardColumns]);
   const { lanes, draftPlacement, draftLane, laneNameById } = useProjectLanes({
     grouped, showArchived, draft, tasks, byColumn, columnIds, projectIndex,
@@ -1731,7 +1736,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       key={lane ? laneDropId(columnKey, lane.projectId) : columnKey}
       dropId={lane ? laneDropId(columnKey, lane.projectId) : undefined}
       inLane={!!lane}
-      density={density}
       status={status}
       columnId={columnKey === status ? undefined : columnKey}
       label={columnKey === status ? undefined : columnLabel}
@@ -2056,7 +2060,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         <BoardViewToggles
           canGroup={mode === 'all'}
           groupBy={groupByPref} onGroupBy={setGroupByPref}
-          density={density} onDensity={setDensity}
+          showDone={showDone} onShowDone={setShowDone}
         />
         <div className="ml-auto flex items-center gap-2">
           {hasProject && mode === 'project' && <ScheduledCardsControl projectId={projectId} />}
@@ -2253,14 +2257,14 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
               : `${COLUMNS_ROW_GRID} ${columnsSnap.held ? '' : 'snap-x snap-mandatory'} sm:scroll-smooth`}>
               {grouped ? (
                 <ProjectLanes
-                  lanes={lanes} columns={boardColumns} layout={boardLayout}
+                  lanes={lanes} columns={shownColumns} layout={boardLayout}
                   nameById={laneNameById} pathById={projectPathById}
                   collapsed={collapsedProjects} onToggle={toggleProjectCollapsed}
                   draftAbove={draftPlacement?.kind === 'above' ? draft ?? undefined : undefined}
                   draftLane={draftLane}
                   renderColumn={renderColumn}
                 />
-              ) : boardColumns.map((column) => renderColumn(column, byColumn.get(column.id) ?? []))}
+              ) : shownColumns.map((column) => renderColumn(column, byColumn.get(column.id) ?? []))}
             </div>
             {/* Portal to <body>: the overlay is position:fixed, and a transformed
                 ancestor (pane translateX, FLIP animations) would re-anchor fixed

@@ -8,8 +8,8 @@ import { AUTO_PROJECT_ID, type BoardTask } from '../../lib/board';
 import { columnIdOfDropTarget, dropsOnOtherProject, laneDropId, projectIdOfDropTarget, splitIntoLanes, taskWaitsOnPerson, toggleCollapsed, withDraftLane } from './boardLanes';
 import { draftLaneOf, type DraftPreview } from './draftPreview';
 import {
-  BOARD_COLLAPSED_PROJECTS_STORAGE_KEY, BOARD_DENSITY_STORAGE_KEY, BOARD_GROUP_BY_STORAGE_KEY,
-  readBoardDensity, readBoardGroupBy, readCollapsedProjects, writeBoardPreference, writeCollapsedProjects,
+  BOARD_COLLAPSED_PROJECTS_STORAGE_KEY, BOARD_GROUP_BY_STORAGE_KEY,
+  readBoardGroupBy, readCollapsedProjects, writeBoardPreference, writeCollapsedProjects,
 } from './boardGeometry';
 
 const task = (id: string, projectId: string): BoardTask => ({ id, projectId } as BoardTask);
@@ -153,23 +153,18 @@ describe('view preferences', () => {
   const install = (value: unknown) => Object.defineProperty(globalThis, 'localStorage', { value, configurable: true, writable: true });
   afterEach(() => { store.clear(); install(original); });
 
-  test('defaults: flat board, full cards, nothing folded', () => {
+  test('defaults: flat board, nothing folded', () => {
     install(fake);
     expect(readBoardGroupBy()).toBe('none');
-    expect(readBoardDensity()).toBe('full');
     expect(readCollapsedProjects().size).toBe(0);
   });
 
   test('stored values come back, unknown ones fall to the default', () => {
     install(fake);
     writeBoardPreference(BOARD_GROUP_BY_STORAGE_KEY, 'project');
-    writeBoardPreference(BOARD_DENSITY_STORAGE_KEY, 'compact');
     expect(readBoardGroupBy()).toBe('project');
-    expect(readBoardDensity()).toBe('compact');
     store.set(BOARD_GROUP_BY_STORAGE_KEY, 'status');
-    store.set(BOARD_DENSITY_STORAGE_KEY, 'tiny');
     expect(readBoardGroupBy()).toBe('none');
-    expect(readBoardDensity()).toBe('full');
   });
 
   test('folded projects survive a write and a broken value reads as none', () => {
@@ -186,9 +181,8 @@ describe('view preferences', () => {
   test('a storage that throws never breaks the view', () => {
     install({ getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('blocked'); } });
     expect(readBoardGroupBy()).toBe('none');
-    expect(readBoardDensity()).toBe('full');
     expect(readCollapsedProjects().size).toBe(0);
-    expect(() => writeBoardPreference(BOARD_DENSITY_STORAGE_KEY, 'compact')).not.toThrow();
+    expect(() => writeBoardPreference(BOARD_GROUP_BY_STORAGE_KEY, 'project')).not.toThrow();
   });
 });
 

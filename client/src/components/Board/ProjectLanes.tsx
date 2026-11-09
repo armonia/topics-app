@@ -1,13 +1,13 @@
 /**
  * The board grouped by project (one lane per project, `boardLanes.ts`) and the
- * two toolbar controls that choose how the board is read: grouping and card
- * density. Out of `KanbanBoardPane` so the pane keeps its size budget.
+ * two toolbar controls that choose how the board is read: grouping and whether
+ * the Done column is shown. Out of `KanbanBoardPane` so the pane keeps its size budget.
  */
 import type { ReactNode } from 'react';
-import { Layers, ListCollapse } from 'lucide-react';
+import { CheckCircle2, Layers } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import type { WorkflowColumn } from '../../../../shared/workflow';
-import type { BoardDensity, BoardGroupBy, BoardLayout } from './boardGeometry';
+import type { BoardGroupBy, BoardLayout } from './boardGeometry';
 import type { BoardLane } from './boardLanes';
 import type { BoardTask } from '../../lib/board';
 import { TOOLBAR_CONTROL_H, TOOLBAR_ICON_W } from './constants';
@@ -19,14 +19,14 @@ const toggleClass = (on: boolean) =>
   `grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} shrink-0 place-items-center rounded ${on ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`;
 
 /**
- * GROUP BY PROJECT and COMPACT CARDS: two view choices in the same spot and
+ * GROUP BY PROJECT and SHOW DONE: two view choices in the same spot and
  * style as the layout toggle, not a menu. Grouping only exists on the
  * cross-project board, where there is more than one project to group.
  */
-export function BoardViewToggles({ canGroup, groupBy, onGroupBy, density, onDensity }: {
+export function BoardViewToggles({ canGroup, groupBy, onGroupBy, showDone, onShowDone }: {
   canGroup: boolean;
   groupBy: BoardGroupBy; onGroupBy: (next: (v: BoardGroupBy) => BoardGroupBy) => void;
-  density: BoardDensity; onDensity: (next: (v: BoardDensity) => BoardDensity) => void;
+  showDone: boolean; onShowDone: (next: (v: boolean) => boolean) => void;
 }) {
   const tr = useT();
   return <>
@@ -39,11 +39,11 @@ export function BoardViewToggles({ canGroup, groupBy, onGroupBy, density, onDens
       ><Layers className="h-3.5 w-3.5" /></button>
     )}
     <button
-      type="button" data-testid="board-density-toggle" aria-pressed={density === 'compact'}
-      onClick={() => onDensity((v) => (v === 'compact' ? 'full' : 'compact'))}
-      className={toggleClass(density === 'compact')}
-      title={tr(density === 'compact' ? 'board.toolbar.density.full' : 'board.toolbar.density.compact')}
-    ><ListCollapse className="h-3.5 w-3.5" /></button>
+      type="button" data-testid="board-done-toggle" aria-pressed={showDone}
+      onClick={() => onShowDone((v) => !v)}
+      className={toggleClass(showDone)}
+      title={tr(showDone ? 'board.toolbar.done.hide' : 'board.toolbar.done.show')}
+    ><CheckCircle2 className="h-3.5 w-3.5" /></button>
   </>;
 }
 
