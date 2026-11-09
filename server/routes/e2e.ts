@@ -130,7 +130,8 @@ import { observePlanUsage } from "../providers/native/usage-window";
 import { registerProvider, removeProvider } from "../providers";
 import { partialTurnRows } from "../lib/partial-turn-fixture";
 import { setInjectedSwapFreezeViews } from "../lib/swap-freeze-hold";
-import { setBenchStaleTimeout } from "../lib/stale-stream-sweep";
+import { setBenchStaleTimeout, setBenchStaleTick } from "../lib/stale-stream-sweep";
+import { setBenchEndedTtl } from "../lib/live-work";
 import { __resetPendingForTests } from "./auth";
 import { reloadAttentionTable } from "../attention/store";
 import type { SwapFreezeView } from "../../shared/swap-freeze";
@@ -240,6 +241,8 @@ export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): Ro
       releaseDispatchHold();
       // Same for the stale-stream threshold a spec cut to 1 s.
       setBenchStaleTimeout(null);
+      setBenchStaleTick(null);
+      setBenchEndedTtl(null);
       // And for pairing requests, which live in memory, not in the DB: a spec
       // that shows the pairing screen leaves one pending, and every later file
       // would open under the approval card that covers the bottom-right corner.
@@ -435,12 +438,24 @@ export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): Ro
 
     // POST /api/test/stale-stream-clock {timeoutMs} - the silence after which the
     // stale-stream sweep acts, three minutes in production. The sweep itself and
-    // its 30 s tick stay the real ones; `{}` gives the three minutes back.
+    // its tick are the real ones; `tickMs` shortens the 30 s pass interval and
+    // `{}` gives the production values back.
     if (method === "POST" && pathname === "/api/test/stale-stream-clock") {
-      const body = (await req.json().catch(() => null)) as { timeoutMs?: number } | null;
+      const body = (await req.json().catch(() => null)) as { timeoutMs?: number; tickMs?: number } | null;
       const ms = typeof body?.timeoutMs === "number" && body.timeoutMs > 0 ? body.timeoutMs : null;
+      const tick = typeof body?.tickMs === "number" && body.tickMs >= 100 ? body.tickMs : null;
       setBenchStaleTimeout(ms);
-      return json({ ok: true, timeoutMs: ms });
+      setBenchStaleTick(tick);
+      return json({ ok: true, timeoutMs: ms, tickMs: tick });
+    }
+
+    // POST /api/test/live-work-ttl {ttlMs} - how long a finished sub-agent's row
+    // stays in the chat's strip, one minute in production. `{}` gives it back.
+    if (method === "POST" && pathname === "/api/test/live-work-ttl") {
+      const body = (await req.json().catch(() => null)) as { ttlMs?: number } | null;
+      const ms = typeof body?.ttlMs === "number" && body.ttlMs > 0 ? body.ttlMs : null;
+      setBenchEndedTtl(ms);
+      return json({ ok: true, ttlMs: ms });
     }
 
     // POST /api/test/dispatch-hold {ms} — holds the periodic reconcile.

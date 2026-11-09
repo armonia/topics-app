@@ -64,7 +64,7 @@ import { setUploadRootsProvider } from "./server/browser-tool-dispatcher";
 import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
-import { sweepStaleStreams, rescueByOwner, type SilenceMark } from "./server/lib/stale-stream-sweep";
+import { sweepStaleStreams, rescueByOwner, staleTickMs, onStaleTickChange, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { flushTurnBody } from "./server/lib/turn-body-flush";
 import { endReattachLeg, finalizeStaleRow } from "./server/lib/closed-outside";
@@ -5377,7 +5377,7 @@ const STALE_STREAM_TIMEOUT_MS = 3 * 60 * 1000;
 // leaves the map.
 const staleStreamRescued = new Set<string>();
 const staleStreamSilence = new Map<string, SilenceMark>();
-const staleStreamTimer = setInterval(() => {
+function runStaleStreamPass(): void {
   // IL GIRO STA IN `stale-stream-sweep.ts`. Il verdetto puro era gia' uscito da
   // qui per essere provabile, ma il cablaggio no: il caso che conta — un figlio
   // VIVO al secondo tick muto, cioe' il turno che NON va finalizzato — vive
@@ -5442,7 +5442,22 @@ const staleStreamTimer = setInterval(() => {
   // A lingering entry the sweep dropped without `endStream`: the ledger follows the map.
   for (const sk of sweepOutcomes.keys()) turnLedger.set(sk, "route", activeStreams.has(sk));
   sweepStaleChecksLights();
-}, STALE_STREAM_CHECK_INTERVAL_MS);
+}
+// A re-armed timeout rather than a setInterval: the e2e bench shortens the pass
+// interval (`setBenchStaleTick`) and the change must take effect at once.
+let staleStreamTimer: ReturnType<typeof setTimeout>;
+function armStaleStreamTimer(): void {
+  clearTimeout(staleStreamTimer);
+  staleStreamTimer = setTimeout(() => {
+    try {
+      runStaleStreamPass();
+    } finally {
+      armStaleStreamTimer();
+    }
+  }, staleTickMs(STALE_STREAM_CHECK_INTERVAL_MS));
+}
+onStaleTickChange(armStaleStreamTimer);
+armStaleStreamTimer();
 
 /** The periodic half of the light's honesty (`services/checks-lights.ts`): the
  *  boot sweep is blind to a round that died with the process still up. */
@@ -7389,7 +7404,7 @@ async function gracefulShutdown(signal: string) {
   console.log(`\n[Shutdown] Received ${signal}, closing browser service...`);
   clearInterval(heartbeatTimer);
   clearInterval(wsHeartbeatTimer);
-  clearInterval(staleStreamTimer);
+  clearTimeout(staleStreamTimer);
   clearInterval(dispatchTimer);
   clearTimeout(worktreeGcBoot);
   clearInterval(worktreeGcTimer);
