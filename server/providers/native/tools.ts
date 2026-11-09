@@ -34,6 +34,7 @@ import { htmlToMarkdown } from "../../lib/html-to-markdown";
 import { protectedDirExcludes } from "../../lib/protected-app-data";
 import { globAnswer, globFiles } from "./glob-files";
 import { resolveSearchRoot } from "./search-root";
+import { isInWriteRoot } from "./write-roots";
 import { imageShape } from "../../services/image-shape";
 import { imageCaption, type ToolImage } from "./image-normalize";
 
@@ -207,6 +208,21 @@ function resolveReadPath(ctx: ToolContext, raw: string): { path: string; outside
       throw err;
     }
     if (statSync(abs).isFile() && imageShape(abs)?.format) return { path: abs, outside: true };
+    throw err;
+  }
+}
+
+/**
+ * `safePath` for WRITING: also accepts a path inside a root declared for this
+ * workspace in `native-write-roots.json`. Anything else stays refused.
+ */
+function writablePath(ctx: ToolContext, raw: string): string {
+  const expanded = expandHome(raw);
+  try {
+    return safePath(ctx, expanded);
+  } catch (err) {
+    const abs = isAbsolute(expanded) ? resolve(expanded) : resolve(ctx.workspace, expanded);
+    if (isInWriteRoot(ctx.workspace, abs)) return abs;
     throw err;
   }
 }
@@ -699,14 +715,14 @@ export async function executeTool(
       }
 
       case "write_file": {
-        const p = safePath(ctx, String(input.path));
+        const p = writablePath(ctx, String(input.path));
         mkdirSync(dirname(p), { recursive: true });
         writeFileSync(p, String(input.content ?? ""));
         return { content: `scritto ${input.path} (${String(input.content ?? "").length} byte)` };
       }
 
       case "edit_file": {
-        const p = safePath(ctx, String(input.path));
+        const p = writablePath(ctx, String(input.path));
         if (!existsSync(p)) return { content: `file non trovato: ${input.path}`, isError: true };
         const raw = readFileSync(p, "utf-8");
         const old = String(input.old ?? "");
