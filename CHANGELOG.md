@@ -2,6 +2,39 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.67 — 2026-11-09
+
+### Sotto il cofano
+- i titoli dei bottoni della toolbar passano da i18n (main rosso su check:ui-language)
+- e2e agents-jobs: il conteggio dei token si legge «2,3 M» col formato unico
+
+## 2.3.66 — 2026-11-09
+
+### Sotto il cofano
+- L'atterraggio automatico rilegge tutto prima del merge e non lascia passare file di guardia, spesa o giudizio
+- Un sottoagente nativo non vede ask_user_question: le scelte tornano nel risultato al genitore
+- Il land automatico giudica uno sha solo, rifà il verdetto prima del merge e lascia a una persona tutto ciò che protegge, costa, giudica o cancella
+- Intake e2e: wait for the proposal rows before unticking them
+- timeout-minutes on every job, e2e shards 8 to 7
+- ci-changes expects seven e2e shards, not eight
+- Il land automatico lascia da solo solo testo e test, manda il codice del server alla revisione AI e rilegge la card dentro il merge
+- map Claude Code hooks onto jcode events (card ce3a398e)
+- move jcode hook mapping out of ignored archive
+- Land automatico: via il livello revisione AI, server/** va a una persona
+- Punto coordinator: fix lives outside this repo (jarvis ef51752b)
+
+## 2.3.65 — 2026-11-09
+
+### Sotto il cofano
+- Multi-project intake e2e: archive whole trees between tests and count only each test's own cards
+- helper duplicati unificati (errMessage, readJson, shortTokens, toolbar editor, header File)
+- Strip the silent-reply marker from content and text blocks instead of hiding the turn
+- tema chiaro della Board (a7286fe8) torna fuori da main
+- La card invisibile con la barra verde atterra da sola
+- Toglie un import inutilizzato dal test della porta del nodo
+- CI di main rossa dopo i land della sera: un test senza requisito e due spec che dipendono dal tempo
+- L'atterraggio automatico guarda il main che atterra, i percorsi ammessi e l'archivio
+
 ## 2.3.64 — 2026-11-08
 
 ### Sotto il cofano
@@ -10,12 +43,15 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.3.63 — 2026-11-08
 
 ### Sotto il cofano
+- machine-slots e2e: la lista arriva come { machines }
 - Via OpenClaw da Topics (#606)
 
 ## 2.3.62 — 2026-11-08
 
 ### Sotto il cofano
 - E2e sul PC: Chromium con la GPU, le spec a pixel su SwiftShader (#631)
+- posti dichiarabili per macchina (slots), PATCH e campo Card insieme
+- machine-slots.test: @covers
 - Smoke di installazione: aggiorna l'elenco dei pacchetti prima del .deb (#635)
 
 ## 2.3.61 — 2026-11-08
@@ -30,7 +66,14 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Sotto-agenti: il brief arriva intero, anche oltre 1022 byte (#627)
 - titoli senza emoji, l'icona dal genere della riga (#621)
 - il nome OpenClaw sparisce dalla presence Discord e dall'interfaccia (#622)
+- Sotto-agenti: la finestra di fiducia della CLI 2.1.310 si accetta (aspetta il piede, 14 tentativi)
 - un TERM durante l'attesa dei figli non fa più perdere il codice d'uscita (#628)
+- light-theme pairs for bg-white/N and rose/amber text, icons instead of glyphs (#4c7aa382)
+- Cartelle ammesse: la cache si svuota quando nasce un progetto o cambia il projectPath di un topic
+- Multi-project intake: drop the known-board guard that starved other e2e seeds, and clear both boards before each intake test so earlier cards never count (card a5906c31)
+- Cancelli allineati a TS 7: gate-coverage usa typescript7, tolta la barra toolchain senza script
+- Remove dead server code (claude-tasks-sync, seed, test-only exports) and fix stale usage_records comments
+- Drop TASKSYNC-01 requirement along with the removed watcher
 
 ## 2.3.60 — 2026-11-08
 
@@ -133,6 +176,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Typecheck con TypeScript 7 nativo: da 75 a 7,5 s (lint e Vite 8 provati, lasciati fuori) (#552)
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-06 [skip ci]
 - main back to green gates: the System pane sizes on the type scale, English comments in prompt-cache and hub-live, the renamed minimatch advisory id
+- Multi-project intake: a list request is proposed as cards across projects, with parents, and nothing is created before a valid confirmation (one-card escape, composer options kept); the server refuses boards no project owns; the e2e and unit tests declare KANBAN-105, the panel loads lazily (card a5906c31)
+- Multi-project intake: the proposal panel loads through a destructured await import (visible to knip) and carries its own strings, so the eager entry is back under budget (card a5906c31)
+- Multi-project intake: the first Enter waits for the project index, so a list request opens the proposal instead of creating a card; bundle ceiling follows the measure (card a5906c31)
 - Hub dentro Topics: la mappa di dove va ogni sezione dell'hub e i mockup dei posti toccati, da approvare a vista
 - Mappa dell'hub corretta contro i dati veri: tolti dai posti i comandi che l'hub non ha, il chip Frenato legge il fermo di Topics, campanella e servizi con le regole che non fanno rumore
 - Via il pannello Sistema piccolo e la striscia in fondo alla sidebar: senza hub, o con l'hub giù, Topics non ne porta traccia
@@ -215,6 +261,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Unione delle tracce dell'hub: i cancelli tornano verdi, perché ogni traccia era verde da sola ma insieme no. Il menu del progetto legge l'ora dall'orologio condiviso e non da Date.now() nel render, e i tempi in parole stanno in un file senza componenti (eslint); hubPageHref non ha più chiamanti dopo che Agenti e lavori apre le Automazioni di Topics; il link /lavori si importa con una destrutturazione che knip legge; il catalogo degli eventi del proxy è un catalogo per ui-language; commenti e nomi in inglese; le risposte finte di Agenti e lavori passano in fake-hub-jobs.ts (fake-hub.ts era a 810 righe); total_assets segue la misura unita delle otto tracce
 - E2E hub-off: con l'hub che risponde il pulsante della campanella legge il registro del proxy in background (activity e profiles, la traccia Attività), quindi quelle due richieste passano finché l'hub c'è; dopo che è caduto e la pagina si ricarica non ne deve partire nessuna, come prima
 - E2E hub-off: anche il telefono con l'hub che risponde lascia passare la lettura in background del registro del proxy, la stessa regola del desktop in un helper solo
+- Multi-project intake: one send in flight (synchronous lock set before the decision), the one-card path no longer lowers the busy flag, so a list request opens the proposal and a single line makes exactly one card (card a5906c31)
 - CI rossa su main dopo lo smistamento dell'hub: quattro cancelli. Lo stato dell'account delle quote si chiama QuotaAccountState, perché AccountState esiste già in shared/account.ts ed è un altro concetto (no-type-mirrors). La conferma del controllo in Contesto è un role=group, perché sta nel flusso e non galleggia (MOTION-04). Nel land della board, scripts/ci-changes.ts va fra i ciechi noti: è un entry point che il workflow esegue (deadcode-blindspots). E planned diventa jobPlan (identifier-language)
 - E2E di main di nuovo verdi dopo l'hub e il land della tray: il reset ermetico rilegge la tabella dell'attenzione (il negozio la teneva in memoria e mandava ai socket del file dopo le card in review dei file prima, quindi la campanella di bell-activity contava 4 e non 2); il FilePane che non carica un file tiene la sua barra del percorso come il gemello EditorTabs (server.ts è 409 KB e risponde 413, e FILE-01 passava solo se coglieva lo scheletro prima della risposta); il codice nelle parole della card arriva a 11px (le classi di COMPACT_MD_CLS non vincevano sulla regola globale `code` fuori dai layer: 9,75px), il cartello «Nota di sistema» ha l'inchiostro secondario (4,08:1 in scuro) e il glifo terminal al posto di cpu (4,71 px di linea per px di lato, il limite è 3,33); il filtro «di chi sono le card» e i bottoni della campanella col dito arrivano a 44; le spec della board che seminano una card di una persona lo dicono con X-Topics-Action-Origin: interface, perché dal contratto delle card degli agenti una card senza identità nasce incompleta con una nota di sistema che quegli scenari non riguardano; COLVOL-05/06 a una finestra di 2800, perché con la riga di chi ha aperto la card a 1800 la riga «mostra altre» finiva 805px oltre la colonna; il sottotask si apre cliccando il titolo dell'epica, non il centro della card che ora è la lista dei passi
 

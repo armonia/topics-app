@@ -421,7 +421,7 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
       }
       return json({
         paired: true, as: "device", name: io.device.name, deviceId: io.device.id,
-        role: io.confined ? "guest" : "owner",
+        role: io.screen ? "screen" : io.confined ? "guest" : "owner",
         installationName: installazione,
         commandShell: hasCommandShell(),
         // La persona, quando c'è: è ciò che il client mostrerà al posto del nome
@@ -542,7 +542,7 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
 
     if (method === "POST" && (pathname === "/api/auth/pair/approve" || pathname === "/api/auth/pair/deny")) {
       const body = await readJSON(req) as {
-        requestId?: string; role?: unknown; personId?: unknown; personName?: unknown;
+        requestId?: string; role?: unknown; personId?: unknown; personName?: unknown; scope?: unknown;
       } | null;
       const entry = pending.get(body?.requestId ?? "");
       if (!entry) return json({ error: "pairing_expired" }, 404);
@@ -566,16 +566,20 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
       // `personId` = una persona che c'è già. `personName` = una nuova, che è
       // il caso «lo sto dando a qualcun altro». Nessuno dei due = il
       // proprietario, che è il caso normale (il tuo secondo telefono).
-      const pers = risolvePersonaPerAppaiamento(db, body?.personId, body?.personName, now);
+      // A SCREEN is its own answer, asked for by name (`scope: "screen"`): no person, no grants, one
+      // read-only route (`lib/screen-scope.ts`). It is never the default and nothing infers it.
+      const screen = body?.scope === "screen";
+      const pers = screen ? { deciso: true, personId: null, owner: false } : risolvePersonaPerAppaiamento(db, body?.personId, body?.personName, now);
       // `owner` DISCENDE dall'essere proprietari dell'installazione, non da una
       // scelta a parte. `role` resta accettato come alias legacy finché la
       // colonna esiste: un client non aggiornato continua a funzionare.
-      const role = pers.deciso
+      const role = screen ? "guest" : pers.deciso
         ? (pers.owner ? "owner" : "guest")
         : (body?.role === "guest" ? "guest" : "owner");
       db.query(
         "INSERT INTO devices (id, name, token_hash, created_at, last_seen_at, first_ip, revoked_at, role) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)",
       ).run(deviceId, entry.name, hashToken(token), now, now, entry.ip, role);
+      if (screen) db.query("INSERT INTO screen_devices (device_id, created_at) VALUES (?, ?)").run(deviceId, now);
       if (pers.personId) {
         try {
           db.query("UPDATE devices SET person_id = ? WHERE id = ?").run(pers.personId, deviceId);

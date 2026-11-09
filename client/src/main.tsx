@@ -24,6 +24,7 @@ import { warmGuestView } from './components/Share/guestViewLazy';
 import { getSession } from './lib/auth/session';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { standaloneViewId } from './components/Views/viewRoute';
+import { loadScreenMachine } from './lib/loadScreen';
 
 // Shim di rete: sotto Tauri riscrive le fetch relative verso l'origine del data
 // server. Deve girare prima di ogni fetch di bootstrap. Su web non si installa —
@@ -112,10 +113,17 @@ installContextMenuSupport(browserContextMenuHost(window));
 // A standalone view (`/v/<id>`, GENUI-01) is a page of data, not the app: it
 // mounts its own small tree and none of the panes, stores or sockets below.
 const standaloneView = standaloneViewId(window.location.pathname);
+// The load screen of a machine (`/schermo[/<id>]`): its own small tree, like a view page.
+const loadScreen = loadScreenMachine(window.location.pathname);
 if (standaloneView) {
   void (async () => {
     const { mountViewPage } = await import('./components/Views/mountViewPage');
     mountViewPage(container, standaloneView);
+  })();
+} else if (loadScreen !== undefined) {
+  void (async () => {
+    const { mountLoadScreen } = await import('./components/LoadScreen/mountLoadScreen');
+    mountLoadScreen(container, loadScreen);
   })();
 } else {
   bootApp(container);

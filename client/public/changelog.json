@@ -1,5 +1,150 @@
 [
   {
+    "version": "2.3.67",
+    "date": "2026-11-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "i titoli dei bottoni della toolbar passano da i18n (main rosso su check:ui-language)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "e2e agents-jobs: il conteggio dei token si legge «2,3 M» col formato unico",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.66",
+    "date": "2026-11-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "L'atterraggio automatico rilegge tutto prima del merge e non lascia passare file di guardia, spesa o giudizio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un sottoagente nativo non vede ask_user_question: le scelte tornano nel risultato al genitore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il land automatico giudica uno sha solo, rifà il verdetto prima del merge e lascia a una persona tutto ciò che protegge, costa, giudica o cancella",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Intake e2e: wait for the proposal rows before unticking them",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "timeout-minutes on every job, e2e shards 8 to 7",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "ci-changes expects seven e2e shards, not eight",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Il land automatico lascia da solo solo testo e test, manda il codice del server alla revisione AI e rilegge la card dentro il merge",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "map Claude Code hooks onto jcode events (card ce3a398e)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "move jcode hook mapping out of ignored archive",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Land automatico: via il livello revisione AI, server/** va a una persona",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Punto coordinator: fix lives outside this repo (jarvis ef51752b)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.65",
+    "date": "2026-11-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Multi-project intake e2e: archive whole trees between tests and count only each test's own cards",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "helper duplicati unificati (errMessage, readJson, shortTokens, toolbar editor, header File)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Strip the silent-reply marker from content and text blocks instead of hiding the turn",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "tema chiaro della Board (a7286fe8) torna fuori da main",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "La card invisibile con la barra verde atterra da sola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Toglie un import inutilizzato dal test della porta del nodo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "CI di main rossa dopo i land della sera: un test senza requisito e due spec che dipendono dal tempo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'atterraggio automatico guarda il main che atterra, i percorsi ammessi e l'archivio",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.64",
     "date": "2026-11-08",
     "sections": {
@@ -24,6 +169,11 @@
       "perf": [],
       "internal": [
         {
+          "it": "machine-slots e2e: la lista arriva come { machines }",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Via Gateway da Topics (#606)",
           "en": "",
           "scope": null
@@ -41,6 +191,17 @@
       "internal": [
         {
           "it": "E2e sul PC: Chromium con la GPU, le spec a pixel su SwiftShader (#631)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "posti dichiarabili per macchina (slots), PATCH e campo Card insieme",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "machine-slots.test: @covers",
           "en": "",
           "scope": null
         },
@@ -111,10 +272,46 @@
           "breaking": false
         },
         {
+          "it": "Sotto-agenti: la finestra di fiducia della CLI 2.1.310 si accetta (aspetta il piede, 14 tentativi)",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "un TERM durante l'attesa dei figli non fa più perdere il codice d'uscita (#628)",
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "light-theme pairs for bg-white/N and rose/amber text, icons instead of glyphs (#4c7aa382)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Cartelle ammesse: la cache si svuota quando nasce un progetto o cambia il projectPath di un topic",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Multi-project intake: drop the known-board guard that starved other e2e seeds, and clear both boards before each intake test so earlier cards never count (card a5906c31)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cancelli allineati a TS 7: gate-coverage usa typescript7, tolta la barra toolchain senza script",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Remove dead server code (claude-tasks-sync, seed, test-only exports) and fix stale usage_records comments",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Drop TASKSYNC-01 requirement along with the removed watcher",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -545,6 +742,21 @@
         },
         {
           "it": "main back to green gates: the System pane sizes on the type scale, English comments in prompt-cache and hub-live, the renamed minimatch advisory id",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Multi-project intake: a list request is proposed as cards across projects, with parents, and nothing is created before a valid confirmation (one-card escape, composer options kept); the server refuses boards no project owns; the e2e and unit tests declare KANBAN-105, the panel loads lazily (card a5906c31)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Multi-project intake: the proposal panel loads through a destructured await import (visible to knip) and carries its own strings, so the eager entry is back under budget (card a5906c31)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Multi-project intake: the first Enter waits for the project index, so a list request opens the proposal instead of creating a card; bundle ceiling follows the measure (card a5906c31)",
           "en": "",
           "scope": null
         },
@@ -985,6 +1197,11 @@
         },
         {
           "it": "E2E hub-off: anche il telefono con l'hub che risponde lascia passare la lettura in background del registro del proxy, la stessa regola del desktop in un helper solo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Multi-project intake: one send in flight (synchronous lock set before the decision), the one-card path no longer lowers the busy flag, so a list request opens the proposal and a single line makes exactly one card (card a5906c31)",
           "en": "",
           "scope": null
         },

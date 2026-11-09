@@ -88,6 +88,13 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
 export const PROJECT_WORDS = new Set([
   // openssl: the binary that builds the local CA of the external-sessions proxy (`server/services/external-proxy-ca.ts`).
   "openssl",
+  // tps: tokens per second, the unit the sessions' speed is stated in (`server/services/session-consumption.ts`, `client/src/lib/sessionConsumption.ts`).
+  "tps",
+  // readout: what one machine reports about itself (its processes, its sleep
+  // countdown) for the load screen, `server/lib/machine-readout.ts`.
+  "readout",
+  // winfleet: the PC's own tooling folder (sleep keeper, screen file), read by `server/routes/machine-readout.ts`.
+  "winfleet",
   // gpu: the graphics card the e2e browser can render on (`tests/e2e/helpers/remote-gpu.ts`).
   "gpu",
   // automation: a scheduled job of the usage hub (cron, launchd, workflow), the

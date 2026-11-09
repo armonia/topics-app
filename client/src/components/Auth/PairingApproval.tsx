@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
-import { Smartphone } from 'lucide-react';
+import { Monitor, Smartphone } from 'lucide-react';
 import { guestPairingPeople, pairingApprovalBody, type PairingIdentity, type PairingPerson } from './pairingPerson';
 import { apiFetch } from '../../lib/shell/net';
 
@@ -172,6 +172,19 @@ export function PairingApproval() {
               {tr('pair.mine')}
             </button>
           </div>
+
+          {/* A SCREEN is the third answer, and an explicit one: the monitor of a machine
+              that takes the load shows the load page, read-only, with no person behind it.
+              Never the default, never inferred: only this button writes it. */}
+          <button
+            disabled={inCorso === r.id}
+            onClick={() => void rispondi(r.id, true, { screen: true })}
+            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-app-border px-3 py-1.5 text-compact text-app-text-secondary hover:bg-app-bg disabled:opacity-50"
+            title={tr('pair.screenBlurb')}
+            data-testid="pair-approve-screen"
+          >
+            <Monitor size={13} aria-hidden="true" />{tr('pair.screen')}
+          </button>
 
           {/* The exact twin of the defect in `DevicesSection`: with the state
               at null and a missing `r.id` the comparison is true and the line
