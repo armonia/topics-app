@@ -208,7 +208,7 @@ import { startSubagentWakes } from "./server/services/subagent-wake";
 import { abandonCutTurn, adoptNativeChildrenAtBoot, configureNativeSubagents } from "./server/lib/native-subagents";
 import { awaitsForegroundChild, subagentWakeOwed } from "./server/lib/subagent-runtime";
 import { createTasksRouter, ownBranchFiles, ownCommitFiles, runGitCap } from "./server/routes/tasks";
-import { branchLandingFiles } from "./server/services/branch-landing-files";
+import { landingFiles } from "./server/services/landing-files";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
 import { createDeliveryCapture, type DeliveryCapture } from "./server/services/task-delivery-capture";
 import { createPushRouter } from "./server/routes/push";
@@ -2908,11 +2908,11 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // The automatic land (`services/auto-land.ts`): which files the branch
   // touches (a server file reloads the live server on landing), and how many
   // turns are open right now (the land waits for none).
-  deliveryFiles: async (taskId) => {
+  deliveryFiles: async (taskId, commit) => {
     const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
     if (!ref) return null;
-    // What the merge brings (net diff against main), not the own-commit walk: that walk leaves out the pruning-residue commit.
-    return branchLandingFiles(ref.repoPath, ref.branch);
+    // What the merge of THAT commit brings (net diff against main), not the own-commit walk (it leaves out the pruning-residue commit) and not the branch tip (it moves).
+    return landingFiles(ref.repoPath, commit);
   },
   // The count the restart gate waits on (see `autoLandTurnCount`).
   liveTurnCount: autoLandTurnCount,

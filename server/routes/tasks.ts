@@ -368,12 +368,13 @@ export interface TasksRouterOpts {
    */
   realignForChecks?: (taskId: string) => Promise<RealignOutcome>;
   /**
-   * AUTOMATIC LAND (`services/auto-land.ts`). Files the delivered branch
-   * touches, to know whether the merge reloads the live server (`null` =
-   * unknown, read as yes); the turns open on this server right now; the poll
+   * AUTOMATIC LAND (`services/auto-land.ts`). What the merge of `commit` (the
+   * exact delivered commit, net of main) changes, to know whether a person must
+   * look and whether the merge reloads the live server (`null` = unknown, and
+   * the land does not happen); the turns open on this server right now; the poll
    * beat of the wait for zero turns.
    */
-  deliveryFiles?: (taskId: string) => Promise<string[] | null>;
+  deliveryFiles?: (taskId: string, commit: string) => Promise<string[] | null>;
   liveTurnCount?: () => number | Promise<number>;
   autoLandPollMs?: number;
   /**
@@ -664,8 +665,12 @@ export function matchGuestTaskAction(
 interface LandRunOpts {
   /** Do not realign the branch: the bar measured the delivered commit. */
   noRealign?: boolean;
-  /** The automatic land's verdict again, run when the queue hands over the turn; a string = stop for that reason. */
-  recheck?: () => Promise<string | null>;
+  /**
+   * The automatic land's verdict again, run when the queue hands over the turn and
+   * told the commit about to be merged; a string = stop for that reason. It says
+   * yes only for the commit the land was offered with.
+   */
+  recheck?: (commit: string | null) => Promise<string | null>;
 }
 
 export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, opts?: TasksRouterOpts): RouteHandler {
@@ -1860,14 +1865,18 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (!task) throw new Error(`task ${taskId} non trovato su questa board: land annullato`);
     // The automatic land asks its verdict again NOW, after the queue: between the
     // ask and this turn other lands ran, and the card may have moved, been
-    // archived or been written to. A reason to stop leaves the card in review.
+    // archived or been written to. The verdict is about the commit this land was
+    // offered with, and it is given the one merged just below: a card that moved
+    // to another commit is not merged on the old offer (it starts again from the
+    // new one). A reason to stop leaves the card in review.
+    const toMerge = task.deliveryCommit ?? null;
     if (landOpts?.recheck) {
-      const stop = await landOpts.recheck().catch((err) => `the recheck failed: ${String(err)}`);
+      const stop = await landOpts.recheck(toMerge).catch((err) => `the recheck failed: ${String(err)}`);
       if (stop) {
         try {
           svc.addComment({
             taskId, author: "system", kind: "service",
-            content: `L'atterraggio automatico si è fermato prima del merge: ${stop}. La card resta in review e la chiude una persona.`,
+            content: `L'atterraggio automatico si è fermato prima del merge: ${stop}. La card resta in review: su un commit nuovo con la barra verde l'atterraggio riparte da quello, altrimenti la chiude una persona.`,
           });
           const fresh = svc.get(taskId, { projectId })?.task;
           if (fresh) broadcastToAll({ type: "task:updated", projectId, task: fresh });
@@ -1878,7 +1887,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     try {
       const res = await autoMerge.tryMerge(taskId, task.text, {
         branch: task.deliveryBranch ?? null,
-        commit: task.deliveryCommit ?? null,
+        commit: toMerge,
         ...(landOpts?.noRealign ? { noRealign: true } : {}),
       });
       // Il ramo era vecchio e il land l'ha riportato al passo con main da sé: è

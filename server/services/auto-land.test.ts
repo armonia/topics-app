@@ -159,6 +159,59 @@ describe("needsAPerson: a white list, what is not on it stays with a person", ()
     expect(needsAPerson([f])).toEqual([]);
   });
 
+  test.each([
+    // The brief of the third round, file by file: authorization, credentials, headers.
+    "server/lib/auth-gate.ts", "server/lib/device-auth.ts", "server/lib/served-file-headers.ts", "server/services/api-provider-credentials.ts",
+    // Spend, quotas, caps.
+    "server/services/task-dispatcher-spend-cap.ts",
+    // The land and the verdict: the code that judges this very land.
+    "server/services/auto-land.ts", "server/services/task-automerge.ts", "server/services/own-commits.ts", "shared/task-labels.ts", "shared/workflow.ts",
+    "server/services/board-workflow.ts", "server/services/review-checks-brakes.ts",
+    // The CI guards, their baselines and the workflows.
+    "scripts/check-security.ts", "scripts/check-any-baseline.json", "scripts/bloat-baseline.json", ".github/workflows/ci.yml", ".github/CODEOWNERS",
+    // What deletes data or worktrees.
+    "server/services/worktree-gc.ts", "server/services/ui-state-purge.ts", "server/services/worktree-manager.ts", "server/services/retirement.ts",
+    // The database: ^server/db/migration, and every other file under server/db.
+    "server/db/migration-steps.ts", "server/db/migrations/20261109-x.sql",
+  ])("%s is always a person's, whatever the white list says", (f) => {
+    expect(needsAPerson([f])).toEqual([f]);
+  });
+
+  test.each([
+    // Found by sweeping the 742 files the second version let through: what guards the perimeter...
+    "server/lib/tunnel.ts", "server/lib/private-endpoint-url.ts", "server/lib/ipv6.ts", "server/lib/real-path.ts", "server/lib/upload-allowlist.ts",
+    "server/lib/protected-app-data.ts", "server/lib/path-containment.ts", "server/lib/grants.ts", "server/lib/grants-query.ts", "server/lib/tool-grants.ts",
+    "server/lib/principals.ts", "server/lib/socket-principals.ts", "server/lib/identity.ts", "server/lib/friendships.ts", "server/lib/subagent-tool-policy.ts",
+    "server/lib/autonomy-mode.ts", "server/lib/plan-approval.ts", "server/services/model-proxy.ts", "server/services/configure-api-provider.ts",
+    "server/services/direct-endpoint-store.ts", "server/services/relay-client.ts", "server/services/relay-config.ts", "server/services/node-client.ts",
+    // ...what starts agents and so pays...
+    "server/services/goal-loop.ts", "server/services/goals.ts", "server/services/scheduled-cards.ts", "server/services/night-mode.ts",
+    "server/services/task-auto-model.ts", "server/services/task-model-picker.ts", "server/lib/cloud-weekly-limit.ts", "server/lib/fleet-usage.ts",
+    "server/services/transcript-usage.ts", "server/services/task-attempts.ts",
+    // ...what the verdict reads...
+    "server/services/tasks.ts", "server/services/ci-evidence.ts", "server/services/preview-own-evidence.ts", "server/services/branch-status.ts",
+    "server/services/branch-inventory.ts", "server/services/node-delivery-meter.ts", "server/services/task-delivery-capture.ts",
+    // ...and what deletes, stops or rewrites.
+    "server/services/pane-retirement-cascade.ts", "server/services/task-tab-teardown.ts", "server/services/topic-browser-teardown.ts",
+    "server/services/ui-state-backup.ts", "server/services/ui-state-canonical-repair.ts", "server/services/db-snapshot.ts", "server/lib/db-incremental-vacuum.ts",
+    "server/lib/orphan-sessions.ts", "server/lib/stale-stream-sweep.ts", "server/lib/boot-orphan-tools.ts", "server/services/worktree-slim.ts",
+    "server/services/worktree-store.ts", "server/lib/process-tree.ts", "server/lib/pid-liveness.ts",
+  ])("%s (found by sweeping what the white list let through) is a person's", (f) => {
+    expect(needsAPerson([f])).toEqual([f]);
+  });
+
+  test("camelCase and kebab-case read the same: a file name is not a way around the list", () => {
+    expect(needsAPerson(["server/services/deliveryReportChecks.ts", "server/lib/authGate.ts", "server/lib/servedFileHeaders.ts"]))
+      .toEqual(["server/services/deliveryReportChecks.ts", "server/lib/authGate.ts", "server/lib/servedFileHeaders.ts"]);
+  });
+
+  test("the list is a net, not a wall: plain helpers still land alone", () => {
+    expect(needsAPerson([
+      "server/lib/git-numstat.ts", "server/lib/ws-send.ts", "server/lib/html-to-markdown.ts", "server/lib/code-points.ts",
+      "server/lib/ndjson-lines.ts", "server/utils/executable.ts", "server/lib/file-tail.ts", "server/services/image-shape.ts", "server/services/task-title.ts",
+    ])).toEqual([]);
+  });
+
   test("one path off the list keeps the whole delivery, and only it is named", () => {
     expect(needsAPerson(["server/lib/git-numstat.ts", "LICENSE", "docs/a.md"])).toEqual(["LICENSE"]);
   });
@@ -168,14 +221,16 @@ describe("createAutoLander", () => {
   const base = () => {
     const state = {
       card: card(), lands: 0, notes: 0, files: ["server/lib/git-numstat.ts"] as string[] | null, cardLive: false, turns: 0, fileReads: 0,
-      precheck: null as null | (() => Promise<string | null>),
+      /** The commit each path read was asked about. */
+      fileCommits: [] as string[],
+      precheck: null as null | ((commit: string | null) => Promise<string | null>),
     };
     const lander = createAutoLander({
       read: () => ({ task: state.card, comments: [] }),
       board: () => BOARD,
       land: (_p, _t, precheck) => { state.lands += 1; state.precheck = precheck; },
       note: () => { state.notes += 1; },
-      files: async () => { state.fileReads += 1; return state.files; },
+      files: async (_taskId, commit) => { state.fileReads += 1; state.fileCommits.push(commit); return state.files; },
       liveTurns: async () => state.turns,
       cardTurnLive: () => state.cardLive,
       pollMs: 5,
@@ -271,18 +326,61 @@ describe("createAutoLander", () => {
   test("the land carries a recheck that runs when its turn in the queue comes: card, files, everything again", async () => {
     const { state, lander } = base();
     expect(await lander.tryLand("p1", "t1")).toBe("queued");
+    const offered = "abc1234def5678";
     const recheck = state.precheck!;
-    expect(await recheck()).toBeNull();
+    expect(await recheck(offered)).toBeNull();
     // Between the ask and the merge (a queue behind other lands) the world moved.
     state.files = ["LICENSE"];
-    expect(await recheck()).toContain("LICENSE");
+    expect(await recheck(offered)).toContain("LICENSE");
     state.files = ["server/lib/git-numstat.ts"];
     state.card = card({ archived: true });
-    expect(await recheck()).not.toBeNull();
+    expect(await recheck(offered)).not.toBeNull();
     state.card = card({ humanAsk: "guarda" });
-    expect(await recheck()).not.toBeNull();
+    expect(await recheck(offered)).not.toBeNull();
     state.files = null;
     state.card = card();
-    expect(await recheck()).not.toBeNull();
+    expect(await recheck(offered)).not.toBeNull();
+  });
+
+  test("the paths are read on the exact commit the verdict is about, never on a branch that moves", async () => {
+    const { state, lander } = base();
+    expect(await lander.tryLand("p1", "t1")).toBe("queued");
+    expect(state.fileCommits).toEqual(["abc1234def5678"]);
+    await state.precheck!("abc1234def5678");
+    expect(state.fileCommits).toEqual(["abc1234def5678", "abc1234def5678"]);
+  });
+
+  test("the recheck refuses a commit other than the one the land was offered with, even if the new one is also green", async () => {
+    const { state, lander } = base();
+    expect(await lander.tryLand("p1", "t1")).toBe("queued");
+    const recheck = state.precheck!;
+    // The card is delivered again at a harmless commit with a green bar: the verdict on IT would be yes, but it is not what was offered.
+    state.card = card({ deliveryCommit: "bbbbbbb2xxxx", checksCommit: "bbbbbbb2" });
+    const stop = await recheck("abc1234def5678");
+    expect(stop).toContain("another commit");
+    // The land the queue is about to merge (read by the router) is the new one while the offer was the old one: same refusal.
+    expect(await recheck("bbbbbbb2xxxx")).toContain("another commit");
+    // Nothing read the new commit's paths for a land that was never asked about it.
+    expect(state.fileCommits).toEqual(["abc1234def5678"]);
+  });
+
+  test("a waiting land that sees a newer commit asks about THAT commit: its paths are read on it", async () => {
+    const { state, lander } = base();
+    state.cardLive = true;
+    expect(await lander.tryLand("p1", "t1")).toBe("waiting");
+    state.card = card({ deliveryCommit: "bbbbbbb2xxxx", checksCommit: "bbbbbbb2" });
+    state.cardLive = false;
+    await Bun.sleep(40);
+    expect(state.lands).toBe(1);
+    expect(state.fileCommits.at(-1)).toBe("bbbbbbb2xxxx");
+    // And what it queued is bound to the new commit.
+    expect(await state.precheck!("bbbbbbb2xxxx")).toBeNull();
+    expect(await state.precheck!("abc1234def5678")).toContain("another commit");
+  });
+
+  test("a recheck with no commit to merge is a stop", async () => {
+    const { state, lander } = base();
+    await lander.tryLand("p1", "t1");
+    expect(await state.precheck!(null)).not.toBeNull();
   });
 });

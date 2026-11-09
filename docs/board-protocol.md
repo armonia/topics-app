@@ -458,6 +458,29 @@ queste regole.
      l'agente della card è ancora dentro il suo turno aspetta la fine, quale che
      sia il diff: il land taglia quel turno e una domanda scritta subito dopo
      sarebbe tagliata prima di essere letta.
+   - **Il verdetto riguarda UN commit e si rifà subito prima del merge** (terza
+     revisione, 09/11/2026). Barra, card, domande e percorsi si leggono sullo sha
+     esatto che verrà fuso (`deliveryCommit`), mai sulla punta di un ramo che si
+     muove; si rifanno a ogni battito dell'attesa dei turni e ancora quando la
+     coda dei land dà il turno al merge (`recheck`, in `landTask`). Il merge
+     parte solo se la card è ancora su quello sha: se è passata a un altro commit
+     non atterra niente sull'offerta vecchia e si ricomincia dal nuovo. I percorsi
+     sono il diff netto contro main (`git diff --name-only main...sha`,
+     `services/landing-files.ts`), senza escludere nulla: il commit di residuo della
+     potatura viaggia nel merge e quindi conta; il cancello del land (`noRealign`)
+     confronta commit totali e propri anche quando non ci sono altri rami locali.
+     La conta dei turni aperti è quella del cancello di riavvio
+     (`whatIsStillWorking`) più stream e terminali agente occupati.
+   - **Sempre a una persona, qualunque cosa dica la lista bianca.** La lista bianca
+     è solo `server/lib|services|utils`, i test, `docs/` e `openspec/`; fuori
+     restano `scripts/`, `.github/`, `server/db/` (migration comprese), `shared/`,
+     le rotte e il resto. Dentro la lista, un elenco di nomi esatti e una rete di
+     parole (il percorso si legge a parole, `authGate.ts` = `auth-gate.ts`) tolgono
+     ciò che protegge (auth, credenziali, token, header, permessi), costa (spesa,
+     quote, cap, dispatch, modelli), giudica (il land e il suo verdetto, la barra,
+     le prove, il workflow di review) o cancella e ferma (gc, purge, prune, delete,
+     worktree, processi, snapshot, backup). Sbagliare in questa direzione costa
+     uno sguardo; sbagliare nell'altra costa un land che nessuno ha letto.
    - **Cosa tocca una persona senza passare da `client/src`: `human_ask`.**
      L'etichetta la deriva dai percorsi, e un testo che una persona legge può
      stare fuori da `client/src` (notifiche push, presence Discord, messaggi ai

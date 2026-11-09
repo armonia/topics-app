@@ -31,7 +31,9 @@ interface Knobs {
   deliveryCommit?: string;
   autoMerge?: boolean;
   turns?: () => number;
-  deliveryFiles?: string[] | null | (() => string[] | null);
+  deliveryFiles?: string[] | null | ((commit: string) => string[] | null);
+  /** Runs when the land is put in the queue, before its turn: the world moves here. */
+  onQueued?: (taskId: string) => void;
 }
 
 let sweep: (() => Promise<number>) | null = null;
@@ -59,7 +61,8 @@ describe("a delivery that needs no one lands itself", () => {
       realignForChecks: async () => ({ ok: true, note: null }),
       taskDeliveryRef: async () => ({ branch: "topics/auto", commit: k.deliveryCommit ?? "abc1234", repoPath: "/repo" }),
       ownCommitFiles: async () => k.files ?? [{ path: "server/lib/git-numstat.ts", added: true }],
-      deliveryFiles: async () => (typeof k.deliveryFiles === "function" ? k.deliveryFiles() : k.deliveryFiles === undefined ? ["server/lib/git-numstat.ts"] : k.deliveryFiles),
+      deliveryFiles: async (_taskId: string, commit: string) => (typeof k.deliveryFiles === "function" ? k.deliveryFiles(commit) : k.deliveryFiles === undefined ? ["server/lib/git-numstat.ts"] : k.deliveryFiles),
+      markLandPending: (taskId: string) => k.onQueued?.(taskId),
       liveTurnCount: k.turns,
       autoLandPollMs: 5,
       onAutoLand: (api: { sweepAutoLand: () => Promise<number> }) => { sweep = api.sweepAutoLand; },
@@ -197,6 +200,30 @@ describe("a delivery that needs no one lands itself", () => {
     const after = d.read();
     expect(after.task.status).toBe("review");
     expect(after.comments.some((c) => c.content.includes("si è fermato"))).toBe(true);
+  }, 30_000);
+
+  test("the paths are read on the delivered commit, and the merge is asked for that same commit", async () => {
+    const asked: string[] = [];
+    const d = await deliver({ deliveryFiles: (commit) => { asked.push(commit); return ["server/lib/git-numstat.ts"]; } });
+    expect(asked.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(asked)).toEqual(new Set(["abc1234"]));
+    expect(merges.map((m) => (m.delivery as { commit: string }).commit)).toEqual(["abc1234"]);
+    expect(d.read().task.status).toBe("done");
+  }, 30_000);
+
+  test("a card that moved to another green commit while its land waited is not merged on the old offer; it starts again", async () => {
+    // Harmless paths and a green bar on the NEW commit too: the verdict on it would be yes, but nobody asked about it.
+    const moveTo = (id: string) => { db.prepare("UPDATE tasks SET delivery_commit = 'bbbbbbb2', checks_commit = 'bbbbbbb2' WHERE id = ?").run(id); };
+    const asked: string[] = [];
+    const d = await deliver({ onQueued: moveTo, deliveryFiles: (commit) => { asked.push(commit); return ["server/lib/git-numstat.ts"]; } });
+    expect(merges).toEqual([]);
+    const stopped = d.read();
+    expect(stopped.task.status).toBe("review");
+    expect(stopped.comments.some((c) => c.content.includes("si è fermato"))).toBe(true);
+    // Starting again: the sweep asks about the new commit, reads ITS paths, and that one lands.
+    await sweep!(); await Bun.sleep(80);
+    expect(asked.at(-1)).toBe("bbbbbbb2");
+    expect(merges.map((m) => (m.delivery as { commit: string }).commit)).toEqual(["bbbbbbb2"]);
   }, 30_000);
 
   test("a land the queue refused is not asked again at every sweep", async () => {
