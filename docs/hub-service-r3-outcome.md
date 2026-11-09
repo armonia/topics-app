@@ -17,3 +17,4 @@ Outcome note for the card. The code lives in the private jarvis repo (branch `to
 - No live service was touched.
 
 Code branch commits: 7efe4d8b, d256d289 (jarvis repo).
+Branch also carries a one-line spec id fix (KANBAN-109).
