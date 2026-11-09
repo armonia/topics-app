@@ -2,6 +2,17 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.71 — 2026-11-09
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-09 [skip ci]
+- il test della nota ripiegata legge SystemNoteFold.tsx, dove ora vive
+
+## 2.3.70 — 2026-11-09
+
+### Sotto il cofano
+- Il drag non fa più tremare la card vicina quando il puntatore passa fra due colonne
+
 ## 2.3.69 — 2026-11-09
 
 ### Sotto il cofano
@@ -57,6 +68,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - L'atterraggio automatico guarda il main che atterra, i percorsi ammessi e l'archivio
 - Proxy delle sessioni Claude esterne dentro il server di Topics
 - Proxy esterno: CA e stato nella home di Topics, non nel checkout
+- the review face keeps the exits again (land first), the menu holds archive; 24px target for the note toggle; model label title back on the chip
+- the note toggle is a 44px target on touch
 - Schermo del PC: e2e su lavoro intero, da quando e CPU del Mac, e fine lavoro senza fantasmi
 - Proxy esterno: upgrade WebSocket inoltrato, CONNECT verso loopback e reti private rifiutato
 
@@ -209,9 +222,17 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Typecheck con TypeScript 7 nativo: da 75 a 7,5 s (lint e Vite 8 provati, lasciati fuori) (#552)
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-06 [skip ci]
 - main back to green gates: the System pane sizes on the type scale, English comments in prompt-cache and hub-live, the renamed minimatch advisory id
+- misura in fascia avvolta, Approva sulla faccia, Archivia nel menu
+- model label no longer cut at 300 px, it wraps whole
+- **board** · the model must be written on the card face
+- **board** · the model is written on the card face, in the measure band
+- the review face keeps «Approva», the rest is behind «…»; the measure band wraps and holds «ora»
+- English names and comments for the new tests, the blocker label test back to its words
 - Multi-project intake: a list request is proposed as cards across projects, with parents, and nothing is created before a valid confirmation (one-card escape, composer options kept); the server refuses boards no project owns; the e2e and unit tests declare KANBAN-105, the panel loads lazily (card a5906c31)
 - Multi-project intake: the proposal panel loads through a destructured await import (visible to knip) and carries its own strings, so the eager entry is back under budget (card a5906c31)
+- **board** · split the choices tests under the 800-line cap
 - Multi-project intake: the first Enter waits for the project index, so a list request opens the proposal instead of creating a card; bundle ceiling follows the measure (card a5906c31)
+- **board** · English comments and names in the split choices tests
 - Hub dentro Topics: la mappa di dove va ogni sezione dell'hub e i mockup dei posti toccati, da approvare a vista
 - Mappa dell'hub corretta contro i dati veri: tolti dai posti i comandi che l'hub non ha, il chip Frenato legge il fermo di Topics, campanella e servizi con le regole che non fanno rumore
 - Via il pannello Sistema piccolo e la striscia in fondo alla sidebar: senza hub, o con l'hub giù, Topics non ne porta traccia
@@ -294,6 +315,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Unione delle tracce dell'hub: i cancelli tornano verdi, perché ogni traccia era verde da sola ma insieme no. Il menu del progetto legge l'ora dall'orologio condiviso e non da Date.now() nel render, e i tempi in parole stanno in un file senza componenti (eslint); hubPageHref non ha più chiamanti dopo che Agenti e lavori apre le Automazioni di Topics; il link /lavori si importa con una destrutturazione che knip legge; il catalogo degli eventi del proxy è un catalogo per ui-language; commenti e nomi in inglese; le risposte finte di Agenti e lavori passano in fake-hub-jobs.ts (fake-hub.ts era a 810 righe); total_assets segue la misura unita delle otto tracce
 - E2E hub-off: con l'hub che risponde il pulsante della campanella legge il registro del proxy in background (activity e profiles, la traccia Attività), quindi quelle due richieste passano finché l'hub c'è; dopo che è caduto e la pagina si ricarica non ne deve partire nessuna, come prima
 - E2E hub-off: anche il telefono con l'hub che risponde lascia passare la lettura in background del registro del proxy, la stessa regola del desktop in un helper solo
+- tag the progress line and measure band tests with KANBAN-105, and write the requirement
 - Multi-project intake: one send in flight (synchronous lock set before the decision), the one-card path no longer lowers the busy flag, so a list request opens the proposal and a single line makes exactly one card (card a5906c31)
 - CI rossa su main dopo lo smistamento dell'hub: quattro cancelli. Lo stato dell'account delle quote si chiama QuotaAccountState, perché AccountState esiste già in shared/account.ts ed è un altro concetto (no-type-mirrors). La conferma del controllo in Contesto è un role=group, perché sta nel flusso e non galleggia (MOTION-04). Nel land della board, scripts/ci-changes.ts va fra i ciechi noti: è un entry point che il workflow esegue (deadcode-blindspots). E planned diventa jobPlan (identifier-language)
 - E2E di main di nuovo verdi dopo l'hub e il land della tray: il reset ermetico rilegge la tabella dell'attenzione (il negozio la teneva in memoria e mandava ai socket del file dopo le card in review dei file prima, quindi la campanella di bell-activity contava 4 e non 2); il FilePane che non carica un file tiene la sua barra del percorso come il gemello EditorTabs (server.ts è 409 KB e risponde 413, e FILE-01 passava solo se coglieva lo scheletro prima della risposta); il codice nelle parole della card arriva a 11px (le classi di COMPACT_MD_CLS non vincevano sulla regola globale `code` fuori dai layer: 9,75px), il cartello «Nota di sistema» ha l'inchiostro secondario (4,08:1 in scuro) e il glifo terminal al posto di cpu (4,71 px di linea per px di lato, il limite è 3,33); il filtro «di chi sono le card» e i bottoni della campanella col dito arrivano a 44; le spec della board che seminano una card di una persona lo dicono con X-Topics-Action-Origin: interface, perché dal contratto delle card degli agenti una card senza identità nasce incompleta con una nota di sistema che quegli scenari non riguardano; COLVOL-05/06 a una finestra di 2800, perché con la riga di chi ha aperto la card a 1800 la riga «mostra altre» finiva 805px oltre la colonna; il sottotask si apre cliccando il titolo dell'epica, non il centro della card che ora è la lista dei passi
