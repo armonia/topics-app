@@ -1785,6 +1785,7 @@ const IT: Dict = {
   // Same sentence for all three doors (drag, the drawer's "move to", the inline
   // composer), because it is the same rule.
   'board.drop.inProgressRedirected': 'In Progress non ha una coda: il task lavora da Todo, che è da dove il dispatcher lo prende.',
+  'board.drop.otherProject': 'Una card resta nel suo progetto: rilasciala nella sua corsia per cambiarle colonna.',
   'board.dispatch.allBoards': 'Dispatch di tutte le board',
   'board.dispatch.parallel': 'Agent in parallelo',
   'board.dispatch.parallelAuto': 'Numero automatico',
@@ -2174,6 +2175,14 @@ const IT: Dict = {
   'board.toolbar.detail.list': 'Lista',
   'board.toolbar.detail.grid': 'Board kanban',
   'board.summary.empty': 'Nessuna card da contare',
+
+  'board.toolbar.groupBy.project': 'Raggruppa per progetto',
+  'board.toolbar.groupBy.off': 'Togli il raggruppamento per progetto',
+  'board.toolbar.density.compact': 'Card compatte',
+  'board.toolbar.density.full': 'Card complete',
+  'board.group.collapse': 'Richiudi {name}',
+  'board.group.expand': 'Apri {name}',
+  'board.group.total': '{n} card in questo progetto',
   'board.scheduled.title': 'Card a calendario',
   'board.scheduled.add': 'Aggiungi',
   'board.scheduled.empty': 'Nessuna ricorrenza su questa board.',
