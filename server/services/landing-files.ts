@@ -40,3 +40,45 @@ export async function landingFiles(
   if (res.code !== 0) return null;
   return res.stdout.split("\0").filter((p) => p.length > 0);
 }
+
+/** What runs or configures the bar: a file named in any of these is part of the judge, not a test or a note. */
+const JUDGE_PLACES = ["bunfig.toml", "scripts", "package.json", ".github"];
+
+/** Code is named without its extension in an import (`./helpers/time-slack`), a document with it. */
+const withoutCodeExtension = (path: string): string => path.replace(/\.(tsx?|jsx?|mjs|cjs)$/, "");
+
+/**
+ * Which of `files` are NAMED, as of `commit`, by `bunfig.toml`, `scripts/`,
+ * `package.json` or `.github/`. Such a file is loaded, run or read by the bar
+ * itself: a test file that the preload imports changes what every run does, and a
+ * document a CI script parses changes what that script says. Matching is by the
+ * repo-relative path, extension left out for code (imports omit it), and errs
+ * wide: a path that is only a prefix of a longer name counts as named.
+ *
+ * `null` = git could not answer, and a land that cannot tell does not happen.
+ */
+export async function referencedByTheJudge(
+  repoPath: string,
+  commit: string,
+  files: readonly string[],
+  opts: { runGit?: GitRunner } = {},
+): Promise<string[] | null> {
+  if (files.length === 0) return [];
+  const run = opts.runGit ?? defaultRunGit;
+  const resolved = await run(repoPath, ["rev-parse", "--verify", "--quiet", `${commit.trim()}^{commit}`]);
+  const sha = resolved.stdout.trim();
+  if (resolved.code !== 0 || !sha) return null;
+  const named = new Set<string>();
+  const CHUNK = 40;
+  for (let i = 0; i < files.length; i += CHUNK) {
+    const chunk = files.slice(i, i + CHUNK);
+    const args = ["grep", "-h", "-o", "-F", ...chunk.flatMap((f) => ["-e", withoutCodeExtension(f)]), sha, "--", ...JUDGE_PLACES];
+    const res = await run(repoPath, args);
+    // 1 = no match anywhere in this chunk; anything else but 0 is a git that did not answer.
+    if (res.code === 1) continue;
+    if (res.code !== 0) return null;
+    const hits = new Set(res.stdout.split("\n").map((l) => l.trim()).filter(Boolean));
+    for (const f of chunk) if (hits.has(withoutCodeExtension(f))) named.add(f);
+  }
+  return files.filter((f) => named.has(f));
+}

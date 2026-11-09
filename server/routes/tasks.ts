@@ -18,6 +18,7 @@
  * tasks on the project it named/owns (no cross-project IDOR).
  */
 import { STAGE_AI_REVIEW, awaitsHuman } from "../../shared/workflow";
+import { boardHasAiReview, topicModelOf } from "../services/auto-land-facts";
 import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { cpus, homedir } from "node:os";
@@ -375,7 +376,10 @@ export interface TasksRouterOpts {
    * beat of the wait for zero turns.
    */
   deliveryFiles?: (taskId: string, commit: string) => Promise<string[] | null>;
-  liveTurnCount?: () => number | Promise<number>;
+  /** Which of those files the bar's configuration names; `null` = unknown. */
+  deliveryReferenced?: (taskId: string, commit: string, files: string[]) => Promise<string[] | null>;
+  /** `insideLand`: asked from within a land, which does not count itself. */
+  liveTurnCount?: (opts?: { insideLand?: boolean }) => number | Promise<number>;
   autoLandPollMs?: number;
   /**
    * A delivery planted from another machine has a branch and no worktree: a
@@ -666,9 +670,9 @@ interface LandRunOpts {
   /** Do not realign the branch: the bar measured the delivered commit. */
   noRealign?: boolean;
   /**
-   * The automatic land's verdict again, run when the queue hands over the turn and
-   * told the commit about to be merged; a string = stop for that reason. It says
-   * yes only for the commit the land was offered with.
+   * The automatic land's verdict again, handed to `tryMerge` as `beforeMerge`
+   * (inside the repo's queue, a moment before the merge), told the full sha about
+   * to be merged; a string = stop for that reason.
    */
   recheck?: (commit: string | null) => Promise<string | null>;
 }
@@ -1686,13 +1690,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     },
     board: (projectId) => {
       const settings = svc.getBoardSettings(projectId);
-      return { autoMerge: settings.dispatchAutoMerge, declaredChecks: settings.reviewChecks.length };
+      return { autoMerge: settings.dispatchAutoMerge, declaredChecks: settings.reviewChecks.length, aiReview: boardHasAiReview(db, projectId) };
     },
     land: (projectId, taskId, recheck) => enqueueLand(projectId, taskId, { noRealign: true, recheck }),
+    modelOf: topicModelOf(db),
     note: (taskId, text) => {
       svc.addComment({ taskId, author: "system", kind: "service", content: text });
     },
     files: opts?.deliveryFiles,
+    referenced: opts?.deliveryReferenced,
     liveTurns: opts?.liveTurnCount,
     cardTurnLive: (taskId) => {
       const t = svc.get(taskId)?.task;
@@ -1863,33 +1869,27 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // di board). Non è un esito da nascondere: `throw` lo porta sul ticket, che è
     // l'unico posto dove chi ha chiesto il land può ancora leggerlo.
     if (!task) throw new Error(`task ${taskId} non trovato su questa board: land annullato`);
-    // The automatic land asks its verdict again NOW, after the queue: between the
-    // ask and this turn other lands ran, and the card may have moved, been
-    // archived or been written to. The verdict is about the commit this land was
-    // offered with, and it is given the one merged just below: a card that moved
-    // to another commit is not merged on the old offer (it starts again from the
-    // new one). A reason to stop leaves the card in review.
+    // The automatic land's verdict is asked again INSIDE `tryMerge` (`beforeMerge`), not here.
     const toMerge = task.deliveryCommit ?? null;
-    if (landOpts?.recheck) {
-      const stop = await landOpts.recheck(toMerge).catch((err) => `the recheck failed: ${String(err)}`);
-      if (stop) {
-        try {
-          svc.addComment({
-            taskId, author: "system", kind: "service",
-            content: `L'atterraggio automatico si è fermato prima del merge: ${stop}. La card resta in review: su un commit nuovo con la barra verde l'atterraggio riparte da quello, altrimenti la chiude una persona.`,
-          });
-          const fresh = svc.get(taskId, { projectId })?.task;
-          if (fresh) broadcastToAll({ type: "task:updated", projectId, task: fresh });
-        } catch (err) { console.warn(`[land] nota di arresto non scritta per ${taskId}:`, err); }
-        return { outcome: "skipped", reason: stop };
-      }
-    }
     try {
+      const recheck = landOpts?.recheck;
       const res = await autoMerge.tryMerge(taskId, task.text, {
         branch: task.deliveryBranch ?? null,
         commit: toMerge,
         ...(landOpts?.noRealign ? { noRealign: true } : {}),
+        ...(recheck ? { beforeMerge: (sha: string) => recheck(sha).catch((err) => `the recheck failed: ${String(err)}`) } : {}),
       });
+      // The automatic land stopped itself right before the merge (nobody pressed "Landa", so no "Land NON riuscito").
+      if (res.status === "skipped" && res.code === "auto-land-stopped") {
+        try {
+          svc.addComment({
+            taskId, author: "system", kind: "service", content: `L'atterraggio automatico si è fermato prima del merge: ${res.reason}. La card resta in review: su un commit nuovo con la barra verde l'atterraggio riparte da quello, altrimenti la chiude una persona.`,
+          });
+          const fresh = svc.get(taskId, { projectId })?.task;
+          if (fresh) broadcastToAll({ type: "task:updated", projectId, task: fresh });
+        } catch (err) { console.warn(`[land] nota di arresto non scritta per ${taskId}:`, err); }
+        return { outcome: "skipped", reason: res.reason };
+      }
       // Il ramo era vecchio e il land l'ha riportato al passo con main da sé: è
       // un commit che nessun umano ha fatto, quindi lo si dice — e per PRIMO,
       // perché è successo prima di tutto il resto.

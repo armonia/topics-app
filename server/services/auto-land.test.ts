@@ -6,7 +6,10 @@
  * @covers LAND-05
  */
 import { describe, expect, test } from "bun:test";
-import { autoLandVerdict, createAutoLander, needsAPerson, sameCommit, touchesServer, type AutoLandBoard, type AutoLandCard } from "./auto-land";
+import {
+  aiReviewVerdict, autoLandVerdict, classifyDelivery, createAutoLander, mayLandAloneByPlace, modelFamily, sameCommit, touchesServer,
+  type AutoLandBoard, type AutoLandCard, type AutoLandComment,
+} from "./auto-land";
 
 const BOARD: AutoLandBoard = { autoMerge: true, declaredChecks: 2 };
 const green = [{ ok: true }, { ok: true }];
@@ -77,8 +80,9 @@ describe("autoLandVerdict", () => {
     expect(verdict(card(), BOARD, [delivery]).ok).toBe(true);
   });
 
-  test("a card in AI review is closed by its opener", () => {
+  test("a card in AI review is closed by its opener, unless the caller applies that rule by the kind of delivery", () => {
     expect(verdict(card({ stage: "ai_review" })).ok).toBe(false);
+    expect(autoLandVerdict(card({ stage: "ai_review" }), BOARD, [], { aiReviewCard: true })).toEqual({ ok: true });
   });
 
   test("open steps keep the parent in review", () => {
@@ -123,131 +127,270 @@ describe("sameCommit / touchesServer", () => {
   });
 });
 
-describe("needsAPerson: a white list, what is not on it stays with a person", () => {
+const SHA = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
+const approval = (author: string, sha = SHA, verb = "approved"): AutoLandComment => ({
+  author, kind: "comment", content: `AI-REVIEW ${verb} ${sha}\nLetto il diff: nessun effetto fuori dai test.`, createdAt: "2026-11-09T11:00:00.000Z",
+});
+
+describe("mayLandAloneByPlace / classifyDelivery: only text and tests land with no one looking", () => {
   test.each([
-    // The ones the first version let through (verifier, 09/11).
-    "landing/index.html", "landing/src/hero.tsx", "client/public/icon.png", "client/index.html",
-    "scripts/landing-copy.mjs", "scripts/changelog-i18n.json", "server/attention/compose.ts",
-    "server/services/board-actions.ts", "LICENSE", "package.json", "bun.lock",
-    // The old black list, still honoured.
-    "server/push-triggers.ts", "server/presence.ts", "server/services/discord-presence.ts", "server/views/view-html.ts",
-    "shared/tool-detail.ts", "shared/presence-phrase.ts", "desktop-tauri/src-tauri/tauri.conf.json",
-    "server/db/migrations/20261109-x.sql", ".github/workflows/ci.yml", "server/routes/agent-channels.ts", "server/lib/stripe.ts",
-    // Security, spend, the judge itself and what deletes data (verifier, 09/11, second round).
-    "server/lib/auth-gate.ts", "server/lib/device-auth.ts", "server/lib/served-file-headers.ts", "server/services/api-provider-credentials.ts",
-    "server/lib/outbound-gate.ts", "server/lib/permission-bridge.ts", "server/lib/topics-secret-path.ts", "server/lib/pairing-quota.ts",
-    "server/services/task-dispatcher-spend-cap.ts", "server/services/budget-governor.ts", "server/services/task-dispatcher.ts",
-    "server/services/auto-land.ts", "server/services/task-automerge.ts", "server/services/landing-verdict.ts",
-    "server/services/own-commits.ts", "server/services/checks-gate.ts", "server/services/review-checks.ts", "server/services/node-delivery-meter.ts",
-    "scripts/check-security.ts", "scripts/bloat-baseline.json", "scripts/check-eol.ts", "scripts/gate-board.mjs",
-    "server/services/worktree-gc.ts", "server/services/ui-state-purge.ts", "server/lib/kill-agent-tree.ts", "server/services/archive-topic.ts",
-    // The database: its shape and the code that runs inside the migrations (note: "migration", not "migrations").
-    "server/db/migration-steps.ts", "server/db/migrations-embedded.ts", "server/db/message-tree.ts", "server/db/activity-log.ts",
-    // What reads a login or cookies, and the usage that bills.
-    "server/browser-site-data.ts", "server/browser-login-state.ts", "server/usage/pricing.ts",
-    // A folder nobody listed, and the product text outside the server.
-    "newdir/anything.ts", "README.md", "CHANGELOG.md", "client/src/App.tsx", "shared/board.ts", "server.ts",
-  ])("%s is not landed alone", (f) => {
-    expect(needsAPerson([f])).toEqual([f]);
+    "docs/board-protocol.md", "openspec/changes/x/proposal.md",
+    "server/lib/git-numstat.test.ts", "server/push-triggers.test.ts", "client/src/state/board.test.tsx",
+    "tests/unit/x.test.ts", "tests/integration/migration-071.test.ts", "tests/e2e/board.spec.ts", "tests/e2e/deep/a.spec.ts",
+  ])("%s is text or a test: it lands alone", (f) => {
+    expect(mayLandAloneByPlace(f)).toBe(true);
+    expect(classifyDelivery([f])).toEqual({ tier: "alone", files: [] });
   });
 
   test.each([
-    "server/services/task-intake.ts", "server/lib/git-numstat.ts", "server/utils/path-env.ts", "docs/board-protocol.md", "openspec/changes/x/proposal.md",
-    // Tests are allowed even beside what they test.
-    "server/push-triggers.test.ts", "server/services/board-actions.test.ts", "tests/unit/x.test.ts", "scripts/check-eol.test.ts",
-  ])("%s lands alone", (f) => {
-    expect(needsAPerson([f])).toEqual([]);
+    // The preload every run loads, data files, snapshots, helpers and e2e support are not tests.
+    "tests/setup/bun-test-preload.ts", "tests/setup/anything.test.ts", "tests/unit/data.json", "docs/schema.json", "openspec/changes/x/.openspec.json",
+    "tests/e2e/global-setup.ts", "tests/e2e/board.spec.ts-snapshots/a.png", "tests/unit/__snapshots__/x.snap", "tests/unit/x.snap",
+    "tests/helpers/time-slack.ts", "tests/fixtures/repo.ts",
+    // The CI guards and their own tests are the judge.
+    "scripts/check-security.ts", "scripts/check-eol.test.ts", ".github/workflows/ci.yml",
+    "package.json", "bunfig.toml", "LICENSE", "README.md", "landing/index.html", "client/src/App.tsx", "shared/board.ts", "server.ts", "newdir/anything.ts",
+  ])("%s is not text or a test: a person looks", (f) => {
+    expect(mayLandAloneByPlace(f)).toBe(false);
+    expect(classifyDelivery([f]).tier).not.toBe("alone");
+  });
+
+  test("a test file or a document that the bar's configuration NAMES is the judge, not a test", () => {
+    const loaded = "tests/unit/helpers/preload-extra.test.ts";
+    expect(classifyDelivery([loaded]).tier).toBe("alone");
+    expect(classifyDelivery([loaded], new Set([loaded]))).toEqual({ tier: "person", files: [loaded] });
+    expect(classifyDelivery(["docs/board-protocol.md", "docs/a.md"], new Set(["docs/board-protocol.md"])).files).toEqual(["docs/board-protocol.md"]);
+  });
+
+  // The verifier's files (09/11, repro `e2e-files.ts`): the vocabulary net let 242 server files through, and each of these
+  // changes what protects, pays, deletes or judges. None of them may land alone any more.
+  test.each([
+    "server/lib/low-priority.ts", "server/lib/agent-env.ts", "server/lib/child-env.ts", "server/services/known-project-dirs.ts",
+    "server/lib/project-visibility.ts", "server/lib/session-free-mode.ts", "server/lib/quiescence.ts", "server/services/project-store.ts",
+    "server/lib/transcript-keeper.ts", "server/lib/intent-classifier.ts", "server/services/preview-manager.ts",
+    "server/lib/bounded-spawn.ts", "server/lib/serial-queue.ts", "server/lib/git-numstat.ts", "server/utils/path-env.ts",
+  ])("%s is server code: never alone, at best the AI review's", (f) => {
+    expect(classifyDelivery([f]).tier).not.toBe("alone");
+  });
+
+  test("server code the vocabulary net does not name goes to the AI review; the net only sends files to a person", () => {
+    expect(classifyDelivery(["server/lib/git-numstat.ts"])).toEqual({ tier: "ai-review", files: ["server/lib/git-numstat.ts"] });
+    expect(classifyDelivery(["server/lib/agent-env.ts", "docs/a.md"]).tier).toBe("ai-review");
+    for (const f of ["server/lib/auth-gate.ts", "server/services/task-dispatcher.ts", "server/services/auto-land.ts", "server/lib/real-path.ts",
+      "server/services/worktree-gc.ts", "server/push-triggers.ts", "server/services/board-actions.ts", "server/lib/stripe.ts"]) {
+      expect(classifyDelivery([f])).toEqual({ tier: "person", files: [f] });
+    }
+  });
+
+  test("camelCase and kebab-case read the same: a file name is not a way around the net", () => {
+    expect(classifyDelivery(["server/lib/authGate.ts", "server/lib/servedFileHeaders.ts"]).tier).toBe("person");
   });
 
   test.each([
-    // The brief of the third round, file by file: authorization, credentials, headers.
-    "server/lib/auth-gate.ts", "server/lib/device-auth.ts", "server/lib/served-file-headers.ts", "server/services/api-provider-credentials.ts",
-    // Spend, quotas, caps.
-    "server/services/task-dispatcher-spend-cap.ts",
-    // The land and the verdict: the code that judges this very land.
-    "server/services/auto-land.ts", "server/services/task-automerge.ts", "server/services/own-commits.ts", "shared/task-labels.ts", "shared/workflow.ts",
-    "server/services/board-workflow.ts", "server/services/review-checks-brakes.ts",
-    // The CI guards, their baselines and the workflows.
-    "scripts/check-security.ts", "scripts/check-any-baseline.json", "scripts/bloat-baseline.json", ".github/workflows/ci.yml", ".github/CODEOWNERS",
-    // What deletes data or worktrees.
-    "server/services/worktree-gc.ts", "server/services/ui-state-purge.ts", "server/services/worktree-manager.ts", "server/services/retirement.ts",
-    // The database: ^server/db/migration, and every other file under server/db.
-    "server/db/migration-steps.ts", "server/db/migrations/20261109-x.sql",
-  ])("%s is always a person's, whatever the white list says", (f) => {
-    expect(needsAPerson([f])).toEqual([f]);
+    // The router, the database, the browser and billing are a person's, whatever the file is called.
+    "server/routes/notes.ts", "server/routes/tasks.ts", "server/db/schema.ts", "server/db/migrations/20261109-x.sql",
+    "server/browser-site-data.ts", "server/browser-login-state.ts", "server/usage/pricing.ts", "server/package.json",
+    // Outside server/: product text, the shared contract, the shell, the entry point.
+    "shared/tool-detail.ts", "desktop-tauri/src-tauri/tauri.conf.json", "client/public/icon.png", "bun.lock",
+  ])("%s is a person's, not even the AI review's", (f) => {
+    expect(classifyDelivery([f]).tier).toBe("person");
   });
 
+  test("the tier is the highest of the files, and the files that set it are named", () => {
+    expect(classifyDelivery(["docs/a.md", "tests/unit/a.test.ts"]).tier).toBe("alone");
+    expect(classifyDelivery(["docs/a.md", "server/lib/git-numstat.ts"])).toEqual({ tier: "ai-review", files: ["server/lib/git-numstat.ts"] });
+    expect(classifyDelivery(["server/lib/git-numstat.ts", "LICENSE", "docs/a.md"])).toEqual({ tier: "person", files: ["LICENSE"] });
+  });
+
+  test("an empty diff has nothing a person must read", () => {
+    expect(classifyDelivery([]).tier).toBe("alone");
+  });
+});
+
+describe("modelFamily: a different model is a different family, not a different version", () => {
   test.each([
-    // Found by sweeping the 742 files the second version let through: what guards the perimeter...
-    "server/lib/tunnel.ts", "server/lib/private-endpoint-url.ts", "server/lib/ipv6.ts", "server/lib/real-path.ts", "server/lib/upload-allowlist.ts",
-    "server/lib/protected-app-data.ts", "server/lib/path-containment.ts", "server/lib/grants.ts", "server/lib/grants-query.ts", "server/lib/tool-grants.ts",
-    "server/lib/principals.ts", "server/lib/socket-principals.ts", "server/lib/identity.ts", "server/lib/friendships.ts", "server/lib/subagent-tool-policy.ts",
-    "server/lib/autonomy-mode.ts", "server/lib/plan-approval.ts", "server/services/model-proxy.ts", "server/services/configure-api-provider.ts",
-    "server/services/direct-endpoint-store.ts", "server/services/relay-client.ts", "server/services/relay-config.ts", "server/services/node-client.ts",
-    // ...what starts agents and so pays...
-    "server/services/goal-loop.ts", "server/services/goals.ts", "server/services/scheduled-cards.ts", "server/services/night-mode.ts",
-    "server/services/task-auto-model.ts", "server/services/task-model-picker.ts", "server/lib/cloud-weekly-limit.ts", "server/lib/fleet-usage.ts",
-    "server/services/transcript-usage.ts", "server/services/task-attempts.ts",
-    // ...what the verdict reads...
-    "server/services/tasks.ts", "server/services/ci-evidence.ts", "server/services/preview-own-evidence.ts", "server/services/branch-status.ts",
-    "server/services/branch-inventory.ts", "server/services/node-delivery-meter.ts", "server/services/task-delivery-capture.ts",
-    // ...and what deletes, stops or rewrites.
-    "server/services/pane-retirement-cascade.ts", "server/services/task-tab-teardown.ts", "server/services/topic-browser-teardown.ts",
-    "server/services/ui-state-backup.ts", "server/services/ui-state-canonical-repair.ts", "server/services/db-snapshot.ts", "server/lib/db-incremental-vacuum.ts",
-    "server/lib/orphan-sessions.ts", "server/lib/stale-stream-sweep.ts", "server/lib/boot-orphan-tools.ts", "server/services/worktree-slim.ts",
-    "server/services/worktree-store.ts", "server/lib/process-tree.ts", "server/lib/pid-liveness.ts",
-  ])("%s (found by sweeping what the white list let through) is a person's", (f) => {
-    expect(needsAPerson([f])).toEqual([f]);
+    ["claude-opus-4-7", "opus"], ["Opus", "opus"], ["opus[1m]", "opus"], ["claude-sonnet-5-5", "sonnet"], ["anthropic/claude-haiku-4-5", "haiku"],
+    ["gpt-5-codex", "gpt"], ["gemini-2.5-pro", "gemini"],
+  ])("%s is %s", (m, f) => expect(modelFamily(m)).toBe(f));
+  test.each([[null], [""], ["  "], ["4-7"], [undefined]])("%p cannot be told", (m) => expect(modelFamily(m)).toBeNull());
+});
+
+describe("aiReviewVerdict: server code lands alone only on the board's AI review of THIS commit", () => {
+  const models: Record<string, string | null> = { "agent:w1": "claude-sonnet-5-5", "agent:r1": "claude-opus-4-7", "agent:r2": "claude-sonnet-4-6", "agent:r3": null };
+  const input = (over: { stage?: string; aiReview?: boolean; thread?: AutoLandComment[]; assignedTopicId?: string | null; model?: string | null } = {}) => ({
+    commit: SHA,
+    card: { stage: over.stage ?? "ai_review", assignedTopicId: "assignedTopicId" in over ? over.assignedTopicId : "w1", model: "model" in over ? over.model : "sonnet" },
+    board: { aiReview: over.aiReview ?? true },
+    thread: over.thread ?? [approval("agent:r1")],
+    modelOf: (a: string) => models[a] ?? null,
   });
 
-  test("camelCase and kebab-case read the same: a file name is not a way around the list", () => {
-    expect(needsAPerson(["server/services/deliveryReportChecks.ts", "server/lib/authGate.ts", "server/lib/servedFileHeaders.ts"]))
-      .toEqual(["server/services/deliveryReportChecks.ts", "server/lib/authGate.ts", "server/lib/servedFileHeaders.ts"]);
+  test("an approval of this sha by another session on another model: yes", () => {
+    expect(aiReviewVerdict(input())).toEqual({ ok: true });
   });
 
-  test("the list is a net, not a wall: plain helpers still land alone", () => {
-    expect(needsAPerson([
-      "server/lib/git-numstat.ts", "server/lib/ws-send.ts", "server/lib/html-to-markdown.ts", "server/lib/code-points.ts",
-      "server/lib/ndjson-lines.ts", "server/utils/executable.ts", "server/lib/file-tail.ts", "server/services/image-shape.ts", "server/services/task-title.ts",
-    ])).toEqual([]);
+  test("a board with no AI review column has no reviewer: a person decides", () => {
+    expect(aiReviewVerdict(input({ aiReview: false }))).toMatchObject({ ok: false });
   });
 
-  test("one path off the list keeps the whole delivery, and only it is named", () => {
-    expect(needsAPerson(["server/lib/git-numstat.ts", "LICENSE", "docs/a.md"])).toEqual(["LICENSE"]);
+  test("a card that is not in the AI review column was not reviewed there", () => {
+    expect(aiReviewVerdict(input({ stage: "human_review" }))).toMatchObject({ ok: false });
+  });
+
+  test("no verdict line, a verdict about another sha, an abbreviated sha: not approved", () => {
+    expect(aiReviewVerdict(input({ thread: [] })).ok).toBe(false);
+    expect(aiReviewVerdict(input({ thread: [approval("agent:r1", "b".repeat(40))] })).ok).toBe(false);
+    expect(aiReviewVerdict(input({ thread: [{ author: "agent:r1", content: `AI-REVIEW approved ${SHA.slice(0, 12)}` }] })).ok).toBe(false);
+  });
+
+  test("the line must open the comment: a sentence quoting it is not a verdict", () => {
+    expect(aiReviewVerdict(input({ thread: [{ author: "agent:r1", content: `Ho letto tutto.\nAI-REVIEW approved ${SHA}` }] })).ok).toBe(false);
+  });
+
+  test("the LAST verdict about this sha wins; one about another sha changes nothing", () => {
+    const other = "c".repeat(40);
+    expect(aiReviewVerdict(input({ thread: [approval("agent:r1"), approval("agent:r1", SHA, "rejected")] })).ok).toBe(false);
+    expect(aiReviewVerdict(input({ thread: [approval("agent:r1", SHA, "rejected"), approval("agent:r1")] })).ok).toBe(true);
+    expect(aiReviewVerdict(input({ thread: [approval("agent:r1"), approval("agent:r1", other, "rejected")] })).ok).toBe(true);
+    // A rejection counts whoever writes it: the careful direction.
+    expect(aiReviewVerdict(input({ thread: [approval("agent:r1"), approval("user", SHA, "rejected")] })).ok).toBe(false);
+  });
+
+  test("an approval from a person, the system or a guest is not the AI review", () => {
+    for (const author of ["user", "system", "dispatcher", "verifier", "guest:dev1", "Claude Code"]) {
+      expect(aiReviewVerdict(input({ thread: [approval(author)] })).ok).toBe(false);
+    }
+  });
+
+  test("the model that wrote the card cannot approve it: not its own session, not one that delivered on it earlier", () => {
+    models["agent:w1"] = "claude-sonnet-5-5";
+    expect(aiReviewVerdict(input({ thread: [approval("agent:w1")] })).ok).toBe(false);
+    // Nor can one that delivered on it earlier, though it is no longer the assigned session.
+    const previousRound: AutoLandComment = { author: "agent:r1", kind: "delivery", content: "Consegna del primo giro." };
+    expect(aiReviewVerdict(input({ thread: [previousRound, approval("agent:r1")] })).ok).toBe(false);
+  });
+
+  test("the same model family, an unknown reviewer model, an unknown writer model: no", () => {
+    expect(aiReviewVerdict(input({ thread: [approval("agent:r2")] })).ok).toBe(false); // sonnet reviews sonnet
+    expect(aiReviewVerdict(input({ thread: [approval("agent:r3")] })).ok).toBe(false); // reviewer model unknown
+    expect(aiReviewVerdict(input({ assignedTopicId: "gone", model: null })).ok).toBe(false); // writer model unknown, none asked
+    expect(aiReviewVerdict(input({ model: "claude-opus-4-1" })).ok).toBe(false); // the card ASKED for opus and opus reviews it
+  });
+
+  test("with the writer's topic gone but the model the card asked for known, a different family still reviews it", () => {
+    expect(aiReviewVerdict(input({ assignedTopicId: null, model: "haiku" }))).toEqual({ ok: true });
   });
 });
 
 describe("createAutoLander", () => {
-  const base = () => {
+  const base = (over: { files?: string[] | null; board?: AutoLandBoard; card?: ReturnType<typeof card>; thread?: AutoLandComment[] } = {}) => {
     const state = {
-      card: card(), lands: 0, notes: 0, files: ["server/lib/git-numstat.ts"] as string[] | null, cardLive: false, turns: 0, fileReads: 0,
+      card: over.card ?? card(), board: over.board ?? BOARD, thread: over.thread ?? ([] as AutoLandComment[]),
+      lands: 0, notes: [] as string[], files: ("files" in over ? over.files : ["docs/note.md"]) as string[] | null,
+      cardLive: false, turns: 0, fileReads: 0, turnAsks: [] as Array<{ insideLand?: boolean } | undefined>,
+      /** What the bar's configuration names, per ask. */
+      named: [] as string[] | null, namedAsks: 0,
+      models: { "agent:w1": "claude-sonnet-5-5", "agent:r1": "claude-opus-4-7" } as Record<string, string | null>,
       /** The commit each path read was asked about. */
       fileCommits: [] as string[],
       precheck: null as null | ((commit: string | null) => Promise<string | null>),
     };
     const lander = createAutoLander({
-      read: () => ({ task: state.card, comments: [] }),
-      board: () => BOARD,
+      read: () => ({ task: state.card, comments: state.thread }),
+      board: () => state.board,
       land: (_p, _t, precheck) => { state.lands += 1; state.precheck = precheck; },
-      note: () => { state.notes += 1; },
+      note: (_t, text) => { state.notes.push(text); },
       files: async (_taskId, commit) => { state.fileReads += 1; state.fileCommits.push(commit); return state.files; },
-      liveTurns: async () => state.turns,
+      referenced: async () => { state.namedAsks += 1; return state.named; },
+      modelOf: (a) => state.models[a] ?? null,
+      liveTurns: async (how) => { state.turnAsks.push(how); return state.turns; },
       cardTurnLive: () => state.cardLive,
       pollMs: 5,
     });
     return { state, lander };
   };
+  /** A card ready for the AI review gate: in the column, written by w1, reviewed by r1 on SHA. */
+  const reviewed = (over: Partial<Parameters<typeof card>[0]> = {}) =>
+    card({ stage: "ai_review", deliveryCommit: SHA, checksCommit: SHA, assignedTopicId: "w1", model: "sonnet", ...over });
+  const serverFiles = ["server/lib/git-numstat.ts"];
+  const aiBoard: AutoLandBoard = { ...BOARD, aiReview: true };
 
   test("a delivery touching a path a person must look at is refused", async () => {
-    const { state, lander } = base();
-    state.files = ["server/push-triggers.ts"];
+    const { state, lander } = base({ files: ["server/push-triggers.ts"] });
     expect(await lander.tryLand("p1", "t1")).toBe("refused");
     expect(state.lands).toBe(0);
   });
 
   test("files that cannot be read refuse the land", async () => {
-    const { state, lander } = base();
-    state.files = null;
+    const { state, lander } = base({ files: null });
+    expect(await lander.tryLand("p1", "t1")).toBe("refused");
+    expect(state.lands).toBe(0);
+  });
+
+  test("text and tests land alone", async () => {
+    const { state, lander } = base({ files: ["docs/board-protocol.md", "server/lib/git-numstat.test.ts"] });
+    expect(await lander.tryLand("p1", "t1")).toBe("queued");
+    expect(state.lands).toBe(1);
+  });
+
+  test("a test file the bar's configuration names is the judge: refused; when that cannot be read, refused", async () => {
+    const { state, lander } = base({ files: ["tests/unit/helpers/loaded.test.ts"] });
+    state.named = ["tests/unit/helpers/loaded.test.ts"];
+    expect(await lander.tryLand("p1", "t1")).toBe("refused");
+    state.named = null;
+    expect(await lander.tryLand("p1", "t1")).toBe("refused");
+    expect(state.lands).toBe(0);
+    expect(state.namedAsks).toBe(2);
+  });
+
+  test("git is not asked what the configuration names when no file could be a test or a document", async () => {
+    const { state, lander } = base({ files: ["LICENSE"] });
+    await lander.tryLand("p1", "t1");
+    expect(state.namedAsks).toBe(0);
+  });
+
+  test("server code with no AI review column on the board: a person's, however green the bar", async () => {
+    const { state, lander } = base({ files: serverFiles, card: reviewed(), thread: [approval("agent:r1")], board: BOARD });
+    expect(await lander.tryLand("p1", "t1")).toBe("refused");
+    expect(state.lands).toBe(0);
+  });
+
+  test("server code not yet reviewed waits for the AI review and lands no sooner than its approval of this commit", async () => {
+    const { state, lander } = base({ files: serverFiles, card: reviewed(), board: aiBoard });
+    expect(await lander.tryLand("p1", "t1")).toBe("refused");
+    state.thread = [approval("agent:r1", "d".repeat(40))];
+    expect(await lander.tryLand("p1", "t1")).toBe("refused");
+    state.thread = [approval("agent:r1")];
+    expect(await lander.tryLand("p1", "t1")).toBe("queued");
+    expect(state.lands).toBe(1);
+  });
+
+  test("the approval of a session that wrote the card, or of the same model, does not land it", async () => {
+    const { state, lander } = base({ files: serverFiles, card: reviewed(), board: aiBoard, thread: [approval("agent:w1")] });
+    expect(await lander.tryLand("p1", "t1")).toBe("refused");
+    state.models["agent:r1"] = "claude-sonnet-4-6";
+    state.thread = [approval("agent:r1")];
+    expect(await lander.tryLand("p1", "t1")).toBe("refused");
+    expect(state.lands).toBe(0);
+  });
+
+  test("an approved server delivery says so in the note it writes when it really goes to merge", async () => {
+    const { state, lander } = base({ files: serverFiles, card: reviewed(), board: aiBoard, thread: [approval("agent:r1")] });
+    expect(await lander.tryLand("p1", "t1")).toBe("queued");
+    expect(await state.precheck!(SHA)).toBeNull();
+    expect(state.notes.join(" ")).toContain("revisione AI");
+  });
+
+  test("an approval that is withdrawn before the merge stops the land: the recheck reads the thread again", async () => {
+    const { state, lander } = base({ files: serverFiles, card: reviewed(), board: aiBoard, thread: [approval("agent:r1")] });
+    await lander.tryLand("p1", "t1");
+    state.thread = [approval("agent:r1"), approval("agent:r1", SHA, "rejected")];
+    expect(await state.precheck!(SHA)).toContain("rejected");
+    expect(state.notes).toEqual([]);
+  });
+
+  test("text that is not server code in a card sitting in AI review is still closed by its opener", async () => {
+    const { state, lander } = base({ files: ["docs/note.md"], card: reviewed(), board: aiBoard });
     expect(await lander.tryLand("p1", "t1")).toBe("refused");
     expect(state.lands).toBe(0);
   });
@@ -312,8 +455,7 @@ describe("createAutoLander", () => {
   });
 
   test("a server diff waits on an async turn count too", async () => {
-    const { state, lander } = base();
-    state.files = ["server/lib/git-numstat.ts"];
+    const { state, lander } = base({ files: serverFiles, card: reviewed(), board: aiBoard, thread: [approval("agent:r1")] });
     state.turns = 1;
     expect(await lander.tryLand("p1", "t1")).toBe("waiting");
     await Bun.sleep(30);
@@ -323,7 +465,7 @@ describe("createAutoLander", () => {
     expect(state.lands).toBe(1);
   });
 
-  test("the land carries a recheck that runs when its turn in the queue comes: card, files, everything again", async () => {
+  test("the land carries a recheck for the moment before the merge: card, files, everything again", async () => {
     const { state, lander } = base();
     expect(await lander.tryLand("p1", "t1")).toBe("queued");
     const offered = "abc1234def5678";
@@ -332,7 +474,7 @@ describe("createAutoLander", () => {
     // Between the ask and the merge (a queue behind other lands) the world moved.
     state.files = ["LICENSE"];
     expect(await recheck(offered)).toContain("LICENSE");
-    state.files = ["server/lib/git-numstat.ts"];
+    state.files = ["docs/note.md"];
     state.card = card({ archived: true });
     expect(await recheck(offered)).not.toBeNull();
     state.card = card({ humanAsk: "guarda" });
@@ -340,6 +482,33 @@ describe("createAutoLander", () => {
     state.files = null;
     state.card = card();
     expect(await recheck(offered)).not.toBeNull();
+  });
+
+  test("the recheck reads the open turns again, as the land's own: a turn that opened in the queue stops a server diff", async () => {
+    const { state, lander } = base({ files: serverFiles, card: reviewed(), board: aiBoard, thread: [approval("agent:r1")] });
+    expect(await lander.tryLand("p1", "t1")).toBe("queued");
+    state.turnAsks.length = 0;
+    // The card's agent woke up and three turns are open when the queue hands over.
+    state.cardLive = true; state.turns = 3;
+    const stop = await state.precheck!(SHA);
+    expect(stop).toContain("turn");
+    expect(state.turnAsks).toEqual([]); // the card's own turn is enough: no need to count the others
+    state.cardLive = false;
+    expect(await state.precheck!(SHA)).toContain("turn");
+    // It asked the count as a land asking about itself: its own slot in the queue is not a turn to wait for.
+    expect(state.turnAsks).toEqual([{ insideLand: true }]);
+    state.turns = 0;
+    expect(await state.precheck!(SHA)).toBeNull();
+  });
+
+  test("a land stopped on a turn is asked again by the next sweep, not refused as 'already offered'", async () => {
+    const { state, lander } = base({ files: serverFiles, card: reviewed(), board: aiBoard, thread: [approval("agent:r1")] });
+    expect(await lander.tryLand("p1", "t1")).toBe("queued");
+    state.turns = 2;
+    expect(await state.precheck!(SHA)).toContain("turn");
+    state.turns = 0;
+    expect(await lander.tryLand("p1", "t1", { quiet: true })).toBe("queued");
+    expect(state.lands).toBe(2);
   });
 
   test("the paths are read on the exact commit the verdict is about, never on a branch that moves", async () => {

@@ -24,14 +24,21 @@
  *   5. plans with no diff closing alone    -> a delivery commit is required.
  *
  * More, from the reviews of this very module:
- *   6. a text or an effect no label shows  -> `needsAPerson(files)`: the label
+ *   6. a text or an effect no label shows  -> `classifyDelivery(files)`: the label
  *      `invisibile` is "not under client/src", which also holds push
  *      notifications, Discord presence, the shell and the migrations;
  *   7. a partial delivery or a spoken word -> a card with a dispatch error, or
  *      with a person's comment after it entered review, is a person's to close;
  *   8. a verdict that outlives its facts    -> card, files and turns are read
- *      again at every beat of the wait AND when the land's turn in the queue
- *      comes (`recheck`), because the wait lasts hours and the queue minutes.
+ *      again at every beat of the wait AND, inside the repo's queue, a moment
+ *      before the merge itself (`recheck`, asked as `DeliverySnapshot.beforeMerge`),
+ *      because the wait lasts hours and the queue and the fetch minutes.
+ *   9. a list of words cannot say that a file is harmless: 242 files of
+ *      `server/lib|services|utils` passed the vocabulary net, among them the one
+ *      that builds the agents' environment, the one that runs the bar and the one
+ *      that sets the restart gate. So only TEXT AND TESTS land alone (`docs/`,
+ *      `openspec/`, test files); server code needs the board's AI review to have
+ *      approved THIS commit (`aiReviewVerdict`), and everything else is a person's.
  */
 import { STAGE_AI_REVIEW, agentAskInThread } from "../../shared/workflow";
 import { whoCloses } from "../../shared/task-labels";
@@ -58,6 +65,9 @@ export interface AutoLandCard {
   /** Direct steps still open: closing the parent would leave them unreachable. */
   subtaskCount?: number;
   subtaskDoneCount?: number;
+  /** The session that works the card and the model the card asked for: who WROTE it, for the AI-review gate. */
+  assignedTopicId?: string | null;
+  model?: string | null;
 }
 
 export interface AutoLandBoard {
@@ -65,6 +75,8 @@ export interface AutoLandBoard {
   autoMerge: boolean;
   /** How many commands the board declares in its bar. */
   declaredChecks: number;
+  /** The board's workflow has the AI review column (`workflowHasStage`): without it server code is a person's. */
+  aiReview?: boolean;
 }
 
 export interface AutoLandComment {
@@ -89,6 +101,8 @@ export function autoLandVerdict(
   card: AutoLandCard,
   board: AutoLandBoard,
   thread: ReadonlyArray<AutoLandComment>,
+  /** `aiReviewCard`: do not refuse a card in AI review here, the caller applies that rule by the kind of delivery. */
+  opts: { aiReviewCard?: boolean } = {},
 ): AutoLandVerdict {
   const no = (reason: string): AutoLandVerdict => ({ ok: false, reason });
   if (card.status !== "review" || card.archived) return no("the card is not in review");
@@ -103,7 +117,7 @@ export function autoLandVerdict(
   if (!card.deliveryBranch || !card.deliveryCommit) return no("the delivery has no branch and commit of its own");
   // The bar must describe what is about to land, not an earlier round.
   if (!sameCommit(card.checksCommit, card.deliveryCommit)) return no("the bar measured another commit than the delivered one");
-  if (card.stage === STAGE_AI_REVIEW) return no("the card is in AI review, its opener closes it");
+  if (card.stage === STAGE_AI_REVIEW && !opts.aiReviewCard) return no("the card is in AI review, its opener closes it");
   if ((card.humanAsk ?? "").trim()) return no("the card asks the person something");
   if ((card.dispatchError ?? "").trim()) return no("the run ended on an error: the delivery may be partial");
   if (personSpokeSinceReview(card.reviewAt ?? null, thread)) return no("a person wrote on the card after it entered review");
@@ -135,48 +149,18 @@ function personSpokeSinceReview(reviewAt: string | null, thread: ReadonlyArray<A
 }
 
 /**
- * WHICH PATHS MAY LAND ON THEIR OWN: a white list. Whatever matches nothing here
- * stays in review for a person, so a path nobody thought about (a new top-level
- * folder, the landing page, the licence, the lockfile) is safe by default.
- *
- * The label `invisibile` only means "not under client/src"; it says nothing about
- * a text a person reads or an effect they feel. Each entry below is a family of
- * files whose change cannot show a person a sentence or reach their phone.
- *
- * What is NOT here, and why: `scripts/` (CI guards, baselines and the bar's own
- * commands: a card that edits them edits its own judge), `server/db/` (the shape
- * of the live database and the code that runs inside migrations),
- * `server/browser-*` (logins and site data), `server/usage/` (what is billed).
- */
-const MAY_LAND_ALONE: ReadonlyArray<{ re: RegExp; why: string; guarded?: boolean }> = [
-  // Tests change no behaviour. A fixture is test support, not product.
-  { re: /\.(test|spec)\.[jt]sx?$/, why: "test files change no behaviour" },
-  { re: /\.fixture\.[jt]sx?$/, why: "test fixtures are test support" },
-  { re: /^tests\//, why: "the test tree" },
-  // Machinery that talks to git, the disk and processes. `guarded`: the deny
-  // lists below take back the files in these folders that guard, spend, judge
-  // or delete. Documents are text and nothing reads them as code, so a word in
-  // their name (`board-protocol.md`) is not a reason to stop.
-  { re: /^server\/(lib|services|utils)\//, why: "server machinery with no view of its own", guarded: true },
-  // Internal documentation: the README, CHANGELOG, LICENSE and PRIVACY at the root are NOT here.
-  { re: /^docs\//, why: "internal documentation" },
-  { re: /^openspec\//, why: "internal change proposals" },
-];
-
-/**
- * Taken back from the folders above: a file there that speaks to a person, has
- * an effect outside the machine, or is part of the machinery that protects,
- * pays, judges or deletes. It can only subtract, never add, and it wins over
- * the white list.
+ * An EXTRA net over server code, never a way in: a file there that speaks to a
+ * person, has an effect outside the machine, or is part of the machinery that
+ * protects, pays, judges or deletes is a person's, even when the AI review would
+ * have been enough. It can only send a file to a person, never admit one: the
+ * verifier showed (09/11) that a vocabulary cannot say a file is harmless.
  *
  * Two nets. The first is a list of exact places (what a person's eyes must
  * always see, named one by one); the second reads a path as WORDS (`authGate.ts`
  * and `auth-gate.ts` are `auth`, `gate`) and stops it if any word starts with a
  * stem from the families below, so a file nobody listed but named in the same
  * vocabulary is caught too. Being wrong in this direction costs a person's
- * look; being wrong in the other costs a land nobody read. The second net was
- * tuned by listing every file of `server/lib|services|utils` that the first
- * version of it let through and reading the names (742 of them).
+ * look; being wrong in the other costs a land nobody read.
  */
 const NEVER_ALONE: ReadonlyArray<{ re: RegExp; why: string }> = [
   // Speaks to a person (the first black list).
@@ -247,15 +231,71 @@ function whyAlwaysAPerson(path: string): string | null {
   return null;
 }
 
-/** The files of a delivery a person must look at (everything not on the white list); empty = none. */
-export function needsAPerson(files: readonly string[]): string[] {
-  return files.filter((f) => {
-    const allowed = MAY_LAND_ALONE.find((e) => e.re.test(f));
-    if (!allowed) return true;
-    // Tests never speak: they are allowed even inside a carved-out family.
-    if (/\.(test|spec|fixture)\.[jt]sx?$/.test(f) || f.startsWith("tests/")) return false;
-    return allowed.guarded === true && whyAlwaysAPerson(f) !== null;
-  });
+/**
+ * WHAT MAY LAND WITH NO ONE LOOKING: text and tests, by PLACE.
+ *
+ *   - `docs/**` and `openspec/**`: nothing reads them as code;
+ *   - a test file: `*.test.ts` beside its module, `tests/unit/**`,
+ *     `tests/integration/**`, and `tests/e2e/**` specs.
+ *
+ * Out even when they sit under those folders, because they are not tests but
+ * part of what judges or runs them: `tests/setup/**` (the preload every run
+ * loads), every `*.json`, every snapshot, `scripts/**`, `.github/**`, and any
+ * file that `bunfig.toml`, `scripts/`, `package.json` or `.github/` NAME
+ * (`referencedByTheJudge`, asked of git at the commit).
+ */
+export function mayLandAloneByPlace(path: string): boolean {
+  if (/(^|\/)node_modules\//.test(path)) return false;
+  if (path.startsWith("tests/setup/") || path.startsWith("scripts/") || path.startsWith(".github/")) return false;
+  if (/\.json$/i.test(path)) return false;
+  if (/(^|\/)(__snapshots__|[^/]*-snapshots)\//.test(path) || /\.snap$/.test(path)) return false;
+  if (path.startsWith("docs/") || path.startsWith("openspec/")) return true;
+  if (path.startsWith("tests/")) {
+    if (path.startsWith("tests/unit/") || path.startsWith("tests/integration/")) return true;
+    return path.startsWith("tests/e2e/") && /\.spec\.[jt]sx?$/.test(path);
+  }
+  return /\.(test|spec)\.[jt]sx?$/.test(path);
+}
+
+/**
+ * Server code that the board's AI review may approve: everything under `server/`
+ * except the router (what a caller may do), the database (the shape of the live
+ * data and the code that runs inside migrations), the browser (logins and site
+ * data) and billing, which are a person's.
+ */
+function isServerCodeForAiReview(path: string): boolean {
+  if (!path.startsWith("server/")) return false;
+  if (/^server\/(routes|db)\//.test(path)) return false;
+  if (/^server\/(browser-|usage\/)/.test(path)) return false;
+  if (/\.json$/i.test(path)) return false;
+  return true;
+}
+
+/** Who must look at a delivery: no one (`alone`), the board's AI review, or a person. */
+export type DeliveryTier = "alone" | "ai-review" | "person";
+
+export interface DeliveryReading {
+  tier: DeliveryTier;
+  /** The files that set the tier (the first of each kind is enough to say why). */
+  files: string[];
+}
+
+/**
+ * The tier of a delivery is the highest of its files: one file a person must
+ * look at makes the whole delivery a person's. `judged` are the files that
+ * the bar's own configuration names; they are never "alone", whatever their folder.
+ */
+export function classifyDelivery(files: readonly string[], judged: ReadonlySet<string> = new Set()): DeliveryReading {
+  const person: string[] = [];
+  const review: string[] = [];
+  for (const f of files) {
+    if (mayLandAloneByPlace(f) && !judged.has(f)) continue;
+    if (isServerCodeForAiReview(f) && whyAlwaysAPerson(f) === null && !judged.has(f)) review.push(f);
+    else person.push(f);
+  }
+  if (person.length > 0) return { tier: "person", files: person };
+  if (review.length > 0) return { tier: "ai-review", files: review };
+  return { tier: "alone", files: [] };
 }
 
 /** Does a diff reload the live server when it lands? Conservative: `shared/` counts. */
@@ -265,16 +305,93 @@ export function touchesServer(files: readonly string[] | null): boolean {
   return files.some((f) => f.startsWith("server/") || f === "server.ts" || f.startsWith("shared/"));
 }
 
+/**
+ * The model family of a model name: `claude-opus-4-7`, `opus[1m]` and `Opus` are
+ * all `opus`; `gpt-5-codex` is `gpt`. "A different model" is a different family,
+ * because a newer version of the same model reviews the way the old one writes.
+ * `null` = no name, or one that starts with no letters: not a model we can tell.
+ */
+export function modelFamily(model: string | null | undefined): string | null {
+  const m = (model ?? "").trim().toLowerCase().replace(/^[a-z0-9_.-]+\//, "").replace(/^claude-/, "");
+  return /^[a-z]+/.exec(m)?.[0] ?? null;
+}
+
+/**
+ * The line a reviewer writes as the FIRST line of a card comment to approve (or
+ * refuse) one commit: `AI-REVIEW approved <40-hex sha>`. A sentence elsewhere in a
+ * comment, or an abbreviated sha, is not a verdict.
+ */
+const AI_REVIEW_LINE = /^\s*AI-REVIEW\s+(approved|rejected)\s+([0-9a-f]{40})\b/i;
+
+export interface AiReviewInput {
+  /** The commit that would land. */
+  commit: string;
+  card: Pick<AutoLandCard, "stage" | "assignedTopicId" | "model">;
+  board: Pick<AutoLandBoard, "aiReview">;
+  thread: ReadonlyArray<AutoLandComment>;
+  /** The model of an agent identity (`agent:<topicId>`), or `null` when it cannot be told. */
+  modelOf: (author: string) => string | null;
+}
+
+/**
+ * Has the board's AI review approved THIS commit? Server code lands alone only if
+ * all of these hold, each one a way for the answer to be no:
+ *   - the board has the AI review column (a board without it has no reviewer, and
+ *     a person decides) and the card sits in it;
+ *   - the last verdict line about this very sha is an approval (a later
+ *     `rejected` for the same sha cancels it; a line about another sha says
+ *     nothing about this one);
+ *   - the reviewer is an agent identity, and its model family differs from every
+ *     writer's (the assigned session and the authors of a delivery on the card)
+ *     and from the one the card asked for. The session that wrote the card runs
+ *     the model that wrote it, so it can never approve its own work. A model that
+ *     cannot be told is not a different model.
+ */
+export function aiReviewVerdict(input: AiReviewInput): AutoLandVerdict {
+  const no = (reason: string): AutoLandVerdict => ({ ok: false, reason });
+  if (!input.board.aiReview) return no("the board has no AI review column, so a person decides");
+  if (input.card.stage !== STAGE_AI_REVIEW) return no("the card is not in AI review");
+  let last: { verb: "approved" | "rejected"; author: string } | null = null;
+  for (const c of input.thread) {
+    if (!isThreadSpeech(c)) continue;
+    const m = AI_REVIEW_LINE.exec((c.content ?? "").split("\n")[0] ?? "");
+    if (!m || !sameCommit(m[2], input.commit)) continue;
+    last = { verb: m[1]!.toLowerCase() as "approved" | "rejected", author: c.author ?? "" };
+  }
+  if (!last) return no("the AI review has not approved this commit");
+  if (last.verb === "rejected") return no("the AI review rejected this commit");
+  if (commentAuthorLabel(last.author).kind !== "agent" || !last.author.startsWith("agent:")) {
+    return no("the approval is not from an agent session");
+  }
+  const writers = new Set<string>();
+  if (input.card.assignedTopicId) writers.add(`agent:${input.card.assignedTopicId}`);
+  for (const c of input.thread) if (c.kind === "delivery" && c.author) writers.add(c.author);
+  const reviewer = modelFamily(input.modelOf(last.author));
+  if (!reviewer) return no("the reviewer's model cannot be told");
+  const written = new Set<string>();
+  for (const w of writers) {
+    const f = modelFamily(input.modelOf(w));
+    if (!f) return no("the model that wrote the card cannot be told");
+    written.add(f);
+  }
+  const asked = modelFamily(input.card.model);
+  if (asked) written.add(asked);
+  if (written.size === 0) return no("the model that wrote the card cannot be told");
+  if (written.has(reviewer)) return no(`the reviewer runs the same model (${reviewer}) as the one that wrote the card`);
+  return { ok: true };
+}
+
 /** What the runner needs from the router; every name is the router's own door. */
 interface AutoLanderDeps {
   read(taskId: string, projectId: string): { task: AutoLandCard & { id: string; projectId: string }; comments: ReadonlyArray<AutoLandComment> } | undefined;
   board(projectId: string): AutoLandBoard;
   /**
    * Queue the land (the router's `enqueueLand`), asking it NOT to realign the branch.
-   * `recheck` is the verdict again, to be run when the land's turn in the queue
-   * comes and right before the merge. It is told the commit the router is about
-   * to merge, and answers a reason to stop, or `null`: it only says yes for the
-   * very commit this land was offered with, if the verdict still holds on it.
+   * `recheck` is the verdict again, to be run INSIDE the repo's queue a moment
+   * before the merge (the router hands it to `tryMerge` as `beforeMerge`). It is
+   * told the commit about to be merged, and answers a reason to stop, or `null`:
+   * it only says yes for the very commit this land was offered with, if the
+   * verdict, the paths and the open turns still allow it.
    */
   land(projectId: string, taskId: string, recheck: (commit: string | null) => Promise<string | null>): unknown;
   note(taskId: string, text: string): void;
@@ -284,8 +401,21 @@ interface AutoLanderDeps {
    * know what it changes does not happen.
    */
   files?: (taskId: string, commit: string) => Promise<string[] | null>;
-  /** Agent and chat turns open right now on this server (the restart gate's own count). */
-  liveTurns?: () => number | Promise<number>;
+  /**
+   * Which of `files` (as of `commit`) are NAMED by what runs or judges the bar:
+   * `bunfig.toml`, `scripts/`, `package.json`, `.github/`. A test file that the
+   * bar's preload loads is the bar, not a test. `null` = unknown, and a land that
+   * cannot tell does not happen.
+   */
+  referenced?: (taskId: string, commit: string, files: string[]) => Promise<string[] | null>;
+  /** The model of an agent identity (`agent:<topicId>`), `null` = cannot be told. Without it no approval can be checked. */
+  modelOf?: (author: string) => string | null;
+  /**
+   * Agent and chat turns open right now on this server (the restart gate's own
+   * count). `insideLand`: asked from within the land itself, whose own slot in the
+   * queue is not a turn to wait for.
+   */
+  liveTurns?: (opts?: { insideLand?: boolean }) => number | Promise<number>;
   /**
    * Is the CARD'S OWN agent still in a turn? Landing cuts that turn
    * (`cutLiveTurn`), and an agent moves its card to review in the middle of a
@@ -300,7 +430,9 @@ interface AutoLanderDeps {
 type AutoLandOutcome = "queued" | "waiting" | "refused";
 
 /** Everything the land rests on, read at one moment: the card, its board, and the paths OF THE COMMIT it names. */
-type Decision = { ok: true; files: string[]; commit: string } | { ok: false; reason: string };
+type Decision =
+  | { ok: true; files: string[]; commit: string; tier: "alone" | "ai-review" }
+  | { ok: false; reason: string };
 
 /**
  * Lands the card when the verdict allows it. A diff that reloads the live
@@ -313,8 +445,8 @@ type Decision = { ok: true; files: string[]; commit: string } | { ok: false; rea
  * THE VERDICT IS NOT A PHOTOGRAPH. The wait lasts up to three hours and the
  * land queue minutes, and in that time the card can move to a newer commit
  * with other paths, be archived, or get a question. So the whole decision
- * (`decide`: card, bar, board, paths) is taken again at every beat, and once
- * more when the queue hands the land its turn.
+ * (`decide`: card, bar, board, paths, AI review) is taken again at every beat,
+ * and once more, with the open turns, right before the merge.
  */
 export function createAutoLander(deps: AutoLanderDeps) {
   const waiting = new Set<string>();
@@ -324,22 +456,31 @@ export function createAutoLander(deps: AutoLanderDeps) {
    * The commit already handed to the land queue, per card. A land that comes
    * back `skipped` leaves the card in review with a green bar, so the verdict
    * would say yes again at every sweep: one land per ten minutes, forever, for
-   * a refusal that cannot change until the branch does.
+   * a refusal that cannot change until the branch does. A land STOPPED by its own
+   * recheck forgets it: that stop is the verdict changing, which the next ask
+   * reads for itself.
    */
   const attempted = new Map<string, string>();
   const log = deps.log ?? (() => undefined);
   const pollMs = deps.pollMs ?? 15_000;
   const maxWaitMs = deps.maxWaitMs ?? 3 * 60 * 60_000;
 
-  /** The card as it is now and the verdict on it, in one snapshot. */
-  function readVerdict(projectId: string, taskId: string): { verdict: AutoLandVerdict; commit: string } {
+  /** The card as it is now and the verdict on it, in one snapshot (`got` and `board` are set when it could be read). */
+  function readVerdict(projectId: string, taskId: string): {
+    verdict: AutoLandVerdict;
+    commit: string;
+    got?: NonNullable<ReturnType<AutoLanderDeps["read"]>>;
+    board?: AutoLandBoard;
+  } {
     let got: ReturnType<AutoLanderDeps["read"]>;
     let board: AutoLandBoard;
     try { got = deps.read(taskId, projectId); board = deps.board(projectId); }
     // Unreadable settings must not land "because we did not know".
     catch { return { verdict: { ok: false, reason: "the card or its board could not be read" }, commit: "" }; }
     if (!got) return { verdict: { ok: false, reason: "the card is gone" }, commit: "" };
-    return { verdict: autoLandVerdict(got.task, board, got.comments), commit: got.task.deliveryCommit ?? "" };
+    // A card in AI review is not refused here: whether it may land depends on WHAT it delivers (`decide`).
+    const verdict = autoLandVerdict(got.task, board, got.comments, { aiReviewCard: true });
+    return { verdict, commit: got.task.deliveryCommit ?? "", got, board };
   }
 
   /**
@@ -349,8 +490,9 @@ export function createAutoLander(deps: AutoLanderDeps) {
    * longer the land that was asked for, even if the new commit would pass.
    */
   async function decide(projectId: string, taskId: string, expected?: string): Promise<Decision> {
-    const { verdict, commit } = readVerdict(projectId, taskId);
+    const { verdict, commit, got, board } = readVerdict(projectId, taskId);
     if (!verdict.ok) return verdict;
+    if (!got || !board) return { ok: false, reason: "the card or its board could not be read" };
     if (expected !== undefined && !sameCommit(expected, commit)) {
       return { ok: false, reason: `the card moved to another commit (${expected.slice(0, 8)} -> ${commit.slice(0, 8)}): it starts again from the new one` };
     }
@@ -358,35 +500,69 @@ export function createAutoLander(deps: AutoLanderDeps) {
     try { files = deps.files ? await deps.files(taskId, commit) : null; } catch { files = null; }
     // A land that cannot say what it changes does not happen: the paths are the only reading of "a person must look".
     if (files === null) return { ok: false, reason: "the files of the delivery could not be read" };
-    const heavy = needsAPerson(files);
-    if (heavy.length > 0) return { ok: false, reason: `the delivery touches what a person must look at (${heavy.slice(0, 3).join(", ")})` };
-    return { ok: true, files, commit };
+    // Which of the test and document files the bar's own configuration names: those are the judge, not tests.
+    const candidates = files.filter(mayLandAloneByPlace);
+    let judged = new Set<string>();
+    if (candidates.length > 0) {
+      let named: string[] | null = null;
+      try { named = deps.referenced ? await deps.referenced(taskId, commit, candidates) : null; } catch { named = null; }
+      if (named === null) return { ok: false, reason: "what the bar's configuration names could not be read" };
+      judged = new Set(named);
+    }
+    const reading = classifyDelivery(files, judged);
+    if (reading.tier === "person") {
+      return { ok: false, reason: `the delivery touches what a person must look at (${reading.files.slice(0, 3).join(", ")})` };
+    }
+    if (reading.tier === "alone") {
+      if (got.task.stage === STAGE_AI_REVIEW) return { ok: false, reason: "the card is in AI review, its opener closes it" };
+      return { ok: true, files, commit, tier: "alone" };
+    }
+    const review = aiReviewVerdict({
+      commit, card: got.task, board, thread: got.comments,
+      modelOf: (author) => { try { return deps.modelOf?.(author) ?? null; } catch { return null; } },
+    });
+    if (!review.ok) {
+      return { ok: false, reason: `the delivery changes server code (${reading.files.slice(0, 3).join(", ")}) and ${review.reason}` };
+    }
+    return { ok: true, files, commit, tier: "ai-review" };
   }
 
-  /** The card's own turn must be over whatever the diff (landing cuts it); a server diff also waits for ZERO open turns. */
-  async function mustWait(taskId: string, files: readonly string[]): Promise<boolean> {
+  /**
+   * The card's own turn must be over whatever the diff (landing cuts it); a server
+   * diff also waits for ZERO open turns. `insideLand`: asked from within the land
+   * itself, which must not wait for its own slot in the queue.
+   */
+  async function mustWait(taskId: string, files: readonly string[], how: { insideLand?: boolean } = {}): Promise<boolean> {
     if (deps.cardTurnLive?.(taskId) ?? false) return true;
     if (!touchesServer(files) || !deps.liveTurns) return false;
-    try { return (await deps.liveTurns()) > 0; } catch { return true; }
+    try { return (await deps.liveTurns(how.insideLand ? { insideLand: true } : undefined)) > 0; } catch { return true; }
   }
 
   /** `commit` is the one the decision was taken on: the land is offered for it and for no other. */
-  function landNow(projectId: string, taskId: string, commit: string): void {
+  function landNow(projectId: string, taskId: string, commit: string, tier: "alone" | "ai-review"): void {
     attempted.set(taskId, commit);
-    // Run by the queue when it is this land's turn, with the commit the router is
-    // about to merge. The note is written only if the decision still holds on
-    // THIS commit: "landed alone" must not stand above a refusal.
+    // Run INSIDE the repo's queue, a moment before the merge, with the commit about
+    // to be merged. The note is written only if the decision still holds on THIS
+    // commit: "landed alone" must not stand above a refusal. The decision includes
+    // the open turns, read again: the wait that ended minutes ago is not a fact now.
     const recheck = async (toMerge: string | null): Promise<string | null> => {
+      const stop = (why: string): string => { attempted.delete(taskId); return why; };
       if (!sameCommit(toMerge, commit)) {
-        return `the land to merge (${(toMerge ?? "none").slice(0, 8)}) is another commit than the one it was offered with (${commit.slice(0, 8)})`;
+        return stop(`the land to merge (${(toMerge ?? "none").slice(0, 8)}) is another commit than the one it was offered with (${commit.slice(0, 8)})`);
       }
       const d = await decide(projectId, taskId, commit);
-      if (!d.ok) return d.reason;
+      if (!d.ok) return stop(d.reason);
+      if (await mustWait(taskId, d.files, { insideLand: true })) {
+        return stop("an agent turn is open, and landing would cut it: the land waits for the next round");
+      }
       try {
         deps.note(
           taskId,
           `Atterrata da sola: la barra della board è verde per intero sul commit consegnato (\`${commit.slice(0, 8)}\`), la card è invisibile ` +
-            "e non fa domande. Si chiude solo a merge confermato su main; se il ramo si è mosso o è rimasto indietro non lo tocco e resta in review.",
+            (tier === "ai-review"
+              ? "e la revisione AI della board ha approvato proprio questo commit. "
+              : "e non fa domande. ") +
+            "Si chiude solo a merge confermato su main; se il ramo si è mosso o è rimasto indietro non lo tocco e resta in review.",
         );
       } catch (err) { log(`[auto-land] nota non scritta per ${taskId}: ${String(err)}`); }
       return null;
@@ -409,7 +585,7 @@ export function createAutoLander(deps: AutoLanderDeps) {
       const d = await decide(projectId, taskId);
       if (!d.ok) return refuse(d.reason);
       if (!(await mustWait(taskId, d.files))) {
-        landNow(projectId, taskId, d.commit);
+        landNow(projectId, taskId, d.commit, d.tier);
         return "queued";
       }
       waiting.add(taskId);
@@ -431,7 +607,7 @@ export function createAutoLander(deps: AutoLanderDeps) {
             }
             if (await mustWait(taskId, again.files)) return;
             clearInterval(timer); waiting.delete(taskId);
-            landNow(projectId, taskId, again.commit);
+            landNow(projectId, taskId, again.commit, again.tier);
           } catch (err) {
             log(`[auto-land] ${taskId.slice(0, 8)} battito fallito, riprovo: ${String(err)}`);
           } finally {

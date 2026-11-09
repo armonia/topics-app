@@ -11,8 +11,8 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { landingFiles } from "./landing-files";
-import { needsAPerson } from "./auto-land";
+import { landingFiles, referencedByTheJudge } from "./landing-files";
+import { classifyDelivery } from "./auto-land";
 import { RESIDUE_SUBJECT } from "./worktree-residue";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 import { slackMs } from "../../tests/helpers/time-slack";
@@ -76,7 +76,7 @@ describe("landingFiles", () => {
     const files = await landingFiles(dir, "topics/x");
 
     expect(files?.sort()).toEqual(["server/lib/a.ts", "server/routes/auth.ts"]);
-    expect(needsAPerson(files!)).toEqual(["server/routes/auth.ts"]);
+    expect(classifyDelivery(files!)).toEqual({ tier: "person", files: ["server/routes/auth.ts"] });
   }, WITH_REAL_GIT);
 
   test("a rename does not hide the path it came from or the one it went to", async () => {
@@ -95,5 +95,51 @@ describe("landingFiles", () => {
     const dir = repo();
     expect(await landingFiles(dir, "topics/non-esiste")).toBeNull();
     expect(await landingFiles(join(dir, "nowhere"), "topics/x")).toBeNull();
+  }, WITH_REAL_GIT);
+});
+
+describe("referencedByTheJudge: files that bunfig.toml, scripts/, package.json or .github/ name", () => {
+  /** A repo whose bar configuration names a few files, and a card that touches them and others. */
+  function judged(): { dir: string; sha: string } {
+    const dir = repo();
+    commit(dir, "bunfig.toml", 'preload = ["./tests/setup/bun-test-preload.ts"]\n', "bunfig");
+    commit(dir, "scripts/run-shards.ts", 'import { slack } from "../tests/helpers/time-slack";\nconst only = ["tests/unit/pinned.test.ts"];\n', "script");
+    commit(dir, "package.json", '{ "scripts": { "doctor": "bun scripts/x.ts docs/board-protocol.md" } }\n', "package");
+    commit(dir, ".github/workflows/ci.yml", "run: bun test tests/integration/gate.test.ts\n", "ci");
+    git(dir, "switch", "-q", "-c", "topics/x");
+    for (const f of ["tests/setup/bun-test-preload.ts", "tests/helpers/time-slack.ts", "tests/unit/pinned.test.ts", "tests/integration/gate.test.ts",
+      "docs/board-protocol.md", "docs/free-note.md", "tests/unit/free.test.ts", "server/lib/free.test.ts"]) commit(dir, f, "x\n", `ramo: ${f}`);
+    const sha = git(dir, "rev-parse", "HEAD").trim();
+    git(dir, "switch", "-q", "main");
+    return { dir, sha };
+  }
+
+  test("the preload, an imported helper (named without its extension), a script's list, a CI step and a document a script parses are named", async () => {
+    const { dir, sha } = judged();
+    const files = (await landingFiles(dir, sha))!;
+    expect(await referencedByTheJudge(dir, sha, files)).toEqual([
+      "docs/board-protocol.md", "tests/helpers/time-slack.ts", "tests/integration/gate.test.ts", "tests/setup/bun-test-preload.ts", "tests/unit/pinned.test.ts",
+    ]);
+  }, WITH_REAL_GIT);
+
+  test("a file nothing names stays out, and a delivery of such files is classified as alone", async () => {
+    const { dir, sha } = judged();
+    const free = ["docs/free-note.md", "tests/unit/free.test.ts", "server/lib/free.test.ts"];
+    const named = await referencedByTheJudge(dir, sha, free);
+    expect(named).toEqual([]);
+    expect(classifyDelivery(free, new Set(named!)).tier).toBe("alone");
+  }, WITH_REAL_GIT);
+
+  test("the answer is as of the commit it is asked about, and a commit git does not have is unknown, never 'none named'", async () => {
+    const { dir, sha } = judged();
+    expect(await referencedByTheJudge(dir, "0000000000000000000000000000000000000001", ["docs/free-note.md"])).toBeNull();
+    expect(await referencedByTheJudge(join(dir, "nowhere"), sha, ["docs/free-note.md"])).toBeNull();
+    expect(await referencedByTheJudge(dir, sha, [])).toEqual([]);
+  }, WITH_REAL_GIT);
+
+  test("many files are asked in chunks and none is missed", async () => {
+    const { dir, sha } = judged();
+    const many = Array.from({ length: 120 }, (_, i) => `docs/pad-${i}.md`);
+    expect(await referencedByTheJudge(dir, sha, [...many, "docs/board-protocol.md"])).toEqual(["docs/board-protocol.md"]);
   }, WITH_REAL_GIT);
 });

@@ -34,6 +34,10 @@ interface Knobs {
   deliveryFiles?: string[] | null | ((commit: string) => string[] | null);
   /** Runs when the land is put in the queue, before its turn: the world moves here. */
   onQueued?: (taskId: string) => void;
+  /** Runs inside `tryMerge`, before the last look (the fetch and the chain happen here): the world moves here too. */
+  inTryMerge?: (taskId: string) => void;
+  /** The board runs the `armonia` workflow (it has the AI review column). */
+  armonia?: boolean;
 }
 
 let sweep: (() => Promise<number>) | null = null;
@@ -61,13 +65,19 @@ describe("a delivery that needs no one lands itself", () => {
       realignForChecks: async () => ({ ok: true, note: null }),
       taskDeliveryRef: async () => ({ branch: "topics/auto", commit: k.deliveryCommit ?? "abc1234", repoPath: "/repo" }),
       ownCommitFiles: async () => k.files ?? [{ path: "server/lib/git-numstat.ts", added: true }],
-      deliveryFiles: async (_taskId: string, commit: string) => (typeof k.deliveryFiles === "function" ? k.deliveryFiles(commit) : k.deliveryFiles === undefined ? ["server/lib/git-numstat.ts"] : k.deliveryFiles),
+      deliveryFiles: async (_taskId: string, commit: string) => (typeof k.deliveryFiles === "function" ? k.deliveryFiles(commit) : k.deliveryFiles === undefined ? ["docs/note.md"] : k.deliveryFiles),
+      // Nothing in the fixture's bar configuration names the delivered files.
+      deliveryReferenced: async () => [],
       markLandPending: (taskId: string) => k.onQueued?.(taskId),
       liveTurnCount: k.turns,
       autoLandPollMs: 5,
       onAutoLand: (api: { sweepAutoLand: () => Promise<number> }) => { sweep = api.sweepAutoLand; },
       autoMerge: {
-        tryMerge: async (taskId: string, _t: string, delivery: unknown) => {
+        tryMerge: async (taskId: string, _t: string, delivery: { beforeMerge?: (sha: string) => Promise<string | null>; commit: string | null }) => {
+          // What the real one does under its chain: the world may move while it fetches, and the last look is asked right before the merge.
+          k.inTryMerge?.(taskId);
+          const stop = await delivery.beforeMerge?.(delivery.commit ?? "");
+          if (stop) return { status: "skipped", code: "auto-land-stopped", reason: stop };
           merges.push({ taskId, delivery });
           return skip ? { status: "skipped", code: "realign-needed", reason: "il ramo e' indietro" } : MERGED;
         },
@@ -82,6 +92,10 @@ describe("a delivery that needs no one lands itself", () => {
     db.prepare("UPDATE tasks SET status = 'in_progress' WHERE id = ?").run(task.id);
     await call(router, "POST", `/api/sessions/s1/tasks/${task.id}/comments`, { content: "fatto, guarda scripts/" });
     svc.updateBoardSettings(task.projectId, { dispatchAutoMerge: k.autoMerge ?? true, reviewChecks: [{ name: "ok", cmd: "true" }] });
+    if (k.armonia) {
+      db.run("CREATE TABLE IF NOT EXISTS board_workflows (scope TEXT PRIMARY KEY, preset TEXT NOT NULL, updated_at TEXT NOT NULL)");
+      db.run("INSERT INTO board_workflows (scope, preset, updated_at) VALUES (?, 'armonia', '2026-11-09T10:00:00.000Z')", [task.projectId]);
+    }
     const door = how.global ? `/api/orchestrator-sessions/${encodeURIComponent(GLOBAL_KEY)}/tasks/${task.id}` : `/api/sessions/s1/tasks/${task.id}`;
     const resp = (await call(router, "PATCH", door, { status: "review", summary: "riordinati", legMs: 10_000, ...patch }))!;
     // The land is queued behind the response: let the queue drain.
@@ -158,7 +172,7 @@ describe("a delivery that needs no one lands itself", () => {
 
   test("a server diff waits for ZERO open turns, then lands", async () => {
     let turns = 2;
-    const d = await deliver({ deliveryFiles: ["server/lib/x.ts"], turns: () => turns });
+    const d = await deliver({ deliveryFiles: ["server/lib/x.test.ts"], turns: () => turns });
     expect(merges).toEqual([]);
     expect(d.read().task.status).toBe("review");
     turns = 0;
@@ -170,7 +184,7 @@ describe("a delivery that needs no one lands itself", () => {
   test("a card archived while the land waits for the turns does not land", async () => {
     // `Task` carries no `archived` field: the verdict used to read `undefined` and say yes.
     let turns = 2;
-    const d = await deliver({ deliveryFiles: ["server/lib/x.ts"], turns: () => turns });
+    const d = await deliver({ deliveryFiles: ["server/lib/x.test.ts"], turns: () => turns });
     expect(merges).toEqual([]);
     db.prepare("UPDATE tasks SET archived = 1 WHERE id = ?").run(d.id);
     turns = 0;
@@ -194,7 +208,7 @@ describe("a delivery that needs no one lands itself", () => {
   test("the files are read again when the land's turn in the queue comes: a change in between stops the merge", async () => {
     // Read 1: the ask. Read 2: the recheck the queue runs just before the merge, after the world moved.
     let reads = 0;
-    const d = await deliver({ deliveryFiles: () => (++reads >= 2 ? ["server/routes/auth.ts", "PRIVACY.md"] : ["server/lib/git-numstat.ts"]) });
+    const d = await deliver({ deliveryFiles: () => (++reads >= 2 ? ["server/routes/auth.ts", "PRIVACY.md"] : ["docs/note.md"]) });
     expect(reads).toBeGreaterThanOrEqual(2);
     expect(merges).toEqual([]);
     const after = d.read();
@@ -204,7 +218,7 @@ describe("a delivery that needs no one lands itself", () => {
 
   test("the paths are read on the delivered commit, and the merge is asked for that same commit", async () => {
     const asked: string[] = [];
-    const d = await deliver({ deliveryFiles: (commit) => { asked.push(commit); return ["server/lib/git-numstat.ts"]; } });
+    const d = await deliver({ deliveryFiles: (commit) => { asked.push(commit); return ["docs/note.md"]; } });
     expect(asked.length).toBeGreaterThanOrEqual(2);
     expect(new Set(asked)).toEqual(new Set(["abc1234"]));
     expect(merges.map((m) => (m.delivery as { commit: string }).commit)).toEqual(["abc1234"]);
@@ -215,7 +229,7 @@ describe("a delivery that needs no one lands itself", () => {
     // Harmless paths and a green bar on the NEW commit too: the verdict on it would be yes, but nobody asked about it.
     const moveTo = (id: string) => { db.prepare("UPDATE tasks SET delivery_commit = 'bbbbbbb2', checks_commit = 'bbbbbbb2' WHERE id = ?").run(id); };
     const asked: string[] = [];
-    const d = await deliver({ onQueued: moveTo, deliveryFiles: (commit) => { asked.push(commit); return ["server/lib/git-numstat.ts"]; } });
+    const d = await deliver({ onQueued: moveTo, deliveryFiles: (commit) => { asked.push(commit); return ["docs/note.md"]; } });
     expect(merges).toEqual([]);
     const stopped = d.read();
     expect(stopped.task.status).toBe("review");
@@ -242,4 +256,65 @@ describe("a delivery that needs no one lands itself", () => {
     expect(merges.map((m) => m.taskId)).toEqual([d.id]);
     expect(d.read().task.status).toBe("done");
   }, 30_000);
+  test("a card archived and asking something while the land is inside tryMerge (the fetch, the chain) is not merged", async () => {
+    // The verifier's scenario B: the verdict was yes when the land was queued and yes when its turn came; the card changes during the fetch.
+    const d = await deliver({ inTryMerge: (id) => { db.prepare("UPDATE tasks SET archived = 1, human_ask = 'Non landare, aspetta me' WHERE id = ?").run(id); } });
+    expect(merges).toEqual([]);
+    const after = d.read();
+    expect(after.task.status).toBe("review");
+    expect(after.comments.some((c) => c.content.includes("si è fermato prima del merge"))).toBe(true);
+    expect(after.comments.some((c) => c.content.includes("Atterrata da sola"))).toBe(false);
+  }, 30_000);
+
+  test("the note 'landed alone' is written inside the last look, so a refusal never stands under it", async () => {
+    const d = await deliver({ inTryMerge: (id) => { db.prepare("UPDATE tasks SET status = 'in_progress' WHERE id = ?").run(id); } });
+    expect(merges).toEqual([]);
+    expect(d.read().comments.some((c) => c.content.includes("Atterrata da sola"))).toBe(false);
+  }, 30_000);
+
+  describe("server code goes through the board's AI review", () => {
+    const FULL = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
+    const server = { deliveryFiles: ["server/lib/git-numstat.ts"], deliveryCommit: FULL, checksCommit: FULL };
+
+    function reviewer(id: string, model: string | null) {
+      try { db.run("ALTER TABLE topics ADD COLUMN model TEXT"); } catch { /* already there */ }
+      db.run("INSERT OR REPLACE INTO topics (id, name, session_key, model) VALUES (?, ?, ?, ?)", [id, id, `topic:${id}`, model]);
+    }
+    /** The card is in the AI review column, written by a sonnet session (the fixture's agent, topic `top-s1`). */
+    function inAiReview(id: string) {
+      reviewer("top-s1", "claude-sonnet-5-5");
+      db.prepare("UPDATE tasks SET stage = 'ai_review', model = 'claude-sonnet-5-5' WHERE id = ?").run(id);
+    }
+
+    test("a board without an AI review column: server code stays in review, even with an approval on the card", async () => {
+      reviewer("rev1", "claude-opus-4-7");
+      const d = await deliver(server);
+      inAiReview(d.id);
+      svc.addComment({ taskId: d.id, author: "agent:rev1", content: `AI-REVIEW approved ${FULL}\nok` });
+      await sweep!(); await Bun.sleep(80);
+      expect(merges).toEqual([]);
+      expect(d.read().task.status).toBe("review");
+    }, 30_000);
+
+    test("on an armonia board it lands only after another session on another model approved THIS commit", async () => {
+      reviewer("rev1", "claude-opus-4-7");
+      const d = await deliver({ ...server, armonia: true });
+      inAiReview(d.id);
+      expect(merges).toEqual([]);
+      // No approval yet.
+      await sweep!(); await Bun.sleep(80);
+      expect(merges).toEqual([]);
+      // The same model family reviews: no.
+      reviewer("rev2", "claude-sonnet-4-6");
+      svc.addComment({ taskId: d.id, author: "agent:rev2", content: `AI-REVIEW approved ${FULL}\nok` });
+      await sweep!(); await Bun.sleep(80);
+      expect(merges).toEqual([]);
+      // Another model, another session, this sha: yes.
+      svc.addComment({ taskId: d.id, author: "agent:rev1", content: `AI-REVIEW approved ${FULL}\nLetto il diff: solo helper di git.` });
+      await sweep!(); await Bun.sleep(80);
+      expect(merges.map((m) => m.taskId)).toEqual([d.id]);
+      expect(d.read().task.status).toBe("done");
+      expect(d.read().comments.some((c) => c.content.includes("revisione AI"))).toBe(true);
+    }, 30_000);
+  });
 });
