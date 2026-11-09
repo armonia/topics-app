@@ -1,3 +1,8 @@
+/**
+ * Which cloud account a node runs on: one without the sessions scope is skipped, not fatal.
+ *
+ * @covers KANBAN-76
+ */
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
