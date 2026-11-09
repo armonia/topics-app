@@ -1,6 +1,4 @@
 import { useEffect, useState } from 'react';
-import { Timer } from 'lucide-react';
-import { STATUS_GLYPH_PX } from '../../lib/board';
 import { useT, useLocale } from '../../hooks/useT';
 import { fmtLive, fmtModel, fmtTok, liveToolLabel } from './format';
 import type { LiveTool, LiveUsage, RetryWait } from './constants';
@@ -114,7 +112,7 @@ export function LiveEffortChip({ usage }: { usage: LiveUsage }) {
       className="flex min-w-0 max-w-full items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-800 dark:text-sky-300 tabular-nums"
     >
       <SparkLoader className="shrink-0" />
-      <span className="truncate">{fmtModel(usage.model)} · <Timer size={STATUS_GLYPH_PX} className="inline-block align-text-bottom" aria-hidden /> {fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)}`}</span>
+      <span className="truncate">{fmtModel(usage.model)} · ⏱ {fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)}`}</span>
     </span>
   );
 }

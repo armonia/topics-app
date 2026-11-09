@@ -479,6 +479,16 @@ export function createMachinesRouter(ctx: AppContext, opts: { revocations?: Dele
         if (method === "PATCH") {
           const body = await readJSON(req);
           if (!body) return errorResponse(400, "body required");
+          if (body.slots !== undefined && body.name === undefined) {
+            const slots = body.slots;
+            if (slots !== null && (!Number.isInteger(slots) || slots < 1 || slots > 8)) {
+              return errorResponse(400, "slots must be an integer from 1 to 8");
+            }
+            const declared = machineStore.setSlots(params.id, slots);
+            if (!declared) return errorResponse(404, "Machine not found");
+            emit("machine:updated", declared);
+            return json(declared);
+          }
           const name = stripCtrl(body.name);
           if (!name) return errorResponse(400, "name required");
           if (name.length > NAME_MAX) return errorResponse(400, `name too long (max ${NAME_MAX})`);

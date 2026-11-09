@@ -137,7 +137,7 @@ export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus
               type="time"
               value={until}
               onChange={(e) => onChange({ nightModeUntil: e.target.value })}
-              className="rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-mini text-app-text"
+              className="rounded bg-white/5 px-1.5 py-0.5 text-mini text-app-text"
               data-testid="night-mode-until"
             />
           </div>

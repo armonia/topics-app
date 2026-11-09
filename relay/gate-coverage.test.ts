@@ -90,7 +90,7 @@ const SCRIPTS = (
  * The tsc the repo pins. `typecheck:relay` uses this exact binary and not
  * `bunx tsc`, because a fetched newer major would change what the gate means.
  */
-const TSC = join(ROOT, "client", "node_modules", ".bin", "tsc");
+const TSC = join(ROOT, "client", "node_modules", "typescript7", "bin", "tsc");
 
 async function capture(cmd: string[], cwd = ROOT): Promise<{ code: number; out: string; stdout: string }> {
   const proc = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
@@ -106,7 +106,7 @@ async function tscListFiles(config: string): Promise<string[]> {
   // `--listFilesOnly` builds the program (parse + resolve, same file set) and
   // stops before the checker: 5-7x faster, and type errors stay the job of
   // typecheck:server / typecheck:relay, not of this file list.
-  const { code, out } = await capture([TSC, "-p", config, "--listFilesOnly"]);
+  const { code, out } = await capture(["node", TSC, "-p", config, "--listFilesOnly"]);
   // A non-zero exit here is a broken program, not a missing one: the file list
   // is still printed, and swallowing it would turn a broken build into "the
   // gate does not see relay", which is a different and much worse diagnosis.
