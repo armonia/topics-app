@@ -229,6 +229,7 @@ import { createProvidersRouter } from "./server/routes/providers";
 import { createAppSettingsRouter } from "./server/routes/app-settings";
 import { createCalendarRouter } from "./server/routes/calendar";
 import { createAgentChannelsRouter } from "./server/routes/agent-channels";
+import { createAgentConfigRouter } from "./server/routes/agent-config";
 import {
   resolveAiProvider,
   getAppSettings,
@@ -3138,6 +3139,8 @@ const appSettingsRouter = createAppSettingsRouter(ctx);
 const calendarRouter = createCalendarRouter(ctx);
 // The titles of the agents' Discord and WhatsApp chats, read from jarvis-channels.
 const agentChannelsRouter = createAgentChannelsRouter(ctx);
+// Anagrafica di Jarvis e Visione: legge e scrive i file di jarvis-channels.
+const agentConfigRouter = createAgentConfigRouter(ctx);
 const profileRouter = createProfileRouter(ctx);
 // Pagina pubblica del profilo — senza autenticazione, prima del gate.
 const publicProfileHandler = createPublicProfileHandler(ctx);
@@ -3714,6 +3717,7 @@ const apiRouteTable = buildRouteTable({
   appSettingsRouter,
   calendarRouter,
   agentChannelsRouter,
+  agentConfigRouter,
   tabsRouter,
   viewsRouter,
   claudeHooksRouter,
