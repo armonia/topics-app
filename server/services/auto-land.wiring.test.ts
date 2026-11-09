@@ -14,6 +14,13 @@ test("server.ts hands the auto-lander the server's whole turn count", () => {
   const src = readFileSync(join(import.meta.dir, "../../server.ts"), "utf8");
   const line = src.split("\n").find((l) => l.includes("liveTurnCount:"));
   expect(line).toBeDefined();
-  expect(line).toContain("activeStreams.size");
-  expect(line).toContain("countBusyAgentTerminals()");
+  expect(line).toContain("autoLandTurnCount");
+  const at = src.indexOf("async function autoLandTurnCount");
+  expect(at).toBeGreaterThan(0);
+  const body = src.slice(at, at + 900);
+  // The restart gate's own predicate (cards and lands in flight, broker turns, parked questions)...
+  expect(body).toContain("whatIsStillWorking()");
+  // ...and the streams and busy agent terminals the first version counted.
+  expect(body).toContain("activeStreams.size");
+  expect(body).toContain("countBusyAgentTerminals()");
 });

@@ -23,12 +23,15 @@
  *      declared bar, and it is measured on the commit that will land;
  *   5. plans with no diff closing alone    -> a delivery commit is required.
  *
- * Two more, from the review of this very module:
+ * More, from the reviews of this very module:
  *   6. a text or an effect no label shows  -> `needsAPerson(files)`: the label
  *      `invisibile` is "not under client/src", which also holds push
  *      notifications, Discord presence, the shell and the migrations;
  *   7. a partial delivery or a spoken word -> a card with a dispatch error, or
- *      with a person's comment after it entered review, is a person's to close.
+ *      with a person's comment after it entered review, is a person's to close;
+ *   8. a verdict that outlives its facts    -> card, files and turns are read
+ *      again at every beat of the wait AND when the land's turn in the queue
+ *      comes (`recheck`), because the wait lasts hours and the queue minutes.
  */
 import { STAGE_AI_REVIEW, agentAskInThread } from "../../shared/workflow";
 import { whoCloses } from "../../shared/task-labels";
@@ -139,37 +142,49 @@ function personSpokeSinceReview(reviewAt: string | null, thread: ReadonlyArray<A
  * The label `invisibile` only means "not under client/src"; it says nothing about
  * a text a person reads or an effect they feel. Each entry below is a family of
  * files whose change cannot show a person a sentence or reach their phone.
+ *
+ * What is NOT here, and why: `scripts/` (CI guards, baselines and the bar's own
+ * commands: a card that edits them edits its own judge), `server/db/` (the shape
+ * of the live database and the code that runs inside migrations),
+ * `server/browser-*` (logins and site data), `server/usage/` (what is billed).
  */
 const MAY_LAND_ALONE: ReadonlyArray<{ re: RegExp; why: string }> = [
   // Tests change no behaviour. A fixture is test support, not product.
   { re: /\.(test|spec)\.[jt]sx?$/, why: "test files change no behaviour" },
   { re: /\.fixture\.[jt]sx?$/, why: "test fixtures are test support" },
   { re: /^tests\//, why: "the test tree" },
-  // Machinery that talks to git, the disk, processes and the database. The
-  // carve-outs below take back the files in these folders that DO speak to a person.
-  { re: /^server\/(lib|services|usage|utils)\//, why: "server machinery with no view of its own" },
-  { re: /^server\/db\/(?!migrations)/, why: "data access code; the migrations themselves are NOT here, they run on the live database" },
-  { re: /^server\/browser-[^/]+\.ts$/, why: "the browser engine plumbing" },
-  // CI guards and the baselines they ratchet: they measure text, they do not produce it.
-  { re: /^scripts\/(check|e2e|board|gate|lint|typecheck|measure|probe)-[^/]*\.(ts|mjs|sh)$/, why: "CI guards and measurements" },
-  { re: /^scripts\/[a-z0-9-]+-baseline(\.[a-z]+)?\.json$/, why: "generated ratchet baselines" },
+  // Machinery that talks to git, the disk and processes. The deny list below
+  // takes back the files in these folders that guard, spend, judge or delete.
+  { re: /^server\/(lib|services|utils)\//, why: "server machinery with no view of its own" },
   // Internal documentation: the README, CHANGELOG, LICENSE and PRIVACY at the root are NOT here.
   { re: /^docs\//, why: "internal documentation" },
   { re: /^openspec\//, why: "internal change proposals" },
 ];
 
 /**
- * Taken back from the folders above: a file there that speaks to a person or
- * has an effect outside the machine. The old black list, kept as a net UNDER the
- * white list - it can only subtract, never add.
+ * Taken back from the folders above: a file there that speaks to a person, has
+ * an effect outside the machine, or is part of the machinery that protects,
+ * pays, judges or deletes. It can only subtract, never add. The keyword rules
+ * match whole words of a file name (`-gate.`, `/auth-`), so a new file named in
+ * the same vocabulary is caught without anyone listing it; being wrong in this
+ * direction costs a person's look, being wrong in the other costs a land nobody read.
  */
-const SPEAKS_TO_A_PERSON: readonly RegExp[] = [
-  /^server\/services\/(board-actions|ai-review-notice|card-origin-notice|worktree-abandon-notice|discord|dispatch-budget-message|profile-banner|calendar-feed|ical)/,
-  /^server\/services\/delivery-sheet/,
-  /^server\/lib\/(stripe|licenza|nome-installazione|provenienza|dead-run-note|resume-notices)/,
-  /^server\/lib\/(topics-agent-prompt|thread-skeleton|slash-command-menu|verdetto-turno-interrotto|turno-troncato|interrupted-turn-block)/,
-  // Anything else under server/ named for a channel to a person.
-  /^server\/.*(push|discord|presence|notif|stripe|billing|licen[sz]|webhook|mailer|email|telegram|whatsapp|slack|banner|notice)/i,
+const NEVER_ALONE: ReadonlyArray<{ re: RegExp; why: string }> = [
+  // Speaks to a person (the first black list).
+  { re: /^server\/services\/(board-actions|ai-review-notice|card-origin-notice|worktree-abandon-notice|discord|dispatch-budget-message|profile-banner|calendar-feed|ical)/, why: "messages and feeds a person reads" },
+  { re: /^server\/services\/delivery-sheet/, why: "the delivery sheet a person reads" },
+  { re: /^server\/lib\/(stripe|licenza|nome-installazione|provenienza|dead-run-note|resume-notices)/, why: "licence, install name and notices" },
+  { re: /^server\/lib\/(topics-agent-prompt|thread-skeleton|slash-command-menu|verdetto-turno-interrotto|turno-troncato|interrupted-turn-block)/, why: "prompts and thread text" },
+  { re: /^server\/.*(push|discord|presence|notif|stripe|billing|licen[sz]|webhook|mailer|email|telegram|whatsapp|slack|banner|notice)/i, why: "a channel to a person" },
+  // Security and authorization: who may call what, what leaves the machine.
+  { re: /[/._-](auth|authz|credentials?|secrets?|tokens?|permissions?|pairing|csrf|cors|cookies?|crypt\w*|keychain|ssrf|tls|cert|origin|outbound|unlock|sandbox|headers|login)[/._-]/i, why: "security and authorization" },
+  { re: /[/._-](gate|guard)[/._-]/i, why: "a gate or a guard is a safety decision" },
+  // Spend: what starts agents and what pays for them.
+  { re: /[/._-](spend|budget|quota|pricing|price|cost|capacity|governor|dispatch|dispatcher|delegated)[/._-]/i, why: "spend and dispatch" },
+  // The judge: the code that decides this very land, and the checks it trusts.
+  { re: /[/._-](auto-?land|automerge|landing|land|merge|delivery|checks?|own-commits|worktree-residue|checkpoints?)[/._-]/i, why: "the land, its verdict and the bar" },
+  // What deletes or stops: data, worktrees, processes.
+  { re: /[/._-](delete|purge|prune|clean|cleanup|wipe|reap|gc|kill|abandon|trash|remove|revocation|retention|restore|archive|stop|reload|restart|drop)[/._-]/i, why: "deleting or stopping" },
 ];
 
 /** The files of a delivery a person must look at (everything not on the white list); empty = none. */
@@ -179,7 +194,7 @@ export function needsAPerson(files: readonly string[]): string[] {
     if (!allowed) return true;
     // Tests never speak: they are allowed even inside a carved-out family.
     if (/\.(test|spec|fixture)\.[jt]sx?$/.test(f) || f.startsWith("tests/")) return false;
-    return SPEAKS_TO_A_PERSON.some((re) => re.test(f));
+    return NEVER_ALONE.some((e) => e.re.test(f));
   });
 }
 
@@ -194,13 +209,17 @@ export function touchesServer(files: readonly string[] | null): boolean {
 interface AutoLanderDeps {
   read(taskId: string, projectId: string): { task: AutoLandCard & { id: string; projectId: string }; comments: ReadonlyArray<AutoLandComment> } | undefined;
   board(projectId: string): AutoLandBoard;
-  /** Queue the land (the router's `enqueueLand`), asking it NOT to realign the branch. */
-  land(projectId: string, taskId: string): unknown;
+  /**
+   * Queue the land (the router's `enqueueLand`), asking it NOT to realign the branch.
+   * `recheck` is the verdict again, to be run when the land's turn in the queue
+   * comes and right before the merge: it answers a reason to stop, or `null`.
+   */
+  land(projectId: string, taskId: string, recheck: () => Promise<string | null>): unknown;
   note(taskId: string, text: string): void;
   /** Files of the delivered branch; `null` = unknown, and a land that does not know what it changes does not happen. */
   files?: (taskId: string) => Promise<string[] | null>;
-  /** Agent and chat turns open right now on this server. */
-  liveTurns?: () => number;
+  /** Agent and chat turns open right now on this server (the restart gate's own count). */
+  liveTurns?: () => number | Promise<number>;
   /**
    * Is the CARD'S OWN agent still in a turn? Landing cuts that turn
    * (`cutLiveTurn`), and an agent moves its card to review in the middle of a
@@ -214,6 +233,9 @@ interface AutoLanderDeps {
 
 type AutoLandOutcome = "queued" | "waiting" | "refused";
 
+/** Everything the land rests on, read at one moment: the card, its board, the paths. */
+type Decision = { ok: true; files: string[] } | { ok: false; reason: string };
+
 /**
  * Lands the card when the verdict allows it. A diff that reloads the live
  * server waits for ZERO open turns first: the land runs in the checkout the
@@ -221,6 +243,12 @@ type AutoLandOutcome = "queued" | "waiting" | "refused";
  * in flight (task-automerge.ts, "the shared checkout is ALREADY on main").
  * The wait is a timer in this process: a reload loses it, which is why the
  * router also offers `sweep` and the host calls it after a boot.
+ *
+ * THE VERDICT IS NOT A PHOTOGRAPH. The wait lasts up to three hours and the
+ * land queue minutes, and in that time the card can move to a newer commit
+ * with other paths, be archived, or get a question. So the whole decision
+ * (`decide`: card, bar, board, paths) is taken again at every beat, and once
+ * more when the queue hands the land its turn.
  */
 export function createAutoLander(deps: AutoLanderDeps) {
   const waiting = new Set<string>();
@@ -247,18 +275,46 @@ export function createAutoLander(deps: AutoLanderDeps) {
     return autoLandVerdict(got.task, board, got.comments);
   }
 
+  /** The verdict plus the paths of the delivery as they are NOW. */
+  async function decide(projectId: string, taskId: string): Promise<Decision> {
+    const v = verdictNow(projectId, taskId);
+    if (!v.ok) return v;
+    let files: string[] | null = null;
+    try { files = deps.files ? await deps.files(taskId) : null; } catch { files = null; }
+    // A land that cannot say what it changes does not happen: the paths are the only reading of "a person must look".
+    if (files === null) return { ok: false, reason: "the files of the delivery could not be read" };
+    const heavy = needsAPerson(files);
+    if (heavy.length > 0) return { ok: false, reason: `the delivery touches what a person must look at (${heavy.slice(0, 3).join(", ")})` };
+    return { ok: true, files };
+  }
+
+  /** The card's own turn must be over whatever the diff (landing cuts it); a server diff also waits for ZERO open turns. */
+  async function mustWait(taskId: string, files: readonly string[]): Promise<boolean> {
+    if (deps.cardTurnLive?.(taskId) ?? false) return true;
+    if (!touchesServer(files) || !deps.liveTurns) return false;
+    try { return (await deps.liveTurns()) > 0; } catch { return true; }
+  }
+
   function landNow(projectId: string, taskId: string): void {
     const got = deps.read(taskId, projectId);
     const commit = got?.task.deliveryCommit ?? "";
     attempted.set(taskId, commit);
-    try {
-      deps.note(
-        taskId,
-        `Atterrata da sola: la barra della board è verde per intero sul commit consegnato (\`${commit.slice(0, 8)}\`), la card è invisibile ` +
-          "e non fa domande. Si chiude solo a merge confermato su main; se il ramo si è mosso o è rimasto indietro non lo tocco e resta in review.",
-      );
-    } catch (err) { log(`[auto-land] nota non scritta per ${taskId}: ${String(err)}`); }
-    deps.land(projectId, taskId);
+    // Run by the queue when it is this land's turn. The note is written only if
+    // the decision still holds: "landed alone" must not stand above a refusal.
+    const recheck = async (): Promise<string | null> => {
+      const d = await decide(projectId, taskId);
+      if (!d.ok) return d.reason;
+      const now = deps.read(taskId, projectId)?.task.deliveryCommit ?? commit;
+      try {
+        deps.note(
+          taskId,
+          `Atterrata da sola: la barra della board è verde per intero sul commit consegnato (\`${now.slice(0, 8)}\`), la card è invisibile ` +
+            "e non fa domande. Si chiude solo a merge confermato su main; se il ramo si è mosso o è rimasto indietro non lo tocco e resta in review.",
+        );
+      } catch (err) { log(`[auto-land] nota non scritta per ${taskId}: ${String(err)}`); }
+      return null;
+    };
+    deps.land(projectId, taskId, recheck);
   }
 
   /** `quiet`: the periodic sweep asks about the same refused cards every round, and says nothing about them. */
@@ -273,34 +329,38 @@ export function createAutoLander(deps: AutoLanderDeps) {
     if (attempted.get(taskId) === deps.read(taskId, projectId)?.task.deliveryCommit) return refuse("this commit was already offered to the land");
     askInFlight.add(taskId);
     try {
-      let files: string[] | null = null;
-      try { files = deps.files ? await deps.files(taskId) : null; } catch { files = null; }
-      // A land that cannot say what it changes does not happen: the paths are the only reading of "a person must look".
-      if (files === null) return refuse("the files of the delivery could not be read");
-      const heavy = needsAPerson(files);
-      if (heavy.length > 0) return refuse(`the delivery touches what a person must look at (${heavy.slice(0, 3).join(", ")})`);
-      const serverLand = touchesServer(files);
-      // The card's own turn must be over whatever the diff: landing cuts it.
-      const mustWait = () =>
-        (deps.cardTurnLive?.(taskId) ?? false) || (serverLand && !!deps.liveTurns && deps.liveTurns() > 0);
-      if (!mustWait()) {
+      const d = await decide(projectId, taskId);
+      if (!d.ok) return refuse(d.reason);
+      if (!(await mustWait(taskId, d.files))) {
         landNow(projectId, taskId);
         return "queued";
       }
       waiting.add(taskId);
       const startedAt = Date.now();
+      let beating = false;
       const timer = setInterval(() => {
-        // Asked again at every beat: a person may have closed the card, or the agent asked something, meanwhile.
-        const again = verdictNow(projectId, taskId);
-        const expired = Date.now() - startedAt > maxWaitMs;
-        if (!again.ok || expired) {
-          clearInterval(timer); waiting.delete(taskId);
-          log(`[auto-land] ${taskId.slice(0, 8)} non atterra piu': ${again.ok ? "attesa dei turni scaduta" : again.reason}`);
-          return;
-        }
-        if (mustWait()) return;
-        clearInterval(timer); waiting.delete(taskId);
-        landNow(projectId, taskId);
+        if (beating) return;
+        beating = true;
+        // Asked again at every beat, paths included: the card may have moved to a
+        // newer commit, been closed or archived, or the agent may have asked something.
+        void (async () => {
+          try {
+            const again = await decide(projectId, taskId);
+            const expired = Date.now() - startedAt > maxWaitMs;
+            if (!again.ok || expired) {
+              clearInterval(timer); waiting.delete(taskId);
+              log(`[auto-land] ${taskId.slice(0, 8)} non atterra piu': ${again.ok ? "attesa dei turni scaduta" : again.reason}`);
+              return;
+            }
+            if (await mustWait(taskId, again.files)) return;
+            clearInterval(timer); waiting.delete(taskId);
+            landNow(projectId, taskId);
+          } catch (err) {
+            log(`[auto-land] ${taskId.slice(0, 8)} battito fallito, riprovo: ${String(err)}`);
+          } finally {
+            beating = false;
+          }
+        })();
       }, pollMs);
       (timer as { unref?: () => void }).unref?.();
       return "waiting";

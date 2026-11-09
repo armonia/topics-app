@@ -374,7 +374,7 @@ export interface TasksRouterOpts {
    * beat of the wait for zero turns.
    */
   deliveryFiles?: (taskId: string) => Promise<string[] | null>;
-  liveTurnCount?: () => number;
+  liveTurnCount?: () => number | Promise<number>;
   autoLandPollMs?: number;
   /**
    * A delivery planted from another machine has a branch and no worktree: a
@@ -658,6 +658,14 @@ export function matchGuestTaskAction(
   if (method === "POST" && pathname === `${base}/run`) return "run";
   if (method === "PATCH" && pathname === base) return "edit";
   return "unsupported";
+}
+
+/** What a queued land is asked besides landing. */
+interface LandRunOpts {
+  /** Do not realign the branch: the bar measured the delivered commit. */
+  noRealign?: boolean;
+  /** The automatic land's verdict again, run when the queue hands over the turn; a string = stop for that reason. */
+  recheck?: () => Promise<string | null>;
 }
 
 export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, opts?: TasksRouterOpts): RouteHandler {
@@ -1633,7 +1641,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * aspettare git). Ogni percorso che atterra una card passa da qui: il bottone
    * «Landa», la quick-reply dell'agente, e il trascinamento in Done.
    */
-  function enqueueLand(projectId: string, taskId: string, landOpts?: { noRealign?: boolean }): LandingTicket {
+  function enqueueLand(projectId: string, taskId: string, landOpts?: LandRunOpts): LandingTicket {
     // PRIMA di accodare, non dopo: fra l'accodamento e la fusione la card non è
     // su main, e in quella finestra deve dirlo.
     try { opts?.markLandPending?.(taskId); } catch (err) { console.warn("[land] timbro di attesa fallito per", taskId, err); }
@@ -1675,7 +1683,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const settings = svc.getBoardSettings(projectId);
       return { autoMerge: settings.dispatchAutoMerge, declaredChecks: settings.reviewChecks.length };
     },
-    land: (projectId, taskId) => enqueueLand(projectId, taskId, { noRealign: true }),
+    land: (projectId, taskId, recheck) => enqueueLand(projectId, taskId, { noRealign: true, recheck }),
     note: (taskId, text) => {
       svc.addComment({ taskId, author: "system", kind: "service", content: text });
     },
@@ -1833,7 +1841,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     } catch (err) { console.warn(`[land] nota «niente da atterrare» non scritta per ${taskId}:`, err); }
   }
 
-  async function landTask(projectId: string, taskId: string, landOpts?: { noRealign?: boolean }): Promise<LandOutcomeResult | void> {
+  async function landTask(projectId: string, taskId: string, landOpts?: LandRunOpts): Promise<LandOutcomeResult | void> {
     const autoMerge = opts?.autoMerge;
     if (!autoMerge) {
       svc.addComment({ taskId, author: "system", content: "Landing non disponibile: merge automatico non configurato per questo host." });
@@ -1850,6 +1858,23 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // di board). Non è un esito da nascondere: `throw` lo porta sul ticket, che è
     // l'unico posto dove chi ha chiesto il land può ancora leggerlo.
     if (!task) throw new Error(`task ${taskId} non trovato su questa board: land annullato`);
+    // The automatic land asks its verdict again NOW, after the queue: between the
+    // ask and this turn other lands ran, and the card may have moved, been
+    // archived or been written to. A reason to stop leaves the card in review.
+    if (landOpts?.recheck) {
+      const stop = await landOpts.recheck().catch((err) => `the recheck failed: ${String(err)}`);
+      if (stop) {
+        try {
+          svc.addComment({
+            taskId, author: "system", kind: "service",
+            content: `L'atterraggio automatico si è fermato prima del merge: ${stop}. La card resta in review e la chiude una persona.`,
+          });
+          const fresh = svc.get(taskId, { projectId })?.task;
+          if (fresh) broadcastToAll({ type: "task:updated", projectId, task: fresh });
+        } catch (err) { console.warn(`[land] nota di arresto non scritta per ${taskId}:`, err); }
+        return { outcome: "skipped", reason: stop };
+      }
+    }
     try {
       const res = await autoMerge.tryMerge(taskId, task.text, {
         branch: task.deliveryBranch ?? null,

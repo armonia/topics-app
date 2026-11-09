@@ -208,6 +208,7 @@ import { startSubagentWakes } from "./server/services/subagent-wake";
 import { abandonCutTurn, adoptNativeChildrenAtBoot, configureNativeSubagents } from "./server/lib/native-subagents";
 import { awaitsForegroundChild, subagentWakeOwed } from "./server/lib/subagent-runtime";
 import { createTasksRouter, ownBranchFiles, ownCommitFiles, runGitCap } from "./server/routes/tasks";
+import { branchLandingFiles } from "./server/services/branch-landing-files";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
 import { createDeliveryCapture, type DeliveryCapture } from "./server/services/task-delivery-capture";
 import { createPushRouter } from "./server/routes/push";
@@ -2910,11 +2911,11 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   deliveryFiles: async (taskId) => {
     const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
     if (!ref) return null;
-    const files = await ownBranchFiles(ref.repoPath, ref.branch);
-    return files ? files.map((f) => f.path) : null;
+    // What the merge brings (net diff against main), not the own-commit walk: that walk leaves out the pruning-residue commit.
+    return branchLandingFiles(ref.repoPath, ref.branch);
   },
-  // Same count the server uses for "is anything working": chat streams AND busy agent terminals.
-  liveTurnCount: () => activeStreams.size + countBusyAgentTerminals(),
+  // The count the restart gate waits on (see `autoLandTurnCount`).
+  liveTurnCount: autoLandTurnCount,
   ownBranchFiles: (repoPath, branch) => ownBranchFiles(repoPath, branch),
   // A throwaway checkout of a branch planted from another machine, so its bar
   // can be measured on the commit that will land (`services/node-delivery-meter.ts`).
@@ -6888,6 +6889,17 @@ function turnComesBack(sessionKey: string): boolean {
     nativeTurn,
     nativeDetached: nativeTurn && native?.turnRunsDetached?.(sessionKey) === true,
   });
+}
+
+/**
+ * Open turns, for the automatic land that reloads the server: the restart
+ * gate's own predicate (cards and lands in flight, broker turns, chats parked on
+ * a question) plus the chat streams and busy agent terminals. Counting less than
+ * the gate lets a reload cut a turn the gate itself would have waited for.
+ */
+async function autoLandTurnCount(): Promise<number> {
+  const working = await whatIsStillWorking();
+  return (working.busy !== null ? 1 : 0) + activeStreams.size + countBusyAgentTerminals();
 }
 
 async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; chats: number; workingChats: number; lostWorkingChats: number; everyTurnComesBack: boolean; holder: string | null; holderKind: "turn" | "question" }> {

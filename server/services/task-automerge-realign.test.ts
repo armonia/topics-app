@@ -20,6 +20,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from "fs"
 import { tmpdir } from "os";
 import { join } from "path";
 import { createTaskAutoMerge, type AutoMergeDeps, type TaskMergeTarget } from "./task-automerge";
+import { RESIDUE_SUBJECT } from "./worktree-residue";
 import { slackMs } from "../../tests/helpers/time-slack";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 
@@ -533,6 +534,30 @@ describe("l'atterraggio automatico pubblica SOLO il commit misurato (noRealign)"
     const before = git(repo, "rev-parse", "main").trim();
 
     const res = await landOn(repo).tryMerge("t1", "Card mista", { branch: BRANCH, commit: tip, noRealign: true });
+
+    expect(res.status).toBe("skipped");
+    if (res.status !== "skipped") return;
+    expect(res.code).toBe("not-as-measured");
+    expect(git(repo, "rev-parse", "main").trim()).toBe(before);
+  }, WITH_REAL_GIT);
+});
+
+describe("il commit di residuo della potatura non esce dal conto del land automatico (noRealign)", () => {
+  /**
+   * `listOwnCommits` leaves out the commit the pruning writes to save a dirty
+   * worktree, but the merge carries it. With no other local branch the "total vs
+   * own" gate used to be skipped altogether, and what the merge brought was a
+   * tree nobody measured (verifier, 09/11: auth.ts landed beside a harmless file).
+   */
+  test("ramo con un commit di residuo e nessun altro ramo locale -> skipped/not-as-measured", async () => {
+    const repo = repoWithOldBranch({ avanzamentoMain: [], lavoroDelRamo: [["server/lib/a.ts", "a\n"]] });
+    git(repo, "switch", "-q", BRANCH);
+    commit(repo, "server/routes/auth.ts", "residuo\n", RESIDUE_SUBJECT);
+    git(repo, "switch", "-q", "main");
+    const tip = git(repo, "rev-parse", BRANCH).trim();
+    const before = git(repo, "rev-parse", "main").trim();
+
+    const res = await landOn(repo).tryMerge("t1", "Card col residuo", { branch: BRANCH, commit: tip, noRealign: true });
 
     expect(res.status).toBe("skipped");
     if (res.status !== "skipped") return;

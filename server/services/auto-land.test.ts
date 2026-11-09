@@ -133,6 +133,18 @@ describe("needsAPerson: a white list, what is not on it stays with a person", ()
     "server/push-triggers.ts", "server/presence.ts", "server/services/discord-presence.ts", "server/views/view-html.ts",
     "shared/tool-detail.ts", "shared/presence-phrase.ts", "desktop-tauri/src-tauri/tauri.conf.json",
     "server/db/migrations/20261109-x.sql", ".github/workflows/ci.yml", "server/routes/agent-channels.ts", "server/lib/stripe.ts",
+    // Security, spend, the judge itself and what deletes data (verifier, 09/11, second round).
+    "server/lib/auth-gate.ts", "server/lib/device-auth.ts", "server/lib/served-file-headers.ts", "server/services/api-provider-credentials.ts",
+    "server/lib/outbound-gate.ts", "server/lib/permission-bridge.ts", "server/lib/topics-secret-path.ts", "server/lib/pairing-quota.ts",
+    "server/services/task-dispatcher-spend-cap.ts", "server/services/budget-governor.ts", "server/services/task-dispatcher.ts",
+    "server/services/auto-land.ts", "server/services/task-automerge.ts", "server/services/landing-verdict.ts",
+    "server/services/own-commits.ts", "server/services/checks-gate.ts", "server/services/review-checks.ts", "server/services/node-delivery-meter.ts",
+    "scripts/check-security.ts", "scripts/bloat-baseline.json", "scripts/check-eol.ts", "scripts/gate-board.mjs",
+    "server/services/worktree-gc.ts", "server/services/ui-state-purge.ts", "server/lib/kill-agent-tree.ts", "server/services/archive-topic.ts",
+    // The database: its shape and the code that runs inside the migrations (note: "migration", not "migrations").
+    "server/db/migration-steps.ts", "server/db/migrations-embedded.ts", "server/db/message-tree.ts", "server/db/activity-log.ts",
+    // What reads a login or cookies, and the usage that bills.
+    "server/browser-site-data.ts", "server/browser-login-state.ts", "server/usage/pricing.ts",
     // A folder nobody listed, and the product text outside the server.
     "newdir/anything.ts", "README.md", "CHANGELOG.md", "client/src/App.tsx", "shared/board.ts", "server.ts",
   ])("%s is not landed alone", (f) => {
@@ -140,9 +152,9 @@ describe("needsAPerson: a white list, what is not on it stays with a person", ()
   });
 
   test.each([
-    "server/services/task-intake.ts", "server/lib/git-numstat.ts", "scripts/check-emdash.ts", "docs/board-protocol.md",
+    "server/services/task-intake.ts", "server/lib/git-numstat.ts", "server/utils/path-env.ts", "docs/board-protocol.md", "openspec/changes/x/proposal.md",
     // Tests are allowed even beside what they test.
-    "server/push-triggers.test.ts", "server/services/board-actions.test.ts", "tests/unit/x.test.ts",
+    "server/push-triggers.test.ts", "server/services/board-actions.test.ts", "tests/unit/x.test.ts", "scripts/check-eol.test.ts",
   ])("%s lands alone", (f) => {
     expect(needsAPerson([f])).toEqual([]);
   });
@@ -154,14 +166,17 @@ describe("needsAPerson: a white list, what is not on it stays with a person", ()
 
 describe("createAutoLander", () => {
   const base = () => {
-    const state = { card: card(), lands: 0, notes: 0, files: ["scripts/check-x.ts"] as string[] | null, cardLive: false, turns: 0 };
+    const state = {
+      card: card(), lands: 0, notes: 0, files: ["server/lib/git-numstat.ts"] as string[] | null, cardLive: false, turns: 0, fileReads: 0,
+      precheck: null as null | (() => Promise<string | null>),
+    };
     const lander = createAutoLander({
       read: () => ({ task: state.card, comments: [] }),
       board: () => BOARD,
-      land: () => { state.lands += 1; },
+      land: (_p, _t, precheck) => { state.lands += 1; state.precheck = precheck; },
       note: () => { state.notes += 1; },
-      files: async () => state.files,
-      liveTurns: () => state.turns,
+      files: async () => { state.fileReads += 1; return state.files; },
+      liveTurns: async () => state.turns,
       cardTurnLive: () => state.cardLive,
       pollMs: 5,
     });
@@ -226,5 +241,48 @@ describe("createAutoLander", () => {
     state.cardLive = false;
     await Bun.sleep(30);
     expect(state.lands).toBe(0);
+  });
+
+  test("the paths are read again at every beat: a newer commit with other files stops the waiting land", async () => {
+    const { state, lander } = base();
+    state.cardLive = true;
+    expect(await lander.tryLand("p1", "t1")).toBe("waiting");
+    // While it waits the card moves to a new delivery with a green bar, and the new commit touches what a person must read.
+    state.files = ["server/routes/auth.ts", "PRIVACY.md"];
+    state.card = card({ deliveryCommit: "bbbbbbb2xxxx", checksCommit: "bbbbbbb2" });
+    state.cardLive = false;
+    await Bun.sleep(40);
+    expect(state.lands).toBe(0);
+    expect(state.fileReads).toBeGreaterThan(1);
+  });
+
+  test("a server diff waits on an async turn count too", async () => {
+    const { state, lander } = base();
+    state.files = ["server/lib/git-numstat.ts"];
+    state.turns = 1;
+    expect(await lander.tryLand("p1", "t1")).toBe("waiting");
+    await Bun.sleep(30);
+    expect(state.lands).toBe(0);
+    state.turns = 0;
+    await Bun.sleep(30);
+    expect(state.lands).toBe(1);
+  });
+
+  test("the land carries a recheck that runs when its turn in the queue comes: card, files, everything again", async () => {
+    const { state, lander } = base();
+    expect(await lander.tryLand("p1", "t1")).toBe("queued");
+    const recheck = state.precheck!;
+    expect(await recheck()).toBeNull();
+    // Between the ask and the merge (a queue behind other lands) the world moved.
+    state.files = ["LICENSE"];
+    expect(await recheck()).toContain("LICENSE");
+    state.files = ["server/lib/git-numstat.ts"];
+    state.card = card({ archived: true });
+    expect(await recheck()).not.toBeNull();
+    state.card = card({ humanAsk: "guarda" });
+    expect(await recheck()).not.toBeNull();
+    state.files = null;
+    state.card = card();
+    expect(await recheck()).not.toBeNull();
   });
 });

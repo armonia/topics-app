@@ -1357,6 +1357,22 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
               "non pubblico un ramo che potrebbe portare lavoro di un'altra sessione",
           };
         }
+        // With no other local branch there is nothing to subtract and the gate
+        // below is skipped, but the own-commit count still leaves out the pruning
+        // residue commit while the merge carries it. The automatic land publishes
+        // the measured tree only, so it compares the two counts either way.
+        if (others.length === 0 && delivery?.noRealign) {
+          const mine = await countOwnCommits(repoPath, branch, { mainRef: base, runGit, others });
+          const total = Number(ahead.stdout.trim());
+          if (mine === null || !Number.isFinite(total) || total !== mine) {
+            return {
+              status: "skipped", code: "not-as-measured",
+              reason:
+                `'${branch}' porta commit che non risultano suoi (${mine === null ? "conteggio non leggibile" : `${total - mine} su ${total}`}, ad esempio un residuo di potatura): ` +
+                "l'albero che atterrerebbe non è quello misurato. Guardalo e premi «Landa su main»",
+            };
+          }
+        }
         if (others.length > 0) {
           const mine = await countOwnCommits(repoPath, branch, { mainRef: base, runGit, others });
           const total = Number(ahead.stdout.trim());

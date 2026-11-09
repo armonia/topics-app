@@ -31,7 +31,7 @@ interface Knobs {
   deliveryCommit?: string;
   autoMerge?: boolean;
   turns?: () => number;
-  deliveryFiles?: string[] | null;
+  deliveryFiles?: string[] | null | (() => string[] | null);
 }
 
 let sweep: (() => Promise<number>) | null = null;
@@ -58,8 +58,8 @@ describe("a delivery that needs no one lands itself", () => {
       taskCheckoutRef: async () => ({ cwd, commit: k.checksCommit ?? "abc1234" }),
       realignForChecks: async () => ({ ok: true, note: null }),
       taskDeliveryRef: async () => ({ branch: "topics/auto", commit: k.deliveryCommit ?? "abc1234", repoPath: "/repo" }),
-      ownCommitFiles: async () => k.files ?? [{ path: "scripts/check-tidy.ts", added: true }],
-      deliveryFiles: async () => (k.deliveryFiles === undefined ? ["scripts/check-tidy.ts"] : k.deliveryFiles),
+      ownCommitFiles: async () => k.files ?? [{ path: "server/lib/git-numstat.ts", added: true }],
+      deliveryFiles: async () => (typeof k.deliveryFiles === "function" ? k.deliveryFiles() : k.deliveryFiles === undefined ? ["server/lib/git-numstat.ts"] : k.deliveryFiles),
       liveTurnCount: k.turns,
       autoLandPollMs: 5,
       onAutoLand: (api: { sweepAutoLand: () => Promise<number> }) => { sweep = api.sweepAutoLand; },
@@ -186,6 +186,17 @@ describe("a delivery that needs no one lands itself", () => {
     const d = await deliver({ deliveryFiles: ["server/push-triggers.ts"] });
     expect(merges).toEqual([]);
     expect(d.read().task.status).toBe("review");
+  }, 30_000);
+
+  test("the files are read again when the land's turn in the queue comes: a change in between stops the merge", async () => {
+    // Read 1: the ask. Read 2: the recheck the queue runs just before the merge, after the world moved.
+    let reads = 0;
+    const d = await deliver({ deliveryFiles: () => (++reads >= 2 ? ["server/routes/auth.ts", "PRIVACY.md"] : ["server/lib/git-numstat.ts"]) });
+    expect(reads).toBeGreaterThanOrEqual(2);
+    expect(merges).toEqual([]);
+    const after = d.read();
+    expect(after.task.status).toBe("review");
+    expect(after.comments.some((c) => c.content.includes("si è fermato"))).toBe(true);
   }, 30_000);
 
   test("a land the queue refused is not asked again at every sweep", async () => {
