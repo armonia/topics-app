@@ -237,3 +237,12 @@ The native provider's `bash` tool SHALL spawn its command with the agent environ
 - **GIVEN** a server launched with `GATEWAY_TOKEN` and `TOPICS_LICENSE_TOKEN` set
 - **WHEN** a native agent runs a command that prints them
 - **THEN** the command sees neither, and still sees `HOME`.
+
+### Requirement: MP-NATENV-02 — On Windows the agent's environment keeps the CLIs' config folders
+
+The agent environment SHALL carry the Windows system and profile variables (`APPDATA`, `LOCALAPPDATA`, `USERPROFILE`, `SystemRoot`, `TEMP` and the like), so a CLI logged in on the machine (`gh`) finds its login. The secret blocklist SHALL still apply.
+
+#### Scenario: gh on the PC node
+- **GIVEN** a Windows environment with `APPDATA` and a `GH_TOKEN`
+- **WHEN** the agent environment is built from it
+- **THEN** `APPDATA` passes and `GH_TOKEN` does not.
