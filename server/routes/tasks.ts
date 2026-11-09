@@ -43,6 +43,7 @@ import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import { confirmCardOrigin } from "../services/card-origin-notice";
 import { logActivity } from "../db/activity-log";
+import { listPickerProjects, loadRegisteredProjects } from "../services/project-display-name";
 
 /**
  * The global cap as the client reads it, in ONE place for the GET, the PATCH
@@ -3680,17 +3681,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         ? newProjectParentDir(knownDirs(), { workspaceDir: opts.workspaceDir, homeDir: homedir() })
         : null);
       if (method === "GET") {
-        const seen = new Set<string>();
-        const projects: Array<{ projectId: string; name: string; path: string }> = [];
-        for (const raw of knownDirs()) {
-          if (typeof raw !== "string" || !raw.startsWith("/")) continue;
-          const path = raw.replace(/\/+$/, "");
-          if (!path || seen.has(path)) continue;
-          seen.add(path);
-          projects.push({ projectId: projectIdForPath(path), name: basename(path), path });
-        }
-        projects.sort((a, b) => a.name.localeCompare(b.name));
-        return json({ projects, newProjectDir: newDir() });
+        const { projects, labelOnly } = listPickerProjects(loadRegisteredProjects(db), knownDirs());
+        return json({ projects, labelOnly, newProjectDir: newDir() });
       }
       if (method === "POST") {
         if (!opts?.workspaceDir) return json({ error: "workspace not configured", code: "invalid_input" }, 500);

@@ -51,3 +51,43 @@ export const COLUMNS_ROW_GRID = 'flex h-full min-w-0 gap-2 overflow-x-auto px-2 
 
 /** The columns stack in the list view. */
 export const COLUMNS_ROW_LIST = 'scroll-under-chrome flex h-full min-w-0 flex-col gap-2 overflow-y-auto px-2 pt-3 pb-36 scrollbar-standard sm:px-3';
+
+/** Where the board's grouping preference is kept: one flat board, or one lane per project. */
+export const BOARD_GROUP_BY_STORAGE_KEY = 'topics.board.groupBy';
+/** Where the card density preference is kept: the full card, or the compact one. */
+export const BOARD_DENSITY_STORAGE_KEY = 'topics.board.density';
+/** The projects whose lane (and Plan tile) the reader folded, as a JSON array of project ids. */
+export const BOARD_COLLAPSED_PROJECTS_STORAGE_KEY = 'topics.board.collapsedProjects';
+
+export type BoardGroupBy = 'none' | 'project';
+export type BoardDensity = 'full' | 'compact';
+
+/** The stored grouping, defaulting to the flat board. */
+export function readBoardGroupBy(): BoardGroupBy {
+  try { return localStorage.getItem(BOARD_GROUP_BY_STORAGE_KEY) === 'project' ? 'project' : 'none'; }
+  catch { return 'none'; }
+}
+
+/** The stored density, defaulting to the full card. */
+export function readBoardDensity(): BoardDensity {
+  try { return localStorage.getItem(BOARD_DENSITY_STORAGE_KEY) === 'compact' ? 'compact' : 'full'; }
+  catch { return 'full'; }
+}
+
+/** Saves one view preference; private mode or a full quota only loses the memory, never the view. */
+export function writeBoardPreference(key: string, value: string): void {
+  try { localStorage.setItem(key, value); } catch { /* best effort */ }
+}
+
+/** The folded projects. Anything that is not an array of strings reads as «none folded». */
+export function readCollapsedProjects(): Set<string> {
+  try {
+    const raw = localStorage.getItem(BOARD_COLLAPSED_PROJECTS_STORAGE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : []);
+  } catch { return new Set(); }
+}
+
+export function writeCollapsedProjects(ids: ReadonlySet<string>): void {
+  writeBoardPreference(BOARD_COLLAPSED_PROJECTS_STORAGE_KEY, JSON.stringify([...ids].sort()));
+}

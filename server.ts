@@ -1012,7 +1012,8 @@ const mcpRouter = createMcpRouter(ctx);
 const sessionEnvironmentRouter = createSessionEnvironmentRouter(ctx);
 const checkpointsRouter = createCheckpointsRouter(ctx);
 const goalsRouter = createGoalsRouter(ctx);
-const planRouter = createPlanRouter(ctx);
+// The same list the board index uses, so the Plan names projects the way the Kanban does.
+const planRouter = createPlanRouter(ctx, { listProjectDirs: () => listSelectableProjectDirs() });
 // Always-on: serves /api/topics/:id/context-preview and /context-snapshots.
 // Independent of which provider is the default — every provider benefits
 // from the canonical envelope inspector (change `topic-context-canonical`).
@@ -1583,6 +1584,20 @@ function dispatchExtraPaths(): string[] {
     }
   } catch { /* best-effort source */ }
   return paths;
+}
+
+/**
+ * The dirs that are actually SELECTABLE boards: the dispatcher's union minus
+ * internal catch-all plumbing, the home dir, config dot-dirs and vanished paths.
+ */
+function listSelectableProjectDirs(): string[] {
+  return buildProjectCandidates({
+    projectStore: ctx.projectStore,
+    workspaceDir: DISPATCH_WORKSPACE_DIR,
+    extraPaths: dispatchExtraPaths,
+  })
+    .map((c) => c.path)
+    .filter((p) => isSelectableProjectDir(p, { workspaceDir: DISPATCH_WORKSPACE_DIR, homeDir: homedir() }));
 }
 
 // Incremental, dedup-by-message-id usage accounting over Claude Code
@@ -3050,14 +3065,7 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // `generale` dir, the per-task `tasks/<id8>` cwds), the home dir, config
   // dot-dirs and vanished paths are dropped so the picker/sidebar stay clean;
   // the resolver above keeps the FULL union so those hashes still invert.
-  listProjectDirs: () =>
-    buildProjectCandidates({
-      projectStore: ctx.projectStore,
-      workspaceDir: DISPATCH_WORKSPACE_DIR,
-      extraPaths: dispatchExtraPaths,
-    })
-      .map((c) => c.path)
-      .filter((p) => isSelectableProjectDir(p, { workspaceDir: DISPATCH_WORKSPACE_DIR, homeDir: homedir() })),
+  listProjectDirs: listSelectableProjectDirs,
   listRepoRoots: listKnownDeliveryRepoRoots,
 });
 // Auto-register servers Claude starts inside its PTY sessions (bare `bun run dev`
