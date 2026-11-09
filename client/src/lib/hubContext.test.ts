@@ -7,7 +7,8 @@
  * @covers HUBBR-17
  */
 import { describe, expect, test } from 'bun:test';
-import { CHECK_STALE_MS, checkStart, contextCheck, contextView, doctorVerdict, fileAgeDays, fileGroups, harnessWeights, plainRule, shortTokens, unlistedRef } from './hubContext';
+import { CHECK_STALE_MS, checkStart, contextCheck, contextView, doctorVerdict, fileAgeDays, fileGroups, harnessWeights, plainRule, unlistedRef } from './hubContext';
+import { shortTokens } from './formatTokens';
 import { LEGACY_DATA_DIR_NAME } from '../../../shared/legacy-data-dir';
 
 const OLD_HOME = LEGACY_DATA_DIR_NAME;

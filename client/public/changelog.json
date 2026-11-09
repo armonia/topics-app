@@ -1,5 +1,36 @@
 [
   {
+    "version": "2.3.66",
+    "date": "2026-11-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "L'atterraggio automatico rilegge tutto prima del merge e non lascia passare file di guardia, spesa o giudizio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il land automatico giudica uno sha solo, rifà il verdetto prima del merge e lascia a una persona tutto ciò che protegge, costa, giudica o cancella",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il land automatico lascia da solo solo testo e test, manda il codice del server alla revisione AI e rilegge la card dentro il merge",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Land automatico: via il livello revisione AI, server/** va a una persona",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.65",
     "date": "2026-11-09",
     "sections": {
@@ -14,7 +45,22 @@
           "breaking": false
         },
         {
+          "it": "La card invisibile con la barra verde atterra da sola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Toglie un import inutilizzato dal test della porta del nodo",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "CI di main rossa dopo i land della sera: un test senza requisito e due spec che dipendono dal tempo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'atterraggio automatico guarda il main che atterra, i percorsi ammessi e l'archivio",
           "en": "",
           "scope": null
         }
