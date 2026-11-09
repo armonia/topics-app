@@ -57,10 +57,10 @@ describe.skipIf(process.platform === "win32")("pty-bridge · group kill on exit"
     cleanups.push(() => client.destroy());
     await new Promise<void>((resolve) => client.once("connect", () => resolve()));
     let exited = false;
-    let buf = "";
+    let received = "";
     client.on("data", (d) => {
-      buf += d.toString();
-      if (buf.includes('"type":"exit"')) exited = true;
+      received += d.toString();
+      if (received.includes('"type":"exit"')) exited = true;
     });
     const script = `sleep 300 </dev/null >/dev/null 2>&1 & echo $! > ${pidFile}`;
     client.write(JSON.stringify({ type: "create", id: "group-kill", shell: "/bin/sh", args: ["-c", script], cwd: dir }) + "\n");
