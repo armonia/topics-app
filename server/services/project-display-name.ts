@@ -92,3 +92,38 @@ export function buildProjectNames(
   }
   return out;
 }
+
+export interface PickerProject { projectId: string; name: string; path: string }
+
+/**
+ * The projects the picker offers, named by the rule above and sorted by name,
+ * plus `labelOnly`: projects that are registered but not selectable (a hidden
+ * folder, a project the picker skips). Cards still point at those, so the
+ * grouped board must head their lane with the same name the Plan gives.
+ */
+export function listPickerProjects(
+  registered: readonly RegisteredProjectRow[],
+  dirs: readonly unknown[],
+): { projects: PickerProject[]; labelOnly: PickerProject[] } {
+  const paths = dirs.filter((d): d is string => typeof d === "string");
+  const displayNames = buildProjectNames(registered, paths);
+  const seen = new Set<string>();
+  const projects: PickerProject[] = [];
+  for (const raw of paths) {
+    if (!raw.startsWith("/")) continue;
+    const path = raw.replace(/\/+$/, "");
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    const projectId = projectIdForPath(path);
+    projects.push({ projectId, name: displayNames.get(projectId)?.name ?? basename(path), path });
+  }
+  projects.sort((a, b) => a.name.localeCompare(b.name));
+  const listed = new Set(projects.map((p) => p.projectId));
+  const labelOnly: PickerProject[] = [];
+  for (const entry of displayNames.values()) {
+    if (listed.has(entry.projectId)) continue;
+    listed.add(entry.projectId);
+    labelOnly.push({ projectId: entry.projectId, name: entry.name, path: entry.path ?? "" });
+  }
+  return { projects, labelOnly };
+}

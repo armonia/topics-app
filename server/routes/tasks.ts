@@ -43,7 +43,7 @@ import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import { confirmCardOrigin } from "../services/card-origin-notice";
 import { logActivity } from "../db/activity-log";
-import { buildProjectNames, loadRegisteredProjects } from "../services/project-display-name";
+import { listPickerProjects, loadRegisteredProjects } from "../services/project-display-name";
 
 /**
  * The global cap as the client reads it, in ONE place for the GET, the PATCH
@@ -3681,32 +3681,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         ? newProjectParentDir(knownDirs(), { workspaceDir: opts.workspaceDir, homeDir: homedir() })
         : null);
       if (method === "GET") {
-        const seen = new Set<string>();
-        const projects: Array<{ projectId: string; name: string; path: string }> = [];
-        const dirs = knownDirs();
-        // The name shown comes from the same rule the Plan uses (registered name,
-        // else folder; duplicates told apart by id): one heading, one order.
-        const displayNames = buildProjectNames(loadRegisteredProjects(db), dirs);
-        for (const raw of dirs) {
-          if (typeof raw !== "string" || !raw.startsWith("/")) continue;
-          const path = raw.replace(/\/+$/, "");
-          if (!path || seen.has(path)) continue;
-          seen.add(path);
-          const projectId = projectIdForPath(path);
-          projects.push({ projectId, name: displayNames.get(projectId)?.name ?? basename(path), path });
-        }
-        projects.sort((a, b) => a.name.localeCompare(b.name));
-        // Projects that are registered but not selectable (a hidden folder, a
-        // project the picker skips): they are not offered as a choice, yet cards
-        // still point at them and the grouped board must head their lane with the
-        // same name the Plan gives. `labelOnly` carries just that: name and path.
-        const listed = new Set(projects.map((p) => p.projectId));
-        const labelOnly: Array<{ projectId: string; name: string; path: string }> = [];
-        for (const entry of displayNames.values()) {
-          if (listed.has(entry.projectId)) continue;
-          listed.add(entry.projectId);
-          labelOnly.push({ projectId: entry.projectId, name: entry.name, path: entry.path ?? "" });
-        }
+        const { projects, labelOnly } = listPickerProjects(loadRegisteredProjects(db), knownDirs());
         return json({ projects, labelOnly, newProjectDir: newDir() });
       }
       if (method === "POST") {
