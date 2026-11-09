@@ -306,8 +306,8 @@ test.describe("the load screen of the PC", () => {
       const rowA = sessions.filter({ hasText: "Rifare la sincronizzazione del calendario" });
       const rowB = sessions.filter({ hasText: "Migrare le notifiche push" });
       // Title, project and the model by its name (not its id), never a bare id.
-      await expect(rowA.getByTestId("session-detail")).toHaveText("acme-web · Opus 5");
-      await expect(rowB.getByTestId("session-detail")).toHaveText("studio-x · Sonnet 5");
+      await expect(rowA.getByTestId("session-detail")).toHaveText("acme-web · Opus 5 · Mac");
+      await expect(rowB.getByTestId("session-detail")).toHaveText("studio-x · Sonnet 5 · Mac");
       // The tokens of the session: the total (input + output + cache written) with the split under it.
       await expect(rowA.getByTestId("session-tokens-value")).toHaveText(/^\d+(\.\d)?k$/);
       await expect(rowA.getByTestId("session-tokens")).toContainText("↓38.0k ↑");
@@ -317,6 +317,12 @@ test.describe("the load screen of the PC", () => {
       await expect(rowA.getByTestId("session-memory")).toContainText("1/");
       // The sent work is billed to the session of its project, as «from the Mac».
       await expect(rowB.getByTestId("session-remote")).toContainText("Su PC · i test nel browser");
+      // ... whole, and since when: the card of the PC sent nothing, so it takes no share, and the job started minutes ago.
+      await expect(rowB.getByTestId("session-remote")).not.toContainText("1/2");
+      await expect(rowB.getByTestId("session-remote")).toContainText("in corso da");
+      await expect(rowA.getByTestId("session-remote")).toHaveCount(0);
+      // A session of the Mac says its CPU is the Mac's, not the PC's under whose header it sits.
+      await expect(rowA.getByTestId("session-cpu")).toContainText("del Mac");
       // A card on the PC is listed, with nothing measured here and its machine named.
       const onPc = sessions.filter({ hasText: "Card che gira sul PC" });
       await expect(onPc.getByTestId("session-memory-value")).toHaveText("-");
@@ -345,6 +351,12 @@ test.describe("the load screen of the PC", () => {
       const shot2 = testInfo.outputPath("vero-schermo-sessioni.png");
       await page.screenshot({ path: shot2 });
       keep(shot2, "sessioni-schermo.png");
+      // The job ends: the next reading of the sessions empties the session's line AND does not list the job again as
+      // sent work (the page's slower read still holds it for a while; it must not outvote the fresh one).
+      node!.working = false;
+      hub!.answersOverride = { machines: machines(false, Date.now()) };
+      await expect(rowB.getByTestId("session-remote")).toHaveCount(0, { timeout: 30_000 });
+      await expect(page.getByTestId("load-screen-sent")).toHaveCount(0);
     } finally {
       stopFeeding();
     }

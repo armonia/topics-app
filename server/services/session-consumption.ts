@@ -247,6 +247,7 @@ export function createSessionConsumption(deps: ConsumptionDeps): SessionConsumpt
       if (measured) for (const sh of load.shares) cpu = sh.cpu === null ? cpu : (cpu ?? 0) + sh.cpu;
       const tokens = tokensOf.get(c.key) ?? null;
       const tps = tokens?.output != null ? tracker.rate(c.key, now) : null;
+      const turnStart = c.topicKey && deps.turnStartedAt ? deps.turnStartedAt(c.topicKey) : null;
       const title = c.task ? c.task.text : topic?.name ?? c.terminalName ?? c.key;
       return {
         key: c.key,
@@ -255,7 +256,7 @@ export function createSessionConsumption(deps: ConsumptionDeps): SessionConsumpt
         project: projectOf.get(c.key) ?? null,
         model: c.task?.model ?? topic?.model ?? null,
         state: c.task?.awaitingAnswer ? "waiting" as const : "working" as const,
-        startedAt: c.startedAt ?? (c.topicKey ? deps.turnStartedAt?.(c.topicKey) ?? null : null) ?? tracker.firstSeen(c.key),
+        startedAt: c.startedAt ?? turnStart ?? tracker.firstSeen(c.key),
         cardId: c.task?.id ?? null,
         machine,
         tokens,
