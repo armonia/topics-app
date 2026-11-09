@@ -1271,6 +1271,7 @@ const IT: Dict = {
   'settings.machines.pair.title': 'Nodi',
   'settings.machines.pair.blurb': 'Una seconda macchina che può eseguire le card di questa board. Il codice si approva davanti a lei.',
   'settings.machines.pair.add': 'Aggiungi nodo',
+  'settings.machines.slots.label': 'Card insieme',
   'settings.machines.pair.address': 'Indirizzo del nodo',
   'settings.machines.pair.addressPlaceholder': 'https://nodo.local:3333',
   'settings.machines.pair.start': 'Chiedi l’accesso',
