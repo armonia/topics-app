@@ -375,6 +375,17 @@ ad Anthropic com'è, e ogni altro host SHALL passare in tunnel di byte senza ess
 aperto. Le risposte, SSE comprese, SHALL arrivare a pezzi, nell'ordine in cui il
 motore le scrive.
 
+Un CONNECT verso questa macchina o verso reti locali SHALL essere rifiutato con 403
+e non SHALL aprire alcuna connessione: loopback (127.0.0.0/8, ::1, `localhost` e
+`*.localhost`; la porta principale di Topics si fida del loopback), indirizzi
+privati (10/8, 172.16/12, 192.168/16, fc00::/7), link-local (169.254/16, fe80::/10)
+e `0.0.0.0`, anche nella forma IPv4-mappata. Un nome SHALL essere controllato su
+ciò che RISOLVE, e la connessione SHALL aprirsi proprio su quella risposta.
+
+Una richiesta di upgrade WebSocket verso api.anthropic.com SHALL ricevere il 101
+solo se la stretta di mano con Anthropic è riuscita (altrimenti 502), e i messaggi,
+testo e binari, SHALL passare nei due sensi con i codici di chiusura.
+
 FAIL-OPEN: se il motore rifiuta la connessione, la chiude prima di rispondere, o
 non dà intestazioni entro la soglia E ANCHE il suo `/health` tace, la richiesta
 SHALL andare ad Anthropic con le intestazioni originali. Una risposta lenta con
@@ -392,6 +403,14 @@ La CA SHALL stare nella cartella di Topics (`~/.topics`, mai nel checkout; 0700,
 #### Scenario: il motore è lento ma vivo
 - **GIVEN** una risposta che tarda e un `/health` che risponde
 - **THEN** SHALL essere attesa, senza un secondo invio
+
+#### Scenario: un CONNECT verso il loopback
+- **GIVEN** un CONNECT verso `127.0.0.1`, `localhost` o un indirizzo privato
+- **THEN** SHALL rispondere 403 e non aprire niente
+
+#### Scenario: un upgrade WebSocket
+- **GIVEN** una richiesta di upgrade verso api.anthropic.com
+- **THEN** SHALL passare il 101 di Anthropic, con il sottoprotocollo scelto da lei, e i messaggi nei due sensi
 
 ### Requirement: TITLE-02 — Anche l'altro agente deriva il titolo dal messaggio VERO
 

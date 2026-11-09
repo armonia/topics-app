@@ -11,7 +11,10 @@
  * WHAT IT DOES. A dedicated listener on 127.0.0.1 (like `model-proxy.ts`: never
  * the main port, and it exists only when `TOPICS_EXTERNAL_PROXY_PORT` is set).
  *
- *   CONNECT other-host:port       -> byte tunnel, never opened
+ *   CONNECT other-host:port       -> byte tunnel, never opened. NOT toward this machine: loopback
+ *                                    (the main port trusts it), private and link-local targets get a
+ *                                    403, checked on the literal address AND on what the name resolves
+ *                                    to (the connection is made to that answer, so no rebinding window)
  *   CONNECT api.anthropic.com:443 -> byte tunnel into an INTERNAL loopback TLS
  *                                    server that terminates it with the local CA
  *                                    (`external-proxy-ca.ts`), then per request:
@@ -19,10 +22,16 @@
  *                                    accounts, same address the native engine uses)
  *       anything else             -> https://api.anthropic.com as it is (OAuth,
  *                                    profile, telemetry), headers untouched
+ *       WebSocket upgrade         -> relayed message by message to wss://api.anthropic.com: the
+ *                                    upstream handshake is made first, the client gets its 101 only
+ *                                    if that one worked (otherwise a 502), headers and subprotocol
+ *                                    are carried across
  *
  * The inner TLS endpoint is a native Bun listener, deliberately. The node:http server of Bun
  * is not built over sockets, so a decrypted stream cannot be handed to it. The native one
- * already provides HTTP parsing, TLS and streamed responses (SSE).
+ * already provides HTTP parsing, TLS, streamed responses (SSE) and WebSocket upgrades. For the
+ * same reason an upgrade cannot become a byte tunnel after the TLS is terminated: it is relayed
+ * at the message level instead.
  *
  * FAIL-OPEN. When the engine is down the app must keep working, without caps:
  * the request goes to Anthropic with the original headers (the app's own token).
@@ -41,9 +50,11 @@
  * LOGS. Event, method, path WITHOUT query and with UUIDs masked, status, ms.
  * Never bodies, headers or tokens.
  */
+import dns from "node:dns";
 import net from "node:net";
 import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { Server, ServerWebSocket } from "bun";
 import { anthropicMessagesUrl } from "../providers/native/base-url";
 import { externalProxyCaDir, ensureExternalProxyLeaf, INTERCEPTED_HOST } from "./external-proxy-ca";
 import { HOP_BY_HOP } from "./model-proxy";
@@ -63,6 +74,55 @@ const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
 const HEAD_LIMIT_BYTES = 16 * 1024;
 const HEAD_TIMEOUT_MS = 10_000;
 const CONNECT_TIMEOUT_MS = 15_000;
+const WS_OPEN_TIMEOUT_MS = 15_000;
+
+/**
+ * Where a CONNECT may NOT lead: this machine and its local networks. The main port of
+ * Topics trusts the loopback, so a tunnel opened by this process toward 127.0.0.1 would
+ * carry whatever a caller wants straight into it; the private ranges are the same trap one
+ * hop further. IPv4-mapped IPv6 forms (`::ffff:127.0.0.1`) are matched by the list itself.
+ */
+const LOCAL_TARGETS = new net.BlockList();
+for (const [network, bits] of [
+  ["0.0.0.0", 8], ["10.0.0.0", 8], ["127.0.0.0", 8], ["169.254.0.0", 16], ["172.16.0.0", 12], ["192.168.0.0", 16],
+] as const) LOCAL_TARGETS.addSubnet(network, bits, "ipv4");
+LOCAL_TARGETS.addAddress("::", "ipv6");
+LOCAL_TARGETS.addAddress("::1", "ipv6");
+LOCAL_TARGETS.addSubnet("fc00::", 7, "ipv6"); // unique local
+LOCAL_TARGETS.addSubnet("fe80::", 10, "ipv6"); // link-local
+
+/** True for an IP literal that points at this machine or a private/link-local network. */
+export function isLocalOrPrivateAddress(address: string): boolean {
+  const bare = address.split("%")[0]!; // an IPv6 zone id (`fe80::1%en0`) is not part of the address
+  const family = net.isIP(bare);
+  return family !== 0 && LOCAL_TARGETS.check(bare, family === 4 ? "ipv4" : "ipv6");
+}
+
+/** `localhost`, `foo.localhost`, with or without the root dot: loopback by definition, no lookup needed. */
+function isLocalName(host: string): boolean {
+  const name = host.replace(/\.$/, "");
+  return name === "localhost" || name.endsWith(".localhost");
+}
+
+/** `error.code` of a refused target, as the connect error reports it. */
+const BLOCKED_TARGET = "ETOPICSBLOCKED";
+
+/**
+ * The lookup the tunnel connects through: it refuses a name when ANY of its addresses is local
+ * or private, and the socket is then opened on the very answer that was checked. Checking the
+ * name and letting the socket resolve it again would leave a window for a rebinding trick.
+ */
+export const guardedLookup: net.LookupFunction = (hostname, options, callback) => {
+  dns.lookup(hostname, { ...options, all: true }, (error, addresses) => {
+    if (error) return callback(error, []);
+    if (addresses.some((a) => isLocalOrPrivateAddress(a.address))) {
+      return callback(Object.assign(new Error("target is local or private"), { code: BLOCKED_TARGET }), []);
+    }
+    if (options.all) return callback(null, addresses);
+    const first = addresses[0]!;
+    return callback(null, first.address, first.family);
+  });
+};
 
 /** `TOPICS_EXTERNAL_PROXY_PORT`, or `null` (listener off). */
 export function externalProxyPort(env: Record<string, string | undefined>): number | null {
@@ -79,6 +139,10 @@ export interface ExternalProxyStats {
   viaEngine: number;
   failOpen: number;
   direct: number;
+  /** WebSocket upgrades relayed to Anthropic. */
+  websocket: number;
+  /** CONNECTs refused because the target is this machine or a private network. */
+  refused: number;
 }
 
 export interface ExternalProxyOptions {
@@ -95,6 +159,11 @@ export interface ExternalProxyOptions {
   healthMs?: number;
   maxBodyBytes?: number;
   fetch?: typeof fetch;
+  /**
+   * Lets CONNECT reach loopback and private addresses. Off, always, in production: tests turn it on
+   * because their fake servers live on 127.0.0.1.
+   */
+  allowLocalTargets?: boolean;
   log?: (event: string, fields?: Record<string, string | number>) => void;
 }
 
@@ -161,8 +230,9 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
   const messagesUrl = options.messagesUrl ?? anthropicMessagesUrl;
   const upstreamBase = (options.upstreamBase ?? `https://${INTERCEPTED_HOST}`).replace(/\/+$/, "");
   const doFetch = options.fetch ?? fetch;
+  const allowLocalTargets = options.allowLocalTargets ?? false;
   const log = options.log ?? (() => {});
-  const stats: ExternalProxyStats = { connect: 0, tunnel: 0, intercepted: 0, viaEngine: 0, failOpen: 0, direct: 0 };
+  const stats: ExternalProxyStats = { connect: 0, tunnel: 0, intercepted: 0, viaEngine: 0, failOpen: 0, direct: 0, websocket: 0, refused: 0 };
   const sockets = new Set<net.Socket>();
   const track = (s: net.Socket) => {
     sockets.add(s);
@@ -258,16 +328,119 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
     }
   }
 
+  // -- WebSocket upgrades ----------------------------------------------------------------------------------
+
+  /** One relayed connection: the upstream socket, what it said before the client side was open, and how it ended. */
+  interface RelayData {
+    upstream: WebSocket;
+    backlog: Array<string | ArrayBuffer>;
+    ended: { code: number; reason: string } | null;
+    client: ServerWebSocket<RelayData> | null;
+    started: number;
+    path: string;
+  }
+
+  /** Close codes that may be put on the wire by a server (1005/1006/1015 only ever describe a missing one). */
+  function sendableCode(code: number): number {
+    return (code >= 1000 && code <= 1014 && code !== 1004 && code !== 1005 && code !== 1006) || (code >= 3000 && code <= 4999) ? code : 1000;
+  }
+
+  function endClient(data: RelayData): void {
+    if (!data.client || !data.ended) return;
+    try {
+      data.client.close(sendableCode(data.ended.code), data.ended.reason);
+    } catch { /* already closed */ }
+  }
+
+  /** The handshake with Anthropic. Resolves once it is open; from then on its messages are queued until the client side is. */
+  function openRelay(url: string, protocols: string[], headers: Headers, signal: AbortSignal, path: string): Promise<RelayData> {
+    return new Promise((resolve, reject) => {
+      // `headers` is a Bun extension of the constructor options, missing from the DOM typings
+      const upstream = new WebSocket(url, { protocols, headers: Object.fromEntries(headers) } as unknown as string[]);
+      upstream.binaryType = "arraybuffer";
+      const data: RelayData = { upstream, backlog: [], ended: null, client: null, started: Date.now(), path };
+      let settled = false;
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        signal.removeEventListener("abort", onAbort);
+        if (!error) return resolve(data);
+        try { upstream.close(); } catch { /* never opened */ }
+        reject(error);
+      };
+      const onAbort = () => finish(new Error("client-left"));
+      const timer = setTimeout(() => finish(Object.assign(new Error("timeout"), { code: "ETIMEDOUT" })), WS_OPEN_TIMEOUT_MS);
+      signal.addEventListener("abort", onAbort, { once: true });
+      upstream.onopen = () => finish();
+      upstream.onerror = () => finish(new Error("handshake-failed"));
+      upstream.onmessage = (event) => {
+        const message = event.data as string | ArrayBuffer;
+        if (data.client) data.client.send(message);
+        else data.backlog.push(message);
+      };
+      upstream.onclose = (event) => {
+        if (!settled) return finish(new Error("closed-before-open"));
+        data.ended = { code: event.code, reason: event.reason };
+        endClient(data);
+      };
+    });
+  }
+
+  async function relayWebSocket(req: Request, server: Server<RelayData>): Promise<Response | undefined> {
+    const url = new URL(req.url);
+    const path = bareUrl(url.pathname);
+    const protocols = (req.headers.get("sec-websocket-protocol") ?? "").split(",").map((p) => p.trim()).filter(Boolean);
+    const headers = cleanRequestHeaders(req.headers); // the handshake of our own socket redoes upgrade/connection/host
+    for (const key of [...headers.keys()]) if (key.startsWith("sec-websocket-")) headers.delete(key);
+    let data: RelayData;
+    try {
+      data = await openRelay(upstreamBase.replace(/^http/, "ws") + url.pathname + url.search, protocols, headers, req.signal, path);
+    } catch (e) {
+      if (req.signal.aborted) return new Response(null, { status: 499 });
+      log("ws-error", { path, code: errorCode(e) });
+      return proxyError(502, `${INTERCEPTED_HOST} unreachable from the Topics proxy`);
+    }
+    // The subprotocol is the one Anthropic chose, not the first one the client offered.
+    const chosen = data.upstream.protocol;
+    if (!server.upgrade(req, { data, headers: chosen ? { "sec-websocket-protocol": chosen } : undefined })) {
+      data.upstream.close();
+      return proxyError(400, "websocket upgrade refused");
+    }
+    stats.websocket++;
+    log("ws", { path, status: 101, ms: Date.now() - data.started });
+    return undefined;
+  }
+
   // The internal TLS server. Only the front listener reaches it (random loopback port).
   const innerServer = options.tls?.key && options.tls?.cert
-    ? Bun.serve({
+    ? Bun.serve<RelayData, never>({
         port: 0,
         hostname: "127.0.0.1",
         tls: { key: options.tls.key, cert: options.tls.cert },
         maxRequestBodySize: maxBodyBytes,
         idleTimeout: 255,
+        websocket: {
+          open(ws) {
+            ws.data.client = ws;
+            for (const message of ws.data.backlog.splice(0)) ws.send(message);
+            endClient(ws.data);
+          },
+          message(ws, message) {
+            if (ws.data.upstream.readyState === WebSocket.OPEN) ws.data.upstream.send(message);
+          },
+          close(ws, code, reason) {
+            ws.data.client = null;
+            log("ws-closed", { path: ws.data.path, ms: Date.now() - ws.data.started });
+            try {
+              // a client may only close with 1000 or 3000-4999; anything else is a close without a status
+              if (ws.data.upstream.readyState <= WebSocket.OPEN) ws.data.upstream.close(code === 1000 || (code >= 3000 && code <= 4999) ? code : undefined, reason);
+            } catch { /* already closed */ }
+          },
+        },
         async fetch(req, server) {
           const url = new URL(req.url);
+          if (req.headers.get("upgrade")?.toLowerCase() === "websocket") return relayWebSocket(req, server);
           if (req.method === "POST" && MESSAGES_PATH_RE.test(url.pathname)) {
             // The engine may hold a request for hours (usage cap waiting): no idle cut.
             server.timeout(req, 0);
@@ -313,6 +486,12 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
     client.on("data", onData);
   }
 
+  function refuse(client: net.Socket, host: string, port: number): void {
+    stats.refused++;
+    log("connect-refused", { host, port });
+    client.end("HTTP/1.1 403 Forbidden\r\ncontent-type: text/plain\r\nconnection: close\r\n\r\nexternal-proxy: this machine and private networks are not tunnelled\n");
+  }
+
   function onConnect(client: net.Socket, authority: string, rest: Buffer): void {
     stats.connect++;
     const parsed = parseAuthority(authority);
@@ -321,10 +500,20 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
       return;
     }
     const intercept = !!innerServer && parsed.host === INTERCEPTED_HOST && parsed.port === 443;
+    // A literal address or a name that is loopback by definition is refused without a lookup; every other
+    // name is checked on what it resolves to (guardedLookup), at the moment the socket connects.
+    if (!intercept && !allowLocalTargets && (isLocalName(parsed.host) || isLocalOrPrivateAddress(parsed.host))) {
+      refuse(client, parsed.host, parsed.port);
+      return;
+    }
     if (intercept) stats.intercepted++;
     else stats.tunnel++;
     // Both cases are a byte tunnel; they differ only in where it ends.
-    const upstream = net.connect(intercept ? { host: "127.0.0.1", port: innerServer!.port! } : { host: parsed.host, port: parsed.port });
+    const upstream = net.connect(
+      intercept
+        ? { host: "127.0.0.1", port: innerServer!.port! }
+        : { host: parsed.host, port: parsed.port, ...(allowLocalTargets ? {} : { lookup: guardedLookup }) },
+    );
     track(upstream);
     upstream.setNoDelay(true);
     client.setNoDelay(true);
@@ -341,8 +530,13 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
       client.pipe(upstream);
     });
     upstream.on("error", (e) => {
-      if (!intercept) log("tunnel-error", { host: parsed.host, port: parsed.port, code: errorCode(e) });
-      if (!established && !client.destroyed) client.end("HTTP/1.1 502 Bad Gateway\r\n\r\n");
+      if ((e as NodeJS.ErrnoException).code === BLOCKED_TARGET) {
+        stats.tunnel--;
+        refuse(client, parsed.host, parsed.port);
+      } else {
+        if (!intercept) log("tunnel-error", { host: parsed.host, port: parsed.port, code: errorCode(e) });
+        if (!established && !client.destroyed) client.end("HTTP/1.1 502 Bad Gateway\r\n\r\n");
+      }
       client.destroy();
     });
     upstream.on("close", () => client.destroy());

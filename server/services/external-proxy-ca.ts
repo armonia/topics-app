@@ -40,6 +40,9 @@ export function externalProxyCaDir(homeDir: string): string {
   return join(homeDir, "external-proxy-ca");
 }
 
+/** A key or certificate takes milliseconds; a hung child must not freeze the server's only event loop. */
+const OPENSSL_TIMEOUT_MS = 15_000;
+
 function findOpenssl(): string {
   for (const p of ["/opt/homebrew/bin/openssl", "/usr/bin/openssl", "/usr/local/bin/openssl"]) {
     if (existsSync(p)) return p;
@@ -49,7 +52,7 @@ function findOpenssl(): string {
 
 function runOpenssl(args: string[], cwd: string): void {
   try {
-    execFileSync(findOpenssl(), args, { cwd, stdio: ["ignore", "ignore", "pipe"] });
+    execFileSync(findOpenssl(), args, { cwd, stdio: ["ignore", "ignore", "pipe"], timeout: OPENSSL_TIMEOUT_MS });
   } catch (e) {
     const stderr = (e as { stderr?: Buffer }).stderr;
     const detail = String(stderr ?? (e as Error).message).trim().split("\n").slice(-2).join(" ");
