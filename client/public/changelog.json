@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.3.72",
+    "date": "2026-11-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "the PC and the Hetzner server, read from the hub (#663)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.71",
     "date": "2026-11-09",
     "sections": {
