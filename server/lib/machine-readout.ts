@@ -34,7 +34,10 @@ export interface RawProc {
   cpuPct: number | null;
   /** Cumulative processor seconds, from `Get-Process` (Windows). */
   cpuSeconds: number | null;
-  /** Set when its command line, or an ancestor's, names `offload` or `pw-remote`: work sent from the Mac, not a service. */
+  /**
+   * Set when the process belongs to the tree of work sent from the Mac (see `WINDOWS_PS_LOOP`), whatever program it
+   * runs: a test suite's `node`, its `cmd`, the browser it drives. Not set on a service of the same name.
+   */
   job?: true;
 }
 
@@ -191,6 +194,7 @@ export function parseScreenFile(text: string): ScreenState | null {
     reasons: (Array.isArray(raw.motivi) ? raw.motivi : []).map(str).filter((s): s is string => s !== null),
     jobs: list(raw.lavori).map((j) => ({
       project: str(j.progetto),
+      repo: str(j.repo),
       what: str(j.cosa) ?? str(j.comando) ?? "",
       who: str(j.chi) ?? str(j.per),
       since: timeOf(j.inizio) ?? timeOf(j.dal) ?? timeOf(j.da),
@@ -210,24 +214,43 @@ export function parseScreenFile(text: string): ScreenState | null {
 export const WINDOWS_PS_END = "__TOPICS_PROCS_END__";
 
 /**
+ * Where work sent from the Mac lives on the PC: `offload` runs a job from `E:\offload\<repo>_<hash>` and `pw-remote`
+ * starts its browser server from `E:\offload\pw-srv\<version>`. A command line that names a folder under an
+ * `offload` directory marks the root of such a job; the drive is not assumed.
+ */
+export const SENT_WORK_PATH = String.raw`[A-Za-z]:[\\/]offload[\\/]`;
+
+/**
  * The warm PowerShell loop behind the Windows list (`warm-lister.ts`): for
  * every line read on stdin, one line per process and then the end marker. It
  * ends by itself when stdin closes. No module to load.
  *
- * A `bun` process is looked at once, when it first appears: its command line
- * and its ancestors' (up to six) are read, and one that names `offload` or
- * `pw-remote` is work sent from the Mac, flagged `1` in the last field. The
- * answer is kept by pid and dropped when the process goes, so a steady reading
- * costs what it cost before and only a new `bun` pays for the query.
+ * WORK SENT FROM THE MAC IS A TREE, NOT A PROGRAM. What `offload` starts is a
+ * `cmd.exe` whose command line names the job's folder, and what that runs
+ * (`node`, `bun`, `tsc`, a browser it drives) are its descendants; the browser
+ * server of `pw-remote` is a `node.exe` whose command line names its folder,
+ * and the Chromium it launches is below it. So a process is flagged `1` in the
+ * last field when its own command line, or the one of an ancestor (up to eight
+ * levels), names a folder under `offload` (`SENT_WORK_PATH`). Nothing looks at
+ * the program's name: a service called `node` or `bun` is not flagged, and the
+ * `node` of a job is.
+ *
+ * A process is looked at once, when it first appears: its answer is kept by
+ * pid and dropped when the process goes. The command lines and parents come
+ * from ONE snapshot of `Win32_Process` taken on a reading that saw a new
+ * process, never one query per process, and a steady reading with nothing new
+ * costs what a plain `Get-Process` costs. No double quote in the script: it
+ * travels as one argument of `powershell.exe -Command`.
  */
 export const WINDOWS_PS_LOOP = [
-  "$ErrorActionPreference='SilentlyContinue'; [Console]::OutputEncoding=[Text.Encoding]::UTF8; $jobs=@{};",
-  "function Test-SentWork($id) { for ($i=0; $i -lt 6 -and $id; $i++) { $w=Get-CimInstance Win32_Process -Filter ('ProcessId='+$id); if (-not $w) { return 0 }; if ($w.CommandLine -match 'offload|pw-remote') { return 1 }; $id=$w.ParentProcessId }; return 0 };",
+  `$ErrorActionPreference='SilentlyContinue'; [Console]::OutputEncoding=[Text.Encoding]::UTF8; $sent=@{}; $snap=@{}; $root='(?i)${SENT_WORK_PATH}';`,
+  "function Test-SentWork($id) { for ($i=0; $i -lt 8 -and $id; $i++) { if ($i -gt 0 -and $sent.ContainsKey($id)) { return $sent[$id] }; $w=$snap[$id]; if (-not $w) { return 0 }; if ($w.CommandLine -match $root) { return 1 }; $id=[int]$w.ParentProcessId }; return 0 };",
   "while ($null -ne [Console]::In.ReadLine()) {",
-  "$all=@(Get-Process); $live=@{};",
-  "foreach ($p in $all) { if ($p.ProcessName -eq 'bun') { $live[$p.Id]=1; if (-not $jobs.ContainsKey($p.Id)) { $jobs[$p.Id]=Test-SentWork $p.Id } } };",
-  "foreach ($k in @($jobs.Keys)) { if (-not $live.ContainsKey($k)) { $jobs.Remove($k) } };",
-  "$all | ForEach-Object { '{0}|{1}|{2}|{3}|{4}' -f $_.ProcessName,$_.Id,$_.CPU,$_.WorkingSet64,$jobs[$_.Id] };",
+  "$all=@(Get-Process); $live=@{}; $fresh=@();",
+  "foreach ($p in $all) { $live[$p.Id]=1; if (-not $sent.ContainsKey($p.Id)) { $fresh+=$p } };",
+  "if ($fresh.Count -gt 0) { $snap=@{}; foreach ($w in Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,CommandLine) { $snap[[int]$w.ProcessId]=$w }; foreach ($p in $fresh) { $sent[$p.Id]=Test-SentWork $p.Id } };",
+  "foreach ($k in @($sent.Keys)) { if (-not $live.ContainsKey($k)) { $sent.Remove($k) } };",
+  "$all | ForEach-Object { '{0}|{1}|{2}|{3}|{4}' -f $_.ProcessName,$_.Id,$_.CPU,$_.WorkingSet64,$sent[$_.Id] };",
   `'${WINDOWS_PS_END}'; [Console]::Out.Flush() }`,
 ].join(" ");
 

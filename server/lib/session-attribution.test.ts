@@ -1,6 +1,7 @@
 /** @covers USAGE-26 */
 import { describe, expect, test } from "bun:test";
-import { attachRemoteJobs, attributeProcesses, programOf, type AttrRow } from "./session-attribution";
+import { projectIdForPath } from "../../shared/board";
+import { attachRemoteJobs, attributeProcesses, jobOwners, programOf, type AttrRow, type RemoteJob } from "./session-attribution";
 
 /**
  * The table of a small Mac, built by hand:
@@ -148,21 +149,61 @@ describe("programOf", () => {
   });
 });
 
+// The board id a project's sessions carry, from the folder of its main checkout: the same hash the board uses.
+const boardOf = projectIdForPath;
+const ACME = "/Users/x/Projects/acme-web";
+const STUDIO = "/Users/x/Projects/studio-x";
+
+const job = (over: Partial<RemoteJob> = {}): RemoteJob => ({ what: "test", project: null, repo: null, who: null, since: null, ...over });
+
+describe("jobOwners", () => {
+  const sessions = [
+    { key: "card:a", board: boardOf(ACME), name: "acme-web" },
+    { key: "card:b", board: boardOf(STUDIO), name: "studio-x" },
+    { key: "chat:c", board: boardOf(STUDIO), name: "studio-x" },
+    { key: "chat:d", board: null, name: null },
+  ];
+  const owners = jobOwners(sessions, boardOf);
+
+  test("a job is placed by the folder of its repository, whatever label the sender gave it", () => {
+    // The sender's label is for people: «Topics» is the label of the project `topics-app`, «Armonia site» of `armonia-site`.
+    const topics = jobOwners([{ key: "card:t", board: boardOf("/Users/x/Projects/topics-app"), name: "topics-app" }], boardOf);
+    expect(topics(job({ project: "Topics", repo: "/Users/x/Projects/topics-app" }))).toEqual(["card:t"]);
+    expect(owners(job({ project: "Studio x", repo: STUDIO }))).toEqual(["card:b", "chat:c"]);
+    // The same folder with a trailing slash is the same repository.
+    expect(owners(job({ repo: `${ACME}/` }))).toEqual(["card:a"]);
+  });
+
+  test("a job that names its repository is placed by it and by nothing else", () => {
+    // Its label looks like acme-web, its folder is another project: the folder wins, nobody owns it.
+    expect(owners(job({ project: "Acme web", repo: "/Users/x/Projects/elsewhere" }))).toEqual([]);
+  });
+
+  test("a job with no repository (an older sender) falls back on its label, compared without case, spaces or dashes", () => {
+    expect(owners(job({ project: "Acme web" }))).toEqual(["card:a"]);
+    expect(owners(job({ project: "STUDIO-X" }))).toEqual(["card:b", "chat:c"]);
+    expect(owners(job({ project: "Topics" }))).toEqual([]);
+    expect(owners(job())).toEqual([]);
+  });
+});
+
 describe("attachRemoteJobs", () => {
-  const byProject = new Map<string, string[]>([["acme-web", ["card:a"]], ["studio-x", ["card:b", "chat:c"]]]);
+  const owners = jobOwners([
+    { key: "card:a", board: boardOf(ACME), name: "acme-web" },
+    { key: "card:b", board: boardOf(STUDIO), name: "studio-x" },
+    { key: "chat:c", board: boardOf(STUDIO), name: "studio-x" },
+  ], boardOf);
 
   test("one job on one session takes that job's whole part of the machine's sent-work load", () => {
-    const r = attachRemoteJobs([{ what: "test", project: "acme-web", who: "Mac", since: 1 }], { memMB: 3000, cpuPct: 400 }, byProject);
-    expect(r.bySession.get("card:a")).toEqual([{ job: { what: "test", project: "acme-web", who: "Mac", since: 1 }, of: 1, memMB: 3000, cpuPct: 400 }]);
+    const j = job({ project: "Acme web", repo: ACME, who: "Mac", since: 1 });
+    const r = attachRemoteJobs([j], { memMB: 3000, cpuPct: 400 }, owners);
+    expect(r.bySession.get("card:a")).toEqual([{ job: j, of: 1, memMB: 3000, cpuPct: 400 }]);
     expect(r.unmatched).toEqual([]);
   });
 
   test("two jobs divide the load, and two sessions of one project divide that job's part", () => {
-    const jobs = [
-      { what: "test", project: "acme-web", who: null, since: null },
-      { what: "build", project: "studio-x", who: null, since: null },
-    ];
-    const r = attachRemoteJobs(jobs, { memMB: 2000, cpuPct: 200 }, byProject);
+    const jobs = [job({ repo: ACME }), job({ what: "build", repo: STUDIO })];
+    const r = attachRemoteJobs(jobs, { memMB: 2000, cpuPct: 200 }, owners);
     expect(r.bySession.get("card:a")![0]).toMatchObject({ of: 1, memMB: 1000, cpuPct: 100 });
     expect(r.bySession.get("card:b")![0]).toMatchObject({ of: 2, memMB: 500, cpuPct: 50 });
     expect(r.bySession.get("chat:c")![0]).toMatchObject({ of: 2, memMB: 500, cpuPct: 50 });
@@ -172,13 +213,13 @@ describe("attachRemoteJobs", () => {
   });
 
   test("a job of a project no live session carries is reported apart", () => {
-    const r = attachRemoteJobs([{ what: "test", project: "gone", who: null, since: null }, { what: "x", project: null, who: null, since: null }], { memMB: 1, cpuPct: 1 }, byProject);
+    const r = attachRemoteJobs([job({ repo: "/Users/x/Projects/gone" }), job({ what: "x" })], { memMB: 1, cpuPct: 1 }, owners);
     expect(r.bySession.size).toBe(0);
     expect(r.unmatched).toHaveLength(2);
   });
 
   test("an unmeasured machine load stays null on the slice", () => {
-    const r = attachRemoteJobs([{ what: "t", project: "acme-web", who: null, since: null }], { memMB: null, cpuPct: null }, byProject);
+    const r = attachRemoteJobs([job({ repo: ACME })], { memMB: null, cpuPct: null }, owners);
     expect(r.bySession.get("card:a")![0]).toMatchObject({ memMB: null, cpuPct: null });
   });
 });

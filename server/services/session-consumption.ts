@@ -21,10 +21,11 @@
  * with nothing running is idle: its memory is counted apart and not shared out.
  */
 import {
-  attachRemoteJobs, attributeProcesses, type AttrRow, type AttrHead, type RemoteJob,
+  attachRemoteJobs, attributeProcesses, jobOwners, type AttrRow, type AttrHead, type JobOwnerCandidate, type RemoteJob,
 } from "../lib/session-attribution";
 import { RATE_WINDOW_MS, createRateTracker } from "../lib/session-rate";
 import { topicSessionKey } from "./agent-census";
+import { projectIdForPath } from "../../shared/board";
 import type {
   ConsumptionAnswer, ConsumptionTokens, SessionConsumption, SessionKind,
 } from "../../shared/session-consumption";
@@ -218,7 +219,7 @@ export function createSessionConsumption(deps: ConsumptionDeps): SessionConsumpt
     const topics = deps.topicsBySessionKey([...new Set(live.flatMap((c) => (c.topicKey ? [c.topicKey] : [])))]);
 
     // The sessions of each project, to place the work sent to another machine.
-    const sessionsByProject = new Map<string, string[]>();
+    const owners: JobOwnerCandidate[] = [];
     const projectOf = new Map<string, string | null>();
     const sendsFromHere = new Set(liveKeys);
     for (const c of live) {
@@ -228,13 +229,13 @@ export function createSessionConsumption(deps: ConsumptionDeps): SessionConsumpt
         : deps.projectName({ path: topic?.projectPath ?? null });
       projectOf.set(c.key, project);
       // A card running on another machine sent that machine nothing: only the sessions here share its jobs.
-      if (project && sendsFromHere.has(c.key)) {
-        const list = sessionsByProject.get(project.toLowerCase()) ?? [];
-        list.push(c.key);
-        sessionsByProject.set(project.toLowerCase(), list);
+      if (sendsFromHere.has(c.key)) {
+        // The board id is the project's stable id: a card carries it, a chat gets it from its folder.
+        const board = c.task ? c.task.projectId : topic?.projectPath ? projectIdForPath(topic.projectPath) : null;
+        owners.push({ key: c.key, board, name: project });
       }
     }
-    const placed = remote ? attachRemoteJobs(remote.jobs, remote.load, sessionsByProject) : null;
+    const placed = remote ? attachRemoteJobs(remote.jobs, remote.load, jobOwners(owners, projectIdForPath)) : null;
 
     const sessions: SessionConsumption[] = live.map((c) => {
       const load = attribution?.units.get(c.key);

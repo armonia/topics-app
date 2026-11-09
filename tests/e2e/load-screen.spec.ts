@@ -77,30 +77,39 @@ function keeperScreenFile(working: boolean, now: number): string {
     sogliaMinuti: 20,
     sospendeAlle: working ? null : now + 13 * MIN + 20_000,
     motivi: working ? ["Il Mac è collegato al PC", "Una card di Topics sta lavorando su questo PC"] : [],
-    lavori: working ? [{ progetto: "studio-x", cosa: "i test nel browser", chi: "Mac", da: iso(now - 7 * MIN), secondi: 420 }] : [],
+    // As `offload` writes it and the keeper carries it: the label in words, humanized from the folder («Studio x»), and
+    // the repository, the folder of the main checkout. The label is NOT the name of the Topics project (`studio-x`).
+    lavori: working ? [{ progetto: "Studio x", repo: OTHER_PATH, cosa: "i test nel browser", chi: "Mac", da: iso(now - 7 * MIN), secondi: 420 }] : [],
     esiti: [
-      { progetto: "acme-web", cosa: "test", esito: "fallito", secondi: 86, fine: iso(now - 9 * MIN) },
-      { progetto: "studio-x", cosa: "preparazione delle dipendenze e test", esito: "ok", secondi: 78, fine: iso(now - 11 * MIN) },
-      { progetto: "studio-x", cosa: "build", esito: "interrotto", secondi: 109, fine: iso(now - 14 * MIN) },
+      { progetto: "Acme web", cosa: "test", esito: "fallito", secondi: 86, fine: iso(now - 9 * MIN) },
+      { progetto: "Studio x", cosa: "preparazione delle dipendenze e test", esito: "ok", secondi: 78, fine: iso(now - 11 * MIN) },
+      { progetto: "Studio x", cosa: "build", esito: "interrotto", secondi: 109, fine: iso(now - 14 * MIN) },
     ],
   };
   return `window.STATO = ${JSON.stringify(screenFile, null, 4)};\n`;
 }
 
-/** The PC's process list, as its Topics groups it: heaviest first, MB and % of one core. */
+/**
+ * The PC's process list, as its Topics groups it: heaviest first, MB and % of one core.
+ *
+ * Work sent from the Mac is a TREE, flagged by where it runs and not by the program: its `cmd.exe`, the `node` of the
+ * suite and the browser the suite drives are all `job`, and the PC's own `node` (its Topics) is not, though it has
+ * the same name. This is what the real reader produces (`WINDOWS_PS_LOOP`, tried on the PC with a job and a decoy).
+ */
 function procs(working: boolean) {
   return [
-    // At work the heaviest program is the Mac's test run: flagged as sent work, as the PC's lister flags it.
     { name: working ? "node" : "msedge", count: working ? 6 : 9, memMB: working ? 3480 : 1210, cpuPct: working ? 412.5 : 1.2, ...(working ? { job: true } : {}) },
     { name: working ? "msedge" : "explorer", count: working ? 9 : 1, memMB: working ? 1210 : 190, cpuPct: working ? 3.4 : 0.4 },
-    { name: working ? "chrome-headless-shell" : "Tailscale", count: working ? 4 : 2, memMB: working ? 960 : 120, cpuPct: working ? 88 : 0.2 },
+    { name: working ? "chrome-headless-shell" : "Tailscale", count: working ? 4 : 2, memMB: working ? 960 : 120, cpuPct: working ? 88 : 0.2, ...(working ? { job: true } : {}) },
+    { name: "node", count: 1, memMB: 340, cpuPct: working ? 4.2 : 0.3 },
     { name: "bun", count: 1, memMB: 410, cpuPct: working ? 22 : 0.3 },
     { name: "Code", count: 5, memMB: 380, cpuPct: 0.6 },
     { name: "sshd", count: 2, memMB: 14, cpuPct: working ? 1.1 : 0 },
     { name: "dwm", count: 1, memMB: 96, cpuPct: 1.8 },
     { name: "MsMpEng", count: 1, memMB: 240, cpuPct: null },
+    ...(working ? [{ name: "cmd", count: 3, memMB: 18, cpuPct: 0.6, job: true }] : []),
     { name: "System", count: 1, memMB: 8, cpuPct: null },
-  ];
+  ].sort((a, b) => b.memMB - a.memMB); // the reader lists the heaviest first
 }
 
 function readout(working: boolean, now: number) {
@@ -317,6 +326,10 @@ test.describe("the load screen of the PC", () => {
       await expect(rowA.getByTestId("session-memory")).toContainText("1/");
       // The sent work is billed to the session of its project, as «from the Mac».
       await expect(rowB.getByTestId("session-remote")).toContainText("Su PC · i test nel browser");
+      // The slice is the load of the whole TREE of the job (node 3480 + the browser 960 + cmd 18 = 4458 MB, 501.1 % of a
+      // core over the PC's 16), not of one program, and the PC's own `node` is not in it.
+      await expect(rowB.getByTestId("session-remote")).toContainText("4,4 GB");
+      await expect(rowB.getByTestId("session-remote")).toContainText("31,3%");
       // ... whole, and since when: the card of the PC sent nothing, so it takes no share, and the job started minutes ago.
       await expect(rowB.getByTestId("session-remote")).not.toContainText("1/2");
       await expect(rowB.getByTestId("session-remote")).toContainText("in corso da");
@@ -344,6 +357,11 @@ test.describe("the load screen of the PC", () => {
       await expect(rows.first()).toContainText("node");
       await expect(rows.first()).toContainText("dal Mac");
       await expect(rows.first().getByTestId("machine-process-cpu")).toHaveText("413%");
+      // The whole tree of the job is the Mac's, not one program: its node and the browser it drives are both marked,
+      // and the PC's own Edge between them is not. (Only the heaviest rows fit this screen.)
+      await expect(rows.filter({ hasText: "dal Mac" })).toHaveCount(2);
+      await expect(rows.filter({ hasText: "chrome-headless-shell" })).toContainText("dal Mac");
+      await expect(rows.filter({ hasText: "msedge" })).not.toContainText("dal Mac");
       // A moment more, so the recording shows the clocks and the speeds moving.
       const seconds = (t: string | null) => (t ?? "0:00").split(":").map(Number).reduce((n, x) => n * 60 + x, 0);
       const c0 = seconds(await rowA.getByTestId("session-clock").textContent());

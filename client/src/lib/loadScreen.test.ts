@@ -65,7 +65,7 @@ describe('load screen model', () => {
   test('a card or a job running means working, whatever the file says', () => {
     const r = readReadout(answer({ sleepsAt: NOW + 60_000, reasons: [], jobs: [], outcomes: [] }));
     expect(sleepView(r, 1, NOW)).toEqual({ kind: 'working' });
-    const j = readReadout(answer({ sleepsAt: null, reasons: [], jobs: [{ project: 'acme-web', what: 'test', who: 'Mac', since: NOW }], outcomes: [] }));
+    const j = readReadout(answer({ sleepsAt: null, reasons: [], jobs: [{ project: 'Acme web', repo: '/Users/x/Projects/acme-web', what: 'test', who: 'Mac', since: NOW }], outcomes: [] }));
     expect(sleepView(j, 0, NOW)).toEqual({ kind: 'working' });
     const awake = readReadout(answer({ sleepsAt: null, reasons: ['Il Mac è collegato al PC'], jobs: [], outcomes: [], thresholdMin: 20 }));
     expect(sleepView(awake, 0, NOW)).toEqual({ kind: 'working' });

@@ -2,6 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import { createSessionConsumption, type ConsumptionDeps, type ConsumptionTask, type UsageReading } from "./session-consumption";
 import { topicSessionKey } from "./agent-census";
+import { projectIdForPath } from "../../shared/board";
 
 /**
  * Two cards and an idle chat on a small Mac:
@@ -143,11 +144,51 @@ describe("session consumption", () => {
 
   test("work sent to the PC is billed to the sessions of its project and divided, and the rule is stated", async () => {
     const answer = await createSessionConsumption(deps()).read({
-      remote: { machine: "Studio PC", jobs: [{ what: "i test nel browser", project: "acme-web", who: "Mac", since: 5 }], load: { memMB: 3000, cpuPct: 400 } },
+      remote: { machine: "Studio PC", jobs: [{ what: "i test nel browser", project: "acme-web", repo: null, who: "Mac", since: 5 }], load: { memMB: 3000, cpuPct: 400 } },
     });
     // Both cards belong to acme-web: each takes half of the job's part.
     for (const s of answer.sessions) expect(s.remote).toEqual([{ what: "i test nel browser", where: "Studio PC", who: "Mac", since: 5, of: 2, memMB: 1500, cpuPct: 200 }]);
     expect(answer.rule).toBe("equal");
+  });
+
+  test("work sent from a repository lands on the sessions of the project whose folder it is, whatever label the sender wrote", async () => {
+    // What `offload` writes for a job sent from any worktree of topics-app: the label «Topics» and the main checkout.
+    const REPO = "/Users/x/Projects/topics-app";
+    const sent = { what: "i test nel browser", project: "Topics", repo: REPO, who: "Mac", since: 5 };
+    const answer = await createSessionConsumption(deps({
+      tasks: () => [task("A", TOPIC_A, { projectId: projectIdForPath(REPO) }), task("B", TOPIC_B, { projectId: projectIdForPath("/Users/x/Projects/acme-web") })],
+      projectName: ({ boardId }) => (boardId === projectIdForPath(REPO) ? "topics-app" : "acme-web"),
+    })).read({ remote: { machine: "Studio PC", jobs: [sent], load: { memMB: 3000, cpuPct: 400 } } });
+    const mine = answer.sessions.find((s) => s.key === "card:A")!;
+    const other = answer.sessions.find((s) => s.key === "card:B")!;
+    expect(mine.project).toBe("topics-app");
+    expect(mine.remote).toEqual([{ what: "i test nel browser", where: "Studio PC", who: "Mac", since: 5, of: 1, memMB: 3000, cpuPct: 400 }]);
+    expect(other.remote).toEqual([]);
+    expect(answer.sent).toEqual({ jobs: [sent], unplaced: [] });
+  });
+
+  test("a chat is placed by the folder of its topic, and the label alone does not place a job that names another repository", async () => {
+    const REPO = "/Users/x/Projects/studio-x";
+    const topic = { id: TOPIC_C, name: "Una chat", projectPath: REPO, model: "claude-sonnet-5" };
+    const mk = (repo: string | null) => createSessionConsumption(deps({
+      tasks: () => [],
+      terminals: () => [],
+      // A command in flight in the chat makes it a live session.
+      nativeCommands: () => [{ sessionKey: topicSessionKey(TOPIC_C), pid: 310 }],
+      topicsBySessionKey: () => new Map([[topicSessionKey(TOPIC_C), topic]]),
+      usageOf: (k) => (k === topicSessionKey(TOPIC_C) ? usage(10) : null),
+      projectName: () => "studio-x",
+    })).read({ remote: { machine: "Studio PC", jobs: [{ what: "build", project: "Studio x", repo, who: null, since: null }], load: { memMB: 100, cpuPct: 10 } } });
+    const chatOf = (a: Awaited<ReturnType<typeof mk>>) => a.sessions.find((s) => s.key === topicSessionKey(TOPIC_C))!;
+    const placed = await mk(REPO);
+    expect(chatOf(placed).remote).toHaveLength(1);
+    // Same label, another folder: it is not this chat's job.
+    const foreign = await mk("/Users/x/Projects/studio-x-fork");
+    expect(chatOf(foreign).remote).toEqual([]);
+    expect(foreign.sent!.unplaced).toHaveLength(1);
+    // No folder at all (a sender from before it wrote one): the label places it.
+    const old = await mk(null);
+    expect(chatOf(old).remote).toHaveLength(1);
   });
 
   test("a card running on the PC takes no share of the work the Mac sent to the PC", async () => {
@@ -155,7 +196,7 @@ describe("session consumption", () => {
       tasks: () => [task("A", TOPIC_A), task("B", TOPIC_B, { machineId: "pc-1" })],
       remoteMachineName: (id) => (id ? "Studio PC" : null),
     })).read({
-      remote: { machine: "Studio PC", jobs: [{ what: "i test nel browser", project: "acme-web", who: "Mac", since: 5 }], load: { memMB: 3000, cpuPct: 400 } },
+      remote: { machine: "Studio PC", jobs: [{ what: "i test nel browser", project: "acme-web", repo: null, who: "Mac", since: 5 }], load: { memMB: 3000, cpuPct: 400 } },
     });
     const here = answer.sessions.find((s) => s.key === "card:A")!;
     const there = answer.sessions.find((s) => s.key === "card:B")!;

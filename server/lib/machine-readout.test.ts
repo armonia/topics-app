@@ -6,7 +6,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
-  createMachineReadout, groupProcs, parsePsLines, parseScreenFile, parseWinProcLines, programName, winCpuBetween,
+  createMachineReadout, groupProcs, parsePsLines, parseScreenFile, parseWinProcLines, programName, SENT_WORK_PATH, WINDOWS_PS_LOOP, winCpuBetween,
 } from "./machine-readout";
 
 /**
@@ -22,7 +22,7 @@ const SCREEN = `\uFEFFwindow.STATO = {
     "sogliaMinuti":  20,
     "sospendeAlle":  ${SLEEPS_AT},
     "motivi":  [ "Il Mac è collegato al PC", "" ],
-    "lavori":  [ { "progetto": "acme-web", "cosa": "test", "chi": "Mac", "da": "2026-11-08T19:30:00+01:00", "secondi": 134 } ],
+    "lavori":  [ { "progetto": "Acme web", "repo": "/Users/x/Projects/acme-web", "cosa": "test", "chi": "Mac", "da": "2026-11-08T19:30:00+01:00", "secondi": 134 } ],
     "esiti":  [
         { "progetto": "acme-web", "cosa": "test", "esito": "fallito", "secondi": 86, "fine": "2026-11-08T19:32:14+01:00" },
         { "progetto": "studio-x", "cosa": "build", "esito": "ok", "secondi": 78, "fine": "2026-11-08T19:32:02+01:00" },
@@ -63,6 +63,32 @@ describe("machine readout parsers", () => {
     expect(rows).toHaveLength(2);
   });
 
+  test("the last field of a Windows line flags work sent from the Mac, whatever the program", () => {
+    const rows = parseWinProcLines("node|42|1|1048576|1\nnode|43|1|1048576|0\nchrome-headless-shell|44|1|1048576|1\nbun|45|1|1048576|");
+    expect(rows.map((r) => [r.name, r.job === true])).toEqual([["node", true], ["node", false], ["chrome-headless-shell", true], ["bun", false]]);
+    // A job's node and the service of the same name are two rows.
+    const g = groupProcs(rows).procs;
+    expect(g.map((x) => [x.name, x.count, x.job === true])).toEqual(expect.arrayContaining([["node", 1, true], ["node", 1, false]]));
+  });
+
+  test("the Windows loop marks the tree of a sent job by where it runs, not by the name of the program", () => {
+    // Where sent work lives: `offload` runs from E:\offload\<repo>, `pw-remote` from E:\offload\pw-srv\<version>.
+    const root = new RegExp(SENT_WORK_PATH, "i");
+    expect(root.test('cmd.exe /c cd /d "E:\\offload\\topics-app_ab12cd" && node job.js')).toBe(true);
+    expect(root.test("node.exe -r E:\\offload\\pw-srv\\1.58.0\\loopback-x.cjs node_modules\\playwright\\cli.js run-server")).toBe(true);
+    expect(root.test("tar -xzf - -C E:/offload/topics-app_ab12cd")).toBe(true);
+    // A service of the PC is not sent work, nor a file that only has the word in its name.
+    expect(root.test("node.exe E:\\topics-nodo\\server.js")).toBe(false);
+    expect(root.test("C:\\Users\\zorah\\offload.txt")).toBe(false);
+    // The loop looks at ancestors and command lines; the old rule (only `bun`, only the words offload|pw-remote) is gone.
+    expect(WINDOWS_PS_LOOP).toContain("ParentProcessId");
+    expect(WINDOWS_PS_LOOP).toContain(SENT_WORK_PATH);
+    expect(WINDOWS_PS_LOOP).not.toContain("ProcessName -eq 'bun'");
+    expect(WINDOWS_PS_LOOP).not.toContain("offload|pw-remote");
+    // It travels as ONE argument of powershell.exe -Command: no double quote to be mangled by the command line.
+    expect(WINDOWS_PS_LOOP).not.toContain('"');
+  });
+
   test("Windows CPU is the difference of two readings, in % of one core", () => {
     const cur = parseWinProcLines("node|42|15|1048576\nnew|43|3|1048576\nreused|44|1|1048576");
     const out = winCpuBetween(new Map([[42, 12], [44, 9]]), cur, 10);
@@ -91,9 +117,15 @@ describe("machine readout parsers", () => {
     expect(s.thresholdMin).toBe(20);
     expect(s.sleepsAt).toBe(SLEEPS_AT);
     expect(s.reasons).toEqual(["Il Mac è collegato al PC"]);
-    expect(s.jobs).toEqual([{ project: "acme-web", what: "test", who: "Mac", since: Date.parse("2026-11-08T19:30:00+01:00") }]);
+    // The label is the sender's, in words; the repository is the folder of the checkout the job was sent from.
+    expect(s.jobs).toEqual([{ project: "Acme web", repo: "/Users/x/Projects/acme-web", what: "test", who: "Mac", since: Date.parse("2026-11-08T19:30:00+01:00") }]);
     expect(s.outcomes.map((o) => o.ok)).toEqual([false, true, null]);
     expect(s.outcomes.map((o) => o.interrupted)).toEqual([false, false, true]);
+  });
+
+  test("a job from a sender that does not write the repository has none", () => {
+    const s = parseScreenFile('window.STATO = { "lavori": [ { "progetto": "Acme web", "cosa": "test", "chi": "Mac", "da": "2026-11-08T19:30:00+01:00" } ] };')!;
+    expect(s.jobs).toEqual([{ project: "Acme web", repo: null, what: "test", who: "Mac", since: Date.parse("2026-11-08T19:30:00+01:00") }]);
   });
 
   test("at rest the countdown is the keeper's epoch-ms number, not lost to a string-only parser", () => {

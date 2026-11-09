@@ -101,7 +101,15 @@ export interface SessionConsumption {
 }
 
 /** A job the Mac sent to another machine, as that machine listed it. */
-export interface SentJob { project: string | null; what: string; who: string | null; since: number | null }
+export interface SentJob {
+  /** The sender's label for the project, for people. */
+  project: string | null;
+  /** The folder of the checkout the job was sent from: the id that places it on a session. */
+  repo: string | null;
+  what: string;
+  who: string | null;
+  since: number | null;
+}
 
 /**
  * The work sent to the machine a screen watches, in the SAME reading the sessions

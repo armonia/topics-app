@@ -76,7 +76,7 @@ export function readReadout(raw: unknown): Readout {
       thresholdMin: num(s.thresholdMin),
       sleepsAt: num(s.sleepsAt),
       reasons: Array.isArray(s.reasons) ? s.reasons.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : [],
-      jobs: list(s.jobs).map((j) => ({ project: str(j.project), what: str(j.what) ?? '', who: str(j.who), since: num(j.since) })),
+      jobs: list(s.jobs).map((j) => ({ project: str(j.project), repo: str(j.repo), what: str(j.what) ?? '', who: str(j.who), since: num(j.since) })),
       outcomes: list(s.outcomes).map((o) => ({
         project: str(o.project), what: str(o.what) ?? '', ok: typeof o.ok === 'boolean' ? o.ok : null, interrupted: o.interrupted === true, seconds: num(o.seconds), endedAt: num(o.endedAt),
       })),

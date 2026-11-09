@@ -259,12 +259,52 @@ export function attributeProcesses(input: AttributionInput): Attribution {
 
 /**
  * Work a session sent to another machine (a test suite on the PC), billed to
- * the sessions of the project it names. The machine reports its load of sent
- * work as ONE figure for all its jobs, so it is divided: equally between the
- * jobs first, then each job's part equally between the sessions of its
+ * the sessions of the project it comes from. The machine reports its load of
+ * sent work as ONE figure for all its jobs, so it is divided: equally between
+ * the jobs first, then each job's part equally between the sessions of its
  * project. A job whose project no live session carries stays unattributed.
  */
-export interface RemoteJob { what: string; project: string | null; who: string | null; since: number | null }
+export interface RemoteJob {
+  what: string;
+  /** The project as the sender's label reads («Topics», «Armonia site»): for people, it does not name a Topics project. */
+  project: string | null;
+  /** The repository it was sent from: the folder of its main checkout. The stable id; null from a sender that does not write it. */
+  repo: string | null;
+  who: string | null;
+  since: number | null;
+}
+
+/** A live session that may own sent work: its project's board id (stable) and name (a label). */
+export interface JobOwnerCandidate { key: string; board: string | null; name: string | null }
+
+/** `Armonia site`, `armonia-site` and `armonia_site` are one name. */
+const projectNameKey = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+/**
+ * Which sessions own a job. A job that names its repository is placed by the
+ * repository and by nothing else: its folder, turned into the board id the
+ * sessions' projects carry (`boardOf`), so «Topics» finds `topics-app` and a
+ * label that happens to look like another project's name finds nobody. Only a
+ * job with no repository (a sender that does not write it yet, or a job still
+ * running from before it did) is placed by its label, compared without case,
+ * spaces or dashes.
+ */
+export function jobOwners(
+  sessions: readonly JobOwnerCandidate[],
+  boardOf: (repo: string) => string,
+): (job: RemoteJob) => readonly string[] {
+  const byBoard = new Map<string, string[]>();
+  const byName = new Map<string, string[]>();
+  const add = (m: Map<string, string[]>, k: string, v: string) => { const l = m.get(k) ?? []; l.push(v); m.set(k, l); };
+  for (const s of sessions) {
+    if (s.board) add(byBoard, s.board, s.key);
+    if (s.name) add(byName, projectNameKey(s.name), s.key);
+  }
+  return (job) => {
+    if (job.repo) return byBoard.get(boardOf(job.repo.replace(/[\\/]+$/, ''))) ?? [];
+    return job.project ? byName.get(projectNameKey(job.project)) ?? [] : [];
+  };
+}
 
 export interface RemoteSlice {
   job: RemoteJob;
@@ -277,13 +317,13 @@ export interface RemoteSlice {
 export function attachRemoteJobs(
   jobs: readonly RemoteJob[],
   load: { memMB: number | null; cpuPct: number | null },
-  sessionsByProject: ReadonlyMap<string, readonly string[]>,
+  ownersOf: (job: RemoteJob) => readonly string[],
 ): { bySession: Map<string, RemoteSlice[]>; unmatched: RemoteJob[] } {
   const bySession = new Map<string, RemoteSlice[]>();
   const unmatched: RemoteJob[] = [];
   const n = Math.max(1, jobs.length);
   for (const job of jobs) {
-    const keys = job.project ? sessionsByProject.get(job.project.toLowerCase()) ?? [] : [];
+    const keys = ownersOf(job);
     if (keys.length === 0) { unmatched.push(job); continue; }
     for (const key of keys) {
       const list = bySession.get(key) ?? [];

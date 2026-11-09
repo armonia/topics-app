@@ -29,7 +29,7 @@ function readTokens(v: unknown): ConsumptionTokens | null {
 }
 
 function readJobs(v: unknown): SentJob[] {
-  return list(v).map((j) => ({ project: str(j.project), what: str(j.what) ?? '', who: str(j.who), since: num(j.since) }));
+  return list(v).map((j) => ({ project: str(j.project), repo: str(j.repo), what: str(j.what) ?? '', who: str(j.who), since: num(j.since) }));
 }
 
 function readSent(v: unknown): ConsumptionSent | null {

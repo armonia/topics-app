@@ -37,7 +37,7 @@ type ReadoutAnswer = {
   readout?: {
     procs?: Array<{ memMB?: number; cpuPct?: number | null; job?: boolean }>;
     cores?: number;
-    screen?: { jobs?: Array<{ project?: string | null; what?: string; who?: string | null; since?: number | null }> } | null;
+    screen?: { jobs?: Array<{ project?: string | null; repo?: string | null; what?: string; who?: string | null; since?: number | null }> } | null;
   } | null;
 };
 
@@ -99,7 +99,7 @@ export function remoteReportOf(answer: ReadoutAnswer): RemoteReport {
   // Always a report, even with no jobs or no answer: «none» is a fact of this reading, and the page must
   // not fall back on its older slow read, which could still list a job that has ended.
   if (!r) return { machine, jobs: [], load: { memMB: null, cpuPct: null } };
-  const jobs = (r.screen?.jobs ?? []).map((j) => ({ project: j.project ?? null, what: j.what ?? "", who: j.who ?? null, since: j.since ?? null }));
+  const jobs = (r.screen?.jobs ?? []).map((j) => ({ project: j.project ?? null, repo: j.repo ?? null, what: j.what ?? "", who: j.who ?? null, since: j.since ?? null }));
   if (jobs.length === 0) return { machine, jobs: [], load: { memMB: null, cpuPct: null } };
   const sent = (r.procs ?? []).filter((p) => p.job === true);
   const cores = r.cores && r.cores > 0 ? r.cores : null;

@@ -10,16 +10,22 @@ describe("remoteReportOf", () => {
     expect(remoteReportOf({ machine: null, readout: null })).toEqual({ machine: null, jobs: [], load: { memMB: null, cpuPct: null } });
   });
 
+  test("a job with no repository (a sender from before it wrote one) keeps it null", () => {
+    const r = remoteReportOf({ machine: { name: "PC" }, readout: { cores: 8, procs: [], screen: { jobs: [{ project: "Acme web", what: "tests" }] } } });
+    expect(r.jobs).toEqual([{ project: "Acme web", repo: null, what: "tests", who: null, since: null }]);
+  });
+
   test("the jobs and the load of the processes flagged as sent work, on the machine's own 0-100 scale", () => {
     const r = remoteReportOf({
       machine: { name: "PC" },
       readout: {
         cores: 8,
         procs: [{ memMB: 1000, cpuPct: 200, job: true }, { memMB: 500, cpuPct: 100, job: true }, { memMB: 9000, cpuPct: 50 }],
-        screen: { jobs: [{ project: "acme-web", what: "tests", who: "Mac", since: 5 }] },
+        screen: { jobs: [{ project: "Acme web", repo: "/Users/x/Projects/acme-web", what: "tests", who: "Mac", since: 5 }] },
       },
     });
-    expect(r.jobs).toEqual([{ project: "acme-web", what: "tests", who: "Mac", since: 5 }]);
+    // The repository travels with the label: it is what places the job on a session.
+    expect(r.jobs).toEqual([{ project: "Acme web", repo: "/Users/x/Projects/acme-web", what: "tests", who: "Mac", since: 5 }]);
     expect(r.load).toEqual({ memMB: 1500, cpuPct: 300 / 8 });
   });
 });
