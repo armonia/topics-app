@@ -34,6 +34,7 @@ import { htmlToMarkdown } from "../../lib/html-to-markdown";
 import { protectedDirExcludes } from "../../lib/protected-app-data";
 import { globAnswer, globFiles } from "./glob-files";
 import { resolveSearchRoot } from "./search-root";
+import { insideWriteRoots, writeRootsFor } from "./write-roots";
 import { imageShape } from "../../services/image-shape";
 import { imageCaption, type ToolImage } from "./image-normalize";
 
@@ -168,6 +169,21 @@ function safePath(ctx: ToolContext, p: string): string {
     throw new Error(`percorso fuori dalla workspace: ${p}`);
   }
   return abs;
+}
+
+/**
+ * Like `safePath`, for the tools that WRITE: the workspace, or one of the roots
+ * the person declared for it (`write-roots.ts`). Anything else stays refused.
+ */
+function writablePath(ctx: ToolContext, raw: string): string {
+  const expanded = expandHome(raw);
+  try {
+    return safePath(ctx, expanded);
+  } catch (err) {
+    const abs = isAbsolute(expanded) ? resolve(expanded) : resolve(ctx.workspace, expanded);
+    if (ctx.workspace && insideWriteRoots(abs, writeRootsFor(ctx.workspace))) return abs;
+    throw err;
+  }
 }
 
 /** A leading `~` or `~/...` expanded to the home directory. Everything else is unchanged. */
@@ -699,14 +715,14 @@ export async function executeTool(
       }
 
       case "write_file": {
-        const p = safePath(ctx, String(input.path));
+        const p = writablePath(ctx, String(input.path));
         mkdirSync(dirname(p), { recursive: true });
         writeFileSync(p, String(input.content ?? ""));
         return { content: `scritto ${input.path} (${String(input.content ?? "").length} byte)` };
       }
 
       case "edit_file": {
-        const p = safePath(ctx, String(input.path));
+        const p = writablePath(ctx, String(input.path));
         if (!existsSync(p)) return { content: `file non trovato: ${input.path}`, isError: true };
         const raw = readFileSync(p, "utf-8");
         const old = String(input.old ?? "");
