@@ -3022,34 +3022,6 @@ Il file aperto SHALL restare aperto.
 - **GIVEN** un ricaricamento
 - **THEN** SHALL restare, e SHALL essere stata scritta sul server
 
-### Requirement: TASKSYNC-01 — La sincronia con l'elenco esterno normalizza, e a parità vince l'esterno
-
-Le voci senza identificativo SHALL essere RIFIUTATE. I sinonimi di stato SHALL
-essere mappati su quelli noti. Le priorità testuali SHALL essere ristrette alla
-scala numerica, e l'assenza SHALL cadere sul valore predefinito dichiarato. Un
-istante fornito SHALL essere preservato nella forma standard.
-
-La risoluzione del conflitto SHALL essere: si prende l'esterno se non esiste
-riga locale; si prende l'esterno se è PIÙ NUOVO; si tiene il locale se è
-STRETTAMENTE più nuovo; e a PARITÀ vince l'ESTERNO — la regola dev'essere
-dichiarata, perché a parità qualcuno deve vincere e il silenzio produce
-comportamenti diversi su due macchine.
-
-L'ingestione SHALL scrivere o aggiornare OGNI voce, SHALL accettare entrambe le
-forme del carico, SHALL TOLLERARE un documento malformato, e SHALL SALTARE le
-voci che perdono il conflitto.
-
-La sorveglianza SHALL ingerire più progetti alla prima scansione, ri-ingerire
-alla modifica di un file, e gestire con grazia una radice assente.
-
-#### Scenario: istanti identici
-- **GIVEN** locale ed esterno con lo stesso istante
-- **THEN** SHALL vincere l'esterno
-
-#### Scenario: un documento malformato
-- **GIVEN** un file illeggibile
-- **THEN** NON SHALL far cadere la sincronia
-
 ### Requirement: DIFFSTAT-01 — La review deve dire COSA si sta approvando
 
 Misurato sulla bacheca vera il 16/08: cinque card in revisione, e su tutte e

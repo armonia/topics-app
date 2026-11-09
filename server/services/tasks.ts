@@ -3,7 +3,7 @@
  *
  * Single writer for the `tasks` + `task_comments` + `approvals` tables. It exists
  * to collapse three divergent write paths (the inline INSERT in `routes/chat.ts`,
- * the `claude-tasks-sync.ts` file-watcher, and the MCP/board routes) onto ONE
+ * the MCP/board routes (a file-watcher once made a third)) onto ONE
  * point that enforces the invariants.
  *
  * Hard invariant (KANBAN-05): an `actor: "agent"` may NEVER move a task to

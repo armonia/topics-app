@@ -1251,6 +1251,12 @@ export function createAppContext(baseDir: string): AppContext {
   // (declared above) so it can fire `worktree:updated` envelopes when the
   // async git materialise step transitions a row from `pending` → `ready|error`.
   const projectStore = createProjectStore(db);
+  const createProjectRow = projectStore.create;
+  projectStore.create = (input) => {
+    const project = createProjectRow(input);
+    knownDirsCache = null;
+    return project;
+  };
   const worktreeStore = createWorktreeStore(db);
   // Le gcDeps sono closure deliberate: processes.ts nasce DOPO il manager,
   // e queste funzioni vengono lette ALLA CHIAMATA, non alla costruzione.

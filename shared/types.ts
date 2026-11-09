@@ -197,8 +197,8 @@ export interface DiscordPresenceStatus {
 /**
  * Quanto lavoro è passato di qui, misurato su tabelle che qualcuno SCRIVE
  * (`messages`/`tasks`/`topics`/`projects`) — non su `usage_records` e
- * `agent_sessions`, che non hanno un solo INSERT in tutto il server e
- * darebbero zeri per sempre. La storia sta in cima a
+ * `agent_sessions`, che non coprono il lavoro vero (`usage_records` ha solo gli
+ * INSERT delle chiamate laterali) e darebbero zeri per sempre. La storia sta in cima a
  * `server/services/profile-stats.ts`.
  *
  * Attraversa il filo intera (`GET /api/profile/stats`), quindi vive qui: il
@@ -1420,6 +1420,8 @@ export interface Machine {
    * lives in a 0600 file under the state dir and never reaches the client.
    */
   baseUrl: string | null;
+  /** Cards this node may run at once, as declared (1-8). `null` = the default of its kind. */
+  slots: number | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -3,9 +3,7 @@
 // nel workspace `client`), quindi un file o un export che vive solo perché lo
 // importa un test conta come usato: «zero morti» qui vuol dire «nessuno che
 // nemmeno un test nomini», non «tutto ciò che è spedito serve». Noti, vivi
-// solo per i test: `server/services/claude-tasks-sync.ts` (213 righe, il
-// watcher «Phase B» mai agganciato: lo importa solo
-// `tests/unit/claude-tasks-sync.test.ts`), `client/src/lib/reloadSites.ts` e
+// solo per i test: `client/src/lib/reloadSites.ts` e
 // `client/src/lib/settingsHomes.ts`. Nessuno è stato cancellato: la misura
 // vera del codice di produzione non raggiunto richiederebbe di togliere i test
 // dagli entrypoint, e non lo si è fatto.
@@ -346,7 +344,6 @@
         // script would be invisible by construction. The cost of the explicit
         // list is one line when a script is added; the benefit is that adding
         // it forces the question "who calls this?" to have an answer.
-        "server/db/seed.ts!", // one-shot JSON→SQLite migration, run by hand
         // Types for `import ... from "../assets/rrweb.min.js" with { type: "text" }`
         // (server/lib/rrweb-recorder.ts). tsc reads this sibling instead of the
         // script, which has no exports; knip resolves the import to the .js and

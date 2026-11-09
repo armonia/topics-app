@@ -385,7 +385,7 @@ interface RunOneOpts {
  * Workspace roots that must carry a `node_modules` before any gate can run.
  *
  * "" is the repo root; the others are relative to it. Both matter here:
- * `bun run typecheck` shells straight into `client/node_modules/.bin/tsc`, so a
+ * `bun run typecheck` shells straight into `client/node_modules/typescript7/bin/tsc`, so a
  * root-only install still leaves the first gate unable to start.
  */
 const INSTALL_ROOTS = ["", "client"] as const;
