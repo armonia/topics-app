@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.75",
+    "date": "2026-11-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "cloud-nodes: approvata, esito della Fase 0 sul nodo a ore (#694)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.74",
     "date": "2026-11-09",
     "sections": {
