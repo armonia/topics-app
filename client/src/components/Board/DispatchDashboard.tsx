@@ -333,7 +333,7 @@ export function HoldersFold({ consumers, total }: { consumers: DispatchMemoryQue
       {consumers.map((c) => (
         <li key={c.label} className="flex items-center gap-2 text-mini">
           <span className="min-w-0 flex-1 break-words">{c.label}</span>
-          <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded bg-black/10 dark:bg-white/10">
+          <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded bg-black/5 dark:bg-white/10">
             <i className="block h-full bg-sky-500/80" style={{ width: `${Math.round((c.gb / biggest) * 100)}%` }} />
           </span>
           <span className="w-14 shrink-0 text-right tabular-nums">{gb(c.gb)}</span>

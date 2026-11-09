@@ -243,7 +243,7 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
     ? 'bg-rose-500/15 text-rose-800 dark:text-rose-300 hover:bg-rose-500/25'
     : total > 0
       ? 'bg-amber-500/15 text-amber-800 dark:text-amber-300 hover:bg-amber-500/25'
-      : 'bg-black/10 dark:bg-white/10 text-app-text-secondary hover:bg-white/15';
+      : 'bg-black/5 dark:bg-white/10 text-app-text-secondary hover:bg-white/15';
   const title = [
     unlanded.length > 0 ? tr('board.delivery.unlandedTitle', { n: unlanded.length }) : null,
     total > 0 ? tr('board.delivery.toPublishTitle', { n: total }) : tr('board.delivery.nothingTitle'),
@@ -411,7 +411,7 @@ function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: {
         data-testid="worktree-count-badge"
         className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-mini ${orphan > 0
           ? 'bg-amber-500/15 text-amber-800 dark:text-amber-300 hover:bg-amber-500/25'
-          : 'bg-black/10 dark:bg-white/10 text-app-text-secondary hover:bg-white/20'}`}
+          : 'bg-black/5 dark:bg-white/10 text-app-text-secondary hover:bg-white/20'}`}
       >{tr('board.worktree.count', { n: count })}{orphan > 0 && <span className="tabular-nums">{tr('board.worktree.orphanBranches', { n: orphan })}</span>}</button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={320}>
         <div className="space-y-1.5 px-3 py-2.5 text-mini leading-snug text-app-text-secondary">
@@ -430,7 +430,7 @@ function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: {
           <button
             onClick={onGc}
             disabled={gcRunning}
-            className="shrink-0 rounded bg-black/10 dark:bg-white/10 px-2 py-1 text-mini text-app-text-secondary hover:bg-white/20 disabled:opacity-50"
+            className="shrink-0 rounded bg-black/5 dark:bg-white/10 px-2 py-1 text-mini text-app-text-secondary hover:bg-white/20 disabled:opacity-50"
             data-testid="worktree-gc-button"
           >{tr(gcRunning ? 'board.worktree.gcRunning' : 'board.worktree.gc')}</button>
           <span className="text-mini leading-snug text-app-text-muted">
@@ -648,7 +648,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
         data-creator={filters.creator ?? 'all'}
         title={tr('board.filter.creatorTitle')}
         onClick={() => onFiltersChange({ ...filters, creator: (filters.creator ?? 'all') === 'all' ? 'mine' : filters.creator === 'mine' ? 'others' : 'all' })}
-        className={`ml-1 flex ${TOOLBAR_CONTROL_H} shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded px-2 text-mini coarse:min-w-11 ${filterFocusRingClass} ${(filters.creator ?? 'all') === 'all' ? 'text-app-text-muted' : 'bg-black/10 dark:bg-white/10 text-app-text'} hover:bg-white/10 hover:text-app-text`}
+        className={`ml-1 flex ${TOOLBAR_CONTROL_H} shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded px-2 text-mini coarse:min-w-11 ${filterFocusRingClass} ${(filters.creator ?? 'all') === 'all' ? 'text-app-text-secondary dark:text-app-text-muted' : 'bg-black/5 dark:bg-white/10 text-app-text'} hover:bg-white/10 hover:text-app-text`}
       >{tr(`board.filter.creator.${filters.creator ?? 'all'}`)}</button>
 
       {/* Reset — only when something is active */}
@@ -2308,7 +2308,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                         {dragPreview.badges.length > 0 && (
                           <div className="mt-1.5 flex flex-wrap items-center gap-1">
                             {dragPreview.badges.map((b) => (
-                              <span key={b} className="rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary">{b}</span>
+                              <span key={b} className="rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary">{b}</span>
                             ))}
                           </div>
                         )}
