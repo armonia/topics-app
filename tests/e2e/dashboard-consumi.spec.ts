@@ -285,7 +285,9 @@ test.describe("consumi in the dashboard", () => {
 
   test("hub gone, after a reload: the board's numbers and the usage per project, nothing of the hub", async ({ page, request }) => {
     const errors: string[] = [];
-    page.on("pageerror", (e) => errors.push(e.message));
+    // WebKit raises «ResizeObserver loop completed with undelivered notifications» as an
+    // uncaught error: a layout notice of the engine, not an exception of the app.
+    page.on("pageerror", (e) => { if (!e.message.startsWith("ResizeObserver loop")) errors.push(e.message); });
     await page.setViewportSize({ width: 1440, height: 900 });
     await hub!.close();
     hub = null;
