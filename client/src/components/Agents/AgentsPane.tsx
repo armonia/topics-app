@@ -14,6 +14,7 @@ import { DANGER_TEXT } from '../../lib/popoverStyles';
 import { useSharedNow } from '../../state/useSharedNow';
 import type { AgentSession, AgentSessionState, AgentTerminal } from '../../lib/agentSessions';
 import { PALLINO_ATTESA, PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from '../Sidebar/chromeSignals';
+import { AgentProfiles, useAgentRegistry } from './AgentProfiles';
 
 type Tr = ReturnType<typeof useT>;
 
@@ -107,6 +108,7 @@ export function AgentsPane() {
   const ago = useAgo();
   const groups = useAgentGroups();
   const titles = useChannelTitles();
+  const { reg, load } = useAgentRegistry();
   const cli = tr('agents.cli');
   const name = (raw: string, key?: string | null) => agentSessionName(raw, titles, cli, key);
   return (
@@ -114,7 +116,9 @@ export function AgentsPane() {
       <div className="mx-auto max-w-3xl px-6 py-6">
         <h1 className="text-title font-semibold text-app-text">{tr('agents.title')}</h1>
         <p className="mt-1 text-prose text-app-text-secondary">{tr('agents.lede')}</p>
-        {groups.length === 0 && <p className="mt-6 text-prose text-app-text-muted">{tr('agents.empty')}</p>}
+        {reg && reg.agents.length > 0 && <AgentProfiles reg={reg} reload={load} />}
+        {reg && reg.agents.length > 0 && groups.length > 0 && <h2 className="mt-8 text-body-lg font-semibold text-app-text">{tr('agents.sessionsTitle')}</h2>}
+        {groups.length === 0 && !(reg && reg.agents.length > 0) && <p className="mt-6 text-prose text-app-text-muted">{tr('agents.empty')}</p>}
         {groups.map((g) => (
           <section key={g.id} data-testid="agents-group" className="mt-6 rounded-lg border border-app-border-light">
             <header className="flex items-center gap-2 border-b border-app-border-light px-3 py-2">
