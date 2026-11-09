@@ -2930,6 +2930,10 @@ const EN = {
   'board.filter.creatorTitle': 'Whose cards: all, mine, or opened by agents',
   'board.card.runInitiator': 'Started by {name}',
   'board.card.runInitiatorTitle': '{name} requested this delegated run',
+  'board.card.due': 'Due {date}',
+  'board.card.dueOverdue': 'Overdue {date}',
+  'board.card.dueTitle': 'Due date: {date}',
+  'board.card.dueOverdueTitle': 'Past its due date: {date}',
   'board.card.runComputerTitle': 'Delegated run executed on {name}',
 
   // Permissions: the panel where a person decides whether the agent may act.
