@@ -21,8 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureExternalProxyLeaf, type ExternalProxyLeaf } from "./external-proxy-ca";
 import {
-  bootExternalProxy, externalProxyPort, externalProxyStatePath, guardedLookupFor, isLocalOrPrivateAddress, startExternalProxy,
-  type ExternalProxy, type ExternalProxyOptions,
+  bootExternalProxy, externalProxyPort, externalProxyStatePath, guardedLookupFor, isLocalOrPrivateAddress, type ExternalProxy,
 } from "./external-proxy";
 import { closedPort, sleep, startProxy } from "./external-proxy.harness";
 

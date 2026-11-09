@@ -449,7 +449,10 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
   function endUpstream(data: RelayData, code: number, reason: string): void {
     if (data.upstream.readyState > WebSocket.OPEN) return;
     try {
-      if (code === 1005) data.upstream.close(); // an empty close frame
+      // The relay already gave up on this connection (`overflow`): what the client echoes back (1013) is not Anthropic's to hear,
+      // and its socket may still be flooding us, so no polite handshake is waited for.
+      if (data.overflowed) (data.upstream as WebSocket & { terminate(): void }).terminate();
+      else if (code === 1005) data.upstream.close(); // an empty close frame
       else if (isWireCloseCode(code)) data.upstream.close(code, reason);
       else (data.upstream as WebSocket & { terminate(): void }).terminate(); // Bun's extension, missing from the DOM typings. 1006: the client vanished, Anthropic sees a drop too
     } catch { /* already closed */ }
