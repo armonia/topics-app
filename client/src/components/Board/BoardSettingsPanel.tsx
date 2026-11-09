@@ -73,7 +73,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
       <div className="space-y-2" data-testid="settings-global">
         <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} tasks={tasks} onOpenTask={onOpenTask} overflow={{ checked: s.dispatchOverflow !== false, onChange: (v) => { void patch({ dispatchOverflow: v }); } }} />
         {dispatchOn && (
-          <p className="text-mini text-amber-800/80 dark:text-amber-300/80">{tr('board.settings.dispatchOnActive')}</p>
+          <p className="text-mini text-amber-300/80">{tr('board.settings.dispatchOnActive')}</p>
         )}
       </div>
 
@@ -108,7 +108,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         />
       </label>
       {s.dispatchPaused && (
-        <p className="text-mini text-amber-800/80 dark:text-amber-300/80">{tr('board.settings.pausedActive')}</p>
+        <p className="text-mini text-amber-300/80">{tr('board.settings.pausedActive')}</p>
       )}
       <label
         className="flex min-h-6 cursor-pointer items-center justify-between gap-3 coarse:min-h-11"
@@ -131,7 +131,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           {EFFORTS.map((ef) => (
             <button
               key={ef} onClick={() => patch({ dispatchEffort: ef })}
-              className={`rounded px-1.5 py-0.5 ${s.dispatchEffort === ef ? 'bg-emerald-500/80 text-white' : 'bg-black/5 dark:bg-white/5 text-app-text-secondary hover:bg-white/10'}`}
+              className={`rounded px-1.5 py-0.5 ${s.dispatchEffort === ef ? 'bg-emerald-500/80 text-white' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'}`}
             >{ef}</button>
           ))}
         </div>
@@ -146,7 +146,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           aria-expanded={modelOpen}
           data-testid="board-model-selector"
           onClick={() => setModelOpen((open) => !open)}
-          className="flex h-8 min-w-0 max-w-[62%] items-center gap-1 rounded-md bg-black/5 dark:bg-white/5 px-2 text-mini text-app-text-secondary coarse:min-h-11 hover:bg-white/10"
+          className="flex h-8 min-w-0 max-w-[62%] items-center gap-1 rounded-md bg-white/5 px-2 text-mini text-app-text-secondary coarse:min-h-11 hover:bg-white/10"
         >
           <Sparkles className="h-3 w-3 shrink-0" />
           <span className="truncate">{boardTrigger.line}</span>
@@ -220,7 +220,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
               disabled={!s.dispatchUseWorktree}
               onClick={() => patch({ dispatchFanOut: n })}
               className={`rounded px-1.5 py-0.5 disabled:opacity-40 ${
-                (s.dispatchFanOut || 1) === n ? 'bg-emerald-500/80 text-white' : 'bg-black/5 dark:bg-white/5 text-app-text-secondary enabled:hover:bg-white/10'
+                (s.dispatchFanOut || 1) === n ? 'bg-emerald-500/80 text-white' : 'bg-white/5 text-app-text-secondary enabled:hover:bg-white/10'
               }`}
             >{n}</button>
           ))}
@@ -235,7 +235,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         </p>
       )}
       {s.dispatchUseWorktree && (s.dispatchFanOut || 1) > 1 && (
-        <p className="text-mini text-amber-800/80 dark:text-amber-300/80">
+        <p className="text-mini text-amber-300/80">
           {tr('board.settings.fanoutWarn', { n: s.dispatchFanOut ?? 1 })}
         </p>
       )}
@@ -245,7 +245,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           richiesto ma il progetto non è un repo git registrato»: il messaggio
           era corretto e arrivava alla persona sbagliata. */}
       {s.dispatchUseWorktree && (s as { worktreeReady?: boolean }).worktreeReady === false && (
-        <p className="text-mini leading-snug text-amber-800/90 dark:text-amber-300/90">
+        <p className="text-mini leading-snug text-amber-300/90">
           {tr('board.settings.notRepoWarn')}
         </p>
       )}
@@ -330,7 +330,7 @@ function DeployCommandField({ value, suggestion, onSave }: {
         onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
         spellCheck={false}
         placeholder={tr('board.settings.deployCommandPlaceholder')}
-        className="w-full rounded bg-black/5 dark:bg-white/5 px-1.5 py-1 font-mono text-mini text-app-text outline-none placeholder:text-app-placeholder focus:bg-white/10"
+        className="w-full rounded bg-white/5 px-1.5 py-1 font-mono text-mini text-app-text outline-none placeholder:text-app-placeholder focus:bg-white/10"
       />
       {!value && suggestion && (
         <p className="text-mini text-app-text-muted">
@@ -388,7 +388,7 @@ function WorkflowPicker({ projectId, workflow, onChanged, onError }: {
       else onChanged(saved);
     } catch (e) { onError(e instanceof Error ? e.message : 'workflow save failed'); }
   };
-  const chip = (on: boolean) => `rounded px-1.5 py-0.5 ${on ? 'bg-emerald-500/80 text-white' : 'bg-black/5 dark:bg-white/5 text-app-text-secondary hover:bg-white/10'}`;
+  const chip = (on: boolean) => `rounded px-1.5 py-0.5 ${on ? 'bg-emerald-500/80 text-white' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'}`;
   const presetLabel = (p: WorkflowPresetId) => tr(`board.settings.workflow.preset.${p}`);
   return (
     <div className="space-y-2" data-testid="board-workflow-picker">
@@ -476,7 +476,7 @@ function ReviewChecksField({ checks, onSave }: { checks: ReviewCheck[]; onSave: 
         rows={Math.min(5, Math.max(2, text.split('\n').length))}
         spellCheck={false}
         placeholder={'bun run typecheck\nbun test'}
-        className="w-full resize-none rounded bg-black/5 dark:bg-white/5 px-1.5 py-1 font-mono text-mini text-app-text outline-none placeholder:text-app-placeholder focus:bg-white/10"
+        className="w-full resize-none rounded bg-white/5 px-1.5 py-1 font-mono text-mini text-app-text outline-none placeholder:text-app-placeholder focus:bg-white/10"
       />
       {dirty && <p className="text-mini text-app-text-muted">{tr('board.settings.saveOnBlur')}</p>}
     </div>

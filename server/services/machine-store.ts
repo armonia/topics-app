@@ -38,6 +38,8 @@ export interface MachineStore {
   getByHostname(host: string): Machine | null;
   list(): Machine[];
   rename(id: string, name: string): Machine | null;
+  /** Declare how many cards the node runs at once (`null` = default). */
+  setSlots(id: string, slots: number | null): Machine | null;
   /**
    * Insert-or-refresh a PAIRED node row, keyed by hostname like the local one.
    * `baseUrl` is where it answers; the device token never comes through here.
@@ -102,6 +104,7 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
       SELECT * FROM machines WHERE updated_at = $now AND status = 'offline' AND id != $localId
     `),
     rename: db.prepare(`UPDATE machines SET name = ?, updated_at = ? WHERE id = ?`),
+    setSlots: db.prepare(`UPDATE machines SET slots = ?, updated_at = ? WHERE id = ?`),
     insertNode: db.prepare(`
       INSERT INTO machines
         (id, name, hostname, arch, platform, daemon_version, status,
@@ -147,6 +150,7 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
       lastSeenAt: row.last_seen_at,
       acknowledgedWarnings: warnings,
       baseUrl: row.base_url ?? null,
+      slots: row.slots ?? null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -236,6 +240,11 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
     },
     rename(id, name) {
       stmts.rename.run(name, new Date().toISOString(), id);
+      const row = stmts.getById.get(id);
+      return row ? rowToMachine(row) : null;
+    },
+    setSlots(id, slots) {
+      stmts.setSlots.run(slots, new Date().toISOString(), id);
       const row = stmts.getById.get(id);
       return row ? rowToMachine(row) : null;
     },

@@ -18,8 +18,8 @@ export function LandingNotice({ band, testId, compact }: { band: LandingBand; te
   const tr = useT();
   const pending = band.kind === 'queued' || band.kind === 'running';
   const tone = band.kind === 'failed' || band.kind === 'unlanded'
-    ? 'border-rose-500/30 bg-rose-500/10 text-rose-800 dark:text-rose-300'
-    : 'border-amber-500/20 bg-amber-500/10 text-amber-800 dark:text-amber-300';
+    ? 'border-rose-500/30 bg-rose-500/10 text-rose-300'
+    : 'border-amber-500/20 bg-amber-500/10 text-amber-300';
   const box = compact
     ? `mt-2 rounded-md border px-2 py-1.5 text-compact leading-snug ${tone}`
     : `shrink-0 border-b px-3 py-1.5 text-mini ${tone}`;
