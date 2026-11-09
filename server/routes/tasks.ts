@@ -68,6 +68,7 @@ const checksFloorFields = (svc: TaskService): { checksMemFloorGB: number } =>
   ({ checksMemFloorGB: svc.getChecksMemFloorGB() });
 import { deliverAnswer } from "../lib/ask-user-bridge";
 import { resolveCreatedSource } from "../lib/created-by";
+import { SESSION_TOKEN_HEADER, sessionTokenOk } from "../lib/session-token";
 import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "../services/tasks";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { activeFrozenCount } from "../services/budget-governor";
@@ -3888,6 +3889,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const sk = decodeURIComponent(commentsRoute.sessionKey);
       const sess = resolveSession(sk);
       if (!sess) return json({ error: "session is not bound to a project", code: "no_project" }, 400);
+      // THE SIGNATURE IS EARNED, NOT NAMED IN THE URL. A wrong token is a
+      // forgery attempt and is refused; no token means the caller cannot prove
+      // which session it is, so it signs as the anonymous agent and never as
+      // the topic whose key it typed.
+      const presentedToken = req.headers.get(SESSION_TOKEN_HEADER);
+      if (presentedToken && !sessionTokenOk(sk, presentedToken)) {
+        return json({ error: "session token does not match this session", code: "session_token_mismatch" }, 403);
+      }
+      const commentAuthor = presentedToken ? sess.actor : AGENT_AUTHOR;
       const gated = fanOutGate(commentsRoute.taskId, "do NOT write in the shared thread");
       if (gated) return gated;
       const body = (await readJSON(req)) as any;
@@ -3919,7 +3929,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           taskId: commentsRoute.taskId,
           // The same identity the status row carries. What a person reads on
           // the card is derived from it (`shared/comment-author.ts`).
-          author: sess.actor,
+          author: commentAuthor,
           origin: sessionActionOrigin,
           content: body?.content,
           mentions: Array.isArray(body?.mentions) ? body.mentions : undefined,

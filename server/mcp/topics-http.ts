@@ -25,6 +25,8 @@ export interface ParsedArgs {
    * (`--topics-home`). Unset = no daemon token sent (unit tests, in-process callers).
    */
   topicsHome?: string;
+  /** Per-session credential (`--session-token`): proves this bridge is the agent of `sessionKey`. */
+  sessionToken?: string;
   /** Tool profile. "dispatch" scopes Claude task agents; "codex-dispatch" omits Claude-only spawning; "global-orchestrator" is the registry-gated global board surface. */
   profile?: string;
   /**
@@ -64,8 +66,9 @@ export function readDaemonToken(topicsHome: string): string | undefined {
  * How the bridge proves it is ours: the daemon token, which `agentAuthOk`
  * accepts on every gated route. It is the only credential the bridge carries.
  */
-export function bridgeAuthHeaders(args: Pick<ParsedArgs, "topicsHome">): Record<string, string> {
+export function bridgeAuthHeaders(args: Pick<ParsedArgs, "topicsHome" | "sessionToken">): Record<string, string> {
   const headers: Record<string, string> = {};
+  if (args.sessionToken) headers["X-Session-Token"] = args.sessionToken;
   const daemon = args.topicsHome ? readDaemonToken(args.topicsHome) : undefined;
   if (daemon) headers["X-Daemon-Token"] = daemon;
   return headers;

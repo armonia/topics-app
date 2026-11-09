@@ -33,6 +33,7 @@ import {
   type ParsedArgs,
 } from "../../mcp/topics-mcp-server";
 import type { ToolSpec } from "./tools";
+import { sessionTokenFor } from "../../lib/session-token";
 import type { ToolResult } from "./tools";
 
 /** `format` field of a `browser_screenshot` response, translated to a MIME type. */
@@ -135,6 +136,8 @@ export async function executeTopicsTool(
     baseUrl: ctx.baseUrl.replace(/\/$/, ""),
     sessionKey: ctx.sessionKey,
     topicsHome: ctx.topicsHome,
+    // In-process: the server derives its own session's credential.
+    sessionToken: sessionTokenFor(ctx.sessionKey) ?? undefined,
     profile: ctx.profile,
     ...(signal ? { turnSignal: signal } : {}),
   };

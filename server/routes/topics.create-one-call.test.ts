@@ -7,6 +7,7 @@
  * of them, with the same effort validation as PATCH.
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { setupTestDataDir, createTestAppContext, cleanupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { createTopicsRouter } from "./topics";
 
@@ -14,12 +15,12 @@ const ROOT = testTmpDir("topics-create-one-call");
 beforeAll(() => setupTestDataDir(`${ROOT}/data`));
 afterAll(() => cleanupTestDataDir(ROOT));
 
-async function post(body: unknown) {
+async function post(body: unknown, extraHeaders: Record<string, string> = {}) {
   const ctx = await createTestAppContext();
   const router = createTopicsRouter(ctx);
   const url = new URL("http://t.test/api/topics");
   const res = await router(new Request(url, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    method: "POST", headers: { "Content-Type": "application/json", ...extraHeaders }, body: JSON.stringify(body),
   }), url, url.pathname, "POST");
   return { ctx, status: res!.status, body: (await res!.json()) as any };
 }
@@ -46,5 +47,20 @@ describe("POST /api/topics with model and effort", () => {
     expect(status).toBe(201);
     expect(body.model ?? null).toBeNull();
     expect(body.effort ?? null).toBeNull();
+  });
+
+  test("a caller with the agent credential cannot declare the model (403)", async () => {
+    const prevHome = process.env.TOPICS_HOME;
+    const token = "cd".repeat(32);
+    const home = `${ROOT}/agent-home`;
+    mkdirSync(home, { recursive: true });
+    writeFileSync(`${home}/daemon-state.json`, JSON.stringify({ pid: 1, port: 1, token, startedAt: new Date().toISOString() }));
+    process.env.TOPICS_HOME = home;
+    try {
+      const { status } = await post({ name: "agent-model", model: "claude-opus-5-5" }, { "X-Daemon-Token": token });
+      expect(status).toBe(403);
+    } finally {
+      if (prevHome === undefined) delete process.env.TOPICS_HOME; else process.env.TOPICS_HOME = prevHome;
+    }
   });
 });

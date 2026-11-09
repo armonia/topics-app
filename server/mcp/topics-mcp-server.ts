@@ -1002,6 +1002,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     baseUrl: baseUrl.replace(/\/$/, ""),
     sessionKey,
     topicsHome: map["topics-home"],
+    sessionToken: map["session-token"],
     profile: map["profile"],
   };
 }

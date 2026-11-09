@@ -96,6 +96,7 @@ import { restoreSweptTranscript } from "../lib/transcript-keeper";
 import { PARTIAL_ARGS_EMIT_MS, extractPrimaryToolArg } from "./partial-tool-input";
 import { handoffFromStore } from "./handoff";
 import { topicsMcpBridgeLaunch } from "../lib/topics-mcp-bridge-argv";
+import { sessionTokenFor } from "../lib/session-token";
 import { hasPriorMessagesInDB, loadActiveBranchForReplay, renderRecapPrologue, renderReplayPrologue } from "./claude/history-replay";
 
 // ============ Config ============
@@ -368,6 +369,9 @@ export function topicsMcpBridgeSpec(sessionKey: string, profile?: string): { com
     // in the agent's per-call context. Absent = full toolset (interactive).
     ...(profile ? [`--profile=${profile}`] : []),
     `--topics-home=${topicsHome()}`,
+    // Binds this bridge to ITS session: the comment route signs as the session
+    // only for a caller that presents this (see `server/lib/session-token.ts`).
+    ...(sessionTokenFor(sessionKey) ? [`--session-token=${sessionTokenFor(sessionKey)}`] : []),
   ]);
 }
 

@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pendingQuestionComment } from "../../shared/board";
 import { createTasksRouter } from "./tasks";
+import { sessionTokenFor } from "../lib/session-token";
 import { _resetRoutedAsks, pendingRoutedAsk, routeAskToTaskThread, DEAD_QUESTION_LINE } from "../services/board-ask-routing";
 import { cancelAsk } from "../lib/ask-user-bridge";
 import { topicSessionKey } from "../services/agent-census";
@@ -18,8 +19,25 @@ import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import { ARCHIVE_PARKED_LABEL, createTaskService, LAND_ACTION_LABEL, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL } from "../services/tasks";
 import { freshDb, makeCtx, call, rawCall } from "./tasks-test-support";
 
+/** The credential the bridge carries for `sessionKey`, from a throwaway daemon secret. */
+function tokenHeaders(sessionKey: string): Record<string, string> {
+  return { "X-Session-Token": sessionTokenFor(sessionKey)! };
+}
+
 describe("tasks router (session-scoped)", () => {
   let db: Database; let broadcasts: any[]; let router: any;
+  const prevHome = process.env.TOPICS_HOME;
+  const homeDir = mkdtempSync(join(tmpdir(), "topics-token-"));
+  beforeAll(() => {
+    writeFileSync(join(homeDir, "daemon-state.json"), JSON.stringify({
+      pid: 1, port: 1, token: "ab".repeat(32), startedAt: new Date().toISOString(),
+    }));
+    process.env.TOPICS_HOME = homeDir;
+  });
+  afterAll(() => {
+    if (prevHome === undefined) delete process.env.TOPICS_HOME; else process.env.TOPICS_HOME = prevHome;
+    rmSync(homeDir, { recursive: true, force: true });
+  });
   beforeEach(() => {
     db = freshDb(); broadcasts = [];
     router = createTasksRouter(makeCtx(db, broadcasts));
@@ -54,7 +72,7 @@ describe("tasks router (session-scoped)", () => {
 
   test("POST comment → 201, broadcasts task:updated", async () => {
     const t = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
-    const resp = (await call(router, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, { content: "note" }))!;
+    const resp = (await call(router, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, { content: "note" }, tokenHeaders("s1")))!;
     expect(resp.status).toBe(201);
     expect(broadcasts.some(b => b.type === "task:updated")).toBe(true);
     const got = await (await call(router, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
@@ -66,6 +84,25 @@ describe("tasks router (session-scoped)", () => {
     // writes, so one reader resolves both.
     expect(got.comments.find((c: { author: string }) => c.author !== "system").author).toBe("agent:top-s1");
     expect(got.comments[0].author).not.toBe("topic-one");
+  });
+
+  test("POST comment naming another session without its token is refused (403)", async () => {
+    const t = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    // s2's token presented on s1's URL, and s1's URL with a made-up token.
+    const crossed = (await call(router, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, { content: "forged" }, tokenHeaders("s2")))!;
+    expect(crossed.status).toBe(403);
+    const made = (await call(router, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, { content: "forged" }, { "X-Session-Token": "0".repeat(64) }))!;
+    expect(made.status).toBe(403);
+    const got = await (await call(router, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
+    expect(got.comments.some((c: { content: string }) => c.content === "forged")).toBe(false);
+  });
+
+  test("POST comment with no token is signed as the anonymous agent, never as the URL's topic", async () => {
+    const t = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    const resp = (await call(router, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, { content: "bare" }))!;
+    expect(resp.status).toBe(201);
+    const got = await (await call(router, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
+    expect(got.comments.find((c: { content: string }) => c.content === "bare").author).toBe("agent");
   });
 
   test("POST comment with options → server-composed question block", async () => {

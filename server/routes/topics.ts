@@ -1,6 +1,10 @@
 import { restoreToolCallsFromBlocks } from "../utils";
 import { recentActiveRows, rowCarryingAsk, rowCarryingTool, type AskHaystackRow } from "../lib/ask-answer-routing";
 import { patchLiveTool } from "../lib/turn-body-flush";
+import { agentAuthOk } from "../lib/agent-auth";
+
+/** `topics.model` is a free string that later reads as who answered; an agent must not pick it. */
+const AGENT_MODEL_REFUSAL = { error: "an agent cannot declare a topic's model", code: "agent_model_forbidden" };
 import { canonicalProjectPath } from "../lib/canonical-project-path";
 import { clientProjectPathRefused, CLIENT_PROJECT_PATH_ERROR } from "../lib/client-project-path";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
@@ -1431,6 +1435,7 @@ export function createTopicsRouter(
       // One-call create: model and effort are accepted here with the same rules
       // as PATCH, so a chat with its model, effort and first prompt
       // (`initialMessage`) is a single POST instead of POST + PATCH + /api/chat.
+      if (body.model !== undefined && agentAuthOk(req)) return json(AGENT_MODEL_REFUSAL, 403);
       if (typeof body.model === "string" && body.model) topic.model = body.model;
       if (body.effort !== undefined && body.effort !== null && body.effort !== "" && body.effort !== "default") {
         const tier = String(body.effort).trim().toLowerCase();
@@ -1732,6 +1737,7 @@ export function createTopicsRouter(
           spawnConfigChanged ||= (topic.provider ?? null) !== prev;
         }
         if (body.model !== undefined) {
+          if (agentAuthOk(req)) return json(AGENT_MODEL_REFUSAL, 403);
           const prev = topic.model ?? null;
           topic.model = body.model || null;
           spawnConfigChanged ||= (topic.model ?? null) !== prev;
