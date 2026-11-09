@@ -2,11 +2,22 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.66 — 2026-11-09
+
+### Sotto il cofano
+- L'atterraggio automatico rilegge tutto prima del merge e non lascia passare file di guardia, spesa o giudizio
+- Il land automatico giudica uno sha solo, rifà il verdetto prima del merge e lascia a una persona tutto ciò che protegge, costa, giudica o cancella
+- Il land automatico lascia da solo solo testo e test, manda il codice del server alla revisione AI e rilegge la card dentro il merge
+- Land automatico: via il livello revisione AI, server/** va a una persona
+
 ## 2.3.65 — 2026-11-09
 
 ### Sotto il cofano
 - tema chiaro della Board (a7286fe8) torna fuori da main
+- La card invisibile con la barra verde atterra da sola
+- Toglie un import inutilizzato dal test della porta del nodo
 - CI di main rossa dopo i land della sera: un test senza requisito e due spec che dipendono dal tempo
+- L'atterraggio automatico guarda il main che atterra, i percorsi ammessi e l'archivio
 
 ## 2.3.64 — 2026-11-08
 
