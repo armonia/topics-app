@@ -15,3 +15,5 @@ Outcome note for the card. The code lives in the private jarvis repo (branch `to
 - Heavy computation stays in `bin/hub-read.mjs`, called on demand and cached 30 to 120 seconds, the last copy
   served while a new read runs behind.
 - No live service was touched.
+
+Code branch commits: 7efe4d8b, d256d289 (jarvis repo).
