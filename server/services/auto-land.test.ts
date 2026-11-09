@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
-  aiReviewVerdict, autoLandVerdict, classifyDelivery, createAutoLander, mayLandAloneByPlace, modelFamily, sameCommit, touchesServer,
+  autoLandVerdict, classifyDelivery, createAutoLander, mayLandAloneByPlace, sameCommit, touchesServer,
   type AutoLandBoard, type AutoLandCard, type AutoLandComment,
 } from "./auto-land";
 
@@ -80,9 +80,8 @@ describe("autoLandVerdict", () => {
     expect(verdict(card(), BOARD, [delivery]).ok).toBe(true);
   });
 
-  test("a card in AI review is closed by its opener, unless the caller applies that rule by the kind of delivery", () => {
+  test("a card in AI review is closed by its opener", () => {
     expect(verdict(card({ stage: "ai_review" })).ok).toBe(false);
-    expect(autoLandVerdict(card({ stage: "ai_review" }), BOARD, [], { aiReviewCard: true })).toEqual({ ok: true });
   });
 
   test("open steps keep the parent in review", () => {
@@ -127,11 +126,6 @@ describe("sameCommit / touchesServer", () => {
   });
 });
 
-const SHA = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
-const approval = (author: string, sha = SHA, verb = "approved"): AutoLandComment => ({
-  author, kind: "comment", content: `AI-REVIEW ${verb} ${sha}\nLetto il diff: nessun effetto fuori dai test.`, createdAt: "2026-11-09T11:00:00.000Z",
-});
-
 describe("mayLandAloneByPlace / classifyDelivery: only text and tests land with no one looking", () => {
   test.each([
     "docs/board-protocol.md", "openspec/changes/x/proposal.md",
@@ -162,123 +156,30 @@ describe("mayLandAloneByPlace / classifyDelivery: only text and tests land with 
     expect(classifyDelivery(["docs/board-protocol.md", "docs/a.md"], new Set(["docs/board-protocol.md"])).files).toEqual(["docs/board-protocol.md"]);
   });
 
-  // The verifier's files (09/11, repro `e2e-files.ts`): the vocabulary net let 242 server files through, and each of these
-  // changes what protects, pays, deletes or judges. None of them may land alone any more.
+  // The verifier's files (09/11, repro `e2e-files.ts`): a list of words let 242 server files through, and each of these
+  // changes what protects, pays, deletes or judges. Nothing under server/ lands alone, whatever the file is called.
   test.each([
     "server/lib/low-priority.ts", "server/lib/agent-env.ts", "server/lib/child-env.ts", "server/services/known-project-dirs.ts",
     "server/lib/project-visibility.ts", "server/lib/session-free-mode.ts", "server/lib/quiescence.ts", "server/services/project-store.ts",
     "server/lib/transcript-keeper.ts", "server/lib/intent-classifier.ts", "server/services/preview-manager.ts",
     "server/lib/bounded-spawn.ts", "server/lib/serial-queue.ts", "server/lib/git-numstat.ts", "server/utils/path-env.ts",
-  ])("%s is server code: never alone, at best the AI review's", (f) => {
-    expect(classifyDelivery([f]).tier).not.toBe("alone");
-  });
-
-  test("server code the vocabulary net does not name goes to the AI review; the net only sends files to a person", () => {
-    expect(classifyDelivery(["server/lib/git-numstat.ts"])).toEqual({ tier: "ai-review", files: ["server/lib/git-numstat.ts"] });
-    expect(classifyDelivery(["server/lib/agent-env.ts", "docs/a.md"]).tier).toBe("ai-review");
-    for (const f of ["server/lib/auth-gate.ts", "server/services/task-dispatcher.ts", "server/services/auto-land.ts", "server/lib/real-path.ts",
-      "server/services/worktree-gc.ts", "server/push-triggers.ts", "server/services/board-actions.ts", "server/lib/stripe.ts"]) {
-      expect(classifyDelivery([f])).toEqual({ tier: "person", files: [f] });
-    }
-  });
-
-  test("camelCase and kebab-case read the same: a file name is not a way around the net", () => {
-    expect(classifyDelivery(["server/lib/authGate.ts", "server/lib/servedFileHeaders.ts"]).tier).toBe("person");
-  });
-
-  test.each([
-    // The router, the database, the browser and billing are a person's, whatever the file is called.
+    "server/lib/authGate.ts", "server/services/task-dispatcher.ts", "server/services/auto-land.ts", "server/push-triggers.ts",
+    // The router, the database, the browser and billing, outside server/ the shared contract, the shell, the entry point.
     "server/routes/notes.ts", "server/routes/tasks.ts", "server/db/schema.ts", "server/db/migrations/20261109-x.sql",
-    "server/browser-site-data.ts", "server/browser-login-state.ts", "server/usage/pricing.ts", "server/package.json",
-    // Outside server/: product text, the shared contract, the shell, the entry point.
+    "server/browser-site-data.ts", "server/usage/pricing.ts", "server/package.json",
     "shared/tool-detail.ts", "desktop-tauri/src-tauri/tauri.conf.json", "client/public/icon.png", "bun.lock",
-  ])("%s is a person's, not even the AI review's", (f) => {
-    expect(classifyDelivery([f]).tier).toBe("person");
+  ])("%s is not text or a test: a person's, and the files that make it so are named", (f) => {
+    expect(classifyDelivery([f])).toEqual({ tier: "person", files: [f] });
   });
 
-  test("the tier is the highest of the files, and the files that set it are named", () => {
+  test("the delivery is a person's as soon as one file is, and the files that make it so are named", () => {
     expect(classifyDelivery(["docs/a.md", "tests/unit/a.test.ts"]).tier).toBe("alone");
-    expect(classifyDelivery(["docs/a.md", "server/lib/git-numstat.ts"])).toEqual({ tier: "ai-review", files: ["server/lib/git-numstat.ts"] });
-    expect(classifyDelivery(["server/lib/git-numstat.ts", "LICENSE", "docs/a.md"])).toEqual({ tier: "person", files: ["LICENSE"] });
+    expect(classifyDelivery(["docs/a.md", "server/lib/git-numstat.ts"])).toEqual({ tier: "person", files: ["server/lib/git-numstat.ts"] });
+    expect(classifyDelivery(["server/lib/git-numstat.ts", "LICENSE", "docs/a.md"])).toEqual({ tier: "person", files: ["server/lib/git-numstat.ts", "LICENSE"] });
   });
 
   test("an empty diff has nothing a person must read", () => {
     expect(classifyDelivery([]).tier).toBe("alone");
-  });
-});
-
-describe("modelFamily: a different model is a different family, not a different version", () => {
-  test.each([
-    ["claude-opus-4-7", "opus"], ["Opus", "opus"], ["opus[1m]", "opus"], ["claude-sonnet-5-5", "sonnet"], ["anthropic/claude-haiku-4-5", "haiku"],
-    ["gpt-5-codex", "gpt"], ["gemini-2.5-pro", "gemini"],
-  ])("%s is %s", (m, f) => expect(modelFamily(m)).toBe(f));
-  test.each([[null], [""], ["  "], ["4-7"], [undefined]])("%p cannot be told", (m) => expect(modelFamily(m)).toBeNull());
-});
-
-describe("aiReviewVerdict: server code lands alone only on the board's AI review of THIS commit", () => {
-  const models: Record<string, string | null> = { "agent:w1": "claude-sonnet-5-5", "agent:r1": "claude-opus-4-7", "agent:r2": "claude-sonnet-4-6", "agent:r3": null };
-  const input = (over: { stage?: string; aiReview?: boolean; thread?: AutoLandComment[]; assignedTopicId?: string | null; model?: string | null } = {}) => ({
-    commit: SHA,
-    card: { stage: over.stage ?? "ai_review", assignedTopicId: "assignedTopicId" in over ? over.assignedTopicId : "w1", model: "model" in over ? over.model : "sonnet" },
-    board: { aiReview: over.aiReview ?? true },
-    thread: over.thread ?? [approval("agent:r1")],
-    modelOf: (a: string) => models[a] ?? null,
-  });
-
-  test("an approval of this sha by another session on another model: yes", () => {
-    expect(aiReviewVerdict(input())).toEqual({ ok: true });
-  });
-
-  test("a board with no AI review column has no reviewer: a person decides", () => {
-    expect(aiReviewVerdict(input({ aiReview: false }))).toMatchObject({ ok: false });
-  });
-
-  test("a card that is not in the AI review column was not reviewed there", () => {
-    expect(aiReviewVerdict(input({ stage: "human_review" }))).toMatchObject({ ok: false });
-  });
-
-  test("no verdict line, a verdict about another sha, an abbreviated sha: not approved", () => {
-    expect(aiReviewVerdict(input({ thread: [] })).ok).toBe(false);
-    expect(aiReviewVerdict(input({ thread: [approval("agent:r1", "b".repeat(40))] })).ok).toBe(false);
-    expect(aiReviewVerdict(input({ thread: [{ author: "agent:r1", content: `AI-REVIEW approved ${SHA.slice(0, 12)}` }] })).ok).toBe(false);
-  });
-
-  test("the line must open the comment: a sentence quoting it is not a verdict", () => {
-    expect(aiReviewVerdict(input({ thread: [{ author: "agent:r1", content: `Ho letto tutto.\nAI-REVIEW approved ${SHA}` }] })).ok).toBe(false);
-  });
-
-  test("the LAST verdict about this sha wins; one about another sha changes nothing", () => {
-    const other = "c".repeat(40);
-    expect(aiReviewVerdict(input({ thread: [approval("agent:r1"), approval("agent:r1", SHA, "rejected")] })).ok).toBe(false);
-    expect(aiReviewVerdict(input({ thread: [approval("agent:r1", SHA, "rejected"), approval("agent:r1")] })).ok).toBe(true);
-    expect(aiReviewVerdict(input({ thread: [approval("agent:r1"), approval("agent:r1", other, "rejected")] })).ok).toBe(true);
-    // A rejection counts whoever writes it: the careful direction.
-    expect(aiReviewVerdict(input({ thread: [approval("agent:r1"), approval("user", SHA, "rejected")] })).ok).toBe(false);
-  });
-
-  test("an approval from a person, the system or a guest is not the AI review", () => {
-    for (const author of ["user", "system", "dispatcher", "verifier", "guest:dev1", "Claude Code"]) {
-      expect(aiReviewVerdict(input({ thread: [approval(author)] })).ok).toBe(false);
-    }
-  });
-
-  test("the model that wrote the card cannot approve it: not its own session, not one that delivered on it earlier", () => {
-    models["agent:w1"] = "claude-sonnet-5-5";
-    expect(aiReviewVerdict(input({ thread: [approval("agent:w1")] })).ok).toBe(false);
-    // Nor can one that delivered on it earlier, though it is no longer the assigned session.
-    const previousRound: AutoLandComment = { author: "agent:r1", kind: "delivery", content: "Consegna del primo giro." };
-    expect(aiReviewVerdict(input({ thread: [previousRound, approval("agent:r1")] })).ok).toBe(false);
-  });
-
-  test("the same model family, an unknown reviewer model, an unknown writer model: no", () => {
-    expect(aiReviewVerdict(input({ thread: [approval("agent:r2")] })).ok).toBe(false); // sonnet reviews sonnet
-    expect(aiReviewVerdict(input({ thread: [approval("agent:r3")] })).ok).toBe(false); // reviewer model unknown
-    expect(aiReviewVerdict(input({ assignedTopicId: "gone", model: null })).ok).toBe(false); // writer model unknown, none asked
-    expect(aiReviewVerdict(input({ model: "claude-opus-4-1" })).ok).toBe(false); // the card ASKED for opus and opus reviews it
-  });
-
-  test("with the writer's topic gone but the model the card asked for known, a different family still reviews it", () => {
-    expect(aiReviewVerdict(input({ assignedTopicId: null, model: "haiku" }))).toEqual({ ok: true });
   });
 });
 
@@ -290,7 +191,6 @@ describe("createAutoLander", () => {
       cardLive: false, turns: 0, fileReads: 0, turnAsks: [] as Array<{ insideLand?: boolean } | undefined>,
       /** What the bar's configuration names, per ask. */
       named: [] as string[] | null, namedAsks: 0,
-      models: { "agent:w1": "claude-sonnet-5-5", "agent:r1": "claude-opus-4-7" } as Record<string, string | null>,
       /** The commit each path read was asked about. */
       fileCommits: [] as string[],
       precheck: null as null | ((commit: string | null) => Promise<string | null>),
@@ -302,18 +202,16 @@ describe("createAutoLander", () => {
       note: (_t, text) => { state.notes.push(text); },
       files: async (_taskId, commit) => { state.fileReads += 1; state.fileCommits.push(commit); return state.files; },
       referenced: async () => { state.namedAsks += 1; return state.named; },
-      modelOf: (a) => state.models[a] ?? null,
       liveTurns: async (how) => { state.turnAsks.push(how); return state.turns; },
       cardTurnLive: () => state.cardLive,
       pollMs: 5,
     });
     return { state, lander };
   };
-  /** A card ready for the AI review gate: in the column, written by w1, reviewed by r1 on SHA. */
-  const reviewed = (over: Partial<Parameters<typeof card>[0]> = {}) =>
-    card({ stage: "ai_review", deliveryCommit: SHA, checksCommit: SHA, assignedTopicId: "w1", model: "sonnet", ...over });
-  const serverFiles = ["server/lib/git-numstat.ts"];
-  const aiBoard: AutoLandBoard = { ...BOARD, aiReview: true };
+  /** The commit the default card delivers and the bar measured. */
+  const OFFERED = "abc1234def5678";
+  /** A delivery of tests that sits inside `server/`: it lands alone, and it reloads the live server. */
+  const serverTest = ["server/lib/git-numstat.test.ts"];
 
   test("a delivery touching a path a person must look at is refused", async () => {
     const { state, lander } = base({ files: ["server/push-triggers.ts"] });
@@ -349,48 +247,26 @@ describe("createAutoLander", () => {
     expect(state.namedAsks).toBe(0);
   });
 
-  test("server code with no AI review column on the board: a person's, however green the bar", async () => {
-    const { state, lander } = base({ files: serverFiles, card: reviewed(), thread: [approval("agent:r1")], board: BOARD });
-    expect(await lander.tryLand("p1", "t1")).toBe("refused");
-    expect(state.lands).toBe(0);
+  // The line `AI-REVIEW approved <sha>` is a comment, and a comment is signed by whatever session the URL names: it proves nothing.
+  test("server code stays a person's even with an approval line of another model family on this very commit", async () => {
+    const sha = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
+    const approval: AutoLandComment = {
+      author: "agent:r1", kind: "comment", createdAt: "2026-11-09T11:00:00.000Z",
+      content: `AI-REVIEW approved ${sha}\nLetto il diff: nessun effetto fuori dai test.`,
+    };
+    const delivered = (stage: string | null) => card({ stage, deliveryCommit: sha, checksCommit: sha });
+    // Control: the same card and the same line, with text, lands: the refusals below come from the paths.
+    const control = base({ files: ["docs/a.md"], card: delivered(null), thread: [approval] });
+    expect(await control.lander.tryLand("p1", "t1")).toBe("queued");
+    for (const stage of ["ai_review", "human_review", null]) {
+      const { state, lander } = base({ files: ["server/lib/git-numstat.ts"], card: delivered(stage), thread: [approval] });
+      expect(await lander.tryLand("p1", "t1")).toBe("refused");
+      expect(state.lands).toBe(0);
+    }
   });
 
-  test("server code not yet reviewed waits for the AI review and lands no sooner than its approval of this commit", async () => {
-    const { state, lander } = base({ files: serverFiles, card: reviewed(), board: aiBoard });
-    expect(await lander.tryLand("p1", "t1")).toBe("refused");
-    state.thread = [approval("agent:r1", "d".repeat(40))];
-    expect(await lander.tryLand("p1", "t1")).toBe("refused");
-    state.thread = [approval("agent:r1")];
-    expect(await lander.tryLand("p1", "t1")).toBe("queued");
-    expect(state.lands).toBe(1);
-  });
-
-  test("the approval of a session that wrote the card, or of the same model, does not land it", async () => {
-    const { state, lander } = base({ files: serverFiles, card: reviewed(), board: aiBoard, thread: [approval("agent:w1")] });
-    expect(await lander.tryLand("p1", "t1")).toBe("refused");
-    state.models["agent:r1"] = "claude-sonnet-4-6";
-    state.thread = [approval("agent:r1")];
-    expect(await lander.tryLand("p1", "t1")).toBe("refused");
-    expect(state.lands).toBe(0);
-  });
-
-  test("an approved server delivery says so in the note it writes when it really goes to merge", async () => {
-    const { state, lander } = base({ files: serverFiles, card: reviewed(), board: aiBoard, thread: [approval("agent:r1")] });
-    expect(await lander.tryLand("p1", "t1")).toBe("queued");
-    expect(await state.precheck!(SHA)).toBeNull();
-    expect(state.notes.join(" ")).toContain("revisione AI");
-  });
-
-  test("an approval that is withdrawn before the merge stops the land: the recheck reads the thread again", async () => {
-    const { state, lander } = base({ files: serverFiles, card: reviewed(), board: aiBoard, thread: [approval("agent:r1")] });
-    await lander.tryLand("p1", "t1");
-    state.thread = [approval("agent:r1"), approval("agent:r1", SHA, "rejected")];
-    expect(await state.precheck!(SHA)).toContain("rejected");
-    expect(state.notes).toEqual([]);
-  });
-
-  test("text that is not server code in a card sitting in AI review is still closed by its opener", async () => {
-    const { state, lander } = base({ files: ["docs/note.md"], card: reviewed(), board: aiBoard });
+  test("text in a card sitting in AI review is still closed by its opener", async () => {
+    const { state, lander } = base({ files: ["docs/note.md"], card: card({ stage: "ai_review" }) });
     expect(await lander.tryLand("p1", "t1")).toBe("refused");
     expect(state.lands).toBe(0);
   });
@@ -455,7 +331,7 @@ describe("createAutoLander", () => {
   });
 
   test("a server diff waits on an async turn count too", async () => {
-    const { state, lander } = base({ files: serverFiles, card: reviewed(), board: aiBoard, thread: [approval("agent:r1")] });
+    const { state, lander } = base({ files: serverTest });
     state.turns = 1;
     expect(await lander.tryLand("p1", "t1")).toBe("waiting");
     await Bun.sleep(30);
@@ -485,27 +361,27 @@ describe("createAutoLander", () => {
   });
 
   test("the recheck reads the open turns again, as the land's own: a turn that opened in the queue stops a server diff", async () => {
-    const { state, lander } = base({ files: serverFiles, card: reviewed(), board: aiBoard, thread: [approval("agent:r1")] });
+    const { state, lander } = base({ files: serverTest });
     expect(await lander.tryLand("p1", "t1")).toBe("queued");
     state.turnAsks.length = 0;
     // The card's agent woke up and three turns are open when the queue hands over.
     state.cardLive = true; state.turns = 3;
-    const stop = await state.precheck!(SHA);
+    const stop = await state.precheck!(OFFERED);
     expect(stop).toContain("turn");
     expect(state.turnAsks).toEqual([]); // the card's own turn is enough: no need to count the others
     state.cardLive = false;
-    expect(await state.precheck!(SHA)).toContain("turn");
+    expect(await state.precheck!(OFFERED)).toContain("turn");
     // It asked the count as a land asking about itself: its own slot in the queue is not a turn to wait for.
     expect(state.turnAsks).toEqual([{ insideLand: true }]);
     state.turns = 0;
-    expect(await state.precheck!(SHA)).toBeNull();
+    expect(await state.precheck!(OFFERED)).toBeNull();
   });
 
   test("a land stopped on a turn is asked again by the next sweep, not refused as 'already offered'", async () => {
-    const { state, lander } = base({ files: serverFiles, card: reviewed(), board: aiBoard, thread: [approval("agent:r1")] });
+    const { state, lander } = base({ files: serverTest });
     expect(await lander.tryLand("p1", "t1")).toBe("queued");
     state.turns = 2;
-    expect(await state.precheck!(SHA)).toContain("turn");
+    expect(await state.precheck!(OFFERED)).toContain("turn");
     state.turns = 0;
     expect(await lander.tryLand("p1", "t1", { quiet: true })).toBe("queued");
     expect(state.lands).toBe(2);

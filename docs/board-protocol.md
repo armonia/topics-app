@@ -446,8 +446,7 @@ queste regole.
    - **Le protezioni del verdetto oltre alle precedenti** (dalla revisione del
      09/11/2026). La card resta in review se: il diff tocca un percorso che una
      persona deve guardare anche quando l'etichetta dice `invisibile`
-     (`classifyDelivery`: ogni cosa che non sia testo, test o codice del server
-     approvato dalla revisione AI, qui sotto), o se i
+     (`classifyDelivery`: ogni cosa che non sia testo o test, qui sotto), o se i
      file non si leggono; la corsa è finita su un errore (`dispatchError`: una
      consegna parziale piantata dal PC si guarda, non si misura); una persona ha
      scritto sulla card dopo che è entrata in review. Il land pubblica ESATTAMENTE
@@ -465,7 +464,7 @@ queste regole.
      `tryMerge`, sotto la coda del repo, dopo il fetch e un istante prima del merge
      (`DeliverySnapshot.beforeMerge`, cioè il `recheck` del conduttore): lì si
      rilegge la card (stato, archiviata, `human_ask`, domande in fondo al thread,
-     commit consegnato), i percorsi, la barra, la revisione AI e i turni aperti. Il
+     commit consegnato), i percorsi, la barra e i turni aperti. Il
      merge prende lo SHA misurato (`git merge --no-ff <sha>`), mai il nome del ramo,
      e un istante prima si rilegge anche la punta del ramo: se si è mossa, niente
      merge (`not-as-measured`). Se la card è passata a un altro commit non atterra
@@ -480,55 +479,32 @@ queste regole.
      server fermo). Un arresto dentro il land scrive «si è fermato prima del merge»
      sulla card e la lascia in review; un arresto non fa dimenticare il commit al
      conduttore, che alla spazzata successiva rilegge e decide da capo.
-   - **Chi guarda cosa: tre livelli per i percorsi** (quarta revisione, 09/11/2026:
-     un elenco di parole non può dire che un file è innocuo, ne passavano 242 fra cui
-     `agent-env`, `child-env`, `low-priority` che esegue la barra, `bounded-spawn`,
-     `serial-queue` del land, `project-store`, `quiescence`, `intent-classifier`).
-     1. **Da sola** atterra SOLO un diff fatto interamente di `docs/**`,
-        `openspec/**` e file di test: `*.test.ts` accanto al modulo,
-        `tests/unit/**`, `tests/integration/**`, `tests/e2e/**/*.spec.ts`. Esclusi
+   - **Chi guarda cosa: due livelli per i percorsi** (quarta e quinta revisione,
+    09/11/2026: un elenco di parole non può dire che un file è innocuo, ne passavano
+    242 fra cui `agent-env`, `child-env`, `low-priority` che esegue la barra,
+    `bounded-spawn`, `serial-queue` del land, `project-store`, `quiescence`,
+    `intent-classifier`).
+     1. **Da sola** atterra SOLO un diff fatto interamente di testo e test:
+        `docs/**`, `openspec/**` e file di test (`*.test.ts` accanto al modulo,
+        `tests/unit/**`, `tests/integration/**`, `tests/e2e/**/*.spec.ts`). Esclusi
         anche sotto `tests/`: `tests/setup/**`, ogni `*.json`, ogni snapshot
         (`*-snapshots/**`, `__snapshots__/**`, `*.snap`), `scripts/**`, `.github/**` e
         qualunque file che `bunfig.toml`, `scripts/`, `package.json` o `.github/`
         NOMINANO (`git grep` sul commit, `referencedByTheJudge`: il preload, un
         helper importato, un documento che uno script legge sono il giudice, non un
         test). Se git non risponde, non atterra.
-     2. **Alla revisione AI della board** va il diff che tocca `server/**` (non
-        `routes/`, non `db/`, non `browser-*`, non `usage/`, non `shared/`) e passa
-        le altre condizioni. Non atterra da solo: atterra solo se la revisione AI
-        approva LO STESSO sha (sotto). Se la board non ha lo stadio, resta a una
-        persona. La rete di parole di prima (auth, credenziali, spesa, land, cancella e
-        ferma…) resta come rete IN PIÙ: manda un file a una persona, non ne ammette mai
-        nessuno.
-     3. **A una persona** tutto il resto: `client/`, `shared/`, `server.ts`,
-        `server/routes/`, `server/db/` (migration comprese), `scripts/`, `.github/`,
-        `desktop-tauri/`, la radice, i file nuovi di cartelle nuove.
-   - **La revisione AI che sblocca il codice del server.** È lo stadio `ai_review`
-     del workflow `armonia` (`shared/workflow.ts`, `stageForDelivery`): una consegna
-     di una card aperta da una macchina, senza domanda, va lì e la chiude chi l'ha
-     aperta. Per il conduttore la revisione approva un commit se TUTTO questo è vero:
-     la board ha la colonna `ai_review` e la card ci sta; l'ultima riga di verdetto
-     su QUELLO sha è un'approvazione (una `rejected` successiva per lo stesso sha la
-     annulla, e vale chiunque la scriva; una riga su un altro sha non dice niente);
-     chi approva è una sessione agente (`agent:<topicId>`, scritto dal server dalla
-     sessione, non falsificabile da chi scrive) e il suo modello è di una FAMIGLIA
-     diversa da quella di ogni autore della card (la sessione assegnata e chi ha
-     consegnato sul thread) e da quella chiesta dalla card (`opus` rivede `sonnet`,
-     non `sonnet-4-6` rivede `sonnet-5-5`); la sessione che ha scritto la card ha il
-     modello che l'ha scritta, quindi non approva mai il proprio lavoro; un modello
-     che non si sa dire non è un modello diverso. Si approva scrivendo un commento sulla card
-     la cui PRIMA riga è, per intero e con lo sha completo di 40 caratteri:
-     `AI-REVIEW approved <sha>` (oppure `AI-REVIEW rejected <sha>`), con sotto ciò che
-     è stato letto. Il conduttore se ne accorge alla spazzata successiva (ogni 10
-     minuti); un'approvazione ritirata prima del merge ferma il merge.
-   - **Come si accende lo stadio (non è acceso da questa change).** Il codice non
-     tocca il DB vivo. Per una board: workflow `armonia` dal selettore delle colonne
-     (o `PUT` del preset sulla board; è la riga di `board_workflows` con
-     `scope = <projectId>`, `preset = 'armonia'`); per tutte le board senza riga
-     propria: lo scope globale `'*'`. Finché non è acceso, il codice del server resta
-     a una persona e al conduttore non cambia niente: atterrano da sole solo le
-     consegne di solo testo e test.
-   - **Cosa tocca una persona senza passare da `client/src`: `human_ask`.**
+     2. **A una persona** tutto il resto, `server/**` compreso: `client/`, `shared/`,
+        `server.ts`, `server/routes/`, `server/db/` (migration comprese), `scripts/`,
+        `.github/`, `desktop-tauri/`, la radice, i file nuovi di cartelle nuove.
+     Il commento di una revisione AI sulla card (una riga come
+     `AI-REVIEW approved <sha>`) non sblocca niente e il conduttore non lo legge:
+     il commento lo firma la sessione che nomina l'URL, il loopback è fidato senza
+     credenziali e il modello di un topic è una stringa libera, quindi chiunque può
+     scriverlo. Una revisione AI potrà sbloccare `server/**` solo con un'identità
+     che il server verifica (non con un commento), e quando esisterà sarà una
+     change a parte. Una card nella colonna `ai_review` la chiude chi l'ha aperta,
+     qualunque cosa consegni.
+  - **Cosa tocca una persona senza passare da `client/src`: `human_ask`.**
      L'etichetta la deriva dai percorsi, e un testo che una persona legge può
      stare fuori da `client/src` (notifiche push, presence Discord, messaggi ai
      canali). Il kickoff (`buildKickoff`) obbliga l'agente a mettere `human_ask`

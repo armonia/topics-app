@@ -18,7 +18,6 @@
  * tasks on the project it named/owns (no cross-project IDOR).
  */
 import { STAGE_AI_REVIEW, awaitsHuman } from "../../shared/workflow";
-import { boardHasAiReview, topicModelOf } from "../services/auto-land-facts";
 import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { cpus, homedir } from "node:os";
@@ -1690,10 +1689,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     },
     board: (projectId) => {
       const settings = svc.getBoardSettings(projectId);
-      return { autoMerge: settings.dispatchAutoMerge, declaredChecks: settings.reviewChecks.length, aiReview: boardHasAiReview(db, projectId) };
+      return { autoMerge: settings.dispatchAutoMerge, declaredChecks: settings.reviewChecks.length };
     },
     land: (projectId, taskId, recheck) => enqueueLand(projectId, taskId, { noRealign: true, recheck }),
-    modelOf: topicModelOf(db),
     note: (taskId, text) => {
       svc.addComment({ taskId, author: "system", kind: "service", content: text });
     },
