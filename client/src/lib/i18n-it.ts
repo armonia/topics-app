@@ -2656,6 +2656,8 @@ const IT: Dict = {
   // ── I DISPOSITIVI autorizzati. Superficie migrata al dizionario insieme
   //    all'area account/gruppi: prima era interamente in italiano in chiaro,
   //    accanto a pannelli inglesi, e i due si vedevano nella stessa finestra.
+  'devices.hubSpend': '{eur} € su {cap} € questo mese',
+  'devices.hubActionFailed': 'Non riuscito: {why}',
   'devices.nodeOnline': 'in linea',
   'devices.nodeSeen': 'ultimo battito {when}',
   'devices.youAreHere': 'stai qui',

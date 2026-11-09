@@ -31,6 +31,7 @@ import type { DevicePerson, DevicesSnapshot, PairedDevice } from '@/lib/devicesR
 import { pendingRemoteRequests } from '@/lib/remoteNodeRequests';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { MachinesLevel } from './FormLevels';
+import { HubMachineRows } from './HubMachineRows';
 import { nodeRequestsLabel } from './formLevelTails';
 import { deviceRevokedLine, deviceSeenLine, deviceWhen } from '@/lib/deviceAudit';
 import { nodesOf, useMachines } from '@/state/machinesStore';
@@ -164,6 +165,8 @@ export function DevicesLevel({ devices, failed = false, width, onReadDevices, de
               <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${PALLINO_OK}`} />
             </div>
           )}
+          {/* The PC and the Hetzner server, as the hub sees them (lib/hubMachines.ts). */}
+          <HubMachineRows />
           {nodes.map((n) => (
             <div key={n.id} data-testid="device-node-row" data-connected={n.status === 'online' ? 'true' : 'false'} className={ROW}>
               <Server size={12} className="flex-shrink-0 text-app-text-muted" />
