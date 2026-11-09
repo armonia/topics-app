@@ -24,10 +24,11 @@ import { useT } from '../../hooks/useT';
 import { useScripts } from '../../hooks/useScripts';
 import { useHubEverRead, useHubLive, refreshHubLive } from '../../state/hubLive';
 import { startVisibleInterval } from '../../state/documentVisibility';
-import { apiFetch, serverHttpBase } from '../../lib/shell/net';
+import { serverHttpBase } from '../../lib/shell/net';
 import { scriptsApi } from '../../lib/api';
 import { PROCESSES_LOG_EVENT, takeProcessesLogRequest } from '../../state/processesLog';
 import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
+import { readJson } from '../../lib/readJson';
 import {
   NOT_MEASURED, PROXY_SERVICE_ID, censusAt, formatMem, formatPct, formatRate, macGauges, parseLogEvent, pcView,
   processRows, pushLogLine, serviceGroups, serviceRows, servicesReadAt, servicesToWatch, type HistoryPoint, type LogLine, type MacGauges, type PcView, type ProcessRow, type ServiceRow, type UnitKind,
@@ -55,15 +56,6 @@ interface HubReads {
   census: unknown;
   mac: unknown;
   machines: unknown;
-}
-
-async function readJson(path: string): Promise<unknown> {
-  try {
-    const r = await apiFetch(path);
-    return r.ok ? await r.json() : null;
-  } catch {
-    return null;
-  }
 }
 
 /**

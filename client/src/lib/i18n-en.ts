@@ -2440,6 +2440,10 @@ const EN = {
   'editor.tab.menu.keepOpen': 'Keep open',
   'editor.tab.menu.copyPath': 'Copy path',
   'editor.loadFailed': 'The file did not load, so it cannot be edited here.',
+  'editor.toolbar.copyPath': 'Copy path',
+  'editor.toolbar.wrap': 'Word wrap',
+  'editor.toolbar.showSource': 'Show source',
+  'editor.toolbar.preview': 'Preview {label}',
   // ── Git: commit history and diff hunks.
   'git.history.noCommits': 'No commits',
   'git.history.noFilesHere': 'No file from this project in this commit',

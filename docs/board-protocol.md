@@ -427,6 +427,99 @@ queste regole.
      anche con la barra verde. «Nessun check» (`null`) non è un verde e non
      autorizza nessuno. Il predicato è `whoCloses`, e la board lo disegna sulla
      card in review.
+   - **Il conduttore adesso esegue (`server/services/auto-land.ts`).** Fino al
+     08/11/2026 `conductor` era solo il disegno di un chip: 27 card in review, 2
+     con la barra verde, e l'unica uscita era un gesto di Attilio. Dopo una
+     consegna (porta dell'agente e porta del nodo) la card atterra da sola se
+     TUTTO questo è vero: barra della board verde per intero SUL COMMIT
+     CONSEGNATO (`checksCommit` = `deliveryCommit`), etichetta `invisibile`,
+     nessun `human_ask` e nessuna domanda dell'agente come ultima parola del
+     thread, merge automatico della board acceso, nessun sottotask aperto, un
+     commit proprio. Il land parte con `noRealign`: se il ramo è rimasto
+     indietro su main NON lo riallinea (atterrerebbe un commit diverso da quello
+     misurato) e la card resta in review con la ragione scritta. Se il diff
+     tocca `server/`, `server.ts` o `shared/` (il watcher ricarica il server sul
+     merge) aspetta ZERO turni aperti. Una card chiusa non lo è da sé: la
+     chiude il merge CONFERMATO su main, come per ogni land. Ad Attilio restano
+     `visibile`, `decisione`, ogni domanda, barra rossa o non misurata, board
+     senza barra o con merge automatico spento.
+   - **Le protezioni del verdetto oltre alle precedenti** (dalla revisione del
+     09/11/2026). La card resta in review se: il diff tocca un percorso che una
+     persona deve guardare anche quando l'etichetta dice `invisibile`
+     (`classifyDelivery`: ogni cosa che non sia testo o test, qui sotto), o se i
+     file non si leggono; la corsa è finita su un errore (`dispatchError`: una
+     consegna parziale piantata dal PC si guarda, non si misura); una persona ha
+     scritto sulla card dopo che è entrata in review. Il land pubblica ESATTAMENTE
+     il commit misurato: ramo consegnato sparito, punta spostata da un commit
+     aggiunto dopo, o commit di altre card che andrebbero ricopiati →
+     `not-as-measured`, nessun merge. Un commit già offerto al land non si
+     rioffre a ogni spazzata (un rifiuto non cambia finché non cambia il ramo). Se
+     l'agente della card è ancora dentro il suo turno aspetta la fine, quale che
+     sia il diff: il land taglia quel turno e una domanda scritta subito dopo
+     sarebbe tagliata prima di essere letta.
+   - **Il verdetto riguarda UN commit e si rifà subito prima del merge** (terza e
+     quarta revisione, 09/11/2026). Barra, card, domande e percorsi si leggono sullo
+     sha esatto che verrà fuso (`deliveryCommit`), mai sulla punta di un ramo che si
+     muove; si rifanno a ogni battito dell'attesa dei turni e ancora DENTRO
+     `tryMerge`, sotto la coda del repo, dopo il fetch e un istante prima del merge
+     (`DeliverySnapshot.beforeMerge`, cioè il `recheck` del conduttore): lì si
+     rilegge la card (stato, archiviata, `human_ask`, domande in fondo al thread,
+     commit consegnato), i percorsi, la barra e i turni aperti. Il
+     merge prende lo SHA misurato (`git merge --no-ff <sha>`), mai il nome del ramo,
+     e un istante prima si rilegge anche la punta del ramo: se si è mossa, niente
+     merge (`not-as-measured`). Se la card è passata a un altro commit non atterra
+     niente sull'offerta vecchia e si ricomincia dal nuovo. I percorsi sono il diff
+     netto contro main (`git diff --name-only main...sha`,
+     `services/landing-files.ts`), senza escludere nulla: il commit di residuo della
+     potatura viaggia nel merge e quindi conta; il cancello del land (`noRealign`)
+     confronta commit totali e propri anche quando non ci sono altri rami locali.
+     La conta dei turni aperti è quella del cancello di riavvio
+     (`whatIsStillWorking`) più stream e terminali agente occupati; chiesta da
+     dentro il land non conta il land stesso (altrimenti non troverebbe mai il
+     server fermo). Un arresto dentro il land scrive «si è fermato prima del merge»
+     sulla card e la lascia in review; un arresto non fa dimenticare il commit al
+     conduttore, che alla spazzata successiva rilegge e decide da capo.
+   - **Chi guarda cosa: due livelli per i percorsi** (quarta e quinta revisione,
+    09/11/2026: un elenco di parole non può dire che un file è innocuo, ne passavano
+    242 fra cui `agent-env`, `child-env`, `low-priority` che esegue la barra,
+    `bounded-spawn`, `serial-queue` del land, `project-store`, `quiescence`,
+    `intent-classifier`).
+     1. **Da sola** atterra SOLO un diff fatto interamente di testo e test:
+        `docs/**`, `openspec/**` e file di test (`*.test.ts` accanto al modulo,
+        `tests/unit/**`, `tests/integration/**`, `tests/e2e/**/*.spec.ts`). Esclusi
+        anche sotto `tests/`: `tests/setup/**`, ogni `*.json`, ogni snapshot
+        (`*-snapshots/**`, `__snapshots__/**`, `*.snap`), `scripts/**`, `.github/**` e
+        qualunque file che `bunfig.toml`, `scripts/`, `package.json` o `.github/`
+        NOMINANO (`git grep` sul commit, `referencedByTheJudge`: il preload, un
+        helper importato, un documento che uno script legge sono il giudice, non un
+        test). Se git non risponde, non atterra.
+     2. **A una persona** tutto il resto, `server/**` compreso: `client/`, `shared/`,
+        `server.ts`, `server/routes/`, `server/db/` (migration comprese), `scripts/`,
+        `.github/`, `desktop-tauri/`, la radice, i file nuovi di cartelle nuove.
+     Il commento di una revisione AI sulla card (una riga come
+     `AI-REVIEW approved <sha>`) non sblocca niente e il conduttore non lo legge:
+     il commento lo firma la sessione che nomina l'URL, il loopback è fidato senza
+     credenziali e il modello di un topic è una stringa libera, quindi chiunque può
+     scriverlo. Una revisione AI potrà sbloccare `server/**` solo con un'identità
+     che il server verifica (non con un commento), e quando esisterà sarà una
+     change a parte. Una card nella colonna `ai_review` la chiude chi l'ha aperta,
+     qualunque cosa consegni.
+  - **Cosa tocca una persona senza passare da `client/src`: `human_ask`.**
+     L'etichetta la deriva dai percorsi, e un testo che una persona legge può
+     stare fuori da `client/src` (notifiche push, presence Discord, messaggi ai
+     canali). Il kickoff (`buildKickoff`) obbliga l'agente a mettere `human_ask`
+     quando la consegna tocca spesa, pubblico, dati di persone vere,
+     irreversibile, login o un testo letto da una persona: una card con
+     `human_ask` non atterra da sola.
+   - **La porta del nodo consegna come una locale.** Il ramo piantato dal PC
+     prende le etichette dai suoi commit propri e, se la barra della board è
+     fatta solo di righe CI (`github-ci:*`), la barra misurata sul commit
+     piantato (checkout usa-e-getta del ramo, push e PR in bozza come per una
+     locale). Una barra con comandi locali non si misura lì: niente
+     `node_modules`, il rosso direbbe «non è installato» e non «è sbagliato».
+     Una corsa sul nodo con ZERO commit propri, messa lì dal sistema (non da una
+     persona), torna in `todo` con `stay_local`: sul PC mancano strumenti che la
+     card usa.
    - **Quanto vale la scorciatoia, onestamente: 2 card su ~30.** Il grosso della
      coda è roba visiva e resta di Attilio. L'etichetta serve lo stesso — 2 card
      al giorno diventano tante in un mese, e soprattutto il FILTRO «solo le

@@ -46,6 +46,7 @@ import { BUTTON, Bar, CHIP, CHIP_TONE, CardHead, CardShell, type Run, type Tr } 
 import { useClock, type Clock } from './useAccountClock';
 import { ClaudeCard } from './ClaudeAccountCard';
 import { AccessAndSpend, BoardExtras, LoginCard, ProxyHealthLine } from './AccountInsights';
+import { readJson } from '../../lib/readJson';
 
 // The view's strings travel with its chunk, before its first render.
 addCatalogue('it', ACCOUNTS_IT);
@@ -63,15 +64,6 @@ interface ProxyReads {
   /** The hub's board: per account the pace dial, the forecast, the extra windows, the login, who spent. */
   board: unknown;
   at: number;
-}
-
-async function readJson(path: string): Promise<unknown> {
-  try {
-    const r = await apiFetch(path);
-    return r.ok ? await r.json() : null;
-  } catch {
-    return null;
-  }
 }
 
 type Fetched = { profiles: unknown; settings: unknown; board: unknown };

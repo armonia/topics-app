@@ -45,3 +45,17 @@ export function formatTokens(n: number, opts: FormatTokensOptions = {}): string 
   }
   return String(decimals === undefined ? n : Math.round(n));
 }
+
+/**
+ * A token count the way the menus and sidebars say it, in the reader's locale:
+ * `950`, `4,9 k` (one decimal under 10k), `786 k`, `1,3 M`. The sidebar rows
+ * used to carry three private copies that spelled the same number three ways.
+ */
+export function shortTokens(n: number, locale: string): string {
+  const f = (v: number) => v.toLocaleString(locale, { maximumFractionDigits: 1 });
+  const rounded = Math.round(n);
+  if (rounded >= 999_500) return `${f(n / 1e6)} M`;
+  if (rounded >= 10_000) return `${Math.round(n / 1e3)} k`;
+  if (rounded >= 1_000) return `${f(n / 1e3)} k`;
+  return String(rounded);
+}

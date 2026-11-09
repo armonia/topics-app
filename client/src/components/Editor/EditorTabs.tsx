@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useImperativeHandle, forwardRef, useRef, Suspense } from 'react';
 import { copyText } from '../../lib/clipboard';
-import { X, File, WrapText, Eye, Code, Copy, Check, Pin } from 'lucide-react';
+import { X, File, Copy, Check, Pin } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { filesApi } from '../../lib/api';
@@ -18,6 +18,7 @@ import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { POPOVER_ITEM } from '../../lib/popoverStyles';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
+import { CopyPathBtn, WrapBtn, PreviewBtn } from './ToolbarButtons';
 
 // `lazyWarm`, same reason as in `FilePane`: this module is itself warmed from
 // the boot snapshot, and a bare `lazy()` here would put the spinner one hop
@@ -387,42 +388,6 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
     </div>
   );
 });
-
-// ── Toolbar Buttons ──
-
-function CopyPathBtn({ filePath, projectPath }: { filePath: string; projectPath: string }) {
-  const [copied, setCopied] = useState(false);
-  const copyPath = async () => {
-    const rel = filePath.replace(projectPath, '').replace(/^\//, '');
-    if (!(await copyText(rel))) return;
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-  return (
-    <button onClick={copyPath} title="Copy Path" className="p-0.5 rounded hover:bg-app-hover transition-colors text-app-text-muted">
-      {copied ? <Check size={13} /> : <Copy size={13} />}
-    </button>
-  );
-}
-
-function WrapBtn({ active, onClick }: { active: boolean; onClick: () => void }) {
-  return (
-    // `aria-pressed` e non solo la tinta: acceso e spento si distinguevano solo
-    // per il colore dell'icona, cioe' per niente che un lettore di schermo (o
-    // una spec) possa leggere.
-    <button onClick={onClick} title="Word Wrap" aria-pressed={active} data-testid="editor-wrap-toggle" className={`p-0.5 rounded hover:bg-app-hover transition-colors ${active ? 'text-primary' : 'text-app-text-muted'}`}>
-      <WrapText size={13} />
-    </button>
-  );
-}
-
-function PreviewBtn({ previewing, onClick, label = 'Markdown' }: { previewing: boolean; onClick: () => void; label?: string }) {
-  return (
-    <button onClick={onClick} title={previewing ? 'Show Source' : `Preview ${label}`} className={`p-0.5 rounded hover:bg-app-hover transition-colors ${previewing ? 'text-primary' : 'text-app-text-muted'}`}>
-      {previewing ? <Code size={13} /> : <Eye size={13} />}
-    </button>
-  );
-}
 
 // Expose imperative open method via ref-like pattern
 export type EditorTabsHandle = {

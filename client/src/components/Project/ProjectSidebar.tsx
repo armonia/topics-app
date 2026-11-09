@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense, type RefObject } from 'react';
 import { useExitGhost } from '../../lib/exitGhost';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
@@ -407,6 +407,20 @@ function GitSectionRow({
         </div>
       </div>
       {loading && expanded && <GitSectionSkeleton fileCount={git?.fileCount ?? 0} />}
+    </div>
+  );
+}
+
+/** The new file / new folder / collapse / refresh buttons of the Files header (mobile and desktop share them). */
+function FilesHeaderActions({ explorerRef, reveal }: { explorerRef: RefObject<FileExplorerHandle | null>; reveal: string }) {
+  const tr = useT();
+  const btn = 'p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary';
+  return (
+    <div className={`ml-auto flex items-center gap-0.5 ${reveal}`} onClick={e => e.stopPropagation()}>
+      <button onClick={() => explorerRef.current?.newFile()} className={btn} title={tr('project.sidebar.newFile')}><FilePlus size={12} /></button>
+      <button onClick={() => explorerRef.current?.newFolder()} className={btn} title={tr('project.sidebar.newFolder')}><FolderPlus size={12} /></button>
+      <button onClick={() => explorerRef.current?.collapseAll()} className={btn} title={tr('project.sidebar.collapseAll')}><ChevronsDownUp size={12} /></button>
+      <button onClick={() => explorerRef.current?.refresh()} className={btn} title={tr('project.sidebar.refresh')}><RefreshCw size={12} /></button>
     </div>
   );
 }
@@ -1011,12 +1025,7 @@ export function ProjectSidebar({
                 <span>{tr('project.sidebar.files')}</span>
                 <ChevronRight size={12} className={`transition-transform duration-fast text-app-text-tertiary flex-shrink-0 ${expandedSections.files ? 'rotate-90' : ''}`} />
                 {expandedSections.files && (
-                  <div className={`ml-auto flex items-center gap-0.5 ${filesHeaderReveal}`} onClick={e => e.stopPropagation()}>
-                    <button onClick={() => fileExplorerRef.current?.newFile()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.newFile')}><FilePlus size={12} /></button>
-                    <button onClick={() => fileExplorerRef.current?.newFolder()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.newFolder')}><FolderPlus size={12} /></button>
-                    <button onClick={() => fileExplorerRef.current?.collapseAll()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.collapseAll')}><ChevronsDownUp size={12} /></button>
-                    <button onClick={() => fileExplorerRef.current?.refresh()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.refresh')}><RefreshCw size={12} /></button>
-                  </div>
+                  <FilesHeaderActions explorerRef={fileExplorerRef} reveal={filesHeaderReveal} />
                 )}
               </div>
               <KeptSection open={expandedSections.files}>
@@ -1224,12 +1233,7 @@ export function ProjectSidebar({
             <span>{tr('project.sidebar.files')}</span>
             <ChevronRight size={12} className={`transition-transform duration-fast text-app-text-tertiary flex-shrink-0 ${expandedSections.files ? 'rotate-90' : ''}`} />
             {expandedSections.files && (
-              <div className={`ml-auto flex items-center gap-0.5 ${filesHeaderReveal}`} onClick={e => e.stopPropagation()}>
-                <button onClick={() => fileExplorerRef.current?.newFile()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.newFile')}><FilePlus size={12} /></button>
-                <button onClick={() => fileExplorerRef.current?.newFolder()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.newFolder')}><FolderPlus size={12} /></button>
-                <button onClick={() => fileExplorerRef.current?.collapseAll()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.collapseAll')}><ChevronsDownUp size={12} /></button>
-                <button onClick={() => fileExplorerRef.current?.refresh()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.refresh')}><RefreshCw size={12} /></button>
-              </div>
+              <FilesHeaderActions explorerRef={fileExplorerRef} reveal={filesHeaderReveal} />
             )}
           </div>
           <KeptSection open={expandedSections.files}>

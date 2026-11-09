@@ -9,6 +9,7 @@ import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { useMobile } from '../../hooks/useMobile';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { hoverRevealClass } from '../../lib/hoverReveal';
+import { errMessage } from '../../lib/errMessage';
 
 interface Branch {
   name: string;
@@ -19,16 +20,6 @@ interface Branch {
   remote?: string;
   ahead?: number;
   behind?: number;
-}
-
-/** Extract a human-readable message from an unknown thrown value. */
-function errMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === 'string') return err;
-  if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
-    return (err as { message: string }).message;
-  }
-  return String(err);
 }
 
 interface BranchListProps {

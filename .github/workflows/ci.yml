@@ -59,6 +59,7 @@ jobs:
   # fails, when a change is too large to list, or when the commit before this one
   # on main is not green (see the header of the script for why that last one).
   changes:
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -112,6 +113,7 @@ jobs:
   # checked and removed by the runner, and a file that litters it is red.
   # scripts/test-unit-shards.ts has the whole story and the measurements.
   unit:
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -166,6 +168,7 @@ jobs:
   # Skipped when nothing the four test files import has changed (a client-only
   # or docs-only change). The board does not read this job by name.
   process-groups:
+    timeout-minutes: 15
     needs: changes
     if: ${{ needs.changes.outputs.process_groups != 'false' }}
     strategy:
@@ -217,6 +220,7 @@ jobs:
   # (1.2-4.6). The unit verdict moved to the small `check` job below, which
   # keeps the job and step names the board reads.
   gates:
+    timeout-minutes: 25
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -814,6 +818,7 @@ jobs:
   # measured. Needing `gates` costs nothing on the critical path, `gates` ends
   # before `unit` does.
   check:
+    timeout-minutes: 30
     needs: [unit, gates]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
@@ -863,6 +868,7 @@ jobs:
   # server/services/ci-evidence.ts), so a skipped job would hold the pull request
   # back instead of letting it through.
   prepare-e2e:
+    timeout-minutes: 10
     needs: changes
     runs-on: ubuntu-latest
     outputs:
@@ -909,11 +915,11 @@ jobs:
         id: plan
         # E2E_TIER=pr: il piano copre solo i test del gate PR, come fa lo shard.
         # Se il piano fallisce (durate mancanti, --list crash) si fa ok=false e
-        # ogni shard cade nel fallback --shard=i/8, che e' sempre stato l'unico.
-        # 16 = the 8 runners of the matrix of `e2e` times the 2 processes each
+        # ogni shard cade nel fallback --shard=i/7, che e' sempre stato l'unico.
+        # 14 = the 7 runners of the matrix of `e2e` times the 2 processes each
         # runs (see that job). Change one and the other two move with it.
         run: |
-          if bun run scripts/e2e-plan-shards.ts 16 --out plan; then
+          if bun run scripts/e2e-plan-shards.ts 14 --out plan; then
             echo "ok=true" >> "$GITHUB_OUTPUT"
           else
             echo "ok=false" >> "$GITHUB_OUTPUT"
@@ -930,6 +936,7 @@ jobs:
           retention-days: 1
 
   e2e:
+    timeout-minutes: 25
     runs-on: ubuntu-latest
     needs: [changes, prepare-e2e]
     # WHEN NOTHING THE SHARDS READ HAS CHANGED the matrix is the single job `e2e (0)`
@@ -972,7 +979,7 @@ jobs:
     # then ran the touched specs on top (5.9 min): 26 minutes of wall clock for
     # a pull request (run 36461528241). The suite runs ONE worker per shard
     # (`workers: 1`, one test server and one DB per shard), so the only lever
-    # on its wall clock is the number of shards, and 8 halves it.
+    # on its wall clock is the number of shards, and 7 runners (14 processes, from 16) keep it under the 25 minute cap of the job.
     #
     # TWO PLAYWRIGHT PROCESSES PER RUNNER. One process left three of the four
     # vCPU idle: 18 of the 19 minutes of a shard were tests run one at a time
@@ -984,7 +991,7 @@ jobs:
     #   3 processes 8.2-10.4 min, each test +55%, load 8.6 (max 15.8), and six
     #               timing-sensitive tests flaked that never did before
     # Two is nearly all the gain at a load the runner carries. The plan is cut
-    # in 16 pieces and runner N takes pieces 2N-1 and 2N.
+    # in 14 pieces and runner N takes pieces 2N-1 and 2N.
     #
     # `e2e (0)` is not a shard of the PR tier: it runs ONLY the step "E2E dei
     # file toccati", in parallel with the eight shards instead of after one of
@@ -1022,7 +1029,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(needs.changes.outputs.e2e == 'false' && '[0]' || (github.event_name == 'pull_request' && '[0, 1, 2, 3, 4, 5, 6, 7, 8]' || '[1, 2, 3, 4, 5, 6, 7, 8]')) }}
+        shard: ${{ fromJSON(needs.changes.outputs.e2e == 'false' && '[0]' || (github.event_name == 'pull_request' && '[0, 1, 2, 3, 4, 5, 6, 7]' || '[1, 2, 3, 4, 5, 6, 7]')) }}
     steps:
       - name: Nothing the e2e shards read has changed
         if: ${{ needs.changes.outputs.e2e == 'false' }}
@@ -1202,8 +1209,8 @@ jobs:
               echo "[ci] processo $k: piano per durata $PLAN_FILE"
               readarray -t SELECTORS < "$PLAN_FILE"
             else
-              echo "[ci] processo $k: piano non disponibile, fallback a --shard=$piece/$((8 * PROCS))"
-              SELECTORS=("--shard=$piece/$((8 * PROCS))")
+              echo "[ci] processo $k: piano non disponibile, fallback a --shard=$piece/$((7 * PROCS))"
+              SELECTORS=("--shard=$piece/$((7 * PROCS))")
             fi
             E2E_PORT=$((13910 + k - 1)) \
             PLAYWRIGHT_JSON_OUTPUT_FILE="test-results/sub/report-$k.json" \
@@ -1302,6 +1309,7 @@ jobs:
   # change (scripts/ci-changes.ts has the list, and why). The board does not read
   # this job by name.
   tauri:
+    timeout-minutes: 45
     needs: changes
     if: ${{ needs.changes.outputs.tauri != 'false' }}
     strategy:
