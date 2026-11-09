@@ -1123,7 +1123,7 @@ function noteDroppedInput(sessionId: string, err: unknown): void {
 export function resolveTerminalSend(
   sessionType: string | undefined,
   input: string,
-): { data: string; sent: number; dropped: boolean; pasted: boolean } {
+): { data: string; sent: number; dropped: boolean; pasted: boolean; enter?: boolean } {
   const data = bridgeWriteForSession(sessionType, input);
   if (data === null) return { data: "", sent: 0, dropped: true, pasted: false };
   const sent = Buffer.byteLength(data, "utf8");
@@ -1132,8 +1132,12 @@ export function resolveTerminalSend(
   // (Enter, arrows, anything with a control byte) and short text stay raw so
   // dialogs and menus keep reading them as keystrokes.
   const claudeTui = sessionType === "claude-code" || sessionType === "claude-code-team";
-  if (claudeTui && sent > PASTE_MIN_BYTES && isPlainText(data)) {
-    return { data: promptAsPaste(data), sent, dropped: false, pasted: true };
+  // One trailing Enter (the legacy gateway sends `text + "\r"`) is split off and
+  // sent as its own key after the paste.
+  const enter = data.endsWith("\r");
+  const text = enter ? data.slice(0, -1) : data;
+  if (claudeTui && Buffer.byteLength(text, "utf8") > PASTE_MIN_BYTES && isPlainText(text)) {
+    return { data: promptAsPaste(text), sent, dropped: false, pasted: true, enter };
   }
   return { data, sent, dropped: false, pasted: false };
 }
@@ -1945,9 +1949,27 @@ export async function readTopicsTerminalScreen(id: string): Promise<string | nul
 export function writeTopicsTerminal(id: string, data: string): boolean {
   if (!sessions.has(id)) return false;
   noteTerminalInput(id);
+  // live-terminals and the gateway send `text + "\r"` in one string. Split the
+  // Enter off so a long text for a Claude TUI can go as a paste (the Enter stays
+  // a keystroke, a little later so the TUI has taken the paste first).
+  const type = sessions.get(id)?.type;
+  const claudeTui = type === "claude-code" || type === "claude-code-team";
+  const m = /^([^\r]*)(\r?)$/.exec(data);
+  if (claudeTui && m && Buffer.byteLength(m[1], "utf8") > PASTE_MIN_BYTES && isPlainText(m[1])) {
+    sendToBridge({ type: "write", id, data: promptAsPaste(m[1]) });
+    if (m[2]) {
+      setTimeout(() => {
+        try { if (sessions.has(id)) sendToBridge({ type: "write", id, data: "\r" }); } catch { /* bridge went away */ }
+      }, PASTE_ENTER_DELAY_MS);
+    }
+    return true;
+  }
   sendToBridge({ type: "write", id, data });
   return true;
 }
+
+/** Pause between a pasted text and its Enter, so the TUI has absorbed the paste. */
+const PASTE_ENTER_DELAY_MS = 150;
 
 export function countAttachedTerminalSessions(): number {
   let n = 0;
@@ -3609,6 +3631,12 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       if (send.dropped) return json({ ok: false, dropped: true, sent: 0 });
       noteTerminalInput(sendMatch.id);
       sendToBridge({ type: "write", id: sendMatch.id, data: send.data });
+      if (send.enter) {
+        const sid = sendMatch.id;
+        setTimeout(() => {
+          try { if (sessions.has(sid)) sendToBridge({ type: "write", id: sid, data: "\r" }); } catch { /* bridge went away */ }
+        }, PASTE_ENTER_DELAY_MS);
+      }
       return json({ ok: true, sent: send.sent, pasted: send.pasted });
     }
 

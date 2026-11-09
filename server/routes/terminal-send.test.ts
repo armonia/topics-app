@@ -38,11 +38,16 @@ describe("resolveTerminalSend", () => {
   test("long plain text for a Claude session is a bracketed paste, sent counts its own bytes", () => {
     const text = "x".repeat(1500);
     const r = resolveTerminalSend("claude-code", text);
-    expect(r).toEqual({ data: `\x1b[200~${text}\x1b[201~`, sent: 1500, dropped: false, pasted: true });
+    expect(r).toEqual({ data: `\x1b[200~${text}\x1b[201~`, sent: 1500, dropped: false, pasted: true, enter: false });
+  });
+
+  test("one trailing Enter is split off the pasted text", () => {
+    const r = resolveTerminalSend("claude-code", "x".repeat(1500) + "\r");
+    expect(r).toMatchObject({ pasted: true, enter: true, sent: 1501 });
   });
 
   test("keys, short text and other session types are never pasted", () => {
-    expect(resolveTerminalSend("claude-code", "x".repeat(1500) + "\r").pasted).toBe(false);
+    expect(resolveTerminalSend("claude-code", "x".repeat(1500) + "\r" + "y").pasted).toBe(false);
     expect(resolveTerminalSend("claude-code", "\x1b[B").pasted).toBe(false);
     expect(resolveTerminalSend("claude-code", "x".repeat(500)).pasted).toBe(false);
     expect(resolveTerminalSend("shell", "x".repeat(1500)).pasted).toBe(false);
