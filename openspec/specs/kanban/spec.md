@@ -5421,3 +5421,15 @@ until a valid confirmation. A request that is a single card SHALL keep creating 
 - **THEN** the proposal SHALL appear and zero cards SHALL exist
 - **WHEN** the writer confirms
 - **THEN** the ticked rows SHALL become cards, the parent first, each sub-card on its parent's project
+
+### Requirement: KANBAN-107 - The board toolbar has a detail slider with three levels
+
+The board toolbar SHALL offer one slider with three snap positions: projects with per-column counts (least
+detail), vertical list, kanban board (most detail). It SHALL be draggable with snapping, operable with the
+arrow keys, Home and End, and the chosen level SHALL be remembered.
+
+#### Scenario: moving the slider
+- **WHEN** the writer moves the slider to the first position
+- **THEN** the board SHALL show only projects with their counts
+- **WHEN** the writer presses End
+- **THEN** the kanban board SHALL be shown
