@@ -8,6 +8,14 @@ import { hermetic } from "./fixtures/hermetic";
 import { E2E_BASE } from "./helpers/test-server";
 
 hermetic(test);
+// The app's service worker has a fetch handler. Once it controls the page (from
+// the moment it is active, which depends on how busy the machine is), the chunk
+// is requested through it and `page.route` never sees the request: the click
+// then opened the real menu with zero route hits, red once in two or three
+// runs on a busy runner and on the PC. The 404 and the broken body of these
+// tests are the network's answer, so the worker stays out. Same fix as
+// model-selector-revision and chat-tail-first.
+test.use({ serviceWorkers: "block" });
 
 /**
  * Attilio, 29/09: on a topic, the model selector does not open at all.
