@@ -100,7 +100,7 @@ test.describe("processes: sessions at the centre", () => {
     await page.screenshot({ path: testInfo.outputPath("processes-sessions.png") });
     // The fold opens read-only: the rows are there, no Close on any of them, nothing that closes Topics.
     await page.getByTestId("machine-processes-toggle").click();
-    // The heaviest eight, the rest behind «Altri».
+    // The heaviest eight, the rest behind «Altri». allow-italian: UI label under test
     await expect(page.getByTestId("machine-process-row")).toHaveCount(8);
     await expect(page.getByTestId(PANE)).not.toContainText("Chiudi");
     await expect(page.getByTestId(PANE)).not.toContainText("Forza chiusura");
