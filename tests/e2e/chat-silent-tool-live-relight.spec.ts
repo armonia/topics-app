@@ -12,7 +12,7 @@
  * The turns here are real server turns from a fake CLI whose Bash prints
  * nothing (`helpers/fake-claude-silent-tool.ts`). Where the sweep has to act,
  * its silence threshold is cut to 1 s (`/api/test/stale-stream-clock`) so its
- * real 30 s tick runs during the test and asks the child, which is alive. On a
+ * tick is cut to 1 s too (`tickMs`) and runs during the test and asks the child, which is alive. On a
  * checkout where `isStreaming` still had a clock, that cut hid the turn 29 s
  * out of 30.
  *

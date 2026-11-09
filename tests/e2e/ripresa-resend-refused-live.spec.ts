@@ -142,7 +142,7 @@ test.describe("a resend the chat route refused, with the chat open in two window
       await setHidden(pageB, true);
 
       // The wake-up: a stream on another chat that the stale tick closes.
-      expect((await request.post(`${E2E_BASE}/api/test/stale-stream-clock`, { data: { timeoutMs: 1_000 } })).ok()).toBe(true);
+      expect((await request.post(`${E2E_BASE}/api/test/stale-stream-clock`, { data: { timeoutMs: 1_000, tickMs: 1_000 } })).ok()).toBe(true);
       expect((await request.post(`${E2E_BASE}/api/test/streams/partial`, { data: { sessionKey: await sessionKeyOf(request, b) } })).ok()).toBe(true);
 
       // The sweep traced the notice and the route refused the resend: the
@@ -155,7 +155,7 @@ test.describe("a resend the chat route refused, with the chat open in two window
           const state = { lastIsNotice: last?.id === noticeId, traced: traced(last) };
           if (state.lastIsNotice && state.traced && !seenAt) seenAt = Date.now();
           return state;
-        }, { timeout: 90_000, intervals: [POLL_MS], message: "the sweep traces the notice and its resend is refused" })
+        }, { timeout: 30_000, intervals: [POLL_MS], message: "the sweep traces the notice and its resend is refused" })
         .toEqual({ lastIsNotice: true, traced: true });
 
       // Each window read the row again with its trace, B while hidden, within
