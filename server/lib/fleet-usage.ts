@@ -324,6 +324,30 @@ function makeInstantCpu(base: { at: number; byPid: Map<number, number> } | null,
   };
 }
 
+/**
+ * The process table behind the last fleet reading, kept so the per-session
+ * attribution (`services/session-consumption.ts`) bills the SAME snapshot the
+ * totals were computed from: a second `ps` would describe another instant, and
+ * the sessions would not add up to the fleet. `instantCpu` is null on the very
+ * first reading (no base to difference against): the attribution then says
+ * "not measured" instead of falling back to the lifetime average.
+ */
+export interface FleetTable {
+  at: number;
+  rows: PsRow[];
+  instantCpu: ((row: PsRow) => number | null) | null;
+}
+let lastTable: FleetTable | null = null;
+
+export function lastFleetTable(): FleetTable | null {
+  return lastTable;
+}
+
+/** The core count the fleet's CPU percentages are normalised on. */
+export function fleetCpuCores(): number {
+  return CPU_CORES();
+}
+
 function finish(
   rows: PsRow[],
   base: { at: number; byPid: Map<number, number> } | null,
@@ -352,6 +376,7 @@ function finish(
   const shortLived = shortLivedCpuPercent(nowMs, summary.cpuCores);
   const ours = { ...summary, cpuPercent: summary.cpuPercent + shortLived };
   const usage = { ...ours, otherCpuPercent: otherFloorFromTicks(ours) };
+  lastTable = { at: nowMs, rows, instantCpu: makeInstantCpu(base, nowMs) ?? null };
   cached = usage;
   cachedAt = Date.now();
   return usage;
@@ -521,6 +546,7 @@ export interface FleetLoadReading {
 export function _resetFleetUsageCache(): void {
   cached = null;
   cachedAt = 0;
+  lastTable = null;
   prevSample = null;
   prevChildren = null;
   inFlight = null;

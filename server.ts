@@ -139,6 +139,7 @@ import { createTaskAttemptStore } from "./server/services/task-attempts";
 import { classifyLanding } from "./server/services/landing-audit";
 import { createTranscriptUsageReader } from "./server/services/transcript-usage";
 import { createDispatchUsageReader } from "./server/services/dispatch-usage";
+import { setTranscriptUsageReader } from "./server/services/session-consumption-wiring";
 import { orphanChildSessions } from "./server/services/agent-census";
 import { createDetachedTopic, DETACHED_TOPIC_AUTONOMY } from "./server/lib/session-control-core";
 import { buildProjectCandidates, resolveProjectPath, isSelectableProjectDir } from "./server/services/project-path-resolver";
@@ -173,6 +174,7 @@ import { isDelegatedNodeAllowedRequest, isGuestAllowedPath, isGuestAllowedMethod
 import { hasGrant, holdsGrantOnTaskPreview, deviceP } from "./server/lib/grants-query";
 import { refreshSocketPrincipal, socketMayReceiveFrame, socketMayReadTopic } from "./server/lib/socket-principals";
 import { resolveDelegatedCredential, resolveIdentity } from "./server/lib/identity";
+import { isScreenAllowedRequest } from "./server/lib/screen-scope";
 import { creaRelayClient } from "./server/services/relay-client";
 import { leggiRelayConfig, leggiInstallationId, leggiRelaySegreto } from "./server/services/relay-config";
 import { creaServizioLicenza, creaInterruttoreLicenza, baseUrlConcesso } from "./server/lib/licenza";
@@ -1595,6 +1597,9 @@ const dispatchUsageReader = createDispatchUsageReader({
   db: ctx.db,
   read: (p) => transcriptUsageReader.read(p),
 });
+// The per-session consumption (load screen, Processes view, card drawer) reads the
+// same reader the dispatcher does, so a session's tokens are one number everywhere.
+setTranscriptUsageReader((sessionKey) => dispatchUsageReader.read(sessionKey));
 
 // Assigned just below (after worktreeOfTask is defined); the dispatcher only
 // calls it lazily at review-time, so the late binding is safe.
@@ -3984,6 +3989,13 @@ const opzioniServer = {
                   delegatedCapabilityId: delegated.capabilityId,
                 } : {}),
               });
+              // A device paired as a SCREEN reads the load screen's data and nothing else:
+              // decided before the guest rules, which would open far more than a monitor needs.
+              if (io?.screen) {
+                return isScreenAllowedRequest(pathname, method)
+                  ? { ok: true as const }
+                  : { ok: false as const, status: 403, reason: "screen device", code: "screen_scope" };
+              }
               if (delegated && !isDelegatedNodeAllowedRequest(pathname, method)) {
                 return { ok: false as const, status: 403, reason: "delegated credential scope", code: "delegated_scope" };
               }
