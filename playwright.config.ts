@@ -701,7 +701,7 @@ export default defineConfig({
         "**/answer-question-from-composer.spec.ts",
         // A turn silent in a tool keeps its Stop in a viewer: a real server
         // turn from a fake CLI, filmed on the engine that ships.
-        "**/chat-silent-tool-live.spec.ts",
+        "**/chat-silent-tool-live*.spec.ts",
         // Nothing moves when a turn ends, in the window that sent it and in a
         // second one: the independent check of card 40ea050c measured it in
         // WebKit, where the product ships.

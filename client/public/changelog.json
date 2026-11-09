@@ -1,5 +1,37 @@
 [
   {
+    "version": "2.3.64",
+    "date": "2026-11-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "e2e più veloci: due processi per runner, file lento spezzato, instabile peggiore curato (#637)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.63",
+    "date": "2026-11-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Via Gateway da Topics (#606)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.62",
     "date": "2026-11-08",
     "sections": {
@@ -73,7 +105,7 @@
           "breaking": false
         },
         {
-          "it": "il nome OpenClaw sparisce dalla presence Discord e dall'interfaccia (#622)",
+          "it": "il nome Gateway sparisce dalla presence Discord e dall'interfaccia (#622)",
           "en": "",
           "scope": null,
           "breaking": false
@@ -380,12 +412,6 @@
           "it": "aggiorna durate shard dal nightly del 2026-11-07 [skip ci]",
           "en": "",
           "scope": "e2e",
-          "breaking": false
-        },
-        {
-          "it": "change via-gateway, la barra prima del codice",
-          "en": "",
-          "scope": null,
           "breaking": false
         }
       ]

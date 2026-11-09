@@ -2,6 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.64 — 2026-11-08
+
+### Sotto il cofano
+- e2e più veloci: due processi per runner, file lento spezzato, instabile peggiore curato (#637)
+
+## 2.3.63 — 2026-11-08
+
+### Sotto il cofano
+- Via OpenClaw da Topics (#606)
+
 ## 2.3.62 — 2026-11-08
 
 ### Sotto il cofano
