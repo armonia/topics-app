@@ -68,6 +68,7 @@ export function readConsumption(raw: unknown): ConsumptionAnswer {
         state: s.state === 'waiting' ? 'waiting' : 'working',
         startedAt: num(s.startedAt),
         cardId: str(s.cardId),
+        boardId: str(s.boardId),
         machine: str(s.machine),
         tokens: readTokens(s.tokens),
         tps: num(s.tps),

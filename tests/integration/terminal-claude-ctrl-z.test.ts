@@ -243,8 +243,8 @@ test("the agents' /send takes text only: an array of bytes would carry ctrl+z pa
   // a raw 0x1A the string filter never saw.
   expect(await send([26])).toMatchObject({ status: 400 });
   expect(await send("\x1a")).toEqual({ status: 200, body: { ok: false, dropped: true, sent: 0 } });
-  expect(await send("a\x1ab")).toEqual({ status: 200, body: { ok: true, sent: 2 } });
-  expect(await send(SENTINEL)).toEqual({ status: 200, body: { ok: true, sent: SENTINEL.length } });
+  expect(await send("a\x1ab")).toEqual({ status: 200, body: { ok: true, sent: 2, pasted: false } });
+  expect(await send(SENTINEL)).toEqual({ status: 200, body: { ok: true, sent: SENTINEL.length, pasted: false } });
 
   expect(await writesUntilSentinel(id)).toEqual(["ab"]);
 }, 20_000);

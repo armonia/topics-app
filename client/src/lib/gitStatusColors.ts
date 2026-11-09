@@ -52,6 +52,8 @@
  *   blue-700  / blue-400     5,78 / 6,03
  *   purple-700 / purple-400  5,97 / 5,70
  */
+import { isConflicted } from '../../../shared/git-conflict';
+
 
 /** Le famiglie di stato che hanno una tinta propria. */
 type GitStatusTone =
@@ -77,17 +79,6 @@ const GIT_STATUS_TEXT: Record<GitStatusTone, string> = {
   conflict: 'text-red-700 dark:text-red-400',
   unknown: 'text-app-text-muted',
 };
-
-/**
- * Un percorso è in conflitto quando git mette la STESSA lettera nelle due
- * colonne (`DD`, `AA`, `UU`) o una `U` da un lato qualsiasi. Copiata dal
- * predicato di GitChanges perché la classificazione sta tutta qui.
- */
-function isConflicted(status: string): boolean {
-  const x = status[0] ?? '';
-  const y = status[1] ?? '';
-  return x === 'U' || y === 'U' || (x === 'D' && y === 'D') || (x === 'A' && y === 'A');
-}
 
 /**
  * Dal codice XY grezzo di `git status --porcelain` alla famiglia.

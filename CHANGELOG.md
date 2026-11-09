@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.75 — 2026-11-09
+
+### Sotto il cofano
+- cloud-nodes: approvata, esito della Fase 0 sul nodo a ore (#694)
+
 ## 2.3.74 — 2026-11-09
 
 ### Sotto il cofano
