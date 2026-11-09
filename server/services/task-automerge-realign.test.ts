@@ -540,3 +540,61 @@ describe("l'atterraggio automatico pubblica SOLO il commit misurato (noRealign)"
     expect(git(repo, "rev-parse", "main").trim()).toBe(before);
   }, WITH_REAL_GIT);
 });
+
+describe("l'atterraggio automatico con un origin vero (noRealign)", () => {
+  /**
+   * The merge lands on the LOCAL main, which usually holds commits origin does
+   * not have yet. A branch that contains `origin/main` but not the local tip was
+   * measured against a tree that is not the one that would land. The tests above
+   * have no remote at all, which is why they could not see it.
+   */
+  function repoWithOrigin(): { repo: string; tip: string } {
+    const root = mkdtempSync(join(tmpdir(), "land-origin-"));
+    created.push(root);
+    const bare = join(root, "origin.git");
+    const repo = join(root, "work");
+    git(root, "init", "-q", "--bare", "-b", "main", bare);
+    git(root, "clone", "-q", bare, repo);
+    git(repo, "config", "user.email", "test@example.com");
+    git(repo, "config", "user.name", "Test");
+    git(repo, "config", "commit.gpgsign", "false");
+    git(repo, "switch", "-q", "-c", "main");
+    commit(repo, "r.txt", "radice\n", "radice");
+    git(repo, "push", "-q", "-u", "origin", "main");
+    // The card's branch is born from the published main...
+    git(repo, "switch", "-q", "-c", "topics/b");
+    commit(repo, "b.txt", "lavoro\n", "ramo: b.txt");
+    git(repo, "switch", "-q", "main");
+    // ...and the local main gains a commit nobody published.
+    commit(repo, "a.txt", "locale\n", "main locale: a.txt");
+    return { repo, tip: git(repo, "rev-parse", "topics/b").trim() };
+  }
+  const landB = (repo: string) =>
+    createTaskAutoMerge({ resolveTaskMerge: () => ({ repoPath: repo, branch: "topics/b", defaultBranch: "main" }) });
+
+  test("il ramo contiene origin/main ma non il main locale non pubblicato -> skipped/realign-needed", async () => {
+    const { repo, tip } = repoWithOrigin();
+    const before = git(repo, "rev-parse", "main").trim();
+
+    const res = await landB(repo).tryMerge("t1", "Card verde", { branch: "topics/b", commit: tip, noRealign: true });
+
+    expect(res.status).toBe("skipped");
+    if (res.status !== "skipped") return;
+    expect(res.code).toBe("realign-needed");
+    expect(git(repo, "rev-parse", "main").trim()).toBe(before);
+    expect(log(repo, "main")).not.toContain("ramo: b.txt");
+  }, WITH_REAL_GIT);
+
+  test("il ramo contiene anche il main locale -> landa", async () => {
+    const { repo } = repoWithOrigin();
+    git(repo, "switch", "-q", "topics/b");
+    git(repo, "merge", "-q", "--no-edit", "main");
+    git(repo, "switch", "-q", "main");
+    const tip = git(repo, "rev-parse", "topics/b").trim();
+
+    const res = await landB(repo).tryMerge("t1", "Card allineata", { branch: "topics/b", commit: tip, noRealign: true });
+
+    expect(res.status).toBe("merged");
+    expect(log(repo, "main")).toContain("ramo: b.txt");
+  }, WITH_REAL_GIT);
+});

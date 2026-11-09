@@ -132,29 +132,55 @@ function personSpokeSinceReview(reviewAt: string | null, thread: ReadonlyArray<A
 }
 
 /**
- * Paths whose change a person must look at even when the label says `invisibile`
- * (that label only means "not under client/src"). Each one is an effect the diff
- * shows no UI for: a message that reaches a person's phone or a channel, a text
- * a view or the chat renders, the desktop shell, the migrations that run on the
- * live database the moment they land, what publishes a release, money and licences.
- * Test files alone never count: they change no behaviour.
+ * WHICH PATHS MAY LAND ON THEIR OWN: a white list. Whatever matches nothing here
+ * stays in review for a person, so a path nobody thought about (a new top-level
+ * folder, the landing page, the licence, the lockfile) is safe by default.
+ *
+ * The label `invisibile` only means "not under client/src"; it says nothing about
+ * a text a person reads or an effect they feel. Each entry below is a family of
+ * files whose change cannot show a person a sentence or reach their phone.
  */
-const NEEDS_A_PERSON: readonly RegExp[] = [
-  /^desktop-tauri\//,
-  /^\.github\//,
-  /^server\/db\/migrations\//,
-  /^server\/views\//,
-  /^shared\/(i18n|tool-detail|presence-phrase|notify-actions|licenza-motivi)/,
-  /^server\/routes\/(agent-channels|billing|license|notifications|push)/,
-  /^server\/services\/(discord|dispatch-budget-message)/,
-  /^server\/lib\/(stripe|licenza)/,
-  // Anything else under server/ or shared/ named for a channel to a person.
-  /^(server|shared)\/.*(push|discord|presence|notif|stripe|billing|licen[sz]|webhook|mailer|email|telegram|whatsapp|slack)/i,
+const MAY_LAND_ALONE: ReadonlyArray<{ re: RegExp; why: string }> = [
+  // Tests change no behaviour. A fixture is test support, not product.
+  { re: /\.(test|spec)\.[jt]sx?$/, why: "test files change no behaviour" },
+  { re: /\.fixture\.[jt]sx?$/, why: "test fixtures are test support" },
+  { re: /^tests\//, why: "the test tree" },
+  // Machinery that talks to git, the disk, processes and the database. The
+  // carve-outs below take back the files in these folders that DO speak to a person.
+  { re: /^server\/(lib|services|usage|utils)\//, why: "server machinery with no view of its own" },
+  { re: /^server\/db\/(?!migrations)/, why: "data access code; the migrations themselves are NOT here, they run on the live database" },
+  { re: /^server\/browser-[^/]+\.ts$/, why: "the browser engine plumbing" },
+  // CI guards and the baselines they ratchet: they measure text, they do not produce it.
+  { re: /^scripts\/(check|e2e|board|gate|lint|typecheck|measure|probe)-[^/]*\.(ts|mjs|sh)$/, why: "CI guards and measurements" },
+  { re: /^scripts\/[a-z0-9-]+-baseline(\.[a-z]+)?\.json$/, why: "generated ratchet baselines" },
+  // Internal documentation: the README, CHANGELOG, LICENSE and PRIVACY at the root are NOT here.
+  { re: /^docs\//, why: "internal documentation" },
+  { re: /^openspec\//, why: "internal change proposals" },
 ];
 
-/** The files of a delivery a person must look at; empty = none. */
+/**
+ * Taken back from the folders above: a file there that speaks to a person or
+ * has an effect outside the machine. The old black list, kept as a net UNDER the
+ * white list - it can only subtract, never add.
+ */
+const SPEAKS_TO_A_PERSON: readonly RegExp[] = [
+  /^server\/services\/(board-actions|ai-review-notice|card-origin-notice|worktree-abandon-notice|discord|dispatch-budget-message|profile-banner|calendar-feed|ical)/,
+  /^server\/services\/delivery-sheet/,
+  /^server\/lib\/(stripe|licenza|nome-installazione|provenienza|dead-run-note|resume-notices)/,
+  /^server\/lib\/(topics-agent-prompt|thread-skeleton|slash-command-menu|verdetto-turno-interrotto|turno-troncato|interrupted-turn-block)/,
+  // Anything else under server/ named for a channel to a person.
+  /^server\/.*(push|discord|presence|notif|stripe|billing|licen[sz]|webhook|mailer|email|telegram|whatsapp|slack|banner|notice)/i,
+];
+
+/** The files of a delivery a person must look at (everything not on the white list); empty = none. */
 export function needsAPerson(files: readonly string[]): string[] {
-  return files.filter((f) => !/\.test\.[jt]sx?$/.test(f) && !f.startsWith("tests/") && NEEDS_A_PERSON.some((re) => re.test(f)));
+  return files.filter((f) => {
+    const allowed = MAY_LAND_ALONE.find((e) => e.re.test(f));
+    if (!allowed) return true;
+    // Tests never speak: they are allowed even inside a carved-out family.
+    if (/\.(test|spec|fixture)\.[jt]sx?$/.test(f) || f.startsWith("tests/")) return false;
+    return SPEAKS_TO_A_PERSON.some((re) => re.test(f));
+  });
 }
 
 /** Does a diff reload the live server when it lands? Conservative: `shared/` counts. */
@@ -199,7 +225,7 @@ type AutoLandOutcome = "queued" | "waiting" | "refused";
 export function createAutoLander(deps: AutoLanderDeps) {
   const waiting = new Set<string>();
   /** Cards between "the verdict said yes" and "the land is queued": a second ask in that gap is the same ask. */
-  const deciding = new Set<string>();
+  const askInFlight = new Set<string>();
   /**
    * The commit already handed to the land queue, per card. A land that comes
    * back `skipped` leaves the card in review with a green bar, so the verdict
@@ -243,9 +269,9 @@ export function createAutoLander(deps: AutoLanderDeps) {
     };
     const first = verdictNow(projectId, taskId);
     if (!first.ok) return refuse(first.reason);
-    if (waiting.has(taskId) || deciding.has(taskId)) return "waiting";
+    if (waiting.has(taskId) || askInFlight.has(taskId)) return "waiting";
     if (attempted.get(taskId) === deps.read(taskId, projectId)?.task.deliveryCommit) return refuse("this commit was already offered to the land");
-    deciding.add(taskId);
+    askInFlight.add(taskId);
     try {
       let files: string[] | null = null;
       try { files = deps.files ? await deps.files(taskId) : null; } catch { files = null; }
@@ -279,7 +305,7 @@ export function createAutoLander(deps: AutoLanderDeps) {
       (timer as { unref?: () => void }).unref?.();
       return "waiting";
     } finally {
-      deciding.delete(taskId);
+      askInFlight.delete(taskId);
     }
   }
 

@@ -21,7 +21,7 @@
 import { awaitsHuman } from "../../shared/workflow";
 import { NODE_UNREACHABLE_ERROR } from "../../shared/board";
 import type { Task, TaskService } from "./tasks";
-import { requeueEmptyNodeRun } from "./task-dispatcher-remote-node-empty";
+import { returnEmptyNodeRunToTodo } from "./task-dispatcher-remote-node-empty";
 import { isNodeError, type BundleResult, type CreateRunBody, type NodeRunBinding, type NodeRunReport } from "./node-client";
 import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import type { PlantBranchInput, PlantBranchResult } from "./node-branch-plant";
@@ -846,7 +846,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     }
     const fresh = svc.get(taskId)?.task;
     const producedNothing = planted.planted ? !!fresh && !fresh.deliveryCommit : !branch && !report.reason && !report.dispatchError;
-    if (fresh && producedNothing && requeueEmptyNodeRun({ svc, releaseAndEmit, emit, log }, fresh, name)) return;
+    if (fresh && producedNothing && returnEmptyNodeRunToTodo({ svc, releaseAndEmit, emit, log }, fresh, name)) return;
     const reason = planted.planted
       ? `Consegnato dal nodo «${name}»: il ramo \`${branch}\` è stato piantato in questo checkout` +
         (planted.commit ? ` su \`${planted.commit.slice(0, 8)}\`.` : ".")

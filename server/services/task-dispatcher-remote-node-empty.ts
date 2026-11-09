@@ -22,7 +22,7 @@ interface EmptyRunDeps {
 }
 
 /** `true` = the card is back in the queue and the caller has nothing more to do. */
-export function requeueEmptyNodeRun(deps: EmptyRunDeps, task: Task, nodeName: string): boolean {
+export function returnEmptyNodeRunToTodo(deps: EmptyRunDeps, task: Task, nodeName: string): boolean {
   if (!task.overflowedAt) return false;
   try {
     deps.releaseAndEmit({ taskId: task.id, requeue: true, rollbackAttempt: true });

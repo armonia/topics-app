@@ -118,28 +118,43 @@ describe("sameCommit / touchesServer", () => {
     expect(touchesServer(["server/x.ts"])).toBe(true);
     expect(touchesServer(["server.ts"])).toBe(true);
     expect(touchesServer(["shared/board.ts"])).toBe(true);
-    expect(touchesServer(["scripts/x.ts", "docs/a.md"])).toBe(false);
+    expect(touchesServer(["scripts/check-x.ts", "docs/a.md"])).toBe(false);
     expect(touchesServer(null)).toBe(true);
   });
 });
 
-describe("needsAPerson", () => {
-  test("paths that reach a person or cannot be undone are never landed alone", () => {
-    for (const f of [
-      "server/push-triggers.ts", "server/presence.ts", "server/services/discord-presence.ts", "server/views/view-html.ts",
-      "shared/tool-detail.ts", "shared/presence-phrase.ts", "desktop-tauri/src-tauri/tauri.conf.json",
-      "server/db/migrations/20261109-x.sql", ".github/workflows/ci.yml", "server/routes/agent-channels.ts", "server/lib/stripe.ts",
-    ]) expect(needsAPerson([f])).toEqual([f]);
+describe("needsAPerson: a white list, what is not on it stays with a person", () => {
+  test.each([
+    // The ones the first version let through (verifier, 09/11).
+    "landing/index.html", "landing/src/hero.tsx", "client/public/icon.png", "client/index.html",
+    "scripts/landing-copy.mjs", "scripts/changelog-i18n.json", "server/attention/compose.ts",
+    "server/services/board-actions.ts", "LICENSE", "package.json", "bun.lock",
+    // The old black list, still honoured.
+    "server/push-triggers.ts", "server/presence.ts", "server/services/discord-presence.ts", "server/views/view-html.ts",
+    "shared/tool-detail.ts", "shared/presence-phrase.ts", "desktop-tauri/src-tauri/tauri.conf.json",
+    "server/db/migrations/20261109-x.sql", ".github/workflows/ci.yml", "server/routes/agent-channels.ts", "server/lib/stripe.ts",
+    // A folder nobody listed, and the product text outside the server.
+    "newdir/anything.ts", "README.md", "CHANGELOG.md", "client/src/App.tsx", "shared/board.ts", "server.ts",
+  ])("%s is not landed alone", (f) => {
+    expect(needsAPerson([f])).toEqual([f]);
   });
 
-  test("ordinary server and script files, and tests of the sensitive ones, are not", () => {
-    expect(needsAPerson(["server/x.ts", "scripts/tidy.ts", "shared/board.ts", "docs/a.md", "server/push-triggers.test.ts"])).toEqual([]);
+  test.each([
+    "server/services/task-intake.ts", "server/lib/git-numstat.ts", "scripts/check-emdash.ts", "docs/board-protocol.md",
+    // Tests are allowed even beside what they test.
+    "server/push-triggers.test.ts", "server/services/board-actions.test.ts", "tests/unit/x.test.ts",
+  ])("%s lands alone", (f) => {
+    expect(needsAPerson([f])).toEqual([]);
+  });
+
+  test("one path off the list keeps the whole delivery, and only it is named", () => {
+    expect(needsAPerson(["server/lib/git-numstat.ts", "LICENSE", "docs/a.md"])).toEqual(["LICENSE"]);
   });
 });
 
 describe("createAutoLander", () => {
   const base = () => {
-    const state = { card: card(), lands: 0, notes: 0, files: ["scripts/x.ts"] as string[] | null, cardLive: false, turns: 0 };
+    const state = { card: card(), lands: 0, notes: 0, files: ["scripts/check-x.ts"] as string[] | null, cardLive: false, turns: 0 };
     const lander = createAutoLander({
       read: () => ({ task: state.card, comments: [] }),
       board: () => BOARD,

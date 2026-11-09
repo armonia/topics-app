@@ -1663,7 +1663,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * realign the branch: the bar measured the delivered commit.
    */
   const autoLander = createAutoLander({
-    read: (taskId, projectId) => svc.get(taskId, { projectId }) as ReturnType<Parameters<typeof createAutoLander>[0]["read"]>,
+    read: (taskId, projectId) => {
+      const got = svc.get(taskId, { projectId });
+      if (!got) return undefined;
+      // `Task` has no `archived` field and `svc.get` serves archived cards too:
+      // the flag is read from the row, at the moment of asking.
+      const row = db.query("SELECT archived FROM tasks WHERE id = ?").get(taskId) as { archived?: number } | null;
+      return { ...got, task: { ...got.task, archived: !!row?.archived } } as ReturnType<Parameters<typeof createAutoLander>[0]["read"]>;
+    },
     board: (projectId) => {
       const settings = svc.getBoardSettings(projectId);
       return { autoMerge: settings.dispatchAutoMerge, declaredChecks: settings.reviewChecks.length };

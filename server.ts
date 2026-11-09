@@ -2913,7 +2913,8 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     const files = await ownBranchFiles(ref.repoPath, ref.branch);
     return files ? files.map((f) => f.path) : null;
   },
-  liveTurnCount: () => activeStreams.size,
+  // Same count the server uses for "is anything working": chat streams AND busy agent terminals.
+  liveTurnCount: () => activeStreams.size + countBusyAgentTerminals(),
   ownBranchFiles: (repoPath, branch) => ownBranchFiles(repoPath, branch),
   // A throwaway checkout of a branch planted from another machine, so its bar
   // can be measured on the commit that will land (`services/node-delivery-meter.ts`).

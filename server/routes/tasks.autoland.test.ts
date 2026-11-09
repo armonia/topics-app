@@ -58,8 +58,8 @@ describe("a delivery that needs no one lands itself", () => {
       taskCheckoutRef: async () => ({ cwd, commit: k.checksCommit ?? "abc1234" }),
       realignForChecks: async () => ({ ok: true, note: null }),
       taskDeliveryRef: async () => ({ branch: "topics/auto", commit: k.deliveryCommit ?? "abc1234", repoPath: "/repo" }),
-      ownCommitFiles: async () => k.files ?? [{ path: "scripts/tidy.ts", added: true }],
-      deliveryFiles: async () => (k.deliveryFiles === undefined ? ["scripts/tidy.ts"] : k.deliveryFiles),
+      ownCommitFiles: async () => k.files ?? [{ path: "scripts/check-tidy.ts", added: true }],
+      deliveryFiles: async () => (k.deliveryFiles === undefined ? ["scripts/check-tidy.ts"] : k.deliveryFiles),
       liveTurnCount: k.turns,
       autoLandPollMs: 5,
       onAutoLand: (api: { sweepAutoLand: () => Promise<number> }) => { sweep = api.sweepAutoLand; },
@@ -115,7 +115,7 @@ describe("a delivery that needs no one lands itself", () => {
       taskCheckoutRef: async () => ({ cwd, commit: "abc1234" }),
       realignForChecks: async () => ({ ok: true, note: null }),
       taskDeliveryRef: async () => ({ branch: "topics/auto", commit: "abc1234", repoPath: "/repo" }),
-      ownCommitFiles: async () => [{ path: "scripts/tidy.ts", added: true }],
+      ownCommitFiles: async () => [{ path: "scripts/check-tidy.ts", added: true }],
       autoMerge: { tryMerge: async (taskId: string) => { merges.push({ taskId, delivery: null }); return MERGED; }, buildClient: async () => ({ code: 0, stderr: "" }) } as never,
     } as Parameters<typeof createTasksRouter>[2]);
     const task = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "riordina" }))!.json();
@@ -155,13 +155,25 @@ describe("a delivery that needs no one lands itself", () => {
 
   test("a server diff waits for ZERO open turns, then lands", async () => {
     let turns = 2;
-    const d = await deliver({ deliveryFiles: ["server/x.ts"], turns: () => turns });
+    const d = await deliver({ deliveryFiles: ["server/lib/x.ts"], turns: () => turns });
     expect(merges).toEqual([]);
     expect(d.read().task.status).toBe("review");
     turns = 0;
     await Bun.sleep(120);
     expect(merges.map((m) => m.taskId)).toEqual([d.id]);
     expect(d.read().task.status).toBe("done");
+  }, 30_000);
+
+  test("a card archived while the land waits for the turns does not land", async () => {
+    // `Task` carries no `archived` field: the verdict used to read `undefined` and say yes.
+    let turns = 2;
+    const d = await deliver({ deliveryFiles: ["server/lib/x.ts"], turns: () => turns });
+    expect(merges).toEqual([]);
+    db.prepare("UPDATE tasks SET archived = 1 WHERE id = ?").run(d.id);
+    turns = 0;
+    await Bun.sleep(120);
+    expect(merges).toEqual([]);
+    expect(d.read().task.status).toBe("review");
   }, 30_000);
 
   test("a delivery whose files cannot be read does not land: a land that does not know what it changes does not happen", async () => {

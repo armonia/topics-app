@@ -1251,12 +1251,19 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         // non c'è nessun land da salvare, e riallinearlo sarebbe un merge
         // gratuito su un ramo che sta per essere potato.
         if (delivery?.noRealign) {
-          const upToDate = await runGit(repoPath, ["merge-base", "--is-ancestor", base, branch]);
-          if (upToDate.code !== 0) {
+          // BOTH tips: the merge lands on the LOCAL main, which usually holds
+          // commits origin has not seen. A branch that has `origin/main` but not
+          // that tip was measured on a tree that is not the one that lands.
+          let behind: string | null = null;
+          for (const tipRef of new Set([base, defaultBranch])) {
+            const upToDate = await runGit(repoPath, ["merge-base", "--is-ancestor", tipRef, branch]);
+            if (upToDate.code !== 0) { behind = tipRef; break; }
+          }
+          if (behind !== null) {
             return {
               status: "skipped", code: "realign-needed",
               reason:
-                `il ramo '${branch}' è indietro su '${base}' e l'atterraggio automatico non lo riallinea: ` +
+                `il ramo '${branch}' è indietro su '${behind}' e l'atterraggio automatico non lo riallinea: ` +
                 "i check hanno misurato il commit consegnato, non una fusione con main. Guardalo e premi «Landa su main»",
             };
           }
