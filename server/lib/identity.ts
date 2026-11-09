@@ -50,8 +50,8 @@ export interface ResolvedIdentity {
   /** Revision that produced the principal set. */
   rev: number;
   /**
-   * The device was paired as a SCREEN (`devices.role = 'screen'`): it may read
-   * the load screen's data and nothing else (`lib/screen-scope.ts`). Never
+   * The device was paired as a SCREEN (it has a row in `screen_devices`): it may
+   * read the load screen's data and nothing else (`lib/screen-scope.ts`). Never
    * inferred, only the owner's explicit choice at the pairing writes it.
    */
   screen: boolean;
@@ -107,6 +107,15 @@ function rowADevice(r: Record<string, unknown>, confined: boolean): DeviceRecord
   };
 }
 
+/** Paired as a screen? A missing table (schema older than the migration) is "no": never open. */
+function isScreenDevice(db: Db, deviceId: string): boolean {
+  try {
+    return db.query("SELECT 1 AS one FROM screen_devices WHERE device_id = ?").get(deviceId) !== null;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Chi sta facendo questa richiesta.
  *
@@ -124,7 +133,7 @@ export function resolveIdentity(db: Db, cookieHeader: string | null, locale: boo
   const token = readSessionCookie(cookieHeader);
   if (!token) return { locale: false, device: null, principals: [], confined: true, personId: null, rev: 0, screen: false };
 
-  const riga = db.query(`SELECT id, name, token_hash, created_at, last_seen_at, first_ip, revoked_at, role
+  const riga = db.query(`SELECT id, name, token_hash, created_at, last_seen_at, first_ip, revoked_at
       FROM devices WHERE token_hash = ?`)
     .get(hashToken(token)) as Record<string, unknown> | undefined;
   if (!riga) return { locale: false, device: null, principals: [], confined: true, personId: null, rev: 0, screen: false };
@@ -138,7 +147,7 @@ export function resolveIdentity(db: Db, cookieHeader: string | null, locale: boo
   }
 
   // A screen has no person and no grants: itself, and the gate lets it read one route.
-  if (riga.role === "screen") {
+  if (isScreenDevice(db, String(riga.id))) {
     return {
       locale: false, device: rowADevice(riga, true), principals: [{ kind: "device", id: String(riga.id) }],
       confined: true, personId: null, rev: 0, screen: true,

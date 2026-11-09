@@ -12,7 +12,9 @@
  * Two routes because their cost and cadence differ: the readout is cached 20 s
  * and the hub's census 30 s, while the sessions move with every model round.
  * The server does the choosing and hands over only what the page shows, because
- * a screen sits on a machine where no secret should be.
+ * a screen sits on a machine where no secret should be: the hub's answer is cut
+ * to each machine's state and gauges (`machinesForScreen`), its sentences,
+ * processes and services stay on the Mac.
  *
  * A hub that does not answer is `null` in its place, never an empty list read
  * as «nothing to show»; the page says the hub is down.
@@ -39,6 +41,28 @@ type ReadoutAnswer = {
   } | null;
 };
 
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/**
+ * The hub's `/api/machines` cut to what the screen draws: per machine whether it is
+ * this one, its state and its gauges (name, share, note, history). Nothing else the
+ * hub says of a machine (its sentences, heaviest programs, paused projects) leaves the Mac.
+ */
+export function machinesForScreen(raw: unknown): unknown {
+  if (!Array.isArray(raw)) return null;
+  return raw.filter(isRecord).map((m) => ({
+    local: m.local === true,
+    state: typeof m.state === "string" ? m.state : null,
+    metrics: (Array.isArray(m.metrics) ? m.metrics.filter(isRecord) : []).map((g) => ({
+      key: typeof g.key === "string" ? g.key : "",
+      name: typeof g.name === "string" ? g.name : "",
+      pct: typeof g.pct === "number" ? g.pct : null,
+      note: typeof g.note === "string" ? g.note : null,
+      history: Array.isArray(g.history) ? g.history : [],
+    })),
+  }));
+}
+
 export function createScreenDataRoute(
   readout: (url: URL) => Promise<Response>,
   deps: ScreenDataDeps = {},
@@ -51,7 +75,7 @@ export function createScreenDataRoute(
     if (!base) return null;
     try {
       const res = await fetchImpl(`${base}/api/machines`, { signal: AbortSignal.timeout(HUB_TIMEOUT_MS), redirect: "manual" });
-      return res.ok ? await res.json() : null;
+      return res.ok ? machinesForScreen(await res.json()) : null;
     } catch {
       return null;
     }
@@ -69,16 +93,19 @@ export function createScreenDataRoute(
  * suite from the Mac). The load is one figure for all the jobs; the consumption
  * divides it (`attachRemoteJobs`).
  */
-export function remoteReportOf(answer: ReadoutAnswer): RemoteReport | null {
+export function remoteReportOf(answer: ReadoutAnswer): RemoteReport {
   const r = answer.readout;
-  if (!r) return null;
+  const machine = typeof answer.machine?.name === "string" && answer.machine.name ? answer.machine.name : null;
+  // Always a report, even with no jobs or no answer: «none» is a fact of this reading, and the page must
+  // not fall back on its older slow read, which could still list a job that has ended.
+  if (!r) return { machine, jobs: [], load: { memMB: null, cpuPct: null } };
   const jobs = (r.screen?.jobs ?? []).map((j) => ({ project: j.project ?? null, what: j.what ?? "", who: j.who ?? null, since: j.since ?? null }));
-  if (jobs.length === 0) return null;
+  if (jobs.length === 0) return { machine, jobs: [], load: { memMB: null, cpuPct: null } };
   const sent = (r.procs ?? []).filter((p) => p.job === true);
   const cores = r.cores && r.cores > 0 ? r.cores : null;
   const cpuOfOneCore = sent.some((p) => typeof p.cpuPct === "number") ? sent.reduce((s, p) => s + (p.cpuPct ?? 0), 0) : null;
   return {
-    machine: typeof answer.machine?.name === "string" && answer.machine.name ? answer.machine.name : null,
+    machine,
     jobs,
     load: {
       memMB: sent.length ? sent.reduce((s, p) => s + (p.memMB ?? 0), 0) : null,

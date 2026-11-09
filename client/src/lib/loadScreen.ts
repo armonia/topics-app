@@ -15,6 +15,8 @@
  */
 import type { ProcessRow, UnitKind } from './machineProcesses';
 import type { SessionConsumption } from '../../../shared/session-consumption';
+import type { ScreenJob, ScreenOutcome } from '../../../shared/screen-work';
+export type { ScreenJob, ScreenOutcome };
 
 type JsonRecord = Record<string, unknown>;
 const isRecord = (v: unknown): v is JsonRecord => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -24,8 +26,6 @@ const list = (v: unknown): JsonRecord[] => (Array.isArray(v) ? v.filter(isRecord
 
 /** `job`: work sent from the Mac (a test suite), told apart by its command line on the machine. */
 export interface ScreenProc { name: string; count: number; memMB: number; cpuPct: number | null; job: boolean }
-export interface ScreenJob { project: string | null; what: string; who: string | null; since: number | null }
-export interface ScreenOutcome { project: string | null; what: string; ok: boolean | null; interrupted: boolean; seconds: number | null; endedAt: number | null }
 
 export interface Readout {
   machine: { id: string | null; name: string; local: boolean };

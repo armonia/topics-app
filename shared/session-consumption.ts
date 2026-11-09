@@ -17,7 +17,7 @@
 export type SessionKind = 'card' | 'chat' | 'terminal';
 
 /** `working`: producing or running something now. `waiting`: parked on a person's answer. */
-export type SessionState = 'working' | 'waiting';
+export type ConsumptionState = 'working' | 'waiting';
 
 export interface ConsumptionTokens {
   /** `null` where the source only knows a total (a card read from the board's counter). */
@@ -75,7 +75,7 @@ export interface SessionConsumption {
   project: string | null;
   /** The model id as the board stores it; null when the session does not name one. */
   model: string | null;
-  state: SessionState;
+  state: ConsumptionState;
   /** When it started, epoch ms: the clock runs on the surface, from this. */
   startedAt: number | null;
   /** The card id when the session is a card, to open it. */

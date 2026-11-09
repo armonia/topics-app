@@ -150,6 +150,44 @@ describe("session consumption", () => {
     expect(answer.rule).toBe("equal");
   });
 
+  test("a card running on the PC takes no share of the work the Mac sent to the PC", async () => {
+    const answer = await createSessionConsumption(deps({
+      tasks: () => [task("A", TOPIC_A), task("B", TOPIC_B, { machineId: "pc-1" })],
+      remoteMachineName: (id) => (id ? "Studio PC" : null),
+    })).read({
+      remote: { machine: "Studio PC", jobs: [{ what: "i test nel browser", project: "acme-web", who: "Mac", since: 5 }], load: { memMB: 3000, cpuPct: 400 } },
+    });
+    const here = answer.sessions.find((s) => s.key === "card:A")!;
+    const there = answer.sessions.find((s) => s.key === "card:B")!;
+    expect(here.remote).toEqual([{ what: "i test nel browser", where: "Studio PC", who: "Mac", since: 5, of: 1, memMB: 3000, cpuPct: 400 }]);
+    expect(there.remote).toEqual([]);
+  });
+
+  test("a report with no jobs still answers `sent`: nothing sent is a fact of this reading", async () => {
+    const answer = await createSessionConsumption(deps()).read({ remote: { machine: "Studio PC", jobs: [], load: { memMB: null, cpuPct: null } } });
+    expect(answer.sent).toEqual({ jobs: [], unplaced: [] });
+  });
+
+  test("a chat's clock starts at its running turn, not at the moment this server first looked", async () => {
+    const hourAgo = 3_600_000;
+    const svc = createSessionConsumption(deps({
+      tasks: () => [],
+      cliPids: () => [],
+      nativeCommands: () => [{ sessionKey: topicSessionKey(TOPIC_C), pid: 310 }],
+      turnStartedAt: (key) => (key === topicSessionKey(TOPIC_C) ? 2_000_000 - hourAgo : null),
+    }));
+    const chat = (await svc.read()).sessions.find((s) => s.key === topicSessionKey(TOPIC_C))!;
+    expect(chat.startedAt).toBe(2_000_000 - hourAgo);
+  });
+
+  test("a chat whose turn start is unknown falls back on when it was first seen", async () => {
+    const svc = createSessionConsumption(deps({
+      tasks: () => [], cliPids: () => [], nativeCommands: () => [{ sessionKey: topicSessionKey(TOPIC_C), pid: 310 }], usageOf: () => usage(500),
+    }));
+    const chat = (await svc.read()).sessions.find((s) => s.key === topicSessionKey(TOPIC_C))!;
+    expect(chat.startedAt).toBe(2_000_000);
+  });
+
   test("a table that cannot be read leaves the sessions listed with no machine figures", async () => {
     const answer = await createSessionConsumption(deps({ table: async () => null })).read();
     expect(answer.sessions).toHaveLength(2);

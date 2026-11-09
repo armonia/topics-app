@@ -72,6 +72,14 @@ export function liveConsumptionDeps(ctx: AppContext): ConsumptionDeps {
       if (!transcriptUsage) return null;
       try { return reading(transcriptUsage(sessionKey), "transcript"); } catch { return null; }
     },
+    turnStartedAt(sessionKey) {
+      try {
+        const row = ctx.db.prepare("SELECT timestamp FROM messages WHERE session_key = ? AND role = 'user' ORDER BY sort_order DESC LIMIT 1")
+          .get(sessionKey) as { timestamp: string } | undefined;
+        const t = row ? Date.parse(row.timestamp) : NaN;
+        return Number.isFinite(t) ? t : null;
+      } catch { return null; }
+    },
     topicsBySessionKey(keys) {
       const out = new Map<string, { id: string; name: string; projectPath: string | null; model: string | null }>();
       if (keys.length === 0) return out;

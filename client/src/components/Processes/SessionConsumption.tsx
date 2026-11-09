@@ -12,18 +12,17 @@
  *
  * Read-only: nothing here takes input except the detail toggle of the panel.
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { ChevronRight, CloudOff, Server, Zap } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { addCatalogue } from '../../lib/i18n';
 import CONSUMPTION_IT from '../../lib/i18n-consumption-it';
 import CONSUMPTION_EN from '../../lib/i18n-consumption-en';
-import { apiFetch } from '../../lib/shell/net';
-import { startVisibleInterval } from '../../state/documentVisibility';
+import { useSecondTick, useSessionConsumption } from '../../hooks/useSessionConsumption';
 import { WARNING_TEXT } from '../../lib/popoverStyles';
 import { formatMem } from '../../lib/machineProcesses';
 import { friendlyModelLabel } from '../../lib/modelLabel';
-import { clockOf, formatTps, readConsumption, MAX_SESSIONS } from '../../lib/sessionConsumption';
+import { clockOf, formatTps, MAX_SESSIONS } from '../../lib/sessionConsumption';
 import type { ConsumptionAnswer, ConsumptionShare, SessionConsumption } from '../../../../shared/session-consumption';
 import { fmtTok } from '../Board/format';
 import { StatusIcon } from '../Board/atoms';
@@ -33,43 +32,6 @@ addCatalogue('it', CONSUMPTION_IT);
 addCatalogue('en', CONSUMPTION_EN);
 
 type Tr = ReturnType<typeof useT>;
-
-export interface ConsumptionReads {
-  answer: ConsumptionAnswer | null;
-  /** When the last answer came, epoch ms. */
-  at: number | null;
-  /** The last read failed (a failed read keeps the last good answer). */
-  failing: boolean;
-}
-
-/** One read every `pollMs` while the page is visible; a failed read keeps the last good answer and says so. */
-export function useSessionConsumption(path: string, pollMs: number, enabled = true): ConsumptionReads {
-  const [reads, setReads] = useState<ConsumptionReads>({ answer: null, at: null, failing: false });
-  useEffect(() => {
-    if (!enabled) return;
-    let alive = true;
-    const read = async () => {
-      let answer: ConsumptionAnswer | null = null;
-      try {
-        const r = await apiFetch(path);
-        if (r.ok) answer = readConsumption(await r.json());
-      } catch { /* the band says the read failed */ }
-      if (!alive) return;
-      setReads((prev) => ({ answer: answer ?? prev.answer, at: answer ? Date.now() : prev.at, failing: answer === null }));
-    };
-    void read();
-    const stop = startVisibleInterval(() => { void read(); }, pollMs);
-    return () => { alive = false; stop(); };
-  }, [path, pollMs, enabled]);
-  return reads;
-}
-
-/** The wall clock, once a second: what makes a session's elapsed time run. */
-export function useSecondTick(): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => startVisibleInterval(() => setNow(Date.now()), 1000), []);
-  return now;
-}
 
 const pct1 = (v: number): string => `${(Math.round(v * 10) / 10).toString().replace('.', ',')}%`;
 
@@ -136,13 +98,13 @@ export function SessionRowView({ session: s, now, variant, windowS, machineLabel
           note={t && t.input !== null ? `↓${fmtTok(t.input)} ↑${fmtTok(t.output ?? 0)}` : t ? tr('consumption.tokensTotalOnly') : undefined} />
         <Metric label={tr('consumption.tps')} value={s.tps === null ? '-' : formatTps(s.tps)} testId="session-tps"
           title={s.tps === null ? tr('consumption.tpsNone') : tr('consumption.tpsTitle', { s: windowS })} note={s.tps === null ? undefined : `${windowS} s`} />
-        <Metric label={tr('consumption.cpu')} value={s.cpuPct === null ? '-' : pct1(s.cpuPct)} testId="session-cpu" title={tr('consumption.cpuTitle')} note={s.cpuPct === null ? undefined : tr('consumption.cpuNote')} />
+        <Metric label={tr('consumption.cpu')} value={s.cpuPct === null ? '-' : pct1(s.cpuPct)} testId="session-cpu" title={tr('consumption.cpuTitle')} note={s.cpuPct === null ? undefined : machineLabel ? tr('consumption.cpuNoteOf', { name: machineLabel }) : tr('consumption.cpuNote')} />
         <Metric label={tr('consumption.memory')} value={s.memMB === null ? '-' : formatMem(s.memMB)} testId="session-memory" title={memTitle} note={memNote} />
       </div>
       {s.remote.map((r, i) => (
         <div key={i} className={`flex min-w-0 items-center gap-2 px-2.5 pb-1.5 text-compact text-app-text-secondary`} data-testid="session-remote">
           <Server size={13} className={`flex-none ${FAINT}`} aria-hidden="true" />
-          <span className="min-w-0 flex-1 truncate">{r.where ? tr('consumption.remoteOn', { name: r.where, what: r.what }) : tr('consumption.remote', { what: r.what })}{r.of > 1 ? ` · ${tr('consumption.remoteShare', { of: r.of })}` : ''}</span>
+          <span className="min-w-0 flex-1 truncate">{r.where ? tr('consumption.remoteOn', { name: r.where, what: r.what }) : tr('consumption.remote', { what: r.what })}{r.of > 1 ? ` · ${tr('consumption.remoteShare', { of: r.of })}` : ''}{r.since !== null ? ` · ${tr('consumption.remoteSince', { time: clockOf(now - r.since) })}` : ''}</span>
           {r.memMB !== null && <span className="flex-none tabular-nums">{formatMem(r.memMB)}</span>}
           {r.cpuPct !== null && <span className="flex-none tabular-nums" title={tr('consumption.cpuTitle')}>{pct1(r.cpuPct)}</span>}
         </div>

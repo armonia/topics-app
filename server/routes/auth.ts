@@ -573,12 +573,13 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
       // `owner` DISCENDE dall'essere proprietari dell'installazione, non da una
       // scelta a parte. `role` resta accettato come alias legacy finché la
       // colonna esiste: un client non aggiornato continua a funzionare.
-      const role = screen ? "screen" : pers.deciso
+      const role = screen ? "guest" : pers.deciso
         ? (pers.owner ? "owner" : "guest")
         : (body?.role === "guest" ? "guest" : "owner");
       db.query(
         "INSERT INTO devices (id, name, token_hash, created_at, last_seen_at, first_ip, revoked_at, role) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)",
       ).run(deviceId, entry.name, hashToken(token), now, now, entry.ip, role);
+      if (screen) db.query("INSERT INTO screen_devices (device_id, created_at) VALUES (?, ?)").run(deviceId, now);
       if (pers.personId) {
         try {
           db.query("UPDATE devices SET person_id = ? WHERE id = ?").run(pers.personId, deviceId);

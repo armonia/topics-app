@@ -22,6 +22,8 @@
  * cumulative processor seconds, so the first reading has none: a null, drawn
  * as a dash, never a 0.
  */
+import type { ScreenJob, ScreenOutcome } from '../../shared/screen-work';
+export type { ScreenJob, ScreenOutcome };
 
 /** One process as the OS listed it. `cpuPct` is null where the reading has none. */
 export interface RawProc {
@@ -47,23 +49,6 @@ export interface ProcGroup {
   job?: true;
 }
 
-export interface ScreenJob {
-  project: string | null;
-  what: string;
-  who: string | null;
-  since: number | null;
-}
-
-export interface ScreenOutcome {
-  project: string | null;
-  what: string;
-  /** true = it passed, false = it failed, null = interrupted or an outcome the file did not name. */
-  ok: boolean | null;
-  /** Stopped before its end (the keeper's `interrotto`: the ssh went away, a signal). allow-italian: the keeper's wire value */
-  interrupted: boolean;
-  seconds: number | null;
-  endedAt: number | null;
-}
 
 /** What the sleep keeper wrote for the PC's own screen. */
 export interface ScreenState {

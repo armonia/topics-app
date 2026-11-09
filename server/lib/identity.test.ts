@@ -26,17 +26,18 @@ function db084(): Database {
   const db = new Database(":memory:");
   db.run(TASKS_DDL);
   db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT)");
-  for (const m of ["080-devices.sql", "082-task-shares.sql", "083-grants.sql", "084-people-orgs.sql"]) {
+  for (const m of ["080-devices.sql", "082-task-shares.sql", "083-grants.sql", "084-people-orgs.sql", "20261109002110-screen-devices.sql"]) {
     db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
   }
   return db;
 }
 
 function aggiungi(db: Database, opts: {
-  id: string; token: string; role?: "owner" | "guest" | "screen"; revoked?: number | null; personId?: string | null;
+  id: string; token: string; role?: "owner" | "guest"; screen?: boolean; revoked?: number | null; personId?: string | null;
 }) {
   db.query("INSERT INTO devices (id, name, token_hash, created_at, role, revoked_at, person_id) VALUES (?,?,?,?,?,?,?)")
     .run(opts.id, opts.id, hashToken(opts.token), 1, opts.role ?? "owner", opts.revoked ?? null, opts.personId ?? null);
+  if (opts.screen) db.query("INSERT INTO screen_devices (device_id, created_at) VALUES (?, 1)").run(opts.id);
 }
 
 /** L'header `Cookie` come lo manderebbe un browser. */
@@ -67,7 +68,7 @@ describe("identità · da remoto", () => {
   beforeEach(() => { db = db084(); });
 
   it("un dispositivo accoppiato come schermo e' uno schermo: confinato, senza persona e senza permessi", () => {
-    aggiungi(db, { id: "pc-screen", token: "ts", role: "screen" });
+    aggiungi(db, { id: "pc-screen", token: "ts", role: "guest", screen: true });
     const io = resolveIdentity(db, cookie("ts"), false);
     expect(io.screen).toBe(true);
     expect(io.confined).toBe(true);

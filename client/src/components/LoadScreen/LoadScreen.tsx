@@ -37,7 +37,9 @@ import { formatMem, formatPct, macGauges, pcView } from '../../lib/machineProces
 import { readScreenData, readoutRows, screenZoom, sessionsOn, sleepView, type Readout, type ScreenJob, type ScreenOutcome, type SleepView } from '../../lib/loadScreen';
 import { FAINT, SECTION, SECTION_HEAD } from '../Processes/processesStyles';
 import { Gauge, PcStateBadge, ProcessRowView } from '../Processes/MachineProcessesPane';
-import { ConsumptionNotes, SessionRowView, useSecondTick, useSessionConsumption } from '../Processes/SessionConsumption';
+import { ConsumptionNotes, SessionRowView } from '../Processes/SessionConsumption';
+import { useSecondTick, useSessionConsumption } from '../../hooks/useSessionConsumption';
+import { clockOf } from '../../lib/sessionConsumption';
 import type { SessionConsumption } from '../../../../shared/session-consumption';
 
 addCatalogue('it', LOAD_SCREEN_IT);
@@ -143,6 +145,8 @@ function clock(ms: number, locale: string): string {
   return new Date(ms).toLocaleTimeString(locale === 'en' ? 'en-GB' : 'it-IT', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
+const NO_JOBS: ScreenJob[] = [];
+
 export function LoadScreen({ machine }: { machine: string | null }) {
   const tr = useT();
   const locale = useLocale();
@@ -153,11 +157,13 @@ export function LoadScreen({ machine }: { machine: string | null }) {
   const now = sessionReads.now;
   const r = reads.readout;
   const local = r?.machine.local ?? machine === null;
-  const sessions = sessionReads.answer?.sessions ?? [];
+  const sessions = useMemo(() => sessionReads.answer?.sessions ?? [], [sessionReads.answer]);
   const name = r?.machine.name || (local ? tr('processes.mac') : tr('processes.pc'));
   // The header and the list read ONE snapshot (the sessions' answer, which carries the jobs it placed): the readout is slower and could disagree.
   const sent = sessionReads.answer?.sent ?? null;
-  const jobCount = sent?.jobs.length ?? r?.screen?.jobs.length ?? 0;
+  const readoutJobs = r?.screen?.jobs;
+  const jobCount = sent?.jobs.length ?? readoutJobs?.length ?? 0;
+  const sentJobs = sent ? sent.unplaced : readoutJobs ?? NO_JOBS;
   const here = useMemo(() => sessionsOn(sessions, local, name), [sessions, local, name]);
   const view = r ? sleepView(r, here.length, now, sent ? sent.jobs.length : null) : null;
   const pc = useMemo(() => (local ? null : pcView(reads.machines)), [reads.machines, local]);
@@ -190,7 +196,7 @@ export function LoadScreen({ machine }: { machine: string | null }) {
         )}
 
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-3">
-          <SessionsSection sessions={sessions} answer={sessionReads.answer} now={now} read={sessionReads.at !== null} failing={sessionReads.failing} />
+          <SessionsSection sessions={sessions} answer={sessionReads.answer} now={now} hostLabel={local ? null : tr('processes.mac')} read={sessionReads.at !== null} failing={sessionReads.failing} />
           <div className="flex min-h-0 min-w-0 flex-col gap-3">
             <section className={SECTION} data-testid="load-screen-hero">
               <Hero view={view} sessions={here.length} jobs={jobCount} threshold={r?.screen?.thresholdMin ?? null} locale={locale} />
@@ -208,7 +214,7 @@ export function LoadScreen({ machine }: { machine: string | null }) {
                 </div>
               )}
             </section>
-            <SentWorkSection jobs={sent ? sent.unplaced : r?.screen?.jobs ?? []} />
+            <SentWorkSection jobs={sentJobs} now={now} />
             <WeightSection readout={r} failed={reads.readoutFailed} />
             {(r?.screen?.outcomes.length ?? 0) > 0 && <OutcomesSection outcomes={r!.screen!.outcomes} locale={locale} />}
           </div>
@@ -275,8 +281,10 @@ function SectionHead({ icon: Icon, title, aside }: { icon: LucideIcon; title: st
 }
 
 /** THE CENTRE: every session at work, with what it costs. */
-function SessionsSection({ sessions, answer, now, read, failing }: {
+function SessionsSection({ sessions, answer, now, read, failing, hostLabel }: {
   sessions: SessionConsumption[]; answer: ReturnType<typeof useSessionConsumption>['answer']; now: number; read: boolean; failing: boolean;
+  /** The machine the sessions' CPU and memory are read on, when it is not the one this screen watches. */
+  hostLabel: string | null;
 }) {
   const tr = useT();
   const [fitRef, fit] = useFitCount(SESSION_ROWS, sessions.map((s) => s.key).join('|'));
@@ -291,7 +299,7 @@ function SessionsSection({ sessions, answer, now, read, failing }: {
         </div>
       )}
       <div ref={fitRef} className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="load-screen-sessions-list">
-        {shown.map((s) => <SessionRowView key={s.key} session={s} now={now} variant="screen" windowS={answer?.windowS ?? 30} />)}
+        {shown.map((s) => <SessionRowView key={s.key} session={s} now={now} variant="screen" windowS={answer?.windowS ?? 30} machineLabel={s.machine === null ? hostLabel : null} />)}
       </div>
       {sessions.length > shown.length && (
         <div className={`flex-none border-t border-app-border-subtle px-3 py-1.5 text-compact ${FAINT}`} data-testid="load-screen-sessions-more">{tr('consumption.more', { n: sessions.length - shown.length })}</div>
@@ -302,7 +310,7 @@ function SessionsSection({ sessions, answer, now, read, failing }: {
 }
 
 /** Work the Mac sent that no session of the list carries (a job of a project with nothing running). */
-function SentWorkSection({ jobs }: { jobs: ScreenJob[] }) {
+function SentWorkSection({ jobs, now }: { jobs: ScreenJob[]; now: number }) {
   const tr = useT();
   if (jobs.length === 0) return null;
   return (
@@ -312,6 +320,7 @@ function SentWorkSection({ jobs }: { jobs: ScreenJob[] }) {
         <div key={i} className="flex min-w-0 items-center gap-2 border-b border-app-border-subtle px-3 py-1.5 text-compact last:border-b-0" data-testid="load-screen-job">
           <span className="min-w-0 flex-1 truncate text-app-text">{[j.project, j.what || tr('loadScreen.sent.job')].filter(Boolean).join(' · ')}</span>
           {j.who && <span className={`flex-none ${FAINT}`}>{tr('loadScreen.sent.from', { who: j.who })}</span>}
+          {j.since !== null && <span className={`flex-none tabular-nums ${FAINT}`} data-testid="load-screen-job-since">{tr('loadScreen.sent.since', { time: clockOf(now - j.since) })}</span>}
         </div>
       ))}
     </section>

@@ -24,7 +24,7 @@
  * and, with CONSUMPTION_SHOTS set, are copied to that folder under their
  * delivery names.
  *
- * @covers HUBBR-08
+ * @covers USAGE-26
  */
 import { copyFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";

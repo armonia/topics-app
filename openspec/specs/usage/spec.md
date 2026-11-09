@@ -945,7 +945,7 @@ The restart comparison (`scripts/token-before-after.ts`) SHALL read the `message
 
 ### Requirement: USAGE-26 — What a session costs is read from one answer, and a shared process is split by a written rule
 
-Every surface that shows what a live session costs (the load screen of the PC, the machine's Processes view, the card drawer) SHALL read ONE answer, `GET /api/usage/consumption`, built from the sources that already exist: the fleet process table, the native usage registry, the dispatcher's transcript reader and the card's own token counter. A third consumption table SHALL NOT exist.
+Every surface that shows what a live session costs (the load screen of the PC, the machine's Processes view, the card drawer) SHALL read ONE answer, built by one service (`GET /api/usage/consumption`; the load screen reads the same answer through `GET /api/system/screen-sessions`, the only route a screen device may reach, which adds what the screen needs: the jobs the Mac sent to the watched machine and their placement), built from the sources that already exist: the fleet process table, the native usage registry, the dispatcher's transcript reader and the card's own token counter. A third consumption table SHALL NOT exist.
 
 Per session the answer SHALL carry the readable title, the project, the model, the tokens (input, output, cache), the output rate (tokens per second, averaged over the window the answer declares) and the memory and CPU billed to it. A figure not measured SHALL be `null` and shown as a dash, never as zero.
 

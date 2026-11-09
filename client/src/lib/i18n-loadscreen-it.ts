@@ -15,6 +15,7 @@ const LOAD_SCREEN_IT: Dict = {
   'loadScreen.sent': 'Lavoro dal Mac',
   'loadScreen.sent.job': 'Lavoro mandato',
   'loadScreen.sent.from': 'da {who}',
+  'loadScreen.sent.since': 'da {time}',
   'loadScreen.state.working': 'Sta lavorando',
   'loadScreen.state.jobs': '{n} lavori mandati',
   'loadScreen.state.job': '1 lavoro mandato',

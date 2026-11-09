@@ -86,6 +86,12 @@ export interface ConsumptionDeps {
   /** Project scripts nobody's session owns. */
   unownedScripts: () => number[];
   usageOf: (sessionKey: string) => UsageReading | null;
+  /**
+   * When the turn now running in a chat began (its last user message), epoch ms: a durable fact of the
+   * conversation, so the clock survives a server restart. Absent or null = unknown, and the clock falls
+   * back on when this server first saw the chat at work.
+   */
+  turnStartedAt?: (sessionKey: string) => number | null;
   topicsBySessionKey: (keys: readonly string[]) => Map<string, ConsumptionTopic>;
   /** The project name as a person reads it, from a board project id or a folder path. */
   projectName: (src: { boardId?: string; path?: string | null }) => string | null;
@@ -214,13 +220,15 @@ export function createSessionConsumption(deps: ConsumptionDeps): SessionConsumpt
     // The sessions of each project, to place the work sent to another machine.
     const sessionsByProject = new Map<string, string[]>();
     const projectOf = new Map<string, string | null>();
+    const sendsFromHere = new Set(liveKeys);
     for (const c of live) {
       const topic = c.topicKey ? topics.get(c.topicKey) : undefined;
       const project = c.task
         ? deps.projectName({ boardId: c.task.projectId })
         : deps.projectName({ path: topic?.projectPath ?? null });
       projectOf.set(c.key, project);
-      if (project) {
+      // A card running on another machine sent that machine nothing: only the sessions here share its jobs.
+      if (project && sendsFromHere.has(c.key)) {
         const list = sessionsByProject.get(project.toLowerCase()) ?? [];
         list.push(c.key);
         sessionsByProject.set(project.toLowerCase(), list);
@@ -247,7 +255,7 @@ export function createSessionConsumption(deps: ConsumptionDeps): SessionConsumpt
         project: projectOf.get(c.key) ?? null,
         model: c.task?.model ?? topic?.model ?? null,
         state: c.task?.awaitingAnswer ? "waiting" as const : "working" as const,
-        startedAt: c.startedAt ?? tracker.firstSeen(c.key),
+        startedAt: c.startedAt ?? (c.topicKey ? deps.turnStartedAt?.(c.topicKey) ?? null : null) ?? tracker.firstSeen(c.key),
         cardId: c.task?.id ?? null,
         machine,
         tokens,
