@@ -257,6 +257,18 @@ describe("kill finisce con un figlio MORTO, non con un frame ottimista", () => {
   }, slackMs(40_000));
 });
 
+describe("closing a terminal leaves no descendants", () => {
+  test.skipIf(process.platform === "win32")("a background job that never held the tty dies with the session", async () => {
+    const { c } = await bridgeWithClient("sweep");
+    create(c, "sw1", "sleep 300 >/dev/null 2>&1 </dev/null & echo JOB$!END; exit 0");
+    const frame = await c.waitFor((f) => f.type === "data" && f.id === "sw1" && /JOB\d+END/.test(String(f.data)));
+    expect(frame).not.toBeNull();
+    const job = Number(/JOB(\d+)END/.exec(String(frame?.data))?.[1]);
+    expect(await c.waitFor((f) => f.type === "exit" && f.id === "sw1", slackMs(10_000))).not.toBeNull();
+    expect(await waitForPidGone(job)).toBe(true);
+  }, slackMs(30_000));
+});
+
 describe("un id, un PTY", () => {
   /**
    * Due `create` sullo stesso id (la doppia POST /revive) costruivano DUE figli

@@ -188,6 +188,11 @@ function handleMessage(msg, client) {
           if (cur.killTimer) clearTimeout(cur.killTimer);
           sessions.delete(id);
         }
+        // The leader is gone, but descendants that never held the tty (a `&`
+        // job, a server that redirected its output) keep the group alive and
+        // outlive the terminal as orphans. The group id stays valid while any
+        // member lives, so the sweep cannot hit an unrelated process.
+        if (process.platform !== 'win32') killGroup(p.pid);
         broadcast({ type: 'exit', id, exitCode });
       });
       broadcast({ type: 'created', id, pid: p.pid });

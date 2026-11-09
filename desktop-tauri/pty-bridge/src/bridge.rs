@@ -691,7 +691,20 @@ fn reader_loop(
 
     // Reap for the exit code. The `kill` path uses a separate ChildKiller handle, so
     // this blocking wait can never deadlock against it.
+    let leader = child.process_id();
     let code: i64 = child.wait().map(|s| s.exit_code() as i64).unwrap_or(0);
+    // The leader is gone, but descendants that never held the tty (a `&` job, a
+    // dev server that redirected its output) keep the group alive and outlive
+    // the terminal as orphans. The group id stays valid while any member lives,
+    // so sweeping it now cannot hit an unrelated process.
+    #[cfg(unix)]
+    if let Some(pid) = leader {
+        unsafe {
+            libc::kill(-(pid as i32), libc::SIGKILL);
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = leader;
     // THE ONLY PLACE A SESSION LEAVES THE MAP, and it removes only its OWN
     // incarnation: an unconditional `remove(&id)` here would let a late exit
     // evict a newer session that had taken the same id.
