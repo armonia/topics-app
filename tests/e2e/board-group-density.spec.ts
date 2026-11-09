@@ -143,19 +143,20 @@ test.describe("Board per progetto e card compatte", () => {
     await resetPaneStore(page.request, []);
     await page.goto("/");
     await page.evaluate(() => {
-      for (const k of ["topics.board.groupBy", "topics.board.density", "topics.board.collapsedProjects"]) localStorage.removeItem(k);
+      for (const k of ["topics.board.groupBy", "topics.board.collapsedProjects"]) localStorage.removeItem(k);
     });
     await openGlobalBoard(page);
 
     const group = page.getByTestId("board-group-toggle");
-    const density = page.getByTestId("board-density-toggle");
+    const doneToggle = page.getByTestId("board-done-toggle");
     const liveCard = page.locator(`[data-task-card="${live}"]`);
     const plainCard = page.locator(`[data-task-card="${plain}"]`);
     await expect(liveCard).toBeVisible({ timeout: 15000 });
 
     // ── 1. The default: flat board, full cards, the description is drawn ───
     await expect(group).toHaveAttribute("aria-pressed", "false");
-    await expect(density).toHaveAttribute("aria-pressed", "false");
+    await expect(doneToggle).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByTestId("kanban-column-done")).toHaveCount(0);
     await expect(page.getByTestId("board-lane")).toHaveCount(0);
     await expect(plainCard).toHaveAttribute("data-density", "full");
     await expect(plainCard).toContainText("Anche questa descrizione");
@@ -184,17 +185,12 @@ test.describe("Board per progetto e card compatte", () => {
     await textarea.fill("");
     await expect(page.getByTestId("kanban-draft-card")).toHaveCount(0);
 
-    // ── 3. Compact: the description goes, the session door stays ──────────
-    await density.click();
-    await expect(density).toHaveAttribute("aria-pressed", "true");
-    await expect(plainCard).toHaveAttribute("data-density", "compact");
-    await expect(plainCard).not.toContainText("Anche questa descrizione");
-    await expect(liveCard.getByTestId("card-open-session")).toBeVisible();
-    await expect(liveCard.getByTestId("card-foot")).toBeVisible();
-    // The wait stays in sight on a compact card: the review age.
-    const reviewCard = page.locator(`[data-task-card="${review}"]`);
-    await expect(reviewCard).toHaveAttribute("data-density", "compact");
-    await expect(reviewCard.getByTestId("card-review-age")).toBeVisible();
+    // ── 3. Done is out of the way by default and one click brings it back ──
+    await doneToggle.click();
+    await expect(doneToggle).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("kanban-column-done").first()).toBeVisible();
+    await doneToggle.click();
+    await expect(page.getByTestId("kanban-column-done")).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath("dopo.png") });
     const laneOrder = await page.getByTestId("board-lane").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
 
@@ -207,9 +203,7 @@ test.describe("Board per progetto e card compatte", () => {
     await page.reload();
     await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId("board-group-toggle")).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByTestId("board-density-toggle")).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator(`[data-testid="board-lane"][data-project-id="${ID_B}"]`)).toHaveAttribute("data-collapsed", "true");
-    await expect(page.locator(`[data-task-card="${plain}"]`)).toHaveAttribute("data-density", "compact");
 
     // ── 6. The Plan: same fold, same compact card ─────────────────────────
     await page.getByTestId("board-plan-toggle").click();
@@ -242,7 +236,7 @@ test.describe("Board per progetto e card compatte", () => {
     await resetPaneStore(page.request, []);
     await page.goto("/");
     await page.evaluate((target) => {
-      for (const k of ["topics.board.density", "topics.board.collapsedProjects", "board:composerProject"]) localStorage.removeItem(k);
+      for (const k of ["topics.board.collapsedProjects", "board:composerProject"]) localStorage.removeItem(k);
       localStorage.setItem("topics.board.groupBy", "project");
       if (target) localStorage.setItem("board:composerProject", target);
     }, composerProject);
@@ -352,8 +346,8 @@ test.describe("Board per progetto e card compatte", () => {
     expect(posted.status(), await posted.text()).toBe(201);
 
     await freshGrouped(page, null);
-    await page.getByTestId("board-density-toggle").click();
-    const card = page.locator(`[data-task-card="${asked}"]`);
+    await page.getByTestId("board-plan-toggle").click();
+    const card = page.getByTestId("plan-view").locator(`[data-task-card="${asked}"]`);
     await expect(card).toHaveAttribute("data-density", "compact");
     const question = card.getByTestId("card-compact-question");
     await expect(question).toContainText("Porto la modifica sul ramo principale?");
@@ -374,8 +368,8 @@ test.describe("Board per progetto e card compatte", () => {
     expect(posted.status(), await posted.text()).toBe(201);
 
     await freshGrouped(page, null);
-    await page.getByTestId("board-density-toggle").click();
-    const card = page.locator(`[data-task-card="${asked}"]`);
+    await page.getByTestId("board-plan-toggle").click();
+    const card = page.getByTestId("plan-view").locator(`[data-task-card="${asked}"]`);
     await expect(card).toHaveAttribute("data-density", "compact");
     // The sentence is there; the reply that would duplicate the card's own choice is not.
     await expect(card.getByTestId("card-compact-question")).toContainText("Landa su main?");
