@@ -96,6 +96,7 @@ import { restoreSweptTranscript } from "../lib/transcript-keeper";
 import { PARTIAL_ARGS_EMIT_MS, extractPrimaryToolArg } from "./partial-tool-input";
 import { handoffFromStore } from "./handoff";
 import { topicsMcpBridgeLaunch } from "../lib/topics-mcp-bridge-argv";
+import { issueSessionTokenFile } from "../lib/session-token";
 import { hasPriorMessagesInDB, loadActiveBranchForReplay, renderRecapPrologue, renderReplayPrologue } from "./claude/history-replay";
 
 // ============ Config ============
@@ -358,6 +359,9 @@ function resolveInheritedMcpServers(): Record<string, unknown> | null {
  * where every `ps` printed it, and that is how it reached dozens of transcripts.
  */
 export function topicsMcpBridgeSpec(sessionKey: string, profile?: string): { command: string; args: string[] } {
+  // The token that lets this bridge sign AS this session goes in a 0600 file
+  // the bridge reads, never in the argv below (`lib/session-token.ts`).
+  issueSessionTokenFile(topicsHome(), sessionKey);
   // Checkout: Bun runs the script. Compiled binary: the binary itself, with a
   // flag (see `topics-mcp-bridge-argv.ts` for the second server it used to start).
   return topicsMcpBridgeLaunch([
