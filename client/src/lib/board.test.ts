@@ -399,7 +399,7 @@ describe('la non-consegna si dice UNA volta sola', () => {
 });
 
 describe('dueDateChip', () => {
-  const tr = (key: string, vars?: Record<string, string>) => `${key}:${vars?.date ?? ''}`;
+  const tr = (key: string, vars?: Record<string, string | number>) => `${key}:${String(vars?.date ?? '')}`;
   const now = Date.parse('2026-09-10T12:00:00Z');
   test('no date gives no chip', () => {
     expect(dueDateChip({ dueDate: undefined, status: 'todo' }, tr, now)).toBeNull();
