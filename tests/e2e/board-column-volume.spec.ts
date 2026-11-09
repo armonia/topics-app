@@ -366,10 +366,10 @@ test.describe("Kanban — il volume di una colonna", () => {
     // Away (the archive) and back: the board remounts its columns on each read.
     const archive = page.getByTestId("board-archived-toggle");
     await archive.click();
-    await expect(archive).toHaveAttribute("aria-valuenow", "1");
+    await expect(archive).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("board-archived-banner")).toBeVisible({ timeout: 10000 });
     await archive.click();
-    await expect(archive).toHaveAttribute("aria-valuenow", "2");
+    await expect(archive).toHaveAttribute("aria-pressed", "false");
     await expect(cardsIn(page, "done").first()).toBeAttached({ timeout: 20000 });
     await afterFrames(page, 60);
     expect(await cardsIn(page, "done").count(), "the pages already loaded survive the remount").toBe(COLUMN_PAGE * 2);
