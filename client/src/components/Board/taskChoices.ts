@@ -241,22 +241,24 @@ export function taskChoices(
 }
 
 /**
- * The review card's face and its «…» menu, split by the decision of 01/11 and 03/11.
+ * The review card's face and its menu, split.
  *
- * On the face only «Approva» stays. Every other exit, «Archivia» included, goes
- * behind the «…», also on a card with a branch. «Rifai così» is in neither: the (allow-italian: quoted button labels)
- * field sends the text back. The two helpers return the `exclude` lists that the
- * row and the menu already read, so the face and the menu cannot drift from the
- * real choices of the card.
+ * The face keeps every exit of the card except the redo quick reply (the field
+ * below sends the text back) and the archive action (only in the menu). On a
+ * card with a delivered branch that leaves the land first, then the rest; on a
+ * card without one, the accept. The menu holds what the face does not show.
+ * The two helpers return the `exclude` lists the row and the menu already read,
+ * so the face and the menu cannot drift from the real choices of the card.
  */
-export const REVIEW_FACE_CHOICE: TaskChoiceId = 'accept';
+const MENU_ONLY_CHOICES: TaskChoiceId[] = ['drop'];
+const NEITHER_PLACE_CHOICES: TaskChoiceId[] = ['redo'];
 
-export function reviewFaceExclude(task: ChoiceTask, t?: Translate): TaskChoiceId[] {
-  return taskChoices(task, { t }).map((c) => c.id).filter((id) => id !== REVIEW_FACE_CHOICE);
+export function reviewFaceExclude(_task?: ChoiceTask, _t?: Translate): TaskChoiceId[] {
+  return [...MENU_ONLY_CHOICES, ...NEITHER_PLACE_CHOICES];
 }
 
 export function reviewMenuExclude(task: ChoiceTask, t?: Translate): TaskChoiceId[] {
-  return taskChoices(task, { t }).map((c) => c.id).filter((id) => id === REVIEW_FACE_CHOICE || id === 'redo');
+  return taskChoices(task, { t }).map((c) => c.id).filter((id) => !MENU_ONLY_CHOICES.includes(id));
 }
 
 /**

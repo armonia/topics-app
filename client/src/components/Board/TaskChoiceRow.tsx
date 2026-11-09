@@ -245,7 +245,7 @@ export function TaskChoiceMenu({ task, exclude, disabled, onDone, onError, onNee
         title={ariaLabel}
         disabled={disabled}
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-        className={`flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-md px-1.5 py-1.5 text-app-text-secondary hover:bg-white/10 hover:text-app-text disabled:opacity-50 ${className ?? ''}`}
+        className={`flex shrink-0 items-center justify-center rounded-md px-1.5 coarse:min-h-[44px] coarse:min-w-[44px] py-1.5 text-app-text-secondary hover:bg-white/10 hover:text-app-text disabled:opacity-50 ${className ?? ''}`}
       ><MoreHorizontal className="h-3.5 w-3.5" /></button>
       {/* `task-choices-panel`, non `task-choices`: quello è la RIGA di bottoni,
           che vive nel drawer sopra il composer, e il drawer si apre SOPRA la

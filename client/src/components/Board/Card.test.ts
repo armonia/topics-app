@@ -207,7 +207,7 @@ describe('la misura del turno sulla card', () => {
 
   test('il modello e il provider sono nel CONTENUTO della riga, non solo nel titolo', () => {
     // Guard against the model moving into `title` alone: the visible text must carry it.
-    expect(src).toContain('<span className="min-w-0 break-words">{measureLine}</span>');
+    expect(src).toContain('<span className="min-w-0 break-words" title={measureLine}>{measureLine}</span>');
     expect(live).toContain('<span className="min-w-0 break-words">{label ?? fmtModel(usage.model)}</span>');
     // The model label must never be cut: no truncate on it.
     expect(live).not.toContain('min-w-0 truncate">{label');
@@ -223,9 +223,9 @@ describe('la misura del turno sulla card', () => {
     // The model WRAPS (no truncate, no nowrap on its side): «Sonnet 5 · Claude …» was the cut.
     expect(src).not.toContain('<span className="min-w-0 truncate">{measureLine}</span>');
     expect(live).not.toContain('min-w-0 truncate">{label');
-    expect(src.slice(start, start + 1200)).toContain('<span className="min-w-0 break-words">{measureLine}</span>');
+    expect(src.slice(start, start + 1200)).toContain('<span className="min-w-0 break-words" title={measureLine}>{measureLine}</span>');
     // Tokens come AFTER the time in the text, so truncation drops them first.
-    const content = src.slice(src.indexOf('<span className="min-w-0 break-words">{measureLine}</span>'), src.indexOf('<span data-testid="card-spend">'));
+    const content = src.slice(src.indexOf('<span className="min-w-0 break-words" title={measureLine}>{measureLine}</span>'), src.indexOf('<span data-testid="card-spend">'));
     expect(content.indexOf('fmtMs(task.agentMs)')).toBeLessThan(content.indexOf('fmtTok(costo)'));
     expect(live).toContain('<span className="min-w-0 break-words">{label');
   });

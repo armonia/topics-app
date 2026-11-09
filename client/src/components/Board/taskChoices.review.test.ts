@@ -397,8 +397,8 @@ describe('una frase scritta non e\' mai un verdetto', () => {
 /**
  * The review face and the "..." menu, checked as facts, not as source.
  *
- * Only the accept button stays on the face; the redo quick reply is in neither
- * place; the archive action is in the menu even with a branch. These are the
+ * The face keeps the exits (land first on a delivered branch); the redo quick
+ * reply is in neither place; the archive action is only in the menu. These are the
  * same lists the card passes to the row and the menu, so an exit that moves
  * place turns these tests red.
  */
@@ -408,14 +408,14 @@ describe('la review: faccia e menu', () => {
   const noDelivery = task({ status: 'review', assignedTopicId: 't' });
   const shown = (t: ChoiceInput, exclude: TaskChoiceId[]) => ids(t, { exclude });
 
-  it('sulla faccia resta solo «Approva», con o senza ramo', () => {
-    expect(shown(withBranch, reviewFaceExclude(withBranch))).toEqual(['accept']);
+  it('sulla faccia restano le uscite tranne «Archivia» e «Rifai così»', () => {
+    expect(shown(withBranch, reviewFaceExclude(withBranch))).toEqual(['land', 'send-back', 'accept', 'take-over']);
     expect(shown(aMano, reviewFaceExclude(aMano))).toEqual(['accept']);
     expect(shown(noDelivery, reviewFaceExclude(noDelivery))).toEqual(['accept']);
   });
 
-  it('«Archivia» sta nel menu, anche sulle card con un ramo', () => {
-    expect(shown(withBranch, reviewMenuExclude(withBranch))).toEqual(['land', 'send-back', 'take-over', 'drop']);
+  it('«Archivia» sta solo nel menu, anche sulle card con un ramo', () => {
+    expect(shown(withBranch, reviewMenuExclude(withBranch))).toEqual(['drop']);
     expect(shown(aMano, reviewMenuExclude(aMano))).toEqual(['drop']);
   });
 

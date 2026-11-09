@@ -172,10 +172,7 @@ test.describe("Una frase scritta su una card in review non fonde il ramo", () =>
     // (0) PRECONDITION, so the negative below is not vacuous: this IS the shape
     //     where the incident happened — «Landa su main» is on screen and it is
     //     the first choice — and the branch really carries a commit main lacks.
-    // 03/11: on a card with a branch the land is in the «…» menu, not on the face.
-    await card.getByTestId("task-choices-menu").click();
-    await expect(page.getByTestId("task-choices-panel").getByTestId("task-choice-land")).toHaveText("Landa su main");
-    await page.keyboard.press("Escape");
+    await expect(card.getByTestId("task-choice-land")).toHaveText("Landa su main");
     const inBranch = git(REPO, ["rev-list", "--count", `main..${branch}`]).trim();
     expect(inBranch).toBe("1");
 
