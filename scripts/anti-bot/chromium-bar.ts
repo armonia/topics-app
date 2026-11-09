@@ -14,7 +14,7 @@ import { chromium } from "playwright-core";
 import { HEADLESS_AUTOMATION_ARGS, reducedChromeUserAgent } from "../../server/lib/headless-chromium-stealth";
 
 const prima = process.argv.includes("--prima");
-const soloMisure = process.argv.includes("--solo-misure");
+const measureOnly = process.argv.includes("--solo-misure");
 // Same choice as the server: CHROMIUM_PATH, then Playwright's own; when that is
 // missing (package version differs from the cache) the latest installed chromium-*.
 function findChromium(): string {
@@ -44,7 +44,7 @@ async function fresh() {
 }
 
 let fail = false;
-if (!soloMisure) {
+if (!measureOnly) {
   const { ctx, page } = await fresh();
   const t0 = Date.now();
   await page.goto("https://console.hetzner.com/projects", { waitUntil: "domcontentloaded", timeout: 30_000 }).catch(() => {});
@@ -87,5 +87,5 @@ if (!soloMisure) {
 }
 
 await browser.close();
-if (!soloMisure) console.log(fail ? "BARRA: ROSSA" : "BARRA: VERDE");
+if (!measureOnly) console.log(fail ? "BARRA: ROSSA" : "BARRA: VERDE");
 process.exit(fail ? 1 : 0);
