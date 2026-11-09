@@ -5,10 +5,11 @@
  * trimmed, with placeholder names.
  * @covers HUBBR-08
  * @covers HUBBR-09
+ * @covers HUBBR-22
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  NOT_MEASURED, cpuByPid, formatMem, formatPct, formatRate, historyOf, logTone, macGauges, parseLogEvent, pcView, processRows, pushLogLine, serviceGroups, serviceRows, servicesReadAt, servicesToWatch,
+  NOT_MEASURED, backupView, cpuByPid, filterRows, sortRows, formatMem, formatPct, formatRate, historyOf, logTone, macGauges, parseLogEvent, pcView, processRows, pushLogLine, serviceGroups, serviceRows, servicesReadAt, servicesToWatch,
 } from './machineProcesses';
 import type { ScriptProcessInfo } from './api';
 
@@ -198,5 +199,36 @@ describe('the proxy log', () => {
     expect(formatRate(14_336)).toBe('14 KB/s');
     expect(formatRate(1_887_437)).toBe('1,8 MB/s');
     expect(formatRate(208)).toBe('208 B/s');
+  });
+});
+
+describe('close, search, order and backup (HUBBR-22)', () => {
+  const unit = (id: string, name: string, type: string, memMB: number, extra: Record<string, unknown> = {}) =>
+    ({ id, name, type, memMB, pids: [100], procs: [{ pid: 100, startedAt: 5 }], ...extra });
+  const rows = processRows({ units: [
+    unit('a', 'Browser', 'app', 900),
+    unit('b', 'macOS', 'macos', 500),
+    unit('c', 'Gateway', 'servizio', 300),
+    unit('d', 'Tool', 'mcp', 200),
+    unit('e', 'No birth', 'app', 100, { procs: [{ pid: 100 }] }),
+    unit('f', 'Pid one', 'app', 50, { procs: [{ pid: 1, startedAt: 5 }] }),
+  ] }, null, []);
+
+  test('only an app or job with a birth instant and a real pid is closable', () => {
+    expect(rows.map((r) => r.closable)).toEqual([{ pid: 100, startedAt: 5 }, null, null, null, null, null]);
+  });
+
+  test('search needs every word, order puts the unmeasured last', () => {
+    expect(filterRows(rows, 'brow app').map((r) => r.name)).toEqual(['Browser']);
+    expect(filterRows(rows, '  ').length).toBe(rows.length);
+    expect(sortRows(rows, 'name')[0]?.name).toBe('Browser');
+    expect(sortRows(rows, 'cpu').every((r) => r.cpuPct === null)).toBe(true);
+  });
+
+  test('backup: no last run is no backup', () => {
+    expect(backupView(null)).toBeNull();
+    expect(backupView({ ticks: [] })).toBeNull();
+    expect(backupView({ last: { at: 9, ok: false, detail: 'disk full' }, ticks: [{ at: 8, ok: true }, { at: 3, ok: false }, { ok: true }] }))
+      .toEqual({ ok: false, at: 9, detail: 'disk full', ticks: [{ at: 3, ok: false }, { at: 8, ok: true }] });
   });
 });

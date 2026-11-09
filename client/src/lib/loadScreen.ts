@@ -133,6 +133,7 @@ export function readoutRows(r: Readout, processesWord: (n: number) => string, fr
     netInBps: null,
     netOutBps: null,
     script: null,
+    closable: null,
   }));
 }
 

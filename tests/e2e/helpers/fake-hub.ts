@@ -93,6 +93,10 @@ export interface FakeHub {
   failing: string[];
   /** Readings that replace the fixture's whole, by hub path (`forecast`, `pc`, `mac`). */
   answersOverride: Record<string, unknown>;
+  /** Close requests that went through (pid and signal); a refused one is only in `posts`. */
+  closed: Array<{ pid: number; signal: string }>;
+  /** The Mac backup's state file as the service reads it; null is no file (the hub answers 404). */
+  backup: Record<string, unknown> | null;
   /** The votes, notes and silences posted to `feedback`, as the hub keeps them. */
   feedback: FeedbackRow[];
   /** The projects' priorities, as `project-settings` writes them. */
@@ -493,9 +497,14 @@ function proxyRows(now: number): unknown[] {
  */
 const DEV_SERVER_PID = 4242;
 
+/** When the fake census says every pid was born; a close request with another instant is a reused pid. */
+export const FAKE_PID_BIRTH = 1_700_000_000_000;
+
 function machineCensus(now: number, devPids: number[]): Record<string, unknown> {
   const unit = (id: string, name: string, type: string, memMB: number, gpuPct: number | null, netIn: number | null, netOut: number | null, pids: number[], use: string) =>
-    ({ id, name, type, memMB, gpuPct, netInBps: netIn, netOutBps: netOut, pids, n: pids.length, use: { text: use }, owner: { label: "la apri tu" } });
+    ({ id, name, type, memMB, gpuPct, netInBps: netIn, netOutBps: netOut, pids, n: pids.length, use: { text: use }, owner: { label: "la apri tu" },
+      // The birth instant of each pid, which the service checks before it signals.
+      procs: pids.map((pid) => ({ pid, startedAt: FAKE_PID_BIRTH })) });
   const units = [
     unit("servizio:gw", "Gateway di Jarvis", "servizio", 2969, 0, 14_336, 6_144, [2101], "2 connessioni attive"),
     unit("app:topics", "Topics", "app", 2458, 12, 122_880, 40_960, [2001, 2002], "ponte terminali, 4 webview"),
@@ -544,7 +553,7 @@ const LOG_LINES = [
 ];
 
 export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(), opts: { quiet?: boolean; jobs?: boolean; automations?: boolean; projects?: { dirs: Record<string, string> }; context?: boolean } = {}): Promise<FakeHub> {
-  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), withdrawn: [], silent: false, failing: [], answersOverride: {}, feedback: [], priorities: {}, refuseSettings: null, contextCheck: defaultContextCheck(), checkMs: 3000, activity: null, contextDoctor: defaultContextDoctor(), close: async () => {} };
+  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), withdrawn: [], silent: false, failing: [], answersOverride: {}, closed: [], backup: null, feedback: [], priorities: {}, refuseSettings: null, contextCheck: defaultContextCheck(), checkMs: 3000, activity: null, contextDoctor: defaultContextDoctor(), close: async () => {} };
   const server: Server = createServer((req, res) => {
     const path = (req.url ?? "").split("?")[0]!.replace(/^\/api\//, "");
     if (req.method === "GET" && path === "logs/stream") {
@@ -564,6 +573,19 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
     if (opts.jobs && req.method === "GET" && path === "project-icon") {
       res.writeHead(200, { "content-type": "image/png" });
       res.end(FAKE_ICON_PNG);
+      return;
+    }
+    // The service's close: refuses a pid whose birth instant is not the census's (reused), never touches a real process.
+    if (req.method === "POST" && path === "mac/procs/close") {
+      let raw = "";
+      req.on("data", (c) => { raw += c; });
+      req.on("end", () => {
+        const body = JSON.parse(raw || "{}") as Record<string, unknown>;
+        hub.posts.push({ path, ...body });
+        if (body.startedAt !== FAKE_PID_BIRTH) return send(409, { error: "pid reused: the process is not the one listed" });
+        hub.closed.push({ pid: Number(body.pid), signal: String(body.signal) });
+        send(200, { ok: true });
+      });
       return;
     }
     if (req.method === "POST" && path === "attesa") {
@@ -729,6 +751,7 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
       all.queue = { items: [...queue.items, { id: "q-fix", ref: "launchd:com.example.backup", status: "running", provider: "codex", project: "acme-web", createdAt: now - 5 * 60_000 }] };
     }
     if (hub.activity) all.activity = { log: hub.activity };
+    if (hub.backup) all["mac/backup"] = hub.backup;
     Object.assign(all, hub.answersOverride);
     if (req.method === "GET" && path in all) return send(200, all[path]);
     send(404, { error: "not in the fake hub" });
