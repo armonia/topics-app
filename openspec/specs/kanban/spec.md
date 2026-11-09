@@ -5408,3 +5408,12 @@ idle for more than 7 days SHALL carry a visible signal.
 #### Scenario: a milestone of another project
 - **WHEN** a card is linked to a milestone of another project
 - **THEN** the request SHALL fail with 400 and the card SHALL stay where it was
+
+### Requirement: KANBAN-106 - A card in progress shows one progress line and a measure band
+
+The body of a card in progress SHALL show ONE progress line: the last step of the running tool, or the first line of the agent's last word when no tool is running. An empty line SHALL NOT be shown. The model, the cost, the time and the last update SHALL live in a measure band that writes the whole model name, holds the «now» mark inside it, and stays visibly apart from the card in both themes, with text that reaches WCAG AA.
+
+#### Scenario: a working card
+- **WHEN** a task is in progress and a tool is running
+- **THEN** the body SHALL show the tool step as its single progress line
+- **AND** the measure band SHALL show the full model name and the time without cutting either
