@@ -66,9 +66,25 @@ export function agentName(id: string): string {
  * jarvis-channels knows for that id, the chat takes the channel's name. The
  * terminal chat («cli») gets a name in words, through `cliLabel`.
  */
-export function agentSessionName(name: string, titles: Readonly<Record<string, string>>, cliLabel: string): string {
-  const raw = /^(?:WhatsApp, )?gruppo ([\w.@-]+)$/i.exec(name.trim()); // allow-italian: the bridge's own chat names
-  if (raw) return titles[raw[1]] ?? name;
+export function agentSessionName(
+  name: string,
+  titles: Readonly<Record<string, string>>,
+  cliLabel: string,
+  sessionKey?: string | null,
+): string {
+  // A channel topic's key says which thread it is: `canale:<chat>:<thread>`.
+  const key = sessionKey ? /^canale:([\w.@-]+)(?::([\w.@-]+))?$/.exec(sessionKey) : null; // allow-italian: the bridge's own key prefix
+  if (key) {
+    const [, chat, thread] = key;
+    const own = thread ? titles[`${chat}:${thread}`] : undefined;
+    if (own) return own;
+  }
+  const raw = /^(?:WhatsApp, )?gruppo ([\w.@-]+?)(?::([\w.@-]+))?$/i.exec(name.trim()); // allow-italian: the bridge's own chat names
+  if (raw) {
+    const chat = key ? key[1] : raw[1];
+    const thread = key ? key[2] : raw[2];
+    return (thread && titles[`${chat}:${thread}`]) || titles[chat] || name;
+  }
   if (/^(?:WhatsApp, )?cli$/i.test(name.trim())) return cliLabel;
   return name;
 }
