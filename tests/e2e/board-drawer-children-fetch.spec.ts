@@ -230,7 +230,7 @@ test.describe("Task drawer — what a tree node downloads when it opens", () => 
     await expect(tree).toBeVisible({ timeout: 10000 });
     // The three steps arrive with the root: their rows are there before any
     // chevron is clicked.
-    await expect(tree.getByText(/↳ \d+\/\d+/)).toHaveCount(STEPS, { timeout: 10000 });
+    await expect(tree.getByText(/^\d+\/\d+$/)).toHaveCount(STEPS, { timeout: 10000 });
 
     // Expand every node that has something under it, one chevron at a time,
     // until none is left closed. The grandchildren have no chevron, so this
@@ -265,7 +265,7 @@ test.describe("Task drawer — what a tree node downloads when it opens", () => 
     // The other half: the rows arrived WHOLE. Every step still shows its
     // «n/m» count, and the chip derived off the child row is on the tree with
     // the kind the seed put there.
-    await expect(tree.getByText(/↳ \d+\/\d+/)).toHaveCount(STEPS);
+    await expect(tree.getByText(/^\d+\/\d+$/)).toHaveCount(STEPS);
     const unattended = tree.getByTestId(`subtask-work-${unattendedStep}`);
     await expect(unattended).toHaveAttribute("data-kind", "unattended");
     await expect(unattended).toContainText("nessuno la lavora");
