@@ -1569,11 +1569,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
 
   // C'è un task pesante con un agente vivo ADESSO? Closure e non `this`, come
   // sopra: il claim lo chiama, e il claim deve sopravvivere a essere destrutturato.
+  // Un pesante che aspetta SOLO la CI remota non macina niente qui: `ci` entra
+  // in checks_json (onCiWait) solo dopo i check locali, quindi finche' i check
+  // girano sul Mac il blocco resta (09/11: 14 card ferme 20 min dietro una CI).
   const heavyInFlight = (): boolean =>
     !!db.query(
       `SELECT 1 AS h FROM tasks
         WHERE status = 'in_progress' AND dispatch_state IN ('starting','working')
-          AND archived = 0 AND dispatch_weight = 'heavy' AND ${RUNS_HERE_SQL} LIMIT 1`,
+          AND archived = 0 AND dispatch_weight = 'heavy' AND ${RUNS_HERE_SQL}
+          AND NOT (checks_state = 'running' AND json_valid(checks_json)
+                   AND json_extract(checks_json, '$.ci') IS NOT NULL) LIMIT 1`,
     ).get();
 
   // The model shown on a task must ALWAYS reflect what actually ran: task.model

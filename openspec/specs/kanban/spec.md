@@ -1440,6 +1440,11 @@ dietro» da «un altro pesante sta lavorando».
 - **GIVEN** un pesante fermo oltre il tetto
 - **THEN** SHALL partire comunque, e la card SHALL dirlo
 
+#### Scenario: il pesante aspetta solo la CI remota
+- **GIVEN** un pesante in volo i cui controlli pre-review sono `running` con una CI remota registrata (`checks_json.ci`)
+- **THEN** SHALL NON contare come pesante al lavoro, e i claim locali SHALL partire
+- **AND** finché i controlli pre-review girano sul Mac (nessuna `ci`) il blocco SHALL restare
+
 ### Requirement: KANBAN-17 — Le etichette hanno un vocabolario chiuso, e un agente può solo alzare la mano
 
 Un task SHALL portare etichette da un vocabolario CHIUSO di sette, divise in due
