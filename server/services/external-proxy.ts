@@ -12,9 +12,11 @@
  * the main port, and it exists only when `TOPICS_EXTERNAL_PROXY_PORT` is set).
  *
  *   CONNECT other-host:port       -> byte tunnel, never opened. NOT toward this machine: loopback
- *                                    (the main port trusts it), private and link-local targets get a
- *                                    403, checked on the literal address AND on what the name resolves
- *                                    to (the connection is made to that answer, so no rebinding window)
+ *                                    (the main port trusts it), private and link-local targets, the
+ *                                    Tailscale range and `*.ts.net`, and every address of this machine's
+ *                                    interfaces get a 403, checked on the literal address AND on what
+ *                                    the name resolves to (the connection is made to that answer, so
+ *                                    no rebinding window)
  *   CONNECT api.anthropic.com:443 -> byte tunnel into an INTERNAL loopback TLS
  *                                    server that terminates it with the local CA
  *                                    (`external-proxy-ca.ts`), then per request:
@@ -25,7 +27,9 @@
  *       WebSocket upgrade         -> relayed message by message to wss://api.anthropic.com: the
  *                                    upstream handshake is made first, the client gets its 101 only
  *                                    if that one worked (otherwise a 502), headers and subprotocol
- *                                    are carried across
+ *                                    are carried across, close codes too (an abnormal end stays one).
+ *                                    A side that reads too slowly cannot be paused: the relay holds its
+ *                                    bytes up to a limit and then CLOSES with 1013, never skips one
  *
  * The inner TLS endpoint is a native Bun listener, deliberately. The node:http server of Bun
  * is not built over sockets, so a decrypted stream cannot be handed to it. The native one
@@ -52,6 +56,7 @@
  */
 import dns from "node:dns";
 import net from "node:net";
+import os from "node:os";
 import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Server, ServerWebSocket } from "bun";
@@ -75,33 +80,71 @@ const HEAD_LIMIT_BYTES = 16 * 1024;
 const HEAD_TIMEOUT_MS = 10_000;
 const CONNECT_TIMEOUT_MS = 15_000;
 const WS_OPEN_TIMEOUT_MS = 15_000;
+/**
+ * What the relay holds, per connection and per direction, for a side that reads too slowly.
+ * Neither WebSocket API here can pause the other side, so the bytes wait in the relay up to this
+ * limit; past it the connection is CLOSED with 1013. A message is never skipped silently.
+ */
+const RELAY_BACKLOG_LIMIT_BYTES = 64 * 1024 * 1024;
+/** The largest single WebSocket message accepted from the client. */
+const WS_MAX_MESSAGE_BYTES = 16 * 1024 * 1024;
 
 /**
  * Where a CONNECT may NOT lead: this machine and its local networks. The main port of
  * Topics trusts the loopback, so a tunnel opened by this process toward 127.0.0.1 would
  * carry whatever a caller wants straight into it; the private ranges are the same trap one
- * hop further. IPv4-mapped IPv6 forms (`::ffff:127.0.0.1`) are matched by the list itself.
+ * hop further, and so is the tailnet: Tailscale gives this very machine an address in
+ * 100.64.0.0/10 (and in fd7a:115c:a1e0::/48), which loops back to its own listeners.
+ * IPv4-mapped IPv6 forms (`::ffff:127.0.0.1`) are matched by the list itself.
  */
 const LOCAL_TARGETS = new net.BlockList();
 for (const [network, bits] of [
-  ["0.0.0.0", 8], ["10.0.0.0", 8], ["127.0.0.0", 8], ["169.254.0.0", 16], ["172.16.0.0", 12], ["192.168.0.0", 16],
+  ["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8], ["169.254.0.0", 16], ["172.16.0.0", 12], ["192.168.0.0", 16],
 ] as const) LOCAL_TARGETS.addSubnet(network, bits, "ipv4");
 LOCAL_TARGETS.addAddress("::", "ipv6");
 LOCAL_TARGETS.addAddress("::1", "ipv6");
-LOCAL_TARGETS.addSubnet("fc00::", 7, "ipv6"); // unique local
+LOCAL_TARGETS.addSubnet("fc00::", 7, "ipv6"); // unique local (Tailscale's fd7a:115c:a1e0::/48 is inside it)
 LOCAL_TARGETS.addSubnet("fe80::", 10, "ipv6"); // link-local
 
-/** True for an IP literal that points at this machine or a private/link-local network. */
-export function isLocalOrPrivateAddress(address: string): boolean {
-  const bare = address.split("%")[0]!; // an IPv6 zone id (`fe80::1%en0`) is not part of the address
-  const family = net.isIP(bare);
-  return family !== 0 && LOCAL_TARGETS.check(bare, family === 4 ? "ipv4" : "ipv6");
+/** Every address assigned to an interface of this machine, read at each use (a VPN comes and goes). */
+function currentInterfaceAddresses(): string[] {
+  try {
+    return Object.values(os.networkInterfaces()).flatMap((list) => (list ?? []).map((a) => a.address));
+  } catch {
+    return []; // a restricted environment may refuse to list them: the ranges above still apply, and a throw here would take the process down
+  }
 }
 
-/** `localhost`, `foo.localhost`, with or without the root dot: loopback by definition, no lookup needed. */
+type InterfaceAddresses = () => readonly string[];
+
+/**
+ * True for an IP literal that points at this machine or a private/link-local network: the ranges
+ * above, plus whatever address an interface of this machine has right now (a public one on a
+ * server, a VPN's own range), which no table can know in advance.
+ */
+export function isLocalOrPrivateAddress(address: string, interfaceAddresses: InterfaceAddresses = currentInterfaceAddresses): boolean {
+  const bare = address.split("%")[0]!; // an IPv6 zone id (`fe80::1%en0`) is not part of the address
+  const family = net.isIP(bare);
+  if (family === 0) return false;
+  const kind = family === 4 ? "ipv4" : "ipv6";
+  if (LOCAL_TARGETS.check(bare, kind)) return true;
+  const own = new net.BlockList(); // a list, so that `2001:db8::7` and `2001:0db8::0007` are the same address
+  for (const mine of interfaceAddresses()) {
+    const ownBare = mine.split("%")[0]!;
+    const ownFamily = net.isIP(ownBare);
+    if (ownFamily !== 0) own.addAddress(ownBare, ownFamily === 4 ? "ipv4" : "ipv6");
+  }
+  return own.check(bare, kind);
+}
+
+/**
+ * Names that are this machine without a lookup: `localhost` (loopback by definition) and the
+ * tailnet's MagicDNS domain `ts.net` (its own hostname is one of them, and resolves to the
+ * Tailscale address). With or without the root dot.
+ */
 function isLocalName(host: string): boolean {
   const name = host.replace(/\.$/, "");
-  return name === "localhost" || name.endsWith(".localhost");
+  return name === "localhost" || name.endsWith(".localhost") || name === "ts.net" || name.endsWith(".ts.net");
 }
 
 /** `error.code` of a refused target, as the connect error reports it. */
@@ -112,17 +155,19 @@ const BLOCKED_TARGET = "ETOPICSBLOCKED";
  * or private, and the socket is then opened on the very answer that was checked. Checking the
  * name and letting the socket resolve it again would leave a window for a rebinding trick.
  */
-export const guardedLookup: net.LookupFunction = (hostname, options, callback) => {
-  dns.lookup(hostname, { ...options, all: true }, (error, addresses) => {
-    if (error) return callback(error, []);
-    if (addresses.some((a) => isLocalOrPrivateAddress(a.address))) {
-      return callback(Object.assign(new Error("target is local or private"), { code: BLOCKED_TARGET }), []);
-    }
-    if (options.all) return callback(null, addresses);
-    const first = addresses[0]!;
-    return callback(null, first.address, first.family);
-  });
-};
+export function guardedLookupFor(interfaceAddresses: InterfaceAddresses = currentInterfaceAddresses): net.LookupFunction {
+  return (hostname, options, callback) => {
+    dns.lookup(hostname, { ...options, all: true }, (error, addresses) => {
+      if (error) return callback(error, []);
+      if (addresses.some((a) => isLocalOrPrivateAddress(a.address, interfaceAddresses))) {
+        return callback(Object.assign(new Error("target is local or private"), { code: BLOCKED_TARGET }), []);
+      }
+      if (options.all) return callback(null, addresses);
+      const first = addresses[0]!;
+      return callback(null, first.address, first.family);
+    });
+  };
+}
 
 /** `TOPICS_EXTERNAL_PROXY_PORT`, or `null` (listener off). */
 export function externalProxyPort(env: Record<string, string | undefined>): number | null {
@@ -164,6 +209,10 @@ export interface ExternalProxyOptions {
    * because their fake servers live on 127.0.0.1.
    */
   allowLocalTargets?: boolean;
+  /** The addresses of this machine's interfaces; read at every CONNECT. Tests inject one a table cannot know. */
+  interfaceAddresses?: () => readonly string[];
+  /** Per connection and per direction, what the relay may hold for a side that reads too slowly; past it the connection is closed (1013). */
+  relayBacklogLimitBytes?: number;
   log?: (event: string, fields?: Record<string, string | number>) => void;
 }
 
@@ -231,6 +280,9 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
   const upstreamBase = (options.upstreamBase ?? `https://${INTERCEPTED_HOST}`).replace(/\/+$/, "");
   const doFetch = options.fetch ?? fetch;
   const allowLocalTargets = options.allowLocalTargets ?? false;
+  const interfaceAddresses = options.interfaceAddresses ?? currentInterfaceAddresses;
+  const guardedLookup = guardedLookupFor(interfaceAddresses);
+  const backlogLimit = options.relayBacklogLimitBytes ?? RELAY_BACKLOG_LIMIT_BYTES;
   const log = options.log ?? (() => {});
   const stats: ExternalProxyStats = { connect: 0, tunnel: 0, intercepted: 0, viaEngine: 0, failOpen: 0, direct: 0, websocket: 0, refused: 0 };
   const sockets = new Set<net.Socket>();
@@ -269,7 +321,8 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
 
   async function engineAlive(engineBase: string): Promise<boolean> {
     try {
-      const res = await doFetch(`${engineBase}/health`, { signal: AbortSignal.timeout(healthMs) });
+      // manual: a redirect from /health is an answer, not an invitation to fetch whatever it points at
+      const res = await doFetch(`${engineBase}/health`, { signal: AbortSignal.timeout(healthMs), redirect: "manual" });
       await res.body?.cancel();
       return res.status >= 200 && res.status < 500;
     } catch {
@@ -334,21 +387,71 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
   interface RelayData {
     upstream: WebSocket;
     backlog: Array<string | ArrayBuffer>;
+    backlogBytes: number;
     ended: { code: number; reason: string } | null;
     client: ServerWebSocket<RelayData> | null;
+    /** Set once a side was too slow and the connection was closed for it: from then on nothing more is relayed. */
+    overflowed: boolean;
     started: number;
     path: string;
   }
 
-  /** Close codes that may be put on the wire by a server (1005/1006/1015 only ever describe a missing one). */
-  function sendableCode(code: number): number {
-    return (code >= 1000 && code <= 1014 && code !== 1004 && code !== 1005 && code !== 1006) || (code >= 3000 && code <= 4999) ? code : 1000;
+  /** Close codes a peer may put on the wire (1005/1006/1015 only DESCRIBE a connection that had no proper close, 1004 is reserved). */
+  function isWireCloseCode(code: number): boolean {
+    return (code >= 1000 && code <= 1014 && code !== 1004 && code !== 1005 && code !== 1006) || (code >= 3000 && code <= 4999);
   }
 
+  function messageBytes(message: string | ArrayBuffer | Uint8Array): number {
+    return typeof message === "string" ? Buffer.byteLength(message) : message.byteLength;
+  }
+
+  /**
+   * Neither side of a relay can be paused, so a side that reads too slowly makes the relay hold
+   * its bytes. Past `backlogLimit` the connection is CLOSED, both ends told (1013 to the client,
+   * 1011 to Anthropic): what the client has seen is a prefix, never a sequence with a hole.
+   */
+  function overflow(data: RelayData, side: "client" | "upstream"): void {
+    if (data.overflowed) return;
+    data.overflowed = true;
+    data.backlog.length = 0;
+    data.backlogBytes = 0;
+    log("ws-backpressure", { path: data.path, side, ms: Date.now() - data.started });
+    try { data.client?.close(1013, "relay buffer full"); } catch { /* already closed */ }
+    try { data.upstream.close(1011, "relay buffer full"); } catch { /* already closed */ }
+  }
+
+  /** Anthropic -> client. */
+  function deliverToClient(data: RelayData, message: string | ArrayBuffer): void {
+    if (data.overflowed) return;
+    const size = messageBytes(message);
+    if (!data.client) {
+      if (data.backlogBytes + size > backlogLimit) return overflow(data, "client");
+      data.backlogBytes += size;
+      data.backlog.push(message);
+      return;
+    }
+    if (data.client.getBufferedAmount() + size > backlogLimit) return overflow(data, "client");
+    if (data.client.send(message) === 0) overflow(data, "client"); // 0 = the socket dropped it: say so, do not leave a hole
+  }
+
+  /** What the client is told when Anthropic's side ended: the same code and reason, and an abnormal end stays abnormal (never a 1000). */
   function endClient(data: RelayData): void {
-    if (!data.client || !data.ended) return;
+    if (!data.client || !data.ended || data.overflowed) return;
+    const { code, reason } = data.ended;
     try {
-      data.client.close(sendableCode(data.ended.code), data.ended.reason);
+      if (code === 1005) data.client.close(); // an empty close frame: there was no status to carry
+      else if (isWireCloseCode(code)) data.client.close(code, reason);
+      else data.client.close(1011, "upstream closed abnormally"); // 1006 (dropped), 1015 (TLS failure), anything unspeakable
+    } catch { /* already closed */ }
+  }
+
+  /** The client's close, toward Anthropic. The code travels; the reason only where Bun's client socket keeps it (1000 and 3000-4999). */
+  function endUpstream(data: RelayData, code: number, reason: string): void {
+    if (data.upstream.readyState > WebSocket.OPEN) return;
+    try {
+      if (code === 1005) data.upstream.close(); // an empty close frame
+      else if (isWireCloseCode(code)) data.upstream.close(code, reason);
+      else (data.upstream as WebSocket & { terminate(): void }).terminate(); // Bun's extension, missing from the DOM typings. 1006: the client vanished, Anthropic sees a drop too
     } catch { /* already closed */ }
   }
 
@@ -358,7 +461,7 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
       // `headers` is a Bun extension of the constructor options, missing from the DOM typings
       const upstream = new WebSocket(url, { protocols, headers: Object.fromEntries(headers) } as unknown as string[]);
       upstream.binaryType = "arraybuffer";
-      const data: RelayData = { upstream, backlog: [], ended: null, client: null, started: Date.now(), path };
+      const data: RelayData = { upstream, backlog: [], backlogBytes: 0, ended: null, client: null, overflowed: false, started: Date.now(), path };
       let settled = false;
       const finish = (error?: Error) => {
         if (settled) return;
@@ -374,11 +477,7 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
       signal.addEventListener("abort", onAbort, { once: true });
       upstream.onopen = () => finish();
       upstream.onerror = () => finish(new Error("handshake-failed"));
-      upstream.onmessage = (event) => {
-        const message = event.data as string | ArrayBuffer;
-        if (data.client) data.client.send(message);
-        else data.backlog.push(message);
-      };
+      upstream.onmessage = (event) => deliverToClient(data, event.data as string | ArrayBuffer);
       upstream.onclose = (event) => {
         if (!settled) return finish(new Error("closed-before-open"));
         data.ended = { code: event.code, reason: event.reason };
@@ -420,22 +519,30 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
         tls: { key: options.tls.key, cert: options.tls.cert },
         maxRequestBodySize: maxBodyBytes,
         idleTimeout: 255,
+        // Bun counts what it holds per connection and, past its limit, drops silently: the relay's own limit
+        // (`overflow`) must trip first, so Bun's sits above it by one largest message, and closes if ever reached.
         websocket: {
+          backpressureLimit: backlogLimit + WS_MAX_MESSAGE_BYTES,
+          closeOnBackpressureLimit: true,
+          maxPayloadLength: WS_MAX_MESSAGE_BYTES,
           open(ws) {
             ws.data.client = ws;
-            for (const message of ws.data.backlog.splice(0)) ws.send(message);
+            const queued = ws.data.backlog.splice(0);
+            ws.data.backlogBytes = 0;
+            if (ws.data.overflowed) ws.close(1013, "relay buffer full");
+            for (const message of queued) deliverToClient(ws.data, message);
             endClient(ws.data);
           },
           message(ws, message) {
-            if (ws.data.upstream.readyState === WebSocket.OPEN) ws.data.upstream.send(message);
+            const data = ws.data;
+            if (data.overflowed || data.upstream.readyState !== WebSocket.OPEN) return; // the connection is already ending
+            if (data.upstream.bufferedAmount + messageBytes(message) > backlogLimit) return overflow(data, "upstream");
+            data.upstream.send(message);
           },
           close(ws, code, reason) {
             ws.data.client = null;
             log("ws-closed", { path: ws.data.path, ms: Date.now() - ws.data.started });
-            try {
-              // a client may only close with 1000 or 3000-4999; anything else is a close without a status
-              if (ws.data.upstream.readyState <= WebSocket.OPEN) ws.data.upstream.close(code === 1000 || (code >= 3000 && code <= 4999) ? code : undefined, reason);
-            } catch { /* already closed */ }
+            endUpstream(ws.data, code, reason);
           },
         },
         async fetch(req, server) {
@@ -502,7 +609,7 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
     const intercept = !!innerServer && parsed.host === INTERCEPTED_HOST && parsed.port === 443;
     // A literal address or a name that is loopback by definition is refused without a lookup; every other
     // name is checked on what it resolves to (guardedLookup), at the moment the socket connects.
-    if (!intercept && !allowLocalTargets && (isLocalName(parsed.host) || isLocalOrPrivateAddress(parsed.host))) {
+    if (!intercept && !allowLocalTargets && (isLocalName(parsed.host) || isLocalOrPrivateAddress(parsed.host, interfaceAddresses))) {
       refuse(client, parsed.host, parsed.port);
       return;
     }

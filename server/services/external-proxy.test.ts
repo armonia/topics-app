@@ -15,15 +15,16 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import net from "node:net";
-import tls from "node:tls";
+import os from "node:os";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureExternalProxyLeaf, type ExternalProxyLeaf } from "./external-proxy-ca";
 import {
-  bootExternalProxy, externalProxyPort, externalProxyStatePath, guardedLookup, isLocalOrPrivateAddress, startExternalProxy,
+  bootExternalProxy, externalProxyPort, externalProxyStatePath, guardedLookupFor, isLocalOrPrivateAddress, startExternalProxy,
   type ExternalProxy, type ExternalProxyOptions,
 } from "./external-proxy";
+import { closedPort, sleep, startProxy } from "./external-proxy.harness";
 
 const CALLER_AUTH = "fake-oauth-credential-for-tests";
 let dir: string;
@@ -52,39 +53,20 @@ function fake(handler: (req: Request, seen: Seen) => Response | Promise<Response
   return { port: server.port as number, seen, stop: () => server.stop(true) };
 }
 
-async function closedPort(): Promise<number> {
-  const s = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("") });
-  const p = s.port as number;
-  s.stop(true);
-  return p;
-}
-
-async function start(extra: Partial<ExternalProxyOptions> & { enginePort: number; upstreamPort?: number }) {
-  const lines: string[] = [];
-  const { enginePort, upstreamPort, ...rest } = extra;
-  const proxy = await startExternalProxy({
-    port: 0,
-    tls: { key: leaf.key, cert: leaf.cert },
-    messagesUrl: () => `http://127.0.0.1:${enginePort}/v1/messages`,
-    upstreamBase: `http://127.0.0.1:${upstreamPort ?? 1}`,
-    log: (event, fields) => lines.push(`${event} ${JSON.stringify(fields ?? {})}`),
-    ...rest,
-  });
-  return { proxy, lines };
-}
+const start = (extra: Parameters<typeof startProxy>[1]) => startProxy(leaf, extra);
 
 /** A request to api.anthropic.com THROUGH the proxy (CONNECT + TLS terminated with our CA). */
-function viaProxy(proxy: ExternalProxy, path: string, init: { method?: string; body?: string; headers?: Record<string, string> } = {}) {
+function viaProxy(proxy: ExternalProxy, path: string, init: { method?: string; body?: string; headers?: Record<string, string>; signal?: AbortSignal } = {}) {
   return fetch(`https://api.anthropic.com${path}`, {
     method: init.method ?? "POST",
     body: (init.method ?? "POST") === "GET" ? undefined : init.body ?? "",
     headers: { authorization: `Bearer ${CALLER_AUTH}`, "anthropic-beta": "oauth-2025-04-20", ...init.headers },
     proxy: `http://127.0.0.1:${proxy.port}`,
     tls: { ca: readFileSync(leaf.caCertificatePath, "utf8") },
+    signal: init.signal,
   } as RequestInit);
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe("forwarding", () => {
   test("POST /v1/messages and count_tokens go to the engine, body and headers intact", async () => {
@@ -241,6 +223,9 @@ describe("CONNECT toward this machine", () => {
         "[fe80::1]:443", "[fd12:3456::1]:443",
         // not an address to the eye, but the system resolver turns them into 127.0.0.1: caught on what they RESOLVE to
         `2130706433:${port}`, `127.1:${port}`,
+        // Tailscale reaches this very machine: its CGNAT range, its ULA prefix and its names (MagicDNS)
+        `100.64.0.1:${port}`, `100.111.175.51:${port}`, `100.127.255.255:${port}`, `[fd7a:115c:a1e0::b832:af33]:${port}`,
+        `macbook.tailb238ea.ts.net:${port}`, `ts.net:${port}`, `Some-Host.TS.NET.:${port}`,
       ];
       for (const authority of refused) {
         const head = await connectHead(proxy, authority);
@@ -257,10 +242,11 @@ describe("CONNECT toward this machine", () => {
 
   test("the address classifier: the edges of every range, and what is public stays public", () => {
     for (const address of ["127.0.0.1", "127.255.255.255", "0.0.0.0", "10.255.255.255", "172.16.0.0", "172.31.255.255", "192.168.0.1",
-      "169.254.0.1", "::1", "::", "fe80::1", "febf::1", "fc00::1", "fdff::1", "::ffff:127.0.0.1", "::ffff:192.168.1.1", "fe80::1%en0"]) {
+      "169.254.0.1", "::1", "::", "fe80::1", "febf::1", "fc00::1", "fdff::1", "::ffff:127.0.0.1", "::ffff:192.168.1.1", "fe80::1%en0",
+      "100.64.0.0", "100.100.100.100", "100.127.255.255", "::ffff:100.111.175.51", "fd7a:115c:a1e0::1", "fd7a:115c:a1e0:ab12::1"]) {
       expect({ address, blocked: isLocalOrPrivateAddress(address) }).toEqual({ address, blocked: true });
     }
-    for (const address of ["8.8.8.8", "1.1.1.1", "172.15.255.255", "172.32.0.0", "192.169.0.1", "11.0.0.1", "169.255.0.1", "100.64.0.1",
+    for (const address of ["8.8.8.8", "1.1.1.1", "172.15.255.255", "172.32.0.0", "192.169.0.1", "11.0.0.1", "169.255.0.1", "100.63.255.255", "100.128.0.0",
       "2606:4700::1111", "fec0::1", "fe00::1", "::ffff:8.8.8.8", "not-an-address", "example.com"]) {
       expect({ address, blocked: isLocalOrPrivateAddress(address) }).toEqual({ address, blocked: false });
     }
@@ -268,7 +254,7 @@ describe("CONNECT toward this machine", () => {
 
   test("the lookup the tunnel connects through: a public answer passes, in both shapes of the callback, a local one is refused", async () => {
     const run = (host: string, all: boolean) => new Promise<{ error?: NodeJS.ErrnoException; result?: unknown }>((resolve) => {
-      (guardedLookup as (h: string, o: object, cb: (e: NodeJS.ErrnoException | null, a?: unknown, f?: number) => void) => void)(
+      (guardedLookupFor() as (h: string, o: object, cb: (e: NodeJS.ErrnoException | null, a?: unknown, f?: number) => void) => void)(
         host, { all }, (error, address, family) => resolve(error ? { error } : { result: all ? address : [address, family] }),
       );
     });
@@ -276,6 +262,47 @@ describe("CONNECT toward this machine", () => {
     expect((await run("8.8.8.8", false)).result).toEqual(["8.8.8.8", 4]);
     expect((await run("127.0.0.1", false)).error?.code).toBe("ETOPICSBLOCKED");
     expect((await run("localhost", true)).error?.code).toBe("ETOPICSBLOCKED"); // ::1 AND 127.0.0.1 behind one name
+  });
+
+  test("an address of one of this machine's own interfaces is refused, whatever range it is in", () => {
+    // 203.0.113.7 is a documentation address: public by every table, so only the interface list can catch it
+    expect(isLocalOrPrivateAddress("203.0.113.7", () => [])).toBe(false);
+    expect(isLocalOrPrivateAddress("203.0.113.7", () => ["10.0.0.2", "203.0.113.7"])).toBe(true);
+    expect(isLocalOrPrivateAddress("::ffff:203.0.113.7", () => ["203.0.113.7"])).toBe(true);
+    expect(isLocalOrPrivateAddress("2001:db8::7", () => ["2001:0db8:0000:0000:0000:0000:0000:0007"])).toBe(true); // same address, other spelling
+    expect(isLocalOrPrivateAddress("2001:db8::8", () => ["2001:db8::7"])).toBe(false);
+    expect(isLocalOrPrivateAddress("2001:db8::7", () => ["not-an-address"])).toBe(false);
+  });
+
+  test("CONNECT toward an interface address of this machine gets a 403 even when no range covers it", async () => {
+    const { proxy } = await start({ enginePort: await closedPort(), interfaceAddresses: () => ["203.0.113.7", "2001:db8::7"] });
+    try {
+      // without the list these two would try a real connection and hang
+      expect((await connectHead(proxy, "203.0.113.7:443")).split("\r\n")[0]).toBe("HTTP/1.1 403 Forbidden");
+      expect((await connectHead(proxy, "[2001:db8::7]:443")).split("\r\n")[0]).toBe("HTTP/1.1 403 Forbidden");
+      expect(proxy.stats.refused).toBe(2);
+    } finally { await proxy.close(); }
+  });
+
+  test("a listener on :: is NOT reachable through any address this machine has, nor through its own name", async () => {
+    let reached = 0;
+    const target = net.createServer((s) => { reached++; s.on("error", () => {}); s.end("HELLO-FROM-TARGET\n"); });
+    await new Promise<void>((r) => target.listen({ port: 0, host: "::", ipv6Only: false }, r));
+    const port = (target.address() as net.AddressInfo).port;
+    const { proxy } = await start({ enginePort: await closedPort() }); // the real interface list
+    try {
+      const mine = [...new Set(Object.values(os.networkInterfaces()).flatMap((list) => (list ?? []).map((a) => a.address)))];
+      expect(mine.length).toBeGreaterThan(0);
+      for (const address of mine) {
+        const authority = address.includes(":") ? `[${address}]:${port}` : `${address}:${port}`;
+        const head = await connectHead(proxy, authority);
+        expect({ authority, head: head.split("\r\n")[0] }).toEqual({ authority, head: "HTTP/1.1 403 Forbidden" });
+      }
+      // the machine's own name: it resolves to one of those addresses (Tailscale/LAN) or does not resolve at all
+      const byName = await connectHead(proxy, `${os.hostname()}:${port}`);
+      expect(byName.includes("HELLO-FROM-TARGET") || byName.startsWith("HTTP/1.1 200")).toBe(false);
+      expect(reached).toBe(0);
+    } finally { await proxy.close(); target.close(); }
   });
 
   test("api.anthropic.com itself is not caught by the guard: it ends in the internal listener, on the loopback, by design", async () => {
@@ -287,189 +314,6 @@ describe("CONNECT toward this machine", () => {
       expect(proxy.stats.refused).toBe(0);
       expect(proxy.stats.intercepted).toBe(1);
     } finally { await proxy.close(); upstream.stop(); }
-  });
-});
-
-// ---------------------------------------------------------------------------------------------------------------------
-// WebSocket: a minimal client by hand, because the point is the handshake the proxy answers (101), not a client library
-// ---------------------------------------------------------------------------------------------------------------------
-
-/** CONNECT api.anthropic.com:443 through the proxy and finish the TLS with our CA: what the app's HTTP stack does. */
-async function secureSocketViaProxy(proxy: ExternalProxy): Promise<tls.TLSSocket> {
-  const raw = net.connect(proxy.port, "127.0.0.1");
-  await new Promise<void>((resolve, reject) => {
-    raw.once("error", reject);
-    raw.once("data", (d) => (d.toString().startsWith("HTTP/1.1 200") ? resolve() : reject(new Error(`CONNECT: ${d.toString()}`))));
-    raw.write("CONNECT api.anthropic.com:443 HTTP/1.1\r\nhost: api.anthropic.com:443\r\n\r\n");
-  });
-  const secure = tls.connect({ socket: raw, servername: "api.anthropic.com", ca: readFileSync(leaf.caCertificatePath, "utf8") });
-  await new Promise<void>((resolve, reject) => { secure.once("secureConnect", resolve); secure.once("error", reject); });
-  return secure;
-}
-
-/** Reads what arrives on a socket as: one HTTP head, then WebSocket frames. */
-class Wire {
-  private buffer = Buffer.alloc(0);
-  private waiting: (() => void) | null = null;
-  constructor(readonly socket: net.Socket) {
-    socket.on("data", (d: Buffer) => { this.buffer = Buffer.concat([this.buffer, d]); this.waiting?.(); });
-    socket.on("close", () => this.waiting?.());
-    socket.on("error", () => {});
-  }
-  private async until(ready: () => boolean): Promise<void> {
-    const deadline = Date.now() + 5000;
-    while (!ready()) {
-      if (Date.now() > deadline || this.socket.destroyed) throw new Error("wire: nothing more arrived");
-      await new Promise<void>((resolve) => { this.waiting = resolve; setTimeout(resolve, 100); });
-    }
-  }
-  async head(): Promise<string> {
-    await this.until(() => this.buffer.indexOf("\r\n\r\n") !== -1);
-    const end = this.buffer.indexOf("\r\n\r\n");
-    const head = this.buffer.subarray(0, end).toString("latin1");
-    this.buffer = this.buffer.subarray(end + 4);
-    return head;
-  }
-  /** One unfragmented, unmasked server frame with a short payload. */
-  async frame(): Promise<{ opcode: number; payload: Buffer }> {
-    await this.until(() => this.buffer.length >= 2 && this.buffer.length >= 2 + (this.buffer[1]! & 0x7f));
-    const length = this.buffer[1]! & 0x7f;
-    const frame = { opcode: this.buffer[0]! & 0x0f, payload: Buffer.from(this.buffer.subarray(2, 2 + length)) };
-    this.buffer = this.buffer.subarray(2 + length);
-    return frame;
-  }
-}
-
-/** A masked client frame (the protocol requires the mask), short payloads only. */
-function clientFrame(opcode: number, payload: Buffer): Buffer {
-  const mask = Buffer.from([0x11, 0x22, 0x33, 0x44]);
-  const masked = Buffer.from(payload.map((byte, i) => byte ^ mask[i % 4]!));
-  return Buffer.concat([Buffer.from([0x80 | opcode, 0x80 | payload.length]), mask, masked]);
-}
-
-function upgradeRequest(path: string, extra: Record<string, string> = {}): string {
-  const headers = {
-    host: "api.anthropic.com", upgrade: "websocket", connection: "Upgrade", "sec-websocket-version": "13",
-    "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==", authorization: `Bearer ${CALLER_AUTH}`, ...extra,
-  };
-  return `GET ${path} HTTP/1.1\r\n${Object.entries(headers).map(([k, v]) => `${k}: ${v}`).join("\r\n")}\r\n\r\n`;
-}
-
-/** A fake api.anthropic.com that speaks WebSocket: greets on open, echoes with a prefix, records the handshake and the close. */
-function fakeWebSocketUpstream(opts: { protocol?: string; refuse?: boolean } = {}) {
-  const handshakes: { path: string; headers: Headers }[] = [];
-  const closed: { code: number; reason: string }[] = [];
-  const server = Bun.serve({
-    port: 0,
-    hostname: "127.0.0.1",
-    fetch(req, srv) {
-      handshakes.push({ path: new URL(req.url).pathname + new URL(req.url).search, headers: req.headers });
-      if (opts.refuse) return new Response("no", { status: 401 });
-      if (srv.upgrade(req, { headers: opts.protocol ? { "sec-websocket-protocol": opts.protocol } : undefined })) return undefined;
-      return new Response("not a websocket", { status: 400 });
-    },
-    websocket: {
-      open(ws) { ws.send("hello"); },
-      message(ws, message) { ws.send(typeof message === "string" ? `echo:${message}` : message); },
-      close(_ws, code, reason) { closed.push({ code, reason }); },
-    },
-  });
-  return { port: server.port as number, handshakes, closed, stop: () => server.stop(true) };
-}
-
-describe("WebSocket", () => {
-  test("an upgrade toward api.anthropic.com gets its 101, and messages travel both ways, text and binary", async () => {
-    const ws = fakeWebSocketUpstream({ protocol: "v2" });
-    const { proxy, lines } = await start({ enginePort: await closedPort(), upstreamPort: ws.port });
-    try {
-      const secure = await secureSocketViaProxy(proxy);
-      const wire = new Wire(secure);
-      secure.write(upgradeRequest("/v1/ws/session?org=11111111-2222-3333-4444-555555555555", { "sec-websocket-protocol": "v1, v2", "x-app": "cli" }));
-      const head = await wire.head();
-      expect(head.split("\r\n")[0]).toBe("HTTP/1.1 101 Switching Protocols");
-      // the subprotocol is the one the upstream chose, not the first one offered
-      expect(head.toLowerCase()).toContain("sec-websocket-protocol: v2");
-
-      // sent by the upstream the moment it opened, possibly before the client side was ready: it must not be lost
-      const hello = await wire.frame();
-      expect([hello.opcode, hello.payload.toString()]).toEqual([1, "hello"]);
-      secure.write(clientFrame(1, Buffer.from("ciao è ☃")));
-      const echoed = await wire.frame();
-      expect([echoed.opcode, echoed.payload.toString()]).toEqual([1, "echo:ciao è ☃"]);
-      const bytes = Buffer.from([0, 1, 2, 250, 255]);
-      secure.write(clientFrame(2, bytes));
-      const binary = await wire.frame();
-      expect(binary.opcode).toBe(2);
-      expect(binary.payload.equals(bytes)).toBe(true);
-
-      // the handshake that reached the upstream: the same path and query, the caller's credentials and headers, our own protocol headers
-      expect(ws.handshakes).toHaveLength(1);
-      const seen = ws.handshakes[0]!;
-      expect(seen.path).toBe("/v1/ws/session?org=11111111-2222-3333-4444-555555555555");
-      expect(seen.headers.get("authorization")).toBe(`Bearer ${CALLER_AUTH}`);
-      expect(seen.headers.get("x-app")).toBe("cli");
-      expect(seen.headers.get("sec-websocket-protocol")).toContain("v1");
-      expect(seen.headers.get("sec-websocket-key")).not.toBe("dGhlIHNhbXBsZSBub25jZQ=="); // the proxy opened its own handshake
-
-      // the client closes with 1000: the upstream sees it
-      secure.write(clientFrame(8, Buffer.from([0x03, 0xe8])));
-      for (let i = 0; i < 40 && ws.closed.length === 0; i++) await sleep(50);
-      expect(ws.closed[0]?.code).toBe(1000);
-      secure.destroy();
-
-      expect(proxy.stats.websocket).toBe(1);
-      const all = lines.join("\n");
-      expect(all).toContain("ws ");
-      expect(all).toContain("/v1/ws/session");
-      expect(all).not.toContain("org=");
-      expect(all).not.toContain("11111111-2222-3333-4444-555555555555");
-      expect(all).not.toContain(CALLER_AUTH);
-    } finally { await proxy.close(); ws.stop(); }
-  });
-
-  test("the upstream that closes ends the client side too, with the same code and reason", async () => {
-    const server = Bun.serve({
-      port: 0,
-      hostname: "127.0.0.1",
-      fetch(req, srv) { return srv.upgrade(req) ? undefined : new Response("no", { status: 400 }); },
-      websocket: { open(ws) { ws.close(4001, "bye now"); }, message() {} },
-    });
-    const { proxy } = await start({ enginePort: await closedPort(), upstreamPort: server.port as number });
-    try {
-      const secure = await secureSocketViaProxy(proxy);
-      const wire = new Wire(secure);
-      secure.write(upgradeRequest("/v1/ws"));
-      expect((await wire.head()).split("\r\n")[0]).toBe("HTTP/1.1 101 Switching Protocols");
-      const close = await wire.frame();
-      expect(close.opcode).toBe(8);
-      expect(close.payload.readUInt16BE(0)).toBe(4001);
-      expect(close.payload.subarray(2).toString()).toBe("bye now");
-      secure.destroy();
-    } finally { await proxy.close(); server.stop(true); }
-  });
-
-  test("an upstream that refuses the handshake is a 502 to the client, never a 101 that dies after", async () => {
-    const ws = fakeWebSocketUpstream({ refuse: true });
-    const { proxy, lines } = await start({ enginePort: await closedPort(), upstreamPort: ws.port });
-    try {
-      const secure = await secureSocketViaProxy(proxy);
-      const wire = new Wire(secure);
-      secure.write(upgradeRequest("/v1/ws"));
-      expect((await wire.head()).split("\r\n")[0]).toMatch(/^HTTP\/1\.1 502/);
-      expect(proxy.stats.websocket).toBe(0);
-      expect(lines.some((l) => l.startsWith("ws-error "))).toBe(true);
-      secure.destroy();
-    } finally { await proxy.close(); ws.stop(); }
-  });
-
-  test("a request that is not an upgrade still goes the normal way on the same connection", async () => {
-    const ws = fakeWebSocketUpstream();
-    const { proxy } = await start({ enginePort: await closedPort(), upstreamPort: ws.port });
-    try {
-      const r = await viaProxy(proxy, "/api/oauth/profile", { method: "GET" });
-      expect(r.status).toBe(400); // the fake answers a plain GET with its "not a websocket": it arrived as a plain request
-      expect(await r.text()).toBe("not a websocket");
-    } finally { await proxy.close(); ws.stop(); }
   });
 });
 
@@ -549,6 +393,35 @@ describe("fail-open", () => {
       expect(engine.seen.filter((s) => s.url === "/health")).toHaveLength(1); // at 150 ms /health was asked
       expect(proxy.stats.failOpen).toBe(0);
     } finally { await proxy.close(); engine.stop(); upstream.stop(); }
+  });
+});
+
+describe("the health probe", () => {
+  test("a redirect answered by the engine's /health is NOT followed: nothing else is fetched on its behalf", async () => {
+    const hits: string[] = [];
+    const elsewhere = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(req) { hits.push(new URL(req.url).pathname); return new Response("x"); } });
+    const upstream = fake(() => new Response("anthropic"));
+    // an engine that never answers a Messages call, and whose /health points somewhere else
+    const engine = net.createServer((s) => {
+      s.on("error", () => {});
+      s.once("data", (d) => {
+        if (d.toString().split("\r\n")[0]?.includes("/health")) {
+          s.end(`HTTP/1.1 302 Found\r\nlocation: http://127.0.0.1:${elsewhere.port}/followed-from-health\r\ncontent-length: 0\r\n\r\n`);
+        }
+      });
+    });
+    await new Promise<void>((r) => engine.listen(0, "127.0.0.1", r));
+    const { proxy } = await start({
+      enginePort: (engine.address() as net.AddressInfo).port, upstreamPort: upstream.port, silenceMs: 100, healthMs: 1000,
+    });
+    try {
+      const leaving = new AbortController();
+      const call = viaProxy(proxy, "/v1/messages", { body: "{}", signal: leaving.signal }).catch(() => null);
+      await sleep(800); // well past silenceMs: the probe has been made
+      leaving.abort();
+      await call;
+      expect(hits).toEqual([]);
+    } finally { await proxy.close(); engine.close(); elsewhere.stop(true); upstream.stop(); }
   });
 });
 

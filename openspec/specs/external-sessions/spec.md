@@ -378,13 +378,23 @@ motore le scrive.
 Un CONNECT verso questa macchina o verso reti locali SHALL essere rifiutato con 403
 e non SHALL aprire alcuna connessione: loopback (127.0.0.0/8, ::1, `localhost` e
 `*.localhost`; la porta principale di Topics si fida del loopback), indirizzi
-privati (10/8, 172.16/12, 192.168/16, fc00::/7), link-local (169.254/16, fe80::/10)
-e `0.0.0.0`, anche nella forma IPv4-mappata. Un nome SHALL essere controllato su
-ciò che RISOLVE, e la connessione SHALL aprirsi proprio su quella risposta.
+privati (10/8, 172.16/12, 192.168/16, fc00::/7), link-local (169.254/16, fe80::/10),
+la rete di Tailscale (100.64/10, fd7a:115c:a1e0::/48, nomi `*.ts.net`) e `0.0.0.0`,
+anche nella forma IPv4-mappata, e ogni indirizzo assegnato a un'interfaccia di
+questa macchina in quel momento. Un nome SHALL essere controllato su ciò che
+RISOLVE, e la connessione SHALL aprirsi proprio su quella risposta.
 
 Una richiesta di upgrade WebSocket verso api.anthropic.com SHALL ricevere il 101
 solo se la stretta di mano con Anthropic è riuscita (altrimenti 502), e i messaggi,
-testo e binari, SHALL passare nei due sensi con i codici di chiusura.
+testo e binari, SHALL passare nei due sensi. Un client che legge piano NON SHALL
+perdere messaggi: il relay li trattiene fino a un tetto per connessione e direzione,
+oltre il quale chiude con 1013 (1011 verso Anthropic), mai con un buco nel mezzo.
+Il codice di chiusura SHALL passare uguale nei due sensi, con la reason dove il
+socket la porta; una chiusura anomala di Anthropic (1006) SHALL arrivare al client
+come 1011, mai come 1000, e un client sparito senza chiusura SHALL essere un
+abbandono anche per Anthropic.
+
+La sonda `/health` del motore NON SHALL seguire i redirect.
 
 FAIL-OPEN: se il motore rifiuta la connessione, la chiude prima di rispondere, o
 non dà intestazioni entro la soglia E ANCHE il suo `/health` tace, la richiesta
@@ -411,6 +421,14 @@ La CA SHALL stare nella cartella di Topics (`~/.topics`, mai nel checkout; 0700,
 #### Scenario: un upgrade WebSocket
 - **GIVEN** una richiesta di upgrade verso api.anthropic.com
 - **THEN** SHALL passare il 101 di Anthropic, con il sottoprotocollo scelto da lei, e i messaggi nei due sensi
+
+#### Scenario: un client lento
+- **GIVEN** un client che smette di leggere per 4 secondi mentre Anthropic manda 160 messaggi da 256 KB
+- **THEN** SHALL ricevere tutti e 160, in ordine
+
+#### Scenario: un CONNECT verso la tailnet
+- **GIVEN** un CONNECT verso un indirizzo 100.64/10 o verso un nome `*.ts.net`
+- **THEN** SHALL rispondere 403 e non aprire niente
 
 ### Requirement: TITLE-02 — Anche l'altro agente deriva il titolo dal messaggio VERO
 
