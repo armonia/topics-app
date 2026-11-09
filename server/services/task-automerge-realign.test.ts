@@ -20,6 +20,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from "fs"
 import { tmpdir } from "os";
 import { join } from "path";
 import { createTaskAutoMerge, type AutoMergeDeps, type TaskMergeTarget } from "./task-automerge";
+import { RESIDUE_SUBJECT } from "./worktree-residue";
 import { slackMs } from "../../tests/helpers/time-slack";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 
@@ -440,5 +441,185 @@ describe("la PUNTA del ramo è la consegna, il commit registrato è solo dove er
     if (res.status !== "merged") return;
     expect(res.deliveryDrift).toContain("DOPO la consegna");
     expect(log(repo, "main")).toContain("ramo: dopo.txt");
+  }, WITH_REAL_GIT);
+});
+
+describe("l'atterraggio automatico non riallinea (noRealign)", () => {
+  test("ramo indietro su main → skipped/realign-needed, e main non si muove", async () => {
+    const repo = repoWithOldBranch({
+      avanzamentoMain: [["main-uno.txt", "uno\n"]],
+      lavoroDelRamo: [["ramo.txt", "lavoro\n"]],
+    });
+    const before = git(repo, "rev-parse", "main").trim();
+    const tip = git(repo, "rev-parse", BRANCH).trim();
+
+    const res = await landOn(repo).tryMerge("t1", "Card verde", { branch: BRANCH, commit: tip, noRealign: true });
+
+    expect(res.status).toBe("skipped");
+    if (res.status !== "skipped") return;
+    expect(res.code).toBe("realign-needed");
+    // Nothing merged anywhere: neither main nor the branch moved.
+    expect(git(repo, "rev-parse", "main").trim()).toBe(before);
+    expect(git(repo, "rev-parse", BRANCH).trim()).toBe(tip);
+  }, WITH_REAL_GIT);
+
+  test("ramo aggiornato → noRealign non disturba: landa", async () => {
+    const repo = repoWithOldBranch({ avanzamentoMain: [], lavoroDelRamo: [["ramo.txt", "lavoro\n"]] });
+    const tip = git(repo, "rev-parse", BRANCH).trim();
+
+    const res = await landOn(repo).tryMerge("t1", "Card aggiornata", { branch: BRANCH, commit: tip, noRealign: true });
+
+    expect(res.status).toBe("merged");
+    expect(log(repo, "main")).toContain("ramo: ramo.txt");
+  }, WITH_REAL_GIT);
+
+  test("senza noRealign lo stesso ramo indietro atterra riallineato (il gesto della persona non cambia)", async () => {
+    const repo = repoWithOldBranch({ avanzamentoMain: [["main-uno.txt", "uno\n"]], lavoroDelRamo: [["ramo.txt", "lavoro\n"]] });
+    const res = await landOn(repo).tryMerge("t1", "Card riallineata");
+    expect(res.status).toBe("merged");
+  }, WITH_REAL_GIT);
+
+  test("realign() senza worktree usa il ramo dichiarato dalla card (consegna piantata da un altro nodo)", async () => {
+    const repo = repoWithOldBranch({ avanzamentoMain: [["main-uno.txt", "uno\n"]], lavoroDelRamo: [["ramo.txt", "lavoro\n"]] });
+    const am = createTaskAutoMerge({
+      resolveTaskMerge: () => null,
+      declaredDelivery: () => ({ repoPath: repo, branch: BRANCH }),
+    });
+
+    const out = await am.realign("t1");
+
+    expect(out.ok).toBe(true);
+    // The branch now carries main: the next land has nothing to realign.
+    expect(git(repo, "merge-base", "--is-ancestor", "main", BRANCH)).toBe("");
+  }, WITH_REAL_GIT);
+});
+
+describe("l'atterraggio automatico pubblica SOLO il commit misurato (noRealign)", () => {
+  test("un commit aggiunto sul ramo dopo la consegna → skipped/not-as-measured, main non si muove", async () => {
+    const repo = repoWithOldBranch({ avanzamentoMain: [], lavoroDelRamo: [["ramo.txt", "lavoro\n"]] });
+    const measured = git(repo, "rev-parse", BRANCH).trim();
+    // The agent keeps working after the delivery was measured.
+    git(repo, "switch", "-q", BRANCH);
+    commit(repo, "dopo.txt", "non misurato\n", "ramo: dopo.txt");
+    git(repo, "switch", "-q", "main");
+    const before = git(repo, "rev-parse", "main").trim();
+
+    const res = await landOn(repo).tryMerge("t1", "Card che continua", { branch: BRANCH, commit: measured, noRealign: true });
+
+    expect(res.status).toBe("skipped");
+    if (res.status !== "skipped") return;
+    expect(res.code).toBe("not-as-measured");
+    expect(git(repo, "rev-parse", "main").trim()).toBe(before);
+    expect(log(repo, "main")).not.toContain("ramo: dopo.txt");
+  }, WITH_REAL_GIT);
+
+  test("il ramo consegnato non esiste più → niente ripiego sul ramo del worktree vivo", async () => {
+    const repo = repoWithOldBranch({ avanzamentoMain: [], lavoroDelRamo: [["ramo.txt", "lavoro\n"]] });
+    const tip = git(repo, "rev-parse", BRANCH).trim();
+    const before = git(repo, "rev-parse", "main").trim();
+
+    const res = await landOn(repo).tryMerge("t1", "Card col ramo sparito", { branch: "topics/sparito", commit: tip, noRealign: true });
+
+    expect(res.status).toBe("skipped");
+    if (res.status !== "skipped") return;
+    expect(res.code).toBe("not-as-measured");
+    expect(git(repo, "rev-parse", "main").trim()).toBe(before);
+  }, WITH_REAL_GIT);
+
+  test("un ramo con commit di altri → non si ricopiano i suoi: l'albero non sarebbe quello misurato", async () => {
+    const repo = repoWithOldBranch({ avanzamentoMain: [], lavoroDelRamo: [["a.txt", "a\n"], ["b.txt", "b\n"]] });
+    const tip = git(repo, "rev-parse", BRANCH).trim();
+    // A second card's branch is born from the first commit: that one is not this card's own.
+    git(repo, "branch", "topics/altra", `${BRANCH}~1`);
+    const before = git(repo, "rev-parse", "main").trim();
+
+    const res = await landOn(repo).tryMerge("t1", "Card mista", { branch: BRANCH, commit: tip, noRealign: true });
+
+    expect(res.status).toBe("skipped");
+    if (res.status !== "skipped") return;
+    expect(res.code).toBe("not-as-measured");
+    expect(git(repo, "rev-parse", "main").trim()).toBe(before);
+  }, WITH_REAL_GIT);
+});
+
+describe("il commit di residuo della potatura non esce dal conto del land automatico (noRealign)", () => {
+  /**
+   * `listOwnCommits` leaves out the commit the pruning writes to save a dirty
+   * worktree, but the merge carries it. With no other local branch the "total vs
+   * own" gate used to be skipped altogether, and what the merge brought was a
+   * tree nobody measured (verifier, 09/11: auth.ts landed beside a harmless file).
+   */
+  test("ramo con un commit di residuo e nessun altro ramo locale -> skipped/not-as-measured", async () => {
+    const repo = repoWithOldBranch({ avanzamentoMain: [], lavoroDelRamo: [["server/lib/a.ts", "a\n"]] });
+    git(repo, "switch", "-q", BRANCH);
+    commit(repo, "server/routes/auth.ts", "residuo\n", RESIDUE_SUBJECT);
+    git(repo, "switch", "-q", "main");
+    const tip = git(repo, "rev-parse", BRANCH).trim();
+    const before = git(repo, "rev-parse", "main").trim();
+
+    const res = await landOn(repo).tryMerge("t1", "Card col residuo", { branch: BRANCH, commit: tip, noRealign: true });
+
+    expect(res.status).toBe("skipped");
+    if (res.status !== "skipped") return;
+    expect(res.code).toBe("not-as-measured");
+    expect(git(repo, "rev-parse", "main").trim()).toBe(before);
+  }, WITH_REAL_GIT);
+});
+
+describe("l'atterraggio automatico con un origin vero (noRealign)", () => {
+  /**
+   * The merge lands on the LOCAL main, which usually holds commits origin does
+   * not have yet. A branch that contains `origin/main` but not the local tip was
+   * measured against a tree that is not the one that would land. The tests above
+   * have no remote at all, which is why they could not see it.
+   */
+  function repoWithOrigin(): { repo: string; tip: string } {
+    const root = mkdtempSync(join(tmpdir(), "land-origin-"));
+    created.push(root);
+    const bare = join(root, "origin.git");
+    const repo = join(root, "work");
+    git(root, "init", "-q", "--bare", "-b", "main", bare);
+    git(root, "clone", "-q", bare, repo);
+    git(repo, "config", "user.email", "test@example.com");
+    git(repo, "config", "user.name", "Test");
+    git(repo, "config", "commit.gpgsign", "false");
+    git(repo, "switch", "-q", "-c", "main");
+    commit(repo, "r.txt", "radice\n", "radice");
+    git(repo, "push", "-q", "-u", "origin", "main");
+    // The card's branch is born from the published main...
+    git(repo, "switch", "-q", "-c", "topics/b");
+    commit(repo, "b.txt", "lavoro\n", "ramo: b.txt");
+    git(repo, "switch", "-q", "main");
+    // ...and the local main gains a commit nobody published.
+    commit(repo, "a.txt", "locale\n", "main locale: a.txt");
+    return { repo, tip: git(repo, "rev-parse", "topics/b").trim() };
+  }
+  const landB = (repo: string) =>
+    createTaskAutoMerge({ resolveTaskMerge: () => ({ repoPath: repo, branch: "topics/b", defaultBranch: "main" }) });
+
+  test("il ramo contiene origin/main ma non il main locale non pubblicato -> skipped/realign-needed", async () => {
+    const { repo, tip } = repoWithOrigin();
+    const before = git(repo, "rev-parse", "main").trim();
+
+    const res = await landB(repo).tryMerge("t1", "Card verde", { branch: "topics/b", commit: tip, noRealign: true });
+
+    expect(res.status).toBe("skipped");
+    if (res.status !== "skipped") return;
+    expect(res.code).toBe("realign-needed");
+    expect(git(repo, "rev-parse", "main").trim()).toBe(before);
+    expect(log(repo, "main")).not.toContain("ramo: b.txt");
+  }, WITH_REAL_GIT);
+
+  test("il ramo contiene anche il main locale -> landa", async () => {
+    const { repo } = repoWithOrigin();
+    git(repo, "switch", "-q", "topics/b");
+    git(repo, "merge", "-q", "--no-edit", "main");
+    git(repo, "switch", "-q", "main");
+    const tip = git(repo, "rev-parse", "topics/b").trim();
+
+    const res = await landB(repo).tryMerge("t1", "Card allineata", { branch: "topics/b", commit: tip, noRealign: true });
+
+    expect(res.status).toBe("merged");
+    expect(log(repo, "main")).toContain("ramo: b.txt");
   }, WITH_REAL_GIT);
 });
