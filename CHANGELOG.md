@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.65 — 2026-11-09
+
+### Sotto il cofano
+- tema chiaro della Board (a7286fe8) torna fuori da main
+- CI di main rossa dopo i land della sera: un test senza requisito e due spec che dipendono dal tempo
+
 ## 2.3.64 — 2026-11-08
 
 ### Sotto il cofano
@@ -10,12 +16,15 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.3.63 — 2026-11-08
 
 ### Sotto il cofano
+- machine-slots e2e: la lista arriva come { machines }
 - Via OpenClaw da Topics (#606)
 
 ## 2.3.62 — 2026-11-08
 
 ### Sotto il cofano
 - E2e sul PC: Chromium con la GPU, le spec a pixel su SwiftShader (#631)
+- posti dichiarabili per macchina (slots), PATCH e campo Card insieme
+- machine-slots.test: @covers
 - Smoke di installazione: aggiorna l'elenco dei pacchetti prima del .deb (#635)
 
 ## 2.3.61 — 2026-11-08
@@ -30,7 +39,13 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Sotto-agenti: il brief arriva intero, anche oltre 1022 byte (#627)
 - titoli senza emoji, l'icona dal genere della riga (#621)
 - il nome OpenClaw sparisce dalla presence Discord e dall'interfaccia (#622)
+- Sotto-agenti: la finestra di fiducia della CLI 2.1.310 si accetta (aspetta il piede, 14 tentativi)
 - un TERM durante l'attesa dei figli non fa più perdere il codice d'uscita (#628)
+- light-theme pairs for bg-white/N and rose/amber text, icons instead of glyphs (#4c7aa382)
+- Cartelle ammesse: la cache si svuota quando nasce un progetto o cambia il projectPath di un topic
+- Cancelli allineati a TS 7: gate-coverage usa typescript7, tolta la barra toolchain senza script
+- Remove dead server code (claude-tasks-sync, seed, test-only exports) and fix stale usage_records comments
+- Drop TASKSYNC-01 requirement along with the removed watcher
 
 ## 2.3.60 — 2026-11-08
 
