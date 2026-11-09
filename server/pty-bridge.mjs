@@ -180,6 +180,11 @@ function handleMessage(msg, client) {
             `bridgeAskedToKill=${tracked.killing} killReason=${tracked.killReason ?? 'none'} ` +
             `killCaller=${tracked.killCaller ?? 'none'}`,
         );
+        // Whatever is left in the shell's process group was started from this
+        // terminal and has no owner anymore: take it out, or it is orphaned.
+        if (process.platform !== 'win32') {
+          try { process.kill(-p.pid, 'SIGKILL'); } catch {}
+        }
         // THE ONLY PLACE A SESSION LEAVES THE MAP, and it removes only its OWN
         // pty: an unconditional delete here would let a late exit evict a newer
         // session that had taken the same id.
