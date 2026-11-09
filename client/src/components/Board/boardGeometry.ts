@@ -54,8 +54,6 @@ export const COLUMNS_ROW_LIST = 'scroll-under-chrome flex h-full min-w-0 flex-co
 
 /** Where the board's grouping preference is kept: one flat board, or one lane per project. */
 export const BOARD_GROUP_BY_STORAGE_KEY = 'topics.board.groupBy';
-/** Where the card density preference is kept: the full card, or the compact one. */
-export const BOARD_DENSITY_STORAGE_KEY = 'topics.board.density';
 /** The projects whose lane (and Plan tile) the reader folded, as a JSON array of project ids. */
 export const BOARD_COLLAPSED_PROJECTS_STORAGE_KEY = 'topics.board.collapsedProjects';
 
@@ -66,12 +64,6 @@ export type BoardDensity = 'full' | 'compact';
 export function readBoardGroupBy(): BoardGroupBy {
   try { return localStorage.getItem(BOARD_GROUP_BY_STORAGE_KEY) === 'project' ? 'project' : 'none'; }
   catch { return 'none'; }
-}
-
-/** The stored density, defaulting to the full card. */
-export function readBoardDensity(): BoardDensity {
-  try { return localStorage.getItem(BOARD_DENSITY_STORAGE_KEY) === 'compact' ? 'compact' : 'full'; }
-  catch { return 'full'; }
 }
 
 /** Saves one view preference; private mode or a full quota only loses the memory, never the view. */
