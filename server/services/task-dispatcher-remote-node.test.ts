@@ -40,7 +40,7 @@ import { createDeliveryCapture, type DeliveryCapture, type DeliveryRef } from ".
 import type { TaskFile } from "../../shared/task-labels";
 import type { NodeRunReport } from "./node-client";
 
-import { PID, TASK, MACHINE, BASE_URL, report, nodeFake, delegatedPolicy, harness, flush, poll, dispatch } from "./task-dispatcher-remote-node-test-support";
+import { PID, TASK, MACHINE, BASE_URL, report, delegatedPolicy, harness, flush, poll, dispatch } from "./task-dispatcher-remote-node-test-support";
 
 describe("la card parte sul nodo, non qui", () => {
   it("nessun worktree, nessun discorso, nessun turno: solo la corsa sul nodo", async () => {
