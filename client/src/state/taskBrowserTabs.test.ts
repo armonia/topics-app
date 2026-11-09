@@ -423,3 +423,15 @@ describe('forgetTaskTabs (task archiviato)', () => {
 // the server broadcasts BEFORE it answers, so a frame carrying a write that
 // happened AFTER ours must be adopted, not thrown away. And a resync GET issued
 // before a close must lose to that close even when its answer lands later.
+
+describe('parkAllTabs', () => {
+  test('parks every live tab and clears the active one', async () => {
+    const { parkAllTabs, addTab, EMPTY_TASK_TABS, liveTabs } = await import('./taskBrowserTabs');
+    const s = addTab(addTab(EMPTY_TASK_TABS, 't1', 'http://a'), 't1', 'http://b');
+    const out = parkAllTabs(s);
+    expect(liveTabs(out)).toHaveLength(0);
+    expect(out.tabs).toHaveLength(2);
+    expect(out.activeContextId).toBeNull();
+    expect(parkAllTabs(out)).toBe(out);
+  });
+});
