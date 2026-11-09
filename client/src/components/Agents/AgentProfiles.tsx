@@ -124,7 +124,7 @@ export function AgentProfiles({ reg, reload }: { reg: Registry; reload: () => vo
       </Section>
 
       <Section icon={Sparkles} title={tr('agentConfig.model')}>
-        <p className="text-mini text-app-text-secondary">{tr('agentConfig.engine')}: <span className="text-app-text">{agent.model.engine ?? '—'}</span></p>
+        <p className="text-mini text-app-text-secondary">{tr('agentConfig.engine')}: <span className="text-app-text">{agent.model.engine ?? '—'}</span></p>{/* allow-emdash: placeholder for a missing value */}
         {models.map(([ch, m]) => (
           <p key={ch} className="text-mini text-app-text-secondary">{ch}: <span className="text-app-text">{Object.entries(m).map(([k, v]) => `${k === '*' ? tr('agentConfig.everyone') : k} → ${v.replace('anthropic/', '')}`).join(' · ')}</span></p>
         ))}
