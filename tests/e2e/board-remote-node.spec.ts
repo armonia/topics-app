@@ -26,11 +26,11 @@ import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { beat, didascalia } from "./helpers/evidence";
-import { mkdirSync, realpathSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
-import { removeTmpDir } from "./helpers/file-project";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -39,12 +39,12 @@ const API = `${BASE}/api`;
 const STAMP = Date.now();
 
 /**
- * THE REAL PATH, not `/tmp`: the server stores a topic's `projectPath`
+ * THE REAL PATH, from the canonical scratch root (Windows has no `/tmp`): the server stores a topic's `projectPath`
  * canonical, and the board id is a hash of that STRING. On macOS `/tmp` is a
  * symlink to `/private/tmp`, so a spec hashing the symlinked name creates its
  * cards on one board and the client opens another.
  */
-const PROJECT_PATH = `${realpathSync("/tmp")}/e2e-node-${STAMP}`;
+const PROJECT_PATH = canonicalTmpDir("e2e-node");
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
 /** Neutral on purpose: the chip's sentence changes language, the name does not. */
