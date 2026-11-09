@@ -4,7 +4,7 @@
  * @covers CARDPROCESS-01
  */
 import { afterAll, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -114,18 +114,38 @@ async function writtenPid(path: string): Promise<number> {
   return Number(text());
 }
 
+/**
+ * Resolves once the leader is draining: the scan's FIFO exists only inside the
+ * drain, which starts after the leader set TERM to ignored.
+ */
+async function leaderDraining(leaderPid: number): Promise<void> {
+  const directory = process.env.TMPDIR || "/tmp";
+  const prefix = `topics-command-group-${leaderPid}`;
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    if (readdirSync(directory).some((name) => name.startsWith(prefix))) return;
+    await Bun.sleep(1);
+  }
+  throw new Error(`leader ${leaderPid} never started its drain`);
+}
+
 // The child writes its pid only once the command is gone, reaped by the leader:
 // from then on the code is 0 wherever the close's TERM lands. The command used
 // to write it a moment before exiting, and a TERM in that moment ended it with
 // 143, the right code for a stopped command and a red for this test (6 runs in
 // 50 on a loaded Linux runner). Catching TERM in the command is no way out: the
 // child it forks keeps that handler until its exec and loses the TERM there.
+// The command hands the child its own pid: a child that starts after the
+// command exited reads `$PPID` as 1 and stops waiting at once. The close also
+// waits for the drain, because a reaped command does not mean the leader has
+// reached its ignore yet (macOS under load: the TERM landed there, the group
+// lived until the SIGKILL and the code was null).
 test("the group leader stays verifiable after its command leaves a child behind", async () => {
   const processId = crypto.randomUUID();
   const exitPath = join(instanceA, `${processId}.exit`);
   const childPath = join(instanceA, `${processId}.child`);
-  const child = `while kill -0 "$PPID" 2>/dev/null; do sleep 0.01; done; echo "$$" > ${childPath}; exec sleep 90`;
-  const argv = commandArgv(`/bin/sh -c '${child}' >/dev/null 2>&1 & exit 0`, exitPath, commandProcessGroupStopPath(processId));
+  const child = `while kill -0 "$1" 2>/dev/null; do sleep 0.01; done; echo "$$" > ${childPath}; exec sleep 90`;
+  const argv = commandArgv(`/bin/sh -c '${child}' _ "$$" >/dev/null 2>&1 & exit 0`, exitPath, commandProcessGroupStopPath(processId));
   if (!argv) throw new Error("POSIX command shell is unavailable");
   const proc = Bun.spawn(argv, { stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
   live.push({ proc, pgid: proc.pid });
@@ -145,6 +165,7 @@ test("the group leader stays verifiable after its command leaves a child behind"
     expect(childIdentity?.pgid).toBe(identity.pgid);
     expect(processGroupAlive(identity.pgid)).toBe(true);
     expect(readProcessGroupIdentity(identity.pid)).toEqual(identity);
+    await leaderDraining(identity.pid);
     expect(await closeCommandProcessGroup(record)).toBe(true);
     await proc.exited;
     expect(processGroupAlive(identity.pgid)).toBe(false);
