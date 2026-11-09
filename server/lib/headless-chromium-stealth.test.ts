@@ -1,3 +1,6 @@
+/**
+ * @covers ANTIBOT-02
+ */
 import { describe, expect, test } from "bun:test";
 import { HEADLESS_AUTOMATION_ARGS, reducedChromeUserAgent } from "./headless-chromium-stealth";
 

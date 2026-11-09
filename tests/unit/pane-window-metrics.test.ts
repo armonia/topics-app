@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
+/**
+ * @covers ANTIBOT-01
+ */
 // The pane init script (desktop-tauri/src-tauri/src/pane_window_metrics.js): a
 // child WKWebView answers 0 to outerWidth/outerHeight and Heray (Hetzner's
 // anti-bot) rejects the proof of work. This runs the file as shipped inside a
