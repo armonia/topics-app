@@ -5421,3 +5421,56 @@ until a valid confirmation. A request that is a single card SHALL keep creating 
 - **THEN** the proposal SHALL appear and zero cards SHALL exist
 - **WHEN** the writer confirms
 - **THEN** the ticked rows SHALL become cards, the parent first, each sub-card on its parent's project
+
+### Requirement: KANBAN-107 — The board groups by project and has a compact card, the same in Kanban and Plan
+
+The cross-project board SHALL offer, beside the layout toggle, a control that
+groups the cards BY PROJECT: one lane per project, each lane the same row of
+workflow columns, headed by the project's icon and name, the fold chevron and
+its count per column. A folded project SHALL stay folded in the Plan too (one
+folded set for both views). A second control SHALL switch every card to a
+COMPACT density (title, project or lane, session door, the foot with the live
+state, a blocker), and the Plan SHALL draw that same compact card for every
+root card the board holds. Both choices SHALL persist per viewer, in local
+storage, like the layout. The full card SHALL stay unchanged.
+
+#### Scenario: grouping and density survive a reload
+- **GIVEN** the global board with cards from two projects
+- **WHEN** the person turns on the grouping and the compact density
+- **THEN** there SHALL be one lane per project with its count, every card SHALL be compact, and both SHALL survive a reload
+
+#### Scenario: a folded lane is folded in the Plan
+- **WHEN** the person folds a project's lane and opens the Plan
+- **THEN** that project's tile SHALL show only its header
+
+#### Scenario: a project is named the same in the lane and in the Plan
+- **GIVEN** a registered project whose folder the picker does not offer
+- **WHEN** the person groups the board by project and then opens the Plan
+- **THEN** the lane and the Plan tile SHALL carry the same name and the two views SHALL list projects in the same order
+
+#### Scenario: the projects waiting for the person come first, in both views
+- **GIVEN** a project with a card in review and projects without one, the waiting one last by name
+- **WHEN** the person reads the grouped board and then the Plan
+- **THEN** the waiting project SHALL be first in both, and the rest SHALL follow by name, ties on the id
+
+#### Scenario: a project nobody registered has one name
+- **GIVEN** a card whose project is neither registered nor offered by the picker
+- **WHEN** the board is grouped and the Plan is opened
+- **THEN** the lane and the Plan tile SHALL carry the same name, taken from the id (the folder when the id is a path, the slug without its hash, a sentence when the id is a code)
+
+#### Scenario: a compact card in review keeps the question it waits on
+- **WHEN** a card in review has a pending question
+- **THEN** the compact card SHALL show the question in at most two lines, with the usable quick replies when there are any
+
+#### Scenario: a drop in another project's lane changes nothing
+- **WHEN** a card is dropped in a lane of another project on the grouped board
+- **THEN** the card SHALL keep its status and its project, and a notice SHALL say that a card stays in its own project
+
+### Requirement: KANBAN-108 - A card in progress shows one progress line and a measure band
+
+The body of a card in progress SHALL show ONE progress line: the last step of the running tool, or the first line of the agent's last word when no tool is running. An empty line SHALL NOT be shown. The model, the cost, the time and the last update SHALL live in a measure band that writes the whole model name, holds the «now» mark inside it, and stays visibly apart from the card in both themes, with text that reaches WCAG AA.
+
+#### Scenario: a working card
+- **WHEN** a task is in progress and a tool is running
+- **THEN** the body SHALL show the tool step as its single progress line
+- **AND** the measure band SHALL show the full model name and the time without cutting either

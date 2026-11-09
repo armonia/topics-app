@@ -3,7 +3,7 @@ import { memo, useState, useEffect, useCallback, useMemo, useRef, useSyncExterna
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { reviewEvidence } from '../../lib/reviewEvidence';
-import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CircleSlash, ClipboardList, Copy, GitBranch, Hourglass, ListTree, Lock, MessageSquare, Plus, RotateCcw, Send, Server, ShieldCheck, Square, Terminal, Trash2, UserRound, X } from 'lucide-react';
+import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CircleSlash, ClipboardList, Copy, GitBranch, Hourglass, ListTree, Lock, MessageSquare, Plus, RotateCcw, Send, Server, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -23,6 +23,7 @@ import { reflowTransform } from './sortableReflow';
 import { MorphText } from '../Shared/MorphText';
 import { PreviewMedia } from './PreviewMedia';
 import type { DraftPreview } from './draftPreview';
+import { CompactQuestion } from './CompactQuestion';
 import { DraftCard } from './DraftCard';
 import { DeliveryFiles } from './DeliveryFiles';
 import { isDeliverySheetPath } from '../../../../shared/media-kind';
@@ -32,17 +33,18 @@ import { DispatchLoadGauge } from './DispatchLoadGauge';
 import { landingBand } from './landingBand';
 import { useLandingTicket } from './useLandingTicket';
 import { taskActionErrorMessage } from './taskActionError';
-import { choiceForText, taskChoices, usableQuestionOptions } from './taskChoices';
+import { cardProgressLine } from './cardProgressLine';
+import { choiceForText, reviewFaceExclude, reviewMenuExclude, taskChoices, usableQuestionOptions } from './taskChoices';
 import { taskChoiceState } from './taskChoices';
 import { checklistWindow } from './checklistWindow';
 import { showsStoppedChip } from './stoppedChip';
-import { sendBackDest, sendBackWord, taskActionWord } from './taskActionWords';
+import { taskActionWord } from './taskActionWords';
 import { useT, useLocale } from '../../hooks/useT';
 import { taskTriggerLine } from '../../lib/modelLabel';
 import { machineLabel, useMachines } from '../../state/machinesStore';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { EASE, MOTION } from '../../lib/motion';
-import { COLUMN_FRAME, columnWidthClass } from './boardGeometry';
+import { COLUMN_FRAME, columnWidthClass, type BoardDensity } from './boardGeometry';
 import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, COMMENTO_PIEGA_CHARS, RICHIESTA_PIEGA_CHARS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { copyText } from '../../lib/clipboard';
@@ -51,7 +53,7 @@ import { fmtMs, fmtTok, fmtAttesa, fmtUsd, taskCopyText } from './format';
 import { UpdatedAgo } from './UpdatedAgo';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
 import { BrakeCardLine, BrakeColumnNote, useBrakeHeld } from './BrakeChip';
-import { LiveEffortChip, LiveToolLine, RETRY_NOW_MESSAGE, RetryWaitChip } from './CardLive';
+import { LiveEffortChip, RETRY_NOW_MESSAGE, RetryWaitChip } from './CardLive';
 import { SessionPeek } from './SessionPeek';
 import { createSessionPeekIntent } from './sessionPeekIntent';
 import { SwapIce } from '../Shared/SwapIce';
@@ -67,6 +69,7 @@ import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib
 import { cardRunsThroughTopics } from '../../lib/topicsRoutingGate';
 import { useCardBoardSettings } from '../../hooks/useCardBoardSettings';
 import { readVirtualViewport, scrollParentOf } from '../../lib/boardVirtualViewport';
+import { SystemNoteFold } from './SystemNoteFold';
 import { VirtualizedCards } from './VirtualizedCards';
 
 // ── Column ────────────────────────────────────────────────────────────────
@@ -75,7 +78,9 @@ import { VirtualizedCards } from './VirtualizedCards';
 export function Column(props: ColumnProps) {
   // The workflow column's id (`shared/workflow.ts`): equal to the status for
   // the plain columns, so on the default workflow nothing here changes.
-  const { setNodeRef, isOver, active } = useDroppable({ id: props.columnId ?? props.status });
+  // In a project lane the column carries its lane in the id (`laneDropId`): one
+  // droppable id per lane, or every lane but the first would be unreachable.
+  const { setNodeRef, isOver, active } = useDroppable({ id: props.dropId ?? props.columnId ?? props.status });
   return <ColumnBody {...props} setNodeRef={setNodeRef} isOver={isOver} dragging={active !== null} activeId={active ? String(active.id) : null} />;
 }
 
@@ -128,9 +133,15 @@ type ColumnProps = {
   /** Names the board view this column belongs to (which board, live or archive), so the pages the reader
    *  reached outlive the unmount a view change causes. Without it the column starts from its first page. */
   viewKey?: string;
+  /** How much of each card is drawn: the full card, or the compact one (`Card`, `density`). */
+  density?: BoardDensity;
+  /** The droppable id when it is not the column's own: a project lane's column (`laneDropId`). */
+  dropId?: string;
+  /** The column sits in a project lane: the page scrolls, not the column, and it is not a carousel slide. */
+  inLane?: boolean;
 };
 
-const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, paneBoardId, paneSettings, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid', viewKey, setNodeRef, isOver, dragging, activeId }: ColumnProps & {
+const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, paneBoardId, paneSettings, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid', viewKey, density = 'full', inLane = false, setNodeRef, isOver, dragging, activeId }: ColumnProps & {
   setNodeRef: (element: HTMLElement | null) => void; isOver: boolean; dragging: boolean;
 }) {
   const tr = useT();
@@ -198,8 +209,9 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
       justMovedTo={justMoved.get(t.id)}
       justCreated={justCreated.has(t.id)}
       archived={archived}
+      density={density}
     />
-  ), [onOpen, showProject, onRefetch, onOpenTopic, cardError, onCardError, resolveSession, paneBoardId, paneSettings, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived]);
+  ), [onOpen, showProject, onRefetch, onOpenTopic, cardError, onCardError, resolveSession, paneBoardId, paneSettings, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived, density]);
 
   // Responsive columns. The board is a scroll-snap carousel at EVERY breakpoint:
   // each column `snap-center`s to the middle as its own "slide", so whenever the
@@ -285,7 +297,8 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
       // `index.css` (vedi DROP_ACTIVE_ATTR in `lib/dragPreview`): la board
       // diceva «qui» in un colore che nessun'altra superficie usava.
       data-drop-active={isOver ? 'into' : undefined}
-      className={`${COLUMN_FRAME} ${widthCls} ${layout === 'list' ? '' : 'shrink-0'} ${layout === 'list' ? '' : snapCls}`}
+      data-lane-column={inLane || undefined}
+      className={`${COLUMN_FRAME} ${widthCls} ${layout === 'list' ? '' : 'shrink-0'} ${layout === 'list' || inLane ? '' : snapCls}`}
     >
       <div className="flex items-center justify-between px-3 py-2">
         <span className="flex items-center gap-1.5 text-compact leading-4 font-semibold uppercase tracking-wide text-app-text-heading">
@@ -332,7 +345,7 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
       <div
         ref={virtualized ? onVirtualScroll : undefined}
         data-testid={`kanban-column-body-${colKey}`}
-        className={layout === 'list' ? 'space-y-2 px-2 pt-1.5' : 'flex-1 space-y-2 overflow-y-auto px-2 pt-1.5 pb-[max(var(--board-bottom-clear,9rem),calc(var(--mobile-band-own-h,0px)+1rem))] scrollbar-standard'}
+        className={layout === 'list' ? 'space-y-2 px-2 pt-1.5' : inLane ? 'flex-1 space-y-2 px-2 pt-1.5 pb-2' : 'flex-1 space-y-2 overflow-y-auto px-2 pt-1.5 pb-[max(var(--board-bottom-clear,9rem),calc(var(--mobile-band-own-h,0px)+1rem))] scrollbar-standard'}
       >
         {/* THE GHOST OF THE CARD BEING WRITTEN, in the column it will land in
             and at the top, where a new card lands. Outside the sortable list:
@@ -490,9 +503,18 @@ type CardProps = {
   archived?: boolean;
   paneBoardId: string;
   paneSettings: BoardSettings | null;
+  /**
+   * 'compact': the card as one or two lines, for a board read at a glance. It
+   * keeps what says WHO is working and WHAT waits on you (project and session
+   * door, title, the foot with the live state, a blocker, a parked reason, the
+   * running tool) and drops what is read only once you stop on the card
+   * (preview, relational chips, steps, description, the agent's words, the
+   * reply controls: all of them are in the drawer one click away).
+   */
+  density?: BoardDensity;
 };
 
-const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, paneBoardId: _paneBoardId, paneSettings: _paneSettings, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition, boardTopicsRoutingDefault }: CardProps & CardDragProps & { boardTopicsRoutingDefault: boolean | null }) {
+const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, density = 'full', paneBoardId: _paneBoardId, paneSettings: _paneSettings, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition, boardTopicsRoutingDefault }: CardProps & CardDragProps & { boardTopicsRoutingDefault: boolean | null }) {
   // MSEL-01: subscribed, so a snapshot that lands after the first paint adds
   // «· via Topics»; the boolean re-renders the card only when it flips.
   const getRunsThroughTopics = () => cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot, boardTopicsRoutingDefault);
@@ -506,6 +528,10 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
     snapshot: getProvidersSnapshotState().snapshot, tr: tm, surface: 'task', viaTopics: runsThroughTopics,
   });
   const modelLine = useSyncExternalStore(subscribeProvidersSnapshot, getModelLine, getModelLine);
+  // The measure row is 300 px wide at its narrowest: only the Claude Code provider
+  // is shortened ("via Claude Code" -> "Claude Code"), so model and provider stay whole;
+  // the tooltip keeps the full line. Other providers stay as the specs pin them.
+  const measureLine = modelLine.replace(' · via Claude Code', ' · Claude Code');
 
   // Review context. The comment PAIR (`selectCardComments`) — the thread's last
   // word as a quick-reply with option buttons when it's a question block and
@@ -605,7 +631,6 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // le due risposte scritte in un commento e nessun bottone per darle.
   // Entrambi i rami stanno in `showsCardThread`, che è anche il predicato con
   // cui il server decide a quali schede attaccare i commenti.
-  const isAgentReview = task.status === 'review' && !!task.assignedTopicId;
   /**
    * Topics is holding this card's heaviest background command STOPped because
    * the Mac is in sustained swap. The card frosts over, says which command and
@@ -675,6 +700,26 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   const lastComment = rowThread?.latest ?? thread?.latest ?? null;
   /** Chi parla non e' una persona ne' un agente: vedi `isMachineVoice`. */
   const notesOfMachine = lastComment ? isMachineVoice(lastComment) : false;
+  /** The agent's last word: the body's word when the last one is a machine's. */
+  const agentWord = rowThread?.agentWord ?? thread?.agentWord ?? null;
+  const bodyWord = notesOfMachine ? agentWord : lastComment;
+  // Riga di avanzamento per una card in lavorazione: l'ultimo passo del tool,
+  // o la prima riga dell'agente. Una sola riga, mai il testo intero. Una nota
+  // della macchina non diventa mai la riga: va sotto «mostra».
+  const progressLine = cardProgressLine({
+    lastTool: live?.lastTool, retry: live?.retry, working: task.dispatchState === 'working',
+    showsQuestion, bodyText: bodyWord?.content,
+  });
+  // THE MEASURE BAND is drawn in progress (live) or whenever the turn has a
+  // model or a time. «ora» lives inside it then, and alone on the foot otherwise.
+  const measureShown = (!!live && !live.retry && task.dispatchState === 'working')
+    || !!(task.model || task.agentMs > 0 || task.agentTokens > 0);
+  const updatedAgo = (tone: string) => (
+    <span
+      className={`shrink-0 whitespace-nowrap text-compact leading-4 md:text-mini ${tone}`}
+      title={tr('board.card.lastUpdate', { when: new Date(task.updatedAt).toLocaleString(locale) })}
+    ><UpdatedAgo iso={task.updatedAt} /></span>
+  );
   const humanContext = rowThread ? rowThread.humanContext : thread?.humanContext ?? null;
   // Plain text: the context row is a single clamped line, so markdown blocks
   // would only leak their syntax into it.
@@ -776,11 +821,15 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
     // No choice takes it (or the one that does only wants the focus in the
     // field, where we already are): then the text is a note, and that is the
     // only sensible thing to do with it.
-    if (!prima || prima.needsText) { void steer(v, { quiet: true }); return; }
+    // «Rifai così» is no longer a button on the card: the field IS that
+    // choice. With an agent behind the task it sends the text back, so the
+    // agent restarts for real (card 38b78eba stayed parked in review before).
+    const sendsBackWithText = !!prima && (prima.id === 'send-back' || (prima.id === 'redo' && !!task.assignedTopicId));
+    if (!prima || (prima.needsText && !sendsBackWithText)) { void steer(v, { quiet: true }); return; }
     setBusy(true); clearError();
     try {
-      // `send-back` carries the instruction with it, the way the button does.
-      if (prima.id === 'send-back') await boardApi.review(task.projectId, task.id, 'reject', v);
+      // `send-back` and `redo` carry the instruction with them, the way the button does.
+      if (sendsBackWithText) await boardApi.review(task.projectId, task.id, 'reject', v);
       else {
         // The others have no field to put a sentence in: it is left on the
         // card BEFORE acting, so the why stays written next to the effect
@@ -874,6 +923,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // tokens, git) moved to the card's foot, so this row renders only when it
   // has something of its own to say.
   const showTopRow = (showProject && !unassigned) || canOpenSession || sessionEnded;
+  const compact = density === 'compact';
   const showPriority = !priorityAwaitingAgent(task) && task.priority !== 2;
   // THE CHECKLIST IS THE SAME IN EVERY COLUMN. It used to open only in review
   // and the other columns got a `3/7` chip instead: the same card changed
@@ -1018,6 +1068,12 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // The send button names the action IT PERFORMS — the text's one, not the
   // first in the row: with `[0]` it promised «Landa su main» and sent back.
   const primaChoice = useMemo(() => choiceForText(taskChoices(task, { t: tr })), [task, tr]);
+  // THE REVIEW FACE, as Attilio decided on 01/11 and 03/11: only «Approva» on
+  // the face; «Rifai così» is in neither place (the field below sends the text
+  // back, see `primaryChoiceWithText`); every other exit, «Archivia» included,
+  // is behind the «…». See `reviewFaceExclude` in `taskChoices`.
+  const faceExclude = useMemo(() => reviewFaceExclude(task, tr), [task, tr]);
+  const menuExclude = useMemo(() => reviewMenuExclude(task, tr), [task, tr]);
   // …e l'altra metà, che è il verso OPPOSTO: quanti aspettano QUESTA card.
   // Anche questo numero è un fatto del DB, non della lista fetchata — un
   // dipendente che è un sottotask o sta in un altro progetto non è fra le card,
@@ -1036,7 +1092,8 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // `card-meta-row-completeness.test.ts` confronta questa riga con i chip
   // davvero disegnati sotto, così la prossima dimenticanza è un rosso e non
   // un'ora di indagine.
-  const hasMetaRow = !!(creator || incomplete || blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
+  // Compact cards skip the band: their live chips are drawn after it (`card-compact-chips`).
+  const hasMetaRow = !compact && !!(creator || incomplete || blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
 
   return (
     <div
@@ -1094,7 +1151,8 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
       // `.swap-ice-host` positions the card only while frozen; idle, each glints
       // box spanned the whole board outside the column clip, paid on every drag
       // frame (main thread per pass ~360 -> ~290 ms, board-drag-frames.spec.ts).
-      className={`group relative cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-body-lg leading-5 text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justMovedTo ? `task-flash task-flash-${justMovedTo}` : justCreated ? 'task-flash task-flash-created' : ''}`}
+      data-density={density}
+      className={`group relative cursor-grab rounded-md border border-app-border bg-surface ${compact ? 'px-2 py-1.5' : 'p-2.5'} text-body-lg leading-5 text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justMovedTo ? `task-flash task-flash-${justMovedTo}` : justCreated ? 'task-flash task-flash-created' : ''}`}
     >
       {/* THE FROST, first child and under everything else: `.swap-ice-host`
           lifts every other child one layer, so the text stays above it and
@@ -1169,7 +1227,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           della consegna e' cio' che si sta cercando. Sulla card torna il
           riquadro vuoto — che qui e' l'informazione giusta: «questa consegna
           non ha ancora un'evidenza da guardare». */}
-      {task.previewImage && !isDeliverySheetPath(task.previewImage) && (
+      {!compact && task.previewImage && !isDeliverySheetPath(task.previewImage) && (
         <PreviewMedia
           path={task.previewImage}
           // Le ALTRE evidenze del thread: il carosello si naviga con la
@@ -1219,7 +1277,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           una colonna.
           UNA distanza sola (`gap-1.5`): prima erano 6px dopo la priorita' e
           4px dopo il `#`, due misure per la stessa cosa nella stessa riga. */}
-      <span className="block break-words leading-snug">
+      <span className={`block break-words leading-snug ${compact ? 'line-clamp-2' : ''}`}>
         {/* `align-top` e non `align-text-bottom`.
             Il gruppo e' alto ESATTAMENTE una line-box (`h-[1.375em]` =
             `leading-snug`), quindi il suo centro coincide con quello della
@@ -1537,6 +1595,31 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           )}
         </div>
       )}
+      {/* COMPACT: of the whole band only the live facts stay, the ones that say
+          the card cannot move (blocker) or that a person is awaited (review age).
+          After the band in the source, so the band's chips keep their order. */}
+      {compact && (blockedChip || attesa) && (
+        <div className="mt-1 flex flex-wrap items-center gap-1.5" data-testid="card-compact-chips">
+          {blockedChip && (
+            <span
+              data-testid="card-blocked-by"
+              title={blockedChip.title}
+              className="flex max-w-[11rem] items-center gap-1 truncate rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
+            ><Lock className="h-3 w-3 shrink-0" /> <span className="truncate">{blockedChip.label}</span></span>
+          )}
+          {attesa && (
+            <span
+              data-testid="card-review-age"
+              title={tr('board.card.reviewAgeTitle', { when: task.reviewAt ? new Date(task.reviewAt).toLocaleString(locale) : '' })}
+              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
+            ><Hourglass className="h-3 w-3 shrink-0" /> {tr('board.card.reviewAge', { t: attesa })}</span>
+          )}
+        </div>
+      )}
+      {/* COMPACT: a question with quick replies shows both (`CompactQuestion`). */}
+      {compact && task.status === 'review' && pending && (
+        <CompactQuestion question={pending.question} options={replyOptions} busy={busy} onAnswer={answer} />
+      )}
       {/* The checklist: the steps, in EVERY column and not only in review.
           Max 5 rows, the rest behind "Vedi tutti" (opens the drawer tree) —
           and WHICH five is not positional: see `checklistWindow.ts`.
@@ -1547,7 +1630,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
       {/* Steps waiting on a person, at any depth (`subtaskReviewCount`, from
           the server): the columns hold roots only, so a parent sitting in
           backlog is where a step in review says it. */}
-      {(task.subtaskReviewCount ?? 0) > 0 && (
+      {!compact && (task.subtaskReviewCount ?? 0) > 0 && (
         <div className="mt-1">
           <span
             data-testid="card-subtasks-to-approve"
@@ -1556,7 +1639,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           ><ListTree className="h-3 w-3 shrink-0" aria-hidden />{tr('board.card.subtasksToApprove', { n: task.subtaskReviewCount ?? 0 })}</span>
         </div>
       )}
-      {checklist.length > 0 ? (
+      {compact ? null : checklist.length > 0 ? (
         <div className="mt-1 space-y-0.5" onClick={(e) => e.stopPropagation()}>
           {checklistShown.map((s) => {
             // L'unico posto in cui un sottotask si vede sulla BOARD: le colonne
@@ -1619,7 +1702,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           `descriptionPreview` è ciò che la lista manda (240 caratteri: il
           riquadro ne mostra due righe); `description` è la ricaduta per un
           server più vecchio del client, che l'anteprima non la calcola. */}
-      {descriptionText && (
+      {!compact && descriptionText && (
         <p className="mt-1 line-clamp-2 break-words text-compact leading-snug text-app-text-secondary">{stripMarkdown(descriptionText)}</p>
       )}
       {/* OGNI card in review, non solo quelle di un agente. `showsQuestion`
@@ -1635,7 +1718,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           superficie — testo dell'agente, richiesta citata, data e ogni pixel
           vuoto fra un comando e l'altro. Il freno serve alle SCELTE e alla
           casella (lì un click ha già il suo effetto), quindi è lì che sta. */}
-      {task.status === 'review' && (
+      {!compact && task.status === 'review' && (
         <div className="mt-2 space-y-1.5">
           {/* The human request the answer below is answering, kept to ONE line.
               On a card that bounced back through review it is the rework note,
@@ -1660,7 +1743,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
                 <button
                   data-testid="card-human-context-toggle"
                   onClick={(e) => { e.stopPropagation(); setRichiestaAperta((v) => !v); }}
-                  className="text-compact leading-4 md:text-mini text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
+                  className="inline-flex min-h-[24px] min-w-[24px] items-center text-compact leading-4 md:text-mini text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
                 >
                   {richiestaAperta ? tr('board.card.commentLess') : tr('board.card.commentMore')}
                 </button>
@@ -1686,7 +1769,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               protagonista come deve. */}
           {!showsQuestion ? null : questionIsLatest && pending ? (
             <p className="break-words text-compact leading-snug text-app-text">{stripMarkdown(pending.question)}</p>
-          ) : lastComment ? (
+          ) : bodyWord ? (
             // Render the agent's last word as REAL markdown (bold/headings/lists
             // format instead of showing raw `**`/`#`). Shown in full — no clamp,
             // no fade. Tooltip = plain text.
@@ -1711,8 +1794,8 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               // senza guadagno. Il testo NON viene tagliato: e' tutto li',
               // basta un click - e chi ha ripiegato una card la ritrova
               // ripiegata, perche' lo stato vive per card.
-              className={`text-compact leading-relaxed ${notesOfMachine ? 'text-app-text-muted' : 'text-app-text-heading'} ${COMPACT_MD_CLS} ${commentoAperto ? '' : 'line-clamp-[10]'}`}
-              title={`${commentAuthorLabel(lastComment.author).label}: ${stripMarkdown(lastComment.content)}`}
+              className={`text-compact leading-relaxed text-app-text-heading ${COMPACT_MD_CLS} ${commentoAperto ? '' : 'line-clamp-[10]'}`}
+              title={`${commentAuthorLabel(bodyWord.author).label}: ${stripMarkdown(bodyWord.content)}`}
             >
               {/* CHI PARLA, quando non e' una persona.
                   Una nota del sistema ha lo stesso aspetto del riassunto di una
@@ -1745,17 +1828,6 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
                   Resta `latestIsPlumbing` in `cardComments.ts`: la decisione e'
                   giusta e provata, e serve a chi vorra' disegnarla meglio. Qui
                   si toglie solo il modo in cui la disegnavo io. */}
-              {/* The tag's glyph is `terminal`, not `cpu`: at 10px the chip's
-                  pins drew 4.7px of line per px of side, past the 3.33 that
-                  `tests/e2e/kanban-icone.spec.ts` holds for a readable icon.
-                  And `secondary` ink, not `muted`: on the tag's white/10 fill
-                  muted measured 4.08:1 in dark, under the 4.5 of small text. */}
-              {notesOfMachine && (
-                <span
-                  data-testid="card-comment-system-tag"
-                  className="mr-1 inline-flex items-center gap-1 rounded bg-white/10 px-1 py-px align-middle text-mini uppercase tracking-wide text-app-text-secondary"
-                ><Terminal className="h-2.5 w-2.5 shrink-0" /> {tr('board.card.systemNote')}</span>
-              )}
               {/* IL RECINTO ```question NON ARRIVA MAI CRUDO AL MARKDOWN.
                   Qui ci finisce ogni parola che non e' «la domanda in fondo al
                   thread» (`pending`), e fra quelle c'e' anche una domanda che
@@ -1763,22 +1835,26 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
                   BLOCCO DI CODICE, quindi 300 caratteri di italiano diventavano
                   una riga sola con `overflow-x-auto`, da leggere scorrendo di
                   lato. Vedi `shared/question-prose.ts`. */}
-              <ChatMarkdown components={{}}>{questionToProse(lastComment.content)}</ChatMarkdown>
+              <ChatMarkdown components={{}}>{questionToProse(bodyWord.content)}</ChatMarkdown>
             </div>
           ) : null}
           {/* Il pieghevole compare SOLO se c'e' davvero da ripiegare: la
               soglia guarda il testo, non l'altezza resa, perche' un'altezza
               misurata dopo il render farebbe saltare la card di un fotogramma.
               620 caratteri sono circa dieci righe nella colonna della board. */}
-          {showsQuestion && !questionIsLatest && lastComment && lastComment.content.length > COMMENTO_PIEGA_CHARS && (
+          {showsQuestion && !questionIsLatest && bodyWord && bodyWord.content.length > COMMENTO_PIEGA_CHARS && (
             <button
               data-testid="card-comment-toggle"
               onClick={(e) => { e.stopPropagation(); setCommentoAperto((v) => !v); }}
-              className="text-compact leading-4 md:text-mini text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
+              className="inline-flex min-h-[24px] min-w-[24px] items-center text-compact leading-4 md:text-mini text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
             >
               {commentoAperto ? tr('board.card.commentLess') : tr('board.card.commentMore')}
             </button>
           )}
+          {/* A machine note is never alone in the body: when it is the last
+              voice it stays folded behind a show toggle, and the body keeps
+              the agent's word. */}
+          {showsQuestion && notesOfMachine && lastComment && <SystemNoteFold note={lastComment} />}
         </div>
       )}
       {/* THE AGENT'S PROGRESS NOTE on a card still in progress. The kickoff
@@ -1786,23 +1862,17 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           writes it; the card showed a stopwatch and the words stayed in the
           thread. Same clamp and fold as the review's word, no request pair:
           there is no answer to pair a request with yet. */}
-      {task.status === 'in_progress' && showsQuestion && lastComment && (
-        <div className="mt-2" data-testid="card-progress-word">
-          <div
-            className={`text-compact leading-relaxed text-app-text-heading ${COMPACT_MD_CLS} ${commentoAperto ? '' : 'line-clamp-[10]'}`}
-            title={`${commentAuthorLabel(lastComment.author).label}: ${stripMarkdown(lastComment.content)}`}
-          >
-            <ChatMarkdown components={{}}>{questionToProse(lastComment.content)}</ChatMarkdown>
-          </div>
-          {lastComment.content.length > COMMENTO_PIEGA_CHARS && (
-            <button
-              data-testid="card-comment-toggle"
-              onClick={(e) => { e.stopPropagation(); setCommentoAperto((v) => !v); }}
-              className="text-compact leading-4 md:text-mini text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
-            >
-              {commentoAperto ? tr('board.card.commentLess') : tr('board.card.commentMore')}
-            </button>
+      {!compact && task.status === 'in_progress' && (progressLine || (showsQuestion && notesOfMachine)) && (
+        <div className="mt-2 space-y-1" data-testid="card-progress-word">
+          {progressLine && (
+            <p
+              data-testid="card-progress-line"
+              className="truncate text-compact leading-snug text-app-text-heading"
+              title={progressLine}
+            >{progressLine}</p>
           )}
+          {/* La nota della macchina non sta mai da sola nel corpo: è ripiegata. */}
+          {showsQuestion && notesOfMachine && lastComment && <SystemNoteFold note={lastComment} />}
         </div>
       )}
       {/* THE CARD'S FOOT: what is happening to the turn, and what it has cost
@@ -1817,7 +1887,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           controls: the card reads top down (name, how it stands, what it asks)
           and closes with the measure of whoever is working it. The row is
           always there, because the last update always is: no state hides it. */}
-      <div className="mt-1.5 flex flex-wrap items-center gap-1.5" data-testid="card-foot">
+      <div className={`${compact ? 'mt-1' : 'mt-1.5'} flex flex-wrap items-center gap-1.5`} data-testid="card-foot">
         {/* The live chip's pulse dot already says "working": while it ticks,
             the 'al lavoro' state chip is redundant — one chip, not two. */}
         {awaiting ? (
@@ -1863,8 +1933,13 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
         {live?.retry && task.dispatchState === 'working' && (
           <RetryWaitChip retry={live.retry} disabled={busy} onRetryNow={() => steer(RETRY_NOW_MESSAGE)} />
         )}
+        {/* THE TURN'S MEASURE, ONE LINE OF TEXT. Model with its provider, time
+            and tokens: always visible, in progress and in review. Not a pill:
+            a muted secondary line, on the state's row when it fits, and cut
+            from its tail (tokens first) when it does not. The last update
+            still closes the row, on the right. */}
         {live && !live.retry && task.dispatchState === 'working' ? (
-          <LiveEffortChip usage={live} />
+          <LiveEffortChip usage={live} label={measureLine} trailing={updatedAgo('')} />
         ) : (task.model || task.agentMs > 0 || task.agentTokens > 0) ? (
           // The model always lives here, in the time/effort chip — never as a
           // second standalone chip. Before the agent has logged any time we
@@ -1890,9 +1965,11 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
                 model: modelLine,
               })
               : tr('board.card.modelTitle', { model: modelLine })}
-            className="max-w-full truncate rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
-          >{modelLine}{(task.agentMs > 0 || costo > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{/* THE DOLLARS, when the card has a priced spend: the token figure is the
-              cost-weighted volume, this is what it came to. */}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>
+            data-testid="card-measure"
+            className="flex w-full min-w-0 max-w-full items-center justify-between gap-2 rounded-lg bg-black/[0.12] px-2.5 py-1.5 text-compact leading-4 md:text-mini text-app-text-secondary dark:bg-white/[0.16] tabular-nums"
+          ><span className="min-w-0 break-words" title={measureLine}>{measureLine}</span>{/* THE DOLLARS, when the card has a priced spend: the token figure is the
+              cost-weighted volume, this is what it came to. Right side: never wrapped, never cut. The
+              last update closes the band too: «ora» on a line of its own under it was a second row. */}<span className="flex shrink-0 items-center gap-2 whitespace-nowrap"><span>{(task.agentMs > 0 || costo > 0) && `⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>{updatedAgo('')}</span></span>
         ) : null}
         {/* WHICH MACHINE it runs on, next to the model it runs with. Only when
             a node is named: an absent one means "here", and saying that on
@@ -1922,20 +1999,13 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           />
         )}
         {/* The last update closes the row, on the right: it is the weakest of
-            the four measures and does not belong among the others. */}
-        <span
-          className="ml-auto text-compact leading-4 md:text-mini text-app-text-muted"
-          title={tr('board.card.lastUpdate', { when: new Date(task.updatedAt).toLocaleString(locale) })}
-        ><UpdatedAgo iso={task.updatedAt} /></span>
+            the four measures and does not belong among the others. With a
+            measure band it sits inside the band instead (above). */}
+        {!measureShown && updatedAgo('ml-auto text-app-text-muted')}
       </div>
-      {/* WHAT IT IS DOING RIGHT NOW: the tool the session is running and for
-          how long. A 14-minute stopwatch did not tell a unit suite that has
-          been running nine minutes from an agent that is stuck; the answer was
-          in the chat, which is what the board was meant to spare. One line,
-          under the measures, muted: a fact about the minute, not the card. */}
-      {live?.lastTool && !live.retry && task.dispatchState === 'working' && (
-        <LiveToolLine tool={live.lastTool} frozen={!!swapFreeze} />
-      )}
+      {/* The tool the session is running is NOT drawn again here: the progress
+          line under the title already says `name · input`. Drawing it twice
+          put «Bash · bun run test:unit» on the card two times. */}
       {/* WHAT THE FROST MEANS, in words: which command, how much it held, and
           that it comes back by itself. A texture alone would only say that
           something is wrong with this card. */}
@@ -1951,18 +2021,20 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           {task.dispatchError && (
             <p
               data-testid="card-dispatch-error"
-              className="line-clamp-3 break-words text-compact md:text-mini leading-snug text-app-text-muted"
+              className={`${compact ? 'line-clamp-1' : 'line-clamp-3'} break-words text-compact md:text-mini leading-snug text-app-text-muted`}
               title={task.dispatchError}
             >{task.dispatchError}</p>
           )}
-          <div onClick={(e) => e.stopPropagation()}>
-            <TaskChoiceRow task={task} disabled={busy} onDone={choiceDone} onError={choiceFailed} />
-          </div>
+          {!compact && (
+            <div onClick={(e) => e.stopPropagation()}>
+              <TaskChoiceRow task={task} disabled={busy} onDone={choiceDone} onError={choiceFailed} />
+            </div>
+          )}
         </div>
       )}
       {/* Steer a WORKING agent right from the card ("anche da kanban"): the
           message is buffered and handed to the agent at the next turn. */}
-      {agentBusy && (
+      {!compact && agentBusy && (
         <div className="mt-2" onClick={(e) => e.stopPropagation()}>
           {/* UNA riga sola. «Ferma» e «Consegna quello che hai» stavano qui
               sopra come due bottoni pieni: azioni rare, disegnate col peso di
@@ -1998,7 +2070,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
       {/* The review's EXITS: the choices, and the field that says why. They
           sit below the card's foot because they are CONTROLS, and controls
           come after everything you read in order to decide. */}
-      {task.status === 'review' && (
+      {!compact && task.status === 'review' && (
         <div className="mt-2 space-y-1.5">
           {pending && !questionIsLatest && (
             <p data-testid="card-pending-question" className="mt-2 break-words text-compact leading-snug text-app-text">{stripMarkdown(pending.question)}</p>
@@ -2024,7 +2096,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               riga di codice che lo causava (`review(reject)` senza commento). */}
           <div onClick={(e) => e.stopPropagation()}>
             <TaskChoiceRow
-              task={task} disabled={busy}
+              task={task} disabled={busy} exclude={faceExclude}
               onDone={choiceDone} onError={choiceFailed}
               onNeedText={() => freeTextRef.current?.focus()}
               pendingText={() => freeText}
@@ -2063,9 +2135,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               // sopra: su una card che nessuno ha consegnato non si chiama
               // «Rimanda indietro» ma «Rimandalo avanti», e un placeholder che
               // nomina un bottone inesistente e' peggio di uno generico.
-              placeholder={isAgentReview
-                ? tr('board.task.replyPlaceholderShort', { sendBack: sendBackWord(sendBackDest(task), tr).label })
-                : tr('board.card.commentPlaceholder')}
+              placeholder={tr('board.card.commentPlaceholder')}
               className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-compact leading-4 text-app-text outline-none placeholder:text-app-placeholder coarse:min-h-11"
             />
             {/* L'INVIO SI VEDE. È la stessa azione del primo bottone qui sopra,
@@ -2085,6 +2155,16 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
                 : tr('board.card.steerSendTitle')}
               className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-compact leading-4 text-white hover:bg-sky-500 disabled:opacity-50 coarse:min-h-11 coarse:min-w-11 coarse:justify-center"
             ><Send className="h-3.5 w-3.5" /></button>
+            {/* The rest of the exits, and «Archivia», behind the «…». The same
+                wiring as the face row: the field's text goes with «Rimanda
+                indietro» from here too, and a queued land shows its receipt. */}
+            <TaskChoiceMenu
+              task={task} exclude={menuExclude} disabled={busy} onDone={choiceDone} onError={choiceFailed}
+              onNeedText={() => freeTextRef.current?.focus()}
+              pendingText={() => freeText}
+              onLanding={setLanding}
+              ariaLabel={tr('board.card.turnActions')}
+            />
           </div>
         </div>
       )}

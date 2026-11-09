@@ -14,7 +14,8 @@ export type SessionState =
       as: 'loopback' | 'device';
       name: string;
       deviceId?: string;
-      role: 'owner' | 'guest';
+      /** `screen`: a monitor paired for the load page only (`server/lib/screen-scope.ts`). */
+      role: 'owner' | 'guest' | 'screen';
       /** WHICH Topics: see `installationName` on `unpaired`. */
       installationName?: string | null;
       /** The person the device belongs to, when the server knows it. It is
@@ -65,7 +66,7 @@ function readLastPaired(): SessionState | null {
     if (p.as !== 'loopback' && p.as !== 'device') return null;
     return {
       status: 'paired', as: p.as, name: p.name, deviceId: p.deviceId,
-      role: p.role === 'owner' ? 'owner' : 'guest',
+      role: p.role === 'owner' ? 'owner' : p.role === 'screen' ? 'screen' : 'guest',
       installationName: p.installationName ?? null,
       personId: p.personId ?? null,
       commandShell: p.commandShell === true,

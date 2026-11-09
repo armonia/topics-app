@@ -44,10 +44,17 @@ import { useDrawerPresence } from './useDrawerPresence';
 import { useRowSnapHold } from './useRowSnapHold';
 import { BoardSkeleton } from './BoardSkeleton';
 import { DropNotice } from './DropNotice';
-import { BOARD_LAYOUT_STORAGE_KEY, COLUMNS_ROW_GRID, COLUMNS_ROW_LIST } from './boardGeometry';
+import {
+  BOARD_DENSITY_STORAGE_KEY, BOARD_GROUP_BY_STORAGE_KEY, BOARD_LAYOUT_STORAGE_KEY, COLUMNS_ROW_GRID, COLUMNS_ROW_LIST,
+  readBoardDensity, readBoardGroupBy, writeBoardPreference, type BoardDensity, type BoardGroupBy,
+} from './boardGeometry';
+import { columnIdOfDropTarget, dropsOnOtherProject, laneDropId, type BoardLane } from './boardLanes';
+import { BoardViewToggles, ProjectLanes } from './ProjectLanes';
+import { useProjectLanes } from './useProjectLanes';
+import { useCollapsedProjects } from './useCollapsedProjects';
 import { useColumnClearance } from './columnClearance';
 import { scrollDelta } from '../../lib/scrollDelta';
-import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
+import { resolveProjectRefs, useBoardProjectLabels } from '../../lib/boardProjectsStore';
 import { useCardBoardSettings } from '../../hooks/useCardBoardSettings';
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -57,7 +64,7 @@ import { boardCollision } from './format';
 import { FilterTokenField } from './FilterTokenField';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
 import { ProjectFilterPicker } from './ProjectFilterPicker';
-import { Column } from './Card';
+import { Card, Column } from './Card';
 import type { DraftPreview } from './draftPreview';
 import { taskActionErrorMessage } from './taskActionError';
 import { taskActionWord } from './taskActionWords';
@@ -82,6 +89,8 @@ const PlanView = lazy(async () => {
 /** Identità stabile per «nessuna scrittura in volo»: una Map nuova a ogni render
  *  rifarebbe il memo che sovrappone le patch, e con lui tutte le colonne. */
 const EMPTY_WRITES: ReadonlyMap<string, Partial<BoardTask>> = new Map();
+/** The Plan's cards are not dragged: one stable empty sensor list for its DndContext. */
+const NO_SENSORS: never[] = [];
 
 interface Props {
   /** Absent in the global ('Board generale') pane — there is no single project. */
@@ -924,6 +933,14 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   useEffect(() => {
     try { localStorage.setItem(BOARD_LAYOUT_STORAGE_KEY, boardLayout); } catch { /* private mode, best effort */ }
   }, [boardLayout]);
+  // Two more per-viewer view choices, kept beside the layout for the same
+  // reason: one lane per project on the cross-project board, and the compact
+  // card. Neither changes what the board holds, only how much of it you read.
+  const [groupByPref, setGroupByPref] = useState<BoardGroupBy>(readBoardGroupBy);
+  const [density, setDensity] = useState<BoardDensity>(readBoardDensity);
+  useEffect(() => { writeBoardPreference(BOARD_GROUP_BY_STORAGE_KEY, groupByPref); }, [groupByPref]);
+  useEffect(() => { writeBoardPreference(BOARD_DENSITY_STORAGE_KEY, density); }, [density]);
+  const { collapsed: collapsedProjects, toggle: toggleProjectCollapsed } = useCollapsedProjects();
   // Le righe non le legge più questa pane: le legge `useBoardFeed`, che in
   // modalità 'all' NON fetcha affatto (il feed globale ha già un proprietario,
   // `useGlobalBoard`) e in modalità progetto raffredda la raffica e scarta le
@@ -1489,11 +1506,20 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // Dallo store CONDIVISO: card, filtro e composer devono vedere lo stesso
   // indice nello stesso istante, altrimenti l'icona compare su una superficie
   // e non sull'altra a seconda di chi ha fetchato prima.
-  const projectIndex = useBoardProjects(mode === 'all');
+  const projectIndex = useBoardProjectLabels(mode === 'all');
   const projectPathById = useMemo(
     () => new Map((projectIndex ?? []).map((p) => [p.projectId, p.path])),
     [projectIndex],
   );
+
+  // ONE LANE PER PROJECT, only on the cross-project board (a project board has
+  // one project, its lane would be the board itself). Split after the columns
+  // (`splitIntoLanes`), so a lane keeps the board's order inside each column.
+  const grouped = mode === 'all' && groupByPref === 'project';
+  const columnIds = useMemo(() => boardColumns.map((c) => c.id), [boardColumns]);
+  const { lanes, draftPlacement, draftLane, laneNameById } = useProjectLanes({
+    grouped, showArchived, draft, tasks, byColumn, columnIds, projectIndex,
+  });
 
   /**
    * Persist a drop: status and/or position, optimistically. Routed by the
@@ -1632,7 +1658,14 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     // WHICH WORKFLOW COLUMN the hand let go on: a column's own id (Triage, AI
     // review...) or a card inside one. `planDrop` speaks statuses, so it gets
     // the column's base; the column itself travels as `stage`.
-    const overRaw = e.over ? String(e.over.id) : null;
+    // A card keeps its project: a drop in another project's lane is refused with
+    // a word, not carried out as a status change in a project nobody aimed at.
+    if (grouped && dropsOnOtherProject(task, e.over ? String(e.over.id) : null, (id) => tasks.find((t) => t.id === id)?.projectId)) {
+      setDropNotice(tr('board.drop.otherProject'));
+      flushDeferredRead();
+      return;
+    }
+    const overRaw = e.over ? columnIdOfDropTarget(String(e.over.id)) : null;
     const overColumn = overRaw ? boardColumns.find((c) => c.id === overRaw) : undefined;
     const overCard = !overColumn && overRaw ? tasks.find((t) => t.id === overRaw) : undefined;
     const targetColumn = overColumn ?? (overCard ? columnOfTask(boardColumns, overCard) : null);
@@ -1667,8 +1700,69 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     // Nessun piano = nessuna scrittura da aspettare: la lettura parcheggiata
     // non ha più niente dietro cui mettersi in fila.
     if (plan) dropTo(task, plan); else flushDeferredRead();
-  }, [tasks, byStatus, boardColumns, dropTo, endDrag, flushDeferredRead, orderScope, skipFlight, tr]);
+  }, [tasks, byStatus, boardColumns, dropTo, endDrag, flushDeferredRead, grouped, orderScope, skipFlight, tr]);
   const activeTask = activeId ? tasks.find((t) => t.id === activeId) ?? null : null;
+  // The Plan draws the board's own card, compact: one card, two views (Plan + Kanban).
+  const renderPlanCard = useCallback((taskId: string) => {
+    const t = tasksById.get(taskId);
+    if (!t) return null;
+    return (
+      <Card
+        task={t} onOpen={openTask} showProject={false} onRefetch={refetch} onOpenTopic={onOpenTopic}
+        error={cardError?.taskId === t.id ? cardError.message : null}
+        onError={onCardError}
+        sessionState={resolveSession(t.assignedTopicId)}
+        paneBoardId={projectId}
+        paneSettings={settings}
+        projectPath={projectPathById.get(t.projectId)}
+        live={liveUsage.get(t.id)}
+        awaiting={awaitingHuman.has(t.id) || !!t.awaitingAnswer}
+        density="compact"
+      />
+    );
+  }, [tasksById, openTask, refetch, onOpenTopic, cardError, onCardError, resolveSession, projectId, settings, projectPathById, liveUsage, awaitingHuman]);
+  // One workflow column, on the flat board or inside a project lane.
+  const renderColumn = (
+    { id: columnKey, base: status, label: columnLabel }: (typeof boardColumns)[number],
+    columnTasks: BoardTask[],
+    lane?: BoardLane,
+  ) => (
+    <Column
+      key={lane ? laneDropId(columnKey, lane.projectId) : columnKey}
+      dropId={lane ? laneDropId(columnKey, lane.projectId) : undefined}
+      inLane={!!lane}
+      density={density}
+      status={status}
+      columnId={columnKey === status ? undefined : columnKey}
+      label={columnKey === status ? undefined : columnLabel}
+      tasks={columnTasks}
+      onOpen={openTask}
+      onCreate={(text) => create(status, text)}
+      canCreate={mode === 'project' && !showArchived}
+      // In a lane the header already names the project: the eyebrow would repeat it on every card.
+      showProject={mode === 'all' && !lane}
+      layout={boardLayout}
+      viewKey={`${mode === 'all' ? 'all' : projectId}:${showArchived ? 'archive' : 'live'}${lane ? `:${lane.projectId}` : ''}`}
+      cardError={cardError}
+      onCardError={onCardError}
+      onRefetch={refetch}
+      onOpenTopic={onOpenTopic}
+      paneBoardId={projectId}
+      paneSettings={settings}
+      resolveSession={resolveSession}
+      tasksById={tasksById}
+      projectPathById={projectPathById}
+      liveById={liveUsage}
+      awaitingHuman={awaitingHuman}
+      justMoved={justMoved}
+      justCreated={justCreated}
+      archived={showArchived}
+      onOpenSettings={toggleSettings}
+      draft={draft && draft.status === status && !showArchived && columnOfTask(boardColumns, { status })?.id === columnKey
+        && (!lane || lane.projectId === draftLane) ? draft : undefined}
+    />
+  );
+
   /**
    * COSA HO IN MANO, in parole: la riga di contesto e i badge che la scheda di
    * trascinamento porta sotto al titolo (il `DragOverlay` in fondo al render).
@@ -1959,6 +2053,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} shrink-0 place-items-center rounded ${boardLayout === 'list' ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`}
           title={boardLayout === 'list' ? tr('board.toolbar.viewMode.list') : tr('board.toolbar.viewMode.kanban')}
         >{boardLayout === 'list' ? <Kanban className="h-3.5 w-3.5" /> : <List className="h-3.5 w-3.5" />}</button>
+        <BoardViewToggles
+          canGroup={mode === 'all'}
+          groupBy={groupByPref} onGroupBy={setGroupByPref}
+          density={density} onDensity={setDensity}
+        />
         <div className="ml-auto flex items-center gap-2">
           {hasProject && mode === 'project' && <ScheduledCardsControl projectId={projectId} />}
           {/* THE COUNT IS GONE (asked on 29/08): in "all" mode the toggle two
@@ -2112,7 +2211,12 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         <div className="relative flex min-w-0 flex-1 flex-col">
           {mode === 'all' && planVisible ? (
             <Suspense fallback={<SpinnerFallback fill />}>
-              <PlanView onOpenTask={openTask} onOpenTopic={onOpenTopic} />
+              {/* A DndContext with no sensors: the board's card is a sortable,
+                  and here nothing is dragged — the Plan moves cards with its
+                  own «move to» control. */}
+              <DndContext sensors={NO_SENSORS}>
+                <PlanView onOpenTask={openTask} onOpenTopic={onOpenTopic} renderTaskCard={renderPlanCard} />
+              </DndContext>
             </Suspense>
           ) : <>
           <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveId(null); endDrag(); flushDeferredRead(); setDropNotice(null); }}>
@@ -2144,40 +2248,19 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                 snap-carousel (there's nothing to peek at off to the side).
                 The test id is the row's handle for the e2e: its snap classes
                 come and go with `useRowSnapHold`, so they cannot name it. */}
-            <div ref={columnsScrollRef} data-testid="kanban-columns-row" data-keeps-smooth-scroll="" className={boardLayout === 'list'
+            <div ref={columnsScrollRef} data-testid="kanban-columns-row" data-keeps-smooth-scroll="" className={boardLayout === 'list' || grouped
               ? COLUMNS_ROW_LIST
               : `${COLUMNS_ROW_GRID} ${columnsSnap.held ? '' : 'snap-x snap-mandatory'} sm:scroll-smooth`}>
-              {boardColumns.map(({ id: columnKey, base: status, label: columnLabel }) => (
-                <Column
-                  key={columnKey}
-                  status={status}
-                  columnId={columnKey === status ? undefined : columnKey}
-                  label={columnKey === status ? undefined : columnLabel}
-                  tasks={byColumn.get(columnKey) ?? []}
-                  onOpen={openTask}
-                  onCreate={(text) => create(status, text)}
-                  canCreate={mode === 'project' && !showArchived}
-                  showProject={mode === 'all'}
-                  layout={boardLayout}
-                  viewKey={`${mode === 'all' ? 'all' : projectId}:${showArchived ? 'archive' : 'live'}`}
-                  cardError={cardError}
-                  onCardError={onCardError}
-                  onRefetch={refetch}
-                  onOpenTopic={onOpenTopic}
-                  paneBoardId={projectId}
-                  paneSettings={settings}
-                  resolveSession={resolveSession}
-                  tasksById={tasksById}
-                  projectPathById={projectPathById}
-                  liveById={liveUsage}
-                  awaitingHuman={awaitingHuman}
-                  justMoved={justMoved}
-                  justCreated={justCreated}
-                  archived={showArchived}
-                  onOpenSettings={toggleSettings}
-                  draft={draft && draft.status === status && !showArchived && columnOfTask(boardColumns, { status })?.id === columnKey ? draft : undefined}
+              {grouped ? (
+                <ProjectLanes
+                  lanes={lanes} columns={boardColumns} layout={boardLayout}
+                  nameById={laneNameById} pathById={projectPathById}
+                  collapsed={collapsedProjects} onToggle={toggleProjectCollapsed}
+                  draftAbove={draftPlacement?.kind === 'above' ? draft ?? undefined : undefined}
+                  draftLane={draftLane}
+                  renderColumn={renderColumn}
                 />
-              ))}
+              ) : boardColumns.map((column) => renderColumn(column, byColumn.get(column.id) ?? []))}
             </div>
             {/* Portal to <body>: the overlay is position:fixed, and a transformed
                 ancestor (pane translateX, FLIP animations) would re-anchor fixed

@@ -18,13 +18,17 @@
  * un progetto appena creato entra nella lista per TUTTI i sottoscrittori nello
  * stesso istante.
  */
-import { useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import { boardApi, type BoardProjectRef } from './board';
+import { unregisteredProjectName } from '../../../shared/project-name';
 
 let projects: BoardProjectRef[] | null = null;
 /** La cartella dove nascerà un progetto creato per nome: dedotta dal server,
  *  da MOSTRARE prima di creare (è una deduzione, non una configurazione). */
 let newProjectDir: string | null = null;
+/** Registered projects the picker does not offer (hidden folders): only their
+ *  name and icon, so a lane or a chip heads them the way the Plan does. */
+let labelOnly: BoardProjectRef[] = [];
 let inflight: Promise<BoardProjectRef[] | null> | null = null;
 /** Projects created while the index was still `null`: they join the first
  *  answer instead of becoming the index themselves (see `addBoardProject`). */
@@ -80,6 +84,7 @@ async function fetchOnce(): Promise<BoardProjectRef[] | null> {
       projects = [...res.projects, ...addedBeforeIndex.filter((p) => !ids.has(p.projectId))].sort(byName);
       addedBeforeIndex = [];
       newProjectDir = res.newProjectDir ?? null;
+      labelOnly = res.labelOnly ?? [];
       lastFailAt = 0;
     } catch {
       // «NON LO SO» RESTA null, e non diventa una lista vuota.
@@ -195,6 +200,26 @@ export function addBoardProject(p: BoardProjectRef): void {
 
 const noopSubscribe = () => () => {};
 const getNull = () => null;
+const getLabelOnly = (): BoardProjectRef[] => labelOnly;
+const getEmpty = (): BoardProjectRef[] => EMPTY_REFS;
+const EMPTY_REFS: BoardProjectRef[] = [];
+
+/**
+ * The index for NAMING and ICONS: the selectable projects plus the registered
+ * ones the picker skips. The grouped board uses it so a lane carries the name
+ * the Plan shows for the same project (a project in a hidden folder is not in
+ * the picker, and would otherwise be headed by a name guessed from its id).
+ * `null` until the first answer, like the index itself.
+ */
+export function useBoardProjectLabels(enabled = true): BoardProjectRef[] | null {
+  const index = useBoardProjects(enabled);
+  const extra = useSyncExternalStore(
+    enabled ? subscribeBoardProjects : noopSubscribe,
+    enabled ? getLabelOnly : getEmpty,
+    getEmpty,
+  );
+  return useMemo(() => (index === null ? null : extra.length === 0 ? index : [...index, ...extra]), [index, extra]);
+}
 
 /**
  * L'indice dei progetti, reattivo.
@@ -211,39 +236,13 @@ export function useBoardProjects(enabled = true): BoardProjectRef[] | null {
   );
 }
 
-/** Cosa si scrive quando il progetto non si sa quale sia. Una frase, non un
- *  codice: chi legge deve capire che manca un dato, non decifrarlo. */
-export const UNKNOWN_PROJECT_NAME = 'Progetto sconosciuto';
-
-/** Un UUID: otto-quattro-quattro-quattro-dodici cifre esadecimali. */
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /**
- * Il nome leggibile di un progetto PRIMA che l'indice arrivi (o quando quel
- * progetto non c'è più): l'id della board meno il suffisso di hash. Non è
- * l'icona — quella richiede il `path` e quindi l'indice — ma evita che il chip
- * mostri una stringa con l'hash attaccato.
- *
- * UN UUID NON HA UN NOME DENTRO, e togliergli l'ultimo pezzo non lo rende
- * leggibile: `405fbb0d-6fdd-4874-b52d-ce96180f9e2a` diventava
- * `405fbb0d-6fdd-4874-b52d`, che è lo stesso codice con quattro cifre in meno.
- * Segnalato: «vedo nei filtri un progetto con un codice strano. Non dovrei mai
- * vedere un codice, perché è incomprensibile».
- *
- * Un id del genere arriva da un task che punta a un progetto che l'indice non
- * conosce (misurato: uno su quindici, un progetto mai registrato). In quel caso
- * l'unica cosa onesta è dire che il progetto non si sa quale sia, invece di
- * spacciare un frammento di esadecimale per un nome.
- *
- * `null` e non una stringa: il chiamante deve poter decidere COME dirlo, e
- * `String(null)` a schermo sarebbe peggio dell'UUID.
+ * Il nome di un progetto che nessuno ha registrato vive in `shared/`: lo usa
+ * anche il Piano (server), e due funzioni di nome per lo stesso id davano alla
+ * corsia e alla tessera due intestazioni diverse. Qui si riesporta perché i
+ * chiamanti della Board lo importano da questo store.
  */
-export function projectNameFromId(projectId: string): string | null {
-  if (UUID.test(projectId)) return null;
-  const withoutHash = projectId.replace(/-[^-]+$/, '');
-  // Un id tutto esadecimale anche dopo il taglio non è un nome: stessa ragione.
-  return /^[0-9a-f-]{12,}$/i.test(withoutHash) ? null : withoutHash;
-}
+export { projectNameFromId, UNKNOWN_PROJECT_NAME } from '../../../shared/project-name';
 
 /**
  * Risolve una lista di `projectId` (quelli che compaiono nei task) in
@@ -263,9 +262,8 @@ export function resolveProjectRefs(
       if (noto) return noto;
       // Un progetto che l'indice non conosce resta FILTRABILE - sparire
       // dall'elenco nasconderebbe i suoi task - ma non si inventa un nome:
-      // `null` diventa «Progetto sconosciuto» dove si disegna.
-      const nome = projectNameFromId(id);
-      return { projectId: id, name: nome ?? UNKNOWN_PROJECT_NAME, path: '' };
+      // la stessa funzione del Piano, che dà «Progetto sconosciuto» a un id senza nome.
+      return { projectId: id, name: unregisteredProjectName(id), path: '' };
     })
     .sort(byName);
 }

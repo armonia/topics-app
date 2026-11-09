@@ -451,6 +451,10 @@ const IT: Dict = {
   'pair.personName': 'Nome della persona',
   'pair.someoneElse': "È di un'altra persona",
   'pair.guestBlurb': "Un'altra persona vede solo ciò che le condividi, al livello che scegli tu.",
+  'pair.screen': 'È uno schermo',
+  'pair.screenBlurb': 'Uno schermo mostra solo la pagina del carico, in sola lettura: niente chat, niente comandi.',
+  'pair.screenOnly': 'Questo dispositivo è uno schermo: mostra solo la pagina del carico.',
+  'pair.screenOpen': 'Apri lo schermo',
   'pair.requestsAccess': '{name} chiede accesso',
   'pair.deny': 'Nega',
   'pair.choosePerson': 'Scegli una persona esistente',
@@ -1388,7 +1392,6 @@ const IT: Dict = {
    * riga sopra, chiamando il bottone col suo nome vero, che su una card mai
    * consegnata e' «Rimandalo avanti».
    */
-  'board.task.replyPlaceholderShort': 'Una nota, che resta qui: «{sendBack}» qui sopra la porta all\'agent.',
   'board.task.sendBackReply': 'Rimanda',
   'board.task.sendBackReplyTitle': "Rimanda il task all'agent con questa nota. Riparte e la card torna In Progress.",
   'board.task.quietNote': 'Nota',
@@ -1624,6 +1627,7 @@ const IT: Dict = {
   'board.card.systemNote': 'Nota di sistema',
   'board.card.noSummary': 'Nessun riassunto della consegna: sotto c’è solo la cronaca della macchina',
   'board.card.commentMore': 'Mostra tutto',
+  'board.card.noteShow': 'mostra',
   'board.card.commentLess': 'Mostra meno',
   /**
    * NIENTE CONSEGNATO, detto dalla colonna.
@@ -1781,6 +1785,7 @@ const IT: Dict = {
   // Same sentence for all three doors (drag, the drawer's "move to", the inline
   // composer), because it is the same rule.
   'board.drop.inProgressRedirected': 'In Progress non ha una coda: il task lavora da Todo, che è da dove il dispatcher lo prende.',
+  'board.drop.otherProject': 'Una card resta nel suo progetto: rilasciala nella sua corsia per cambiarle colonna.',
   'board.dispatch.allBoards': 'Dispatch di tutte le board',
   'board.dispatch.parallel': 'Agent in parallelo',
   'board.dispatch.parallelAuto': 'Numero automatico',
@@ -2082,7 +2087,7 @@ const IT: Dict = {
   'board.card.turnActions': 'Azioni su questo turno',
   'board.card.blockedActions': 'Uscite dall\'attesa',
   'board.card.yourRequest': 'La tua richiesta: {text}',
-  'board.card.commentPlaceholder': '…oppure commenta',
+  'board.card.commentPlaceholder': 'Commenta o correggi…',
   'board.card.comment': 'Commenta',
   'board.card.copyTask': 'Copia task',
   'board.preview.label': 'Anteprima',
@@ -2165,6 +2170,13 @@ const IT: Dict = {
   'board.toolbar.dispatchSettings': 'Impostazioni auto-dispatch',
   'board.toolbar.viewMode.kanban': 'Passa alla vista a lista',
   'board.toolbar.viewMode.list': 'Passa alla vista kanban',
+  'board.toolbar.groupBy.project': 'Raggruppa per progetto',
+  'board.toolbar.groupBy.off': 'Togli il raggruppamento per progetto',
+  'board.toolbar.density.compact': 'Card compatte',
+  'board.toolbar.density.full': 'Card complete',
+  'board.group.collapse': 'Richiudi {name}',
+  'board.group.expand': 'Apri {name}',
+  'board.group.total': '{n} card in questo progetto',
   'board.scheduled.title': 'Card a calendario',
   'board.scheduled.add': 'Aggiungi',
   'board.scheduled.empty': 'Nessuna ricorrenza su questa board.',
@@ -2644,6 +2656,8 @@ const IT: Dict = {
   // ── I DISPOSITIVI autorizzati. Superficie migrata al dizionario insieme
   //    all'area account/gruppi: prima era interamente in italiano in chiaro,
   //    accanto a pannelli inglesi, e i due si vedevano nella stessa finestra.
+  'devices.hubSpend': '{eur} € su {cap} € questo mese',
+  'devices.hubActionFailed': 'Non riuscito: {why}',
   'devices.nodeOnline': 'in linea',
   'devices.nodeSeen': 'ultimo battito {when}',
   'devices.youAreHere': 'stai qui',

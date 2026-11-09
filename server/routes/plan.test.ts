@@ -6,6 +6,8 @@ import type { Database } from "bun:sqlite";
 import { freshDb, makeCtx, call } from "./tasks-test-support";
 import { PLAN_HIERARCHY_DDL } from "../db/test-schema";
 import { createPlanRouter } from "./plan";
+import { createTasksRouter } from "./tasks";
+import { projectIdForPath } from "../../shared/board";
 import type { RouteHandler } from "../types";
 
 let db: Database;
@@ -74,5 +76,68 @@ describe("/api/plan", () => {
 
   test("other paths fall through", async () => {
     expect(await call(router, "GET", "/api/other")).toBeNull();
+  });
+});
+
+describe("one name and one order for the Kanban index and the Plan", () => {
+  test("a project registered under another name has the same heading and position in both", async () => {
+    // Folder b is registered as "Alfa registrato": by folder name it would sort
+    // after folder a, by registered name it sorts before it.
+    db.run(`CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT, path TEXT)`);
+    db.query(`INSERT INTO projects (id, name, path) VALUES ('rowb', 'Alfa registrato', '/x/cartella-b')`).run();
+    const dirs = ["/x/cartella-a", "/x/cartella-b"];
+    const ids = dirs.map(projectIdForPath);
+    const t = new Date().toISOString();
+    for (const [i, id] of ids.entries()) {
+      db.query(`INSERT INTO tasks (id, project_id, text, status, created_at, updated_at) VALUES (?,?,?,?,?,?)`).run(`n${i}`, id, `card ${i}`, "todo", t, t);
+    }
+    const planRouter = createPlanRouter(makeCtx(db, []), { listProjectDirs: () => dirs });
+    const tasksRouter = createTasksRouter(makeCtx(db, []), undefined, { listProjectDirs: () => dirs });
+
+    const index = await (await call(tasksRouter, "GET", "/api/all-boards/projects"))!.json();
+    const plan = await (await call(planRouter, "GET", "/api/plan"))!.json();
+    const nameOf = (list: { projectId: string; name: string }[]) => Object.fromEntries(list.map((p) => [p.projectId, p.name]));
+    const planNames = nameOf(plan.projects.filter((p: any) => ids.includes(p.projectId)));
+    const indexNames = nameOf(index.projects.filter((p: any) => ids.includes(p.projectId)));
+    expect(indexNames).toEqual({ [ids[0]!]: "cartella-a", [ids[1]!]: "Alfa registrato" });
+    expect(planNames).toEqual(indexNames);
+    // The index itself is listed in that order.
+    expect(index.projects.map((p: any) => p.name)).toEqual(["Alfa registrato", "cartella-a"]);
+  });
+
+  test("a registered project the picker does not list is named by `labelOnly`, with the Plan's name", async () => {
+    // Registered, with a card, but its folder is not among the selectable dirs
+    // (a hidden folder): the picker must not offer it, the lane must still carry
+    // the Plan's name for it.
+    const hiddenPath = "/x/.nascosta/progetto-h";
+    const hiddenId = projectIdForPath(hiddenPath);
+    db.run(`CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT, path TEXT)`);
+    db.query(`INSERT OR REPLACE INTO projects (id, name, path) VALUES ('rowh', 'Nascosto registrato', ?)`).run(hiddenPath);
+    const t = new Date().toISOString();
+    db.query(`INSERT INTO tasks (id, project_id, text, status, created_at, updated_at) VALUES (?,?,?,?,?,?)`).run("h0", hiddenId, "card h", "todo", t, t);
+    const dirs = ["/x/cartella-a"];
+    const planRouter = createPlanRouter(makeCtx(db, []), { listProjectDirs: () => dirs });
+    const tasksRouter = createTasksRouter(makeCtx(db, []), undefined, { listProjectDirs: () => dirs });
+
+    const index = await (await call(tasksRouter, "GET", "/api/all-boards/projects"))!.json();
+    const plan = await (await call(planRouter, "GET", "/api/plan"))!.json();
+    expect(index.projects.some((p: any) => p.projectId === hiddenId)).toBe(false);
+    const label = index.labelOnly.find((p: any) => p.projectId === hiddenId);
+    expect(label).toEqual({ projectId: hiddenId, name: "Nascosto registrato", path: hiddenPath });
+    expect(plan.projects.find((p: any) => p.projectId === hiddenId).name).toBe(label.name);
+  });
+
+  test("the Plan lists projects by name, whatever the order they were created in", async () => {
+    db.run(`CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT, path TEXT)`);
+    const t = new Date().toISOString();
+    // Zeta is registered and has a card first; Alfa comes later but heads the list.
+    for (const [row, name] of [["rz", "Zeta ordine"], ["ra", "Alfa ordine"]] as const) {
+      const path = `/x/ordine-${row}`;
+      db.query(`INSERT OR REPLACE INTO projects (id, name, path) VALUES (?, ?, ?)`).run(row, name, path);
+      db.query(`INSERT INTO tasks (id, project_id, text, status, created_at, updated_at) VALUES (?,?,?,?,?,?)`).run(`o${row}`, projectIdForPath(path), `card ${row}`, "todo", t, t);
+    }
+    const plan = await (await call(createPlanRouter(makeCtx(db, []), { listProjectDirs: () => [] }), "GET", "/api/plan"))!.json();
+    const names = plan.projects.map((p: any) => p.name as string).filter((n: string) => n.endsWith(" ordine"));
+    expect(names).toEqual(["Alfa ordine", "Zeta ordine"]);
   });
 });
