@@ -1,4 +1,4 @@
--- 20261109002110-screen-devices.sql
+-- 20261109100000-screen-devices.sql
 --
 -- A device paired as a SCREEN (the PC's monitor showing the load screen) gets a
 -- row here, and the gate lets it read two routes and nothing else.

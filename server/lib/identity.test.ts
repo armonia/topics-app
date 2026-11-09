@@ -26,7 +26,7 @@ function db084(): Database {
   const db = new Database(":memory:");
   db.run(TASKS_DDL);
   db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT)");
-  for (const m of ["080-devices.sql", "082-task-shares.sql", "083-grants.sql", "084-people-orgs.sql", "20261109002110-screen-devices.sql"]) {
+  for (const m of ["080-devices.sql", "082-task-shares.sql", "083-grants.sql", "084-people-orgs.sql", "20261109100000-screen-devices.sql"]) {
     db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
   }
   return db;
