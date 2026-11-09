@@ -2722,6 +2722,10 @@ const IT: Dict = {
   'editor.tab.menu.keepOpen': 'Tieni aperta',
   'editor.tab.menu.copyPath': 'Copia percorso',
   'editor.loadFailed': 'Il file non è stato caricato, quindi non è modificabile da qui.',
+  'editor.toolbar.copyPath': 'Copia percorso',
+  'editor.toolbar.wrap': 'A capo automatico',
+  'editor.toolbar.showSource': 'Mostra sorgente',
+  'editor.toolbar.preview': 'Anteprima {label}',
   // ── Git: cronologia dei commit e blocchi del diff. `git.hunk.stageTitle`
   //    tiene il valore IT alla lettera: `git-hunk-staging.spec.ts` lo ancora.
   'git.history.noCommits': 'Nessun commit',

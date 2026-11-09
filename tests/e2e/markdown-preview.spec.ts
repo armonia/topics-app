@@ -100,7 +100,7 @@ test.describe("Markdown preview", () => {
       });
     }, ESCAPED_MARKER);
 
-    await filePane.getByRole("button", { name: "Preview Markdown" }).click();
+    await filePane.getByRole("button", { name: /^(Preview|Anteprima) Markdown$/ }).click();
 
     // The rendered form: a real <details> element and a real <img>, not text.
     const details = filePane.locator("details");
