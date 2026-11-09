@@ -1948,6 +1948,12 @@ const EN = {
   'board.toolbar.dispatchSettings': 'Auto-dispatch settings',
   'board.toolbar.viewMode.kanban': 'Switch to list view',
   'board.toolbar.viewMode.list': 'Switch to kanban view',
+  'board.toolbar.detail.label': 'Level of detail',
+  'board.toolbar.detail.summary': 'Projects and counts',
+  'board.toolbar.detail.list': 'List',
+  'board.toolbar.detail.grid': 'Kanban board',
+  'board.summary.empty': 'No tasks to count',
+
   'board.toolbar.groupBy.project': 'Group by project',
   'board.toolbar.groupBy.off': 'Stop grouping by project',
   'board.toolbar.density.compact': 'Compact cards',

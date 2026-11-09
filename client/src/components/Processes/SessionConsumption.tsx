@@ -10,16 +10,21 @@
  * inside it. A process several sessions use is split between them and the
  * memory cell says how (`1/2 server`); the rule is printed once under the list.
  *
- * Read-only: nothing here takes input except the detail toggle of the panel.
+ * The one command is on the SESSION, never on a process: Stop on a card or
+ * a chat of the Processes view, after an inline confirmation that names it
+ * (a card is parked in Backlog through the board's own Stop, a chat's turn is
+ * aborted as its own Stop does). The screen and the drawer carry no command.
  */
-import { useMemo, useState, type ReactNode } from 'react';
-import { ChevronRight, CloudOff, Server, Zap } from 'lucide-react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { ChevronRight, CloudOff, Server, Square, Zap } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { addCatalogue } from '../../lib/i18n';
 import CONSUMPTION_IT from '../../lib/i18n-consumption-it';
 import CONSUMPTION_EN from '../../lib/i18n-consumption-en';
 import { useSecondTick, useSessionConsumption } from '../../hooks/useSessionConsumption';
-import { WARNING_TEXT } from '../../lib/popoverStyles';
+import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
+import { boardApi } from '../../lib/board';
+import { chatApi } from '../../lib/api';
 import { formatMem } from '../../lib/machineProcesses';
 import { friendlyModelLabel } from '../../lib/modelLabel';
 import { clockOf, formatTps, MAX_SESSIONS } from '../../lib/sessionConsumption';
@@ -112,11 +117,17 @@ export function SessionRowView({ session: s, now, variant, windowS, machineLabel
       {variant === 'screen' && procsLine && (
         <div className={`truncate px-2.5 pb-1.5 text-compact tabular-nums ${FAINT}`} data-testid="session-procs">{procsLine}</div>
       )}
-      {variant !== 'screen' && s.procs.length > 0 && (
+      {variant !== 'screen' && (s.procs.length > 0 || (variant === 'panel' && stopTarget(s) !== null)) && (
         <div className="px-2.5 pb-1.5">
-          <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className={`inline-flex items-center gap-1 text-mini ${FAINT} hover:text-app-text`} data-testid="session-procs-toggle">
-            <ChevronRight size={12} className={open ? 'rotate-90' : ''} aria-hidden="true" />{tr('consumption.procs')} · {s.procs.length}
-          </button>
+          <div className="flex min-h-6 flex-wrap items-center gap-x-2">
+            {s.procs.length > 0 && (
+              <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className={`inline-flex items-center gap-1 text-mini ${FAINT} hover:text-app-text`} data-testid="session-procs-toggle">
+                <ChevronRight size={12} className={open ? 'rotate-90' : ''} aria-hidden="true" />{tr('consumption.procs')} · {s.procs.length}
+              </button>
+            )}
+            <span className="flex-1" />
+            {variant === 'panel' && <SessionStop session={s} />}
+          </div>
           {open && (
             <ul className="m-0 mt-1 list-none p-0" data-testid="session-procs-list">
               {s.procs.map((p) => (
@@ -131,6 +142,60 @@ export function SessionRowView({ session: s, now, variant, windowS, machineLabel
         </div>
       )}
     </div>
+  );
+}
+
+const QUIET_BUTTON = 'inline-flex h-6 items-center gap-1 rounded-sm bg-black/[0.035] px-[7px] text-mini text-app-text-secondary hover:bg-black/[0.06] hover:text-app-text disabled:opacity-60 dark:bg-white/[0.05] dark:hover:bg-white/[0.14] @max-3xl:h-9 @max-3xl:px-2.5 @max-3xl:text-compact';
+
+type StopTarget = { kind: 'card'; boardId: string; cardId: string } | { kind: 'chat'; sessionKey: string };
+
+/** What Stop acts on: a card through its board, a chat of this machine through its session. A terminal has none here. */
+function stopTarget(s: SessionConsumption): StopTarget | null {
+  if (s.kind === 'card') return s.cardId && s.boardId ? { kind: 'card', boardId: s.boardId, cardId: s.cardId } : null;
+  if (s.kind === 'chat' && s.machine === null) return { kind: 'chat', sessionKey: s.key };
+  return null;
+}
+
+/** Stop on a session: asks first, inline, naming it; the next read drops the row. */
+function SessionStop({ session: s }: { session: SessionConsumption }) {
+  const tr = useT();
+  const target = stopTarget(s);
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const stop = useCallback(async () => {
+    if (!target) return;
+    setBusy(true);
+    setFailure(null);
+    try {
+      if (target.kind === 'card') await boardApi.stop(target.boardId, target.cardId);
+      else await chatApi.abort(target.sessionKey);
+      setAsking(false);
+    } catch (e) {
+      setFailure(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [target]);
+  if (!target) return null;
+  const ask = tr(target.kind === 'card' ? 'consumption.stopAskCard' : 'consumption.stopAskChat', { title: s.title });
+  return (
+    <>
+      {!asking && (
+        <button type="button" className={QUIET_BUTTON} onClick={() => setAsking(true)} title={tr('consumption.stopTitle', { title: s.title })} data-testid="session-stop">
+          <Square size={11} aria-hidden="true" />{tr('consumption.stop')}
+        </button>
+      )}
+      {/* Its own line under the toggle, full width: the question is read whole, nothing beside it is squeezed. */}
+      {(asking || failure) && (
+        <div className="order-last flex w-full min-w-0 flex-wrap items-center justify-end gap-2 pt-1 text-compact" role={asking ? 'group' : undefined} aria-label={asking ? ask : undefined} data-testid={asking ? 'session-stop-confirm' : undefined}>
+          {failure && <span className={`min-w-0 flex-1 text-mini ${DANGER_TEXT}`} data-testid="session-stop-failed">{tr('consumption.stopFailed', { why: failure })}</span>}
+          {asking && <span className="min-w-0 flex-1 text-app-text">{ask}</span>}
+          {asking && <button type="button" className={QUIET_BUTTON} disabled={busy} onClick={() => void stop()} data-testid="session-stop-confirm-yes">{tr('consumption.stop')}</button>}
+          {asking && <button type="button" className={QUIET_BUTTON} disabled={busy} onClick={() => { setAsking(false); setFailure(null); }} data-testid="session-stop-confirm-cancel">{tr('consumption.stopCancel')}</button>}
+        </div>
+      )}
+    </>
   );
 }
 

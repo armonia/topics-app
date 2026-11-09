@@ -43,7 +43,7 @@ function useAgo() {
   }, [locale, now]);
 }
 
-function SessionRow({ s, depth, tr, ago, name }: { s: AgentSession; depth: number; tr: Tr; ago: (at: number) => string; name: (raw: string) => string }) {
+function SessionRow({ s, depth, tr, ago, name }: { s: AgentSession; depth: number; tr: Tr; ago: (at: number) => string; name: (raw: string, key?: string | null) => string }) {
   return (
     <>
       <li>
@@ -57,7 +57,7 @@ function SessionRow({ s, depth, tr, ago, name }: { s: AgentSession; depth: numbe
           {s.error
             ? <TriangleAlert size={12} className={`flex-shrink-0 ${DANGER_TEXT}`} aria-hidden="true" />
             : <span className={`h-2 w-2 flex-shrink-0 rounded-full ${DOT[s.state]}`} aria-hidden="true" />}
-          <span className="min-w-0 flex-1 truncate text-prose text-app-text">{name(s.topic.name)}</span>
+          <span className="min-w-0 flex-1 truncate text-prose text-app-text">{name(s.topic.name, s.topic.sessionKey)}</span>
           {s.error && <span data-testid="agents-session-error" className={`flex-shrink-0 text-mini ${DANGER_TEXT}`}>{tr('agents.error')}</span>}
           {s.state !== 'idle' && <span className={`flex-shrink-0 text-mini ${TEXT[s.state]}`}>{tr(`agents.state.${s.state}`)}</span>}
           <span className="flex-shrink-0 text-mini tabular-nums text-app-text-muted">{ago(s.lastActivity)}</span>
@@ -108,7 +108,7 @@ export function AgentsPane() {
   const groups = useAgentGroups();
   const titles = useChannelTitles();
   const cli = tr('agents.cli');
-  const name = (raw: string) => agentSessionName(raw, titles, cli);
+  const name = (raw: string, key?: string | null) => agentSessionName(raw, titles, cli, key);
   return (
     <div data-testid="agents-pane" className="h-full overflow-y-auto bg-surface">
       <div className="mx-auto max-w-3xl px-6 py-6">

@@ -33,9 +33,10 @@
  */
 import type { GitRunResult } from "./task-automerge";
 import { worktreeRegistrationLost } from "./worktree-registration";
-import { gitEnvFor } from "../lib/git-identity";
-import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
+import { runGitWithIdentity } from "../lib/git-run-identity";
+import { SPAWN_TIMEOUT } from "../lib/bounded-spawn";
 
+import { isConflicted } from "../../shared/git-conflict";
 export interface ResidueResult {
   ok: boolean;
   /** Perché è andata così. Un esito senza ragione non è diagnosticabile. */
@@ -83,23 +84,12 @@ function hasConflict(porcelain: string): boolean {
   return porcelain
     .split("\n")
     .filter(Boolean)
-    .some((l) => {
-      const x = l[0], y = l[1];
-      return x === "U" || y === "U" || (x === "A" && y === "A") || (x === "D" && y === "D");
-    });
+    .some((l) => isConflicted(l.slice(0, 2)));
 }
 
 export async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult> {
-  try {
-    // Senza identità git esce 128 PRIMA di toccare l'albero, e questa funzione
-    // crea un commit: stessa ragione (e stesso ripiego) di `task-automerge`.
-    const env = await gitEnvFor(cwd);
-    const r = await runBounded(["git", ...args], { cwd, stderr: "pipe", env, timeoutMs: SPAWN_TIMEOUT.long });
-    if (r.spawnFailed) return { code: 1, stdout: "", stderr: r.spawnError ?? "" };
-    return { code: r.exitCode ?? 1, stdout: r.stdout, stderr: r.stderr };
-  } catch (e) {
-    return { code: 1, stdout: "", stderr: e instanceof Error ? e.message : String(e) };
-  }
+  // This function creates a commit: same identity and exit codes as the land.
+  return runGitWithIdentity(cwd, args, SPAWN_TIMEOUT.long);
 }
 
 /**
