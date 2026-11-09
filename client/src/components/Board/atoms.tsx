@@ -215,7 +215,7 @@ export function DispatchChip({ state, error, deliveredBy, hasWork = true }: { st
  * partirà mai» — si leggevano identici.
  */
 const QUEUE_TONE_CLS: Record<QueueTone, string> = {
-  queued: 'bg-black/10 dark:bg-white/10 text-app-text-secondary',
+  queued: 'bg-white/10 text-app-text-secondary',
   waiting: 'bg-indigo-500/15 text-indigo-800 dark:text-indigo-300',
   stalled: 'bg-amber-500/15 text-amber-800 dark:text-amber-300 ring-1 ring-amber-400/30',
 };
@@ -274,7 +274,7 @@ export function LabelChip({ label, source }: { label: TaskLabel; source: LabelSo
       ? 'bg-sky-500/15 text-sky-800 dark:text-sky-300'
       : label === 'decisione' // allow-italian: the closed label vocabulary, compared by value
         ? 'bg-violet-500/15 text-violet-800 dark:text-violet-300'
-        : 'bg-black/10 dark:bg-white/10 text-app-text-heading';
+        : 'bg-white/10 text-app-text-heading';
   const why = label === 'invisibile'
     ? tr('board.label.invisibleWhy')
     : label === 'visibile'

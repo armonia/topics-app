@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.3.65",
+    "date": "2026-11-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "tema chiaro della Board (a7286fe8) torna fuori da main",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "CI di main rossa dopo i land della sera: un test senza requisito e due spec che dipendono dal tempo",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.64",
     "date": "2026-11-08",
     "sections": {
@@ -24,6 +46,11 @@
       "perf": [],
       "internal": [
         {
+          "it": "machine-slots e2e: la lista arriva come { machines }",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Via Gateway da Topics (#606)",
           "en": "",
           "scope": null
@@ -41,6 +68,17 @@
       "internal": [
         {
           "it": "E2e sul PC: Chromium con la GPU, le spec a pixel su SwiftShader (#631)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "posti dichiarabili per macchina (slots), PATCH e campo Card insieme",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "machine-slots.test: @covers",
           "en": "",
           "scope": null
         },
@@ -111,10 +149,41 @@
           "breaking": false
         },
         {
+          "it": "Sotto-agenti: la finestra di fiducia della CLI 2.1.310 si accetta (aspetta il piede, 14 tentativi)",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "un TERM durante l'attesa dei figli non fa più perdere il codice d'uscita (#628)",
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "light-theme pairs for bg-white/N and rose/amber text, icons instead of glyphs (#4c7aa382)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Cartelle ammesse: la cache si svuota quando nasce un progetto o cambia il projectPath di un topic",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cancelli allineati a TS 7: gate-coverage usa typescript7, tolta la barra toolchain senza script",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Remove dead server code (claude-tasks-sync, seed, test-only exports) and fix stale usage_records comments",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Drop TASKSYNC-01 requirement along with the removed watcher",
+          "en": "",
+          "scope": null
         }
       ]
     }
