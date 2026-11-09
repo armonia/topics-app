@@ -341,3 +341,21 @@ A machine that takes the load (the PC) SHALL be able to show, full screen on its
 - **GIVEN** the screen file exactly as the keeper writes it (`sospendeAlle` in epoch milliseconds) and a 3440x1440 screen
 - **WHEN** `/schermo/<PC id>` opens
 - **THEN** it SHALL show the countdown, every process row SHALL end inside its list, and Windows' own programs (dwm, System, MsMpEng) SHALL be labelled as the system's
+
+### Requirement: HUBBR-22 — Processes: search, order, close, and the Mac backup
+
+«Processi» SHALL let the person search the Mac's processes by name and order them by memory, CPU, GPU, network or name. A process that is not the system, a service or an MCP server SHALL carry a Close button that asks for confirmation naming the process, then sends the service a request with the pid, the instant the pid was born and the signal (terminate or force); the service refuses a pid born at another instant. The view SHALL also show the Mac backup's last run and its recent runs as ticks, read by the service from the backup's state file, and say that no backup is recorded when there is no file.
+
+#### Scenario: Close asks first
+- **GIVEN** «Processi» listing an app and the system
+- **WHEN** the person presses Close on the app and confirms
+- **THEN** the service SHALL receive one request with that pid and signal, and the system's row SHALL have no Close
+
+#### Scenario: A reused pid is refused
+- **GIVEN** a pid whose birth instant differs from the census's
+- **WHEN** the person confirms the close
+- **THEN** the row SHALL show the refusal and no process SHALL be signalled
+
+#### Scenario: Backup with and without a file
+- **GIVEN** the service has no backup state file
+- **THEN** the view SHALL say no backup is recorded; with a file it SHALL show the last outcome and the ticks
