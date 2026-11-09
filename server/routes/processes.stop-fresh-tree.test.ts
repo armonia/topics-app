@@ -19,14 +19,27 @@ const previousDataDir = process.env.DATA_DIR;
 process.env.DATA_DIR = STATE;
 const { createProcessesRouter, getScriptsSnapshot, listBackgroundShells, registerBackgroundShell, startProcessDetection, stopProcessDetectionForTests } = await import("./processes");
 const { setSessionCliPid } = await import("../providers/session-pids");
-const { getDescendantPids } = await import("../lib/process-tree");
+const { getDescendantPids, killProcessTree } = await import("../lib/process-tree");
 
 const DIR = realpathSync(mkdtempSync(join(tmpdir(), "topics-stop-fresh-")));
 const spawned: number[] = [];
-afterAll(() => {
+// Paths handed to bash use forward slashes: backslashes are escapes there, so a
+// Windows path made the wait loop spin forever on a file that never appears.
+const bashPath = (p: string) => p.replaceAll("\\", "/");
+
+afterAll(async () => {
   // The loop this file started is module state: left running, it closed the
   // ownerless background shells of the files after it (processes.shell-file).
   stopProcessDetectionForTests();
+  // Kill whole trees: the outer bash dying alone leaves its children running on
+  // Windows. There the MSYS pids of `ps` do not match Windows pids, so the tree
+  // goes through taskkill, which follows the real parentage.
+  for (const pid of spawned) {
+    try {
+      if (process.platform === "win32") Bun.spawnSync(["taskkill", "/PID", String(pid), "/T", "/F"], { stdout: "ignore", stderr: "ignore" });
+      else await killProcessTree(pid, 0);
+    } catch { /* gone */ }
+  }
   for (const pid of spawned) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
   if (previousDataDir === undefined) delete process.env.DATA_DIR;
   else process.env.DATA_DIR = previousDataDir;
@@ -41,10 +54,14 @@ async function until(ok: () => boolean, ms = 10_000): Promise<void> {
   while (!ok() && Date.now() < end) await Bun.sleep(25);
 }
 
-describe("Stop on an agent's background shell", () => {
+// On Windows the MSYS bash pids are not the ones the process scan sees, so the
+// shell is never detected there; afterAll still reaps the tree if it runs.
+const describeUnix = process.platform === "win32" ? describe.skip : describe;
+
+describeUnix("Stop on an agent's background shell", () => {
   test("signals a child forked after the process table was cached", async () => {
-    const go = join(DIR, "go");
-    const childPidFile = join(DIR, "child.pid");
+    const go = bashPath(join(DIR, "go"));
+    const childPidFile = bashPath(join(DIR, "child.pid"));
     // The shell waits for the go-ahead, then forks its long-lived child.
     const command = `while [ ! -f ${go} ]; do sleep 0.05; done; sleep 297 & echo $! > ${childPidFile}; wait`;
     const cli = Bun.spawn(["bash", "-c", `bash -c '${command}' & wait`], { stdout: "ignore", stderr: "ignore" });
