@@ -1,3 +1,8 @@
+/**
+ * Detail slider levels (projects summary, list, kanban).
+ *
+ * @covers BOARD-05
+ */
 import { describe, expect, test } from 'bun:test';
 import { countByProject, detailAtFraction, parseDetailLevel, stepDetail } from './detailLevel';
 

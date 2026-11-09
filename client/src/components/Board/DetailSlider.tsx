@@ -53,7 +53,7 @@ export function DetailSlider({ value, onChange }: { value: DetailLevel; onChange
         />
       ))}
       <span
-        className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary shadow transition-[left] duration-150 motion-reduce:transition-none"
+        className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary shadow transition-[left] duration-fast motion-reduce:transition-none"
         style={{ left: `calc(0.5rem + (100% - 1rem) * ${index / last})` }}
       />
     </div>
