@@ -205,7 +205,7 @@ test.describe("agents and jobs", () => {
     await expect(flow).toContainText("Revisione di acme-web");
     // A live workflow the hub sees: one row, its agents counted and its tokens summed.
     await expect(flow).toContainText("Workflow per «Protocolli dei canali»");
-    await expect(flow).toContainText("4 agenti · 2,3M tok");
+    await expect(flow).toContainText("4 agenti · 2,3 M tok");
     await expect(flow).toContainText("passo 3 di 5 · Verifica · 2 agenti", { timeout: 20_000 });
     await expect(flow.locator("[data-step]")).toHaveCount(5);
     await expect(flow.locator('[data-step="active"]')).toHaveCount(1);
