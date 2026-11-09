@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.3.73",
+    "date": "2026-11-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "passano i controlli anti-bot di Hetzner (outerWidth/outerHeight e webdriver) (#670)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.72",
     "date": "2026-11-09",
     "sections": {
