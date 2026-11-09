@@ -18,3 +18,4 @@ Outcome note for the card. The code lives in the private jarvis repo (branch `to
 
 Code branch commits: 7efe4d8b, d256d289 (jarvis repo).
 Branch also carries a one-line spec id fix (KANBAN-109).
+CI note: the PTY sidecar kill test is unrelated to this change.
