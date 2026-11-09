@@ -68,6 +68,17 @@ export const autoGrow = (el: HTMLTextAreaElement | null) => {
 // Both stages read the droppable rects as plain copies (`settledRects`): the
 // rects dnd-kit hands over re-read every scrollable ancestor on each property
 // access, and this runs on every pointer move.
+//
+// The fallback measures from the POINTER too, not from the dragged card's rect.
+// With the card's rect the two stages answered about two different points: a
+// card held near its top reaches a whole card height below the pointer, so a
+// pointer leaving the Todo column through the 14 px gap toward In progress went
+// «over the column» (pointer stage), «over the neighbour» (rect stage: the
+// card's rect is lower), «over its own slot», on three consecutive moves. The
+// neighbour started its 240 ms reflow and was reversed twice in flight (74 ms
+// and 196 ms transitions on CI, board-motion-contract PANELOAD-03): a visible
+// jitter. A zero-size rect at the pointer makes the answer follow the pointer
+// alone. Without a pointer (keyboard sensor) the card's rect is all there is.
 export const boardCollision: CollisionDetection = (args) => {
   const settled = { ...args, droppableRects: settledRects(args.droppableRects) };
   const within = pointerWithin(settled);
@@ -75,7 +86,10 @@ export const boardCollision: CollisionDetection = (args) => {
     const card = within.find((c) => !TASK_STATUSES.includes(String(c.id) as TaskStatus));
     return card ? [card] : within;
   }
-  return closestCorners(settled);
+  const p = args.pointerCoordinates;
+  if (!p) return closestCorners(settled);
+  const at = { top: p.y, left: p.x, right: p.x, bottom: p.y, width: 0, height: 0 };
+  return closestCorners({ ...settled, collisionRect: at });
 };
 
 // FORMATTERS ARE BUILT ONCE. `toLocaleTimeString(locale, options)` constructs a

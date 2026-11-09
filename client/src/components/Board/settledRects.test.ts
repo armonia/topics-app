@@ -66,7 +66,9 @@ describe('settledRects', () => {
       // The board's rule on the live rects: a card under the pointer beats its column.
       const within = pointerWithin(args);
       const card = within.find((c) => !COLUMNS.includes(String(c.id)));
-      const expected = within.length ? (card ? [card] : within) : closestCorners(args);
+      // Outside every droppable the corners are measured from the pointer.
+      const at = { top: pointer.y, left: pointer.x, right: pointer.x, bottom: pointer.y, width: 0, height: 0 };
+      const expected = within.length ? (card ? [card] : within) : closestCorners({ ...args, collisionRect: at });
       expect(ids(boardCollision(args))).toEqual(ids(expected));
     }
   });
@@ -103,5 +105,46 @@ describe('settledRects', () => {
     expect(settledRects(new Map([['x', first]])).get('x')!.top).toBe(10);
     const again = liveRect({ top: 90, left: 0, width: 10, height: 10 }, scroll, reads);
     expect(settledRects(new Map([['x', again]])).get('x')!.top).toBe(90);
+  });
+});
+
+describe('boardCollision outside every droppable', () => {
+  // The CI geometry of board-motion-contract PANELOAD-03: Todo body 569..855,
+  // In progress 869..1155, cards 133 px on a 140.5 px pitch. The card in hand
+  // (card-0) is held 12 px under its top, so its rect reaches 121 px below the
+  // pointer: its corners are nearer the card under it than the pointer is.
+  const reads = { n: 0 };
+  const scroll = { y: 0, x: 0 };
+  const rects = new Map<UniqueIdentifier, ClientRect>([
+    ['todo', liveRect({ top: 88, left: 569, width: 286, height: 800 }, scroll, reads)],
+    ['in_progress', liveRect({ top: 88, left: 869, width: 286, height: 800 }, scroll, reads)],
+    ['card-0', liveRect({ top: 127, left: 575, width: 274, height: 133 }, scroll, reads)],
+    ['card-1', liveRect({ top: 267.5, left: 575, width: 274, height: 133 }, scroll, reads)],
+    ['card-2', liveRect({ top: 408, left: 575, width: 274, height: 133 }, scroll, reads)],
+    ['ip-0', liveRect({ top: 127, left: 875, width: 274, height: 113 }, scroll, reads)],
+  ]);
+  const containers = [...rects.keys()].map((id) => ({ id })) as unknown as Parameters<typeof pointerWithin>[0]['droppableContainers'];
+  const over = (pointer: { x: number; y: number }) => {
+    const collisionRect = { top: pointer.y - 12, left: pointer.x - 137, width: 274, height: 133, right: pointer.x + 137, bottom: pointer.y + 121 };
+    const args = { active: { id: 'card-0' }, collisionRect, droppableRects: rects, droppableContainers: containers, pointerCoordinates: pointer } as unknown as Parameters<typeof pointerWithin>[0];
+    invalidateSettledRects();
+    return String(boardCollision(args)[0]?.id);
+  };
+
+  test('a pointer crossing the gap between two columns never goes back to a card it left', () => {
+    // The moves of the CI trace: on card-1, between two Todo cards, in the gap
+    // between the columns, on In progress.
+    const path = [{ x: 832, y: 274.45 }, { x: 847, y: 267.04 }, { x: 862, y: 259.63 }, { x: 866, y: 255 }, { x: 877, y: 252.21 }];
+    const seq = path.map(over);
+    expect(seq[0]).toBe('card-1');
+    // Once the pointer has left card-1 it is not handed card-1 again from the gap.
+    expect(seq.slice(1)).not.toContain('card-1');
+  });
+
+  test('without a pointer the dragged rect still decides', () => {
+    const collisionRect = { top: 280, left: 580, width: 274, height: 133, right: 854, bottom: 413 };
+    const args = { active: { id: 'card-0' }, collisionRect, droppableRects: rects, droppableContainers: containers, pointerCoordinates: null } as unknown as Parameters<typeof pointerWithin>[0];
+    invalidateSettledRects();
+    expect(String(boardCollision(args)[0]?.id)).toBe('card-1');
   });
 });
