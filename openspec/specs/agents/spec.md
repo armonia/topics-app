@@ -1171,3 +1171,16 @@ così la persona che scrive a mano nella sua chat, anche su un figlio fermato: t
 - **WHEN** il suo turno finisce con esito `completed`
 - **THEN** la sua chat è archiviata e non ha badge
 - **AND** un `send_to_agent` successivo la riapre e ci manda il turno
+
+### Requirement: SUBAGENT-23 — A native child cannot ask the person, its choices come back in its result
+
+A question a native child (`subagentOf` set) put on screen would sit in a chat nobody
+watches, and the parent would never hear of it. So a native child SHALL NOT see
+`ask_user_question`, neither in the tool list nor at execution, even when its profile
+grants it. The choices go back in the child's result and the parent carries them to the
+person in its own channel. A chat that is not a child keeps the tool.
+
+#### Scenario: A child whose profile grants the question tool
+- **GIVEN** a native child whose profile lists `ask_user_question`
+- **WHEN** the tool policy is asked about that tool
+- **THEN** it is refused, while the child's other granted tools stay allowed

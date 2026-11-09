@@ -1,5 +1,5 @@
 /**
- * @covers KANBAN-106
+ * @covers KANBAN-108
  * Contrast of the measure band (model, time, tokens, last update) against the card.
  *
  * The band is a translucent black (light) or white (dark) layer over the card

@@ -1,5 +1,5 @@
 /**
- * @covers KANBAN-106
+ * @covers KANBAN-108
  * The progress line of a card in progress: its text, checked as a value.
  *
  * These are facts about the output, not about the source: an empty line where

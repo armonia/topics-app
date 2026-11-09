@@ -451,6 +451,10 @@ const IT: Dict = {
   'pair.personName': 'Nome della persona',
   'pair.someoneElse': "È di un'altra persona",
   'pair.guestBlurb': "Un'altra persona vede solo ciò che le condividi, al livello che scegli tu.",
+  'pair.screen': 'È uno schermo',
+  'pair.screenBlurb': 'Uno schermo mostra solo la pagina del carico, in sola lettura: niente chat, niente comandi.',
+  'pair.screenOnly': 'Questo dispositivo è uno schermo: mostra solo la pagina del carico.',
+  'pair.screenOpen': 'Apri lo schermo',
   'pair.requestsAccess': '{name} chiede accesso',
   'pair.deny': 'Nega',
   'pair.choosePerson': 'Scegli una persona esistente',
@@ -2722,6 +2726,10 @@ const IT: Dict = {
   'editor.tab.menu.keepOpen': 'Tieni aperta',
   'editor.tab.menu.copyPath': 'Copia percorso',
   'editor.loadFailed': 'Il file non è stato caricato, quindi non è modificabile da qui.',
+  'editor.toolbar.copyPath': 'Copia percorso',
+  'editor.toolbar.wrap': 'A capo automatico',
+  'editor.toolbar.showSource': 'Mostra sorgente',
+  'editor.toolbar.preview': 'Anteprima {label}',
   // ── Git: cronologia dei commit e blocchi del diff. `git.hunk.stageTitle`
   //    tiene il valore IT alla lettera: `git-hunk-staging.spec.ts` lo ancora.
   'git.history.noCommits': 'Nessun commit',
