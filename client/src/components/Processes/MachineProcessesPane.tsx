@@ -421,7 +421,7 @@ export function ProcessRowView({ row: r, onStopped, onClosed = () => {} }: { row
         )}
       </span>
       {confirming && (
-        <div className="col-span-full flex flex-wrap items-center gap-2 pl-[30px] text-compact" role="alertdialog" aria-label={tr('processes.closeAsk', { name: r.name })} data-testid="machine-process-confirm">
+        <div className="col-span-full flex flex-wrap items-center gap-2 pl-[30px] text-compact" role="group" aria-label={tr('processes.closeAsk', { name: r.name })} data-testid="machine-process-confirm">
           <span className="min-w-0 flex-1 text-app-text">{tr('processes.closeAsk', { name: r.name })}</span>
           <button type="button" className={STOP_BUTTON} disabled={stopping} onClick={() => void close('TERM')} data-testid="machine-process-confirm-term">{tr('processes.closeTerm')}</button>
           <button type="button" className={STOP_BUTTON} disabled={stopping} onClick={() => void close('KILL')} data-testid="machine-process-confirm-kill">{tr('processes.closeKill')}</button>
