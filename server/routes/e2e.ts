@@ -130,7 +130,7 @@ import { observePlanUsage } from "../providers/native/usage-window";
 import { registerProvider, removeProvider } from "../providers";
 import { partialTurnRows } from "../lib/partial-turn-fixture";
 import { setInjectedSwapFreezeViews } from "../lib/swap-freeze-hold";
-import { setBenchStaleTimeout } from "../lib/stale-stream-sweep";
+import { setBenchStaleTimeout, setBenchStaleTick } from "../lib/stale-stream-sweep";
 import { __resetPendingForTests } from "./auth";
 import { reloadAttentionTable } from "../attention/store";
 import type { SwapFreezeView } from "../../shared/swap-freeze";
@@ -149,6 +149,8 @@ export function baselinePath(env: NodeJS.ProcessEnv = process.env): string {
 export interface E2eRouterHooks {
   /** One pass of the Claude session reaper at the given clock (`reapOnce`). */
   reapClaudeSessions?: (now: number) => number;
+  /** One whole pass of the stale-stream sweep, as its own timer runs it. */
+  runStaleSweep?: () => void;
   /** Advance the recurrence clock and run the real scheduler tick. */
   advanceScheduledCards?: (now: Date | null) => { created: string[]; skipped: string[] };
 }
@@ -240,6 +242,7 @@ export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): Ro
       releaseDispatchHold();
       // Same for the stale-stream threshold a spec cut to 1 s.
       setBenchStaleTimeout(null);
+      setBenchStaleTick(null, undefined);
       // And for pairing requests, which live in memory, not in the DB: a spec
       // that shows the pairing screen leaves one pending, and every later file
       // would open under the approval card that covers the bottom-right corner.
@@ -433,14 +436,17 @@ export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): Ro
       return json({ ok: true, changed: hooks.reapClaudeSessions(Date.now() + ahead) });
     }
 
-    // POST /api/test/stale-stream-clock {timeoutMs} - the silence after which the
-    // stale-stream sweep acts, three minutes in production. The sweep itself and
-    // its 30 s tick stay the real ones; `{}` gives the three minutes back.
+    // POST /api/test/stale-stream-clock {timeoutMs, tickMs?} - the silence after
+    // which the stale-stream sweep acts, three minutes in production, and
+    // optionally the step between passes (30 s in production). The sweep itself
+    // stays the real one; `{}` gives both back.
     if (method === "POST" && pathname === "/api/test/stale-stream-clock") {
-      const body = (await req.json().catch(() => null)) as { timeoutMs?: number } | null;
+      const body = (await req.json().catch(() => null)) as { timeoutMs?: number; tickMs?: number } | null;
       const ms = typeof body?.timeoutMs === "number" && body.timeoutMs > 0 ? body.timeoutMs : null;
+      const tick = typeof body?.tickMs === "number" && body.tickMs > 0 ? body.tickMs : null;
       setBenchStaleTimeout(ms);
-      return json({ ok: true, timeoutMs: ms });
+      setBenchStaleTick(tick, hooks.runStaleSweep);
+      return json({ ok: true, timeoutMs: ms, tickMs: tick });
     }
 
     // POST /api/test/dispatch-hold {ms} — holds the periodic reconcile.

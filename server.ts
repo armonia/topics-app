@@ -3083,6 +3083,7 @@ const viewsRouter = createViewsRouter(ctx);
 // che è il caso di ogni server non di test — vedi server/routes/e2e.ts.
 const e2eRouter = createE2eRouter(ctx, {
   reapClaudeSessions: (t) => claudeSessionTracker.reapOnce(t),
+  runStaleSweep: () => staleSweepPass(),
   advanceScheduledCards: (value) => {
     scheduledCardTestNow = value;
     return value ? tickScheduledCards() : { created: [], skipped: [] };
@@ -5325,7 +5326,9 @@ const STALE_STREAM_TIMEOUT_MS = 3 * 60 * 1000;
 // leaves the map.
 const staleStreamRescued = new Set<string>();
 const staleStreamSilence = new Map<string, SilenceMark>();
-const staleStreamTimer = setInterval(() => {
+// The pass itself, reachable by the e2e bench's own faster tick (`stale-stream-clock`).
+let staleSweepPass: () => void;
+const staleStreamTimer = setInterval(staleSweepPass = () => {
   // IL GIRO STA IN `stale-stream-sweep.ts`. Il verdetto puro era gia' uscito da
   // qui per essere provabile, ma il cablaggio no: il caso che conta — un figlio
   // VIVO al secondo tick muto, cioe' il turno che NON va finalizzato — vive

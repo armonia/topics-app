@@ -270,6 +270,19 @@ export function setBenchStaleTimeout(ms: number | null): void {
   benchTimeoutMs = ms;
 }
 
+/**
+ * The bench's own tick for the sweep, beside the real 30 s one (which keeps
+ * running): `run` is the server's whole pass, so a spec that cut the silence
+ * threshold also gets a pass every `ms` instead of waiting for the 30 s one.
+ * `null` stops it.
+ */
+let benchTickTimer: ReturnType<typeof setInterval> | null = null;
+export function setBenchStaleTick(ms: number | null, run: (() => void) | undefined): void {
+  if (benchTickTimer) clearInterval(benchTickTimer);
+  benchTickTimer = ms && run ? setInterval(run, ms) : null;
+  benchTickTimer?.unref?.();
+}
+
 export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, SweepOutcome> {
   const now = deps.now();
   const outcomes = new Map<string, SweepOutcome>();

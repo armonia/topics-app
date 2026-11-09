@@ -142,7 +142,7 @@ test.describe("a resend the chat route refused, with the chat open in two window
       await setHidden(pageB, true);
 
       // The wake-up: a stream on another chat that the stale tick closes.
-      expect((await request.post(`${E2E_BASE}/api/test/stale-stream-clock`, { data: { timeoutMs: 1_000 } })).ok()).toBe(true);
+      expect((await request.post(`${E2E_BASE}/api/test/stale-stream-clock`, { data: { timeoutMs: 1_000, tickMs: 2_000 } })).ok()).toBe(true);
       expect((await request.post(`${E2E_BASE}/api/test/streams/partial`, { data: { sessionKey: await sessionKeyOf(request, b) } })).ok()).toBe(true);
 
       // The sweep traced the notice and the route refused the resend: the

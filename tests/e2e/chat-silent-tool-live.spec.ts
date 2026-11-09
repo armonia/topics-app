@@ -11,8 +11,8 @@
  *
  * The turns here are real server turns from a fake CLI whose Bash prints
  * nothing (`helpers/fake-claude-silent-tool.ts`). Where the sweep has to act,
- * its silence threshold is cut to 1 s (`/api/test/stale-stream-clock`) so its
- * real 30 s tick runs during the test and asks the child, which is alive. On a
+ * its silence threshold is cut to 1 s, and the sweep step to 2 s (`/api/test/stale-stream-clock`) so its
+ * sweep runs several times during the test and asks the child, which is alive. On a
  * checkout where `isStreaming` still had a clock, that cut hid the turn 29 s
  * out of 30.
  *
@@ -47,17 +47,17 @@ test.describe("a turn silent in a tool for longer than the stale threshold", () 
   test("the viewer keeps the Stop through the silence, and loses it only when the turn ends", async ({ page, request, chatPage }) => {
     const { topic, sessionKey } = await openChat(page, request, chatPage, "silent-tool");
     try {
-      expect((await request.post(`${E2E_BASE}/api/test/stale-stream-clock`, { data: { timeoutMs: 1_000 } })).ok()).toBe(true);
+      expect((await request.post(`${E2E_BASE}/api/test/stale-stream-clock`, { data: { timeoutMs: 1_000, tickMs: 2_000 } })).ok()).toBe(true);
       // Sent from outside this page: its own SSE would keep it lit whatever the registry said.
       const turn = request.post(`${E2E_BASE}/api/chat`, {
-        data: { sessionKey, messages: [{ role: "user", content: "silent 50" }] },
-        timeout: 150_000,
+        data: { sessionKey, messages: [{ role: "user", content: "silent 40" }] },
+        timeout: 120_000,
       });
       await expect(page.getByText("Starting a silent tool.").first()).toBeVisible({ timeout: 30_000 });
       await expect(page.locator(STOP).first()).toBeVisible({ timeout: 10_000 });
 
-      // Well past the threshold and two registry polls.
-      const trace = await watchStop(page, 42_000);
+      // Well past the threshold and two registry polls (the client asks every 15 s, so 33 s holds two).
+      const trace = await watchStop(page, 33_000);
       expect(trace, "the Stop went away during a silent tool").toEqual([{ t: 0, on: true }]);
 
       // The gate reads the same registry: a second turn waits for this one.
