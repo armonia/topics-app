@@ -361,6 +361,38 @@ c'è, e falsa per un identificativo sconosciuto e per uno vuoto.
 - **GIVEN** un piccolo scarto negativo di orologio
 - **THEN** SHALL essere accettato
 
+### Requirement: EXTPROXY-01 — Le sessioni aperte FUORI da Topics passano dal proxy di Topics, e se il motore degli account tace la app non resta senza rete
+
+Con `TOPICS_EXTERNAL_PROXY_PORT` impostata il server SHALL aprire un listener
+dedicato su 127.0.0.1 (mai la porta principale) che fa da proxy CONNECT per la app
+Claude desktop, riavviata con `HTTPS_PROXY` e `NODE_EXTRA_CA_CERTS`. Senza la
+variabile NON SHALL ascoltare niente.
+
+`POST /v1/messages` e `/v1/messages/count_tokens` di api.anthropic.com SHALL andare
+all'indirizzo che usa il motore nativo (`anthropicMessagesUrl`, quindi al motore
+degli account), con corpo e intestazioni intatti; ogni altro percorso SHALL andare
+ad Anthropic com'è, e ogni altro host SHALL passare in tunnel di byte senza essere
+aperto. Le risposte, SSE comprese, SHALL arrivare a pezzi, nell'ordine in cui il
+motore le scrive.
+
+FAIL-OPEN: se il motore rifiuta la connessione, la chiude prima di rispondere, o
+non dà intestazioni entro la soglia E ANCHE il suo `/health` tace, la richiesta
+SHALL andare ad Anthropic con le intestazioni originali. Una risposta lenta con
+`/health` vivo NON è un guasto e NON SHALL partire due volte. I log NON SHALL
+contenere corpi, intestazioni, token, query né UUID.
+
+La CA SHALL stare nella cartella dati di Topics (0700, chiavi 0600), vincolata a
+`api.anthropic.com`; host, porta e percorso della CA SHALL essere scritti in
+`external-proxy.json` nella stessa cartella e tolti allo spegnimento.
+
+#### Scenario: il motore è giù
+- **GIVEN** il motore non risponde
+- **THEN** la richiesta SHALL andare ad Anthropic e il guasto SHALL essere annotato
+
+#### Scenario: il motore è lento ma vivo
+- **GIVEN** una risposta che tarda e un `/health` che risponde
+- **THEN** SHALL essere attesa, senza un secondo invio
+
 ### Requirement: TITLE-02 — Anche l'altro agente deriva il titolo dal messaggio VERO
 
 Il titolo SHALL preferire l'ULTIMO messaggio pulito della persona — è il turno
