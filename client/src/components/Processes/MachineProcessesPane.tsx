@@ -1,15 +1,19 @@
 /**
  * THE MACHINE'S PROCESSES (hub-smistamento, HUBBR-08 and HUBBR-09).
  *
- * One view for the whole machine, read from the usage hub through the Topics
- * proxy: the Mac (gauges, then who weighs, with memory, GPU and network per
- * process and the CPU where the hub measures it), the PC, the hub's services
- * and the Claude proxy's log, live. It replaces «This computer» of the Topics
- * menu: the server and the gateway are services here.
+ * The SESSIONS are the centre, as on the PC's screen (`/schermo`): every card,
+ * chat or terminal at work with its model, tokens, speed, clock, CPU and
+ * memory, and the processes it launched as the detail INSIDE it
+ * (`SessionsPanel`). The machine is the context beside them, read from the
+ * usage hub through the Topics proxy: the Mac's gauges, the PC, the hub's
+ * services and the Claude proxy's log. The Mac's process list exists only
+ * folded, read-only, for who wants to see what weighs; the backup is one line
+ * at the foot.
  *
- * Read-only by design. The one command is the Stop button on a project script Topics
- * started (the same stop as the project's own Processes section); the hub
- * restarts nothing from here. A number the hub did not measure is a dash.
+ * No command on a process: stopping is on the session (with a confirmation
+ * that names it) and on a project script Topics started (the project's own
+ * Stop). Nothing here closes an app or Topics itself. A number the hub did not
+ * measure is a dash.
  *
  * The log is an EventSource on the proxy's stream, open only while the view is
  * mounted and the log is open: closing either closes the stream, so nothing
@@ -18,7 +22,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Activity, AppWindow, ArrowUpRight, Asterisk, Box, ChevronDown, ChevronRight, CloudOff, Cpu, Folder,
-  HardDrive, Monitor, Moon, Pause, Play, Plug, ScrollText, Search, Server, Square, X, Zap, type LucideIcon,
+  Monitor, Moon, Pause, Play, Plug, ScrollText, Server, Square, Zap, type LucideIcon,
 } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { useScripts } from '../../hooks/useScripts';
@@ -30,7 +34,7 @@ import { PROCESSES_LOG_EVENT, takeProcessesLogRequest } from '../../state/proces
 import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { readJson } from '../../lib/readJson';
 import {
-  NOT_MEASURED, PROXY_SERVICE_ID, SORT_KEYS, backupView, censusAt, closeProcess, filterRows, sortRows, type BackupView, type SortKey, formatMem, formatPct, formatRate, macGauges, parseLogEvent, pcView,
+  NOT_MEASURED, PROXY_SERVICE_ID, backupView, censusAt, type BackupView, formatMem, formatPct, formatRate, macGauges, parseLogEvent, pcView,
   processRows, pushLogLine, serviceGroups, serviceRows, servicesReadAt, servicesToWatch, type HistoryPoint, type LogLine, type MacGauges, type PcView, type ProcessRow, type ServiceRow, type UnitKind,
 } from '../../lib/machineProcesses';
 
@@ -51,6 +55,7 @@ const KIND_ICON: Record<UnitKind, LucideIcon> = {
 const STOP_BUTTON = 'inline-flex h-6 items-center gap-1 justify-self-end rounded-sm bg-black/[0.035] px-[7px] text-mini text-app-text-secondary hover:bg-black/[0.06] hover:text-app-text dark:bg-white/[0.05] dark:hover:bg-white/[0.14] @max-3xl:h-9 @max-3xl:px-2.5 @max-3xl:text-compact disabled:opacity-60';
 const TRACK = 'bg-black/[0.07] dark:bg-white/[0.08]';
 const ROW_GRID = '@3xl:grid @3xl:grid-cols-[minmax(0,1fr)_46px_118px_42px_108px_64px] @3xl:items-center @3xl:gap-x-2.5';
+const DOT = 'h-[7px] w-[7px] flex-none rounded-full';
 
 interface HubReads {
   census: unknown;
@@ -127,20 +132,21 @@ export function MachineProcessesPane() {
           </span>
         </header>
 
-        {/* Topics' own sessions: they do not depend on the hub, so they are here even when it is gone. */}
-        <SessionsPanel />
-
         {present && stale && <HubDownBand onRetry={reread} />}
 
-        {present && (
-        <div className="grid items-start gap-3.5 @5xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
-          <MacSection gauges={gauges} rows={rows} onStopped={refresh} onClosed={reread} backup={backup} />
-          <div className="flex min-w-0 flex-col gap-3.5">
-            {pc && <PcSection pc={pc} stale={stale} />}
-            <ServicesAndLog services={services} readAt={failing ? null : servicesReadAt(live.services?.data)} />
-          </div>
+        {/* The sessions are the centre; the machine is the context beside them. */}
+        <div className={`grid items-start gap-3.5 ${present ? '@5xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]' : ''}`}>
+          {/* Topics' own sessions: they do not depend on the hub, so they are here even when it is gone. */}
+          <SessionsPanel />
+          {present && (
+            <div className="flex min-w-0 flex-col gap-3.5" data-testid="machine-processes-context">
+              <MacSection gauges={gauges} rows={rows} onStopped={refresh} />
+              {pc && <PcSection pc={pc} stale={stale} />}
+              <ServicesAndLog services={services} readAt={failing ? null : servicesReadAt(live.services?.data)} />
+            </div>
+          )}
         </div>
-        )}
+        {present && <BackupLine backup={backup} now={now} />}
       </div>
     </div>
   );
@@ -218,17 +224,15 @@ export function Gauge({ label, value, unit, share, warn = false, history = [], n
   );
 }
 
-function MacSection({ gauges: g, rows: census, onStopped, onClosed, backup }: { gauges: MacGauges; rows: ProcessRow[]; onStopped: () => void; onClosed: () => void; backup: BackupView | null }) {
+function MacSection({ gauges: g, rows, onStopped }: { gauges: MacGauges; rows: ProcessRow[]; onStopped: () => void }) {
   const tr = useT();
+  // Folded by default: the Mac's processes are context, the sessions carry their own.
+  const [open, setOpen] = useState(false);
   const [all, setAll] = useState(false);
-  const [query, setQuery] = useState('');
-  const [sort, setSort] = useState<SortKey>('mem');
-  // Searching or re-ordering shows every match: the "N more" fold is for the default view only.
-  const asked = query.trim() !== '' || sort !== 'mem';
-  const rows = useMemo(() => (asked ? sortRows(filterRows(census, query), sort) : census), [census, query, sort, asked]);
-  const shown = all || asked ? rows : rows.slice(0, TOP_ROWS);
-  const rest = all || asked ? [] : rows.slice(TOP_ROWS);
+  const shown = all ? rows : rows.slice(0, TOP_ROWS);
+  const rest = all ? [] : rows.slice(TOP_ROWS);
   const restMem = rest.reduce((s, r) => s + r.memMB, 0);
+  const totalMem = rows.reduce((s, r) => s + r.memMB, 0);
   const memShare = g.memUsedGB !== null && g.totalGB ? g.memUsedGB / g.totalGB : null;
   // The pressure is its own measure, so it is named here and not drawn under the used GB.
   const summary = [
@@ -240,13 +244,14 @@ function MacSection({ gauges: g, rows: census, onStopped, onClosed, backup }: { 
   const strained = g.level >= 2;
   const swapShare = g.swapUsedGB !== null && g.swapTotalGB ? g.swapUsedGB / g.swapTotalGB : null;
   return (
-    <section aria-label={tr('processes.mac')} className={SECTION} data-testid="machine-processes-mac" data-level={g.level}>
+    // Its own container: beside the sessions it is a narrow column, and the gauges and rows lay out for that width.
+    <section aria-label={tr('processes.mac')} className={`${SECTION} @container`} data-testid="machine-processes-mac" data-level={g.level}>
       <div className={SECTION_HEAD}>
         <Monitor size={14} className="flex-none text-app-text-secondary" aria-hidden="true" />
         <span className="text-compact font-semibold text-app-text-heading">{tr('processes.mac')}</span>
-        <span className={`min-w-0 flex-1 truncate text-mini tabular-nums ${g.level > 0 ? (strained ? DANGER_TEXT : WARNING_TEXT) : FAINT} @max-3xl:whitespace-normal @max-3xl:text-compact`}>{summary}</span>
+        <span className={`min-w-0 flex-1 truncate text-mini tabular-nums ${g.level > 0 ? (strained ? DANGER_TEXT : WARNING_TEXT) : FAINT}`}>{summary}</span>
       </div>
-      <div className="grid grid-cols-6 border-b border-app-border-subtle tabular-nums @max-3xl:grid-cols-3">
+      <div className="grid grid-cols-3 border-b border-app-border-subtle tabular-nums @3xl:grid-cols-6">
         <Gauge label={tr('processes.cpu')} value={formatPct(g.cpuPct)} share={g.cpuPct === null ? null : g.cpuPct / 100} history={g.history.cpu} note={g.notes.cpu} />
         <Gauge label={tr('processes.memory')} value={g.memUsedGB === null ? NOT_MEASURED : g.memUsedGB.toFixed(1).replace('.', ',')} unit={g.totalGB ? `/ ${Math.round(g.totalGB)} GB` : undefined} share={memShare} warn={memShare !== null && memShare >= 0.8} />
         <Gauge label={tr('processes.swap')} value={g.swapUsedGB === null ? NOT_MEASURED : g.swapUsedGB.toFixed(1).replace('.', ',')} unit="GB" share={swapShare} warn={swapShare !== null && swapShare > 0.8} note={g.notes.swap} />
@@ -257,76 +262,60 @@ function MacSection({ gauges: g, rows: census, onStopped, onClosed, backup }: { 
       {g.lines.map((line, i) => (
         <div key={i} className={`flex min-h-[34px] items-center gap-2.5 border-b border-app-border-subtle px-2.5 py-1 ${g.level > 0 ? 'bg-amber-500/[0.06]' : ''}`} data-testid="machine-mac-line">
           <Activity size={14} className={`flex-none ${g.level > 0 ? WARNING_TEXT : FAINT}`} aria-hidden="true" />
-          <span className="min-w-0 flex-1 text-compact text-app-text @max-3xl:text-prose">{line}</span>
+          <span className="min-w-0 flex-1 text-compact text-app-text">{line}</span>
         </div>
       ))}
-      <div className="flex items-center gap-2 border-b border-app-border-subtle px-2.5 py-1.5 @max-3xl:flex-wrap">
-        <label className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-sm bg-black/[0.035] px-2 dark:bg-white/[0.05] @max-3xl:h-10">
-          <Search size={13} className={`flex-none ${FAINT}`} aria-hidden="true" />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={tr('processes.search')}
-            aria-label={tr('processes.search')}
-            className="min-w-0 flex-1 bg-transparent text-compact text-app-text outline-none placeholder:text-app-text-faint @max-3xl:text-prose"
-            data-testid="machine-processes-search"
-          />
-        </label>
-        <select
-          value={sort}
-          onChange={(e) => setSort(e.target.value as SortKey)}
-          aria-label={tr('processes.sortBy')}
-          className="h-7 rounded-sm bg-black/[0.035] px-1.5 text-compact text-app-text outline-none dark:bg-white/[0.05] @max-3xl:h-10 @max-3xl:text-prose"
-          data-testid="machine-processes-sort"
+      {rows.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          title={tr('processes.machineProcsHint')}
+          className={`flex h-8 w-full items-center gap-1.5 px-2.5 text-left text-mini ${FAINT} hover:bg-app-hover hover:text-app-text @max-3xl:h-11 @max-3xl:text-compact`}
+          data-testid="machine-processes-toggle"
         >
-          {SORT_KEYS.map((k) => <option key={k} value={k}>{tr(`processes.sort.${k}`)}</option>)}
-        </select>
-      </div>
-      <div className={`${ROW_GRID} h-7 border-b border-app-border-subtle px-2.5 text-mini uppercase tracking-[0.04em] ${FAINT} hidden @3xl:grid`}>
-        <span>{tr('processes.process')}</span>
-        <span className="text-right">{tr('processes.cpu')}</span>
-        <span className="inline-flex items-center justify-end gap-[3px] text-app-text-secondary">{tr('processes.memory')}<ChevronDown size={11} aria-hidden="true" /></span>
-        <span className="text-right">{tr('processes.gpu')}</span>
-        <span className="text-right">{tr('processes.net')}</span>
-        <span />
-      </div>
-      <div data-testid="machine-processes-rows">
-        {shown.map((r) => <ProcessRowView key={r.id} row={r} onStopped={onStopped} onClosed={onClosed} />)}
-        {shown.length === 0 && <div className={`px-2.5 py-3 text-compact ${FAINT}`} data-testid="machine-processes-empty">{tr('processes.noMatch')}</div>}
-      </div>
-      {rest.length > 0 && (
-        <button type="button" onClick={() => setAll((v) => !v)} data-testid="machine-processes-more" className={`flex h-8 w-full items-center justify-center gap-1.5 border-t border-app-border-subtle text-mini ${FAINT} hover:bg-app-hover @max-3xl:h-11 @max-3xl:text-compact`}>
-          <ChevronDown size={13} className={all ? 'rotate-180' : ''} aria-hidden="true" />
-          {all ? tr('processes.less') : tr('processes.more', { n: rest.length, mem: formatMem(restMem) })}
+          <ChevronRight size={12} className={`flex-none ${open ? 'rotate-90' : ''}`} aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate tabular-nums">{tr('processes.machineProcs', { n: rows.length, mem: formatMem(totalMem) })}</span>
         </button>
       )}
-      <BackupBox backup={backup} />
-      <div className={`flex items-center gap-1.5 border-t border-app-border-subtle px-2.5 py-[7px] text-mini ${FAINT} @max-3xl:text-compact`}>
-        <Square size={12} className="flex-none" aria-hidden="true" />
-        {tr('processes.rule')}
-      </div>
+      {open && (
+        <>
+          <div className="border-t border-app-border-subtle" data-testid="machine-processes-rows">
+            {shown.map((r) => <ProcessRowView key={r.id} row={r} onStopped={onStopped} />)}
+          </div>
+          {(rest.length > 0 || all) && (
+            <button type="button" onClick={() => setAll((v) => !v)} data-testid="machine-processes-more" className={`flex h-8 w-full items-center justify-center gap-1.5 border-t border-app-border-subtle text-mini ${FAINT} hover:bg-app-hover @max-3xl:h-11 @max-3xl:text-compact`}>
+              <ChevronDown size={13} className={all ? 'rotate-180' : ''} aria-hidden="true" />
+              {all ? tr('processes.less') : tr('processes.more', { n: rest.length, mem: formatMem(restMem) })}
+            </button>
+          )}
+        </>
+      )}
     </section>
   );
 }
 
-function BackupBox({ backup }: { backup: BackupView | null }) {
+/** The Mac's backup as ONE line at the foot of the view: the outcome, when, and the last good copy when the last run failed. */
+function BackupLine({ backup, now }: { backup: BackupView | null; now: number }) {
   const tr = useT();
-  const when = backup ? new Date(backup.at).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+  const when = (at: number) => {
+    const d = new Date(at);
+    const sameDay = new Date(now).toDateString() === d.toDateString();
+    return d.toLocaleString(undefined, sameDay ? { hour: '2-digit', minute: '2-digit', hour12: false } : { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+  };
+  const state = backup === null ? 'none' : backup.ok ? 'ok' : 'error';
+  const text = backup === null
+    ? tr('processes.backupNone')
+    : [
+      tr(backup.ok ? 'processes.backupOk' : 'processes.backupFailed', { when: when(backup.at) }),
+      backup.detail,
+      !backup.ok && backup.lastOkAt !== null ? tr('processes.backupLastOk', { when: when(backup.lastOkAt) }) : null,
+    ].filter(Boolean).join(' · ');
   return (
-    <div className="flex items-center gap-2.5 border-t border-app-border-subtle px-2.5 py-2" data-testid="machine-backup" data-state={backup === null ? 'none' : backup.ok ? 'ok' : 'error'}>
-      <HardDrive size={14} className={`flex-none ${backup && !backup.ok ? WARNING_TEXT : 'text-app-text-secondary'}`} aria-hidden="true" />
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="text-compact font-semibold text-app-text-heading">{tr('processes.backup')}</span>
-        <span className={`truncate text-mini @max-3xl:text-compact ${backup === null ? FAINT : backup.ok ? SUCCESS_TEXT : DANGER_TEXT}`} data-testid="machine-backup-last">
-          {backup === null ? tr('processes.backupNone') : `${tr(backup.ok ? 'processes.backupOk' : 'processes.backupFailed')} · ${when}${backup.detail ? ` · ${backup.detail}` : ''}`}
-        </span>
-      </span>
-      {backup && backup.ticks.length > 0 && (
-        <span className="flex flex-none items-end gap-[2px]" aria-hidden="true" data-testid="machine-backup-ticks">
-          {backup.ticks.slice(-14).map((t) => <i key={t.at} data-ok={t.ok} className={`block h-3.5 w-[3px] rounded-[1px] ${t.ok ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-red-500'}`} />)}
-        </span>
-      )}
+    <div className={`mt-3.5 flex min-w-0 items-center gap-2 px-0.5 text-mini ${FAINT} @max-3xl:text-compact`} data-testid="machine-backup" data-state={state}>
+      <span className={`${DOT} ${state === 'ok' ? 'bg-emerald-500 dark:bg-emerald-400' : state === 'error' ? 'bg-red-500' : 'bg-app-text-faint opacity-50'}`} />
+      <span className="flex-none text-app-text-secondary">{tr('processes.backup')}</span>
+      <span className={`min-w-0 truncate tabular-nums ${state === 'error' ? DANGER_TEXT : ''}`} data-testid="machine-backup-last">{text}</span>
     </div>
   );
 }
@@ -341,7 +330,7 @@ function Net({ inBps, outBps }: { inBps: number | null; outBps: number | null })
   );
 }
 
-export function ProcessRowView({ row: r, onStopped, onClosed = () => {} }: { row: ProcessRow; onStopped: () => void; onClosed?: () => void }) {
+export function ProcessRowView({ row: r, onStopped }: { row: ProcessRow; onStopped: () => void }) {
   const tr = useT();
   const Icon = KIND_ICON[r.kind];
   const [stopping, setStopping] = useState(false);
@@ -358,16 +347,6 @@ export function ProcessRowView({ row: r, onStopped, onClosed = () => {} }: { row
     catch (e) { setFailure(e instanceof Error ? e.message : String(e)); }
     finally { setStopping(false); }
   }, [r.script, onStopped]);
-  // Closing is a request to the service, after a confirmation that names the process.
-  const [confirming, setConfirming] = useState(false);
-  const close = useCallback(async (signal: 'TERM' | 'KILL') => {
-    if (!r.closable) return;
-    setStopping(true);
-    setFailure(null);
-    const why = await closeProcess(r.closable, signal);
-    setStopping(false);
-    if (why === null) { setConfirming(false); onClosed(); } else setFailure(why);
-  }, [r.closable, onClosed]);
   const metric = (label: string, value: ReactNode, cls = '') => (
     <span className={cls}><span className={`mr-[3px] ${FAINT}`}>{label}</span>{value}</span>
   );
@@ -398,7 +377,7 @@ export function ProcessRowView({ row: r, onStopped, onClosed = () => {} }: { row
           ) : (
             <span className={`truncate text-mini ${FAINT} @max-3xl:text-compact`}>{[tr(`processes.kind.${r.kind}`), r.detail].filter(Boolean).join(' · ')}</span>
           )}
-          {failure && <span className={`text-mini ${DANGER_TEXT}`}>{tr(r.closable ? 'processes.closeFailed' : 'processes.stopFailed', { why: failure })}</span>}
+          {failure && <span className={`text-mini ${DANGER_TEXT}`}>{tr('processes.stopFailed', { why: failure })}</span>}
         </span>
       </div>
       <span className={`hidden text-right text-compact tabular-nums @3xl:block ${r.cpuPct === null ? FAINT : ''}`} data-testid="machine-process-cpu" title={cpuTitle}>{cpu}</span>
@@ -409,25 +388,12 @@ export function ProcessRowView({ row: r, onStopped, onClosed = () => {} }: { row
       <span className={`hidden text-right text-compact tabular-nums @3xl:block ${r.gpuPct === null ? FAINT : ''}`} data-testid="machine-process-gpu">{formatPct(r.gpuPct)}</span>
       <span className="hidden justify-end tabular-nums @3xl:flex" data-testid="machine-process-net"><Net inBps={r.netInBps} outBps={r.netOutBps} /></span>
       <span className="flex justify-end">
-        {r.closable && !confirming && (
-          <button type="button" className={STOP_BUTTON} onClick={() => setConfirming(true)} title={tr('processes.closeTitle', { name: r.name })} data-testid="machine-process-close">
-            <X size={11} aria-hidden="true" />{tr('processes.close')}
-          </button>
-        )}
         {r.script && (
           <button type="button" className={STOP_BUTTON} disabled={stopping} onClick={() => void stop()} title={tr('processes.stopTitle', { script: r.script.scriptName, project: r.script.project })} data-testid="machine-process-stop">
             <Square size={11} aria-hidden="true" />{tr('processes.stop')}
           </button>
         )}
       </span>
-      {confirming && (
-        <div className="col-span-full flex flex-wrap items-center gap-2 pl-[30px] text-compact" role="group" aria-label={tr('processes.closeAsk', { name: r.name })} data-testid="machine-process-confirm">
-          <span className="min-w-0 flex-1 text-app-text">{tr('processes.closeAsk', { name: r.name })}</span>
-          <button type="button" className={STOP_BUTTON} disabled={stopping} onClick={() => void close('TERM')} data-testid="machine-process-confirm-term">{tr('processes.closeTerm')}</button>
-          <button type="button" className={STOP_BUTTON} disabled={stopping} onClick={() => void close('KILL')} data-testid="machine-process-confirm-kill">{tr('processes.closeKill')}</button>
-          <button type="button" className={STOP_BUTTON} disabled={stopping} onClick={() => { setConfirming(false); setFailure(null); }} data-testid="machine-process-confirm-cancel">{tr('processes.closeCancel')}</button>
-        </div>
-      )}
       <div className="col-span-2 flex flex-wrap gap-x-2.5 gap-y-1 whitespace-nowrap pl-[30px] text-compact tabular-nums text-app-text-secondary @3xl:hidden">
         {metric(tr('processes.cpu'), cpu)}
         {metric(tr('processes.memory'), formatMem(r.memMB), memTone)}

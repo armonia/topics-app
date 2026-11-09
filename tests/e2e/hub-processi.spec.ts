@@ -1,26 +1,37 @@
 /**
- * HUBBR-22: the Processes view does what the tray did and Topics did not: search,
- * order, close a process (after a confirmation that names it), and the Mac
- * backup box. The hub is a fake (helpers/fake-hub.ts): the close request goes
- * to its `mac/procs/close`, so no real process is ever signalled. The fake
- * refuses a request whose birth instant is not the census's, like the service
- * does for a reused pid.
+ * HUBBR-22: «Processi» opens on the SESSIONS, as the PC's screen does. The
+ * Mac's processes are context beside them, folded and read-only: no search, no
+ * order, no Close on any process, nothing that closes Topics. The one command
+ * is Stop on a session, after an inline confirmation that names it. The Mac
+ * backup is one line at the foot.
  *
- * Mutation: with `closeTarget` (lib/machineProcesses.ts) answering null, «close
- * asks first» is red (no row carries a Close button); with the birth instant
- * left out of the request, «a reused pid is refused» is red (the fake closes it).
+ * The session is real (helpers/session-seed.ts): a card in progress bound to a
+ * chat. It has no live agent, so the board's Stop answers 409 and the row says
+ * so: what this proves is that nothing leaves before the confirmation, that
+ * the confirmed Stop goes to the card's own address, and that a refusal is
+ * shown. The hub is a fake (helpers/fake-hub.ts).
+ *
+ * Mutation: with `stopTarget` (SessionConsumption.tsx) answering null, «Stop
+ * asks first» is red (the session has no Stop); with the Mac's fold open by
+ * default, «the centre is the sessions» is red (process rows on open).
+ *
+ * Video on: the recording is the proof. The shot of the panel goes to the
+ * test's output (`processes-sessions.png`).
  *
  * @covers HUBBR-22
  */
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
-import { resetPaneStore } from "./helpers/api-fixtures";
+import { holdDispatchReconcile, resetPaneStore } from "./helpers/api-fixtures";
+import { openSceneInSidebar, seedScene, type Scene } from "./helpers/shot-scene";
 import { openPerfPanel } from "./helpers/open-perf-panel";
 import { startFakeHub, type FakeHub } from "./helpers/fake-hub";
-import { E2E_BASE } from "./helpers/test-server";
+import { feedRounds, seedRunningCard, type RunningCard } from "./helpers/session-seed";
+import { E2E_BASE, canonicalTmpRoot } from "./helpers/test-server";
+import { projectIdForPath } from "../../shared/board";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ viewport: { width: 1440, height: 900 }, colorScheme: "dark", locale: "it-IT", video: "on" });
 test.describe.configure({ mode: "serial", timeout: 150_000 });
 
 const PANE = "machine-processes";
@@ -38,91 +49,105 @@ async function open(page: Page): Promise<void> {
   await openPerfPanel(page);
   await page.getByTestId("menu-system-processes").click();
   await expect(page.getByTestId(PANE)).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId("machine-process-row").first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("machine-processes-mac")).toBeVisible({ timeout: 20_000 });
 }
 
-const row = (page: Page, name: string) => page.getByTestId("machine-process-row").filter({ hasText: name });
-
-test.describe("processes: search, order, close, backup", () => {
+test.describe("processes: sessions at the centre", () => {
   let hub: FakeHub | null = null;
+  let scene: Scene | null = null;
+  let card: RunningCard | null = null;
+  let stopFeeding: () => void = () => {};
 
   test.beforeAll(async ({ request }) => {
+    scene = await seedScene(request, `${canonicalTmpRoot()}/e2e-hub-processi-${Date.now().toString(36)}`);
     hub = await startFakeHub();
     await waitForHub(request);
+    await holdDispatchReconcile(request, 240_000);
+    card = await seedRunningCard(request, {
+      boardId: projectIdForPath(scene.dirOf("acme-web")), topicId: scene.chats["acme-web"][0], text: "Rifare la sincronizzazione del calendario",
+      model: "claude-opus-5", holdMB: 320, burnPct: 10, input: 38_000, output: 12_400, cacheRead: 410_000,
+    });
+    stopFeeding = feedRounds([{ card, perRound: 120 }], 2_000);
   });
-  test.afterAll(async () => { await hub?.close(); });
+  test.afterAll(async ({ request }) => {
+    stopFeeding();
+    await card?.stop();
+    await hub?.close();
+    await scene?.cleanup(request);
+  });
   test.beforeEach(async ({ request }) => {
+    // The session's first reading and the scene take most of the default 30 s on a busy Mac.
+    test.setTimeout(150_000);
+    if (hub) hub.backup = null;
+    if (!scene) return;
     await resetPaneStore(request, []);
-    if (hub) { hub.closed = []; hub.posts = []; hub.answersOverride = {}; hub.backup = null; }
+    await openSceneInSidebar(request, scene);
   });
 
-  test("search narrows the list and order changes the first row", async ({ page }) => {
+  test("the centre is the sessions: no process row on open, the Mac's processes folded and without Close", async ({ page }, testInfo) => {
     await open(page);
-    const rows = page.getByTestId("machine-process-row");
-    await expect(rows.first()).toContainText("Gateway di Jarvis");
-    await page.getByTestId("machine-processes-sort").selectOption("name");
-    await expect(rows.first()).toContainText("Browser");
-    await page.getByTestId("machine-processes-search").fill("container");
-    await expect(rows).toHaveCount(1);
-    await expect(rows.first()).toContainText("Container locali");
-    await page.getByTestId("machine-processes-search").fill("zzz-nothing");
-    await expect(page.getByTestId("machine-processes-empty")).toBeVisible();
+    const sessions = page.getByTestId("machine-processes-sessions");
+    await expect(sessions.getByTestId("session-row")).toHaveCount(1, { timeout: 30_000 });
+    // Sessions first in reading order, the machine beside them.
+    const [sBox, mBox] = await Promise.all([sessions.boundingBox(), page.getByTestId("machine-processes-mac").boundingBox()]);
+    expect(sBox!.x).toBeLessThan(mBox!.x);
+    expect(sBox!.width).toBeGreaterThan(mBox!.width);
+    // Nothing of the old process table on open: no row, no search, no order.
+    await expect(page.getByTestId("machine-process-row")).toHaveCount(0);
+    await expect(page.getByTestId("machine-processes-search")).toHaveCount(0);
+    await expect(page.getByTestId("machine-processes-sort")).toHaveCount(0);
+    await expect(page.getByTestId("machine-processes-toggle")).toContainText(/Processi del Mac · \d+ · [\d,]+ GB/);
+    await page.screenshot({ path: testInfo.outputPath("processes-sessions.png") });
+    // The fold opens read-only: the rows are there, no Close on any of them, nothing that closes Topics.
+    await page.getByTestId("machine-processes-toggle").click();
+    // The heaviest eight, the rest behind «Altri».
+    await expect(page.getByTestId("machine-process-row")).toHaveCount(8);
+    await expect(page.getByTestId(PANE)).not.toContainText("Chiudi");
+    await expect(page.getByTestId(PANE)).not.toContainText("Forza chiusura");
   });
 
-  test("close asks first, names the process, and only then signals; the system has no Close", async ({ page }) => {
+  test("Stop on a session asks first, names it, and only then goes to the card", async ({ page }) => {
     await open(page);
-    await expect(row(page, "macOS").getByTestId("machine-process-close")).toHaveCount(0);
-    await expect(row(page, "Gateway di Jarvis").getByTestId("machine-process-close")).toHaveCount(0);
-    const browser = row(page, "Browser");
-    await browser.getByTestId("machine-process-close").click();
-    await expect(browser.getByTestId("machine-process-confirm")).toContainText("Browser");
-    expect(hub!.closed).toEqual([]);
-    await browser.getByTestId("machine-process-confirm-cancel").click();
-    await expect(browser.getByTestId("machine-process-confirm")).toHaveCount(0);
-    expect(hub!.closed).toEqual([]);
-    await browser.getByTestId("machine-process-close").click();
-    await browser.getByTestId("machine-process-confirm-term").click();
-    await expect.poll(() => hub!.closed).toEqual([{ pid: 2401, signal: "TERM" }]);
-    const containers = row(page, "Container locali");
-    await containers.getByTestId("machine-process-close").click();
-    await containers.getByTestId("machine-process-confirm-kill").click();
-    await expect.poll(() => hub!.closed.at(-1)).toEqual({ pid: 2501, signal: "KILL" });
+    const row = page.getByTestId("session-row").filter({ hasText: "Rifare la sincronizzazione del calendario" });
+    await expect(row).toHaveCount(1, { timeout: 30_000 });
+    const stops: string[] = [];
+    page.on("request", (r) => { if (r.method() === "POST" && /\/tasks\/[^/]+\/stop$/.test(r.url())) stops.push(r.url()); });
+    await row.getByTestId("session-stop").click();
+    await expect(row.getByTestId("session-stop-confirm")).toContainText("Fermare «Rifare la sincronizzazione del calendario»?");
+    await row.getByTestId("session-stop-confirm-cancel").click();
+    await expect(row.getByTestId("session-stop-confirm")).toHaveCount(0);
+    expect(stops).toEqual([]);
+    await row.getByTestId("session-stop").click();
+    await row.getByTestId("session-stop-confirm-yes").click();
+    await expect.poll(() => stops.length).toBe(1);
+    expect(stops[0]).toContain(`/tasks/${card!.taskId}/stop`);
+    // The seeded card has no live agent: the board refuses, and the row says it did not stop.
+    await expect(row.getByTestId("session-stop-failed")).toContainText("Non si è fermata");
   });
 
-  test("a pid the system reused is refused and says why", async ({ page }) => {
-    hub!.answersOverride["mac/procs"] = {
-      at: Date.now(),
-      units: [{ id: "app:browser", name: "Browser", type: "app", memMB: 980, pids: [2401], procs: [{ pid: 2401, startedAt: 1 }], use: { text: "x" } }],
-      summary: { processes: 1, units: 1, memMB: 980 },
-    };
+  test("backup: one line at the foot, with the last good run when the last one failed", async ({ page }) => {
     await open(page);
-    const browser = row(page, "Browser");
-    await browser.getByTestId("machine-process-close").click();
-    await browser.getByTestId("machine-process-confirm-term").click();
-    await expect(browser).toContainText("pid reused");
-    expect(hub!.closed).toEqual([]);
-  });
-
-  test("backup: no file says so, a file shows the last run and the ticks", async ({ page }) => {
-    await open(page);
-    await expect(page.getByTestId("machine-backup")).toHaveAttribute("data-state", "none");
-    await expect(page.getByTestId("machine-backup-last")).toContainText("Nessun backup registrato");
-    hub!.backup = {
-      last: { at: Date.now() - 5 * HOUR, ok: true, detail: "1,2 GB in 4 min" },
-      ticks: [0, 1, 2, 3].map((i) => ({ at: Date.now() - (4 - i) * 24 * HOUR, ok: i !== 1 })),
-    };
-    await open(page);
-    await expect(page.getByTestId("machine-backup")).toHaveAttribute("data-state", "ok", { timeout: 20_000 });
+    const line = page.getByTestId("machine-backup");
+    await expect(line).toHaveAttribute("data-state", "none");
+    await expect(page.getByTestId("machine-backup-last")).toHaveText("Nessun backup registrato");
+    // The view reads the hub every 15 s: the next round brings the new file, no reopening.
+    hub!.backup = { last: { at: Date.now() - 5 * HOUR, ok: true, detail: "1,2 GB in 4 min" }, ticks: [] };
+    await expect(line).toHaveAttribute("data-state", "ok", { timeout: 25_000 });
+    await expect(page.getByTestId("machine-backup-last")).toContainText("ultimo riuscito");
     await expect(page.getByTestId("machine-backup-last")).toContainText("1,2 GB in 4 min");
-    await expect(page.getByTestId("machine-backup-ticks").locator("i")).toHaveCount(4);
-    await expect(page.getByTestId("machine-backup-ticks").locator('i[data-ok="false"]')).toHaveCount(1);
+    // One line: no taller than a line of text.
+    expect((await line.boundingBox())!.height).toBeLessThan(24);
+    hub!.backup = { last: { at: Date.now() - HOUR, ok: false, detail: "disco pieno" }, ticks: [{ at: Date.now() - 25 * HOUR, ok: true }] };
+    await expect(line).toHaveAttribute("data-state", "error", { timeout: 25_000 });
+    await expect(page.getByTestId("machine-backup-last")).toContainText("non riuscito");
+    await expect(page.getByTestId("machine-backup-last")).toContainText("l'ultimo riuscito è del");
   });
 });
 
-test("hub off: no rows and no backup box, no error", async ({ page }) => {
+test("hub off: no Mac, no backup line", async ({ page }) => {
   await page.goto("/");
   await openPerfPanel(page);
   await page.getByTestId("menu-system-processes").click().catch(() => {});
-  await expect(page.getByTestId("machine-process-row")).toHaveCount(0);
+  await expect(page.getByTestId("machine-processes-mac")).toHaveCount(0);
   await expect(page.getByTestId("machine-backup")).toHaveCount(0);
 });

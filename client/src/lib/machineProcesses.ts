@@ -17,7 +17,6 @@
  * itself (`scriptForUnit`); the hub is read-only from here.
  */
 import type { ScriptProcessInfo } from './api';
-import { apiFetch } from './shell/net';
 
 // ── Small readers ────────────────────────────────────────────────────────────
 
@@ -81,25 +80,7 @@ export interface ProcessRow {
   netInBps: number | null;
   netOutBps: number | null;
   script: UnitScript | null;
-  /**
-   * The process the service can close for this unit: its main pid and the
-   * instant that pid was born, which the service checks before it signals (a
-   * pid the system reused is refused). Null for system, service and MCP units,
-   * for project scripts (they have their own Stop) and where the hub sent no
-   * birth instant.
-   */
-  closable: CloseTarget | null;
 }
-
-/** What the close request carries to the service. */
-export interface CloseTarget {
-  pid: number;
-  /** Unix ms the pid was born, as the census read it. */
-  startedAt: number;
-}
-
-/** Kinds the view never offers to close: the system, the services and the MCP servers. */
-const PROTECTED_KINDS: readonly UnitKind[] = ['macos', 'servizio', 'mcp']; // allow-italian: the census's wire values
 
 /** At or above this a row's memory is drawn warm (the mockup's 1,6 GB dev server). */
 const MEM_WARN_MB = 1500;
@@ -191,50 +172,7 @@ export function processRows(census: unknown, mac: unknown, scripts: readonly Scr
       netInBps: num(u.netInBps),
       netOutBps: num(u.netOutBps),
       script,
-      closable: script || PROTECTED_KINDS.includes(kind) ? null : closeTarget(u),
     };
-  });
-}
-
-/** The first of the unit's `procs` that has a pid and a birth instant. */
-function closeTarget(unit: JsonRecord): CloseTarget | null {
-  for (const p of list(unit.procs)) {
-    const pid = num(p.pid), startedAt = num(p.startedAt);
-    if (pid !== null && pid > 1 && startedAt !== null) return { pid, startedAt };
-  }
-  return null;
-}
-
-// ── Search and order ─────────────────────────────────────────────────────────
-
-export type SortKey = 'mem' | 'cpu' | 'gpu' | 'net' | 'name';
-export const SORT_KEYS: readonly SortKey[] = ['mem', 'cpu', 'gpu', 'net', 'name'];
-
-/** Rows whose name, kind or detail contain every word of the query, case aside. */
-export function filterRows(rows: readonly ProcessRow[], query: string): ProcessRow[] {
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (!words.length) return [...rows];
-  return rows.filter((r) => {
-    const hay = `${r.name} ${r.kind} ${r.detail} ${r.script ? `${r.script.project} ${r.script.scriptName}` : ''}`.toLowerCase();
-    return words.every((w) => hay.includes(w));
-  });
-}
-
-/** Heaviest first by the key; a number the hub did not measure goes last. The name sorts A to Z. */
-export function sortRows(rows: readonly ProcessRow[], key: SortKey): ProcessRow[] {
-  const value = (r: ProcessRow): number | null => {
-    if (key === 'mem') return r.memMB;
-    if (key === 'cpu') return r.cpuPct;
-    if (key === 'gpu') return r.gpuPct;
-    return r.netInBps === null || r.netOutBps === null ? null : r.netInBps + r.netOutBps;
-  };
-  return [...rows].sort((a, b) => {
-    if (key === 'name') return a.name.localeCompare(b.name);
-    const x = value(a), y = value(b);
-    if (x === null && y === null) return 0;
-    if (x === null) return 1;
-    if (y === null) return -1;
-    return y - x;
   });
 }
 
@@ -246,40 +184,29 @@ export interface BackupView {
   at: number;
   /** The service's sentence on it (size, duration, or why it failed). */
   detail: string | null;
-  /** The last runs, oldest first, one tick each. */
-  ticks: Array<{ at: number; ok: boolean }>;
+  /**
+   * The last run that went well, when the last one did not: the line names it
+   * so a failure never hides how old the good copy is. Null when the last run
+   * went well (it is `at`) or when no good run is on record.
+   */
+  lastOkAt: number | null;
 }
 
 /**
  * The service reads the backup's state file itself, so this works with Topics
  * off. No file (or one with no run in it) is null: the view says there is no
- * backup recorded, it does not invent a state.
+ * backup recorded, it does not invent a state. The view draws ONE line from it.
  */
 export function backupView(raw: unknown): BackupView | null {
   if (!isRecord(raw) || !isRecord(raw.last)) return null;
   const at = num(raw.last.at);
   if (at === null) return null;
-  const ticks = list(raw.ticks).flatMap((t) => {
+  const ok = raw.last.ok === true;
+  const goodRuns = list(raw.ticks).flatMap((t) => {
     const tAt = num(t.at);
-    return tAt === null ? [] : [{ at: tAt, ok: t.ok === true }];
-  }).sort((a, b) => a.at - b.at);
-  return { ok: raw.last.ok === true, at, detail: str(raw.last.detail), ticks };
-}
-
-/** Asks the service to close a process. Resolves to the refusal's reason, or null when it went. */
-export async function closeProcess(target: CloseTarget, signal: 'TERM' | 'KILL'): Promise<string | null> {
-  try {
-    const r = await apiFetch('/api/hub/mac/procs/close', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ pid: target.pid, startedAt: target.startedAt, signal }),
-    });
-    if (r.ok) return null;
-    const body: unknown = await r.json().catch(() => null);
-    return (isRecord(body) ? str(body.error) : null) ?? `HTTP ${r.status}`;
-  } catch (e) {
-    return e instanceof Error ? e.message : String(e);
-  }
+    return tAt !== null && t.ok === true && tAt < at ? [tAt] : [];
+  });
+  return { ok, at, detail: str(raw.last.detail), lastOkAt: ok || goodRuns.length === 0 ? null : Math.max(...goodRuns) };
 }
 
 /** When the census was taken (ms), or null. */

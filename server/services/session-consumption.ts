@@ -259,6 +259,7 @@ export function createSessionConsumption(deps: ConsumptionDeps): SessionConsumpt
         state: c.task?.awaitingAnswer ? "waiting" as const : "working" as const,
         startedAt: c.startedAt ?? turnStart ?? tracker.firstSeen(c.key),
         cardId: c.task?.id ?? null,
+        boardId: c.task?.projectId ?? null,
         machine,
         tokens,
         tps: tps === null ? null : round1(tps),
