@@ -210,11 +210,19 @@ A fine prova: server 0, snapshot 0, firewall 0, riga `machines` del nodo cancell
   codice, `pending` + `approve` sul nodo da `127.0.0.1` senza Origin → 200
   `role: owner`; la riga nasce `online` con `baseUrl`. Il gettone non compare in
   `data/nodes/` né `~/.topics/*/nodes`: da capire dove lo scrive il server vivo.
-- 0.7 Card vera sul nodo: **non fatta**, fermata da uno stop di coordinamento
-  (il tetto non contava la label `topics-node`) prima di registrare il progetto.
+- 0.7 Card vera sul nodo (secondo giro, `topics-node-3`, 33 min): progetto
+  topics-app registrato (`POST /api/projects`, origin GitHub), due run creati con
+  `POST /api/nodes/runs` → `runId`, auto-dispatch acceso. **Bloccato**: entrambi
+  restano `backlog/blocked` con «No eligible coding model is available»
+  (`task-auto-plan.ts`): il catalogo dei modelli del nodo è vuoto, sia con
+  `CLAUDE_CODE_OAUTH_TOKEN` nella unit sia con `.credentials.json` su disco, anche
+  se `claude -p` sullo stesso token risponde. Il nodo appena nato non ha un
+  catalogo provider: va popolato all'avvio (o copiato dal Mac all'accoppiamento)
+  prima che possa lavorare una card. Traccia di codice per la Fase 1.
 - 0.8 RAM (cpx32, 8 GB): Topics a riposo ~170 MB RSS (server 121 + ai-bridge 50);
   `bun test server/lib` (3280 test, 108 s) con MemAvailable minimo 6897 MB, 0 OOM.
-  Due card insieme: non misurato (0.7).
+  Due card insieme: in coda per 22 min, MemAvailable minimo 7104 MB, 0 OOM, ma
+  nessun agente partito (0.7): la RAM di due card vive resta da misurare.
 - 0.9 Snapshot: 21 s, 1,66 GB; nodo da snapshot con Topics in ascolto in 27 s dal
   `POST`, e il Mac lo rivede `online` senza riaccoppiare (stesso gettone).
 - 0.10 Mac: dal 06/11, 424 minuti con `swap=sustained` e `inFlight>0`; le righe
