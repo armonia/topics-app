@@ -18,7 +18,6 @@ import { SEGNALE_ATTESA } from '../Sidebar/chromeSignals';
 import { StatusIcon } from './atoms';
 import { ActivityBadge, NeedsYouBox } from './PlanTileParts';
 import { ProjectGroupHeader } from './ProjectGroupHeader';
-import { sortProjectGroups } from './boardLanes';
 import { useCollapsedProjects } from './useCollapsedProjects';
 import {
   createArea, createMilestone, fetchPlan, linkCard, mergeDuplicate, updateMilestone,
@@ -312,8 +311,8 @@ export function PlanView({ onOpenTask, onOpenTopic, renderTaskCard }: Props) {
         {/* Columns by width, not by breakpoint: the pane is narrower than the window whenever a chat sits beside it. */}
         {tree && tree.projects.length > 0 && (
           <div data-testid="plan-grid" style={{ columnWidth: 340, columnGap: 12 }}>
-            {/* The Kanban lanes' order, not the server's: one board, projects in the same place in both views. */}
-            {sortProjectGroups(tree.projects, (p) => p.name).map(renderProject)}
+            {/* In the server's order, which is the Kanban lanes' (shared/project-order.ts): waiting for you first, then by name. */}
+            {tree.projects.map(renderProject)}
           </div>
         )}
       </div>

@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { BoardProjectRef, BoardTask } from '../../lib/board';
 import { resolveProjectRefs } from '../../lib/boardProjectsStore';
-import { splitIntoLanes, withDraftLane, type BoardLane } from './boardLanes';
+import { splitIntoLanes, taskWaitsOnPerson, withDraftLane, type BoardLane } from './boardLanes';
 import { draftLaneOf, type DraftPlacement, type DraftPreview } from './draftPreview';
 
 /**
@@ -22,8 +22,9 @@ export function useProjectLanes({ grouped, showArchived, draft, tasks, byColumn,
   const taskLanes = useMemo<BoardLane[]>(() => {
     if (!grouped) return [];
     const names = new Map(resolveProjectRefs([...new Set(tasks.map((t) => t.projectId))], projectIndex).map((p) => [p.projectId, p.name]));
-    return splitIntoLanes(byColumn, columnIds, (id) => names.get(id) ?? id);
-  }, [grouped, tasks, byColumn, columnIds, projectIndex]);
+    // Archived cards wait for no one (the Plan reads live cards only).
+    return splitIntoLanes(byColumn, columnIds, (id) => names.get(id) ?? id, showArchived ? () => false : taskWaitsOnPerson);
+  }, [grouped, showArchived, tasks, byColumn, columnIds, projectIndex]);
   const draftPlacement = useMemo(
     () => (grouped && !showArchived ? draftLaneOf(draft ?? null, taskLanes.map((l) => l.projectId)) : null),
     [grouped, showArchived, draft, taskLanes],

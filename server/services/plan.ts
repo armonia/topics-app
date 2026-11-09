@@ -8,6 +8,8 @@
 import type { Database } from "bun:sqlite";
 import { isAgentWorking, type TaskStatus } from "../../shared/board";
 import { buildProjectNames, loadRegisteredProjects } from "./project-display-name";
+import { unregisteredProjectName } from "../../shared/project-name";
+import { sortProjectGroups } from "../../shared/project-order";
 import { STAGE_AI_REVIEW, awaitsHuman } from "../../shared/workflow";
 import { isGroupingParent } from "../../shared/grouping-parent";
 import { waitOnPerson } from "../../shared/waits-on-person";
@@ -333,7 +335,7 @@ export function buildPlan(
       .map((t) => needOf(t, commentsOf.get(t.id) ?? []))
       .filter((x): x is PlanNeed => !!x);
     return {
-      projectId: pid, name: projectNames.get(pid)?.name ?? pid, path: projectNames.get(pid)?.path ?? null,
+      projectId: pid, name: projectNames.get(pid)?.name ?? unregisteredProjectName(pid), path: projectNames.get(pid)?.path ?? null,
       openCount: openCards.filter(isBoardCard).length,
       openSubCount: openCards.filter((c) => !isBoardCard(c)).length,
       progress: progressOf(everything), activity: activityOf(everything), needsYou, areas: projectAreas,
@@ -341,13 +343,14 @@ export function buildPlan(
     };
   });
   // A project with nothing open and no plan of its own is history: it stays out
-  // unless done cards were asked for. Order: by name, ties on the id, the same
-  // rule as the Kanban lanes (`sortProjectGroups` on the client). A project
-  // waiting for a person is not lifted to the top: it carries its own
-  // «needs you» box, and the two views list projects in one fixed order.
-  const projects = built
-    .filter((p) => includeDone || p.openCount + p.openSubCount > 0 || p.areas.length > 0)
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.projectId.localeCompare(b.projectId));
+  // unless done cards were asked for. Order: the one rule of the Kanban lanes
+  // (`sortProjectGroups`, shared/project-order.ts): a project with something
+  // waiting for the person first, then by name, ties on the id.
+  const projects = sortProjectGroups(
+    built.filter((p) => includeDone || p.openCount + p.openSubCount > 0 || p.areas.length > 0),
+    (p) => p.name,
+    (p) => p.needsYou.length > 0,
+  );
   return { projects, includeDone };
 }
 

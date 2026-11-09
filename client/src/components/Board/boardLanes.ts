@@ -8,6 +8,8 @@
  * keeps the cards of its project in that same order. Grouping never reorders.
  */
 import type { BoardTask } from '../../lib/board';
+import { sortProjectGroups } from '../../../../shared/project-order';
+import { waitOnPerson } from '../../../../shared/waits-on-person';
 import type { DraftPlacement } from './draftPreview';
 
 export interface BoardLane {
@@ -17,6 +19,27 @@ export interface BoardLane {
   /** How many cards the project has in each column: the lane header's counts. */
   counts: Record<string, number>;
   total: number;
+  /** One of the project's cards waits for the person: the lane goes first (`sortProjectGroups`). */
+  waiting: boolean;
+}
+
+/**
+ * Does this board card wait for the person? The Plan's rule (`waitOnPerson`,
+ * shared/waits-on-person.ts) read over what the card carries: its status and
+ * stage, the human ask, a stop chip, the durable «unanswered question» flag.
+ * Only the first 240 characters of the description travel with the card, so a
+ * «waits for the person» line past them is seen by the Plan and not by the lane.
+ */
+export function taskWaitsOnPerson(task: BoardTask): boolean {
+  return waitOnPerson({
+    status: task.status,
+    stage: task.stage,
+    description: task.descriptionPreview ?? task.description,
+    human_ask: task.humanAsk,
+    dispatch_state: task.dispatchState,
+    dispatch_error: task.dispatchError,
+    awaitingAnswer: task.awaitingAnswer,
+  }, []) !== null;
 }
 
 /** A lane with every column present and no card in it. */
@@ -26,7 +49,13 @@ export function emptyLane(projectId: string, columnIds: readonly string[]): Boar
     columns: new Map(columnIds.map((id) => [id, []])),
     counts: Object.fromEntries(columnIds.map((id) => [id, 0])),
     total: 0,
+    waiting: false,
   };
+}
+
+/** The lanes in the shared project order: waiting for the person first, then by name. */
+function sortLanes(lanes: readonly BoardLane[], nameOf: (projectId: string) => string): BoardLane[] {
+  return sortProjectGroups(lanes, (lane) => nameOf(lane.projectId), (lane) => lane.waiting);
 }
 
 /**
@@ -41,21 +70,23 @@ export function withDraftLane(
   nameOf: (projectId: string) => string,
 ): BoardLane[] {
   if (placement?.kind !== 'new-lane' || lanes.some((l) => l.projectId === placement.projectId)) return [...lanes];
-  return sortProjectGroups([...lanes, emptyLane(placement.projectId, columnIds)], (lane) => nameOf(lane.projectId));
+  return sortLanes([...lanes, emptyLane(placement.projectId, columnIds)], nameOf);
 }
 
 /**
  * Splits the board's columns into one lane per project.
  *
- * Lanes are ordered by NAME (via `nameOf`), not by size: a lane that jumps up
- * the board every time one of its cards is created is a lane nobody finds
- * twice in the same place. Ties on the name fall back to the id, so two boards
- * with the same name still keep a stable order.
+ * Lanes follow the project order shared with the Plan (`sortProjectGroups`):
+ * a project with a card waiting for the person first, then by NAME (via
+ * `nameOf`), not by size. A lane that jumps up the board every time one of its
+ * cards is created is a lane nobody finds twice in the same place. Ties on the
+ * name fall back to the id, so two boards with the same name keep a stable order.
  */
 export function splitIntoLanes(
   byColumn: ReadonlyMap<string, readonly BoardTask[]>,
   columnIds: readonly string[],
   nameOf: (projectId: string) => string,
+  waitsOf: (task: BoardTask) => boolean = taskWaitsOnPerson,
 ): BoardLane[] {
   const lanes = new Map<string, BoardLane>();
   const laneOf = (projectId: string): BoardLane => {
@@ -72,21 +103,10 @@ export function splitIntoLanes(
       lane.columns.get(columnId)!.push(task);
       lane.counts[columnId] += 1;
       lane.total += 1;
+      if (waitsOf(task)) lane.waiting = true;
     }
   }
-  return sortProjectGroups([...lanes.values()], (lane) => nameOf(lane.projectId));
-}
-
-/**
- * THE ORDER OF PROJECT GROUPS, one for the Kanban lanes and the Plan tiles: by
- * name, ties on the id. The two views of one board list projects in the same
- * order, so a project is found in the same place in both.
- */
-export function sortProjectGroups<T extends { projectId: string }>(groups: readonly T[], nameOf: (group: T) => string): T[] {
-  return [...groups].sort((a, b) => {
-    const byName = nameOf(a).localeCompare(nameOf(b), undefined, { sensitivity: 'base' });
-    return byName !== 0 ? byName : a.projectId.localeCompare(b.projectId);
-  });
+  return sortLanes([...lanes.values()], nameOf);
 }
 
 /**

@@ -5433,7 +5433,17 @@ storage, like the layout. The full card SHALL stay unchanged.
 #### Scenario: a project is named the same in the lane and in the Plan
 - **GIVEN** a registered project whose folder the picker does not offer
 - **WHEN** the person groups the board by project and then opens the Plan
-- **THEN** the lane and the Plan tile SHALL carry the same name and the two views SHALL list projects in the same order (by name)
+- **THEN** the lane and the Plan tile SHALL carry the same name and the two views SHALL list projects in the same order
+
+#### Scenario: the projects waiting for the person come first, in both views
+- **GIVEN** a project with a card in review and projects without one, the waiting one last by name
+- **WHEN** the person reads the grouped board and then the Plan
+- **THEN** the waiting project SHALL be first in both, and the rest SHALL follow by name, ties on the id
+
+#### Scenario: a project nobody registered has one name
+- **GIVEN** a card whose project is neither registered nor offered by the picker
+- **WHEN** the board is grouped and the Plan is opened
+- **THEN** the lane and the Plan tile SHALL carry the same name, taken from the id (the folder when the id is a path, the slug without its hash, a sentence when the id is a code)
 
 #### Scenario: a compact card in review keeps the question it waits on
 - **WHEN** a card in review has a pending question

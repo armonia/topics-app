@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { AUTO_PROJECT_ID, type BoardTask } from '../../lib/board';
-import { columnIdOfDropTarget, dropsOnOtherProject, laneDropId, projectIdOfDropTarget, sortProjectGroups, splitIntoLanes, toggleCollapsed, withDraftLane } from './boardLanes';
+import { columnIdOfDropTarget, dropsOnOtherProject, laneDropId, projectIdOfDropTarget, splitIntoLanes, taskWaitsOnPerson, toggleCollapsed, withDraftLane } from './boardLanes';
 import { draftLaneOf, type DraftPreview } from './draftPreview';
 import {
   BOARD_COLLAPSED_PROJECTS_STORAGE_KEY, BOARD_DENSITY_STORAGE_KEY, BOARD_GROUP_BY_STORAGE_KEY,
@@ -15,6 +15,8 @@ import {
 const task = (id: string, projectId: string): BoardTask => ({ id, projectId } as BoardTask);
 const names: Record<string, string> = { p1: 'Zeta', p2: 'alfa', p3: 'Alfa' };
 const nameOf = (id: string) => names[id] ?? id;
+/** A card with the fields the lane's «waits for the person» rule reads. */
+const cardOf = (id: string, projectId: string, fields: Partial<BoardTask> = {}): BoardTask => ({ id, projectId, status: 'todo', ...fields } as BoardTask);
 
 describe('splitIntoLanes', () => {
   const byColumn = new Map<string, BoardTask[]>([
@@ -43,6 +45,58 @@ describe('splitIntoLanes', () => {
 
   test('no cards, no lanes', () => {
     expect(splitIntoLanes(new Map(), ['todo'], nameOf)).toEqual([]);
+  });
+});
+
+describe('the lanes wait for the person first', () => {
+  const columns = ['todo', 'review'];
+  const lanesOf = (cards: BoardTask[]) => splitIntoLanes(
+    new Map(columns.map((c) => [c, cards.filter((t) => (t.status === 'review') === (c === 'review'))])),
+    columns,
+    nameOf,
+  );
+
+  test('a project with a card in review goes before the others, which keep the name order', () => {
+    // By name alone: alfa (p2), Alfa (p3), Zeta (p1). Zeta has the review card.
+    const lanes = lanesOf([cardOf('a', 'p1', { status: 'review' }), cardOf('b', 'p2'), cardOf('c', 'p3')]);
+    expect(lanes.map((l) => [l.projectId, l.waiting])).toEqual([['p1', true], ['p2', false], ['p3', false]]);
+  });
+
+  test('two waiting projects are told apart by name, then by id', () => {
+    const lanes = lanesOf([cardOf('a', 'p1', { status: 'review' }), cardOf('b', 'p2', { status: 'review' }), cardOf('c', 'p3', { status: 'review' })]);
+    expect(lanes.map((l) => l.projectId)).toEqual(['p2', 'p3', 'p1']);
+  });
+
+  test('a waiting card in the second column lifts its lane too, once', () => {
+    const lanes = lanesOf([cardOf('a', 'p1'), cardOf('b', 'p1', { status: 'review' }), cardOf('c', 'p2')]);
+    expect(lanes.map((l) => l.projectId)).toEqual(['p1', 'p2']);
+    expect(lanes[0]!.total).toBe(2);
+  });
+
+  test('the caller can say that nothing waits (the archive): back to the name order', () => {
+    const cards = [cardOf('a', 'p1', { status: 'review' }), cardOf('b', 'p2')];
+    const byColumn = new Map([['todo', [cards[1]!]], ['review', [cards[0]!]]]);
+    expect(splitIntoLanes(byColumn, columns, nameOf, () => false).map((l) => l.projectId)).toEqual(['p2', 'p1']);
+  });
+
+  test('the temporary lane of the composer sits among the others by the same rule', () => {
+    const base = lanesOf([cardOf('a', 'p1', { status: 'review' }), cardOf('b', 'p2')]);
+    const withEmpty = withDraftLane(base, { kind: 'new-lane', projectId: 'mid' }, columns, (id) => id);
+    // The empty lane waits for nothing: after the waiting lane, then by name among the rest.
+    expect(withEmpty.map((l) => l.projectId)).toEqual(['p1', 'mid', 'p2']);
+  });
+});
+
+describe('taskWaitsOnPerson', () => {
+  test('review, a question, a human ask, a «waits» line and a parked card wait; a done card or an AI review do not', () => {
+    expect(taskWaitsOnPerson(cardOf('a', 'p', { status: 'review' }))).toBe(true);
+    expect(taskWaitsOnPerson(cardOf('b', 'p', { status: 'in_progress', awaitingAnswer: true }))).toBe(true);
+    expect(taskWaitsOnPerson(cardOf('c', 'p', { status: 'review', stage: 'human_review', humanAsk: 'Ti piace?' }))).toBe(true);
+    expect(taskWaitsOnPerson(cardOf('d', 'p', { status: 'backlog', descriptionPreview: 'Piano.\naspetta: attilio' }))).toBe(true);
+    expect(taskWaitsOnPerson(cardOf('e', 'p', { status: 'backlog', dispatchState: 'failed' }))).toBe(true);
+    expect(taskWaitsOnPerson(cardOf('f', 'p', { status: 'review', stage: 'ai_review' }))).toBe(false);
+    expect(taskWaitsOnPerson(cardOf('g', 'p', { status: 'done', awaitingAnswer: true }))).toBe(false);
+    expect(taskWaitsOnPerson(cardOf('h', 'p', { status: 'todo' }))).toBe(false);
   });
 });
 
@@ -139,13 +193,6 @@ describe('view preferences', () => {
 });
 
 describe('one order and one ghost for the grouped board', () => {
-  test('lanes and Plan tiles share the order: by name, ties on the id', () => {
-    const groups = [{ projectId: 'z', name: 'zeta' }, { projectId: 'b', name: 'Alfa' }, { projectId: 'a', name: 'alfa' }];
-    expect(sortProjectGroups(groups, (g) => g.name).map((g) => g.projectId)).toEqual(['a', 'b', 'z']);
-    // The input is not reordered in place: the Plan sorts the server's array.
-    expect(groups.map((g) => g.projectId)).toEqual(['z', 'b', 'a']);
-  });
-
   test("the composer's ghost: its project's lane, a temporary lane for an empty project, above the lanes for «Automatico»", () => {
     const draft: DraftPreview = { title: 't', description: null, status: 'todo', images: [], files: [], projectId: 'b' };
     // 1. the project has a lane

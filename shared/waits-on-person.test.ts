@@ -28,4 +28,12 @@ describe("waitOnPerson", () => {
     expect(waitOnPerson({ status: "backlog", dispatch_state: "stopped" }, [])).toBeNull();
     expect(waitOnPerson({ status: "todo", dispatch_state: "failed" }, [])).toBeNull();
   });
+
+  test("a card that carries the derived «awaiting an answer» flag waits with a question, no thread needed", () => {
+    expect(waitOnPerson({ status: "in_progress", awaitingAnswer: true }, [])).toEqual({ reason: "question" });
+    expect(waitOnPerson({ status: "in_progress", awaitingAnswer: false }, [])).toBeNull();
+    expect(waitOnPerson({ status: "done", awaitingAnswer: true }, [])).toBeNull();
+    // The thread's own question keeps its text when the flag is set too.
+    expect(waitOnPerson({ status: "todo", awaitingAnswer: true }, [question])).toEqual({ reason: "question", detail: "Uso Postgres?" });
+  });
 });

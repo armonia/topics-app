@@ -20,6 +20,7 @@
  */
 import { useMemo, useSyncExternalStore } from 'react';
 import { boardApi, type BoardProjectRef } from './board';
+import { unregisteredProjectName } from '../../../shared/project-name';
 
 let projects: BoardProjectRef[] | null = null;
 /** La cartella dove nascerà un progetto creato per nome: dedotta dal server,
@@ -230,39 +231,13 @@ export function useBoardProjects(enabled = true): BoardProjectRef[] | null {
   );
 }
 
-/** Cosa si scrive quando il progetto non si sa quale sia. Una frase, non un
- *  codice: chi legge deve capire che manca un dato, non decifrarlo. */
-export const UNKNOWN_PROJECT_NAME = 'Progetto sconosciuto';
-
-/** Un UUID: otto-quattro-quattro-quattro-dodici cifre esadecimali. */
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /**
- * Il nome leggibile di un progetto PRIMA che l'indice arrivi (o quando quel
- * progetto non c'è più): l'id della board meno il suffisso di hash. Non è
- * l'icona — quella richiede il `path` e quindi l'indice — ma evita che il chip
- * mostri una stringa con l'hash attaccato.
- *
- * UN UUID NON HA UN NOME DENTRO, e togliergli l'ultimo pezzo non lo rende
- * leggibile: `405fbb0d-6fdd-4874-b52d-ce96180f9e2a` diventava
- * `405fbb0d-6fdd-4874-b52d`, che è lo stesso codice con quattro cifre in meno.
- * Segnalato: «vedo nei filtri un progetto con un codice strano. Non dovrei mai
- * vedere un codice, perché è incomprensibile».
- *
- * Un id del genere arriva da un task che punta a un progetto che l'indice non
- * conosce (misurato: uno su quindici, un progetto mai registrato). In quel caso
- * l'unica cosa onesta è dire che il progetto non si sa quale sia, invece di
- * spacciare un frammento di esadecimale per un nome.
- *
- * `null` e non una stringa: il chiamante deve poter decidere COME dirlo, e
- * `String(null)` a schermo sarebbe peggio dell'UUID.
+ * Il nome di un progetto che nessuno ha registrato vive in `shared/`: lo usa
+ * anche il Piano (server), e due funzioni di nome per lo stesso id davano alla
+ * corsia e alla tessera due intestazioni diverse. Qui si riesporta perché i
+ * chiamanti della Board lo importano da questo store.
  */
-export function projectNameFromId(projectId: string): string | null {
-  if (UUID.test(projectId)) return null;
-  const withoutHash = projectId.replace(/-[^-]+$/, '');
-  // Un id tutto esadecimale anche dopo il taglio non è un nome: stessa ragione.
-  return /^[0-9a-f-]{12,}$/i.test(withoutHash) ? null : withoutHash;
-}
+export { projectNameFromId, UNKNOWN_PROJECT_NAME } from '../../../shared/project-name';
 
 /**
  * Risolve una lista di `projectId` (quelli che compaiono nei task) in
@@ -282,9 +257,8 @@ export function resolveProjectRefs(
       if (noto) return noto;
       // Un progetto che l'indice non conosce resta FILTRABILE - sparire
       // dall'elenco nasconderebbe i suoi task - ma non si inventa un nome:
-      // `null` diventa «Progetto sconosciuto» dove si disegna.
-      const nome = projectNameFromId(id);
-      return { projectId: id, name: nome ?? UNKNOWN_PROJECT_NAME, path: '' };
+      // la stessa funzione del Piano, che dà «Progetto sconosciuto» a un id senza nome.
+      return { projectId: id, name: unregisteredProjectName(id), path: '' };
     })
     .sort(byName);
 }

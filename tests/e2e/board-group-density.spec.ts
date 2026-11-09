@@ -12,9 +12,9 @@
  * the proof the two views share one folded set.
  *
  * The second project is named «zeta» and holds the card in review: it waits
- * for a person, yet the Plan lists it AFTER «alfa», like the lanes, because the
- * two views share one order (by name). The review card is also the proof the
- * compact card keeps the wait in sight.
+ * for a person, so BOTH the lanes and the Plan list it BEFORE «alfa»: the two
+ * views share one order (waiting for the person first, then by name). The
+ * review card is also the proof the compact card keeps the wait in sight.
  *
  * Then the same grouped board, read against the Plan and against the composer:
  * a project REGISTERED under a name that differs from its folder has the same
@@ -229,7 +229,8 @@ test.describe("Board per progetto e card compatte", () => {
     const tileOrder = await plan.getByTestId("plan-project").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
     const pick = (ids: (string | null)[]) => ids.filter((id) => id === ID_A || id === ID_B);
     expect(pick(tileOrder)).toEqual(pick(laneOrder));
-    expect(pick(laneOrder)).toEqual([ID_A, ID_B]);
+    // «zeta» waits for a person (the review card): it leads in both, though «alfa» comes first by name.
+    expect(pick(laneOrder)).toEqual([ID_B, ID_A]);
     await page.screenshot({ path: testInfo.outputPath("piano.png") });
   });
 
@@ -267,9 +268,9 @@ test.describe("Board per progetto e card compatte", () => {
     await expect(tileC).not.toContainText("e2e-lane-gamma");
     const tileOrder = await plan.getByTestId("plan-project").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
 
-    // By name: renamed first. By folder it would be alfa, gamma, zeta.
+    // The waiting project first, then by name: renamed before alfa. By folder it would be alfa, gamma.
     const among = [ID_A, ID_B, ID_C];
-    expect(orderOf(laneOrder, among)).toEqual([ID_C, ID_A, ID_B]);
+    expect(orderOf(laneOrder, among)).toEqual([ID_B, ID_C, ID_A]);
     expect(orderOf(tileOrder, among)).toEqual(orderOf(laneOrder, among));
     await page.screenshot({ path: testInfo.outputPath("piano-rinominato.png") });
   });
@@ -292,7 +293,7 @@ test.describe("Board per progetto e card compatte", () => {
     await expect(tileE.getByRole("heading")).toHaveText(NAME_E);
     const tileOrder = await plan.getByTestId("plan-project").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
     const among = [ID_A, ID_B, ID_C, ID_E];
-    expect(orderOf(laneOrder, among)).toEqual([ID_C, ID_E, ID_A, ID_B]);
+    expect(orderOf(laneOrder, among)).toEqual([ID_B, ID_C, ID_E, ID_A]);
     expect(orderOf(tileOrder, among)).toEqual(orderOf(laneOrder, among));
     await page.screenshot({ path: testInfo.outputPath("piano-nascosto.png") });
   });
