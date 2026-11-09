@@ -207,7 +207,8 @@ import { startProcessExitWakes } from "./server/lib/process-exit-wake";
 import { startSubagentWakes } from "./server/services/subagent-wake";
 import { abandonCutTurn, adoptNativeChildrenAtBoot, configureNativeSubagents } from "./server/lib/native-subagents";
 import { awaitsForegroundChild, subagentWakeOwed } from "./server/lib/subagent-runtime";
-import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
+import { createTasksRouter, ownBranchFiles, ownCommitFiles, runGitCap } from "./server/routes/tasks";
+import { landingFiles, referencedByTheJudge } from "./server/services/landing-files";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
 import { createDeliveryCapture, type DeliveryCapture } from "./server/services/task-delivery-capture";
 import { createPushRouter } from "./server/routes/push";
@@ -258,7 +259,7 @@ import { createWorktreeGcRunner } from "./server/services/worktree-gc-runner";
 import { createWorktreesRouter } from "./server/routes/worktrees";
 import { createMachinesRouter, revokeRemoteDelegatedCapability } from "./server/routes/machines";
 import { createNodesRouter } from "./server/routes/nodes";
-import { hostname as osHostname, totalmem as osTotalmem } from "node:os";
+import { hostname as osHostname, tmpdir as osTmpdir, totalmem as osTotalmem } from "node:os";
 import { createNodeClient, readDelegatedNodeToken, readNodeToken } from "./server/services/node-client";
 import { createNodeProbe } from "./server/services/node-heartbeat";
 import { appendDelegatedRunAudit, delegatedPolicyForTask } from "./server/lib/delegated-agent-start";
@@ -1734,6 +1735,13 @@ async function deliveryIsOnMain(repoPath: string, commit: string): Promise<boole
  */
 let capturaConsegna: DeliveryCapture | null = null;
 /**
+ * Assigned where the tasks router exists. The dispatcher's node lane calls it
+ * once a delivery planted from another machine is in review (its bar is
+ * measured on a throwaway checkout, then the card is offered to the automatic
+ * land). Forward reference, same reasoning as `capturaConsegna`.
+ */
+let misuraConsegnaNodo: ((taskId: string) => Promise<void>) | null = null;
+/**
  * I file lasciati nel worktree e mai committati, per la consegna forzata.
  *
  * Tardiva come `capturaConsegna` e per la stessa ragione: `worktreeOfTask`
@@ -1949,6 +1957,7 @@ const dispatchMemoryInputs = createDispatchMemoryInputs({
 const taskDispatcher = createTaskDispatcher({
   stopCardProcesses: stopCardCommandProcesses,
   captureDelivery: (taskId) => capturaConsegna ? capturaConsegna(taskId) : Promise.resolve(false),
+  measureDelivery: (taskId) => misuraConsegnaNodo ? misuraConsegnaNodo(taskId) : Promise.resolve(),
   uncommittedInWorktree: (taskId) =>
     sondaLavoroNonCommittato ? sondaLavoroNonCommittato(taskId) : Promise.resolve(null),
   svc: dispatcherSvc,
@@ -2795,6 +2804,7 @@ capturaConsegna = createDeliveryCapture({
   taskCheckoutRef,
   ownCommitFiles,
   keepDeliveryCommit,
+  ownBranchFiles: (repoPath, branch) => ownBranchFiles(repoPath, branch),
 });
 
 // Stessa sonda che il pannello delle modifiche usa gia' (`taskWorktreeDirt`):
@@ -2895,6 +2905,48 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   taskCheckoutRef,
   // The user's `task-deliver` hook, the first gate on the move to review (HOOKS-02).
   hooks: defaultLifecycleHooks(),
+  // The automatic land (`services/auto-land.ts`): which files the branch
+  // touches (a server file reloads the live server on landing), and how many
+  // turns are open right now (the land waits for none).
+  deliveryFiles: async (taskId, commit) => {
+    const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
+    if (!ref) return null;
+    // What the merge of THAT commit brings (net diff against main), not the own-commit walk (it leaves out the pruning-residue commit) and not the branch tip (it moves).
+    return landingFiles(ref.repoPath, commit);
+  },
+  // Which of those files `bunfig.toml`, `scripts/`, `package.json` or `.github/` name: the bar's own configuration, as of the same commit.
+  deliveryReferenced: async (taskId, commit, files) => {
+    const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
+    if (!ref) return null;
+    return referencedByTheJudge(ref.repoPath, commit, files);
+  },
+  // The count the restart gate waits on (see `autoLandTurnCount`).
+  liveTurnCount: autoLandTurnCount,
+  ownBranchFiles: (repoPath, branch) => ownBranchFiles(repoPath, branch),
+  // A throwaway checkout of a branch planted from another machine, so its bar
+  // can be measured on the commit that will land (`services/node-delivery-meter.ts`).
+  nodeDeliveryCheckout: async (taskId) => {
+    const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
+    if (!ref) return null;
+    const path = join(osTmpdir(), "topics-node-checks", taskId.slice(0, 8));
+    await runGitCap(ref.repoPath, ["worktree", "remove", "--force", path]);
+    await runGitCap(ref.repoPath, ["worktree", "prune"]);
+    const added = await runGitCap(ref.repoPath, ["worktree", "add", path, ref.branch]);
+    if (added.code !== 0) return null;
+    return {
+      cwd: path,
+      head: () => resolveCommit(path, "HEAD"),
+      release: async () => { await runGitCap(ref.repoPath, ["worktree", "remove", "--force", path]); },
+    };
+  },
+  onAutoLand: (api) => {
+    misuraConsegnaNodo = api.measureNodeDelivery;
+    // A wait for zero turns lives in memory and a reload loses it: the verdict
+    // is asked again at boot and every ten minutes, so no card is stranded.
+    const sweep = () => { void api.sweepAutoLand().catch((err) => console.warn("[auto-land] spazzata fallita", err)); };
+    setTimeout(sweep, 90_000).unref?.();
+    setInterval(sweep, 10 * 60_000).unref?.();
+  },
   // Main dentro il ramo PRIMA dei check, come fa il land prima di fondere: il
   // cancello misura l'albero che atterra, non una base invecchiata.
   realignForChecks: (taskId) => taskAutoMerge.realign(taskId),
@@ -6845,7 +6897,20 @@ function turnComesBack(sessionKey: string): boolean {
   });
 }
 
-async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; chats: number; workingChats: number; lostWorkingChats: number; everyTurnComesBack: boolean; holder: string | null; holderKind: "turn" | "question" }> {
+/**
+ * Open turns, for the automatic land that reloads the server: the restart
+ * gate's own predicate (cards and lands in flight, broker turns, chats parked on
+ * a question) plus the chat streams and busy agent terminals. Counting less than
+ * the gate lets a reload cut a turn the gate itself would have waited for.
+ */
+async function autoLandTurnCount(opts?: { insideLand?: boolean }): Promise<number> {
+  // Asked from within a land, that land is itself "in flight" for the gate, and
+  // is not a turn it should wait for: it would never find the server idle.
+  const working = await whatIsStillWorking({ ownLands: opts?.insideLand ? 1 : 0 });
+  return (working.busy !== null ? 1 : 0) + activeStreams.size + countBusyAgentTerminals();
+}
+
+async function whatIsStillWorking(opts: { ownLands?: number } = {}): Promise<{ busy: string | null; cards: number; unadoptable: number; chats: number; workingChats: number; lostWorkingChats: number; everyTurnComesBack: boolean; holder: string | null; holderKind: "turn" | "question" }> {
   // A land in flight is a card turn for this purpose: it rewrites main and
   // the card, and a restart in the middle of it forgets the delivery branch.
   //
@@ -6861,7 +6926,8 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
   // round is redone. What still holds is a card whose turn lives in this
   // process, and a land, which rewrites main under the restart.
   const cardTurns = cardTurnsAll.filter((t) => !(t.sessionKey && turnComesBack(t.sessionKey)));
-  const cards = cardTurns.length + landingQueue.inFlight();
+  // `ownLands`: the caller IS a land and does not count itself (the automatic land's last look).
+  const cards = cardTurns.length + Math.max(0, landingQueue.inFlight() - (opts.ownLands ?? 0));
   // Those cards' own streams go with them. A card turn streams through
   // /api/chat, so its session is a stream key too, and left in it would hold
   // the restart a second time - as a chat on the native runtime, which is
