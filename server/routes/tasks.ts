@@ -459,10 +459,10 @@ export interface TasksRouterOpts {
    */
   confirmLandedOnMain?: (repoPath: string, commit: string) => Promise<boolean | null>;
   /**
-   * Porta `main` su origin dopo un land confermato, solo fast-forward
-   * (`main-on-origin.ts`). Assente = nessun push (i test che non ne parlano).
-   * Un `ok:false` NON annulla il land (il lavoro è sul main locale): la card
-   * prende `unpushed` e un avviso, e la passata periodica ritenta.
+   * Pushes `main` to origin after a confirmed land, fast-forward only
+   * (`main-on-origin.ts`). Absent = no push (tests that do not care).
+   * An `ok:false` does NOT undo the land (the work is on the local main): the
+   * card gets `unpushed` plus a thread line, and the periodic sweep retries.
    */
   pushMainAfterLand?: (repoPath: string) => Promise<{ ok: true; pushed: number } | { ok: false; reason: string }>;
   /**
@@ -2024,10 +2024,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           });
         }
         await reapAfterLand(taskId, "landed");
-        // ── E POI SU ORIGIN. Fino al 10/11 qui non pushava nessuno: «la release
-        // pipeline» del commento di testa non esisteva, e 18 land sono rimasti
-        // solo su questo disco con le card in Done. Un push fallito non disfa il
-        // land, ma lo DICE: verdetto `unpushed` e una riga nel thread.
+        // ── THEN TO ORIGIN. Until 10/11 nobody pushed here: the "release
+        // pipeline" of the header comment did not exist, and 18 lands sat on
+        // this disk only, their cards in Done. A failed push does not undo the
+        // land, but it SAYS so: verdict `unpushed` and a line in the thread.
         if (proof === true && opts?.pushMainAfterLand) {
           let push: { ok: true; pushed: number } | { ok: false; reason: string };
           try { push = await opts.pushMainAfterLand(res.repoPath); }
@@ -2228,8 +2228,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // `verdict === "ask"` covers the cases where the land does not know (no
       // branch, or the branch was already on main): they map to "skipped" for
       // the MCP caller.
-      // `unpushed` è atterrato (sul main locale): per la coda è un `landed`,
-      // il difetto lo porta la card.
+      // `unpushed` did land (on the local main): for the queue it is `landed`,
+      // the card carries the defect.
       const ticketOutcome: LandOutcomeResult['outcome'] =
         verdict === "ask" ? "skipped" : verdict === "unpushed" ? "landed" : verdict;
       // The reason is only useful when the merge was refused: it is what the

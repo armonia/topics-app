@@ -4,17 +4,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { pushMainToOrigin, sweepUnpushedMains } from "./main-on-origin";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 const git = (cwd: string, ...a: string[]) => {
-  const r = spawnSync("git", ["-C", cwd, ...a], { encoding: "utf8" });
+  const r = spawnSync("git", ["-C", cwd, ...a], { encoding: "utf8", env: gitEnv() });
   if (r.status !== 0) throw new Error(`git ${a.join(" ")}: ${r.stderr}`);
   return r.stdout.trim();
 };
 function setup() {
   const root = mkdtempSync(join(tmpdir(), "mop-"));
   const origin = join(root, "origin.git"); const work = join(root, "work");
-  spawnSync("git", ["init", "-q", "--bare", "-b", "main", origin]);
-  spawnSync("git", ["clone", "-q", origin, work]);
+  spawnSync("git", ["init", "-q", "--bare", "-b", "main", origin], { env: gitEnv() });
+  spawnSync("git", ["clone", "-q", origin, work], { env: gitEnv() });
   for (const [k, v] of [["user.email", "t@t"], ["user.name", "t"], ["commit.gpgsign", "false"], ["core.hooksPath", "/dev/null"]]) git(work, "config", k, v);
   git(work, "checkout", "-q", "-b", "main");
   writeFileSync(join(work, "a"), "1"); git(work, "add", "a"); git(work, "commit", "-qm", "one");
@@ -38,7 +39,7 @@ describe("main su origin, solo fast-forward", () => {
     const { root, origin, work } = setup();
     try {
       const other = join(root, "other");
-      spawnSync("git", ["clone", "-q", origin, other]);
+      spawnSync("git", ["clone", "-q", origin, other], { env: gitEnv() });
       for (const [k, v] of [["user.email", "t@t"], ["user.name", "t"], ["commit.gpgsign", "false"], ["core.hooksPath", "/dev/null"]]) git(other, "config", k, v);
       commit(other, "x"); git(other, "push", "-q", "origin", "main");
       const before = git(origin, "rev-parse", "main");

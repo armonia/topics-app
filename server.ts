@@ -6588,12 +6588,11 @@ const auditOneLanding = (taskId: string) => auditOneLandingPass(auditWiring, tas
 const landingAuditBoot = setTimeout(runLandingAudit, 180_000);
 const landingAuditTimer = setInterval(runLandingAudit, LANDING_AUDIT_INTERVAL_MS);
 
-// ── I LAND RIMASTI INDIETRO TORNANO SU ORIGIN. Il push dopo il land può fallire
-// (rete, porta 22 in timeout il 10/11): ogni 10 minuti ogni repo con card
-// `unpushed` riprova, solo fast-forward, e a push riuscito (o main già su
-// origin) quelle card tornano `landed`. Su tutti i repo del board, non solo su
-// quelli con card marcate: un land fatto da un server senza questa cura resta
-// comunque indietro, ed è il caso misurato.
+// ── LANDS LEFT BEHIND GO BACK TO ORIGIN. The push after a land can fail
+// (network, port 22 timing out on 10/11): every 10 minutes each project repo
+// retries, fast-forward only, and once main is on origin its `unpushed` cards
+// turn `landed`. Every repo, not only those with marked cards: a land made by
+// a server without this fix is behind all the same, and that is the measured case.
 const sweepUnpushedLands = async () => {
   const repos = new Set<string>();
   try { for (const d of listSelectableProjectDirs()) repos.add(d); } catch { /* best-effort */ }
@@ -6607,7 +6606,7 @@ const sweepUnpushedLands = async () => {
       dispatcherSvc.recordLandingState({ taskId: t.id, state: "landed", checkedAt: new Date().toISOString(), witnessed: true });
       try {
         dispatcherSvc.addComment({ taskId: t.id, author: "system", kind: "service", content: "Main portato su origin: il land ora è anche su GitHub." });
-      } catch { /* la riga è un di più */ }
+      } catch { /* the line is a courtesy */ }
       const cur = dispatcherSvc.get(t.id)?.task;
       if (cur) broadcastToAll({ type: "task:updated", projectId: pid, task: cur } as Parameters<typeof broadcastToAll>[0]);
     }
