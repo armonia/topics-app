@@ -41,6 +41,7 @@ export const MACHINE_RETRY_CAP = 3;
 /** First delay before a machine-parked card goes back to todo; doubles each round. */
 export const MACHINE_RETRY_BASE_MS = 30 * 60_000;
 import { agentCardGaps, incompleteCardNotice, INCOMPLETE_CARD_NOTICE_PREFIX } from "../../shared/agent-card-contract";
+import { waitsLineAsk } from "../../shared/waits-on-person";
 import { STAGE_AI_REVIEW, STAGE_HUMAN_REVIEW, agentAskInThread, awaitsHumanSql, defaultColumnFor, namesHumanReviewWithoutAsk, stageAtBirth, stageForDelivery, stageForStatusChange, type WorkflowColumn, type WorkflowPresetId } from "../../shared/workflow";
 import { requestAiReviewNotice } from "./ai-review-notice";
 import { checkStage, clearStagesOutsideWorkflow, dropStageOutsideTarget, readBoardWorkflow, routeAskOutOfAiReview, stampStaleAiReview, clearAiReviewReminderStamp, writeBoardWorkflow } from "./board-workflow";
@@ -3865,6 +3866,21 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     });
   }
 
+  /**
+   * The question a card carries into review when nobody wrote one: the
+   * «aspetta: attilio — …» line of its description, else the move the
+   * delivery itself names (a branch to look at, the system's next move).
+   * Without it the card sat in review asking nothing, and nobody knew what to
+   * decide (10/11: e9a68aa7 had the line, 887341aa and cd972f2f a node delivery).
+   */
+  function reviewAskFallback(row: { description?: string | null; delivery_branch?: string | null }, hint?: string | null, description?: string | null): string {
+    const line = waitsLineAsk(description ?? row.description);
+    if (line) return line;
+    if (hint && hint.trim()) return hint.trim().split("\n")[0]!.slice(0, 240);
+    if (row.delivery_branch) return `Guarda il diff di \`${row.delivery_branch}\`: approvi il land o la rimandi indietro?`;
+    return "Consegna senza domanda: guarda il riassunto e approva, o rimandala indietro col motivo.";
+  }
+
   /** `agentAskInThread` (shared/workflow.ts) on this card's thread. */
   function agentAskOnThread(taskId: string): string | null {
     try { return agentAskInThread(service.get(taskId)?.comments ?? []); } catch { return null; }
@@ -3876,11 +3892,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * `humanAsk` the question the thread or the system asks the person. Written
    * only when it changes something, like `update()`.
    */
-  function routeSystemDelivery(taskId: string, humanAsk: string | null): void {
+  function routeSystemDelivery(taskId: string, humanAsk: string | null, fallback?: string | null): void {
     const row = getTaskRow(taskId);
     if (!row || row.parent_task_id) return;
     const stage = stageForDelivery(readBoardWorkflow(db, row.project_id).columns, { createdBy: row.created_by, humanAsk });
-    if (stage === null && row.stage == null && row.human_ask == null) return;
+    // A card that reaches the person says what it asks (10/11, `solido`: three cards in review with no question)
+    if (!humanAsk && stage !== STAGE_AI_REVIEW) humanAsk = reviewAskFallback(row, fallback);
+    if (stage === null && row.stage == null && row.human_ask == null && !humanAsk) return;
     db.prepare("UPDATE tasks SET stage = ?, human_ask = ? WHERE id = ?").run(stage, humanAsk, taskId);
     if (stage === STAGE_AI_REVIEW) announceAiReview(taskId);
   }
@@ -4197,6 +4215,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         } else {
           nextStage = stageForStatusChange(columns, { from: current, to: patch.status!, byAgent: actor === "agent", createdBy: row.created_by, humanAsk });
         }
+      }
+      // Into review without a question for the person: the card says one anyway (`reviewAskFallback`),
+      // unless the workflow sends it to AI review, where the opener and not the person closes it.
+      if (!row.parent_task_id && patch.status === "review" && current !== "review" && !humanAsk
+        && (nextStage ?? row.stage) !== STAGE_AI_REVIEW) {
+        humanAsk = reviewAskFallback(row, null, patch.description);
+        askFromThread = true;
       }
 
       if (patch.status !== undefined) {
@@ -5786,7 +5811,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // THE BOARD'S WORKFLOW ROUTES THIS DELIVERY TOO: a machine card goes
       // back to whoever opened it unless the AGENT's last word (not the
       // thread's: this door writes its own notes under it) asks the person.
-      routeSystemDelivery(taskId, agentAskOnThread(taskId));
+      routeSystemDelivery(taskId, agentAskOnThread(taskId), nextMove);
       // Open the pending review approval so the review decision flow works, just
       // like an agent-initiated hand-off would.
       try {

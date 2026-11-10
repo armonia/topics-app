@@ -37,6 +37,12 @@ const PARKED_DISPATCH_STATES: readonly string[] = ["failed", "blocked", PARKED_W
 /** The «waits for Attilio» line a card description carries when it is the person's turn. */
 const WAITS_LINE = /aspetta:\s*attilio\b[\s\u2013\u2014:-]*(.*)/i;
 
+/** The question of the «aspetta: attilio — …» line in a description, or `null`. */
+export function waitsLineAsk(description: string | null | undefined): string | null {
+  const said = description?.match(WAITS_LINE)?.[1]?.replace(/[»"”'.\s]+$/, "").trim();
+  return said || null;
+}
+
 export function waitOnPerson(t: WaitTask, comments: readonly PendingQuestionComment[]): WaitOnPerson | null {
   if (t.status === "done") return null;
   const q = pendingQuestionComment(comments);
