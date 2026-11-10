@@ -1,4 +1,7 @@
-// A card that reaches review asks the person something (10/11, `solido`: three cards in review with no human_ask).
+/**
+ * A card that reaches review asks the person something (10/11, `solido`: three cards in review with no human_ask).
+ * @covers KANBAN-102
+ */
 import { test, expect } from "bun:test";
 import { freshDb, svc, PID } from "./tasks-test-db";
 
