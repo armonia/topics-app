@@ -133,6 +133,9 @@ for i in $(seq 1 "$SHARDS"); do
   #
   # `--reporter=line,json` da' tutte e due: la riga da leggere mentre gira e il
   # file da cui imparare per la prossima volta. Costa un file per shard.
+  # Cache di compilazione per shard: Playwright la scrive senza rename atomico
+  # e un processo fratello puo' leggere un modulo a meta' (run 42762634932).
+  PWTEST_CACHE_DIR="$OUT_DIR/pw-cache-$i" \
   E2E_PORT="$port" PLAYWRIGHT_JSON_OUTPUT_FILE="$OUT_DIR/report-$i.json" \
     npx playwright test "${shard_args[@]}" --reporter=line,json --output="$OUT_DIR/artifacts-$i" "$@" \
     > "$OUT_DIR/shard-$i.log" 2>&1 &
