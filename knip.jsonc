@@ -424,6 +424,9 @@
         "src/main.tsx",
         "vite.config.ts",
         "vite.landing.config.ts",
+        // Il boot della demo della landing: lo compila vite.landing.config.ts
+        // da un percorso scritto come stringa, che knip non segue.
+        "src/demo/boot.ts",
         "src/**/*.{test,spec}.{ts,tsx}"
       ],
       "project": ["src/**/*.{ts,tsx}"]

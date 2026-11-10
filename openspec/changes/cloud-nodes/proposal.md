@@ -219,6 +219,12 @@ A fine prova: server 0, snapshot 0, firewall 0, riga `machines` del nodo cancell
   se `claude -p` sullo stesso token risponde. Il nodo appena nato non ha un
   catalogo provider: va popolato all'avvio (o copiato dal Mac all'accoppiamento)
   prima che possa lavorare una card. Traccia di codice per la Fase 1.
+  Cura (card 063ca73c): il catalogo non manca, è la diagnosi di claude-code a
+  dichiararlo `unavailable` quando sul nodo non c'è `HOME` (unit systemd senza
+  `User=`) o c'è solo `CLAUDE_CODE_OAUTH_TOKEN`; ora entrambi contano come
+  sessione (`claude-session-signal.ts`, test unitario). **Da rimisurare** 0.7 e
+  0.8 con agenti vivi su un topics-node: `~/bin/hetzner-tetto` non c'era sulla
+  macchina che ha fatto la cura, quindi la misura resta aperta.
 - 0.8 RAM (cpx32, 8 GB): Topics a riposo ~170 MB RSS (server 121 + ai-bridge 50);
   `bun test server/lib` (3280 test, 108 s) con MemAvailable minimo 6897 MB, 0 OOM.
   Due card insieme: in coda per 22 min, MemAvailable minimo 7104 MB, 0 OOM, ma
