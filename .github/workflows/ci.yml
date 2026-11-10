@@ -997,12 +997,11 @@ jobs:
 
   e2e:
     timeout-minutes: 25
-    # Shards 1..N on the server, N = the runners that came up (4 on a cx53, 2 on the
+    # Shards 1..N on the server, N = the runners that came up (4 on a cx53, 1 on the
     # dedicated ccx23 fallback). Shard 0, the rest, and every run without a server:
-    # ubuntu-latest, as before.
-    # Fallback PER RUN, not per shard: when the server came up every shard queues
-    # on its runners (4 at a time); only a run without a server uses ubuntu-latest.
-    runs-on: ${{ (needs.hcloud.outputs.label != '' && fromJSON(needs.hcloud.outputs.runners || '0') > 0) && needs.hcloud.outputs.label || 'ubuntu-latest' }}
+    # ubuntu-latest, as before. Per shard, not per run: with one runner, nine
+    # shards in a row on it would take hours.
+    runs-on: ${{ (matrix.shard != 0 && needs.hcloud.outputs.label != '' && matrix.shard <= fromJSON(needs.hcloud.outputs.runners || '0')) && needs.hcloud.outputs.label || 'ubuntu-latest' }}
     needs: [changes, prepare-e2e, hcloud]
     if: ${{ !cancelled() && needs.prepare-e2e.result == 'success' }}
     # WHEN NOTHING THE SHARDS READ HAS CHANGED the matrix is the single job `e2e (0)`
