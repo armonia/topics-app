@@ -25,6 +25,13 @@ export interface TranscriptEvent {
   cwd?: unknown;
   timestamp?: unknown;
   message?: { content?: unknown; stop_reason?: unknown; model?: unknown };
+  /** `system` records: `turn_duration` and `stop_hook_summary` close a turn. */
+  subtype?: unknown;
+  /** `queue-operation` records: the CLI queueing a notification (`enqueue`). */
+  operation?: unknown;
+  content?: unknown;
+  /** `attachment` records: a `queued_command` carries a notification too. */
+  attachment?: { type?: unknown; prompt?: unknown; commandMode?: unknown; origin?: { kind?: unknown } };
 }
 
 /** The record on this line, or null when the line is not a JSON object. */
@@ -49,6 +56,23 @@ export function contentText(content: unknown): string {
 
 /** The CLI telling the child that background work it launched has reported back. */
 const isTaskNotification = (ev: TranscriptEvent) => ev.type === 'user' && ev.origin?.kind === 'task-notification';
+
+/**
+ * The text of a background report in any of the forms the CLI writes it. A
+ * notification that lands while the child is idle may never become a `user`
+ * record: it stays a `queue-operation` enqueue and an `attachment`
+ * `queued_command` (seen 09/11, 23 hours of a finished child held «working»).
+ */
+function notificationText(ev: TranscriptEvent): string | null {
+  if (isTaskNotification(ev)) return contentText(ev.message?.content);
+  if (ev.type === 'queue-operation' && ev.operation === 'enqueue' && typeof ev.content === 'string' && ev.content.includes('<task-notification>')) {
+    return ev.content;
+  }
+  const a = ev.attachment;
+  if (ev.type === 'attachment' && a?.type === 'queued_command' && typeof a.prompt === 'string'
+    && (a.origin?.kind === 'task-notification' || a.commandMode === 'task-notification')) return a.prompt;
+  return null;
+}
 
 /** A `type:"user"` record that is a PROMPT: typed text, not a tool result, not a
  *  meta line the CLI injects, not the marker of an Escape, not a compaction's
@@ -118,6 +142,15 @@ export interface SubAgentResult extends SubAgentOutcome {
 /** How long a seeded prompt may take to appear in the transcript before the turn is `undelivered`. */
 export const UNDELIVERED_AFTER_MS = 60_000;
 
+/**
+ * How long a turn the CLI closed (`end_turn`, then `turn_duration` or the Stop
+ * hook) may wait for background work that never reports before it counts as
+ * completed. One hour: the background Agents seen in production report within
+ * 15 minutes, a long suite within the hour, and past it a child held «working»
+ * costs the parent its result (09/11: 23 hours).
+ */
+export const STALE_BACKGROUND_MS = 60 * 60_000;
+
 /** How many prompts the child has received. */
 export function promptCount(lines: readonly string[]): number {
   return tallyOf(lines).prompts;
@@ -144,10 +177,11 @@ function noteBackground(into: Set<string>, content: unknown): void {
   }
 }
 
-/** A notification names the tool call it reports on; one that does not settles the oldest. */
+/** A notification names the tool call it reports on; one that does not settles the oldest.
+ *  The same report comes in up to three forms, so a named id already settled settles nothing. */
 function settleBackground(pending: Set<string>, text: string): void {
   const id = text.match(/<tool-use-id>([^<]+)<\/tool-use-id>/)?.[1];
-  if (id && pending.delete(id)) return;
+  if (id) { pending.delete(id); return; }
   const oldest = pending.values().next();
   if (!oldest.done) pending.delete(oldest.value);
 }
@@ -168,21 +202,30 @@ interface TurnFold {
   /** The prompt's timestamp and the last record's: the turn's duration. */
   startAt: number;
   endAt: number;
+  /** The CLI wrote the turn's close (`turn_duration`/`stop_hook_summary`) after its `end_turn`. */
+  closed: boolean;
 }
 
 const timestampOf = (ev: TranscriptEvent): number => (typeof ev.timestamp === 'string' ? Date.parse(ev.timestamp) : NaN);
 
 function openTurn(prompt: TranscriptEvent): TurnFold {
   const at = timestampOf(prompt);
-  return { state: 'waiting', turnText: '', errorText: '', background: new Set(), startAt: at, endAt: at };
+  return { state: 'waiting', turnText: '', errorText: '', background: new Set(), startAt: at, endAt: at, closed: false };
 }
 
 function foldRecord(f: TurnFold, ev: TranscriptEvent): void {
-  f.endAt = timestampOf(ev);
+  const at = timestampOf(ev);
+  if (Number.isFinite(at)) f.endAt = at;
+  const note = notificationText(ev);
+  if (note !== null) settleBackground(f.background, note);
+  if (ev.type === 'system' && (ev.subtype === 'turn_duration' || ev.subtype === 'stop_hook_summary')) {
+    if (f.state === 'done') f.closed = true;
+    return;
+  }
   if (ev.type === 'user') {
     // A tool result, an Escape marker or a notification: the turn is still open.
-    if (isTaskNotification(ev)) settleBackground(f.background, contentText(ev.message?.content));
     f.state = 'working';
+    f.closed = false;
     return;
   }
   if (ev.type !== 'assistant') return;
@@ -198,10 +241,15 @@ function foldRecord(f: TurnFold, ev: TranscriptEvent): void {
   if (ev.message?.model === '<synthetic>') return;
   if (text) f.turnText = text;
   f.state = ev.message?.stop_reason === 'end_turn' ? 'done' : 'working';
+  f.closed = false;
 }
 
-function turnVerdict(f: TurnFold, opts: { ending?: SubAgentEnding; exitCode?: number | null }): SubAgentOutcome | null {
-  if (f.state === 'done' && !f.background.size) return { status: 'completed', partial: false, text: f.turnText };
+/** A closed turn still owed background reports, silent past `STALE_BACKGROUND_MS`. */
+const backgroundStale = (f: TurnFold, now: number | undefined) =>
+  now != null && f.closed && Number.isFinite(f.endAt) && now - f.endAt >= STALE_BACKGROUND_MS;
+
+function turnVerdict(f: TurnFold, opts: { ending?: SubAgentEnding; exitCode?: number | null; now?: number }): SubAgentOutcome | null {
+  if (f.state === 'done' && (!f.background.size || backgroundStale(f, opts.now))) return { status: 'completed', partial: false, text: f.turnText };
   if (f.state === 'api-error') {
     return { status: 'failed', partial: false, text: f.turnText, reason: { code: 'api-error', detail: f.errorText } };
   }
@@ -244,6 +292,11 @@ export function tallyLines(t: TranscriptTally, lines: readonly string[]): void {
       foldRecord(t.open[t.open.length - 1]!, ev);
     }
   }
+}
+
+/** A turn the CLI closed is waiting only on background reports: the watch must look again as time passes. */
+export function tallyAwaitsBackground(t: TranscriptTally): boolean {
+  return t.open.some((f) => f.state === 'done' && f.closed && f.background.size > 0);
 }
 
 /** Drop the folds of the turns up to `turn`: reported, nothing is asked of them again. */
@@ -329,7 +382,7 @@ export function pendingTallyTurns(
   const out: Array<{ turn: number; outcome: SubAgentOutcome }> = [];
   for (let turn = s.turnsReported + 1; turn <= t.prompts; turn++) {
     const fold = foldOf(t, turn);
-    const outcome = fold ? turnVerdict(fold, {}) : null;
+    const outcome = fold ? turnVerdict(fold, { now: s.now }) : null;
     if (outcome) out.push({ turn, outcome });
   }
   return out;

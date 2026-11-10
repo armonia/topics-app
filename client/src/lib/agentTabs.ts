@@ -13,15 +13,35 @@
 import type { Pane, PaneGroup, Topic } from '../types';
 import { findPreviewPane, replacePaneInGroup } from './previewTabs';
 
+export { isAgentOwnedTopic } from '../../../shared/agent-owned';
+import { isAgentOwnedTopic } from '../../../shared/agent-owned';
+
 /**
- * A chat Attilio did not open: a sub-agent (`subagentOf`), a conversation
- * Jarvis opened under one of its roots (`parentId`, e.g. the channels and
- * scheduled-jobs roots), a dispatched card session (`mcpPolicy:
- * 'bridge-only'`, set only by the dispatcher).
+ * Browser panes in a layout that belong to an agent's chat (10/11): the
+ * page lives in the agent's section and is reached from its chat marker, so
+ * the one-time migration takes the pane off the bar. The page itself is not
+ * closed, only the tab. A browser context is the topic id, or the
+ * `browserState.contextId` the topic recorded.
  */
-export function isAgentOwnedTopic(topic: Pick<Topic, 'subagentOf' | 'parentId' | 'mcpPolicy'> | null | undefined): boolean {
-  if (!topic) return false;
-  return !!topic.subagentOf || !!topic.parentId || topic.mcpPolicy === 'bridge-only';
+export function agentBrowserPaneIds(
+  panes: readonly Pane[],
+  topics: Record<string, (Topic & { browserState?: { contextId?: string } | null }) | undefined>,
+  contextOf: (paneId: string) => string | null,
+): string[] {
+  const owner = new Map<string, Topic>();
+  for (const t of Object.values(topics)) {
+    if (!t) continue;
+    owner.set(t.id, t);
+    const ctx = t.browserState?.contextId;
+    if (ctx) owner.set(ctx, t);
+  }
+  const out: string[] = [];
+  for (const p of panes) {
+    if (p.type !== 'browser') continue;
+    const ctx = contextOf(p.id);
+    if (ctx && isAgentOwnedTopic(owner.get(ctx))) out.push(p.id);
+  }
+  return out;
 }
 
 export type ChatTabPlan =
@@ -61,6 +81,18 @@ const PARKED_KEY = 'topics-agent-tabs-parked-v1:';
  */
 export function shouldParkAgentTabs(projectPath: string, storage: Pick<Storage, 'getItem'> | null): boolean {
   try { return !storage || storage.getItem(PARKED_KEY + projectPath) !== '1'; } catch { return false; }
+}
+
+const PARKED_BROWSERS_KEY = 'topics-agent-browsers-parked-v1:';
+
+/** Same one-time migration for agent browser panes: its own marker, because
+ *  windows that already ran the chat migration must still run this one. */
+export function shouldParkAgentBrowsers(projectPath: string, storage: Pick<Storage, 'getItem'> | null): boolean {
+  try { return !storage || storage.getItem(PARKED_BROWSERS_KEY + projectPath) !== '1'; } catch { return false; }
+}
+
+export function markAgentBrowsersParked(projectPath: string, storage: Pick<Storage, 'setItem'> | null): void {
+  try { storage?.setItem(PARKED_BROWSERS_KEY + projectPath, '1'); } catch { /* retried on the next load */ }
 }
 
 export function markAgentTabsParked(projectPath: string, storage: Pick<Storage, 'setItem'> | null): void {

@@ -3733,8 +3733,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
          dispatch_state = CASE WHEN dispatch_state = 'queued' THEN NULL ELSE dispatch_state END
        WHERE id IN (SELECT id FROM subtree)`,
     ).run(taskId, ts);
-    // Il dispatcher salta le archiviate: lasciare 'queued' le faceva sembrare
-    // una coda ferma (10/11, 11 card «in coda» per il PC da settimane).
+    // The dispatcher skips archived cards: leaving 'queued' made them look like
+    // a stuck queue (10/11, 11 cards "queued" for the PC for weeks).
   }
 
   /**
