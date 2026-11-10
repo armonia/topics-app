@@ -159,7 +159,12 @@ jobs:
 
       # `bun test:unit` is this same command: the slot wrapper (disabled under
       # CI, but it still caps the run at 60 min) around the runner.
+      # 6 worker invece dei 4 del default (= core): run 42837284629 usava
+      # 412 s di CPU in 367 s di muro su 4 core, i file aspettano I/O e timer.
+      # Stessi 2229 file, stesso processo per file.
       - name: Unit + integration tests (one process per file)
+        env:
+          TOPICS_UNIT_SHARDS: "6"
         run: bun run scripts/slot.ts test:unit -- "bun run scripts/test-unit-shards.ts"
 
   # Process groups are a POSIX contract, so keep the focused real-process tests
@@ -1352,13 +1357,32 @@ jobs:
 
       # webkit2gtk-sys e i suoi vicini si configurano con pkg-config: senza
       # queste, il crate Linux non arriva nemmeno a compilare.
+      # Il mirror Azure di apt va da 1 a 10 minuti per gli stessi 179
+      # pacchetti (run 42837284629: 9,5 min): i .deb restano in cache fra
+      # le run, l'installazione e quindi il controllo restano identici.
+      # Solo i .deb in cache, l'install resta apt-get vero: cache-apt-pkgs-action
+      # ripristinava i file ma non i link -dev (run 42844534396: «unable to
+      # find library -lcairo»).
+      - name: Cache Linux webview .deb
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-debs
+          key: apt-webview-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: apt-webview-${{ runner.os }}-
+
       - name: Install Linux webview deps
         if: matrix.os == 'ubuntu-latest'
         run: |
+          mkdir -p ~/apt-debs/partial
+          sudo rm -f /var/lib/man-db/auto-update
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+          sudo apt-get install -y -o Dir::Cache::Archives="$HOME/apt-debs" \
+            libwebkit2gtk-4.1-dev libgtk-3-dev \
             libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libappindicator3-dev \
             librsvg2-dev patchelf
+          sudo chown -R "$USER" ~/apt-debs
+          rm -rf ~/apt-debs/partial ~/apt-debs/lock
 
       - name: Rust build cache
         uses: Swatinem/rust-cache@v2
