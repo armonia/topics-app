@@ -59,9 +59,11 @@ reserve() {
   all=$(runners) || { echo 0; return 0; }
   drop_stale "$all"
   all=$(runners) || { echo 0; return 0; }
-  # Free = online, idle, in the pool, booked by nobody.
+  # Free = online, idle, one of ours by name (a runner registered by anybody else with
+# the same label is never booked), in the pool, booked by nobody.
   ids=$(jq -r --arg pool "$pool" --arg p "$PREFIX" --argjson n "$want" '
-    [.runners[] | select(.status == "online" and (.busy | not) and any(.labels[]; .name == $pool)
+    [.runners[] | select(.status == "online" and (.busy | not) and (.name | startswith("topics-fisso-"))
+      and any(.labels[]; .name == $pool)
       and all(.labels[]; .name | startswith($p) | not)) | .id] | sort | .[:$n][]' <<<"$all")
   [ -n "$ids" ] || { echo 0; return 0; }
   for id in $ids; do

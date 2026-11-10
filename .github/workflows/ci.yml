@@ -938,6 +938,11 @@ jobs:
     needs: [changes, hcloud]
     if: ${{ !cancelled() && needs.changes.result == 'success' }}
     runs-on: ${{ needs.hcloud.outputs.attempt == format('{0}', github.run_attempt) && fromJSON(needs.hcloud.outputs.placement || '{}').prep || 'ubuntu-latest' }}
+    # Read-only token: this job may run on the fixed server's persistent runner, which
+    # pull requests of this repository use too.
+    permissions:
+      contents: read
+      actions: read
     outputs:
       plan-ok: ${{ steps.plan.outputs.ok }}
     steps:

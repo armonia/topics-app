@@ -221,7 +221,7 @@ def mac(method, path, body=None, timeout=30):
 
 def pool_servers():
     return [s for s in hz("GET", "/servers?label_selector=topics-node&per_page=50").get("servers", [])
-            if (s.get("labels") or {}).get("topics-node-slot")]
+            if (s.get("labels") or {}).get("topics-node-slot") and s.get("name") != FIXED_NAME]
 
 
 def price(type_name, location):
@@ -580,7 +580,8 @@ def ensure_fixed(state, fx):
         return finish(state, sl)
     if not tunnel_alive(sl):
         log(f"posto {key}: tunnel del fisso riaperto ({open_tunnel(sl)})")
-    r = ssh(ip, "pgrep -c -f Runner.Worker; su - topics -c 'git -C topics-app rev-parse HEAD'", timeout=20)
+    # -x: -f would also count the shell that runs pgrep, and the CI would always look busy
+    r = ssh(ip, "pgrep -c -x Runner.Worker; su - topics -c 'git -C topics-app rev-parse HEAD'", timeout=20)
     out = (r.stdout or "").split()
     ci_busy = int(out[0]) if out and out[0].isdigit() else 0
     want = fixed_slots(ci_busy)
@@ -593,8 +594,14 @@ def ensure_fixed(state, fx):
             log(f"posto {key}: slots del fisso non impostati: {e}")
     node_commit = out[1] if len(out) > 1 else ""
     c = commit_of_mac()
-    if c and node_commit and node_commit != c and not slot_busy(sl.get("machine_id")):
-        a = ssh(ip, from_snapshot_user_data().split("\n", 1)[1], timeout=600)
+    if c and node_commit and node_commit != c and sl.get("align_failed") != c and not slot_busy(sl.get("machine_id")):
+        # restart only if the checkout succeeded: a commit of the Mac not yet on origin would
+        # otherwise restart Topics every minute; a failed commit is not retried until the next one
+        a = ssh(ip, "su - topics -c 'cd topics-app && git fetch -q origin && git checkout -q " + c +
+                " && export PATH=\"$HOME/.topics/bun/$(tr -d \"[:space:]\" < .bun-version):$PATH\" && bun install >/dev/null 2>&1'"
+                " && systemctl restart topics.service", timeout=600)
+        if a.returncode != 0:
+            sl["align_failed"] = c
         log(f"posto {key}: fisso riallineato a {c[:10]} (exit {a.returncode})")
     save_state(state)
     return sl

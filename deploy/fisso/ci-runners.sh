@@ -11,7 +11,11 @@
 # Why each piece:
 # - one Linux user per runner (group `ci`), never root: the Topics node on this box
 #   trusts loopback as its owner, and a CI job must not reach it, nor the Mac's model
-#   proxy behind the ssh tunnel, nor /home/topics (iptables by group, home 0700);
+#   proxy behind the ssh tunnel, its agent browser (CDP 19222), nor /home/topics
+#   (iptables by group, home 0700). Nor TAKE its ports: a job holding 3333 when
+#   topics.service restarts would push the node onto a random port outside the
+#   firewall and answer the Mac's tunnel itself, so the runner units deny binding
+#   them (SocketBindDeny);
 # - persistent runners: caches in each HOME (bun, Playwright browsers) survive between
 #   jobs, and no admin token lives here to re-register ephemeral ones;
 # - HOME=/srv/rh-<i>: ci.yml derives the e2e port band from it (13910 + (i-1)*10);
@@ -32,14 +36,15 @@ npx -y "playwright@$PW_VERSION" install-deps chromium webkit >/var/log/ci-pw-dep
 getent group ci >/dev/null || groupadd ci
 chmod 700 /home/topics 2>/dev/null || true
 
-# Firewall: the ci group cannot reach the Topics node (3333 http, 3341 tunnel listener),
-# the reverse tunnel to the Mac's model proxy (3411-3413) nor the metadata service.
+# Firewall: the ci group cannot reach the Topics node (3333 http, 3341 tunnel listener,
+# 19222 agent browser), the reverse tunnel to the Mac's model proxy (3411-3413) nor the
+# metadata service. The e2e test servers use 13910-13949 and CDP 19910-19949.
 cat > /usr/local/sbin/ci-firewall <<'EOS'
 #!/bin/bash
 for t in iptables ip6tables; do
   $t -N CI-OUT 2>/dev/null || $t -F CI-OUT
   $t -C OUTPUT -m owner --gid-owner ci -j CI-OUT 2>/dev/null || $t -I OUTPUT -m owner --gid-owner ci -j CI-OUT
-  $t -A CI-OUT -o lo -p tcp -m multiport --dports 3333,3341,3391,3400:3420 -j REJECT
+  $t -A CI-OUT -o lo -p tcp -m multiport --dports 3333,3341,3391,3400:3420,19222 -j REJECT
 done
 iptables -A CI-OUT -d 169.254.169.254 -j REJECT
 EOS
@@ -69,7 +74,7 @@ printf '[Service]\nCPUWeight=500\n' > /etc/systemd/system/topics.service.d/prece
 
 # Kills what the job left behind: every process of this runner's cgroup that is not
 # an ancestor of this hook (run.sh, Runner.Listener, Runner.Worker).
-cat > /usr/local/bin/ci-job-done <<'EOS'
+cat > /usr/local/bin/ci-job-done.sh <<'EOS'
 #!/bin/bash
 cg=$(cut -d: -f3 /proc/self/cgroup)
 keep=" "; p=$$
@@ -80,7 +85,7 @@ for pid in $(cat "/sys/fs/cgroup$cg/cgroup.procs" 2>/dev/null); do
 done
 exit 0
 EOS
-chmod 755 /usr/local/bin/ci-job-done
+chmod 755 /usr/local/bin/ci-job-done.sh
 
 cat > /etc/systemd/system/ci-runner@.service <<'EOS'
 [Unit]
@@ -94,9 +99,14 @@ Slice=ci.slice
 WorkingDirectory=/srv/runner-%i
 Environment=HOME=/srv/rh-%i
 Environment=SHELL=/bin/bash
-Environment=ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/usr/local/bin/ci-job-done
+Environment=ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/usr/local/bin/ci-job-done.sh
 ExecStart=/srv/runner-%i/run.sh
 KillMode=control-group
+SocketBindDeny=tcp:3333
+SocketBindDeny=tcp:3341
+SocketBindDeny=tcp:3391
+SocketBindDeny=tcp:3400-3420
+SocketBindDeny=tcp:19222
 Restart=always
 RestartSec=10
 [Install]
@@ -118,8 +128,10 @@ for i in 0 $(seq 1 "$N"); do
     [ "$i" = 0 ] && /srv/runner-0/bin/installdependencies.sh >/var/log/ci-runner-deps.log 2>&1
     chown -R "$u:ci" "/srv/runner-$i"
     l=fisso; [ "$i" = 0 ] && l=fisso-prep
-    su -s /bin/bash "$u" -c "cd /srv/runner-$i && ./config.sh --unattended --url '$URL' --token '$REG_TOKEN' \
-      --name topics-fisso-$i --labels $l --no-default-labels --replace" >"/var/log/ci-runner-$i.log" 2>&1
+    # The token goes through the environment (ACTIONS_RUNNER_INPUT_TOKEN), not argv:
+    # /proc/<pid>/environ is readable only by that user, a command line by everybody.
+    (cd "/srv/runner-$i" && ACTIONS_RUNNER_INPUT_TOKEN=$REG_TOKEN runuser -u "$u" -- ./config.sh --unattended \
+      --url "$URL" --name "topics-fisso-$i" --labels "$l" --no-default-labels --replace) >"/var/log/ci-runner-$i.log" 2>&1
   fi
 done
 systemctl daemon-reload

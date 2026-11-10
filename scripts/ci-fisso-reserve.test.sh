@@ -44,7 +44,7 @@ seed() {  # <runners spec: "id:status:busy:label ..."> [runs json]
   for r in $1; do
     IFS=: read -r id st b l <<<"$r"
     js=$(jq --argjson id "$id" --arg st "$st" --argjson b "$b" --arg l "$l" \
-      '. + [{id: $id, status: $st, busy: $b, labels: ([$l] | map({name: .}))}]' <<<"$js")
+      '. + [{id: $id, name: "topics-fisso-\($id)", status: $st, busy: $b, labels: ([$l] | map({name: .}))}]' <<<"$js")
   done
   jq -n --argjson r "$js" --argjson runs "${2:-{\}}" '{runners: $r, runs: $runs}' > "$STATE"
 }
@@ -73,6 +73,10 @@ ok "the stale label is gone" "$(booked fz-200-1)" 0
 seed "$FOUR"
 ok "zero wanted books nothing" "$(run reserve fisso 0 fz-300-1)" 0
 ok "garbage count books nothing" "$(run reserve fisso abc fz-300-1)" 0
+
+seed "$FOUR"
+jq '.runners[0].name = "intruso-1"' "$STATE" > "$STATE.n" && mv "$STATE.n" "$STATE"
+ok "a runner not named topics-fisso-* is never booked" "$(run reserve fisso 4 fz-500-1)" 3
 
 # Both runs added their label before either read: this one gives every runner up.
 seed "1:online:false:fisso 2:online:false:fisso"
