@@ -1,19 +1,15 @@
-name: Rete per i server Hetzner dei job
+name: Rete per i runner della CI
 
-# Ogni ora cancella i server dei runner effimeri (nome gh-runner-*, etichetta
-# type=github-runner) creati da più di 3 ore: un delete saltato non lascia un server
-# acceso a pagamento. Toglie anche da GitHub i runner gh-runner-* rimasti offline.
-# I server permanenti (armonia-crm, hosting-giuseppe) non hanno quell'etichetta né quel
-# nome, e in più sono esclusi per nome.
+# Ogni ora: toglie le prenotazioni dei runner del server fisso rimaste da run finite
+# (un delete saltato non deve tenere un runner fermo per sempre) e toglie da GitHub i
+# runner gh-runner-* dei vecchi server a richiesta rimasti offline.
+# Dall'11/11 la CI non crea più server Hetzner: quelli effimeri rimasti li cancella
+# `hetzner-tetto giro` sul Mac, che ha il token. Qui non c'è nessun token Hetzner.
 
 on:
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
-    inputs:
-      ore:
-        description: età minima in ore
-        default: "3"
 
 permissions: {}
 
@@ -23,27 +19,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Cancella i server gh-runner più vecchi della soglia
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts/ci-fisso-reserve.sh
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Prenotazioni di run finite sui runner del fisso
         env:
-          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-          ORE: ${{ github.event.inputs.ore || '3' }}
+          GH_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}
         run: |
-          set -euo pipefail
-          api=https://api.hetzner.cloud/v1
-          limite=$(( $(date +%s) - ORE * 3600 ))
-          for sel in type%3Dgithub-runner gh-runner; do
-            curl -fsS -H "Authorization: Bearer $HCLOUD_TOKEN" "$api/servers?label_selector=$sel&per_page=50"
-          done | jq -s '{servers: (map(.servers) | add | unique_by(.id))}' \
-            | jq -r --argjson lim "$limite" '.servers[]
-                | select(.name | startswith("gh-runner-"))
-                | select(.name != "armonia-crm" and .name != "hosting-giuseppe")
-                | select((.created | sub("\\+00:00$"; "Z") | fromdateiso8601) < $lim)
-                | "\(.id) \(.name) \(.created)"' \
-            | while read -r id name created; do
-                echo "cancello $name ($id), creato $created"
-                curl -fsS -X DELETE -H "Authorization: Bearer $HCLOUD_TOKEN" "$api/servers/$id" >/dev/null
-              done
-          echo "accesi ora:"; curl -fsS -H "Authorization: Bearer $HCLOUD_TOKEN" "$api/servers?label_selector=type%3Dgithub-runner" | jq -r '.servers[] | "\(.name) \(.created)"'
+          set -uo pipefail
+          source scripts/ci-fisso-reserve.sh
+          all=$(runners) && drop_stale "$all"
+          runners | jq -r '.runners[] | select(.name | startswith("topics-fisso")) | "\(.name) \(.status) busy=\(.busy) \([.labels[].name] | join(","))"'
 
       - name: Togli da GitHub i runner effimeri offline
         env:

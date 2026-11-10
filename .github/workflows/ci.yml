@@ -843,11 +843,17 @@ jobs:
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bash scripts/e2e-stop-on-red.test.sh
 
-      # Where the e2e shards go (PC, Hetzner, GitHub). The failure it guards is
-      # a run that never ends: more shards on a label than runners online.
+      # Where the e2e shards go (PC, fixed server, GitHub). The failure it guards
+      # is a run that never ends: more shards on a label than runners online.
       - name: Posto degli shard e2e (e2e-placement)
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bash scripts/e2e-placement.test.sh
+
+      # The booking of the fixed server's runners. The failure it guards: one
+      # runner booked by two runs, so a shard queues behind another run. About 20 s.
+      - name: Prenotazione dei runner del server fisso (ci-fisso-reserve)
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: bash scripts/ci-fisso-reserve.test.sh
 
   # THE VERDICT OF THE RUN'S TESTS AND GATES, IN THE JOB AND STEP THE BOARD READS.
   #
@@ -923,10 +929,10 @@ jobs:
   # ON A MACHINE OF OURS WHEN ONE IS UP. Measured on 10/11: this job waited 6-20
   # minutes in the queue for one of the 20 GitHub jobs of the organisation, and
   # every shard waits for it (run 42878426792: queued 18:57, started 19:17). The
-  # Hetzner server and the PC bring one runner of their own for it (label
+  # fixed server and the PC bring one runner of their own for it (label
   # `<run label>-prep`, see `hcloud`); without one it runs on ubuntu-latest as
-  # before. It waits for `hcloud` to know, which costs the time a server takes to
-  # come up (~3 minutes) on a quiet day.
+  # before. It waits for `hcloud` to know: seconds for the fixed server, up to
+  # 2 minutes when the PC is asked.
   prepare-e2e:
     timeout-minutes: 10
     needs: [changes, hcloud]
@@ -996,7 +1002,7 @@ jobs:
           path: plan/
           retention-days: 1
 
-  # WHERE THE E2E SHARDS RUN: THE PC FIRST, THEN A HETZNER SERVER, THEN GITHUB.
+  # WHERE THE E2E SHARDS RUN: THE PC FIRST, THEN THE FIXED SERVER, THEN GITHUB.
   #
   # Measured on 10/11/2026: a green run took 37 minutes, and every e2e job
   # waited 5-29 of them in the queue for one of the 20 jobs the organisation
@@ -1007,80 +1013,66 @@ jobs:
   # one has, 4 vCPU and 8 GB.
   #
   # The order, decided by Attilio on 10/11:
-  #  1. Attilio's PC, which costs nothing: up to 4 ephemeral runners inside WSL,
-  #     started by a broker on the Mac (`ci-pc-broker` in jarvis) only while
-  #     nobody is using the PC, when it sees the job below running. It publishes
-  #     PC_CI=1 on the repository while it can take shards; with PC_CI=0 the
-  #     job does not wait for it.
-  #  2. One Hetzner cx53 (16 vCPU, 32 GB, 0.047 EUR/h, 4 runners; a cx43 with 2
-  #     when the cx53 are sold out) for this run only, unless HETZNER_STOP=1: `hetzner-tetto` sets it when the CI's own
-  #     30 EUR a month would be exceeded.
+  #  1. Attilio's PC, which costs nothing: up to 4 ephemeral runners started
+  #     by a broker on the Mac (`ci-pc-broker` in jarvis) only while nobody is
+  #     using the PC, when it sees the job below running. It publishes PC_CI=1
+  #     on the repository while it can take shards; with PC_CI=0 the job does
+  #     not wait for it.
+  #  2. The fixed server topics-fisso (one Hetzner cx53 always on, 29.49 EUR a
+  #     month, shared with a Topics node that comes first): 4 persistent
+  #     runners `fisso` and one `fisso-prep` (deploy/fisso/ci-runners.sh). A
+  #     run books the idle ones by adding its own label to them
+  #     (scripts/ci-fisso-reserve.sh), so a shard never queues behind another
+  #     run. FISSO_CI=0 on the repository leaves it out.
   #  3. ubuntu-latest for every shard left.
   # `e2e-placement.sh` makes the map, and a label never gets more shards than
-  # it has runners online: every runner is ephemeral, so one shard too many
-  # would wait in the queue forever (the PC's would, and the server is deleted
-  # only after the shards). A machine that does not answer moves its shards to
-  # the next step, never into the queue.
+  # runners booked or online: one shard too many would wait in the queue.
   #
   # The repository is PUBLIC, so the rules (hcloud-runner.yml has the rest):
   #  - self-hosted only for a push to main or a pull request from this
   #    repository; a fork's pull request never reaches a machine of ours;
-  #  - HCLOUD_TOKEN and RUNNER_ADMIN_TOKEN live only in the create and delete
-  #    jobs, which run on ubuntu-latest and execute no code of the change but
-  #    the placement script;
+  #  - RUNNER_ADMIN_TOKEN lives only in the create and delete jobs, which run
+  #    on ubuntu-latest and execute no code of the change but the two
+  #    placement scripts; no Hetzner token in the CI any more;
   #  - the machines can make the run faster, never red: anything that fails in
   #    the create job sends the shards to ubuntu-latest as before.
-  #  - `hcloud-delete` runs with `always()`, and hcloud-sweeper.yml deletes any
-  #    gh-runner-* server older than 3 hours.
+  #  - `hcloud-delete` gives the runners back with `always()`; a booking of a
+  #    run that is over is dropped by the next booking and by the sweeper.
   hcloud:
     name: e2e placement
     needs: changes
-    # Skipped when there is nothing to look for (no server allowed, no PC): a create
+    # Skipped when there is nothing to look for (no fixed server, no PC): a create
     # job that does nothing would still take a GitHub slot, and `prepare-e2e`, which
     # waits for it, would queue a second time (4.5 minutes in run 42900864752).
     # `vars` are read when the run is created, not when a job starts.
-    if: ${{ needs.changes.outputs.e2e != 'false' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && (vars.HETZNER_STOP != '1' || vars.PC_CI == '1') }}
+    if: ${{ needs.changes.outputs.e2e != 'false' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && (vars.FISSO_CI != '0' || vars.PC_CI == '1') }}
     uses: ./.github/workflows/hcloud-runner.yml
     with:
       mode: create
-      # cx53 = 4 runner da 4 vCPU per 0,047 EUR/h; cx43 = 2 runner. HCLOUD_TYPES sulla
-      # variabile di repo li cambia senza un commit (es. "cpx32:1" quando i cx sono esauriti).
-      types: ${{ vars.HCLOUD_TYPES || 'cx53:4 cx43:2' }}
-      playwright: true
-      # What the GitHub image has and Ubuntu does not: jq for scripts/e2e-stop-on-red.sh,
-      # unzip for oven-sh/setup-bun (run 42823485405), make and g++ for `npm rebuild
-      # node-pty` (run 42827058180: «gyp ERR! not found: make»).
-      # zsh: the terminal falls back to /bin/zsh when SHELL is unset, as it is for the
-      # runners started by cloud-init (run 42850786038: «exited in 4ms with code 1»).
-      # sqlite3 and tmux: called by specs (run 42856852451: «spawnSync sqlite3 ENOENT»).
-      apt_packages: jq unzip build-essential python3 zsh sqlite3 tmux lsof
       # The same list as the matrix of `e2e`: the map has one entry per job.
       shards: ${{ github.event_name == 'pull_request' && '[0, 1, 2, 3, 4, 5, 6, 7, 8]' || '[1, 2, 3, 4, 5, 6, 7, 8]' }}
       pc_slots: 4
     secrets:
-      HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
       RUNNER_ADMIN_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}
 
   hcloud-delete:
-    name: delete the Hetzner server
+    name: give back the fixed server's runners
     needs: [hcloud, e2e]
     if: ${{ always() && needs.hcloud.result != 'skipped' }}
     uses: ./.github/workflows/hcloud-runner.yml
     with:
       mode: delete
       label: ${{ needs.hcloud.outputs.label }}
-      server_id: ${{ needs.hcloud.outputs.server_id }}
     secrets:
-      HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
       RUNNER_ADMIN_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}
 
   e2e:
     timeout-minutes: 25
-    # Per SHARD, from the map of the `hcloud` job (see the top of it): PC, Hetzner
+    # Per SHARD, from the map of the `hcloud` job (see the top of it): PC, fixed
     # server, or ubuntu-latest for a shard the map does not name. The map is only
     # good for the attempt that made it: "Re-run failed jobs" keeps the outputs of
     # the green `hcloud` job, and a shard sent back to that run's label would wait
-    # forever for a server already deleted. A re-run shard goes to ubuntu-latest.
+    # forever for runners already given back. A re-run shard goes to ubuntu-latest.
     runs-on: ${{ needs.hcloud.outputs.attempt == format('{0}', github.run_attempt) && fromJSON(needs.hcloud.outputs.placement || '{}')[format('s{0}', matrix.shard)] || 'ubuntu-latest' }}
     needs: [changes, prepare-e2e, hcloud]
     if: ${{ !cancelled() && needs.prepare-e2e.result == 'success' }}
@@ -1180,10 +1172,9 @@ jobs:
         if: ${{ needs.changes.outputs.e2e == 'false' }}
         run: echo "::notice title=e2e not needed::none of the changed files is read by an e2e shard (scripts/ci-changes.ts)"
 
-      # The first runner on the Hetzner server is started by cloud-init without HOME:
-      # Playwright then installs into /root/.cache while the Chromium lookup reads
-      # "$HOME/.cache" = /.cache (run 42836011389, shard 2). A HOME of its own, like
-      # the other runners on the server.
+      # Every runner of ours should come with a HOME (the fixed server's systemd
+      # units set /srv/rh-<i>); one without would install Playwright into one place
+      # and look for Chromium in /.cache (run 42836011389, shard 2).
       - name: Give the self-hosted runner a HOME
         if: ${{ runner.environment != 'github-hosted' && needs.changes.outputs.e2e != 'false' }}
         run: |
@@ -1278,9 +1269,9 @@ jobs:
         id: runner-image
         run: echo "id=${ImageOS:-unknown}-${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
 
-      # On the Hetzner server the system libraries were installed once at boot
-      # (hcloud-runner.yml), and several `--with-deps` side by side would fight
-      # over the apt lock: no apt cache and no --with-deps there.
+      # On the fixed server the system libraries were installed once
+      # (deploy/fisso/ci-runners.sh), and its runners are not root: no apt cache
+      # and no --with-deps there.
       - name: Restore the apt packages of the Playwright browsers
         if: ${{ needs.changes.outputs.e2e != 'false' && runner.environment == 'github-hosted' }}
         uses: actions/cache@v4
@@ -1362,9 +1353,9 @@ jobs:
         run: |
           PROCS=2
           SHARD=${{ matrix.shard }}
-          # Several runners share one Hetzner server: each takes its own band of
-          # 10 ports, from its HOME (/srv/rh-<i>, set per runner in hcloud-runner.yml;
-          # the runner name can't be used, the first one ends in the attempt number).
+          # Several runners share the fixed server: each takes its own band of
+          # 10 ports, from its HOME (/srv/rh-<i>, set per runner by
+          # deploy/fisso/ci-runners.sh).
           # Run 42839400563: two shards both on 13910 ("Un'altra run E2E sta usando la porta").
           idx=1
           case "${HOME:-}" in /srv/rh-[0-9]*) idx=${HOME#/srv/rh-} ;; esac
