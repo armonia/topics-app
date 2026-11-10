@@ -107,8 +107,8 @@ describe("l'archivio ha un ritorno", () => {
 });
 
 describe("una card archiviata non resta «in coda»", () => {
-  // 10/11: 11 card archiviate in todo portavano ancora dispatch_state='queued'
-  // da settimane e sembravano una coda ferma del PC che nessuno svegliava.
+  // 10/11: 11 archived todo cards still carried dispatch_state='queued' for
+  // weeks and looked like a stuck PC queue nobody woke up.
   test("archiviare spegne lo stato queued del sottoalbero", () => {
     const db = freshDb(); const s = svc(db);
     const padre = s.create({ projectId: PID, text: "In coda", status: "todo" });
