@@ -92,7 +92,7 @@ export function readRegistry(paths: Paths) {
     return { id, name: a.name, workspace: ws, persona, accounts, chats, jobs: agentJobs, model: { engine: engine.model ?? null, perChannel: models } };
   });
 
-  // Incoerenze fra i due: stessa chat con regole diverse per Jarvis e Visione, modelli scritti in forme diverse.
+  // Incoherences: one chat with different rules for Jarvis and Visione, models written in several forms.
   const byChat = new Map<string, Json[]>();
   for (const g of groups) byChat.set(`${g.channel}:${g.chat}`, [...(byChat.get(`${g.channel}:${g.chat}`) ?? []), g]);
   for (const [k, list] of byChat) {
