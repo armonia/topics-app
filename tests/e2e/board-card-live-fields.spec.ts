@@ -66,9 +66,12 @@ test.describe("Board: a frame's field reaches the card", () => {
     return { target, text, other, otherText };
   }
 
-  test.afterAll(async ({ request }) => {
-    for (let i = 0; i < created.length; i += 20) {
-      await Promise.all(created.slice(i, i + 20).map((id) => deleteTask(request, BOARD_ID, id).catch(() => {})));
+  // Each test removes its own cards: the column shows a bounded window of
+  // cards, so leftovers of earlier tests would push the next seed out of view.
+  test.afterEach(async ({ request }) => {
+    const ids = created.splice(0);
+    for (let i = 0; i < ids.length; i += 20) {
+      await Promise.all(ids.slice(i, i + 20).map((id) => deleteTask(request, BOARD_ID, id).catch(() => {})));
     }
   });
 
