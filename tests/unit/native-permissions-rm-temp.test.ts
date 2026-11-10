@@ -1,3 +1,7 @@
+/**
+ * rm of the turn's own temporaries passes in auto-apply (card 75dd2d5d).
+ * @covers RT-07
+ */
 import { describe, expect, test } from "bun:test";
 import { decide } from "../../server/providers/native/permissions";
 
