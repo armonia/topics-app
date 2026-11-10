@@ -217,8 +217,8 @@ const nativeScan = (where) => page.evaluate(({ where, retired }) => {
   return found;
 }, { where, retired: RETIRED_ON_SCREEN?.source ?? null }).then((list) => list.forEach((x) => natives.add(x)));
 
-/* Aspetta anche le animazioni d'entrata (dialogo, popover): sotto carico durano più dei due frame, e un controllo letto a
-   metà corsa (pannello traslato) veniva cliccato dove non era più, e la sua etichetta "copriva" il campo. */
+/* Waits for the entrance animations too (dialog, popover): under load they outlast two frames, and a control read halfway
+   (the panel still moving) was clicked where it no longer was, so its own label seemed to cover the field. */
 const settle = () => page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(() => {
   const running = document.getAnimations().filter((a) => a.playState === "running" && Number.isFinite(a.effect?.getComputedTiming().endTime));
   Promise.race([Promise.all(running.map((a) => a.finished.catch(() => {}))), new Promise((t) => setTimeout(t, 1500))]).then(() => setTimeout(ok, 30));
@@ -233,8 +233,8 @@ async function resetTo(path) {
   await settle();
 }
 
-/* Tempo per premere un controllo: con sei crawl WebKit in parallelo (ui-crawl-stress) l'attesa di «stable» supera i 2 s
-   senza che nulla copra il controllo. Un controllo davvero coperto resta morto anche con 6 s. */
+/* Time to press a control: with six WebKit crawls at once (ui-crawl-stress) the wait for "stable" passes 2 s with
+   nothing on top of the control. A control that is really covered stays dead at 6 s too. */
 const PRESS_MS = 6000;
 
 /** Clicks a control the way a person would use it; returns false when it could not be pressed. */
