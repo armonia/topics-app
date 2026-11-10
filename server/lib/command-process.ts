@@ -30,6 +30,13 @@ import { isInsideDir } from "./path-containment";
  * command was reaped by the `wait` before it, and what the command left behind
  * was reparented away. So a row whose parent is the leader is the scan itself
  * and is skipped, the leader too, and anything else in the group is a peer.
+ *
+ * A scan killed by a signal is not an empty group. procps `ps` (Linux)
+ * installs its own TERM handler over the inherited ignore, so a Stop's TERM can
+ * end it mid-scan (status 143); read as "no peers", that let the leader leave
+ * while a peer still ran. Such a scan is retried a second later, up to 30 in a
+ * row, so a `ps` that keeps dying cannot hold the leader forever. A plain
+ * failure (status 1: nothing matched) is read as the listing it left, empty.
  */
 function waitForGroupMembersScript(platform: NodeJS.Platform): string {
   const groupSelector = platform === "linux" ? '"-$$"' : '-g "$$"';
@@ -38,7 +45,8 @@ function waitForGroupMembersScript(platform: NodeJS.Platform): string {
     '  _topics_scan_dir="${TMPDIR:-/tmp}/topics-command-group-$$"',
     '  while ! mkdir "$_topics_scan_dir" 2>/dev/null; do _topics_scan_dir="${_topics_scan_dir}x"; done',
     '  _topics_list="$_topics_scan_dir/ps"',
-    `  if ps -o pid=,ppid=,pgid= ${groupSelector} > "$_topics_list" 2>/dev/null; then :; else rm -f "$_topics_list"; rmdir "$_topics_scan_dir"; return 1; fi`,
+    `  ps -o pid=,ppid=,pgid= ${groupSelector} > "$_topics_list" 2>/dev/null`,
+    '  if [ "$?" -gt 128 ]; then rm -f "$_topics_list"; rmdir "$_topics_scan_dir"; return 2; fi',
     '  _topics_found=0',
     '  while IFS=" " read -r _topics_pid _topics_ppid _topics_pgid; do',
     '    if [ "$_topics_pgid" = "$$" ] && [ "$_topics_pid" != "$$" ] && [ "$_topics_ppid" != "$$" ]; then _topics_found=1; fi',
@@ -48,7 +56,16 @@ function waitForGroupMembersScript(platform: NodeJS.Platform): string {
     '  [ "$_topics_found" -eq 1 ]',
     "}",
     "_topics_wait_for_group_members() {",
-    "  while _topics_group_has_peers; do sleep 1; done",
+    "  _topics_scan_failures=0",
+    "  while :; do",
+    "    _topics_group_has_peers",
+    '    case "$?" in',
+    "      0) _topics_scan_failures=0 ;;",
+    "      1) return 0 ;;",
+    '      *) _topics_scan_failures=$((_topics_scan_failures + 1)); [ "$_topics_scan_failures" -lt 30 ] || return 0 ;;',
+    "    esac",
+    "    sleep 1",
+    "  done",
     "}",
   ].join("\n");
 }
