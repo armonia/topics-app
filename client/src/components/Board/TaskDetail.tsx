@@ -678,7 +678,7 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
               key={a.id}
               data-testid={`task-attempt-${a.idx}`}
               className={`rounded border px-2 py-1.5 ${
-                won ? 'border-emerald-500/40 bg-emerald-500/5' : dead ? 'border-app-border-subtle bg-white/[0.02] opacity-50' : 'border-app-border bg-white/[0.03]'
+                won ? 'border-emerald-500/40 bg-emerald-500/5' : dead ? 'border-app-border-subtle bg-black/[0.02] dark:bg-white/[0.02] opacity-50' : 'border-app-border bg-black/[0.03] dark:bg-white/[0.03]'
               }`}
             >
               <div className="flex items-center gap-1.5 text-mini">
@@ -2701,7 +2701,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
               {mediaPaths.map((p) => {
                 const name = p.split('/').pop() || p;
                 return (
-                  <li key={p} className="flex items-center gap-2 rounded-md bg-white/[0.03] px-2 py-1.5 text-compact leading-4 text-app-text-heading">
+                  <li key={p} className="flex items-center gap-2 rounded-md bg-black/[0.03] dark:bg-white/[0.03] px-2 py-1.5 text-compact leading-4 text-app-text-heading">
                     <Paperclip className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
                     <button
                       type="button"
@@ -2761,7 +2761,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                 return (
                   <div
                     key={t.contextId}
-                    className="group/prev flex shrink-0 items-center rounded-md border border-app-border bg-white/[0.02] text-compact leading-4 text-app-text-muted"
+                    className="group/prev flex shrink-0 items-center rounded-md border border-app-border bg-black/[0.02] dark:bg-white/[0.02] text-compact leading-4 text-app-text-muted"
                   >
                     <button
                       onClick={() => { setWorkspaceOpen(true); browser.reopenTab(t.contextId); }}
@@ -3831,7 +3831,7 @@ export function CommentBody({ content, questionActions, historicalQuestion = fal
           </summary>
           <div className={`pl-5 ${COMPACT_MD_CLS}`}><ChatMarkdown components={{}}>{q.question}</ChatMarkdown>{options}</div>
         </details>
-      ) : <div className="rounded border border-app-border bg-white/[0.02] px-2.5 py-2">
+      ) : <div className="rounded border border-app-border bg-black/[0.02] dark:bg-white/[0.02] px-2.5 py-2">
         <div className={`text-prose leading-snug text-app-text ${COMPACT_MD_CLS}`}>
           <ChatMarkdown components={{}}>{q.question}</ChatMarkdown>
         </div>

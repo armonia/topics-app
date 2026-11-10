@@ -45,7 +45,7 @@ export type ThreadRunsRow = ThreadComment & { id: string };
 export function ServiceFold({ count, children }: { count: number; children: ReactNode }) {
   const tr = useT();
   return (
-    <details className="group rounded-md border border-app-border-subtle bg-white/[0.02]" data-testid="task-service-fold">
+    <details className="group rounded-md border border-app-border-subtle bg-black/[0.02] dark:bg-white/[0.02]" data-testid="task-service-fold">
       <summary
         title={tr('board.task.serviceNotesTitle')}
         className="flex cursor-pointer list-none items-center justify-center gap-1.5 px-2 py-1 text-mini text-app-text-muted hover:text-app-text-heading"

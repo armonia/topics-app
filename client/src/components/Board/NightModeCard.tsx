@@ -101,7 +101,7 @@ export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus
   const toneRing =
     info.tone === 'go' ? 'border-emerald-500/40 bg-emerald-500/5'
     : info.tone === 'wait' ? 'border-amber-500/40 bg-amber-500/5'
-    : 'border-white/10 bg-white/[0.02]';
+    : 'border-white/10 bg-black/[0.02] dark:bg-white/[0.02]';
   const toneDot =
     info.tone === 'go' ? 'bg-emerald-400'
     : info.tone === 'wait' ? 'bg-amber-400'
