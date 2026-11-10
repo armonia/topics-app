@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.3.82",
+    "date": "2026-11-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "il vincolo «solo Mac» di una corsa vuota sul nodo scade dopo 6 ore (#746)",
+          "scope": "overflow"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.3.80",
     "date": "2026-11-10",
     "sections": {
