@@ -26,7 +26,7 @@ Tredici tracce, ciascuna con il suo file in `tracce/` e la sua barra (indice e d
 Dettagli in `specs/acceptance.md`: le fotografie coincidono (`golden-diff` esce 0), il footprint del servizio resta sotto 60 MB dopo il soak, `:3360` e `:3335` rimandano o rispondono dal nuovo, la tray vecchia non è caricata, e2e per gruppo di pannelli, screenshot affiancati per il tuo ok a vista, e `rollback` che riporta il vecchio con la barra ancora verde.
 
 ## Fuori
-Non si rifanno le schermate di `hub-smistamento` (si verificano e si completano); il proxy delle sessioni esterne (`proxy/sessioni-esterne`, `:3350`) resta com'è; nessun nuovo disegno; «Attività Claude Code a 14 giorni» (fonte sparita); Windows e Linux (l'hub è solo Mac); il passaggio di OpenClaw (altra change).
+Non si rifanno le schermate di `hub-smistamento` (si verificano e si completano); il proxy delle sessioni esterne (`proxy/sessioni-esterne`, `:3350`) resta com'è; nessun nuovo disegno; «Attività Claude Code a 14 giorni» (fonte sparita); Windows e Linux (l'hub è solo Mac); il passaggio del vecchio gateway (altra change).
 
 ## Da decidere
 1. **Un solo sì per scambio e spegnimento (C1, C2, Z1)**: tocca `settings.json`, launchd e le porte, tutto di notte e a barra verde, con i vecchi processi pronti a tornare; il sì nomina le azioni e la condizione («fotografie uguali, soak pulito»). Consigliato: sì, un pacchetto, perché le sessioni vive passano da `:3336` e due sì a metà lasciano mezzo scambio. Alternativa: un sì per traccia.
