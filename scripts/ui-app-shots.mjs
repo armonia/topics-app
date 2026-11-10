@@ -14,9 +14,9 @@
  * and title of each id, which the board uses for its «Apri nell'app» link.
  * The icon legend (z01) lives in the gallery (`ui.html#z01`), not in the app.
  *
- *   node scripts/ui-app-shots.mjs --out <dir> [--theme dark] [--entry sarim|consorzio]
+ *   node scripts/ui-app-shots.mjs --out <dir> [--theme dark] [--entry orbit|consorzio]
  *
- * `--entry sarim` captures the SARIM edition (`sarim.html`), `--entry consorzio` the Consorzio one (`consorzio.html`): every place, and
+ * `--entry orbit` captures the ORBIT edition (`orbit.html`), `--entry consorzio` the Consorzio one (`consorzio.html`): every place, and
  * three phones (Oggi, the kanban of «Da fare», a compare of contract versions); (allow-italian: quotes the Italian interface)
  * the icon legend belongs to the gallery of app.html and is left out.
  *
@@ -80,7 +80,7 @@ try {
   }
   /* m01 is not a place but the layout under 768px: three phones side by side,
      each a real app at 390x844 (the same address on a phone draws this). */
-  const phones = entry === "sarim"
+  const phones = entry === "orbit"
     ? [["/da-fare", "Da fare"], ["/da-fare/kanban", "Kanban"], ["/conoscenza/contratti/c-castellabate/confronto/2/3", "Confronto versioni"]] // allow-italian: captions of the capture sheet
     : entry === "consorzio"
     ? [["/da-fare", "Da fare"], ["/da-fare/kanban", "Kanban"], ["/conoscenza/contratti/ct-ingegneria-lotto1/confronto/1/2", "Confronto versioni"]] // allow-italian: captions of the capture sheet

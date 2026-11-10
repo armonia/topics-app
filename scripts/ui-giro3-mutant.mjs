@@ -14,7 +14,7 @@
  * (otherwise exit 2 and nothing is touched). 2) Writes the nine mutations.
  * 3) Builds `client/dist-ui-mutant` (vite, same config, other outDir). 4) Puts
  * every source back as it was, always (try/finally, and on exit or a signal).
- * 5) Runs `ui-giro3-walk.mjs --entry sarim --dist dist-ui-mutant --expect-red`.
+ * 5) Runs `ui-giro3-walk.mjs --entry orbit --dist dist-ui-mutant --expect-red`.
  *
  *   node scripts/ui-giro3-mutant.mjs [--only p5,p7] [--keep]
  *
@@ -60,7 +60,7 @@ const MUTATIONS = [
   {
     id: "p4",
     what: "the sidebar of the edition shows a second organization",
-    file: "ui-gallery/sarim/sidebar.ts",
+    file: "ui-gallery/orbit/sidebar.ts",
     from: "orgs: [{",
     to: "orgs: [{ id: 'altra-org', name: 'Consorzio di Nocera', monogram: 'CN', color: '#0a7', nav: [], expanded: true }, {",
   },
@@ -74,7 +74,7 @@ const MUTATIONS = [
   {
     id: "p6",
     what: "a pinned tile comes back in the sidebar model",
-    file: "ui-gallery/sarim/sidebar.ts",
+    file: "ui-gallery/orbit/sidebar.ts",
     from: "activeId: chatRowOf(activeId, state, recent.map((c) => c.id)),",
     to: "pinned: [{ id: 'pin:fissato', label: 'Fissato', monogram: 'F', color: '#0066ff' }],\n    activeId: chatRowOf(activeId, state, recent.map((c) => c.id)),",
   },
@@ -154,6 +154,6 @@ console.log("ui-giro3-mutant: sorgenti rimessi come erano, build del mutante pro
 
 /* 5. the walk against the mutant */
 const expect = only ? planted.map((m) => m.id).join(",") : "all";
-const run = spawnSync(process.execPath, [join(ROOT, "scripts/ui-giro3-walk.mjs"), "--entry", "sarim", "--dist", OUT, "--expect-red", expect], { cwd: ROOT, stdio: "inherit" });
+const run = spawnSync(process.execPath, [join(ROOT, "scripts/ui-giro3-walk.mjs"), "--entry", "orbit", "--dist", OUT, "--expect-red", expect], { cwd: ROOT, stdio: "inherit" });
 if (!flag("keep")) rmSync(join(CLIENT, OUT), { recursive: true, force: true });
 process.exit(run.status ?? 1);

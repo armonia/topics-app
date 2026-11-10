@@ -64,6 +64,8 @@ function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     if (entry === 'node_modules' || entry === 'dist' || entry.startsWith('.')) continue;
     const p = join(dir, entry);
+    // The isolated organizations preview layer declares its own types.
+    if (/[\\/]src[\\/]ui(-gallery)?$/.test(p)) continue;
     if (statSync(p).isDirectory()) walk(p, out);
     else if (/\.tsx?$/.test(p) && !/\.(test|spec)\.tsx?$/.test(p)) out.push(p);
   }

@@ -128,7 +128,11 @@ function inScope(p: string): boolean {
 }
 
 function trackedFiles(): string[] {
-  const git = spawnSync("git", ["ls-files", "-z", "client/src", "server/routes", "shared"], {
+  const git = spawnSync("git", [
+    "ls-files", "-z", "client/src", "server/routes", "shared",
+    // The organizations preview layer ships its own catalogues and has its own gates.
+    ":(exclude)client/src/ui", ":(exclude)client/src/ui-gallery",
+  ], {
     cwd: ROOT,
     encoding: "utf-8",
     maxBuffer: 64 * 1024 * 1024,
