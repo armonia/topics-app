@@ -4676,6 +4676,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // The question for the person belongs to one delivery: back to work drops it.
       if (patch.humanAsk !== undefined || askFromThread) put("human_ask", humanAsk);
       else if (row.human_ask != null && patch.status !== undefined && patch.status !== "review" && patch.status !== "done") put("human_ask", null);
+      // A card moved to another machine (or pinned to this Mac) no longer waits for the old node: the series named a
+      // machine it will not go to, and kept counting hours (10/11: 1dc60129 «cloud claude non risponde» for 7 h after
+      // being pinned here; 966dc257 and c5aab453 still «PC non pronto» after the empty-run requeue to the Mac).
+      if (((patch.machineId !== undefined && (patch.machineId ?? null) !== (row.machine_id ?? null)) || (patch.stayLocal === true && !row.stay_local))
+        && (row.wait_reason != null || row.wait_since != null) && patch.status === undefined) {
+        put("wait_streak", 0);
+        put("wait_reason", null);
+        put("wait_since", null);
+      }
       put("updated_at", now());
 
       db.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...params, taskId);

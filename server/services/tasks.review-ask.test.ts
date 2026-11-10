@@ -33,3 +33,12 @@ test("leaving review drops the question", () => {
   const r = s.update({ taskId: t.id, actor: "human", by: "api", patch: { status: "todo" } });
   expect(r.humanAsk ?? null).toBe(null);
 });
+
+test("pinning a card to this Mac ends the wait for the old node", () => {
+  const { db, s } = setup();
+  const t = s.create({ projectId: PID, text: "x", status: "todo", createdBy: "human" });
+  db.run("UPDATE tasks SET wait_streak = 3, wait_reason = 'il nodo «pc windows» non è pronto', wait_since = '2026-11-10T10:00:00Z' WHERE id = ?", [t.id]);
+  s.update({ taskId: t.id, actor: "agent", by: "dispatcher", patch: { machineId: null, stayLocal: true, stayLocalUntil: "2026-11-11T10:00:00Z" } });
+  const r = db.query("SELECT wait_reason, wait_since, wait_streak FROM tasks WHERE id = ?").get(t.id) as any;
+  expect(r).toEqual({ wait_reason: null, wait_since: null, wait_streak: 0 });
+});
