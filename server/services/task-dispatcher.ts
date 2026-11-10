@@ -6883,9 +6883,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         emit(t);
       }
     } catch (err) { log("sweep delle serie di attese fallito", err); }
-    // 1-quater-bis) LA CARD FERMATA DALLA MACCHINA RIENTRA DA SOLA (vedi
-    //    `sweepMachineWaitedOut`). Dopo il giro sopra: una card appena
-    //    parcheggiata ha `updated_at` di adesso e non rientra nello stesso giro.
+    // 1-quater-bis) A CARD PARKED BY THE MACHINE GOES BACK BY ITSELF (see
+    //    `sweepMachineWaitedOut`). After the pass above: a card parked just now
+    //    has a fresh `updated_at` and does not come back in the same pass.
     try {
       for (const t of deps.svc.sweepMachineWaitedOut({ eligible: acceso })) {
         log(`card fermata dalla macchina rimessa in coda: ${t.id}`);

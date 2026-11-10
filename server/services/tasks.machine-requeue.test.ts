@@ -1,9 +1,9 @@
 /**
- * UNA CARD FERMATA DALLA MACCHINA RIENTRA DA SOLA.
+ * A CARD PARKED BY THE MACHINE GOES BACK BY ITSELF.
  *
- * 10/11: 1dc60129 parcheggiata `waited_out` dopo 7 attese del nodo «cloud
- * claude», col nodo tornato vivo poco dopo, ferma in backlog per ore: nessuno
- * la rimetteva in todo. L'attesa di un agente invece resta all'umano.
+ * 2026-11-10: 1dc60129 parked `waited_out` after 7 waits on a silent cloud
+ * node, which came back soon after; the card sat in backlog for hours with
+ * nobody requeueing it. A wait an agent declared stays with the human.
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -56,7 +56,7 @@ describe("rientro automatico delle card fermate dalla macchina", () => {
     for (let n = 0; n < MACHINE_REQUEUE_CAP; n++) {
       clock.t += 30 * MIN * 2 ** n + MIN;
       expect(s.sweepMachineWaitedOut()).toHaveLength(1);
-      // il nodo è ancora muto: si riparcheggia
+      // the node is still silent: it parks again
       for (let i = 0; i <= WAIT_STREAK_CAP; i++) {
         s.claim({ taskId: id, cap: 5, maxAttempts: 2 });
         s.deferForWait({ taskId: id, reason: "il nodo «cloud claude» non risponde", minutes: 1, by: "agent", source: "machine" });

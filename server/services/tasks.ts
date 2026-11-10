@@ -4612,8 +4612,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // aperta tornerebbe a mordere al primo riavvio del lavoro, contando
         // insieme attese separate da giorni.
         if ((patch.status === "todo" && actor === "human") || patch.status === "review" || patch.status === "done") {
-          // Un gesto umano (o una consegna) azzera anche i rientri automatici:
-          // il tetto conta i giri della macchina da soli, non la vita della card.
+          // A human gesture (or a delivery) also resets the automatic requeues:
+          // the cap counts the machine's own rounds, not the card's lifetime.
           put("auto_requeues", 0);
           put("wait_source", null);
           put("wait_streak", 0);
@@ -5582,9 +5582,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // A limitare le attese ci pensano i loro tetti, qui sotto.
       const rimborso = "dispatch_attempts = MAX(dispatch_attempts - 1, 0),";
 
-      // Chi dichiara l'attesa: decide se il park che ne esce rientra da solo
-      // (`sweepMachineWaitedOut`). Scritto prima dei tetti, così lo legge
-      // anche il park della riga sotto.
+      // Who declared the wait decides whether the resulting park comes back by
+      // itself (`sweepMachineWaitedOut`). Written before the caps so the park
+      // right below reads it too.
       db.prepare("UPDATE tasks SET wait_source = ? WHERE id = ?").run(source === "machine" ? "machine" : "agent", taskId);
       const ceiling = source === "machine" ? WAIT_STREAK_CAP : AGENT_WAIT_STREAK_CAP;
       if (streak > ceiling || serieMs >= WAIT_SERIES_MAX_MS) {
@@ -6084,14 +6084,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     },
 
     sweepMachineWaitedOut({ eligible } = {}): Task[] {
-      // UNA CARD FERMATA DALLA MACCHINA RIENTRA DA SOLA. Il park `waited_out`
-      // chiede all'umano di decidere, ed è giusto per l'attesa che un agente ha
-      // nominato; per un nodo muto o un PC che non si sveglia la condizione di
-      // solito torna da sola, e la card restava in backlog per ore (10/11: 1dc60129
-      // ferma col nodo cloud tornato vivo). Qui si rimette in todo dopo un
-      // intervallo che raddoppia (30, 60, 120 min) e al massimo
-      // `MACHINE_REQUEUE_CAP` volte: se il nodo è ancora muto la card ripassa dai
-      // tetti di attesa e si riparcheggia, finché il tetto ferma il giro.
+      // A CARD PARKED BY THE MACHINE GOES BACK BY ITSELF. The `waited_out` park
+      // asks a human to decide, which is right for a wait an agent named; for a
+      // silent node or a PC that does not wake up the condition usually comes
+      // back on its own, and the card sat in backlog for hours (2026-11-10:
+      // 1dc60129, parked while the cloud node came back). Here it returns to
+      // todo after a doubling delay (30, 60, 120 min), at most
+      // `MACHINE_REQUEUE_CAP` times: if the node is still silent the card goes
+      // through the wait caps again and re-parks, until the cap stops the loop.
       const ts = now();
       const nowMs = Date.parse(ts);
       let rows: Array<{ id: string; project_id: string; updated_at: string; auto_requeues: number }> = [];
@@ -6120,7 +6120,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             taskId: r.id, author: "system", kind: "service",
             content: `Rimessa in coda da sola (giro ${n + 1} di ${MACHINE_REQUEUE_CAP}): era ferma per una condizione della macchina, che può essere tornata.`,
           });
-        } catch { /* la nota non ferma il rientro */ }
+        } catch { /* the note never blocks the requeue */ }
         const t = getTaskRow(r.id);
         if (t) out.push(rowToTask(t));
       }
