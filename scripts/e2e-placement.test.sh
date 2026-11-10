@@ -25,6 +25,8 @@ check "garbage count counts zero" '{}' "$PUSH" pc abc "" 0
 check "enough slots for all nine: shard 0 last" \
   '{"s1":"pc","s2":"pc","s3":"pc","s4":"pc","s5":"pc","s6":"gh","s7":"gh","s8":"gh","s0":"gh"}' "$PR" pc 5 gh 4
 check "nothing changed: the single shard 0" '{"s0":"pc"}' '[0]' pc 4 "" 0
+check "a prep runner online takes prepare-e2e" '{"s1":"gh","prep":"gh-prep"}' "$PUSH" "" 0 gh 1 gh-prep
+check "no prep runner: prepare-e2e stays on GitHub" '{"s1":"gh"}' "$PUSH" "" 0 gh 1 ""
 
 # Mutation: if the cap were dropped (every shard on the first label) the
 # 3-runner case above must go red.

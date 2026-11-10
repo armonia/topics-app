@@ -875,10 +875,19 @@ jobs:
   # board calls a `prepare-e2e` that is not `success` NOT MEASURED (PREPARE_JOB in
   # server/services/ci-evidence.ts), so a skipped job would hold the pull request
   # back instead of letting it through.
+  #
+  # ON A MACHINE OF OURS WHEN ONE IS UP. Measured on 10/11: this job waited 6-20
+  # minutes in the queue for one of the 20 GitHub jobs of the organisation, and
+  # every shard waits for it (run 42878426792: queued 18:57, started 19:17). The
+  # Hetzner server and the PC bring one runner of their own for it (label
+  # `<run label>-prep`, see `hcloud`); without one it runs on ubuntu-latest as
+  # before. It waits for `hcloud` to know, which costs the time a server takes to
+  # come up (~3 minutes) on a quiet day.
   prepare-e2e:
     timeout-minutes: 10
-    needs: changes
-    runs-on: ubuntu-latest
+    needs: [changes, hcloud]
+    if: ${{ !cancelled() && needs.changes.result == 'success' }}
+    runs-on: ${{ needs.hcloud.outputs.attempt == format('{0}', github.run_attempt) && fromJSON(needs.hcloud.outputs.placement || '{}').prep || 'ubuntu-latest' }}
     outputs:
       plan-ok: ${{ steps.plan.outputs.ok }}
     steps:

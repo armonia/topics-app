@@ -86,6 +86,9 @@ jobs:
     if: ${{ inputs.mode == 'create' }}
     runs-on: ${{ fromJSON(inputs.controller) }}
     timeout-minutes: 25
+    # A red here would make the whole run red, and auto-bump ships only green runs of main:
+    # the machines can make the run faster, never red. Without outputs every job goes to GitHub.
+    continue-on-error: true
     outputs:
       label: ${{ steps.win.outputs.label }}
       server_id: ${{ steps.win.outputs.server_id }}
@@ -174,12 +177,14 @@ jobs:
             echo "N=$1 NAME=$name URL=https://github.com/${GITHUB_REPOSITORY} TOKEN=$token"
             cat <<'EOS'
           V=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest | jq -r .tag_name | sed 's/^v//')
-          for i in $(seq 1 "$N"); do
+          # Runner 0 = `prepare-e2e` (etichetta <nome>-prep, un job leggero), poi uno per shard.
+          for i in 0 $(seq 1 "$N"); do
             d=/actions-runner-$i; mkdir -p "$d"; cd "$d"
             curl -fsSL "https://github.com/actions/runner/releases/download/v$V/actions-runner-linux-x64-$V.tar.gz" | tar xz
-            [ "$i" = 1 ] && ./bin/installdependencies.sh >/var/log/runner-deps.log 2>&1
+            [ "$i" = 0 ] && ./bin/installdependencies.sh >/var/log/runner-deps.log 2>&1
+            l=$NAME; [ "$i" = 0 ] && l=$NAME-prep
             RUNNER_ALLOW_RUNASROOT=1 ./config.sh --unattended --url "$URL" --token "$TOKEN" \
-              --name "$NAME-$i" --labels "$NAME" --no-default-labels --disableupdate --ephemeral >"/var/log/runner-$i.log" 2>&1
+              --name "$NAME-$i" --labels "$l" --no-default-labels --disableupdate --ephemeral >"/var/log/runner-$i.log" 2>&1
             # HOME sua: la CI ne ricava la fascia di porte (ci.yml) e due job non si pestano ~/.cache.
             mkdir -p "/srv/rh-$i"
             HOME="/srv/rh-$i" SHELL=/bin/bash RUNNER_ALLOW_RUNASROOT=1 setsid nohup ./run.sh >>"/var/log/runner-$i.log" 2>&1 < /dev/null &
@@ -231,7 +236,7 @@ jobs:
               | jq --arg l "$1" '[.runners[] | select(.status == "online" and (.busy | not) and any(.labels[]; .name == $l))] | length' 2>/dev/null \
               || echo 0
           }
-          hz_n=0; pc_n=0
+          hz_n=0; pc_n=0; prep=""
           # Il PC ha avuto tutto il tempo della creazione del server; senza server, 2 minuti
           # dall'inizio del job. Il server: fino a 4 minuti per gli altri runner di cloud-init.
           end=$(( $(date +%s) + 240 ))
@@ -245,17 +250,20 @@ jobs:
             [ "$hz_done" = 1 ] && [ "$pc_done" = 1 ] && break
             sleep 10
           done
+          # prepare-e2e: il runner -prep del PC o del server, se online; sennò ubuntu-latest.
+          if [ "${PC_WANT:-0}" -gt 0 ] && [ "$(count "$pc_label-prep")" -gt 0 ]; then prep="$pc_label-prep"
+          elif [ -n "$HZ_LABEL" ] && [ "$(count "$HZ_LABEL-prep")" -gt 0 ]; then prep="$HZ_LABEL-prep"; fi
           [ "$pc_n" -gt "${PC_WANT:-0}" ] && pc_n=$PC_WANT
           [ "$hz_n" -gt "${HZ_WANT:-0}" ] && hz_n=${HZ_WANT:-0}
           echo "hz_n=$hz_n" >> "$GITHUB_OUTPUT"
           echo "pc_n=$pc_n" >> "$GITHUB_OUTPUT"
           placement='{}'
           if [ -n "$SHARDS" ]; then
-            placement=$(bash scripts/e2e-placement.sh "$SHARDS" "$pc_label" "$pc_n" "$HZ_LABEL" "$hz_n") || placement='{}'
+            placement=$(bash scripts/e2e-placement.sh "$SHARDS" "$pc_label" "$pc_n" "$HZ_LABEL" "$hz_n" "$prep") || placement='{}'
           fi
           echo "placement=$placement" >> "$GITHUB_OUTPUT"
           echo "PC: $pc_n runner ($pc_label) · Hetzner: $hz_n runner (${HZ_LABEL:-nessun server}) · mappa: $placement"
-          echo "::notice title=Posto degli shard e2e::PC $pc_n, Hetzner $hz_n, il resto su GitHub"
+          echo "::notice title=Posto degli shard e2e::PC $pc_n, Hetzner $hz_n, il resto su GitHub; prepare-e2e su ${prep:-GitHub}"
 
   delete:
     if: ${{ inputs.mode == 'delete' }}

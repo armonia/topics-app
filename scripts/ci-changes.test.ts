@@ -393,6 +393,7 @@ describe("ci.yml obeys the answer: the workflow is evaluated, not read", () => {
     if (path === "github.repository" || path === "github.event.pull_request.head.repo.full_name") return "armonia/topics-app";
     if (path === "needs.hcloud.result") return ctx.answer.e2e === "false" ? "skipped" : "success";
     if (path === "needs.prepare-e2e.result") return "success";
+    if (path === "needs.changes.result") return "success";
     if (/^needs\.hcloud\.outputs\.\w+$/.test(path)) return "";
     // The GitHub image (the server skips its apt cache and --with-deps).
     if (path === "runner.environment") return "github-hosted";
