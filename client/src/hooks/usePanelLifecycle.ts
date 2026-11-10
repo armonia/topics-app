@@ -124,6 +124,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { tracePaneAttach } from '../lib/paneAttachTrace';
 import { apiFetch } from '../lib/shell/net';
 import { setPendingTerminalPaste } from '../lib/pendingTerminalPaste';
+import { isAgentOwnedTopic } from '../lib/agentTabs';
 
 /**
  * A shell opened from a chat («Open in terminal» under a code block,
@@ -197,7 +198,9 @@ function ensurePaneRegistered(
   });
 }
 
-interface PendingProjectFocus { projectPath: string; topicId: string; targetGroupId?: string }
+/** `preview`: the chat lands in the project's provisional tab, replacing the
+ *  previous one, instead of adding a tab (see lib/agentTabs.ts). */
+interface PendingProjectFocus { projectPath: string; topicId: string; targetGroupId?: string; preview?: boolean }
 /** `nearPaneId`: the pane of the project window to land beside (the chat that asked). */
 interface PendingProjectPane { projectPath: string; type: PaneType; terminalSessionId?: string; terminalType?: TerminalAgentType; nearPaneId?: string }
 interface ContextMenuState { x: number; y: number; topic: Topic }
@@ -1402,6 +1405,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       // Master strip surfaces project topics, so this path runs often.
       if (msg.type === 'pane:focus-suggest') {
         const topic = topicsRef.current[msg.topicId];
+        // An agent's own chat has its section (sidebar, Agenti, board): it
+        // never opens or steals a tab in Attilio's bar (10/11).
+        if (isAgentOwnedTopic(topic)) return;
         // Prefer the projectPath carried on the message (a cloud session that
         // just bound itself to a project) over the topic's synced field, so we
         // don't depend on a preceding topic:updated having landed first.
@@ -1512,7 +1518,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         setOpenPanels(prev => [...prev, projectPaneId]);
       }
       setFocusedPanelId(projectPaneId);
-      setPendingProjectFocus({ projectPath: opTopic.projectPath, topicId });
+      setPendingProjectFocus({ projectPath: opTopic.projectPath, topicId, preview: mode === 'preview' });
       return;
     }
     // App-level open: always land in the standalone group, never inside a
@@ -1636,7 +1642,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         setOpenPanels(prev => [...prev, projectPaneId]);
       }
       setFocusedPanelId(projectPaneId);
-      setPendingProjectFocus({ projectPath: topic!.projectPath!, topicId });
+      // A single click from the sidebar is a look, not a decision: it reuses
+      // the project's provisional tab. ⌘-click keeps the tab.
+      setPendingProjectFocus({ projectPath: topic!.projectPath!, topicId, preview: !(e && (e.metaKey || e.ctrlKey)) });
       return;
     }
     ensurePaneRegistered(

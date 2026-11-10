@@ -14,6 +14,13 @@ import { getSession, markUnpaired, publishSession, type SessionState } from './s
 
 export { getSession, subscribeSession, markUnpaired, __resetSessionForTests, type SessionState } from './sessionState';
 
+/** The body of GET /api/auth/session; the landing demo answers with this type. */
+export type SessionWire = {
+  paired: boolean; as: 'loopback' | 'device' | null; name: string | null;
+  deviceId?: string; code?: string; role?: 'owner' | 'guest' | 'screen'; personId?: string | null;
+  installationName?: string | null; commandShell?: boolean;
+};
+
 /** Interroga il server su chi siamo. Esente dall'identità lato server: è la
  *  domanda che si fa PRIMA di averla. */
 export async function refreshSession(): Promise<SessionState> {
@@ -27,11 +34,7 @@ export async function refreshSession(): Promise<SessionState> {
       else if (getSession().status === 'loading') publishSession({ status: 'loading' });
       return getSession();
     }
-    const body = await r.json() as {
-      paired: boolean; as: 'loopback' | 'device' | null; name: string | null;
-      deviceId?: string; code?: string; role?: 'owner' | 'guest' | 'screen'; personId?: string | null;
-      installationName?: string | null; commandShell?: boolean;
-    };
+    const body = await r.json() as SessionWire;
     if (body.paired && body.as && body.name) {
       publishSession({
         status: 'paired', as: body.as, name: body.name, deviceId: body.deviceId,
