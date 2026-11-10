@@ -495,7 +495,7 @@
       ]
     },
 
-    "server.ts": 7533,
+    "server.ts": 7567,
 
     "server/attention/store.ts": {
       "lines": 1292,
@@ -615,7 +615,7 @@
 
     "server/routes/tasks.test.ts": 2881,
 
-    "server/routes/tasks.ts": 4274,
+    "server/routes/tasks.ts": 4302,
 
     "server/routes/terminal.ts": {
       "lines": 4355,
@@ -641,15 +641,17 @@
 
     "server/services/dispatch-capacity.ts": 1295,
 
+    "server/services/external-proxy.ts": 807,
+
     "server/services/relay-client.ts": 1300,
 
     "server/services/review-checks-brakes.test.ts": 1000,
 
-    "server/services/review-checks.ts": 976,
+    "server/services/review-checks.ts": 978,
 
     "server/services/task-automerge.test.ts": 1068,
 
-    "server/services/task-automerge.ts": 1697,
+    "server/services/task-automerge.ts": 1699,
 
     "server/services/task-dispatcher-admission.test.ts": 812,
 
@@ -687,7 +689,7 @@
 
     "server/services/tasks.test.ts": 2847,
 
-    "server/services/tasks.ts": 7210,
+    "server/services/tasks.ts": 7214,
 
     "server/services/worktree-gc.test.ts": 997,
 
