@@ -14,5 +14,6 @@ describe("rm in auto-apply", () => {
     expect(run("rm -rf /tmp/a; rm -rf /Users/x/y")).toBe(false);
     expect(run("rm -rf /")).toBe(false);
     expect(run("rm -rf $dir")).toBe(false);
+    expect(run("rm -rf /tmpfoo/x")).toBe(false);
   });
 });
