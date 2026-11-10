@@ -5491,3 +5491,13 @@ The body of a card in progress SHALL show ONE progress line: the last step of th
 - **WHEN** a task is in progress and a tool is running
 - **THEN** the body SHALL show the tool step as its single progress line
 - **AND** the measure band SHALL show the full model name and the time without cutting either
+
+### Requirement: STATUS-VISUAL-01 — Un colore per significato, da un posto solo
+
+I colori e le icone degli stati di una card SHALL venire da `client/src/lib/statusVisual.ts`:
+ambra per «ti aspetta», blu cielo per «al lavoro», rosso solo per il guasto. Lo stesso
+significato SHALL avere lo stesso colore ovunque, e il rosa SHALL non essere uno stato.
+
+#### Scenario: due superfici mostrano lo stesso stato
+- **GIVEN** una card in attesa di Attilio sulla board e nel dettaglio
+- **THEN** il colore SHALL essere lo stesso, preso da `STATUS_INK.wait`
