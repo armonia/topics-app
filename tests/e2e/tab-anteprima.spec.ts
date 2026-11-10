@@ -72,9 +72,14 @@ test.describe("TAB-ANTEPRIMA", () => {
     const before = await tabs(page).count();
     const agent = (await createTopic(request, "Canale dell'agente", { projectPath: PROJECT_PATH, parentId: root })).id;
     ids.push(agent);
-    await page.waitForTimeout(1500);
+    // A chat created after the agent's one, opened in preview, is the barrier:
+    // once its tab shows, the agent's topic event has been handled too.
+    const d = (await createTopic(request, "Chat D", { projectPath: PROJECT_PATH })).id;
+    ids.push(d);
+    await expect.poll(async () => { await openPreview(page, d); return tabs(page).filter({ hasText: "Chat D" }).count(); }).toBe(1);
     await expect(tabs(page).filter({ hasText: "Canale dell'agente" })).toHaveCount(0);
-    expect(await tabs(page).count()).toBe(before);
+    // At most Chat D's own tab: the agent's chat added none.
+    expect(await tabs(page).count()).toBeLessThanOrEqual(before + 1);
     await projectWindow(page).locator('[data-testid="panel-tab-bar"]').first().screenshot({ path: test.info().outputPath("barra-dopo.png") });
   });
 });

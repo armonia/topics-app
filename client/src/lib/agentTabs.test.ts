@@ -1,5 +1,6 @@
 /**
  * Preview tabs and agent chats: who opens a tab and who replaces it.
+ * @covers TAB-ANTEPRIMA-01 (allow-italian: requirement id)
  */
 import { describe, test, expect } from "bun:test";
 import { isAgentOwnedTopic, planPreviewChatTab, shouldParkAgentTabs, markAgentTabsParked } from "./agentTabs";
