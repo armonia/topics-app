@@ -77,6 +77,9 @@ describe("ci.yml: a job waits only for the jobs whose result it reads", () => {
     const idle: string[] = [];
     for (const job of jobNames) {
       for (const need of needsOf(job)) {
+        // The one wait for an END, not a result: the Hetzner server is deleted after
+        // the shards it carries, whatever they concluded (`if: always()`).
+        if (job === "hcloud-delete" && need === "e2e") continue;
         if (!jobBody(job).includes(`needs.${need}.`)) idle.push(`${job} needs ${need} and never reads it`);
       }
     }
