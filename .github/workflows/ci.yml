@@ -917,11 +917,11 @@ jobs:
         id: plan
         # E2E_TIER=pr: il piano copre solo i test del gate PR, come fa lo shard.
         # Se il piano fallisce (durate mancanti, --list crash) si fa ok=false e
-        # ogni shard cade nel fallback --shard=i/7, che e' sempre stato l'unico.
-        # 14 = the 7 runners of the matrix of `e2e` times the 2 processes each
+        # ogni shard cade nel fallback --shard=i/8, che e' sempre stato l'unico.
+        # 16 = the 8 runners of the matrix of `e2e` times the 2 processes each
         # runs (see that job). Change one and the other two move with it.
         run: |
-          if bun run scripts/e2e-plan-shards.ts 14 --out plan; then
+          if bun run scripts/e2e-plan-shards.ts 16 --out plan; then
             echo "ok=true" >> "$GITHUB_OUTPUT"
           else
             echo "ok=false" >> "$GITHUB_OUTPUT"
@@ -981,7 +981,7 @@ jobs:
     # then ran the touched specs on top (5.9 min): 26 minutes of wall clock for
     # a pull request (run 36461528241). The suite runs ONE worker per shard
     # (`workers: 1`, one test server and one DB per shard), so the only lever
-    # on its wall clock is the number of shards, and 7 runners (14 processes, from 16) keep it under the 25 minute cap of the job.
+    # on its wall clock is the number of shards, and 8 halves it. Seven runners (14 processes) were tried and put the median work of a run back over its bar (card 3ae7e6a4).
     #
     # TWO PLAYWRIGHT PROCESSES PER RUNNER. One process left three of the four
     # vCPU idle: 18 of the 19 minutes of a shard were tests run one at a time
@@ -993,7 +993,7 @@ jobs:
     #   3 processes 8.2-10.4 min, each test +55%, load 8.6 (max 15.8), and six
     #               timing-sensitive tests flaked that never did before
     # Two is nearly all the gain at a load the runner carries. The plan is cut
-    # in 14 pieces and runner N takes pieces 2N-1 and 2N.
+    # in 16 pieces and runner N takes pieces 2N-1 and 2N.
     #
     # `e2e (0)` is not a shard of the PR tier: it runs ONLY the step "E2E dei
     # file toccati", in parallel with the eight shards instead of after one of
@@ -1031,7 +1031,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(needs.changes.outputs.e2e == 'false' && '[0]' || (github.event_name == 'pull_request' && '[0, 1, 2, 3, 4, 5, 6, 7]' || '[1, 2, 3, 4, 5, 6, 7]')) }}
+        shard: ${{ fromJSON(needs.changes.outputs.e2e == 'false' && '[0]' || (github.event_name == 'pull_request' && '[0, 1, 2, 3, 4, 5, 6, 7, 8]' || '[1, 2, 3, 4, 5, 6, 7, 8]')) }}
     steps:
       - name: Nothing the e2e shards read has changed
         if: ${{ needs.changes.outputs.e2e == 'false' }}
@@ -1211,8 +1211,8 @@ jobs:
               echo "[ci] processo $k: piano per durata $PLAN_FILE"
               readarray -t SELECTORS < "$PLAN_FILE"
             else
-              echo "[ci] processo $k: piano non disponibile, fallback a --shard=$piece/$((7 * PROCS))"
-              SELECTORS=("--shard=$piece/$((7 * PROCS))")
+              echo "[ci] processo $k: piano non disponibile, fallback a --shard=$piece/$((8 * PROCS))"
+              SELECTORS=("--shard=$piece/$((8 * PROCS))")
             fi
             # One compile cache per process: Playwright writes it with a plain
             # writeFileSync, so a sibling can read a half-written module
