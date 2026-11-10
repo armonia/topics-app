@@ -159,7 +159,12 @@ jobs:
 
       # `bun test:unit` is this same command: the slot wrapper (disabled under
       # CI, but it still caps the run at 60 min) around the runner.
+      # 8 worker invece dei 4 del default (= core): run 42837284629 usava
+      # 412 s di CPU in 367 s di muro su 4 core, i file aspettano I/O e timer.
+      # Stessi 2229 file, stesso processo per file.
       - name: Unit + integration tests (one process per file)
+        env:
+          TOPICS_UNIT_SHARDS: "8"
         run: bun run scripts/slot.ts test:unit -- "bun run scripts/test-unit-shards.ts"
 
   # Process groups are a POSIX contract, so keep the focused real-process tests
