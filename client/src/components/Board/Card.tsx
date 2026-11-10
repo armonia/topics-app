@@ -1711,7 +1711,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           riquadro ne mostra due righe); `description` è la ricaduta per un
           server più vecchio del client, che l'anteprima non la calcola. */}
       {!compact && descriptionText && (
-        <p className="mt-1 line-clamp-2 break-words text-compact leading-snug text-app-text-secondary">{stripMarkdown(descriptionText)}</p>
+        <p className="mt-1 break-words text-compact leading-snug text-app-text-secondary">{stripMarkdown(descriptionText)}</p>
       )}
       {/* OGNI card in review, non solo quelle di un agente. `showsQuestion`
           seleziona chi ha una PAROLA da mostrare (l'agente, o il sistema sui
