@@ -581,7 +581,7 @@ def ensure_fixed(state, fx):
     if not tunnel_alive(sl):
         log(f"posto {key}: tunnel del fisso riaperto ({open_tunnel(sl)})")
     # -x: -f would also count the shell that runs pgrep, and the CI would always look busy
-    r = ssh(ip, "pgrep -c -x Runner.Worker; su - topics -c 'git -C topics-app rev-parse HEAD'", timeout=20)
+    r = ssh(ip, "pgrep -c -x Runner.Worker", timeout=20)
     out = (r.stdout or "").split()
     ci_busy = int(out[0]) if out and out[0].isdigit() else 0
     want = fixed_slots(ci_busy)
@@ -592,9 +592,10 @@ def ensure_fixed(state, fx):
             log(f"posto {key}: card del fisso a {want} (CI {'al lavoro' if ci_busy else 'ferma'})")
         except Exception as e:
             log(f"posto {key}: slots del fisso non impostati: {e}")
-    node_commit = out[1] if len(out) > 1 else ""
     c = commit_of_mac()
-    if c and node_commit and node_commit != c and sl.get("align_failed") != c and not slot_busy(sl.get("machine_id")):
+    # «aligned», not HEAD: a checkout that worked with a failed `bun install` moves HEAD
+    # while the running node is still the old one
+    if c and sl.get("aligned") != c and sl.get("align_failed") != c and not slot_busy(sl.get("machine_id")):
         # restart only if the checkout succeeded: a commit of the Mac not yet on origin would
         # otherwise restart Topics every minute; a failed commit is not retried until the next one
         a = ssh(ip, "su - topics -c 'cd topics-app && git fetch -q origin && git checkout -q " + c +
@@ -602,6 +603,8 @@ def ensure_fixed(state, fx):
                 " && systemctl restart topics.service", timeout=600)
         if a.returncode != 0:
             sl["align_failed"] = c
+        else:
+            sl["aligned"] = c
         log(f"posto {key}: fisso riallineato a {c[:10]} (exit {a.returncode})")
     save_state(state)
     return sl

@@ -138,4 +138,21 @@ systemctl daemon-reload
 systemctl enable --now ci-firewall.service >/dev/null
 systemctl set-property --runtime topics.service CPUWeight=500 2>/dev/null || true
 for i in 0 $(seq 1 "$N"); do systemctl enable --now "ci-runner@$i.service" >/dev/null; done
+
+# SocketBindDeny needs systemd built with BPF, which Ubuntu's may not be: then it is
+# ignored without a word. Try it as a runner would; if the node's port can still be
+# taken, make every port up to 3420 privileged (the e2e servers use 13910+) and give
+# Topics the capability to bind its own. A runner that can take 3333 is a stop.
+can_take_3333() {
+  systemd-run --quiet --wait --pipe --slice=ci.slice -p User=ci1 -p Group=ci -p SocketBindDeny=tcp:3333 \
+    python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 3333))' 2>/dev/null
+}
+if can_take_3333; then
+  echo "SocketBindDeny non applicata: porte fino a 3420 privilegiate"
+  echo 'net.ipv4.ip_unprivileged_port_start=3421' > /etc/sysctl.d/60-ci-ports.conf
+  sysctl -q -p /etc/sysctl.d/60-ci-ports.conf
+  printf '[Service]\nAmbientCapabilities=CAP_NET_BIND_SERVICE\n' > /etc/systemd/system/topics.service.d/porte.conf
+  systemctl daemon-reload
+  if can_take_3333; then echo "un runner può ancora prendere :3333: fermo" >&2; exit 1; fi
+fi
 echo "runner pronti: 0 (prep) e 1..$N"
