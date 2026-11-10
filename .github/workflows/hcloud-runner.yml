@@ -55,6 +55,14 @@ on:
         description: runs-on (JSON) dei job di create/delete
         type: string
         default: '"ubuntu-latest"'
+      shards:
+        description: (create) i job della matrice da piazzare, JSON (es. [0,1,2]); vuoto = nessuna mappa
+        type: string
+        default: ""
+      pc_slots:
+        description: (create) quanti runner del PC aspettare al massimo (0 = il PC non si chiede)
+        type: number
+        default: 0
     outputs:
       label:
         value: ${{ jobs.create.outputs.label }}
@@ -63,6 +71,9 @@ on:
       runners:
         description: quanti runner sono nati sul server (0 senza server)
         value: ${{ jobs.create.outputs.runners }}
+      placement:
+        description: 'mappa {"s<N>": etichetta} di dove va ogni job; chi manca va su ubuntu-latest'
+        value: ${{ jobs.create.outputs.placement }}
     secrets:
       HCLOUD_TOKEN:
         required: true
@@ -79,10 +90,22 @@ jobs:
     outputs:
       label: ${{ steps.win.outputs.label }}
       server_id: ${{ steps.win.outputs.server_id }}
-      runners: ${{ steps.win.outputs.runners }}
+      runners: ${{ steps.online.outputs.hz_n }}
+      placement: ${{ steps.online.outputs.placement }}
     steps:
+      - name: Ora di inizio
+        run: echo "JOB_T0=$(date +%s)" >> "$GITHUB_ENV"
+
+      # Solo lo script della mappa: questo job vede i token e non esegue altro codice del ramo.
+      - uses: actions/checkout@v5
+        if: ${{ inputs.shards != '' }}
+        with:
+          sparse-checkout: scripts/e2e-placement.sh
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
       # Guardia di spesa (vincolo di Attilio: mai danni economici). Il tetto mensile lo
-      # tiene `hetzner-tetto` sul Mac, che oltre i 20 €/mese mette HETZNER_STOP=1 su questo
+      # tiene `hetzner-tetto` sul Mac, che oltre i 30 €/mese della voce ci mette HETZNER_STOP=1 su questo
       # repo; qui si rifanno i due controlli che non dipendono dal registro: taglio ammesso e
       # al massimo 2 server effimeri accesi (CI e offload di Topics insieme).
       - name: Guardia di spesa
@@ -233,7 +256,7 @@ jobs:
           RUNNERS: ${{ inputs.runners }}
         run: |
           label=""; sid=""
-          if [ -n "$L1" ]; then label=$L1; sid=$S1; elif [ -n "$L2" ]; then label=$L2; sid=$S2;; fi
+          if [ -n "$L1" ]; then label=$L1; sid=$S1; elif [ -n "$L2" ]; then label=$L2; sid=$S2; fi
           n=0; [ -n "$label" ] && n=$RUNNERS
           echo "runners=$n" >> "$GITHUB_OUTPUT"
           echo "label=$label" >> "$GITHUB_OUTPUT"
@@ -246,6 +269,58 @@ jobs:
             | while read -r id name; do
                 curl -fsS -X DELETE -H "Authorization: Bearer $HCLOUD_TOKEN" "$h/servers/$id" >/dev/null && echo "cancellato $name (tentativo fallito)"
               done || true
+
+      # QUANTI RUNNER CI SONO DAVVERO, E DOVE VA OGNI JOB.
+      #
+      # Cyclenerd aspetta solo il primo runner del server; gli altri li registra cloud-init
+      # in background, e uno può mancare (download in 504). Il PC li accende il broker sul
+      # Mac (`scripts/ci-pc-broker`) quando vede questo job in corso e il PC è libero:
+      # etichetta pc-<run>-<tentativo>, runner effimeri JIT. Qui si contano quelli ONLINE
+      # con l'etichetta, e la mappa non dà mai a un'etichetta più job che runner: un job in
+      # più resterebbe in coda per sempre (runner effimeri, server cancellato dopo gli shard).
+      - name: Runner online e posto di ogni job
+        id: online
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}
+          HZ_LABEL: ${{ steps.win.outputs.label }}
+          HZ_WANT: ${{ steps.win.outputs.runners }}
+          PC_WANT: ${{ (vars.PC_CI == '1' && inputs.shards != '') && inputs.pc_slots || 0 }}
+          SHARDS: ${{ inputs.shards }}
+        run: |
+          set -uo pipefail
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runners?per_page=100"
+          pc_label="pc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          count() {  # runner online con l'etichetta $1 e ancora liberi
+            curl -fsS -H "Authorization: Bearer $GH_TOKEN" "$api" 2>/dev/null \
+              | jq --arg l "$1" '[.runners[] | select(.status == "online" and (.busy | not) and any(.labels[]; .name == $l))] | length' 2>/dev/null \
+              || echo 0
+          }
+          hz_n=0; pc_n=0
+          # Il PC ha avuto tutto il tempo della creazione del server; senza server, 2 minuti
+          # dall'inizio del job. Il server: fino a 4 minuti per gli altri runner di cloud-init.
+          end=$(( $(date +%s) + 240 ))
+          pc_end=$(( ${JOB_T0:-$(date +%s)} + 120 ))
+          while :; do
+            [ -n "$HZ_LABEL" ] && hz_n=$(count "$HZ_LABEL")
+            [ "${PC_WANT:-0}" -gt 0 ] && pc_n=$(count "$pc_label")
+            now=$(date +%s)
+            hz_done=1; [ -n "$HZ_LABEL" ] && [ "$hz_n" -lt "${HZ_WANT:-0}" ] && [ "$now" -lt "$end" ] && hz_done=0
+            pc_done=1; [ "${PC_WANT:-0}" -gt 0 ] && [ "$pc_n" -lt "$PC_WANT" ] && [ "$now" -lt "$pc_end" ] && pc_done=0
+            [ "$hz_done" = 1 ] && [ "$pc_done" = 1 ] && break
+            sleep 10
+          done
+          [ "$pc_n" -gt "${PC_WANT:-0}" ] && pc_n=$PC_WANT
+          [ "$hz_n" -gt "${HZ_WANT:-0}" ] && hz_n=${HZ_WANT:-0}
+          echo "hz_n=$hz_n" >> "$GITHUB_OUTPUT"
+          echo "pc_n=$pc_n" >> "$GITHUB_OUTPUT"
+          placement='{}'
+          if [ -n "$SHARDS" ]; then
+            placement=$(bash scripts/e2e-placement.sh "$SHARDS" "$pc_label" "$pc_n" "$HZ_LABEL" "$hz_n") || placement='{}'
+          fi
+          echo "placement=$placement" >> "$GITHUB_OUTPUT"
+          echo "PC: $pc_n runner ($pc_label) · Hetzner: $hz_n runner (${HZ_LABEL:-nessun server}) · mappa: $placement"
+          echo "::notice title=Posto degli shard e2e::PC $pc_n, Hetzner $hz_n, il resto su GitHub"
 
   delete:
     if: ${{ inputs.mode == 'delete' }}
@@ -286,12 +361,14 @@ jobs:
             | jq -r --arg p "$p" '[.servers[] | select(.name | startswith($p)) | .name] | join(" ")')
           if [ -n "$resto" ]; then echo "::error::Server ancora accesi: $resto"; exit 1; fi
           echo "nessun server di questa run acceso"
+          # The PC's runners of this run that took no shard go too: once removed from
+          # GitHub their process on the PC exits (the broker on the Mac also sweeps them).
           # The server is gone, which is what costs money. A runner left registered is
           # offline and harmless, and the hourly sweeper removes it: a GitHub API hiccup
           # here (502 in run 42839400563) is a warning, not a red delete job.
           api="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runners"
           { curl -fsS -H "Authorization: Bearer $GH_TOKEN" "$api?per_page=100" \
-            | jq -r --arg p "$p" '.runners[] | select(.name | startswith($p)) | .id' \
+            | jq -r --arg p "$p" --arg q "pc-${GITHUB_RUN_ID}-" '.runners[] | select((.name | startswith($p)) or ((.name | startswith($q)) and (.busy | not))) | .id' \
             | while read -r id; do
                 curl -fsS -X DELETE -H "Authorization: Bearer $GH_TOKEN" "$api/$id" && echo "tolto runner $id"
               done; } || echo "::warning::runner di questa run non tolti da GitHub: li toglie lo sweeper"

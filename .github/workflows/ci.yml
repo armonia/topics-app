@@ -804,6 +804,12 @@ jobs:
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bash scripts/e2e-stop-on-red.test.sh
 
+      # Where the e2e shards go (PC, Hetzner, GitHub). The failure it guards is
+      # a run that never ends: more shards on a label than runners online.
+      - name: Posto degli shard e2e (e2e-placement)
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: bash scripts/e2e-placement.test.sh
+
   # THE VERDICT OF THE RUN'S TESTS AND GATES, IN THE JOB AND STEP THE BOARD READS.
   #
   # The board reads the unit verdict of a pull request from the step "Unit +
@@ -937,32 +943,44 @@ jobs:
           path: plan/
           retention-days: 1
 
-  # THE FIRST E2E SHARDS RUN ON A HETZNER SERVER THAT LIVES FOR THIS RUN ONLY.
+  # WHERE THE E2E SHARDS RUN: THE PC FIRST, THEN A HETZNER SERVER, THEN GITHUB.
   #
   # Measured on 10/11/2026: a green run took 37 minutes, and every e2e job
-  # waited 5-13 of them in the queue for one of the 20 jobs the organisation
-  # may run at once, before 12-16 minutes of tests. A shard runs two
-  # Playwright processes and loads its 4 vCPU to ~5 with ~3.6 GB in use (the
-  # `[carico]` lines of run 42814604772), so a runner gets what a GitHub one
-  # has, 4 vCPU and 8 GB: a cx53 (16 vCPU, 32 GB, 0.047 EUR/h) carries four.
-  # With it every e2e shard goes there; without it the whole run stays on
-  # ubuntu-latest (a ccx23 with one runner was slower than GitHub, run 42856852451). When the project's shared
-  # cores are full (10/11: every cx answered resource_unavailable) the
-  # dedicated server is the one that comes up.
+  # waited 5-29 of them in the queue for one of the 20 jobs the organisation
+  # may run at once, before 10-13 minutes of tests (runs 42856852451,
+  # 42839400563). A shard on a machine of ours starts in seconds. A shard runs
+  # two Playwright processes and loads its 4 vCPU to ~5 with ~3.6 GB in use
+  # (the `[carico]` lines of run 42814604772), so a runner gets what a GitHub
+  # one has, 4 vCPU and 8 GB.
+  #
+  # The order, decided by Attilio on 10/11:
+  #  1. Attilio's PC, which costs nothing: up to 4 ephemeral runners inside WSL,
+  #     started by a broker on the Mac (`ci-pc-broker` in jarvis) only while
+  #     nobody is using the PC, when it sees the job below running. It publishes
+  #     PC_CI=1 on the repository while it can take shards; with PC_CI=0 the
+  #     job does not wait for it.
+  #  2. One Hetzner cx53 (16 vCPU, 32 GB, 0.047 EUR/h, 4 runners) for this run
+  #     only, unless HETZNER_STOP=1: `hetzner-tetto` sets it when the CI's own
+  #     30 EUR a month would be exceeded.
+  #  3. ubuntu-latest for every shard left.
+  # `e2e-placement.sh` makes the map, and a label never gets more shards than
+  # it has runners online: every runner is ephemeral, so one shard too many
+  # would wait in the queue forever (the PC's would, and the server is deleted
+  # only after the shards). A machine that does not answer moves its shards to
+  # the next step, never into the queue.
   #
   # The repository is PUBLIC, so the rules (hcloud-runner.yml has the rest):
-  #  - a server only for a push to main or a pull request from this repository;
-  #    a fork's pull request never reaches a self-hosted runner;
+  #  - self-hosted only for a push to main or a pull request from this
+  #    repository; a fork's pull request never reaches a machine of ours;
   #  - HCLOUD_TOKEN and RUNNER_ADMIN_TOKEN live only in the create and delete
-  #    jobs, which run on ubuntu-latest and execute no code of the change;
-  #  - when the spending guard says no (HETZNER_STOP, set by `hetzner-tetto`
-  #    over 20 EUR a month, or two ephemeral servers already on) or no server
-  #    comes up, `label` is empty and the shards run on ubuntu-latest as
-  #    before: the server can make the run faster, never red.
+  #    jobs, which run on ubuntu-latest and execute no code of the change but
+  #    the placement script;
+  #  - the machines can make the run faster, never red: anything that fails in
+  #    the create job sends the shards to ubuntu-latest as before.
   #  - `hcloud-delete` runs with `always()`, and hcloud-sweeper.yml deletes any
   #    gh-runner-* server older than 3 hours.
   hcloud:
-    name: Hetzner server for the e2e shards
+    name: e2e placement
     needs: changes
     if: ${{ needs.changes.outputs.e2e != 'false' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) }}
     uses: ./.github/workflows/hcloud-runner.yml
@@ -978,6 +996,9 @@ jobs:
       # runners started by cloud-init (run 42850786038: «exited in 4ms with code 1»).
       # sqlite3 and tmux: called by specs (run 42856852451: «spawnSync sqlite3 ENOENT»).
       apt_packages: jq unzip build-essential python3 zsh sqlite3 tmux lsof
+      # The same list as the matrix of `e2e`: the map has one entry per job.
+      shards: ${{ github.event_name == 'pull_request' && '[0, 1, 2, 3, 4, 5, 6, 7, 8]' || '[1, 2, 3, 4, 5, 6, 7, 8]' }}
+      pc_slots: 4
     secrets:
       HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
       RUNNER_ADMIN_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}
@@ -997,9 +1018,9 @@ jobs:
 
   e2e:
     timeout-minutes: 25
-    # Per RUN: the whole matrix goes to the server only when a cx53 came up with its 4
-    # runners; otherwise the whole run stays on ubuntu-latest. Never 9 shards on 1 runner.
-    runs-on: ${{ (needs.hcloud.outputs.label != '' && fromJSON(needs.hcloud.outputs.runners || '0') >= 4) && needs.hcloud.outputs.label || 'ubuntu-latest' }}
+    # Per SHARD, from the map of the `hcloud` job (see the top of it): PC, Hetzner
+    # server, or ubuntu-latest for a shard the map does not name.
+    runs-on: ${{ fromJSON(needs.hcloud.outputs.placement || '{}')[format('s{0}', matrix.shard)] || 'ubuntu-latest' }}
     needs: [changes, prepare-e2e, hcloud]
     if: ${{ !cancelled() && needs.prepare-e2e.result == 'success' }}
     # WHEN NOTHING THE SHARDS READ HAS CHANGED the matrix is the single job `e2e (0)`
