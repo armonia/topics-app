@@ -77,7 +77,6 @@ const READ_ONLY = new Set(["read_file", "grep", "glob", "todo_write", "web_fetch
  * In `yolo` passano: chi sceglie quel livello sta dicendo esattamente questo.
  */
 const DESTRUCTIVE = [
-  { re: /\brm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)/, what: "rm ricorsivo o forzato" },
   { re: /\bgit\s+reset\s+--hard\b/, what: "git reset --hard" },
   { re: /\bgit\s+clean\s+-[a-zA-Z]*f/, what: "git clean -f" },
   { re: /\bgit\s+push\b.*(--force\b|-f\b)/, what: "git push forzato" },
@@ -86,8 +85,30 @@ const DESTRUCTIVE = [
   { re: /\bchmod\s+-R\s+777\b/, what: "chmod -R 777" },
   { re: />\s*\/dev\/(sd|disk)/, what: "scrittura su un device" },
   // Il caso che ha fatto storia altrove: cancellare la home o la radice.
-  { re: /\brm\s+.*(\s|^)(\/|~|\$HOME)(\s|$)/, what: "rm sulla radice o sulla home" },
 ];
+
+const RM_FORCED = /\brm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)/;
+const RM_ROOT = /\brm\s+.*(\s|^)(\/|~|\$HOME)(\s|$)/;
+const TEMP_ROOT = /^(\/tmp|\/private\/tmp|\/var\/folders|\/private\/var\/folders)\/[^\s]+$/;
+
+/**
+ * Ritorna il motivo se un segmento `rm` e' pericoloso, altrimenti null.
+ * Un rm i cui bersagli sono tutti sotto una cartella temporanea (senza `..`
+ * ne' glob sulla radice della cartella) cancella i temporanei del turno: passa.
+ */
+function rmReason(segment: string): string | null {
+  const forced = RM_FORCED.test(segment);
+  const root = RM_ROOT.test(segment);
+  if (!forced && !root) return null;
+  const args = segment.slice(segment.search(/\brm\b/)).split(/\s+/).slice(1);
+  const targets = args.filter((a) => !a.startsWith("-"));
+  const unquoted = targets.map((t) => t.replace(/^["']|["']$/g, ""));
+  const allTemp =
+    unquoted.length > 0 &&
+    unquoted.every((t) => TEMP_ROOT.test(t) && !t.includes(".."));
+  if (allTemp) return null;
+  return root ? "rm sulla radice o sulla home" : "rm ricorsivo o forzato";
+}
 
 /**
  * Questo tool, con questi argomenti, si può eseguire?
@@ -117,6 +138,18 @@ export function decide(
   // auto-apply: si lavora, ma le cose irreversibili no.
   if (tool === "bash") {
     const cmd = String(input.command ?? "");
+    for (const seg of cmd.split(/[;&|\n]+/)) {
+      const what = rmReason(seg);
+      if (what) {
+        return {
+          allow: false,
+          reason:
+            `Comando bloccato (${what}): è un'operazione che non si annulla, e questa ` +
+            `conversazione non è in modalità «yolo». Se serve davvero, chiedilo all'utente. ` +
+            `rm su /tmp e sulle cartelle temporanee è invece permesso.`,
+        };
+      }
+    }
     for (const d of DESTRUCTIVE) {
       if (d.re.test(cmd)) {
         return {
