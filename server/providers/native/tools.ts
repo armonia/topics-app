@@ -35,6 +35,7 @@ import { globAnswer, globFiles } from "./glob-files";
 import { resolveSearchRoot } from "./search-root";
 import { imageShape } from "../../services/image-shape";
 import { imageCaption, type ToolImage } from "./image-normalize";
+import { insideAnyRoot, loadWriteRoots } from "./write-roots";
 
 import { expandHome } from "../../lib/expand-home";
 /**
@@ -168,6 +169,21 @@ function safePath(ctx: ToolContext, p: string): string {
     throw new Error(`percorso fuori dalla workspace: ${p}`);
   }
   return abs;
+}
+
+/**
+ * Like `safePath`, for WRITING: the workspace plus the roots declared for it in
+ * `native-write-roots.json` (see `write-roots.ts`). Everything else stays closed.
+ */
+function safeWritePath(ctx: ToolContext, raw: string): string {
+  const expanded = expandHome(raw);
+  try {
+    return safePath(ctx, expanded);
+  } catch (err) {
+    const abs = isAbsolute(expanded) ? resolve(expanded) : resolve(ctx.workspace, expanded);
+    if (insideAnyRoot(abs, loadWriteRoots(resolve(ctx.workspace)))) return abs;
+    throw err;
+  }
 }
 
 /** Only for a MISSING path outside the workspace, where there are no bytes to read. */
@@ -692,14 +708,14 @@ export async function executeTool(
       }
 
       case "write_file": {
-        const p = safePath(ctx, String(input.path));
+        const p = safeWritePath(ctx, String(input.path));
         mkdirSync(dirname(p), { recursive: true });
         writeFileSync(p, String(input.content ?? ""));
         return { content: `scritto ${input.path} (${String(input.content ?? "").length} byte)` };
       }
 
       case "edit_file": {
-        const p = safePath(ctx, String(input.path));
+        const p = safeWritePath(ctx, String(input.path));
         if (!existsSync(p)) return { content: `file non trovato: ${input.path}`, isError: true };
         const raw = readFileSync(p, "utf-8");
         const old = String(input.old ?? "");

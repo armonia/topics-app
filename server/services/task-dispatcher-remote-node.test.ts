@@ -1131,6 +1131,9 @@ describe("la consegna del nodo è una consegna come le altre", () => {
     const t = h.task();
     expect(t.status).toBe("todo");
     expect(t.stayLocal).toBe(true);
+    // The pin has a deadline: the node's missing tools get installed.
+    const until = h.db.query("SELECT stay_local_until AS u FROM tasks WHERE id = ?").get(TASK) as { u: string | null };
+    expect(Date.parse(until.u ?? "") - Date.now()).toBeGreaterThan(5 * 3_600_000);
     expect(t.machineId).toBeNull();
     expect(measured).toEqual([]);
     expect(h.comments().some((c) => c.content.includes("finita senza nessun commit"))).toBe(true);
@@ -1160,5 +1163,29 @@ describe("la consegna del nodo è una consegna come le altre", () => {
     expect(h.task().status).toBe("review");
     expect(h.task().machineId).toBe(MACHINE);
     expect(h.task().stayLocal).toBe(false);
+  });
+});
+
+describe("node-run hooks for one machine run one at a time", () => {
+  it("three cards for the same node: the hook never runs twice at once, and all three start", async () => {
+    let live = 0;
+    let peak = 0;
+    const hooks: LifecycleHookRunner = {
+      run: async () => {
+        live++;
+        peak = Math.max(peak, live);
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+        live--;
+        return { ok: true };
+      },
+    };
+    const h = harness({ hooks });
+    for (const id of [TASK, "card-b", "card-c"]) h.seed(id);
+
+    await dispatch(h);
+    await flush(200);
+
+    expect(peak).toBe(1);
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(3);
   });
 });
