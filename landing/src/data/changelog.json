@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.3.76",
+    "date": "2026-11-10",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "un pesante che aspetta solo la CI remota non tiene la macchina (#699)",
+          "scope": "dispatch"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.3.34",
     "date": "2026-10-26",
     "sections": {

@@ -2,46 +2,89 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.76 — 2026-11-10
+
+### Correzioni
+- **dispatch** · un pesante che aspetta solo la CI remota non tiene la macchina (#699)
+
+### Sotto il cofano
+- the sessions at the centre again, no close on a process, the backup in one line
+- cloud-nodes: esito 0.7 e 0.8, nodo senza catalogo modelli (#697)
+- claude-cloud: un account senza scope delle sessioni non spegne più il nodo (#698)
+- anagrafica di Jarvis e Visione modificabile da Topics (#704)
+- lint e tetto delle stringhe dopo l'anagrafica (#704) (#708)
+- a channel thread says the channel it lives in, and the threads opened for a card are readable (#713)
+- corsa vuota su una domanda va in review, non fissata al Mac (#715)
+
 ## 2.3.75 — 2026-11-09
 
 ### Sotto il cofano
 - cloud-nodes: approvata, esito della Fase 0 sul nodo a ore (#694)
+- e2e turn-end-still: the sampler waits for a tool body that opened by itself to close
 
 ## 2.3.74 — 2026-11-09
 
 ### Sotto il cofano
+- Stop test: forward-slash paths and tree kill in afterAll, skip on win32
+- Unify duplicated git runner, stripCtrl, HTML escape, isConflicted and expandHome
+- channel titles per chat and thread, resolved from the channel key
 - Agent environment on Windows keeps the CLIs' config folders (#691)
 
 ## 2.3.73 — 2026-11-09
 
 ### Sotto il cofano
+- search, order, confirmed close and the Mac backup box (hub S3)
+- inline close confirmation is a group, not a floating surface
+- Automations calendar: open the detail of a row from the list tab
+- Fix comment language
+- esito della traccia R1 (servizio Rust dell'hub)
+- outcome note for hub service track R3 (code lives in the jarvis repo)
+- name the jarvis commits in the R3 outcome note
+- the in-progress card requirement takes id KANBAN-109 (KANBAN-108 was defined twice)
+- note the spec id fix in the R3 outcome
+- R3 outcome note, CI remark
+- Kanban spec: second KANBAN-108 renumbered to 109 (spec-coverage red inherited from main)
 - passano i controlli anti-bot di Hetzner (outerWidth/outerHeight e webdriver) (#670)
 
 ## 2.3.72 — 2026-11-09
 
 ### Sotto il cofano
 - the PC and the Hetzner server, read from the hub (#663)
+- Account e quote: il test dei tetti prova anche il cambio dollaro-euro (virgola o punto) scritto sul proxy
 
 ## 2.3.71 — 2026-11-09
 
 ### Sotto il cofano
+- archive toggle keeps aria-pressed
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-09 [skip ci]
 - il test della nota ripiegata legge SystemNoteFold.tsx, dove ora vive
+- **e2e** · campanella lato hub, ordine gruppi, Fatto e hub spento
+- **e2e** · commenti in inglese
 
 ## 2.3.70 — 2026-11-09
 
 ### Sotto il cofano
+- detail slider requirement KANBAN-107
 - Il drag non fa più tremare la card vicina quando il puntatore passa fra due colonne
+- board specs drive the detail slider instead of the old layout toggle
 
 ## 2.3.69 — 2026-11-09
 
 ### Sotto il cofano
 - Board per progetto: l'elenco dei progetti del selettore esce da tasks.ts
+- Board slider: motion token duration, declare test coverage
+
+## 2.3.68 — 2026-11-09
+
+### Sotto il cofano
+- detail slider (projects with counts, list, kanban) replaces the list toggle
 
 ## 2.3.67 — 2026-11-09
 
 ### Sotto il cofano
 - i titoli dei bottoni della toolbar passano da i18n (main rosso su check:ui-language)
+- board-remote-node usa la radice tmp canonica, su Windows /tmp non esiste
+- spec agents-jobs e board-motion-contract allineate (formato M tok, transizione invertita)
 - e2e agents-jobs: il conteggio dei token si legge «2,3 M» col formato unico
 
 ## 2.3.66 — 2026-11-09
@@ -66,6 +109,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - move jcode hook mapping out of ignored archive
 - Land automatico: via il livello revisione AI, server/** va a una persona
 - Punto coordinator: fix lives outside this repo (jarvis ef51752b)
+- /send: il testo lungo verso le sessioni Claude arriva come paste e la rotta lo dichiara (pasted)
+- isPlainText senza regex di controllo
+- /send e live-terminals: il testo lungo verso Claude va come paste, l'Invio separato
+- ui-language: baseline riallineato dopo lo spostamento dei bottoni dell'editor
 
 ## 2.3.65 — 2026-11-09
 

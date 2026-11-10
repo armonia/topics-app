@@ -1,5 +1,63 @@
 [
   {
+    "version": "2.3.76",
+    "date": "2026-11-10",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "un pesante che aspetta solo la CI remota non tiene la macchina (#699)",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "the sessions at the centre again, no close on a process, the backup in one line",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "cloud-nodes: esito 0.7 e 0.8, nodo senza catalogo modelli (#697)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "claude-cloud: un account senza scope delle sessioni non spegne più il nodo (#698)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "anagrafica di Jarvis e Visione modificabile da Topics (#704)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "lint e tetto delle stringhe dopo l'anagrafica (#704) (#708)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "a channel thread says the channel it lives in, and the threads opened for a card are readable (#713)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "corsa vuota su una domanda va in review, non fissata al Mac (#715)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.75",
     "date": "2026-11-09",
     "sections": {
@@ -9,6 +67,11 @@
       "internal": [
         {
           "it": "cloud-nodes: approvata, esito della Fase 0 sul nodo a ore (#694)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "e2e turn-end-still: the sampler waits for a tool body that opened by itself to close",
           "en": "",
           "scope": null
         }
@@ -23,6 +86,22 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "Stop test: forward-slash paths and tree kill in afterAll, skip on win32",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Unify duplicated git runner, stripCtrl, HTML escape, isConflicted and expandHome",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "channel titles per chat and thread, resolved from the channel key",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
         {
           "it": "Agent environment on Windows keeps the CLIs' config folders (#691)",
           "en": "",
@@ -39,6 +118,69 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "search, order, confirmed close and the Mac backup box (hub S3)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "inline close confirmation is a group, not a floating surface",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Automations calendar: open the detail of a row from the list tab",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fix comment language",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "esito della traccia R1 (servizio Rust dell'hub)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "outcome note for hub service track R3 (code lives in the jarvis repo)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "name the jarvis commits in the R3 outcome note",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the in-progress card requirement takes id KANBAN-109 (KANBAN-108 was defined twice)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "note the spec id fix in the R3 outcome",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "R3 outcome note, CI remark",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Kanban spec: second KANBAN-108 renumbered to 109 (spec-coverage red inherited from main)",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "passano i controlli anti-bot di Hetzner (outerWidth/outerHeight e webdriver) (#670)",
           "en": "",
@@ -61,6 +203,11 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Account e quote: il test dei tetti prova anche il cambio dollaro-euro (virgola o punto) scritto sul proxy",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -74,6 +221,12 @@
       "perf": [],
       "internal": [
         {
+          "it": "archive toggle keeps aria-pressed",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "aggiorna durate shard dal nightly del 2026-11-09 [skip ci]",
           "en": "",
           "scope": "e2e",
@@ -83,6 +236,18 @@
           "it": "il test della nota ripiegata legge SystemNoteFold.tsx, dove ora vive",
           "en": "",
           "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "campanella lato hub, ordine gruppi, Fatto e hub spento",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "commenti in inglese",
+          "en": "",
+          "scope": "e2e",
           "breaking": false
         }
       ]
@@ -97,9 +262,21 @@
       "perf": [],
       "internal": [
         {
+          "it": "detail slider requirement KANBAN-107",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Il drag non fa più tremare la card vicina quando il puntatore passa fra due colonne",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "board specs drive the detail slider instead of the old layout toggle",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ]
     }
@@ -116,6 +293,28 @@
           "it": "Board per progetto: l'elenco dei progetti del selettore esce da tasks.ts",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Board slider: motion token duration, declare test coverage",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.68",
+    "date": "2026-11-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "detail slider (projects with counts, list, kanban) replaces the list toggle",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ]
     }
@@ -130,6 +329,18 @@
       "internal": [
         {
           "it": "i titoli dei bottoni della toolbar passano da i18n (main rosso su check:ui-language)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "board-remote-node usa la radice tmp canonica, su Windows /tmp non esiste",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "spec agents-jobs e board-motion-contract allineate (formato M tok, transizione invertita)",
           "en": "",
           "scope": null,
           "breaking": false
@@ -246,6 +457,26 @@
         },
         {
           "it": "Punto coordinator: fix lives outside this repo (jarvis ef51752b)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "/send: il testo lungo verso le sessioni Claude arriva come paste e la rotta lo dichiara (pasted)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "isPlainText senza regex di controllo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "/send e live-terminals: il testo lungo verso Claude va come paste, l'Invio separato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ui-language: baseline riallineato dopo lo spostamento dei bottoni dell'editor",
           "en": "",
           "scope": null
         }
