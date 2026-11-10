@@ -1,12 +1,12 @@
 /**
- * Archiviare aveva una porta sola. `list()` inchiodava `archived = 0`, la PATCH
- * rifiutava il campo, e in tutto il repo non esisteva una sola scrittura che
- * riportasse `archived` a 0: 74 task erano usciti dalla board senza modo di
- * rivederli, alberi fermi in review compresi.
+ * Archiving was a one-way door. `list()` pinned `archived = 0`, the PATCH
+ * refused the field, and nothing in the repo ever wrote `archived` back to 0:
+ * 74 tasks had left the board with no way to see them again, trees parked in
+ * review included.
  *
- * Qui si misura il ritorno, nell'ordine in cui lo vive chi guarda la board:
- * archivia (la card sparisce) → elenca con il filtro (la ritrova) → ripristina
- * → la card è di nuovo in colonna, nella sua colonna, con la sua checklist.
+ * This measures the way back, in the order someone watching the board lives it:
+ * archive (the card disappears), list with the filter (it is found), restore,
+ * and the card is back in its own column with its checklist.
  *
  * @covers KANBAN-18
  */
@@ -112,10 +112,10 @@ describe("una card archiviata non resta «in coda»", () => {
   test("archiviare spegne lo stato queued del sottoalbero", () => {
     const db = freshDb(); const s = svc(db);
     const padre = s.create({ projectId: PID, text: "In coda", status: "todo" });
-    const figlio = s.create({ projectId: PID, text: "Figlio in coda", parentTaskId: padre.id, status: "todo" });
+    const child = s.create({ projectId: PID, text: "Figlio in coda", parentTaskId: padre.id, status: "todo" });
     db.prepare("UPDATE tasks SET dispatch_state = 'queued'").run();
     s.archive({ taskId: padre.id, projectId: PID });
-    const rows = db.prepare("SELECT dispatch_state FROM tasks WHERE id IN (?, ?)").all(padre.id, figlio.id) as Array<{ dispatch_state: string | null }>;
+    const rows = db.prepare("SELECT dispatch_state FROM tasks WHERE id IN (?, ?)").all(padre.id, child.id) as Array<{ dispatch_state: string | null }>;
     expect(rows.map((r) => r.dispatch_state)).toEqual([null, null]);
   });
 });
