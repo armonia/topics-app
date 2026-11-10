@@ -394,7 +394,9 @@ describe("ci.yml obeys the answer: the workflow is evaluated, not read", () => {
     if (path === "needs.hcloud.result") return ctx.answer.e2e === "false" ? "skipped" : "success";
     if (path === "needs.prepare-e2e.result") return "success";
     if (path === "needs.changes.result") return "success";
-    if (path === "vars.HETZNER_STOP" || path === "vars.PC_CI") return "0";
+    // The fixed server on (FISSO_CI unset reads as on), the PC off.
+    if (path === "vars.FISSO_CI") return "1";
+    if (path === "vars.PC_CI") return "0";
     if (/^needs\.hcloud\.outputs\.\w+$/.test(path)) return "";
     // The GitHub image (the server skips its apt cache and --with-deps).
     if (path === "runner.environment") return "github-hosted";
