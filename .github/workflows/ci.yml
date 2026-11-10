@@ -998,7 +998,9 @@ jobs:
     # Shards 1..N on the server, N = the runners that came up (4 on a cx53, 2 on the
     # dedicated ccx23 fallback). Shard 0, the rest, and every run without a server:
     # ubuntu-latest, as before.
-    runs-on: ${{ (matrix.shard != 0 && needs.hcloud.outputs.label != '' && matrix.shard <= fromJSON(needs.hcloud.outputs.runners || '0')) && needs.hcloud.outputs.label || 'ubuntu-latest' }}
+    # Fallback PER RUN, not per shard: when the server came up every shard queues
+    # on its runners (4 at a time); only a run without a server uses ubuntu-latest.
+    runs-on: ${{ (needs.hcloud.outputs.label != '' && fromJSON(needs.hcloud.outputs.runners || '0') > 0) && needs.hcloud.outputs.label || 'ubuntu-latest' }}
     needs: [changes, prepare-e2e, hcloud]
     if: ${{ !cancelled() && needs.prepare-e2e.result == 'success' }}
     # WHEN NOTHING THE SHARDS READ HAS CHANGED the matrix is the single job `e2e (0)`
@@ -1278,6 +1280,14 @@ jobs:
         run: |
           PROCS=2
           SHARD=${{ matrix.shard }}
+          # Several runners share one Hetzner server: each takes its own band of
+          # 10 ports, from its HOME (/srv/rh-<i>, set per runner in hcloud-runner.yml;
+          # the runner name can't be used, the first one ends in the attempt number).
+          # Run 42839400563: two shards both on 13910 ("Un'altra run E2E sta usando la porta").
+          idx=1
+          case "${HOME:-}" in /srv/rh-[0-9]*) idx=${HOME#/srv/rh-} ;; esac
+          BAND=$((13910 + (idx - 1) * 10))
+          echo "[ci] runner ${RUNNER_NAME:-?} -> porte da $BAND"
           mkdir -p test-results/sub
           ( while sleep 30; do echo "[carico] $(cut -d' ' -f1-3 /proc/loadavg) memoria $(free -m | awk '/Mem/{print $3"/"$2}') MB"; done ) &
           monitor=$!
@@ -1296,7 +1306,7 @@ jobs:
             # writeFileSync, so a sibling can read a half-written module
             # ("projectIdForPath is not a function", run 42762634932).
             PWTEST_CACHE_DIR="$RUNNER_TEMP/pw-cache-$k" \
-            E2E_PORT=$((13910 + k - 1)) \
+            E2E_PORT=$((BAND + k - 1)) \
             PLAYWRIGHT_JSON_OUTPUT_FILE="test-results/sub/report-$k.json" \
             PLAYWRIGHT_HTML_OUTPUT_DIR="test-results/html-report-$k" PLAYWRIGHT_HTML_OPEN=never \
               npx playwright test "${SELECTORS[@]}" --reporter=list,json,html --output="test-results/sub/artifacts-$k" \
