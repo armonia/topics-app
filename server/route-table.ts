@@ -59,6 +59,7 @@ export const API_ROUTER_ORDER = [
   "appSettingsRouter",
   "calendarRouter",
   "agentChannelsRouter",
+  "agentConfigRouter",
   "tabsRouter",
   "viewsRouter",
   "claudeHooksRouter",

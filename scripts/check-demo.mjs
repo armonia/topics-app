@@ -3,7 +3,7 @@
  * The landing demo has to BOOT, and only a browser can say so.
  *
  * The demo under /app/ is the real Topics client with a mock seam
- * (client/src/demo/landing-boot.js) standing in for the server. The client
+ * (client/src/demo/boot.ts and its scenarios) standing in for the server. The client
  * moves; the seam does not move with it, and nothing in a build fails when a
  * mock's shape stops matching the code that reads it — the bundle compiles
  * perfectly and then dies at render. That is exactly what had happened while
@@ -14,7 +14,8 @@
  * So: boot the built demo, open the identity menu, and treat any uncaught
  * error as a failure.
  *
- *   bun run check:demo            # after build:site — reads landing/dist/app
+ *   bun run check:demo            # the newer of landing/dist/app (build:site)
+ *                                 # and landing/public/app (build:landing)
  *   bun run check:demo -- <dir>   # any directory containing app/index.html
  *
  * It is wired into `deploy:landing` ahead of wrangler, because a demo that
@@ -27,7 +28,16 @@ import { join, extname, resolve } from 'node:path';
 import { chromium, webkit } from 'playwright-core';
 import { glassProblems } from './demo-glass-probe.mjs';
 
-const root = resolve(process.argv[2] || 'landing/dist');
+/* `build:landing` writes landing/public/app and only `build:site` copies it to
+ * landing/dist/app: reading dist alone checked the PREVIOUS site build right
+ * after a fresh demo build. Without an argument, the newer of the two wins. */
+async function defaultRoot() {
+  const dirs = ['landing/dist', 'landing/public'];
+  const built = await Promise.all(dirs.map((d) => stat(join(d, 'app/index.html')).then((s) => s.mtimeMs, () => -1)));
+  return built[1] > built[0] ? dirs[1] : dirs[0];
+}
+const arg = process.argv.slice(2).find((a) => !a.startsWith('--'));
+const root = resolve(arg || (await defaultRoot()));
 /* `--mutant` paints every menu 72% translucent with no blur and expects the
  * glass probe to go red: proof the probe can see the defect it guards against.
  * Its selector is heavier than the demo's solid-fill sheet so it overrides it. */
@@ -102,10 +112,8 @@ const problemi = [];
 const errori = [];
 let testo = '';   // first engine's text, for the boot summary line only
 
-/** Boots the demo in one engine, opens the identity menu and runs the glass probe. */
-async function runEngine(engine, browser) {
-  const tag = (m) => (engine === 'chromium' ? m : `[${engine}] ${m}`);
-  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+/** Every uncaught error, console error and failed request of a page lands in `errori`. */
+function watchErrors(page, engine, tag) {
   page.on('pageerror', (e) => errori.push(tag(`uncaught: ${e.message}`)));
   page.on('console', (m) => {
     if (m.type() !== 'error') return;
@@ -125,19 +133,30 @@ async function runEngine(engine, browser) {
   page.on('response', (r) => {
     if (r.status() >= 400 && !ATTESI_404.test(r.url())) errori.push(tag(`HTTP ${r.status()} ${r.url()}`));
   });
+}
 
+/** Opens `url`, with one retry; false (and a problem on record) if it never loads. */
+async function open(page, url, tag) {
   // One retry: on a loaded machine the first navigation can time out before the
   // bundle is even served. A second failure is reported against its engine
   // instead of escaping as an anonymous uncaught exception.
   let reached = false;
   for (let attempt = 0; attempt < 2 && !reached; attempt++) {
-    reached = await page.goto(target, { waitUntil: 'load', timeout: 45000 }).then(() => true, (e) => {
+    reached = await page.goto(url, { waitUntil: 'load', timeout: 45000 }).then(() => true, (e) => {
       if (attempt === 1) problemi.push(tag(`loading the demo failed twice: ${String(e.message).split('\n')[0]}`));
       return false;
     });
   }
-  if (!reached) return;
-  await page.waitForTimeout(8000);
+  if (reached) await page.waitForTimeout(8000);
+  return reached;
+}
+
+/** Boots the demo in one engine, opens the identity menu and runs the glass probe. */
+async function runEngine(engine, browser) {
+  const tag = (m) => (engine === 'chromium' ? m : `[${engine}] ${m}`);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  watchErrors(page, engine, tag);
+  if (!(await open(page, target, tag))) return;
   // An explicit 20 s cap instead of Playwright's default (30 s in 1.59): a page
   // that has not drawn its text by then fails, with the reason on its own line.
   const t = (await page.locator('body').innerText({ timeout: 20000 }).catch((e) => {
@@ -173,6 +192,27 @@ async function runEngine(engine, browser) {
   } else {
     problemi.push(tag('the identity row («This Mac») is not drawn, so its menu could not be opened'));
   }
+  await page.close();
+}
+
+/* The organizations scenario (client/src/demo/scenarios/organizzazioni.ts): the
+ * same client opened by someone who runs four organizations. Each organization
+ * is a project, so the sidebar has to list all four and the board draw cards. */
+const ORGANIZATIONS = ['Consorzio di Nocera', 'SARIM', 'Armonia', 'Euro Impianti'];
+
+async function runOrganizations(engine, browser) {
+  const tag = (m) => (engine === 'chromium' ? `[organizzazioni] ${m}` : `[organizzazioni ${engine}] ${m}`);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  watchErrors(page, engine, tag);
+  if (!(await open(page, `${target}?scenario=organizzazioni`, tag))) return;
+  const sidebar = page.locator('[data-testid="sidebar-groups"]');
+  for (const name of ORGANIZATIONS) {
+    const rows = await sidebar.locator(`[data-testid="project-toggle-${name}"]`).count();
+    if (!rows) problemi.push(tag(`the sidebar does not list «${name}»`));
+  }
+  const cards = await page.locator('[data-task-card]').count();
+  if (cards < ORGANIZATIONS.length) problemi.push(tag(`the board draws ${cards} cards, expected at least ${ORGANIZATIONS.length}`));
+  await page.close();
 }
 
 try {
@@ -180,6 +220,7 @@ try {
     const browser = await launch();
     try {
       await runEngine(engine, browser);
+      if (!MUTANT) await runOrganizations(engine, browser);
     } finally {
       await browser.close();
     }
@@ -192,7 +233,7 @@ problemi.unshift(...errori);
 if (problemi.length) {
   console.error(`check:demo — the demo in ${root}/app does NOT boot clean:`);
   for (const p of [...new Set(problemi)].slice(0, 15)) console.error('  · ' + p);
-  console.error('\nThe mocks live in client/src/demo/landing-boot.js. To see which');
+  console.error('\nThe mocks live in client/src/demo/scenarios/ (acme is the landing). To see which');
   console.error('endpoints fall through to the generic answer, set __DEMO_TRACE__ = true');
   console.error('before the bundle runs and read the [demo] fallback lines in the console.');
   process.exit(1);

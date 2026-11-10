@@ -10,6 +10,7 @@ import { childExited } from "./child-exit";
 import { permissionModeForAutonomy, PERMISSION_PROMPT_TOOL } from "../lib/autonomy-mode";
 import { spawn, ChildProcess } from "child_process";
 import { join } from "path";
+import { hasClaudeSessionSignal } from "./claude-session-signal";
 import { createInterface, Interface } from "readline";
 import { getAiBridgeClient, type AiBridgeClient, type SessionInfo } from "../lib/ai-bridge-client";
 import { createLineFolder } from "../lib/ndjson-lines";
@@ -2361,10 +2362,7 @@ export class ClaudeCodeProvider implements AIProvider {
 
     // Claude Code uses `claude login` (OAuth) — no env key required.
     // Check for a credentials directory under ~/.claude as a best-effort signal.
-    const claudeHome = join(process.env.HOME || "", ".claude");
-    const hasSession =
-      Boolean(process.env.ANTHROPIC_API_KEY) ||
-      existsSync(claudeHome);
+    const hasSession = hasClaudeSessionSignal();
     requirements.push({
       key: "claude-session",
       label: "Active Claude Code session",

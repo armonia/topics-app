@@ -1,8 +1,9 @@
 /**
  * THE MACHINE'S PROCESSES (hub-smistamento, HUBBR-08 and HUBBR-09).
  *
- * Sistema in the Topics menu opens «Processi»: the Mac with GPU and network
- * per process (a dash where the hub did not measure), the PC, the services and
+ * Sistema in the Topics menu opens «Processi»: beside the sessions, the Mac
+ * with GPU and network per process behind its fold (a dash where the hub did
+ * not measure), the PC, the services and
  * the Claude proxy's log, live. The only Stop button is on a project script Topics
  * started: here a real script of a scratch project, whose pid the fake census
  * puts in the dev server's unit, so the stop is the real one. Closing the
@@ -118,6 +119,7 @@ test.describe("the machine's processes", () => {
         return document.querySelector('[data-testid="machine-processes"]') !== null;
       }), { timeout: 20_000 }).toBe(true);
       const pane = page.getByTestId(PANE);
+      await pane.getByTestId("machine-processes-toggle").click();
       await expect(pane.getByTestId("machine-process-row")).toHaveCount(8, { timeout: 20_000 });
       await expect(pane.getByTestId("machine-process-row").first()).toContainText("GPU");
       // The script's row at 390 px: its Stop button and the project › script link, in view for the shot.
@@ -147,6 +149,8 @@ test.describe("the machine's processes", () => {
     await openFromMenu(page);
     const pane = page.getByTestId(PANE);
     const rows = pane.getByTestId("machine-process-row");
+    // The Mac's processes are folded beside the sessions: open the fold first.
+    await pane.getByTestId("machine-processes-toggle").click();
     await expect(rows).toHaveCount(8, { timeout: 20_000 });
 
     // Measured rows show GPU and network; the system's row has no network and shows the dash.
@@ -267,6 +271,8 @@ test.describe("the machine's processes", () => {
     await openMainChat(page, scene!);
     await openFromMenu(page);
     const pane = page.getByTestId(PANE);
+    // The Mac's processes are folded beside the sessions: open the fold first.
+    await pane.getByTestId("machine-processes-toggle").click();
     await expect(pane.getByTestId("machine-process-row")).toHaveCount(8, { timeout: 20_000 });
     await expect(pane.getByTestId("machine-processes-hub-down")).toHaveCount(0);
 

@@ -93,6 +93,8 @@ export interface FakeHub {
   failing: string[];
   /** Readings that replace the fixture's whole, by hub path (`forecast`, `pc`, `mac`). */
   answersOverride: Record<string, unknown>;
+  /** The Mac backup's state file as the service reads it; null is no file (the hub answers 404). */
+  backup: Record<string, unknown> | null;
   /** The votes, notes and silences posted to `feedback`, as the hub keeps them. */
   feedback: FeedbackRow[];
   /** The projects' priorities, as `project-settings` writes them. */
@@ -544,7 +546,7 @@ const LOG_LINES = [
 ];
 
 export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(), opts: { quiet?: boolean; jobs?: boolean; automations?: boolean; projects?: { dirs: Record<string, string> }; context?: boolean } = {}): Promise<FakeHub> {
-  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), withdrawn: [], silent: false, failing: [], answersOverride: {}, feedback: [], priorities: {}, refuseSettings: null, contextCheck: defaultContextCheck(), checkMs: 3000, activity: null, contextDoctor: defaultContextDoctor(), close: async () => {} };
+  const hub: FakeHub = { items, posts: [], devPids: [], streams: { opened: 0, closed: 0 }, proxy: defaultFakeProxy(), overrides: [], budgets: defaultFakeBudgets(), withdrawn: [], silent: false, failing: [], answersOverride: {}, backup: null, feedback: [], priorities: {}, refuseSettings: null, contextCheck: defaultContextCheck(), checkMs: 3000, activity: null, contextDoctor: defaultContextDoctor(), close: async () => {} };
   const server: Server = createServer((req, res) => {
     const path = (req.url ?? "").split("?")[0]!.replace(/^\/api\//, "");
     if (req.method === "GET" && path === "logs/stream") {
@@ -729,6 +731,7 @@ export async function startFakeHub(items: FakeHubItem[] = defaultFakeHubItems(),
       all.queue = { items: [...queue.items, { id: "q-fix", ref: "launchd:com.example.backup", status: "running", provider: "codex", project: "acme-web", createdAt: now - 5 * 60_000 }] };
     }
     if (hub.activity) all.activity = { log: hub.activity };
+    if (hub.backup) all["mac/backup"] = hub.backup;
     Object.assign(all, hub.answersOverride);
     if (req.method === "GET" && path in all) return send(200, all[path]);
     send(404, { error: "not in the fake hub" });

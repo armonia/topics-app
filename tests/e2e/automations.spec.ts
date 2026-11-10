@@ -251,6 +251,11 @@ test.describe("automations", () => {
     await expect(cal.getByTestId("automations-calendar-day").first()).toContainText("Oggi");
     await expect(cal).toContainText("Jarvis · WhatsApp");
     await expect(cal).not.toContainText("PROMPT GREZZO");
+
+    // The detail link leads back to the list tab.
+    await cal.getByTestId("automations-calendar-toggle").first().click();
+    await cal.getByTestId("automations-calendar-open-detail").first().click();
+    await expect(pane.getByTestId("automations-tab-list")).toHaveAttribute("aria-selected", "true");
   });
 
   test("votes, notes, a silence and «Risolvi tu» reach the hub and are read back", async ({ page, request }) => {

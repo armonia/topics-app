@@ -305,7 +305,7 @@ interface PanelGridProps {
   // Create new standalone chat
   onNewChat?: () => void;
   // Pending focus for project tabs (navigate to a topic inside a project)
-  pendingProjectFocus?: { projectPath: string; topicId: string; targetGroupId?: string } | null;
+  pendingProjectFocus?: { projectPath: string; topicId: string; targetGroupId?: string; preview?: boolean } | null;
   onPendingProjectFocusConsumed?: () => void;
   // Report which topic is active inside a project (keyed by projectPath)
   onProjectActiveTopicChange?: (projectPath: string, topicId: string | null) => void;

@@ -91,7 +91,10 @@ function floatingSurfaceViolations(files: Array<{ file: string; text: string }>)
 }
 
 function clientSources(): Array<{ file: string; text: string }> {
-  return sources(SRC).map((path) => ({ file: relative(SRC, path), text: readFileSync(path, 'utf8') }));
+  // The preview layer (ui/, ui-gallery/) is a self-contained design layer with its own
+  // primitives (Menu, Popover, Dialog, Toast, Spinner-like progress) and is held to
+  // props-only by check:ui-isolation, so it cannot use the app's shared pieces. Card e12b765a.
+  return sources(SRC).filter((path) => !/^ui(-gallery)?\//.test(relative(SRC, path))).map((path) => ({ file: relative(SRC, path), text: readFileSync(path, 'utf8') }));
 }
 
 describe('floating surfaces (MOTION-04)', () => {

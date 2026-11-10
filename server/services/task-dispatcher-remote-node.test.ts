@@ -107,6 +107,18 @@ describe("la card parte sul nodo, non qui", () => {
     expect(h.topics).toEqual([]);
   });
 
+  it("413 dal nodo: la card si parcheggia col motivo, non resta in coda come node_unreachable", async () => {
+    const h = harness({ createRun: () => Promise.reject(Object.assign(new Error("create run answered 413 (request body 999 bytes)"), { reason: "payload_too_large" })) });
+    h.seed();
+
+    await dispatch(h);
+
+    const t = h.task();
+    expect(t.dispatchError).not.toBe("node_unreachable");
+    expect(t.dispatchDeferredUntil).toBeNull();
+    expect(t.dispatchError ?? "").toContain("troppo grande");
+  });
+
   it("nodo muto due volte: la card resta in coda, il tetto dei rimandi dell'agente non la ferma", async () => {
     // The node's retry opens no turn, so it keeps the wide streak cap; the
     // agent's cap (one wait, then the card asks) would park it on the second.
@@ -1122,6 +1134,21 @@ describe("la consegna del nodo è una consegna come le altre", () => {
     expect(t.machineId).toBeNull();
     expect(measured).toEqual([]);
     expect(h.comments().some((c) => c.content.includes("finita senza nessun commit"))).toBe(true);
+  });
+
+  it("zero commit propri perche' l'agente ha chiesto una scelta: non e' mancanza di strumenti, va in review e non resta qui", async () => {
+    const { h } = plantedHarness({ commit: null, files: [] });
+    h.seed();
+    h.db.run("UPDATE tasks SET overflowed_at = ? WHERE id = ?", [new Date().toISOString(), TASK]);
+    await dispatch(h);
+    h.svc.addComment({ taskId: TASK, author: "agent:e88f046b", kind: "comment", content: ["```question", "Quale fascia?", "- A", "- B", "```"].join("\n") });
+    h.svc.updateBoardSettings(PID, { autoDispatch: false });
+    await poll(h);
+
+    const t = h.task();
+    expect(t.status).toBe("review");
+    expect(t.stayLocal).toBe(false);
+    expect(h.comments().some((c) => c.content.includes("finita senza nessun commit"))).toBe(false);
   });
 
   it("zero commit propri su una card che una persona ha mandato sul nodo: resta in review, nessuno la sposta", async () => {

@@ -27,6 +27,7 @@ export type NodeFailureReason =
   | "unauthorized"
   | "no_such_repo"
   | "branch_unreachable"
+  | "payload_too_large"
   | "not_found"
   | "server_error";
 
@@ -307,6 +308,8 @@ async function nodeErrorFromResponse(res: Response, what: string): Promise<NodeE
   // The node cannot get the carried branch from origin: the caller retries with the branch as a bundle.
   if (body.code === "branch_unreachable") return new NodeError("branch_unreachable", msg, res.status);
   if (res.status === 401 || res.status === 403) return new NodeError("unauthorized", msg, res.status);
+  // The node (or a proxy in front of it) refused the request body for its size: waiting never shrinks it.
+  if (res.status === 413) return new NodeError("payload_too_large", msg, res.status);
   if (res.status === 404) return new NodeError("not_found", msg, res.status);
   return new NodeError("server_error", msg, res.status);
 }
@@ -466,6 +469,7 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
       const wireBody = delegation
         ? { originTaskId: body.originTaskId, originUrl: body.originUrl, text: body.text, description: body.description }
         : body;
+      const payload = JSON.stringify(wireBody);
       const out = await callJson<{ runId?: unknown }>(
         `${baseUrl}/api/nodes/${delegation ? "delegated-runs" : "runs"}`,
         {
@@ -474,10 +478,16 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
             "Content-Type": "application/json",
             ...delegatedHeaders(delegation),
           }),
-          body: JSON.stringify(wireBody),
+          body: payload,
         },
         "create run",
-      );
+      ).catch((err: unknown) => {
+        if (isNodeError(err) && err.reason === "payload_too_large") {
+          const bytes = new TextEncoder().encode(payload).length;
+          throw new NodeError("payload_too_large", `${err.message} (request body ${bytes} bytes)`, err.status);
+        }
+        throw err;
+      });
       if (typeof out.runId !== "string" || !out.runId) {
         throw new NodeError("server_error", "create run: answer has no runId", 200);
       }

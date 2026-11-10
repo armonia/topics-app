@@ -45,6 +45,7 @@ import type { BrowserService } from "../browser-service";
 import { dispatchBrowserToolCallByContext, resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { makeOpenPaneFlow, type OpenPaneFlowOptions } from "./browser-open-pane-flow";
 import { maybeOpenPaneForPageOp } from "./browser-auto-open";
+import { isAgentOwnedTopic } from "../../shared/agent-owned";
 import { BRIDGED_BROWSER_ENDPOINTS } from "../browser-tool-spec";
 import { resolveAgentNavUrl } from "../browser-tools-handler";
 import { nativeDelegateRegistry } from "../browser-native-delegate";
@@ -491,6 +492,20 @@ export function createBrowserBridgeRouter(
         // guarantees it) so the client mounts/seeds the pane under the SAME id
         // the agent's `browser_*` tools resolve to. Inverted, Playwright drove
         // a phantom while the visible pane stayed on about:blank.
+        // A chat an agent opened (sub-agent, Jarvis channel or cron, dispatched
+        // card) keeps its browser in its own section (10/11): no pane in the
+        // project layout, no forced window. The page loads on its headless
+        // context and the chat marker brings it on screen when Attilio asks.
+        if (isAgentOwnedTopic(topic)) {
+          return openPaneAnswer({
+            contextId: ctxId,
+            url,
+            projectPath: topic.projectPath ?? null,
+            service: browserService,
+            announce: () => {},
+            forceOpen: false,
+          });
+        }
         return openPaneAnswer({
           contextId: ctxId,
           url,

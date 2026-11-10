@@ -43,12 +43,14 @@ function whatOf(tr: Tr, clock: Clock, i: CalendarEntry, offset: number | null): 
   return capFirst(tr('auto.cal.defaultWhat', { when, says }));
 }
 
-export function AutomationsCalendar({ items, now, clock, who = {} }: {
+export function AutomationsCalendar({ items, now, clock, who = {}, onOpenDetail }: {
   items: CalendarEntry[];
   now: number;
   clock: Clock;
   /** Who runs each reminder, by key, from the hub's model. */
   who?: Readonly<Record<string, string>>;
+  /** Opens the automation's own detail (the list tab with the row selected). */
+  onOpenDetail?(key: string): void;
 }) {
   const tr = useT();
   const [kind, setKind] = useState<CalendarKind | null>(null);
@@ -119,6 +121,16 @@ export function AutomationsCalendar({ items, now, clock, who = {} }: {
                         {i.says && (<><dt className="text-app-text-muted">{tr('auto.cal.fact.channel')}</dt><dd className="m-0 text-app-text">{i.says}</dd></>)}
                         {runner && (<><dt className="text-app-text-muted">{tr('auto.cal.fact.who')}</dt><dd className="m-0 text-app-text" data-testid="automations-calendar-who">{runner}</dd></>)}
                       </dl>
+                      {onOpenDetail && (
+                        <button
+                          type="button"
+                          data-testid="automations-calendar-open-detail"
+                          onClick={() => onOpenDetail(i.key)}
+                          className="mt-2 inline-flex items-center gap-1 text-mini text-primary hover:underline"
+                        >
+                          {tr('auto.cal.openDetail')}
+                        </button>
+                      )}
                       {i.prompt && (
                         <div className="mt-2">
                           <button

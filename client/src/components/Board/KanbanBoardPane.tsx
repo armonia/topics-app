@@ -7,13 +7,14 @@
  * Review column (approve → done / reject → in_progress). Talks only to the
  * project-scoped board API (client/src/lib/board.ts).
  */
+import { useHeldDraft } from './useHeldDraft';
 import { useT } from '../../hooks/useT';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { PoliteKeyboardSensor, PoliteMouseSensor, PoliteTouchSensor } from './dndSensors';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { AlertTriangle, Archive, ChevronDown, ChevronRight, Kanban, List, Music4, Settings, Target, UploadCloud, X } from 'lucide-react';
+import { AlertTriangle, Archive, ChevronDown, ChevronRight, Music4, Settings, Target, UploadCloud, X } from 'lucide-react';
 import type { Topic, WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { BrakeChip } from './BrakeChip';
@@ -45,13 +46,16 @@ import { useRowSnapHold } from './useRowSnapHold';
 import { BoardSkeleton } from './BoardSkeleton';
 import { DropNotice } from './DropNotice';
 import {
-  BOARD_DENSITY_STORAGE_KEY, BOARD_GROUP_BY_STORAGE_KEY, BOARD_LAYOUT_STORAGE_KEY, COLUMNS_ROW_GRID, COLUMNS_ROW_LIST,
-  readBoardDensity, readBoardGroupBy, writeBoardPreference, type BoardDensity, type BoardGroupBy,
+  BOARD_DENSITY_STORAGE_KEY, BOARD_GROUP_BY_STORAGE_KEY, COLUMNS_ROW_GRID, COLUMNS_ROW_LIST,
+  readBoardDensity, readBoardGroupBy, writeBoardPreference, type BoardDensity, type BoardGroupBy, type BoardLayout,
 } from './boardGeometry';
 import { columnIdOfDropTarget, dropsOnOtherProject, laneDropId, type BoardLane } from './boardLanes';
 import { BoardViewToggles, ProjectLanes } from './ProjectLanes';
 import { useProjectLanes } from './useProjectLanes';
 import { useCollapsedProjects } from './useCollapsedProjects';
+import { DETAIL_STORAGE_KEY, countByProject, readDetailLevel } from './detailLevel';
+import { DetailSlider } from './DetailSlider';
+import { ProjectsSummary } from './ProjectsSummary';
 import { useColumnClearance } from './columnClearance';
 import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjectLabels } from '../../lib/boardProjectsStore';
@@ -65,7 +69,6 @@ import { FilterTokenField } from './FilterTokenField';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
 import { ProjectFilterPicker } from './ProjectFilterPicker';
 import { Card, Column } from './Card';
-import type { DraftPreview } from './draftPreview';
 import { taskActionErrorMessage } from './taskActionError';
 import { taskActionWord } from './taskActionWords';
 import { TaskDetail } from './TaskDetail';
@@ -795,10 +798,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       detail: { topicId: topic.id, topic, mode: 'permanent' },
     }));
   }, [orchestratorTopic]);
-  // What the floating composer is about to create: previewed as a ghost card
-  // at the top of its birth column (card 058ea722). Only in the column it
-  // will land in; the others see nothing.
-  const [draft, setDraft] = useState<DraftPreview | null>(null);
   const columnsScrollRef = useRef<HTMLDivElement>(null);
   // The card in hand, if any. Declared here because the snap hold below reads
   // it: the finger that carries a card is not a finger scrolling the row.
@@ -926,13 +925,12 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // prop). A preference the person flips on and off between sessions, not a
   // property of the task — localStorage, not the server: no board needs to
   // know which view you're looking at it in.
-  const [boardLayout, setBoardLayout] = useState<'grid' | 'list'>(() => {
-    try { return localStorage.getItem(BOARD_LAYOUT_STORAGE_KEY) === 'list' ? 'list' : 'grid'; }
-    catch { return 'grid'; }
-  });
+  const [detail, setDetail] = useState(readDetailLevel);
   useEffect(() => {
-    try { localStorage.setItem(BOARD_LAYOUT_STORAGE_KEY, boardLayout); } catch { /* private mode, best effort */ }
-  }, [boardLayout]);
+    try { localStorage.setItem(DETAIL_STORAGE_KEY, detail); } catch { /* private mode, best effort */ }
+  }, [detail]);
+  // The summary level has no columns; the row below it keeps the grid shape.
+  const boardLayout: BoardLayout = detail === 'list' ? 'list' : 'grid';
   // Two more per-viewer view choices, kept beside the layout for the same
   // reason: one lane per project on the cross-project board, and the compact
   // card. Neither changes what the board holds, only how much of it you read.
@@ -963,6 +961,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // Le voci si tolgono quando la PATCH ha finito: da lì in poi il server sa.
   const [pendingWrites, setPendingWrites] = useState<ReadonlyMap<string, Partial<BoardTask>>>(EMPTY_WRITES);
   const tasks = useMemo(() => applyPendingWrites(feedTasks, pendingWrites), [feedTasks, pendingWrites]);
+  // Ghost card of what the composer is about to create (card 058ea722), held until the real one arrives.
+  const { draft, setDraft, holdCreated } = useHeldDraft(tasks);
 
   // ── Un task appena NATO ────────────────────────────────────────────────────
   // Scrivevi nel composer, quello si svuotava, e la card atterrava in fondo a
@@ -1014,9 +1014,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   useEffect(() => () => keepClearRef.current?.(), []);
   /** Creazione partita da questa finestra: lampo + la board ci va sopra. */
   const onCreatedHere = useCallback((taskId?: string) => {
-    if (taskId) { flashCreated(taskId); setScrollTarget(taskId); }
+    if (taskId) { flashCreated(taskId); setScrollTarget(taskId); holdCreated(taskId); }
     refetch();
-  }, [flashCreated, refetch]);
+  }, [flashCreated, holdCreated, refetch]);
 
   // Live updates. In 'all' mode any task event is relevant; in 'project' mode
   // only events for this project (or project-less broadcasts) trigger a refetch.
@@ -2045,14 +2045,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             button that swaps side-by-side columns for stacked sections (see
             `boardLayout` above and `layout` on `Column`). Same spot, same
             style as the archive toggle below — not a second menu. */}
-        <button
-          type="button"
-          data-testid="board-layout-toggle"
-          aria-pressed={boardLayout === 'list'}
-          onClick={() => setBoardLayout((v) => (v === 'list' ? 'grid' : 'list'))}
-          className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} shrink-0 place-items-center rounded ${boardLayout === 'list' ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`}
-          title={boardLayout === 'list' ? tr('board.toolbar.viewMode.list') : tr('board.toolbar.viewMode.kanban')}
-        >{boardLayout === 'list' ? <Kanban className="h-3.5 w-3.5" /> : <List className="h-3.5 w-3.5" />}</button>
+        <DetailSlider value={detail} onChange={setDetail} />
         <BoardViewToggles
           canGroup={mode === 'all'}
           groupBy={groupByPref} onGroupBy={setGroupByPref}
@@ -2248,6 +2241,12 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                 snap-carousel (there's nothing to peek at off to the side).
                 The test id is the row's handle for the e2e: its snap classes
                 come and go with `useRowSnapHold`, so they cannot name it. */}
+            {detail === 'summary' ? (
+              <ProjectsSummary
+                rows={countByProject(boardColumns.map((c) => byColumn.get(c.id) ?? []))}
+                columnLabels={boardColumns.map((c) => c.label ?? STATUS_LABEL[c.base])}
+              />
+            ) : (
             <div ref={columnsScrollRef} data-testid="kanban-columns-row" data-keeps-smooth-scroll="" className={boardLayout === 'list' || grouped
               ? COLUMNS_ROW_LIST
               : `${COLUMNS_ROW_GRID} ${columnsSnap.held ? '' : 'snap-x snap-mandatory'} sm:scroll-smooth`}>
@@ -2262,6 +2261,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                 />
               ) : boardColumns.map((column) => renderColumn(column, byColumn.get(column.id) ?? []))}
             </div>
+            )}
             {/* Portal to <body>: the overlay is position:fixed, and a transformed
                 ancestor (pane translateX, FLIP animations) would re-anchor fixed
                 positioning to itself — the ghost card then renders far from the

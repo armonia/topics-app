@@ -324,6 +324,36 @@ describe("freno del peso — l'attesa ha una fine", () => {
     expect(h.task("heavy")!.dispatchState).toBe("queued");
   });
 
+  it("un pesante che aspetta solo la CI remota non tiene ferma la macchina", async () => {
+    const h = harness({ capacity: () => ({ load1: 1, cores: 12 }), ownLoad: () => ({ coreUnits: 1, cores: 12 }) });
+    board(h);
+    h.db.run("INSERT OR IGNORE INTO topics (id) VALUES ('topic-x')");
+    h.db.run(
+      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, priority, dispatch_weight, dispatch_state, assigned_topic_id, checks_state, checks_json)
+       VALUES ('inflight', ?, 'in CI', 'in_progress', '2026-08-12T21:00:00.000Z', '2026-08-12T21:00:00.000Z', 0, 4, 'heavy', 'working', 'topic-x', 'running', ?)`,
+      [PID, JSON.stringify({ progress: { done: 1, total: 2 }, runs: [], ci: { prUrl: "https://github.com/o/r/pull/1", runUrl: "https://github.com/o/r/actions/runs/1" } })],
+    );
+    seedTask(h.db, { id: "light", priority: 2 });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task("light")!.status).toBe("in_progress");
+  });
+
+  it("i check pre-review che girano SUL Mac tengono ancora il blocco", async () => {
+    const h = harness({ capacity: () => ({ load1: 1, cores: 12 }), ownLoad: () => ({ coreUnits: 1, cores: 12 }) });
+    board(h);
+    h.db.run("INSERT OR IGNORE INTO topics (id) VALUES ('topic-x')");
+    h.db.run(
+      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, priority, dispatch_weight, dispatch_state, assigned_topic_id, checks_state, checks_json)
+       VALUES ('inflight', ?, 'suite locale', 'in_progress', '2026-08-12T21:00:00.000Z', '2026-08-12T21:00:00.000Z', 0, 4, 'heavy', 'working', 'topic-x', 'running', ?)`,
+      [PID, JSON.stringify({ progress: { done: 0, total: 2 }, runs: [] })],
+    );
+    seedTask(h.db, { id: "light", priority: 2 });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task("light")!.status).toBe("todo");
+  });
+
   it("la nota dice che è LUI a tenere ferma la coda, non solo «in coda»", async () => {
     const h = harness({
       capacity: () => ({ load1: 42, cores: 12 }),
