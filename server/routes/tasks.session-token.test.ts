@@ -1,6 +1,8 @@
 /**
  * THE SESSION ROUTES SIGN AS THE CALLER, NOT AS THE URL (card 964ea861).
  *
+ * @covers KANBAN-07
+ *
  * `/api/sessions/:sessionKey/...` took the signature from the key in the path,
  * and the loopback owns the server without credentials: an agent's shell could
  * post a comment signed `agent:<another topic>` by naming that topic's key. Now

@@ -1,6 +1,8 @@
 /**
  * A BOARD AGENT CANNOT DECLARE ITS OWN MODEL (card 964ea861).
  *
+ * @covers KANBAN-07
+ *
  * The thread of a card shows the agent's model next to its signature, and that
  * model is `topics.model`. Through the API it was a free string: the agent's
  * shell could PATCH its topic and claim any model. For a topic that is the agent
