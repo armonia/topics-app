@@ -977,7 +977,8 @@ jobs:
       # node-pty` (run 42827058180: «gyp ERR! not found: make»).
       # zsh: the terminal falls back to /bin/zsh when SHELL is unset, as it is for the
       # runners started by cloud-init (run 42850786038: «exited in 4ms with code 1»).
-      apt_packages: jq unzip build-essential python3 zsh
+      # sqlite3 and tmux: called by specs (run 42856852451: «spawnSync sqlite3 ENOENT»).
+      apt_packages: jq unzip build-essential python3 zsh sqlite3 tmux lsof
     secrets:
       HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
       RUNNER_ADMIN_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}
