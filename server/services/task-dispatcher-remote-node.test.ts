@@ -1153,3 +1153,27 @@ describe("la consegna del nodo è una consegna come le altre", () => {
     expect(h.task().stayLocal).toBe(false);
   });
 });
+
+describe("node-run hooks for one machine run one at a time", () => {
+  it("three cards for the same node: the hook never runs twice at once, and all three start", async () => {
+    let live = 0;
+    let peak = 0;
+    const hooks: LifecycleHookRunner = {
+      run: async () => {
+        live++;
+        peak = Math.max(peak, live);
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+        live--;
+        return { ok: true };
+      },
+    };
+    const h = harness({ hooks });
+    for (const id of [TASK, "card-b", "card-c"]) h.seed(id);
+
+    await dispatch(h);
+    await flush(200);
+
+    expect(peak).toBe(1);
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(3);
+  });
+});
