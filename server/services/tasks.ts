@@ -754,6 +754,8 @@ export interface TaskService {
    * si tocca (una correzione che scade alla consegna dopo non è una correzione).
    */
   deriveLabelsFromDiff(args: { taskId: string; files: readonly TaskFile[] }): Task | null;
+  /** True when the card is archived (soft-deleted). Optional so fakes need not implement it. */
+  isArchived?(taskId: string): boolean;
   /** Soft-delete (archive) — the row stays for history but drops off the board. */
   /**
    * Fonde `taskId` dentro `intoTaskId`: il thread e i sottotask passano alla
@@ -5211,6 +5213,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         rows.map((r) => ({ id: r.id, text: r.text ?? "", createdAt: r.created_at })),
         { limit },
       );
+    },
+
+    isArchived(taskId: string): boolean {
+      return !!getTaskRow(taskId)?.archived;
     },
 
     archive({ taskId, projectId }): Task {

@@ -690,6 +690,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    * instead of adding a paragraph.
    */
   const NODE_BURIED_NOTE = "La corsa sul nodo non risponde più";
+  const NODE_LOST_NOTE = "Corsa sul nodo persa";
 
   /**
    * A remote run nobody can reach any more (KANBAN-77).
@@ -705,6 +706,23 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
   function buryRun(taskId: string, node: NodeSlot): void {
     const name = nodeName(node.machineId);
     log(`nodo: corsa ${node.runId} su «${name}» sepolta dopo ${NODE_DEAD_POLLS} giri falliti di fila (task ${taskId})`);
+    // A card that meanwhile went to review, done or the archive is NEVER
+    // requeued: the requeue put it back in todo and the node-run hook woke a
+    // paid server for a card already closed (10/11, topics-node-p1). The run
+    // closes as lost and the card stays where it is.
+    const current = svc.get(taskId)?.task;
+    if (current && (svc.isArchived?.(taskId) || current.status === "review" || current.status === "done")) {
+      try {
+        svc.addComment({
+          taskId, author: "system", kind: "service",
+          replaces: NODE_LOST_NOTE,
+          content: `${NODE_LOST_NOTE}: «${name}» non ha risposto a ${NODE_DEAD_POLLS} giri consecutivi e la card era già chiusa. Nessuna ripartenza.`,
+        });
+      } catch { /* dedupe/best-effort */ }
+      try { releaseAndEmit({ taskId, requeue: false, keepStatus: true }); }
+      catch (err) { log(`nodo: la corsa persa di ${taskId} non si è chiusa`, err); }
+      return;
+    }
     try {
       svc.addComment({
         taskId, author: "system", kind: "service",
