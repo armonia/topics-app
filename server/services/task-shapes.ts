@@ -343,7 +343,7 @@ export interface Task {
   deliveryUncommittedFiles: number | null;
   /** Landing audit verdict: is the delivered content actually on main?
    *  null = never audited (pre-audit task, or no delivery recorded). */
-  landingState: "landed" | "unlanded" | "unverifiable" | null;
+  landingState: "landed" | "unlanded" | "unverifiable" | "unpushed" | null;
   /**
    * ON THE WIRE, not in the fixed body: it travels only when it has a value.
    * Here `null` is not a state - absent and never-checked are the same thing.

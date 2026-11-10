@@ -104,6 +104,7 @@ import { createGoalsRouter } from "./server/routes/goals";
 import { createPlanRouter } from "./server/routes/plan";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createTaskService, projectIdForPath } from "./server/services/tasks";
+import { mainPushGit, pushMainToOrigin, sweepUnpushedMains } from "./server/services/main-on-origin";
 import { createScheduledCards } from "./server/services/scheduled-cards";
 import { createExternalSessionsService } from "./server/services/external-sessions";
 import { createAgentWorktree, worktreeReadyMs, type AgentWorktreeDeps } from "./server/services/worktree-for-agent";
@@ -2995,6 +2996,7 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // "main" ovunque qui (vedi `resolveTaskMerge` sopra), quindi la domanda è
   // esattamente quella che il land ha provato a rendere vera.
   confirmLandedOnMain: (repoPath, commit) => commitIsAncestor(repoPath, commit, "main"),
+  pushMainAfterLand: (repoPath) => pushMainToOrigin(repoPath),
   markLandPending: (taskId) => {
     try {
       dispatcherSvc.recordLandingState({
@@ -6585,6 +6587,36 @@ const auditOneLanding = (taskId: string) => auditOneLandingPass(auditWiring, tas
 // Offset from the GC pass so the two git sweeps don't collide on the same repo.
 const landingAuditBoot = setTimeout(runLandingAudit, 180_000);
 const landingAuditTimer = setInterval(runLandingAudit, LANDING_AUDIT_INTERVAL_MS);
+
+// ── I LAND RIMASTI INDIETRO TORNANO SU ORIGIN. Il push dopo il land può fallire
+// (rete, porta 22 in timeout il 10/11): ogni 10 minuti ogni repo con card
+// `unpushed` riprova, solo fast-forward, e a push riuscito (o main già su
+// origin) quelle card tornano `landed`. Su tutti i repo del board, non solo su
+// quelli con card marcate: un land fatto da un server senza questa cura resta
+// comunque indietro, ed è il caso misurato.
+const sweepUnpushedLands = async () => {
+  const repos = new Set<string>();
+  try { for (const d of listSelectableProjectDirs()) repos.add(d); } catch { /* best-effort */ }
+  const pending = ctx.db.prepare(
+    "SELECT id, project_id FROM tasks WHERE landing_state = 'unpushed' AND archived = 0",
+  ).all() as Array<{ id: string; project_id: string }>;
+  await sweepUnpushedMains([...repos], (repo, n) => {
+    const pid = projectIdForPath(repo);
+    if (n > 0) console.log(`[land-push] ${n} commit di main portati su origin { repo: ${repo} }`);
+    for (const t of pending.filter((p) => p.project_id === pid)) {
+      dispatcherSvc.recordLandingState({ taskId: t.id, state: "landed", checkedAt: new Date().toISOString(), witnessed: true });
+      try {
+        dispatcherSvc.addComment({ taskId: t.id, author: "system", kind: "service", content: "Main portato su origin: il land ora è anche su GitHub." });
+      } catch { /* la riga è un di più */ }
+      const cur = dispatcherSvc.get(t.id)?.task;
+      if (cur) broadcastToAll({ type: "task:updated", projectId: pid, task: cur } as Parameters<typeof broadcastToAll>[0]);
+    }
+  }, mainPushGit).then((out) => {
+    for (const o of out) if (!o.result.ok) console.warn(`[land-push] ${o.repo}: ${o.result.reason}`);
+  });
+};
+setTimeout(() => { void sweepUnpushedLands().catch((e) => console.warn("[land-push] spazzata fallita", e)); }, 240_000).unref?.();
+setInterval(() => { void sweepUnpushedLands().catch((e) => console.warn("[land-push] spazzata fallita", e)); }, 10 * 60_000).unref?.();
 
 // `requestIP` vive sull'istanza del server, che nasce dopo il contesto: si
 // aggancia qui, cosi' le rotte che devono distinguere loopback da remoto
