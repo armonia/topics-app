@@ -87,6 +87,8 @@ export interface ProjectWindowPaneProps {
   pendingFocusTopicId?: string | null;
   // Group the pending-focus chat should land in (mixed-group placement)
   pendingFocusTargetGroupId?: string;
+  // Open the pending chat in the provisional (preview) tab
+  pendingFocusPreview?: boolean;
   onPendingFocusConsumed?: () => void;
   // Report which topic is currently active in this project window
   onActiveTopicChange?: (topicId: string | null) => void;
@@ -120,7 +122,7 @@ export function ProjectWindowPane({
   getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped, stopSession,
   sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   pendingPane, pendingTerminalSessionId, pendingTerminalType, pendingNearPaneId, onPendingPaneConsumed, onNewChat,
-  pendingFocusTopicId, pendingFocusTargetGroupId, onPendingFocusConsumed,
+  pendingFocusTopicId, pendingFocusTargetGroupId, pendingFocusPreview, onPendingFocusConsumed,
   onActiveTopicChange, onOpenPanesChange, onToggleFissato, isFissato, isVisible: windowVisible = true,
 }: ProjectWindowPaneProps) {
   // Load persisted state (fast-paint from localStorage; server fetch triggers onUpdate)
@@ -181,6 +183,7 @@ export function ProjectWindowPane({
     onPendingPaneConsumed,
     pendingFocusTopicId,
     pendingFocusTargetGroupId,
+    pendingFocusPreview,
     onPendingFocusConsumed,
     onWSMessage,
     claudeSkipPermissions,
@@ -456,7 +459,11 @@ export function ProjectWindowPane({
               return sendMessage(sk, content, options);
             }
           : sendMessage;
+        // Interacting with a provisional tab keeps it: a click or a key inside
+        // the chat pins it, like typing in a VS Code preview editor.
+        const pinOnInteract = pane.preview ? () => pinPaneById(pane.id) : undefined;
         return (
+          <div className="contents" onPointerDownCapture={pinOnInteract} onKeyDownCapture={pinOnInteract} data-preview-tab={pane.preview ? 'true' : undefined}>
           <Suspense fallback={<div className="flex-1 min-h-0" aria-busy="true" />}>
             <ChatPane
               topic={topic}
@@ -484,6 +491,7 @@ export function ProjectWindowPane({
               onOpenFile={handleOpenFile}
             />
           </Suspense>
+          </div>
         );
       }
       case 'browser':
