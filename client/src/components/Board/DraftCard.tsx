@@ -35,7 +35,7 @@ export function DraftCard({ draft }: { draft: DraftPreview }) {
       )}
       <span className="block break-words text-body-lg leading-snug text-app-text-heading">{draft.title || tr('board.draft.untitled')}</span>
       {draft.description && (
-        <p className="mt-1 line-clamp-2 break-words text-compact leading-snug text-app-text-secondary">{stripMarkdown(draft.description)}</p>
+        <p className="mt-1 break-words text-compact leading-snug text-app-text-secondary">{stripMarkdown(draft.description)}</p>
       )}
       {draft.files.length > 0 && (
         <p className="mt-1 truncate text-mini text-app-text-muted">{draft.files.join(' · ')}</p>

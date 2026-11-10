@@ -627,6 +627,9 @@ export default defineConfig({
         // No hub, or the hub down, leaves no trace: the desktop shell and phone
         // Safari are WebKit, and it is the engine this Mac may film on.
         "**/hub-off.spec.ts",
+        // The provisional chat tab of a project window: the clip of the gesture
+        // is filmed on the engine the desktop app ships in.
+        "**/tab-anteprima.spec.ts",
         // The bell in groups, with the hub's items beside the waits of Topics.
         "**/bell-groups.spec.ts",
         // The Claude proxy's activity in the bell (the hub's Activity page), same reason as the bell.

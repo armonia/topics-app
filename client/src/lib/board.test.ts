@@ -7,7 +7,7 @@
 import { test, expect, describe } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { blockedByChip, reopenedChip, boardIdForPath, diffTotals, hasCodeQuestion, isUnfinishedReview, nothingDeliveredWins, systemDeliveryChip, TASK_STATUSES, parseQuestionBlock, taskDetailBump, waitingOnThisChip, type BoardTask } from './board';
+import { blockedByChip, dueDateChip, reopenedChip, boardIdForPath, diffTotals, hasCodeQuestion, isUnfinishedReview, nothingDeliveredWins, systemDeliveryChip, TASK_STATUSES, parseQuestionBlock, taskDetailBump, waitingOnThisChip, type BoardTask } from './board';
 import { deriveQueueReason } from '../../../shared/board';
 import { t } from './i18n';
 
@@ -395,5 +395,20 @@ describe('la non-consegna si dice UNA volta sola', () => {
       expect(nothingDeliveredWins(r)).toBe(false);
       expect(systemDeliveryChip(card(r), tr)).not.toBeNull();
     }
+  });
+});
+
+describe('dueDateChip', () => {
+  const tr = (key: string, vars?: Record<string, string | number>) => `${key}:${vars?.date ?? ''}`;
+  const now = Date.parse('2026-09-10T12:00:00Z');
+  test('no date gives no chip', () => {
+    expect(dueDateChip({ dueDate: undefined, status: 'todo' }, tr, now)).toBeNull();
+  });
+  test('a bare date stays due through its own day', () => {
+    expect(dueDateChip({ dueDate: '2026-09-10', status: 'todo' }, tr, now)?.overdue).toBe(false);
+    expect(dueDateChip({ dueDate: '2026-09-09', status: 'todo' }, tr, now)?.overdue).toBe(true);
+  });
+  test('a closed card is never overdue', () => {
+    expect(dueDateChip({ dueDate: '2026-01-01', status: 'done' }, tr, now)?.overdue).toBe(false);
   });
 });

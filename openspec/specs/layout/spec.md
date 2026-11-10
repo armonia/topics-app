@@ -3555,3 +3555,22 @@ nell'`aria-label` di ogni tab.
 - **WHEN** la barra si ridisegna
 - **THEN** le tab non attive sono quadrati con un'icona o un'iniziale, la attiva
   è larga almeno 96 px col nome visibile, e la barra non scorre
+
+### Requirement: TAB-ANTEPRIMA-01 — Aprire una chat in un progetto riusa la tab provvisoria, e le chat degli agenti non aprono tab
+
+Una chat aperta in anteprima dentro una finestra di progetto (clic dalla barra
+laterale, «apri la sessione» di una card) SHALL prendere il posto della chat
+provvisoria del gruppo invece di aggiungere una tab; la tab provvisoria SHALL
+avere il nome in corsivo e diventare fissa con un clic o un tasto dentro la
+chat, un messaggio o il doppio clic sulla tab. ⌘-clic SHALL aprirla fissa. Una
+chat nata da un agente (sottoagente, figlia di una radice di Jarvis, card
+dispatchata) NON SHALL aprire tab: resta nella barra laterale, negli Agenti e
+sulla board.
+
+#### Scenario: due aperture, una tab
+
+- **GIVEN** una finestra di progetto senza chat provvisorie
+- **WHEN** si apre in anteprima la chat A e poi la chat B
+- **THEN** la barra ha una sola tab in più, B, in corsivo, e A non c'è più
+- **AND** dopo un clic dentro B, aprire C aggiunge una tab e B resta
+- **AND** una chat creata da un agente nel progetto non compare nella barra

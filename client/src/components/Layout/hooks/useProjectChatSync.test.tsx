@@ -316,3 +316,63 @@ describe('useProjectChatSync, topics that arrive after the layout', () => {
     }
   });
 });
+
+// 10/11: the Jarvis project window had 47 tabs, 40 of them chats Jarvis's
+// channels and scheduled jobs had opened on their own.
+describe('useProjectChatSync, chats an agent opened', () => {
+  const agentChat = (id: string): Topic => ({ ...topic(id, 5), parentId: 'jarvis-canali' } as Topic);
+
+  test('an agent chat arriving later opens no tab; a chat of his still does', () => {
+    const applied: ChatReconciliation[] = [];
+    let topics: Record<string, Topic> = { A: topic('A', 0) };
+    function Probe() {
+      useProjectChatSync({
+        projectPath: PROJECT, topics,
+        initial: { nonChatPanes: [], openChatTopicIds: ['A'], activeChatTopicId: 'A' },
+        panes: [], groups: [], focusedGroupId: null,
+        applyChatReconciliation: (r) => { applied.push(r); },
+        reopenChatPane: () => {}, gateRefs: { initialChatsSyncedRef: { current: false } }, markChatSyncDone: () => {},
+      });
+      return null;
+    }
+    const h = mount(createElement(Probe));
+    try {
+      h.rerender();
+      topics = { ...topics, J1: agentChat('J1'), D: { ...topic('D', 3), mcpPolicy: 'bridge-only' } as Topic, C: topic('C', 2) };
+      h.rerender();
+      const added = applied.flatMap(r => r.add.map(p => p.topicId));
+      expect(added).toContain('C');
+      expect(added).not.toContain('J1');
+      expect(added).not.toContain('D');
+    } finally {
+      h.unmount();
+    }
+  });
+
+  test('agent tabs already open are parked once at load, the active one stays', () => {
+    const mk = (id: string): Pane => ({ id: 'chat:' + id, type: 'chat', topicId: id, title: id, preview: false });
+    const panes = [mk('A'), mk('J1'), mk('J2')];
+    const group = { id: 'g1', type: 'chat', paneIds: panes.map(p => p.id), activePaneId: 'chat:J2' } as PaneGroup;
+    const applied: ChatReconciliation[] = [];
+    const topics: Record<string, Topic> = { A: topic('A', 0), J1: agentChat('J1'), J2: agentChat('J2') };
+    function Probe() {
+      useProjectChatSync({
+        projectPath: PROJECT, topics,
+        initial: { nonChatPanes: [], openChatTopicIds: ['A', 'J1', 'J2'], activeChatTopicId: 'J2' },
+        panes, groups: [group], focusedGroupId: group.id,
+        applyChatReconciliation: (r) => { applied.push(r); },
+        reopenChatPane: () => {}, gateRefs: { initialChatsSyncedRef: { current: false } }, markChatSyncDone: () => {},
+      });
+      return null;
+    }
+    const h = mount(createElement(Probe));
+    try {
+      const removed = applied.flatMap(r => r.remove);
+      expect(removed).toContain('chat:J1');
+      expect(removed).not.toContain('chat:J2');
+      expect(removed).not.toContain('chat:A');
+    } finally {
+      h.unmount();
+    }
+  });
+});
