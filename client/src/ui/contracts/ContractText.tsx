@@ -79,10 +79,10 @@ export function ContractText({ heading, subheading, stamp, stampTone, clauses, f
   const t = copy.contracts.page;
   const StampIcon = stampTone === 'sealed' ? ShieldCheck : stampTone === 'locked' ? Lock : PenLine;
   return (
-    <article data-paper="true" className={clsx(READING_COLUMN, 'rounded-lg bg-white px-5 py-7 font-serif text-[15px] leading-7 text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.12)] ring-1 ring-black/5 md:px-12')}>
+    <article data-paper="true" className={clsx(READING_COLUMN, 'rounded-lg bg-white px-5 py-7 font-serif text-body-lg leading-7 text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.12)] ring-1 ring-black/5 md:px-12')}>
       <header className="mb-5 border-b border-neutral-200 pb-4 text-center">
         <div className="font-sans text-mini font-medium uppercase tracking-[0.08em] text-neutral-500">{subheading}</div>
-        <h2 className="mt-1 text-[17px] font-bold leading-6">{heading}</h2>
+        <h2 className="mt-1 text-title font-bold leading-6">{heading}</h2>
         <div
           className={clsx(
             'mt-2.5 inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-sans text-mini font-medium',

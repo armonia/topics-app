@@ -235,7 +235,7 @@ export function RunScreen({ ctx, flow, runId }: { ctx: ScreenCtx; flow: FlowSeed
     : undefined;
 
   const initialNotified = status === 'error' || (run.baseStatus === 'error')
-    ? STUCK_NOTICED.map((n) => ({ who: n.who, when: n.how === 'subito' ? detectedAt : `${detectedAt}, ${n.how}` }))
+    ? STUCK_NOTICED.map((n) => ({ who: n.who, when: n.how === 'subito' ? detectedAt : `${detectedAt}, ${n.how}` })) // allow-italian: "subito" is a data value of the example, compared by value
     : [];
 
   // The title and the chip already say it waits for a person: the body says who, and by when.

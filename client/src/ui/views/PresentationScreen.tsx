@@ -137,7 +137,7 @@ export function PresentationScreen({
             data-tip={s.name}
           >
             <span className="pointer-events-none block">{view(s, i, false)}</span>
-            <span className="absolute inset-x-0 bottom-0 truncate rounded-b-md bg-black/55 px-1.5 py-0.5 text-nano text-white">{i + 1} · {s.name}</span>
+            <span className="absolute inset-x-0 bottom-0 truncate rounded-b-md bg-black/55 px-1.5 py-0.5 text-mini text-white">{i + 1} · {s.name}</span>
           </button>
         );
       })}
@@ -190,7 +190,7 @@ export function PresentationScreen({
                   <span className="min-w-0 flex-1 truncate text-prose font-medium text-app-text">{l.to}</span>
                   {l.code && <Chip tone="blue">{d.withCode}</Chip>}
                 </div>
-                <div className="mt-0.5 truncate font-mono text-nano text-app-text-tertiary">{l.url}</div>
+                <div className="mt-0.5 truncate font-mono text-mini text-app-text-tertiary">{l.url}</div>
                 <div className="mt-0.5 text-mini text-app-text-tertiary">{d.linkMeta(l.at, l.expires)}</div>
                 <div className="mt-2 flex gap-2">
                   <Button size="sm" icon={Copy} onClick={l.onCopy}>{d.copyLink}</Button>

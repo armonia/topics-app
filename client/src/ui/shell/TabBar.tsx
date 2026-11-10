@@ -136,7 +136,7 @@ function Tab({ tab, closeLabel, previewTip, onSelect, onClose, onPin, onMove }: 
       <Icon size={14} className="shrink-0 text-app-text-secondary" aria-hidden="true" />
       <span className={clsx('min-w-0 flex-1 truncate', tab.preview === true && 'italic')}>{shortName(tab.label)}</span>
       {tab.count !== undefined && (
-        <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-[#0a84ff] px-1 text-nano font-semibold leading-none text-white tabular-nums">
+        <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-[#0a84ff] px-1 text-mini font-semibold leading-none text-white tabular-nums">
           {tab.count}
         </span>
       )}

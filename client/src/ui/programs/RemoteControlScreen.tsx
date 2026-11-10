@@ -182,7 +182,7 @@ export function RemoteControlScreen({
     <div className="flex min-h-0 flex-1 flex-col">
       <PaneHeader leading={<BackButton label={backLabel} onClick={onBack} copy={copy} />} crumbs={[{ label: r.root }]} />
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8">
-        <h1 className="mb-6 text-center text-[20px] font-semibold tracking-[-0.01em] text-app-text">{r.title}</h1>
+        <h1 className="mb-6 text-center text-headline font-semibold tracking-[-0.01em] text-app-text">{r.title}</h1>
         <div className={clsx('mx-auto grid max-w-[1180px] gap-6', phone ? 'grid-cols-1' : 'grid-cols-[minmax(0,5fr)_minmax(0,6fr)]')}>
           {left}
           {right}

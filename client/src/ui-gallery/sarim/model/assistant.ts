@@ -161,7 +161,7 @@ function withArticle(name: string): string {
 /** The same name after «di», the preposition and the article fused: «del Resp. tecnico», «dell'Agente fatture». allow-italian: quotes the words on screen */
 function ofName(name: string): string {
   if (!TAKES_ARTICLE.test(name)) return `di ${name}`;
-  return /^[AEIOUaeiou]/.test(name) ? `dell'${name}` : `del ${name}`;
+  return /^[AEIOUaeiou]/.test(name) ? `dell'${name}` : `del ${name}`; // allow-italian: the Italian article of the example data
 }
 
 const lowerFirst = (s: string): string => `${s.charAt(0).toLowerCase()}${s.slice(1)}`;

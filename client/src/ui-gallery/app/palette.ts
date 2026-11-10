@@ -80,7 +80,7 @@ export function buildPalette({ query, entries, suggestions, recents, copy }: {
   if (!words.length) {
     const groups: PaletteGroupModel[] = [];
     if (recents.length) {
-      groups.push({ id: 'recenti', label: s.recent, items: recents.map((r, i) => item(`recent|${i}`, r.path, { title: r.title, detail: r.detail, icon: r.icon })) });
+      groups.push({ id: 'recenti', label: s.recent, items: recents.map((r, i) => item(`recent|${i}`, r.path, { title: r.title, detail: r.detail, icon: r.icon })) }); // allow-italian: "recenti" is a group id, not shown
     }
     groups.push(...suggested());
     return { groups, pathOf: (id) => paths.get(id), words, total: 0, none: false };

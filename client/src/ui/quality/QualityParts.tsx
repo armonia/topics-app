@@ -15,7 +15,7 @@ export function Kpis({ kpis }: { kpis: QualityKpiModel[] }) {
     <div className="grid grid-cols-4 gap-2.5 max-lg:grid-cols-2 max-sm:grid-cols-1">
       {kpis.map((k) => (
         <div key={k.id} className="min-w-0 rounded-lg border border-app-border bg-surface px-4 py-3.5">
-          <div className={clsx('text-[26px] font-semibold leading-9 tracking-[-0.01em] tabular-nums', k.tone && k.tone !== 'neutral' ? TONE_TEXT[k.tone] : 'text-app-text')}>{k.value}</div>
+          <div className={clsx('text-display font-semibold leading-9 tracking-[-0.01em] tabular-nums', k.tone && k.tone !== 'neutral' ? TONE_TEXT[k.tone] : 'text-app-text')}>{k.value}</div>
           <div className="text-prose leading-5 text-app-text-secondary">{k.label}</div>
           {k.detail && <div className="mt-0.5 text-compact leading-4 text-app-text-tertiary">{k.detail}</div>}
         </div>

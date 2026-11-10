@@ -19,7 +19,7 @@ function MenuHeaderBody({ header }: { header: MenuHeaderModel }) {
       <span
         aria-hidden="true"
         style={{ width: 26, height: 26, backgroundColor: header.color }}
-        className="inline-flex shrink-0 items-center justify-center rounded-full text-nano font-bold leading-none text-white"
+        className="inline-flex shrink-0 items-center justify-center rounded-full text-mini font-bold leading-none text-white"
       >
         {header.monogram}
       </span>

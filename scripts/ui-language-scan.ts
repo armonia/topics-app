@@ -130,6 +130,9 @@ export const I18N_CATALOGUES = new Set([
   "client/src/ui/copy/i18n-ui-programs-en.ts",
   "client/src/ui/copy/i18n-ui-orgs-it.ts",
   "client/src/ui/copy/i18n-ui-orgs-en.ts",
+  "client/src/ui/fixtures/sarim-org/words.ts",
+  "client/src/ui/copy/i18n-ui-chat-it.ts",
+  "client/src/ui/copy/i18n-ui-chat-en.ts",
 ]);
 
 /**

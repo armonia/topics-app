@@ -76,7 +76,7 @@ export interface ChatCopy {
     contractsIntro: (n: number) => string;
     contractMany: (n: number) => string;
     contractHead: (contract: ChatSeg, status: string, counterparty: string, from: string, to?: string) => ChatSeg[];
-    contractValue: (money: string, period: 'anno' | 'totale' | 'mese') => string;
+    contractValue: (money: string, period: 'anno' | 'totale' | 'mese') => string; // allow-italian: period keys, compared by value
     renewal: {
       none: string;
       tacit: (months: number, notice: string, days: number) => string;

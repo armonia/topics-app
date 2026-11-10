@@ -1,3 +1,4 @@
+/** @covers GENUI-01 */
 import { describe, expect, test } from 'bun:test';
 import { SARIM_CARDS } from '../../../../ui/fixtures/sarim-org/cards';
 import { SARIM_OPS_FLOWS } from '../../../../ui/fixtures/sarim-org/flows';

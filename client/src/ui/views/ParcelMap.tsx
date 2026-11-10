@@ -43,7 +43,7 @@ export function ParcelMap({ map, label, hidden = [], ortho = false }: { map: Par
           <text
             x={c.label.at[0]} y={c.label.at[1]}
             transform={c.label.rotate ? `rotate(${c.label.rotate} ${c.label.at[0]} ${c.label.at[1]})` : undefined}
-            className="fill-[#2563eb] text-[14px] dark:fill-[#7fb0f8]"
+            className="fill-[#2563eb] text-body-lg dark:fill-[#7fb0f8]"
           >
             {c.label.text}
           </text>
@@ -53,7 +53,7 @@ export function ParcelMap({ map, label, hidden = [], ortho = false }: { map: Par
         <path key={d} d={d} fill="none" strokeWidth="2.5" strokeDasharray="12 8" className="stroke-[#2f7df6] dark:stroke-[#5a9bf6]" />
       ))}
       {showPerimeter && (
-        <text x={map.perimeter.label.at[0]} y={map.perimeter.label.at[1]} className="fill-[#1d6fe0] text-[14px] font-semibold dark:fill-[#7fb0f8]">
+        <text x={map.perimeter.label.at[0]} y={map.perimeter.label.at[1]} className="fill-[#1d6fe0] text-body-lg font-semibold dark:fill-[#7fb0f8]">
           {map.perimeter.label.text}
         </text>
       )}
@@ -61,7 +61,7 @@ export function ParcelMap({ map, label, hidden = [], ortho = false }: { map: Par
         <g key={k.id}>
           <rect x={k.at[0] - 9} y={k.at[1] - 9} width="18" height="18" rx="4" strokeWidth="1.6" className="fill-[#fff7e6] stroke-[#b45309] dark:fill-[#3a2d12] dark:stroke-[#f0b35a]" />
           <path d={`M${k.at[0] - 3} ${k.at[1] - 5} V${k.at[1] + 5} M${k.at[0] + 3} ${k.at[1] - 5} V${k.at[1] + 5}`} strokeWidth="1.8" className="stroke-[#b45309] dark:stroke-[#f0b35a]" />
-          <text x={k.at[0]} y={k.at[1] - 15} textAnchor="middle" className="fill-[#92400e] text-[13px] font-semibold dark:fill-[#f0b35a]">{k.label}</text>
+          <text x={k.at[0]} y={k.at[1] - 15} textAnchor="middle" className="fill-[#92400e] text-prose font-semibold dark:fill-[#f0b35a]">{k.label}</text>
         </g>
       ))}
       {map.parcels.map((p) => (
@@ -79,7 +79,7 @@ export function ParcelMap({ map, label, hidden = [], ortho = false }: { map: Par
           key={`${l.id}-label`}
           x={l.at[0]} y={l.at[1]}
           textAnchor="middle"
-          className={clsx('fill-[#b42318] font-semibold dark:fill-[#fca5a5]', l.size === 'sm' ? 'text-[14px]' : 'text-[17px]')}
+          className={clsx('fill-[#b42318] font-semibold dark:fill-[#fca5a5]', l.size === 'sm' ? 'text-body-lg' : 'text-title')}
         >
           {l.text}
         </text>
@@ -90,7 +90,7 @@ export function ParcelMap({ map, label, hidden = [], ortho = false }: { map: Par
           key={String(halo)}
           x={map.measure.label.at[0]} y={map.measure.label.at[1]}
           strokeWidth={halo ? 5 : 0} strokeLinejoin="round"
-          className={clsx('text-[14px] font-semibold', halo ? 'fill-[#eef1ec] stroke-[#eef1ec] dark:fill-[#1b201c] dark:stroke-[#1b201c]' : 'fill-[#1f2328] dark:fill-[#ededed]')}
+          className={clsx('text-body-lg font-semibold', halo ? 'fill-[#eef1ec] stroke-[#eef1ec] dark:fill-[#1b201c] dark:stroke-[#1b201c]' : 'fill-[#1f2328] dark:fill-[#ededed]')}
           aria-hidden={halo || undefined}
         >
           {map.measure.label.text}

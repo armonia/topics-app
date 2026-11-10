@@ -75,7 +75,7 @@ function Chain({ chain, selectedId, onSelect, copy }: { chain: SchemaDetailModel
             {i > 0 && (
               <span className="mx-1.5 flex flex-col items-center text-app-text-tertiary" aria-hidden="true">
                 <ArrowRight size={14} />
-                {n.how && <span className="text-nano">{n.how}</span>}
+                {n.how && <span className="text-mini">{n.how}</span>}
               </span>
             )}
             <button
@@ -117,7 +117,7 @@ export function TypeDetail({ detail, copy, phone, onSelectType, onOpenTable, onO
   return (
     <div className="min-w-0 flex-1 space-y-4 overflow-y-auto px-5 py-5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h2 className="text-[19px] font-semibold text-app-text">{detail.label}</h2>
+        <h2 className="text-headline font-semibold text-app-text">{detail.label}</h2>
         <span className="min-w-0 flex-1 text-prose text-app-text-secondary">{detail.about}</span>
         <Chip>{detail.home}</Chip>
       </div>

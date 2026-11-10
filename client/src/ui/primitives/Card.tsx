@@ -75,7 +75,7 @@ export function StatCard({ label, value, detail, tone, onOpen, className }: {
 }) {
   const body = (
     <>
-      <div className={clsx('text-[26px] font-semibold leading-9 tracking-[-0.01em] tabular-nums', tone && tone !== 'neutral' ? TONE_TEXT[tone] : 'text-app-text')}>{value}</div>
+      <div className={clsx('text-display font-semibold leading-9 tracking-[-0.01em] tabular-nums', tone && tone !== 'neutral' ? TONE_TEXT[tone] : 'text-app-text')}>{value}</div>
       <div className="text-prose text-app-text-secondary [overflow-wrap:break-word]">{label}</div>
       {detail && <div className="mt-0.5 text-compact text-app-text-tertiary [overflow-wrap:break-word]">{detail}</div>}
     </>

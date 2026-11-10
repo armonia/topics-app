@@ -59,7 +59,7 @@ export function Count({ value, onFill, tone = 'neutral', className }: {
   return (
     <span
       className={clsx(
-        'inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 text-nano font-semibold leading-none tabular-nums',
+        'inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 text-mini font-semibold leading-none tabular-nums',
         onFill ? 'bg-black/25 text-white' : tone === 'blue' ? 'bg-[#0a84ff] text-white' : tone === 'red' ? 'bg-rose-500 text-white' : 'bg-black/[0.07] text-app-text-secondary dark:bg-white/[0.12]',
         className,
       )}
@@ -72,7 +72,7 @@ export function Count({ value, onFill, tone = 'neutral', className }: {
 /** A keyboard key, as the hints of the product print it. */
 export function KeyHint({ children }: { children: ReactNode }) {
   return (
-    <kbd className="inline-flex h-4 min-w-4 items-center justify-center rounded-xs border border-app-border-light bg-surface px-1 font-sans text-nano leading-none text-[var(--kbd-text)]">
+    <kbd className="inline-flex h-4 min-w-4 items-center justify-center rounded-xs border border-app-border-light bg-surface px-1 font-sans text-mini leading-none text-[var(--kbd-text)]">
       {children}
     </kbd>
   );

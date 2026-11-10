@@ -85,7 +85,7 @@ function Program({ ctx, p }: { ctx: ScreenCtx; p: SarimProgram }) {
       <div className="flex min-w-0 items-start gap-3">
         <ProgramTile initial={p.monogram} color={p.color} size={44} />
         <div className="min-w-0 flex-1">
-          <h1 className="text-[20px] font-semibold leading-7 text-app-text">{p.name}</h1>
+          <h1 className="text-headline font-semibold leading-7 text-app-text">{p.name}</h1>
           <p className="text-prose leading-5 text-app-text-secondary">{p.sub}</p>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             <ConnectionChip kind={LINK_KIND[p.link]} label={c.links[p.link]} />

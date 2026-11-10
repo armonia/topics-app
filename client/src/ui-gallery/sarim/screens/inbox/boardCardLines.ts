@@ -52,7 +52,7 @@ export interface BoardCardLines {
 }
 
 /** The stages in which the checker is the next to act: before them the checker is a future fact, not this card's. */
-const CHECKING = new Set(['verifica', 'approvazione']);
+const CHECKING = new Set(['verifica', 'approvazione']); // allow-italian: status values of the example data, compared by value
 
 /**
  * A stopped card (red reason) says why in the reason alone: no step, no activity

@@ -50,8 +50,8 @@ export interface RobotHandlers {
 /** The picture of the page the robot sees at one step: a title bar and the fields it touches. */
 function SmallScreen({ step }: { step: RobotStepModel }) {
   return (
-    <div className="overflow-hidden rounded-md border border-app-border bg-white text-[10.5px] text-slate-700">
-      <div className="flex h-[18px] items-center bg-blue-700 px-2 text-[9.5px] font-bold tracking-wide text-white"><span className="min-w-0 truncate">{step.page}</span></div>
+    <div className="overflow-hidden rounded-md border border-app-border bg-white text-mini text-slate-700">
+      <div className="flex h-[18px] items-center bg-blue-700 px-2 text-mini font-bold tracking-wide text-white"><span className="min-w-0 truncate">{step.page}</span></div>
       <div className="flex min-h-[64px] flex-col gap-1 p-2">
         {step.fields.map((f, i) => (
           <div key={`${f.label}-${i}`} className="flex items-center gap-1.5">

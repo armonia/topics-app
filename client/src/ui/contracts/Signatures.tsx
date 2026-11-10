@@ -125,14 +125,14 @@ export function PermissionTable({ rows, copy }: { rows: PermissionRowModel[]; co
 export function PaperDocument({ paper, copy }: { paper: PaperModel; copy: UiCopy }) {
   const t = copy.contracts.attachment;
   return (
-    <article data-paper="true" className={clsx(READING_COLUMN, 'rounded-lg bg-white px-5 py-8 font-serif text-[15px] leading-7 text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.12)] ring-1 ring-black/5 md:px-14')}>
+    <article data-paper="true" className={clsx(READING_COLUMN, 'rounded-lg bg-white px-5 py-8 font-serif text-body-lg leading-7 text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.12)] ring-1 ring-black/5 md:px-14')}>
       <div className="flex flex-wrap items-center gap-2 border-b border-neutral-200 pb-3 font-sans text-mini text-neutral-500">
         <span className="font-medium uppercase tracking-[0.08em]">{paper.kindText}</span>
         {paper.versionText && <span>· {paper.versionText}</span>}
         <span className="flex-1" />
         <span className="tabular-nums">{paper.at}</span>
       </div>
-      <h2 className="mt-4 text-center text-[17px] font-bold leading-6">{paper.title}</h2>
+      <h2 className="mt-4 text-center text-title font-bold leading-6">{paper.title}</h2>
       <div className="mt-4 space-y-2.5">
         {paper.lines.map((l, i) => <p key={i}>{l}</p>)}
       </div>

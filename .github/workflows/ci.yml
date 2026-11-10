@@ -429,6 +429,8 @@ jobs:
           # `--text-*: initial` ha spento — quella e' la meta' che non si vede
           # leggendo il diff: la classe resta nel DOM e non genera niente.
           bun run check:typography
+          bun run check:ui-fixtures
+          bun run check:ui-isolation
           bun run check:ui-language
           # Lo stesso standard, applicato ai commenti (deciso il 21/08).
           # Ratchet su `scripts/comment-language-baseline.json`: nasce

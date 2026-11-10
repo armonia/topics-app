@@ -36,7 +36,7 @@ export function CallDetail({ call, copy, onAnswer, onField, onUseSuggestion, onO
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-5 md:px-7">
       <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-[20px] font-semibold leading-7 text-app-text">{call.caller}</h1>
+        <h1 className="text-headline font-semibold leading-7 text-app-text">{call.caller}</h1>
         <Chip tone={ringing ? 'amber' : call.status === 'live' ? 'green' : 'neutral'} icon={ringing ? PhoneIncoming : PhoneCall}>
           {ringing ? c.statusRinging : call.status === 'live' ? c.statusLive : c.statusEnded(call.when)}
         </Chip>

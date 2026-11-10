@@ -1,3 +1,4 @@
+/** @covers GENUI-01 */
 import { describe, expect, test } from 'bun:test';
 import { runsOf } from '../../client/src/ui/fixtures/flowrun';
 import { CASES } from '../../client/src/ui/fixtures/org/cases';

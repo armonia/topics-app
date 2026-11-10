@@ -106,7 +106,7 @@ export function Notes({ items }: { items: Array<{ title: string; text: ReactNode
 export function KpiTile({ label, value, detail, good }: { label: string; value: string; detail?: string; good?: boolean }) {
   return (
     <div className="min-w-0 rounded-lg border border-app-border bg-surface px-4 py-3.5">
-      <div className={clsx('text-[26px] font-semibold leading-9 tabular-nums', good ? 'text-emerald-700 dark:text-emerald-400' : 'text-app-text')}>{value}</div>
+      <div className={clsx('text-display font-semibold leading-9 tabular-nums', good ? 'text-emerald-700 dark:text-emerald-400' : 'text-app-text')}>{value}</div>
       <div className="text-prose leading-5 text-app-text-secondary">{label}</div>
       {detail && <div className="mt-0.5 text-compact leading-4 text-app-text-tertiary">{detail}</div>}
     </div>
