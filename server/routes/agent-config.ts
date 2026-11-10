@@ -138,9 +138,9 @@ export function applyEdit(paths: Paths, e: Edit): { file: string; backup: string
   if (e.kind === "chat") {
     const file = join(paths.home, "config.json");
     const cfg: Json = readJson(file);
-    const acc = (e.account ?? "default");
-    const g = (cfg.rules?.groups ?? []).find((x: Json) => x.channel === e.channel && x.chat === e.chat && (x.account ?? "default") === acc);
-    if (!g) throw new Error(`chat ${e.channel}:${e.chat} non trovata per ${acc}`);
+    const account = (e.account ?? "default");
+    const g = (cfg.rules?.groups ?? []).find((x: Json) => x.channel === e.channel && x.chat === e.chat && (x.account ?? "default") === account);
+    if (!g) throw new Error(`chat ${e.channel}:${e.chat} non trovata per ${account}`);
     for (const k of ["active", "mention"] as const) {
       if (e[k] === undefined) continue;
       if (typeof e[k] !== "boolean") throw new Error(`${k} deve essere true o false`);
@@ -171,8 +171,8 @@ async function reload(paths: Paths): Promise<string> {
   try { inflight = readJson(join(paths.home, "inflight.json")); } catch {}
   if (Object.keys(inflight).length) return "pending";
   if (process.env.AGENT_CONFIG_NO_RESTART) return "skipped";
-  const uid = process.getuid?.() ?? 501;
-  const r = await run(["launchctl", "kickstart", "-k", `gui/${uid}/com.jarvis.channels`]);
+  const userId = process.getuid?.() ?? 501;
+  const r = await run(["launchctl", "kickstart", "-k", `gui/${userId}/com.jarvis.channels`]);
   return r.code === 0 ? "restarted" : "pending";
 }
 
