@@ -1,0 +1,57 @@
+name: Rete per i server Hetzner dei job
+
+# Ogni ora cancella i server dei runner effimeri (nome gh-runner-*, etichetta
+# type=github-runner) creati da più di 3 ore: un delete saltato non lascia un server
+# acceso a pagamento. Toglie anche da GitHub i runner gh-runner-* rimasti offline.
+# I server permanenti (armonia-crm, hosting-giuseppe) non hanno quell'etichetta né quel
+# nome, e in più sono esclusi per nome.
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      ore:
+        description: età minima in ore
+        default: "3"
+
+permissions: {}
+
+jobs:
+  sweep:
+    # ubuntu-latest: repo pubblico, minuti gratis, e nessuna macchina nostra vede i token.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Cancella i server gh-runner più vecchi della soglia
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          ORE: ${{ github.event.inputs.ore || '3' }}
+        run: |
+          set -euo pipefail
+          api=https://api.hetzner.cloud/v1
+          limite=$(( $(date +%s) - ORE * 3600 ))
+          for sel in type%3Dgithub-runner gh-runner; do
+            curl -fsS -H "Authorization: Bearer $HCLOUD_TOKEN" "$api/servers?label_selector=$sel&per_page=50"
+          done | jq -s '{servers: (map(.servers) | add | unique_by(.id))}' \
+            | jq -r --argjson lim "$limite" '.servers[]
+                | select(.name | startswith("gh-runner-"))
+                | select(.name != "armonia-crm" and .name != "hosting-giuseppe")
+                | select((.created | sub("\\+00:00$"; "Z") | fromdateiso8601) < $lim)
+                | "\(.id) \(.name) \(.created)"' \
+            | while read -r id name created; do
+                echo "cancello $name ($id), creato $created"
+                curl -fsS -X DELETE -H "Authorization: Bearer $HCLOUD_TOKEN" "$api/servers/$id" >/dev/null
+              done
+          echo "accesi ora:"; curl -fsS -H "Authorization: Bearer $HCLOUD_TOKEN" "$api/servers?label_selector=type%3Dgithub-runner" | jq -r '.servers[] | "\(.name) \(.created)"'
+
+      - name: Togli da GitHub i runner effimeri offline
+        env:
+          GH_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}
+        run: |
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runners"
+          curl -fsS -H "Authorization: Bearer $GH_TOKEN" "$api?per_page=100" \
+            | jq -r '.runners[] | select((.name | startswith("gh-runner-")) and .status == "offline") | "\(.id) \(.name)"' \
+            | while read -r id name; do
+                curl -fsS -X DELETE -H "Authorization: Bearer $GH_TOKEN" "$api/$id" && echo "tolto $name"
+              done

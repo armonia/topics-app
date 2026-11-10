@@ -937,10 +937,64 @@ jobs:
           path: plan/
           retention-days: 1
 
+  # THE E2E SHARDS RUN ON A HETZNER SERVER THAT LIVES FOR THIS RUN ONLY.
+  #
+  # Measured on 10/11/2026: a green run took 37 minutes, and every e2e job
+  # waited 5-13 of them in the queue for one of the 20 jobs the organisation
+  # may run at once, before 12-16 minutes of tests. One cx53 (16 vCPU, 32 GB,
+  # 0.047 EUR/h, billed by the hour) carries seven runners, one per shard
+  # 1-7: a shard peaks at ~3.6 GB with its two Playwright processes (the
+  # `[carico]` lines of run 42814604772), so seven fit in 32 GB with room for
+  # the OS. `e2e (0)` (touched specs, pull requests only) and every other job
+  # stay on ubuntu-latest: they are short, and moving them would put a second
+  # server's worth of load on this one.
+  #
+  # The repository is PUBLIC, so the rules (hcloud-runner.yml has the rest):
+  #  - a server only for a push to main or a pull request from this repository;
+  #    a fork's pull request never reaches a self-hosted runner;
+  #  - HCLOUD_TOKEN and RUNNER_ADMIN_TOKEN live only in the create and delete
+  #    jobs, which run on ubuntu-latest and execute no code of the change;
+  #  - when the spending guard says no (HETZNER_STOP, set by `hetzner-tetto`
+  #    over 20 EUR a month, or two ephemeral servers already on) or no server
+  #    comes up, `label` is empty and the shards run on ubuntu-latest as
+  #    before: the server can make the run faster, never red.
+  #  - `hcloud-delete` runs with `always()`, and hcloud-sweeper.yml deletes any
+  #    gh-runner-* server older than 3 hours.
+  hcloud:
+    name: Hetzner server for the e2e shards
+    needs: changes
+    if: ${{ needs.changes.outputs.e2e != 'false' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    uses: ./.github/workflows/hcloud-runner.yml
+    with:
+      mode: create
+      server_type: ${{ vars.HCLOUD_HEAVY_TYPE || 'cx53' }}
+      runners: 7
+      playwright: true
+      # scripts/e2e-stop-on-red.sh reads the jobs API with jq; the GitHub image has it.
+      apt_packages: jq
+    secrets:
+      HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+      RUNNER_ADMIN_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}
+
+  hcloud-delete:
+    name: delete the Hetzner server
+    needs: [hcloud, e2e]
+    if: ${{ always() && needs.hcloud.result != 'skipped' }}
+    uses: ./.github/workflows/hcloud-runner.yml
+    with:
+      mode: delete
+      label: ${{ needs.hcloud.outputs.label }}
+      server_id: ${{ needs.hcloud.outputs.server_id }}
+    secrets:
+      HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+      RUNNER_ADMIN_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}
+
   e2e:
     timeout-minutes: 25
-    runs-on: ubuntu-latest
-    needs: [changes, prepare-e2e]
+    # Shard 0 and every run without a server: ubuntu-latest, as before.
+    runs-on: ${{ (matrix.shard != 0 && needs.hcloud.outputs.label != '') && needs.hcloud.outputs.label || 'ubuntu-latest' }}
+    needs: [changes, prepare-e2e, hcloud]
+    if: ${{ !cancelled() && needs.prepare-e2e.result == 'success' }}
     # WHEN NOTHING THE SHARDS READ HAS CHANGED the matrix is the single job `e2e (0)`
     # and only its first step runs; every other step of this job carries
     # `needs.changes.outputs.e2e != 'false'`. It ends `success`, which is what the
@@ -1123,8 +1177,11 @@ jobs:
         id: runner-image
         run: echo "id=${ImageOS:-unknown}-${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
 
+      # On the Hetzner server the system libraries were installed once at boot
+      # (hcloud-runner.yml), and seven `--with-deps` side by side would fight
+      # over the apt lock: no apt cache and no --with-deps there.
       - name: Restore the apt packages of the Playwright browsers
-        if: ${{ needs.changes.outputs.e2e != 'false' }}
+        if: ${{ needs.changes.outputs.e2e != 'false' && runner.environment == 'github-hosted' }}
         uses: actions/cache@v4
         with:
           path: ~/apt-playwright
@@ -1143,6 +1200,9 @@ jobs:
           build_log="$RUNNER_TEMP/build-client.log"
           bun run build:client > "$build_log" 2>&1 &
           build_pid=$!
+          if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+            npx playwright install chromium webkit
+          else
           if compgen -G "$HOME/apt-playwright/*.deb" > /dev/null; then
             sudo cp "$HOME"/apt-playwright/*.deb /var/cache/apt/archives/
           fi
@@ -1154,6 +1214,7 @@ jobs:
           rm -rf "$HOME/apt-playwright" && mkdir -p "$HOME/apt-playwright"
           if compgen -G "/var/cache/apt/archives/*.deb" > /dev/null; then
             cp /var/cache/apt/archives/*.deb "$HOME/apt-playwright/"
+          fi
           fi
           if ! wait "$build_pid"; then
             cat "$build_log"
