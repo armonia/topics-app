@@ -62,6 +62,7 @@ import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Server, ServerWebSocket } from "bun";
 import { anthropicMessagesUrl } from "../providers/native/base-url";
+import { systemCaTrusted, type CaTrustCheck } from "./external-proxy-trust";
 import { externalProxyCaDir, ensureExternalProxyLeaf, INTERCEPTED_HOST } from "./external-proxy-ca";
 import { HOP_BY_HOP } from "./model-proxy";
 
@@ -721,6 +722,8 @@ export interface ExternalProxyState {
   /** Absolute path of the public CA certificate for `NODE_EXTRA_CA_CERTS`; null when the proxy only tunnels. */
   caCertificatePath: string | null;
   intercepting: boolean;
+  /** False when the CA is not trusted by the system store: the proxy then tunnels only (fail-open). */
+  caTrusted: boolean;
   pid: number;
   startedAt: string;
 }
@@ -755,14 +758,19 @@ export async function bootExternalProxy(opts: {
   log?: ExternalProxyOptions["log"];
   bindRetries?: number;
   bindRetryMs?: number;
+  /** Tests inject the trust verdict; production asks the system store. */
+  isCaTrusted?: CaTrustCheck;
 }): Promise<BootedExternalProxy> {
   const log = opts.log ?? (() => {});
   let leafPair: ExternalProxyOptions["tls"] = null;
   let caCertificatePath: string | null = null;
+  let caTrusted = false;
   try {
     const leaf = ensureExternalProxyLeaf(externalProxyCaDir(opts.homeDir));
-    leafPair = { key: leaf.key, cert: leaf.cert };
     caCertificatePath = leaf.caCertificatePath;
+    caTrusted = await (opts.isCaTrusted ?? systemCaTrusted)(leaf.caCertificatePath).catch(() => false);
+    if (caTrusted) leafPair = { key: leaf.key, cert: leaf.cert };
+    else log("ca-untrusted-tunnel-only", { ca: leaf.caCertificatePath });
   } catch (e) {
     log("ca-failed-tunnel-only", { reason: errorCode(e) });
   }
@@ -782,6 +790,7 @@ export async function bootExternalProxy(opts: {
     port: proxy.port,
     caCertificatePath,
     intercepting: proxy.intercepting,
+    caTrusted,
     pid: process.pid,
     startedAt: new Date().toISOString(),
   };
