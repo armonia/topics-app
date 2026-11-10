@@ -3874,12 +3874,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * Without it the card sat in review asking nothing, and nobody knew what to
    * decide (10/11: e9a68aa7 had the line, 887341aa and cd972f2f a node delivery).
    */
-  function reviewAskFallback(row: { description?: string | null; delivery_branch?: string | null }, hint?: string | null, description?: string | null): string {
+  // Never an invented question: a card with no line and no declared move stays without one, so the auto-land
+  // (which refuses a card that asks something) still takes a green invisible delivery.
+  function reviewAskFallback(row: { description?: string | null }, hint?: string | null, description?: string | null): string | null {
     const line = waitsLineAsk(description ?? row.description);
     if (line) return line;
     if (hint && hint.trim()) return hint.trim().split("\n")[0]!.slice(0, 240);
-    if (row.delivery_branch) return `Guarda il diff di \`${row.delivery_branch}\`: approvi il land o la rimandi indietro?`;
-    return "Consegna senza domanda: guarda il riassunto e approva, o rimandala indietro col motivo.";
+    return null;
   }
 
   /** `agentAskInThread` (shared/workflow.ts) on this card's thread. */
@@ -4222,7 +4223,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (!row.parent_task_id && patch.status === "review" && current !== "review" && !humanAsk
         && (nextStage ?? row.stage) !== STAGE_AI_REVIEW) {
         humanAsk = reviewAskFallback(row, null, patch.description);
-        askFromThread = true;
+        askFromThread = !!humanAsk;
       }
 
       if (patch.status !== undefined) {
