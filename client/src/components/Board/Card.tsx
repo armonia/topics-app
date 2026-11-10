@@ -3,14 +3,14 @@ import { memo, useState, useEffect, useCallback, useMemo, useRef, useSyncExterna
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { reviewEvidence } from '../../lib/reviewEvidence';
-import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CircleSlash, ClipboardList, Copy, GitBranch, Hourglass, ListTree, Lock, MessageSquare, Plus, RotateCcw, Send, Server, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
+import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CalendarClock, CircleSlash, ClipboardList, Copy, GitBranch, Hourglass, ListTree, Lock, MessageSquare, Plus, RotateCcw, Send, Server, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { useToast } from '../Shared/Toast';
 import { questionToProse } from '../../../../shared/question-prose';
 import { isSettledParkedQuestion } from '../../../../shared/parked-question';
-import { STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, nothingDeliveredWins, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardSettings, type BoardTask, type TaskStatus, priorityAwaitingAgent } from '../../lib/board';
+import { STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, dueDateChip, nothingDeliveredWins, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardSettings, type BoardTask, type TaskStatus, priorityAwaitingAgent } from '../../lib/board';
 import { columnSlice, COLUMN_PAGE } from '../../lib/boardOrder';
 import { recallColumnPages, rememberColumnPages } from '../../lib/columnPages';
 import { cardCommentsFromRow, cardDetailNeed, isMachineVoice, selectCardComments, showsCardThread, type CardComments } from './cardComments';
@@ -1093,7 +1093,8 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // davvero disegnati sotto, così la prossima dimenticanza è un rosso e non
   // un'ora di indagine.
   // Compact cards skip the band: their live chips are drawn after it (`card-compact-chips`).
-  const hasMetaRow = !compact && !!(creator || incomplete || blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
+  const dueChip = dueDateChip(task, tr, Date.now(), locale);
+  const hasMetaRow = !compact && !!(creator || incomplete || blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || dueChip || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
 
   return (
     <div
@@ -1526,6 +1527,13 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
             >{tr('board.card.plan')}</span>
           )}
           {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading">@{task.assignedTo}</span>}
+          {dueChip && (
+            <span
+              data-testid="card-due-date"
+              title={dueChip.title}
+              className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${dueChip.overdue ? 'bg-red-500/15 text-red-800 dark:text-red-300' : 'bg-white/10 text-app-text-heading'}`}
+            ><CalendarClock className="h-3 w-3 shrink-0" /> {dueChip.label}</span>
+          )}
           {/* Who actually wrote the last collaborator comment, and from
               which device — separate from `assignedTo`, which is free text
               and may name nobody real. Empty by default: most tasks have no
