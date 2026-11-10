@@ -280,6 +280,21 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    * branches.
    */
   const lastNodeRun = new Map<string, string>();
+  /**
+   * One `node-run` hook at a time per machine. The hook wakes the machine and
+   * syncs the repo over one tunnel: on 10/11 five cards for the PC ran it
+   * together, all five timed out on the tunnel and were vetoed, round after
+   * round, while one alone was ready in 26 s. Queued, they start one by one.
+   */
+  const nodeHookChains = new Map<string, Promise<unknown>>();
+  function serialPerMachine<T>(machineId: string, job: () => Promise<T>): Promise<T> {
+    const prev = nodeHookChains.get(machineId) ?? Promise.resolve();
+    const next = prev.then(job, job);
+    const tail = next.catch(() => undefined);
+    nodeHookChains.set(machineId, tail);
+    void tail.then(() => { if (nodeHookChains.get(machineId) === tail) nodeHookChains.delete(machineId); });
+    return next;
+  }
 
   /** Cards whose launch this process started and has not finished yet (see `remoteLaunch`). */
   const launching = new Set<string>();
@@ -432,7 +447,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       // words as the reason. Awaiting here is safe: `launch` is fired without
       // await by the tick, and the slot is already ours.
       const hooks = node.hooks ?? defaultLifecycleHooks();
-      const verdict: HookOutcome = await hooks.run("node-run", {
+      const verdict: HookOutcome = await serialPerMachine(machineId, () => hooks.run("node-run", {
         hook_event_name: "node-run",
         session_id: task.id,
         cwd: node.projectPathOf?.(task.projectId) ?? "",
@@ -442,7 +457,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         machine_name: name,
         node_base_url: baseUrl,
         origin_url: originUrl,
-      }).catch((err): HookOutcome => {
+      })).catch((err): HookOutcome => {
         // A runner that throws said nothing: same rule as a hook that never answered.
         log(`nodo: l'hook node-run per ${task.id} non si è avviato`, err);
         return { ok: true };
@@ -593,6 +608,17 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
           task,
           `Il nodo «${name}» non ha nessun progetto con il remoto \`${originUrl}\`: clonalo là, oppure togli la macchina ` +
             "dalla card. Nessun progetto è stato creato sul nodo.",
+        );
+        return;
+      }
+      // A 413 is a verdict on the request, not a silence: the same body is refused
+      // every time, so retrying every 5 minutes forever helps nobody. Park with the size.
+      if (nodeFailureReason(err) === "payload_too_large") {
+        const why = err instanceof Error ? err.message : String(err);
+        parkNodeCard(
+          task,
+          `Il nodo «${name}» ha rifiutato la card perché troppo grande: ${why}. ` +
+            "Accorcia la descrizione o il thread della card, oppure togli la macchina dalla card.",
         );
         return;
       }

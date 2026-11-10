@@ -8,7 +8,9 @@
 // not parse, still counts as the wall (the run did no work) but gets a short
 // fallback hold instead of a guessed instant.
 
-const WEEKLY_LIMIT_MARKER = /you.ve hit your weekly limit/i;
+// The monthly spend limit is the same wall (10/11: «You've hit your monthly
+// spend limit · … resets Nov 15, 9am (UTC)», six cards came back empty in review).
+const WEEKLY_LIMIT_MARKER = /you.ve hit your (?:weekly|monthly spend) limit/i;
 const RESETS_AT = /resets\s+([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?(?:,?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*([ap]m))?\s*(?:\(([^)]*)\))?/i;
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 

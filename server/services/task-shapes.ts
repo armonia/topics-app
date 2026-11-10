@@ -556,6 +556,8 @@ export interface UpdateTaskPatch {
   machineId?: string | null;
   /** The "this Mac only" mark: the overflow dispatch never moves the card. */
   stayLocal?: boolean;
+  /** When `stayLocal` stops holding (ISO); null = for good. Set only by the dispatcher. */
+  stayLocalUntil?: string | null;
   /** The executable acceptance bar; null clears. */
   bar?: string | null;
   /** Where the card comes from (session or channel), added after birth to clear the incomplete flag. */

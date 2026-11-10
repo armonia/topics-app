@@ -689,6 +689,15 @@ fn reader_loop(
         }
     }
 
+    // The shell is gone (or at least the tty is closed): whatever is left in its
+    // process group was started from this terminal and has no owner anymore.
+    // Done BEFORE the reap: an unreaped leader keeps the group id reserved, so
+    // the signal cannot hit a recycled pid. Unix only, where the group exists.
+    #[cfg(unix)]
+    if let Some(pid) = child.process_id() {
+        kill_group(pid);
+    }
+
     // Reap for the exit code. The `kill` path uses a separate ChildKiller handle, so
     // this blocking wait can never deadlock against it.
     let code: i64 = child.wait().map(|s| s.exit_code() as i64).unwrap_or(0);

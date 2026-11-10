@@ -27,18 +27,27 @@ interface EmptyRunDeps {
   log: (msg: string, err?: unknown) => void;
 }
 
+/**
+ * How long the pin holds. It answers to tools the node lacked, and those get
+ * installed: on 10/11 five cards stayed on a Mac under its memory floor for
+ * hours after gh and git reached the PC's agents. Six hours is a working
+ * session: long enough not to bounce the same card back at once, short enough
+ * that a fixed node gets it again the same day.
+ */
+export const EMPTY_RUN_PIN_MS = 6 * 60 * 60_000;
+
 /** `true` = the card is back in the queue and the caller has nothing more to do. */
 export function returnEmptyNodeRunToTodo(deps: EmptyRunDeps, task: Task, nodeName: string): boolean {
   if (!task.overflowedAt) return false;
   if (pendingQuestionComment(deps.svc.get(task.id)?.comments ?? [])) return false;
   try {
     deps.releaseAndEmit({ taskId: task.id, requeue: true, rollbackAttempt: true });
-    deps.emit(deps.svc.update({ taskId: task.id, actor: "agent", by: "dispatcher", patch: { machineId: null, stayLocal: true } }));
+    deps.emit(deps.svc.update({ taskId: task.id, actor: "agent", by: "dispatcher", patch: { machineId: null, stayLocal: true, stayLocalUntil: new Date(Date.now() + EMPTY_RUN_PIN_MS).toISOString() } }));
     deps.svc.addComment({
       taskId: task.id, author: "system", kind: "service",
       content:
         `La corsa su «${nodeName}» è finita senza nessun commit: lì mancano strumenti che questa card usa. ` +
-        "La rimetto in coda su questa macchina, e da ora ci resta.",
+        "La rimetto in coda su questa macchina, e ci resta per 6 ore: poi può tornare fuori se il Mac è pieno.",
     });
     return true;
   } catch (err) {
