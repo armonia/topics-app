@@ -1189,3 +1189,43 @@ describe("node-run hooks for one machine run one at a time", () => {
     expect(h.calls.filter((c) => c === "create")).toHaveLength(3);
   });
 });
+
+describe("una corsa remota persa non riporta mai indietro una card chiusa", () => {
+  const silent = () => Promise.reject(Object.assign(new Error("giù"), { reason: "unreachable" }));
+
+  for (const [label, sql] of [
+    ["done", "UPDATE tasks SET status = 'done' WHERE id = ?"],
+    ["review", "UPDATE tasks SET status = 'review' WHERE id = ?"],
+    ["archiviata", "UPDATE tasks SET archived = 1 WHERE id = ?"],
+  ] as const) {
+    it(`card ${label} + nodo muto per ${NODE_DEAD_POLLS} giri: resta dov'è, corsa chiusa come persa`, async () => {
+      const h = harness({ readRun: silent });
+      h.seed();
+      await dispatch(h);
+      const before = h.task().status;
+      h.db.run(sql, [TASK]);
+      const expected = label === "archiviata" ? before : label;
+
+      await poll(h, NODE_DEAD_POLLS + 5);
+
+      const t = h.task();
+      expect(t.status).toBe(expected);
+      if (label === "archiviata") expect(h.svc.isArchived!(TASK)).toBe(true);
+      expect(h.comments().filter((c) => c.content.includes("persa")).length).toBe(1);
+      expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
+    });
+  }
+
+  it("nodo cancellato dal pool a corsa aperta su card done: nessuna rinascita", async () => {
+    const h = harness({ readRun: silent });
+    h.seed();
+    await dispatch(h);
+    h.db.run("UPDATE tasks SET status = 'done' WHERE id = ?", [TASK]);
+    h.db.run("DELETE FROM machines WHERE id = ?", [MACHINE]);
+
+    await poll(h, NODE_DEAD_POLLS + 5);
+
+    expect(h.task().status).toBe("done");
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
+  });
+});
