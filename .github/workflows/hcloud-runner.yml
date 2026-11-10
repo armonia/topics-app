@@ -168,14 +168,21 @@ jobs:
           user_data() {  # $1 = runner sul server
             echo '#!/bin/bash'
             echo 'export DEBIAN_FRONTEND=noninteractive'
-            echo "apt-get update -qq >/var/log/apt-extra.log 2>&1; apt-get install -y -qq jq curl $APT_PACKAGES >>/var/log/apt-extra.log 2>&1"
+            # Se le librerie non si installano, nessun runner si registra: il job li conta online,
+            # zero runner = i job vanno su GitHub invece di diventare rossi su una macchina a metà.
+            echo "apt-get -o DPkg::Lock::Timeout=300 update -qq >/var/log/apt-extra.log 2>&1 || exit 1"
+            echo "apt-get -o DPkg::Lock::Timeout=300 install -y -qq jq curl iptables $APT_PACKAGES >>/var/log/apt-extra.log 2>&1 || exit 1"
             if [ "$PLAYWRIGHT" = "true" ]; then
               # Una volta sola qui, prima dei runner: più `--with-deps` insieme si contendono il lock di apt.
               echo "curl -fsSL https://nodejs.org/dist/v20.18.1/node-v20.18.1-linux-x64.tar.xz | tar xJ -C /opt"
-              echo "PATH=/opt/node-v20.18.1-linux-x64/bin:\$PATH npx -y playwright@$PW_VERSION install-deps chromium webkit >/var/log/pw-deps.log 2>&1"
+              echo "PATH=/opt/node-v20.18.1-linux-x64/bin:\$PATH npx -y playwright@$PW_VERSION install-deps chromium webkit >/var/log/pw-deps.log 2>&1 || exit 1"
             fi
             echo "N=$1 NAME=$name URL=https://github.com/${GITHUB_REPOSITORY} TOKEN=$token"
             cat <<'EOS'
+          # Il token di registrazione sta in questo user_data: i job (root) non devono poterlo
+          # rileggere, né dal servizio dei metadati né dalle copie di cloud-init, o registrerebbero
+          # runner con le etichette di una run. Vale un'ora comunque. Le copie si svuotano in fondo.
+          iptables -I OUTPUT -d 169.254.169.254 -j REJECT
           V=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest | jq -r .tag_name | sed 's/^v//')
           # Runner 0 = `prepare-e2e` (etichetta <nome>-prep, un job leggero), poi uno per shard.
           for i in 0 $(seq 1 "$N"); do
@@ -188,6 +195,10 @@ jobs:
             # HOME sua: la CI ne ricava la fascia di porte (ci.yml) e due job non si pestano ~/.cache.
             mkdir -p "/srv/rh-$i"
             HOME="/srv/rh-$i" SHELL=/bin/bash RUNNER_ALLOW_RUNASROOT=1 setsid nohup ./run.sh >>"/var/log/runner-$i.log" 2>&1 < /dev/null &
+          done
+          # In fondo, non prima: bash legge questo script mentre lo esegue.
+          for f in /var/lib/cloud/instance/user-data.txt /var/lib/cloud/instance/user-data.txt.i /var/lib/cloud/instance/scripts/part-001; do
+            [ -f "$f" ] && : > "$f"
           done
           EOS
           }
@@ -277,17 +288,39 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          SERVER_ID: ${{ inputs.server_id }}
         run: |
+          set -uo pipefail
           p="gh-runner-${GITHUB_RUN_ID}-"
           h=https://api.hetzner.cloud/v1
-          curl -fsS -H "Authorization: Bearer $HCLOUD_TOKEN" "$h/servers?label_selector=type%3Dgithub-runner&per_page=50" \
-            | jq -r --arg p "$p" '.servers[] | select(.name | startswith($p)) | "\(.id) \(.name)"' \
-            | while read -r id name; do
-                curl -fsS -X DELETE -H "Authorization: Bearer $HCLOUD_TOKEN" "$h/servers/$id" >/dev/null && echo "cancellato $name"
-              done
+          # L'elenco con tre tentativi: un'API muta non deve passare per «nessun server».
+          list() {
+            local out
+            for _ in 1 2 3; do
+              out=$(curl -fsS -H "Authorization: Bearer $HCLOUD_TOKEN" "$h/servers?label_selector=type%3Dgithub-runner&per_page=50") \
+                && jq -r --arg p "$p" '.servers[] | select(.name | startswith($p)) | "\(.id) \(.name)"' <<<"$out" && return 0
+              sleep 10
+            done
+            return 1
+          }
+          # Prima per id (lo conosce il create), poi per prefisso del nome.
+          if [ -n "$SERVER_ID" ]; then
+            curl -fsS -X DELETE -H "Authorization: Bearer $HCLOUD_TOKEN" "$h/servers/$SERVER_ID" >/dev/null && echo "cancellato $SERVER_ID"
+          fi
+          if ! todo=$(list); then
+            echo "::warning::API Hetzner muta: non so se resta un server di questa run. Lo cancellano lo sweeper (ogni ora) e hetzner-tetto (oltre 3 ore)."
+            exit 0
+          fi
+          while read -r id name; do
+            [ -n "$id" ] || continue
+            curl -fsS -X DELETE -H "Authorization: Bearer $HCLOUD_TOKEN" "$h/servers/$id" >/dev/null && echo "cancellato $name"
+          done <<<"$todo"
           sleep 5
-          resto=$(curl -fsS -H "Authorization: Bearer $HCLOUD_TOKEN" "$h/servers?label_selector=type%3Dgithub-runner&per_page=50" \
-            | jq -r --arg p "$p" '[.servers[] | select(.name | startswith($p)) | .name] | join(" ")')
+          if ! resto=$(list); then
+            echo "::warning::API Hetzner muta dopo la cancellazione: lo verificano lo sweeper e hetzner-tetto."
+            exit 0
+          fi
+          resto=$(awk '{print $2}' <<<"$resto" | xargs)
           if [ -n "$resto" ]; then echo "::error::Server ancora accesi: $resto"; exit 1; fi
           echo "nessun server di questa run acceso"
           # The PC's runners of this run that took no shard go too: once removed from
