@@ -92,9 +92,9 @@ const RM_ROOT = /\brm\s+.*(\s|^)(\/|~|\$HOME)(\s|$)/;
 const TEMP_ROOT = /^(\/tmp|\/private\/tmp|\/var\/folders|\/private\/var\/folders)\/[^\s]+$/;
 
 /**
- * Ritorna il motivo se un segmento `rm` e' pericoloso, altrimenti null.
- * Un rm i cui bersagli sono tutti sotto una cartella temporanea (senza `..`
- * ne' glob sulla radice della cartella) cancella i temporanei del turno: passa.
+ * Returns the reason when an `rm` segment is dangerous, otherwise null.
+ * An rm whose targets all sit under a temp root (no `..`) only removes the
+ * turn's own temporaries, so it passes.
  */
 function rmReason(segment: string): string | null {
   const forced = RM_FORCED.test(segment);
