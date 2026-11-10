@@ -970,8 +970,9 @@ jobs:
       server_type: ${{ vars.HCLOUD_HEAVY_TYPE || 'cx53' }}
       runners: 7
       playwright: true
-      # scripts/e2e-stop-on-red.sh reads the jobs API with jq; the GitHub image has it.
-      apt_packages: jq
+      # What the GitHub image has and Ubuntu does not: jq for scripts/e2e-stop-on-red.sh,
+      # unzip for oven-sh/setup-bun (run 42823485405, both server shards red at setup).
+      apt_packages: jq unzip
     secrets:
       HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
       RUNNER_ADMIN_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}

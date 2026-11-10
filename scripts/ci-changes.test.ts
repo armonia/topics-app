@@ -394,6 +394,8 @@ describe("ci.yml obeys the answer: the workflow is evaluated, not read", () => {
     if (path === "needs.hcloud.result") return ctx.answer.e2e === "false" ? "skipped" : "success";
     if (path === "needs.prepare-e2e.result") return "success";
     if (/^needs\.hcloud\.outputs\.\w+$/.test(path)) return "";
+    // The GitHub image (the server skips its apt cache and --with-deps).
+    if (path === "runner.environment") return "github-hosted";
     if (path === "matrix.shard") return ctx.shard;
     throw new Error(`the evaluator does not know the context "${path}": teach it here, do not skip the step`);
   }
