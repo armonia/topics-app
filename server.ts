@@ -3755,6 +3755,8 @@ const opzioniServer = {
   // depth for any server that bypasses it via a custom TOPICS_HOME.
   reusePort: false,
   idleTimeout: 255,
+  // Explicit, so a node run (card text plus thread) is never refused by an implicit default.
+  maxRequestBodySize: 256 * 1024 * 1024,
   ...(useTls ? {
     tls: {
       cert: Bun.file(tlsCert),
