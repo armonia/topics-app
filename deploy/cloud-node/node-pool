@@ -517,6 +517,9 @@ def delete(state, n, reason):
                     f"({billed_hours(l['created'], l['ended'])} h pagate × {l['eur_h']} €): {reason}")
     state["slots"][str(n)] = {"n": n, "machine_id": sl.get("machine_id")}
     save_state(state)
+    # tray e `hetzner-tetto json` leggono il registro del tetto: va riscritto subito, non al giro dopo
+    if sid:
+        subprocess.run([TETTO_BIN, "stato"], capture_output=True, timeout=60)
 
 
 # ── comandi ─────────────────────────────────────────────────────────────────────
