@@ -112,10 +112,10 @@ describe("una card archiviata non resta «in coda»", () => {
   test("archiviare spegne lo stato queued del sottoalbero", () => {
     const db = freshDb(); const s = svc(db);
     const padre = s.create({ projectId: PID, text: "In coda", status: "todo" });
-    const figlio = s.create({ projectId: PID, text: "Figlio in coda", parentTaskId: padre.id, status: "todo" });
+    const child = s.create({ projectId: PID, text: "Figlio in coda", parentTaskId: padre.id, status: "todo" });
     db.prepare("UPDATE tasks SET dispatch_state = 'queued'").run();
     s.archive({ taskId: padre.id, projectId: PID });
-    const rows = db.prepare("SELECT dispatch_state FROM tasks WHERE id IN (?, ?)").all(padre.id, figlio.id) as Array<{ dispatch_state: string | null }>;
+    const rows = db.prepare("SELECT dispatch_state FROM tasks WHERE id IN (?, ?)").all(padre.id, child.id) as Array<{ dispatch_state: string | null }>;
     expect(rows.map((r) => r.dispatch_state)).toEqual([null, null]);
   });
 });
