@@ -217,7 +217,12 @@ const nativeScan = (where) => page.evaluate(({ where, retired }) => {
   return found;
 }, { where, retired: RETIRED_ON_SCREEN?.source ?? null }).then((list) => list.forEach((x) => natives.add(x)));
 
-const settle = () => page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(ok, 30)))));
+/* Aspetta anche le animazioni d'entrata (dialogo, popover): sotto carico durano più dei due frame, e un controllo letto a
+   metà corsa (pannello traslato) veniva cliccato dove non era più, e la sua etichetta "copriva" il campo. */
+const settle = () => page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(() => {
+  const running = document.getAnimations().filter((a) => a.playState === "running" && Number.isFinite(a.effect?.getComputedTiming().endTime));
+  Promise.race([Promise.all(running.map((a) => a.finished.catch(() => {}))), new Promise((t) => setTimeout(t, 1500))]).then(() => setTimeout(ok, 30));
+}))));
 
 async function resetTo(path) {
   await page.evaluate((p) => window.__demo.reset(p), path);
@@ -228,12 +233,16 @@ async function resetTo(path) {
   await settle();
 }
 
+/* Tempo per premere un controllo: con sei crawl WebKit in parallelo (ui-crawl-stress) l'attesa di «stable» supera i 2 s
+   senza che nulla copra il controllo. Un controllo davvero coperto resta morto anche con 6 s. */
+const PRESS_MS = 6000;
+
 /** Clicks a control the way a person would use it; returns false when it could not be pressed. */
 async function press(handle) {
   let el = handle.asElement();
   if (!el) return false;
   /* A person scrolls a control into view before pressing it: a row low in a scrolling list is under the pointer only then. */
-  await el.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
+  await el.scrollIntoViewIfNeeded({ timeout: PRESS_MS }).catch(() => {});
   const kind = await el.evaluate((e) => (e.tagName === "SELECT" ? "select" : e.matches("input[type=number]") ? "number" : e.matches("input[type=date],input[type=time],input[type=datetime-local],input[type=month]") ? "date" : e.matches("input:not([type=checkbox]):not([type=radio]):not([type=range]),textarea") ? "text" : "click"));
   /* What a person's pointer would hit at the control's centre: the control, its own label, or something on top. */
   const hit = await el.evaluate((e, overlays) => {
@@ -252,18 +261,18 @@ async function press(handle) {
       const values = await el.evaluate((s) => [...s.options].map((o) => o.value).filter((v) => v !== s.value));
       /* one option only: it shows the only value there is, nothing to choose */
       if (!values.length) return "single";
-      await el.selectOption(values[0], { timeout: 2000 });
+      await el.selectOption(values[0], { timeout: PRESS_MS });
     } else if (kind === "date") {
       const next = await el.evaluate((e) => ({ date: "2026-11-20", time: "10:15", "datetime-local": "2026-11-20T10:15", month: "2026-12" })[e.type]);
-      await el.fill(next, { timeout: 2000 });
+      await el.fill(next, { timeout: PRESS_MS });
     } else if (kind === "number" && hit !== "label") {
-      await el.click({ timeout: 2000 });
+      await el.click({ timeout: PRESS_MS });
       await page.keyboard.press("ArrowUp");
     } else if (kind === "text" && hit !== "label") {
-      await el.click({ timeout: 2000 });
+      await el.click({ timeout: PRESS_MS });
       await page.keyboard.type("a");
     } else {
-      await el.click({ timeout: 2000 });
+      await el.click({ timeout: PRESS_MS });
     }
     return true;
   } catch (e) {
