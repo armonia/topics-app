@@ -641,7 +641,7 @@
 
     "server/services/dispatch-capacity.ts": 1295,
 
-    "server/services/external-proxy.ts": 807,
+    "server/services/external-proxy.ts": 877,
 
     "server/services/relay-client.ts": 1300,
 
