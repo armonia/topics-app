@@ -3425,3 +3425,17 @@ a user agent without `HeadlessChrome`, consistent with its `Sec-CH-UA` hints.
 - **WHEN** the server launches it and opens a context
 - **THEN** the launch carries `--disable-blink-features=AutomationControlled`
 - **AND** the context UA ends in `Chrome/156.0.0.0 Safari/537.36`
+
+### Requirement: BROWSER-CHAT-AGENT-01 — An agent's browser stays in the agent's section
+
+The system SHALL NOT mount a browser pane in the project layout, nor force open a window,
+when `open_browser_pane` or a page op comes from a chat an agent opened (sub-agent,
+Jarvis channel or scheduled-job chat, dispatched card). The page SHALL load on its own
+context, reachable from the agent's chat marker. A chat Attilio opened SHALL keep
+mounting its pane as before. Agent browser panes already in a layout SHALL leave the bar
+once, without closing the page.
+
+#### Scenario: agent's open puts nothing on Attilio's screen
+- **WHEN** a Jarvis channel chat calls open-pane
+- **THEN** the answer is `visible:false`, no browser pane appears and no `browser:force-open` is sent
+- **AND** a later open-pane from Attilio's chat mounts its pane
