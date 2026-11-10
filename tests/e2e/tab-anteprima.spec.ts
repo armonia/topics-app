@@ -43,7 +43,7 @@ test.describe("TAB-ANTEPRIMA", () => {
     test.info().annotations.push({ type: "spec", description: "TAB-ANTEPRIMA-01" });
     await goToApp(page);
     await openProjectFromSidebar(page, /e2e-tab-anteprima/);
-    await expect(tabs(page).first()).toBeVisible();
+    await expect(projectWindow(page)).toBeVisible();
     const start = await tabs(page).count();
 
     await openPreview(page, a);
