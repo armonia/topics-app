@@ -231,6 +231,17 @@ describe("node-client · i guasti hanno un nome", () => {
     expect(await reasonOf(jsonResponse({ error: "no repo for that origin", code: "no_such_repo" }, 404))).toBe("no_such_repo");
   });
 
+  test("413 e' payload_too_large, non server_error, e createRun dice quanti byte ha mandato", async () => {
+    expect(await reasonOf(new Response("too big", { status: 413 }))).toBe("payload_too_large");
+    const c = createNodeClient({
+      fetch: async () => new Response("too big", { status: 413 }),
+      now: () => 0, wait: async () => {}, version: "1", hostname: "h",
+    } as never);
+    const err = await c.createRun({ baseUrl: BASE, token: TOKEN, body: { originTaskId: "t", originUrl: "u", text: "x", description: "d", model: null, effort: null } }).catch((e) => e);
+    expect(err.reason).toBe("payload_too_large");
+    expect(err.message).toMatch(/request body \d+ bytes/);
+  });
+
   test("no_such_repo nella forma VERA del nodo: quella rilasciata (2.3.30) manda solo error, quella nuova anche code", async () => {
     const originUrl = "https://github.com/acme/nowhere.git";
     // Exactly what POST /api/nodes/runs answers, nothing added by the test.

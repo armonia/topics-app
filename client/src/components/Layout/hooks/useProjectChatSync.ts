@@ -44,7 +44,14 @@ import {
 } from '../../../state/pane/adapters';
 import { migrateProjectPaneIdentity } from './projectPaneIdentity';
 import { projectFocusActions } from '../../../state/projectFocus';
-import { isAgentOwnedTopic, markAgentTabsParked, shouldParkAgentTabs } from '../../../lib/agentTabs';
+import {
+  agentBrowserPaneIds,
+  isAgentOwnedTopic,
+  markAgentBrowsersParked,
+  markAgentTabsParked,
+  shouldParkAgentBrowsers,
+  shouldParkAgentTabs,
+} from '../../../lib/agentTabs';
 import type {
   ChatReconciliation,
   PersistedSnapshot,
@@ -254,6 +261,15 @@ export function useProjectChatSync(
           }
         }
         markAgentTabsParked(projectPath, typeof localStorage === 'undefined' ? null : localStorage);
+      }
+      // Same once for agent browsers (10/11): their pages live in the agent's
+      // section now. Only the tab goes, the browser context stays alive.
+      const storage = typeof localStorage === 'undefined' ? null : localStorage;
+      if (shouldParkAgentBrowsers(projectPath, storage)) {
+        for (const id of agentBrowserPaneIds(curPanes, topics, getBrowserContextFromPaneId)) {
+          if (!removeSet.has(id)) { remove.push(id); removeSet.add(id); }
+        }
+        markAgentBrowsersParked(projectPath, storage);
       }
       const openSet = new Set([...(persisted?.openChatTopicIds || []), ...deferredOpenRef.current]);
       deferredOpenRef.current = new Set();
