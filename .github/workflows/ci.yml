@@ -975,7 +975,9 @@ jobs:
       # What the GitHub image has and Ubuntu does not: jq for scripts/e2e-stop-on-red.sh,
       # unzip for oven-sh/setup-bun (run 42823485405), make and g++ for `npm rebuild
       # node-pty` (run 42827058180: «gyp ERR! not found: make»).
-      apt_packages: jq unzip build-essential python3
+      # zsh: the terminal falls back to /bin/zsh when SHELL is unset, as it is for the
+      # runners started by cloud-init (run 42850786038: «exited in 4ms with code 1»).
+      apt_packages: jq unzip build-essential python3 zsh
     secrets:
       HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
       RUNNER_ADMIN_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}
@@ -1109,6 +1111,7 @@ jobs:
           if [ -z "${HOME:-}" ] || [ "$HOME" = / ]; then
             mkdir -p /srv/rh-1 && echo "HOME=/srv/rh-1" >> "$GITHUB_ENV"
           fi
+          [ -n "${SHELL:-}" ] || echo "SHELL=/bin/bash" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@v5
         if: ${{ needs.changes.outputs.e2e != 'false' }}
