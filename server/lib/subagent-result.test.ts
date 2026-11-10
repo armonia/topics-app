@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
 import {
+  STALE_BACKGROUND_MS,
   UNDELIVERED_AFTER_MS,
   childModel,
   classifyChildTurn,
@@ -83,6 +84,25 @@ describe("what is not a prompt, and a turn that waits for its background work", 
     expect(classifyChildTurn(beforeNotification, 1, { ending: "stopped" })).toEqual({
       status: "stopped", partial: true, text: "The suite is running in the background; I will report when it finishes.", reason: { code: "stopped-by-parent" },
     });
+  });
+
+  test("notifications left as queue-operation and queued_command still settle the background work (09/11)", () => {
+    const lines = fixture("queued-notifications");
+    const done = { status: "completed", partial: false, text: "All three chapters reviewed: 4 fixes." };
+    expect(promptCount(lines)).toBe(1);
+    expect(classifyChildTurn(lines, 1)).toEqual(done);
+    expect(pendingChildTurns(lines, idle)).toEqual([{ turn: 1, outcome: done }]);
+  });
+
+  test("a closed turn whose background never reports ends after STALE_BACKGROUND_MS, not before", () => {
+    const lines = fixture("background-silent");
+    const closedAt = Date.parse("2026-09-29T10:00:08.100Z");
+    expect(pendingChildTurns(lines, { ...idle, now: closedAt + STALE_BACKGROUND_MS - 1 })).toEqual([]);
+    expect(pendingChildTurns(lines, { ...idle, now: closedAt + STALE_BACKGROUND_MS })).toEqual([{
+      turn: 1, outcome: { status: "completed", partial: false, text: "The suite is running in the background; I will report when it finishes." },
+    }]);
+    // Without the CLI's close the clock does not run: the turn is still the child's.
+    expect(pendingChildTurns(lines.slice(0, -1), { ...idle, now: closedAt + 10 * STALE_BACKGROUND_MS })).toEqual([]);
   });
 
   test("a compact summary is not a prompt: the turn goes on through it", () => {
