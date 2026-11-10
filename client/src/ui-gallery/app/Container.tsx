@@ -632,6 +632,8 @@ export function App({ copy: baseCopy, copies, embedPath, edition }: {
   };
   const sidebarEl = (
     <Sidebar
+      /* Remonta a ogni reset: un menu di riga lasciato aperto (stato locale di OrgRow) teneva il suo scudo z-9999 sopra il dialogo della prova dopo. */
+      key={epoch}
       model={sidebar}
       copy={copy}
       onSelect={(id) => {
