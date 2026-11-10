@@ -88,7 +88,7 @@ describe("what is not a prompt, and a turn that waits for its background work", 
 
   test("notifications left as queue-operation and queued_command still settle the background work (09/11)", () => {
     const lines = fixture("queued-notifications");
-    const done = { status: "completed", partial: false, text: "All three chapters reviewed: 4 fixes." };
+    const done = { status: "completed" as const, partial: false, text: "All three chapters reviewed: 4 fixes." };
     expect(promptCount(lines)).toBe(1);
     expect(classifyChildTurn(lines, 1)).toEqual(done);
     expect(pendingChildTurns(lines, idle)).toEqual([{ turn: 1, outcome: done }]);
