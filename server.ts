@@ -105,6 +105,7 @@ import { createPlanRouter } from "./server/routes/plan";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createTaskService, projectIdForPath } from "./server/services/tasks";
 import { mainPushGit, pushMainToOrigin, sweepUnpushedMains } from "./server/services/main-on-origin";
+import { configureChannelOriginCards } from "./server/lib/channel-origin-cards";
 import { createScheduledCards } from "./server/services/scheduled-cards";
 import { createExternalSessionsService } from "./server/services/external-sessions";
 import { createAgentWorktree, worktreeReadyMs, type AgentWorktreeDeps } from "./server/services/worktree-for-agent";
@@ -1228,6 +1229,8 @@ const dispatcherSvc = createTaskService(ctx.db, {
     if (noted) ctx.broadcastToAll({ type: "task:updated", projectId, task: noted });
   },
 });
+// Cards born from a channel chat follow that chat's turns (97e3951f).
+configureChannelOriginCards(ctx.db, dispatcherSvc);
 let scheduledCardTestNow: Date | null = null;
 const scheduledCards = createScheduledCards(ctx.db, dispatcherSvc, () => scheduledCardTestNow ?? new Date());
 function tickScheduledCards(): { created: string[]; skipped: string[] } {
