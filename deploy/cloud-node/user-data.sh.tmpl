@@ -1,0 +1,56 @@
+#!/bin/bash
+# Ricetta unica di un nodo cloud di Topics (cloud-nodes, Fase 2).
+# Gli strumenti vengono da winfleet/nodo/strumenti.txt (lo stesso elenco del PC e di
+# offload-hetzner): node-pool li sostituisce in @APT@ e @NPM@. Nessun segreto qui dentro:
+# Hetzner serve user_data alla VM per tutta la sua vita.
+set -u
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq @APT@ lsof curl ca-certificates
+# node con la major del Mac, come offload-hetzner
+b=https://nodejs.org/dist/latest-v@NODE_MAJOR@.x
+f=$(curl -fsSL $b/SHASUMS256.txt | awk '/linux-x64.tar.xz/{print $2}')
+curl -fsSL $b/$f | tar -xJ -C /usr/local --strip-components=1
+npm install -g --silent @NPM@ || true
+id topics >/dev/null 2>&1 || useradd -m -s /bin/bash topics
+loginctl enable-linger topics
+cat > /home/topics/setup.sh <<'EOS'
+set -ex
+cd ~
+git config --global user.name "Topics node"
+git config --global user.email "node@topics.invalid"
+git clone -q https://github.com/armonia/topics-app topics-app
+cd topics-app && git checkout -q @COMMIT@
+bash scripts/install-bun.sh
+export PATH="$HOME/.topics/bun/$(tr -d '[:space:]' < .bun-version):$PATH"
+bun install
+npm rebuild node-pty || true
+bun run scripts/fix-node-pty-exec-bit.ts || true
+mkdir -p ~/repos ~/.claude
+EOS
+chown topics:topics /home/topics/setup.sh
+su - topics -c "bash /home/topics/setup.sh" > /var/log/topics-setup.log 2>&1
+cat > /etc/systemd/system/topics.service <<'EOS'
+[Unit]
+Description=Topics node
+After=network-online.target
+Wants=network-online.target
+[Service]
+User=topics
+WorkingDirectory=/home/topics/topics-app
+Environment=HOME=/home/topics
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=NO_TLS=1
+Environment=TOPICS_TUNNEL_PORT=3341
+Environment=TOPICS_SERVER_WATCH=0
+Environment=GIT_TERMINAL_PROMPT=0
+ExecStart=/bin/bash scripts/start-prod.sh
+KillSignal=SIGTERM
+TimeoutStopSec=300
+Restart=on-failure
+[Install]
+WantedBy=multi-user.target
+EOS
+systemctl daemon-reload
+systemctl enable --now topics.service
+touch /var/lib/topics-node-ready
