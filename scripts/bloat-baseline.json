@@ -641,6 +641,8 @@
 
     "server/services/dispatch-capacity.ts": 1295,
 
+    "server/services/external-proxy.ts": 868,
+
     "server/services/relay-client.ts": 1300,
 
     "server/services/review-checks-brakes.test.ts": 1000,
