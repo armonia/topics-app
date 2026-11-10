@@ -169,7 +169,6 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- 20261030181324: overflow dispatch. The card's "this Mac only" mark, and
   -- when the dispatcher moved it off this machine.
   stay_local INTEGER NOT NULL DEFAULT 0,
-  stay_local_until TEXT,
   overflowed_at TEXT,
   -- 20261030181324: on a node's mirror card, the branch its worktree starts from.
   base_branch TEXT,
@@ -184,7 +183,9 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   created_source TEXT,
   origin_topic_id TEXT,
   bar TEXT,
-  created_missing TEXT
+  created_missing TEXT,
+  -- 20261110140000: when the dispatcher's "this Mac only" pin expires.
+  stay_local_until TEXT
 )`;
 
 /**
