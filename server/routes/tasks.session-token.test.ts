@@ -1,4 +1,5 @@
 /**
+ * @covers KANBAN-110
  * THE SESSION ROUTES SIGN AS THE CALLER, NOT AS THE URL (card 964ea861).
  *
  * `/api/sessions/:sessionKey/...` took the signature from the key in the path,

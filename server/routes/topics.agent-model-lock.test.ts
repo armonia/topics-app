@@ -1,4 +1,5 @@
 /**
+ * @covers KANBAN-111
  * A BOARD AGENT CANNOT DECLARE ITS OWN MODEL (card 964ea861).
  *
  * The thread of a card shows the agent's model next to its signature, and that
