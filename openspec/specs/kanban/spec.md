@@ -5535,3 +5535,11 @@ A comment written through the API or the MCP SHALL NOT show the owner's name. Th
 #### Scenario: a reject without the interface header
 - **WHEN** a script posts a reject on the review route
 - **THEN** the stored author SHALL be `user` and the agent SHALL receive the rejection after a restart
+
+### Requirement: STATUS-VISUAL-01 - One colour per meaning, from one place
+
+The colours and icons of a card's states SHALL come from `client/src/lib/statusVisual.ts`: amber for "waiting on you", sky blue for "being worked", red only for a failure. The same meaning SHALL have the same colour everywhere, and pink SHALL NOT be a state.
+
+#### Scenario: two surfaces show the same state
+- **GIVEN** a card waiting on the person using the app, on the board and in the detail
+- **THEN** the colour SHALL be the same, taken from `STATUS_INK.wait`
