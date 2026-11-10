@@ -38,6 +38,7 @@
 import type { BrowserService } from "../browser-service";
 import type { Topic } from "../types";
 import type { OpenPaneFlowOptions } from "./browser-open-pane-flow";
+import { isAgentOwnedTopic } from "../../shared/agent-owned";
 
 /** Page ops that must never mount a pane: pure status reads. */
 const NO_AUTO_OPEN_OPS: ReadonlySet<string> = new Set(["browser_status"]);
@@ -107,6 +108,9 @@ export async function maybeOpenPaneForPageOp(
   const topic = op.topic;
   if (!topic) return;
   if (deps.isTaskTopic(topic)) return;
+  // An agent's chat keeps its browser in its own section (10/11): its page
+  // ops run headless instead of mounting a pane in Attilio's layout.
+  if (isAgentOwnedTopic(topic)) return;
   if (op.contextId.startsWith("term-")) return;
   if (NO_AUTO_OPEN_OPS.has(op.toolName)) return;
   if (deps.paneAttachedTo(op.contextId)) return;
