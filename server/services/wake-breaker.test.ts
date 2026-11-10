@@ -1,6 +1,8 @@
 /**
  * A node whose wakes keep failing is not picked as a sleeping target.
  * 2026-11-10: the PC stuck at the login screen got 17 cards in half an hour.
+ *
+ * @covers KANBAN-76
  */
 import { test, expect } from "bun:test";
 import { pickOverflowMachine, type OverflowMachine } from "./dispatch-overflow";

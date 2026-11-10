@@ -4,6 +4,8 @@
  * 2026-11-10: 1dc60129 parked `waited_out` after 7 waits on a silent cloud
  * node, which came back soon after; the card sat in backlog for hours with
  * nobody requeueing it. A wait an agent declared stays with the human.
+ *
+ * @covers KANBAN-92
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
