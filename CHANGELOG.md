@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.79 — 2026-11-10
+
+### Sotto il cofano
+- esito della traccia R4 (proxy e account nel servizio Rust) (#732)
+- topics/primrose-hill (card e12b765a) (#733)
+- topics/gusty-flag (card 97e3951f) (#735)
+
 ## 2.3.78 — 2026-11-10
 
 ### Sotto il cofano
@@ -21,11 +28,17 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - nota di consegna della traccia R2 del servizio sempre acceso (#726)
 - topics/crested-manor (card 73f93690) (#722)
 - Tab di anteprima nei progetti, e le chat degli agenti fuori dalla barra (#721)
+- Card e12b765a: ramo UI unito in un commit, senza gli script temporanei di lead (dati di persone)
 - topics/bold-siren (card b1b60a20) (#724)
 - topics/timely-grain (card 680ce412) (#718)
 - topics/equal-camel (card 511a992a) (#720)
 - topics/dawning-frost (card 97e3951f) (#727)
+- Card e12b765a: parole del progetto e baseline degli identificatori
+- Card e12b765a: baseline del bloat per le fixture dello strato UI
+- Card e12b765a: tipografia sulla scala, lingua della UI, test dichiarati, check UI nel workflow
+- Card e12b765a: guardie unitarie dello strato UI (qa-gate, rails, nomi, eccezioni scritte)
 - Il land porta main su origin: prima restava solo su questo disco (#730)
+- Card e12b765a: rilancio della CI (unit annullato da un guasto apt del runner)
 
 ## 2.3.76 — 2026-11-10
 
