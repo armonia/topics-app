@@ -1,8 +1,9 @@
 name: Server Hetzner per i job pesanti
 
 # Workflow riusabile: crea (mode: create) o cancella (mode: delete) un server Hetzner Cloud
-# che esiste solo per la durata di una run. Sopra ci girano `runners` runner GitHub, tutti con
-# la stessa etichetta (`label`): i job pesanti della run (matrici comprese) se li dividono.
+# che esiste solo per la durata di una run. Sopra ci girano N runner GitHub effimeri, tutti con
+# la stessa etichetta (`label`), e il job di create fa la mappa `placement` di quale job della
+# matrice va dove: PC di Attilio (runner del broker sul Mac), questo server, o ubuntu-latest.
 #
 # Perché più runner su un server solo: Hetzner fattura l'ora intera anche per 5 minuti,
 # quindi un server per job costerebbe N ore per run. Un cx53 (16 core, 32 GB) con 4 runner
@@ -11,9 +12,9 @@ name: Server Hetzner per i job pesanti
 # Copia di armonia/quadra (.github/workflows/hcloud-runner.yml), adattata a un repo PUBBLICO:
 # - create e delete girano su ubuntu-latest (gratis qui), mai su macchine nostre: sono gli
 #   unici job che vedono HCLOUD_TOKEN e RUNNER_ADMIN_TOKEN, e non eseguono codice della PR;
-# - niente ripiego su server piccoli: se il cx53 non nasce (core condivisi del progetto pieni,
-#   crm + giuseppe = 20, 10/11) `runners` e' 0 e la run resta tutta su GitHub; l'output `runners` dice quanti ne sono nati, e chi chiama manda lì solo quei job;
-# - i runner in più si registrano --ephemeral: un job e via, e l'etichetta è unica per run.
+# - se nessun taglio nasce (esauriti, limite di core) `runners` è 0 e i job vanno su GitHub;
+# - i runner sono --ephemeral (un job e via) e l'etichetta è unica per run, quindi la mappa
+#   non dà mai a un'etichetta più job che runner online.
 # Ripiego dei job pesanti quando il server non c'è: ubuntu-latest, come prima.
 # Rete: hcloud-sweeper.yml cancella ogni ora i server gh-runner-* più vecchi di 3 ore.
 
@@ -32,13 +33,10 @@ on:
         description: (delete) id del server restituito da create
         type: string
         default: ""
-      server_type:
+      types:
+        description: 'tagli da provare in ordine, ciascuno coi suoi runner: "cx53:4 cx43:2"'
         type: string
-        default: cx53
-      runners:
-        description: quanti runner sul server (job in parallelo)
-        type: number
-        default: 1
+        default: "cx53:4"
       playwright:
         description: installa all'avvio le librerie di sistema di Chromium per Playwright
         type: boolean
@@ -85,8 +83,6 @@ jobs:
     if: ${{ inputs.mode == 'create' }}
     runs-on: ${{ fromJSON(inputs.controller) }}
     timeout-minutes: 25
-    # Solo il tentativo riuscito conta: Cyclenerd scrive label e server_id appena crea il
-    # server, anche se poi il runner non si registra (09/11: download del runner in 504).
     outputs:
       label: ${{ steps.win.outputs.label }}
       server_id: ${{ steps.win.outputs.server_id }}
@@ -113,14 +109,16 @@ jobs:
         env:
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
           STOP: ${{ vars.HETZNER_STOP }}
-          TIPO: ${{ inputs.server_type }}
+          TYPES: ${{ inputs.types }}
         run: |
           set -euo pipefail
           no() { echo "::warning::Niente server Hetzner: $1. I job pesanti vanno sul runner di ripiego."; echo "ok=false" >> "$GITHUB_OUTPUT"; exit 0; }
           [ "${STOP:-0}" = "1" ] && no "HETZNER_STOP=1 (tetto del mese)"
-          case " ccx13 ccx23 cx23 cx33 cx43 cx53 cax11 cax21 cax31 cax41 cpx22 cpx32 " in
-            *" $TIPO "*) ;; *) no "taglio $TIPO non ammesso" ;;
-          esac
+          for spec in $TYPES; do
+            case " ccx13 ccx23 cx23 cx33 cx43 cx53 cpx22 cpx32 " in
+              *" ${spec%%:*} "*) ;; *) no "taglio ${spec%%:*} non ammesso" ;;
+            esac
+          done
           ids=""
           for sel in gh-runner offload type%3Dgithub-runner; do
             # API muta = niente server: nel dubbio non si spende.
@@ -132,149 +130,82 @@ jobs:
           [ "$n" -ge 2 ] && no "già $n server effimeri accesi (max 2)"
           echo "ok=true" >> "$GITHUB_OUTPUT"
 
-      - name: Script di avvio del server
+      # UNA CHIAMATA ALL'API PER TAGLIO E ZONA, IL PRIMO CHE NASCE VINCE.
+      #
+      # Niente Cyclenerd/hcloud-github-runner: provava un taglio solo, due zone, con 10 s di
+      # attesa fra i tentativi, e il 10/11 sera cx53 e cx43 erano esauriti in fsn1, nbg1 e hel1
+      # (`resource_unavailable`, run 42876278262). Qui ogni tentativo è una POST che fallisce
+      # subito, e i runner li installa cloud-init (user_data): prima le librerie, poi i runner,
+      # così nessun job parte su una macchina a metà. Quanti runner per taglio lo dice `types`
+      # ("cx53:4 cx43:2": 4 vCPU per runner, come un runner GitHub). Che siano davvero online
+      # lo conta il passo dopo.
+      - name: Crea il server
+        id: win
         if: ${{ steps.gate.outputs.ok == 'true' }}
-        id: pre
         env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
           GH_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}
-          RUNNERS: ${{ inputs.runners }}
+          TYPES: ${{ inputs.types }}
           PLAYWRIGHT: ${{ inputs.playwright }}
           APT_PACKAGES: ${{ inputs.apt_packages }}
           PW_VERSION: ${{ inputs.playwright_version }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           name="gh-runner-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          # Token di registrazione per i runner in più (vale 1 ora ed è riusabile): il primo
-          # runner lo registra l'action da sé.
-          token=""
-          if [ "$RUNNERS" -gt 1 ]; then
-            token=$(curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runners/registration-token" | jq -er .token)
-            echo "::add-mask::$token"
-          fi
-          for loc in fsn1 hel1; do
-            n="$name"; [ "$loc" = hel1 ] && n="$name-b"
-            r="$RUNNERS"
-            f="$RUNNER_TEMP/pre-$loc.sh"
-            {
-              echo 'export DEBIAN_FRONTEND=noninteractive'
-              if [ -n "$APT_PACKAGES" ]; then
-                # update first: the image's package lists may be stale, and build-essential
-                # pulls many packages a stale list would 404 on.
-                echo "apt-get update -qq >/var/log/apt-extra.log 2>&1; apt-get install -y -qq $APT_PACKAGES >>/var/log/apt-extra.log 2>&1"
-              fi
-              if [ "$PLAYWRIGHT" = "true" ]; then
-                # Una volta sola qui, prima che un runner prenda un job: otto `--with-deps` in
-                # parallelo si contenderebbero il lock di apt. Chromium E WebKit (la e2e li usa
-                # entrambi), con un Node 20 portatile perché quello di Ubuntu è troppo vecchio.
-                echo "PWV=$PW_VERSION"
-                cat <<'EOS'
-          curl -fsSL https://nodejs.org/dist/v20.18.1/node-v20.18.1-linux-x64.tar.xz | tar xJ -C /opt
-          PATH=/opt/node-v20.18.1-linux-x64/bin:$PATH npx -y "playwright@$PWV" install-deps chromium webkit >/var/log/pw-deps.log 2>&1
-          EOS
-              fi
-              if [ "$r" -gt 1 ]; then
-                echo "N=$r NAME=$n URL=https://github.com/${GITHUB_REPOSITORY} TOKEN=$token"
-                cat <<'EOS'
+          echo "runners=0" >> "$GITHUB_OUTPUT"
+          # Token di registrazione: vale 1 ora, riusabile per tutti i runner del server.
+          token=$(curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runners/registration-token" | jq -er .token) \
+            || { echo "::warning::Niente token di registrazione dei runner: i job vanno sul ripiego."; exit 0; }
+          echo "::add-mask::$token"
+          user_data() {  # $1 = runner sul server
+            echo '#!/bin/bash'
+            echo 'export DEBIAN_FRONTEND=noninteractive'
+            echo "apt-get update -qq >/var/log/apt-extra.log 2>&1; apt-get install -y -qq jq curl $APT_PACKAGES >>/var/log/apt-extra.log 2>&1"
+            if [ "$PLAYWRIGHT" = "true" ]; then
+              # Una volta sola qui, prima dei runner: più `--with-deps` insieme si contendono il lock di apt.
+              echo "curl -fsSL https://nodejs.org/dist/v20.18.1/node-v20.18.1-linux-x64.tar.xz | tar xJ -C /opt"
+              echo "PATH=/opt/node-v20.18.1-linux-x64/bin:\$PATH npx -y playwright@$PW_VERSION install-deps chromium webkit >/var/log/pw-deps.log 2>&1"
+            fi
+            echo "N=$1 NAME=$name URL=https://github.com/${GITHUB_REPOSITORY} TOKEN=$token"
+            cat <<'EOS'
           V=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest | jq -r .tag_name | sed 's/^v//')
-          for i in $(seq 2 "$N"); do
+          for i in $(seq 1 "$N"); do
             d=/actions-runner-$i; mkdir -p "$d"; cd "$d"
             curl -fsSL "https://github.com/actions/runner/releases/download/v$V/actions-runner-linux-x64-$V.tar.gz" | tar xz
-            if [ "$i" = 2 ]; then ./bin/installdependencies.sh >/var/log/runner-deps.log 2>&1; fi
+            [ "$i" = 1 ] && ./bin/installdependencies.sh >/var/log/runner-deps.log 2>&1
             RUNNER_ALLOW_RUNASROOT=1 ./config.sh --unattended --url "$URL" --token "$TOKEN" \
               --name "$NAME-$i" --labels "$NAME" --no-default-labels --disableupdate --ephemeral >"/var/log/runner-$i.log" 2>&1
-            # HOME suo: pnpm/action-setup, Playwright e le cache scrivono in ~ e due job insieme
-            # nella stessa /root si pestano (ENOTEMPTY su ~/setup-pnpm).
+            # HOME sua: la CI ne ricava la fascia di porte (ci.yml) e due job non si pestano ~/.cache.
             mkdir -p "/srv/rh-$i"
-            HOME="/srv/rh-$i" RUNNER_ALLOW_RUNASROOT=1 setsid nohup ./run.sh >>"/var/log/runner-$i.log" 2>&1 < /dev/null &
+            HOME="/srv/rh-$i" SHELL=/bin/bash RUNNER_ALLOW_RUNASROOT=1 setsid nohup ./run.sh >>"/var/log/runner-$i.log" 2>&1 < /dev/null &
           done
           EOS
+          }
+          for spec in $TYPES; do
+            ty=${spec%%:*}; n=${spec##*:}
+            for loc in fsn1 nbg1 hel1; do
+              body=$(jq -n --arg name "$name" --arg ty "$ty" --arg loc "$loc" --arg ud "$(user_data "$n")" \
+                '{name: $name, server_type: $ty, image: "ubuntu-24.04", location: $loc, ssh_keys: [112097822],
+                  labels: {type: "github-runner", "gh-runner": "ci"}, user_data: $ud}')
+              r=$(curl -sS -X POST -H "Authorization: Bearer $HCLOUD_TOKEN" -H "Content-Type: application/json" \
+                https://api.hetzner.cloud/v1/servers -d "$body")
+              id=$(jq -r '.server.id // empty' <<<"$r" 2>/dev/null)
+              if [ -n "$id" ]; then
+                echo "server $name: $ty in $loc ($id), $n runner"
+                { echo "label=$name"; echo "server_id=$id"; echo "runners=$n"; } >> "$GITHUB_OUTPUT"
+                exit 0
               fi
-            } > "$f"
-            {
-              echo "$loc<<__PRE__"
-              cat "$f"
-              echo '__PRE__'
-              echo "name_$loc=$n"
-            } >> "$GITHUB_OUTPUT"
+              echo "$ty $loc: $(jq -r '.error.code // "?"' <<<"$r" 2>/dev/null)"
+            done
           done
-
-      # fsn1, poi hel1 se lì il taglio è esaurito (succede ai cx). Se falliscono entrambi
-      # (taglio esaurito, limite di core del progetto) il job resta verde con `label` vuota
-      # e i job pesanti ripiegano su ubuntu-latest.
-      # Due soli tentativi per zona: un 403 per limite di core non si risolve aspettando,
-      # e ogni minuto qui è un minuto del runner leggero.
-      - name: Crea il server (fsn1)
-        id: fsn1
-        if: ${{ steps.gate.outputs.ok == 'true' }}
-        continue-on-error: true
-        uses: Cyclenerd/hcloud-github-runner@94a0a4aa750d832b48cc0f66d24ed56c3fe69448 # v1.4.1
-        with:
-          mode: create
-          github_token: ${{ secrets.RUNNER_ADMIN_TOKEN }}
-          hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
-          name: ${{ steps.pre.outputs.name_fsn1 }}
-          server_type: ${{ inputs.server_type }}
-          location: fsn1
-          image: docker-ce
-          ssh_key: "112097822"
-          create_wait: 2
-          pre_runner_script: ${{ steps.pre.outputs.fsn1 }}
-
-      - name: Crea il server (hel1)
-        id: hel1
-        if: ${{ steps.gate.outputs.ok == 'true' && steps.fsn1.outcome != 'success' }}
-        continue-on-error: true
-        uses: Cyclenerd/hcloud-github-runner@94a0a4aa750d832b48cc0f66d24ed56c3fe69448 # v1.4.1
-        with:
-          mode: create
-          github_token: ${{ secrets.RUNNER_ADMIN_TOKEN }}
-          hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
-          name: ${{ steps.pre.outputs.name_hel1 }}
-          server_type: ${{ inputs.server_type }}
-          location: hel1
-          image: docker-ce
-          ssh_key: "112097822"
-          create_wait: 2
-          pre_runner_script: ${{ steps.pre.outputs.hel1 }}
-
-      # Niente ripiego su un dedicato piccolo: un ccx23 con 1 runner per 9 shard rendeva la CI
-      # piu' lenta di GitHub (run 42856852451). Senza cx53 la run resta tutta su GitHub.
-
-      # Il vincitore, e via subito ogni altro server di questa run (tentativi falliti a metà):
-      # un server senza runner registrato non deve aspettare il reaper delle 3 ore.
-      - name: Tieni solo il server che funziona
-        id: win
-        if: ${{ always() }}
-        env:
-          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-          L1: ${{ steps.fsn1.outcome == 'success' && steps.fsn1.outputs.label || '' }}
-          L2: ${{ steps.hel1.outcome == 'success' && steps.hel1.outputs.label || '' }}
-          S1: ${{ steps.fsn1.outputs.server_id }}
-          S2: ${{ steps.hel1.outputs.server_id }}
-          RUNNERS: ${{ inputs.runners }}
-        run: |
-          label=""; sid=""
-          if [ -n "$L1" ]; then label=$L1; sid=$S1; elif [ -n "$L2" ]; then label=$L2; sid=$S2; fi
-          n=0; [ -n "$label" ] && n=$RUNNERS
-          echo "runners=$n" >> "$GITHUB_OUTPUT"
-          echo "label=$label" >> "$GITHUB_OUTPUT"
-          echo "server_id=$sid" >> "$GITHUB_OUTPUT"
-          [ -z "$label" ] && echo "::warning::Nessun server Hetzner pronto: i job pesanti vanno sul ripiego."
-          h=https://api.hetzner.cloud/v1
-          curl -fsS -H "Authorization: Bearer $HCLOUD_TOKEN" "$h/servers?label_selector=type%3Dgithub-runner&per_page=50" \
-            | jq -r --arg p "gh-runner-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" --arg keep "$label" \
-                '.servers[] | select((.name | startswith($p)) and .name != $keep) | "\(.id) \(.name)"' \
-            | while read -r id name; do
-                curl -fsS -X DELETE -H "Authorization: Bearer $HCLOUD_TOKEN" "$h/servers/$id" >/dev/null && echo "cancellato $name (tentativo fallito)"
-              done || true
+          echo "::warning::Nessun server Hetzner disponibile ($TYPES): i job vanno sul ripiego."
 
       # QUANTI RUNNER CI SONO DAVVERO, E DOVE VA OGNI JOB.
       #
-      # Cyclenerd aspetta solo il primo runner del server; gli altri li registra cloud-init
-      # in background, e uno può mancare (download in 504). Il PC li accende il broker sul
-      # Mac (`scripts/ci-pc-broker`) quando vede questo job in corso e il PC è libero:
+      # I runner del server li registra cloud-init in background, e uno può mancare
+      # (download del runner in 504 il 09/11). Il PC li accende il broker sul
+      # Mac (`ci-pc-broker`, in jarvis) quando vede questo job in corso e il PC è libero:
       # etichetta pc-<run>-<tentativo>, runner effimeri JIT. Qui si contano quelli ONLINE
       # con l'etichetta, e la mappa non dà mai a un'etichetta più job che runner: un job in
       # più resterebbe in coda per sempre (runner effimeri, server cancellato dopo gli shard).
@@ -327,23 +258,9 @@ jobs:
     runs-on: ${{ fromJSON(inputs.controller) }}
     timeout-minutes: 15
     steps:
-      # Cyclenerd riprova fino a un'ora se il server non c'è più: qui basta un minuto, la
-      # pulizia vera (e la verifica) la fa il passo dopo.
-      - name: Cancella il server
-        if: ${{ inputs.label != '' }}
-        continue-on-error: true
-        uses: Cyclenerd/hcloud-github-runner@94a0a4aa750d832b48cc0f66d24ed56c3fe69448 # v1.4.1
-        with:
-          delete_wait: 6
-          mode: delete
-          github_token: ${{ secrets.RUNNER_ADMIN_TOKEN }}
-          hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
-          name: ${{ inputs.label }}
-          server_id: ${{ inputs.server_id }}
-
-      # Anche senza label: se il job di create è morto dopo aver creato il server  il server esiste ma l'output no. Il nome è
-      # deterministico, gh-runner-<run>-<tentativo>[-b|-c], quindi si cerca per prefisso.
-      - name: Cancella gli avanzi di questa run (server e runner)
+      # Per prefisso del nome, non per id: se il job di create è morto dopo aver creato il
+      # server, il server esiste ma l'output no. Il nome è gh-runner-<run>-<tentativo>.
+      - name: Cancella i server e i runner di questa run
         if: ${{ always() }}
         env:
           GH_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}

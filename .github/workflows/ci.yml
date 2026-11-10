@@ -959,8 +959,8 @@ jobs:
   #     nobody is using the PC, when it sees the job below running. It publishes
   #     PC_CI=1 on the repository while it can take shards; with PC_CI=0 the
   #     job does not wait for it.
-  #  2. One Hetzner cx53 (16 vCPU, 32 GB, 0.047 EUR/h, 4 runners) for this run
-  #     only, unless HETZNER_STOP=1: `hetzner-tetto` sets it when the CI's own
+  #  2. One Hetzner cx53 (16 vCPU, 32 GB, 0.047 EUR/h, 4 runners; a cx43 with 2
+  #     when the cx53 are sold out) for this run only, unless HETZNER_STOP=1: `hetzner-tetto` sets it when the CI's own
   #     30 EUR a month would be exceeded.
   #  3. ubuntu-latest for every shard left.
   # `e2e-placement.sh` makes the map, and a label never gets more shards than
@@ -986,8 +986,9 @@ jobs:
     uses: ./.github/workflows/hcloud-runner.yml
     with:
       mode: create
-      server_type: ${{ vars.HCLOUD_HEAVY_TYPE || 'cx53' }}
-      runners: 4
+      # cx53 = 4 runner da 4 vCPU per 0,047 EUR/h; cx43 = 2 runner. HCLOUD_TYPES sulla
+      # variabile di repo li cambia senza un commit (es. "cpx32:1" quando i cx sono esauriti).
+      types: ${{ vars.HCLOUD_TYPES || 'cx53:4 cx43:2' }}
       playwright: true
       # What the GitHub image has and Ubuntu does not: jq for scripts/e2e-stop-on-red.sh,
       # unzip for oven-sh/setup-bun (run 42823485405), make and g++ for `npm rebuild
