@@ -104,10 +104,9 @@ test.describe("Board: a frame's field reaches the card", () => {
 
   test("a status change moves the card and the column counts follow", async ({ page }) => {
     const { target } = await openBoard(page, "status");
-    // The count is read only once the seeded cards are all counted and it holds still.
+    // Serial mode keeps the count still, so a numeric reading is the settled one.
     const count = page.getByTestId("kanban-column-count-backlog");
     await expect(count).toHaveText(/^\d+$/);
-    await page.waitForTimeout(500);
     const backlogBefore = Number(await count.textContent());
     await patch(page, target, { status: "done" });
     await expect(page.getByTestId("kanban-column-body-done").locator(`[data-task-card="${target}"]`)).toBeVisible({ timeout: 10_000 });
