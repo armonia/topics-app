@@ -4690,6 +4690,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         put("wait_streak", 0);
         put("wait_reason", null);
         put("wait_since", null);
+        put("wait_source", null);
       }
       put("updated_at", now());
 
