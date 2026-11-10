@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.78 — 2026-11-10
+
+### Sotto il cofano
+- una cache di compilazione per processo, due Playwright fratelli si leggevano a meta' shared/board (#736)
+
 ## 2.3.77 — 2026-11-10
 
 ### Sotto il cofano

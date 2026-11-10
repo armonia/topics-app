@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.3.78",
+    "date": "2026-11-10",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "una cache di compilazione per processo, due Playwright fratelli si leggevano a meta' shared/board (#736)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.77",
     "date": "2026-11-10",
     "sections": {
