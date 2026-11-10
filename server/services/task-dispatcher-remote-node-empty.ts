@@ -11,7 +11,13 @@
  * overflow does not send it to the same place again, with its attempt refunded.
  * Only when the SYSTEM put it on the node (`overflowedAt`): a card a person sent
  * there by hand stays where they put it, with the reason on it.
+ *
+ * NOT when the run ended on a question (09/11): an agent that stopped to ask a
+ * person a choice produced no commit because it was waiting, not because the
+ * PC lacked a tool. Pinning it here would fill this machine's queue with cards
+ * that run fine there; it goes to review with its buttons, like any question.
  */
+import { pendingQuestionComment } from "../../shared/board";
 import type { Task, TaskService } from "./tasks";
 
 interface EmptyRunDeps {
@@ -24,6 +30,7 @@ interface EmptyRunDeps {
 /** `true` = the card is back in the queue and the caller has nothing more to do. */
 export function returnEmptyNodeRunToTodo(deps: EmptyRunDeps, task: Task, nodeName: string): boolean {
   if (!task.overflowedAt) return false;
+  if (pendingQuestionComment(deps.svc.get(task.id)?.comments ?? [])) return false;
   try {
     deps.releaseAndEmit({ taskId: task.id, requeue: true, rollbackAttempt: true });
     deps.emit(deps.svc.update({ taskId: task.id, actor: "agent", by: "dispatcher", patch: { machineId: null, stayLocal: true } }));
