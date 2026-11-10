@@ -15,6 +15,7 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { readSessionToken, SESSION_TOKEN_HEADER } from "../lib/session-token";
 
 /** The argv contract of the bridge process, parsed once at startup. */
 export interface ParsedArgs {
@@ -61,13 +62,19 @@ export function readDaemonToken(topicsHome: string): string | undefined {
 }
 
 /**
- * How the bridge proves it is ours: the daemon token, which `agentAuthOk`
- * accepts on every gated route. It is the only credential the bridge carries.
+ * How the bridge proves it is ours, and which session it is.
+ *  - The daemon token, which `agentAuthOk` accepts on every gated route.
+ *  - The session token (`server/lib/session-token.ts`), which binds the call
+ *    to THIS bridge's session: without it the session routes sign as an
+ *    anonymous agent, whatever key the path names.
+ * Both are re-read on every request, from 0600 files, never from argv.
  */
-export function bridgeAuthHeaders(args: Pick<ParsedArgs, "topicsHome">): Record<string, string> {
+export function bridgeAuthHeaders(args: Pick<ParsedArgs, "topicsHome"> & { sessionKey?: string }): Record<string, string> {
   const headers: Record<string, string> = {};
   const daemon = args.topicsHome ? readDaemonToken(args.topicsHome) : undefined;
   if (daemon) headers["X-Daemon-Token"] = daemon;
+  const session = args.topicsHome && args.sessionKey ? readSessionToken(args.topicsHome, args.sessionKey) : undefined;
+  if (session) headers[SESSION_TOKEN_HEADER] = session;
   return headers;
 }
 

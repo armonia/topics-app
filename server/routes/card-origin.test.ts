@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { projectIdForPath } from "../services/tasks";
 import { createTasksRouter } from "./tasks";
-import { call, freshDb, makeCtx, rawCall } from "./tasks-test-support";
+import { call, freshDb, makeCtx, rawCall, withOwnSessionToken } from "./tasks-test-support";
 
 const GLOBAL_TOPIC_ID = "global-orchestrator-topic";
 const GLOBAL_KEY = "topic:global-orchestrator";
@@ -36,8 +36,10 @@ describe("card origin and agent-card contract", () => {
     }), undefined, { listProjectDirs: () => ["/proj/one", "/proj/two"] });
   });
 
+  // A session door is called by that session's own bridge, so it carries the
+  // session token (`lib/session-token.ts`); board doors are left as given.
   const post = async (path: string, body: unknown, headers?: HeadersInit) => {
-    const res = (await rawCall(router, "POST", path, body, headers))!;
+    const res = (await rawCall(router, "POST", path, body, withOwnSessionToken(path, headers)))!;
     return { status: res.status, body: await res.json() };
   };
 

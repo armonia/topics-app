@@ -23,7 +23,7 @@ import { createTopic, deleteTask, deleteTopic, resetPaneStore, resetProjectPanes
 import { recordAttentionFrames, sessionKeyOf } from "./helpers/attention";
 import { mkdirSync, writeFileSync } from "fs";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
-import { E2E_BASE } from "./helpers/test-server";
+import { E2E_BASE, sessionTokenHeaders } from "./helpers/test-server";
 import { openThisBoard } from "./helpers/open-this-board";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath } from "../../shared/board";
@@ -68,6 +68,7 @@ async function openProjectBoard(page: Page) {
 async function agentCreates(request: APIRequestContext, text: string): Promise<string> {
   const res = await request.post(`${E2E_BASE}/api/sessions/${encodeURIComponent(openerKey)}/tasks`, {
     data: { text, status: "todo", priority: 2, description: "bar: the page renders" },
+    headers: sessionTokenHeaders(openerKey),
   });
   expect(res.ok(), await res.text()).toBe(true);
   const id = ((await res.json()) as { id: string }).id;
@@ -77,7 +78,7 @@ async function agentCreates(request: APIRequestContext, text: string): Promise<s
 
 /** What an MCP `update_task` does, from the agent session that opened the card. */
 async function agentUpdates(request: APIRequestContext, taskId: string, data: Record<string, unknown>) {
-  return request.patch(`${E2E_BASE}/api/sessions/${encodeURIComponent(openerKey)}/tasks/${taskId}`, { data });
+  return request.patch(`${E2E_BASE}/api/sessions/${encodeURIComponent(openerKey)}/tasks/${taskId}`, { data, headers: sessionTokenHeaders(openerKey) });
 }
 
 test.describe("Board workflows · triage, AI review, human review", () => {
