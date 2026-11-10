@@ -138,9 +138,9 @@ export function applyEdit(paths: Paths, e: Edit): { file: string; backup: string
   if (e.kind === "chat") {
     const file = join(paths.home, "config.json");
     const cfg: Json = readJson(file);
-    const acc = (e.account ?? "default");
-    const g = (cfg.rules?.groups ?? []).find((x: Json) => x.channel === e.channel && x.chat === e.chat && (x.account ?? "default") === acc);
-    if (!g) throw new Error(`chat ${e.channel}:${e.chat} non trovata per ${acc}`);
+    const account = (e.account ?? "default");
+    const g = (cfg.rules?.groups ?? []).find((x: Json) => x.channel === e.channel && x.chat === e.chat && (x.account ?? "default") === account);
+    if (!g) throw new Error(`chat ${e.channel}:${e.chat} non trovata per ${account}`);
     for (const k of ["active", "mention"] as const) {
       if (e[k] === undefined) continue;
       if (typeof e[k] !== "boolean") throw new Error(`${k} deve essere true o false`);
@@ -171,8 +171,8 @@ async function reload(paths: Paths): Promise<string> {
   try { inflight = readJson(join(paths.home, "inflight.json")); } catch {}
   if (Object.keys(inflight).length) return "pending";
   if (process.env.AGENT_CONFIG_NO_RESTART) return "skipped";
-  const uid = process.getuid?.() ?? 501;
-  const r = await run(["launchctl", "kickstart", "-k", `gui/${uid}/com.jarvis.channels`]);
+  const userId = process.getuid?.() ?? 501;
+  const r = await run(["launchctl", "kickstart", "-k", `gui/${userId}/com.jarvis.channels`]);
   return r.code === 0 ? "restarted" : "pending";
 }
 
@@ -190,14 +190,14 @@ export function createAgentConfigRouter(ctx: Pick<AppContext, "json">, paths: ()
       try {
         return ctx.json({ ...readRegistry(p), health: { ok: health.ok, text: health.text } });
       } catch (err) {
-        return ctx.json({ error: `config non leggibile: ${String(err)}` }, 500);
+        return ctx.json({ error: `config not readable: ${String(err)}` }, 500);
       }
     }
     if (method !== "POST") return null;
     const kind = pathname.slice("/api/agent-config/".length);
     if (!["chat", "job", "persona"].includes(kind)) return null;
     let body: Json;
-    try { body = await req.json(); } catch { return ctx.json({ error: "corpo JSON non valido" }, 400); }
+    try { body = await req.json(); } catch { return ctx.json({ error: "invalid JSON body" }, 400); }
     try {
       const res = applyEdit(p, { ...body, kind } as Edit);
       const service = res.restart ? await reload(p) : "live";
