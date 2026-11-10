@@ -69,7 +69,6 @@ import { FilterTokenField } from './FilterTokenField';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
 import { ProjectFilterPicker } from './ProjectFilterPicker';
 import { Card, Column } from './Card';
-import type { DraftPreview } from './draftPreview';
 import { taskActionErrorMessage } from './taskActionError';
 import { taskActionWord } from './taskActionWords';
 import { TaskDetail } from './TaskDetail';
