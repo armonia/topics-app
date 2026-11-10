@@ -49,8 +49,10 @@ describe("server.ts asks for a provider it can live without", () => {
   test("the stale-stream timer is one of them", () => {
     // The specific site that took the server down, named so a future edit that
     // moves it back cannot pass quietly.
-    const timer = src.slice(src.indexOf("const staleStreamTimer"), src.indexOf("const staleStreamTimer") + 900);
-    expect(timer).toContain('tryGetProvider("claude-code")');
+    const start = src.indexOf("function runStaleStreamPass");
+    expect(start).toBeGreaterThan(-1);
+    const timer = src.slice(start, start + 2500);
+    expect(timer).toContain("childAliveForSweep(");
     expect(timer).not.toContain('getProvider("claude-code") as');
   });
 });

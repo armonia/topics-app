@@ -27,7 +27,9 @@ hermetic(test);
 const BOARD_ID = "livefields-e2e001";
 
 test.describe("Board: a frame's field reaches the card", () => {
-  test.describe.configure({ timeout: 90_000 });
+  // Serial: every test seeds into the same board, so a parallel test moves the
+  // column counts under the one that asserts them (the flake of the status test).
+  test.describe.configure({ timeout: 90_000, mode: "serial" });
   test.use({ viewport: { width: 1600, height: 900 } });
 
   const stamp = Date.now();
@@ -64,9 +66,12 @@ test.describe("Board: a frame's field reaches the card", () => {
     return { target, text, other, otherText };
   }
 
-  test.afterAll(async ({ request }) => {
-    for (let i = 0; i < created.length; i += 20) {
-      await Promise.all(created.slice(i, i + 20).map((id) => deleteTask(request, BOARD_ID, id).catch(() => {})));
+  // Each test removes its own cards: the column shows a bounded window of
+  // cards, so leftovers of earlier tests would push the next seed out of view.
+  test.afterEach(async ({ request }) => {
+    const ids = created.splice(0);
+    for (let i = 0; i < ids.length; i += 20) {
+      await Promise.all(ids.slice(i, i + 20).map((id) => deleteTask(request, BOARD_ID, id).catch(() => {})));
     }
   });
 
@@ -102,7 +107,10 @@ test.describe("Board: a frame's field reaches the card", () => {
 
   test("a status change moves the card and the column counts follow", async ({ page }) => {
     const { target } = await openBoard(page, "status");
-    const backlogBefore = Number(await page.getByTestId("kanban-column-count-backlog").textContent());
+    // Serial mode keeps the count still, so a numeric reading is the settled one.
+    const count = page.getByTestId("kanban-column-count-backlog");
+    await expect(count).toHaveText(/^\d+$/);
+    const backlogBefore = Number(await count.textContent());
     await patch(page, target, { status: "done" });
     await expect(page.getByTestId("kanban-column-body-done").locator(`[data-task-card="${target}"]`)).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId("kanban-column-count-backlog")).toHaveText(String(backlogBefore - 1));

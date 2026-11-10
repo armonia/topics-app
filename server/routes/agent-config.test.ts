@@ -28,6 +28,8 @@ function fixture(): Paths {
         { channel: "discord", chat: "42", active: true, mention: true },
         { channel: "discord", chat: "42", active: true, mention: false, account: "visione" },
         { channel: "telegram", chat: "*", active: true, mention: true, senders: ["1"] },
+        { channel: "discord", chat: "77", active: true, mention: true },
+        { channel: "discord", chat: "77", active: true, mention: false, account: "visione" },
       ],
     },
   }));
@@ -44,16 +46,20 @@ describe("readRegistry", () => {
     const { agents, issues } = readRegistry(p);
     const [jarvis, visione] = agents;
     expect(jarvis.name).toBe("Jarvis");
-    expect(jarvis.chats.map((c) => c.chat)).toEqual(["42", "*"]);
-    expect(visione.chats).toHaveLength(1);
+    expect(jarvis.chats.map((c) => c.chat)).toEqual(["42", "*", "77"]);
+    expect(visione.chats).toHaveLength(2);
+    expect(visione.chats[0].twoAgents).toBe(true);
+    expect(jarvis.chats[2].twoAgents).toBe(false);
     expect(visione.chats[0].routed).toBe(true);
     expect(jarvis.jobs.map((j) => j.id)).toEqual(["a"]);
     expect(visione.jobs[0].schedule).toBe("ogni 30 min");
     expect(visione.persona["IDENTITY.md"]).toContain("Visione");
     expect(JSON.stringify(agents)).not.toContain("keychain:");
     const text = issues.map((i) => i.text).join("\n");
-    expect(text).toContain("discord:42: regola scritta 2 volte");
-    expect(text).toContain("engine.json dice claude-sonnet-5-5");
+    // 42 is routed to Visione on purpose: not an issue. 77 is not routed: it is.
+    expect(text).not.toContain("discord:42");
+    expect(text).toContain("discord:77: regola scritta 2 volte");
+    expect(text).not.toContain("engine.json");
     expect(text).toContain("1 lavori a orario senza agente");
   });
 });
@@ -80,10 +86,10 @@ describe("applyEdit", () => {
   test("bad input is refused and the file is untouched", () => {
     const p = fixture();
     const before = readFileSync(join(p.home, "config.json"), "utf8");
-    expect(() => applyEdit(p, { kind: "chat", channel: "discord", chat: "nope", mention: true })).toThrow("non trovata");
-    expect(() => applyEdit(p, { kind: "chat", channel: "discord", chat: "42", mention: "si" as any })).toThrow("true o false");
-    expect(() => applyEdit(p, { kind: "persona", agent: "main", file: "../x.md", text: "x".repeat(30) })).toThrow("non modificabile");
-    expect(() => applyEdit(p, { kind: "persona", agent: "main", file: "SOUL.md", text: "" })).toThrow("troppo corto");
+    expect(() => applyEdit(p, { kind: "chat", channel: "discord", chat: "nope", mention: true })).toThrow("not found");
+    expect(() => applyEdit(p, { kind: "chat", channel: "discord", chat: "42", mention: "si" as any })).toThrow("true or false");
+    expect(() => applyEdit(p, { kind: "persona", agent: "main", file: "../x.md", text: "x".repeat(30) })).toThrow("not editable");
+    expect(() => applyEdit(p, { kind: "persona", agent: "main", file: "SOUL.md", text: "" })).toThrow("too short");
     expect(readFileSync(join(p.home, "config.json"), "utf8")).toBe(before);
   });
 
@@ -93,5 +99,31 @@ describe("applyEdit", () => {
     expect(r.file).toBe(join(p.home, "ws", "gtm", "IDENTITY.md"));
     expect(readFileSync(r.file, "utf8")).toContain("Operativa");
     expect(r.backup).not.toBeNull();
+  });
+
+  test("chat instructions and who may write are saved, bad ids refused", () => {
+    const p = fixture();
+    applyEdit(p, { kind: "chat", channel: "telegram", chat: "*", system: "Rispondi breve.", senders: ["1", " 2 ", "2"] });
+    const g = JSON.parse(readFileSync(join(p.home, "config.json"), "utf8")).rules.groups[2];
+    expect(g.system).toBe("Rispondi breve.");
+    expect(g.senders).toEqual(["1", "2"]);
+    applyEdit(p, { kind: "chat", channel: "telegram", chat: "*", system: "", senders: [] });
+    const h = JSON.parse(readFileSync(join(p.home, "config.json"), "utf8")).rules.groups[2];
+    expect(h.system).toBeUndefined();
+    expect(h.senders).toBeUndefined();
+    expect(() => applyEdit(p, { kind: "chat", channel: "telegram", chat: "*", senders: ["a b"] })).toThrow("list of ids");
+  });
+
+  test("a job's schedule is validated before it is written", () => {
+    const p = fixture();
+    applyEdit(p, { kind: "job", id: "a", schedule: { kind: "cron", expr: "30 9 * * 1-5", tz: "Europe/Rome" } });
+    expect(JSON.parse(readFileSync(join(p.home, "jobs.json"), "utf8"))[0].schedule.expr).toBe("30 9 * * 1-5");
+    applyEdit(p, { kind: "job", id: "b", schedule: { kind: "every", minutes: 15 } });
+    const before = readFileSync(join(p.home, "jobs.json"), "utf8");
+    expect(() => applyEdit(p, { kind: "job", id: "a", schedule: { kind: "cron", expr: "9 * *" } })).toThrow("5 fields");
+    expect(() => applyEdit(p, { kind: "job", id: "a", schedule: { kind: "every", minutes: 0 } })).toThrow("above 0");
+    expect(() => applyEdit(p, { kind: "job", id: "a", schedule: { kind: "at", at: "domani" } })).toThrow("date and time");
+    expect(() => applyEdit(p, { kind: "job", id: "a" })).toThrow("nothing to change");
+    expect(readFileSync(join(p.home, "jobs.json"), "utf8")).toBe(before);
   });
 });

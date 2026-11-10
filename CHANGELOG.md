@@ -2,6 +2,62 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.81 — 2026-11-10
+
+### Sotto il cofano
+- e2e shards back to 8 runners (16 processes), 7 put the median work over its bar (card 3ae7e6a4)
+- shard test expects the eight-runner matrix (card cd139870)
+- topics/grave-wolf (card cd139870) (#741)
+
+## 2.3.80 — 2026-11-10
+
+### Correzioni
+- **tasks** · archiving drops the queued dispatch state (#740)
+- **tasks** · English comment for the archive queued reset (#743)
+
+### Sotto il cofano
+- topics/transient-glacier (card 25f9832a) (#728)
+- Subagent turns end when background reports arrive only as queued commands (#739)
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-10 [skip ci]
+
+## 2.3.79 — 2026-11-10
+
+### Sotto il cofano
+- esito della traccia R4 (proxy e account nel servizio Rust) (#732)
+- topics/primrose-hill (card e12b765a) (#733)
+- topics/gusty-flag (card 97e3951f) (#735)
+
+## 2.3.78 — 2026-11-10
+
+### Sotto il cofano
+- una cache di compilazione per processo, due Playwright fratelli si leggevano a meta' shared/board (#736)
+
+## 2.3.77 — 2026-11-10
+
+### Sotto il cofano
+- Demo della landing: un caricatore piccolo e scenari tipizzati al posto di landing-boot.js
+- Demo della landing: via il contesto del vecchio gateway dallo scenario
+- Demo della landing: lo scenario comune è un passaggio nella lista chiusa della preferenza
+- nota di consegna della traccia R2 del servizio sempre acceso
+- topics/whispering-ether (card 57fe1061) (#712)
+- Chiudere una card parcheggia le sue tab di anteprima aperte (#656)
+- topics/lithe-kingdom (card a9281987) (#719)
+- istruzioni per chat, chi può scrivere e orari dei lavori modificabili (#723)
+- nota di consegna della traccia R2 del servizio sempre acceso (#726)
+- topics/crested-manor (card 73f93690) (#722)
+- Tab di anteprima nei progetti, e le chat degli agenti fuori dalla barra (#721)
+- Card e12b765a: ramo UI unito in un commit, senza gli script temporanei di lead (dati di persone)
+- topics/bold-siren (card b1b60a20) (#724)
+- topics/timely-grain (card 680ce412) (#718)
+- topics/equal-camel (card 511a992a) (#720)
+- topics/dawning-frost (card 97e3951f) (#727)
+- Card e12b765a: parole del progetto e baseline degli identificatori
+- Card e12b765a: baseline del bloat per le fixture dello strato UI
+- Card e12b765a: tipografia sulla scala, lingua della UI, test dichiarati, check UI nel workflow
+- Card e12b765a: guardie unitarie dello strato UI (qa-gate, rails, nomi, eccezioni scritte)
+- Il land porta main su origin: prima restava solo su questo disco (#730)
+- Card e12b765a: rilancio della CI (unit annullato da un guasto apt del runner)
+
 ## 2.3.76 — 2026-11-10
 
 ### Correzioni
@@ -13,7 +69,12 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - claude-cloud: un account senza scope delle sessioni non spegne più il nodo (#698)
 - anagrafica di Jarvis e Visione modificabile da Topics (#704)
 - lint e tetto delle stringhe dopo l'anagrafica (#704) (#708)
+- **e2e** · time knobs for the stale-stream tick and the ended sub-agent stay, shorter waits in the slow specs
+- **unit** · the stale-stream wiring check follows the pass function
+- **unit** · the stale-stream sweeper check reads the pass function
 - a channel thread says the channel it lives in, and the threads opened for a card are readable (#713)
+- the card shows its due date, red once overdue
+- the due date reaches the client (feed no longer drops it), chip row test knows card-due-date, test translate type matches
 - corsa vuota su una domanda va in review, non fissata al Mac (#715)
 
 ## 2.3.75 — 2026-11-09
@@ -86,6 +147,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - board-remote-node usa la radice tmp canonica, su Windows /tmp non esiste
 - spec agents-jobs e board-motion-contract allineate (formato M tok, transizione invertita)
 - e2e agents-jobs: il conteggio dei token si legge «2,3 M» col formato unico
+- Chiudere una card parcheggia le sue tab di anteprima aperte
 
 ## 2.3.66 — 2026-11-09
 

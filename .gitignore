@@ -482,3 +482,4 @@ output/
 # `server/services/relay-config.ts` scrive QUESTO nome, e il repo e` pubblico.
 relay-identity.json
 !docs/archive/devreap-astro-noclient-2026-10-26.md
+!docs/archive/tray-fetchlive-lag-root-cause.md

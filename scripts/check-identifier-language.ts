@@ -86,6 +86,10 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // UI layer (card e12b765a): plain English the dictionary lacks, and the names of the example organization's documents.
+  "queries", "ups", "padded", "satisfies", "closing", "busiest", "typing", "properties",
+  // consorzio, dlgs, libro: Italian terms of the example data (a consortium, a legislative decree, a book) in `client/src/ui/fixtures/nocera-org/`.
+  "consorzio", "dlgs", "libro",
   // openssl: the binary that builds the local CA of the external-sessions proxy (`server/services/external-proxy-ca.ts`).
   "openssl",
   // tps: tokens per second, the unit the sessions' speed is stated in (`server/services/session-consumption.ts`, `client/src/lib/sessionConsumption.ts`).
@@ -464,6 +468,18 @@ export const PROJECT_WORDS = new Set([
   // `IDENTITY_GLYPH_BOX` and `ROW_ACTION_BOX` read as foreign. The word is not
   // the problem; the dictionary is.
   "box", "boxes",
+  // More plain English web2 lacks, met in the organizations preview
+  // (`client/src/ui`, `client/src/ui-gallery`): inflections and everyday nouns
+  // ("using", "modified", "categories", "startup", "demo") that any newer list
+  // carries; web2 is from 1934.
+  "activities", "anonymization", "anonymize", "callout", "categories", "copies", "customize", "demo", "densities",
+  "editable", "embedded", "evaluator", "evaluators", "families", "mapping", "modified", "newer", "numeric",
+  "oddities", "planned", "rerecord", "slowest", "startup", "summaries", "updating", "using", "weakest",
+  // Proper nouns of the organizations preview's example data: the two example
+  // organizations (Consorzio di Nocera, SARIM), the programs and services their
+  // flows talk to (Halley, PEC = certified e-mail, Normattiva, BURC = the
+  // regional bulletin, WhatsApp). The code names the thing it simulates.
+  "burc", "halley", "nocera", "normattiva", "pec", "sarim", "whatsapp",
   // Platforms and devices the code has to name to test them. Proper nouns: no
   // dictionary carries "iPhone", and the user-agent constants in
   // `push/environment.test.ts` cannot say which device they impersonate

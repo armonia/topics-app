@@ -82,3 +82,16 @@ describe("auto-open retry window", () => {
     expect(marked).toEqual(["t1"]);
   });
 });
+
+describe("agent chats never auto-open a pane (10/11)", () => {
+  test("a dispatched card's page op stays headless", async () => {
+    const { deps, op, openings } = setup({ at: 1 });
+    await maybeOpenPaneForPageOp(deps, { ...op, topic: { ...topic(), mcpPolicy: "bridge-only" } as Topic });
+    expect(openings).toHaveLength(0);
+  });
+  test("a Jarvis channel chat's page op stays headless", async () => {
+    const { deps, op, openings } = setup({ at: 1 });
+    await maybeOpenPaneForPageOp(deps, { ...op, topic: { ...topic(), parentId: "jarvis-canali" } as Topic });
+    expect(openings).toHaveLength(0);
+  });
+});

@@ -80,7 +80,7 @@ describe("`auto-apply`: lavora, ma non fa danni irreversibili", () => {
   test("le operazioni che non si annullano vengono fermate", () => {
     const bloccati = [
       "rm -rf build",
-      "rm -fr /tmp/x",
+      "rm -fr /home/x",
       "git reset --hard HEAD~3",
       "git clean -fd",
       "git push --force origin main",

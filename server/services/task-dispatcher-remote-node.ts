@@ -596,6 +596,17 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         );
         return;
       }
+      // A 413 is a verdict on the request, not a silence: the same body is refused
+      // every time, so retrying every 5 minutes forever helps nobody. Park with the size.
+      if (nodeFailureReason(err) === "payload_too_large") {
+        const why = err instanceof Error ? err.message : String(err);
+        parkNodeCard(
+          task,
+          `Il nodo «${name}» ha rifiutato la card perché troppo grande: ${why}. ` +
+            "Accorcia la descrizione o il thread della card, oppure togli la macchina dalla card.",
+        );
+        return;
+      }
       // The node answered, and what it said is that THIS ACCOUNT cannot run there
       // (no active cloud environment, credentials refused): waiting does not fix
       // it, so the card stops with the cause instead of "not answering" for half an
