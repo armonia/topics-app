@@ -50,7 +50,7 @@ export function safeWrite(file: string, data: string, home: string, now = new Da
   return backup;
 }
 
-const agentOfAccount = (acc: string | undefined): AgentId => (acc === "visione" ? "gtm" : "main");
+const agentOfAccount = (account: string | undefined): AgentId => (account === "visione" ? "gtm" : "main");
 
 /** The registry: everything an agent is, read from config.json, engine.json, jobs.json and its workspace. */
 export function readRegistry(paths: Paths) {
@@ -139,9 +139,9 @@ export function applyEdit(paths: Paths, e: Edit): { file: string; backup: string
   if (e.kind === "chat") {
     const file = join(paths.home, "config.json");
     const cfg: Json = readJson(file);
-    const acc = (e.account ?? "default");
-    const g = (cfg.rules?.groups ?? []).find((x: Json) => x.channel === e.channel && x.chat === e.chat && (x.account ?? "default") === acc);
-    if (!g) throw new Error(`chat ${e.channel}:${e.chat} non trovata per ${acc}`);
+    const account = (e.account ?? "default");
+    const g = (cfg.rules?.groups ?? []).find((x: Json) => x.channel === e.channel && x.chat === e.chat && (x.account ?? "default") === account);
+    if (!g) throw new Error(`chat ${e.channel}:${e.chat} non trovata per ${account}`);
     for (const k of ["active", "mention"] as const) {
       if (e[k] === undefined) continue;
       if (typeof e[k] !== "boolean") throw new Error(`${k} deve essere true o false`);
@@ -155,10 +155,10 @@ export function applyEdit(paths: Paths, e: Edit): { file: string; backup: string
 }
 
 async function run(cmd: string[], timeoutMs = 10_000): Promise<{ code: number; out: string }> {
-  // runBounded uccide anche i nipoti alla scadenza: il vecchio p.kill() lasciava
-  // appeso il pipe se launchctl o jarvis-channels avevano figli.
+  // runBounded kills the whole group at the deadline: the old p.kill() left the
+  // pipe hanging when launchctl or jarvis-channels had children.
   const r = await runBounded(cmd, { timeoutMs });
-  if (r.spawnFailed) return { code: 127, out: r.spawnError ?? "spawn fallito" };
+  if (r.spawnFailed) return { code: 127, out: r.spawnError ?? "spawn failed" };
   return { code: r.exitCode ?? 124, out: (r.stdout + r.stderr).trim() };
 }
 
@@ -168,8 +168,8 @@ async function reload(paths: Paths): Promise<string> {
   try { inflight = readJson(join(paths.home, "inflight.json")); } catch {}
   if (Object.keys(inflight).length) return "pending";
   if (process.env.AGENT_CONFIG_NO_RESTART) return "skipped";
-  const uid = process.getuid?.() ?? 501;
-  const r = await run(["launchctl", "kickstart", "-k", `gui/${uid}/com.jarvis.channels`]);
+  const userId = process.getuid?.() ?? 501;
+  const r = await run(["launchctl", "kickstart", "-k", `gui/${userId}/com.jarvis.channels`]);
   return r.code === 0 ? "restarted" : "pending";
 }
 
