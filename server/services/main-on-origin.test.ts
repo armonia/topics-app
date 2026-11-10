@@ -1,3 +1,4 @@
+/** Main on origin, fast-forward only.  @covers LAND-14 */
 import { test, expect, describe } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

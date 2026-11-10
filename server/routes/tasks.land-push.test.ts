@@ -1,5 +1,5 @@
 /**
- * A LAND REACHES ORIGIN, OR SAYS IT DID NOT.
+ * A LAND REACHES ORIGIN, OR SAYS IT DID NOT.  @covers LAND-14
  *
  * 10/11/2026: the live checkout was 18 commits ahead of origin/main, every one
  * a `merge task <id>` of a card in Done. The land merged locally and nobody

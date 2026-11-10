@@ -558,3 +558,19 @@ SHALL riscrivere la storia: il ramo si corregge dall'agente.
 #### Scenario: un ramo pulito
 - **GIVEN** un ramo i cui commit hanno l'autore del repo e nessuna riga di attribuzione
 - **THEN** il land SHALL atterrarlo
+
+### Requirement: LAND-14 — Un land confermato arriva su origin, o lo dice
+
+Dopo un land confermato su main il server SHALL portare `main` su origin, solo
+fast-forward (mai forzato). Se il push fallisce la card SHALL avere
+`landing_state = 'unpushed'` e una riga nel thread col motivo, mai `landed` in
+silenzio; una spazzata periodica SHALL ritentare il push fast-forward e, a main
+su origin, riportare quelle card a `landed`.
+
+#### Scenario: push fallito
+- **GIVEN** un land confermato e un push che va in timeout
+- **THEN** la card SHALL dire `unpushed` e il thread SHALL nominare il motivo
+
+#### Scenario: origin divergente
+- **GIVEN** main locale e origin/main con storie divergenti
+- **THEN** il push NON SHALL partire e origin SHALL restare com'era
