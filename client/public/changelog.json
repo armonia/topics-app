@@ -1,5 +1,46 @@
 [
   {
+    "version": "2.3.80",
+    "date": "2026-11-10",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "archiving drops the queued dispatch state (#740)",
+          "en": "",
+          "scope": "tasks",
+          "breaking": false
+        },
+        {
+          "it": "English comment for the archive queued reset (#743)",
+          "en": "",
+          "scope": "tasks",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "topics/transient-glacier (card 25f9832a) (#728)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Subagent turns end when background reports arrive only as queued commands (#739)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-10 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.79",
     "date": "2026-11-10",
     "sections": {
