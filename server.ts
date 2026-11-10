@@ -3755,6 +3755,8 @@ const opzioniServer = {
   // depth for any server that bypasses it via a custom TOPICS_HOME.
   reusePort: false,
   idleTimeout: 255,
+  // Explicit, so a node run (card text plus thread) is never refused by an implicit default.
+  maxRequestBodySize: 256 * 1024 * 1024,
   ...(useTls ? {
     tls: {
       cert: Bun.file(tlsCert),
@@ -5410,7 +5412,7 @@ if (portaExternalProxy) {
   }).then((proxy) => {
     if (externalProxyStopped) { void proxy.close(); return; }
     externalProxy = proxy;
-    console.log(`[ExternalProxy] listening on 127.0.0.1:${proxy.port} (CONNECT proxy, ${proxy.intercepting ? "api.anthropic.com terminated with the local CA" : "tunnel only, no CA"})`);
+    console.log(`[ExternalProxy] listening on 127.0.0.1:${proxy.port} (CONNECT proxy, ${proxy.intercepting ? "api.anthropic.com terminated with the local CA" : "tunnel only, no trusted CA"})`);
   }).catch((err) => {
     // A proxy that does not start must not take the server down with it.
     console.error(`[ExternalProxy] not started: ${err instanceof Error ? err.message : String(err)}`);

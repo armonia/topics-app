@@ -3,7 +3,7 @@
  * @covers TAB-ANTEPRIMA-01 (allow-italian: requirement id)
  */
 import { describe, test, expect } from "bun:test";
-import { isAgentOwnedTopic, planPreviewChatTab, shouldParkAgentTabs, markAgentTabsParked } from "./agentTabs";
+import { isAgentOwnedTopic, planPreviewChatTab, shouldParkAgentTabs, markAgentTabsParked, agentBrowserPaneIds, shouldParkAgentBrowsers, markAgentBrowsersParked } from "./agentTabs";
 import type { Pane, PaneGroup } from "../types";
 
 const chat = (id: string, preview: boolean): Pane => ({ id, type: 'chat', topicId: id, title: id, preview });
@@ -42,5 +42,30 @@ describe("one-time parking of agent tabs", () => {
     markAgentTabsParked('/p', st);
     expect(shouldParkAgentTabs('/p', st)).toBe(false);
     expect(shouldParkAgentTabs('/q', st)).toBe(true);
+  });
+});
+
+describe("agentBrowserPaneIds (10/11 migration)", () => {
+  const ctx = (id: string) => id.startsWith('browser:') ? id.slice(8) : null;
+  const panes: Pane[] = [
+    { id: 'browser:agent', type: 'browser', title: 'a' },
+    { id: 'browser:custom-ctx', type: 'browser', title: 'c' },
+    { id: 'browser:mine', type: 'browser', title: 'm' },
+    chat('agent', false),
+  ];
+  const topics = {
+    agent: { id: 'agent', parentId: 'jarvis-canali' },
+    card: { id: 'card', parentId: null, mcpPolicy: 'bridge-only', browserState: { contextId: 'custom-ctx' } },
+    mine: { id: 'mine', parentId: null },
+  } as never;
+  test("takes off the bar only the browsers of agent chats", () => {
+    expect(agentBrowserPaneIds(panes, topics, ctx)).toEqual(['browser:agent', 'browser:custom-ctx']);
+  });
+  test("runs once per project", () => {
+    const m = new Map<string, string>();
+    const st = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v); } };
+    expect(shouldParkAgentBrowsers('/p', st)).toBe(true);
+    markAgentBrowsersParked('/p', st);
+    expect(shouldParkAgentBrowsers('/p', st)).toBe(false);
   });
 });
