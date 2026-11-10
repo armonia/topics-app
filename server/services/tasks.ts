@@ -37,9 +37,9 @@ import { readChecksMemFloorGB, readGlobalCap, readSpendCaps } from "./dispatch-c
 import { checksMemFloorGB } from "../../shared/checks-memory-floor";
 import { parseCreatedBy, UNOWNED_BACKLOG_MS } from "../../shared/created-by";
 /** Automatic requeues of a machine-parked card before it stays for a human. */
-export const MACHINE_REQUEUE_CAP = 3;
+export const MACHINE_RETRY_CAP = 3;
 /** First delay before a machine-parked card goes back to todo; doubles each round. */
-export const MACHINE_REQUEUE_BASE_MS = 30 * 60_000;
+export const MACHINE_RETRY_BASE_MS = 30 * 60_000;
 import { agentCardGaps, incompleteCardNotice, INCOMPLETE_CARD_NOTICE_PREFIX } from "../../shared/agent-card-contract";
 import { STAGE_AI_REVIEW, STAGE_HUMAN_REVIEW, agentAskInThread, awaitsHumanSql, defaultColumnFor, namesHumanReviewWithoutAsk, stageAtBirth, stageForDelivery, stageForStatusChange, type WorkflowColumn, type WorkflowPresetId } from "../../shared/workflow";
 import { requestAiReviewNotice } from "./ai-review-notice";
@@ -689,7 +689,7 @@ export interface TaskService {
    * parking it would cut that turn in half.
    */
   sweepWaitedOut(args?: { eligible?: (projectId: string) => boolean; busy?: (taskId: string) => boolean }): Task[];
-  /** Cards parked `waited_out` by a MACHINE wait (node down, PC asleep), put back in todo after a doubling delay, up to `MACHINE_REQUEUE_CAP` times. */
+  /** Cards parked `waited_out` by a MACHINE wait (node down, PC asleep), put back in todo after a doubling delay, up to `MACHINE_RETRY_CAP` times. */
   sweepMachineWaitedOut(args?: { eligible?: (projectId: string) => boolean }): Task[];
   /**
    * Cards that sat in backlog past `UNOWNED_BACKLOG_MS` with nobody on them
@@ -6090,7 +6090,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // back on its own, and the card sat in backlog for hours (2026-11-10:
       // 1dc60129, parked while the cloud node came back). Here it returns to
       // todo after a doubling delay (30, 60, 120 min), at most
-      // `MACHINE_REQUEUE_CAP` times: if the node is still silent the card goes
+      // `MACHINE_RETRY_CAP` times: if the node is still silent the card goes
       // through the wait caps again and re-parks, until the cap stops the loop.
       const ts = now();
       const nowMs = Date.parse(ts);
@@ -6100,12 +6100,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           `SELECT id, project_id, updated_at, auto_requeues FROM tasks
             WHERE archived = 0 AND status = 'backlog' AND dispatch_state = ?
               AND wait_source = 'machine' AND auto_requeues < ?`,
-        ).all(PARKED_WAITED_OUT, MACHINE_REQUEUE_CAP) as typeof rows;
+        ).all(PARKED_WAITED_OUT, MACHINE_RETRY_CAP) as typeof rows;
       } catch { return []; }
       const out: Task[] = [];
       for (const r of rows) {
         const n = Number(r.auto_requeues) || 0;
-        if (nowMs - Date.parse(r.updated_at) < MACHINE_REQUEUE_BASE_MS * 2 ** n) continue;
+        if (nowMs - Date.parse(r.updated_at) < MACHINE_RETRY_BASE_MS * 2 ** n) continue;
         if (eligible) { let ok = false; try { ok = eligible(r.project_id); } catch { ok = false; } if (!ok) continue; }
         const res = db.prepare(
           `UPDATE tasks SET status = 'todo', dispatch_state = NULL, dispatch_error = NULL, dispatch_attempts = 0,
@@ -6118,7 +6118,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         try {
           this.addComment({
             taskId: r.id, author: "system", kind: "service",
-            content: `Rimessa in coda da sola (giro ${n + 1} di ${MACHINE_REQUEUE_CAP}): era ferma per una condizione della macchina, che può essere tornata.`,
+            content: `Rimessa in coda da sola (giro ${n + 1} di ${MACHINE_RETRY_CAP}): era ferma per una condizione della macchina, che può essere tornata.`,
           });
         } catch { /* the note never blocks the requeue */ }
         const t = getTaskRow(r.id);

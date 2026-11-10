@@ -8,7 +8,7 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import type { TaskService } from "./tasks";
-import { MACHINE_REQUEUE_CAP } from "./tasks";
+import { MACHINE_RETRY_CAP } from "./tasks";
 import { freshDb, svc, PID } from "./tasks-test-db";
 import { PARKED_WAITED_OUT, WAIT_STREAK_CAP } from "../../shared/board";
 
@@ -51,9 +51,9 @@ describe("rientro automatico delle card fermate dalla macchina", () => {
     expect(s.get(id)!.task.status).toBe("backlog");
   });
 
-  test("tetto: dopo MACHINE_REQUEUE_CAP giri resta in backlog", () => {
+  test("tetto: dopo MACHINE_RETRY_CAP giri resta in backlog", () => {
     const id = parkBy("machine");
-    for (let n = 0; n < MACHINE_REQUEUE_CAP; n++) {
+    for (let n = 0; n < MACHINE_RETRY_CAP; n++) {
       clock.t += 30 * MIN * 2 ** n + MIN;
       expect(s.sweepMachineWaitedOut()).toHaveLength(1);
       // the node is still silent: it parks again

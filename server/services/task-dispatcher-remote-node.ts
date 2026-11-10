@@ -18,6 +18,7 @@
  * with a fake node, a fake clock and no repository at all
  * (`task-dispatcher-remote-node.test.ts`).
  */
+import { wakeBreaker } from "./wake-breaker";
 import { awaitsHuman } from "../../shared/workflow";
 import { NODE_UNREACHABLE_ERROR } from "../../shared/board";
 import type { Task, TaskService } from "./tasks";
@@ -464,6 +465,14 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       });
       if (!verdict.ok) {
         host.endRun(task.id, runNo);
+        wakeBreaker.failure(machineId);
+        const until = wakeBreaker.openUntil(machineId);
+        if (until) {
+          try {
+            svc.addComment({ taskId: task.id, author: "system", kind: "service",
+              content: `«${name}» non si sveglia da più tentativi: fino alle ${new Date(until).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })} non gli mando altre card (allow-italian: user-facing note).` });
+          } catch { /* the note never blocks the deferral */ }
+        }
         deferForSilentNode(task, `il nodo «${name}» non è pronto: ${verdict.reason}`);
         return;
       }
@@ -511,6 +520,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       let created: { runId: string };
       try {
         created = await node.createRun(runInput);
+        wakeBreaker.success(machineId);
       } catch (err) {
         // The node cannot reach origin (it does not talk to GitHub by choice): the
         // carried branch rides with the run as a bundle, as the delivery rides back.
