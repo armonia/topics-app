@@ -41,6 +41,7 @@ export const MACHINE_RETRY_CAP = 3;
 /** First delay before a machine-parked card goes back to todo; doubles each round. */
 export const MACHINE_RETRY_BASE_MS = 30 * 60_000;
 import { agentCardGaps, incompleteCardNotice, INCOMPLETE_CARD_NOTICE_PREFIX } from "../../shared/agent-card-contract";
+import { waitsLineAsk } from "../../shared/waits-on-person";
 import { STAGE_AI_REVIEW, STAGE_HUMAN_REVIEW, agentAskInThread, awaitsHumanSql, defaultColumnFor, namesHumanReviewWithoutAsk, stageAtBirth, stageForDelivery, stageForStatusChange, type WorkflowColumn, type WorkflowPresetId } from "../../shared/workflow";
 import { requestAiReviewNotice } from "./ai-review-notice";
 import { checkStage, clearStagesOutsideWorkflow, dropStageOutsideTarget, readBoardWorkflow, routeAskOutOfAiReview, stampStaleAiReview, clearAiReviewReminderStamp, writeBoardWorkflow } from "./board-workflow";
@@ -2713,6 +2714,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // A pin with a deadline (`stay_local_until`, set after an empty node run)
       // reads as unmarked once the deadline is past.
       stayLocal: !!r.stay_local && !(r.stay_local_until && r.stay_local_until <= now()),
+      ...(r.overflow_skip_machine && r.overflow_skip_until && r.overflow_skip_until > now() ? { overflowSkipMachine: r.overflow_skip_machine } : {}),
       // Only while it still runs where the overflow sent it.
       ...(r.overflowed_at && r.machine_id ? { overflowedAt: r.overflowed_at } : {}),
       ...(r.base_branch ? { baseBranch: r.base_branch } : {}),
@@ -3865,6 +3867,22 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     });
   }
 
+  /**
+   * The question a card carries into review when nobody wrote one: the
+   * «aspetta: attilio — …» line of its description, else the move the
+   * delivery itself names (a branch to look at, the system's next move).
+   * Without it the card sat in review asking nothing, and nobody knew what to
+   * decide (10/11: e9a68aa7 had the line, 887341aa and cd972f2f a node delivery).
+   */
+  // Never an invented question: a card with no line and no declared move stays without one, so the auto-land
+  // (which refuses a card that asks something) still takes a green invisible delivery.
+  function reviewAskFallback(row: { description?: string | null }, hint?: string | null, description?: string | null): string | null {
+    const line = waitsLineAsk(description ?? row.description);
+    if (line) return line;
+    if (hint && hint.trim()) return hint.trim().split("\n")[0]!.slice(0, 240);
+    return null;
+  }
+
   /** `agentAskInThread` (shared/workflow.ts) on this card's thread. */
   function agentAskOnThread(taskId: string): string | null {
     try { return agentAskInThread(service.get(taskId)?.comments ?? []); } catch { return null; }
@@ -3876,11 +3894,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * `humanAsk` the question the thread or the system asks the person. Written
    * only when it changes something, like `update()`.
    */
-  function routeSystemDelivery(taskId: string, humanAsk: string | null): void {
+  function routeSystemDelivery(taskId: string, humanAsk: string | null, fallback?: string | null): void {
     const row = getTaskRow(taskId);
     if (!row || row.parent_task_id) return;
     const stage = stageForDelivery(readBoardWorkflow(db, row.project_id).columns, { createdBy: row.created_by, humanAsk });
-    if (stage === null && row.stage == null && row.human_ask == null) return;
+    // A card that reaches the person says what it asks (10/11, `solido`: three cards in review with no question)
+    if (!humanAsk && stage !== STAGE_AI_REVIEW) humanAsk = reviewAskFallback(row, fallback);
+    if (stage === null && row.stage == null && row.human_ask == null && !humanAsk) return;
     db.prepare("UPDATE tasks SET stage = ?, human_ask = ? WHERE id = ?").run(stage, humanAsk, taskId);
     if (stage === STAGE_AI_REVIEW) announceAiReview(taskId);
   }
@@ -4198,6 +4218,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           nextStage = stageForStatusChange(columns, { from: current, to: patch.status!, byAgent: actor === "agent", createdBy: row.created_by, humanAsk });
         }
       }
+      // Into review without a question for the person: the card says one anyway (`reviewAskFallback`),
+      // unless the workflow sends it to AI review, where the opener and not the person closes it.
+      if (!row.parent_task_id && patch.status === "review" && current !== "review" && !humanAsk
+        && (nextStage ?? row.stage) !== STAGE_AI_REVIEW) {
+        humanAsk = reviewAskFallback(row, null, patch.description);
+        askFromThread = !!humanAsk;
+      }
 
       if (patch.status !== undefined) {
         if (!STATUSES.includes(patch.status)) throw new TaskServiceError("invalid_input", `invalid status "${patch.status}"`);
@@ -4402,6 +4429,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // A person's mark holds for good: it clears any deadline the dispatcher set.
       if (patch.stayLocalUntil !== undefined) put("stay_local_until", patch.stayLocalUntil);
       else if (patch.stayLocal !== undefined) put("stay_local_until", null);
+      if (patch.overflowSkip !== undefined) {
+        put("overflow_skip_machine", patch.overflowSkip?.machineId ?? null);
+        put("overflow_skip_until", patch.overflowSkip?.until ?? null);
+      }
       if (patch.blockedByTaskId !== undefined) {
         if (patch.blockedByTaskId) assertBlockerValid(taskId, patch.blockedByTaskId);
         put("blocked_by_task_id", patch.blockedByTaskId || null);
@@ -4651,6 +4682,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // The question for the person belongs to one delivery: back to work drops it.
       if (patch.humanAsk !== undefined || askFromThread) put("human_ask", humanAsk);
       else if (row.human_ask != null && patch.status !== undefined && patch.status !== "review" && patch.status !== "done") put("human_ask", null);
+      // A card moved to another machine (or pinned to this Mac) no longer waits for the old node: the series named a
+      // machine it will not go to, and kept counting hours (10/11: 1dc60129 «cloud claude non risponde» for 7 h after
+      // being pinned here; 966dc257 and c5aab453 still «PC non pronto» after the empty-run requeue to the Mac).
+      if (((patch.machineId !== undefined && (patch.machineId ?? null) !== (row.machine_id ?? null)) || (patch.stayLocal === true && !row.stay_local))
+        && (row.wait_reason != null || row.wait_since != null) && patch.status === undefined) {
+        put("wait_streak", 0);
+        put("wait_reason", null);
+        put("wait_since", null);
+        put("wait_source", null);
+      }
       put("updated_at", now());
 
       db.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...params, taskId);
@@ -5786,7 +5827,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // THE BOARD'S WORKFLOW ROUTES THIS DELIVERY TOO: a machine card goes
       // back to whoever opened it unless the AGENT's last word (not the
       // thread's: this door writes its own notes under it) asks the person.
-      routeSystemDelivery(taskId, agentAskOnThread(taskId));
+      routeSystemDelivery(taskId, agentAskOnThread(taskId), nextMove);
       // Open the pending review approval so the review decision flow works, just
       // like an agent-initiated hand-off would.
       try {
