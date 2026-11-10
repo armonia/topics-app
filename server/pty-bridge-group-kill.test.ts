@@ -1,4 +1,5 @@
 /**
+ * @covers PTYORPH-01
  * A terminal that ends must not leave its background jobs behind.
  *
  * Card 30b195ca: mac-health counted 16 processes orphaned by Topics terminals.
