@@ -1,3 +1,7 @@
+/**
+ * A card opened by a channel chat follows that chat's turns (card 97e3951f).
+ * @covers KANBAN-05
+ */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { configureChannelOriginCards } from "./channel-origin-cards";
