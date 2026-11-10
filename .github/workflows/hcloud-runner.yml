@@ -197,7 +197,7 @@ jobs:
             HOME="/srv/rh-$i" SHELL=/bin/bash RUNNER_ALLOW_RUNASROOT=1 setsid nohup ./run.sh >>"/var/log/runner-$i.log" 2>&1 < /dev/null &
           done
           # In fondo, non prima: bash legge questo script mentre lo esegue.
-          for f in /var/lib/cloud/instance/user-data.txt /var/lib/cloud/instance/user-data.txt.i /var/lib/cloud/instance/scripts/part-001; do
+          for f in /var/lib/cloud/instance/user-data.txt /var/lib/cloud/instance/user-data.txt.i /var/lib/cloud/instance/scripts/part-001 /var/lib/cloud/instance/obj.pkl; do
             [ -f "$f" ] && : > "$f"
           done
           EOS
