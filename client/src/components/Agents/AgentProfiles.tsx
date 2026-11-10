@@ -15,8 +15,6 @@ import { DANGER_TEXT } from '../../lib/popoverStyles';
 import { PALLINO_ATTESA, PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from '../Sidebar/chromeSignals';
 
 import type { Registry } from '../../state/agentRegistry';
-
-const NO_VALUE = '—'; // allow-emdash: the placeholder shown for a missing value, the dash is the data
 type Agent = Registry['agents'][number];
 type Chat = Agent['chats'][number];
 
@@ -126,7 +124,7 @@ export function AgentProfiles({ reg, reload }: { reg: Registry; reload: () => vo
       </Section>
 
       <Section icon={Sparkles} title={tr('agentConfig.model')}>
-        <p className="text-mini text-app-text-secondary">{tr('agentConfig.engine')}: <span className="text-app-text">{agent.model.engine ?? NO_VALUE}</span></p>
+        <p className="text-mini text-app-text-secondary">{tr('agentConfig.engine')}: <span className="text-app-text">{agent.model.engine ?? '—'}</span></p>{/* allow-emdash: placeholder for a missing value */}
         {models.map(([ch, m]) => (
           <p key={ch} className="text-mini text-app-text-secondary">{ch}: <span className="text-app-text">{Object.entries(m).map(([k, v]) => `${k === '*' ? tr('agentConfig.everyone') : k} → ${v.replace('anthropic/', '')}`).join(' · ')}</span></p>
         ))}

@@ -155,8 +155,10 @@ export function applyEdit(paths: Paths, e: Edit): { file: string; backup: string
 
 async function run(cmd: string[], timeoutMs = 10_000): Promise<{ code: number; out: string }> {
   try {
-    const p = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe", timeout: timeoutMs });
+    const p = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
+    const t = setTimeout(() => p.kill(), timeoutMs);
     const out = (await new Response(p.stdout).text()) + (await new Response(p.stderr).text());
+    clearTimeout(t);
     return { code: await p.exited, out: out.trim() };
   } catch (err) {
     return { code: 127, out: String(err) };
@@ -188,14 +190,14 @@ export function createAgentConfigRouter(ctx: Pick<AppContext, "json">, paths: ()
       try {
         return ctx.json({ ...readRegistry(p), health: { ok: health.ok, text: health.text } });
       } catch (err) {
-        return ctx.json({ error: `config non leggibile: ${String(err)}` }, 500);
+        return ctx.json({ error: `config not readable: ${String(err)}` }, 500);
       }
     }
     if (method !== "POST") return null;
     const kind = pathname.slice("/api/agent-config/".length);
     if (!["chat", "job", "persona"].includes(kind)) return null;
     let body: Json;
-    try { body = await req.json(); } catch { return ctx.json({ error: "corpo JSON non valido" }, 400); }
+    try { body = await req.json(); } catch { return ctx.json({ error: "invalid JSON body" }, 400); }
     try {
       const res = applyEdit(p, { ...body, kind } as Edit);
       const service = res.restart ? await reload(p) : "live";

@@ -44,6 +44,7 @@ const LONG_LIVED: Array<{ file: string; snippet: string; why: string }> = [
   { file: "server/lib/fleet-usage.ts", snippet: "const proc = spawn();", why: "the injected `ps` above: the deadline is in the same function" },
   { file: "server/lib/listening-ports.ts", snippet: "Bun.spawn(command", why: "deadline in `readProcessProbe` with Promise.race" },
   { file: "server/lib/bounded-capture.ts", snippet: "Bun.spawn(argv", why: "it is the deadline: `captureWithDeadline`" },
+  { file: "server/routes/agent-config.ts", snippet: "Bun.spawn(cmd, {", why: "deadline in `run()`: setTimeout kills it after timeoutMs (10 s)" },
   { file: "server/lib/outbound-cli.ts", snippet: "Bun.spawn([opts.file", why: "deadline in `runCli` with Promise.race" },
   { file: "server/services/turn-checkpoints.ts", snippet: "Bun.spawn([\"git\", ...args]", why: "deadline in `runGit` with Promise.race" },
   { file: "server/services/dispatch-capacity.ts", snippet: "Bun.spawn(argv", why: "`vm_stat`/`sysctl` have no children: the 2 s timer kills the only process" },
