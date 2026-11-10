@@ -33,6 +33,7 @@ import { budgetShare, capMode, isAgentWorking, isCiEvidenceCheck, type CheckRun,
 import { toFeedTask } from "../../shared/board-feed";
 import { selectTaskSessionPeek } from "../../shared/task-session-peek";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
+import { coordinatorCaller, sessionCaller, withOwnSessionToken } from "./session-caller";
 import { isPreviewablePath } from "../../shared/media-kind";
 import { isBlankLikeImage } from "../services/image-shape";
 import { parseTaskPatch, unapplicableFieldsBody, checkConstraintBody, type FieldRead } from "./task-patch";
@@ -1239,7 +1240,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   function reissueDelivery(taskId: string, pathname: string, body: Record<string, unknown>, why: string): void {
     const url = new URL(`http://localhost${pathname}`);
     const req = new Request(url, {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
+      method: "PATCH", headers: withOwnSessionToken(pathname, { "Content-Type": "application/json" }),
       body: JSON.stringify({ ...body, legMs: 1_000 }),
     });
     tasksRouter(req, url, pathname, "PATCH")
@@ -2555,6 +2556,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     };
   }
 
+  // Who a session route speaks AS, not who its URL names (`./session-caller.ts`).
+  const provenSession = (req: Request, sk: string) => sessionCaller(req, sk, resolveSession, json);
+  const provenGlobalOrchestrator = (req: Request, sk: string) =>
+    coordinatorCaller(req, sk, resolveGlobalOrchestratorSession, json);
+
   /**
    * Global reads/mutations start from the task id and discover its board in
    * storage. A caller never supplies a project id for this path, so it cannot
@@ -3748,10 +3754,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     const globalCollection = matchRoute(pathname, "/api/orchestrator-sessions/:sessionKey/tasks");
     if (globalCollection) {
       const sk = decodeURIComponent(globalCollection.sessionKey);
-      const globalSession = resolveGlobalOrchestratorSession(sk);
-      if (!globalSession) {
-        return json({ error: "global orchestrator session required", code: "global_orchestrator_required" }, 403);
-      }
+      const globalSession = provenGlobalOrchestrator(req, sk);
+      if (globalSession instanceof Response) return globalSession;
 
       if (method === "GET") {
         const status = new URL(req.url).searchParams.get("status") || undefined;
@@ -3872,10 +3876,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     const globalCommentsRoute = matchRoute(pathname, "/api/orchestrator-sessions/:sessionKey/tasks/:taskId/comments");
     if (globalCommentsRoute && method === "POST") {
       const sk = decodeURIComponent(globalCommentsRoute.sessionKey);
-      const globalSession = resolveGlobalOrchestratorSession(sk);
-      if (!globalSession) {
-        return json({ error: "global orchestrator session required", code: "global_orchestrator_required" }, 403);
-      }
+      const globalSession = provenGlobalOrchestrator(req, sk);
+      if (globalSession instanceof Response) return globalSession;
       const gated = fanOutGate(globalCommentsRoute.taskId, "do NOT write in the shared thread");
       if (gated) return gated;
       const body = (await readJSON(req)) as { content?: unknown; options?: unknown } | null;
@@ -3916,10 +3918,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     const globalItem = matchRoute(pathname, "/api/orchestrator-sessions/:sessionKey/tasks/:taskId");
     if (globalItem) {
       const sk = decodeURIComponent(globalItem.sessionKey);
-      const globalSession = resolveGlobalOrchestratorSession(sk);
-      if (!globalSession) {
-        return json({ error: "global orchestrator session required", code: "global_orchestrator_required" }, 403);
-      }
+      const globalSession = provenGlobalOrchestrator(req, sk);
+      if (globalSession instanceof Response) return globalSession;
 
       if (method === "GET") {
         const target = resolveGlobalTask(globalItem.taskId);
@@ -3950,8 +3950,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     const collection = matchRoute(pathname, "/api/sessions/:sessionKey/tasks");
     if (collection) {
       const sk = decodeURIComponent(collection.sessionKey);
-      const sess = resolveSession(sk);
-      if (!sess) return json({ error: "session is not bound to a project", code: "no_project" }, 400);
+      const sess = provenSession(req, sk);
+      if (sess instanceof Response) return sess;
 
       if (method === "GET") {
         const params = new URL(req.url).searchParams;
@@ -4061,8 +4061,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     const commentsRoute = matchRoute(pathname, "/api/sessions/:sessionKey/tasks/:taskId/comments");
     if (commentsRoute && method === "POST") {
       const sk = decodeURIComponent(commentsRoute.sessionKey);
-      const sess = resolveSession(sk);
-      if (!sess) return json({ error: "session is not bound to a project", code: "no_project" }, 400);
+      const sess = provenSession(req, sk);
+      if (sess instanceof Response) return sess;
       const gated = fanOutGate(commentsRoute.taskId, "do NOT write in the shared thread");
       if (gated) return gated;
       const body = (await readJSON(req)) as any;
@@ -4132,8 +4132,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // sarebbe il modulo con cui si autorizza a chiudersi le card da solo.
     const sLabels = matchRoute(pathname, "/api/sessions/:sessionKey/tasks/:taskId/labels");
     if (sLabels && (method === "PUT" || method === "POST")) {
-      const sess = resolveSession(decodeURIComponent(sLabels.sessionKey));
-      if (!sess) return json({ error: "session is not bound to a project", code: "no_project" }, 400);
+      const sess = provenSession(req, decodeURIComponent(sLabels.sessionKey));
+      if (sess instanceof Response) return sess;
       const body = (await readJSON(req)) as any;
       const raw = Array.isArray(body?.labels) ? body.labels : [];
       const unknown = raw.filter((l: unknown) => typeof l === "string" && !isTaskLabel(l));
@@ -4164,8 +4164,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     const deferRoute = matchRoute(pathname, "/api/sessions/:sessionKey/tasks/:taskId/defer");
     if (deferRoute && method === "POST") {
       const sk = decodeURIComponent(deferRoute.sessionKey);
-      const sess = resolveSession(sk);
-      if (!sess) return json({ error: "session is not bound to a project", code: "no_project" }, 400);
+      const sess = provenSession(req, sk);
+      if (sess instanceof Response) return sess;
       const gatedDefer = fanOutGate(deferRoute.taskId, "do NOT park the shared task");
       if (gatedDefer) return gatedDefer;
       const body = (await readJSON(req)) as any;
@@ -4200,8 +4200,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     const item = matchRoute(pathname, "/api/sessions/:sessionKey/tasks/:taskId");
     if (item) {
       const sk = decodeURIComponent(item.sessionKey);
-      const sess = resolveSession(sk);
-      if (!sess) return json({ error: "session is not bound to a project", code: "no_project" }, 400);
+      const sess = provenSession(req, sk);
+      if (sess instanceof Response) return sess;
 
       if (method === "GET") {
         const got = svc.get(item.taskId, { projectId: sess.projectId });
