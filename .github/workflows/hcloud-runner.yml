@@ -233,7 +233,7 @@ jobs:
           RUNNERS: ${{ inputs.runners }}
         run: |
           label=""; sid=""
-          if [ -n "$L1" ]; then label=$L1; sid=$S1; elif [ -n "$L2" ]; then label=$L2; sid=$S2;; fi
+          if [ -n "$L1" ]; then label=$L1; sid=$S1; elif [ -n "$L2" ]; then label=$L2; sid=$S2; fi
           n=0; [ -n "$label" ] && n=$RUNNERS
           echo "runners=$n" >> "$GITHUB_OUTPUT"
           echo "label=$label" >> "$GITHUB_OUTPUT"
