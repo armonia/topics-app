@@ -2439,7 +2439,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // A delegated card's authority names THIS machine (`policy.machineId`):
     // moved, it would be parked over there as no longer valid.
     const delegated = delegatedPolicy(t) !== undefined;
-    if (!localId || !overflowEligible({ ...t, delegated }, settings, localId)) { memoryHeldSince.delete(t.id); return false; }
+    if (!localId || !overflowEligible({ ...t, delegated, description: t.description ?? t.descriptionPreview }, settings, localId)) { memoryHeldSince.delete(t.id); return false; }
     // Asked from the first held round, so the answer is in by the time it matters.
     const origin = overflowOriginOf(t.projectId);
     const held = unbrokenHold(t, round.no);

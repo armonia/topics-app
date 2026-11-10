@@ -1231,3 +1231,11 @@ describe("overflow: una corsa vuota su un nodo lo salta, non ferma la card sul M
     expect(h.task(CARD).overflowSkipMachine).toBe(PC);
   });
 });
+
+describe("overflow: una card che nomina file di questo Mac non va su un nodo", () => {
+  it("percorsi della home o launchd la tengono qui (10/11: cinque card tornate vuote due volte dal PC)", () => {
+    expect(overflowEligible({ machineId: null, description: "tocca ~/.claude/jarvis/tools/usage-hub" }, {}, LOCAL)).toBe(false);
+    expect(overflowEligible({ machineId: null, text: "plist in LaunchAgents" }, {}, LOCAL)).toBe(false);
+    expect(overflowEligible({ machineId: null, description: "server/services/tasks.ts" }, {}, LOCAL)).toBe(true);
+  });
+});
