@@ -176,6 +176,13 @@ export function closeTab(state: TaskBrowserTabsState, contextId: string): TaskBr
   };
 }
 
+/** Soft-close every live tab at once (the task was closed). Parked tabs stay
+ *  reopenable from the preview strip. Returns the same object when nothing is live. */
+export function parkAllTabs(state: TaskBrowserTabsState): TaskBrowserTabsState {
+  if (!state.tabs.some((t) => !t.parked)) return state;
+  return { ...state, tabs: state.tabs.map((t) => (t.parked ? t : { ...t, parked: true })), activeContextId: null };
+}
+
 /** Reopen a parked tab (from the preview strip): un-park + activate. No-op for
  *  an unknown or already-live ctx. */
 export function unparkTab(state: TaskBrowserTabsState, contextId: string): TaskBrowserTabsState {
@@ -566,6 +573,8 @@ export const taskBrowserTabs = {
   upsertTab: (taskId: string, contextId: string, url: string, title?: string, titleSource?: TaskTabTitleSource) => commit(taskId, upsertTab(getTaskTabs(taskId), contextId, url, title, titleSource)),
   /** Soft-close (park as preview). */
   closeTab: (taskId: string, contextId: string) => commit(taskId, closeTab(getTaskTabs(taskId), contextId)),
+  /** Park every live tab (task moved to done). */
+  closeAll: (taskId: string) => commit(taskId, parkAllTabs(getTaskTabs(taskId))),
   /** Reopen a parked tab from the preview strip. */
   unparkTab: (taskId: string, contextId: string) => commit(taskId, unparkTab(getTaskTabs(taskId), contextId)),
   /** Hard-remove a tab (preview trash). Also RELEASES the server-side browser
