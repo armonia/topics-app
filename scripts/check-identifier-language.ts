@@ -86,7 +86,7 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
-  // gtm: the OpenClaw id of the Visione agent, read from its config as data (`server/routes/agent-config.ts`).
+  // gtm: the id of the Visione agent in the channels config, read as data (`server/routes/agent-config.ts`).
   "gtm",
   // openssl: the binary that builds the local CA of the external-sessions proxy (`server/services/external-proxy-ca.ts`).
   "openssl",
