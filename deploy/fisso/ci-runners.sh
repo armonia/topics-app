@@ -71,6 +71,9 @@ MemoryMax=26G
 EOS
 mkdir -p /etc/systemd/system/topics.service.d
 printf '[Service]\nCPUWeight=500\n' > /etc/systemd/system/topics.service.d/precedenza.conf
+# The node answers only on loopback (the Mac comes through the ssh tunnel): a server made
+# from an older recipe listened on *:3333, on the public address.
+printf '[Service]\nEnvironment=SERVER_HOST=127.0.0.1\n' > /etc/systemd/system/topics.service.d/locale.conf
 
 # Kills what the job left behind: every process of this runner's cgroup that is not
 # an ancestor of this hook (run.sh, Runner.Listener, Runner.Worker).
@@ -139,20 +142,18 @@ systemctl enable --now ci-firewall.service >/dev/null
 systemctl set-property --runtime topics.service CPUWeight=500 2>/dev/null || true
 for i in 0 $(seq 1 "$N"); do systemctl enable --now "ci-runner@$i.service" >/dev/null; done
 
-# SocketBindDeny needs systemd built with BPF, which Ubuntu's may not be: then it is
-# ignored without a word. Try it as a runner would; if the node's port can still be
-# taken, make every port up to 3420 privileged (the e2e servers use 13910+) and give
-# Topics the capability to bind its own. A runner that can take 3333 is a stop.
-can_take_3333() {
-  systemd-run --quiet --wait --pipe --slice=ci.slice -p User=ci1 -p Group=ci -p SocketBindDeny=tcp:3333 \
-    python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 3333))' 2>/dev/null
-}
-if can_take_3333; then
-  echo "SocketBindDeny non applicata: porte fino a 3420 privilegiate"
+# SocketBindDeny needs systemd built with +BPF_FRAMEWORK, and Ubuntu 24.04's is not
+# (measured on topics-fisso, 11/11): there it is ignored without a word. Then every port
+# up to 3420 becomes privileged (the e2e servers use 13910+) and Topics gets the
+# capability to bind its own. The proof binds a FREE port of the range as a runner
+# would: probing 3333 itself says nothing, the node already holds it (EADDRINUSE).
+if ! systemctl --version | grep -q '+BPF_FRAMEWORK'; then
   echo 'net.ipv4.ip_unprivileged_port_start=3421' > /etc/sysctl.d/60-ci-ports.conf
   sysctl -q -p /etc/sysctl.d/60-ci-ports.conf
   printf '[Service]\nAmbientCapabilities=CAP_NET_BIND_SERVICE\n' > /etc/systemd/system/topics.service.d/porte.conf
   systemctl daemon-reload
-  if can_take_3333; then echo "un runner può ancora prendere :3333: fermo" >&2; exit 1; fi
 fi
-echo "runner pronti: 0 (prep) e 1..$N"
+if runuser -u ci1 -- python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 3419))' 2>/dev/null; then
+  echo "un runner può prendere le porte del nodo Topics: fermo" >&2; exit 1
+fi
+echo "porte del nodo Topics chiuse ai runner"
