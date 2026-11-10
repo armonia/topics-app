@@ -1240,9 +1240,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    *  leg is short: nobody is waiting on this answer, the card and the thread are. */
   function reissueDelivery(taskId: string, pathname: string, body: Record<string, unknown>, why: string): void {
     const url = new URL(`http://localhost${pathname}`);
-    // Il coordinatore deve provare chi è anche qui (provenGlobalOrchestrator): la PATCH
-    // ricordata era già passata da quella prova, quindi il server la rifirma per la stessa
-    // sessione. Le rotte di sessione restano senza token, come prima: anonime, non rifiutate.
+    // The coordinator must prove who it is here too (provenGlobalOrchestrator): the
+    // remembered PATCH already passed that proof, so the server re-signs it for the same
+    // session. Session routes stay tokenless as before: anonymous, not refused.
     const coordinator = pathname.match(/^\/api\/orchestrator-sessions\/([^/]+)\//)?.[1];
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (coordinator) headers[SESSION_TOKEN_HEADER] = mintSessionToken(topicsHome(), decodeURIComponent(coordinator));
