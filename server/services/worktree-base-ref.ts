@@ -37,8 +37,7 @@
  * defect than a dispatch that does not start.
  */
 
-import type { GitRunner } from "./own-commits";
-import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
+import { defaultRunGit, type GitRunner } from "./own-commits";
 
 export interface WorktreeBaseRef {
   /** Il ref da passare a `worktreeManager.create({ baseRef })`. */
@@ -57,12 +56,6 @@ export interface WorktreeBaseRefOptions {
   mainRef?: string;
   /** Iniettato nei test. Default: `git` vero. */
   runGit?: GitRunner;
-}
-
-export async function defaultRunGit(cwd: string, args: string[]) {
-  const r = await runBounded(["git", "-C", cwd, ...args], { stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
-  if (r.spawnFailed) return { code: 1, stdout: "", stderr: r.spawnError ?? "" };
-  return { code: r.exitCode ?? 1, stdout: r.stdout, stderr: r.stderr };
 }
 
 /**

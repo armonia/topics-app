@@ -101,6 +101,9 @@
         // `bun scripts/webrtc-probe.ts` — la sonda del percorso WebRTC: si lancia a
         // mano quando si vuole vedere encode/trasporto dal vivo, nessuno la importa.
         "scripts/webrtc-probe.ts!",
+        // `bun scripts/anti-bot/chromium-bar.ts` - la barra anti-bot del Chromium
+        // headless del server (Hetzner, sannysoft, Cloudflare). A mano, nessuno la importa.
+        "scripts/anti-bot/chromium-bar.ts!",
         // `bun run scripts/browser-qos-probe.ts` - the control measure of the
         // shared Chromium's QoS band (card 7f4d8f32): prints the process table
         // of the browser tree with only an agent using it and again with a
@@ -421,6 +424,18 @@
         "src/main.tsx",
         "vite.config.ts",
         "vite.landing.config.ts",
+        // Il boot della demo della landing: lo compila vite.landing.config.ts
+        // da un percorso scritto come stringa, che knip non segue.
+        "src/demo/boot.ts",
+        // La galleria dello strato UI e l'anteprima collegata: le aprono
+        // client/ui.html e client/app.html, che knip non legge.
+        "vite.ui.config.ts",
+        "src/ui-gallery/main.tsx",
+        "src/ui-gallery/app-main.tsx",
+        // Le due demo (client/sarim.html e client/consorzio.html): senza, knip
+        // dava per inutilizzata tutta la galleria che solo loro montano.
+        "src/ui-gallery/sarim-main.tsx",
+        "src/ui-gallery/consorzio-main.tsx",
         "src/**/*.{test,spec}.{ts,tsx}"
       ],
       "project": ["src/**/*.{ts,tsx}"]
@@ -451,7 +466,10 @@
   // FABBRICARE il caso che `outbound-staging` deve rifiutare (un allegato che
   // non e' un file regolare), e senza di esso la prova sarebbe una FIFO
   // descritta a parole. Node non sa crearne una.
-  "ignoreBinaries": ["pkill", "du", "tsc", "sqlite3", "ffmpeg", "vm_stat", "mkfifo", "trash"],
+  // `openssl` is run by server/services/external-proxy.test.ts to verify with a real chain
+  // verifier (name constraints included) that the local CA of the external-sessions proxy
+  // signs nothing but api.anthropic.com. It is preinstalled on macOS and on ubuntu-latest.
+  "ignoreBinaries": ["pkill", "du", "tsc", "sqlite3", "ffmpeg", "vm_stat", "mkfifo", "trash", "openssl"],
   // NON è un import: è il primo argomento di
   // `spawnSync("bun", ["scripts/board-cases.ts", "--case", …], { cwd: ROOT })`
   // in scripts/board-cases.ts:1624 — il rilancio di sé stesso che genera la

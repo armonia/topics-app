@@ -19,6 +19,15 @@ const ENV_ALLOWLIST = [
   "NODE_ENV", "TZ", "USER", "SHELL", "TMPDIR",
   "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME",
   "ANTHROPIC_API_KEY",
+  // Windows: where a CLI keeps its login and finds the system. Without APPDATA
+  // `gh` reads no hosts.yml and answers "not logged into any GitHub hosts"; on
+  // the PC node (09/11) five cards came back empty for "gh not authenticated"
+  // with gh logged in. Paths and machine facts, no secrets. Absent on macOS.
+  "APPDATA", "LOCALAPPDATA", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",
+  "SystemRoot", "SystemDrive", "windir", "ComSpec", "PATHEXT",
+  "TEMP", "TMP", "ProgramData", "ProgramFiles", "ProgramFiles(x86)",
+  "ProgramW6432", "CommonProgramFiles", "USERNAME", "USERDOMAIN",
+  "COMPUTERNAME", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "OS",
 ];
 
 const ENV_DENY_PATTERNS = [

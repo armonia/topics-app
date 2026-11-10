@@ -24,6 +24,7 @@ import { listNativeCommands, nativeCommandByPid } from "./server/lib/native-comm
 import { listSessionCliPids } from "./server/providers/session-pids";
 import { getAccessToken, recoverAfter401 } from "./server/providers/native/auth";
 import { createModelProxyListener, modelProxyPort } from "./server/services/model-proxy";
+import { bootExternalProxy, externalProxyPort, type BootedExternalProxy } from "./server/services/external-proxy";
 import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
 import { existsSync, readFileSync, mkdirSync, statSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
@@ -36,7 +37,7 @@ import { startToolOutputBackfill } from "./server/lib/tool-output-store";
 import { shouldServeSpaFallback } from "./server/spa-fallback";
 import { classifyStaticAsset, pickPrecompressed } from "./server/static-assets";
 import {
-  acquireLock, releaseLock, writeState, readState,
+  acquireLock, releaseLock, writeState, readState, topicsHome,
   uptimeMsSince, LiveLockError, worktreeIsolationHome, worktreeIsolationEnv,
   listenWithSquatterFallback, PortTakenError,
 } from "./server/services/daemon-state";
@@ -64,7 +65,7 @@ import { setUploadRootsProvider } from "./server/browser-tool-dispatcher";
 import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
-import { sweepStaleStreams, rescueByOwner, type SilenceMark } from "./server/lib/stale-stream-sweep";
+import { sweepStaleStreams, rescueByOwner, staleTickMs, onStaleTickChange, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { flushTurnBody } from "./server/lib/turn-body-flush";
 import { endReattachLeg, finalizeStaleRow } from "./server/lib/closed-outside";
@@ -103,6 +104,8 @@ import { createGoalsRouter } from "./server/routes/goals";
 import { createPlanRouter } from "./server/routes/plan";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createTaskService, projectIdForPath } from "./server/services/tasks";
+import { mainPushGit, pushMainToOrigin, sweepUnpushedMains } from "./server/services/main-on-origin";
+import { configureChannelOriginCards } from "./server/lib/channel-origin-cards";
 import { createScheduledCards } from "./server/services/scheduled-cards";
 import { createExternalSessionsService } from "./server/services/external-sessions";
 import { createAgentWorktree, worktreeReadyMs, type AgentWorktreeDeps } from "./server/services/worktree-for-agent";
@@ -139,6 +142,7 @@ import { createTaskAttemptStore } from "./server/services/task-attempts";
 import { classifyLanding } from "./server/services/landing-audit";
 import { createTranscriptUsageReader } from "./server/services/transcript-usage";
 import { createDispatchUsageReader } from "./server/services/dispatch-usage";
+import { setTranscriptUsageReader } from "./server/services/session-consumption-wiring";
 import { orphanChildSessions } from "./server/services/agent-census";
 import { createDetachedTopic, DETACHED_TOPIC_AUTONOMY } from "./server/lib/session-control-core";
 import { buildProjectCandidates, resolveProjectPath, isSelectableProjectDir } from "./server/services/project-path-resolver";
@@ -173,6 +177,7 @@ import { isDelegatedNodeAllowedRequest, isGuestAllowedPath, isGuestAllowedMethod
 import { hasGrant, holdsGrantOnTaskPreview, deviceP } from "./server/lib/grants-query";
 import { refreshSocketPrincipal, socketMayReceiveFrame, socketMayReadTopic } from "./server/lib/socket-principals";
 import { resolveDelegatedCredential, resolveIdentity } from "./server/lib/identity";
+import { isScreenAllowedRequest } from "./server/lib/screen-scope";
 import { creaRelayClient } from "./server/services/relay-client";
 import { leggiRelayConfig, leggiInstallationId, leggiRelaySegreto } from "./server/services/relay-config";
 import { creaServizioLicenza, creaInterruttoreLicenza, baseUrlConcesso } from "./server/lib/licenza";
@@ -207,7 +212,8 @@ import { startProcessExitWakes } from "./server/lib/process-exit-wake";
 import { startSubagentWakes } from "./server/services/subagent-wake";
 import { abandonCutTurn, adoptNativeChildrenAtBoot, configureNativeSubagents } from "./server/lib/native-subagents";
 import { awaitsForegroundChild, subagentWakeOwed } from "./server/lib/subagent-runtime";
-import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
+import { createTasksRouter, ownBranchFiles, ownCommitFiles, runGitCap } from "./server/routes/tasks";
+import { landingFiles, referencedByTheJudge } from "./server/services/landing-files";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
 import { createDeliveryCapture, type DeliveryCapture } from "./server/services/task-delivery-capture";
 import { createPushRouter } from "./server/routes/push";
@@ -225,6 +231,7 @@ import { createProvidersRouter } from "./server/routes/providers";
 import { createAppSettingsRouter } from "./server/routes/app-settings";
 import { createCalendarRouter } from "./server/routes/calendar";
 import { createAgentChannelsRouter } from "./server/routes/agent-channels";
+import { createAgentConfigRouter } from "./server/routes/agent-config";
 import {
   resolveAiProvider,
   getAppSettings,
@@ -258,7 +265,7 @@ import { createWorktreeGcRunner } from "./server/services/worktree-gc-runner";
 import { createWorktreesRouter } from "./server/routes/worktrees";
 import { createMachinesRouter, revokeRemoteDelegatedCapability } from "./server/routes/machines";
 import { createNodesRouter } from "./server/routes/nodes";
-import { hostname as osHostname, totalmem as osTotalmem } from "node:os";
+import { hostname as osHostname, tmpdir as osTmpdir, totalmem as osTotalmem } from "node:os";
 import { createNodeClient, readDelegatedNodeToken, readNodeToken } from "./server/services/node-client";
 import { createNodeProbe } from "./server/services/node-heartbeat";
 import { appendDelegatedRunAudit, delegatedPolicyForTask } from "./server/lib/delegated-agent-start";
@@ -1008,7 +1015,8 @@ const mcpRouter = createMcpRouter(ctx);
 const sessionEnvironmentRouter = createSessionEnvironmentRouter(ctx);
 const checkpointsRouter = createCheckpointsRouter(ctx);
 const goalsRouter = createGoalsRouter(ctx);
-const planRouter = createPlanRouter(ctx);
+// The same list the board index uses, so the Plan names projects the way the Kanban does.
+const planRouter = createPlanRouter(ctx, { listProjectDirs: () => listSelectableProjectDirs() });
 // Always-on: serves /api/topics/:id/context-preview and /context-snapshots.
 // Independent of which provider is the default — every provider benefits
 // from the canonical envelope inspector (change `topic-context-canonical`).
@@ -1221,6 +1229,8 @@ const dispatcherSvc = createTaskService(ctx.db, {
     if (noted) ctx.broadcastToAll({ type: "task:updated", projectId, task: noted });
   },
 });
+// Cards born from a channel chat follow that chat's turns (97e3951f).
+configureChannelOriginCards(ctx.db, dispatcherSvc);
 let scheduledCardTestNow: Date | null = null;
 const scheduledCards = createScheduledCards(ctx.db, dispatcherSvc, () => scheduledCardTestNow ?? new Date());
 function tickScheduledCards(): { created: string[]; skipped: string[] } {
@@ -1581,6 +1591,20 @@ function dispatchExtraPaths(): string[] {
   return paths;
 }
 
+/**
+ * The dirs that are actually SELECTABLE boards: the dispatcher's union minus
+ * internal catch-all plumbing, the home dir, config dot-dirs and vanished paths.
+ */
+function listSelectableProjectDirs(): string[] {
+  return buildProjectCandidates({
+    projectStore: ctx.projectStore,
+    workspaceDir: DISPATCH_WORKSPACE_DIR,
+    extraPaths: dispatchExtraPaths,
+  })
+    .map((c) => c.path)
+    .filter((p) => isSelectableProjectDir(p, { workspaceDir: DISPATCH_WORKSPACE_DIR, homeDir: homedir() }));
+}
+
 // Incremental, dedup-by-message-id usage accounting over Claude Code
 // transcripts (see transcript-usage.ts). One instance: it caches per-path
 // byte offsets so the dispatcher's 4s live ticker stays O(appended bytes).
@@ -1594,6 +1618,9 @@ const dispatchUsageReader = createDispatchUsageReader({
   db: ctx.db,
   read: (p) => transcriptUsageReader.read(p),
 });
+// The per-session consumption (load screen, Processes view, card drawer) reads the
+// same reader the dispatcher does, so a session's tokens are one number everywhere.
+setTranscriptUsageReader((sessionKey) => dispatchUsageReader.read(sessionKey));
 
 // Assigned just below (after worktreeOfTask is defined); the dispatcher only
 // calls it lazily at review-time, so the late binding is safe.
@@ -1733,6 +1760,13 @@ async function deliveryIsOnMain(repoPath: string, commit: string): Promise<boole
  * il riferimento in avanti e' sicuro: prima di allora non c'e' nessun turno.
  */
 let capturaConsegna: DeliveryCapture | null = null;
+/**
+ * Assigned where the tasks router exists. The dispatcher's node lane calls it
+ * once a delivery planted from another machine is in review (its bar is
+ * measured on a throwaway checkout, then the card is offered to the automatic
+ * land). Forward reference, same reasoning as `capturaConsegna`.
+ */
+let misuraConsegnaNodo: ((taskId: string) => Promise<void>) | null = null;
 /**
  * I file lasciati nel worktree e mai committati, per la consegna forzata.
  *
@@ -1949,6 +1983,7 @@ const dispatchMemoryInputs = createDispatchMemoryInputs({
 const taskDispatcher = createTaskDispatcher({
   stopCardProcesses: stopCardCommandProcesses,
   captureDelivery: (taskId) => capturaConsegna ? capturaConsegna(taskId) : Promise.resolve(false),
+  measureDelivery: (taskId) => misuraConsegnaNodo ? misuraConsegnaNodo(taskId) : Promise.resolve(),
   uncommittedInWorktree: (taskId) =>
     sondaLavoroNonCommittato ? sondaLavoroNonCommittato(taskId) : Promise.resolve(null),
   svc: dispatcherSvc,
@@ -2795,6 +2830,7 @@ capturaConsegna = createDeliveryCapture({
   taskCheckoutRef,
   ownCommitFiles,
   keepDeliveryCommit,
+  ownBranchFiles: (repoPath, branch) => ownBranchFiles(repoPath, branch),
 });
 
 // Stessa sonda che il pannello delle modifiche usa gia' (`taskWorktreeDirt`):
@@ -2895,6 +2931,48 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   taskCheckoutRef,
   // The user's `task-deliver` hook, the first gate on the move to review (HOOKS-02).
   hooks: defaultLifecycleHooks(),
+  // The automatic land (`services/auto-land.ts`): which files the branch
+  // touches (a server file reloads the live server on landing), and how many
+  // turns are open right now (the land waits for none).
+  deliveryFiles: async (taskId, commit) => {
+    const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
+    if (!ref) return null;
+    // What the merge of THAT commit brings (net diff against main), not the own-commit walk (it leaves out the pruning-residue commit) and not the branch tip (it moves).
+    return landingFiles(ref.repoPath, commit);
+  },
+  // Which of those files `bunfig.toml`, `scripts/`, `package.json` or `.github/` name: the bar's own configuration, as of the same commit.
+  deliveryReferenced: async (taskId, commit, files) => {
+    const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
+    if (!ref) return null;
+    return referencedByTheJudge(ref.repoPath, commit, files);
+  },
+  // The count the restart gate waits on (see `autoLandTurnCount`).
+  liveTurnCount: autoLandTurnCount,
+  ownBranchFiles: (repoPath, branch) => ownBranchFiles(repoPath, branch),
+  // A throwaway checkout of a branch planted from another machine, so its bar
+  // can be measured on the commit that will land (`services/node-delivery-meter.ts`).
+  nodeDeliveryCheckout: async (taskId) => {
+    const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
+    if (!ref) return null;
+    const path = join(osTmpdir(), "topics-node-checks", taskId.slice(0, 8));
+    await runGitCap(ref.repoPath, ["worktree", "remove", "--force", path]);
+    await runGitCap(ref.repoPath, ["worktree", "prune"]);
+    const added = await runGitCap(ref.repoPath, ["worktree", "add", path, ref.branch]);
+    if (added.code !== 0) return null;
+    return {
+      cwd: path,
+      head: () => resolveCommit(path, "HEAD"),
+      release: async () => { await runGitCap(ref.repoPath, ["worktree", "remove", "--force", path]); },
+    };
+  },
+  onAutoLand: (api) => {
+    misuraConsegnaNodo = api.measureNodeDelivery;
+    // A wait for zero turns lives in memory and a reload loses it: the verdict
+    // is asked again at boot and every ten minutes, so no card is stranded.
+    const sweep = () => { void api.sweepAutoLand().catch((err) => console.warn("[auto-land] spazzata fallita", err)); };
+    setTimeout(sweep, 90_000).unref?.();
+    setInterval(sweep, 10 * 60_000).unref?.();
+  },
   // Main dentro il ramo PRIMA dei check, come fa il land prima di fondere: il
   // cancello misura l'albero che atterra, non una base invecchiata.
   realignForChecks: (taskId) => taskAutoMerge.realign(taskId),
@@ -2921,6 +2999,7 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // "main" ovunque qui (vedi `resolveTaskMerge` sopra), quindi la domanda è
   // esattamente quella che il land ha provato a rendere vera.
   confirmLandedOnMain: (repoPath, commit) => commitIsAncestor(repoPath, commit, "main"),
+  pushMainAfterLand: (repoPath) => pushMainToOrigin(repoPath),
   markLandPending: (taskId) => {
     try {
       dispatcherSvc.recordLandingState({
@@ -2992,14 +3071,7 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // `generale` dir, the per-task `tasks/<id8>` cwds), the home dir, config
   // dot-dirs and vanished paths are dropped so the picker/sidebar stay clean;
   // the resolver above keeps the FULL union so those hashes still invert.
-  listProjectDirs: () =>
-    buildProjectCandidates({
-      projectStore: ctx.projectStore,
-      workspaceDir: DISPATCH_WORKSPACE_DIR,
-      extraPaths: dispatchExtraPaths,
-    })
-      .map((c) => c.path)
-      .filter((p) => isSelectableProjectDir(p, { workspaceDir: DISPATCH_WORKSPACE_DIR, homeDir: homedir() })),
+  listProjectDirs: listSelectableProjectDirs,
   listRepoRoots: listKnownDeliveryRepoRoots,
 });
 // Auto-register servers Claude starts inside its PTY sessions (bare `bun run dev`
@@ -3072,6 +3144,8 @@ const appSettingsRouter = createAppSettingsRouter(ctx);
 const calendarRouter = createCalendarRouter(ctx);
 // The titles of the agents' Discord and WhatsApp chats, read from jarvis-channels.
 const agentChannelsRouter = createAgentChannelsRouter(ctx);
+// Anagrafica di Jarvis e Visione: legge e scrive i file di jarvis-channels.
+const agentConfigRouter = createAgentConfigRouter(ctx);
 const profileRouter = createProfileRouter(ctx);
 // Pagina pubblica del profilo — senza autenticazione, prima del gate.
 const publicProfileHandler = createPublicProfileHandler(ctx);
@@ -3648,6 +3722,7 @@ const apiRouteTable = buildRouteTable({
   appSettingsRouter,
   calendarRouter,
   agentChannelsRouter,
+  agentConfigRouter,
   tabsRouter,
   viewsRouter,
   claudeHooksRouter,
@@ -3680,6 +3755,8 @@ const opzioniServer = {
   // depth for any server that bypasses it via a custom TOPICS_HOME.
   reusePort: false,
   idleTimeout: 255,
+  // Explicit, so a node run (card text plus thread) is never refused by an implicit default.
+  maxRequestBodySize: 256 * 1024 * 1024,
   ...(useTls ? {
     tls: {
       cert: Bun.file(tlsCert),
@@ -3932,6 +4009,13 @@ const opzioniServer = {
                   delegatedCapabilityId: delegated.capabilityId,
                 } : {}),
               });
+              // A device paired as a SCREEN reads the load screen's data and nothing else:
+              // decided before the guest rules, which would open far more than a monitor needs.
+              if (io?.screen) {
+                return isScreenAllowedRequest(pathname, method)
+                  ? { ok: true as const }
+                  : { ok: false as const, status: 403, reason: "screen device", code: "screen_scope" };
+              }
               if (delegated && !isDelegatedNodeAllowedRequest(pathname, method)) {
                 return { ok: false as const, status: 403, reason: "delegated credential scope", code: "delegated_scope" };
               }
@@ -5308,6 +5392,33 @@ if (serverModelProxy) {
   console.log(`[ModelProxy] listening on 127.0.0.1:${portaModelProxy} (Messages API only, per-machine token)`);
 }
 
+// The proxy for Claude Code sessions opened OUTSIDE Topics (the Claude desktop
+// app, relaunched with HTTPS_PROXY + NODE_EXTRA_CA_CERTS): their Messages calls
+// go through the account engine instead of straight to Anthropic. Off unless
+// TOPICS_EXTERNAL_PROXY_PORT is set; loopback only, on a port of its own. The
+// state file `<topics home>/external-proxy.json` (next to daemon-state.json) tells
+// `claude-account` where it is and where the CA is. The CA key lives in the Topics
+// home, never in STATE_DIR (the checkout root in production). See docs/ENV.md.
+const portaExternalProxy = externalProxyPort(process.env);
+let externalProxy: BootedExternalProxy | null = null;
+let externalProxyStopped = false; // set by gracefulShutdown: a boot that finishes after it must close itself
+if (portaExternalProxy) {
+  // Not awaited: a port still held by the previous process is retried for a few
+  // seconds, and the rest of the boot must not wait for it.
+  void bootExternalProxy({
+    homeDir: topicsHome(),
+    port: portaExternalProxy,
+    log: (event, fields) => console.log(`[ExternalProxy] ${event}${fields ? " " + Object.entries(fields).map(([k, v]) => `${k}=${v}`).join(" ") : ""}`),
+  }).then((proxy) => {
+    if (externalProxyStopped) { void proxy.close(); return; }
+    externalProxy = proxy;
+    console.log(`[ExternalProxy] listening on 127.0.0.1:${proxy.port} (CONNECT proxy, ${proxy.intercepting ? "api.anthropic.com terminated with the local CA" : "tunnel only, no CA"})`);
+  }).catch((err) => {
+    // A proxy that does not start must not take the server down with it.
+    console.error(`[ExternalProxy] not started: ${err instanceof Error ? err.message : String(err)}`);
+  });
+}
+
 // Stale stream cleanup
 const STALE_STREAM_CHECK_INTERVAL_MS = 30_000;
 const STALE_STREAM_TIMEOUT_MS = 3 * 60 * 1000;
@@ -5325,7 +5436,7 @@ const STALE_STREAM_TIMEOUT_MS = 3 * 60 * 1000;
 // leaves the map.
 const staleStreamRescued = new Set<string>();
 const staleStreamSilence = new Map<string, SilenceMark>();
-const staleStreamTimer = setInterval(() => {
+function runStaleStreamPass(): void {
   // IL GIRO STA IN `stale-stream-sweep.ts`. Il verdetto puro era gia' uscito da
   // qui per essere provabile, ma il cablaggio no: il caso che conta — un figlio
   // VIVO al secondo tick muto, cioe' il turno che NON va finalizzato — vive
@@ -5390,7 +5501,22 @@ const staleStreamTimer = setInterval(() => {
   // A lingering entry the sweep dropped without `endStream`: the ledger follows the map.
   for (const sk of sweepOutcomes.keys()) turnLedger.set(sk, "route", activeStreams.has(sk));
   sweepStaleChecksLights();
-}, STALE_STREAM_CHECK_INTERVAL_MS);
+}
+// A re-armed timeout rather than a setInterval: the e2e bench shortens the pass
+// interval (`setBenchStaleTick`) and the change must take effect at once.
+let staleStreamTimer: ReturnType<typeof setTimeout>;
+function armStaleStreamTimer(): void {
+  clearTimeout(staleStreamTimer);
+  staleStreamTimer = setTimeout(() => {
+    try {
+      runStaleStreamPass();
+    } finally {
+      armStaleStreamTimer();
+    }
+  }, staleTickMs(STALE_STREAM_CHECK_INTERVAL_MS));
+}
+onStaleTickChange(armStaleStreamTimer);
+armStaleStreamTimer();
 
 /** The periodic half of the light's honesty (`services/checks-lights.ts`): the
  *  boot sweep is blind to a round that died with the process still up. */
@@ -6467,6 +6593,35 @@ const auditOneLanding = (taskId: string) => auditOneLandingPass(auditWiring, tas
 const landingAuditBoot = setTimeout(runLandingAudit, 180_000);
 const landingAuditTimer = setInterval(runLandingAudit, LANDING_AUDIT_INTERVAL_MS);
 
+// ── LANDS LEFT BEHIND GO BACK TO ORIGIN. The push after a land can fail
+// (network, port 22 timing out on 10/11): every 10 minutes each project repo
+// retries, fast-forward only, and once main is on origin its `unpushed` cards
+// turn `landed`. Every repo, not only those with marked cards: a land made by
+// a server without this fix is behind all the same, and that is the measured case.
+const sweepUnpushedLands = async () => {
+  const repos = new Set<string>();
+  try { for (const d of listSelectableProjectDirs()) repos.add(d); } catch { /* best-effort */ }
+  const pending = ctx.db.prepare(
+    "SELECT id, project_id FROM tasks WHERE landing_state = 'unpushed' AND archived = 0",
+  ).all() as Array<{ id: string; project_id: string }>;
+  await sweepUnpushedMains([...repos], (repo, n) => {
+    const pid = projectIdForPath(repo);
+    if (n > 0) console.log(`[land-push] ${n} commit di main portati su origin { repo: ${repo} }`);
+    for (const t of pending.filter((p) => p.project_id === pid)) {
+      dispatcherSvc.recordLandingState({ taskId: t.id, state: "landed", checkedAt: new Date().toISOString(), witnessed: true });
+      try {
+        dispatcherSvc.addComment({ taskId: t.id, author: "system", kind: "service", content: "Main portato su origin: il land ora è anche su GitHub." });
+      } catch { /* the line is a courtesy */ }
+      const cur = dispatcherSvc.get(t.id)?.task;
+      if (cur) broadcastToAll({ type: "task:updated", projectId: pid, task: cur } as Parameters<typeof broadcastToAll>[0]);
+    }
+  }, mainPushGit).then((out) => {
+    for (const o of out) if (!o.result.ok) console.warn(`[land-push] ${o.repo}: ${o.result.reason}`);
+  });
+};
+setTimeout(() => { void sweepUnpushedLands().catch((e) => console.warn("[land-push] spazzata fallita", e)); }, 240_000).unref?.();
+setInterval(() => { void sweepUnpushedLands().catch((e) => console.warn("[land-push] spazzata fallita", e)); }, 10 * 60_000).unref?.();
+
 // `requestIP` vive sull'istanza del server, che nasce dopo il contesto: si
 // aggancia qui, cosi' le rotte che devono distinguere loopback da remoto
 // (l'appaiamento) non ricevono il server intero.
@@ -6845,7 +7000,20 @@ function turnComesBack(sessionKey: string): boolean {
   });
 }
 
-async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; chats: number; workingChats: number; lostWorkingChats: number; everyTurnComesBack: boolean; holder: string | null; holderKind: "turn" | "question" }> {
+/**
+ * Open turns, for the automatic land that reloads the server: the restart
+ * gate's own predicate (cards and lands in flight, broker turns, chats parked on
+ * a question) plus the chat streams and busy agent terminals. Counting less than
+ * the gate lets a reload cut a turn the gate itself would have waited for.
+ */
+async function autoLandTurnCount(opts?: { insideLand?: boolean }): Promise<number> {
+  // Asked from within a land, that land is itself "in flight" for the gate, and
+  // is not a turn it should wait for: it would never find the server idle.
+  const working = await whatIsStillWorking({ ownLands: opts?.insideLand ? 1 : 0 });
+  return (working.busy !== null ? 1 : 0) + activeStreams.size + countBusyAgentTerminals();
+}
+
+async function whatIsStillWorking(opts: { ownLands?: number } = {}): Promise<{ busy: string | null; cards: number; unadoptable: number; chats: number; workingChats: number; lostWorkingChats: number; everyTurnComesBack: boolean; holder: string | null; holderKind: "turn" | "question" }> {
   // A land in flight is a card turn for this purpose: it rewrites main and
   // the card, and a restart in the middle of it forgets the delivery branch.
   //
@@ -6861,7 +7029,8 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
   // round is redone. What still holds is a card whose turn lives in this
   // process, and a land, which rewrites main under the restart.
   const cardTurns = cardTurnsAll.filter((t) => !(t.sessionKey && turnComesBack(t.sessionKey)));
-  const cards = cardTurns.length + landingQueue.inFlight();
+  // `ownLands`: the caller IS a land and does not count itself (the automatic land's last look).
+  const cards = cardTurns.length + Math.max(0, landingQueue.inFlight() - (opts.ownLands ?? 0));
   // Those cards' own streams go with them. A card turn streams through
   // /api/chat, so its session is a stream key too, and left in it would hold
   // the restart a second time - as a chat on the native runtime, which is
@@ -7323,7 +7492,7 @@ async function gracefulShutdown(signal: string) {
   console.log(`\n[Shutdown] Received ${signal}, closing browser service...`);
   clearInterval(heartbeatTimer);
   clearInterval(wsHeartbeatTimer);
-  clearInterval(staleStreamTimer);
+  clearTimeout(staleStreamTimer);
   clearInterval(dispatchTimer);
   clearTimeout(worktreeGcBoot);
   clearInterval(worktreeGcTimer);
@@ -7333,6 +7502,9 @@ async function gracefulShutdown(signal: string) {
   clearInterval(idleGcTimer);
   clearInterval(incrementalVacuumTimer);
   clearInterval(loopLagTimer);
+  // First of all: the state file goes away and the port is freed for the next process.
+  externalProxyStopped = true;
+  void externalProxy?.close();
   stopToolOutputBackfill();
   // A process left STOPped by the governor is a process nobody will ever
   // continue: the one thing that could send it SIGCONT is the loop that is

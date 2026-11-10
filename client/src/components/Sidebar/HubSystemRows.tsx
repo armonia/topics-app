@@ -15,13 +15,14 @@ import { useLocale, useT } from '../../hooks/useT';
 import { addCatalogue } from '../../lib/i18n';
 import HUB_CONTEXT_IT from '../../lib/i18n-hub-context-it';
 import HUB_CONTEXT_EN from '../../lib/i18n-hub-context-en';
-import { contextView, shortTokens } from '../../lib/hubContext';
+import { contextView } from '../../lib/hubContext';
 import { HUB_CONTEXT_DOC, HUB_FEATURES_DOC, useHubDoc } from '../../state/hubDocs';
 import { useHubLive } from '../../state/hubLive';
 import { macStrain } from '../../lib/hubSystem';
 import { WARNING_TEXT } from '../../lib/popoverStyles';
 import { SubmenuItem } from '../Shared/SubmenuItem';
 import { menuRowClass } from './menuRow';
+import { shortTokens } from '../../lib/formatTokens';
 
 addCatalogue('it', HUB_CONTEXT_IT);
 addCatalogue('en', HUB_CONTEXT_EN);

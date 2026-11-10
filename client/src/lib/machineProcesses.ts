@@ -155,6 +155,7 @@ export function processRows(census: unknown, mac: unknown, scripts: readonly Scr
     const pids = Array.isArray(u.pids) ? u.pids.filter((p): p is number => typeof p === 'number') : [];
     const cpu = unitCpu(pids, trees, single);
     const memMB = num(u.memMB) ?? 0;
+    const script = scriptForUnit(u, scripts);
     const use = isRecord(u.use) ? str(u.use.text) : null;
     const owner = isRecord(u.owner) ? str(u.owner.label) : null;
     return {
@@ -170,9 +171,42 @@ export function processRows(census: unknown, mac: unknown, scripts: readonly Scr
       gpuPct: num(u.gpuPct),
       netInBps: num(u.netInBps),
       netOutBps: num(u.netOutBps),
-      script: scriptForUnit(u, scripts),
+      script,
     };
   });
+}
+
+// ── The Mac's backup ─────────────────────────────────────────────────────────
+
+export interface BackupView {
+  /** Outcome of the last run. */
+  ok: boolean;
+  at: number;
+  /** The service's sentence on it (size, duration, or why it failed). */
+  detail: string | null;
+  /**
+   * The last run that went well, when the last one did not: the line names it
+   * so a failure never hides how old the good copy is. Null when the last run
+   * went well (it is `at`) or when no good run is on record.
+   */
+  lastOkAt: number | null;
+}
+
+/**
+ * The service reads the backup's state file itself, so this works with Topics
+ * off. No file (or one with no run in it) is null: the view says there is no
+ * backup recorded, it does not invent a state. The view draws ONE line from it.
+ */
+export function backupView(raw: unknown): BackupView | null {
+  if (!isRecord(raw) || !isRecord(raw.last)) return null;
+  const at = num(raw.last.at);
+  if (at === null) return null;
+  const ok = raw.last.ok === true;
+  const goodRuns = list(raw.ticks).flatMap((t) => {
+    const tAt = num(t.at);
+    return tAt !== null && t.ok === true && tAt < at ? [tAt] : [];
+  });
+  return { ok, at, detail: str(raw.last.detail), lastOkAt: ok || goodRuns.length === 0 ? null : Math.max(...goodRuns) };
 }
 
 /** When the census was taken (ms), or null. */

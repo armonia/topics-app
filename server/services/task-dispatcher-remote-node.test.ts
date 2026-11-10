@@ -29,233 +29,18 @@
  * @covers GUEST-17
  */
 import { describe, it, expect } from "bun:test";
-import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLifecycleHooks, type LifecycleHookPayload, type LifecycleHookRunner } from "./lifecycle-hooks";
 import { pendingQuestionComment } from "../../shared/board";
-import { createTaskService, type TaskService } from "./tasks";
-import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { NODE_BRANCH_GRACE_POLLS, NODE_DEAD_POLLS, NODE_RETIRE_TRIES } from "./task-dispatcher-remote-node";
 import { createNodeBranchPlanter } from "./node-branch-plant";
-import type { NodeRunBinding, NodeRunReport } from "./node-client";
-import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
-import type { TurnEndInfo } from "../providers/stop-reason";
-import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
+import { createDeliveryCapture, type DeliveryCapture, type DeliveryRef } from "./task-delivery-capture";
+import type { TaskFile } from "../../shared/task-labels";
+import type { NodeRunReport } from "./node-client";
 
-function freshDb(): Database {
-  const db = new Database(":memory:");
-  db.run("PRAGMA foreign_keys = ON");
-  db.run(TASKS_DDL);
-  db.run(TASKS_FK_STUBS_DDL);
-  db.run(TASK_LABELS_DDL);
-  db.run(`CREATE TABLE board_settings (
-    project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
-    require_review_before_done INTEGER DEFAULT 0, block_status_with_pending INTEGER DEFAULT 0,
-    only_lead_can_change_status INTEGER DEFAULT 0, max_agents INTEGER DEFAULT 5, auto_expire_hours INTEGER DEFAULT 24,
-    auto_dispatch INTEGER NOT NULL DEFAULT 0, dispatch_effort TEXT NOT NULL DEFAULT 'medium',
-    dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20,
-    dispatch_mcp TEXT,
-    dispatch_retry_cap INTEGER, dispatch_retry_backoff_s INTEGER,
-    max_agents_auto INTEGER, dispatch_fanout INTEGER, language TEXT
-  )`);
-  db.run(`CREATE TABLE task_comments (
-    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
-    content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
-    kind TEXT NOT NULL DEFAULT 'comment',
-    -- migration 20260904190855: l'ancora di KANBAN-72, qui è l'id del commento SUL NODO.
-    message_id TEXT,
-    -- migration 20260912081500: la nota quieta (la riga di consegna del nodo lo è).
-    quiet INTEGER CHECK (quiet IN (0, 1))
-  )`);
-  db.run(`CREATE TABLE approvals (
-    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, requested_by TEXT NOT NULL,
-    approval_type TEXT NOT NULL, from_status TEXT, to_status TEXT, confidence_score REAL,
-    rubric_scores TEXT, justification TEXT, status TEXT NOT NULL DEFAULT 'pending',
-    reviewed_by TEXT, review_comment TEXT, created_at TEXT NOT NULL, reviewed_at TEXT, expires_at TEXT
-  )`);
-  db.run("INSERT INTO machines (id) VALUES ('node-1')");
-  return db;
-}
-
-const PID = "alpha-abc123";
-const TASK = "card-remota";
-const MACHINE = "node-1";
-const BASE_URL = "https://node.local";
-const TOKEN = "tok-node-1";
-
-/** A node report carrying only the fields the case under test looks at. */
-function report(over: Partial<NodeRunReport> = {}): NodeRunReport {
-  return {
-    status: "in_progress",
-    dispatchState: "working",
-    dispatchError: null,
-    comments: [],
-    deliveryBranch: null,
-    deliveryCommit: null,
-    baseSha: null,
-    stat: null,
-    ...over,
-  };
-}
-
-interface NodeFakeOptions {
-  /** `false` = never paired: neither address nor token. */
-  paired?: boolean;
-  createRun?: () => Promise<{ runId: string }>;
-  readRun?: (runId: string) => Promise<NodeRunReport>;
-  cancelRun?: (runId: string) => Promise<void>;
-  bundle?: Uint8Array | null;
-  planted?: { planted: boolean; commit: string | null; reason: string | null };
-  /** The `node-run` hook runner; absent = the lane's own default. */
-  hooks?: LifecycleHookRunner;
-  projectPathOf?: (projectId: string) => string | null;
-  /** The origin lookup; absent = an immediate answer. */
-  originUrlOf?: () => Promise<string | null>;
-}
-
-function nodeFake(o: NodeFakeOptions = {}) {
-  const calls: string[] = [];
-  const created: { body: unknown; token: string; delegation?: NodeRunBinding }[] = [];
-  const plantedWith: { branch: string; baseSha: string | null; bundleBytes: number | null }[] = [];
-  let nextRun = 0;
-  const node: NonNullable<DispatcherDeps["node"]> = {
-    createRun: async ({ body, token, delegation }) => {
-      calls.push("create");
-      created.push({ body, token, delegation });
-      if (o.createRun) return o.createRun();
-      nextRun += 1;
-      return { runId: `run-${nextRun}` };
-    },
-    readRun: async ({ runId }) => {
-      calls.push(`read:${runId}`);
-      return o.readRun ? o.readRun(runId) : report();
-    },
-    fetchBundle: async () => {
-      calls.push("bundle");
-      return o.bundle && o.bundle.length > 0 ? { empty: false as const, bytes: o.bundle } : { empty: true as const };
-    },
-    cancelRun: async ({ runId }) => {
-      calls.push(`cancel:${runId}`);
-      if (o.cancelRun) await o.cancelRun(runId);
-    },
-    baseUrlOf: () => (o.paired === false ? null : BASE_URL),
-    tokenOf: () => (o.paired === false ? null : TOKEN),
-    delegatedTokenOf: () => (o.paired === false ? null : "tok-confined"),
-    nameOf: () => "Portatile",
-    localMachineId: () => "questa-macchina",
-    originUrlOf: o.originUrlOf ?? (async () => "git@github.com:acme/alpha.git"),
-    ...(o.hooks ? { hooks: o.hooks } : {}),
-    ...(o.projectPathOf ? { projectPathOf: o.projectPathOf } : {}),
-    plantBranch: async ({ branch, baseSha, bundle }) => {
-      plantedWith.push({ branch, baseSha, bundleBytes: bundle ? bundle.length : null });
-      return o.planted ?? { planted: true, commit: "c0ffeec0ffee", reason: null };
-    },
-  };
-  return { node, calls, created, plantedWith };
-}
-
-function delegatedPolicy(overrides: Partial<DelegatedRunPolicy> = {}): DelegatedRunPolicy {
-  return {
-    id: "capability-confined",
-    subjectType: "person",
-    subjectId: "person-confined",
-    projectId: PID,
-    machineId: MACHINE,
-    machineName: "Portatile",
-    repositoryKey: "github.com/acme/alpha",
-    model: "gpt-5",
-    effort: "medium",
-    maxDurationMinutes: 7,
-    maxAttempts: 1,
-    fanout: 1,
-    grantedByPersonId: "person-owner",
-    grantedAt: Date.UTC(2026, 8, 6, 9, 0, 0),
-    expiresAt: null,
-    revokedAt: null,
-    taskId: TASK,
-    initiatorPersonId: "person-confined",
-    initiatorDeviceId: "device-confined",
-    ...overrides,
-    deadlineAt: overrides.deadlineAt ?? null,
-  };
-}
-
-function harness(nodeOverrides: NodeFakeOptions = {}, depOverrides: Partial<DispatcherDeps> = {}) {
-  const db = freshDb();
-  const svc: TaskService = createTaskService(db);
-  const fake = nodeFake(nodeOverrides);
-  const worktrees: string[] = [];
-  const topics: string[] = [];
-  const turns: string[] = [];
-  let now = Date.UTC(2026, 8, 6, 10, 0, 0);
-
-  const deps: DispatcherDeps = {
-    svc,
-    resolveProject: () => ({ path: "/tmp/alpha", projectStoreId: "store-1" }),
-    createTopic: () => {
-      const id = `topic-${topics.length + 1}`;
-      topics.push(id);
-      db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", [id]);
-      return { topicId: id, sessionKey: `topic:${id}` };
-    },
-    createWorktree: async () => { worktrees.push(`wt-${worktrees.length + 1}`); return `wt-${worktrees.length}`; },
-    deleteWorktree: async () => {},
-    runTurn: (sessionKey) => { turns.push(sessionKey); return Promise.resolve<TurnEndInfo | void>(undefined); },
-    recordDelegatedPhase: () => {
-      const policy = depOverrides.delegatedPolicyForTask?.(TASK);
-      return policy?.deadlineAt ?? now + (policy?.maxDurationMinutes ?? 7) * 60_000;
-    },
-    broadcast: () => {},
-    node: fake.node,
-    now: () => now,
-    graceMs: 0,
-    retryBackoffMs: 0,
-    log: () => {},
-    ...depOverrides,
-  };
-  const dispatcher = createTaskDispatcher(deps);
-
-  // `auto` said out loud: the global preference of whoever runs the suite must not reach the body.
-  svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true, dispatchFanOut: 1, language: "auto" });
-  svc.setGlobalCap({ auto: false, max: 9 });
-
-  return {
-    db, svc, dispatcher, worktrees, topics, turns,
-    calls: fake.calls, created: fake.created, plantedWith: fake.plantedWith,
-    advance: (ms: number) => { now += ms; },
-    nowMs: () => now,
-    task: () => svc.get(TASK)!.task,
-    comments: () => svc.get(TASK)!.comments,
-    /** A todo that names the node: the only difference from any other card. */
-    seed: () => {
-      const ts = new Date(now).toISOString();
-      db.run(
-        `INSERT INTO tasks (id, project_id, text, description, status, created_at, updated_at, dispatch_attempts, machine_id)
-         VALUES (?, ?, 'porta a casa la corsia remota', 'con il ramo', 'todo', ?, ?, 0, ?)`,
-        [TASK, PID, ts, ts, MACHINE],
-      );
-    },
-  };
-}
-
-const flush = async (n = 12) => {
-  for (let i = 0; i < n; i++) await Promise.resolve();
-};
-
-/** One poll round: `reconcile` is what asks the node, once per slot. */
-async function poll(h: ReturnType<typeof harness>, rounds = 1) {
-  for (let i = 0; i < rounds; i++) {
-    await h.dispatcher.reconcile({ reason: "poll" });
-    await flush();
-  }
-}
-
-async function dispatch(h: ReturnType<typeof harness>) {
-  await h.dispatcher.tick(PID);
-  await flush();
-}
+import { PID, TASK, MACHINE, BASE_URL, report, delegatedPolicy, harness, flush, poll, dispatch } from "./task-dispatcher-remote-node-test-support";
 
 describe("la card parte sul nodo, non qui", () => {
   it("nessun worktree, nessun discorso, nessun turno: solo la corsa sul nodo", async () => {
@@ -320,6 +105,18 @@ describe("la card parte sul nodo, non qui", () => {
     expect(h.turns).toEqual([]);
     expect(h.worktrees).toEqual([]);
     expect(h.topics).toEqual([]);
+  });
+
+  it("413 dal nodo: la card si parcheggia col motivo, non resta in coda come node_unreachable", async () => {
+    const h = harness({ createRun: () => Promise.reject(Object.assign(new Error("create run answered 413 (request body 999 bytes)"), { reason: "payload_too_large" })) });
+    h.seed();
+
+    await dispatch(h);
+
+    const t = h.task();
+    expect(t.dispatchError).not.toBe("node_unreachable");
+    expect(t.dispatchDeferredUntil).toBeNull();
+    expect(t.dispatchError ?? "").toContain("troppo grande");
   });
 
   it("nodo muto due volte: la card resta in coda, il tetto dei rimandi dell'agente non la ferma", async () => {
@@ -1272,3 +1069,96 @@ describe("la copia vecchia che il nodo restituisce dopo un riavvio", () => {
   });
 });
 
+
+describe("la consegna del nodo è una consegna come le altre", () => {
+  const BRANCH = "topics/corsa-remota";
+  /** A node that finished with a branch; what `git` would say about it is a parameter. */
+  function plantedHarness(own: { commit: string | null; files: TaskFile[] }, dispatchError?: string) {
+    let capture: DeliveryCapture | null = null;
+    const asked: string[] = [];
+    const measured: Array<{ taskId: string; commit: string | null }> = [];
+    const h = harness({
+      bundle: new Uint8Array([1, 2, 3]),
+      readRun: () => Promise.resolve(report({ status: "review", deliveryBranch: BRANCH, deliveryCommit: "deadbeefdeadbeef", baseSha: "abcdef0123456789", ...(dispatchError ? { dispatchError } : {}) })),
+    }, {
+      captureDelivery: (id) => (capture ? capture(id) : Promise.resolve(false)),
+      measureDelivery: async (id) => { measured.push({ taskId: id, commit: h.task().deliveryCommit }); },
+    });
+    capture = createDeliveryCapture({
+      svc: h.svc,
+      taskDeliveryRef: async (): Promise<DeliveryRef> => ({ branch: BRANCH, commit: own.commit, repoPath: "/tmp/alpha" }),
+      // A planted branch has no worktree here: the labels must come from the repo.
+      taskCheckoutRef: async () => null,
+      ownCommitFiles: async () => { throw new Error("no worktree to read"); },
+      ownBranchFiles: async (repoPath, branch) => { asked.push(`${repoPath}#${branch}`); return own.files; },
+    });
+    return { h, asked, measured };
+  }
+
+  it("etichette dai commit propri del ramo piantato e barra chiesta sul commit piantato", async () => {
+    const { h, asked, measured } = plantedHarness({ commit: "c0ffeec0ffee", files: [{ path: "server/x.ts", added: false }] });
+    h.seed();
+    await dispatch(h);
+    await poll(h);
+
+    expect(h.task().status).toBe("review");
+    expect(asked).toEqual([`/tmp/alpha#${BRANCH}`]);
+    expect(h.task().labels.map((l) => l.label)).toContain("invisibile");
+    // The bar is asked once the card is in review, on the commit that was planted.
+    expect(measured).toEqual([{ taskId: TASK, commit: "c0ffeec0ffee" }]);
+  });
+
+  it("un giro finito su un errore (quota a meta' commit) viene piantato per essere visto, ma la barra non gira e non atterra", async () => {
+    const { h, measured } = plantedHarness({ commit: "c0ffeec0ffee", files: [{ path: "server/x.ts", added: false }] }, "quota esaurita");
+    h.seed();
+    await dispatch(h);
+    await poll(h);
+
+    expect(h.task().status).toBe("review");
+    expect(h.task().deliveryCommit).toBe("c0ffeec0ffee");
+    expect(measured).toEqual([]);
+  });
+
+  it("zero commit propri, card messa sul nodo dal sistema: torna in todo e resta su questa macchina", async () => {
+    const { h, measured } = plantedHarness({ commit: null, files: [] });
+    h.seed();
+    h.db.run("UPDATE tasks SET overflowed_at = ? WHERE id = ?", [new Date().toISOString(), TASK]);
+    await dispatch(h);
+    // The queue must not hand it out again inside this case: we read where it was put.
+    h.svc.updateBoardSettings(PID, { autoDispatch: false });
+    await poll(h);
+
+    const t = h.task();
+    expect(t.status).toBe("todo");
+    expect(t.stayLocal).toBe(true);
+    expect(t.machineId).toBeNull();
+    expect(measured).toEqual([]);
+    expect(h.comments().some((c) => c.content.includes("finita senza nessun commit"))).toBe(true);
+  });
+
+  it("zero commit propri perche' l'agente ha chiesto una scelta: non e' mancanza di strumenti, va in review e non resta qui", async () => {
+    const { h } = plantedHarness({ commit: null, files: [] });
+    h.seed();
+    h.db.run("UPDATE tasks SET overflowed_at = ? WHERE id = ?", [new Date().toISOString(), TASK]);
+    await dispatch(h);
+    h.svc.addComment({ taskId: TASK, author: "agent:e88f046b", kind: "comment", content: ["```question", "Quale fascia?", "- A", "- B", "```"].join("\n") });
+    h.svc.updateBoardSettings(PID, { autoDispatch: false });
+    await poll(h);
+
+    const t = h.task();
+    expect(t.status).toBe("review");
+    expect(t.stayLocal).toBe(false);
+    expect(h.comments().some((c) => c.content.includes("finita senza nessun commit"))).toBe(false);
+  });
+
+  it("zero commit propri su una card che una persona ha mandato sul nodo: resta in review, nessuno la sposta", async () => {
+    const { h } = plantedHarness({ commit: null, files: [] });
+    h.seed();
+    await dispatch(h);
+    await poll(h);
+
+    expect(h.task().status).toBe("review");
+    expect(h.task().machineId).toBe(MACHINE);
+    expect(h.task().stayLocal).toBe(false);
+  });
+});

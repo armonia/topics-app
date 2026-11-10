@@ -1168,6 +1168,34 @@ export function listOwnedScripts(): OwnedScript[] {
 }
 
 /**
+ * The running processes a session launched, with the session key and the pid:
+ * the per-session consumption bills their trees to that session. A script the
+ * UI started for a project has no session and is not here (it is `unowned`
+ * work, reported apart and never shared out).
+ */
+export function listSessionOwnedProcesses(): { sessionKey: string; pid: number }[] {
+  loadProcessRegistry();
+  const out: { sessionKey: string; pid: number }[] = [];
+  for (const sp of runningScripts.values()) {
+    if (sp.status !== "running" || !sp.pid) continue;
+    const sessionKey = sp.cmd?.sessionKey ?? sp.cardRun?.sessionKey ?? sp.agentRun?.sessionKey ?? sp.shell?.sessionKey ?? null;
+    if (sessionKey) out.push({ sessionKey, pid: sp.pid });
+  }
+  return out;
+}
+
+/** Pids of the running scripts no session owns: a project's dev server, a build somebody started from the UI. */
+export function listUnownedScriptPids(): number[] {
+  loadProcessRegistry();
+  const out: number[] = [];
+  for (const sp of runningScripts.values()) {
+    if (sp.status !== "running" || !sp.pid || !isTopicsSpawned(sp.source)) continue;
+    if (!(sp.cmd?.sessionKey ?? sp.cardRun?.sessionKey ?? sp.agentRun?.sessionKey ?? sp.shell?.sessionKey)) out.push(sp.pid);
+  }
+  return out;
+}
+
+/**
  * A row as it travels, ONE shape for the WebSocket frame and the HTTP answer:
  * built in two places, the two lists had already drifted once. The shell id
  * rides on the frame too: the chat's cards find their shell BY id, and the

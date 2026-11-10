@@ -16,8 +16,9 @@ import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight, FileText, Layers } from 'lucide-react';
 import type { useT } from '../../hooks/useT';
 import { apiFetch } from '../../lib/shell/net';
-import { STALE_FILE_DAYS, fileAgeDays, fileGroups, shortTokens, type ContextFile, type ContextView } from '../../lib/hubContext';
+import { STALE_FILE_DAYS, fileAgeDays, fileGroups, type ContextFile, type ContextView } from '../../lib/hubContext';
 import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
+import { shortTokens } from '../../lib/formatTokens';
 
 export type Tr = ReturnType<typeof useT>;
 

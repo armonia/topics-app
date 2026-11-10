@@ -20,8 +20,9 @@ import { openExternal } from '../../lib/shell/external';
 import { WARNING_TEXT } from '../../lib/popoverStyles';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { CodexIcon } from '../Shared/CodexIcon';
+import { shortTokens } from '../../lib/formatTokens';
 import {
-  PROVIDER_NAMES, agentOpen, modelMix, opusAdvice, shortTokens, weekShare,
+  PROVIDER_NAMES, agentOpen, modelMix, opusAdvice, weekShare,
   type HubAgent, type HubProject,
 } from '../../lib/projectHub';
 

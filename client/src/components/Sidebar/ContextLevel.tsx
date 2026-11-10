@@ -23,13 +23,14 @@ import { addCatalogue } from '../../lib/i18n';
 import HUB_CONTEXT_IT from '../../lib/i18n-hub-context-it';
 import HUB_CONTEXT_EN from '../../lib/i18n-hub-context-en';
 import { apiFetch } from '../../lib/shell/net';
-import { checkStart, contextView, shortTokens, type ContextView, type DoctorVerdict, type UnlistedRef } from '../../lib/hubContext';
+import { checkStart, contextView, type ContextView, type DoctorVerdict, type UnlistedRef } from '../../lib/hubContext';
 import { HUB_CONTEXT_DOC, useHubDoc } from '../../state/hubDocs';
 import { startVisibleInterval } from '../../state/documentVisibility';
 import { useCloseLevel } from '../Shared/levelClose';
 import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { PALLINO_ATTESA, PALLINO_OK } from './chromeSignals';
 import { Files, SECTION, SECTION_HINT, type Tr } from './ContextFiles';
+import { shortTokens } from '../../lib/formatTokens';
 
 addCatalogue('it', HUB_CONTEXT_IT);
 addCatalogue('en', HUB_CONTEXT_EN);

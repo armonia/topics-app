@@ -23,6 +23,12 @@ export interface WaitTask {
   human_ask?: string | null;
   dispatch_state?: string | null;
   dispatch_error?: string | null;
+  /**
+   * The thread's last word is an unanswered question, already derived by the
+   * reader that has no thread to hand (the board card carries it; the Plan
+   * reads the comments themselves and leaves this unset).
+   */
+  awaitingAnswer?: boolean;
 }
 
 /** Stop chips that leave a backlog card to the person. */
@@ -36,6 +42,7 @@ export function waitOnPerson(t: WaitTask, comments: readonly PendingQuestionComm
   const q = pendingQuestionComment(comments);
   const parsed = q ? parseQuestionBlock(q.content) : null;
   if (parsed) return { reason: "question", detail: parsed.question };
+  if (t.awaitingAnswer) return { reason: "question" };
   if (t.human_ask?.trim()) return { reason: "human_ask", detail: t.human_ask.trim() };
   const waits = t.description?.match(WAITS_LINE);
   // The line is often quoted inside a sentence: drop the closing quote and full stop.

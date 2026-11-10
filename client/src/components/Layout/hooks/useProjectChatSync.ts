@@ -44,6 +44,14 @@ import {
 } from '../../../state/pane/adapters';
 import { migrateProjectPaneIdentity } from './projectPaneIdentity';
 import { projectFocusActions } from '../../../state/projectFocus';
+import {
+  agentBrowserPaneIds,
+  isAgentOwnedTopic,
+  markAgentBrowsersParked,
+  markAgentTabsParked,
+  shouldParkAgentBrowsers,
+  shouldParkAgentTabs,
+} from '../../../lib/agentTabs';
 import type {
   ChatReconciliation,
   PersistedSnapshot,
@@ -238,6 +246,31 @@ export function useProjectChatSync(
       }
 
       const persisted = initialRef.current;
+      // One-time migration (10/11): the agent chats that piled up as tabs
+      // before the rule are taken off the bar once. Their topics stay open and
+      // in their section; the active chat the user was on is kept.
+      const parkAgentTabs = shouldParkAgentTabs(projectPath, typeof localStorage === 'undefined' ? null : localStorage);
+      if (parkAgentTabs) {
+        for (const p of curPanes) {
+          if (p.type !== 'chat' || !p.topicId || removeSet.has(p.id)) continue;
+          if (p.topicId === persisted?.activeChatTopicId) continue;
+          if (isAgentOwnedTopic(topics[p.topicId])) {
+            remove.push(p.id);
+            removeSet.add(p.id);
+            survivingChatTopicIds.delete(p.topicId);
+          }
+        }
+        markAgentTabsParked(projectPath, typeof localStorage === 'undefined' ? null : localStorage);
+      }
+      // Same once for agent browsers (10/11): their pages live in the agent's
+      // section now. Only the tab goes, the browser context stays alive.
+      const storage = typeof localStorage === 'undefined' ? null : localStorage;
+      if (shouldParkAgentBrowsers(projectPath, storage)) {
+        for (const id of agentBrowserPaneIds(curPanes, topics, getBrowserContextFromPaneId)) {
+          if (!removeSet.has(id)) { remove.push(id); removeSet.add(id); }
+        }
+        markAgentBrowsersParked(projectPath, storage);
+      }
       const openSet = new Set([...(persisted?.openChatTopicIds || []), ...deferredOpenRef.current]);
       deferredOpenRef.current = new Set();
       // `topicIds` is already filtered by `t.projectPath === projectPath`
@@ -248,7 +281,8 @@ export function useProjectChatSync(
         if (survivingChatTopicIds.has(tid)) continue;
         // A sub-agent's chat lives nested under its parent in the sidebar, never as a tab:
         // a tab persisted before that rule is not restored.
-        if (openSet.has(tid) && !topics[tid]?.subagentOf) {
+        if (openSet.has(tid) && !topics[tid]?.subagentOf
+          && !(parkAgentTabs && isAgentOwnedTopic(topics[tid]) && tid !== persisted?.activeChatTopicId)) {
           const topic = topics[tid];
           add.push({
             id: createPaneId('chat', tid),
@@ -299,6 +333,9 @@ export function useProjectChatSync(
         const topic = topics[tid];
         // A sub-agent spawned by a chat is a new topic of the project too: it does not open a tab.
         if (topic?.subagentOf) continue;
+        // Nor does any chat an agent opened (Jarvis's channels and scheduled
+        // jobs, dispatched cards): it has its own section (10/11).
+        if (isAgentOwnedTopic(topic)) continue;
         add.push({
           id: createPaneId('chat', tid),
           type: 'chat' as PaneType,

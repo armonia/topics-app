@@ -407,6 +407,33 @@ export function subtaskOpenable(
 }
 
 /**
+ * Deadline chip: a `dueDate` (ISO date or datetime) as a short label, flagged
+ * `overdue` once it is in the past and the card is not closed. `null` = no date.
+ * A bare date (no time) stays due through the end of that day.
+ */
+export function dueDateChip(
+  task: Pick<BoardTask, 'dueDate' | 'status'>,
+  tr: Translate,
+  now: number = Date.now(),
+  locale?: string,
+): { label: string; title: string; overdue: boolean } | null {
+  if (!task.dueDate) return null;
+  const when = new Date(task.dueDate);
+  if (Number.isNaN(when.getTime())) return null;
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(task.dueDate);
+  const end = dateOnly ? when.getTime() + 24 * 3600 * 1000 : when.getTime();
+  const overdue = task.status !== 'done' && now >= end;
+  const text = dateOnly
+    ? when.toLocaleDateString(locale, { timeZone: 'UTC', day: 'numeric', month: 'short' })
+    : when.toLocaleDateString(locale, { day: 'numeric', month: 'short' });
+  return {
+    label: tr(overdue ? 'board.card.dueOverdue' : 'board.card.due', { date: text }),
+    title: tr(overdue ? 'board.card.dueOverdueTitle' : 'board.card.dueTitle', { date: text }),
+    overdue,
+  };
+}
+
+/**
  * Il chip «riaperta»: una card che ERA consegnata e non lo è più lo dice sulla
  * card, dove si guarda — non solo nel thread.
  *
@@ -684,7 +711,7 @@ export interface BoardTask {
   deliveryUncommittedFiles: number | null;
   /** Landing audit verdict: is the delivered work actually on main?
    *  null = never audited (no delivery recorded). 'unlanded' is the alarm. */
-  landingState: "landed" | "unlanded" | "unverifiable" | "superseded" | null;
+  landingState: "landed" | "unlanded" | "unverifiable" | "superseded" | "unpushed" | null;
   landingCheckedAt?: string;
   /** Deploy proposed at approve (board setting `deployCommand`). `null` = never
    *  proposed. `'proposed'` shows the "Deploya ora" banner; the outcome
@@ -861,6 +888,8 @@ export type { LinkProposal } from '../../../shared/board';
 import type { LinkProposal } from '../../../shared/board';
 
 export interface UpdateTaskBody {
+  /** Move under this task; null = back to the root. Same board only. */
+  parentTaskId?: string | null;
   status?: TaskStatus;
   priority?: number;
   assignee?: string | null;
@@ -1069,7 +1098,7 @@ export type TaskLandingEvidence = Pick<BoardTask, 'assignedTopicId' | 'deliveryB
 /** A session or an empty analysis branch is not a delivery to merge. */
 export function hasDeliveryToMerge(task: TaskLandingEvidence): boolean {
   if (!task.assignedTopicId || !task.deliveryBranch) return false;
-  if (task.landingState === 'landed' || task.landingState === 'superseded') return false;
+  if (task.landingState === 'landed' || task.landingState === 'superseded' || task.landingState === 'unpushed') return false;
   // Outstanding edits block the server's merge; send the task back to finish.
   if ((task.deliveryUncommittedFiles ?? 0) > 0) return false;
   if (task.deliveryFilesChanged != null) return task.deliveryFilesChanged > 0;
@@ -1263,7 +1292,7 @@ export const boardApi = {
    *  `newProjectDir`: la cartella in cui nascerebbe un progetto creato per
    *  nome. È dedotta lato server, e va MOSTRATA prima di creare. */
   projects: () =>
-    req<{ projects: BoardProjectRef[]; newProjectDir: string | null }>('/all-boards/projects'),
+    req<{ projects: BoardProjectRef[]; labelOnly?: BoardProjectRef[]; newProjectDir: string | null }>('/all-boards/projects'),
   /** Per-project commits on the current branch not yet pushed — feeds the Publish control.
    *  `commits` is the exact list a push would ship (newest first, capped at 50). */
   publishStatus: () =>

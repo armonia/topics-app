@@ -3394,3 +3394,48 @@ input elsewhere on the page SHALL continue to reach the host.
 - **WHEN** the viewer activates the placeholder
 - **THEN** the viewer shows a brief notice and the host receives no input for that activation
 - **AND** a click outside the placeholder still reaches the host
+
+### Requirement: ANTIBOT-01 — Una pane non si presenta mai con una finestra di misura zero
+
+A browser pane SHALL expose `window.outerWidth` and `window.outerHeight` that
+are never smaller than the page's own `innerWidth` and `innerHeight`. A child
+native web view has no window of its own and reports 0; a page that reads 0
+there is told it runs without a window, and the Heray anti-bot of Hetzner
+rejects its proof of work in a loop. A plausible value the engine already
+reports SHALL be kept as it is.
+
+#### Scenario: a child web view reports a zero window
+- **GIVEN** a native pane whose engine answers 0 and 0 to `outerWidth` and `outerHeight`
+- **WHEN** a page reads them
+- **THEN** it reads the size of the pane's visible area
+- **AND** when the pane is resized the values follow
+
+#### Scenario: Hetzner sign-in reaches the login page
+- **GIVEN** a pane that opens `https://console.hetzner.com/projects`
+- **WHEN** the page redirects to the security check
+- **THEN** the pane reaches `accounts.hetzner.com/login` in under 60 s, three times out of three
+
+### Requirement: ANTIBOT-02 — Il Chromium headless del server non si dichiara automatizzato
+
+The server's headless Chromium SHALL start with `navigator.webdriver` false and
+a user agent without `HeadlessChrome`, consistent with its `Sec-CH-UA` hints.
+
+#### Scenario: the launch carries the switch and the UA is reduced
+- **GIVEN** a Chromium whose version is `156.0.8078.4`
+- **WHEN** the server launches it and opens a context
+- **THEN** the launch carries `--disable-blink-features=AutomationControlled`
+- **AND** the context UA ends in `Chrome/156.0.0.0 Safari/537.36`
+
+### Requirement: BROWSER-CHAT-AGENT-01 — An agent's browser stays in the agent's section
+
+The system SHALL NOT mount a browser pane in the project layout, nor force open a window,
+when `open_browser_pane` or a page op comes from a chat an agent opened (sub-agent,
+Jarvis channel or scheduled-job chat, dispatched card). The page SHALL load on its own
+context, reachable from the agent's chat marker. A chat Attilio opened SHALL keep
+mounting its pane as before. Agent browser panes already in a layout SHALL leave the bar
+once, without closing the page.
+
+#### Scenario: agent's open puts nothing on Attilio's screen
+- **WHEN** a Jarvis channel chat calls open-pane
+- **THEN** the answer is `visible:false`, no browser pane appears and no `browser:force-open` is sent
+- **AND** a later open-pane from Attilio's chat mounts its pane

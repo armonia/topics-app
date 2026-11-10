@@ -90,16 +90,19 @@ test.describe("GENUI-05 one browser window per chat", () => {
     await expect(page.locator('[data-testid="topic-browser-tab"]')).toHaveCount(1, { timeout: 15_000 });
     await beat(page, 1200);
 
-    // The child opens: its own context, shown as a second sheet of the SAME window.
+    // The child opens: its own context, and since 10/11 nothing on screen. A
+    // sub-agent is an agent: its page lives in its own section, reached from
+    // its chat marker, not in the parent's window nor in the layout.
     const child = await openPane(request, childId, "Terza opzione", "Terza opzione");
     expect(child.contextId).toBe(childId);
-    expect(child.visible, "the child's page must be on screen, not only alive").toBe(true);
+    expect(child.visible).toBe(false);
+    await beat(page, 1500);
     await expect(
       page.locator(`[data-testid="topic-browser-tab"][data-context-id="${childId}"]`),
-    ).toHaveCount(1, { timeout: 15_000 });
-    await expect(page.locator('[data-testid="topic-browser-tab"]')).toHaveCount(2);
+    ).toHaveCount(0);
+    await expect(page.locator('[data-testid="topic-browser-tab"]')).toHaveCount(1);
 
-    // And the layout gained no browser tab at all (the defect: one per child).
+    // And the layout gained no browser tab at all (the 08/10 defect: one per child).
     await expect(page.locator('[data-pane-id^="browser:"]')).toHaveCount(0);
     await beat(page, 2500);
   });

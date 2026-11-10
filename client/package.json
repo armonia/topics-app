@@ -8,6 +8,8 @@
     "build": "bun run ../scripts/build-client.ts",
     "build:watch": "TOPICS_BUILD_WATCH=1 vite build --watch",
     "build:landing": "vite build --config vite.landing.config.ts",
+    "build:ui": "vite build --config vite.ui.config.ts",
+    "dev:ui": "vite --config vite.ui.config.ts",
     "lint": "bun run ../scripts/lint.ts client",
     "preview": "vite preview"
   },

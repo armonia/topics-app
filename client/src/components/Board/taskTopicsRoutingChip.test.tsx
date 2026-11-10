@@ -182,9 +182,11 @@ const props = {
 describe('the card routing chip in its board column', () => {
   test('renders the direct Claude Code route from the board OFF default', () => {
     const paneSource = readFileSync(new URL('./KanbanBoardPane.tsx', import.meta.url), 'utf8');
-    const columnsStart = paneSource.indexOf('{boardColumns.map(({ id: columnKey, base: status, label: columnLabel }) => (');
+    // Every board column, flat or in a project lane, is drawn by `renderColumn`.
+    const columnsStart = paneSource.indexOf('const renderColumn = (');
     expect(columnsStart).toBeGreaterThan(-1);
-    const columnsEnd = paneSource.indexOf('))}', columnsStart);
+    const columnsEnd = paneSource.indexOf('\n  );\n', columnsStart);
+    expect(columnsEnd).toBeGreaterThan(columnsStart);
     const columns = paneSource.slice(columnsStart, columnsEnd);
     expect(columns).toMatch(/paneBoardId=\{projectId\}[\s\S]{0,80}paneSettings=\{settings\}/);
 

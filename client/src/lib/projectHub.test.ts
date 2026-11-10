@@ -6,8 +6,9 @@
 import { describe, expect, it } from 'bun:test';
 import {
   agentOpen, budgetChoices, holdWhy, matchHubProject, modelMix, opusAdvice, overBudget, projectSettingsBody, providerShares, readHubProjects,
-  restartParts, shortTokens, shownShare, weekShare, working, workingOutside,
+  restartParts, shownShare, weekShare, working, workingOutside,
 } from './projectHub';
+import { shortTokens } from './formatTokens';
 
 const live = {
   projects: [

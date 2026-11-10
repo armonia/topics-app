@@ -103,6 +103,16 @@ describe("agentSessionName", () => {
   });
 });
 
+describe("agentSessionName by channel key", () => {
+  const titles = { "7": "#chat", "7:a": "#chat > a", "7:b": "#chat > b" };
+  test("two topics of one chat get different names from their keys", () => {
+    expect(agentSessionName("Gruppo 7", titles, "T", "canale:7:a")).toBe("#chat > a");
+    expect(agentSessionName("Gruppo 7", titles, "T", "canale:7:b")).toBe("#chat > b");
+    expect(agentSessionName("Gruppo 7", titles, "T", "canale:7")).toBe("#chat");
+    expect(agentSessionName("Gruppo 7", titles, "T", "topic:56ba58a2")).toBe("#chat");
+  });
+});
+
 describe("buildSidebarItems leaves agent homes out of the project list", () => {
   test("no project row for an agent's folder, even open or in the workspace", () => {
     const topics = { a: topic("a", `${H}/${OLD_HOME}`), p: topic("p", `${H}/Projects/acme`) };

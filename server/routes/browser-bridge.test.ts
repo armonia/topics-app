@@ -383,6 +383,31 @@ describe("open-pane — one browser per chat, whatever the agent calls its tabs"
   });
 });
 
+describe("open-pane — an agent's chat keeps its browser in its own section (10/11)", () => {
+  for (const [label, over] of [
+    ["Jarvis channel/cron chat", { parentId: "jarvis-canali" }],
+    ["sub-agent", { subagentOf: "topic:parent" }],
+    ["dispatched card", { mcpPolicy: "bridge-only" }],
+  ] as const) {
+    test(`${label}: page loads, no pane announced, no forced window`, async () => {
+      const h = harness();
+      h.addTopic("agent", over as Partial<Topic>);
+      const resp = await h.post("/api/topics/agent/browser/open-pane", { url: "https://example.com/" });
+      expect(resp!.status).toBe(200);
+      expect(h.navigations).toEqual([{ contextId: "agent", url: "https://example.com/" }]);
+      expect(h.typed("browser:navigate")).toEqual([]);
+      expect(h.typed("browser:force-open")).toEqual([]);
+    });
+  }
+
+  test("a chat Attilio opened still mounts its pane", async () => {
+    const h = harness();
+    h.addTopic("mine");
+    await h.post("/api/topics/mine/browser/open-pane", { url: "https://example.com/" });
+    expect(h.typed("browser:navigate")).toHaveLength(1);
+  });
+});
+
 describe("open-pane — tre rami, tre pannelli diversi", () => {
   test("chat: broadcast PRIMA del dispatch, poi la navigazione sullo stesso contextId", async () => {
     const h = harness();

@@ -10,7 +10,8 @@
  * @covers FILE-02
  */
 import { test, expect } from "bun:test";
-import { parsePorcelainZ, isConflicted, scopeToPrefix, statusOfPrefix } from "./git-porcelain";
+import { isConflicted } from "../../shared/git-conflict";
+import { parsePorcelainZ, scopeToPrefix, statusOfPrefix } from "./git-porcelain";
 
 // " M città.md" · "R  new.md" + "old.md" · "?? untracked.txt"
 const REAL = " M città.md\0R  new.md\0old.md\0?? untracked.txt\0";

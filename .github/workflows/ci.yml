@@ -59,6 +59,7 @@ jobs:
   # fails, when a change is too large to list, or when the commit before this one
   # on main is not green (see the header of the script for why that last one).
   changes:
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -112,6 +113,7 @@ jobs:
   # checked and removed by the runner, and a file that litters it is red.
   # scripts/test-unit-shards.ts has the whole story and the measurements.
   unit:
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -166,6 +168,7 @@ jobs:
   # Skipped when nothing the four test files import has changed (a client-only
   # or docs-only change). The board does not read this job by name.
   process-groups:
+    timeout-minutes: 15
     needs: changes
     if: ${{ needs.changes.outputs.process_groups != 'false' }}
     strategy:
@@ -217,6 +220,7 @@ jobs:
   # (1.2-4.6). The unit verdict moved to the small `check` job below, which
   # keeps the job and step names the board reads.
   gates:
+    timeout-minutes: 25
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -425,6 +429,8 @@ jobs:
           # `--text-*: initial` ha spento — quella e' la meta' che non si vede
           # leggendo il diff: la classe resta nel DOM e non genera niente.
           bun run check:typography
+          bun run check:ui-fixtures
+          bun run check:ui-isolation
           bun run check:ui-language
           # Lo stesso standard, applicato ai commenti (deciso il 21/08).
           # Ratchet su `scripts/comment-language-baseline.json`: nasce
@@ -814,6 +820,7 @@ jobs:
   # measured. Needing `gates` costs nothing on the critical path, `gates` ends
   # before `unit` does.
   check:
+    timeout-minutes: 30
     needs: [unit, gates]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
@@ -863,6 +870,7 @@ jobs:
   # server/services/ci-evidence.ts), so a skipped job would hold the pull request
   # back instead of letting it through.
   prepare-e2e:
+    timeout-minutes: 10
     needs: changes
     runs-on: ubuntu-latest
     outputs:
@@ -930,6 +938,7 @@ jobs:
           retention-days: 1
 
   e2e:
+    timeout-minutes: 25
     runs-on: ubuntu-latest
     needs: [changes, prepare-e2e]
     # WHEN NOTHING THE SHARDS READ HAS CHANGED the matrix is the single job `e2e (0)`
@@ -972,7 +981,7 @@ jobs:
     # then ran the touched specs on top (5.9 min): 26 minutes of wall clock for
     # a pull request (run 36461528241). The suite runs ONE worker per shard
     # (`workers: 1`, one test server and one DB per shard), so the only lever
-    # on its wall clock is the number of shards, and 8 halves it.
+    # on its wall clock is the number of shards, and 8 halves it. Seven runners (14 processes) were tried and put the median work of a run back over its bar (card 3ae7e6a4).
     #
     # TWO PLAYWRIGHT PROCESSES PER RUNNER. One process left three of the four
     # vCPU idle: 18 of the 19 minutes of a shard were tests run one at a time
@@ -1205,6 +1214,10 @@ jobs:
               echo "[ci] processo $k: piano non disponibile, fallback a --shard=$piece/$((8 * PROCS))"
               SELECTORS=("--shard=$piece/$((8 * PROCS))")
             fi
+            # One compile cache per process: Playwright writes it with a plain
+            # writeFileSync, so a sibling can read a half-written module
+            # ("projectIdForPath is not a function", run 42762634932).
+            PWTEST_CACHE_DIR="$RUNNER_TEMP/pw-cache-$k" \
             E2E_PORT=$((13910 + k - 1)) \
             PLAYWRIGHT_JSON_OUTPUT_FILE="test-results/sub/report-$k.json" \
             PLAYWRIGHT_HTML_OUTPUT_DIR="test-results/html-report-$k" PLAYWRIGHT_HTML_OPEN=never \
@@ -1302,6 +1315,7 @@ jobs:
   # change (scripts/ci-changes.ts has the list, and why). The board does not read
   # this job by name.
   tauri:
+    timeout-minutes: 45
     needs: changes
     if: ${{ needs.changes.outputs.tauri != 'false' }}
     strategy:

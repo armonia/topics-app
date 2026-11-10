@@ -60,6 +60,7 @@ import {
 } from '../../../state/pane/adapters';
 import type { ClosedTabRecord } from '../../../state/pane/adapters/hooks/useClosedTabs';
 import { findPreviewPane, replacePaneInGroup } from '../../../lib/previewTabs';
+import { planPreviewChatTab } from '../../../lib/agentTabs';
 import { buildTerminalSessionBody, normalizeTerminalAgent, TERMINAL_AGENT_LABELS } from '../../../lib/terminalAgents';
 import { pushUndo } from '../../../contexts/UndoContext';
 import { rememberedAgentType, rememberedTerminal } from '../../../state/pane/adapters/terminalMemory';
@@ -135,6 +136,8 @@ export interface UseProjectLayoutArgs {
   // Group the chat should land in (set when the user clicks a specific tab
   // bar's "+ new chat"). Lets a chat be placed into a non-chat group.
   pendingFocusTargetGroupId?: string;
+  /** The pending chat opens as the provisional tab (replaces the previous one). */
+  pendingFocusPreview?: boolean;
   onPendingFocusConsumed?: () => void;
   // External APIs:
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
@@ -225,7 +228,7 @@ export interface UseProjectLayoutReturn {
   /** Add a chat pane (if missing) and place it into a group via the
    *  fallback chain documented in PLAN section "Hook 2 of 4 / Resolution".
    *  Used by `useProjectChatSync.reopenTopic` in Commit 4. */
-  reopenChatPane: (topicId: string, title: string, targetGroupId?: string) => void;
+  reopenChatPane: (topicId: string, title: string, targetGroupId?: string, preview?: boolean) => void;
 }
 
 export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutReturn {
@@ -241,6 +244,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     onPendingPaneConsumed,
     pendingFocusTopicId,
     pendingFocusTargetGroupId,
+    pendingFocusPreview,
     onPendingFocusConsumed,
     onWSMessage,
     claudeSkipPermissions,
@@ -386,7 +390,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // a group → the pane was orphaned (invisible) and focus snapped back
   // to the previously-active pane. `reopenChatPane` has the full
   // fallback chain (focused group → first chat group → create new).
-  const reopenChatPaneRef = useRef<((topicId: string, title: string, targetGroupId?: string) => void) | null>(null);
+  const reopenChatPaneRef = useRef<((topicId: string, title: string, targetGroupId?: string, preview?: boolean) => void) | null>(null);
   // When the user creates a chat via a SPECIFIC group's "+ new chat" button,
   // reopenChatPane places it into that (possibly non-chat) group. The chat-sync
   // delta-add can materialize the same topic as an ORPHAN pane in the same
@@ -631,9 +635,9 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       onPendingFocusConsumed?.();
       return;
     }
-    reopenChatPaneRef.current?.(pendingFocusTopicId, t.name || 'New Chat', pendingFocusTargetGroupId);
+    reopenChatPaneRef.current?.(pendingFocusTopicId, t.name || 'New Chat', pendingFocusTargetGroupId, pendingFocusPreview);
     onPendingFocusConsumed?.();
-  }, [pendingFocusTopicId, pendingFocusTargetGroupId, topics, projectPath, onPendingFocusConsumed]);
+  }, [pendingFocusTopicId, pendingFocusTargetGroupId, pendingFocusPreview, topics, projectPath, onPendingFocusConsumed]);
 
   // --- Default focused group ---
   useEffect(() => {
@@ -1733,7 +1737,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // --- reopenChatPane: add stub + place in group via fallback chain ---
   // Used by `useProjectChatSync.reopenTopic` in Commit 4. Unused this commit.
   const reopenChatPane = useCallback(
-    (topicId: string, title: string, targetGroupId?: string) => {
+    (topicId: string, title: string, targetGroupId?: string, preview?: boolean) => {
       const paneId = createPaneId('chat', topicId);
       // An explicit target group (the tab bar the user clicked "+ new chat" on).
       // Treat empty/missing/closed ids as "no target" → normal fallback chain.
@@ -1768,7 +1772,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
           type: 'chat',
           topicId,
           title,
-          preview: false,
+          preview: !!preview && !targetGroupId,
         };
         setPanes(prev => (prev.some(p => p.id === paneId) ? prev : [...prev, newPane]));
       }
@@ -1819,6 +1823,24 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       const curGroups = groupsRef.current;
       const curFocusedId = focusedGroupIdRef.current;
       const focusedGroup = curFocusedId ? curGroups.find(g => g.id === curFocusedId) : null;
+
+      // Preview open: the chat takes the place of the group's provisional
+      // chat tab instead of adding one. The replaced chat is only taken off
+      // the bar: its topic stays open in the sidebar, nothing is archived.
+      const previewGroup = preview && !existing
+        ? ((focusedGroup && focusedGroup.type === 'chat') ? focusedGroup : curGroups.find(g => g.type === 'chat'))
+        : undefined;
+      if (previewGroup) {
+        const plan = planPreviewChatTab(previewGroup, panesRef.current, paneId);
+        if (plan.kind === 'replace-preview') {
+          setPanes(prev => prev.filter(p => p.id !== plan.replacedPaneId));
+        }
+        setGroups(prev =>
+          prev.map(g => (g.id === previewGroup.id ? { ...g, paneIds: plan.paneIds, activePaneId: paneId } : g)),
+        );
+        setFocusedGroupId(previewGroup.id);
+        return;
+      }
 
       if (focusedGroup && focusedGroup.type === 'chat') {
         setGroups(prev =>
