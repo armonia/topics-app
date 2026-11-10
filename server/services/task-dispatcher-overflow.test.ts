@@ -1201,3 +1201,33 @@ describe("overflow: il vincolo «solo Mac» messo dopo una corsa vuota scade", (
     expect(h.task(CARD).stayLocal).toBe(true);
   });
 });
+
+describe("overflow: una corsa vuota su un nodo lo salta, non ferma la card sul Mac pieno", () => {
+  it("il nodo della corsa vuota è saltato: la card va sull'altro (10/11, cinque card ferme nella coda di memoria)", async () => {
+    const h = harness();
+    h.seed(CARD);
+    h.svc.update({ taskId: CARD, actor: "agent", by: "dispatcher", patch: { overflowSkip: { machineId: CLOUD, until: new Date(Date.now() + 3_600_000).toISOString() } } });
+    expect(h.task(CARD).stayLocal).toBe(false);
+    await holdPastThreshold(h);
+    expect(h.task(CARD).machineId).toBe(PC);
+  });
+
+  it("il salto scaduto non conta più", async () => {
+    const h = harness();
+    h.seed(CARD);
+    h.svc.update({ taskId: CARD, actor: "agent", by: "dispatcher", patch: { overflowSkip: { machineId: CLOUD, until: new Date(Date.now() - 60_000).toISOString() } } });
+    await holdPastThreshold(h);
+    expect(h.task(CARD).machineId).toBe(CLOUD);
+  });
+
+  it("la corsa vuota rimette in coda con il salto, senza «solo Mac»", async () => {
+    const { returnEmptyNodeRunToTodo } = await import("./task-dispatcher-remote-node-empty");
+    const h = harness();
+    h.seed(CARD, { machineId: PC });
+    h.db.run("UPDATE tasks SET overflowed_at = ? WHERE id = ?", [new Date().toISOString(), CARD]);
+    const ok = returnEmptyNodeRunToTodo({ svc: h.svc, releaseAndEmit: (a) => h.svc.release(a), emit: () => {}, log: () => {} }, h.task(CARD), "PC Windows");
+    expect(ok).toBe(true);
+    expect(h.task(CARD).stayLocal).toBe(false);
+    expect(h.task(CARD).overflowSkipMachine).toBe(PC);
+  });
+});

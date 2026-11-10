@@ -42,12 +42,17 @@ export function returnEmptyNodeRunToTodo(deps: EmptyRunDeps, task: Task, nodeNam
   if (pendingQuestionComment(deps.svc.get(task.id)?.comments ?? [])) return false;
   try {
     deps.releaseAndEmit({ taskId: task.id, requeue: true, rollbackAttempt: true });
-    deps.emit(deps.svc.update({ taskId: task.id, actor: "agent", by: "dispatcher", patch: { machineId: null, stayLocal: true, stayLocalUntil: new Date(Date.now() + EMPTY_RUN_PIN_MS).toISOString() } }));
+    // Skip THAT node, do not pin the card here: pinned, a Mac under its memory floor held it for hours while another
+    // node was online (10/11: five cards in the memory queue, PC and Nodo cloud 1 free).
+    const skip = task.machineId ? { machineId: task.machineId, until: new Date(Date.now() + EMPTY_RUN_PIN_MS).toISOString() } : null;
+    deps.emit(deps.svc.update({ taskId: task.id, actor: "agent", by: "dispatcher", patch: skip
+      ? { machineId: null, overflowSkip: skip }
+      : { machineId: null, stayLocal: true, stayLocalUntil: new Date(Date.now() + EMPTY_RUN_PIN_MS).toISOString() } }));
     deps.svc.addComment({
       taskId: task.id, author: "system", kind: "service",
       content:
         `La corsa su «${nodeName}» è finita senza nessun commit: lì mancano strumenti che questa card usa. ` +
-        "La rimetto in coda su questa macchina, e ci resta per 6 ore: poi può tornare fuori se il Mac è pieno.",
+        "La rimetto in coda: per 6 ore non torna lì, ma se il Mac è pieno può andare su un'altra macchina.",
     });
     return true;
   } catch (err) {

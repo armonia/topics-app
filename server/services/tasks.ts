@@ -2714,6 +2714,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // A pin with a deadline (`stay_local_until`, set after an empty node run)
       // reads as unmarked once the deadline is past.
       stayLocal: !!r.stay_local && !(r.stay_local_until && r.stay_local_until <= now()),
+      ...(r.overflow_skip_machine && r.overflow_skip_until && r.overflow_skip_until > now() ? { overflowSkipMachine: r.overflow_skip_machine } : {}),
       // Only while it still runs where the overflow sent it.
       ...(r.overflowed_at && r.machine_id ? { overflowedAt: r.overflowed_at } : {}),
       ...(r.base_branch ? { baseBranch: r.base_branch } : {}),
@@ -4427,6 +4428,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // A person's mark holds for good: it clears any deadline the dispatcher set.
       if (patch.stayLocalUntil !== undefined) put("stay_local_until", patch.stayLocalUntil);
       else if (patch.stayLocal !== undefined) put("stay_local_until", null);
+      if (patch.overflowSkip !== undefined) {
+        put("overflow_skip_machine", patch.overflowSkip?.machineId ?? null);
+        put("overflow_skip_until", patch.overflowSkip?.until ?? null);
+      }
       if (patch.blockedByTaskId !== undefined) {
         if (patch.blockedByTaskId) assertBlockerValid(taskId, patch.blockedByTaskId);
         put("blocked_by_task_id", patch.blockedByTaskId || null);

@@ -2448,7 +2448,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // Its own branch reaches origin first; `null` = the push is under way.
     if (overflowBranchReady(t) !== true) return false;
     let machines: OverflowMachine[] = [];
-    try { machines = deps.overflowMachines().filter((m) => m.id !== localId); } catch (err) { log("overflow: machine list failed", err); return false; }
+    try { machines = deps.overflowMachines().filter((m) => m.id !== localId && m.id !== t.overflowSkipMachine); } catch (err) { log("overflow: machine list failed", err); return false; }
     let cloudCredit = true;
     try { cloudCredit = deps.cloudCredit?.() ?? (!providerHold() && !providerHold(Date.now(), CLOUD_HOLD_KEY)); } catch { cloudCredit = false; }
     const target = pickOverflowMachine(machines, {
