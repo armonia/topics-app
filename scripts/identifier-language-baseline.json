@@ -227,13 +227,9 @@
       "onEsc"
     ],
     "client/src/components/Chat/ChatPane.tsx": [
-      "TYPING_THROTTLE_MS",
       "annullato",
-      "lastTypingSentRef",
       "raf",
-      "sendTyping",
-      "tentativo",
-      "typingTimeoutRef"
+      "tentativo"
     ],
     "client/src/components/Chat/CheckpointTimeline.tsx": [
       "hrs"
@@ -366,7 +362,6 @@
       "langExtensions"
     ],
     "client/src/components/Editor/EditorTabs.tsx": [
-      "closing",
       "obs"
     ],
     "client/src/components/Editor/FilePane.tsx": [
@@ -1055,9 +1050,6 @@
     "client/src/hooks/useKeyboardShortcuts.ts": [
       "evt"
     ],
-    "client/src/hooks/useMenuKeyboard.ts": [
-      "isTypingSurface"
-    ],
     "client/src/hooks/useOwnerName.ts": [
       "annuncia",
       "ascoltatori",
@@ -1067,7 +1059,6 @@
     "client/src/hooks/usePanelLifecycle.ts": [
       "bctx",
       "closedProjectRec",
-      "closingTopic",
       "focusLoc",
       "loc",
       "onUnarchive"
@@ -1787,9 +1778,6 @@
       "cambiato",
       "rec"
     ],
-    "client/src/state/pane/reducers/pinnedChatResurrection.test.ts": [
-      "closing"
-    ],
     "client/src/state/pane/reducers/staleTombstoneRetraction.test.ts": [
       "webapp",
       "webappPut"
@@ -1875,7 +1863,6 @@
       "unimplemented"
     ],
     "client/src/types/index.ts": [
-      "WSTypingMessage",
       "WSUIStateInitMessage",
       "WSUIStateUpdatedMessage"
     ],
@@ -3421,8 +3408,7 @@
       "MODIFICA",
       "SOLA_LETTURA",
       "anteprima",
-      "buf",
-      "satisfies"
+      "buf"
     ],
     "server/providers/acp-jcode-model.integration.test.ts": [
       "CHIESTI",
@@ -4087,9 +4073,6 @@
       "corpo",
       "langField",
       "testo"
-    ],
-    "server/schemas/chat-ws-inbound.ts": [
-      "typingSchema"
     ],
     "server/services/agent-census.test.ts": [
       "coordTopic",
@@ -5061,7 +5044,6 @@
       "acc",
       "accName",
       "desc",
-      "satisfies",
       "txt"
     ],
     "shared/browser-ws-messages.ts": [
@@ -5102,8 +5084,7 @@
     ],
     "shared/licenza-motivi.ts": [
       "MOTIVI_LICENZA",
-      "MotivoLicenza",
-      "satisfies"
+      "MotivoLicenza"
     ],
     "shared/media-kind.ts": [
       "isPreviewablePath"
@@ -5403,9 +5384,6 @@
       "enc",
       "proj"
     ],
-    "shared/tab-link.ts": [
-      "padded"
-    ],
     "shared/task-attempt.ts": [
       "formatFanoutComment"
     ],
@@ -5453,9 +5431,6 @@
     ],
     "shared/ws-handshake.ts": [
       "formatZodIssues"
-    ],
-    "shared/ws-outbound.ts": [
-      "typingBroadcastSchema"
     ],
     "tests/e2e/add-menu.spec.ts": [
       "kbds",
