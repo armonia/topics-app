@@ -67,8 +67,7 @@ export interface PlanProgress extends PlanCounts { ratio: number }
 export interface PlanMilestone {
   id: string; areaId: string; title: string;
   expectedResult: string | null; completionCriteria: string | null;
-  // `targetDate`, not `dueDate`: the board feed drops a card's `dueDate` and
-  // its test fails on any client read of that word.
+  // `targetDate`, a milestone's own date, not a card's `dueDate`.
   owner: string | null; status: string; targetDate: string | null; position: number;
   progress: PlanProgress;
   activity: PlanActivity;
