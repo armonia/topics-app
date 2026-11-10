@@ -1,5 +1,5 @@
 /**
- * Tab di anteprima e chat di agenti: chi apre una tab e chi la sostituisce.
+ * Preview tabs and agent chats: who opens a tab and who replaces it.
  */
 import { describe, test, expect } from "bun:test";
 import { isAgentOwnedTopic, planPreviewChatTab, shouldParkAgentTabs, markAgentTabsParked } from "./agentTabs";

@@ -7,8 +7,8 @@ import { hermetic } from "./fixtures/hermetic";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { openProjectFromSidebar, projectWindow } from "./helpers/project-window";
 
-// TAB-ANTEPRIMA (10/11): aprire una chat riusa la tab provvisoria, la tab resta
-// solo se ci interagisci; una chat nata da un agente non apre tab.
+// Spec TAB-ANTEPRIMA (10/11): opening a chat reuses the provisional tab, the tab stays (allow-italian: spec id)
+// only if you interact with it; a chat started by an agent opens no tab.
 hermetic(test);
 
 const PROJECT_PATH = canonicalTmpDir("e2e-tab-anteprima");
@@ -57,7 +57,7 @@ test.describe("TAB-ANTEPRIMA", () => {
     await expect(tabs(page).filter({ hasText: "Chat A" })).toHaveCount(0);
     expect(await tabs(page).count()).toBe(withA);
 
-    // Interazione: un clic dentro la chat la fissa.
+    // Interaction: a click inside the chat pins it.
     await projectWindow(page).locator('[data-preview-tab="true"] > *').first().click({ position: { x: 40, y: 40 } });
     await expect(tabs(page).filter({ hasText: "Chat B" }).locator(".italic")).toHaveCount(0);
 
@@ -66,7 +66,7 @@ test.describe("TAB-ANTEPRIMA", () => {
     await expect(tabs(page).filter({ hasText: "Chat B" })).toHaveCount(1);
     expect(await tabs(page).count()).toBe(withA + 1);
 
-    // Un agente apre una sua sessione nel progetto: nessuna tab nuova.
+    // An agent opens its own session in the project: no new tab.
     const root = (await createTopic(request, "Jarvis, canali (e2e)", {})).id;
     ids.push(root);
     const before = await tabs(page).count();

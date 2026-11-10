@@ -1,23 +1,23 @@
 /**
- * Chi può aprire una tab nella barra di Attilio, e come.
+ * Who may open a tab in Attilio's bar, and how.
  *
- * Due regole, chieste il 10/11: aprire una chat riusa la tab di anteprima
- * (la sostituisce) e la tab resta solo quando lui ci interagisce; le chat
- * nate da un agente non aprono tab, stanno nella loro sezione (barra laterale,
- * Agenti, board) e da lì si raggiungono.
+ * Two rules, asked for on 10/11: opening a chat reuses the preview tab
+ * (replaces it) and the tab stays only once he interacts with it; chats
+ * started by an agent open no tab, they live in their own section (sidebar,
+ * Agents, board) and are reached from there.
  *
- * Il 10/11 la finestra di progetto di Jarvis aveva 47 tab: 40 erano chat dei
- * canali e dei lavori programmati che nessuno aveva aperto, entrate da sole
- * dal ramo «delta-add» di useProjectChatSync.
+ * On 10/11 the Jarvis project window had 47 tabs: 40 were channel and
+ * scheduled-job chats nobody had opened, added on their own by the
+ * "delta-add" branch of useProjectChatSync.
  */
 import type { Pane, PaneGroup, Topic } from '../types';
 import { findPreviewPane, replacePaneInGroup } from './previewTabs';
 
 /**
- * Una chat che non ha aperto Attilio: un sottoagente (`subagentOf`), una
- * conversazione aperta da Jarvis sotto una delle sue radici (`parentId`:
- * «Jarvis, canali», «Jarvis, lavori programmati»), una sessione di card
- * dispatchata (`mcpPolicy: 'bridge-only'`, la mette solo il dispatcher).
+ * A chat Attilio did not open: a sub-agent (`subagentOf`), a conversation
+ * Jarvis opened under one of its roots (`parentId`, e.g. the channels and
+ * scheduled-jobs roots), a dispatched card session (`mcpPolicy:
+ * 'bridge-only'`, set only by the dispatcher).
  */
 export function isAgentOwnedTopic(topic: Pick<Topic, 'subagentOf' | 'parentId' | 'mcpPolicy'> | null | undefined): boolean {
   if (!topic) return false;
@@ -29,9 +29,9 @@ export type ChatTabPlan =
   | { kind: 'append'; paneIds: string[] };
 
 /**
- * Dove va una chat aperta in anteprima dentro un gruppo: al posto della chat
- * di anteprima che c'è già (una sola tab provvisoria per gruppo), altrimenti
- * in coda. Le tab fissate non si toccano mai.
+ * Where a chat opened in preview goes inside a group: in place of the
+ * existing preview chat (one provisional tab per group), otherwise at the
+ * end. Pinned tabs are never touched.
  */
 export function planPreviewChatTab(group: PaneGroup, panes: Pane[], newPaneId: string): ChatTabPlan {
   const groupChats = group.paneIds
@@ -54,15 +54,15 @@ export function planPreviewChatTab(group: PaneGroup, panes: Pane[], newPaneId: s
 const PARKED_KEY = 'topics-agent-tabs-parked-v1:';
 
 /**
- * Migrazione una tantum: le tab di chat di agenti già aperte in una finestra
- * si chiudono la prima volta che la finestra carica con questa regola. Non si
- * perde niente: la chat resta viva e nella sua sezione. Dopo, una chat di
- * agente aperta da Attilio e fissata resta, perché il marcatore c'è già.
+ * One-time migration: agent chat tabs already open in a window are closed
+ * the first time the window loads with this rule. Nothing is lost: the chat
+ * stays alive in its section. Afterwards an agent chat Attilio opens and
+ * pins stays, because the marker is already set.
  */
 export function shouldParkAgentTabs(projectPath: string, storage: Pick<Storage, 'getItem'> | null): boolean {
   try { return !storage || storage.getItem(PARKED_KEY + projectPath) !== '1'; } catch { return false; }
 }
 
 export function markAgentTabsParked(projectPath: string, storage: Pick<Storage, 'setItem'> | null): void {
-  try { storage?.setItem(PARKED_KEY + projectPath, '1'); } catch { /* storage pieno o negato: si riprova al prossimo carico */ }
+  try { storage?.setItem(PARKED_KEY + projectPath, '1'); } catch { /* storage full or denied: retried on the next load */ }
 }
