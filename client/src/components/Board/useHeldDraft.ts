@@ -25,7 +25,8 @@ export function useHeldDraft(tasks: ReadonlyArray<{ id: string }>) {
   const heldArrived = heldId !== null && tasks.some((t) => t.id === heldId);
   useEffect(() => {
     if (heldId === null) return;
-    if (heldArrived) { setHeldDraft(null); return; }
+    // Arrivata la card vera, `draft` sotto ignora già la copia trattenuta.
+    if (heldArrived) return;
     const timer = setTimeout(() => setHeldDraft(null), HOLD_MS);
     return () => clearTimeout(timer);
   }, [heldId, heldArrived]);
