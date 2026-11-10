@@ -937,17 +937,19 @@ jobs:
           path: plan/
           retention-days: 1
 
-  # THE E2E SHARDS RUN ON A HETZNER SERVER THAT LIVES FOR THIS RUN ONLY.
+  # THE FIRST E2E SHARDS RUN ON A HETZNER SERVER THAT LIVES FOR THIS RUN ONLY.
   #
   # Measured on 10/11/2026: a green run took 37 minutes, and every e2e job
   # waited 5-13 of them in the queue for one of the 20 jobs the organisation
-  # may run at once, before 12-16 minutes of tests. One cx53 (16 vCPU, 32 GB,
-  # 0.047 EUR/h, billed by the hour) carries seven runners, one per shard
-  # 1-7: a shard peaks at ~3.6 GB with its two Playwright processes (the
-  # `[carico]` lines of run 42814604772), so seven fit in 32 GB with room for
-  # the OS. `e2e (0)` (touched specs, pull requests only) and every other job
-  # stay on ubuntu-latest: they are short, and moving them would put a second
-  # server's worth of load on this one.
+  # may run at once, before 12-16 minutes of tests. A shard runs two
+  # Playwright processes and loads its 4 vCPU to ~5 with ~3.6 GB in use (the
+  # `[carico]` lines of run 42814604772), so a runner gets what a GitHub one
+  # has, 4 vCPU and 8 GB: a cx53 (16 vCPU, 32 GB, 0.047 EUR/h) carries four,
+  # the dedicated ccx23 fallback (4 vCPU, 16 GB, 0.14 EUR/h) two. Shards
+  # 1..N go there and stay out of the org queue; `e2e (0)`, the other shards
+  # and every other job stay on ubuntu-latest. When the project's shared
+  # cores are full (10/11: every cx answered resource_unavailable) the
+  # dedicated server is the one that comes up.
   #
   # The repository is PUBLIC, so the rules (hcloud-runner.yml has the rest):
   #  - a server only for a push to main or a pull request from this repository;
@@ -968,11 +970,12 @@ jobs:
     with:
       mode: create
       server_type: ${{ vars.HCLOUD_HEAVY_TYPE || 'cx53' }}
-      runners: 7
+      runners: 4
       playwright: true
       # What the GitHub image has and Ubuntu does not: jq for scripts/e2e-stop-on-red.sh,
-      # unzip for oven-sh/setup-bun (run 42823485405, both server shards red at setup).
-      apt_packages: jq unzip
+      # unzip for oven-sh/setup-bun (run 42823485405), make and g++ for `npm rebuild
+      # node-pty` (run 42827058180: «gyp ERR! not found: make»).
+      apt_packages: jq unzip build-essential python3
     secrets:
       HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
       RUNNER_ADMIN_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}
@@ -992,7 +995,7 @@ jobs:
 
   e2e:
     timeout-minutes: 25
-    # Shards 1..N on the server, N = the runners that came up (7 on a cx53, 2 on the
+    # Shards 1..N on the server, N = the runners that came up (4 on a cx53, 2 on the
     # dedicated ccx23 fallback). Shard 0, the rest, and every run without a server:
     # ubuntu-latest, as before.
     runs-on: ${{ (matrix.shard != 0 && needs.hcloud.outputs.label != '' && matrix.shard <= fromJSON(needs.hcloud.outputs.runners || '0')) && needs.hcloud.outputs.label || 'ubuntu-latest' }}
@@ -1181,7 +1184,7 @@ jobs:
         run: echo "id=${ImageOS:-unknown}-${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
 
       # On the Hetzner server the system libraries were installed once at boot
-      # (hcloud-runner.yml), and seven `--with-deps` side by side would fight
+      # (hcloud-runner.yml), and several `--with-deps` side by side would fight
       # over the apt lock: no apt cache and no --with-deps there.
       - name: Restore the apt packages of the Playwright browsers
         if: ${{ needs.changes.outputs.e2e != 'false' && runner.environment == 'github-hosted' }}
