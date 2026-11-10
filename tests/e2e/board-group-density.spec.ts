@@ -143,7 +143,7 @@ test.describe("Board per progetto e card compatte", () => {
     await resetPaneStore(page.request, []);
     await page.goto("/");
     await page.evaluate(() => {
-      for (const k of ["topics.board.groupBy", "topics.board.collapsedProjects"]) localStorage.removeItem(k);
+      for (const k of ["topics.board.groupBy", "topics.board.collapsedProjects", "topics.board.showDone"]) localStorage.removeItem(k);
     });
     await openGlobalBoard(page);
 

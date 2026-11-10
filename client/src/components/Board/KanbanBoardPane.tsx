@@ -46,8 +46,8 @@ import { useRowSnapHold } from './useRowSnapHold';
 import { BoardSkeleton } from './BoardSkeleton';
 import { DropNotice } from './DropNotice';
 import {
-  BOARD_GROUP_BY_STORAGE_KEY, COLUMNS_ROW_GRID, COLUMNS_ROW_LIST,
-  readBoardGroupBy, writeBoardPreference, type BoardGroupBy, type BoardLayout,
+  BOARD_GROUP_BY_STORAGE_KEY, BOARD_SHOW_DONE_STORAGE_KEY, COLUMNS_ROW_GRID, COLUMNS_ROW_LIST,
+  readBoardGroupBy, readBoardShowDone, writeBoardPreference, type BoardGroupBy, type BoardLayout,
 } from './boardGeometry';
 import { columnIdOfDropTarget, dropsOnOtherProject, laneDropId, type BoardLane } from './boardLanes';
 import { BoardViewToggles, ProjectLanes } from './ProjectLanes';
@@ -934,8 +934,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // Per-viewer view choices, kept beside the layout: lanes per project, and the Done column.
   const [groupByPref, setGroupByPref] = useState<BoardGroupBy>(readBoardGroupBy);
   // The Done column is out of the way until asked for: a board of live work.
-  const [showDone, setShowDone] = useState(false);
+  const [showDone, setShowDone] = useState(readBoardShowDone);
   useEffect(() => { writeBoardPreference(BOARD_GROUP_BY_STORAGE_KEY, groupByPref); }, [groupByPref]);
+  useEffect(() => { writeBoardPreference(BOARD_SHOW_DONE_STORAGE_KEY, String(showDone)); }, [showDone]);
   const { collapsed: collapsedProjects, toggle: toggleProjectCollapsed } = useCollapsedProjects();
   // Le righe non le legge più questa pane: le legge `useBoardFeed`, che in
   // modalità 'all' NON fetcha affatto (il feed globale ha già un proprietario,

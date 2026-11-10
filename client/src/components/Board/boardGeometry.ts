@@ -54,6 +54,8 @@ export const COLUMNS_ROW_LIST = 'scroll-under-chrome flex h-full min-w-0 flex-co
 
 /** Where the board's grouping preference is kept: one flat board, or one lane per project. */
 export const BOARD_GROUP_BY_STORAGE_KEY = 'topics.board.groupBy';
+/** Whether the reader asked to see the Done column; hidden unless this says 'true'. */
+export const BOARD_SHOW_DONE_STORAGE_KEY = 'topics.board.showDone';
 /** The projects whose lane (and Plan tile) the reader folded, as a JSON array of project ids. */
 export const BOARD_COLLAPSED_PROJECTS_STORAGE_KEY = 'topics.board.collapsedProjects';
 
@@ -64,6 +66,12 @@ export type BoardDensity = 'full' | 'compact';
 export function readBoardGroupBy(): BoardGroupBy {
   try { return localStorage.getItem(BOARD_GROUP_BY_STORAGE_KEY) === 'project' ? 'project' : 'none'; }
   catch { return 'none'; }
+}
+
+/** The stored Done choice, defaulting to hidden. */
+export function readBoardShowDone(): boolean {
+  try { return localStorage.getItem(BOARD_SHOW_DONE_STORAGE_KEY) === 'true'; }
+  catch { return false; }
 }
 
 /** Saves one view preference; private mode or a full quota only loses the memory, never the view. */
