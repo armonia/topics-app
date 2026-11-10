@@ -94,6 +94,8 @@ export interface OverflowChoice {
   model: string | null;
   /** Live cards on that machine (Todo or in progress, this round's moves included). */
   load: (machineId: string) => number;
+  /** A node whose recent wakes failed (`wake-breaker.ts`): not a sleeping target for now. */
+  wakeBlocked?: (machineId: string) => boolean;
 }
 
 /**
@@ -130,7 +132,7 @@ export function pickOverflowMachine(
     if (cloud) return cloud;
   }
   return online.find((m) => m.kind === "node")
-    ?? machines.find((m) => m.kind === "node" && !m.online && m.wakeable && room(m))
+    ?? machines.find((m) => m.kind === "node" && !m.online && m.wakeable && !opts.wakeBlocked?.(m.id) && room(m))
     ?? null;
 }
 

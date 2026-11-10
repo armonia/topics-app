@@ -63,6 +63,7 @@ import {
 } from "../providers/stop-reason";
 import { createRemoteNodeLane, isNodeSessionKey, type NodeDeps, type NodeSlot } from "./task-dispatcher-remote-node";
 import { carriedBranch } from "./branch-on-origin";
+import { wakeBreaker } from "./wake-breaker";
 import { OVERFLOW_AFTER_MS, OVERFLOW_MAX_PER_ROUND, overflowEligible, overflowNote, pickOverflowMachine, type OverflowMachine } from "./dispatch-overflow";
 import { createDispatchMemoryQueuePublisher, createDispatchMemoryQueueSnapshot } from "./dispatch-memory-queue";
 import { createDispatchMemoryStartController } from "./dispatch-memory-start";
@@ -2457,6 +2458,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       model: t.model ?? (settings.dispatchModel && settings.dispatchModel !== "auto" ? settings.dispatchModel : null),
       // Read after this round's own moves: they are written before the next card is asked.
       load: machineLoad,
+      wakeBlocked: (id) => wakeBreaker.isOpen(id),
     });
     if (!target) return false;
     let moved: Task | null = null;
@@ -6883,6 +6885,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         emit(t);
       }
     } catch (err) { log("sweep delle serie di attese fallito", err); }
+    // 1-quater-bis) A CARD PARKED BY THE MACHINE GOES BACK BY ITSELF (see
+    //    `sweepMachineWaitedOut`). After the pass above: a card parked just now
+    //    has a fresh `updated_at` and does not come back in the same pass.
+    try {
+      for (const t of deps.svc.sweepMachineWaitedOut({ eligible: acceso })) {
+        log(`card fermata dalla macchina rimessa in coda: ${t.id}`);
+        emit(t);
+      }
+    } catch (err) { log("rientro delle card fermate dalla macchina fallito", err); }
     // 2) Opportunistically fill free slots on every board that has queued todos.
     //
     //    UNA PROIEZIONE, NON I TASK. Qui serve un insieme di id di board, e si
