@@ -1097,6 +1097,17 @@ jobs:
         if: ${{ needs.changes.outputs.e2e == 'false' }}
         run: echo "::notice title=e2e not needed::none of the changed files is read by an e2e shard (scripts/ci-changes.ts)"
 
+      # The first runner on the Hetzner server is started by cloud-init without HOME:
+      # Playwright then installs into /root/.cache while the Chromium lookup reads
+      # "$HOME/.cache" = /.cache (run 42836011389, shard 2). A HOME of its own, like
+      # the other runners on the server.
+      - name: Give the self-hosted runner a HOME
+        if: ${{ runner.environment != 'github-hosted' && needs.changes.outputs.e2e != 'false' }}
+        run: |
+          if [ -z "${HOME:-}" ] || [ "$HOME" = / ]; then
+            mkdir -p /srv/rh-1 && echo "HOME=/srv/rh-1" >> "$GITHUB_ENV"
+          fi
+
       - uses: actions/checkout@v5
         if: ${{ needs.changes.outputs.e2e != 'false' }}
 
