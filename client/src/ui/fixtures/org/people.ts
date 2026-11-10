@@ -12,7 +12,7 @@ export type Permission =
   | 'view:today' | 'view:inbox' | 'view:flows' | 'view:data' | 'view:knowledge' | 'view:views'
   | 'view:channels' | 'view:programs' | 'view:overview' | 'view:settings' | 'view:board'
   | 'view:callcenter'
-  /** The SARIM edition: contracts and the team page have their own surface. */
+  /** The ORBIT edition: contracts and the team page have their own surface. */
   | 'view:contracts' | 'view:team'
   /** Write a contract: a new version, a comment on a clause, a variation. */
   | 'edit:contracts'
@@ -98,12 +98,12 @@ export const ROLES: RoleDef[] = [
 ];
 
 export const PERSONAS: Persona[] = [
-  { id: 'attilio', name: 'Attilio', monogram: 'A', color: '#1f2937', role: 'operatore', orgs: ['nocera', 'sarim', 'armonia', 'euro'], offices: [], home: '/panoramica', example: false },
+  { id: 'attilio', name: 'Attilio', monogram: 'A', color: '#1f2937', role: 'operatore', orgs: ['nocera', 'orbit', 'armonia', 'euro'], offices: [], home: '/panoramica', example: false },
   { id: 'direzione', name: 'Direttore generale (esempio)', monogram: 'DG', color: '#0f766e', role: 'direzione', orgs: ['nocera'], offices: [], home: '/panoramica', example: true }, // allow-italian: fixture data, shown as written
   { id: 'legale', name: 'Avvocato dell\'ente (esempio)', monogram: 'AV', color: '#7c3aed', role: 'legale', orgs: ['nocera'], offices: ['legale'], home: '/oggi', example: true }, // allow-italian: fixture data, shown as written
   { id: 'protocollo', name: 'Operatore del protocollo (esempio)', monogram: 'OP', color: '#15803d', role: 'protocollo', orgs: ['nocera'], offices: ['protocollo'], home: '/da-fare', example: true }, // allow-italian: fixture data, shown as written
   { id: 'lettura', name: 'Revisore dei conti (esempio)', monogram: 'RC', color: '#64748b', role: 'lettura', orgs: ['nocera'], offices: [], home: '/panoramica', example: true }, // allow-italian: fixture data, shown as written
-  { id: 'sarim-cc', name: 'Operatrice call center SARIM (esempio)', monogram: 'CC', color: '#b45309', role: 'call-center', orgs: ['sarim'], offices: ['call-center'], home: '/sarim/call-center', example: true }, // allow-italian: fixture data, shown as written
+  { id: 'orbit-cc', name: 'Operatrice call center ORBIT (esempio)', monogram: 'CC', color: '#b45309', role: 'call-center', orgs: ['orbit'], offices: ['call-center'], home: '/orbit/call-center', example: true }, // allow-italian: fixture data, shown as written
 ];
 
 export const DEFAULT_PERSONA = 'attilio';
@@ -126,7 +126,7 @@ export const OFFICE_LABEL: Record<Office, string> = {
 /** The organizations, as the sidebar groups them (they add up, there is no switcher). */
 export const ORGS: Array<{ id: OrgKey; name: string; monogram: string; color: string }> = [
   { id: 'nocera', name: 'Consorzio di Nocera', monogram: 'CN', color: '#15803d' },
-  { id: 'sarim', name: 'SARIM', monogram: 'SA', color: '#b45309' },
+  { id: 'orbit', name: 'ORBIT', monogram: 'SA', color: '#b45309' },
   { id: 'armonia', name: 'Armonia', monogram: 'A', color: '#1f2937' },
-  { id: 'euro', name: 'Euro Impianti', monogram: 'EI', color: '#c53030' },
+  { id: 'euro', name: 'Alfa Impianti', monogram: 'EI', color: '#c53030' },
 ];

@@ -11,9 +11,9 @@ import type { OrgModel, SidebarModel, TabModel } from '../types';
  * has to stay legible at 9px. */
 const CONSORTIUM: Pick<OrgModel, 'id' | 'name' | 'monogram' | 'color'> = { id: 'org-nocera', name: 'Consorzio di Nocera', monogram: 'CN', color: '#15803d' };
 const OTHERS: OrgModel[] = [
-  { id: 'org-sarim', name: 'SARIM', monogram: 'SA', color: '#b45309', attention: 'needs-you', age: '4m', count: 4 },
+  { id: 'org-orbit', name: 'ORBIT', monogram: 'SA', color: '#b45309', attention: 'needs-you', age: '4m', count: 4 },
   { id: 'org-armonia', name: 'Armonia', monogram: 'A', color: '#1f2937', age: '1g', count: 3 },
-  { id: 'org-euro', name: 'Euro Impianti', monogram: 'EI', color: '#c53030', age: '1g' },
+  { id: 'org-euro', name: 'Alfa Impianti', monogram: 'EI', color: '#c53030', age: '1g' },
 ];
 
 export type AdminSurface = 'nav-flows' | 'nav-data' | 'nav-knowledge' | 'nav-overview' | 'nav-views';

@@ -81,13 +81,13 @@ export function ComparePane({ rows, fromLabel, toLabel, focusId, focusKey, onOpe
                 <span className={clsx('inline-flex h-5 shrink-0 items-center rounded px-1.5 text-mini', STATUS_TONE[r.status])}>{t.status[r.status]}</span>
               </div>
               {phone ? (
-                <p className="px-4 pb-3 pt-1 font-serif text-body-lg leading-7 text-app-text"><Parts parts={r.inline} /></p>
+                <p className="px-4 pb-3 pt-1 font-serif text-[15px] leading-7 text-app-text"><Parts parts={r.inline} /></p>
               ) : (
                 <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                  <p className={clsx('border-r border-app-border px-4 pb-3 pt-1 font-serif text-body-lg leading-7', changed ? 'text-app-text' : 'text-app-text-secondary')}>
+                  <p className={clsx('border-r border-app-border px-4 pb-3 pt-1 font-serif text-[15px] leading-7', changed ? 'text-app-text' : 'text-app-text-secondary')}>
                     {r.status === 'added' ? <span className="font-sans text-compact italic text-app-text-tertiary">{t.notThere}</span> : <Parts parts={r.left} />}
                   </p>
-                  <p className={clsx('px-4 pb-3 pt-1 font-serif text-body-lg leading-7', changed ? 'text-app-text' : 'text-app-text-secondary')}>
+                  <p className={clsx('px-4 pb-3 pt-1 font-serif text-[15px] leading-7', changed ? 'text-app-text' : 'text-app-text-secondary')}>
                     {r.status === 'removed' ? <span className="font-sans text-compact italic text-app-text-tertiary">{t.notThere}</span> : <Parts parts={r.right} />}
                   </p>
                 </div>

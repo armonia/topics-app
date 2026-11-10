@@ -23,7 +23,7 @@ export function StatTile({ tile, onOpen }: { tile: StatTileModel; onOpen?: () =>
   const body = (
     <>
       <Icon size={14} className="absolute right-3.5 top-3.5 text-app-text-tertiary" aria-hidden="true" />
-      <div className={clsx('text-display font-semibold leading-9 tracking-[-0.01em] tabular-nums', tile.attention ? 'text-amber-600 dark:text-amber-400' : 'text-app-text')}>{tile.value}</div>
+      <div className={clsx('text-[26px] font-semibold leading-9 tracking-[-0.01em] tabular-nums', tile.attention ? 'text-amber-600 dark:text-amber-400' : 'text-app-text')}>{tile.value}</div>
       <div className="text-prose text-app-text-secondary">{tile.label}</div>
       {tile.detail && <div className="mt-0.5 text-compact text-app-text-tertiary">{tile.detail}</div>}
     </>

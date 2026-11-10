@@ -57,7 +57,7 @@ export function BoardStrip({ title, backLabel, groups, onBack, onOpen, openLabel
                   <>
                     {c.flag && <span aria-hidden="true" className={clsx('absolute bottom-1.5 left-0 top-1.5 w-[3px] rounded-r-full', c.flag === 'red' ? 'bg-rose-500' : 'bg-amber-500')} />}
                     <span className="flex min-w-0 items-baseline gap-1.5">
-                      <span className="shrink-0 font-mono text-mini font-medium text-app-text-tertiary">{c.id}</span>
+                      <span className="shrink-0 font-mono text-nano font-medium text-app-text-tertiary">{c.id}</span>
                       <span className="min-w-0 truncate text-compact text-app-text-tertiary">{c.who}</span>
                     </span>
                     <span className="line-clamp-2 text-compact font-medium leading-[17px] text-app-text">{c.title}</span>

@@ -4,7 +4,7 @@ import type { UiCopy } from '../copy/types';
 import { Chip } from '../primitives/Chip';
 import { FOCUS_RING } from '../shell/pressable';
 
-/** One part of a document (an article, a paragraph, a step of a procedure) as the SARIM edition shows it. */
+/** One part of a document (an article, a paragraph, a step of a procedure) as the ORBIT edition shows it. */
 export interface PartCardModel {
   id: string;
   heading: string;
@@ -37,7 +37,7 @@ export function PartCard({ part, copy, focused, onFocus, onOpenRest, onOpenCheck
   onOpenCheck?: (id: string) => void;
   onOpenOfficial?: (id: string) => void;
 }) {
-  const k = copy.sarimData.knowledge.doc;
+  const k = copy.orbitData.knowledge.doc;
   const chipButton = clsx('max-w-full rounded hover:opacity-80', FOCUS_RING);
   return (
     <article

@@ -3,7 +3,7 @@
  * through these builders, so a link and the place it opens cannot drift
  * apart. Slugs are Italian because the address is read by the people who
  * share it. The Consorzio di Nocera is the organization without a prefix;
- * the others live under their own (`/sarim/...`).
+ * the others live under their own (`/orbit/...`).
  */
 const e = encodeURIComponent;
 
@@ -76,13 +76,13 @@ export const P = {
   overview: () => '/panoramica',
   board: (org?: string) => (org ? `/board/${e(org)}` : '/board'),
 
-  /* SARIM (w07, s03, s04). */
-  sarimCallCenter: (call?: string) => (call ? `/sarim/call-center/${e(call)}` : '/sarim/call-center'),
-  sarimFlows: () => '/sarim/flussi',
-  sarimFlow: (flow: string) => `/sarim/flussi/${e(flow)}`,
-  sarimOverview: () => '/sarim/panoramica',
-  sarimRecord: (id: string) => `/sarim/pratiche/${e(id)}`,
+  /* ORBIT (w07, s03, s04). */
+  orbitCallCenter: (call?: string) => (call ? `/orbit/call-center/${e(call)}` : '/orbit/call-center'),
+  orbitFlows: () => '/orbit/flussi',
+  orbitFlow: (flow: string) => `/orbit/flussi/${e(flow)}`,
+  orbitOverview: () => '/orbit/panoramica',
+  orbitRecord: (id: string) => `/orbit/pratiche/${e(id)}`,
 
-  /* Armonia and Euro Impianti: their organization page. */
+  /* Armonia and Alfa Impianti: their organization page. */
   org: (org: string) => `/org/${e(org)}`,
 } as const;

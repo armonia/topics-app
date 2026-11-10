@@ -1,9 +1,9 @@
 /**
  * Case S-0151: the FIR of a leaf collection trip, back with a weight at
  * destination lower than the estimate, to register in WinWaste and RENTRI.
- * SARIM, flow `sarim-fir`, office `servizi`.
+ * ORBIT, flow `orbit-fir`, office `servizi`.
  *
- * Real: FIR/RENTRI and the leaf service are SARIM's repetitive work, WinWaste
+ * Real: FIR/RENTRI and the leaf service are ORBIT's repetitive work, WinWaste
  * its waste program (training questionnaire, DATI-VERI.md); EER 20 02 01 is
  * the code of biodegradable waste from gardens and parks. An example: the
  * FIR number, the producer, the plant, the weights, the 2-day rule (declared
@@ -14,12 +14,12 @@ import { original } from './originals';
 
 export const CASE_S0151: CaseSeed = {
   id: 'S-0151',
-  org: 'sarim',
+  org: 'orbit',
   kind: 'fir',
   title: 'FIR foglie, peso a destino da registrare', // allow-italian: fixture data, shown as written
   subject: 'FIR RXFT 004812 KP del 03/11/2026, servizio foglie', // allow-italian: fixture data, shown as written
   office: 'servizi',
-  flow: 'sarim-fir',
+  flow: 'orbit-fir',
   channel: 'portale',
   arrivedAt: '2026-11-04T09:20:00+01:00',
   counterpart: 'Impianto di compostaggio (esempio)', // allow-italian: fixture data, shown as written

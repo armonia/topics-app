@@ -50,7 +50,7 @@ export function AnswerCard({ answer, copy, onOpenSource, onOpenPassage, onUpload
         <ol className="space-y-2">
           {answer.passages.map((p) => (
             <li key={p.n} className="flex items-start gap-3 rounded-lg bg-black/[0.03] px-3 py-2.5 dark:bg-white/[0.04]">
-              <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-mini font-semibold text-white" aria-hidden="true">{p.n}</span>
+              <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-nano font-semibold text-white" aria-hidden="true">{p.n}</span>
               <div className="min-w-0 flex-1">
                 <div className="text-compact font-semibold text-app-text">{p.label}</div>
                 <p className="mt-0.5 text-compact leading-5 text-app-text-secondary">

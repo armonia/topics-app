@@ -284,7 +284,7 @@ export interface SettingsCopy {
     fallbackReply: string;
   };
   compliance: {
-    scopes: { nocera: string; sarim: string; topics: string };
+    scopes: { nocera: string; orbit: string; topics: string };
     groups: Record<StandardGroup, string>;
     columns: { standard: string; about: string; how: string; proof: string; state: string };
     statuses: Record<StandardStatus, string>;

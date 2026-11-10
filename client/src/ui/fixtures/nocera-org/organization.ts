@@ -8,9 +8,9 @@
  *
  * The comuni are not here: they are the table «Comuni del comprensorio» of allow-italian: quotes the words on screen
  * «Dati» (`data.ts`, `NOCERA_TOWNS`), so the two pages count the same list.
- * Same shape as `../sarim-org/organization.ts`.
+ * Same shape as `../orbit-org/organization.ts`.
  */
-import type { SarimFact, SourceLink } from '../sarim-org/organization';
+import type { OrbitFact, SourceLink } from '../orbit-org/organization';
 
 const BOOK: Omit<SourceLink, 'quote'> = {
   label: "Libro dell'anno 2025 del Consorzio", // allow-italian: fixture data, shown as written
@@ -19,13 +19,13 @@ const BOOK: Omit<SourceLink, 'quote'> = {
 const HOME: Omit<SourceLink, 'quote'> = { label: 'bonificasarno.it', url: 'https://www.bonificasarno.it' };
 
 /** Who the Consorzio is: name, nature, law, seat, certified mail, phone, tax code, territory. */
-export const NOCERA_IDENTITY: SarimFact[] = [
+export const NOCERA_IDENTITY: OrbitFact[] = [
   { id: 'name', label: 'Denominazione', value: 'Consorzio di Bonifica Integrale Comprensorio Sarno', source: { ...BOOK, quote: 'ha assunto la denominazione di “Consorzio di Bonifica Integrale Comprensorio Sarno”' } }, // allow-italian: fixture data, shown as written
   { id: 'founded', label: 'Costituzione', value: "1° dicembre 1952, con DPR, come Consorzio di Bonifica dell'Agro Sarnese Nocerino", source: { ...BOOK, quote: 'costituito con DPR del 1° dicembre 1952 quale Ente di Diritto Pubblico' } }, // allow-italian: fixture data, shown as written
   { id: 'nature', label: 'Natura giuridica', value: 'Ente pubblico economico a carattere associativo (L.R. Campania 7 del 6 giugno 2025, art. 9, comma 3)', source: { ...BOOK, quote: 'enti pubblici economici a carattere associativo (art.9, comma 3)' } }, // allow-italian: fixture data, shown as written
   { id: 'law', label: 'Legge di riferimento', value: 'L.R. Campania 7 del 6 giugno 2025, che ha abrogato la L.R. 4/2003', source: { ...BOOK, quote: 'Legge Regionale n.7 del 6 giugno 2025, che ha sostituito e abrogato la precedente L.R. n. 4/2003' } }, // allow-italian: fixture data, shown as written
   { id: 'seat', label: 'Sede', value: 'Via Giuseppe Atzori snc, Centrale Ortofrutticola I, 84014 Nocera Inferiore (SA)', source: { ...HOME, quote: '84014 Nocera Inferiore (Sa)' } }, // allow-italian: fixture data, shown as written
-  { id: 'pec', label: 'PEC', value: 'protocollo@pec.bonificasarno.it', source: { ...HOME, quote: 'protocollo@pec.bonificasarno.it' } }, // allow-italian: fixture data, shown as written
+  { id: 'pec', label: 'PEC', value: 'protocollo@x.example.it', source: { ...HOME, quote: 'protocollo@x.example.it' } }, // allow-italian: fixture data, shown as written
   { id: 'phone', label: 'Telefono', value: '081.3204511', source: { ...HOME, quote: 'Tel.: 081.3204511' } }, // allow-italian: fixture data, shown as written
   { id: 'tax', label: 'Codice fiscale', value: '80009450653', source: { ...HOME, quote: 'Cod. Fiscale 80009450653' } }, // allow-italian: fixture data, shown as written
   { id: 'territory', label: 'Comprensorio', value: 'Sarno: bacini Sarno, Torrenti Vesuviani e Irno', source: { ...BOOK, quote: 'il Consorzio opera ora nel comprensorio denominato “Sarno”, comprendente i bacini Sarno, Torrenti Vesuviani e Irno' } }, // allow-italian: fixture data, shown as written

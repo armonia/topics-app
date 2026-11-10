@@ -24,7 +24,7 @@ export function Monogram({ text, color, size = 16 }: { text: string; color: stri
     <span
       aria-hidden="true"
       style={{ width: size, height: size, backgroundColor: color }}
-      className="inline-flex shrink-0 items-center justify-center rounded-xs text-mini font-bold leading-none text-white"
+      className="inline-flex shrink-0 items-center justify-center rounded-xs text-nano font-bold leading-none text-white"
     >
       {text}
     </span>
@@ -37,7 +37,7 @@ export function Avatar({ text, color, size = 18 }: { text: string; color: string
     <span
       aria-hidden="true"
       style={{ width: size, height: size, backgroundColor: color }}
-      className="inline-flex shrink-0 items-center justify-center rounded-full text-mini font-bold leading-none text-white"
+      className="inline-flex shrink-0 items-center justify-center rounded-full text-nano font-bold leading-none text-white"
     >
       {text}
     </span>
@@ -99,7 +99,7 @@ export function OrgRow({ org, copy, focused, onClick, onMenuSelect }: {
   const toggles = Boolean(onClick && org.nav?.length);
   const menu = onMenuSelect && org.menu?.length ? org.menu : undefined;
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);
-  const label = copy.sarimShell.orgMenu;
+  const label = copy.orbitShell.orgMenu;
   return (
     <RowShell
       attention={org.attention}

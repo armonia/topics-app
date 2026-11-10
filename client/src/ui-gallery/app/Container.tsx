@@ -13,7 +13,7 @@
 import { Component, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { Bell, Menu as MenuIcon, Search, Undo2 } from 'lucide-react';
 import type { UiCopy } from '../../ui/copy/types';
-import type { NavKind, UiTabKind, TabModel } from '../../ui/types';
+import type { NavKind, TabKind, TabModel } from '../../ui/types';
 import { AppFrame } from '../../ui/shell/AppFrame';
 import { Sidebar } from '../../ui/shell/Sidebar';
 import { TabBar } from '../../ui/shell/TabBar';
@@ -46,7 +46,7 @@ import { P } from './paths';
 
 /* ---------- places ---------- */
 
-const NAV_TAB: Partial<Record<string, UiTabKind>> = {
+const NAV_TAB: Partial<Record<string, TabKind>> = {
   today: 'today', inbox: 'inbox', flows: 'flows', data: 'data', knowledge: 'knowledge', views: 'views', channels: 'channels',
   programs: 'programs', overview: 'overview', settings: 'settings', board: 'board', callcenter: 'callcenter', org: 'org', search: 'search', new: 'new',
   contracts: 'contracts', team: 'team',
@@ -420,7 +420,7 @@ export function App({ copy: baseCopy, copies, embedPath, edition }: {
     setPath(next);
     if (m) {
       if (!m.def.transient) setTabs((t) => openIn(t, tabKeyOf(m), next));
-      /* The organization of the place on screen opens in the sidebar: a SARIM screen under a closed SARIM read as Nocera's. */
+      /* The organization of the place on screen opens in the sidebar: a ORBIT screen under a closed ORBIT read as Nocera's. */
       dispatch({ type: 'open-org', org: m.def.org });
     } else {
       setTabs((t) => openIn(t, 'missing', next));
@@ -439,8 +439,8 @@ export function App({ copy: baseCopy, copies, embedPath, edition }: {
   }, [embedded, show, homePath]);
 
   /* ---- the ctx every place renders from ---- */
-  /* A person's group is a role in Nocera and a team in SARIM (its roles carry the teams' names): the messages about permissions say which. */
-  const teamWords = edition.id !== COMBINED_EDITION ? copy.sarimShell.access : undefined;
+  /* A person's group is a role in Nocera and a team in ORBIT (its roles carry the teams' names): the messages about permissions say which. */
+  const teamWords = edition.id !== COMBINED_EDITION ? copy.orbitShell.access : undefined;
   const deniedTitle = (p: Permission) => (canDo(state, persona, p) ? undefined : (teamWords ?? copy.app.access).deniedAction(role.label));
   const ctx: ScreenCtx = {
     copy,
@@ -585,7 +585,7 @@ export function App({ copy: baseCopy, copies, embedPath, edition }: {
   }
 
   /* After «Esci» nothing of the signed-in chrome stays: no person, no counters, no rows to click, no tab strip, no search; the page and its «Rientra» are all there is. (allow-italian: quotes the Italian interface) */
-  const signedOut = screenId === 'sarim-signed-out';
+  const signedOut = screenId === 'orbit-signed-out';
   /* Signing out closes whatever was open over the page; done while rendering the change (React's pattern for state that follows a prop), so no closed panel is drawn for a frame first. */
   const [signedOutSeen, setSignedOutSeen] = useState(signedOut);
   if (signedOutSeen !== signedOut) {
@@ -654,7 +654,7 @@ export function App({ copy: baseCopy, copies, embedPath, edition }: {
   /* ---- tabs ---- */
   const tabModels: TabModel[] = tabs.list.map((t) => {
     const tm = match(TABLE, t.path);
-    const info = tm ? tabInfo(tm, ctx) : { key: t.key, label: t.path, kind: 'other' as UiTabKind };
+    const info = tm ? tabInfo(tm, ctx) : { key: t.key, label: t.path, kind: 'other' as TabKind };
     return { id: t.key, kind: info.kind, label: info.label, count: info.count, active: t.key === tabs.active, preview: !t.pinned };
   });
   const activeLabel = tabModels.find((t) => t.active)?.label ?? copy.shell.appName;
@@ -828,8 +828,8 @@ export function App({ copy: baseCopy, copies, embedPath, edition }: {
           <TabBar
             tabs={tabModels}
             copy={copy}
-            moreLabel={copy.sarimShell.tabsMenu}
-            previewTip={copy.sarimShell.tabPreviewTip}
+            moreLabel={copy.orbitShell.tabsMenu}
+            previewTip={copy.orbitShell.tabPreviewTip}
             onPin={(key) => setTabs((t) => pinIn(t, key))}
             onMove={(key, to) => setTabs((t) => moveIn(t, key, to))}
             onSelect={(key) => {

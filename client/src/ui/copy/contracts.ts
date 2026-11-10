@@ -1,7 +1,7 @@
 /**
  * Contracts: the list, a contract with its clauses, versions and compare, comments, obligations, attachments, variations, signatures. (allow-italian: quotes the Italian interface)
  * Values in `i18n-ui-contracts-it.ts` and `i18n-ui-contracts-en.ts`; only product words,
- * the words of SARIM's work arrive with the data.
+ * the words of ORBIT's work arrive with the data.
  */
 export interface ContractsCopy {
   title: string;

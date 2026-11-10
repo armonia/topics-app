@@ -1,8 +1,8 @@
 /**
  * The page of an organization with no surfaces of its own in the preview:
- * Armonia (who configures and assists the others) and Euro Impianti (starting,
+ * Armonia (who configures and assists the others) and Alfa Impianti (starting,
  * no flows yet). Who it is, its cards on the Board, its people, and for
- * Armonia the flows it configures or for Euro Impianti the way to the first one.
+ * Armonia the flows it configures or for Alfa Impianti the way to the first one.
  */
 import { Workflow } from 'lucide-react';
 import { Button } from '../../../../ui/primitives/Button';
@@ -56,7 +56,7 @@ export function renderOrgPage(org: 'armonia' | 'euro', ctx: ScreenCtx) {
       </Card>
     );
   } else {
-    const clients: Array<{ id: OrgKey; to: string }> = [{ id: 'nocera', to: P.flows() }, { id: 'sarim', to: P.sarimFlows() }];
+    const clients: Array<{ id: OrgKey; to: string }> = [{ id: 'nocera', to: P.flows() }, { id: 'orbit', to: P.orbitFlows() }];
     extra = (
       <Card icon={Workflow} title={p.configuresTitle}>
         <ul className="-mx-1.5 flex flex-col">

@@ -13,7 +13,7 @@ import {
 import clsx from 'clsx';
 import type { UiCopy } from '../ui/copy/types';
 import type { BlockKind, ControlGlyph, LegendGroup } from '../ui/copy/kit';
-import type { FieldKind, NavKind, UiTabKind, Tone } from '../ui/types';
+import type { FieldKind, NavKind, TabKind, Tone } from '../ui/types';
 import { FIELD_ICON, FIELD_TONE, NAV_ICON, TAB_ICON } from '../ui/icons';
 import { TONE_CHIP, TONE_TEXT } from '../ui/tone';
 import { NOTICE_ICON, type NoticeTone } from '../ui/primitives/notice';
@@ -84,7 +84,7 @@ export function IconLegend({ copy }: { copy: UiCopy }) {
   const l = copy.kit.legend;
   const navGlyphs = new Set<LucideIcon>(Object.values(NAV_ICON));
   /* A tab that opens a surface wears that surface's glyph: only the others are new. */
-  const ownTabs = keys(TAB_ICON).filter((k: UiTabKind) => !navGlyphs.has(TAB_ICON[k]));
+  const ownTabs = keys(TAB_ICON).filter((k: TabKind) => !navGlyphs.has(TAB_ICON[k]));
   const group = (id: LegendGroup, children: ReactNode) => (
     <Group key={id} title={l.groups[id].title} note={l.groups[id].note}>{children}</Group>
   );

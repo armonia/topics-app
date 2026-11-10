@@ -173,7 +173,7 @@ export function CadViewScreen({
           <div className="flex flex-col gap-2">
             {notes.map((n, i) => (
               <div key={n.id} className="flex items-center gap-2">
-                <span aria-hidden="true" className={clsx('inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-mini font-bold', TONE_CHIP.blue)}>{i + 1}</span>
+                <span aria-hidden="true" className={clsx('inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-nano font-bold', TONE_CHIP.blue)}>{i + 1}</span>
                 <TextField size="sm" value={n.text} onChange={(t) => onNoteText(n.id, t)} placeholder={c.noteDefault(i + 1)} className="flex-1" />
                 <IconButton icon={Trash2} label={c.deleteNote(i + 1)} onClick={() => onDeleteNote(n.id)} className="!h-6 !w-6 border-0 bg-transparent shadow-none" />
               </div>

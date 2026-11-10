@@ -13,12 +13,12 @@ import { PROGRAMS_COPY_EN } from './i18n-ui-programs-en';
 import { ORGS_COPY_EN } from './i18n-ui-orgs-en';
 import { KANBAN_COPY_EN } from './i18n-ui-kanban-en';
 import { CONTRACTS_COPY_EN } from './i18n-ui-contracts-en';
-import { SARIM_WORK_COPY_EN } from './i18n-ui-sarim-work-en';
-import { SARIM_DATA_COPY_EN } from './i18n-ui-sarim-data-en';
-import { SARIM_ADMIN_COPY_EN } from './i18n-ui-sarim-admin-en';
+import { ORBIT_WORK_COPY_EN } from './i18n-ui-orbit-work-en';
+import { ORBIT_DATA_COPY_EN } from './i18n-ui-orbit-data-en';
+import { ORBIT_ADMIN_COPY_EN } from './i18n-ui-orbit-admin-en';
 import { FILTERS_COPY_EN } from './i18n-ui-filters-en';
-import { SARIM_SHELL_COPY_EN } from './i18n-ui-sarim-shell-en';
-import { SARIM_TEAM_COPY_EN } from './i18n-ui-sarim-team-en';
+import { ORBIT_SHELL_COPY_EN } from './i18n-ui-orbit-shell-en';
+import { ORBIT_TEAM_COPY_EN } from './i18n-ui-orbit-team-en';
 import { CHAT_COPY_EN } from './i18n-ui-chat-en';
 
 /** English catalogue of the UI layer. The keys and their meaning: `types.ts`. */
@@ -236,11 +236,11 @@ export const UI_COPY_EN: UiCopy = {
   orgs: ORGS_COPY_EN,
   kanban: KANBAN_COPY_EN,
   contracts: CONTRACTS_COPY_EN,
-  sarimWork: SARIM_WORK_COPY_EN,
-  sarimData: SARIM_DATA_COPY_EN,
-  sarimAdmin: SARIM_ADMIN_COPY_EN,
+  orbitWork: ORBIT_WORK_COPY_EN,
+  orbitData: ORBIT_DATA_COPY_EN,
+  orbitAdmin: ORBIT_ADMIN_COPY_EN,
   filters: FILTERS_COPY_EN,
-  sarimShell: SARIM_SHELL_COPY_EN,
-  sarimTeam: SARIM_TEAM_COPY_EN,
+  orbitShell: ORBIT_SHELL_COPY_EN,
+  orbitTeam: ORBIT_TEAM_COPY_EN,
   chat: CHAT_COPY_EN,
 };

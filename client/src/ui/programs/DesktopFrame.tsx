@@ -26,7 +26,7 @@ export function DesktopFrame({ taskbarLeft, taskbarRight, children, className, m
       <div className="flex h-9 shrink-0 items-center gap-3 px-3 text-mini" style={{ backgroundColor: '#15212b', color: '#e5e7eb' }}>
         <LayoutGrid size={13} aria-hidden="true" />
         {taskbarLeft.map((t, i) => <span key={t} className={i === 0 ? 'font-medium' : 'text-white/60'}>{t}</span>)}
-        {taskbarRight && <span className="ml-auto truncate font-mono text-mini text-white/70">{taskbarRight}</span>}
+        {taskbarRight && <span className="ml-auto truncate font-mono text-nano text-white/70">{taskbarRight}</span>}
       </div>
     </div>
   );

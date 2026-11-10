@@ -109,7 +109,7 @@ export function ReplyView({ reply, onOpen, onPick, showExamples, flowIcon }: {
 }
 
 /** The line that says an answer is on its way. It moves by CSS alone, so nothing is left running when the page goes. */
-function TypingLine({ label }: { label: string }) {
+function WritingLine({ label }: { label: string }) {
   return (
     <p role="status" data-chat-typing="" className="flex items-center gap-1.5 text-app-text-tertiary">
       <span className="inline-flex gap-0.5" aria-hidden="true">
@@ -154,7 +154,7 @@ export function ChatPanel({ copy, messages, pending, value, onChange, onSend, on
     if (!m.reply) return [];
     return [{ kind: 'rich', id: m.id, node: <ReplyView reply={m.reply} onOpen={onOpen} onPick={onPick} showExamples={!pending && m.id === lastAssistant} flowIcon={flowIcon} /> }];
   });
-  if (pending) items.push({ kind: 'rich', id: 'typing', node: <TypingLine label={copy.chat.typing} /> });
+  if (pending) items.push({ kind: 'rich', id: 'typing', node: <WritingLine label={copy.chat.typing} /> });
 
   const thread = (
     <div data-chat-thread="" className={clsx(page && 'mx-auto w-full max-w-[760px]')}>

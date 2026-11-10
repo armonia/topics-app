@@ -1,4 +1,4 @@
-import type { FieldKind, NavKind, UiTabKind } from '../types';
+import type { FieldKind, NavKind, TabKind } from '../types';
 
 /** A glyph of the legend: what it is called, and what it means. */
 export interface GlyphWords {
@@ -83,7 +83,7 @@ export interface KitCopy {
     field: Record<FieldKind, GlyphWords>;
     /** What each surface is for; its name is `shell.nav`. */
     surface: Record<NavKind, string>;
-    tab: Record<UiTabKind, GlyphWords>;
+    tab: Record<TabKind, GlyphWords>;
     state: Record<StateGlyph, GlyphWords>;
     control: Record<ControlGlyph, GlyphWords>;
     rulesTitle: string;

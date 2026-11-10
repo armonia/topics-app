@@ -157,7 +157,7 @@ export const CASE_2386: CaseSeed = {
       lines: [
         'Concessione n. 41/2026 (esempio), firmata dal Dirigente dell\'Area Tecnica', // allow-italian: fixture data, shown as written
         'Protocollo in partenza n. 2026/0018503 (esempio)', // allow-italian: fixture data, shown as written
-        'Inviata via PEC a societa.agricola@pec.esempio.it: consegnata il 06/11/2026 alle 10:32', // allow-italian: fixture data, shown as written
+        'Inviata via PEC a societa.agricola@x.example.it: consegnata il 06/11/2026 alle 10:32', // allow-italian: fixture data, shown as written
         'Registro delle concessioni aggiornato · canone in Prunes', // allow-italian: fixture data, shown as written
       ],
     },

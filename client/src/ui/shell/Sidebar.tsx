@@ -24,7 +24,7 @@ const isNamed = (tile: PinnedTileModel) => (tile.monogram?.length ?? 0) > 2;
 function PinnedTile({ tile, onClick }: { tile: PinnedTileModel; onClick?: () => void }) {
   const content = tile.kind === 'mail' ? <Mail size={15} className="text-app-text-secondary" aria-hidden="true" /> : tile.monogram;
   const style = tile.color ? ({ '--pin': tile.color } as CSSProperties) : undefined;
-  const look = clsx(TILE_CLASS, tile.color && TILE_COLOR, isNamed(tile) ? 'truncate px-2 text-prose font-semibold' : 'text-prose font-bold');
+  const look = clsx(TILE_CLASS, tile.color && TILE_COLOR, isNamed(tile) ? 'truncate px-2 text-prose font-semibold' : 'text-[13px] font-bold');
   if (onClick) {
     return (
       <button type="button" data-tip={tile.label} aria-label={tile.label} onClick={onClick} className={clsx(look, 'w-full', FOCUS_RING)} style={style}>

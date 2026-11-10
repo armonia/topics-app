@@ -100,7 +100,7 @@ export function RecordSheet({
             {sheet.facts.map((f) => (
               <Card key={f.id} onOpen={f.linked && onOpenFact ? () => onOpenFact(f.id) : undefined}>
                 <div className="text-compact text-app-text-tertiary">{f.label}</div>
-                <div className={clsx('mt-1 truncate text-body-lg font-semibold leading-6', f.tone === 'urgent' ? 'text-display leading-7 text-rose-600 dark:text-rose-400' : 'text-app-text')}>{f.value}</div>
+                <div className={clsx('mt-1 truncate text-body-lg font-semibold leading-6', f.tone === 'urgent' ? 'text-[22px] leading-7 text-rose-600 dark:text-rose-400' : 'text-app-text')}>{f.value}</div>
                 {f.detail && <div className="mt-0.5 text-compact leading-4 text-app-text-secondary">{f.detail}</div>}
               </Card>
             ))}

@@ -136,7 +136,7 @@ export const SECTOR_PACKAGES: SectorPackage[] = [
   {
     id: 'ambiente',
     name: 'Servizi ambientali', // allow-italian: fixture data, shown as written
-    org: 'SARIM',
+    org: 'ORBIT',
     vocabulary: {
       case: 'segnalazione', party: 'utenza', incoming: 'mail, portale, telefonata', registration: 'ordine SAP, FIR', folder: 'fascicolo', charges: 'rendicontazione', office: 'area', // allow-italian: fixture data, shown as written
     },
@@ -148,8 +148,8 @@ export const SECTOR_PACKAGES: SectorPackage[] = [
       { id: 'E', label: 'Fattura passiva' }, // allow-italian: fixture data, shown as written
     ],
     templates: [
-      { id: 'segnalazioni', label: 'Segnalazioni AMA e utenze → intervento', flow: 'sarim-segnalazioni' }, // allow-italian: fixture data, shown as written
-      { id: 'fatture', label: 'Fattura passiva → riconciliazione', flow: 'sarim-fatture' }, // allow-italian: fixture data, shown as written
+      { id: 'segnalazioni', label: 'Segnalazioni AMA e utenze → intervento', flow: 'orbit-segnalazioni' }, // allow-italian: fixture data, shown as written
+      { id: 'fatture', label: 'Fattura passiva → riconciliazione', flow: 'orbit-fatture' }, // allow-italian: fixture data, shown as written
       { id: 'fir', label: 'FIR e RENTRI' },
       { id: 'foglie', label: 'Rendicontazione del servizio foglie' }, // allow-italian: fixture data, shown as written
       { id: 'turni', label: 'Turni e scadenze dei tempi determinati' }, // allow-italian: fixture data, shown as written
@@ -162,7 +162,7 @@ export const SECTOR_PACKAGES: SectorPackage[] = [
   {
     id: 'impianti',
     name: 'Impiantistica', // allow-italian: fixture data, shown as written
-    org: 'Euro Impianti',
+    org: 'Alfa Impianti',
     example: true,
     vocabulary: {
       case: 'intervento', party: 'cliente', incoming: 'mail, modulo, telefonata', registration: 'rapportino', folder: 'commessa', charges: 'preventivo', office: 'reparto', // allow-italian: fixture data, shown as written
@@ -364,19 +364,19 @@ export const STANDARDS: StandardSeed[] = [
   { id: 'cad', name: 'CAD, D.Lgs. 82/2005', group: 'documents', scopes: ['nocera'], status: 'covered', checkedDaysAgo: 1, verify: 'pass', proofPath: 'log' },
   { id: 'agid-seg', name: 'Allegato 6 AgID, segnatura di protocollo', group: 'documents', scopes: ['nocera'], status: 'covered', checkedDaysAgo: 1, verify: 'pass' }, // allow-italian: fixture data, shown as written
   { id: 'preservation', name: 'Conservazione a norma (ISO 14721 OAIS)', group: 'documents', scopes: ['nocera'], status: 'by-others', checkedDaysAgo: 7, verify: 'external' }, // allow-italian: fixture data, shown as written
-  { id: 'gdpr', name: 'GDPR', group: 'personal', scopes: ['nocera', 'sarim', 'topics'], status: 'in-progress', checkedDaysAgo: 3, verify: 'fail', proofPath: 'anonymization' },
-  { id: 'iso27001', name: 'ISO/IEC 27001', group: 'personal', scopes: ['nocera', 'sarim', 'topics'], status: 'to-certify', checkedDaysAgo: 14, verify: 'external', proofPath: 'security' },
+  { id: 'gdpr', name: 'GDPR', group: 'personal', scopes: ['nocera', 'orbit', 'topics'], status: 'in-progress', checkedDaysAgo: 3, verify: 'fail', proofPath: 'anonymization' },
+  { id: 'iso27001', name: 'ISO/IEC 27001', group: 'personal', scopes: ['nocera', 'orbit', 'topics'], status: 'to-certify', checkedDaysAgo: 14, verify: 'external', proofPath: 'security' },
   { id: 'acn', name: 'Qualificazione cloud ACN', group: 'personal', scopes: ['nocera', 'topics'], status: 'to-request', checkedDaysAgo: 14, verify: 'external', proofPath: 'hosting' }, // allow-italian: fixture data, shown as written
-  { id: 'nis2', name: 'NIS2', group: 'personal', scopes: ['nocera', 'sarim', 'topics'], status: 'to-verify', checkedDaysAgo: 21, verify: 'external' },
-  { id: 'iso25012', name: 'ISO/IEC 25012', group: 'data', scopes: ['nocera', 'sarim', 'topics'], status: 'covered', checkedDaysAgo: 1, verify: 'pass', proofPath: 'quality' },
-  { id: 'iso8000', name: 'ISO 8000', group: 'data', scopes: ['nocera', 'sarim', 'topics'], status: 'partial', checkedDaysAgo: 5, verify: 'fail', proofPath: 'quality' },
-  { id: 'aiact', name: 'AI Act', group: 'data', scopes: ['nocera', 'sarim', 'topics'], status: 'covered', checkedDaysAgo: 2, verify: 'pass', proofPath: 'log' },
-  { id: 'iso42001', name: 'ISO/IEC 42001', group: 'data', scopes: ['nocera', 'sarim', 'topics'], status: 'to-certify', checkedDaysAgo: 14, verify: 'external', proofPath: 'versions' },
-  { id: 'wcag', name: 'Accessibilità AgID (WCAG 2.1 AA)', group: 'data', scopes: ['nocera', 'sarim', 'topics'], status: 'partial', checkedDaysAgo: 2, verify: 'fail' }, // allow-italian: fixture data, shown as written
-  { id: 'rentri', name: 'D.Lgs. 152/2006 e RENTRI', group: 'sector', scopes: ['sarim'], status: 'to-verify', checkedDaysAgo: 21, verify: 'external' },
-  { id: 'iso9001', name: 'ISO 9001', group: 'sector', scopes: ['sarim'], status: 'to-verify', checkedDaysAgo: 21, verify: 'external' },
-  { id: 'iso14001', name: 'ISO 14001', group: 'sector', scopes: ['sarim'], status: 'to-verify', checkedDaysAgo: 21, verify: 'external' },
-  { id: 'iso45001', name: 'ISO 45001', group: 'sector', scopes: ['sarim'], status: 'to-verify', checkedDaysAgo: 21, verify: 'external' },
+  { id: 'nis2', name: 'NIS2', group: 'personal', scopes: ['nocera', 'orbit', 'topics'], status: 'to-verify', checkedDaysAgo: 21, verify: 'external' },
+  { id: 'iso25012', name: 'ISO/IEC 25012', group: 'data', scopes: ['nocera', 'orbit', 'topics'], status: 'covered', checkedDaysAgo: 1, verify: 'pass', proofPath: 'quality' },
+  { id: 'iso8000', name: 'ISO 8000', group: 'data', scopes: ['nocera', 'orbit', 'topics'], status: 'partial', checkedDaysAgo: 5, verify: 'fail', proofPath: 'quality' },
+  { id: 'aiact', name: 'AI Act', group: 'data', scopes: ['nocera', 'orbit', 'topics'], status: 'covered', checkedDaysAgo: 2, verify: 'pass', proofPath: 'log' },
+  { id: 'iso42001', name: 'ISO/IEC 42001', group: 'data', scopes: ['nocera', 'orbit', 'topics'], status: 'to-certify', checkedDaysAgo: 14, verify: 'external', proofPath: 'versions' },
+  { id: 'wcag', name: 'Accessibilità AgID (WCAG 2.1 AA)', group: 'data', scopes: ['nocera', 'orbit', 'topics'], status: 'partial', checkedDaysAgo: 2, verify: 'fail' }, // allow-italian: fixture data, shown as written
+  { id: 'rentri', name: 'D.Lgs. 152/2006 e RENTRI', group: 'sector', scopes: ['orbit'], status: 'to-verify', checkedDaysAgo: 21, verify: 'external' },
+  { id: 'iso9001', name: 'ISO 9001', group: 'sector', scopes: ['orbit'], status: 'to-verify', checkedDaysAgo: 21, verify: 'external' },
+  { id: 'iso14001', name: 'ISO 14001', group: 'sector', scopes: ['orbit'], status: 'to-verify', checkedDaysAgo: 21, verify: 'external' },
+  { id: 'iso45001', name: 'ISO 45001', group: 'sector', scopes: ['orbit'], status: 'to-verify', checkedDaysAgo: 21, verify: 'external' },
 ];
 
 /** The words of each step of the start-up of the Consorzio: customer and program names, so they are data. */
@@ -458,8 +458,8 @@ export const SECTOR_STANDARD_TEXT: Partial<Record<StandardId, { about: string; h
   cad: { about: 'firma, PEC, copie informatiche', how: 'firme verificate sugli allegati, ricevute di consegna conservate con la pratica', proof: 'Registro delle verifiche di firma' }, // allow-italian: fixture data, shown as written
   'agid-seg': { about: 'scambio tra amministrazioni', how: 'il protocollo resta nel programma di protocollo; Topics non lo duplica', proof: 'robot: un numero solo per PEC' }, // allow-italian: fixture data, shown as written
   preservation: { about: 'chi fa conservazione a norma', how: "Topics non conserva: versa al conservatore qualificato dell'organizzazione", proof: 'ricevute di versamento' }, // allow-italian: fixture data, shown as written
-  rentri: { about: 'rifiuti, formulari, registri', how: 'FIR e RENTRI come passi dei flussi, scadenze nello scadenzario', proof: 'da concordare con SARIM' }, // allow-italian: fixture data, shown as written
-  iso9001: { about: 'gestione della qualità', how: 'procedure approvate e versionate, registro delle modifiche', proof: 'da concordare con SARIM' }, // allow-italian: fixture data, shown as written
-  iso14001: { about: 'gestione ambientale', how: 'dati di servizio tracciati per commessa', proof: 'da concordare con SARIM' }, // allow-italian: fixture data, shown as written
-  iso45001: { about: 'salute e sicurezza sul lavoro', how: 'scadenze di formazione e idoneità nei turni', proof: 'da concordare con SARIM' }, // allow-italian: fixture data, shown as written
+  rentri: { about: 'rifiuti, formulari, registri', how: 'FIR e RENTRI come passi dei flussi, scadenze nello scadenzario', proof: 'da concordare con ORBIT' }, // allow-italian: fixture data, shown as written
+  iso9001: { about: 'gestione della qualità', how: 'procedure approvate e versionate, registro delle modifiche', proof: 'da concordare con ORBIT' }, // allow-italian: fixture data, shown as written
+  iso14001: { about: 'gestione ambientale', how: 'dati di servizio tracciati per commessa', proof: 'da concordare con ORBIT' }, // allow-italian: fixture data, shown as written
+  iso45001: { about: 'salute e sicurezza sul lavoro', how: 'scadenze di formazione e idoneità nei turni', proof: 'da concordare con ORBIT' }, // allow-italian: fixture data, shown as written
 };

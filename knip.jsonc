@@ -432,9 +432,9 @@
         "vite.ui.config.ts",
         "src/ui-gallery/main.tsx",
         "src/ui-gallery/app-main.tsx",
-        // Le due demo (client/sarim.html e client/consorzio.html): senza, knip
+        // Le due demo (client/orbit.html e client/consorzio.html): senza, knip
         // dava per inutilizzata tutta la galleria che solo loro montano.
-        "src/ui-gallery/sarim-main.tsx",
+        "src/ui-gallery/orbit-main.tsx",
         "src/ui-gallery/consorzio-main.tsx",
         "src/**/*.{test,spec}.{ts,tsx}"
       ],

@@ -369,7 +369,7 @@ function SearchBox({ copy, size, phone, query, placeholder, onQuery, suggestions
             const Icon = sug.icon;
             return (
               <div key={sug.id} role="presentation">
-                {head && <p role="presentation" className="px-3 pb-0.5 pt-1.5 text-mini font-semibold uppercase tracking-wide text-app-text-tertiary">{sug.group}</p>}
+                {head && <p role="presentation" className="px-3 pb-0.5 pt-1.5 text-nano font-semibold uppercase tracking-wide text-app-text-tertiary">{sug.group}</p>}
                 <button
                   ref={i === at ? revealOnMount : undefined}
                   id={optionId(i)}
