@@ -306,9 +306,12 @@ jobs:
             | jq -r --arg p "$p" '[.servers[] | select(.name | startswith($p)) | .name] | join(" ")')
           if [ -n "$resto" ]; then echo "::error::Server ancora accesi: $resto"; exit 1; fi
           echo "nessun server di questa run acceso"
+          # The server is gone, which is what costs money. A runner left registered is
+          # offline and harmless, and the hourly sweeper removes it: a GitHub API hiccup
+          # here (502 in run 42839400563) is a warning, not a red delete job.
           api="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runners"
-          curl -fsS -H "Authorization: Bearer $GH_TOKEN" "$api?per_page=100" \
+          { curl -fsS -H "Authorization: Bearer $GH_TOKEN" "$api?per_page=100" \
             | jq -r --arg p "$p" '.runners[] | select(.name | startswith($p)) | .id' \
             | while read -r id; do
                 curl -fsS -X DELETE -H "Authorization: Bearer $GH_TOKEN" "$api/$id" && echo "tolto runner $id"
-              done
+              done; } || echo "::warning::runner di questa run non tolti da GitHub: li toglie lo sweeper"
