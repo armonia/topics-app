@@ -937,3 +937,12 @@ Every write from the registry SHALL be validated, SHALL copy the file into `jarv
 - **GIVEN** the configuration files
 - **WHEN** an edit names a chat that does not exist, a non-boolean switch, a file outside IDENTITY/SOUL or an empty personality
 - **THEN** it SHALL be refused and the file SHALL be byte-identical
+
+### Requirement: AGCFG-03 - Istruzioni per chat, chi può scrivere e orari dei lavori
+
+From the registry a chat row SHALL open in place on its own instructions and on who may write (ids, empty means everyone), and a job row on its schedule (a 5-field cron, every N minutes, or once at a time). Saving SHALL go through the same safe write as AGCFG-02; a schedule jarvis-channels cannot run SHALL be refused and the file left identical. A chat both agents answer because it is routed to Visione SHALL read «due agenti, voluto» and SHALL NOT be listed as an incoherence.
+
+#### Scenario: Instructions, senders and schedule are saved
+- **GIVEN** a chat with its instructions and a job at 8:00
+- **WHEN** the senders become «921, 502» and the job's cron «30 7 * * 1-5»
+- **THEN** `/api/agent-config/chat` SHALL receive the senders as a list with the instructions, and `/api/agent-config/job` the new cron

@@ -15,7 +15,7 @@ import type { LiveWork } from "../../shared/live-work";
 import { getDatabase } from "../db";
 import { endedSubagents, runningSubagents } from "../lib/subagent-store";
 import { childPhase } from "../lib/subagent-runtime";
-import { liveWorkRows } from "../lib/live-work";
+import { liveWorkRows, endedTtlMs } from "../lib/live-work";
 import { summarizeToolInput } from "../services/task-dispatcher";
 import { liveCommandsOf } from "./processes";
 import { liveCliChildren } from "./terminal";
@@ -69,6 +69,6 @@ export function liveWorkOf(ctx: AppContext, topic: Pick<Topic, "id" | "sessionKe
         sessionKey: r.sessionKey, endedAt: r.endedAt, reportedAt: r.reportedAt, preview: "",
       })),
       commands: liveCommandsOf(topic.id),
-    }, Date.now()),
+    }, Date.now(), endedTtlMs()),
   };
 }

@@ -91,6 +91,9 @@ test.describe("the proxy's activity in the bell", () => {
   test("an expired token lights the bell by itself; the rows say how; History has the whole week, hour by hour, and the next event within the minute", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.emulateMedia({ colorScheme: "dark" });
+    // The diary re-reads every 60 s while History is open: the page clock lets
+    // the test jump that minute instead of waiting it out (real time still flows).
+    await page.clock.install();
     await goToApp(page);
     await openMainChat(page, shot!);
 
@@ -162,7 +165,8 @@ test.describe("the proxy's activity in the bell", () => {
 
     // With the panel open, a new event arrives by itself within the minute, as on the hub's page.
     hub!.activity = [{ type: "manual-switch", ts: Date.now(), to: WORK }, ...hub!.activity!];
-    await expect(events.first()).toContainText(`Cambio manuale a ${WORK}`, { timeout: 75_000 });
+    await page.clock.fastForward(60_000);
+    await expect(events.first()).toContainText(`Cambio manuale a ${WORK}`, { timeout: 15_000 });
     await expect(events).toHaveCount(15);
   });
 });

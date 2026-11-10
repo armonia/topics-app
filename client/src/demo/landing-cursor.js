@@ -223,7 +223,7 @@
   }
 
   /* ---- target lookups (always FRESH — layout may have changed) ------------ */
-  // acme-web's Claude Code tabs: pane ids are seeded by landing-boot.js.
+  // acme-web's Claude Code tabs: pane ids are seeded by the acme scenario (scenarios/acme.ts).
   function tabCC(n) { return q('[data-pane-id="terminal:cc' + n + '"]'); }
 
   /* Every seam in the app is now ONE component (Layout/SplitTree.tsx), marked
@@ -289,7 +289,7 @@
   }
   var GROUP_DEFAULT = "space:default", GROUP_PROJECTS = "space:projects", GROUP_NUMBERS = "space:numbers";
 
-  /* ---- the stage: chapter tabs seeded by landing-boot.js ------------------- */
+  /* ---- the stage: chapter tabs seeded by scenarios/acme.ts ---------------- */
   function stageTab(id) { return q('[data-pane-id="' + id + '"]'); }
 
   /* ---- cancellation ------------------------------------------------------- *
