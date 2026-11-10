@@ -72,6 +72,9 @@ on:
       placement:
         description: 'mappa {"s<N>": etichetta} di dove va ogni job; chi manca va su ubuntu-latest'
         value: ${{ jobs.create.outputs.placement }}
+      attempt:
+        description: il tentativo della run per cui vale la mappa
+        value: ${{ jobs.create.outputs.attempt }}
     secrets:
       HCLOUD_TOKEN:
         required: true
@@ -88,6 +91,7 @@ jobs:
       server_id: ${{ steps.win.outputs.server_id }}
       runners: ${{ steps.online.outputs.hz_n }}
       placement: ${{ steps.online.outputs.placement }}
+      attempt: ${{ github.run_attempt }}
     steps:
       - name: Ora di inizio
         run: echo "JOB_T0=$(date +%s)" >> "$GITHUB_ENV"

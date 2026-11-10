@@ -1020,8 +1020,11 @@ jobs:
   e2e:
     timeout-minutes: 25
     # Per SHARD, from the map of the `hcloud` job (see the top of it): PC, Hetzner
-    # server, or ubuntu-latest for a shard the map does not name.
-    runs-on: ${{ fromJSON(needs.hcloud.outputs.placement || '{}')[format('s{0}', matrix.shard)] || 'ubuntu-latest' }}
+    # server, or ubuntu-latest for a shard the map does not name. The map is only
+    # good for the attempt that made it: "Re-run failed jobs" keeps the outputs of
+    # the green `hcloud` job, and a shard sent back to that run's label would wait
+    # forever for a server already deleted. A re-run shard goes to ubuntu-latest.
+    runs-on: ${{ needs.hcloud.outputs.attempt == format('{0}', github.run_attempt) && fromJSON(needs.hcloud.outputs.placement || '{}')[format('s{0}', matrix.shard)] || 'ubuntu-latest' }}
     needs: [changes, prepare-e2e, hcloud]
     if: ${{ !cancelled() && needs.prepare-e2e.result == 'success' }}
     # WHEN NOTHING THE SHARDS READ HAS CHANGED the matrix is the single job `e2e (0)`
