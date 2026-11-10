@@ -1119,6 +1119,9 @@ describe("la consegna del nodo è una consegna come le altre", () => {
     const t = h.task();
     expect(t.status).toBe("todo");
     expect(t.stayLocal).toBe(true);
+    // The pin has a deadline: the node's missing tools get installed.
+    const until = h.db.query("SELECT stay_local_until AS u FROM tasks WHERE id = ?").get(TASK) as { u: string | null };
+    expect(Date.parse(until.u ?? "") - Date.now()).toBeGreaterThan(5 * 3_600_000);
     expect(t.machineId).toBeNull();
     expect(measured).toEqual([]);
     expect(h.comments().some((c) => c.content.includes("finita senza nessun commit"))).toBe(true);
