@@ -1,3 +1,6 @@
+/**
+ * @covers NATIVE-WRITE-ROOTS-01
+ */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync, existsSync } from "fs";
 import { tmpdir } from "os";
