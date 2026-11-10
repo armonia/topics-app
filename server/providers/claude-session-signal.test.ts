@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+/** @covers CMDUI-01 @covers MACHINE-02 */
 import { hasClaudeSessionSignal } from './claude-session-signal';
 
 describe('hasClaudeSessionSignal', () => {
