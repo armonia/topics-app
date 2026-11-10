@@ -1,3 +1,6 @@
+/**
+ * @covers E2EDUR-01
+ */
 import { describe, expect, test } from "bun:test";
 import { findRegressions } from "./e2e-duration-regressions";
 
