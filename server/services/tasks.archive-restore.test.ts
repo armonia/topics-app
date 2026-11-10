@@ -1,12 +1,12 @@
 /**
- * Archiviare aveva una porta sola. `list()` inchiodava `archived = 0`, la PATCH
- * rifiutava il campo, e in tutto il repo non esisteva una sola scrittura che
- * riportasse `archived` a 0: 74 task erano usciti dalla board senza modo di
- * rivederli, alberi fermi in review compresi.
+ * Archiving was a one-way door. `list()` pinned `archived = 0`, the PATCH
+ * refused the field, and nothing in the repo ever wrote `archived` back to 0:
+ * 74 tasks had left the board with no way to see them again, trees parked in
+ * review included.
  *
- * Qui si misura il ritorno, nell'ordine in cui lo vive chi guarda la board:
- * archivia (la card sparisce) → elenca con il filtro (la ritrova) → ripristina
- * → la card è di nuovo in colonna, nella sua colonna, con la sua checklist.
+ * This measures the way back, in the order someone watching the board lives it:
+ * archive (the card disappears), list with the filter (it is found), restore,
+ * and the card is back in its own column with its checklist.
  *
  * @covers KANBAN-18
  */
