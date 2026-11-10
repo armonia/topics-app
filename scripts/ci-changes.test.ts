@@ -389,6 +389,11 @@ describe("ci.yml obeys the answer: the workflow is evaluated, not read", () => {
     if (path === "needs.prepare-e2e.outputs.plan-ok") return "";
     if (/^steps\.\w+\.outputs\.\w+$/.test(path)) return "";
     if (path === "github.event_name") return ctx.event;
+    // The Hetzner server of the e2e shards (hcloud jobs): a same-repo event, no server.
+    if (path === "github.repository" || path === "github.event.pull_request.head.repo.full_name") return "armonia/topics-app";
+    if (path === "needs.hcloud.result") return ctx.answer.e2e === "false" ? "skipped" : "success";
+    if (path === "needs.prepare-e2e.result") return "success";
+    if (/^needs\.hcloud\.outputs\.\w+$/.test(path)) return "";
     if (path === "matrix.shard") return ctx.shard;
     throw new Error(`the evaluator does not know the context "${path}": teach it here, do not skip the step`);
   }

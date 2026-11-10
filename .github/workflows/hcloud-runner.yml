@@ -11,8 +11,9 @@ name: Server Hetzner per i job pesanti
 # Copia di armonia/quadra (.github/workflows/hcloud-runner.yml), adattata a un repo PUBBLICO:
 # - create e delete girano su ubuntu-latest (gratis qui), mai su macchine nostre: sono gli
 #   unici job che vedono HCLOUD_TOKEN e RUNNER_ADMIN_TOKEN, e non eseguono codice della PR;
-# - niente ripiego sul ccx23 dedicato: hetzner-tetto ammette solo tagli condivisi, e 8 runner
-#   su 4 core non servono a niente. Se fsn1 e hel1 falliscono, label vuota e ubuntu-latest;
+# - ripiego su un ccx23 dedicato con 2 runner quando i core condivisi del progetto sono pieni
+#   (crm + giuseppe = 20, misurato il 10/11: cx23-cx53 e cax41 tutti «resource_unavailable»);
+#   l'output `runners` dice quanti ne sono nati, e chi chiama manda lì solo quei job;
 # - i runner in più si registrano --ephemeral: un job e via, e l'etichetta è unica per run.
 # Ripiego dei job pesanti quando il server non c'è: ubuntu-latest, come prima.
 # Rete: hcloud-sweeper.yml cancella ogni ora i server gh-runner-* più vecchi di 3 ore.
@@ -60,6 +61,9 @@ on:
         value: ${{ jobs.create.outputs.label }}
       server_id:
         value: ${{ jobs.create.outputs.server_id }}
+      runners:
+        description: quanti runner sono nati sul server (0 senza server)
+        value: ${{ jobs.create.outputs.runners }}
     secrets:
       HCLOUD_TOKEN:
         required: true
@@ -76,6 +80,7 @@ jobs:
     outputs:
       label: ${{ steps.win.outputs.label }}
       server_id: ${{ steps.win.outputs.server_id }}
+      runners: ${{ steps.win.outputs.runners }}
     steps:
       # Guardia di spesa (vincolo di Attilio: mai danni economici). Il tetto mensile lo
       # tiene `hetzner-tetto` sul Mac, che oltre i 20 €/mese mette HETZNER_STOP=1 su questo
@@ -126,9 +131,10 @@ jobs:
               "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runners/registration-token" | jq -er .token)
             echo "::add-mask::$token"
           fi
-          for loc in fsn1 hel1; do
-            n="$name"; [ "$loc" = hel1 ] && n="$name-b"
-            r="$RUNNERS"
+          for loc in fsn1 hel1 ded; do
+            n="$name"; [ "$loc" = hel1 ] && n="$name-b"; [ "$loc" = ded ] && n="$name-c"
+            # Sul dedicato di ripiego (ccx23: 4 core, 16 GB) al massimo 2 runner.
+            r="$RUNNERS"; [ "$loc" = ded ] && [ "$r" -gt 2 ] && r=2
             f="$RUNNER_TEMP/pre-$loc.sh"
             {
               echo 'export DEBIAN_FRONTEND=noninteractive'
@@ -157,8 +163,8 @@ jobs:
               --name "$NAME-$i" --labels "$NAME" --no-default-labels --disableupdate --ephemeral >"/var/log/runner-$i.log" 2>&1
             # HOME suo: pnpm/action-setup, Playwright e le cache scrivono in ~ e due job insieme
             # nella stessa /root si pestano (ENOTEMPTY su ~/setup-pnpm).
-            mkdir -p "/home/runner-$i"
-            HOME="/home/runner-$i" RUNNER_ALLOW_RUNASROOT=1 setsid nohup ./run.sh >>"/var/log/runner-$i.log" 2>&1 < /dev/null &
+            mkdir -p "/srv/rh-$i"
+            HOME="/srv/rh-$i" RUNNER_ALLOW_RUNASROOT=1 setsid nohup ./run.sh >>"/var/log/runner-$i.log" 2>&1 < /dev/null &
           done
           EOS
               fi
@@ -210,6 +216,25 @@ jobs:
           create_wait: 2
           pre_runner_script: ${{ steps.pre.outputs.hel1 }}
 
+      # Ultimo tentativo: un ccx23 dedicato (0,14 EUR/h, 2 runner). I core condivisi del progetto
+      # sono spesso tutti presi dai server permanenti; i dedicati hanno un limite a parte.
+      - name: Crea il server (ccx23 dedicato)
+        id: ded
+        if: ${{ steps.gate.outputs.ok == 'true' && steps.fsn1.outcome != 'success' && steps.hel1.outcome != 'success' }}
+        continue-on-error: true
+        uses: Cyclenerd/hcloud-github-runner@94a0a4aa750d832b48cc0f66d24ed56c3fe69448 # v1.4.1
+        with:
+          mode: create
+          github_token: ${{ secrets.RUNNER_ADMIN_TOKEN }}
+          hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
+          name: ${{ steps.pre.outputs.name_ded }}
+          server_type: ccx23
+          location: fsn1
+          image: docker-ce
+          ssh_key: "112097822"
+          create_wait: 2
+          pre_runner_script: ${{ steps.pre.outputs.ded }}
+
       # Il vincitore, e via subito ogni altro server di questa run (tentativi falliti a metà):
       # un server senza runner registrato non deve aspettare il reaper delle 3 ore.
       - name: Tieni solo il server che funziona
@@ -221,9 +246,14 @@ jobs:
           L2: ${{ steps.hel1.outcome == 'success' && steps.hel1.outputs.label || '' }}
           S1: ${{ steps.fsn1.outputs.server_id }}
           S2: ${{ steps.hel1.outputs.server_id }}
+          L3: ${{ steps.ded.outcome == 'success' && steps.ded.outputs.label || '' }}
+          S3: ${{ steps.ded.outputs.server_id }}
+          RUNNERS: ${{ inputs.runners }}
         run: |
           label=""; sid=""
-          if [ -n "$L1" ]; then label=$L1; sid=$S1; elif [ -n "$L2" ]; then label=$L2; sid=$S2; fi
+          if [ -n "$L1" ]; then label=$L1; sid=$S1; elif [ -n "$L2" ]; then label=$L2; sid=$S2; elif [ -n "$L3" ]; then label=$L3; sid=$S3; fi
+          n=0; [ -n "$label" ] && n=$RUNNERS; [ -n "$L3" ] && [ "$label" = "$L3" ] && [ "$n" -gt 2 ] && n=2
+          echo "runners=$n" >> "$GITHUB_OUTPUT"
           echo "label=$label" >> "$GITHUB_OUTPUT"
           echo "server_id=$sid" >> "$GITHUB_OUTPUT"
           [ -z "$label" ] && echo "::warning::Nessun server Hetzner pronto: i job pesanti vanno sul ripiego."
@@ -255,7 +285,7 @@ jobs:
           server_id: ${{ inputs.server_id }}
 
       # Anche senza label: se il job di create è morto dopo aver creato il server  il server esiste ma l'output no. Il nome è
-      # deterministico, gh-runner-<run>-<tentativo>[-b], quindi si cerca per prefisso.
+      # deterministico, gh-runner-<run>-<tentativo>[-b|-c], quindi si cerca per prefisso.
       - name: Cancella gli avanzi di questa run (server e runner)
         if: ${{ always() }}
         env:
