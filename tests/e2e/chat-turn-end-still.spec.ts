@@ -120,7 +120,7 @@ async function openChat(page: Page, name: string) {
   await page.getByRole("textbox", { name: /Campo del messaggio|Message input for/ }).waitFor({ state: "visible", timeout: 15_000 });
 }
 
-type Frame = { t: number; loader: boolean; row: number | null; text: number | null; meta: number | null; metaLive: boolean; above: number | null; scroll: number | null };
+type Frame = { t: number; loader: boolean; row: number | null; text: number | null; meta: number | null; metaLive: boolean; above: number | null; scroll: number | null; toolOpen: boolean };
 
 /**
  * Starts, in the page, a per-frame sampler of the LAST assistant bubble: found
@@ -130,6 +130,14 @@ type Frame = { t: number; loader: boolean; row: number | null; text: number | nu
  * `above` is the prompt's bubble, the last user row: the transcript over the
  * turn, which a bubble that shrank or grew would push. `scroll` is the
  * scroller's `scrollTop`.
+ * A tool row whose body is open does not count as settled: a call that ran
+ * past `AUTO_OPEN_DELAY_MS` opens its body by itself and closes it
+ * `AUTO_OPEN_MIN_DWELL_MS` later (`toolRowDisclosure.ts`). On a loaded WebKit
+ * runner an `echo` sometimes ran that long, the answer arrived inside the
+ * dwell, 10 still frames went by with the body open, and its closing was
+ * recorded as the end of the turn moving row and prompt by 62 px (twotool,
+ * runs 42532993310 and 42632032036). That closing belongs to the tool, not
+ * to the end of the turn: the sampler waits for it.
  * `settleOn: "row"` starts recording once the reasoning row has held, before
  * any text: for a turn whose text and end come together, the frame the text
  * is first drawn in is part of what is judged.
@@ -162,6 +170,7 @@ async function startSampler(page: Page, marker: string, settleOn: "text" | "row"
         meta: topOf(meta),
         metaLive: meta?.getAttribute("data-live") === "true",
         scroll: (document.querySelector('[data-testid="chat-message-list"]') as HTMLElement | null)?.scrollTop ?? null,
+        toolOpen: !!bubble?.querySelector('[data-testid^="tool-call-row-"] [aria-expanded="true"]'),
       };
     };
     let steady = 0;
@@ -173,7 +182,7 @@ async function startSampler(page: Page, marker: string, settleOn: "text" | "row"
       const s = sample();
       if (!recording) {
         const same = !!previous && previous.row === s.row && previous.text === s.text && previous.meta === s.meta && previous.above === s.above;
-        const ready = settleOn === "row" ? s.row !== null && s.text === null : s.text !== null;
+        const ready = (settleOn === "row" ? s.row !== null && s.text === null : s.text !== null) && !s.toolOpen;
         steady = s.loader && ready && same ? steady + 1 : 0;
         previous = s;
         if (steady >= 10) { recording = true; t0 = performance.now(); }

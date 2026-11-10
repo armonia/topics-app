@@ -30,7 +30,6 @@ export const FEED_OMITTED_TASK_FIELDS = [
   "dispatchDeferredUntil",
   "dispatchWeight",
   "doneActor",
-  "dueDate",
   "landingCheckedAt",
   "modelEffort",
   "previewRejected",

@@ -110,7 +110,7 @@ The bell's History tab SHALL merge seven days of the hub's diary into the Topics
 
 ### Requirement: HUBBR-08 — The machine's Processes
 
-Where the hub is part of the installation, Sistema in the Topics menu and the command palette SHALL open «Processi», a view of the whole machine that takes the place of «Questo computer» (what that level said about this window, open tabs, archived and the health list, moves under Prestazioni). The view SHALL show the Mac (CPU, memory, swap, GPU and network of the machine, then the processes by memory with memory, GPU and network for each, and the CPU of the processes the hub measures), the PC (asleep, on or working, with the hub's reasons, its measures and its heavy programs), the hub's services (state, memory, port; the stopped ones first, the ones switched off on purpose counted, not listed) and the Claude proxy's log. A number the hub did not measure SHALL be a dash, never 0. The only command SHALL be «Ferma» on a running project script started by Topics, with the project's name and the script's port; no row of an app, a service, a session or the system SHALL carry a stop or a restart. Without the hub the row and the palette entry SHALL not exist.
+Where the hub is part of the installation, Sistema in the Topics menu and the command palette SHALL open «Processi», a view of the whole machine that takes the place of «Questo computer» (what that level said about this window, open tabs, archived and the health list, moves under Prestazioni). The view SHALL show the Mac (CPU, memory, swap, GPU and network of the machine, then, behind a fold, the processes by memory with memory, GPU and network for each, and the CPU of the processes the hub measures), the PC (asleep, on or working, with the hub's reasons, its measures and its heavy programs), the hub's services (state, memory, port; the stopped ones first, the ones switched off on purpose counted, not listed) and the Claude proxy's log. A number the hub did not measure SHALL be a dash, never 0. The only command SHALL be «Ferma» on a running project script started by Topics, with the project's name and the script's port; no row of an app, a service, a session or the system SHALL carry a stop or a restart. Without the hub the row and the palette entry SHALL not exist.
 
 #### Scenario: GPU and network per process
 - **GIVEN** a hub whose census measures GPU and network for some processes and not for one
@@ -341,3 +341,21 @@ A machine that takes the load (the PC) SHALL be able to show, full screen on its
 - **GIVEN** the screen file exactly as the keeper writes it (`sospendeAlle` in epoch milliseconds) and a 3440x1440 screen
 - **WHEN** `/schermo/<PC id>` opens
 - **THEN** it SHALL show the countdown, every process row SHALL end inside its list, and Windows' own programs (dwm, System, MsMpEng) SHALL be labelled as the system's
+
+### Requirement: HUBBR-22 — Processes: the sessions at the centre, the backup in one line
+
+«Processi» SHALL open on the SESSIONS, as the PC's screen (`/schermo`) does: every card, chat or terminal at work with its title, project, model, tokens, tokens per second, a running clock, CPU and memory with the shared part named, and the processes it launched only inside it, behind its own toggle. The machine (the Mac's gauges, the PC, the services and the proxy's log) SHALL be context beside the sessions, narrower than them. The Mac's process list SHALL be folded on open and read-only when opened: no search, no order, no Close on any process, and nothing that closes Topics itself. The one command SHALL be «Ferma» on a card or a chat, after an inline confirmation that names the session; a card is stopped through the board's own Stop, a chat's turn is aborted, and a refusal is shown on the row. The Mac backup SHALL be one line at the foot of the view: the last outcome and when, the service's detail, and when the last run failed, the date of the last good one; no backup file is said in words.
+
+#### Scenario: The centre is the sessions
+- **GIVEN** «Processi» with a card at work and a hub whose census lists eight units
+- **WHEN** the view opens
+- **THEN** the session SHALL be on the left and wider than the Mac, no process row SHALL be drawn, and the Mac's fold SHALL name the eight processes; opened, its rows SHALL carry no Close
+
+#### Scenario: Stop asks first
+- **GIVEN** a card at work in «Processi»
+- **WHEN** the person presses «Ferma» on its session
+- **THEN** a confirmation naming the card SHALL appear and nothing SHALL be sent; cancelling SHALL send nothing; confirming SHALL send one Stop to that card and show the board's refusal if it refuses
+
+#### Scenario: Backup in one line
+- **GIVEN** the service has no backup state file
+- **THEN** the line SHALL say no backup is recorded; with a good last run it SHALL say when it succeeded; with a failed one it SHALL say so and name the last good run

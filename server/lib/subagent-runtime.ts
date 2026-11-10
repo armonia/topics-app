@@ -18,7 +18,7 @@ import { getDatabase } from "../db";
 import { warnThrottled } from "./warn-throttled";
 import { claudeTranscriptPath } from "./claude-transcript-path";
 import {
-  childModel, emptyTally, endingChildTurn, forgetTurns, pendingTallyTurns, resultKey, tallyLines, tallyTurnDurationMs, turnDurationMs,
+  childModel, emptyTally, endingChildTurn, tallyAwaitsBackground, forgetTurns, pendingTallyTurns, resultKey, tallyLines, tallyTurnDurationMs, turnDurationMs,
   type SubAgentEnding, type SubAgentOutcome, type SubAgentResult, type TranscriptTally,
 } from "./subagent-result";
 import {
@@ -306,7 +306,9 @@ async function checkChildTurns(child: ChildRef): Promise<void> {
   const size = stat?.size ?? -1;
   // An unchanged file has nothing new, unless the `undelivered` clock is running.
   const undeliveredDue = seededAt != null && !undeliveredReported;
-  if (size === rt.lastSize && !(undeliveredDue && rt.phase === 'waiting-prompt')) return;
+  // A closed turn waiting on silent background work ends by the clock: look again.
+  const awaitsBackground = rt.transcript ? tallyAwaitsBackground(rt.transcript.tally) : false;
+  if (size === rt.lastSize && !(undeliveredDue && rt.phase === 'waiting-prompt') && !awaitsBackground) return;
   rt.lastSize = size;
   const tally = foldTranscript(rt, path, stat);
   forgetTurns(tally, row.turnsReported);

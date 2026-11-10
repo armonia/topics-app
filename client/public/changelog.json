@@ -1,5 +1,393 @@
 [
   {
+    "version": "2.3.81",
+    "date": "2026-11-10",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "e2e shards back to 8 runners (16 processes), 7 put the median work over its bar (card 3ae7e6a4)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "shard test expects the eight-runner matrix (card cd139870)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/grave-wolf (card cd139870) (#741)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.80",
+    "date": "2026-11-10",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "archiving drops the queued dispatch state (#740)",
+          "en": "",
+          "scope": "tasks",
+          "breaking": false
+        },
+        {
+          "it": "English comment for the archive queued reset (#743)",
+          "en": "",
+          "scope": "tasks",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "topics/transient-glacier (card 25f9832a) (#728)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Subagent turns end when background reports arrive only as queued commands (#739)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-10 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.79",
+    "date": "2026-11-10",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "esito della traccia R4 (proxy e account nel servizio Rust) (#732)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/primrose-hill (card e12b765a) (#733)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/gusty-flag (card 97e3951f) (#735)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.78",
+    "date": "2026-11-10",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "una cache di compilazione per processo, due Playwright fratelli si leggevano a meta' shared/board (#736)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.77",
+    "date": "2026-11-10",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Demo della landing: un caricatore piccolo e scenari tipizzati al posto di landing-boot.js",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Demo della landing: via il contesto del vecchio gateway dallo scenario",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Demo della landing: lo scenario comune è un passaggio nella lista chiusa della preferenza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "nota di consegna della traccia R2 del servizio sempre acceso",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/whispering-ether (card 57fe1061) (#712)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Chiudere una card parcheggia le sue tab di anteprima aperte (#656)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "topics/lithe-kingdom (card a9281987) (#719)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "istruzioni per chat, chi può scrivere e orari dei lavori modificabili (#723)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "nota di consegna della traccia R2 del servizio sempre acceso (#726)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/crested-manor (card 73f93690) (#722)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Tab di anteprima nei progetti, e le chat degli agenti fuori dalla barra (#721)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Card e12b765a: ramo UI unito in un commit, senza gli script temporanei di lead (dati di persone)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "topics/bold-siren (card b1b60a20) (#724)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/timely-grain (card 680ce412) (#718)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/equal-camel (card 511a992a) (#720)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/dawning-frost (card 97e3951f) (#727)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Card e12b765a: parole del progetto e baseline degli identificatori",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Card e12b765a: baseline del bloat per le fixture dello strato UI",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Card e12b765a: tipografia sulla scala, lingua della UI, test dichiarati, check UI nel workflow",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Card e12b765a: guardie unitarie dello strato UI (qa-gate, rails, nomi, eccezioni scritte)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il land porta main su origin: prima restava solo su questo disco (#730)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Card e12b765a: rilancio della CI (unit annullato da un guasto apt del runner)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.76",
+    "date": "2026-11-10",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "un pesante che aspetta solo la CI remota non tiene la macchina (#699)",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "the sessions at the centre again, no close on a process, the backup in one line",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "cloud-nodes: esito 0.7 e 0.8, nodo senza catalogo modelli (#697)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "claude-cloud: un account senza scope delle sessioni non spegne più il nodo (#698)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "anagrafica di Jarvis e Visione modificabile da Topics (#704)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "lint e tetto delle stringhe dopo l'anagrafica (#704) (#708)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "time knobs for the stale-stream tick and the ended sub-agent stay, shorter waits in the slow specs",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "the stale-stream wiring check follows the pass function",
+          "en": "",
+          "scope": "unit",
+          "breaking": false
+        },
+        {
+          "it": "the stale-stream sweeper check reads the pass function",
+          "en": "",
+          "scope": "unit",
+          "breaking": false
+        },
+        {
+          "it": "a channel thread says the channel it lives in, and the threads opened for a card are readable (#713)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the card shows its due date, red once overdue",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the due date reaches the client (feed no longer drops it), chip row test knows card-due-date, test translate type matches",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "corsa vuota su una domanda va in review, non fissata al Mac (#715)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.75",
+    "date": "2026-11-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "cloud-nodes: approvata, esito della Fase 0 sul nodo a ore (#694)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "e2e turn-end-still: the sampler waits for a tool body that opened by itself to close",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.74",
+    "date": "2026-11-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Stop test: forward-slash paths and tree kill in afterAll, skip on win32",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Unify duplicated git runner, stripCtrl, HTML escape, isConflicted and expandHome",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "channel titles per chat and thread, resolved from the channel key",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Agent environment on Windows keeps the CLIs' config folders (#691)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.73",
     "date": "2026-11-09",
     "sections": {
@@ -7,6 +395,69 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "search, order, confirmed close and the Mac backup box (hub S3)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "inline close confirmation is a group, not a floating surface",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Automations calendar: open the detail of a row from the list tab",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fix comment language",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "esito della traccia R1 (servizio Rust dell'hub)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "outcome note for hub service track R3 (code lives in the jarvis repo)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "name the jarvis commits in the R3 outcome note",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the in-progress card requirement takes id KANBAN-109 (KANBAN-108 was defined twice)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "note the spec id fix in the R3 outcome",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "R3 outcome note, CI remark",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Kanban spec: second KANBAN-108 renumbered to 109 (spec-coverage red inherited from main)",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "passano i controlli anti-bot di Hetzner (outerWidth/outerHeight e webdriver) (#670)",
           "en": "",
@@ -29,6 +480,11 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Account e quote: il test dei tetti prova anche il cambio dollaro-euro (virgola o punto) scritto sul proxy",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -42,6 +498,12 @@
       "perf": [],
       "internal": [
         {
+          "it": "archive toggle keeps aria-pressed",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "aggiorna durate shard dal nightly del 2026-11-09 [skip ci]",
           "en": "",
           "scope": "e2e",
@@ -51,6 +513,18 @@
           "it": "il test della nota ripiegata legge SystemNoteFold.tsx, dove ora vive",
           "en": "",
           "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "campanella lato hub, ordine gruppi, Fatto e hub spento",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "commenti in inglese",
+          "en": "",
+          "scope": "e2e",
           "breaking": false
         }
       ]
@@ -65,9 +539,21 @@
       "perf": [],
       "internal": [
         {
+          "it": "detail slider requirement KANBAN-107",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Il drag non fa più tremare la card vicina quando il puntatore passa fra due colonne",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "board specs drive the detail slider instead of the old layout toggle",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ]
     }
@@ -84,6 +570,28 @@
           "it": "Board per progetto: l'elenco dei progetti del selettore esce da tasks.ts",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Board slider: motion token duration, declare test coverage",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.68",
+    "date": "2026-11-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "detail slider (projects with counts, list, kanban) replaces the list toggle",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ]
     }
@@ -103,7 +611,24 @@
           "breaking": false
         },
         {
+          "it": "board-remote-node usa la radice tmp canonica, su Windows /tmp non esiste",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "spec agents-jobs e board-motion-contract allineate (formato M tok, transizione invertita)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "e2e agents-jobs: il conteggio dei token si legge «2,3 M» col formato unico",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chiudere una card parcheggia le sue tab di anteprima aperte",
           "en": "",
           "scope": null
         }
@@ -214,6 +739,26 @@
         },
         {
           "it": "Punto coordinator: fix lives outside this repo (jarvis ef51752b)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "/send: il testo lungo verso le sessioni Claude arriva come paste e la rotta lo dichiara (pasted)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "isPlainText senza regex di controllo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "/send e live-terminals: il testo lungo verso Claude va come paste, l'Invio separato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ui-language: baseline riallineato dopo lo spostamento dei bottoni dell'editor",
           "en": "",
           "scope": null
         }

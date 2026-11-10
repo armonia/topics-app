@@ -53,6 +53,7 @@ export const COMMAND_TOOLS = [
         cwd: { type: "string", description: "Optional directory to run in, relative to the project root (or absolute inside it). Defaults to the root." },
         wake: { type: "boolean", description: "Wake this topic with the outcome when the command ends by itself (default true). A Stop never wakes." },
         description: { type: "string", description: "Optional short name (a few words) shown to the person while it runs and in its outcome. Defaults to the command's first line." },
+        retry_of: { type: "string", description: "When this command re-runs one that failed, the processId of the failed one (the wake message names it). It links the retry to that failure, so whoever follows the work counts it as the next attempt instead of a new job." },
       },
       required: ["command"],
     },
@@ -64,7 +65,7 @@ interface RunCommandResp { processId?: string; pid?: number; wake?: boolean }
 
 export async function callRunCommand(
   args: ParsedArgs,
-  toolArgs: { command?: unknown; cwd?: unknown; wake?: unknown; description?: unknown },
+  toolArgs: { command?: unknown; cwd?: unknown; wake?: unknown; description?: unknown; retry_of?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   if (typeof toolArgs?.command !== "string" || !toolArgs.command.trim()) {
@@ -84,5 +85,10 @@ export async function callRunCommand(
     : isBoardProfile(args.profile)
       ? "now get its outcome with wait_for_process in this same turn, and do not end your turn while it runs"
       : "this topic gets a message with the outcome when it ends, so you can end your turn";
-  return `started · processId=${res.processId} · pid=${res.pid ?? "?"} · ${after}`;
+  // The link to the failure goes back in the result too: the messages served
+  // to readers keep `detail.result` and may drop the arguments' copy, and the
+  // channels' follower reads the retry from there (`retries_in`).
+  const retryOf = typeof toolArgs.retry_of === "string" ? toolArgs.retry_of.trim() : "";
+  const link = retryOf ? ` · retry_of=${retryOf}` : "";
+  return `started · processId=${res.processId}${link} · pid=${res.pid ?? "?"} · ${after}`;
 }

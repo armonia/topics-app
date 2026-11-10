@@ -108,3 +108,16 @@ export function liveWorkRows(input: LiveWorkInput, now: number, ttlMs = LIVE_WOR
     }));
   return [...agents, ...commands];
 }
+
+/**
+ * The e2e bench's stay for a finished sub-agent's row, in place of the minute in
+ * `LIVE_WORK_ENDED_TTL_MS` (`POST /api/test/live-work-ttl`). `null` gives the
+ * production value back.
+ */
+let benchEndedTtlMs: number | null = null;
+export function setBenchEndedTtl(ms: number | null): void {
+  benchEndedTtlMs = ms;
+}
+export function endedTtlMs(): number {
+  return benchEndedTtlMs ?? LIVE_WORK_ENDED_TTL_MS;
+}

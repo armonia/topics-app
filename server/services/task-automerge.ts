@@ -18,7 +18,9 @@
 //     This is the whole point — a single checkout used to serve both the running
 //     server AND live dev sessions no longer makes a land fail (or force someone's
 //     branch to move) just because a session is parked on a feature branch.
-//   • NO push — landing is local only; the release pipeline stays the sole pusher.
+//   • NO push HERE. The route pushes `main` right after a CONFIRMED land,
+//     fast-forward only (`main-on-origin.ts`): the "release pipeline" this line
+//     used to defer to never existed, and 18 lands sat unpushed on 10/11/2026.
 //   • The BASE is `origin/main`, not the local `main`: the land fetches it first
 //     (bounded, `fetchRemoteBase`), measures the branch against it and merges it
 //     into the landing checkout BEFORE the branch. Local `main` stays where the
@@ -37,7 +39,7 @@ import { lastLook } from "./landing-last-look";
 import { branchContentIsOnMain, commitStatusFromRepo } from "./branch-status";
 import { landedMergeRange } from "./task-diff-range";
 import { fetchRemoteBase } from "./worktree-base-ref";
-import { gitEnvFor } from "../lib/git-identity";
+import { runGitWithIdentity } from "../lib/git-run-identity";
 import { missingPackageManager, runScriptArgv } from "../lib/project-scripts";
 import { MIGRATIONS_DIR, findNumberCollisions } from "../../shared/migration-numbers";
 import { makeSerialQueue } from "../lib/serial-queue";
@@ -388,17 +390,8 @@ export interface BuildOutcome extends GitRunResult {
 }
 
 export async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult> {
-  try {
-    // L'identità di chi firma, e solo dove manca: il land CREA commit (i due
-    // merge e i cherry-pick), e git senza identità esce 128 prima di toccare
-    // l'albero. Il perché e la regola del ripiego stanno in `git-identity.ts`.
-    const env = await gitEnvFor(cwd);
-    const r = await runBounded(["git", ...args], { cwd, stderr: "pipe", env, timeoutMs: args[0] === "fetch" ? SPAWN_TIMEOUT.query : SPAWN_TIMEOUT.long });
-    if (r.spawnFailed) return { code: 1, stdout: "", stderr: r.spawnError ?? "" };
-    return { code: r.exitCode ?? 124, stdout: r.stdout, stderr: r.stderr };
-  } catch (e) {
-    return { code: 1, stdout: "", stderr: e instanceof Error ? e.message : String(e) };
-  }
+  // The land CREATES commits, so the signing identity matters (`git-identity.ts`).
+  return runGitWithIdentity(cwd, args, args[0] === "fetch" ? SPAWN_TIMEOUT.query : SPAWN_TIMEOUT.long);
 }
 
 /** La firma del «manca un pezzo sotto» nell'output di git. */

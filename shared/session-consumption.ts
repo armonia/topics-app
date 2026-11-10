@@ -80,6 +80,8 @@ export interface SessionConsumption {
   startedAt: number | null;
   /** The card id when the session is a card, to open it. */
   cardId: string | null;
+  /** The board the card sits on: with `cardId`, the address of its Stop. Null for a chat or a terminal. */
+  boardId: string | null;
   /** The machine it runs on when it is not this one; null = this machine. */
   machine: string | null;
   tokens: ConsumptionTokens | null;

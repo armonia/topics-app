@@ -65,7 +65,7 @@ import { setUploadRootsProvider } from "./server/browser-tool-dispatcher";
 import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
-import { sweepStaleStreams, rescueByOwner, type SilenceMark } from "./server/lib/stale-stream-sweep";
+import { sweepStaleStreams, rescueByOwner, staleTickMs, onStaleTickChange, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { flushTurnBody } from "./server/lib/turn-body-flush";
 import { endReattachLeg, finalizeStaleRow } from "./server/lib/closed-outside";
@@ -104,6 +104,8 @@ import { createGoalsRouter } from "./server/routes/goals";
 import { createPlanRouter } from "./server/routes/plan";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createTaskService, projectIdForPath } from "./server/services/tasks";
+import { mainPushGit, pushMainToOrigin, sweepUnpushedMains } from "./server/services/main-on-origin";
+import { configureChannelOriginCards } from "./server/lib/channel-origin-cards";
 import { createScheduledCards } from "./server/services/scheduled-cards";
 import { createExternalSessionsService } from "./server/services/external-sessions";
 import { createAgentWorktree, worktreeReadyMs, type AgentWorktreeDeps } from "./server/services/worktree-for-agent";
@@ -229,6 +231,7 @@ import { createProvidersRouter } from "./server/routes/providers";
 import { createAppSettingsRouter } from "./server/routes/app-settings";
 import { createCalendarRouter } from "./server/routes/calendar";
 import { createAgentChannelsRouter } from "./server/routes/agent-channels";
+import { createAgentConfigRouter } from "./server/routes/agent-config";
 import {
   resolveAiProvider,
   getAppSettings,
@@ -1226,6 +1229,8 @@ const dispatcherSvc = createTaskService(ctx.db, {
     if (noted) ctx.broadcastToAll({ type: "task:updated", projectId, task: noted });
   },
 });
+// Cards born from a channel chat follow that chat's turns (97e3951f).
+configureChannelOriginCards(ctx.db, dispatcherSvc);
 let scheduledCardTestNow: Date | null = null;
 const scheduledCards = createScheduledCards(ctx.db, dispatcherSvc, () => scheduledCardTestNow ?? new Date());
 function tickScheduledCards(): { created: string[]; skipped: string[] } {
@@ -2994,6 +2999,7 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // "main" ovunque qui (vedi `resolveTaskMerge` sopra), quindi la domanda è
   // esattamente quella che il land ha provato a rendere vera.
   confirmLandedOnMain: (repoPath, commit) => commitIsAncestor(repoPath, commit, "main"),
+  pushMainAfterLand: (repoPath) => pushMainToOrigin(repoPath),
   markLandPending: (taskId) => {
     try {
       dispatcherSvc.recordLandingState({
@@ -3138,6 +3144,8 @@ const appSettingsRouter = createAppSettingsRouter(ctx);
 const calendarRouter = createCalendarRouter(ctx);
 // The titles of the agents' Discord and WhatsApp chats, read from jarvis-channels.
 const agentChannelsRouter = createAgentChannelsRouter(ctx);
+// Anagrafica di Jarvis e Visione: legge e scrive i file di jarvis-channels.
+const agentConfigRouter = createAgentConfigRouter(ctx);
 const profileRouter = createProfileRouter(ctx);
 // Pagina pubblica del profilo — senza autenticazione, prima del gate.
 const publicProfileHandler = createPublicProfileHandler(ctx);
@@ -3714,6 +3722,7 @@ const apiRouteTable = buildRouteTable({
   appSettingsRouter,
   calendarRouter,
   agentChannelsRouter,
+  agentConfigRouter,
   tabsRouter,
   viewsRouter,
   claudeHooksRouter,
@@ -3746,6 +3755,8 @@ const opzioniServer = {
   // depth for any server that bypasses it via a custom TOPICS_HOME.
   reusePort: false,
   idleTimeout: 255,
+  // Explicit, so a node run (card text plus thread) is never refused by an implicit default.
+  maxRequestBodySize: 256 * 1024 * 1024,
   ...(useTls ? {
     tls: {
       cert: Bun.file(tlsCert),
@@ -5425,7 +5436,7 @@ const STALE_STREAM_TIMEOUT_MS = 3 * 60 * 1000;
 // leaves the map.
 const staleStreamRescued = new Set<string>();
 const staleStreamSilence = new Map<string, SilenceMark>();
-const staleStreamTimer = setInterval(() => {
+function runStaleStreamPass(): void {
   // IL GIRO STA IN `stale-stream-sweep.ts`. Il verdetto puro era gia' uscito da
   // qui per essere provabile, ma il cablaggio no: il caso che conta — un figlio
   // VIVO al secondo tick muto, cioe' il turno che NON va finalizzato — vive
@@ -5490,7 +5501,22 @@ const staleStreamTimer = setInterval(() => {
   // A lingering entry the sweep dropped without `endStream`: the ledger follows the map.
   for (const sk of sweepOutcomes.keys()) turnLedger.set(sk, "route", activeStreams.has(sk));
   sweepStaleChecksLights();
-}, STALE_STREAM_CHECK_INTERVAL_MS);
+}
+// A re-armed timeout rather than a setInterval: the e2e bench shortens the pass
+// interval (`setBenchStaleTick`) and the change must take effect at once.
+let staleStreamTimer: ReturnType<typeof setTimeout>;
+function armStaleStreamTimer(): void {
+  clearTimeout(staleStreamTimer);
+  staleStreamTimer = setTimeout(() => {
+    try {
+      runStaleStreamPass();
+    } finally {
+      armStaleStreamTimer();
+    }
+  }, staleTickMs(STALE_STREAM_CHECK_INTERVAL_MS));
+}
+onStaleTickChange(armStaleStreamTimer);
+armStaleStreamTimer();
 
 /** The periodic half of the light's honesty (`services/checks-lights.ts`): the
  *  boot sweep is blind to a round that died with the process still up. */
@@ -6567,6 +6593,35 @@ const auditOneLanding = (taskId: string) => auditOneLandingPass(auditWiring, tas
 const landingAuditBoot = setTimeout(runLandingAudit, 180_000);
 const landingAuditTimer = setInterval(runLandingAudit, LANDING_AUDIT_INTERVAL_MS);
 
+// ── LANDS LEFT BEHIND GO BACK TO ORIGIN. The push after a land can fail
+// (network, port 22 timing out on 10/11): every 10 minutes each project repo
+// retries, fast-forward only, and once main is on origin its `unpushed` cards
+// turn `landed`. Every repo, not only those with marked cards: a land made by
+// a server without this fix is behind all the same, and that is the measured case.
+const sweepUnpushedLands = async () => {
+  const repos = new Set<string>();
+  try { for (const d of listSelectableProjectDirs()) repos.add(d); } catch { /* best-effort */ }
+  const pending = ctx.db.prepare(
+    "SELECT id, project_id FROM tasks WHERE landing_state = 'unpushed' AND archived = 0",
+  ).all() as Array<{ id: string; project_id: string }>;
+  await sweepUnpushedMains([...repos], (repo, n) => {
+    const pid = projectIdForPath(repo);
+    if (n > 0) console.log(`[land-push] ${n} commit di main portati su origin { repo: ${repo} }`);
+    for (const t of pending.filter((p) => p.project_id === pid)) {
+      dispatcherSvc.recordLandingState({ taskId: t.id, state: "landed", checkedAt: new Date().toISOString(), witnessed: true });
+      try {
+        dispatcherSvc.addComment({ taskId: t.id, author: "system", kind: "service", content: "Main portato su origin: il land ora è anche su GitHub." });
+      } catch { /* the line is a courtesy */ }
+      const cur = dispatcherSvc.get(t.id)?.task;
+      if (cur) broadcastToAll({ type: "task:updated", projectId: pid, task: cur } as Parameters<typeof broadcastToAll>[0]);
+    }
+  }, mainPushGit).then((out) => {
+    for (const o of out) if (!o.result.ok) console.warn(`[land-push] ${o.repo}: ${o.result.reason}`);
+  });
+};
+setTimeout(() => { void sweepUnpushedLands().catch((e) => console.warn("[land-push] spazzata fallita", e)); }, 240_000).unref?.();
+setInterval(() => { void sweepUnpushedLands().catch((e) => console.warn("[land-push] spazzata fallita", e)); }, 10 * 60_000).unref?.();
+
 // `requestIP` vive sull'istanza del server, che nasce dopo il contesto: si
 // aggancia qui, cosi' le rotte che devono distinguere loopback da remoto
 // (l'appaiamento) non ricevono il server intero.
@@ -7437,7 +7492,7 @@ async function gracefulShutdown(signal: string) {
   console.log(`\n[Shutdown] Received ${signal}, closing browser service...`);
   clearInterval(heartbeatTimer);
   clearInterval(wsHeartbeatTimer);
-  clearInterval(staleStreamTimer);
+  clearTimeout(staleStreamTimer);
   clearInterval(dispatchTimer);
   clearTimeout(worktreeGcBoot);
   clearInterval(worktreeGcTimer);

@@ -1440,6 +1440,11 @@ dietro» da «un altro pesante sta lavorando».
 - **GIVEN** un pesante fermo oltre il tetto
 - **THEN** SHALL partire comunque, e la card SHALL dirlo
 
+#### Scenario: il pesante aspetta solo la CI remota
+- **GIVEN** un pesante in volo i cui controlli pre-review sono `running` con una CI remota registrata (`checks_json.ci`)
+- **THEN** SHALL NON contare come pesante al lavoro, e i claim locali SHALL partire
+- **AND** finché i controlli pre-review girano sul Mac (nessuna `ci`) il blocco SHALL restare
+
 ### Requirement: KANBAN-17 — Le etichette hanno un vocabolario chiuso, e un agente può solo alzare la mano
 
 Un task SHALL portare etichette da un vocabolario CHIUSO di sette, divise in due
@@ -5422,6 +5427,18 @@ until a valid confirmation. A request that is a single card SHALL keep creating 
 - **WHEN** the writer confirms
 - **THEN** the ticked rows SHALL become cards, the parent first, each sub-card on its parent's project
 
+### Requirement: KANBAN-108 - The board toolbar has a detail slider with three levels
+
+The board toolbar SHALL offer one slider with three snap positions: projects with per-column counts (least
+detail), vertical list, kanban board (most detail). It SHALL be draggable with snapping, operable with the
+arrow keys, Home and End, and the chosen level SHALL be remembered.
+
+#### Scenario: moving the slider
+- **WHEN** the writer moves the slider to the first position
+- **THEN** the board SHALL show only projects with their counts
+- **WHEN** the writer presses End
+- **THEN** the kanban board SHALL be shown
+
 ### Requirement: KANBAN-107 — The board groups by project and has a compact card, the same in Kanban and Plan
 
 The cross-project board SHALL offer, beside the layout toggle, a control that
@@ -5466,7 +5483,7 @@ storage, like the layout. The full card SHALL stay unchanged.
 - **WHEN** a card is dropped in a lane of another project on the grouped board
 - **THEN** the card SHALL keep its status and its project, and a notice SHALL say that a card stays in its own project
 
-### Requirement: KANBAN-108 - A card in progress shows one progress line and a measure band
+### Requirement: KANBAN-109 - A card in progress shows one progress line and a measure band
 
 The body of a card in progress SHALL show ONE progress line: the last step of the running tool, or the first line of the agent's last word when no tool is running. An empty line SHALL NOT be shown. The model, the cost, the time and the last update SHALL live in a measure band that writes the whole model name, holds the «now» mark inside it, and stays visibly apart from the card in both themes, with text that reaches WCAG AA.
 

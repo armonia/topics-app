@@ -5,10 +5,11 @@
  * trimmed, with placeholder names.
  * @covers HUBBR-08
  * @covers HUBBR-09
+ * @covers HUBBR-22
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  NOT_MEASURED, cpuByPid, formatMem, formatPct, formatRate, historyOf, logTone, macGauges, parseLogEvent, pcView, processRows, pushLogLine, serviceGroups, serviceRows, servicesReadAt, servicesToWatch,
+  NOT_MEASURED, backupView, cpuByPid, formatMem, formatPct, formatRate, historyOf, logTone, macGauges, parseLogEvent, pcView, processRows, pushLogLine, serviceGroups, serviceRows, servicesReadAt, servicesToWatch,
 } from './machineProcesses';
 import type { ScriptProcessInfo } from './api';
 
@@ -198,5 +199,22 @@ describe('the proxy log', () => {
     expect(formatRate(14_336)).toBe('14 KB/s');
     expect(formatRate(1_887_437)).toBe('1,8 MB/s');
     expect(formatRate(208)).toBe('208 B/s');
+  });
+});
+
+describe('the Mac backup as one line (HUBBR-22)', () => {
+  test('no last run is no backup', () => {
+    expect(backupView(null)).toBeNull();
+    expect(backupView({ ticks: [] })).toBeNull();
+  });
+
+  test('a failed last run names the last good one before it', () => {
+    expect(backupView({ last: { at: 9, ok: false, detail: 'disk full' }, ticks: [{ at: 8, ok: true }, { at: 3, ok: true }, { at: 9, ok: false }, { ok: true }] }))
+      .toEqual({ ok: false, at: 9, detail: 'disk full', lastOkAt: 8 });
+  });
+
+  test('a good last run needs no second date', () => {
+    expect(backupView({ last: { at: 9, ok: true, detail: null }, ticks: [{ at: 8, ok: true }] }))
+      .toEqual({ ok: true, at: 9, detail: null, lastOkAt: null });
   });
 });
