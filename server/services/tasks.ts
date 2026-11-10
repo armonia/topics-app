@@ -36,6 +36,10 @@ import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
 import { readChecksMemFloorGB, readGlobalCap, readSpendCaps } from "./dispatch-capacity";
 import { checksMemFloorGB } from "../../shared/checks-memory-floor";
 import { parseCreatedBy, UNOWNED_BACKLOG_MS } from "../../shared/created-by";
+/** Automatic requeues of a machine-parked card before it stays for a human. */
+export const MACHINE_REQUEUE_CAP = 3;
+/** First delay before a machine-parked card goes back to todo; doubles each round. */
+export const MACHINE_REQUEUE_BASE_MS = 30 * 60_000;
 import { agentCardGaps, incompleteCardNotice, INCOMPLETE_CARD_NOTICE_PREFIX } from "../../shared/agent-card-contract";
 import { STAGE_AI_REVIEW, STAGE_HUMAN_REVIEW, agentAskInThread, awaitsHumanSql, defaultColumnFor, namesHumanReviewWithoutAsk, stageAtBirth, stageForDelivery, stageForStatusChange, type WorkflowColumn, type WorkflowPresetId } from "../../shared/workflow";
 import { requestAiReviewNotice } from "./ai-review-notice";
@@ -685,6 +689,8 @@ export interface TaskService {
    * parking it would cut that turn in half.
    */
   sweepWaitedOut(args?: { eligible?: (projectId: string) => boolean; busy?: (taskId: string) => boolean }): Task[];
+  /** Cards parked `waited_out` by a MACHINE wait (node down, PC asleep), put back in todo after a doubling delay, up to `MACHINE_REQUEUE_CAP` times. */
+  sweepMachineWaitedOut(args?: { eligible?: (projectId: string) => boolean }): Task[];
   /**
    * Cards that sat in backlog past `UNOWNED_BACKLOG_MS` with nobody on them
    * (`UNOWNED_BACKLOG_SQL`). Each one is returned ONCE per round: the sweep
@@ -4606,6 +4612,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // aperta tornerebbe a mordere al primo riavvio del lavoro, contando
         // insieme attese separate da giorni.
         if ((patch.status === "todo" && actor === "human") || patch.status === "review" || patch.status === "done") {
+          // Un gesto umano (o una consegna) azzera anche i rientri automatici:
+          // il tetto conta i giri della macchina da soli, non la vita della card.
+          put("auto_requeues", 0);
+          put("wait_source", null);
           put("wait_streak", 0);
           put("wait_reason", null);
           put("wait_since", null);
@@ -5572,6 +5582,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // A limitare le attese ci pensano i loro tetti, qui sotto.
       const rimborso = "dispatch_attempts = MAX(dispatch_attempts - 1, 0),";
 
+      // Chi dichiara l'attesa: decide se il park che ne esce rientra da solo
+      // (`sweepMachineWaitedOut`). Scritto prima dei tetti, così lo legge
+      // anche il park della riga sotto.
+      db.prepare("UPDATE tasks SET wait_source = ? WHERE id = ?").run(source === "machine" ? "machine" : "agent", taskId);
       const ceiling = source === "machine" ? WAIT_STREAK_CAP : AGENT_WAIT_STREAK_CAP;
       if (streak > ceiling || serieMs >= WAIT_SERIES_MAX_MS) {
         return parkWaitedOut(this, { row, streak, serieMs, chiave, since, detto, ts, refundAttempt: true });
@@ -6067,6 +6081,50 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // give back. Refunding would hand the card a retry it never spent.
         refundAttempt: false,
       });
+    },
+
+    sweepMachineWaitedOut({ eligible } = {}): Task[] {
+      // UNA CARD FERMATA DALLA MACCHINA RIENTRA DA SOLA. Il park `waited_out`
+      // chiede all'umano di decidere, ed è giusto per l'attesa che un agente ha
+      // nominato; per un nodo muto o un PC che non si sveglia la condizione di
+      // solito torna da sola, e la card restava in backlog per ore (10/11: 1dc60129
+      // ferma col nodo cloud tornato vivo). Qui si rimette in todo dopo un
+      // intervallo che raddoppia (30, 60, 120 min) e al massimo
+      // `MACHINE_REQUEUE_CAP` volte: se il nodo è ancora muto la card ripassa dai
+      // tetti di attesa e si riparcheggia, finché il tetto ferma il giro.
+      const ts = now();
+      const nowMs = Date.parse(ts);
+      let rows: Array<{ id: string; project_id: string; updated_at: string; auto_requeues: number }> = [];
+      try {
+        rows = db.prepare(
+          `SELECT id, project_id, updated_at, auto_requeues FROM tasks
+            WHERE archived = 0 AND status = 'backlog' AND dispatch_state = ?
+              AND wait_source = 'machine' AND auto_requeues < ?`,
+        ).all(PARKED_WAITED_OUT, MACHINE_REQUEUE_CAP) as typeof rows;
+      } catch { return []; }
+      const out: Task[] = [];
+      for (const r of rows) {
+        const n = Number(r.auto_requeues) || 0;
+        if (nowMs - Date.parse(r.updated_at) < MACHINE_REQUEUE_BASE_MS * 2 ** n) continue;
+        if (eligible) { let ok = false; try { ok = eligible(r.project_id); } catch { ok = false; } if (!ok) continue; }
+        const res = db.prepare(
+          `UPDATE tasks SET status = 'todo', dispatch_state = NULL, dispatch_error = NULL, dispatch_attempts = 0,
+              dispatch_deferred_until = NULL, wait_streak = 0, wait_reason = NULL, wait_since = NULL,
+              auto_requeues = auto_requeues + 1, updated_at = ?
+            WHERE id = ? AND status = 'backlog' AND dispatch_state = ? AND wait_source = 'machine'`,
+        ).run(ts, r.id, PARKED_WAITED_OUT);
+        if (!res.changes) continue;
+        logStatus(r.id, "backlog", "todo", "dispatcher");
+        try {
+          this.addComment({
+            taskId: r.id, author: "system", kind: "service",
+            content: `Rimessa in coda da sola (giro ${n + 1} di ${MACHINE_REQUEUE_CAP}): era ferma per una condizione della macchina, che può essere tornata.`,
+          });
+        } catch { /* la nota non ferma il rientro */ }
+        const t = getTaskRow(r.id);
+        if (t) out.push(rowToTask(t));
+      }
+      return out;
     },
 
     sweepWaitedOut({ eligible, busy } = {}): Task[] {
