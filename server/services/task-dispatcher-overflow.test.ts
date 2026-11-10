@@ -1174,3 +1174,30 @@ describe("limite settimanale del Cloud", () => {
     } finally { clean(); }
   });
 });
+
+describe("overflow: il vincolo «solo Mac» messo dopo una corsa vuota scade", () => {
+  it("vincolo con scadenza passata: la card esce come una non marcata", async () => {
+    const h = harness();
+    h.seed(CARD, { stayLocal: true });
+    h.db.run("UPDATE tasks SET stay_local_until = ? WHERE id = ?", [new Date(Date.now() - 60_000).toISOString(), CARD]);
+    expect(h.task(CARD).stayLocal).toBe(false);
+    await holdPastThreshold(h);
+    expect(h.task(CARD).machineId).toBe(CLOUD);
+  });
+
+  it("vincolo con scadenza futura: resta ferma", async () => {
+    const h = harness();
+    h.seed(CARD, { stayLocal: true });
+    h.db.run("UPDATE tasks SET stay_local_until = ? WHERE id = ?", [new Date(Date.now() + 3_600_000).toISOString(), CARD]);
+    await holdPastThreshold(h);
+    expect(h.task(CARD).machineId).toBeNull();
+  });
+
+  it("una persona che rimette «solo Mac» toglie la scadenza: vale per sempre", () => {
+    const h = harness();
+    h.seed(CARD, { stayLocal: true });
+    h.db.run("UPDATE tasks SET stay_local_until = ? WHERE id = ?", [new Date(Date.now() - 60_000).toISOString(), CARD]);
+    h.svc.update({ taskId: CARD, actor: "human", by: "attilio", patch: { stayLocal: true } });
+    expect(h.task(CARD).stayLocal).toBe(true);
+  });
+});

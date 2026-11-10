@@ -2702,7 +2702,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // written before the column existed says (KANBAN-76).
       machineId: r.machine_id ?? null,
       // "This Mac only": absent column (old harness) reads as unmarked.
-      stayLocal: !!r.stay_local,
+      // A pin with a deadline (`stay_local_until`, set after an empty node run)
+      // reads as unmarked once the deadline is past.
+      stayLocal: !!r.stay_local && !(r.stay_local_until && r.stay_local_until <= now()),
       // Only while it still runs where the overflow sent it.
       ...(r.overflowed_at && r.machine_id ? { overflowedAt: r.overflowed_at } : {}),
       ...(r.base_branch ? { baseBranch: r.base_branch } : {}),
@@ -4389,6 +4391,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         put("overflowed_at", null);
       }
       if (patch.stayLocal !== undefined) put("stay_local", patch.stayLocal ? 1 : 0);
+      // A person's mark holds for good: it clears any deadline the dispatcher set.
+      if (patch.stayLocalUntil !== undefined) put("stay_local_until", patch.stayLocalUntil);
+      else if (patch.stayLocal !== undefined) put("stay_local_until", null);
       if (patch.blockedByTaskId !== undefined) {
         if (patch.blockedByTaskId) assertBlockerValid(taskId, patch.blockedByTaskId);
         put("blocked_by_task_id", patch.blockedByTaskId || null);
@@ -5393,11 +5398,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const res = db.prepare(
         `UPDATE tasks SET machine_id = ?, overflowed_at = ?, updated_at = ?
           WHERE id = ? AND status = 'todo' AND assigned_topic_id IS NULL AND archived = 0
-            AND stay_local = 0 AND (machine_id IS NULL OR machine_id = ?)
+            AND (stay_local = 0 OR (stay_local_until IS NOT NULL AND stay_local_until <= ?))
+            AND (machine_id IS NULL OR machine_id = ?)
             AND delegated_start_capability_id IS NULL
             AND (claude_task_id IS NULL OR claude_task_id NOT LIKE 'node-run:%')
             AND COALESCE(delivery_uncommitted_files, 0) = 0 AND COALESCE(prior_uncommitted_files, 0) = 0`,
-      ).run(machineId, ts, ts, taskId, localMachineId ?? "");
+      ).run(machineId, ts, ts, taskId, ts, localMachineId ?? "");
       if (res.changes === 0) return null;
       const row = getTaskRow(taskId);
       return row ? rowToTask(row) : null;

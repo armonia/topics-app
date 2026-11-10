@@ -519,10 +519,10 @@ describe("CA and state", () => {
   test("boot writes host, port and CA path where other tools read them, and the file goes away on close", async () => {
     const homeDir = mkdtempSync(join(tmpdir(), "external-proxy-state-"));
     try {
-      const booted = await bootExternalProxy({ homeDir, port: 0 });
+      const booted = await bootExternalProxy({ homeDir, port: 0, isCaTrusted: async () => true });
       const file = externalProxyStatePath(homeDir);
       const state = JSON.parse(readFileSync(file, "utf8"));
-      expect(state).toMatchObject({ host: "127.0.0.1", port: booted.port, intercepting: true, pid: process.pid });
+      expect(state).toMatchObject({ host: "127.0.0.1", port: booted.port, intercepting: true, caTrusted: true, pid: process.pid });
       expect(existsSync(state.caCertificatePath)).toBe(true);
       expect(state.caCertificatePath).toBe(join(homeDir, "external-proxy-ca", "ca.pem"));
       expect(statSync(join(homeDir, "external-proxy-ca")).mode & 0o777).toBe(0o700);
@@ -530,6 +530,25 @@ describe("CA and state", () => {
       expect(health.status).toBe(200);
       await booted.close();
       expect(existsSync(file)).toBe(false);
+    } finally { rmSync(homeDir, { recursive: true, force: true }); }
+  });
+
+  test("an untrusted CA means no interception (fail-open), a trusted one intercepts", async () => {
+    const homeDir = mkdtempSync(join(tmpdir(), "external-proxy-trust-"));
+    try {
+      const checked: string[] = [];
+      const untrusted = await bootExternalProxy({ homeDir, port: 0, isCaTrusted: async (p) => { checked.push(p); return false; } });
+      expect(untrusted.intercepting).toBe(false);
+      expect(untrusted.state).toMatchObject({ intercepting: false, caTrusted: false });
+      expect(checked).toEqual([join(homeDir, "external-proxy-ca", "ca.pem")]);
+      await untrusted.close();
+      const trusted = await bootExternalProxy({ homeDir, port: 0, isCaTrusted: async () => true });
+      expect(trusted.intercepting).toBe(true);
+      expect(trusted.state.caTrusted).toBe(true);
+      await trusted.close();
+      const failing = await bootExternalProxy({ homeDir, port: 0, isCaTrusted: async () => { throw new Error("security missing"); } });
+      expect(failing.intercepting).toBe(false);
+      await failing.close();
     } finally { rmSync(homeDir, { recursive: true, force: true }); }
   });
 
