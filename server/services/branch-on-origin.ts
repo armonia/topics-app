@@ -85,7 +85,16 @@ export function carriedRef(branch: string): string {
   return `refs/topics/carried/${branch}`;
 }
 
-/** The branch as a git bundle (whole history: no prerequisite the node could lack). `null` = no such local branch. */
+/**
+ * The branch as a git bundle. `null` = no such local branch.
+ *
+ * Thin when it can be: everything already on the origin default branch is
+ * left out (`--not origin/HEAD`), because the node's checkout is a clone of
+ * that origin. The whole history of topics-app is 135 MB, and the PC's run
+ * route answered 413 to it: on 10/11 six cards waited as «node not answering»
+ * for an hour. Whole history only when the thin one cannot be made (no
+ * `origin/HEAD`, or the branch has nothing of its own beyond it).
+ */
 export async function bundleBranch(
   repoPath: string | null | undefined,
   branch: string,
@@ -95,8 +104,21 @@ export async function bundleBranch(
   const dir = await mkdtemp(join(tmpdir(), "topics-carry-"));
   try {
     const file = join(dir, "branch.bundle");
-    const made = await run(repoPath, ["bundle", "create", file, `refs/heads/${branch}`]);
-    return made.code === 0 ? new Uint8Array(await readFile(file)) : null;
+    const ref = `refs/heads/${branch}`;
+    // In order: without what origin's default holds; for a branch with nothing
+    // of its own (git refuses an empty bundle) just its tip, whose parent the
+    // node's clone has; the whole history last.
+    // The tip-only bundle is safe only when origin/HEAD exists and already holds
+    // the parent: without it the node may lack the branch's history entirely.
+    const hasOriginHead = (await run(repoPath, ["rev-parse", "--verify", "-q", "refs/remotes/origin/HEAD"])).code === 0;
+    const attempts = hasOriginHead
+      ? [["--not", "refs/remotes/origin/HEAD"], ["--not", `${ref}~1`], []]
+      : [[]];
+    for (const not of attempts) {
+      const made = await run(repoPath, ["bundle", "create", file, ref, ...not]);
+      if (made.code === 0) return new Uint8Array(await readFile(file));
+    }
+    return null;
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
