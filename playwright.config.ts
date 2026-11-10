@@ -302,6 +302,9 @@ export default defineConfig({
     actionTimeout: 15_000,
 
     baseURL: E2E_BASE,
+    // The board hides Done by default (a board of live work); the suite reads cards in
+    // Done, so a test starts with the column shown. board-group-density checks the default.
+    storageState: { cookies: [], origins: [{ origin: E2E_BASE, localStorage: [{ name: "topics.board.showDone", value: "true" }] }] },
     video: EVIDENCE && VIDEO ? "on" : "retain-on-failure",
     // `E2E_SHOT=1`: uno screenshot alla fine di OGNI test, non solo sui rossi. Serve alle
     // ANTEPRIME delle card della living-doc: senza, la card mostra un rettangolo grigio col nome
