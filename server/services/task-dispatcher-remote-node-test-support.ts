@@ -201,12 +201,12 @@ export function harness(nodeOverrides: NodeFakeOptions = {}, depOverrides: Parti
     task: () => svc.get(TASK)!.task,
     comments: () => svc.get(TASK)!.comments,
     /** A todo that names the node: the only difference from any other card. */
-    seed: () => {
+    seed: (id: string = TASK) => {
       const ts = new Date(now).toISOString();
       db.run(
         `INSERT INTO tasks (id, project_id, text, description, status, created_at, updated_at, dispatch_attempts, machine_id)
          VALUES (?, ?, 'porta a casa la corsia remota', 'con il ramo', 'todo', ?, ?, 0, ?)`,
-        [TASK, PID, ts, ts, MACHINE],
+        [id, PID, ts, ts, MACHINE],
       );
     },
   };

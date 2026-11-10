@@ -126,6 +126,7 @@
     "test:e2e:shards": "./scripts/e2e-shards.sh",
     "test:e2e:plan": "bun run scripts/e2e-plan-shards.ts",
     "test:e2e:durations": "bun run scripts/e2e-record-durations.ts",
+    "test:e2e:duration-regressions": "bun run scripts/e2e-duration-regressions.ts",
     "hooks:install": "bun run scripts/install-claude-hooks.ts install",
     "hooks:uninstall": "bun run scripts/install-claude-hooks.ts uninstall",
     "test": "npx playwright test",

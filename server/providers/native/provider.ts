@@ -62,6 +62,7 @@ import { nativeModelId } from "../../../shared/task-coding-models";
 import { apiCallCostUsd } from "../../usage/pricing";
 import { nativeSubagentToolPolicy, toolAllowedByPolicy } from "../../lib/subagent-tool-policy";
 import { topicsHome } from "../../services/daemon-state";
+import { issueSessionTokenFile } from "../../lib/session-token";
 import {
   nativeDetachedEnabled,
   runDetachedTurn,
@@ -520,6 +521,9 @@ export class NativeProvider implements AIProvider {
       // The HTTP front door rejects it too, but this closes direct provider
       // entry points before a mutable mcp_policy can grant local board tools.
       if (rawGlobalOrchestrator && !eligibleGlobalOrchestrator) return null;
+      // The in-process tools sign the session routes like a bridge does, with
+      // this session's token (`lib/session-token.ts`).
+      issueSessionTokenFile(topicsHome(), sessionKey);
       return {
         baseUrl: topicsAppBaseUrl(),
         sessionKey,

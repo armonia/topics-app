@@ -5412,7 +5412,7 @@ if (portaExternalProxy) {
   }).then((proxy) => {
     if (externalProxyStopped) { void proxy.close(); return; }
     externalProxy = proxy;
-    console.log(`[ExternalProxy] listening on 127.0.0.1:${proxy.port} (CONNECT proxy, ${proxy.intercepting ? "api.anthropic.com terminated with the local CA" : "tunnel only, no CA"})`);
+    console.log(`[ExternalProxy] listening on 127.0.0.1:${proxy.port} (CONNECT proxy, ${proxy.intercepting ? "api.anthropic.com terminated with the local CA" : "tunnel only, no trusted CA"})`);
   }).catch((err) => {
     // A proxy that does not start must not take the server down with it.
     console.error(`[ExternalProxy] not started: ${err instanceof Error ? err.message : String(err)}`);

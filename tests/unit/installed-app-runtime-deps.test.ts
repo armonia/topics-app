@@ -59,7 +59,7 @@ const ALLOWED_COMMANDS = new Set([
   // the OS
   "/bin/sh", "sh", "bash", "cmd",
   "ps", "/bin/ps", "pkill", "grep", "open", "lsof", "/usr/sbin/lsof", "/bin/true",
-  "/usr/sbin/scutil", "/usr/bin/getconf", "vm_stat", "security",
+  "/usr/sbin/scutil", "/usr/bin/getconf", "vm_stat", "security", "/usr/bin/security",
   // macOS only, and only where the code already checks the platform: the swap
   // freezer asks it which XPC services belong to a process before signalling.
   "/bin/launchctl",

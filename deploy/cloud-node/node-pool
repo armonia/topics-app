@@ -1,0 +1,734 @@
+#!/usr/bin/env python3
+"""node-pool: i nodi cloud di Topics che nascono e muoiono da soli (cloud-nodes, Fase 2).
+
+Gira sul Mac, accanto a Topics. Non tocca il dispatcher: gli dà macchine. Il giro dell'overflow
+(dispatch-overflow.ts) manda già le card ferme per memoria al primo nodo online con posto; questo
+guardiano fa sì che quel nodo esista quando serve e non costi quando non serve.
+
+  node-pool giro        launchd ogni 60 s: domanda dalla coda della board -> crea; nodo fermo a fine ora -> cancella
+  node-pool hook        hook `node-run` di Topics (payload su stdin): per un posto del pool lo accende se è
+                        spento, apre il tunnel, porta il repo con un git bundle e lo registra sul nodo; exit 0
+  node-pool snapshot    rifà lo snapshot dalla ricetta unica (user-data.sh.tmpl + winfleet/nodo/strumenti.txt)
+  node-pool stato       posti, server, spesa del mese del pool
+  node-pool spegni      cancella subito ogni server del pool
+  node-pool --selftest  le decisioni pure, senza rete
+
+Posti, non server: il posto N è la riga `machines` con base_url http://127.0.0.1:(3400+N), stabile fra
+una vita e l'altra (stesso hostname = stessa riga). Ogni vita è un server Hetzner nel progetto
+`topics-nodes` (token Keychain hcloud/topics-nodes), label topics-node=1, topics-node-slot=N, expires.
+Il nodo non ha porte aperte tranne la 22 dal Mac: il Mac ci parla da un tunnel ssh
+(-L 3400+N -> 3341 del nodo, l'ascoltatore remoto che vuole l'appaiamento; -R 3410+N -> 3391 del Mac,
+il solo proxy dei modelli: sul nodo nessun login di Claude).
+
+Soldi (Attilio 09/11, «sì a tutte le consigliate»): al massimo 3 nodi del pool, tetto 10 €/mese del
+pool (ore arrotondate per eccesso), e prima di ogni creazione `hetzner-tetto puo <tipo>` (tetto di tutti
+gli effimeri). Un nodo muore quando è senza card da 10 minuti e alla sua ora pagata mancano meno di
+10 minuti; il label expires (+2 h, spostato in avanti mentre lavora) lo cancella anche se questo
+registro lo ha perso.
+"""
+import base64, json, math, os, signal, ssl, subprocess, sys, time, urllib.request
+
+HOME = os.path.expanduser("~")
+HERE = os.path.dirname(os.path.abspath(__file__))
+API = "https://api.hetzner.cloud/v1"
+MAC = os.environ.get("NODE_POOL_MAC", "https://127.0.0.1:3333")
+MAC_DB = os.environ.get("NODE_POOL_MAC_DB", os.path.join(HOME, "Projects/topics-app/data/topics.db"))
+APP_DIR = os.environ.get("NODE_POOL_APP_DIR", os.path.join(HOME, "Projects/topics-app"))
+ST = os.path.join(HOME, ".topics/node-pool")
+STATE = os.path.join(ST, "state.json")
+LOG = os.environ.get("NODE_POOL_LOG", os.path.join(HOME, ".claude/jarvis/logs/node-pool.log"))
+KEY = os.path.join(HOME, ".ssh/offload_hetzner")
+TETTO_BIN = os.path.join(HOME, "bin/hetzner-tetto")
+STRUMENTI = os.environ.get("WINFLEET_STRUMENTI", os.path.join(HOME, "Projects/winfleet/nodo/strumenti.txt"))
+
+MAX_NODES = int(os.environ.get("NODE_POOL_MAX", "3"))
+CAP_EUR = float(os.environ.get("NODE_POOL_CAP_EUR", "10"))
+TYPES = os.environ.get("NODE_POOL_TYPES", "cx43 cpx32 ccx13").split()
+LOCATIONS = ("fsn1", "nbg1", "hel1")
+DEMAND_CARDS = int(os.environ.get("NODE_POOL_DEMAND_CARDS", "2"))
+DEMAND_AFTER_S = int(os.environ.get("NODE_POOL_DEMAND_AFTER_S", "180"))
+IDLE_S = 600
+END_OF_HOUR_S = 600
+EXPIRES_S = 2 * 3600
+BOOT_MAX_S = 600
+SLOTS_PER_NODE = int(os.environ.get("NODE_POOL_SLOTS", "2"))
+LPORT, RPORT, PROXY = 3400, 3410, 3391
+
+
+def log(msg):
+    os.makedirs(os.path.dirname(LOG), exist_ok=True)
+    line = f"{time.strftime('%F %T')} {msg}"
+    with open(LOG, "a") as f:
+        f.write(line + "\n")
+    print(line, file=sys.stderr)
+
+
+# ── decisioni pure (le prova --selftest) ───────────────────────────────────────
+
+def billed_hours(created, end):
+    """Hetzner arrotonda all'ora per eccesso: 20 minuti = 1 ora, 61 = 2."""
+    return max(1, math.ceil((end - created) / 3600))
+
+
+def month_spend(lives, now):
+    """Spesa del mese del pool: ogni vita del mese, ore arrotondate per eccesso."""
+    month = time.strftime("%Y-%m", time.localtime(now))
+    return round(sum(billed_hours(l["created"], l.get("ended") or now) * l["eur_h"]
+                     for l in lives if time.strftime("%Y-%m", time.localtime(l["created"])) == month), 4)
+
+
+def should_delete(created, idle_since, now):
+    """Fermo da 10 minuti E all'ora pagata mancano meno di 10 minuti: prima si buttano minuti pagati."""
+    if idle_since is None or now - idle_since < IDLE_S:
+        return False
+    into_hour = (now - created) % 3600
+    return 3600 - into_hour <= END_OF_HOUR_S
+
+
+def should_create(held_since, alive, creating, spend, eur_h, now):
+    """(sì/no, motivo). Domanda = carte ferme per memoria da DEMAND_AFTER_S; una creazione alla volta."""
+    held = [t for t in held_since.values() if now - t >= DEMAND_AFTER_S]
+    if len(held) < DEMAND_CARDS:
+        return False, f"{len(held)} card ferme da {DEMAND_AFTER_S}s (servono {DEMAND_CARDS})"
+    if creating:
+        return False, "una creazione è già in corso"
+    if alive >= MAX_NODES:
+        return False, f"già {alive} nodi (max {MAX_NODES})"
+    if spend + eur_h > CAP_EUR:
+        return False, f"tetto del pool: {spend:.2f} € su {CAP_EUR:.0f} €"
+    return True, f"{len(held)} card ferme per memoria da oltre {DEMAND_AFTER_S}s"
+
+
+def free_slot(slots):
+    for n in range(1, MAX_NODES + 1):
+        if not slots.get(str(n), {}).get("server_id"):
+            return n
+    return None
+
+
+def selftest():
+    h = 3600
+    assert billed_hours(0, 20 * 60) == 1 and billed_hours(0, 61 * 60) == 2
+    assert not should_delete(0, 0, 15 * 60), "a 15 minuti non si cancella"
+    assert should_delete(0, 40 * 60, 52 * 60), "a 52 minuti, fermo da 12, si cancella"
+    assert not should_delete(0, 45 * 60, 52 * 60), "fermo da 7 minuti resta"
+    assert not should_delete(0, None, 55 * 60), "chi lavora resta"
+    assert should_delete(0, h, h + 55 * 60), "seconda ora, stesso conto"
+    ok, _ = should_create({"a": 0, "b": 0}, 0, False, 0, 0.03, 200)
+    assert ok
+    assert not should_create({"a": 0}, 0, False, 0, 0.03, 200)[0], "una card sola non basta"
+    assert not should_create({"a": 100, "b": 100}, 0, False, 0, 0.03, 200)[0], "ferme da poco"
+    assert not should_create({"a": 0, "b": 0}, 3, False, 0, 0.03, 200)[0], "massimo raggiunto"
+    assert not should_create({"a": 0, "b": 0}, 0, True, 0, 0.03, 200)[0], "una alla volta"
+    assert not should_create({"a": 0, "b": 0}, 0, False, 9.99, 0.03, 200)[0], "tetto"
+    now = time.time()
+    assert month_spend([{"created": now - 70 * 60, "ended": now, "eur_h": 0.5}], now) == 1.0
+    assert free_slot({"1": {"server_id": 5}}) == 2 and free_slot({}) == 1
+    print("selftest ok")
+
+
+# ── stato ───────────────────────────────────────────────────────────────────────
+
+def load_state():
+    try:
+        with open(STATE) as f:
+            s = json.load(f)
+    except Exception:
+        s = {}
+    s.setdefault("slots", {})
+    s.setdefault("lives", [])
+    s.setdefault("held", {})
+    return s
+
+
+def save_state(s):
+    os.makedirs(ST, exist_ok=True)
+    tmp = STATE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(s, f, indent=1)
+    os.replace(tmp, STATE)
+
+
+class Lock:
+    def __init__(self, name):
+        self.path = os.path.join(ST, name + ".lock")
+
+    def __enter__(self):
+        import fcntl
+        os.makedirs(ST, exist_ok=True)
+        self.f = open(self.path, "w")
+        fcntl.flock(self.f, fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, *a):
+        self.f.close()
+
+
+# ── Hetzner e Topics ────────────────────────────────────────────────────────────
+
+def token():
+    t = os.environ.get("HCLOUD_TOKEN") or subprocess.run(
+        ["security", "find-generic-password", "-s", "hcloud", "-a", "topics-nodes", "-w"],
+        capture_output=True, text=True).stdout.strip()
+    if not t:
+        raise SystemExit("node-pool: token Hetzner hcloud/topics-nodes non leggibile")
+    return t
+
+
+def hz(method, path, body=None):
+    req = urllib.request.Request(API + path, method=method, data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Authorization": f"Bearer {token()}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            raw = r.read()
+            return json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as e:
+        try:
+            return json.loads(e.read())
+        except Exception:
+            return {"error": {"code": str(e.code), "message": str(e)}}
+
+
+_CTX = ssl.create_default_context()
+_CTX.check_hostname = False
+_CTX.verify_mode = ssl.CERT_NONE
+
+
+def mac(method, path, body=None, timeout=30):
+    req = urllib.request.Request(MAC + path, method=method, data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout, context=_CTX) as r:
+        return json.loads(r.read() or b"{}")
+
+
+def pool_servers():
+    return [s for s in hz("GET", "/servers?label_selector=topics-node&per_page=50").get("servers", [])
+            if (s.get("labels") or {}).get("topics-node-slot")]
+
+
+def price(type_name, location):
+    st = hz("GET", f"/server_types?name={type_name}").get("server_types", [])
+    for p in (st[0]["prices"] if st else []):
+        if p["location"] == location:
+            return float(p["price_hourly"]["gross"])
+    return 0.0
+
+
+def latest_snapshot():
+    imgs = hz("GET", "/images?type=snapshot&label_selector=topics-node&sort=created:desc").get("images", [])
+    return imgs[0] if imgs else None
+
+
+def known_file(ip):
+    """known_hosts per server: Hetzner riusa gli IP, e una chiave vecchia fa rifiutare ssh (10/11)."""
+    return os.path.join(ST, "known", f"{ip}-{_SERVER_OF_IP.get(ip, 'x')}")
+
+
+_SERVER_OF_IP = {}
+
+
+def ssh(ip, cmd, timeout=120, inp=None):
+    known = known_file(ip)
+    os.makedirs(os.path.dirname(known), exist_ok=True)
+    return subprocess.run(["ssh", "-i", KEY, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
+                           "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={known}", "-o", "LogLevel=ERROR",
+                           f"root@{ip}", cmd], capture_output=True, text=True, timeout=timeout, input=inp)
+
+
+def machine_row(slot):
+    import sqlite3
+    db = sqlite3.connect(f"file:{MAC_DB}?mode=ro", uri=True, timeout=5)
+    try:
+        r = db.execute("select id from machines where base_url=?", (f"http://127.0.0.1:{LPORT + slot}",)).fetchone()
+        return r[0] if r else None
+    finally:
+        db.close()
+
+
+def slot_busy(machine_id):
+    """Card vive del posto sul Mac: in coda o al lavoro con questa macchina."""
+    if not machine_id:
+        return 0
+    import sqlite3
+    db = sqlite3.connect(f"file:{MAC_DB}?mode=ro", uri=True, timeout=5)
+    try:
+        return db.execute("select count(*) from tasks where machine_id=? and status in ('todo','in_progress')",
+                          (machine_id,)).fetchone()[0]
+    finally:
+        db.close()
+
+
+def slot_of_base(base):
+    for n in range(1, MAX_NODES + 1):
+        if base.rstrip("/") == f"http://127.0.0.1:{LPORT + n}":
+            return n
+    return None
+
+
+# ── ricetta ─────────────────────────────────────────────────────────────────────
+
+def tools():
+    apt, npm = [], []
+    with open(STRUMENTI) as f:
+        for line in f:
+            c = line.split()
+            if not c or c[0].startswith("#") or len(c) < 5:
+                continue
+            if c[3] != "-":
+                apt.append(c[3])
+            if c[4] != "-":
+                npm.append(c[4])
+    return apt, npm
+
+
+def commit_of_mac():
+    return subprocess.run(["git", "-C", APP_DIR, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+
+
+def recipe():
+    apt, npm = tools()
+    node_major = subprocess.run(["node", "-v"], capture_output=True, text=True).stdout.strip().lstrip("v").split(".")[0] or "22"
+    with open(os.path.join(HERE, "user-data.sh.tmpl")) as f:
+        t = f.read()
+    return (t.replace("@APT@", " ".join(apt)).replace("@NPM@", " ".join(npm))
+             .replace("@NODE_MAJOR@", node_major).replace("@COMMIT@", commit_of_mac()))
+
+
+def from_snapshot_user_data():
+    """Il nodo da snapshot ha già tutto: si allinea al commit del Mac e riparte."""
+    c = commit_of_mac()
+    return f"""#!/bin/bash
+su - topics -c 'cd topics-app && git fetch -q origin && git checkout -q {c} && export PATH="$HOME/.topics/bun/$(tr -d "[:space:]" < .bun-version):$PATH" && bun install >/dev/null 2>&1' > /var/log/topics-align.log 2>&1
+systemctl restart topics.service
+touch /var/lib/topics-node-ready
+"""
+
+
+# ── vita di un nodo ─────────────────────────────────────────────────────────────
+
+def create_server(slot, snapshot=True, name=None):
+    """Crea il server del posto. Ritorna (server, eur_h) o (None, motivo)."""
+    img = latest_snapshot() if snapshot else None
+    ud = from_snapshot_user_data() if img else recipe()
+    labels = {"topics-node": "1", "expires": str(int(time.time()) + EXPIRES_S)}
+    if slot:
+        labels["topics-node-slot"] = str(slot)
+    last = "nessun tipo provato"
+    for t in TYPES:
+        p = subprocess.run([TETTO_BIN, "puo", t, "--pool"], capture_output=True, text=True)
+        if p.returncode != 0:
+            last = f"{t}: tetto dice no ({p.stdout.strip() or p.stderr.strip()})"
+            log(last)
+            continue
+        for loc in LOCATIONS:
+            r = hz("POST", "/servers", {"name": name or f"topics-node-p{slot}", "server_type": t, "location": loc,
+                                       "image": img["id"] if img else "ubuntu-24.04", "ssh_keys": ["topics-node"],
+                                       "user_data": ud, "labels": labels, "start_after_create": True})
+            if r.get("server"):
+                eur = price(t, loc)
+                log(f"creato {r['server']['name']} id={r['server']['id']} {t} {loc} {eur} €/h da {'snapshot ' + str(img['id']) if img else 'ricetta'}")
+                return r["server"], eur
+            err = r.get("error", {})
+            last = f"{t} {loc}: {err.get('code')} {err.get('message')}"
+            log(f"creazione rifiutata: {last}")
+            if err.get("code") in ("resource_limit_exceeded", "forbidden", "invalid_input"):
+                break
+    return None, last
+
+
+def wait_ready(server, timeout=BOOT_MAX_S):
+    t0 = time.time()
+    ip = None
+    while time.time() - t0 < timeout:
+        s = hz("GET", f"/servers/{server['id']}").get("server") or {}
+        ip = ((s.get("public_net") or {}).get("ipv4") or {}).get("ip") or ip
+        if ip:
+            _SERVER_OF_IP[ip] = server["id"]
+        if ip and s.get("status") == "running":
+            try:
+                r = ssh(ip, "test -f /var/lib/topics-node-ready && curl -s -m 3 -o /dev/null -w '%{http_code}' http://127.0.0.1:3333/__daemon/healthz", timeout=20)
+                if r.returncode == 0 and r.stdout.strip() not in ("", "000"):
+                    return ip
+            except subprocess.TimeoutExpired:
+                pass
+        time.sleep(5)
+    return None
+
+
+def tunnel_alive(sl):
+    pid = sl.get("tunnel_pid")
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return subprocess.run(["nc", "-z", "-G", "2", "127.0.0.1", str(LPORT + sl["n"])], capture_output=True).returncode == 0
+
+
+def open_tunnel(sl):
+    _SERVER_OF_IP[sl["ip"]] = sl["server_id"]
+    if tunnel_alive(sl):
+        return True
+    known = known_file(sl['ip'])
+    p = subprocess.Popen(["ssh", "-N", "-i", KEY, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes",
+                          "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", "-o", "StrictHostKeyChecking=accept-new",
+                          "-o", f"UserKnownHostsFile={known}", "-L", f"127.0.0.1:{LPORT + sl['n']}:127.0.0.1:3341",
+                          "-R", f"127.0.0.1:{RPORT + sl['n']}:127.0.0.1:{PROXY}", f"root@{sl['ip']}"],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    sl["tunnel_pid"] = p.pid
+    for _ in range(20):
+        if tunnel_alive(sl):
+            return True
+        time.sleep(1)
+    return False
+
+
+def close_tunnel(sl):
+    pid = sl.pop("tunnel_pid", None)
+    if pid:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+
+
+def pair(sl):
+    """Appaia il nodo appena nato col Mac: il Mac apre, il nodo approva da loopback (proprietario)."""
+    base = f"http://127.0.0.1:{LPORT + sl['n']}"
+    opened = mac("POST", "/api/machines/pair", {"baseUrl": base})
+    for _ in range(30):
+        r = ssh(sl["ip"], "curl -s -m 5 http://127.0.0.1:3333/api/auth/pair/pending", timeout=20)
+        try:
+            reqs = json.loads(r.stdout or "{}").get("requests", [])
+        except Exception:
+            reqs = []
+        req = next((q for q in reqs if q.get("code") == opened["code"]), None)
+        if req:
+            body = json.dumps({"requestId": req["id"], "role": "owner"})
+            ssh(sl["ip"], f"curl -s -m 5 -X POST -H 'Content-Type: application/json' -d '{body}' http://127.0.0.1:3333/api/auth/pair/approve", timeout=20)
+            break
+        time.sleep(2)
+    for _ in range(30):
+        g = mac("GET", f"/api/machines/pair/{opened['pairingId']}")
+        if g.get("state") == "approved":
+            return g["machine"]["id"]
+        if g.get("state") not in ("pending",):
+            raise RuntimeError(f"appaiamento: {g.get('state')}")
+        time.sleep(2)
+    raise RuntimeError("appaiamento: nessuna risposta")
+
+
+def wire_model(sl):
+    """Il CLI del nodo usa i modelli del Mac dal tunnel -R: nessun login sul nodo."""
+    tok = mac("POST", f"/api/machines/{sl['machine_id']}/model-token")["token"]
+    env = {"ANTHROPIC_BASE_URL": f"http://127.0.0.1:{RPORT + sl['n']}", "ANTHROPIC_AUTH_TOKEN": tok}
+    settings = json.dumps({"env": env})
+    dropin = "[Service]\n" + "".join(f"Environment={k}={v}\n" for k, v in env.items())
+    script = (f"mkdir -p /home/topics/.claude /etc/systemd/system/topics.service.d && "
+              f"echo {base64.b64encode(settings.encode()).decode()} | base64 -d > /home/topics/.claude/settings.json && "
+              f"echo {base64.b64encode(dropin.encode()).decode()} | base64 -d > /etc/systemd/system/topics.service.d/model.conf && "
+              f"chmod 600 /etc/systemd/system/topics.service.d/model.conf && chown -R topics:topics /home/topics/.claude && "
+              f"systemctl daemon-reload && systemctl restart topics.service")
+    r = ssh(sl["ip"], script, timeout=60)
+    if r.returncode != 0:
+        raise RuntimeError(f"modello sul nodo: {r.stderr.strip()[-200:]}")
+    for _ in range(60):
+        r = ssh(sl["ip"], "curl -s -m 3 -o /dev/null -w '%{http_code}' http://127.0.0.1:3333/__daemon/healthz", timeout=20)
+        if r.stdout.strip() not in ("", "000"):
+            break
+        time.sleep(2)
+    ssh(sl["ip"], "curl -s -m 5 -X PATCH -H 'Content-Type: application/json' -d '{\"autoDispatch\":true}' http://127.0.0.1:3333/api/all-boards/settings", timeout=20)
+    try:
+        mac("PATCH", f"/api/machines/{sl['machine_id']}", {"name": f"Nodo cloud {sl['n']}"})
+        mac("PATCH", f"/api/machines/{sl['machine_id']}", {"slots": SLOTS_PER_NODE})
+    except Exception as e:
+        log(f"posto {sl['n']}: slots non impostati: {e}")
+
+
+def bring_up(state, n, reason):
+    """Accende il posto n: server, pronto, tunnel, appaiamento, modelli. Ritorna lo slot o None."""
+    sl = state["slots"].setdefault(str(n), {"n": n})
+    sl.update({"n": n, "creating": time.time()})
+    save_state(state)
+    t0 = time.time()
+    server, eur = create_server(n)
+    if not server:
+        sl.pop("creating", None)
+        save_state(state)
+        log(f"posto {n}: nessun server ({eur})")
+        return None
+    sl.update({"server_id": server["id"], "name": server["name"], "created": t0, "eur_h": eur, "idle_since": None})
+    state["lives"].append({"server_id": server["id"], "slot": n, "created": t0, "eur_h": eur, "reason": reason})
+    save_state(state)
+    ip = wait_ready(server)
+    if not ip:
+        log(f"posto {n}: {server['name']} non pronto in {BOOT_MAX_S}s, cancellato")
+        delete(state, n, "non pronto")
+        return None
+    sl["ip"] = ip
+    return finish(state, sl, t0)
+
+
+def finish(state, sl, t0=None):
+    """Dal server acceso al nodo pronto: tunnel, appaiamento, modelli. Riprendibile: se un hook viene
+    interrotto a metà (timeout di Topics), il giro o il hook dopo ripartono da qui."""
+    n = sl["n"]
+    t0 = t0 or sl.get("created") or time.time()
+    if sl.get("ip"):
+        _SERVER_OF_IP[sl["ip"]] = sl["server_id"]
+    if not sl.get("ip"):
+        ip = wait_ready({"id": sl["server_id"]})
+        if not ip:
+            log(f"posto {n}: {sl.get('name')} non pronto, cancellato")
+            delete(state, n, "non pronto")
+            return None
+        sl["ip"] = ip
+        save_state(state)
+    try:
+        if not open_tunnel(sl):
+            raise RuntimeError("tunnel non aperto")
+        sl["machine_id"] = pair(sl)
+        wire_model(sl)
+    except Exception as e:
+        log(f"posto {n}: {e}; cancellato")
+        delete(state, n, str(e))
+        return None
+    sl.pop("creating", None)
+    sl["ready"] = True
+    save_state(state)
+    log(f"posto {n}: {sl['name']} pronto in {int(time.time() - t0)}s (macchina {sl['machine_id']}, ip {sl['ip']})")
+    return sl
+
+
+def delete(state, n, reason):
+    sl = state["slots"].get(str(n)) or {}
+    close_tunnel(sl)
+    sid = sl.get("server_id")
+    if sid:
+        if sl.get("ip"):
+            _SERVER_OF_IP[sl["ip"]] = sid
+        ssh(sl["ip"], "systemctl stop topics.service", timeout=30) if sl.get("ip") else None
+        hz("DELETE", f"/servers/{sid}")
+        for l in state["lives"]:
+            if l["server_id"] == sid and not l.get("ended"):
+                l["ended"] = time.time()
+                log(f"cancellato {sl.get('name')} id={sid} dopo {int((l['ended'] - l['created']) / 60)} min "
+                    f"({billed_hours(l['created'], l['ended'])} h pagate × {l['eur_h']} €): {reason}")
+    state["slots"][str(n)] = {"n": n, "machine_id": sl.get("machine_id")}
+    save_state(state)
+    # tray e `hetzner-tetto json` leggono il registro del tetto: va riscritto subito, non al giro dopo
+    if sid:
+        subprocess.run([TETTO_BIN, "stato"], capture_output=True, timeout=60)
+
+
+# ── comandi ─────────────────────────────────────────────────────────────────────
+
+def memory_held(state, now):
+    """Le card ferme per memoria adesso, con da quando il giro le vede ferme."""
+    try:
+        q = mac("GET", "/api/dispatch/memory-queue").get("queue", [])
+    except Exception as e:
+        log(f"coda della board non leggibile: {e}")
+        return state["held"]
+    ids = {c["taskId"] for c in q if c.get("reason") == "waiting-memory"}
+    state["held"] = {i: state["held"].get(i, now) for i in ids}
+    return state["held"]
+
+
+def giro():
+    with Lock("giro"):
+        state = load_state()
+        now = time.time()
+        known = {sl.get("server_id") for sl in state["slots"].values()}
+        # 1. raccoglitore: ciò che Hetzner ha col label e il registro non conosce, se scaduto
+        for s in pool_servers():
+            exp = int((s.get("labels") or {}).get("expires", "0") or 0)
+            if s["id"] not in known and exp and exp < now:
+                hz("DELETE", f"/servers/{s['id']}")
+                log(f"raccolto {s['name']} id={s['id']}: scaduto e sconosciuto al registro")
+        alive_ids = {s["id"] for s in pool_servers()}
+        # 2. vite: morte a fine ora, scadenza spostata, tunnel riaperto
+        for key, sl in list(state["slots"].items()):
+            sid = sl.get("server_id")
+            if not sid:
+                continue
+            if sid not in alive_ids and not sl.get("creating"):
+                log(f"posto {key}: {sl.get('name')} sparito da Hetzner")
+                delete(state, int(key), "sparito")
+                continue
+            if sl.get("creating"):
+                if now - sl["creating"] > BOOT_MAX_S + 120:
+                    import fcntl
+                    lk = open(os.path.join(ST, f"slot{key}.lock"), "w")
+                    try:
+                        fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except OSError:
+                        continue  # un hook la sta già riprendendo
+                    log(f"posto {key}: accensione lasciata a metà, riprendo")
+                    sl.pop("creating", None)
+                    ok = finish(state, sl)
+                    lk.close()
+                    if not ok:
+                        continue
+                else:
+                    continue
+            busy = slot_busy(sl.get("machine_id"))
+            if busy:
+                sl["idle_since"] = None
+                hz("PUT", f"/servers/{sid}", {"labels": {"topics-node": "1", "topics-node-slot": key,
+                                                          "expires": str(int(now) + EXPIRES_S)}})
+            elif sl.get("idle_since") is None:
+                sl["idle_since"] = now
+            if should_delete(sl["created"], sl.get("idle_since"), now):
+                delete(state, int(key), f"fermo da {int((now - sl['idle_since']) / 60)} min, fine dell'ora pagata")
+                continue
+            if sl.get("ip") and not tunnel_alive(sl):
+                log(f"posto {key}: tunnel riaperto ({open_tunnel(sl)})")
+        save_state(state)
+        # 3. domanda
+        held = memory_held(state, now)
+        alive = sum(1 for sl in state["slots"].values() if sl.get("server_id"))
+        creating = any(sl.get("creating") and now - sl["creating"] < BOOT_MAX_S + 120 for sl in state["slots"].values())
+        spend = month_spend(state["lives"], now)
+        ok, why = should_create(held, alive, creating, spend, 0.06, now)
+        save_state(state)
+        if not ok:
+            return 0
+        n = free_slot(state["slots"])
+        log(f"domanda: {why} -> accendo il posto {n}")
+    with Lock(f"slot{n}"):
+        bring_up(load_state(), n, why)
+    return 0
+
+
+def hook():
+    try:
+        payload = json.load(sys.stdin)
+    except Exception:
+        payload = {}
+    n = slot_of_base(payload.get("node_base_url") or "")
+    if not n:
+        return 0  # non è un posto del pool
+    with Lock(f"slot{n}"):
+        state = load_state()
+        sl = state["slots"].get(str(n)) or {}
+        if not sl.get("server_id"):
+            log(f"hook: card {payload.get('task_id')} chiede il posto {n} spento, lo accendo")
+            sl = bring_up(state, n, f"card {payload.get('task_id')} assegnata al posto")
+            if not sl:
+                print(f"il nodo cloud {n} non si è acceso (log: {LOG})", file=sys.stderr)
+                return 2
+        elif not sl.get("ready"):
+            log(f"hook: posto {n} acceso ma non pronto, riprendo")
+            sl = finish(state, sl)
+            if not sl:
+                print(f"il nodo cloud {n} non si è acceso (log: {LOG})", file=sys.stderr)
+                return 2
+        elif not tunnel_alive(sl):
+            open_tunnel(sl)
+            save_state(state)
+        sl["idle_since"] = None
+        save_state(state)
+    origin, repo = payload.get("origin_url"), payload.get("cwd")
+    if origin and repo:
+        with Lock(f"repo{n}-{origin.rstrip('/').split('/')[-1]}"):
+            sync_repo(sl, origin, repo)
+    return 0
+
+
+def sync_repo(sl, origin, repo):
+    """Il ramo di default del repo va sul nodo con un git bundle (anche i repo privati: il nodo non ha token)."""
+    name = origin.rstrip("/").split("/")[-1].removesuffix(".git")
+    d = f"/home/topics/repos/{name}"
+    subprocess.run(["git", "-C", repo, "fetch", "-q", "--no-tags", "origin"], capture_output=True, timeout=120)
+    head = subprocess.run(["git", "-C", repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], capture_output=True, text=True).stdout.strip() or "origin/main"
+    branch = head.split("/", 1)[1]
+    ref = f"refs/remotes/origin/{branch}"
+    bundle = os.path.join(ST, f"{name}-{os.getpid()}.bundle")
+    b = subprocess.run(["git", "-C", repo, "bundle", "create", bundle, ref], capture_output=True, text=True, timeout=300)
+    if b.returncode != 0:
+        raise SystemExit(f"node-pool: git bundle fallito: {b.stderr[-200:]}")
+    _SERVER_OF_IP[sl["ip"]] = sl["server_id"]
+    known = known_file(sl['ip'])
+    subprocess.run(["scp", "-q", "-i", KEY, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={known}", bundle, f"root@{sl['ip']}:/tmp/{os.path.basename(bundle)}"], check=True, timeout=600)
+    os.remove(bundle)
+    script = f"""set -e
+B=/tmp/{os.path.basename(bundle)}
+chmod 644 $B
+su - topics -c '
+set -e
+d={d}
+if [ ! -d $d/.git ]; then mkdir -p $d && git init -q $d && git -C $d remote add origin {origin}; fi
+git -C $d fetch -q '$B' "+{ref}:{ref}"
+git -C $d symbolic-ref refs/remotes/origin/HEAD {ref}
+if ! git -C $d rev-parse -q --verify HEAD >/dev/null; then git -C $d checkout -q -B {branch} {ref}
+elif [ -z "$(git -C $d status --porcelain)" ]; then git -C $d checkout -q {branch} && git -C $d merge -q --ff-only {ref} || true; fi
+'
+rm -f $B
+curl -s -m 10 http://127.0.0.1:3333/api/projects | grep -q '"path":"{d}"' || curl -s -m 10 -X POST -H 'Content-Type: application/json' -d '{{"name":"{name}","slug":"{name.lower()}","path":"{d}"}}' http://127.0.0.1:3333/api/projects >/dev/null
+"""
+    r = ssh(sl["ip"], script, timeout=300)
+    if r.returncode != 0:
+        raise SystemExit(f"node-pool: repo sul nodo: {r.stderr.strip()[-300:]}")
+    log(f"posto {sl['n']}: {name} portato a {branch}")
+
+
+def snapshot():
+    """Rifà lo snapshot dalla ricetta unica: server a ore, ricetta, pulizia, immagine, server cancellato."""
+    server, eur = create_server(None, snapshot=False, name=f"topics-node-snap-{int(time.time())}")
+    if not server:
+        raise SystemExit(f"node-pool: snapshot, nessun server ({eur})")
+    t0 = time.time()
+    try:
+        ip = wait_ready(server, timeout=1500)
+        if not ip:
+            raise SystemExit("node-pool: la ricetta non arriva a pronto in 25 minuti")
+        log(f"snapshot: ricetta pronta in {int(time.time() - t0)}s")
+        ssh(ip, "systemctl stop topics.service; rm -f /home/topics/topics-app/data/topics.db* /var/lib/topics-node-ready; "
+                "rm -rf /home/topics/topics-app/.topics-secrets /home/topics/.claude/.credentials.json /home/topics/.codex/auth.json; "
+                "cloud-init clean --logs; sync", timeout=120)
+        r = hz("POST", f"/servers/{server['id']}/actions/create_image",
+               {"type": "snapshot", "description": f"topics-node {commit_of_mac()[:10]}", "labels": {"topics-node": "1"}})
+        img = r["image"]["id"]
+        while hz("GET", f"/images/{img}")["image"]["status"] != "available":
+            time.sleep(5)
+        for old in hz("GET", "/images?type=snapshot&label_selector=topics-node").get("images", []):
+            if old["id"] != img:
+                hz("DELETE", f"/images/{old['id']}")
+        log(f"snapshot {img} pronto ({hz('GET', f'/images/{img}')['image'].get('image_size')} GB)")
+    finally:
+        hz("DELETE", f"/servers/{server['id']}")
+        log(f"snapshot: server {server['name']} cancellato dopo {int((time.time() - t0) / 60)} min ({eur} €/h)")
+    return 0
+
+
+def stato():
+    state = load_state()
+    now = time.time()
+    print(f"pool: {month_spend(state['lives'], now):.2f} € del mese su {CAP_EUR:.0f} €")
+    for k, sl in sorted(state["slots"].items()):
+        if sl.get("server_id"):
+            print(f"posto {k}: {sl.get('name')} id={sl['server_id']} da {int((now - sl['created']) / 60)} min, "
+                  f"card {slot_busy(sl.get('machine_id'))}, ferma da {int((now - sl['idle_since']) / 60) if sl.get('idle_since') else 0} min")
+        else:
+            print(f"posto {k}: spento")
+    for s in pool_servers():
+        print(f"hetzner: {s['name']} id={s['id']} {s['server_type']['name']} {s['status']}")
+    return 0
+
+
+def spegni():
+    state = load_state()
+    for k, sl in state["slots"].items():
+        if sl.get("server_id"):
+            delete(state, int(k), "spegni")
+    for s in pool_servers():
+        hz("DELETE", f"/servers/{s['id']}")
+    return 0
+
+
+if __name__ == "__main__":
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "stato"
+    sys.exit({"giro": giro, "hook": hook, "snapshot": snapshot, "stato": stato, "spegni": spegni,
+              "--selftest": selftest}.get(cmd, stato)() or 0)

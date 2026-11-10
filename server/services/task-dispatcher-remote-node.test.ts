@@ -40,6 +40,7 @@ import { createDeliveryCapture, type DeliveryCapture, type DeliveryRef } from ".
 import type { TaskFile } from "../../shared/task-labels";
 import type { NodeRunReport } from "./node-client";
 
+import { wakeBreaker } from "./wake-breaker";
 import { PID, TASK, MACHINE, BASE_URL, report, delegatedPolicy, harness, flush, poll, dispatch } from "./task-dispatcher-remote-node-test-support";
 
 describe("la card parte sul nodo, non qui", () => {
@@ -311,6 +312,19 @@ describe("l'hook node-run gira prima che la card parta sul nodo", () => {
     expect(note).toContain("il nodo «Portatile» non è pronto: il PC non si sveglia (wol senza risposta)");
     // The slot is free again: the retry is not blocked by a ghost run.
     expect(h.dispatcher.busyIds()).not.toContain(TASK);
+  });
+
+  it("two vetoes in a row open the wake breaker: the node stops being a sleeping target", async () => {
+    // 2026-11-10: the PC stuck at the login screen got 17 cards in half an hour.
+    wakeBreaker.success(MACHINE);
+    const hook = hookFake({ ok: false, reason: "il PC non si sveglia" });
+    for (let i = 0; i < 2; i++) {
+      const h = harness({ hooks: hook.runner });
+      h.seed();
+      await dispatch(h);
+    }
+    expect(wakeBreaker.isOpen(MACHINE)).toBe(true);
+    wakeBreaker.success(MACHINE);
   });
 
   it("l'hook gira prima di ogni chiamata al nodo, anche la cancellazione della corsa vecchia", async () => {
@@ -1131,6 +1145,9 @@ describe("la consegna del nodo è una consegna come le altre", () => {
     const t = h.task();
     expect(t.status).toBe("todo");
     expect(t.stayLocal).toBe(true);
+    // The pin has a deadline: the node's missing tools get installed.
+    const until = h.db.query("SELECT stay_local_until AS u FROM tasks WHERE id = ?").get(TASK) as { u: string | null };
+    expect(Date.parse(until.u ?? "") - Date.now()).toBeGreaterThan(5 * 3_600_000);
     expect(t.machineId).toBeNull();
     expect(measured).toEqual([]);
     expect(h.comments().some((c) => c.content.includes("finita senza nessun commit"))).toBe(true);
@@ -1160,5 +1177,69 @@ describe("la consegna del nodo è una consegna come le altre", () => {
     expect(h.task().status).toBe("review");
     expect(h.task().machineId).toBe(MACHINE);
     expect(h.task().stayLocal).toBe(false);
+  });
+});
+
+describe("node-run hooks for one machine run one at a time", () => {
+  it("three cards for the same node: the hook never runs twice at once, and all three start", async () => {
+    let live = 0;
+    let peak = 0;
+    const hooks: LifecycleHookRunner = {
+      run: async () => {
+        live++;
+        peak = Math.max(peak, live);
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+        live--;
+        return { ok: true };
+      },
+    };
+    const h = harness({ hooks });
+    for (const id of [TASK, "card-b", "card-c"]) h.seed(id);
+
+    await dispatch(h);
+    await flush(200);
+
+    expect(peak).toBe(1);
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(3);
+  });
+});
+
+describe("una corsa remota persa non riporta mai indietro una card chiusa", () => {
+  const silent = () => Promise.reject(Object.assign(new Error("giù"), { reason: "unreachable" }));
+
+  for (const [label, sql] of [
+    ["done", "UPDATE tasks SET status = 'done' WHERE id = ?"],
+    ["review", "UPDATE tasks SET status = 'review' WHERE id = ?"],
+    ["archiviata", "UPDATE tasks SET archived = 1 WHERE id = ?"],
+  ] as const) {
+    it(`card ${label} + nodo muto per ${NODE_DEAD_POLLS} giri: resta dov'è, corsa chiusa come persa`, async () => {
+      const h = harness({ readRun: silent });
+      h.seed();
+      await dispatch(h);
+      const before = h.task().status;
+      h.db.run(sql, [TASK]);
+      const expected = label === "archiviata" ? before : label;
+
+      await poll(h, NODE_DEAD_POLLS + 5);
+
+      const t = h.task();
+      expect(t.status).toBe(expected);
+      if (label === "archiviata") expect(h.svc.isArchived!(TASK)).toBe(true);
+      expect(h.comments().filter((c) => c.content.includes("persa")).length).toBe(1);
+      expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
+    });
+  }
+
+  it("nodo cancellato dal pool a corsa aperta su card done: nessuna rinascita", async () => {
+    const h = harness({ readRun: silent });
+    h.seed();
+    await dispatch(h);
+    h.db.run("UPDATE tasks SET status = 'done' WHERE id = ?", [TASK]);
+    h.db.run("DELETE FROM machines WHERE id = ?", [MACHINE]);
+
+    await poll(h, NODE_DEAD_POLLS + 5);
+
+    expect(h.task().status).toBe("done");
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
   });
 });

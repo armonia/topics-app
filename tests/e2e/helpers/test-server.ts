@@ -30,6 +30,7 @@ import { existsSync, readFileSync, realpathSync, readdirSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { dirname, join, resolve } from "path";
 import { webkit } from "@playwright/test";
+import { mintSessionToken, SESSION_TOKEN_HEADER } from "../../../server/lib/session-token";
 import { IS_WINDOWS, processRows } from "./platform";
 import { defaultE2EPort, E2E_DEFAULT_PORT } from "./worktree-port";
 import { TEST_RUN_ENV, newTestRunId } from "../../../scripts/stray-ai-bridges";
@@ -352,6 +353,16 @@ export function daemonAuthHeaders(port: number = E2E_PORT): Record<string, strin
   } catch {
     return {};
   }
+}
+
+/**
+ * The header a session's own bridge sends on `/api/sessions/:key/...`
+ * (server/lib/session-token.ts): a spec that plays the agent of `sessionKey`
+ * signs as that session, not as an anonymous caller. Minted from the signing
+ * key in the test server's TOPICS_HOME, which the server creates at first use.
+ */
+export function sessionTokenHeaders(sessionKey: string, port: number = E2E_PORT): Record<string, string> {
+  return { [SESSION_TOKEN_HEADER]: mintSessionToken(join(dataDirForPort(port), ".topics-home"), sessionKey) };
 }
 
 /**

@@ -1,0 +1,7 @@
+name: hub-tutto-in-topics
+schema: spec-driven
+skip_specs: true
+status: approved
+creato: 2026-11-09
+richiesta: "ma non abbiamo ancora unito hub a topics? lo vedo ancora aperto su una porta.. e la tray non unita"
+risposta: "Tutto dentro Topics: schermate, tray e motore dell'hub dentro Topics; :3360 rimanda a Topics; le parti che devono restare accese diventano un piccolo servizio di Topics in Rust, una porta sola, nessuna app a parte (09/11)"

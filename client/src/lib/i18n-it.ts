@@ -2217,8 +2217,8 @@ const IT: Dict = {
 
   'board.toolbar.groupBy.project': 'Raggruppa per progetto',
   'board.toolbar.groupBy.off': 'Togli il raggruppamento per progetto',
-  'board.toolbar.density.compact': 'Card compatte',
-  'board.toolbar.density.full': 'Card complete',
+  'board.toolbar.done.show': 'Mostra i task completati',
+  'board.toolbar.done.hide': 'Nascondi i task completati',
   'board.group.collapse': 'Richiudi {name}',
   'board.group.expand': 'Apri {name}',
   'board.group.total': '{n} card in questo progetto',
