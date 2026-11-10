@@ -1,8 +1,8 @@
 /**
  * «Da fare»: the list of cards by flow, the kanban, the table per stage, the card with its originals. (allow-italian: quotes the Italian interface)
  * Values in `i18n-ui-kanban-it.ts` and `i18n-ui-kanban-en.ts`; only product words,
- * the words of SARIM's work arrive with the data. Names follow the glossary
- * (`brief/glossario-sarim.md`). (allow-italian: names the glossary terms)
+ * the words of ORBIT's work arrive with the data. Names follow the glossary
+ * (`brief/glossario-orbit.md`). (allow-italian: names the glossary terms)
  */
 export interface KanbanCopy {
   title: string;

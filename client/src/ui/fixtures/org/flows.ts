@@ -5,7 +5,7 @@
  * Volumes are estimates, the same the overview sums: 1.204 + 204 + 388 + 9 +
  * 105 = 1.910 for the five flows it lists; the three added after it
  * (segnalazioni 64, concessioni 10, verbale 6) bring the Nocera total to
- * 1.990. SARIM: segnalazioni 1.412, fatture 240, FIR 180. A draft does not run:
+ * 1.990. ORBIT: segnalazioni 1.412, fatture 240, FIR 180. A draft does not run:
  * its volume is 0.
  *
  * Step ids follow the cases that point at them: the PEC flow keeps `s1`, `s2`,
@@ -164,7 +164,7 @@ export const FLOWS: FlowSeed[] = [
     ],
   },
   {
-    id: 'sarim-segnalazioni', org: 'sarim', name: 'Segnalazioni AMA e utenze → intervento', // allow-italian: fixture data, shown as written
+    id: 'orbit-segnalazioni', org: 'orbit', name: 'Segnalazioni AMA e utenze → intervento', // allow-italian: fixture data, shown as written
     trigger: 'arriva una segnalazione (mail AMA, portale utenze, telefonata)', // allow-italian: fixture data, shown as written
     office: 'call-center', status: 'attivo', version: 2, perMonth: 1412, // allow-italian: state identifier, not shown
     steps: [
@@ -179,7 +179,7 @@ export const FLOWS: FlowSeed[] = [
     ],
   },
   {
-    id: 'sarim-fatture', org: 'sarim', name: 'Fattura passiva → riconciliazione', // allow-italian: fixture data, shown as written
+    id: 'orbit-fatture', org: 'orbit', name: 'Fattura passiva → riconciliazione', // allow-italian: fixture data, shown as written
     trigger: 'arriva una fattura dal fornitore', // allow-italian: fixture data, shown as written
     office: 'amministrazione', status: 'attivo', version: 1, perMonth: 240, // allow-italian: state identifier, not shown
     steps: [
@@ -192,7 +192,7 @@ export const FLOWS: FlowSeed[] = [
     ],
   },
   {
-    id: 'sarim-fir', org: 'sarim', name: 'Formulario FIR → registrazione', // allow-italian: fixture data, shown as written
+    id: 'orbit-fir', org: 'orbit', name: 'Formulario FIR → registrazione', // allow-italian: fixture data, shown as written
     trigger: 'si chiude un ritiro con formulario', // allow-italian: fixture data, shown as written
     office: 'servizi', status: 'attivo', version: 1, perMonth: 180, // allow-italian: state identifier, not shown
     steps: [

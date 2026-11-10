@@ -22,7 +22,7 @@ import {
 } from '../../ui/filters/model';
 import type { ScreenCtx } from './kit';
 
-/** One filter: a field, a condition and a value, as ids (`flusso`, `is`, `sarim-fir`). (allow-italian: quotes a field id) */
+/** One filter: a field, a condition and a value, as ids (`flusso`, `is`, `orbit-fir`). (allow-italian: quotes a field id) */
 export interface FilterToken {
   id: string;
   field: string;

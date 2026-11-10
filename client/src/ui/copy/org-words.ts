@@ -1,7 +1,7 @@
 /**
  * The words that belong to one organization and not to the screens: its name,
  * the phrases of the copy that name its clients, programs and public sources.
- * The Italian and English copy of the organization screens (`sarim-*`) read
+ * The Italian and English copy of the organization screens (`orbit-*`) read
  * them from here, so the same screens speak for any organization.
  *
  * `orgWords()` is read when the copy modules load, so an entry that runs another
@@ -48,17 +48,17 @@ export interface OrgPhrases {
   tables: Record<string, OrgTableWords>;
 }
 
-/** The Italian forms of the name with its article, for the sentences that need one («del Consorzio», «di SARIM»). allow-italian: quotes the words on screen */
+/** The Italian forms of the name with its article, for the sentences that need one («del Consorzio», «di ORBIT»). allow-italian: quotes the words on screen */
 export interface OrgArticled {
-  /** «SARIM», «il Consorzio di Nocera». */
+  /** «ORBIT», «il Consorzio di Nocera». */
   the: string;
-  /** «di SARIM», «del Consorzio di Nocera». allow-italian: quotes the words on screen */
+  /** «di ORBIT», «del Consorzio di Nocera». allow-italian: quotes the words on screen */
   of: string;
-  /** «da SARIM», «dal Consorzio di Nocera». allow-italian: quotes the words on screen */
+  /** «da ORBIT», «dal Consorzio di Nocera». allow-italian: quotes the words on screen */
   from: string;
-  /** «per SARIM», «per il Consorzio di Nocera». */
+  /** «per ORBIT», «per il Consorzio di Nocera». */
   for: string;
-  /** «in tutta SARIM», «in tutto il Consorzio». allow-italian: quotes the words on screen */
+  /** «in tutta ORBIT», «in tutto il Consorzio». allow-italian: quotes the words on screen */
   inAll: string;
 }
 

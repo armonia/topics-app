@@ -2,7 +2,7 @@
 /**
  * scripts/ui-giro3-walk.mjs - the bar of round 3: nine named checks (p1..p9),
  * one per point of Attilio's brief of 09/11, run on the two demos
- * (`sarim.html` and `consorzio.html`) with the same code.
+ * (`orbit.html` and `consorzio.html`) with the same code.
  *
  * WHY. Round 3 asked for nine things (the flow of a card read in place, a
  * kanban with readable columns, a card page with a hierarchy, two demos, the
@@ -18,7 +18,7 @@
  * in headless WebKit at 1440x900. Each check resets the demo
  * (`window.__demo.reset`) and drives the page with real presses and keys.
  *
- *   node scripts/ui-giro3-walk.mjs --entry sarim|consorzio [--dist dist-ui-mutant]
+ *   node scripts/ui-giro3-walk.mjs --entry orbit|consorzio [--dist dist-ui-mutant]
  *       [--expect-red all|p1,p5] [--only p1,p3] [--video <file.webm>] [--shots <dir>]
  *
  * Exit 0: all nine ok and no console error. Exit 1: one is red (or an error
@@ -41,7 +41,7 @@ import { webkit } from "playwright";
 import { arg, collectErrors, serveDist } from "./ui-app/serve.mjs";
 import { POINTER } from "./ui-app/walk-runner.mjs";
 
-const ENTRY = arg("entry") ?? "sarim";
+const ENTRY = arg("entry") ?? "orbit";
 const DIST = arg("dist") ?? "dist-ui";
 const VIDEO = arg("video") ? resolve(arg("video")) : undefined;
 const SHOTS = arg("shots") ? resolve(arg("shots")) : undefined;
@@ -54,11 +54,11 @@ process.on("unhandledRejection", (e) => { console.error(`${SCRIPT}: errore non g
 
 /** What each entry must show in its sidebar, and what it must never show: one organization, the right one. */
 const ORG = {
-  sarim: { has: /SARIM/, not: /Consorzio/i },
-  consorzio: { has: /Consorzio/i, not: /SARIM/ },
+  orbit: { has: /ORBIT/, not: /Consorzio/i },
+  consorzio: { has: /Consorzio/i, not: /ORBIT/ },
 }[ENTRY];
 if (!ORG) {
-  console.error(`${SCRIPT}: --entry must be sarim or consorzio`);
+  console.error(`${SCRIPT}: --entry must be orbit or consorzio`);
   process.exit(2);
 }
 
@@ -122,8 +122,8 @@ async function stuckIds(page) {
 /** The names of the programs of the world, read from the rows of the Programmi page. */
 async function programNames(page) {
   await goHash(page, "/programmi");
-  await page.waitForSelector("[data-screen=sarim-programs] [role=row] [role=cell]");
-  return page.locator("[data-screen=sarim-programs] [role=row]").evaluateAll((rows) => rows
+  await page.waitForSelector("[data-screen=orbit-programs] [role=row] [role=cell]");
+  return page.locator("[data-screen=orbit-programs] [role=row]").evaluateAll((rows) => rows
     .filter((r) => r.querySelector("[role=cell]"))
     .map((r) => r.querySelector("[role=cell] .font-semibold")?.textContent?.trim() ?? "")
     .filter(Boolean));
@@ -203,8 +203,8 @@ async function p1(page) {
 /** p2: the kanban at 1440x900, wide columns, nothing cut, a strip that scrolls. */
 async function p2(page) {
   await fresh(page);
-  await press(page, page.locator("[data-screen=sarim-list] [role=tablist] [data-view=kanban]"));
-  await page.waitForSelector("[data-screen=sarim-kanban] [data-kanban-column]");
+  await press(page, page.locator("[data-screen=orbit-list] [role=tablist] [data-view=kanban]"));
+  await page.waitForSelector("[data-screen=orbit-kanban] [data-kanban-column]");
   await beat(page, 300);
   const m = await page.evaluate(() => {
     const cols = [...document.querySelectorAll("[data-kanban-column]")];
@@ -280,7 +280,7 @@ async function p3(page) {
   if (!pick) return { problems: [`nessuna delle ${Math.min(ids.length, 30)} card prime ha scadenza e prossima azione nell'intestazione`] };
   await goHash(page, `/da-fare/card/${pick}`);
   const m = await page.evaluate(() => {
-    const sections = [...document.querySelectorAll("[data-screen=sarim-card] [data-card-section]")];
+    const sections = [...document.querySelectorAll("[data-screen=orbit-card] [data-card-section]")];
     const header = document.querySelector("[data-card-section=header]");
     const action = header?.querySelector("[data-card-next] [role=group] button");
     const nameEl = header?.querySelector("span.truncate");
@@ -297,7 +297,7 @@ async function p3(page) {
       action: action ? { label: action.textContent?.trim() ?? "", primary: /\bbg-primary\b|\bbg-emerald-700\b/.test(action.className), on: !action.disabled && action.getAttribute("aria-disabled") !== "true" } : null,
       name,
       flowNames,
-      links: /Collegamenti/i.test(document.querySelector("[data-screen=sarim-card]")?.innerText ?? ""),
+      links: /Collegamenti/i.test(document.querySelector("[data-screen=orbit-card]")?.innerText ?? ""),
       why: document.querySelector("[data-action-why]")?.innerText.trim() ?? "",
     };
   });
@@ -326,7 +326,7 @@ async function p4(page) {
   await page.waitForFunction(() => window.__demo && document.querySelector("[data-screen]"));
   await beat(page, 300);
   const first = await page.evaluate(() => ({ screen: document.querySelector("[data-screen]")?.getAttribute("data-screen"), hash: location.hash }));
-  if (first.screen !== "sarim-list" || first.hash !== "#/da-fare") problems.push(`parte da ${first.screen} (${first.hash}), non da Da fare in Elenco (#/da-fare)`);
+  if (first.screen !== "orbit-list" || first.hash !== "#/da-fare") problems.push(`parte da ${first.screen} (${first.hash}), non da Da fare in Elenco (#/da-fare)`);
   const side = await page.evaluate(() => {
     const tree = document.querySelector("[role=tree]");
     const groups = tree ? [...tree.querySelectorAll(":scope > [role=group]")] : [];
@@ -356,7 +356,7 @@ async function p4(page) {
 
   /* The four rows, each with its own screen; Conoscenza with its two sections. */
   await press(page, row(page, "Flussi"));
-  await page.waitForSelector("[data-screen=sarim-flows]");
+  await page.waitForSelector("[data-screen=orbit-flows]");
   await beat(page, 200);
   await shot(page, "p4-flussi");
   await press(page, row(page, "Conoscenza"));
@@ -364,15 +364,15 @@ async function p4(page) {
   const subs = await page.locator("nav[aria-label='Sezioni di Conoscenza']").locator("button, a").evaluateAll((els) => els.map((e) => e.innerText.split("\n")[0].trim()));
   for (const label of ["Contratti", "Dati"]) if (!subs.some((t) => t.startsWith(label))) problems.push(`Conoscenza non ha la sezione «${label}» (ha: ${subs.join(", ")})`);
   await press(page, subNav(page, "Sezioni di Conoscenza", "Contratti"));
-  await page.waitForSelector("[data-screen=sarim-contracts]");
+  await page.waitForSelector("[data-screen=orbit-contracts]");
   await beat(page, 200);
   await shot(page, "p4-contratti");
   await press(page, subNav(page, "Sezioni di Conoscenza", "Dati"));
-  await page.waitForSelector("[data-screen=sarim-data]");
+  await page.waitForSelector("[data-screen=orbit-data]");
   await beat(page, 200);
   await shot(page, "p4-dati");
   await press(page, row(page, "Programmi"));
-  await page.waitForSelector("[data-screen=sarim-programs]");
+  await page.waitForSelector("[data-screen=orbit-programs]");
   await beat(page, 200);
   await shot(page, "p4-programmi");
 
@@ -545,7 +545,7 @@ async function p7(page) {
   await page.keyboard.press("Meta+k");
   await page.locator("[data-global-search]").waitFor({ state: "visible" });
   const fields = await page.evaluate(() => {
-    const local = document.querySelector("[data-screen=sarim-list] [data-local-filter]");
+    const local = document.querySelector("[data-screen=orbit-list] [data-local-filter]");
     const global = document.querySelector("[data-global-search-field]");
     return { local: !!local, inside: !!local?.closest("[data-global-search]"), same: local === global, localHint: local?.getAttribute("placeholder") ?? "", globalHint: global?.getAttribute("placeholder") ?? "" };
   });
@@ -617,7 +617,7 @@ async function p9(page) {
   if (five.preview !== 1) problems.push(`la scheda dopo 5 navigazioni non è di anteprima (${five.preview} di anteprima)`);
 
   /* Writing in the filter keeps the tab. */
-  const filter = page.locator("[data-screen=sarim-list] [data-local-filter]");
+  const filter = page.locator("[data-screen=orbit-list] [data-local-filter]");
   await press(page, filter);
   await typeSlow(page, "ma");
   await beat(page, 200);
@@ -650,10 +650,10 @@ async function p9(page) {
   await shot(page, "p9-schede-fissate");
 
   await press(page, row(page, "Da fare"));
-  await page.waitForSelector("[data-screen=sarim-list] [data-card-row]");
+  await page.waitForSelector("[data-screen=orbit-list] [data-card-row]");
   const before = await state();
-  await press(page, page.locator("[data-screen=sarim-list] [data-card-row]").first());
-  await page.waitForSelector("[data-screen=sarim-card]");
+  await press(page, page.locator("[data-screen=orbit-list] [data-card-row]").first());
+  await page.waitForSelector("[data-screen=orbit-card]");
   await beat(page, 200);
   const card = await state();
   log.push(`clic su una card: ${before.tabs} → ${card.tabs} schede`);
@@ -694,7 +694,7 @@ try {
   if (VIDEO) await page.addInitScript(POINTER);
   collectErrors(page, errors);
   await page.goto(`${base}?fresh=1&speed=0.1#/da-fare`);
-  booted = await page.waitForFunction(() => window.__demo && document.querySelector("[data-screen=sarim-list]"), undefined, { timeout: 15000 }).then(() => true, () => false);
+  booted = await page.waitForFunction(() => window.__demo && document.querySelector("[data-screen=orbit-list]"), undefined, { timeout: 15000 }).then(() => true, () => false);
   if (booted) {
     await page.evaluate(() => document.fonts.ready);
     for (const [id, name, run] of CHECKS) {

@@ -1,6 +1,6 @@
 /**
  * scripts/ui-app/phone-runner.mjs - the engine of the phone walks
- * (`ui-app-phone.mjs` for app.html, `ui-sarim-phone.mjs` for sarim.html):
+ * (`ui-app-phone.mjs` for app.html, `ui-orbit-phone.mjs` for orbit.html):
  * opens the built preview in headless WebKit as an iPhone-sized touch screen
  * (390x844) and, on every step, checks that the right place is drawn
  * (`data-screen`), that the page does not scroll sideways (document width <=

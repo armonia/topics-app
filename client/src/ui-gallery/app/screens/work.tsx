@@ -18,11 +18,11 @@ import { SheetPlace } from './work/SheetPlace';
 import { TodayPlace } from './work/TodayPlace';
 import { recordPathOf } from './work/adapters';
 
-/* The cases the sample addresses open: the first of Nocera (2418, the complete one), a second to show another type, and SARIM's. */
+/* The cases the sample addresses open: the first of Nocera (2418, the complete one), a second to show another type, and ORBIT's. */
 const NOCERA_CASES = CASES.filter((c) => c.org === 'nocera');
 const FIRST = NOCERA_CASES[0];
 const OTHER = NOCERA_CASES.find((c) => c.kind !== FIRST?.kind) ?? FIRST;
-const SARIM = CASES.find((c) => c.org === 'sarim');
+const ORBIT = CASES.find((c) => c.org === 'orbit');
 const FIRST_ID = FIRST?.id ?? '2418';
 const OTHER_ID = OTHER?.id ?? FIRST_ID;
 const DOC_ID = FIRST?.documents.find((d) => d.id !== 'ricevuta' && !d.draft)?.id ?? 'd-ricorso';
@@ -71,7 +71,7 @@ const screens: ScreenDef[] = [
     render: (p, ctx) => <RecordPlace ctx={ctx} id={p.id} />,
   },
   {
-    id: 'x06', path: '/sarim/pratiche/:id', org: 'sarim', nav: 'callcenter', needs: 'view:callcenter', samples: [P.sarimRecord(SARIM?.id ?? FIRST_ID)],
+    id: 'x06', path: '/orbit/pratiche/:id', org: 'orbit', nav: 'callcenter', needs: 'view:callcenter', samples: [P.orbitRecord(ORBIT?.id ?? FIRST_ID)],
     tab: recordTab,
     title: (p) => recordName(p.id),
     render: (p, ctx) => <RecordPlace ctx={ctx} id={p.id} />,
@@ -94,7 +94,7 @@ const screens: ScreenDef[] = [
 function search(ctx: ScreenCtx): SearchEntry[] {
   const out: SearchEntry[] = [];
   for (const c of visibleCases(ctx.state, ctx.persona)) {
-    const need = c.org === 'sarim' ? 'view:callcenter' as const : 'view:data' as const;
+    const need = c.org === 'orbit' ? 'view:callcenter' as const : 'view:data' as const;
     out.push({
       id: `case:${c.id}`,
       group: ctx.copy.work.search.cases,

@@ -55,7 +55,7 @@ export function OrgPage({ name, monogram, color, summary, cards, cardCount, onOp
           <div className="flex items-center gap-3">
             <Monogram text={monogram} color={color} size={36} />
             <div className="min-w-0">
-              <h1 className="truncate text-headline font-semibold leading-7 text-app-text">{name}</h1>
+              <h1 className="truncate text-[20px] font-semibold leading-7 text-app-text">{name}</h1>
               <p className="text-prose leading-6 text-app-text-secondary">{summary}</p>
             </div>
           </div>

@@ -19,7 +19,8 @@ function sources(dir: string): string[] {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
       // The landing demo writes fake rows, it does not read the feed.
-      if (entry.name !== "demo" && entry.name !== "__tests__") out.push(...sources(path));
+      // The isolated organizations preview layer never reads the feed either.
+      if (entry.name !== "demo" && entry.name !== "__tests__" && !/[\\/]src[\\/]ui(-gallery)?$/.test(path)) out.push(...sources(path));
     } else if (/\.(ts|tsx|js|jsx)$/.test(entry.name) && !/\.test\.(ts|tsx|js|jsx)$/.test(entry.name)) {
       out.push(path);
     }

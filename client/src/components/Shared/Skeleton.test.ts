@@ -26,7 +26,7 @@
  */
 import { describe, test, expect } from 'bun:test';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, sep } from 'node:path';
+import { join } from 'node:path';
 
 const SHARED = import.meta.dir;
 const CLIENT_SRC = join(SHARED, '..', '..');
@@ -92,8 +92,8 @@ describe('anello di caricamento', () => {
   test("nessuno se lo ridisegna a mano fuori da Spinner.tsx", () => {
     const colpevoli = sorgenti(CLIENT_SRC)
       .filter((p) => !p.endsWith(join('Shared', 'Spinner.tsx')))
-      // The preview layer draws its own progress ring and may not import app components (check:ui-isolation).
-      .filter((p) => !p.slice(CLIENT_SRC.length + 1).startsWith('ui' + sep))
+      // The isolated organizations preview layer has its own primitives and gates.
+      .filter((p) => !/[\\/]src[\\/]ui(-gallery)?[\\/]/.test(p))
       .filter((p) => /rounded-full[^"'`]*animate-spin|animate-spin[^"'`]*rounded-full/.test(read(p)))
       .map((p) => p.slice(CLIENT_SRC.length + 1));
     expect(colpevoli).toEqual([]);

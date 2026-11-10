@@ -2,8 +2,8 @@
  * An edition of the preview: which areas it has, who uses it, how its sidebar
  * reads, what it notifies at the start and where it keeps its state. The
  * container (`Container.tsx`) is the same for every edition; `app.html` runs
- * the multi-organization one (`NOCERA_EDITION`), `sarim.html` the one where
- * SARIM is the only organization (`client/src/ui-gallery/sarim/edition.ts`).
+ * the multi-organization one (`NOCERA_EDITION`), `orbit.html` the one where
+ * ORBIT is the only organization (`client/src/ui-gallery/orbit/edition.ts`).
  */
 import { CalendarCheck, Inbox, Kanban, Menu as MenuIcon, Search, Sun, type LucideIcon } from 'lucide-react';
 import type { NavKind, SidebarModel } from '../../ui/types';

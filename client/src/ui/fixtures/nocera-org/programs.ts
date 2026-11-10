@@ -16,11 +16,11 @@
  * protocol, mail, documents, accounting and litigation, `staff` the payroll,
  * `tenders` the tender portal, `public` SEND.
  */
-import type { SarimProgram } from '../sarim-org/programs';
+import type { OrbitProgram } from '../orbit-org/programs';
 
 const at = (day: string, time: string) => `2026-${day}T${time}:00+01:00`;
 
-export const NOCERA_PROGRAMS: SarimProgram[] = [
+export const NOCERA_PROGRAMS: OrbitProgram[] = [
   {
     id: 'halley', name: 'Halley', sub: 'protocollo, atti, albo', monogram: 'H', color: '#1d4ed8', group: 'office', flowName: 'Halley', link: 'browser', // allow-italian: fixture data, shown as written
     how: "Robot nel browser sul server di Topics: entra in Halley con un utente di servizio e ripete i passi del Protocollo, come farebbe una persona.", // allow-italian: fixture data, shown as written
@@ -205,7 +205,7 @@ export const NOCERA_PROGRAMS: SarimProgram[] = [
   {
     id: 'pec-aruba', name: 'PEC Aruba', sub: 'la casella PEC del protocollo', monogram: 'P', color: '#2563eb', group: 'office', flowName: 'PEC Aruba', link: 'mailbox', // allow-italian: fixture data, shown as written
     how: 'Legge la casella; ogni PEC che esce dal Consorzio la prepara Topics e la invia una persona, con la ricevuta di consegna.', // allow-italian: fixture data, shown as written
-    account: 'protocollo@pec.bonificasarno.it', // allow-italian: fixture data, shown as written
+    account: 'protocollo@x.example.it', // allow-italian: fixture data, shown as written
     every: 'ogni 2 minuti', // allow-italian: fixture data, shown as written
     gist: { reads: "PEC in arrivo e ricevute", writes: "risposte e concessioni da inviare" }, // allow-italian: fixture data, shown as written
     reads: [

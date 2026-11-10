@@ -7,7 +7,7 @@ import path from 'path';
  * Gallery build of the UI layer (`client/src/ui/`): `ui.html` renders each
  * screen of the mockups with the real components and example data, one per
  * hash (`ui.html#w01`); `app.html` joins the same screens into one navigable
- * app (`app.html#/panoramica`); `sarim.html` and `consorzio.html` are the editions
+ * app (`app.html#/panoramica`); `orbit.html` and `consorzio.html` are the editions
  * of one organization each. No server, no demo boot: the layer takes
  * everything from props, so both pages need nothing but the components and
  * the CSS. Output in `client/dist-ui/` (ignored, like every `dist*`).
@@ -35,7 +35,7 @@ export default defineConfig({
       input: {
         ui: path.resolve(__dirname, 'ui.html'),
         app: path.resolve(__dirname, 'app.html'),
-        sarim: path.resolve(__dirname, 'sarim.html'),
+        orbit: path.resolve(__dirname, 'orbit.html'),
         consorzio: path.resolve(__dirname, 'consorzio.html'),
       },
     },

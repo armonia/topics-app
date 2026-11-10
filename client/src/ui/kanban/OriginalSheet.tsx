@@ -109,7 +109,7 @@ export function OriginalSheet({ original, marks, active, onMark, size = 'inline'
           <figcaption className="font-sans text-mini">{photoLabel}</figcaption>
         </figure>
       )}
-      <div className={clsx('flex flex-col', FACE[original.kind], page ? 'gap-3 text-body-lg leading-7' : 'gap-2 text-prose leading-6', original.kind === 'form' || original.kind === 'invoice' ? 'text-prose' : '')}>
+      <div className={clsx('flex flex-col', FACE[original.kind], page ? 'gap-3 text-[15px] leading-7' : 'gap-2 text-prose leading-6', original.kind === 'form' || original.kind === 'invoice' ? 'text-[13px]' : '')}>
         {original.lines.map((line, i) => (
           <p
             key={i}

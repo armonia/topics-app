@@ -78,7 +78,7 @@ export const ORGS_COPY_EN: OrgsCopy = {
     saved: 'Overview saved',
     logCustomize: 'Overview blocks customized',
   },
-  sarim: {
+  orbit: {
     always: 'Always',
     flowsCount: (n) => (n === 1 ? '1 flow' : `${n} flows`),
     newFlow: 'New flow',
@@ -90,9 +90,9 @@ export const ORGS_COPY_EN: OrgsCopy = {
     clearFilters: 'Clear the filters',
     columns: { flow: 'Flow', area: 'Area', trigger: 'What starts it', status: 'Status', perMonth: 'Per month, estimate', waiting: 'Waiting at' },
     overviewDetail: 'monthly estimate at full speed',
-    orgName: 'SARIM',
-    overviewTitle: 'SARIM overview',
-    exportFile: 'overview-sarim',
+    orgName: 'ORBIT',
+    overviewTitle: 'ORBIT overview',
+    exportFile: 'overview-orbit',
     statusLabel: (status, version) => `${{ attivo: 'Active', collaudo: 'In test', bozza: 'Draft', spento: 'Off' }[status]} · v${version}`,
     perMonthNote: (n) => `${n} per month, estimate`,
     plainPanel: { tag: 'Flow data', title: 'Who works on each step', description: 'Each step with the program or the office that runs it.', section: 'Steps', access: 'Responsible office' },

@@ -1,6 +1,6 @@
 /**
  * The Consorzio edition of the preview (`consorzio.html`): the same app as
- * `sarim.html`, with the Consorzio di Bonifica Integrale Comprensorio Sarno as
+ * `orbit.html`, with the Consorzio di Bonifica Integrale Comprensorio Sarno as
  * the only organization. `?theme=dark` and `?lang=en` work as there; the state
  * is kept apart from the other previews.
  *
@@ -13,7 +13,7 @@ import { createRoot } from 'react-dom/client';
 import '../index.css';
 import './app/app.css';
 import { NOCERA_WORLD } from '../ui/fixtures/nocera-org/world';
-import { setWorld } from './sarim/world';
+import { setWorld } from './orbit/world';
 
 setWorld(NOCERA_WORLD);
 

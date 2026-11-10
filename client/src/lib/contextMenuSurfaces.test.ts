@@ -149,16 +149,14 @@ function rightClickViolations(
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const path = join(dir, e.name);
-    if (e.isDirectory()) return e.name === 'node_modules' || e.name === 'test' ? [] : sources(path);
+    // The isolated organizations preview layer has its own gates.
+    if (e.isDirectory()) return e.name === 'node_modules' || e.name === 'test' || /[\\/]src[\\/]ui(-gallery)?$/.test(path) ? [] : sources(path);
     return /\.tsx?$/.test(e.name) && !/\.(test|spec)\.tsx?$/.test(e.name) && !e.name.endsWith('.d.ts') ? [path] : [];
   });
 }
 
 function clientSources(): Array<{ file: string; text: string }> {
-  // The preview layer (ui/, ui-gallery/) is a self-contained design layer with its own
-  // primitives (Menu, Popover, Dialog, Toast, Spinner-like progress) and is held to
-  // props-only by check:ui-isolation, so it cannot use the app's shared pieces. Card e12b765a.
-  return sources(SRC).filter((path) => !/^ui(-gallery)?\//.test(relative(SRC, path))).map((path) => ({ file: relative(SRC, path), text: readFileSync(path, 'utf8') }));
+  return sources(SRC).map((path) => ({ file: relative(SRC, path), text: readFileSync(path, 'utf8') }));
 }
 
 describe('right-click surfaces (CTXMENU-01)', () => {

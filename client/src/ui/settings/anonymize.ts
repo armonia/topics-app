@@ -54,7 +54,7 @@ export interface AnonResult {
 }
 
 const FIRST_NAMES = [
-  'Mario', 'Luigi', 'Giovanni', 'Giuseppe', 'Antonio', 'Francesco', 'Salvatore', 'Carmine', 'Vincenzo', 'Raffaele',
+  'Mario', 'Luigi', 'Gianni', 'Giuseppe', 'Antonio', 'Francesco', 'Salvatore', 'Carmine', 'Vincenzo', 'Raffaele',
   'Gennaro', 'Pasquale', 'Michele', 'Angelo', 'Luca', 'Marco', 'Paolo', 'Andrea', 'Roberto', 'Stefano', 'Alberto',
   'Maria', 'Anna', 'Giulia', 'Francesca', 'Rosa', 'Carmela', 'Lucia', 'Angela', 'Giuseppina', 'Concetta', 'Teresa',
   'Elena', 'Sara', 'Chiara', 'Paola', 'Laura', 'Silvia', 'Antonietta', 'Filomena', 'Assunta', 'Immacolata', // allow-italian: Italian names and legal forms the recognisers match

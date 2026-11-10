@@ -1,5 +1,5 @@
 /**
- * The two measures every SARIM page shares, so the crumbs, the section strip
+ * The two measures every ORBIT page shares, so the crumbs, the section strip
  * and the body start on the same left edge on every page: the side gutter of
  * the pane (the header's own padding) and the band that holds a `SubNav`
  * between the header and the scrolling body.

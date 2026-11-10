@@ -26,9 +26,9 @@ export function seedNotifications(): NotificationEntry[] {
     const days = daysFromToday(next.d.date);
     out.push({ id: 'seed-deadline', at: `${DEMO_TODAY}T07:00:00+01:00`, tone: days <= 3 ? 'warn' : 'info', title: `${next.d.label}: ${formatDay(next.d.date)}`, body: `Pratica ${next.c.id} · ${next.c.title}`, path: P.record(next.c.id) }); // allow-italian: fixture data, shown as written
   }
-  const call = CASES.find((c) => c.org === 'sarim');
+  const call = CASES.find((c) => c.org === 'orbit');
   if (call) {
-    out.push({ id: 'seed-sarim', at: call.arrivedAt, tone: 'info', title: `SARIM: ${call.title}`, body: call.proposal, path: P.sarimRecord(call.id) });
+    out.push({ id: 'seed-orbit', at: call.arrivedAt, tone: 'info', title: `ORBIT: ${call.title}`, body: call.proposal, path: P.orbitRecord(call.id) });
   }
   return out;
 }
