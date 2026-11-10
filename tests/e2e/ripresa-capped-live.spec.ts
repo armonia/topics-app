@@ -69,7 +69,7 @@ test.describe("the capped resume notice, with the chat open in two windows", () 
         { kind: "error", text: "Turno interrotto: il processo dell'agente non dava più segni di vita e la risposta è stata chiusa.", cause: "watchdog" },
       ]);
       // The wake-up: a stream on another chat that the stale tick closes.
-      expect((await request.post(`${E2E_BASE}/api/test/stale-stream-clock`, { data: { timeoutMs: 1_000 } })).ok()).toBe(true);
+      expect((await request.post(`${E2E_BASE}/api/test/stale-stream-clock`, { data: { timeoutMs: 1_000, tickMs: 1_000 } })).ok()).toBe(true);
       expect((await request.post(`${E2E_BASE}/api/test/streams/partial`, { data: { sessionKey: await sessionKeyOf(request, b) } })).ok()).toBe(true);
 
       // The sweep ran and wrote the notice: a red below can only mean "written
@@ -78,7 +78,7 @@ test.describe("the capped resume notice, with the chat open in two windows", () 
         .poll(async () => {
           const body = (await (await request.get(`${E2E_BASE}/api/topics/${a}/messages?limit=10`)).json()) as { messages: { content: string }[] };
           return body.messages.filter((m) => m.content.includes(CAPPED)).length;
-        }, { timeout: 90_000, intervals: [1_000], message: "the sweep writes the capped notice" })
+        }, { timeout: 30_000, intervals: [1_000], message: "the sweep writes the capped notice" })
         .toBe(1);
 
       for (const [name, p] of [["A", pageA], ["B", pageB]] as const) {
