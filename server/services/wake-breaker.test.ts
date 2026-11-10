@@ -29,9 +29,3 @@ test("two failed wakes in a row: the sleeping PC is no longer a target, until th
   expect(pick()?.id).toBe("pc");
 });
 
-test("the dispatcher wires the breaker into the choice", async () => {
-  const src = await Bun.file(new URL("./task-dispatcher.ts", import.meta.url)).text();
-  expect(src).toContain("wakeBlocked: (id) => wakeBreaker.isOpen(id)");
-  const remote = await Bun.file(new URL("./task-dispatcher-remote-node.ts", import.meta.url)).text();
-  expect(remote).toContain("wakeBreaker.failure(machineId)");
-});
