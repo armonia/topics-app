@@ -144,7 +144,7 @@ interface StandaloneChatGroupProps {
   // Create new chat in a project (optional groupId = the tab bar clicked)
   onNewChatInProject?: (projectPath: string, groupId?: string) => void;
   // Pending focus for project tabs (navigate to a topic inside a project)
-  pendingProjectFocus?: { projectPath: string; topicId: string; targetGroupId?: string } | null;
+  pendingProjectFocus?: { projectPath: string; topicId: string; targetGroupId?: string; preview?: boolean } | null;
   onPendingProjectFocusConsumed?: () => void;
   // Report which topic is active inside the focused project
   onProjectActiveTopicChange?: (projectPath: string, topicId: string | null) => void;
@@ -894,6 +894,7 @@ export function StandaloneChatGroup({
           isFissato={isFissato}
           pendingFocusTopicId={pendingProjectFocus && pendingProjectFocus.projectPath === projectPath ? pendingProjectFocus.topicId : null}
           pendingFocusTargetGroupId={pendingProjectFocus && pendingProjectFocus.projectPath === projectPath ? pendingProjectFocus.targetGroupId : undefined}
+          pendingFocusPreview={!!(pendingProjectFocus && pendingProjectFocus.projectPath === projectPath && pendingProjectFocus.preview)}
           onPendingFocusConsumed={onPendingProjectFocusConsumed}
           onActiveTopicChange={onProjectActiveTopicChange ? (topicId) => onProjectActiveTopicChange(projectPath, topicId) : undefined}
           onOpenPanesChange={onProjectOpenPanesChange ? (paneIds) => onProjectOpenPanesChange(projectPath, paneIds) : undefined}
