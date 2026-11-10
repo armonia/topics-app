@@ -258,6 +258,11 @@ jobs:
           path: downloaded-results/
           merge-multiple: false
 
+      # Serve a `e2e-duration-regressions.ts` qui sotto, PRIMA che il passo
+      # successivo sovrascriva il file: e' il "di ieri notte" del confronto.
+      - name: Copia le durate di ieri notte (per il confronto)
+        run: cp scripts/e2e-durations.json /tmp/e2e-durations-before.json
+
       - name: Aggiorna e2e-durations.json
         id: update
         run: |
@@ -278,6 +283,22 @@ jobs:
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
+
+      # QUANTO TEMPO CI ABBIAMO MESSO, non solo SE e' andata bene: un file che
+      # rallenta notte dopo notte resta invisibile finche' non diventa un
+      # timeout, perche' le durate si registrano ma nessuno le confronta col
+      # giorno prima. Un `::warning::` per file, niente di piu' — questo
+      # informa, non giudica, come fa e2e-failed-titles.ts coi rossi.
+      - name: Chi e' diventato piu' lento stanotte
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          bun run scripts/e2e-duration-regressions.ts /tmp/e2e-durations-before.json scripts/e2e-durations.json | while IFS= read -r riga; do
+            if [[ "$riga" == "("* ]]; then
+              echo "$riga"
+            else
+              echo "::warning title=Test E2E piu' lento stanotte::$riga"
+            fi
+          done
 
       # SI COMMITTA SU MAIN, NON SI APRE UNA PR — e non e' una scorciatoia.
       #
