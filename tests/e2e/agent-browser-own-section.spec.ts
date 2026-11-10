@@ -58,6 +58,7 @@ test.describe("agent browsers live in the agent's section", () => {
   });
 
   test("agent's open: page alive, zero panes, zero windows; Attilio's open: pane as before", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "BROWSER-CHAT-AGENT-01" });
     await resetPaneStore(request, [mineId]);
     await goToApp(page);
     await waitForTopicVisible(page, mineId, { timeout: 15_000 });
