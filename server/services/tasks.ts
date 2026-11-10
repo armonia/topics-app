@@ -3729,8 +3729,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
          UNION ALL
          SELECT t.id FROM tasks t JOIN subtree s ON t.parent_task_id = s.id
        )
-       UPDATE tasks SET archived = 1, updated_at = ? WHERE id IN (SELECT id FROM subtree)`,
+       UPDATE tasks SET archived = 1, updated_at = ?,
+         dispatch_state = CASE WHEN dispatch_state = 'queued' THEN NULL ELSE dispatch_state END
+       WHERE id IN (SELECT id FROM subtree)`,
     ).run(taskId, ts);
+    // The dispatcher skips archived cards: leaving 'queued' made them look like
+    // a stuck queue (10/11, 11 cards "queued" for the PC for weeks).
   }
 
   /**

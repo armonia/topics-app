@@ -2,6 +2,24 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.81 — 2026-11-10
+
+### Sotto il cofano
+- e2e shards back to 8 runners (16 processes), 7 put the median work over its bar (card 3ae7e6a4)
+- shard test expects the eight-runner matrix (card cd139870)
+- topics/grave-wolf (card cd139870) (#741)
+
+## 2.3.80 — 2026-11-10
+
+### Correzioni
+- **tasks** · archiving drops the queued dispatch state (#740)
+- **tasks** · English comment for the archive queued reset (#743)
+
+### Sotto il cofano
+- topics/transient-glacier (card 25f9832a) (#728)
+- Subagent turns end when background reports arrive only as queued commands (#739)
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-10 [skip ci]
+
 ## 2.3.79 — 2026-11-10
 
 ### Sotto il cofano
