@@ -47,7 +47,7 @@ describe("server.ts closes and relights turn rows only through the helpers", () 
   });
 
   test("the stale-stream sweeper closes a row through finalizeStaleRow", () => {
-    expect(block("const staleStreamTimer = setInterval(", "\n}, ")).toContain("finalizeMessage: (args) => finalizeStaleRow(db, args)");
+    expect(block("function runStaleStreamPass(): void {", "\n}\n")).toContain("finalizeMessage: (args) => finalizeStaleRow(db, args)");
   });
 
   test("the orphan-tool cleanup runs after the boot's partial sweep, with the broker's live sessions", () => {

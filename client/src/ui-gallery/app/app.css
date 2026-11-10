@@ -1,0 +1,32 @@
+/*
+ * The organizations preview on top of Topics' own styles: how a pane comes in,
+ * and the density and reduced motion a person chooses in Settings > Appearance
+ * (the container writes them on <html>).
+ */
+
+/* Opacity only: a transform on the pane would become the containing block of
+   every position:fixed popover inside it while the animation runs. */
+@keyframes ui-pane-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.ui-pane-enter {
+  animation: ui-pane-enter 140ms ease-out both;
+}
+
+/* Tailwind sizes are in rem, so the root size scales the whole interface. */
+html[data-density='compact'] { font-size: 14.5px; }
+html[data-density='spacious'] { font-size: 17px; }
+
+html.reduce-motion *,
+html.reduce-motion *::before,
+html.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-pane-enter { animation: none; }
+}

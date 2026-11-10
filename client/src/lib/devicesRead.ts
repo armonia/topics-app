@@ -38,16 +38,19 @@ export interface DevicesSnapshot {
   people: DevicePerson[];
 }
 
+/** The body of GET /api/auth/devices; the landing demo answers with this type. */
+export type DevicesWire = {
+  thisComputer?: { name?: string; current: boolean };
+  devices?: PairedDevice[];
+  people?: DevicePerson[];
+};
+
 /** Reads the devices; `null` when the route did not answer. */
 export async function readDevices(): Promise<DevicesSnapshot | null> {
   try {
     const r = await apiFetch('/api/auth/devices', { credentials: 'same-origin' });
     if (!r.ok) return null;
-    const b = await r.json() as {
-      thisComputer?: { name?: string; current: boolean };
-      devices?: PairedDevice[];
-      people?: DevicePerson[];
-    };
+    const b = await r.json() as DevicesWire;
     return { computer: b.thisComputer ?? null, devices: b.devices ?? [], people: b.people ?? [] };
   } catch {
     return null;

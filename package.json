@@ -1,6 +1,6 @@
 {
   "name": "topics-app",
-  "version": "2.3.76",
+  "version": "2.3.80",
   "description": "Desktop workspace for coding agents: editor, diff viewer, terminal, browser and a task board, one topic at a time. Agents run inside Topics, not one process each: 200 sessions answering at once fit in 162 MB.",
   "author": "Armonia",
   "license": "MIT",
@@ -38,6 +38,10 @@
     "landing:vividness": "node scripts/landing-vividness.mjs",
     "landing:serve": "cd landing/dist && python3 -m http.server 4321 --bind 127.0.0.1",
     "build:landing": "cd client && bun run build:landing",
+    "build:ui": "cd client && bun run build:ui",
+    "check:ui-fixtures": "bun run scripts/ui-fixtures-check.ts",
+    "dev:ui": "cd client && bun run dev:ui",
+    "check:ui-isolation": "node scripts/check-ui-isolation.mjs",
     "check:demo": "node scripts/check-demo.mjs",
     "deploy:landing": "bun run build:site && bun run check:demo && bunx wrangler@latest deploy",
     "deploy:landing:dry": "bun run build:site && bun run check:demo && bunx wrangler@latest deploy --dry-run",

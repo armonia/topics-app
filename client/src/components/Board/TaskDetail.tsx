@@ -38,7 +38,7 @@ import { buildTaskLink } from '../../lib/openTaskLink';
 import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState } from '../../lib/taskSession';
 import { useTaskSessionResolver } from '../../hooks/useTaskSession';
 import { enqueueProjectBrowserNavigate, isProjectWindowMounted } from '../../state/pane/adapters';
-import { useTaskBrowserTabs, liveTabs, workspaceTwinContextId } from '../../state/taskBrowserTabs';
+import { useTaskBrowserTabs, taskBrowserTabs, liveTabs, workspaceTwinContextId } from '../../state/taskBrowserTabs';
 import { paneIdToContextId } from '../../state/taskBrowserLayout';
 import { TaskModelSelector } from '../Shared/ModelSelector/TaskModelSelector';
 import { machineLabel, nodesOf, useMachines } from '../../state/machinesStore';
@@ -1101,6 +1101,15 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
   // The chip's status: the loaded row, else the board's copy while it loads.
   // A failed first read still says so, instead of a status nobody confirmed.
   const chipStatus: TaskStatus | null = task?.status ?? (loadFailedMessage ? null : initialStatus ?? null);
+  // A card closed while its drawer is open: park its live preview tabs. Only the
+  // transition counts, so opening an already-done card leaves its tabs alone.
+  const seenStatusRef = useRef<TaskStatus | null>(null);
+  useEffect(() => {
+    const status = task?.status ?? null;
+    const before = seenStatusRef.current;
+    seenStatusRef.current = status;
+    if (before && before !== 'done' && status === 'done') taskBrowserTabs.closeAll(taskId);
+  }, [task?.status, taskId]);
   // fetch-on-mount: setState lands after the await, not synchronously
   useEffect(() => { load(); }, [load, bump]);
   /**

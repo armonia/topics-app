@@ -227,13 +227,9 @@
       "onEsc"
     ],
     "client/src/components/Chat/ChatPane.tsx": [
-      "TYPING_THROTTLE_MS",
       "annullato",
-      "lastTypingSentRef",
       "raf",
-      "sendTyping",
-      "tentativo",
-      "typingTimeoutRef"
+      "tentativo"
     ],
     "client/src/components/Chat/CheckpointTimeline.tsx": [
       "hrs"
@@ -359,16 +355,13 @@
     ],
     "client/src/components/Editor/CodeEditor.tsx": [
       "langCompartment",
-      "langExt",
-      "modifiedMarker"
+      "langExt"
     ],
     "client/src/components/Editor/DiffViewer.tsx": [
       "langExt",
       "langExtensions"
     ],
     "client/src/components/Editor/EditorTabs.tsx": [
-      "closing",
-      "isModified",
       "obs"
     ],
     "client/src/components/Editor/FilePane.tsx": [
@@ -515,7 +508,6 @@
       "isMultiKey",
       "isMultiSelected",
       "leggiEstremita",
-      "modified",
       "motivo",
       "ripiego",
       "stato",
@@ -1058,9 +1050,6 @@
     "client/src/hooks/useKeyboardShortcuts.ts": [
       "evt"
     ],
-    "client/src/hooks/useMenuKeyboard.ts": [
-      "isTypingSurface"
-    ],
     "client/src/hooks/useOwnerName.ts": [
       "annuncia",
       "ascoltatori",
@@ -1070,7 +1059,6 @@
     "client/src/hooks/usePanelLifecycle.ts": [
       "bctx",
       "closedProjectRec",
-      "closingTopic",
       "focusLoc",
       "loc",
       "onUnarchive"
@@ -1790,13 +1778,6 @@
       "cambiato",
       "rec"
     ],
-    "client/src/state/pane/reducers/pinnedChatResurrection.test.ts": [
-      "closing"
-    ],
-    "client/src/state/pane/reducers/spaces.test.ts": [
-      "localNewerRename",
-      "remoteNewerRename"
-    ],
     "client/src/state/pane/reducers/staleTombstoneRetraction.test.ts": [
       "webapp",
       "webappPut"
@@ -1882,14 +1863,12 @@
       "unimplemented"
     ],
     "client/src/types/index.ts": [
-      "WSTypingMessage",
       "WSUIStateInitMessage",
       "WSUIStateUpdatedMessage"
     ],
     "scripts/ai-bridge-replay-bench.ts": [
       "acc",
       "buf",
-      "copies",
       "listLatencies",
       "resyncGap",
       "synthStore"
@@ -2223,14 +2202,12 @@
       "warmup"
     ],
     "scripts/e2e-plan-shards.test.ts": [
-      "dur",
-      "slowest"
+      "dur"
     ],
     "scripts/e2e-plan-shards.ts": [
       "collisioni",
       "lightest",
-      "sel",
-      "slowest"
+      "sel"
     ],
     "scripts/e2e-shards-summary.ts": [
       "perMotivo"
@@ -2254,10 +2231,6 @@
     ],
     "scripts/fix-node-pty-exec-bit.ts": [
       "prebuilds"
-    ],
-    "scripts/gen-migrations-manifest.ts": [
-      "EMBEDDED_MIGRATIONS",
-      "EmbeddedMigration"
     ],
     "scripts/handoff-evidence.ts": [
       "esito",
@@ -2539,7 +2512,6 @@
       "clampDsf",
       "dbs",
       "dsf",
-      "editable",
       "effectiveDsf",
       "txt"
     ],
@@ -2629,14 +2601,6 @@
     ],
     "server/db/message-tree.ts": [
       "collectSubtree"
-    ],
-    "server/db/migrations-embedded.test.ts": [
-      "embedded",
-      "embeddedNames"
-    ],
-    "server/db/migrations-embedded.ts": [
-      "EMBEDDED_MIGRATIONS",
-      "EmbeddedMigration"
     ],
     "server/db/notification-log.test.ts": [
       "notifica"
@@ -2835,9 +2799,6 @@
       "tagliato",
       "testo",
       "verbo"
-    ],
-    "server/lib/compress-json.test.ts": [
-      "notModified"
     ],
     "server/lib/compress-json.ts": [
       "gzip"
@@ -3447,8 +3408,7 @@
       "MODIFICA",
       "SOLA_LETTURA",
       "anteprima",
-      "buf",
-      "satisfies"
+      "buf"
     ],
     "server/providers/acp-jcode-model.integration.test.ts": [
       "CHIESTI",
@@ -3570,9 +3530,6 @@
     "server/providers/claude/events.fixture.ts": [
       "PARTIAL_SIDECHAIN",
       "SIDECHAIN_ASSISTANT"
-    ],
-    "server/providers/claude/sidechain-tracker.test.ts": [
-      "lastSummaries"
     ],
     "server/providers/claude/sidechain-tracker.ts": [
       "SidechainAction",
@@ -3916,7 +3873,6 @@
       "gitignorePatterns",
       "indici",
       "leggi",
-      "modified",
       "parseGitignoreFlat",
       "risposta",
       "scaduto",
@@ -4118,9 +4074,6 @@
       "langField",
       "testo"
     ],
-    "server/schemas/chat-ws-inbound.ts": [
-      "typingSchema"
-    ],
     "server/services/agent-census.test.ts": [
       "coordTopic",
       "lavora"
@@ -4240,7 +4193,6 @@
       "evt"
     ],
     "server/services/discord-presence.test.ts": [
-      "activities",
       "attesa",
       "attesa2",
       "dopoPrima"
@@ -4860,7 +4812,6 @@
       "ins",
       "listati",
       "magra",
-      "newer",
       "nipote",
       "nonno",
       "nota",
@@ -5093,8 +5044,6 @@
       "acc",
       "accName",
       "desc",
-      "editable",
-      "satisfies",
       "txt"
     ],
     "shared/browser-ws-messages.ts": [
@@ -5105,9 +5054,6 @@
     "shared/clear-messages-policy.test.ts": [
       "agenticTurn",
       "attivo"
-    ],
-    "shared/context-window.ts": [
-      "LONG_WINDOW_FAMILIES"
     ],
     "shared/element-describe.test.ts": [
       "desc"
@@ -5138,8 +5084,7 @@
     ],
     "shared/licenza-motivi.ts": [
       "MOTIVI_LICENZA",
-      "MotivoLicenza",
-      "satisfies"
+      "MotivoLicenza"
     ],
     "shared/media-kind.ts": [
       "isPreviewablePath"
@@ -5439,9 +5384,6 @@
       "enc",
       "proj"
     ],
-    "shared/tab-link.ts": [
-      "padded"
-    ],
     "shared/task-attempt.ts": [
       "formatFanoutComment"
     ],
@@ -5489,9 +5431,6 @@
     ],
     "shared/ws-handshake.ts": [
       "formatZodIssues"
-    ],
-    "shared/ws-outbound.ts": [
-      "typingBroadcastSchema"
     ],
     "tests/e2e/add-menu.spec.ts": [
       "kbds",
@@ -6016,7 +5955,6 @@
     "tests/e2e/file-explorer-git.spec.ts": [
       "cancellato",
       "modificati",
-      "modifiedIndicator",
       "newfileItem",
       "newfileRow",
       "nuovo",

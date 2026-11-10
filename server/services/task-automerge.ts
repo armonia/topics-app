@@ -18,7 +18,9 @@
 //     This is the whole point — a single checkout used to serve both the running
 //     server AND live dev sessions no longer makes a land fail (or force someone's
 //     branch to move) just because a session is parked on a feature branch.
-//   • NO push — landing is local only; the release pipeline stays the sole pusher.
+//   • NO push HERE. The route pushes `main` right after a CONFIRMED land,
+//     fast-forward only (`main-on-origin.ts`): the "release pipeline" this line
+//     used to defer to never existed, and 18 lands sat unpushed on 10/11/2026.
 //   • The BASE is `origin/main`, not the local `main`: the land fetches it first
 //     (bounded, `fetchRemoteBase`), measures the branch against it and merges it
 //     into the landing checkout BEFORE the branch. Local `main` stays where the
