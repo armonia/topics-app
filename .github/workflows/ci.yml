@@ -617,21 +617,8 @@ jobs:
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bun run check:bundle
 
-      # The landing demo is the real client with a mock seam in place of the
-      # server, and nothing in a build fails when a mock stops matching the
-      # code that reads it: the bundle compiles and dies at render. Until now
-      # only `deploy:landing` ran this check, by hand, so a client change that
-      # broke the demo was found when the site was published. The demo builds
-      # into landing/public/app (not client/dist), so the bundle steps above
-      # are untouched; the browser is the Chromium installed in the setup step.
-      - name: Landing demo boots clean
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: |
-          bun run build:landing
-          bun run check:demo landing/public
-          # Same boot with an unblurred 72% translucent menu: the glass probe has
-          # to go red, or it cannot see the defect it guards against.
-          bun run check:demo landing/public --mutant
+      # Landing demo, graphify-regen and e2e-stop-on-red live in `gates-2`
+      # below: same steps, in parallel (run 42837284629: 202 of gates' 462 s).
 
       # Le LATENZE delle rotte calde, contro una baseline dichiarata: stesso
       # mestiere di `check:bundle`, altro asse. Gira dopo la suite perche' vuole
@@ -793,6 +780,58 @@ jobs:
           fi
           exit "$rc"
 
+  # I tre passi piu' lenti di `gates` che non dipendono dal suo bundle, su un
+  # secondo runner in parallelo. Stessi comandi; `check` porta anche questo
+  # verdetto.
+  gates-2:
+    timeout-minutes: 25
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      # Same install steps as `gates`, for the reasons written there.
+      - name: Install server deps (root)
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Rebuild node-pty (Linux)
+        run: npm rebuild node-pty
+
+      - name: Rimetti il bit +x sugli spawn-helper (il postinstall e' stato saltato)
+        run: bun run scripts/fix-node-pty-exec-bit.ts
+
+      - name: Install client deps
+        run: bun install --frozen-lockfile
+        working-directory: client
+
+      - name: Install Playwright browsers (Chromium and WebKit)
+        id: setup
+        run: npx playwright install --with-deps chromium webkit
+
+      # The landing demo is the real client with a mock seam in place of the
+      # server, and nothing in a build fails when a mock stops matching the
+      # code that reads it: the bundle compiles and dies at render. Until now
+      # only `deploy:landing` ran this check, by hand, so a client change that
+      # broke the demo was found when the site was published. The demo builds
+      # into landing/public/app (not client/dist).
+      - name: Landing demo boots clean
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: |
+          bun run build:landing
+          bun run check:demo landing/public
+          # Same boot with an unblurred 72% translucent menu: the glass probe has
+          # to go red, or it cannot see the defect it guards against.
+          bun run check:demo landing/public --mutant
+
       # The gates of the post-commit rebuild (scripts/graphify-regen.sh). They
       # run on a fake sysctl and graphify, so the runner's own readings do not
       # matter: a regression here loses the code graph silently on every commit.
@@ -826,7 +865,7 @@ jobs:
   # before `unit` does.
   check:
     timeout-minutes: 30
-    needs: [unit, gates]
+    needs: [unit, gates, gates-2]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
@@ -844,8 +883,13 @@ jobs:
         if: ${{ !cancelled() }}
         env:
           GATES_RESULT: ${{ needs.gates.result }}
+          GATES2_RESULT: ${{ needs.gates-2.result }}
         run: |
-          echo "gates job of this run: $GATES_RESULT"
+          echo "gates jobs of this run: $GATES_RESULT / $GATES2_RESULT"
+          if [ "$GATES2_RESULT" != "success" ]; then
+            echo "::error title=Gates::the gates-2 job of this run concluded '$GATES2_RESULT': the red step is in its log"
+            exit 1
+          fi
           if [ "$GATES_RESULT" != "success" ]; then
             echo "::error title=Gates::the gates job of this run concluded '$GATES_RESULT': the red step is in its log"
             exit 1
