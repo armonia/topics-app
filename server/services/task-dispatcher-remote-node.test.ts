@@ -1124,6 +1124,21 @@ describe("la consegna del nodo è una consegna come le altre", () => {
     expect(h.comments().some((c) => c.content.includes("finita senza nessun commit"))).toBe(true);
   });
 
+  it("zero commit propri perche' l'agente ha chiesto una scelta: non e' mancanza di strumenti, va in review e non resta qui", async () => {
+    const { h } = plantedHarness({ commit: null, files: [] });
+    h.seed();
+    h.db.run("UPDATE tasks SET overflowed_at = ? WHERE id = ?", [new Date().toISOString(), TASK]);
+    await dispatch(h);
+    h.svc.addComment({ taskId: TASK, author: "agent:e88f046b", kind: "comment", content: ["```question", "Quale fascia?", "- A", "- B", "```"].join("\n") });
+    h.svc.updateBoardSettings(PID, { autoDispatch: false });
+    await poll(h);
+
+    const t = h.task();
+    expect(t.status).toBe("review");
+    expect(t.stayLocal).toBe(false);
+    expect(h.comments().some((c) => c.content.includes("finita senza nessun commit"))).toBe(false);
+  });
+
   it("zero commit propri su una card che una persona ha mandato sul nodo: resta in review, nessuno la sposta", async () => {
     const { h } = plantedHarness({ commit: null, files: [] });
     h.seed();
