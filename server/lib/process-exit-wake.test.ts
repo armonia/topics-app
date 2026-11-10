@@ -55,6 +55,14 @@ describe("processExitText", () => {
     expect(text).toContain('read_process_output(process_id="p-1")');
   });
 
+  // The retry is linked to its failure only by `retry_of`: a wake that did not
+  // name it left every retry counted as a new job (channels, 08/11).
+  test("a failure names the retry_of to pass when it is run again, a success does not", () => {
+    expect(processExitText(FACTS)).toContain('pass retry_of="p-1" to run_command');
+    expect(processExitText({ ...FACTS, exitCode: null })).toContain('retry_of="p-1"');
+    expect(processExitText({ ...FACTS, exitCode: 0 })).not.toContain("retry_of");
+  });
+
   test("an unknown code is said to be unknown, never a success", () => {
     const text = processExitText({ ...FACTS, exitCode: null });
     expect(text).toContain("exit code unknown");
