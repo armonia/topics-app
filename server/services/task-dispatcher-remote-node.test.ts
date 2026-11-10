@@ -1133,6 +1133,19 @@ describe("la consegna del nodo è una consegna come le altre", () => {
     expect(measured).toEqual([]);
   });
 
+  it("zero commit propri su una card che usa file di questo Mac, mandata a mano: torna in todo «solo Mac», non in review (10/11)", async () => {
+    const { h } = plantedHarness({ commit: null, files: [] });
+    h.seed();
+    h.db.run("UPDATE tasks SET description = 'aggiorna ~/.claude/jarvis/tools/usage-hub' WHERE id = ?", [TASK]);
+    await dispatch(h);
+    h.svc.updateBoardSettings(PID, { autoDispatch: false });
+    await poll(h);
+    const t = h.task();
+    expect(t.status).toBe("todo");
+    expect(t.stayLocal).toBe(true);
+    expect(t.machineId).toBeNull();
+  });
+
   it("zero commit propri, card messa sul nodo dal sistema: torna in todo e salta quel nodo, senza «solo Mac»", async () => {
     const { h, measured } = plantedHarness({ commit: null, files: [] });
     h.seed();
