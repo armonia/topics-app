@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.81 — 2026-11-10
+
+### Sotto il cofano
+- e2e shards back to 8 runners (16 processes), 7 put the median work over its bar (card 3ae7e6a4)
+- shard test expects the eight-runner matrix (card cd139870)
+- topics/grave-wolf (card cd139870) (#741)
+
 ## 2.3.80 — 2026-11-10
 
 ### Correzioni
