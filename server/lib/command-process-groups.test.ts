@@ -120,12 +120,18 @@ async function writtenPid(path: string): Promise<number> {
 // 143, the right code for a stopped command and a red for this test (6 runs in
 // 50 on a loaded Linux runner). Catching TERM in the command is no way out: the
 // child it forks keeps that handler until its exec and loses the TERM there.
+// The command hands the child its own pid: a child that starts after the
+// command exited reads `$PPID` as 1 and stops waiting at once. The close
+// lands anywhere in the leader's drain, on purpose: on the macOS runner it
+// once caught the old FIFO scan between fork and open, and the code was null
+// ("a TERM to the whole group during the drain never wedges the leader"
+// pins that case down).
 test("the group leader stays verifiable after its command leaves a child behind", async () => {
   const processId = crypto.randomUUID();
   const exitPath = join(instanceA, `${processId}.exit`);
   const childPath = join(instanceA, `${processId}.child`);
-  const child = `while kill -0 "$PPID" 2>/dev/null; do sleep 0.01; done; echo "$$" > ${childPath}; exec sleep 90`;
-  const argv = commandArgv(`/bin/sh -c '${child}' >/dev/null 2>&1 & exit 0`, exitPath, commandProcessGroupStopPath(processId));
+  const child = `while kill -0 "$1" 2>/dev/null; do sleep 0.01; done; echo "$$" > ${childPath}; exec sleep 90`;
+  const argv = commandArgv(`/bin/sh -c '${child}' _ "$$" >/dev/null 2>&1 & exit 0`, exitPath, commandProcessGroupStopPath(processId));
   if (!argv) throw new Error("POSIX command shell is unavailable");
   const proc = Bun.spawn(argv, { stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
   live.push({ proc, pgid: proc.pid });
@@ -208,6 +214,45 @@ test("a card script's leader outlives a TERM during the drain while a peer lives
   const processId = crypto.randomUUID();
   const proc = await termDuringDrain((childPath) => commandGroupArgv(["/bin/sh", "-c", leavesChild(childPath)], commandProcessGroupStopPath(processId)));
   expect(proc.exitCode).not.toBeNull();
+});
+
+// A Stop signals the whole GROUP, so its TERM also reaches what the drain
+// forks. zsh (the macOS leader) does not pass the drain's ignored TERM to a
+// child it forks for itself: the old scan, `ps > fifo &`, died between its
+// fork and the open of the FIFO's write end, and the leader stayed blocked in
+// the open of the read end, deaf to TERM, until the SIGKILL after the grace.
+// The exit code was never written (null after 10.2 s on the macOS runner, about
+// one Stop in seventy on a loaded Mac). Here the peer ignores TERM, so the
+// drain keeps scanning under a TERM every millisecond; once the peer is gone
+// the leader has to finish the drain on its own and write 0.
+test("a TERM to the whole group during the drain never wedges the leader", async () => {
+  const processId = crypto.randomUUID();
+  const exitPath = join(instanceA, `${processId}.exit`);
+  const childPath = join(instanceA, `${processId}.child`);
+  const peer = `trap "" TERM; echo "$$" > ${childPath}; exec sleep 90`;
+  const argv = commandArgv(`/bin/sh -c '${peer}' >/dev/null 2>&1 & exit 0`, exitPath, commandProcessGroupStopPath(processId));
+  if (!argv) throw new Error("POSIX command shell is unavailable");
+  const proc = Bun.spawn(argv, { stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
+  live.push({ proc, pgid: proc.pid });
+  const identity = captureProcessGroup(proc.pid);
+  if (!identity) throw new Error(`could not capture group for ${proc.pid}`);
+  live[live.length - 1] = { proc, pgid: identity.pgid };
+
+  const childPid = await writtenPid(childPath);
+  try {
+    const until = Date.now() + 3_000;
+    while (Date.now() < until) {
+      try { process.kill(-identity.pgid, "SIGTERM"); } catch {}
+      await Bun.sleep(1);
+    }
+    expect(proc.exitCode).toBeNull();
+  } finally {
+    try { process.kill(childPid, "SIGKILL"); } catch {}
+  }
+  await Promise.race([proc.exited, Bun.sleep(3_000)]);
+  expect(processGroupAlive(identity.pgid)).toBe(false);
+  expect(readExitCode(exitPath)).toBe(0);
+  expect(existsSync(join(tmpdir(), `topics-command-group-${identity.pid}`))).toBe(false);
 });
 
 // Closed as it starts, like a Stop right after Run: the TERM can land between

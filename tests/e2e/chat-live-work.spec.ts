@@ -47,6 +47,7 @@ const agents: string[] = [];
 
 test.afterEach(async ({ request }) => {
   for (const id of processes.splice(0)) await request.post(`${E2E_BASE}/api/scripts/${id}/stop`).catch(() => {});
+  await request.post(`${E2E_BASE}/api/test/live-work-ttl`, { data: {} }).catch(() => {});
   for (const id of agents.splice(0)) await request.post(`${E2E_BASE}/api/sessions/${encode(sessionKey)}/agents/${id}/stop`, { headers: daemonAuthHeaders() }).catch(() => {});
   if (topicId) await deleteTopic(request, topicId).catch(() => {});
   if (project) removeTmpDir(project);
@@ -134,10 +135,13 @@ async function freePort(): Promise<number> {
   });
 }
 
+/** How long a finished sub-agent keeps its row on the test server (a minute in production). */
+const ENDED_STAY_MS = 8_000;
+
 const strip = (page: Page) => page.getByTestId("subagents-strip");
 const tickOf = (text: string | null) => Number(text?.match(/tick (\d+)/)?.[1] ?? 0);
 
-test("only what works now: the working sub-agent and the commands, the one that wakes the chat says so, and an ended sub-agent leaves within 70 s", async ({ page, request }) => {
+test("only what works now: the working sub-agent and the commands, the one that wakes the chat says so, and an ended sub-agent leaves within its stay", async ({ page, request }) => {
   test.info().annotations.push({ type: "spec", description: "SUBSTRIP-01" });
   await chatWithProject(request, "now");
   seedEndedSubAgents();
@@ -170,13 +174,15 @@ test("only what works now: the working sub-agent and the commands, the one that 
   await expect.poll(async () => tickOf(await preview.textContent()), { timeout: 3_000, intervals: [200] }).toBeGreaterThan(seen);
 
   // The sub-agent finishes (its parent stops it): its row stays with the
-  // check, then leaves within 70 s of the end.
+  // check, then leaves within its stay plus 10 s (the stay is cut from one
+  // minute to 8 s on the test server: `/api/test/live-work-ttl`).
+  expect((await request.post(`${E2E_BASE}/api/test/live-work-ttl`, { data: { ttlMs: ENDED_STAY_MS } })).ok()).toBe(true);
   await request.post(`${E2E_BASE}/api/sessions/${encode(sessionKey)}/agents/${agentId}/stop`, { headers: daemonAuthHeaders() });
   const endedAt = Date.now();
   await expect(agentRow).toHaveAttribute("data-state", "ended", { timeout: 15_000 });
   await expect(agentRow.locator("svg").first()).toBeVisible();
-  await expect(agentRow).toHaveCount(0, { timeout: 70_000 - (Date.now() - endedAt) });
-  expect(Date.now() - endedAt).toBeLessThanOrEqual(70_000);
+  await expect(agentRow).toHaveCount(0, { timeout: ENDED_STAY_MS + 10_000 - (Date.now() - endedAt) });
+  expect(Date.now() - endedAt).toBeLessThanOrEqual(ENDED_STAY_MS + 10_000);
   await expect(commandRow).toHaveCount(1);
 });
 

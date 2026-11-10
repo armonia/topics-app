@@ -270,6 +270,23 @@ export function setBenchStaleTimeout(ms: number | null): void {
   benchTimeoutMs = ms;
 }
 
+/**
+ * The e2e bench's pass interval, in place of the 30 s `server.ts` ticks at. The
+ * timer is re-armed on change so a spec does not wait out the old interval.
+ */
+let benchTickMs: number | null = null;
+let onTickChange: (() => void) | null = null;
+export function setBenchStaleTick(ms: number | null): void {
+  benchTickMs = ms;
+  onTickChange?.();
+}
+export function staleTickMs(defaultMs: number): number {
+  return benchTickMs ?? defaultMs;
+}
+export function onStaleTickChange(listener: () => void): void {
+  onTickChange = listener;
+}
+
 export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, SweepOutcome> {
   const now = deps.now();
   const outcomes = new Map<string, SweepOutcome>();
