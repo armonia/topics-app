@@ -13,7 +13,7 @@
 import { Component, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { Bell, Menu as MenuIcon, Search, Undo2 } from 'lucide-react';
 import type { UiCopy } from '../../ui/copy/types';
-import type { NavKind, TabKind, TabModel } from '../../ui/types';
+import type { NavKind, UiTabKind, TabModel } from '../../ui/types';
 import { AppFrame } from '../../ui/shell/AppFrame';
 import { Sidebar } from '../../ui/shell/Sidebar';
 import { TabBar } from '../../ui/shell/TabBar';
@@ -46,7 +46,7 @@ import { P } from './paths';
 
 /* ---------- places ---------- */
 
-const NAV_TAB: Partial<Record<string, TabKind>> = {
+const NAV_TAB: Partial<Record<string, UiTabKind>> = {
   today: 'today', inbox: 'inbox', flows: 'flows', data: 'data', knowledge: 'knowledge', views: 'views', channels: 'channels',
   programs: 'programs', overview: 'overview', settings: 'settings', board: 'board', callcenter: 'callcenter', org: 'org', search: 'search', new: 'new',
   contracts: 'contracts', team: 'team',
@@ -654,7 +654,7 @@ export function App({ copy: baseCopy, copies, embedPath, edition }: {
   /* ---- tabs ---- */
   const tabModels: TabModel[] = tabs.list.map((t) => {
     const tm = match(TABLE, t.path);
-    const info = tm ? tabInfo(tm, ctx) : { key: t.key, label: t.path, kind: 'other' as TabKind };
+    const info = tm ? tabInfo(tm, ctx) : { key: t.key, label: t.path, kind: 'other' as UiTabKind };
     return { id: t.key, kind: info.kind, label: info.label, count: info.count, active: t.key === tabs.active, preview: !t.pinned };
   });
   const activeLabel = tabModels.find((t) => t.active)?.label ?? copy.shell.appName;

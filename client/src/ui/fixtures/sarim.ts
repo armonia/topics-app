@@ -297,14 +297,14 @@ export const PLAIN_FLOWS: Record<string, PlainFlow> = {
 
 /* ---------- the call center (s03) ---------- */
 
-export type QueueTone = 'neutral' | 'amber' | 'red';
+export type UiQueueTone = 'neutral' | 'amber' | 'red';
 
 export interface QueueItemSeed {
   id: string;
   title: string;
   /** One line under the title. */
   summary: string;
-  chip: { text: string; tone: QueueTone };
+  chip: { text: string; tone: UiQueueTone };
   /** Minutes since it arrived; «scaduta» when overdue. */
   ageMin: number;
   overdue?: boolean;

@@ -130,8 +130,8 @@ export function withQuestion(slice: ChatsSlice, base: ChatRecord, question: stri
 }
 
 /** The slice after the answer comes in; a chat that is gone (the demo was reset) takes nothing. */
-export function withAnswer(slice: ChatsSlice, chatId: string, reply: ChatReply, at: string): ChatsSlice {
-  const chat = slice.chats.find((c) => c.id === chatId);
+export function withAnswer(slice: ChatsSlice, conversationId: string, reply: ChatReply, at: string): ChatsSlice {
+  const chat = slice.chats.find((c) => c.id === conversationId);
   if (!chat) return slice;
   const message: ChatMessageModel = { id: `${chat.id}.${chat.messages.length + 1}`, role: 'assistant', reply, at };
   return upsert(slice, { ...chat, messages: [...chat.messages, message], at });

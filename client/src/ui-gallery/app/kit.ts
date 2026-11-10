@@ -12,7 +12,7 @@ import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import type { UiCopy } from '../../ui/copy/types';
 import type { SearchKind } from '../../ui/copy/app';
-import type { Action, TabKind } from '../../ui/types';
+import type { Action, UiTabKind } from '../../ui/types';
 import type { MenuHeaderModel, MenuItemModel } from '../../ui/primitives/Menu';
 import type { OrgKey } from '../../ui/fixtures/org/types';
 import type { Permission, Persona } from '../../ui/fixtures/org/people';
@@ -30,7 +30,7 @@ export interface TabInfo {
   /** Places with the same key share a tab (one per surface, record, flow). */
   key: string;
   label: string;
-  kind: TabKind;
+  kind: UiTabKind;
   count?: number;
 }
 

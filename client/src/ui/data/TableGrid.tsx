@@ -26,6 +26,7 @@ function Cell({ cell, unread, badge, onOpen }: { cell: CellModel; unread?: boole
       return (
         <button
           type="button"
+          aria-label={cell.field.name}
           onClick={(e) => { e.stopPropagation(); onOpen(); }}
           onKeyDown={(e) => e.stopPropagation()}
           className={clsx('rounded underline-offset-2 transition-colors hover:underline', FOCUS_RING)}

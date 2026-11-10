@@ -95,6 +95,7 @@ export function Menu({ items, header, onSelect, onClose, x, y, ariaLabel, align 
               <button
                 type="button"
                 role="menuitem"
+                aria-label={header.title}
                 tabIndex={-1}
                 onClick={() => {
                   onSelect(headerId);

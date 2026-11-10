@@ -7,11 +7,11 @@ import { Select, TextField } from '../primitives/Field';
 import { Table, type TableColumnModel } from '../primitives/Table';
 import { Tabs } from '../primitives/Tabs';
 import { Avatar } from '../shell/SidebarRows';
-import type { RunActor, RunRowModel, RunStatus } from './model';
+import type { RunActor, RunRowModel, UiRunStatus } from './model';
 
 export type RunFilter = 'all' | 'running' | 'person' | 'error' | 'done';
 
-const STATUS_TONE: Record<RunStatus, Tone> = { running: 'blue', person: 'amber', blocked: 'red', error: 'red', done: 'green', archived: 'neutral' };
+const STATUS_TONE: Record<UiRunStatus, Tone> = { running: 'blue', person: 'amber', blocked: 'red', error: 'red', done: 'green', archived: 'neutral' };
 
 function Actor({ actor, copy }: { actor: RunActor; copy: UiCopy }) {
   const k = copy.flowRun.runs.actor;

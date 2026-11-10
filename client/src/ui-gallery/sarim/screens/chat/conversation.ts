@@ -44,7 +44,7 @@ export function chatPlaceTitle(ctx: ScreenCtx, id?: string): string {
 /** Where a draft is kept while the person has not sent it. */
 export const draftKey = (key: string): string => `sarim.chat.draft.${key}`;
 
-export const chatJob = (chatId: string): string => `chat:${chatId}`;
+export const chatJob = (conversationId: string): string => `chat:${conversationId}`;
 export const cardJob = (cardId: string): string => `chat:card:${cardId}`;
 
 /** Whether an answer is on its way for this job. */
@@ -55,18 +55,18 @@ function runJob(ctx: ScreenCtx, job: string, onDone: () => void): void {
 }
 
 /**
- * Sends a question in a general chat. `chatId` is the chat it goes to; with
+ * Sends a question in a general chat. `conversationId` is the chat it goes to; with
  * none (the page of a new chat, or a chat that is gone) a chat is made from
  * it and the person is taken there.
  */
-export function sendInChat(ctx: ScreenCtx, chatId: string | undefined, raw: string): void {
+export function sendInChat(ctx: ScreenCtx, conversationId: string | undefined, raw: string): void {
   const question = raw.trim();
   if (!question) return;
   const env = envOf(ctx);
-  if (chatId && writing(ctx, chatJob(chatId))) return;
-  const existing = chatId ? chatById(ctx.state, env, chatId) : undefined;
+  if (conversationId && writing(ctx, chatJob(conversationId))) return;
+  const existing = conversationId ? chatById(ctx.state, env, conversationId) : undefined;
   /* A question already asked in another chat reopens that chat: the same title never appears twice. */
-  const asked = chatId ? undefined : allChats(ctx.state, env).find((c) => c.messages[0]?.role === 'user' && foldQuestion(c.messages[0].text ?? '') === foldQuestion(question));
+  const asked = conversationId ? undefined : allChats(ctx.state, env).find((c) => c.messages[0]?.role === 'user' && foldQuestion(c.messages[0].text ?? '') === foldQuestion(question));
   if (asked) {
     ctx.ui<string>(draftKey('new'), '')[1]('');
     ctx.go(SP.chat(asked.id));
@@ -79,7 +79,7 @@ export function sendInChat(ctx: ScreenCtx, chatId: string | undefined, raw: stri
   setSlice((prev) => withQuestion(prev, base, question, at));
   const reply = answer(question, env);
   runJob(ctx, chatJob(id), () => setSlice((prev) => withAnswer(prev, id, reply, demoNow())));
-  ctx.ui<string>(draftKey(chatId ?? 'new'), '')[1]('');
+  ctx.ui<string>(draftKey(conversationId ?? 'new'), '')[1]('');
   if (!existing) ctx.go(SP.chat(id));
 }
 

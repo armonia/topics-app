@@ -2,7 +2,7 @@ import {
   BookOpen, CalendarDays, ChartColumn, Database, Eye, File, Folder, Hash, IdCard, Inbox, Kanban, Link, Mail,
   MessageSquare, Plug, Scale, Settings, User, Workflow, Zap, FileText, Plus, Construction, Sun, Headset, Search, Building2, Handshake, Users, type LucideIcon,
 } from 'lucide-react';
-import type { FieldKind, NavKind, TabKind, Tone } from './types';
+import type { FieldKind, NavKind, UiTabKind, Tone } from './types';
 
 /** One glyph per kind of data, the only icon system of the layer (Lucide). */
 export const FIELD_ICON: Record<FieldKind, LucideIcon> = {
@@ -50,7 +50,7 @@ export const NAV_ICON: Record<NavKind, LucideIcon> = {
   team: Users,
 };
 
-export const TAB_ICON: Record<TabKind, LucideIcon> = {
+export const TAB_ICON: Record<UiTabKind, LucideIcon> = {
   flows: Workflow,
   record: FileText,
   board: Kanban,

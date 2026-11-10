@@ -8,7 +8,7 @@ import type { FlowSeed, FlowStepSeed } from '../../../../ui/fixtures/org/types';
 import { FLOWS } from '../../../../ui/fixtures/org/flows';
 import { baseVersions, runsOf, stepConfig, type RunSeed, type VersionSeed } from '../../../../ui/fixtures/flowrun';
 import { applyOverride, changesOf, ruleHolds, type StepChange, type StepConfig, type StepOverride } from '../../../../ui/flowrun/config';
-import type { RunStatus } from '../../../../ui/flowrun/model';
+import type { UiRunStatus } from '../../../../ui/flowrun/model';
 
 export const flowById = (id: string): FlowSeed | undefined => FLOWS.find((f) => f.id === id);
 export const stepById = (flow: FlowSeed, id: string): FlowStepSeed | undefined => flow.steps.find((s) => s.id === id);
@@ -187,7 +187,7 @@ export function testSummary(t: TestRecord) {
 /* ---------- runs ---------- */
 
 export interface RunOverride {
-  status?: RunStatus;
+  status?: UiRunStatus;
   /** The step it is at now, when it moved on from the seed's (a resumed run that goes on to a person). */
   stepId?: string;
   /** When the robot went on, and from which step: that step and the next one are timed from then, not from the seed. */
@@ -210,7 +210,7 @@ export const RUNS_SLICE = 'flowRunRuns';
 
 export interface LiveRun extends RunSeed {
   live: RunOverride;
-  baseStatus: RunStatus;
+  baseStatus: UiRunStatus;
 }
 
 export function liveRun(seed: RunSeed, ov: RunOverrides): LiveRun {
@@ -237,7 +237,7 @@ export function findRun(flowId: string, runId: string, ov: RunOverrides): LiveRu
 
 export type RunFilterKey = 'all' | 'running' | 'person' | 'error' | 'done';
 
-export const filterOf = (status: RunStatus): RunFilterKey =>
+export const filterOf = (status: UiRunStatus): RunFilterKey =>
   status === 'running' ? 'running' : status === 'person' ? 'person' : status === 'error' || status === 'blocked' ? 'error' : 'done';
 
 /** The runs that wait on the same step as a stopped one: they are freed together. */
