@@ -1212,6 +1212,10 @@ jobs:
               echo "[ci] processo $k: piano non disponibile, fallback a --shard=$piece/$((7 * PROCS))"
               SELECTORS=("--shard=$piece/$((7 * PROCS))")
             fi
+            # One compile cache per process: Playwright writes it with a plain
+            # writeFileSync, so a sibling can read a half-written module
+            # ("projectIdForPath is not a function", run 42762634932).
+            PWTEST_CACHE_DIR="$RUNNER_TEMP/pw-cache-$k" \
             E2E_PORT=$((13910 + k - 1)) \
             PLAYWRIGHT_JSON_OUTPUT_FILE="test-results/sub/report-$k.json" \
             PLAYWRIGHT_HTML_OUTPUT_DIR="test-results/html-report-$k" PLAYWRIGHT_HTML_OPEN=never \

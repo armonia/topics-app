@@ -73,7 +73,9 @@ export function listLandingAuditCandidates(db: Database, nowIso: string): Landin
         -- A DECISION is not measured again: superseded says "not on main,
         -- and that is fine". The audit asks the repo, and the repo would
         -- answer unlanded again, erasing the choice on every pass.
-        AND COALESCE(landing_state, '') <> 'superseded'
+        AND COALESCE(landing_state, '') NOT IN ('superseded', 'unpushed')
+        -- 'unpushed' is on the local main: the audit would call it landed and
+        -- erase the only mark that origin lacks it. The push sweep owns it.
         AND NOT (COALESCE(landing_witnessed, 0) = 1 AND landing_state = 'landed')
         -- A SETTLED verdict is asked again once a day, not every pass.
         -- 'landed' only changes if main reverts the work, 'unverifiable'

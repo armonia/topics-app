@@ -278,7 +278,7 @@ const DELIVERY_SNAPSHOT_COLUMNS = [
  * superseded) branch is not a base for the next run: main already has it.
  */
 function branchStillAhead(row: { landing_state?: string | null }): boolean {
-  return row.landing_state !== "landed" && row.landing_state !== "superseded";
+  return row.landing_state !== "landed" && row.landing_state !== "superseded" && row.landing_state !== "unpushed";
 }
 const clampInt = (n: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, Math.trunc(Number.isFinite(n) ? n : lo)));
@@ -1119,7 +1119,7 @@ export interface TaskService {
    * (merge uscito zero, o fallito), non chi lo deduce dopo: quel verdetto
    * diventa definitivo finché la card non riconsegna.
    */
-  recordLandingState(args: { taskId: string; state: "landed" | "unlanded" | "unverifiable" | "superseded"; checkedAt: string; witnessed?: boolean }): void;
+  recordLandingState(args: { taskId: string; state: "landed" | "unlanded" | "unverifiable" | "superseded" | "unpushed"; checkedAt: string; witnessed?: boolean }): void;
   /**
    * Lo stato terminale che un land RIUSCITO impone alla card: `done`, chip di
    * dispatch spento, nessuna finestra di ri-tentativo. Idempotente — su una card
