@@ -711,7 +711,7 @@ export interface BoardTask {
   deliveryUncommittedFiles: number | null;
   /** Landing audit verdict: is the delivered work actually on main?
    *  null = never audited (no delivery recorded). 'unlanded' is the alarm. */
-  landingState: "landed" | "unlanded" | "unverifiable" | "superseded" | null;
+  landingState: "landed" | "unlanded" | "unverifiable" | "superseded" | "unpushed" | null;
   landingCheckedAt?: string;
   /** Deploy proposed at approve (board setting `deployCommand`). `null` = never
    *  proposed. `'proposed'` shows the "Deploya ora" banner; the outcome
@@ -1098,7 +1098,7 @@ export type TaskLandingEvidence = Pick<BoardTask, 'assignedTopicId' | 'deliveryB
 /** A session or an empty analysis branch is not a delivery to merge. */
 export function hasDeliveryToMerge(task: TaskLandingEvidence): boolean {
   if (!task.assignedTopicId || !task.deliveryBranch) return false;
-  if (task.landingState === 'landed' || task.landingState === 'superseded') return false;
+  if (task.landingState === 'landed' || task.landingState === 'superseded' || task.landingState === 'unpushed') return false;
   // Outstanding edits block the server's merge; send the task back to finish.
   if ((task.deliveryUncommittedFiles ?? 0) > 0) return false;
   if (task.deliveryFilesChanged != null) return task.deliveryFilesChanged > 0;
