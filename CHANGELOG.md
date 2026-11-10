@@ -2,6 +2,26 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.77 — 2026-11-10
+
+### Sotto il cofano
+- Demo della landing: un caricatore piccolo e scenari tipizzati al posto di landing-boot.js
+- Demo della landing: via il contesto del vecchio gateway dallo scenario
+- Demo della landing: lo scenario comune è un passaggio nella lista chiusa della preferenza
+- nota di consegna della traccia R2 del servizio sempre acceso
+- topics/whispering-ether (card 57fe1061) (#712)
+- Chiudere una card parcheggia le sue tab di anteprima aperte (#656)
+- topics/lithe-kingdom (card a9281987) (#719)
+- istruzioni per chat, chi può scrivere e orari dei lavori modificabili (#723)
+- nota di consegna della traccia R2 del servizio sempre acceso (#726)
+- topics/crested-manor (card 73f93690) (#722)
+- Tab di anteprima nei progetti, e le chat degli agenti fuori dalla barra (#721)
+- topics/bold-siren (card b1b60a20) (#724)
+- topics/timely-grain (card 680ce412) (#718)
+- topics/equal-camel (card 511a992a) (#720)
+- topics/dawning-frost (card 97e3951f) (#727)
+- Il land porta main su origin: prima restava solo su questo disco (#730)
+
 ## 2.3.76 — 2026-11-10
 
 ### Correzioni
@@ -13,7 +33,12 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - claude-cloud: un account senza scope delle sessioni non spegne più il nodo (#698)
 - anagrafica di Jarvis e Visione modificabile da Topics (#704)
 - lint e tetto delle stringhe dopo l'anagrafica (#704) (#708)
+- **e2e** · time knobs for the stale-stream tick and the ended sub-agent stay, shorter waits in the slow specs
+- **unit** · the stale-stream wiring check follows the pass function
+- **unit** · the stale-stream sweeper check reads the pass function
 - a channel thread says the channel it lives in, and the threads opened for a card are readable (#713)
+- the card shows its due date, red once overdue
+- the due date reaches the client (feed no longer drops it), chip row test knows card-due-date, test translate type matches
 - corsa vuota su una domanda va in review, non fissata al Mac (#715)
 
 ## 2.3.75 — 2026-11-09
@@ -86,6 +111,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - board-remote-node usa la radice tmp canonica, su Windows /tmp non esiste
 - spec agents-jobs e board-motion-contract allineate (formato M tok, transizione invertita)
 - e2e agents-jobs: il conteggio dei token si legge «2,3 M» col formato unico
+- Chiudere una card parcheggia le sue tab di anteprima aperte
 
 ## 2.3.66 — 2026-11-09
 

@@ -1,5 +1,106 @@
 [
   {
+    "version": "2.3.77",
+    "date": "2026-11-10",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Demo della landing: un caricatore piccolo e scenari tipizzati al posto di landing-boot.js",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Demo della landing: via il contesto del vecchio gateway dallo scenario",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Demo della landing: lo scenario comune è un passaggio nella lista chiusa della preferenza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "nota di consegna della traccia R2 del servizio sempre acceso",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/whispering-ether (card 57fe1061) (#712)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Chiudere una card parcheggia le sue tab di anteprima aperte (#656)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "topics/lithe-kingdom (card a9281987) (#719)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "istruzioni per chat, chi può scrivere e orari dei lavori modificabili (#723)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "nota di consegna della traccia R2 del servizio sempre acceso (#726)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/crested-manor (card 73f93690) (#722)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Tab di anteprima nei progetti, e le chat degli agenti fuori dalla barra (#721)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "topics/bold-siren (card b1b60a20) (#724)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/timely-grain (card 680ce412) (#718)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/equal-camel (card 511a992a) (#720)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/dawning-frost (card 97e3951f) (#727)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Il land porta main su origin: prima restava solo su questo disco (#730)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.76",
     "date": "2026-11-10",
     "sections": {
@@ -43,7 +144,37 @@
           "breaking": false
         },
         {
+          "it": "time knobs for the stale-stream tick and the ended sub-agent stay, shorter waits in the slow specs",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "the stale-stream wiring check follows the pass function",
+          "en": "",
+          "scope": "unit",
+          "breaking": false
+        },
+        {
+          "it": "the stale-stream sweeper check reads the pass function",
+          "en": "",
+          "scope": "unit",
+          "breaking": false
+        },
+        {
           "it": "a channel thread says the channel it lives in, and the threads opened for a card are readable (#713)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the card shows its due date, red once overdue",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the due date reaches the client (feed no longer drops it), chip row test knows card-due-date, test translate type matches",
           "en": "",
           "scope": null,
           "breaking": false
@@ -347,6 +478,11 @@
         },
         {
           "it": "e2e agents-jobs: il conteggio dei token si legge «2,3 M» col formato unico",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chiudere una card parcheggia le sue tab di anteprima aperte",
           "en": "",
           "scope": null
         }
