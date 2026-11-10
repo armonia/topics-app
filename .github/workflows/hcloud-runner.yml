@@ -139,7 +139,9 @@ jobs:
             {
               echo 'export DEBIAN_FRONTEND=noninteractive'
               if [ -n "$APT_PACKAGES" ]; then
-                echo "apt-get install -y -qq $APT_PACKAGES >/var/log/apt-extra.log 2>&1"
+                # update first: the image's package lists may be stale, and build-essential
+                # pulls many packages a stale list would 404 on.
+                echo "apt-get update -qq >/var/log/apt-extra.log 2>&1; apt-get install -y -qq $APT_PACKAGES >>/var/log/apt-extra.log 2>&1"
               fi
               if [ "$PLAYWRIGHT" = "true" ]; then
                 # Una volta sola qui, prima che un runner prenda un job: otto `--with-deps` in
