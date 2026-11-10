@@ -11,9 +11,8 @@ name: Server Hetzner per i job pesanti
 # Copia di armonia/quadra (.github/workflows/hcloud-runner.yml), adattata a un repo PUBBLICO:
 # - create e delete girano su ubuntu-latest (gratis qui), mai su macchine nostre: sono gli
 #   unici job che vedono HCLOUD_TOKEN e RUNNER_ADMIN_TOKEN, e non eseguono codice della PR;
-# - ripiego su un ccx23 dedicato con 2 runner quando i core condivisi del progetto sono pieni
-#   (crm + giuseppe = 20, misurato il 10/11: cx23-cx53 e cax41 tutti «resource_unavailable»);
-#   l'output `runners` dice quanti ne sono nati, e chi chiama manda lì solo quei job;
+# - niente ripiego su server piccoli: se il cx53 non nasce (core condivisi del progetto pieni,
+#   crm + giuseppe = 20, 10/11) `runners` e' 0 e la run resta tutta su GitHub; l'output `runners` dice quanti ne sono nati, e chi chiama manda lì solo quei job;
 # - i runner in più si registrano --ephemeral: un job e via, e l'etichetta è unica per run.
 # Ripiego dei job pesanti quando il server non c'è: ubuntu-latest, come prima.
 # Rete: hcloud-sweeper.yml cancella ogni ora i server gh-runner-* più vecchi di 3 ore.
@@ -131,12 +130,9 @@ jobs:
               "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runners/registration-token" | jq -er .token)
             echo "::add-mask::$token"
           fi
-          for loc in fsn1 hel1 ded; do
-            n="$name"; [ "$loc" = hel1 ] && n="$name-b"; [ "$loc" = ded ] && n="$name-c"
-            # Sul dedicato di ripiego (ccx23: 4 core, 16 GB) al massimo 2 runner.
-            # 1 runner: two shards (four Playwright processes) on its 4 vCPU reached load 12
-            # and timed-out assertions (run 42850786038, shards 4 and 7).
-            r="$RUNNERS"; [ "$loc" = ded ] && [ "$r" -gt 1 ] && r=1
+          for loc in fsn1 hel1; do
+            n="$name"; [ "$loc" = hel1 ] && n="$name-b"
+            r="$RUNNERS"
             f="$RUNNER_TEMP/pre-$loc.sh"
             {
               echo 'export DEBIAN_FRONTEND=noninteractive'
@@ -220,24 +216,8 @@ jobs:
           create_wait: 2
           pre_runner_script: ${{ steps.pre.outputs.hel1 }}
 
-      # Ultimo tentativo: un ccx23 dedicato (0,14 EUR/h, 2 runner). I core condivisi del progetto
-      # sono spesso tutti presi dai server permanenti; i dedicati hanno un limite a parte.
-      - name: Crea il server (ccx23 dedicato)
-        id: ded
-        if: ${{ steps.gate.outputs.ok == 'true' && steps.fsn1.outcome != 'success' && steps.hel1.outcome != 'success' }}
-        continue-on-error: true
-        uses: Cyclenerd/hcloud-github-runner@94a0a4aa750d832b48cc0f66d24ed56c3fe69448 # v1.4.1
-        with:
-          mode: create
-          github_token: ${{ secrets.RUNNER_ADMIN_TOKEN }}
-          hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
-          name: ${{ steps.pre.outputs.name_ded }}
-          server_type: ccx23
-          location: fsn1
-          image: docker-ce
-          ssh_key: "112097822"
-          create_wait: 2
-          pre_runner_script: ${{ steps.pre.outputs.ded }}
+      # Niente ripiego su un dedicato piccolo: un ccx23 con 1 runner per 9 shard rendeva la CI
+      # piu' lenta di GitHub (run 42856852451). Senza cx53 la run resta tutta su GitHub.
 
       # Il vincitore, e via subito ogni altro server di questa run (tentativi falliti a metà):
       # un server senza runner registrato non deve aspettare il reaper delle 3 ore.
@@ -250,13 +230,11 @@ jobs:
           L2: ${{ steps.hel1.outcome == 'success' && steps.hel1.outputs.label || '' }}
           S1: ${{ steps.fsn1.outputs.server_id }}
           S2: ${{ steps.hel1.outputs.server_id }}
-          L3: ${{ steps.ded.outcome == 'success' && steps.ded.outputs.label || '' }}
-          S3: ${{ steps.ded.outputs.server_id }}
           RUNNERS: ${{ inputs.runners }}
         run: |
           label=""; sid=""
-          if [ -n "$L1" ]; then label=$L1; sid=$S1; elif [ -n "$L2" ]; then label=$L2; sid=$S2; elif [ -n "$L3" ]; then label=$L3; sid=$S3; fi
-          n=0; [ -n "$label" ] && n=$RUNNERS; [ -n "$L3" ] && [ "$label" = "$L3" ] && [ "$n" -gt 1 ] && n=1
+          if [ -n "$L1" ]; then label=$L1; sid=$S1; elif [ -n "$L2" ]; then label=$L2; sid=$S2;; fi
+          n=0; [ -n "$label" ] && n=$RUNNERS
           echo "runners=$n" >> "$GITHUB_OUTPUT"
           echo "label=$label" >> "$GITHUB_OUTPUT"
           echo "server_id=$sid" >> "$GITHUB_OUTPUT"

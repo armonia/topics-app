@@ -944,10 +944,9 @@ jobs:
   # may run at once, before 12-16 minutes of tests. A shard runs two
   # Playwright processes and loads its 4 vCPU to ~5 with ~3.6 GB in use (the
   # `[carico]` lines of run 42814604772), so a runner gets what a GitHub one
-  # has, 4 vCPU and 8 GB: a cx53 (16 vCPU, 32 GB, 0.047 EUR/h) carries four,
-  # the dedicated ccx23 fallback (4 vCPU, 16 GB, 0.14 EUR/h) two. Shards
-  # 1..N go there and stay out of the org queue; `e2e (0)`, the other shards
-  # and every other job stay on ubuntu-latest. When the project's shared
+  # has, 4 vCPU and 8 GB: a cx53 (16 vCPU, 32 GB, 0.047 EUR/h) carries four.
+  # With it every e2e shard goes there; without it the whole run stays on
+  # ubuntu-latest (a ccx23 with one runner was slower than GitHub, run 42856852451). When the project's shared
   # cores are full (10/11: every cx answered resource_unavailable) the
   # dedicated server is the one that comes up.
   #
@@ -998,11 +997,9 @@ jobs:
 
   e2e:
     timeout-minutes: 25
-    # Shards 1..N on the server, N = the runners that came up (4 on a cx53, 1 on the
-    # dedicated ccx23 fallback). Shard 0, the rest, and every run without a server:
-    # ubuntu-latest, as before. Per shard, not per run: with one runner, nine
-    # shards in a row on it would take hours.
-    runs-on: ${{ (matrix.shard != 0 && needs.hcloud.outputs.label != '' && matrix.shard <= fromJSON(needs.hcloud.outputs.runners || '0')) && needs.hcloud.outputs.label || 'ubuntu-latest' }}
+    # Per RUN: the whole matrix goes to the server only when a cx53 came up with its 4
+    # runners; otherwise the whole run stays on ubuntu-latest. Never 9 shards on 1 runner.
+    runs-on: ${{ (needs.hcloud.outputs.label != '' && fromJSON(needs.hcloud.outputs.runners || '0') >= 4) && needs.hcloud.outputs.label || 'ubuntu-latest' }}
     needs: [changes, prepare-e2e, hcloud]
     if: ${{ !cancelled() && needs.prepare-e2e.result == 'success' }}
     # WHEN NOTHING THE SHARDS READ HAS CHANGED the matrix is the single job `e2e (0)`
