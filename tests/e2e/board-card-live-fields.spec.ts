@@ -27,7 +27,9 @@ hermetic(test);
 const BOARD_ID = "livefields-e2e001";
 
 test.describe("Board: a frame's field reaches the card", () => {
-  test.describe.configure({ timeout: 90_000 });
+  // Serial: every test seeds into the same board, so a parallel test moves the
+  // column counts under the one that asserts them (the flake of the status test).
+  test.describe.configure({ timeout: 90_000, mode: "serial" });
   test.use({ viewport: { width: 1600, height: 900 } });
 
   const stamp = Date.now();
@@ -102,7 +104,11 @@ test.describe("Board: a frame's field reaches the card", () => {
 
   test("a status change moves the card and the column counts follow", async ({ page }) => {
     const { target } = await openBoard(page, "status");
-    const backlogBefore = Number(await page.getByTestId("kanban-column-count-backlog").textContent());
+    // The count is read only once the seeded cards are all counted and it holds still.
+    const count = page.getByTestId("kanban-column-count-backlog");
+    await expect(count).toHaveText(/^\d+$/);
+    await page.waitForTimeout(500);
+    const backlogBefore = Number(await count.textContent());
     await patch(page, target, { status: "done" });
     await expect(page.getByTestId("kanban-column-body-done").locator(`[data-task-card="${target}"]`)).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId("kanban-column-count-backlog")).toHaveText(String(backlogBefore - 1));
