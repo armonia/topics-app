@@ -1,7 +1,7 @@
 /**
  * Chat with the AI: the list of chats, a new chat, a conversation, the chat
  * inside a card, and the sentences of the answers. The answers are built from
- * the data of the organization (`ui-gallery/sarim/model/assistant.ts`); here
+ * the data of the organization (`ui-gallery/orbit/model/assistant.ts`); here
  * live only the words around that data. A function that takes a token
  * (`ChatSeg`) returns the line as pieces, so the token stays clickable.
  * Values in `i18n-ui-chat-it.ts` and `i18n-ui-chat-en.ts`.
@@ -76,7 +76,7 @@ export interface ChatCopy {
     contractsIntro: (n: number) => string;
     contractMany: (n: number) => string;
     contractHead: (contract: ChatSeg, status: string, counterparty: string, from: string, to?: string) => ChatSeg[];
-    contractValue: (money: string, period: 'anno' | 'totale' | 'mese') => string; // allow-italian: period keys, compared by value
+    contractValue: (money: string, period: 'anno' | 'totale' | 'mese') => string;
     renewal: {
       none: string;
       tacit: (months: number, notice: string, days: number) => string;

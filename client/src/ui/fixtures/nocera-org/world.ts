@@ -1,9 +1,9 @@
 /**
  * The Consorzio di Bonifica Integrale Comprensorio Sarno as a world: the data
  * of this folder assembled in the shape the screens of
- * `client/src/ui-gallery/sarim/` read (`../world-types.ts`), plus the words,
+ * `client/src/ui-gallery/orbit/` read (`../world-types.ts`), plus the words,
  * ids and samples that belong to the Consorzio and not to the screens. Same
- * job as `../sarim-org/world.ts`; `consorzio-main.tsx` hands this to
+ * job as `../orbit-org/world.ts`; `consorzio-main.tsx` hands this to
  * `setWorld()` before it imports the app.
  *
  * Words of the Consorzio that are facts (the figures, the laws, the comuni)

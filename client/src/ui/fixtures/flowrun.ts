@@ -16,7 +16,7 @@
  * version finds are the same facts.
  */
 import type { FieldRef } from '../types';
-import type { ConditionField, RobotStepModel, UiRunStatus } from '../flowrun/model';
+import type { ConditionField, RobotStepModel, RunStatus } from '../flowrun/model';
 import type { AiConfig, ClassifyConfig, GenericConfig, RobotConfig, RuleConfig, StepChange, StepConfig, StepOverride } from '../flowrun/config';
 import type { FlowSeed, FlowStepSeed } from './org/types';
 import { FLOWS } from './org/flows';
@@ -411,7 +411,7 @@ export interface RunSeed {
   /** ISO date-time. */
   arrived: string;
   day: 'today' | 'yesterday';
-  status: UiRunStatus;
+  status: RunStatus;
   /** The step where the run is, or stopped. Finished runs: the last step they went through. */
   stepId: string;
   /** The steps the run goes through, in order. */

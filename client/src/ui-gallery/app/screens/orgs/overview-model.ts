@@ -14,7 +14,7 @@ import { OFFICE_LABEL } from '../../../../ui/fixtures/org/people';
 import type { FlowSeed } from '../../../../ui/fixtures/org/types';
 import { orgCases } from '../../store/cases';
 import type { DemoState } from '../../store/state';
-import { fmt } from './sarim-model';
+import { fmt } from './orbit-model';
 
 
 /** Spreads `total` over `weights` in whole numbers that add up to exactly `total`. */

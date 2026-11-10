@@ -37,7 +37,7 @@ export function CriteriaTable({ criteria, copy }: { criteria: FlowTestModel['cri
             now: (
               <span data-tip={r.estimate ? copy.team.common.estimate : undefined}>
                 {r.now}
-                {r.estimate && <sup className="ml-0.5 text-mini text-app-text-faint">*</sup>}
+                {r.estimate && <sup className="ml-0.5 text-nano text-app-text-faint">*</sup>}
               </span>
             ),
             state: <StateChip tone={r.tone} icon={r.icon}>{r.stateText}</StateChip>,

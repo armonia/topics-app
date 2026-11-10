@@ -1,15 +1,15 @@
 /**
- * The levels an admin sets by hand on the permissions page of the SARIM
- * edition (slice `sarim.access`): per team or per person (an exception), for
+ * The levels an admin sets by hand on the permissions page of the ORBIT
+ * edition (slice `orbit.access`): per team or per person (an exception), for
  * a section, for a flow or for one of the four actions. This file holds the
  * shape of the slice and how a hand-set level reaches the permissions the
  * container checks (`canDo`), so the sidebar, the buttons and the cards follow
  * a change at once. It reads only the fixtures and the slice, never the role
- * checks, so `permissions.ts` and `sarim/model/access.ts` can both import it.
+ * checks, so `permissions.ts` and `orbit/model/access.ts` can both import it.
  */
 import type { Permission, Persona } from '../../../ui/fixtures/org/people';
-import { teamIdOfPerson } from '../../sarim/world';
-import type { SarimTeamId } from '../../../ui/fixtures/sarim-org/people';
+import { teamIdOfPerson } from '../../orbit/world';
+import type { OrbitTeamId } from '../../../ui/fixtures/orbit-org/people';
 import type { DemoState } from './state';
 
 export type AccessLevel = 'none' | 'view' | 'work' | 'manage';
@@ -41,7 +41,7 @@ export interface AccessSlice {
   people: Record<string, AccessGrants>;
 }
 
-export const ACCESS_SLICE = 'sarim.access';
+export const ACCESS_SLICE = 'orbit.access';
 
 export const ACCESS_INITIAL: AccessSlice = { teams: {}, people: {} };
 
@@ -49,8 +49,8 @@ export function accessSlice(state: DemoState): AccessSlice {
   return { ...ACCESS_INITIAL, ...((state.slices[ACCESS_SLICE] as Partial<AccessSlice> | undefined) ?? {}) };
 }
 
-/** The team of a person of SARIM; undefined for a person of the other edition. */
-export const teamIdOf = (persona: Persona): SarimTeamId | undefined => teamIdOfPerson(persona.id);
+/** The team of a person of ORBIT; undefined for a person of the other edition. */
+export const teamIdOf = (persona: Persona): OrbitTeamId | undefined => teamIdOfPerson(persona.id);
 
 /** The section level set by hand for a person (their exception first, then their team's), if any. */
 export function setSection(slice: AccessSlice, persona: Persona, section: AccessSection): AccessLevel | undefined {

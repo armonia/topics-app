@@ -15,7 +15,7 @@
 import type { RichTextModel } from '../../types';
 import type { DraftBlockModel } from '../../record/model';
 
-export type OrgKey = 'nocera' | 'sarim' | 'armonia' | 'euro';
+export type OrgKey = 'nocera' | 'orbit' | 'armonia' | 'euro';
 
 export type CaseKind =
   | 'ricorso' | 'sgravio' | 'concessione' | 'accesso' | 'segnalazione' | 'fattura'

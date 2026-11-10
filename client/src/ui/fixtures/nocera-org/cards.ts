@@ -2,7 +2,7 @@
  * The work on the kanban of «Da fare» in the Consorzio edition: the columns and allow-italian: quotes the words on screen
  * every card, each on the flow that moves it (`./flows.ts`), with its history,
  * who has it in hand, who checks it, its originals and the values read on them.
- * Same shape and the same rules as `../sarim-org/cards.ts`.
+ * Same shape and the same rules as `../orbit-org/cards.ts`.
  *
  * The demo moment is Friday 6 November 2026, 10:30 (`DEMO_NOW`): nothing here
  * happens after it except due dates. A card in «Fatto» was closed from 30/10 on. allow-italian: quotes the words on screen
@@ -18,7 +18,7 @@
  * ones of the old preview (`../org/cases/`), moved into the new shape and given
  * the prefix of their flow; the others follow the same numbers.
  */
-import type { CardOriginal, CardValue, SarimCard, Stage, StageEntry, StageId, Worker } from '../sarim-org/types';
+import type { CardOriginal, CardValue, OrbitCard, Stage, StageEntry, StageId, Worker } from '../orbit-org/types';
 
 /* ---------- helpers ---------- */
 
@@ -34,7 +34,7 @@ const EXAMPLE_NOTE = "Documento di esempio per l'anteprima di Topics: persone, n
 const paper = (id: string, name: string, kind: CardOriginal['kind'], from: string, when: string, lines: string[]): CardOriginal => ({ id, name, kind, from, at: when, lines: [...lines, EXAMPLE_NOTE] });
 
 /** The lines the Consorzio repeats on what it receives and sends (public data of the Consorzio). */
-const PEC_TO = 'A: protocollo@pec.bonificasarno.it';
+const PEC_TO = 'A: protocollo@x.example.it';
 const BUYER = 'Cessionario/committente: CONSORZIO DI BONIFICA INTEGRALE COMPRENSORIO SARNO, codice fiscale 80009450653'; // allow-italian: fixture data, shown as written
 const VAT_NOTE = 'Esigibilità IVA: S (scissione dei pagamenti), art. 17-ter DPR 633/1972'; // allow-italian: fixture data, shown as written
 
@@ -50,7 +50,7 @@ export const NOCERA_STAGES: Stage[] = [
 
 /* ---------- PEC e protocollo (9) ---------- */
 
-const PEC: SarimCard[] = [
+const PEC: OrbitCard[] = [
   {
     id: 'PEC-2423', flow: 'nocera-pec', step: 's1', // allow-italian: fixture data, shown as written
     title: 'Richiesta di spurgo del Canale Rio Pennacchio', // allow-italian: fixture data, shown as written
@@ -60,7 +60,7 @@ const PEC: SarimCard[] = [
     reviewer: 'cn-protocollo', priority: 'normale', // allow-italian: fixture data, shown as written
     originals: [
       paper('pec', 'PEC del Comune di San Valentino Torio', 'mail', 'PEC del Comune', at('11-06', '10:01'), [ // allow-italian: fixture data, shown as written
-        'Da: lavori.pubblici@pec.comune-esempio.it', // allow-italian: fixture data, shown as written
+        'Da: lavori.pubblici@x.example.it', // allow-italian: fixture data, shown as written
         PEC_TO,
         'Oggetto: richiesta di spurgo del Canale Rio Pennacchio, tratto lungo la strada comunale', // allow-italian: fixture data, shown as written
         'Dopo le piogge dei giorni scorsi il canale è colmo di sedimenti e la sezione si è ridotta di circa la metà.', // allow-italian: fixture data, shown as written
@@ -69,7 +69,7 @@ const PEC: SarimCard[] = [
       ]),
     ],
     values: [
-      read('Mittente', 'Comune di San Valentino Torio, lavori pubblici', 'pec', 'Da: lavori.pubblici@pec.comune-esempio.it', 92), // allow-italian: fixture data, shown as written
+      read('Mittente', 'Comune di San Valentino Torio, lavori pubblici', 'pec', 'Da: lavori.pubblici@x.example.it', 92), // allow-italian: fixture data, shown as written
       read('Canale', 'Canale Rio Pennacchio', 'pec', 'spurgo del Canale Rio Pennacchio', 97), // allow-italian: fixture data, shown as written
       read('Luogo', 'strada comunale', 'pec', 'tratto lungo la strada comunale', 90), // allow-italian: fixture data, shown as written
       read('Richiesta', 'spurgo prima delle prossime allerte meteo', 'pec', 'spurgo prima delle prossime allerte meteo', 88), // allow-italian: fixture data, shown as written
@@ -88,7 +88,7 @@ const PEC: SarimCard[] = [
     reviewer: 'cn-protocollo', due: '2026-12-07', priority: 'normale', // allow-italian: fixture data, shown as written
     originals: [
       paper('pec', 'PEC di una società di Scafati', 'mail', 'PEC della società', at('11-06', '09:20'), [ // allow-italian: fixture data, shown as written
-        'Da: impresa.scafati@pec.esempio.it', // allow-italian: fixture data, shown as written
+        'Da: impresa.scafati@x.example.it', // allow-italian: fixture data, shown as written
         PEC_TO,
         "Oggetto: contestazione dell'avviso di pagamento n. 2026/0071120/01 e richiesta di annullamento in autotutela", // allow-italian: fixture data, shown as written
         'Il contributo 2026 di euro 486,50 è riferito a un capannone demolito nel 2024; si allega il certificato di demolizione.', // allow-italian: fixture data, shown as written
@@ -148,7 +148,7 @@ const PEC: SarimCard[] = [
     reviewer: 'cn-legale', due: '2027-01-04', priority: 'alta', // allow-italian: fixture data, shown as written
     originals: [
       paper('pec', 'PEC con il ricorso', 'mail', 'PEC dello studio legale', at('11-05', '09:12'), [ // allow-italian: fixture data, shown as written
-        'Da: studio.legale@pec.esempio.it', // allow-italian: fixture data, shown as written
+        'Da: studio.legale@x.example.it', // allow-italian: fixture data, shown as written
         PEC_TO,
         'Oggetto: Ricorso avverso avviso di pagamento 2025', // allow-italian: fixture data, shown as written
         'Il giorno 05/11/2026 alle ore 09:12:04 il messaggio «Ricorso avverso avviso di pagamento 2025» è stato consegnato nella casella di destinazione', // allow-italian: fixture data, shown as written
@@ -185,7 +185,7 @@ const PEC: SarimCard[] = [
     reviewer: 'cn-protocollo', due: '2026-12-05', priority: 'normale', // allow-italian: fixture data, shown as written
     originals: [
       paper('pec', 'PEC dell\'Associazione Esempio APS', 'mail', 'PEC dell\'associazione', at('11-05', '16:20'), [ // allow-italian: fixture data, shown as written
-        'Per conto di: associazione.esempio@pec.esempio.it', // allow-italian: fixture data, shown as written
+        'Per conto di: associazione.esempio@x.example.it', // allow-italian: fixture data, shown as written
         PEC_TO,
         'Oggetto: POSTA CERTIFICATA: Richiesta di accesso agli atti, concessioni Canale dei Mulini e Canale Macchione', // allow-italian: fixture data, shown as written
         "si trasmette in allegato l'istanza di accesso civico generalizzato dell'Associazione Esempio APS, firmata digitalmente dal legale rappresentante", // allow-italian: fixture data, shown as written
@@ -219,7 +219,7 @@ const PEC: SarimCard[] = [
     reviewer: 'cn-protocollo', due: '2026-11-12', priority: 'alta', // allow-italian: fixture data, shown as written
     originals: [
       paper('pec', 'PEC del Comune di Scafati', 'mail', 'PEC del Comune', at('11-05', '14:09'), [ // allow-italian: fixture data, shown as written
-        'Da: protocollo@pec.comune-scafati-esempio.it', // allow-italian: fixture data, shown as written
+        'Da: protocollo@x.example.it', // allow-italian: fixture data, shown as written
         PEC_TO,
         "Oggetto: convocazione della conferenza di servizi per il parere sull'attraversamento del Canale Bottaro", // allow-italian: fixture data, shown as written
         'La conferenza è convocata per giovedì 12/11/2026 alle ore 10:30, in modalità telematica.', // allow-italian: fixture data, shown as written
@@ -248,7 +248,7 @@ const PEC: SarimCard[] = [
     reviewer: 'cn-dg', due: '2026-12-14', priority: 'alta', // allow-italian: fixture data, shown as written
     originals: [
       paper('pec', 'PEC con la notifica del decreto', 'mail', "PEC dello studio dell'avvocato", at('11-04', '15:48'), [ // allow-italian: fixture data, shown as written
-        'Da: avvocato.esempio@pec.esempio.it', // allow-italian: fixture data, shown as written
+        'Da: avvocato.esempio@x.example.it', // allow-italian: fixture data, shown as written
         PEC_TO,
         'Oggetto: notifica del decreto ingiuntivo n. 1487/2026 del Tribunale di Salerno', // allow-italian: fixture data, shown as written
         'Il giorno 04/11/2026 alle ore 15:48 il decreto è stato notificato a mezzo PEC ai sensi della L. 53/1994.', // allow-italian: fixture data, shown as written
@@ -278,7 +278,7 @@ const PEC: SarimCard[] = [
     blocked: { reason: "l'allegato firmato non si apre: chiesto il reinvio al mittente il 02/11", since: at('11-02', '09:10') }, // allow-italian: fixture data, shown as written
     originals: [
       paper('pec', 'PEC con la diffida', 'mail', 'PEC dello studio legale', at('10-30', '17:42'), [ // allow-italian: fixture data, shown as written
-        'Da: studio.legale.esempio@pec.esempio.it', // allow-italian: fixture data, shown as written
+        'Da: studio.legale.esempio@x.example.it', // allow-italian: fixture data, shown as written
         PEC_TO,
         'Oggetto: diffida ad adempiere nei confronti del Consorzio', // allow-italian: fixture data, shown as written
         'Si trasmette in allegato la diffida. Si prega di dare riscontro entro il 05/11/2026.', // allow-italian: fixture data, shown as written
@@ -306,7 +306,7 @@ const PEC: SarimCard[] = [
     reviewer: 'cn-protocollo', priority: 'normale', // allow-italian: fixture data, shown as written
     originals: [
       paper('pec', 'PEC con il certificato di collaudo', 'mail', 'PEC dello studio tecnico', at('10-30', '09:14'), [ // allow-italian: fixture data, shown as written
-        'Da: studio.tecnico.esempio@pec.esempio.it', // allow-italian: fixture data, shown as written
+        'Da: studio.tecnico.esempio@x.example.it', // allow-italian: fixture data, shown as written
         PEC_TO,
         'Oggetto: trasmissione del certificato di collaudo, Vasca Santa Croce', // allow-italian: fixture data, shown as written
         'Si trasmette il certificato di collaudo statico della Vasca Santa Croce, in Comune di Nocera Superiore.', // allow-italian: fixture data, shown as written
@@ -314,7 +314,7 @@ const PEC: SarimCard[] = [
     ],
     values: [
       read('Tipo di PEC', 'certificato di collaudo', 'pec', 'certificato di collaudo statico', 96), // allow-italian: fixture data, shown as written
-      read('Mittente', 'studio tecnico (esempio)', 'pec', 'Da: studio.tecnico.esempio@pec.esempio.it', 92), // allow-italian: fixture data, shown as written
+      read('Mittente', 'studio tecnico (esempio)', 'pec', 'Da: studio.tecnico.esempio@x.example.it', 92), // allow-italian: fixture data, shown as written
       read('Opera', 'Vasca Santa Croce, Nocera Superiore', 'pec', 'Vasca Santa Croce, in Comune di Nocera Superiore', 97), // allow-italian: fixture data, shown as written
     ],
     proposal: 'Protocollata in Halley e assegnata al Tecnico: il certificato va nel fascicolo della vasca.', // allow-italian: fixture data, shown as written
@@ -323,7 +323,7 @@ const PEC: SarimCard[] = [
 
 /* ---------- Fatture passive (7) ---------- */
 
-const INVOICES: SarimCard[] = [
+const INVOICES: OrbitCard[] = [
   {
     id: 'FT-2414', flow: 'nocera-fatture', step: 's1', // allow-italian: fixture data, shown as written
     title: 'Fattura per il collaudo statico della Vasca Santa Croce', // allow-italian: fixture data, shown as written
@@ -590,7 +590,7 @@ const irrigationForm = (applicant: string, comune: string, parcel: string, basin
   `Inviata il ${signed}`, // allow-italian: fixture data, shown as written
 ];
 
-const IRRIGATION: SarimCard[] = [
+const IRRIGATION: OrbitCard[] = [
   {
     id: 'IR-2424', flow: 'nocera-irrigazione', step: 's1', // allow-italian: fixture data, shown as written
     title: 'Turno per il cavolfiore a Striano', // allow-italian: fixture data, shown as written
@@ -772,7 +772,7 @@ const IRRIGATION: SarimCard[] = [
 
 /* ---------- Segnalazioni dal territorio (8) ---------- allow-italian: quotes the words on screen */
 
-const REPORTS: SarimCard[] = [
+const REPORTS: OrbitCard[] = [
   {
     id: 'SG-2424', flow: 'nocera-segnalazioni', step: 's1', // allow-italian: fixture data, shown as written
     title: 'Rifiuti e ramaglie nel Canale Fosso Imperatore', // allow-italian: fixture data, shown as written
@@ -782,7 +782,7 @@ const REPORTS: SarimCard[] = [
     reviewer: 'cn-tecnico', priority: 'normale', // allow-italian: fixture data, shown as written
     originals: [
       paper('mail', 'Mail della polizia locale', 'mail', 'mail del Comune', at('11-06', '10:11'), [ // allow-italian: fixture data, shown as written
-        'Da: polizia.locale@comune-esempio.it', // allow-italian: fixture data, shown as written
+        'Da: polizia.locale@x.example.it', // allow-italian: fixture data, shown as written
         'Oggetto: rifiuti e ramaglie nel Canale Fosso Imperatore, tratto accanto al parcheggio del mercato', // allow-italian: fixture data, shown as written
         'Nei controlli di stamattina abbiamo trovato sacchi di rifiuti e ramaglie che ostruiscono metà della sezione del canale.', // allow-italian: fixture data, shown as written
         'Chiediamo la rimozione prima del mercato di sabato.', // allow-italian: fixture data, shown as written
@@ -858,7 +858,7 @@ const REPORTS: SarimCard[] = [
     reviewer: 'cn-tecnico', due: '2026-11-09', priority: 'alta', // allow-italian: fixture data, shown as written
     originals: [
       paper('mail', 'Mail della protezione civile comunale', 'mail', 'mail del Comune', at('11-06', '06:49'), [ // allow-italian: fixture data, shown as written
-        'Da: protezione.civile@comune-esempio.it', // allow-italian: fixture data, shown as written
+        'Da: protezione.civile@x.example.it', // allow-italian: fixture data, shown as written
         'Oggetto: vegetazione e detriti in alveo, Torrente Solofrana, a monte della Vasca Ciorani', // allow-italian: fixture data, shown as written
         "Il tratto interessato è lungo circa 400 metri e la sezione si è ridotta in modo evidente dopo le piogge.", // allow-italian: fixture data, shown as written
         "Con l'allerta meteo prevista per domenica si teme un'esondazione alla prossima piena.", // allow-italian: fixture data, shown as written
@@ -978,7 +978,7 @@ const REPORTS: SarimCard[] = [
     reviewer: 'cn-tecnico', priority: 'normale', // allow-italian: fixture data, shown as written
     originals: [
       paper('mail', 'Mail di un residente', 'mail', 'mail del residente', at('11-03', '12:04'), [ // allow-italian: fixture data, shown as written
-        'Da: residente.esempio@mail.esempio.it', // allow-italian: fixture data, shown as written
+        'Da: residente.esempio@x.example.it', // allow-italian: fixture data, shown as written
         'Oggetto: plastica e rami nel Canale dei Mulini', // allow-italian: fixture data, shown as written
         'Passando lungo il Canale dei Mulini, a Castel San Giorgio, ho visto molta plastica e rami che si fermano sotto il ponte della strada comunale.', // allow-italian: fixture data, shown as written
         'Vi chiedo di intervenire prima che arrivino le piogge.', // allow-italian: fixture data, shown as written
@@ -995,7 +995,7 @@ const REPORTS: SarimCard[] = [
 
 /* ---------- Concessioni idrauliche (4) ---------- */
 
-const CONCESSIONS: SarimCard[] = [
+const CONCESSIONS: OrbitCard[] = [
   {
     id: 'CO-2398', flow: 'nocera-concessioni', step: 's7', // allow-italian: fixture data, shown as written
     title: 'Attraversamento del Canale Lauro con una tubazione', // allow-italian: fixture data, shown as written
@@ -1130,7 +1130,7 @@ const CONCESSIONS: SarimCard[] = [
 const officerOpening = (day: string, hour: string, stream: string, comune: string) =>
   `Il giorno ${day} 2026, alle ore ${hour}, l'ufficiale idraulico del Consorzio di Bonifica Integrale Comprensorio Sarno, Autorità di Polizia Idraulica ai sensi dell'art. 10, comma 2, della L.R. Campania 7/2025, durante il servizio di vigilanza sul ${stream} in Comune di ${comune}, ha accertato`; // allow-italian: fixture data, shown as written
 
-const POLICE: SarimCard[] = [
+const POLICE: OrbitCard[] = [
   {
     id: 'VP-2401', flow: 'nocera-polizia', step: 's4', // allow-italian: fixture data, shown as written
     title: 'Rifiuti in alveo, trasgressore senza indirizzo', // allow-italian: fixture data, shown as written
@@ -1261,7 +1261,7 @@ const POLICE: SarimCard[] = [
 
 /* ---------- Contributi e sgravi (5) ---------- */
 
-const CONTRIBUTIONS: SarimCard[] = [
+const CONTRIBUTIONS: OrbitCard[] = [
   {
     id: 'RC-2425', flow: 'nocera-contributi', step: 's1', // allow-italian: fixture data, shown as written
     title: 'Sgravio per un terreno espropriato', // allow-italian: fixture data, shown as written
@@ -1425,7 +1425,7 @@ const CONTRIBUTIONS: SarimCard[] = [
 /* ---------- Personale (5) ---------- */
 
 /** Every employee here is a matricola with a qualifica, never a name: they are examples. */
-const STAFF: SarimCard[] = [
+const STAFF: OrbitCard[] = [
   {
     id: 'PE-2406', flow: 'nocera-personale', step: 's1', // allow-italian: fixture data, shown as written
     title: 'Visita medica periodica in scadenza, operaio', // allow-italian: fixture data, shown as written
@@ -1566,7 +1566,7 @@ const STAFF: SarimCard[] = [
 
 /* ---------- Contratti, gare e incarichi (6) ---------- */
 
-const TENDERS: SarimCard[] = [
+const TENDERS: OrbitCard[] = [
   {
     id: 'CT-2398', flow: 'nocera-contratti', step: 's1', // allow-italian: fixture data, shown as written
     title: 'Schema di convenzione per la difesa del suolo a Siano', // allow-italian: fixture data, shown as written
@@ -1734,4 +1734,4 @@ const TENDERS: SarimCard[] = [
   },
 ];
 
-export const NOCERA_CARDS: SarimCard[] = [...PEC, ...INVOICES, ...IRRIGATION, ...REPORTS, ...CONCESSIONS, ...POLICE, ...CONTRIBUTIONS, ...STAFF, ...TENDERS];
+export const NOCERA_CARDS: OrbitCard[] = [...PEC, ...INVOICES, ...IRRIGATION, ...REPORTS, ...CONCESSIONS, ...POLICE, ...CONTRIBUTIONS, ...STAFF, ...TENDERS];

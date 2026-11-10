@@ -51,7 +51,7 @@ export interface OriginalModel {
 function PaperPage({ paper, copy }: { paper: OriginalPaperModel; copy: UiCopy }) {
   const o = copy.knowledgeMore.original;
   return (
-    <div className="mx-auto max-w-[720px] rounded-lg bg-white px-6 py-8 font-serif text-body-lg leading-7 text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.12)] ring-1 ring-black/5 md:px-14" data-paper="true">
+    <div className="mx-auto max-w-[720px] rounded-lg bg-white px-6 py-8 font-serif text-[15px] leading-7 text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.12)] ring-1 ring-black/5 md:px-14" data-paper="true">
       <div className="font-sans text-mini font-medium tracking-[0.06em] text-neutral-500">{paper.heading}</div>
       {paper.paragraphs ? (
         <div className="mt-3 space-y-2.5">

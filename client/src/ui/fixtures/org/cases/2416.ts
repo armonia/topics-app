@@ -157,7 +157,7 @@ export const CASE_2416: CaseSeed = {
       title: 'Ricevuta di avvenuta consegna', // allow-italian: fixture data, shown as written
       lines: [
         'Messaggio «Provvedimento di sgravio, avviso 2026/0063390/01»', // allow-italian: fixture data, shown as written
-        'Consegnato a immobiliare.esempio@pec.esempio.it il 06/11/2026 alle 10:31', // allow-italian: fixture data, shown as written
+        'Consegnato a immobiliare.esempio@x.example.it il 06/11/2026 alle 10:31', // allow-italian: fixture data, shown as written
         'Protocollo in partenza n. 2026/0018502 (esempio)', // allow-italian: fixture data, shown as written
         'Sgravio registrato in Prunes · voltura in coda al Catasto', // allow-italian: fixture data, shown as written
       ],

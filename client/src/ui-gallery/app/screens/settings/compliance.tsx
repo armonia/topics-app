@@ -30,7 +30,7 @@ interface ComplianceState {
 }
 
 const GROUP_ORDER: StandardGroup[] = ['documents', 'sector', 'personal', 'data'];
-const SCOPES: ComplianceScope[] = ['nocera', 'sarim', 'topics'];
+const SCOPES: ComplianceScope[] = ['nocera', 'orbit', 'topics'];
 const OPEN_STATUSES: StandardStatus[] = ['in-progress', 'partial', 'to-certify', 'to-request'];
 
 type GeneralId = 'gdpr' | 'iso27001' | 'acn' | 'nis2' | 'iso25012' | 'iso8000' | 'aiact' | 'iso42001' | 'wcag';

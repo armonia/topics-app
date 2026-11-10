@@ -179,7 +179,7 @@ export function MigrationScreen({
       {view === 'competitors' && (
         <>
           <div className="mb-3 flex flex-wrap items-baseline gap-x-3">
-            <h2 className="text-title font-semibold text-app-text">{model.heading}</h2>
+            <h2 className="text-[17px] font-semibold text-app-text">{model.heading}</h2>
             <span className="text-prose text-app-text-tertiary">{model.research}</span>
           </div>
           {model.rows.length <= 1 ? (
@@ -229,7 +229,7 @@ export function MigrationScreen({
       {view === 'migration' && (
         <>
           <div className="mb-3 flex flex-wrap items-baseline gap-x-3">
-            <h2 className="text-title font-semibold text-app-text">{model.name}</h2>
+            <h2 className="text-[17px] font-semibold text-app-text">{model.name}</h2>
             <span className="text-prose text-app-text-tertiary">{m.estimateNote}</span>
           </div>
           {model.bars.length === 0 ? (

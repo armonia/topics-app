@@ -44,7 +44,7 @@ export function DayBars({ chart, copy }: { chart: DayChartModel; copy: UiCopy })
         </span>
       </figcaption>
       <div className="flex gap-2" aria-hidden="true">
-        <div className="flex h-[112px] w-7 shrink-0 flex-col justify-between text-right text-mini tabular-nums leading-none text-app-text-tertiary">
+        <div className="flex h-[112px] w-7 shrink-0 flex-col justify-between text-right text-nano tabular-nums leading-none text-app-text-tertiary">
           {ticks.map((t) => <span key={t} className="-translate-y-px">{t}</span>)}
         </div>
         <div className="min-w-0 flex-1">
@@ -60,7 +60,7 @@ export function DayBars({ chart, copy }: { chart: DayChartModel; copy: UiCopy })
               ))}
             </div>
           </div>
-          <div className="relative mt-1.5 h-3 text-mini leading-none text-app-text-tertiary">
+          <div className="relative mt-1.5 h-3 text-nano leading-none text-app-text-tertiary">
             {chart.axis.map((a) => {
               const center = ((a.index + 0.5) / chart.days.length) * 100;
               const edge = a.index === chart.days.length - 1 ? 'right-0' : '';

@@ -79,7 +79,7 @@ export function KeyValue({ lead, label, hint, value, valueClassName }: {
       <span className="min-w-0 max-w-[55%] shrink-0 text-app-text [overflow-wrap:break-word]">{label}</span>
       {/* A long value wraps under itself instead of pushing past the edge. */}
       <span className="ml-auto flex min-w-0 items-center justify-end gap-2">
-        {hint && <span className="shrink-0 font-mono text-mini text-app-text-faint">{hint}</span>}
+        {hint && <span className="shrink-0 font-mono text-nano text-app-text-faint">{hint}</span>}
         <span className={clsx('text-right tabular-nums text-app-text', valueClassName)}>{value}</span>
       </span>
     </div>

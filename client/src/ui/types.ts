@@ -149,13 +149,13 @@ export interface SidebarModel {
   identity: IdentityModel;
 }
 
-export type UiTabKind =
+export type TabKind =
   | 'flows' | 'record' | 'board' | 'data' | 'knowledge' | 'overview' | 'views' | 'inbox' | 'new' | 'other'
   | 'today' | 'settings' | 'channels' | 'programs' | 'chat' | 'callcenter' | 'search' | 'org' | 'contracts' | 'team';
 
 export interface TabModel {
   id: string;
-  kind: UiTabKind;
+  kind: TabKind;
   label: string;
   count?: number;
   active?: boolean;

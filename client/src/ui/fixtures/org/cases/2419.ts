@@ -78,7 +78,7 @@ export const CASE_2419: CaseSeed = {
     {
       id: 'd-pec', name: 'PEC del 05/11/2026', kind: 'mail', // allow-italian: fixture data, shown as written
       detail: 'messaggio di posta certificata · 2 allegati', // allow-italian: fixture data, shown as written
-      from: 'associazione.esempio@pec.esempio.it', receivedAt: '2026-11-05T16:20:37+01:00', // allow-italian: fixture data, shown as written
+      from: 'associazione.esempio@x.example.it', receivedAt: '2026-11-05T16:20:37+01:00', // allow-italian: fixture data, shown as written
       summary: [{ text: "Trasmette l'istanza firmata e il documento di identità; l'oggetto parla di «accesso agli atti».", page: 1 }], // allow-italian: fixture data, shown as written
       ...original('2419', 'd-pec', 1),
     },
@@ -144,7 +144,7 @@ export const CASE_2419: CaseSeed = {
       title: 'Ricevuta di avvenuta consegna', // allow-italian: fixture data, shown as written
       lines: [
         "Messaggio «Risposta all'istanza di accesso civico del 05/11/2026»", // allow-italian: fixture data, shown as written
-        'Consegnato a associazione.esempio@pec.esempio.it il 06/11/2026 alle 10:33', // allow-italian: fixture data, shown as written
+        'Consegnato a associazione.esempio@x.example.it il 06/11/2026 alle 10:33', // allow-italian: fixture data, shown as written
         'Protocollo in partenza n. 2026/0018504 (esempio)', // allow-italian: fixture data, shown as written
         'Registro degli accessi: esito e data annotati', // allow-italian: fixture data, shown as written
       ],

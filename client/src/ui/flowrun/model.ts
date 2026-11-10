@@ -185,7 +185,7 @@ export interface TestCaseRow {
 
 /* ---------- runs ---------- */
 
-export type UiRunStatus = 'running' | 'person' | 'blocked' | 'error' | 'done' | 'archived';
+export type RunStatus = 'running' | 'person' | 'blocked' | 'error' | 'done' | 'archived';
 
 export type RunActor = { kind: 'robot' | 'rule' | 'ai' | 'person'; text?: string; color?: string };
 
@@ -197,7 +197,7 @@ export interface RunRowModel {
   arrived: string;
   step: string;
   actor: RunActor;
-  status: UiRunStatus;
+  status: RunStatus;
   /** What the Stato chip says. (allow-italian: quotes the Italian interface) */
   statusText: string;
   duration: string;

@@ -86,7 +86,7 @@ export function SectorPage({ ctx }: { ctx: ScreenCtx }) {
   const editedCount = TERM_IDS.filter((t) => state.overrides[active.id]?.[t] !== undefined).length;
 
   const flowOf = (id?: string) => (id ? FLOWS.find((f) => f.id === id) : undefined);
-  const pathOfFlow = (id: string) => (FLOWS.find((f) => f.id === id)?.org === 'sarim' ? P.sarimFlow(id) : P.flow(id));
+  const pathOfFlow = (id: string) => (FLOWS.find((f) => f.id === id)?.org === 'orbit' ? P.orbitFlow(id) : P.flow(id));
 
   return settingsFrame(ctx, 'settore', {
     children: (

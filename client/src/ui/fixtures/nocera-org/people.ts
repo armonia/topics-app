@@ -8,10 +8,10 @@
  * (`DATI-VERI.md`: «Nomi di dipendenti: ruoli, non nomi inventati»). allow-italian: quotes the words on screen
  *
  * The agents are the workers of Topics that prepare and check: they never sign,
- * send or approve for a person. Same shape as `../sarim-org/people.ts`.
+ * send or approve for a person. Same shape as `../orbit-org/people.ts`.
  */
 import type { Permission, RoleDef } from '../org/people';
-import type { SarimAgent, SarimPersona, SarimTeam } from '../sarim-org/people';
+import type { OrbitAgent, OrbitPersona, OrbitTeam } from '../orbit-org/people';
 
 /** The areas of the Consorzio, as the cards, the team page and the filters name them (the same ids as the teams). */
 export const NOCERA_AREA_LABEL: Record<string, string> = {
@@ -82,7 +82,7 @@ export const NOCERA_ROLES: RoleDef[] = [
   },
 ];
 
-export const NOCERA_PERSONAS: SarimPersona[] = [
+export const NOCERA_PERSONAS: OrbitPersona[] = [
   { id: 'cn-dg', name: 'Direttore generale (esempio)', short: 'Direttore gen.', monogram: 'DG', color: '#0f766e', role: 'nocera-direzione', area: 'direzione', orgs: ['nocera'], offices: [], home: '/da-fare', example: true }, // allow-italian: fixture data, shown as written
   { id: 'cn-protocollo', name: 'Responsabile del protocollo (esempio)', short: 'Resp. protocollo', monogram: 'PR', color: '#15803d', role: 'nocera-protocollo', area: 'protocollo', orgs: ['nocera'], offices: [], home: '/da-fare', example: true }, // allow-italian: fixture data, shown as written
   { id: 'cn-ragioneria', name: 'Responsabile della ragioneria (esempio)', short: 'Resp. ragioneria', monogram: 'RA', color: '#1d4ed8', role: 'nocera-ragioneria', area: 'ragioneria', orgs: ['nocera'], offices: [], home: '/da-fare', example: true }, // allow-italian: fixture data, shown as written
@@ -95,7 +95,7 @@ export const NOCERA_PERSONAS: SarimPersona[] = [
 ];
 
 /** The teams in the order of the old preview; the nine agents are a team of their own (`NOCERA_AGENTS_TEAM`). */
-export const NOCERA_TEAMS: SarimTeam[] = [
+export const NOCERA_TEAMS: OrbitTeam[] = [
   { id: 'direzione', label: 'Direzione', lead: 'cn-dg', does: 'Vede tutto, approva e firma provvedimenti, concessioni e pagamenti, decide chi può fare cosa.' }, // allow-italian: fixture data, shown as written
   { id: 'protocollo', label: 'Protocollo e segreteria', lead: 'cn-protocollo', does: 'PEC in arrivo, protocollo e smistamento ai team, albo.' }, // allow-italian: fixture data, shown as written
   { id: 'ragioneria', label: 'Ragioneria', lead: 'cn-ragioneria', does: 'Fatture passive, liquidazioni e pagamenti.' }, // allow-italian: fixture data, shown as written
@@ -112,7 +112,7 @@ export const NOCERA_AGENTS_TEAM = { id: 'agenti', label: 'Agenti' } as const; //
 
 export const NOCERA_DEFAULT_PERSONA = 'cn-dg';
 
-export const NOCERA_AGENTS: SarimAgent[] = [
+export const NOCERA_AGENTS: OrbitAgent[] = [
   { id: 'ag-pec', name: 'Agente PEC e protocollo', does: 'legge la PEC, riconosce il tipo, propone il team e calcola le scadenze', area: 'protocollo' }, // allow-italian: fixture data, shown as written
   { id: 'ag-fatture', name: 'Agente fatture passive', does: 'legge la fattura, la abbina a ordine e determina, prepara la liquidazione', area: 'ragioneria' }, // allow-italian: fixture data, shown as written
   { id: 'ag-irrigazione', name: 'Agente turni irrigui', does: 'legge la richiesta, verifica bacino e particella, propone giorno e ora', area: 'irrigazione' }, // allow-italian: fixture data, shown as written

@@ -190,7 +190,7 @@ export interface SeedInvite {
 }
 
 export const SEED_INVITES: SeedInvite[] = [
-  { id: 'inv-seed-1', email: 'revisore.esterno@pec.esempio.it', role: 'lettura', orgs: ['nocera'], sentAt: `${addDays(DEMO_TODAY, -2)}T15:20:00+01:00`, by: 'attilio' }, // allow-italian: fixture data, shown as written
+  { id: 'inv-seed-1', email: 'revisore.esterno@x.example.it', role: 'lettura', orgs: ['nocera'], sentAt: `${addDays(DEMO_TODAY, -2)}T15:20:00+01:00`, by: 'attilio' }, // allow-italian: fixture data, shown as written
 ];
 
 /** The offices a person can be given, in the order of the filter. */
@@ -229,21 +229,21 @@ export interface ShareSeed {
 export const SEED_SHARES: ShareSeed[] = [
   {
     id: 'sh-1', scope: { kind: 'record', id: '2418', label: 'Ricorso CGT, azienda agricola' }, // allow-italian: fixture data, shown as written
-    to: { email: 'studio.incaricato@pec.esempio.it', label: 'Studio legale incaricato (esempio)' }, // allow-italian: fixture data, shown as written
+    to: { email: 'studio.incaricato@x.example.it', label: 'Studio legale incaricato (esempio)' }, // allow-italian: fixture data, shown as written
     can: 'comment', until: '2026-12-31', watermark: true,
     includes: { contributor: false, sameContributor: false, assistant: false },
     createdAt: `${DEMO_TODAY}T09:48:00+01:00`, by: 'legale', code: 'k7d2m9',
-    opens: [{ at: `${DEMO_TODAY}T10:02:00+01:00`, who: 'studio.incaricato@pec.esempio.it' }], // allow-italian: fixture data, shown as written
+    opens: [{ at: `${DEMO_TODAY}T10:02:00+01:00`, who: 'studio.incaricato@x.example.it' }], // allow-italian: fixture data, shown as written
   },
   {
     id: 'sh-2', scope: { kind: 'view', id: 'particelle-sarno', label: 'Particelle del bacino Sarno sulla mappa' }, // allow-italian: fixture data, shown as written
-    to: { email: 'ufficio.bonifica@pec.esempio.it', label: 'Regione Campania, ufficio bonifica (esempio)' }, // allow-italian: fixture data, shown as written
+    to: { email: 'ufficio.bonifica@x.example.it', label: 'Regione Campania, ufficio bonifica (esempio)' }, // allow-italian: fixture data, shown as written
     can: 'view', until: '2026-11-30', watermark: true,
     includes: { contributor: false, sameContributor: false, assistant: false },
     createdAt: `${addDays(DEMO_TODAY, -6)}T16:05:00+01:00`, by: 'attilio', code: 'p3x8q1',
     opens: [
-      { at: `${addDays(DEMO_TODAY, -5)}T09:30:00+01:00`, who: 'ufficio.bonifica@pec.esempio.it' }, // allow-italian: fixture data, shown as written
-      { at: `${addDays(DEMO_TODAY, -2)}T11:12:00+01:00`, who: 'ufficio.bonifica@pec.esempio.it' }, // allow-italian: fixture data, shown as written
+      { at: `${addDays(DEMO_TODAY, -5)}T09:30:00+01:00`, who: 'ufficio.bonifica@x.example.it' }, // allow-italian: fixture data, shown as written
+      { at: `${addDays(DEMO_TODAY, -2)}T11:12:00+01:00`, who: 'ufficio.bonifica@x.example.it' }, // allow-italian: fixture data, shown as written
     ],
   },
 ];
@@ -343,7 +343,7 @@ export const SEED_LOG: SeedLogLine[] = [
   { day: 1, time: '12:41:08', who: 'protocollo', what: 'Ha corretto il fascicolo', subject: '2418 Ricorso CGT (esempio)', detail: 'fascicolo: Ricorsi 2025 / Castel San Giorgio (proposta AI: Contenzioso 2026)', to: { kind: 'record', id: '2418' }, kind: 'case' }, // allow-italian: fixture data, shown as written
   { day: 1, time: '11:58:40', who: 'direzione', what: 'Ha chiesto alla Conoscenza', detail: '«chi contesta gli scarichi abusivi», 3 fonti', to: { kind: 'knowledge', id: '' }, kind: 'knowledge' }, // allow-italian: fixture data, shown as written
   { day: 1, time: '09:12:30', who: 'ai:classifica', what: 'Ha riconosciuto una PEC', subject: '2418 Ricorso CGT (esempio)', detail: 'ricorso, ufficio Legale, fiducia 96%', to: { kind: 'record', id: '2418' }, kind: 'case' }, // allow-italian: fixture data, shown as written
-  { day: 2, time: '15:20:00', who: 'attilio', what: 'Ha invitato una persona', detail: 'revisore.esterno@pec.esempio.it, sola lettura', to: { kind: 'settings', id: 'squadra' }, kind: 'permission' }, // allow-italian: fixture data, shown as written
+  { day: 2, time: '15:20:00', who: 'attilio', what: 'Ha invitato una persona', detail: 'revisore.esterno@x.example.it, sola lettura', to: { kind: 'settings', id: 'squadra' }, kind: 'permission' }, // allow-italian: fixture data, shown as written
   { day: 2, time: '11:12:00', who: 'access:mcp', what: 'Accesso di Claude via MCP', detail: 'sola lettura su Dati e Conoscenza', to: { kind: 'settings', id: 'sicurezza' }, kind: 'access' }, // allow-italian: fixture data, shown as written
   { day: 3, time: '10:15:00', who: 'attilio', what: 'Ha avviato il collaudo della versione 5', subject: 'Flusso PEC → protocollo', detail: 'soglia 90% → 85%, nuovo blocco «accesso atti», 7 giorni', to: { kind: 'flowTest', id: 'pec' }, kind: 'test' }, // allow-italian: fixture data, shown as written
   { day: 4, time: '11:10:00', who: 'robot:prunes', what: 'Ha letto il catasto', subject: 'Flusso Richiesta irrigua → turno', detail: '12 particelle, sola lettura', to: { kind: 'flow', id: 'irrigua' }, kind: 'structure' }, // allow-italian: fixture data, shown as written
