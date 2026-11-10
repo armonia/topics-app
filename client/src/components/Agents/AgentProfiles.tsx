@@ -12,6 +12,7 @@ import { Fragment, useMemo, useState } from 'react';
 import { Activity, Bot, Pencil, Users, CalendarClock, MessagesSquare, Sparkles, TriangleAlert, UserRound } from 'lucide-react';
 import { apiFetch } from '../../lib/shell/net';
 import { useT } from '../../hooks/useT';
+import { Select } from '../Shared/Select';
 import { useChannelTitles } from '../../state/agentGroups';
 import { DANGER_TEXT } from '../../lib/popoverStyles';
 import { PALLINO_ATTESA, PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from '../Sidebar/chromeSignals';
@@ -53,7 +54,7 @@ function ChatEditor({ c, post, close }: { c: Chat; post: Post; close: () => void
 function JobEditor({ j, post, close }: { j: Job; post: Post; close: () => void }) {
   const tr = useT();
   const s = j.rawSchedule;
-  const [kind, setKind] = useState(s?.kind === 'every' ? 'every' : s?.kind === 'at' ? 'at' : 'cron');
+  const [kind, setKind] = useState<'cron' | 'every' | 'at'>(s?.kind === 'every' ? 'every' : s?.kind === 'at' ? 'at' : 'cron');
   const [expr, setExpr] = useState(s?.expr ?? '0 9 * * *');
   const [minutes, setMinutes] = useState(String(s?.minutes ?? 30));
   const [at, setAt] = useState(s?.at ?? '');
@@ -63,11 +64,12 @@ function JobEditor({ j, post, close }: { j: Job; post: Post; close: () => void }
   };
   return (
     <div data-testid="agent-job-editor" className="flex flex-wrap items-center gap-2 rounded border border-app-border-light p-2">
-      <select value={kind} onChange={(e) => setKind(e.target.value)} className="rounded border border-app-border-light bg-surface px-1 py-1 text-mini">
-        <option value="cron">{tr('agentConfig.when.cron')}</option>
-        <option value="every">{tr('agentConfig.when.every')}</option>
-        <option value="at">{tr('agentConfig.when.at')}</option>
-      </select>
+      <Select<'cron' | 'every' | 'at'>
+        value={kind}
+        onChange={setKind}
+        ariaLabel={tr('agentConfig.editWhen')}
+        options={[{ value: 'cron', label: tr('agentConfig.when.cron') }, { value: 'every', label: tr('agentConfig.when.every') }, { value: 'at', label: tr('agentConfig.when.at') }]}
+      />
       {kind === 'cron' && <input data-testid="agent-job-cron" value={expr} onChange={(e) => setExpr(e.target.value)} className={`w-40 font-mono ${FIELD}`} />}
       {kind === 'every' && <input type="number" min={1} value={minutes} onChange={(e) => setMinutes(e.target.value)} className={`w-20 ${FIELD}`} />}
       {kind === 'every' && <span className="text-mini text-app-text-muted">{tr('agentConfig.when.minutes')}</span>}

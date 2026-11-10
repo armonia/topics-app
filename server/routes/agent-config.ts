@@ -73,7 +73,7 @@ export function readRegistry(paths: Paths) {
       if (ch === "discord") return Object.keys(v ?? {}).filter((k) => agentOfAccount(k) === id).map((k) => ({ channel: ch, account: k, token: String(v[k]?.token ?? "").replace(/^keychain:/, "Portachiavi: ") }));
       return id === "main" ? [{ channel: ch, account: "default", token: String(v?.token ?? v?.store ?? "").replace(/^keychain:/, "Portachiavi: ") }] : [];
     });
-    const routedToVisione = new Set(routes.filter((r) => r.agent === "gtm" && r.chat).map((r) => `${r.channel}:${r.chat}`));
+    const routedToSales = new Set(routes.filter((r) => r.agent === "gtm" && r.chat).map((r) => `${r.channel}:${r.chat}`));
     const routedChats = new Set(routes.filter((r) => r.agent === id && r.chat).map((r) => `${r.channel}:${r.chat}`));
     const chats = groups
       .filter((g) => agentOfAccount(g.account) === id)
@@ -81,7 +81,7 @@ export function readRegistry(paths: Paths) {
         channel: g.channel as string, chat: g.chat as string, account: (g.account ?? "default") as string,
         active: !!g.active, mention: !!g.mention, senders: (g.senders ?? []) as string[], denied: (g.denied ?? []) as string[],
         hasSystem: !!g.system, system: (g.system ?? "") as string, routed: routedChats.has(`${g.channel}:${g.chat}`),
-        twoAgents: groups.filter((x) => x.channel === g.channel && x.chat === g.chat).length > 1 && routedToVisione.has(`${g.channel}:${g.chat}`),
+        twoAgents: groups.filter((x) => x.channel === g.channel && x.chat === g.chat).length > 1 && routedToSales.has(`${g.channel}:${g.chat}`),
       }));
     const agentJobs = jobs
       .filter((j) => (j.run?.kind === "agent" ? (j.run.agent ?? "main") : "main") === id)
