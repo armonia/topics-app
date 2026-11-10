@@ -40,6 +40,7 @@ import { createDeliveryCapture, type DeliveryCapture, type DeliveryRef } from ".
 import type { TaskFile } from "../../shared/task-labels";
 import type { NodeRunReport } from "./node-client";
 
+import { wakeBreaker } from "./wake-breaker";
 import { PID, TASK, MACHINE, BASE_URL, report, delegatedPolicy, harness, flush, poll, dispatch } from "./task-dispatcher-remote-node-test-support";
 
 describe("la card parte sul nodo, non qui", () => {
@@ -311,6 +312,19 @@ describe("l'hook node-run gira prima che la card parta sul nodo", () => {
     expect(note).toContain("il nodo «Portatile» non è pronto: il PC non si sveglia (wol senza risposta)");
     // The slot is free again: the retry is not blocked by a ghost run.
     expect(h.dispatcher.busyIds()).not.toContain(TASK);
+  });
+
+  it("two vetoes in a row open the wake breaker: the node stops being a sleeping target", async () => {
+    // 2026-11-10: the PC stuck at the login screen got 17 cards in half an hour.
+    wakeBreaker.success(MACHINE);
+    const hook = hookFake({ ok: false, reason: "il PC non si sveglia" });
+    for (let i = 0; i < 2; i++) {
+      const h = harness({ hooks: hook.runner });
+      h.seed();
+      await dispatch(h);
+    }
+    expect(wakeBreaker.isOpen(MACHINE)).toBe(true);
+    wakeBreaker.success(MACHINE);
   });
 
   it("l'hook gira prima di ogni chiamata al nodo, anche la cancellazione della corsa vecchia", async () => {
