@@ -100,6 +100,17 @@ import { decodeCol } from "../../shared/message-blob";
 import { splitStoredToolOutputs } from "../lib/tool-output-store";
 import { subagentProcesses } from "./subagentProcesses";
 import { sessionStatus } from "./sessionStatus";
+import { isInterfaceRequest } from "../lib/created-by";
+
+/** Is this topic the agent of a board task? (`session-environment.ts` asks the same.) */
+function isBoardAgentTopic(db: import("bun:sqlite").Database, topicId: string): boolean {
+  try {
+    return !!db.prepare("SELECT 1 FROM tasks WHERE assigned_topic_id = ? LIMIT 1").get(topicId);
+  } catch {
+    // No board on this installation: no topic is a board agent.
+    return false;
+  }
+}
 
 /**
  * Remove a topic id from every ui_state record's `openChatTopicIds` array,
@@ -1612,6 +1623,15 @@ export function createTopicsRouter(
         const data = loadTopics();
         const topic = data.topics[params.id];
         if (!topic) return json({ error: "not found" }, 404);
+        // The model of a board card's agent is the card's, not something the
+        // agent declares about itself: the thread shows it next to the agent's
+        // signature. Only the interface may change it (card 964ea861).
+        if (body.model !== undefined && !isInterfaceRequest(req) && isBoardAgentTopic(db, topic.id)) {
+          return json({
+            error: "the model of a board agent's topic is set by its card, not through the API",
+            code: "agent_topic_model_locked",
+          }, 403);
+        }
         const globalOrchestrator = isGlobalOrchestratorTopic(db, topic.id);
         // A raw registry role can survive a manual/provider corruption, but it
         // must never degrade into an ordinary mutable chat. In particular,

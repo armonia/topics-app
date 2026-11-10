@@ -219,6 +219,8 @@ export interface Task {
    * `runComputerName` it is the chip's «moved to Cloud: Mac full».
    */
   overflowedAt?: string;
+  /** ON THE WIRE only while it holds: the node an empty run came back from, which the overflow skips. */
+  overflowSkipMachine?: string;
   /**
    * ON THE WIRE only when set: on a node's MIRROR card, the branch its worktree
    * is born from instead of main (the origin card's own delivery branch, sent
@@ -558,6 +560,8 @@ export interface UpdateTaskPatch {
   stayLocal?: boolean;
   /** When `stayLocal` stops holding (ISO); null = for good. Set only by the dispatcher. */
   stayLocalUntil?: string | null;
+  /** The node the overflow skips for this card, and until when (ISO). Set only by the dispatcher. */
+  overflowSkip?: { machineId: string; until: string } | null;
   /** The executable acceptance bar; null clears. */
   bar?: string | null;
   /** Where the card comes from (session or channel), added after birth to clear the incomplete flag. */

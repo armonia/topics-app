@@ -1365,3 +1365,17 @@ project with Processes closed does not pay for polling its scripts.
 #### Scenario: Processes never opened
 - **GIVEN** a project whose Processes section is closed and was never opened
 - **THEN** its content SHALL NOT exist in the DOM until the first opening
+
+### Requirement: E2EDUR-01 — Uno spec e2e che rallenta davvero da una notte all'altra si segnala
+
+Il confronto notturno delle durate e2e SHALL segnalare un file di spec solo se è
+cresciuto sia oltre il 20% sia oltre 5 secondi assoluti; un file presente in una
+sola delle due misure SHALL NOT contare come regressione.
+
+#### Scenario: uno spec passa da 20 s a 30 s
+- **GIVEN** due misure notturne con `a.spec.ts` a 20 s e poi a 30 s
+- **THEN** il file SHALL essere segnalato con la crescita del 50%
+
+#### Scenario: rumore su uno spec breve
+- **GIVEN** `a.spec.ts` passa da 0,3 s a 0,9 s
+- **THEN** SHALL NOT essere segnalato

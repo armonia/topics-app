@@ -2269,7 +2269,7 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          delivery_commit = 'abc1234', landing_state = 'landed', landing_checked_at = ?,
          checks_state = 'green', checks_at = ?, checks_commit = 'abc1234', checks_json = ?,
          delivered_by = 'claude', delivered_reason = 'finito', dispatch_weight = 'heavy',
-         created_source = 'session:s1', origin_topic_id = 'top-1', bar = 'bun test', created_missing = 'bar', stay_local_until = '2999-01-01T00:00:00.000Z', wait_source = 'machine',
+         created_source = 'session:s1', origin_topic_id = 'top-1', bar = 'bun test', created_missing = 'bar', stay_local_until = '2999-01-01T00:00:00.000Z', wait_source = 'machine', overflow_skip_machine = 'pc-1', overflow_skip_until = '2999-01-01T00:00:00.000Z',
          created_by_topic_id = 'top-1', plan_comment_id = 'id-9', done_actor = 'human',
          reopened_at = ?, reopened_by = 'il-reviewer', reopened_actor = 'human',
          landing_witnessed = 1, wait_streak = 2, wait_reason = 'aspetto il gate',

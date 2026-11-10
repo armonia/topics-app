@@ -171,13 +171,6 @@ export const SERIAL_GLOBS = [
   // the watchdog answered at 2083 ms), green on the same tests before the
   // rebase (run 40022305558): the window follows the load of the box.
   "tests/integration/late-scan-past-cap.test.ts",
-  // Freezes a real process tree only if it reads CPU on it within 1200 ms:
-  // with 8 workers on 4 cores the child got none and nothing was frozen
-  // (run 42849276767, 10/11/2026), green at 4 workers.
-  "server/services/swap-freeze.signals.test.ts",
-  // Runs this very runner nested, whose plan reads the box load: green alone
-  // and at 4 workers, red at 6 and 8 (runs 42851494509, 42853433928).
-  "scripts/test-unit-shards.cli.test.ts",
 ] as const;
 
 const TEST_GLOBS = ["**/*.test.ts", "**/*.test.tsx"] as const;
