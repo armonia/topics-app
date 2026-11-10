@@ -80,7 +80,6 @@ function routes(theme: string): Route[] {
     [/\/files\/package-scripts\b/, (_u, a) => json(a.packageScripts)],
     [/\/files\b/, (_u, a) => json(a.files)],
     [/\/history\//, (u, a) => json(a.history(pathParam(u, /\/history\/([^/?]+)/)))],
-    [/\/openclaw\/context\b/, (_u, a) => json(a.openclawContext)],
   ];
 }
 

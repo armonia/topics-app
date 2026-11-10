@@ -260,7 +260,6 @@ export function createAcmeScenario(): LandingScenario {
         { name: "README.md", type: "file", path: PROJECT + "/README.md", size: 3400 },
       ],
       usage: emptyUsage(ISO),
-      openclawContext: { soul: null, memory: null, agents: null, tools: null, identity: null, user: null, memoryIndex: [], memoryTokens: 0, totalTokens: 0, workspacePath: PROJECT },
     },
     sockets: {
       terminals: { transcripts: ACME_TRANSCRIPTS, fallback: ACME_FALLBACK_TRANSCRIPT },
