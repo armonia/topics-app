@@ -706,10 +706,10 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
   function buryRun(taskId: string, node: NodeSlot): void {
     const name = nodeName(node.machineId);
     log(`nodo: corsa ${node.runId} su «${name}» sepolta dopo ${NODE_DEAD_POLLS} giri falliti di fila (task ${taskId})`);
-    // Una card che nel frattempo è andata in review, done o archivio non torna
-    // MAI in coda: il requeue la rimetteva in todo e l'hook node-run riaccendeva
-    // un server a pagamento per una card già chiusa (10/11, topics-node-p1).
-    // La corsa si chiude come persa, la card resta dov'è.
+    // A card that meanwhile went to review, done or the archive is NEVER
+    // requeued: the requeue put it back in todo and the node-run hook woke a
+    // paid server for a card already closed (10/11, topics-node-p1). The run
+    // closes as lost and the card stays where it is.
     const current = svc.get(taskId)?.task;
     if (current && (svc.isArchived?.(taskId) || current.status === "review" || current.status === "done")) {
       try {
