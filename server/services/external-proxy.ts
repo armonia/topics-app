@@ -17,6 +17,8 @@
  *                                    interfaces get a 403, checked on the literal address AND on what
  *                                    the name resolves to (the connection is made to that answer, so
  *                                    no rebinding window)
+ *   GET http://host:port/path     -> plain-http request relayed once per connection (origin-form, Connection:
+ *                                    close). Loopback is allowed here, private ranges are refused as above
  *   CONNECT api.anthropic.com:443 -> byte tunnel into an INTERNAL loopback TLS
  *                                    server that terminates it with the local CA
  *                                    (`external-proxy-ca.ts`), then per request:
@@ -158,6 +160,15 @@ function isLocalName(host: string): boolean {
   return name === "localhost" || name.endsWith(".localhost") || name === "ts.net" || name.endsWith(".ts.net");
 }
 
+/** Loopback by definition or by literal: 127.0.0.0/8, ::1, `localhost`, `*.localhost`. */
+function isLoopbackHost(host: string): boolean {
+  const name = host.replace(/\.$/, "");
+  if (name === "localhost" || name.endsWith(".localhost")) return true;
+  const family = net.isIP(name);
+  if (family === 0) return false;
+  return family === 4 ? name.startsWith("127.") : name === "::1" || /^::ffff:127\./i.test(name);
+}
+
 /** `error.code` of a refused target, as the connect error reports it. */
 const BLOCKED_TARGET = "ETOPICSBLOCKED";
 
@@ -191,6 +202,8 @@ export function externalProxyPort(env: Record<string, string | undefined>): numb
 export interface ExternalProxyStats {
   connect: number;
   tunnel: number;
+  /** Absolute-form http:// requests relayed (loopback included). */
+  plain: number;
   intercepted: number;
   viaEngine: number;
   failOpen: number;
@@ -293,7 +306,7 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
   const guardedLookup = guardedLookupFor(interfaceAddresses);
   const backlogLimit = options.relayBacklogLimitBytes ?? RELAY_BACKLOG_LIMIT_BYTES;
   const log = options.log ?? (() => {});
-  const stats: ExternalProxyStats = { connect: 0, tunnel: 0, intercepted: 0, viaEngine: 0, failOpen: 0, direct: 0, websocket: 0, refused: 0 };
+  const stats: ExternalProxyStats = { connect: 0, tunnel: 0, plain: 0, intercepted: 0, viaEngine: 0, failOpen: 0, direct: 0, websocket: 0, refused: 0 };
   const sockets = new Set<net.Socket>();
   /** WebSocket relays holding a place: from the admission to the close of the server socket. */
   let openRelays = 0;
@@ -607,11 +620,68 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
         client.end(`HTTP/1.1 200 OK\r\ncontent-type: application/json\r\nconnection: close\r\n\r\n${JSON.stringify({ status: "ok", intercepting: !!innerServer, ...stats })}`);
       } else if (method === "CONNECT") {
         onConnect(client, target ?? "", rest);
+      } else if (/^http:\/\//i.test(target ?? "")) {
+        onPlainHttp(client, method ?? "GET", target!, lines.slice(1), rest);
       } else {
-        client.end("HTTP/1.1 501 Not Implemented\r\ncontent-type: text/plain\r\nconnection: close\r\n\r\nexternal-proxy: CONNECT only\n");
+        client.end("HTTP/1.1 501 Not Implemented\r\ncontent-type: text/plain\r\nconnection: close\r\n\r\nexternal-proxy: only CONNECT and absolute http:// requests\n");
       }
     };
     client.on("data", onData);
+  }
+
+  /**
+   * An absolute-form request (`GET http://host:port/path`), which is what a client sends through an HTTP proxy
+   * for a plain-http URL (the MCP gateway on loopback is one). It is relayed as one request per connection:
+   * the request line becomes origin-form, `Connection: close` is forced and the proxy headers are dropped.
+   * Loopback is allowed HERE and only here (a plain-http target is never the intercepted host and the caller
+   * is a process of this machine that could connect directly); private and tailnet ranges stay refused.
+   */
+  function onPlainHttp(client: net.Socket, method: string, target: string, headerLines: string[], rest: Buffer): void {
+    let url: URL;
+    try {
+      url = new URL(target);
+    } catch {
+      client.end("HTTP/1.1 400 Bad Request\r\n\r\n");
+      return;
+    }
+    stats.plain++;
+    const host = url.hostname.replace(/^\[|\]$/g, "");
+    const port = url.port ? Number(url.port) : 80;
+    const loopback = isLoopbackHost(host);
+    if (!allowLocalTargets && !loopback && (isLocalName(host) || isLocalOrPrivateAddress(host, interfaceAddresses))) {
+      stats.plain--;
+      refuse(client, host, port);
+      return;
+    }
+    const kept = headerLines.filter((line) => !/^(proxy-connection|proxy-authorization|connection):/i.test(line));
+    const head = `${method} ${url.pathname}${url.search} HTTP/1.1\r\n${kept.join("\r\n")}${kept.length ? "\r\n" : ""}connection: close\r\n\r\n`;
+    const upstream = net.connect({ host, port, ...(allowLocalTargets || loopback ? {} : { lookup: guardedLookup }) });
+    track(upstream);
+    upstream.setNoDelay(true);
+    upstream.setTimeout(CONNECT_TIMEOUT_MS, () => {
+      if (upstream.connecting) upstream.destroy(Object.assign(new Error("timeout"), { code: "ETIMEDOUT" }));
+    });
+    let established = false;
+    upstream.once("connect", () => {
+      established = true;
+      upstream.setTimeout(0);
+      upstream.write(head);
+      if (rest.length) upstream.write(rest);
+      upstream.pipe(client);
+      client.pipe(upstream);
+    });
+    upstream.on("error", (e) => {
+      if ((e as NodeJS.ErrnoException).code === BLOCKED_TARGET) {
+        stats.plain--;
+        refuse(client, host, port);
+      } else {
+        log("plain-error", { host, port, code: errorCode(e) });
+        if (!established && !client.destroyed) client.end("HTTP/1.1 502 Bad Gateway\r\n\r\n");
+      }
+      client.destroy();
+    });
+    upstream.on("close", () => client.destroy());
+    client.on("close", () => upstream.destroy());
   }
 
   function refuse(client: net.Socket, host: string, port: number): void {

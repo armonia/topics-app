@@ -174,7 +174,7 @@ describe("tunnel", () => {
     } finally { await proxy.close(); echo.close(); }
   });
 
-  test("GET /health answers on the front port; anything else that is not CONNECT is refused", async () => {
+  test("GET /health answers on the front port; anything else that is neither CONNECT nor absolute http:// is refused", async () => {
     const { proxy } = await start({ enginePort: await closedPort() });
     try {
       const h = await fetch(`http://127.0.0.1:${proxy.port}/health`);
@@ -183,6 +183,33 @@ describe("tunnel", () => {
       const other = await fetch(`http://127.0.0.1:${proxy.port}/v1/messages`, { method: "POST", body: "{}" });
       expect(other.status).toBe(501);
     } finally { await proxy.close(); }
+  });
+
+  test("an absolute http:// request to loopback is relayed (the MCP gateway case), not answered with a 501", async () => {
+    const seen: string[] = [];
+    const gateway = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: (req) => { seen.push(`${new URL(req.url).pathname}|${req.headers.get("proxy-connection") ?? ""}`); return new Response("gateway-ok"); } });
+    const { proxy } = await start({ enginePort: await closedPort() });
+    try {
+      const socket = net.connect(proxy.port, "127.0.0.1");
+      const chunks: Buffer[] = [];
+      socket.on("data", (d) => chunks.push(Buffer.from(d)));
+      socket.write(`GET http://127.0.0.1:${gateway.port}/mcp?x=1 HTTP/1.1\r\nHost: 127.0.0.1:${gateway.port}\r\nProxy-Connection: keep-alive\r\n\r\n`);
+      await new Promise<void>((r) => socket.on("close", () => r()));
+      const reply = Buffer.concat(chunks).toString();
+      expect(reply.startsWith("HTTP/1.1 200")).toBe(true);
+      expect(reply.endsWith("gateway-ok")).toBe(true);
+      expect(seen).toEqual(["/mcp|"]);
+      expect(proxy.stats.plain).toBe(1);
+
+      // a private address stays refused for plain http too
+      const privateSocket = net.connect(proxy.port, "127.0.0.1");
+      const refusal = await new Promise<string>((resolve) => {
+        privateSocket.once("data", (d) => resolve(d.toString()));
+        privateSocket.write("GET http://10.0.0.5/ HTTP/1.1\r\nHost: 10.0.0.5\r\n\r\n");
+      });
+      expect(refusal.startsWith("HTTP/1.1 403")).toBe(true);
+      privateSocket.destroy();
+    } finally { await proxy.close(); gateway.stop(true); }
   });
 
   test("the listener is bound to the loopback only: no other address of this machine accepts a connection on its port", async () => {
