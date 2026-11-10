@@ -184,6 +184,52 @@ scritto nel design.
 
 ## Prima del codice
 
+### Esito Fase 0 (09/11/2026, prova a ore sul progetto Hetzner esistente)
+
+Server `topics-node-1` e `-2` (cpx32 fsn1, il cx43 risponde `resource_unavailable`),
+label `topics-node=1`, token `hcloud/armonia-crm`, firewall `topics-node-fw` con la
+sola tcp/22 verso l'IP pubblico del Mac. Nessun Tailscale: nel Keychain non c'è un
+client OAuth né un token API. Spesa del mese da 4,52 € a 4,57 € (`hetzner-tetto`).
+A fine prova: server 0, snapshot 0, firewall 0, riga `machines` del nodo cancellata.
+
+- 0.1 Progetto separato: **bloccato**, serve Attilio in console. Per la Fase 1 va
+  fatto: il token di armonia-crm vede anche i server veri.
+- 0.2 Tailscale: **bloccato**, manca il client OAuth (`tailscale/topics-node-oauth`).
+  Sostituito da ssh diretto + firewall per IP.
+- 0.3 Creazione a pronto: 112 s dal `POST` a cloud-init `done` (ricetta di
+  `winfleet/nodo/strumenti.txt`, node 26.13, bun 1.3.8, claude 2.1.321, codex 0.167).
+  `nc -z <ipv4> 3333` dal Mac fallisce (firewall regge).
+- 0.4 Ricetta: `bun install` 12 s, unit systemd `bun run server.ts` con `PORT=3333`,
+  LISTEN su `*:3333`; dopo SIGTERM riparte da sola (NRestarts=1) e ritorna in ascolto.
+  `lsof` c'è in `/usr/bin/lsof` (i 6 path `/usr/sbin/lsof` restano da sistemare).
+  `/` dà 503 perché `public/` non è in git: il client va pubblicato a parte.
+- 0.5 Login senza schermo: `CLAUDE_CODE_OAUTH_TOKEN=<setup-token> claude -p` → `ok`
+  exit 0, senza alcun `.credentials.json` sul disco. Regge un nodo. Codex
+  `--device-auth` non provato (serve Attilio).
+- 0.6 Accoppiamento: `POST /api/machines/pair` dal Mac (base_url via tunnel ssh) →
+  codice, `pending` + `approve` sul nodo da `127.0.0.1` senza Origin → 200
+  `role: owner`; la riga nasce `online` con `baseUrl`. Il gettone non compare in
+  `data/nodes/` né `~/.topics/*/nodes`: da capire dove lo scrive il server vivo.
+- 0.7 Card vera sul nodo (secondo giro, `topics-node-3`, 33 min): progetto
+  topics-app registrato (`POST /api/projects`, origin GitHub), due run creati con
+  `POST /api/nodes/runs` → `runId`, auto-dispatch acceso. **Bloccato**: entrambi
+  restano `backlog/blocked` con «No eligible coding model is available»
+  (`task-auto-plan.ts`): il catalogo dei modelli del nodo è vuoto, sia con
+  `CLAUDE_CODE_OAUTH_TOKEN` nella unit sia con `.credentials.json` su disco, anche
+  se `claude -p` sullo stesso token risponde. Il nodo appena nato non ha un
+  catalogo provider: va popolato all'avvio (o copiato dal Mac all'accoppiamento)
+  prima che possa lavorare una card. Traccia di codice per la Fase 1.
+- 0.8 RAM (cpx32, 8 GB): Topics a riposo ~170 MB RSS (server 121 + ai-bridge 50);
+  `bun test server/lib` (3280 test, 108 s) con MemAvailable minimo 6897 MB, 0 OOM.
+  Due card insieme: in coda per 22 min, MemAvailable minimo 7104 MB, 0 OOM, ma
+  nessun agente partito (0.7): la RAM di due card vive resta da misurare.
+- 0.9 Snapshot: 21 s, 1,66 GB; nodo da snapshot con Topics in ascolto in 27 s dal
+  `POST`, e il Mac lo rivede `online` senza riaccoppiare (stesso gettone).
+- 0.10 Mac: dal 06/11, 424 minuti con `swap=sustained` e `inFlight>0`; le righe
+  `[memsig]` non hanno ancora il dettaglio del tooling (`heaviestCheckGB=?`,
+  `checkRuns=0`): mediana e p90 per processo non calcolabili finché il log non li scrive.
+- 0.11 Questo blocco; `openspec validate cloud-nodes` exit 0.
+
 Ciò che il piano presume e nessuno ha ancora eseguito. Ogni punto è un passo della
 Fase 0 (`tasks.md` §0), e la parte di codice che ne dipende non parte finché il
 punto non è chiuso.

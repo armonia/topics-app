@@ -23,6 +23,7 @@
 import type { AppContext } from "../types";
 import { profileStatsCached } from "../services/profile-stats";
 import { getAppSettings } from "../services/app-settings";
+import { escapeHtml } from "../views/view-html";
 
 function compatto(n: number): string {
   const a = Math.abs(n);
@@ -31,15 +32,6 @@ function compatto(n: number): string {
   if (a >= 1e4) return `${Math.round(n / 1e3)}K`;
   if (a >= 1e3) return `${(n / 1e3).toFixed(1).replace(/\.0$/, "")}K`;
   return String(Math.round(n));
-}
-
-function esc(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 function sparklineSvg(last30: Array<{ date: string; tokens: number }>): string {
@@ -62,9 +54,9 @@ function sparklineSvg(last30: Array<{ date: string; tokens: number }>): string {
 function cifra(valore: string, etichetta: string, nota?: string): string {
   return `
   <div style="min-width:0">
-    <div style="font-size:22px;font-weight:600;color:#e6edf3;font-variant-numeric:tabular-nums;letter-spacing:-0.02em">${esc(valore)}</div>
-    <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#8b949e;margin-top:2px">${esc(etichetta)}</div>
-    ${nota ? `<div style="font-size:10px;color:#6e7681;margin-top:1px">${esc(nota)}</div>` : ""}
+    <div style="font-size:22px;font-weight:600;color:#e6edf3;font-variant-numeric:tabular-nums;letter-spacing:-0.02em">${escapeHtml(valore)}</div>
+    <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#8b949e;margin-top:2px">${escapeHtml(etichetta)}</div>
+    ${nota ? `<div style="font-size:10px;color:#6e7681;margin-top:1px">${escapeHtml(nota)}</div>` : ""}
   </div>`;
 }
 
@@ -101,7 +93,7 @@ export function buildPublicProfilePage(ctx: AppContext): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${nome ? esc(nome) + " su Topics" : "Profilo Topics"}</title>
+<title>${nome ? escapeHtml(nome) + " su Topics" : "Profilo Topics"}</title>
 <meta name="description" content="Statistiche d'uso di Topics${nome ? " di " + nome : ""}">
 <meta name="robots" content="noindex">
 <style>
@@ -122,8 +114,8 @@ body{background:#0d1117;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFo
 <body>
 <main class="card">
   <div class="header">
-    ${nome ? `<h1 class="title">${esc(nome)}</h1>` : `<h1 class="title">Profilo Topics</h1>`}
-    ${da ? `<p class="since">Su Topics da ${esc(da)}</p>` : ""}
+    ${nome ? `<h1 class="title">${escapeHtml(nome)}</h1>` : `<h1 class="title">Profilo Topics</h1>`}
+    ${da ? `<p class="since">Su Topics da ${escapeHtml(da)}</p>` : ""}
   </div>
 
   <div class="grid">

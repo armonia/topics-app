@@ -1,15 +1,19 @@
 /**
  * THE MACHINE'S PROCESSES (hub-smistamento, HUBBR-08 and HUBBR-09).
  *
- * One view for the whole machine, read from the usage hub through the Topics
- * proxy: the Mac (gauges, then who weighs, with memory, GPU and network per
- * process and the CPU where the hub measures it), the PC, the hub's services
- * and the Claude proxy's log, live. It replaces «This computer» of the Topics
- * menu: the server and the gateway are services here.
+ * The SESSIONS are the centre, as on the PC's screen (`/schermo`): every card,
+ * chat or terminal at work with its model, tokens, speed, clock, CPU and
+ * memory, and the processes it launched as the detail INSIDE it
+ * (`SessionsPanel`). The machine is the context beside them, read from the
+ * usage hub through the Topics proxy: the Mac's gauges, the PC, the hub's
+ * services and the Claude proxy's log. The Mac's process list exists only
+ * folded, read-only, for who wants to see what weighs; the backup is one line
+ * at the foot.
  *
- * Read-only by design. The one command is the Stop button on a project script Topics
- * started (the same stop as the project's own Processes section); the hub
- * restarts nothing from here. A number the hub did not measure is a dash.
+ * No command on a process: stopping is on the session (with a confirmation
+ * that names it) and on a project script Topics started (the project's own
+ * Stop). Nothing here closes an app or Topics itself. A number the hub did not
+ * measure is a dash.
  *
  * The log is an EventSource on the proxy's stream, open only while the view is
  * mounted and the log is open: closing either closes the stream, so nothing
@@ -30,9 +34,12 @@ import { PROCESSES_LOG_EVENT, takeProcessesLogRequest } from '../../state/proces
 import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { readJson } from '../../lib/readJson';
 import {
-  NOT_MEASURED, PROXY_SERVICE_ID, censusAt, formatMem, formatPct, formatRate, macGauges, parseLogEvent, pcView,
+  NOT_MEASURED, PROXY_SERVICE_ID, backupView, censusAt, type BackupView, formatMem, formatPct, formatRate, macGauges, parseLogEvent, pcView,
   processRows, pushLogLine, serviceGroups, serviceRows, servicesReadAt, servicesToWatch, type HistoryPoint, type LogLine, type MacGauges, type PcView, type ProcessRow, type ServiceRow, type UnitKind,
 } from '../../lib/machineProcesses';
+
+import { SECTION, SECTION_HEAD, FAINT } from './processesStyles';
+import { SessionsPanel } from './SessionConsumption';
 
 type Tr = ReturnType<typeof useT>;
 
@@ -45,17 +52,16 @@ const KIND_ICON: Record<UnitKind, LucideIcon> = {
   app: AppWindow, servizio: Server, sessione: Asterisk, lavoro: Zap, devserver: Zap, mcp: Plug, macos: Monitor, altro: Cpu, resto: Box, // allow-italian: the census's wire values
 };
 
-const SECTION = 'min-w-0 overflow-hidden rounded border border-app-border bg-surface';
-const SECTION_HEAD = 'flex h-[38px] items-center gap-2 border-b border-app-border-subtle px-2.5';
-const FAINT = 'text-app-text-faint';
 const STOP_BUTTON = 'inline-flex h-6 items-center gap-1 justify-self-end rounded-sm bg-black/[0.035] px-[7px] text-mini text-app-text-secondary hover:bg-black/[0.06] hover:text-app-text dark:bg-white/[0.05] dark:hover:bg-white/[0.14] @max-3xl:h-9 @max-3xl:px-2.5 @max-3xl:text-compact disabled:opacity-60';
 const TRACK = 'bg-black/[0.07] dark:bg-white/[0.08]';
 const ROW_GRID = '@3xl:grid @3xl:grid-cols-[minmax(0,1fr)_46px_118px_42px_108px_64px] @3xl:items-center @3xl:gap-x-2.5';
+const DOT = 'h-[7px] w-[7px] flex-none rounded-full';
 
 interface HubReads {
   census: unknown;
   mac: unknown;
   machines: unknown;
+  backup: unknown;
 }
 
 /**
@@ -73,12 +79,12 @@ function useHubReads(enabled: boolean): { reads: HubReads | null; failing: boole
     if (!enabled) return;
     let alive = true;
     const read = async () => {
-      const [census, mac, machines] = await Promise.all([readJson('/api/hub/mac/procs'), readJson('/api/hub/mac'), readJson('/api/hub/machines')]);
+      const [census, mac, machines, backup] = await Promise.all([readJson('/api/hub/mac/procs'), readJson('/api/hub/mac'), readJson('/api/hub/machines'), readJson('/api/hub/mac/backup')]);
       if (!alive) return;
-      const any = Boolean(census || mac || machines);
+      const any = Boolean(census || mac || machines);  // the backup alone does not make the hub "answering"
       setFailing(!any);
       // A failed read keeps the last good one: the hub-down band says how old it is.
-      if (any) setReads((prev) => ({ census: census ?? prev?.census, mac: mac ?? prev?.mac, machines: machines ?? prev?.machines }));
+      if (any) setReads((prev) => ({ census: census ?? prev?.census, mac: mac ?? prev?.mac, machines: machines ?? prev?.machines, backup: backup ?? prev?.backup }));
     };
     round.current = read;
     void read();
@@ -109,6 +115,7 @@ export function MachineProcessesPane() {
   // The socket can miss the hub-down frame while it reconnects: with the view's own
   // reads failing, the last list it pushed is not shown as current.
   const services = useMemo(() => (failing ? [] : serviceRows(live.services?.data)), [live.services, failing]);
+  const backup = useMemo(() => backupView(reads?.backup), [reads]);
   const at = censusAt(reads?.census);
   // One answer for every section: with the hub gone, nothing reads as current.
   const stale = !answering || failing;
@@ -127,15 +134,19 @@ export function MachineProcessesPane() {
 
         {present && stale && <HubDownBand onRetry={reread} />}
 
-        {present && (
-        <div className="grid items-start gap-3.5 @5xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
-          <MacSection gauges={gauges} rows={rows} onStopped={refresh} />
-          <div className="flex min-w-0 flex-col gap-3.5">
-            {pc && <PcSection pc={pc} stale={stale} />}
-            <ServicesAndLog services={services} readAt={failing ? null : servicesReadAt(live.services?.data)} />
-          </div>
+        {/* The sessions are the centre; the machine is the context beside them. */}
+        <div className={`grid items-start gap-3.5 ${present ? '@5xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]' : ''}`}>
+          {/* Topics' own sessions: they do not depend on the hub, so they are here even when it is gone. */}
+          <SessionsPanel />
+          {present && (
+            <div className="flex min-w-0 flex-col gap-3.5" data-testid="machine-processes-context">
+              <MacSection gauges={gauges} rows={rows} onStopped={refresh} />
+              {pc && <PcSection pc={pc} stale={stale} />}
+              <ServicesAndLog services={services} readAt={failing ? null : servicesReadAt(live.services?.data)} />
+            </div>
+          )}
         </div>
-        )}
+        {present && <BackupLine backup={backup} now={now} />}
       </div>
     </div>
   );
@@ -195,7 +206,7 @@ function Spark({ points, warn }: { points: HistoryPoint[]; warn: boolean }) {
   );
 }
 
-function Gauge({ label, value, unit, share, warn = false, history = [], note = null, testId }: { label: string; value: string; unit?: string; share: number | null; warn?: boolean; history?: HistoryPoint[]; note?: string | null; testId?: string }) {
+export function Gauge({ label, value, unit, share, warn = false, history = [], note = null, testId }: { label: string; value: string; unit?: string; share: number | null; warn?: boolean; history?: HistoryPoint[]; note?: string | null; testId?: string }) {
   return (
     <div className="min-w-0 border-r border-app-border-subtle px-2.5 pb-2.5 pt-[9px] last:border-r-0 @max-3xl:[&:nth-child(3)]:border-r-0 @max-3xl:[&:nth-child(n+4)]:border-t" data-testid={testId} title={note ?? undefined}>
       <div className={`text-mini uppercase tracking-[0.04em] ${FAINT}`}>{label}</div>
@@ -215,10 +226,13 @@ function Gauge({ label, value, unit, share, warn = false, history = [], note = n
 
 function MacSection({ gauges: g, rows, onStopped }: { gauges: MacGauges; rows: ProcessRow[]; onStopped: () => void }) {
   const tr = useT();
+  // Folded by default: the Mac's processes are context, the sessions carry their own.
+  const [open, setOpen] = useState(false);
   const [all, setAll] = useState(false);
   const shown = all ? rows : rows.slice(0, TOP_ROWS);
-  const rest = rows.slice(TOP_ROWS);
+  const rest = all ? [] : rows.slice(TOP_ROWS);
   const restMem = rest.reduce((s, r) => s + r.memMB, 0);
+  const totalMem = rows.reduce((s, r) => s + r.memMB, 0);
   const memShare = g.memUsedGB !== null && g.totalGB ? g.memUsedGB / g.totalGB : null;
   // The pressure is its own measure, so it is named here and not drawn under the used GB.
   const summary = [
@@ -230,13 +244,14 @@ function MacSection({ gauges: g, rows, onStopped }: { gauges: MacGauges; rows: P
   const strained = g.level >= 2;
   const swapShare = g.swapUsedGB !== null && g.swapTotalGB ? g.swapUsedGB / g.swapTotalGB : null;
   return (
-    <section aria-label={tr('processes.mac')} className={SECTION} data-testid="machine-processes-mac" data-level={g.level}>
+    // Its own container: beside the sessions it is a narrow column, and the gauges and rows lay out for that width.
+    <section aria-label={tr('processes.mac')} className={`${SECTION} @container`} data-testid="machine-processes-mac" data-level={g.level}>
       <div className={SECTION_HEAD}>
         <Monitor size={14} className="flex-none text-app-text-secondary" aria-hidden="true" />
         <span className="text-compact font-semibold text-app-text-heading">{tr('processes.mac')}</span>
-        <span className={`min-w-0 flex-1 truncate text-mini tabular-nums ${g.level > 0 ? (strained ? DANGER_TEXT : WARNING_TEXT) : FAINT} @max-3xl:whitespace-normal @max-3xl:text-compact`}>{summary}</span>
+        <span className={`min-w-0 flex-1 truncate text-mini tabular-nums ${g.level > 0 ? (strained ? DANGER_TEXT : WARNING_TEXT) : FAINT}`}>{summary}</span>
       </div>
-      <div className="grid grid-cols-6 border-b border-app-border-subtle tabular-nums @max-3xl:grid-cols-3">
+      <div className="grid grid-cols-3 border-b border-app-border-subtle tabular-nums @3xl:grid-cols-6">
         <Gauge label={tr('processes.cpu')} value={formatPct(g.cpuPct)} share={g.cpuPct === null ? null : g.cpuPct / 100} history={g.history.cpu} note={g.notes.cpu} />
         <Gauge label={tr('processes.memory')} value={g.memUsedGB === null ? NOT_MEASURED : g.memUsedGB.toFixed(1).replace('.', ',')} unit={g.totalGB ? `/ ${Math.round(g.totalGB)} GB` : undefined} share={memShare} warn={memShare !== null && memShare >= 0.8} />
         <Gauge label={tr('processes.swap')} value={g.swapUsedGB === null ? NOT_MEASURED : g.swapUsedGB.toFixed(1).replace('.', ',')} unit="GB" share={swapShare} warn={swapShare !== null && swapShare > 0.8} note={g.notes.swap} />
@@ -247,31 +262,61 @@ function MacSection({ gauges: g, rows, onStopped }: { gauges: MacGauges; rows: P
       {g.lines.map((line, i) => (
         <div key={i} className={`flex min-h-[34px] items-center gap-2.5 border-b border-app-border-subtle px-2.5 py-1 ${g.level > 0 ? 'bg-amber-500/[0.06]' : ''}`} data-testid="machine-mac-line">
           <Activity size={14} className={`flex-none ${g.level > 0 ? WARNING_TEXT : FAINT}`} aria-hidden="true" />
-          <span className="min-w-0 flex-1 text-compact text-app-text @max-3xl:text-prose">{line}</span>
+          <span className="min-w-0 flex-1 text-compact text-app-text">{line}</span>
         </div>
       ))}
-      <div className={`${ROW_GRID} h-7 border-b border-app-border-subtle px-2.5 text-mini uppercase tracking-[0.04em] ${FAINT} hidden @3xl:grid`}>
-        <span>{tr('processes.process')}</span>
-        <span className="text-right">{tr('processes.cpu')}</span>
-        <span className="inline-flex items-center justify-end gap-[3px] text-app-text-secondary">{tr('processes.memory')}<ChevronDown size={11} aria-hidden="true" /></span>
-        <span className="text-right">{tr('processes.gpu')}</span>
-        <span className="text-right">{tr('processes.net')}</span>
-        <span />
-      </div>
-      <div data-testid="machine-processes-rows">
-        {shown.map((r) => <ProcessRowView key={r.id} row={r} onStopped={onStopped} />)}
-      </div>
-      {rest.length > 0 && (
-        <button type="button" onClick={() => setAll((v) => !v)} data-testid="machine-processes-more" className={`flex h-8 w-full items-center justify-center gap-1.5 border-t border-app-border-subtle text-mini ${FAINT} hover:bg-app-hover @max-3xl:h-11 @max-3xl:text-compact`}>
-          <ChevronDown size={13} className={all ? 'rotate-180' : ''} aria-hidden="true" />
-          {all ? tr('processes.less') : tr('processes.more', { n: rest.length, mem: formatMem(restMem) })}
+      {rows.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          title={tr('processes.machineProcsHint')}
+          className={`flex h-8 w-full items-center gap-1.5 px-2.5 text-left text-mini ${FAINT} hover:bg-app-hover hover:text-app-text @max-3xl:h-11 @max-3xl:text-compact`}
+          data-testid="machine-processes-toggle"
+        >
+          <ChevronRight size={12} className={`flex-none ${open ? 'rotate-90' : ''}`} aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate tabular-nums">{tr('processes.machineProcs', { n: rows.length, mem: formatMem(totalMem) })}</span>
         </button>
       )}
-      <div className={`flex items-center gap-1.5 border-t border-app-border-subtle px-2.5 py-[7px] text-mini ${FAINT} @max-3xl:text-compact`}>
-        <Square size={12} className="flex-none" aria-hidden="true" />
-        {tr('processes.rule')}
-      </div>
+      {open && (
+        <>
+          <div className="border-t border-app-border-subtle" data-testid="machine-processes-rows">
+            {shown.map((r) => <ProcessRowView key={r.id} row={r} onStopped={onStopped} />)}
+          </div>
+          {(rest.length > 0 || all) && (
+            <button type="button" onClick={() => setAll((v) => !v)} data-testid="machine-processes-more" className={`flex h-8 w-full items-center justify-center gap-1.5 border-t border-app-border-subtle text-mini ${FAINT} hover:bg-app-hover @max-3xl:h-11 @max-3xl:text-compact`}>
+              <ChevronDown size={13} className={all ? 'rotate-180' : ''} aria-hidden="true" />
+              {all ? tr('processes.less') : tr('processes.more', { n: rest.length, mem: formatMem(restMem) })}
+            </button>
+          )}
+        </>
+      )}
     </section>
+  );
+}
+
+/** The Mac's backup as ONE line at the foot of the view: the outcome, when, and the last good copy when the last run failed. */
+function BackupLine({ backup, now }: { backup: BackupView | null; now: number }) {
+  const tr = useT();
+  const when = (at: number) => {
+    const d = new Date(at);
+    const sameDay = new Date(now).toDateString() === d.toDateString();
+    return d.toLocaleString(undefined, sameDay ? { hour: '2-digit', minute: '2-digit', hour12: false } : { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+  };
+  const state = backup === null ? 'none' : backup.ok ? 'ok' : 'error';
+  const text = backup === null
+    ? tr('processes.backupNone')
+    : [
+      tr(backup.ok ? 'processes.backupOk' : 'processes.backupFailed', { when: when(backup.at) }),
+      backup.detail,
+      !backup.ok && backup.lastOkAt !== null ? tr('processes.backupLastOk', { when: when(backup.lastOkAt) }) : null,
+    ].filter(Boolean).join(' · ');
+  return (
+    <div className={`mt-3.5 flex min-w-0 items-center gap-2 px-0.5 text-mini ${FAINT} @max-3xl:text-compact`} data-testid="machine-backup" data-state={state}>
+      <span className={`${DOT} ${state === 'ok' ? 'bg-emerald-500 dark:bg-emerald-400' : state === 'error' ? 'bg-red-500' : 'bg-app-text-faint opacity-50'}`} />
+      <span className="flex-none text-app-text-secondary">{tr('processes.backup')}</span>
+      <span className={`min-w-0 truncate tabular-nums ${state === 'error' ? DANGER_TEXT : ''}`} data-testid="machine-backup-last">{text}</span>
+    </div>
   );
 }
 
@@ -285,7 +330,7 @@ function Net({ inBps, outBps }: { inBps: number | null; outBps: number | null })
   );
 }
 
-function ProcessRowView({ row: r, onStopped }: { row: ProcessRow; onStopped: () => void }) {
+export function ProcessRowView({ row: r, onStopped }: { row: ProcessRow; onStopped: () => void }) {
   const tr = useT();
   const Icon = KIND_ICON[r.kind];
   const [stopping, setStopping] = useState(false);
@@ -361,19 +406,27 @@ function ProcessRowView({ row: r, onStopped }: { row: ProcessRow; onStopped: () 
 
 // ── PC ───────────────────────────────────────────────────────────────────────
 
+/** The PC's state as a coloured dot and its word: the Processes view's PC section and the load screen's header. */
+export function PcStateBadge({ state, className = '', dotClassName = 'h-[7px] w-[7px]', testId = 'machine-pc-state' }: { state: PcView['state']; className?: string; dotClassName?: string; testId?: string }) {
+  const tr = useT();
+  // On with ssh closed is a command away on the PC, not a dead machine: amber, as the hub had it.
+  const dot = state === 'lavora' || state === 'acceso' ? 'bg-emerald-500 dark:bg-emerald-400' : state === 'dorme' ? 'bg-app-text-faint opacity-50' : state === 'closed' ? 'bg-amber-500' : 'bg-red-500'; // allow-italian: the hub's wire values
+  const stateText = state === 'lavora' || state === 'acceso' ? SUCCESS_TEXT : state === 'dorme' ? FAINT : state === 'closed' ? WARNING_TEXT : DANGER_TEXT; // allow-italian: the hub's wire values
+  return (
+    <span className={`inline-flex items-center gap-[5px] ${stateText} ${className}`} data-testid={testId} data-state={state}><span className={`flex-none rounded-full ${dot} ${dotClassName}`} />{tr(`processes.pc.${state}`)}</span>
+  );
+}
+
 function PcSection({ pc, stale }: { pc: PcView; stale: boolean }) {
   const tr = useT();
   if (stale) return <PcUnread pc={pc} />;
-  // On with ssh closed is a command away on the PC, not a dead machine: amber, as the hub had it.
-  const dot = pc.state === 'lavora' || pc.state === 'acceso' ? 'bg-emerald-500 dark:bg-emerald-400' : pc.state === 'dorme' ? 'bg-app-text-faint opacity-50' : pc.state === 'closed' ? 'bg-amber-500' : 'bg-red-500'; // allow-italian: the hub's wire values
-  const stateText = pc.state === 'lavora' || pc.state === 'acceso' ? SUCCESS_TEXT : pc.state === 'dorme' ? FAINT : pc.state === 'closed' ? WARNING_TEXT : DANGER_TEXT; // allow-italian: the hub's wire values
   return (
     <section aria-label={tr('processes.pc')} className={SECTION} data-testid="machine-processes-pc">
       <div className={SECTION_HEAD}>
         <Cpu size={14} className="flex-none text-app-text-secondary" aria-hidden="true" />
         <span className="text-compact font-semibold text-app-text-heading">{tr('processes.pc')}</span>
         <span className={`min-w-0 flex-1 truncate text-mini ${FAINT} @max-3xl:text-compact`}>
-          <span className={`inline-flex items-center gap-[5px] ${stateText}`} data-testid="machine-pc-state" data-state={pc.state}><span className={`h-[7px] w-[7px] rounded-full ${dot}`} />{tr(`processes.pc.${pc.state}`)}</span>
+          <PcStateBadge state={pc.state} />
           {' · '}{pc.offload > 0 ? tr('processes.pc.jobs', { n: pc.offload }) : tr('processes.pc.noJobs')}
         </span>
       </div>

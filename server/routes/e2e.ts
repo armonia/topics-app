@@ -121,7 +121,9 @@ import { createTaskAttemptStore } from "../services/task-attempts";
 import { orphanTerminalSession, parkIdleClaudeSessions, parkTerminalSession } from "./terminal";
 import { noteBackgroundShellOutput, registerBackgroundShell } from "./processes";
 import { shellProcessKey } from "../../shared/background-shell-registry";
-import { setSessionCliPid } from "../providers/session-pids";
+import { clearSessionCliPid, setSessionCliPid } from "../providers/session-pids";
+import { recordTurnUsage } from "../providers/native-usage-registry";
+import { topicSessionKey } from "../services/agent-census";
 import { setRouteFault } from "../lib/route-fault";
 import { envDataDir } from "../lib/data-dir";
 import { holdDispatchReconcile, releaseDispatchHold } from "../lib/e2e-dispatch-hold";
@@ -130,10 +132,14 @@ import { observePlanUsage } from "../providers/native/usage-window";
 import { registerProvider, removeProvider } from "../providers";
 import { partialTurnRows } from "../lib/partial-turn-fixture";
 import { setInjectedSwapFreezeViews } from "../lib/swap-freeze-hold";
-import { setBenchStaleTimeout } from "../lib/stale-stream-sweep";
+import { setBenchStaleTimeout, setBenchStaleTick } from "../lib/stale-stream-sweep";
+import { setBenchEndedTtl } from "../lib/live-work";
 import { __resetPendingForTests } from "./auth";
 import { reloadAttentionTable } from "../attention/store";
 import type { SwapFreezeView } from "../../shared/swap-freeze";
+
+/** The `sleep` children `POST /api/test/session-usage` spawned (a bun process holding memory), by session key. */
+const e2eSessionChildren = new Map<string, { pid: number; kill: () => void }>();
 
 /** Attivo solo dove `start-test-server.sh` lo dichiara. */
 export function e2eRoutesEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -240,6 +246,8 @@ export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): Ro
       releaseDispatchHold();
       // Same for the stale-stream threshold a spec cut to 1 s.
       setBenchStaleTimeout(null);
+      setBenchStaleTick(null);
+      setBenchEndedTtl(null);
       // And for pairing requests, which live in memory, not in the DB: a spec
       // that shows the pairing screen leaves one pending, and every later file
       // would open under the approval card that covers the bottom-right corner.
@@ -407,6 +415,51 @@ export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): Ro
       return json({ ok: true, processId: shellProcessKey(body.sessionKey, body.shellId) });
     }
 
+    // POST /api/test/card-session {taskId, topicId, model?}: binds a card to a chat
+    // topic the way the dispatcher does (`assigned_topic_id`, and the model it runs),
+    // and answers the session key the native registry files its tokens under. A card
+    // only gets a session from a live dispatch, which a spec cannot start.
+    if (method === "POST" && pathname === "/api/test/card-session") {
+      const body = (await req.json().catch(() => null)) as { taskId?: string; topicId?: string; model?: string } | null;
+      if (!body?.taskId || !body?.topicId) return json({ error: "taskId and topicId required" }, 400);
+      db.prepare("UPDATE tasks SET assigned_topic_id = ?, model = COALESCE(?, model) WHERE id = ?").run(body.topicId, body.model ?? null, body.taskId);
+      return json({ ok: true, sessionKey: topicSessionKey(body.topicId) });
+    }
+
+    // POST /api/test/session-usage: gives a session the two things the per-session
+    // consumption reads and that only a live agent produces: the tokens of a model
+    // round (`recordTurnUsage`, the registry the native runtime feeds) and a CLI
+    // process of its own. `spawn` starts a REAL child of this server and
+    // registers its pid for the session, so the attribution walks a real table;
+    // `stop` kills it. Same functions as production, never a copy of their result.
+    if (method === "POST" && pathname === "/api/test/session-usage") {
+      const body = (await req.json().catch(() => null)) as {
+        sessionKey?: string; model?: string; input?: number; output?: number; cacheRead?: number; spawn?: boolean; stop?: boolean; holdMB?: number; burnPct?: number;
+      } | null;
+      if (!body?.sessionKey) return json({ error: "sessionKey required" }, 400);
+      if (body.stop) {
+        const child = e2eSessionChildren.get(body.sessionKey);
+        if (child) { child.kill(); e2eSessionChildren.delete(body.sessionKey); }
+        clearSessionCliPid(body.sessionKey);
+        return json({ ok: true, stopped: !!child });
+      }
+      if (body.spawn && !e2eSessionChildren.has(body.sessionKey)) {
+        // A child that holds `holdMB` and spins `burnPct` of a core, so the table has weight to attribute.
+        const hold = Math.max(0, Math.min(2048, Math.floor(body.holdMB ?? 0)));
+        const burn = Math.max(0, Math.min(90, Math.floor(body.burnPct ?? 0)));
+        const script = `const b=Buffer.alloc(${hold}*1048576,1);setInterval(()=>{const t=Date.now();while(Date.now()-t<${burn});},100);void b;`;
+        const child = Bun.spawn([process.execPath, "-e", script], { stdout: "ignore", stderr: "ignore" });
+        e2eSessionChildren.set(body.sessionKey, child);
+        setSessionCliPid(body.sessionKey, child.pid);
+      }
+      if (body.input || body.output || body.cacheRead) {
+        recordTurnUsage(body.sessionKey, {
+          input: body.input ?? 0, output: body.output ?? 0, cacheRead: body.cacheRead ?? 0, cacheWrite: 0, cacheWrite1h: 0,
+        }, body.model);
+      }
+      return json({ ok: true, pid: e2eSessionChildren.get(body.sessionKey)?.pid ?? null });
+    }
+
     // POST /api/test/swap-freeze — pushes frozen trees through the REAL frame.
     //
     // The frost is drawn from `swap-freeze:state`, and the only thing that emits
@@ -435,12 +488,24 @@ export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): Ro
 
     // POST /api/test/stale-stream-clock {timeoutMs} - the silence after which the
     // stale-stream sweep acts, three minutes in production. The sweep itself and
-    // its 30 s tick stay the real ones; `{}` gives the three minutes back.
+    // its tick are the real ones; `tickMs` shortens the 30 s pass interval and
+    // `{}` gives the production values back.
     if (method === "POST" && pathname === "/api/test/stale-stream-clock") {
-      const body = (await req.json().catch(() => null)) as { timeoutMs?: number } | null;
+      const body = (await req.json().catch(() => null)) as { timeoutMs?: number; tickMs?: number } | null;
       const ms = typeof body?.timeoutMs === "number" && body.timeoutMs > 0 ? body.timeoutMs : null;
+      const tick = typeof body?.tickMs === "number" && body.tickMs >= 100 ? body.tickMs : null;
       setBenchStaleTimeout(ms);
-      return json({ ok: true, timeoutMs: ms });
+      setBenchStaleTick(tick);
+      return json({ ok: true, timeoutMs: ms, tickMs: tick });
+    }
+
+    // POST /api/test/live-work-ttl {ttlMs} - how long a finished sub-agent's row
+    // stays in the chat's strip, one minute in production. `{}` gives it back.
+    if (method === "POST" && pathname === "/api/test/live-work-ttl") {
+      const body = (await req.json().catch(() => null)) as { ttlMs?: number } | null;
+      const ms = typeof body?.ttlMs === "number" && body.ttlMs > 0 ? body.ttlMs : null;
+      setBenchEndedTtl(ms);
+      return json({ ok: true, ttlMs: ms });
     }
 
     // POST /api/test/dispatch-hold {ms} — holds the periodic reconcile.

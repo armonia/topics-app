@@ -919,3 +919,21 @@ che TOPIC-02 chiede già.
 - **WHEN** scelgo un colore con «Cambia colore»
 - **THEN** la riga e la tab hanno il segno di quel colore
 - **AND** dopo un ricarico il segno c'è ancora
+
+### Requirement: AGCFG-01 — Anagrafica di Jarvis e Visione nella vista Agenti
+
+The Agents view SHALL open, where jarvis-channels is installed, on a registry with one tab per always-on agent (Jarvis, Visione) carrying the channels' health from `jarvis-channels health`, the incoherences of its configuration, its personality (`IDENTITY.md`, `SOUL.md`) editable and saved explicitly, its model and accounts (tokens named by their Keychain entry, never shown), its chats with a switch for «Risponde» and one for «Solo se citato», and its scheduled jobs with a switch each. A switch SHALL write only that agent's rule (Visione's chat carries Visione's account). Without jarvis-channels the view SHALL stay the sessions list.
+
+#### Scenario: Switches write to the right agent
+- **GIVEN** Jarvis and Visione both with a rule for the same Discord chat
+- **WHEN** Visione's «Solo se citato» is switched on and Jarvis's morning brief switched off
+- **THEN** `/api/agent-config/chat` SHALL receive Visione's account and `/api/agent-config/job` the job's id with `paused: true`, and the note SHALL say it is saved
+
+### Requirement: AGCFG-02 — Scritture sicure nei file di jarvis-channels
+
+Every write from the registry SHALL be validated, SHALL copy the file into `jarvis-channels/backups/` first and SHALL replace it atomically; a refused input SHALL leave the file identical. A change to `config.json` SHALL restart the service only with no turn in flight (`inflight.json` empty), otherwise SHALL say it applies at the next restart.
+
+#### Scenario: Bad input leaves the file untouched
+- **GIVEN** the configuration files
+- **WHEN** an edit names a chat that does not exist, a non-boolean switch, a file outside IDENTITY/SOUL or an empty personality
+- **THEN** it SHALL be refused and the file SHALL be byte-identical

@@ -167,12 +167,14 @@ export function taskChoices(
           landSay('neutral'),
           acceptSay('neutral'),
           say('take-over', 'neutral'),
+          say('drop', 'danger'),
         ]
         : [
           landSay('primary'),
           { id: 'send-back', tone: 'neutral', ...sendBackWord(sendBackDest(task), tr) },
           acceptSay('neutral'),
           say('take-over', 'neutral'),
+          say('drop', 'danger'),
         ];
       break;
     // Nessuno ha consegnato: le uscite sono le stesse, l'ordine e il tono no.
@@ -236,6 +238,27 @@ export function taskChoices(
     }
   }
   return excluded && excluded.length ? out.filter((c) => !excluded.includes(c.id)) : out;
+}
+
+/**
+ * The review card's face and its menu, split.
+ *
+ * The face keeps every exit of the card except the redo quick reply (the field
+ * below sends the text back) and the archive action (only in the menu). On a
+ * card with a delivered branch that leaves the land first, then the rest; on a
+ * card without one, the accept. The menu holds what the face does not show.
+ * The two helpers return the `exclude` lists the row and the menu already read,
+ * so the face and the menu cannot drift from the real choices of the card.
+ */
+const MENU_ONLY_CHOICES: TaskChoiceId[] = ['drop'];
+const NEITHER_PLACE_CHOICES: TaskChoiceId[] = ['redo'];
+
+export function reviewFaceExclude(_task?: ChoiceTask, _t?: Translate): TaskChoiceId[] {
+  return [...MENU_ONLY_CHOICES, ...NEITHER_PLACE_CHOICES];
+}
+
+export function reviewMenuExclude(task: ChoiceTask, t?: Translate): TaskChoiceId[] {
+  return taskChoices(task, { t }).map((c) => c.id).filter((id) => !MENU_ONLY_CHOICES.includes(id));
 }
 
 /**

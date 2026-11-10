@@ -1440,6 +1440,11 @@ dietro» da «un altro pesante sta lavorando».
 - **GIVEN** un pesante fermo oltre il tetto
 - **THEN** SHALL partire comunque, e la card SHALL dirlo
 
+#### Scenario: il pesante aspetta solo la CI remota
+- **GIVEN** un pesante in volo i cui controlli pre-review sono `running` con una CI remota registrata (`checks_json.ci`)
+- **THEN** SHALL NON contare come pesante al lavoro, e i claim locali SHALL partire
+- **AND** finché i controlli pre-review girano sul Mac (nessuna `ci`) il blocco SHALL restare
+
 ### Requirement: KANBAN-17 — Le etichette hanno un vocabolario chiuso, e un agente può solo alzare la mano
 
 Un task SHALL portare etichette da un vocabolario CHIUSO di sette, divise in due
@@ -5421,3 +5426,68 @@ until a valid confirmation. A request that is a single card SHALL keep creating 
 - **THEN** the proposal SHALL appear and zero cards SHALL exist
 - **WHEN** the writer confirms
 - **THEN** the ticked rows SHALL become cards, the parent first, each sub-card on its parent's project
+
+### Requirement: KANBAN-108 - The board toolbar has a detail slider with three levels
+
+The board toolbar SHALL offer one slider with three snap positions: projects with per-column counts (least
+detail), vertical list, kanban board (most detail). It SHALL be draggable with snapping, operable with the
+arrow keys, Home and End, and the chosen level SHALL be remembered.
+
+#### Scenario: moving the slider
+- **WHEN** the writer moves the slider to the first position
+- **THEN** the board SHALL show only projects with their counts
+- **WHEN** the writer presses End
+- **THEN** the kanban board SHALL be shown
+
+### Requirement: KANBAN-107 — The board groups by project and has a compact card, the same in Kanban and Plan
+
+The cross-project board SHALL offer, beside the layout toggle, a control that
+groups the cards BY PROJECT: one lane per project, each lane the same row of
+workflow columns, headed by the project's icon and name, the fold chevron and
+its count per column. A folded project SHALL stay folded in the Plan too (one
+folded set for both views). A second control SHALL switch every card to a
+COMPACT density (title, project or lane, session door, the foot with the live
+state, a blocker), and the Plan SHALL draw that same compact card for every
+root card the board holds. Both choices SHALL persist per viewer, in local
+storage, like the layout. The full card SHALL stay unchanged.
+
+#### Scenario: grouping and density survive a reload
+- **GIVEN** the global board with cards from two projects
+- **WHEN** the person turns on the grouping and the compact density
+- **THEN** there SHALL be one lane per project with its count, every card SHALL be compact, and both SHALL survive a reload
+
+#### Scenario: a folded lane is folded in the Plan
+- **WHEN** the person folds a project's lane and opens the Plan
+- **THEN** that project's tile SHALL show only its header
+
+#### Scenario: a project is named the same in the lane and in the Plan
+- **GIVEN** a registered project whose folder the picker does not offer
+- **WHEN** the person groups the board by project and then opens the Plan
+- **THEN** the lane and the Plan tile SHALL carry the same name and the two views SHALL list projects in the same order
+
+#### Scenario: the projects waiting for the person come first, in both views
+- **GIVEN** a project with a card in review and projects without one, the waiting one last by name
+- **WHEN** the person reads the grouped board and then the Plan
+- **THEN** the waiting project SHALL be first in both, and the rest SHALL follow by name, ties on the id
+
+#### Scenario: a project nobody registered has one name
+- **GIVEN** a card whose project is neither registered nor offered by the picker
+- **WHEN** the board is grouped and the Plan is opened
+- **THEN** the lane and the Plan tile SHALL carry the same name, taken from the id (the folder when the id is a path, the slug without its hash, a sentence when the id is a code)
+
+#### Scenario: a compact card in review keeps the question it waits on
+- **WHEN** a card in review has a pending question
+- **THEN** the compact card SHALL show the question in at most two lines, with the usable quick replies when there are any
+
+#### Scenario: a drop in another project's lane changes nothing
+- **WHEN** a card is dropped in a lane of another project on the grouped board
+- **THEN** the card SHALL keep its status and its project, and a notice SHALL say that a card stays in its own project
+
+### Requirement: KANBAN-109 - A card in progress shows one progress line and a measure band
+
+The body of a card in progress SHALL show ONE progress line: the last step of the running tool, or the first line of the agent's last word when no tool is running. An empty line SHALL NOT be shown. The model, the cost, the time and the last update SHALL live in a measure band that writes the whole model name, holds the «now» mark inside it, and stays visibly apart from the card in both themes, with text that reaches WCAG AA.
+
+#### Scenario: a working card
+- **WHEN** a task is in progress and a tool is running
+- **THEN** the body SHALL show the tool step as its single progress line
+- **AND** the measure band SHALL show the full model name and the time without cutting either

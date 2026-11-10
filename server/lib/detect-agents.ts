@@ -17,12 +17,12 @@
 import { existsSync } from "fs";
 import { resolveClaudeBin, _resetClaudeBinCache } from "./claude-bin";
 import { resolveCodexBin, _resetCodexBinCache } from "./codex-bin";
+import { expandHome } from "./expand-home";
 import { resolveKimiBin, _resetKimiBinCache } from "./kimi-bin";
 import { resolveMuseBin, _resetMuseBinCache } from "./muse-bin";
 import {
   CLI_AGENT_BIN_NAMES,
   agentBinPath,
-  expandHome,
   readAgentBinPaths,
   type CliAgentId,
 } from "./agent-bin-paths";

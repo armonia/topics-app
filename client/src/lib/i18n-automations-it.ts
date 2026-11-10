@@ -174,6 +174,7 @@ const AUTOMATIONS_IT: Dict = {
   'auto.cal.fact.who': 'Esegue',
   'auto.cal.prompt': 'Istruzioni per l\'agente',
   'auto.cal.open': 'Apri i dettagli di «{title}»',
+  'auto.cal.openDetail': 'Apri il dettaglio',
   'auto.cal.jarvis': 'Jarvis',
   'auto.stale': 'ultima lettura fallita, dati delle {time}',
   'auto.pill.stale': "copia vecchia dell'hub",

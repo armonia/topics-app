@@ -1,4 +1,5 @@
 import { pickPlanComment } from './planPanel';
+import { CardConsumption } from '../Processes/SessionConsumption';
 import { useTopics as useTopicMap } from '../../contexts/TopicsContext';
 import { useProvidersSnapshot } from '@/hooks/useProvidersSnapshot';
 import { resolveShownEffortTier } from '@/lib/effortTiers';
@@ -2628,6 +2629,9 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
 
   const taskDetails = detailsOpen && task ? (
     <div data-testid="task-brief-scroll" className="-mx-3 -mt-3 mb-3 border-b border-app-border">
+      {/* What the running session costs (tokens, tokens per second, CPU, memory), read from the
+          same answer as the load screen and the Processes view. Nothing while it is not running. */}
+      {task.status === 'in_progress' && <div className="px-3 pt-3"><CardConsumption cardId={task.id} /></div>}
       {metadataCard}
       {descCard}
       {subtasksCard}

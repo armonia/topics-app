@@ -314,6 +314,11 @@ test.describe("accounts and quotas", () => {
     await expect(pane.getByTestId("accounts-rule-sessionMonitor")).toHaveAttribute("aria-checked", "true");
     await pane.getByTestId("accounts-rule-commitTokenUsage").click();
     await expect.poll(() => hub!.posts.some((p) => p.path === "settings" && p.commitTokenUsage === true)).toBe(true);
+    // The dollar to euro rate is saved as typed, with a comma or a point.
+    const rate = pane.getByTestId("accounts-rule-usdEur");
+    await rate.fill("0,95");
+    await rate.press("Enter");
+    await expect.poll(() => hub!.posts.some((p) => p.path === "settings" && p.usdEur === 0.95)).toBe(true);
     // The queue's pause shows with the queue on.
     await expect(pane.getByTestId("accounts-rule-serializeDelayMs")).toHaveCount(0);
 

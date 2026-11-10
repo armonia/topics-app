@@ -5,6 +5,7 @@ import { describe, expect, test, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { freshDb } from "../routes/tasks-test-support";
 import { PLAN_HIERARCHY_DDL } from "../db/test-schema";
+import { UNKNOWN_PROJECT_NAME } from "../../shared/project-name";
 import { activityOf, buildPlan, cardSignals, countCards, createArea, createMilestone, linkTask, deleteArea, addSource, PlanError } from "./plan";
 
 let db: Database;
@@ -59,22 +60,27 @@ describe("plan tree", () => {
     expect(p.unplaced.tasks.map((c) => c.id)).toEqual(["orphan"]);
   });
 
-  test("projects with nothing open stay out, the rest goes by open work", () => {
+  test("projects with nothing open stay out, the rest goes by name with the one waiting for the person first", () => {
     task("a1", { project_id: "zeta" }); task("a2", { project_id: "zeta" });
     task("b1", { project_id: "alfa" });
     task("c1", { project_id: "chiuso", status: "done" });
-    const ids = buildPlan(db, { now: T0 }).projects.map((p) => p.projectId);
-    expect(ids).toEqual(["zeta", "alfa"]);
+    expect(buildPlan(db, { now: T0 }).projects.map((p) => p.projectId)).toEqual(["alfa", "zeta"]);
+    // «waiter» sorts after both by name: it is first only because a card of it is in review.
+    task("w1", { project_id: "waiter", status: "review" });
+    expect(buildPlan(db, { now: T0 }).projects.map((p) => p.projectId)).toEqual(["waiter", "alfa", "zeta"]);
     expect(buildPlan(db, { includeDone: true, now: T0 }).projects.map((p) => p.projectId)).toContain("chiuso");
   });
 
-  test("a project with a plan comes before a bigger one without, and counts its open cards only", () => {
+  test("a project with a plan is listed like the others, by name and after the ones waiting for the person, and counts its open cards only", () => {
     for (const i of [1, 2, 3]) task(`big${i}`, { project_id: "big" });
     task("s1", { project_id: "small" }); task("s2", { project_id: "small", status: "done" });
     createArea(db, { projectId: "small", name: "A" });
     const projects = buildPlan(db, { now: T0 }).projects;
-    expect(projects.map((p) => p.projectId)).toEqual(["small", "big"]);
-    expect(projects.map((p) => p.openCount)).toEqual([1, 3]);
+    // Not by size and not by having a plan: the Kanban lanes keep the same order.
+    expect(projects.map((p) => p.projectId)).toEqual(["big", "small"]);
+    expect(projects.map((p) => p.openCount)).toEqual([3, 1]);
+    task("z1", { project_id: "zz", status: "review" });
+    expect(buildPlan(db, { now: T0 }).projects.map((p) => p.projectId)).toEqual(["zz", "big", "small"]);
   });
 
   test("the project carries its folder, from the board slug too, for its real icon", () => {
@@ -232,11 +238,25 @@ describe("what waits for the person, and the header state", () => {
     expect(plan.projects.find((p) => p.projectId === "p2")!.activity).toEqual({ state: "stale", count: 1 });
   });
 
-  test("order: waiting for the person, then at work, then the rest", () => {
+  test("order: waiting for the person first, then by name; being at work does not lift a project", () => {
     task("a", { project_id: "idle" }); task("b", { project_id: "idle" }); task("c", { project_id: "idle" });
     task("d", { project_id: "busy", status: "in_progress" }); set("d", { dispatch_state: "working" });
     task("e", { project_id: "needs", status: "review" });
-    expect(buildPlan(db, { now: T0 }).projects.map((p) => p.projectId)).toEqual(["needs", "busy", "idle"]);
+    task("f", { project_id: "zwait", status: "review" });
+    const projects = buildPlan(db, { now: T0 }).projects;
+    expect(projects.map((p) => p.projectId)).toEqual(["needs", "zwait", "busy", "idle"]);
+    expect(projects.map((p) => [p.projectId, p.needsYou.length > 0, p.activity.state === "working"]))
+      .toEqual([["needs", true, false], ["zwait", true, false], ["busy", false, true], ["idle", false, false]]);
+  });
+
+  test("a project nobody registered is named from its id: the folder of a path, the slug without its hash, a sentence for a code", () => {
+    task("t1", { project_id: "/Users/x/workspace/topics-app" });
+    task("t2", { project_id: "quadra-lh40qh" });
+    task("t3", { project_id: "405fbb0d-6fdd-4874-b52d-ce96180f9e2a" });
+    const names = new Map(buildPlan(db, { now: T0 }).projects.map((p) => [p.projectId, p.name]));
+    expect(names.get("/Users/x/workspace/topics-app")).toBe("topics-app");
+    expect(names.get("quadra-lh40qh")).toBe("quadra");
+    expect(names.get("405fbb0d-6fdd-4874-b52d-ce96180f9e2a")).toBe(UNKNOWN_PROJECT_NAME);
   });
 });
 
