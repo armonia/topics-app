@@ -143,7 +143,6 @@ export function createOrganizationsScenario(): LandingScenario {
       packageScripts: { scripts: [], found: [], looked: [] },
       files: [],
       usage: emptyUsage(ISO),
-      openclawContext: { soul: null, memory: null, agents: null, tools: null, identity: null, user: null, memoryIndex: [], memoryTokens: 0, totalTokens: 0, workspacePath: orgs[0]?.path ?? "" },
     },
     sockets: {
       terminals: { transcripts: {}, fallback: [] },

@@ -12,8 +12,7 @@
  * threw on a `scripts` map that had become a list.
  *
  * So: boot the built demo, open the identity menu, and treat any uncaught
- * error as a failure. Then boot it again on `?scenario=organizzazioni`: no
- * error, the four organizations in the sidebar, cards on the board.
+ * error as a failure.
  *
  *   bun run check:demo            # the newer of landing/dist/app (build:site)
  *                                 # and landing/public/app (build:landing)
@@ -197,10 +196,9 @@ async function runEngine(engine, browser) {
 }
 
 /* The organizations scenario (client/src/demo/scenarios/organizzazioni.ts): the
- * same client opened by someone who runs four organizations. Its Principale
- * group is the Board generale alone, and each organization is a project, so the
- * sidebar has to list all four and the board has to draw their cards. */
-const ORGANIZZAZIONI = ['Consorzio di Nocera', 'SARIM', 'Armonia', 'Euro Impianti'];
+ * same client opened by someone who runs four organizations. Each organization
+ * is a project, so the sidebar has to list all four and the board draw cards. */
+const ORGANIZATIONS = ['Consorzio di Nocera', 'SARIM', 'Armonia', 'Euro Impianti'];
 
 async function runOrganizations(engine, browser) {
   const tag = (m) => (engine === 'chromium' ? `[organizzazioni] ${m}` : `[organizzazioni ${engine}] ${m}`);
@@ -208,13 +206,12 @@ async function runOrganizations(engine, browser) {
   watchErrors(page, engine, tag);
   if (!(await open(page, `${target}?scenario=organizzazioni`, tag))) return;
   const sidebar = page.locator('[data-testid="sidebar-groups"]');
-  for (const name of ORGANIZZAZIONI) {
+  for (const name of ORGANIZATIONS) {
     const rows = await sidebar.locator(`[data-testid="project-toggle-${name}"]`).count();
     if (!rows) problemi.push(tag(`the sidebar does not list «${name}»`));
   }
   const cards = await page.locator('[data-task-card]').count();
-  if (cards < ORGANIZZAZIONI.length) problemi.push(tag(`the board draws ${cards} cards, expected at least ${ORGANIZZAZIONI.length}`));
-  else console.log(`check:demo (${engine}) — organizzazioni: 4 organizations in the sidebar, ${cards} cards on the board`);
+  if (cards < ORGANIZATIONS.length) problemi.push(tag(`the board draws ${cards} cards, expected at least ${ORGANIZATIONS.length}`));
   await page.close();
 }
 

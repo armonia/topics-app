@@ -11,7 +11,7 @@
  * Only routes the client actually calls are here. The mocks whose readers were
  * deleted (the old Agents pane, approvals, board memory, webhooks, tags, unread
  * counts) went with them: there is no type left to check them against. */
-import type { AppBehaviorSettings, DashboardKPIs, FriendPerson, OpenClawContextResponse, PersonWithProfile, ProviderListEntry, ScriptOutput, ScriptProcessInfo, filesApi, gitApi } from '../lib/api';
+import type { AppBehaviorSettings, DashboardKPIs, FriendPerson, PersonWithProfile, ProviderListEntry, ScriptOutput, ScriptProcessInfo, filesApi, gitApi } from '../lib/api';
 import type { SessionWire } from '../lib/auth/session';
 import type { BoardProjectRef, BoardSettings, BoardTask, DispatchCapacity } from '../lib/board';
 import type { DevicesWire } from '../lib/devicesRead';
@@ -120,7 +120,6 @@ export interface LandingApi {
   packageScripts: PackageScriptsWire;
   files: FileNode[];
   usage: ProjectUsageResponse;
-  openclawContext: OpenClawContextResponse;
 }
 
 /* ---- sockets ------------------------------------------------------------ */
