@@ -6620,3 +6620,15 @@ Each piece of text that arrives while a turn is being written, each piece of a t
 - **WHEN** a piece arrives
 - **THEN** the rendered text SHALL contain it in the same render
 - **AND** each piece SHALL be its own span in arrival order, and only the pieces younger than 150 ms SHALL animate
+
+### Requirement: NATIVE-WRITE-ROOTS-01 — Radici di scrittura in più, dichiarate per workspace e fuori da ogni workspace
+
+`write_file` e `edit_file` del provider nativo SHALL scrivere fuori dal workspace solo
+dentro le cartelle elencate per quel workspace in `native-write-roots.json`, nella
+cartella dati dell'app (fuori da ogni workspace, così un agente non allarga il proprio
+perimetro). Un file mancante, illeggibile o malformato SHALL valere nessuna radice in più;
+la radice del disco SHALL essere scartata.
+
+#### Scenario: scrittura in una radice dichiarata
+- **GIVEN** `~/bin` elencata per il workspace
+- **THEN** una scrittura in `~/bin/x` SHALL passare, una in `~/altro/x` SHALL essere rifiutata
