@@ -6,7 +6,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 
 const previousDataDir = process.env.DATA_DIR;
 const previousTopicsDataDir = process.env.TOPICS_DATA_DIR;
@@ -114,27 +114,6 @@ async function writtenPid(path: string): Promise<number> {
   return Number(text());
 }
 
-/**
- * Resolves once the leader is draining, the one stretch where it ignores TERM.
- * Before its EXIT trap the leader's only child is the command; in the drain it
- * forks the scan's `ps` and then a `sleep 1`, which lasts a second of every
- * second, so a poll cannot miss it. The scan's FIFO is no signal: it lives a
- * few milliseconds of each second.
- */
-async function leaderDraining(leaderPid: number): Promise<void> {
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    const listing = Bun.spawnSync(["ps", "-A", "-o", "ppid=,comm="], { stdout: "pipe", stderr: "ignore" }).stdout.toString();
-    const drains = listing.split("\n").some((line) => {
-      const match = /^\s*(\d+)\s+(.+?)\s*$/.exec(line);
-      return match !== null && Number(match[1]) === leaderPid && ["sleep", "ps"].includes(basename(match[2]));
-    });
-    if (drains) return;
-    await Bun.sleep(10);
-  }
-  throw new Error(`leader ${leaderPid} never started its drain`);
-}
-
 // The child writes its pid only once the command is gone, reaped by the leader:
 // from then on the code is 0 wherever the close's TERM lands. The command used
 // to write it a moment before exiting, and a TERM in that moment ended it with
@@ -142,10 +121,11 @@ async function leaderDraining(leaderPid: number): Promise<void> {
 // 50 on a loaded Linux runner). Catching TERM in the command is no way out: the
 // child it forks keeps that handler until its exec and loses the TERM there.
 // The command hands the child its own pid: a child that starts after the
-// command exited reads `$PPID` as 1 and stops waiting at once. And a reaped
-// command is not a leader that ignores TERM yet, so the close waits for the
-// drain: on macOS under load the TERM landed before it, the group lived until
-// the SIGKILL after the grace and the code was null.
+// command exited reads `$PPID` as 1 and stops waiting at once. The close
+// lands anywhere in the leader's drain, on purpose: on the macOS runner it
+// once caught the old FIFO scan between fork and open, and the code was null
+// ("a TERM to the whole group during the drain never wedges the leader"
+// pins that case down).
 test("the group leader stays verifiable after its command leaves a child behind", async () => {
   const processId = crypto.randomUUID();
   const exitPath = join(instanceA, `${processId}.exit`);
@@ -171,7 +151,6 @@ test("the group leader stays verifiable after its command leaves a child behind"
     expect(childIdentity?.pgid).toBe(identity.pgid);
     expect(processGroupAlive(identity.pgid)).toBe(true);
     expect(readProcessGroupIdentity(identity.pid)).toEqual(identity);
-    await leaderDraining(identity.pid);
     expect(await closeCommandProcessGroup(record)).toBe(true);
     await proc.exited;
     expect(processGroupAlive(identity.pgid)).toBe(false);
@@ -235,6 +214,45 @@ test("a card script's leader outlives a TERM during the drain while a peer lives
   const processId = crypto.randomUUID();
   const proc = await termDuringDrain((childPath) => commandGroupArgv(["/bin/sh", "-c", leavesChild(childPath)], commandProcessGroupStopPath(processId)));
   expect(proc.exitCode).not.toBeNull();
+});
+
+// A Stop signals the whole GROUP, so its TERM also reaches what the drain
+// forks. zsh (the macOS leader) does not pass the drain's ignored TERM to a
+// child it forks for itself: the old scan, `ps > fifo &`, died between its
+// fork and the open of the FIFO's write end, and the leader stayed blocked in
+// the open of the read end, deaf to TERM, until the SIGKILL after the grace.
+// The exit code was never written (null after 10.2 s on the macOS runner, about
+// one Stop in seventy on a loaded Mac). Here the peer ignores TERM, so the
+// drain keeps scanning under a TERM every millisecond; once the peer is gone
+// the leader has to finish the drain on its own and write 0.
+test("a TERM to the whole group during the drain never wedges the leader", async () => {
+  const processId = crypto.randomUUID();
+  const exitPath = join(instanceA, `${processId}.exit`);
+  const childPath = join(instanceA, `${processId}.child`);
+  const peer = `trap "" TERM; echo "$$" > ${childPath}; exec sleep 90`;
+  const argv = commandArgv(`/bin/sh -c '${peer}' >/dev/null 2>&1 & exit 0`, exitPath, commandProcessGroupStopPath(processId));
+  if (!argv) throw new Error("POSIX command shell is unavailable");
+  const proc = Bun.spawn(argv, { stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
+  live.push({ proc, pgid: proc.pid });
+  const identity = captureProcessGroup(proc.pid);
+  if (!identity) throw new Error(`could not capture group for ${proc.pid}`);
+  live[live.length - 1] = { proc, pgid: identity.pgid };
+
+  const childPid = await writtenPid(childPath);
+  try {
+    const until = Date.now() + 3_000;
+    while (Date.now() < until) {
+      try { process.kill(-identity.pgid, "SIGTERM"); } catch {}
+      await Bun.sleep(1);
+    }
+    expect(proc.exitCode).toBeNull();
+  } finally {
+    try { process.kill(childPid, "SIGKILL"); } catch {}
+  }
+  await Promise.race([proc.exited, Bun.sleep(3_000)]);
+  expect(processGroupAlive(identity.pgid)).toBe(false);
+  expect(readExitCode(exitPath)).toBe(0);
+  expect(existsSync(join(tmpdir(), `topics-command-group-${identity.pid}`))).toBe(false);
 });
 
 // Closed as it starts, like a Stop right after Run: the TERM can land between
