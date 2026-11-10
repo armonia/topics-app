@@ -155,7 +155,7 @@ export function applyEdit(paths: Paths, e: Edit): { file: string; backup: string
 
 async function run(cmd: string[], timeoutMs = 10_000): Promise<{ code: number; out: string }> {
   try {
-    const p = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe", timeout: timeoutMs });
+    const p = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
     const t = setTimeout(() => p.kill(), timeoutMs);
     const out = (await new Response(p.stdout).text()) + (await new Response(p.stderr).text());
     clearTimeout(t);
