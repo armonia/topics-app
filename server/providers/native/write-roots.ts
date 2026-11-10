@@ -42,14 +42,14 @@ export function loadWriteRoots(workspace: string, file: string = join(resolveApp
       if (typeof r !== "string" || !r.trim()) continue;
       const abs = resolve(expandHome(r.trim()));
       // A filesystem root or a drive root is a generic widening, not a declaration.
-      if (dirnameOf(abs) === abs) continue;
+      if (parentDirOf(abs) === abs) continue;
       roots.push(abs);
     }
   }
   return roots;
 }
 
-function dirnameOf(p: string): string {
+function parentDirOf(p: string): string {
   return resolve(p, "..");
 }
 
