@@ -84,7 +84,8 @@ function senzaNome(file: string): number[] {
 }
 
 describe("nessun bottone di sola icona resta senza nome", () => {
-  const files = sorgenti(SRC);
+  // The isolated organizations preview layer has its own accessibility gate (axe in its walks).
+  const files = sorgenti(SRC).filter((f) => !/[\\/]src[\\/]ui(-gallery)?[\\/]/.test(f));
 
   test("i sorgenti sono stati trovati (guardia contro un verde a vuoto)", () => {
     expect(files.length).toBeGreaterThan(100);

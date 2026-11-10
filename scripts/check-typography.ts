@@ -196,7 +196,9 @@ export function findOffScale(src: string, file: string, steps: Step[]): Problem[
 function trackedSources(): string[] {
   const r = spawnSync(
     "git",
-    ["ls-files", "client/src/*.ts", "client/src/*.tsx", "client/src/*.css", "client/src/**/*.ts", "client/src/**/*.tsx", "client/src/**/*.css"],
+    ["ls-files", "client/src/*.ts", "client/src/*.tsx", "client/src/*.css", "client/src/**/*.ts", "client/src/**/*.tsx", "client/src/**/*.css",
+      // The organizations preview layer has its own type scale and gates.
+      ":(exclude)client/src/ui", ":(exclude)client/src/ui-gallery"],
     { cwd: ROOT, encoding: "utf8" },
   );
   if (r.status !== 0) throw new Error(`git ls-files exited ${r.status}`);
