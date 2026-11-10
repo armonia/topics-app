@@ -105,3 +105,17 @@ describe("l'archivio ha un ritorno", () => {
     expect(ids(board(true))).toEqual([t.id]);
   });
 });
+
+describe("una card archiviata non resta «in coda»", () => {
+  // 10/11: 11 card archiviate in todo portavano ancora dispatch_state='queued'
+  // da settimane e sembravano una coda ferma del PC che nessuno svegliava.
+  test("archiviare spegne lo stato queued del sottoalbero", () => {
+    const db = freshDb(); const s = svc(db);
+    const padre = s.create({ projectId: PID, text: "In coda", status: "todo" });
+    const figlio = s.create({ projectId: PID, text: "Figlio in coda", parentTaskId: padre.id, status: "todo" });
+    db.prepare("UPDATE tasks SET dispatch_state = 'queued'").run();
+    s.archive({ taskId: padre.id, projectId: PID });
+    const rows = db.prepare("SELECT dispatch_state FROM tasks WHERE id IN (?, ?)").all(padre.id, figlio.id) as Array<{ dispatch_state: string | null }>;
+    expect(rows.map((r) => r.dispatch_state)).toEqual([null, null]);
+  });
+});

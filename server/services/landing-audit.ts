@@ -44,7 +44,11 @@ import type { LandingEsito } from "./landing-verdict";
  * volta un umano, e l'audit non lo tocca piu' (vedi il filtro in
  * `auditCandidates`): non e' una misura da rifare, e' una decisione presa.
  */
-export type LandingState = "landed" | "unlanded" | "unverifiable" | "superseded";
+/**
+ * `unpushed`: on the local main (merge confirmed) but the push to origin
+ * failed. Only the land and the periodic push sweep write it.
+ */
+export type LandingState = "landed" | "unlanded" | "unverifiable" | "superseded" | "unpushed";
 
 export interface AuditTask {
   id: string;
@@ -149,6 +153,8 @@ export interface LandingAuditSummary {
    * uno stato al vocabolario romperebbe la somma invece del compilatore.
    */
   superseded: number;
+  /** Same reason as `superseded`: the audit never produces it (the push sweep owns it). */
+  unpushed: number;
 }
 
 /**
@@ -156,7 +162,7 @@ export interface LandingAuditSummary {
  * aborts the sweep, and an unreadable repo yields `unverifiable`, not a scare.
  */
 export async function auditLandings(deps: LandingAuditDeps): Promise<LandingAuditSummary> {
-  const summary: LandingAuditSummary = { checked: 0, landed: 0, unlanded: 0, unverifiable: 0, superseded: 0 };
+  const summary: LandingAuditSummary = { checked: 0, landed: 0, unlanded: 0, unverifiable: 0, superseded: 0, unpushed: 0 };
   const checkedAt = deps.now();
 
   for (const task of deps.listCandidates()) {

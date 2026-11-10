@@ -8,10 +8,12 @@ import { installFetchStub } from "./runtime/fetch";
 import { installSocketStub } from "./runtime/socket";
 import { seedLocalStorage, seedSessionStorage } from "./runtime/storage";
 import { createAcmeScenario } from "./scenarios/acme";
+import { createOrganizationsScenario } from "./scenarios/organizzazioni";
 import type { LandingScenario } from "./scenario";
 
 const SCENARIOS: Record<string, () => LandingScenario> = {
   acme: createAcmeScenario,
+  organizzazioni: createOrganizationsScenario,
 };
 
 function pickScenario(): LandingScenario {

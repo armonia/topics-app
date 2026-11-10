@@ -195,11 +195,32 @@ async function runEngine(engine, browser) {
   await page.close();
 }
 
+/* The organizations scenario (client/src/demo/scenarios/organizzazioni.ts): the
+ * same client opened by someone who runs four organizations. Each organization
+ * is a project, so the sidebar has to list all four and the board draw cards. */
+const ORGANIZATIONS = ['Consorzio di Nocera', 'SARIM', 'Armonia', 'Euro Impianti'];
+
+async function runOrganizations(engine, browser) {
+  const tag = (m) => (engine === 'chromium' ? `[organizzazioni] ${m}` : `[organizzazioni ${engine}] ${m}`);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  watchErrors(page, engine, tag);
+  if (!(await open(page, `${target}?scenario=organizzazioni`, tag))) return;
+  const sidebar = page.locator('[data-testid="sidebar-groups"]');
+  for (const name of ORGANIZATIONS) {
+    const rows = await sidebar.locator(`[data-testid="project-toggle-${name}"]`).count();
+    if (!rows) problemi.push(tag(`the sidebar does not list «${name}»`));
+  }
+  const cards = await page.locator('[data-task-card]').count();
+  if (cards < ORGANIZATIONS.length) problemi.push(tag(`the board draws ${cards} cards, expected at least ${ORGANIZATIONS.length}`));
+  await page.close();
+}
+
 try {
   for (const [engine, launch] of [['chromium', launchChromium], ['webkit', launchWebkit]]) {
     const browser = await launch();
     try {
       await runEngine(engine, browser);
+      if (!MUTANT) await runOrganizations(engine, browser);
     } finally {
       await browser.close();
     }

@@ -1,0 +1,134 @@
+/* Shared look of the originals: one A4 sheet per section.page. */
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: #fff; }
+body { -webkit-print-color-adjust: exact; print-color-adjust: exact; color: #1b1b1b; }
+p { margin: 0 0 3mm; }
+
+.page {
+  width: 210mm; height: var(--page-h, 297mm);
+  padding: 20mm 22mm 22mm;
+  position: relative; overflow: hidden;
+  break-after: page; page-break-after: always;
+  font-family: 'Times New Roman', Times, serif; font-size: 11.5pt; line-height: 1.45;
+  background: #fff;
+}
+.page:last-of-type { break-after: auto; page-break-after: auto; }
+
+/* Footer that marks every original as an example, and the page number. */
+.example-note {
+  position: absolute; left: 22mm; right: 22mm; bottom: 8mm;
+  font: 6.8pt/1.3 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #8a8a8a;
+  display: flex; justify-content: space-between; gap: 6mm;
+}
+
+/* Letterhead of the Consorzio, typographic only (no logo is reproduced). */
+.lh { border-bottom: 1.2pt solid #1f5e3b; padding-bottom: 3mm; margin-bottom: 7mm; }
+.lh-name { font: 600 14.5pt/1.2 Georgia, 'Times New Roman', serif; color: #1f5e3b; letter-spacing: 0.2pt; }
+.lh-sub { font: 8pt/1.4 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #4b5b52; }
+
+.meta { font: 9.5pt/1.5 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; margin-bottom: 6mm; }
+.meta b { font-weight: 600; }
+.to { margin: 0 0 7mm 95mm; font-size: 11pt; }
+.subject { margin: 0 0 6mm; font-weight: bold; }
+.right { text-align: right; }
+.center { text-align: center; }
+.small { font-size: 9pt; }
+.muted { color: #666; }
+h1, h2, h3 { margin: 0 0 3mm; }
+
+/* Protocol stamp, as Halley prints it on a filed document: in the top margin,
+   which a stamped page makes room for, so it never covers a line of text. */
+.page.stamped { padding-top: 31mm; }
+.stamp {
+  position: absolute; top: 6mm; right: 16mm; transform: rotate(-3deg);
+  border: 1.4pt solid #2c3e8f; color: #2c3e8f; border-radius: 2mm; padding: 1.6mm 3mm;
+  font: 600 7.6pt/1.35 'Courier New', Courier, monospace; text-align: center; opacity: 0.88;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+/* Digital signature box. */
+.sig { margin: 9mm 0 0 auto; width: 78mm; text-align: center; font-size: 10.5pt; }
+.sig-box {
+  margin-top: 2mm; border: 0.8pt solid #6b7b8c; border-radius: 1.5mm; padding: 2mm 3mm;
+  font: 7.4pt/1.35 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #44515e; background: #f4f6f8;
+}
+
+/* A court document: wide margins, double spacing. */
+.legal { padding: 24mm 26mm 26mm 30mm; font-size: 12.3pt; line-height: 1.85; text-align: justify; }
+.legal h1 { font-size: 13pt; text-align: center; letter-spacing: 0.4pt; margin-bottom: 1mm; }
+.legal h2 { font-size: 12.3pt; text-align: center; margin: 4mm 0 2mm; }
+.legal h3 { font-size: 12.3pt; font-style: italic; font-weight: normal; margin: 3mm 0 1mm; }
+.legal .party { text-align: center; font-style: italic; margin: 1mm 0 2mm; }
+.legal p { margin-bottom: 2.4mm; text-indent: 9mm; }
+.legal p.flat { text-indent: 0; }
+.legal ol { margin: 0 0 2mm; padding-left: 9mm; }
+
+/* PEC receipt, as the provider writes it. */
+.pec { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 10pt; padding-top: 18mm; }
+.pec-head { border: 0.8pt solid #b8c2cc; border-radius: 1.5mm; padding: 4mm 5mm; background: #f6f8fa; margin-bottom: 8mm; }
+.pec-head div { display: flex; gap: 4mm; line-height: 1.7; }
+.pec-head span:first-child { width: 28mm; color: #556; flex: none; }
+.pec-title { font-size: 15pt; font-weight: 600; margin-bottom: 5mm; color: #0b4f8a; }
+.pec-body { font-size: 11pt; line-height: 1.6; }
+.pec-id { margin-top: 8mm; font: 9pt/1.6 Menlo, 'Courier New', monospace; color: #333; }
+
+/* Electronic invoice in the style of the Agenzia delle Entrate stylesheet. */
+.fe { font: 8.4pt/1.35 Arial, Helvetica, sans-serif; padding: 14mm 14mm 20mm; }
+.fe-title { font-size: 10.5pt; font-weight: bold; margin-bottom: 3mm; }
+.fe table { width: 100%; border-collapse: collapse; margin-bottom: 3.5mm; }
+.fe th { background: #e1e6eb; border: 0.6pt solid #9aa5b1; text-align: left; padding: 1.2mm 1.6mm; font-weight: bold; }
+.fe td { border: 0.6pt solid #9aa5b1; padding: 1.2mm 1.6mm; vertical-align: top; }
+.fe td.n, .fe th.n { text-align: right; }
+.fe .two { display: flex; gap: 4mm; }
+.fe .two > table { flex: 1; }
+.fe .box { border: 0.6pt solid #9aa5b1; padding: 2mm 2.4mm; margin-bottom: 3.5mm; }
+.fe .box b { display: inline-block; min-width: 46mm; }
+
+/* Plain office forms. */
+.form { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 9.6pt; }
+.form h1 { font-size: 13pt; margin-bottom: 1mm; }
+.form table { width: 100%; border-collapse: collapse; margin: 2mm 0 4mm; }
+.form td, .form th { border: 0.6pt solid #888; padding: 1.6mm 2mm; text-align: left; vertical-align: top; }
+.form th { background: #eee; width: 42mm; font-weight: 600; }
+.form .hand { font-family: 'Bradley Hand', 'Segoe Print', cursive; font-size: 11pt; color: #1d3a8a; }
+.form .check { font-family: Menlo, monospace; }
+
+/* A draft, before it is filed. */
+.draft-mark {
+  position: absolute; top: 120mm; left: 18mm; transform: rotate(-30deg);
+  font: bold 64pt/1 Helvetica, Arial, sans-serif; color: rgba(190, 30, 30, 0.10); letter-spacing: 6pt;
+}
+
+/* Chat screenshots: WhatsApp on a phone, Teams on a desktop. */
+.phone { padding: 0; font-family: -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif; background: #efe7dd; }
+.wa-top { background: #075e54; color: #fff; padding: 7mm 6mm 4mm; display: flex; align-items: center; gap: 4mm; }
+.wa-avatar { width: 11mm; height: 11mm; border-radius: 50%; background: #cfd8dc; color: #37474f; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 11pt; }
+.wa-name { font-size: 13pt; font-weight: 600; }
+.wa-sub { font-size: 9pt; opacity: 0.85; }
+.wa-body { padding: 5mm 6mm; display: flex; flex-direction: column; gap: 3mm; }
+.wa-day { align-self: center; background: #e1f2fb; color: #445; font-size: 8.5pt; padding: 1mm 3mm; border-radius: 2mm; }
+.wa-msg { max-width: 78%; padding: 2.2mm 3mm 1.6mm; border-radius: 2.5mm; font-size: 11pt; line-height: 1.38; box-shadow: 0 0.3mm 0.4mm rgba(0,0,0,0.12); }
+.wa-in { align-self: flex-start; background: #fff; }
+.wa-out { align-self: flex-end; background: #dcf8c6; }
+.wa-time { display: block; text-align: right; font-size: 7.5pt; color: #6b7c85; margin-top: 0.8mm; }
+.wa-photo { padding: 1.2mm; }
+.wa-caption { font-size: 8.5pt; color: #6b7c85; padding: 1mm 1.5mm 0; }
+.wa-loc { font-size: 10pt; }
+
+.teams { padding: 0; font-family: 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif; background: #f5f5f5; }
+.teams-top { background: #464775; color: #fff; padding: 6mm 8mm; font-size: 12pt; font-weight: 600; }
+.teams-sub { font-size: 8.5pt; font-weight: normal; opacity: 0.85; }
+.teams-body { padding: 6mm 8mm; display: flex; flex-direction: column; gap: 4mm; }
+.teams-msg { background: #fff; border-radius: 1.5mm; padding: 3mm 4mm; box-shadow: 0 0.3mm 0.6mm rgba(0,0,0,0.1); font-size: 10.5pt; line-height: 1.45; }
+.teams-msg.me { background: #e9eaf6; margin-left: 30mm; }
+.teams-who { font-size: 8.5pt; color: #555; margin-bottom: 1mm; }
+.teams-who b { color: #222; }
+
+/* A map or drawing exported to PDF. */
+.map { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 14mm 14mm 20mm; }
+.map h1 { font-size: 13pt; margin: 0; }
+.map .frame { border: 0.8pt solid #333; margin: 4mm 0; }
+.map .legend { display: flex; flex-wrap: wrap; gap: 3mm 8mm; font-size: 9pt; }
+.map .sw { display: inline-block; width: 7mm; height: 3mm; vertical-align: middle; margin-right: 1.5mm; }
+.map table { border-collapse: collapse; font-size: 8.5pt; margin-top: 3mm; }
+.map td { border: 0.6pt solid #888; padding: 1mm 2mm; }

@@ -459,6 +459,13 @@ export interface TasksRouterOpts {
    */
   confirmLandedOnMain?: (repoPath: string, commit: string) => Promise<boolean | null>;
   /**
+   * Pushes `main` to origin after a confirmed land, fast-forward only
+   * (`main-on-origin.ts`). Absent = no push (tests that do not care).
+   * An `ok:false` does NOT undo the land (the work is on the local main): the
+   * card gets `unpushed` plus a thread line, and the periodic sweep retries.
+   */
+  pushMainAfterLand?: (repoPath: string) => Promise<{ ok: true; pushed: number } | { ok: false; reason: string }>;
+  /**
    * Close the delivery's draft pull request and delete its branch on origin.
    * Absent ⇒ the real `gh`/`git` (`closeCiDraft`); the seam exists so the three
    * doors that call it can be proved without a GitHub account, the same way
@@ -816,7 +823,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * passa da `enqueueLand`, che la mette in fila per progetto e le dà un ticket —
    * una git lenta non blocca chi chiama, ma l'esito non si perde più. Tutti gli
    * esiti finiscono anche come commenti di sistema.
-   * NEVER pushes (the release/publish pipeline stays the sole pusher).
+   * The merge is local; `main` then goes to origin, fast-forward only (`pushMainAfterLand`).
    */
   /**
    * Reap the task's worktree ONLY when the land can be shown to have worked —
@@ -1931,6 +1938,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // non DOVE. Da qui in giù «merged» vale solo insieme alla prova, e la
       // prova è che il commit di fusione sia dentro l'integrazione.
       const proof = res.status === "merged" ? await landProof(res.repoPath, res.commit) : null;
+      let pushFailure: string | null = null;
       if (res.status === "merged" && proof === false) {
         // Il caso che chiude questo difetto: la macchina crede di aver landato,
         // main dice di no. La card NON si chiude, il worktree NON si pota (è
@@ -2016,6 +2024,24 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           });
         }
         await reapAfterLand(taskId, "landed");
+        // ── THEN TO ORIGIN. Until 10/11 nobody pushed here: the "release
+        // pipeline" of the header comment did not exist, and 18 lands sat on
+        // this disk only, their cards in Done. A failed push does not undo the
+        // land, but it SAYS so: verdict `unpushed` and a line in the thread.
+        if (proof === true && opts?.pushMainAfterLand) {
+          let push: { ok: true; pushed: number } | { ok: false; reason: string };
+          try { push = await opts.pushMainAfterLand(res.repoPath); }
+          catch (err) { push = { ok: false, reason: err instanceof Error ? err.message : String(err) }; }
+          if (!push.ok) {
+            pushFailure = push.reason;
+            svc.addComment({
+              taskId, author: "system",
+              content:
+                `⚠️ Su main in locale ma NON su origin: ${push.reason}. ` +
+                "Il lavoro non è perso (è nel main di questa macchina); il controllo periodico ritenta il push, solo fast-forward, ogni 10 minuti.",
+            });
+          }
+        }
         // The remote half of that same reap. Here, and not at the approval, for
         // the reason the whole land path is built on: the branch is finished only
         // once main has been RE-READ and confirms it. `proof === null` - the
@@ -2190,7 +2216,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // do we ask the repo.
       // portare») si chiede al repo.
       const verdict: LandingState | "ask" =
-        res.status === "merged" ? (proof === true ? "landed" : "unverifiable")
+        res.status === "merged" ? (proof === true ? (pushFailure ? "unpushed" : "landed") : "unverifiable")
         : res.status === "conflict" ? "unlanded"
         : res.status === "skipped" && res.code !== "no-branch" ? "unlanded"
         : "ask";
@@ -2202,8 +2228,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // `verdict === "ask"` covers the cases where the land does not know (no
       // branch, or the branch was already on main): they map to "skipped" for
       // the MCP caller.
+      // `unpushed` did land (on the local main): for the queue it is `landed`,
+      // the card carries the defect.
       const ticketOutcome: LandOutcomeResult['outcome'] =
-        verdict === "ask" ? "skipped" : verdict;
+        verdict === "ask" ? "skipped" : verdict === "unpushed" ? "landed" : verdict;
       // The reason is only useful when the merge was refused: it is what the
       // MCP reports directly instead of leaving the caller to open the card's
       // thread.
