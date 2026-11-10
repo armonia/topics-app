@@ -5,9 +5,11 @@
  * write back to the right file (the server backs it up first and reloads the
  * service); the personality is edited in place and saved explicitly.
  * Switches follow Bruno Delorence's «Weekly hours» pattern: one switch per row.
+ * A row opens into its fields where it stands («Row editor»): a chat's own
+ * instructions and who may write, a job's schedule.
  */
-import { useMemo, useState } from 'react';
-import { Activity, Bot, CalendarClock, MessagesSquare, Sparkles, TriangleAlert, UserRound } from 'lucide-react';
+import { Fragment, useMemo, useState } from 'react';
+import { Activity, Bot, Pencil, Users, CalendarClock, MessagesSquare, Sparkles, TriangleAlert, UserRound } from 'lucide-react';
 import { apiFetch } from '../../lib/shell/net';
 import { useT } from '../../hooks/useT';
 import { useChannelTitles } from '../../state/agentGroups';
@@ -17,6 +19,66 @@ import { PALLINO_ATTESA, PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from '../Sideb
 import type { Registry } from '../../state/agentRegistry';
 type Agent = Registry['agents'][number];
 type Chat = Agent['chats'][number];
+type Job = Agent['jobs'][number];
+type Post = (kind: string, body: object) => Promise<boolean>;
+
+const FIELD = 'w-full rounded border border-app-border-light bg-surface px-2 py-1 text-mini text-app-text';
+const BTN = 'rounded px-2 py-1 text-mini text-app-text-secondary hover:bg-app-hover';
+const SAVE = 'rounded bg-primary px-2 py-1 text-mini text-white disabled:opacity-40';
+
+function ChatEditor({ c, post, close }: { c: Chat; post: Post; close: () => void }) {
+  const tr = useT();
+  const [system, setSystem] = useState(c.system);
+  const [senders, setSenders] = useState(c.senders.join(', '));
+  const save = async () => {
+    const ok = await post('chat', { channel: c.channel, chat: c.chat, account: c.account, system, senders: senders.split(/[\s,]+/).filter(Boolean) });
+    if (ok) close();
+  };
+  return (
+    <div data-testid="agent-chat-editor" className="space-y-2 rounded border border-app-border-light p-2">
+      <label className="block text-mini text-app-text-secondary">{tr('agentConfig.chatSystem')}
+        <textarea data-testid="agent-chat-system" value={system} onChange={(e) => setSystem(e.target.value)} rows={5} className={`mt-1 font-mono ${FIELD}`} />
+      </label>
+      <label className="block text-mini text-app-text-secondary">{tr('agentConfig.chatSenders')}
+        <input data-testid="agent-chat-senders" value={senders} onChange={(e) => setSenders(e.target.value)} placeholder={tr('agentConfig.chatSendersHint')} className={`mt-1 ${FIELD}`} />
+      </label>
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={close} className={BTN}>{tr('agentConfig.undo')}</button>
+        <button type="button" data-testid="agent-chat-save" onClick={() => void save()} className={SAVE}>{tr('agentConfig.save')}</button>
+      </div>
+    </div>
+  );
+}
+
+function JobEditor({ j, post, close }: { j: Job; post: Post; close: () => void }) {
+  const tr = useT();
+  const s = j.rawSchedule;
+  const [kind, setKind] = useState(s?.kind === 'every' ? 'every' : s?.kind === 'at' ? 'at' : 'cron');
+  const [expr, setExpr] = useState(s?.expr ?? '0 9 * * *');
+  const [minutes, setMinutes] = useState(String(s?.minutes ?? 30));
+  const [at, setAt] = useState(s?.at ?? '');
+  const save = async () => {
+    const schedule = kind === 'cron' ? { kind, expr: expr.trim(), tz: s?.tz ?? 'Europe/Rome' } : kind === 'every' ? { kind, minutes: Number(minutes) } : { kind, at };
+    if (await post('job', { id: j.id, schedule })) close();
+  };
+  return (
+    <div data-testid="agent-job-editor" className="flex flex-wrap items-center gap-2 rounded border border-app-border-light p-2">
+      <select value={kind} onChange={(e) => setKind(e.target.value)} className="rounded border border-app-border-light bg-surface px-1 py-1 text-mini">
+        <option value="cron">{tr('agentConfig.when.cron')}</option>
+        <option value="every">{tr('agentConfig.when.every')}</option>
+        <option value="at">{tr('agentConfig.when.at')}</option>
+      </select>
+      {kind === 'cron' && <input data-testid="agent-job-cron" value={expr} onChange={(e) => setExpr(e.target.value)} className={`w-40 font-mono ${FIELD}`} />}
+      {kind === 'every' && <input type="number" min={1} value={minutes} onChange={(e) => setMinutes(e.target.value)} className={`w-20 ${FIELD}`} />}
+      {kind === 'every' && <span className="text-mini text-app-text-muted">{tr('agentConfig.when.minutes')}</span>}
+      {kind === 'at' && <input value={at} onChange={(e) => setAt(e.target.value)} placeholder="2026-11-12T09:00" className={`w-48 ${FIELD}`} />}
+      <span className="ml-auto flex gap-2">
+        <button type="button" onClick={close} className={BTN}>{tr('agentConfig.undo')}</button>
+        <button type="button" data-testid="agent-job-save" onClick={() => void save()} className={SAVE}>{tr('agentConfig.save')}</button>
+      </span>
+    </div>
+  );
+}
 
 function Switch({ on, label, onChange, testId }: { on: boolean; label: string; onChange: (v: boolean) => void; testId?: string }) {
   return (
@@ -50,6 +112,7 @@ export function AgentProfiles({ reg, reload }: { reg: Registry; reload: () => vo
   const [note, setNote] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
   const [file, setFile] = useState('IDENTITY.md');
+  const [editing, setEditing] = useState<string | null>(null);
   const agent = reg.agents.find((a) => a.id === sel) ?? reg.agents[0];
   // A draft belongs to one agent and one file: changing either starts again from the saved text.
   const [edit, setEdit] = useState<{ key: string; text: string } | null>(null);
@@ -62,6 +125,7 @@ export function AgentProfiles({ reg, reload }: { reg: Registry; reload: () => vo
     const b = await r.json().catch(() => ({}));
     setNote(r.ok ? tr(`agentConfig.saved.${b.service ?? 'live'}`) : `${tr('agentConfig.error')}: ${b.error ?? r.status}`);
     reload();
+    return r.ok;
   };
 
   const chats = useMemo(() => {
@@ -137,16 +201,21 @@ export function AgentProfiles({ reg, reload }: { reg: Registry; reload: () => vo
         <div className="mb-1 flex gap-3 px-1 text-mini text-app-text-muted"><span className="flex-1" /><span className="w-14 text-center">{tr('agentConfig.active')}</span><span className="w-14 text-center">{tr('agentConfig.mention')}</span></div>
         <ul className="max-h-80 overflow-y-auto">
           {chats.map((c) => (
-            <li key={`${c.channel}:${c.chat}:${c.account}`} data-testid="agent-chat" className="flex items-center gap-3 rounded px-1 py-1 hover:bg-app-hover">
+            <Fragment key={`${c.channel}:${c.chat}:${c.account}`}>
+            <li data-testid="agent-chat" className="flex items-center gap-3 rounded px-1 py-1 hover:bg-app-hover">
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-prose text-app-text">{chatName(c)}</span>
                 <span className="block truncate text-mini text-app-text-muted">
                   {c.channel}{c.senders.length ? ` · ${tr('agentConfig.senders', { n: c.senders.length })}` : ''}{c.denied.length ? ` · ${tr('agentConfig.denied', { n: c.denied.length })}` : ''}{c.hasSystem ? ` · ${tr('agentConfig.ownRules')}` : ''}
                 </span>
+                {c.twoAgents && <span data-testid="agent-chat-two" className="mt-0.5 inline-flex items-center gap-1 rounded bg-app-hover px-1.5 text-mini text-app-text-secondary"><Users size={10} aria-hidden="true" />{tr('agentConfig.twoAgents')}</span>}
               </span>
               <span className="flex w-14 justify-center"><Switch on={c.active} label={tr('agentConfig.active')} testId="agent-chat-active" onChange={(v) => void post('chat', { channel: c.channel, chat: c.chat, account: c.account, active: v })} /></span>
               <span className="flex w-14 justify-center"><Switch on={c.mention} label={tr('agentConfig.mention')} onChange={(v) => void post('chat', { channel: c.channel, chat: c.chat, account: c.account, mention: v })} /></span>
+              <button type="button" data-testid="agent-chat-edit" aria-label={tr('agentConfig.edit')} title={tr('agentConfig.edit')} onClick={() => setEditing(editing === `c:${c.channel}:${c.chat}:${c.account}` ? null : `c:${c.channel}:${c.chat}:${c.account}`)} className="rounded p-1 text-app-text-muted hover:bg-app-hover hover:text-app-text"><Pencil size={12} aria-hidden="true" /></button>
             </li>
+            {editing === `c:${c.channel}:${c.chat}:${c.account}` && <li className="px-1 pb-2"><ChatEditor c={c} post={post} close={() => setEditing(null)} /></li>}
+            </Fragment>
           ))}
         </ul>
       </Section>
@@ -154,13 +223,17 @@ export function AgentProfiles({ reg, reload }: { reg: Registry; reload: () => vo
       <Section icon={CalendarClock} title={tr('agentConfig.jobs')} aside={tr('agentConfig.jobsAside', { on: agent.jobs.filter((j) => !j.paused).length, n: agent.jobs.length })}>
         <ul className="max-h-80 overflow-y-auto">
           {agent.jobs.map((j) => (
-            <li key={j.id} data-testid="agent-job" className="flex items-center gap-3 rounded px-1 py-1 hover:bg-app-hover">
+            <Fragment key={j.id}>
+            <li data-testid="agent-job" className="flex items-center gap-3 rounded px-1 py-1 hover:bg-app-hover">
               <span className="min-w-0 flex-1">
                 <span className={`block truncate text-prose ${j.paused ? 'text-app-text-muted' : 'text-app-text'}`}>{j.name}</span>
                 <span className="block truncate text-mini text-app-text-muted">{j.schedule}{j.kind === 'agent' ? ` · ${tr('agentConfig.agentJob')}` : ''}{j.model ? ` · ${j.model}` : ''}</span>
               </span>
               <Switch on={!j.paused} label={tr('agentConfig.jobOn')} testId="agent-job-on" onChange={(v) => void post('job', { id: j.id, paused: !v })} />
+              <button type="button" data-testid="agent-job-edit" aria-label={tr('agentConfig.editWhen')} title={tr('agentConfig.editWhen')} onClick={() => setEditing(editing === `j:${j.id}` ? null : `j:${j.id}`)} className="rounded p-1 text-app-text-muted hover:bg-app-hover hover:text-app-text"><Pencil size={12} aria-hidden="true" /></button>
             </li>
+            {editing === `j:${j.id}` && <li className="px-1 pb-2"><JobEditor j={j} post={post} close={() => setEditing(null)} /></li>}
+            </Fragment>
           ))}
         </ul>
       </Section>
