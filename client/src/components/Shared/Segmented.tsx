@@ -20,15 +20,7 @@ export interface SegmentedOption<T extends string> {
  * (index.css), the shared token of a control that answers a click, so the
  * global reduced-motion rule stops it with everything else.
  */
-export function Segmented<T extends string>({
-  value,
-  options,
-  onChange,
-  ariaLabel,
-  testId,
-  disabled = false,
-  className = '',
-}: {
+export interface SegmentedProps<T extends string> {
   value: T;
   options: ReadonlyArray<SegmentedOption<T>>;
   onChange: (value: T) => void;
@@ -37,6 +29,26 @@ export function Segmented<T extends string>({
   testId?: string;
   disabled?: boolean;
   className?: string;
+}
+
+/**
+ * The control itself. An icon-only choice keeps its label on `data-tip`, the
+ * attribute the preview layer (`client/src/ui/`) draws its tooltip from, so the
+ * browser never shows one of its own. The preview imports this one: its bundle
+ * then carries no `title` at all, which is what `check-ui-native` reads.
+ */
+export function SegmentedControl<T extends string>({
+  value,
+  options,
+  onChange,
+  ariaLabel,
+  testId,
+  disabled = false,
+  className = '',
+  optionAttributes = tipOnData,
+}: SegmentedProps<T> & {
+  /** What an option's radio carries beyond its role: where its tooltip text lives. */
+  optionAttributes?: (o: SegmentedOption<T>) => Record<string, string> | undefined;
 }) {
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
   const index = Math.max(0, options.findIndex((o) => o.value === value));
@@ -82,7 +94,7 @@ export function Segmented<T extends string>({
             role="radio"
             aria-checked={checked}
             aria-label={Icon ? o.label : undefined}
-            title={Icon ? o.label : undefined}
+            {...optionAttributes(o)}
             tabIndex={checked ? 0 : -1}
             disabled={disabled}
             data-testid={testId ? `${testId}-${o.value}` : undefined}
@@ -97,4 +109,21 @@ export function Segmented<T extends string>({
       })}
     </div>
   );
+}
+
+function tipOnData(o: SegmentedOption<string>): Record<string, string> | undefined {
+  return o.icon ? { 'data-tip': o.label } : undefined;
+}
+
+function tipOnTitle(o: SegmentedOption<string>): Record<string, string> | undefined {
+  return o.icon ? { title: o.label } : undefined;
+}
+
+/**
+ * The product's Segmented: an icon-only choice keeps its label on `title`,
+ * which the product's TooltipDelegate turns into its own tooltip (and back,
+ * so the accessible description stays).
+ */
+export function Segmented<T extends string>(props: SegmentedProps<T>) {
+  return <SegmentedControl {...props} optionAttributes={tipOnTitle} />;
 }

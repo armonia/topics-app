@@ -162,6 +162,8 @@ export const STATIC_RAILS_CHECK: ReviewCheck = {
     "bun run check:sleeps",
     "bun run check:test-skips",
     "bun run check:ui-language",
+    "bun run check:ui-fixtures",
+    "bun run check:ui-isolation",
     "bun run check:bloat",
     "bun run check:security --only=data,home,secrets",
     "bun run check:eol",

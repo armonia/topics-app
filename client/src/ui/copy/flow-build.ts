@@ -1,0 +1,213 @@
+/**
+ * Flows: the list, starting from a template, a flow made in the chat, the steps, the view by office.
+ * The words of the `flowBuild` area of the preview; values in `i18n-ui-flow-build-it.ts`
+ * and `i18n-ui-flow-build-en.ts`. Only product words: sector words arrive with the data.
+ */
+export interface FlowBuildCopy {
+  /** The state of a flow, as its chip says it. */
+  status: { attivo: string; collaudo: string; bozza: string; spento: string };
+  /** The chip of a program that does a step without a name of its own. */
+  robot: string;
+  /** The chip of a step that sends or hands over. */
+  actionActor: string;
+  /** What each kind of step is called when one is added. */
+  kinds: { classify: string; ai: string; rule: string; robot: string; person: string; program: string; view: string; send: string };
+  tabs: { decides: string };
+  list: {
+    columns: { flow: string; status: string; start: string; today: string; stuck: string; errors: string; owner: string; modified: string };
+    todayTitle: string;
+    openStuck: string;
+    noneStuck: string;
+    menuLabel: (name: string) => string;
+    tabsLabel: string;
+    searchPlaceholder: string;
+    officeFilter: string;
+    allOffices: string;
+    tableLabel: string;
+    emptyFiltered: string;
+    emptyNone: string;
+    resetFilters: string;
+    newFlow: string;
+    testAll: string;
+    suggestionsTitle: string;
+    suggestionsHint: string;
+    allTemplates: string;
+    createDraft: string;
+    tabs: { all: string; active: string; testing: string; draft: string; off: string };
+    version: (v: number) => string;
+    versionOnTrial: (v: number) => string;
+    blocks: (n: number) => string;
+    draftBlocks: (n: number) => string;
+    newBlocks: (n: number) => string;
+    modifiedToday: string;
+    modifiedYesterday: string;
+    menu: { open: string; duplicate: string; test: string; turnOn: string; turnOff: string };
+    copyName: (name: string) => string;
+  };
+  offices: {
+    title: (flow: string) => string;
+    tableLabel: string;
+    who: string;
+    timesTitle: string;
+    noTimes: string;
+    stuckTitle: string;
+    noStuck: string;
+    passesTitle: string;
+    noPasses: string;
+    system: string;
+    systemSub: string;
+    robotSub: string;
+    officeSub: string;
+    phases: { arrival: string; reading: string; check: string; registration: string; work: string };
+  };
+  flow: {
+    notFound: string;
+    notFoundBody: string;
+    backToList: string;
+    moveUp: string;
+    moveDown: string;
+    alreadyFirst: string;
+    alreadyLast: string;
+    remove: string;
+    stepMenu: (name: string) => string;
+    removeTitle: (name: string) => string;
+    removeBody: string;
+    addStep: string;
+    addTitle: string;
+    cancel: string;
+    addConfirm: string;
+    addAfter: (label: string) => string;
+    addFirst: string;
+    labelLabel: string;
+    labelPlaceholder: string;
+    labelRequired: string;
+    kindLabel: string;
+    programLabel: string;
+    officeLabel: string;
+    fromTrigger: string;
+    writtenBy: string;
+    stepSection: (n: number) => string;
+    dataTag: string;
+    dataTitle: string;
+    dataBody: string;
+    access: string;
+  };
+  start: {
+    title: string;
+    firstSteps: string;
+    firstStepsBody: string;
+    question: string;
+    describePlaceholder: string;
+    createDraft: string;
+    describeEmpty: string;
+    blankTrigger: string;
+    sectorTemplates: string;
+    sectorLabel: string;
+    sectorHint: string;
+    noTemplates: string;
+    steps: { mail: string; docs: string; people: string; flows: string };
+    peopleDetail: (invited: number, total: number) => string;
+    inviteRest: (n: number) => string;
+    invitePeople: string;
+    inviteJob: string;
+    inviteStep1: string;
+    inviteStep2: string;
+    inviteStep3: string;
+    inviteLog: (n: number) => string;
+    inviteDone: (n: number) => string;
+    flowsChosen: (n: number, running: number, trial: number) => string;
+    dialogTitle: string;
+    nameLabel: string;
+    officeLabel: string;
+    nameRequired: string;
+    cancel: string;
+    createFlow: string;
+    draftNote: string;
+  };
+  chat: {
+    title: string;
+    send: string;
+    emptyMessage: string;
+    recommended: string;
+    draftLabel: string;
+    draftSuffix: string;
+    toDecide: string;
+    draftFromChat: string;
+    discard: string;
+    discardTitle: string;
+    discardBody: string;
+    discarded: string;
+    discardedBody: string;
+    restart: string;
+    create: string;
+    openFlow: string;
+    placeholder: string;
+    openQuestions: (n: number) => string;
+    allDecided: string;
+    notesTitle: string;
+  };
+  interview: {
+    tabTitle: string;
+    crumbRoot: string;
+    crumbMapping: string;
+    title: (role: string) => string;
+    recording: string;
+    paused: string;
+    exampleInterview: string;
+    meta: (duration: string) => string;
+    placeholder: string;
+    pause: string;
+    resume: string;
+    assistant: string;
+    atRisk: string;
+    who: string;
+    often: string;
+    programs: string;
+    data: string;
+    exception: string;
+    example: string;
+    added: string;
+    openMap: string;
+    addToKnowledge: string;
+    addedLog: (title: string) => string;
+    addedToast: string;
+    outputsTitle: string;
+    missingToast: string;
+    requestNotify: string;
+    requestLog: string;
+    requestToast: string;
+    openBoard: string;
+    states: { procedure: string; request: string; requestDone: string; flow: string; flowDone: string; person: string };
+    actions: { procedure: string; request: string; requestDone: string; flow: string; flowDone: string; person: string };
+  };
+  log: {
+    created: (name: string) => string;
+    off: (name: string) => string;
+    on: (name: string) => string;
+    moved: (step: string, flow: string) => string;
+    removed: (step: string, flow: string) => string;
+    added: (step: string, flow: string) => string;
+    discarded: (name: string) => string;
+  };
+  toast: {
+    created: (name: string) => string;
+    createdBody: string;
+    open: string;
+    duplicated: (name: string) => string;
+    duplicatedBody: string;
+    off: (name: string) => string;
+    on: (name: string) => string;
+    stepAdded: (label: string) => string;
+    openStep: string;
+    stepRemoved: (name: string) => string;
+  };
+  confirm: {
+    offTitle: (name: string) => string;
+    offBody: string;
+    off: string;
+    onTitle: (name: string) => string;
+    onBody: string;
+    on: string;
+  };
+  search: { flows: string; steps: string };
+}
