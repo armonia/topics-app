@@ -161,6 +161,9 @@ if (CASE === "exit-grace") {
     restart([skA, skB]);
     const bridge = client();
     await bridge.ensureConnected();
+    // Il tetto qui è 300 ms: se scade prima che arrivi il pong (il primo frame con rid), il client non sa ancora
+    // che il daemon fa eco dei rid e non aspetta l'ack tardivo. Su un runner lento era la corsa del flaky.
+    await waitFor("the daemon's rid echo (its pong)", () => bridge.ridEcho === true, 10_000);
     // B's CLI finishes and exits 150 ms after B's first attach went out, while A's replay still drains.
     const whole = bridge.attachWhole.bind(bridge);
     const calls: string[] = [];
