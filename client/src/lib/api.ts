@@ -215,6 +215,8 @@ export const topicsApi = {
   async update(id: string, data: UpdateTopicRequest): Promise<Topic> {
     return request<Topic>(`/topics/${id}`, {
       method: 'PATCH',
+      // The server lets only the interface change a board agent's model.
+      headers: { 'X-Topics-Action-Origin': 'interface' },
       body: JSON.stringify(data),
     });
   },

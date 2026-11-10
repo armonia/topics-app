@@ -12,6 +12,7 @@
  */
 import { Database } from "bun:sqlite";
 import type { AppContext, RouteHandler } from "../types";
+import { withOwnSessionToken } from "./session-caller";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
 export function freshDb(): Database {
@@ -143,7 +144,10 @@ export function makeCtx(
  */
 export function call(router: RouteHandler, method: string, path: string, body?: unknown, headers?: HeadersInit) {
   const fromInterface = headers === undefined && method === "POST" && /^\/api\/boards\/[^/]+\/tasks$/.test(path);
-  return rawCall(router, method, path, body, fromInterface ? { "X-Topics-Action-Origin": "interface" } : headers);
+  const base = fromInterface ? { "X-Topics-Action-Origin": "interface" } : headers;
+  // A session route called through `call` plays that session's own bridge, so it
+  // carries the session's token. `rawCall` sends none, as a bare shell would.
+  return rawCall(router, method, path, body, withOwnSessionToken(path, base));
 }
 
 /** The request exactly as given: no interface marker, as a script would send it. */
