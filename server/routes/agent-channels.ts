@@ -54,6 +54,15 @@ export function readChannelTitles(path: string): Record<string, string> {
          AND id IN (SELECT max(id) FROM turns WHERE ${titled} AND thread IS NOT NULL AND thread <> '' GROUP BY chat, thread)`,
     ).all() as { chat: string; thread: string; title: string | null }[];
     for (const r of threads) if (r.title) out[`${r.chat}:${r.thread}`] = r.title;
+    // Threads the bridge opened itself for a new conversation (its `threads`
+    // table, 09/11) have a title before anyone answers in them.
+    for (const r of openedThreads(db)) out[`${r.chat}:${r.thread}`] ??= r.title;
+    // A thread says the channel it lives in: «#pm-jarvis › Migrazione siti».
+    for (const key of Object.keys(out)) {
+      const [chat, thread] = key.split(":");
+      const parent = thread ? out[chat] : undefined;
+      if (parent && out[key] !== parent && !out[key].startsWith(`${parent} › `)) out[key] = `${parent} › ${out[key].replace(/^#/, "")}`;
+    }
     return out;
   } catch {
     return {};
@@ -62,9 +71,33 @@ export function readChannelTitles(path: string): Record<string, string> {
   }
 }
 
+export type OpenedThread = { chat: string; thread: string; title: string; link: string; card: string | null };
+
+function openedThreads(db: Database): OpenedThread[] {
+  const has = db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'threads'").get();
+  if (!has) return [];
+  return db.query("SELECT chat, thread, title, link, card FROM threads ORDER BY rowid").all() as OpenedThread[];
+}
+
+/** The Discord threads tied to a card (by full id or 8-char prefix), newest last. */
+export function readCardThreads(path: string, cardId: string): OpenedThread[] {
+  if (!existsSync(path) || !cardId) return [];
+  const db = new Database(path, { readonly: true });
+  try {
+    return openedThreads(db).filter((t) => !!t.card && (cardId.startsWith(t.card) || t.card.startsWith(cardId)));
+  } catch {
+    return [];
+  } finally {
+    db.close();
+  }
+}
+
 export function createAgentChannelsRouter(ctx: Pick<AppContext, "json">, path: () => string = () => channelsDbPath()): RouteHandler {
   let cache: { at: number; titles: Record<string, string> } | null = null;
   return async function agentChannelsRouter(_req, _url, pathname, method) {
+    // `GET /api/agent-channels/card/<id>`: the Discord threads opened for that card, with their links.
+    const card = /^\/api\/agent-channels\/card\/([\w-]+)$/.exec(pathname);
+    if (card && method === "GET") return ctx.json({ threads: readCardThreads(path(), card[1]) });
     if (pathname !== "/api/agent-channels" || method !== "GET") return null;
     if (!cache || Date.now() - cache.at > CACHE_MS) cache = { at: Date.now(), titles: readChannelTitles(path()) };
     return ctx.json({ titles: cache.titles });
