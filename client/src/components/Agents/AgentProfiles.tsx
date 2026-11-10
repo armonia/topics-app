@@ -15,6 +15,8 @@ import { DANGER_TEXT } from '../../lib/popoverStyles';
 import { PALLINO_ATTESA, PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from '../Sidebar/chromeSignals';
 
 import type { Registry } from '../../state/agentRegistry';
+
+const NO_VALUE = '—'; // allow-emdash: the placeholder shown for a missing value, the dash is the data
 type Agent = Registry['agents'][number];
 type Chat = Agent['chats'][number];
 
@@ -51,7 +53,7 @@ export function AgentProfiles({ reg, reload }: { reg: Registry; reload: () => vo
   const [filter, setFilter] = useState('');
   const [file, setFile] = useState('IDENTITY.md');
   const agent = reg.agents.find((a) => a.id === sel) ?? reg.agents[0];
-  // La bozza vale per un agente e un file: cambiando l'uno o l'altro riparte dal testo salvato.
+  // A draft belongs to one agent and one file: changing either starts again from the saved text.
   const [edit, setEdit] = useState<{ key: string; text: string } | null>(null);
   const draftKey = `${agent?.id}:${file}:${agent?.persona[file] ?? ''}`;
   const draft = edit?.key === draftKey ? edit.text : agent?.persona[file] ?? '';
@@ -124,7 +126,7 @@ export function AgentProfiles({ reg, reload }: { reg: Registry; reload: () => vo
       </Section>
 
       <Section icon={Sparkles} title={tr('agentConfig.model')}>
-        <p className="text-mini text-app-text-secondary">{tr('agentConfig.engine')}: <span className="text-app-text">{agent.model.engine ?? '—'}</span></p>
+        <p className="text-mini text-app-text-secondary">{tr('agentConfig.engine')}: <span className="text-app-text">{agent.model.engine ?? NO_VALUE}</span></p>
         {models.map(([ch, m]) => (
           <p key={ch} className="text-mini text-app-text-secondary">{ch}: <span className="text-app-text">{Object.entries(m).map(([k, v]) => `${k === '*' ? tr('agentConfig.everyone') : k} → ${v.replace('anthropic/', '')}`).join(' · ')}</span></p>
         ))}

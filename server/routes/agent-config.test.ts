@@ -15,10 +15,10 @@ afterEach(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true
 function fixture(): Paths {
   const home = mkdtempSync(join(tmpdir(), "agent-config-"));
   dirs.push(home);
-  const ws = join(home, "ws"); const gtm = join(ws, "gtm");
-  mkdirSync(gtm, { recursive: true });
-  writeFileSync(join(ws, "IDENTITY.md"), "# Jarvis\n"); writeFileSync(join(gtm, "IDENTITY.md"), "# Visione\n");
-  writeFileSync(join(home, "engine.json"), JSON.stringify({ model: "claude-sonnet-5-5", agents: { main: { workspace: ws }, gtm: { workspace: gtm } } }));
+  const ws = join(home, "ws"); const secondWs = join(ws, "gtm");
+  mkdirSync(secondWs, { recursive: true });
+  writeFileSync(join(ws, "IDENTITY.md"), "# Jarvis\n"); writeFileSync(join(secondWs, "IDENTITY.md"), "# Visione\n");
+  writeFileSync(join(home, "engine.json"), JSON.stringify({ model: "claude-sonnet-5-5", agents: { main: { workspace: ws }, gtm: { workspace: secondWs } } }));
   writeFileSync(join(home, "config.json"), JSON.stringify({
     channels: { discord: { default: { token: "keychain:d/j" }, visione: { token: "keychain:d/v" } }, telegram: { token: "keychain:t" } },
     rules: {

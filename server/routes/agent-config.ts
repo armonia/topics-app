@@ -138,9 +138,9 @@ export function applyEdit(paths: Paths, e: Edit): { file: string; backup: string
   if (e.kind === "chat") {
     const file = join(paths.home, "config.json");
     const cfg: Json = readJson(file);
-    const acc = (e.account ?? "default");
-    const g = (cfg.rules?.groups ?? []).find((x: Json) => x.channel === e.channel && x.chat === e.chat && (x.account ?? "default") === acc);
-    if (!g) throw new Error(`chat ${e.channel}:${e.chat} non trovata per ${acc}`);
+    const account = (e.account ?? "default");
+    const g = (cfg.rules?.groups ?? []).find((x: Json) => x.channel === e.channel && x.chat === e.chat && (x.account ?? "default") === account);
+    if (!g) throw new Error(`chat ${e.channel}:${e.chat} non trovata per ${account}`);
     for (const k of ["active", "mention"] as const) {
       if (e[k] === undefined) continue;
       if (typeof e[k] !== "boolean") throw new Error(`${k} deve essere true o false`);
@@ -155,10 +155,8 @@ export function applyEdit(paths: Paths, e: Edit): { file: string; backup: string
 
 async function run(cmd: string[], timeoutMs = 10_000): Promise<{ code: number; out: string }> {
   try {
-    const p = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
-    const t = setTimeout(() => p.kill(), timeoutMs);
+    const p = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe", timeout: timeoutMs });
     const out = (await new Response(p.stdout).text()) + (await new Response(p.stderr).text());
-    clearTimeout(t);
     return { code: await p.exited, out: out.trim() };
   } catch (err) {
     return { code: 127, out: String(err) };
@@ -171,8 +169,8 @@ async function reload(paths: Paths): Promise<string> {
   try { inflight = readJson(join(paths.home, "inflight.json")); } catch {}
   if (Object.keys(inflight).length) return "pending";
   if (process.env.AGENT_CONFIG_NO_RESTART) return "skipped";
-  const uid = process.getuid?.() ?? 501;
-  const r = await run(["launchctl", "kickstart", "-k", `gui/${uid}/com.jarvis.channels`]);
+  const userId = process.getuid?.() ?? 501;
+  const r = await run(["launchctl", "kickstart", "-k", `gui/${userId}/com.jarvis.channels`]);
   return r.code === 0 ? "restarted" : "pending";
 }
 
