@@ -46,9 +46,17 @@ function CompareFrame({ slide }: { slide: Extract<EvidenceSlide, { kind: 'pair' 
       onPointerDown={(e) => {
         e.stopPropagation();
         move(e.clientX);
-        try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* synthetic pointers have nothing to capture */ }
+        // Window listeners follow the drag even when the pointer leaves the frame.
+        const onMove = (ev: PointerEvent) => move(ev.clientX);
+        const stop = () => {
+          window.removeEventListener('pointermove', onMove);
+          window.removeEventListener('pointerup', stop);
+          window.removeEventListener('pointercancel', stop);
+        };
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', stop);
+        window.addEventListener('pointercancel', stop);
       }}
-      onPointerMove={(e) => { if (e.buttons || e.pointerType === 'touch') move(e.clientX); }}
       onClick={(e) => e.stopPropagation()}
     >
       {/* Probe: reads the bitmap's natural size so the frame has the right shape. */}
