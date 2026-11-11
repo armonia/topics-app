@@ -7,3 +7,5 @@ longest block, fragmented day (most blocks of 30 min or less), daytime gaps of
 The code lives outside this repository, in the assistant's own daily-calendar
 script (`--dry-run` prints a `tempi:` line per finding, exit 0). This note only
 records the decision.
+
+The summary also lists the three longest jobs of the day from the estimates registry: real duration against the estimate, time spent waiting for an answer, idle time, and overruns.
