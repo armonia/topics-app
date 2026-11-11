@@ -931,8 +931,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
   const focusDiff = diffFocusPath(focusPaneId);
   const paneFocus = focusDiff ? undefined : focusPaneId;
   const [deliveryOpen, setDeliveryOpen] = useState(!!focusDiff);
-  // A card in Review opens on its decision actions (Approva sat one tab away).
-  const openedOnReview = useRef(false);
+
   const isMobile = useMediaQuery('(max-width: 767px)');
   const [workspaceOpen, setWorkspaceOpen] = useState(!!paneFocus);
   const toggleWorkspaceOpen = () => setWorkspaceOpen((open) => !open);
@@ -1084,7 +1083,6 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
     try {
       const { task, comments, children } = await boardApi.get(projectId, taskId);
       if (generation !== loadGeneration.current) return;
-      if (task.status === 'review' && !openedOnReview.current) { openedOnReview.current = true; setDeliveryOpen(true); }
       setTask(task); setComments(reconcileAcknowledgedComments(comments, acknowledgedComments.current)); setChildren(children ?? []);
       // After revalidation, queued/delivered follows the task and session
       // envelopes again; a transient receipt cannot outlive that evidence.
@@ -2643,17 +2641,19 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
     </div>
   ) : null;
 
+  const askBox = task?.status === 'review' ? (
+    <div className="-mx-3 -mt-3 mb-3 px-3 pt-3">
+      <AskBox
+        question={pending ? stripMarkdown(pending.question) : (task.humanAsk ?? null)}
+        options={pending ? replyOptions : []}
+        busy={sending || busy || uploading}
+        onAnswer={(opt) => void answerOption(opt)}
+      />
+    </div>
+  ) : null;
   const taskDelivery = deliveryOpen && task ? (
     <div data-testid="task-delivery-panel" className="-mx-3 -mt-3 mb-3 border-b border-app-border">
       <div className="space-y-2 px-3 py-3">
-            {task.status === 'review' && (
-              <AskBox
-                question={pending ? stripMarkdown(pending.question) : (task.humanAsk ?? null)}
-                options={pending ? replyOptions : []}
-                busy={sending || busy || uploading}
-                onAnswer={(opt) => void answerOption(opt)}
-              />
-            )}
             {/* Lifecycle choices belong to delivery. Stop is owned by the composer. */}
             {task.status !== 'review' && (
               <TaskChoiceRow
@@ -3165,7 +3165,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
       <div className={`flex min-h-0 flex-1 ${twoCol ? 'flex-row' : 'flex-col'}`}>
         <div className={`relative flex min-h-0 min-w-0 flex-col ${twoCol ? 'w-[min(50%,30rem)] shrink-0 border-r border-app-border' : 'flex-1'}`}>
           <div className={`${workspaceOpen && !twoCol ? 'hidden' : 'flex'} min-h-0 flex-1 flex-col`} data-testid="task-session-column">
-            {renderThread(<>{taskDetails}{taskDelivery}</>)}
+            {renderThread(<>{askBox}{taskDetails}{taskDelivery}</>)}
           </div>
           {workspaceOpen && !twoCol && (
             <div className="flex min-h-0 flex-1 flex-col" data-testid="task-drawer-body">
