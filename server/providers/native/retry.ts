@@ -84,6 +84,26 @@ export class ApiTransportError extends Error {
   }
 }
 
+/**
+ * The connection was made (or is still being made) and no response headers
+ * came back in time. A transport failure like any other, with nothing
+ * emitted; told apart only so the retry loop can stop after a few in a row.
+ */
+export class ApiHeadersTimeoutError extends ApiTransportError {
+  constructor(message: string) {
+    super(message, false);
+    this.name = "ApiHeadersTimeoutError";
+  }
+}
+
+/**
+ * How many header timeouts in a row a round tolerates before it gives up.
+ * One is the measured case (a socket stuck in SYN_SENT: the next one works);
+ * three in a row mean the address accepts and never answers, and at 90 s each
+ * the full policy would park the turn for over forty minutes.
+ */
+export const MAX_HEADERS_TIMEOUTS = 3;
+
 export type RetryVerdict =
   | { kind: "retry"; reason: string; retryAfterMs: number | null }
   | { kind: "reauth"; reason: string }
@@ -231,6 +251,7 @@ export async function retryRound<T>(run: (token: string) => Promise<T>, ctx: Ret
   const { auth, policy, signal } = ctx;
   const startedAt = Date.now();
   let renewedOnce = false;
+  let headersTimeouts = 0;
   for (let attempt = 1; ; attempt++) {
     try {
       return await run(auth.token);
@@ -238,6 +259,10 @@ export async function retryRound<T>(run: (token: string) => Promise<T>, ctx: Ret
       if (signal?.aborted) throw err;
       const verdict = classifyFailure(err);
       const message = err instanceof Error ? err.message : String(err);
+      headersTimeouts = err instanceof ApiHeadersTimeoutError ? headersTimeouts + 1 : 0;
+      if (headersTimeouts >= MAX_HEADERS_TIMEOUTS) {
+        throw new Error(exhaustedMessage(message, attempt, Date.now() - startedAt));
+      }
 
       if (verdict.kind === "reauth") {
         if (renewedOnce) throw err;
