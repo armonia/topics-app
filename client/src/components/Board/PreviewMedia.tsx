@@ -1,127 +1,11 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useT } from '../../hooks/useT';
-import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, FileText, Maximize2, PanelTop, X } from 'lucide-react';
+import { FileText, Maximize2, PanelTop } from 'lucide-react';
 import { getMediaUrl } from '../../lib/api';
 import { isVideoPath, isPreviewablePath } from '../../lib/mediaKind';
-import { MODAL_LAYER } from '../../lib/modalStyles';
-import { useExitGhost } from '../../lib/exitGhost';
-import { useModalDialog } from '../../hooks/useModalDialog';
+import { EvidenceViewer } from './EvidenceViewer';
+import { buildEvidenceSlides } from './taskMedia';
 import { openLink, isExternalLinkGesture } from '../../lib/openLink';
-
-/** Full-window overlay (portal, over the app — NOT a separate OS window) showing
- *  the evidence at large size. Close on Esc, click-outside, or the X. A video
- *  autoplays with controls + sound; an image fills the viewport. */
-function Lightbox({ url, video, onClose, su, giu, posizione }: {
-  url: string;
-  video: boolean;
-  onClose: () => void;
-  /** Slide precedente/successiva, assenti quando ce n'e' una sola. */
-  su?: () => void;
-  giu?: () => void;
-  /** «2 / 5», per sapere dove si e' arrivati. */
-  posizione?: string;
-}) {
-  const tr = useT();
-  /* ANCHE QUI SI NAVIGA, con le frecce: chi ha ingrandito la prima evidenza
-   * vuole vedere le altre senza richiudere, e a schermo intero le frecce sono
-   * il gesto che ci si aspetta. */
-  useEffect(() => {
-    if (!su && !giu) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); su?.(); }
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); giu?.(); }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [su, giu]);
-  // Escape, trappola del focus e ritorno del focus: il contratto comune dei
-  // dialoghi (hooks/useModalDialog), invece di un listener scritto a mano qui.
-  const panelRef = useRef<HTMLDivElement>(null);
-  useModalDialog({ onClose, panelRef });
-  // `anim-pop` was never defined in the stylesheet, so the lightbox landed in
-  // one frame: it fades in on the shared veil entrance and leaves as an inert
-  // copy (lib/exitGhost, MOTION-04).
-  useExitGhost(panelRef, true, 'modal');
-  return createPortal(
-    <div
-      ref={panelRef}
-      onClick={onClose}
-      // `MODAL_LAYER` e non `z-[200]`: un lightbox a schermo intero è una
-      // superficie modale, e 200 lo lasciava sotto ogni popover (9999). Il
-      // piano si dichiara con la costante, non con un numero scelto a occhio.
-      className={`fixed inset-0 ${MODAL_LAYER} flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm modal-backdrop-enter`}
-      data-testid="preview-lightbox"
-      // `role="dialog"` non è solo ARIA: è il marcatore con cui il resto
-      // dell'app riconosce che c'è un modale aperto (lib/modalSurface). Senza,
-      // Escape con il lightbox aperto arrivava fino a interrompere il turno
-      // dell'AI dietro — lo `stopPropagation()` qui sopra è troppo tardi,
-      // perché il gestore globale è registrato prima, sempre in capture.
-      role="dialog"
-      aria-modal="true"
-      aria-label={tr('board.preview.label')}
-      onWheel={(e) => {
-        if (!su && !giu) return;
-        const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-        if (Math.abs(d) < 8) return;
-        (d > 0 ? giu : su)?.();
-      }}
-    >
-      {posizione && (
-        <div
-          data-testid="lightbox-posizione"
-          className="absolute left-1/2 top-4 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-compact leading-4 text-white"
-        >{posizione}</div>
-      )}
-      <button
-        onClick={onClose}
-        title={tr('board.preview.close')}
-        className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-app-text hover:bg-white/20"
-      ><X className="h-5 w-5" /></button>
-      {/* THE COUNTER PROMISED A NAVIGATION THAT DID NOT EXIST: «2 / 5» was on
-          screen while the only ways to move were the arrow keys and the wheel,
-          neither of which a phone has. The two commands are the same `su`/`giu`
-          the keyboard already called -- they add a door, not a behaviour.
-          `stopPropagation` because the backdrop closes on click. */}
-      {su && (
-        <button
-          onClick={(e) => { e.stopPropagation(); su(); }}
-          title={tr('board.preview.prev')}
-          aria-label={tr('board.preview.prev')}
-          data-testid="lightbox-prev"
-          className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full bg-white/10 p-3 text-app-text hover:bg-white/20"
-        ><ChevronLeft className="h-6 w-6" /></button>
-      )}
-      {giu && (
-        <button
-          onClick={(e) => { e.stopPropagation(); giu(); }}
-          title={tr('board.preview.next')}
-          aria-label={tr('board.preview.next')}
-          data-testid="lightbox-next"
-          className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full bg-white/10 p-3 text-app-text hover:bg-white/20"
-        ><ChevronRight className="h-6 w-6" /></button>
-      )}
-      {video ? (
-        <video
-          src={url}
-          controls
-          autoPlay
-          playsInline
-          onClick={(e) => e.stopPropagation()}
-          className="max-h-[90vh] max-w-[92vw] rounded-lg shadow-2xl"
-        />
-      ) : (
-        <img
-          src={url}
-          alt={tr('board.preview.evidenceAlt')}
-          onClick={(e) => e.stopPropagation()}
-          className="max-h-[90vh] max-w-[92vw] rounded-lg object-contain shadow-2xl"
-        />
-      )}
-    </div>,
-    document.body,
-  );
-}
 
 /**
  * A task's review-evidence preview — an image (`<img>`: screenshot .png or
@@ -179,6 +63,7 @@ export function PreviewMedia({ path, paths, variant, onOpenTab }: {
     return out;
   }, [path, paths]);
   const [i, setI] = useState(0);
+  const viewerSlides = useMemo(() => buildEvidenceSlides(slides), [slides]);
   /* L'INDICE MOSTRATO E QUELLO MEMORIZZATO DEVONO COINCIDERE.
    *
    * Era `const idx = Math.min(i, slides.length - 1)`: un clamp in sola
@@ -572,13 +457,10 @@ export function PreviewMedia({ path, paths, variant, onOpenTab }: {
         )}
       </div>
       {lightbox && expandable && (
-        <Lightbox
-          url={url}
-          video={video}
+        <EvidenceViewer
+          slides={viewerSlides}
+          start={Math.max(0, viewerSlides.findIndex((v) => (v.kind === 'pair' ? v.before === corrente || v.after === corrente : v.path === corrente)))}
           onClose={() => setLightbox(false)}
-          su={slides.length > 1 ? () => setI((n) => Math.max(0, n - 1)) : undefined}
-          giu={slides.length > 1 ? () => setI((n) => Math.min(slides.length - 1, n + 1)) : undefined}
-          posizione={slides.length > 1 ? `${idx + 1} / ${slides.length}` : undefined}
         />
       )}
     </div>

@@ -51,7 +51,8 @@ import { useLandingTicket } from './useLandingTicket';
 import { boardApi, commentAuthorLabel, diffTotals, NOT_MEASURED_EXIT, hasCodeQuestion, showsLandingDebt, showsDeployProposal, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, subtaskQueueChip, subtaskOpenable, reopenedChip, attemptHasWork, priorityAwaitingAgent, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type DiffPanelSource, type CheckRun, type TaskAttempt } from '../../lib/board';
 import { ZoomableImage } from '../Shared/ImageLightbox';
 import { UnifiedDiff } from './UnifiedDiff';
-import { collectTaskMediaPaths, hasConversationMedia } from './taskMedia';
+import { DeliveryEvidence } from './DeliveryEvidence';
+import { collectTaskMediaPaths } from './taskMedia';
 import { TaskChoiceRow } from './TaskChoiceRow';
 import { taskActionErrorMessage } from './taskActionError';
 import { usableQuestionOptions } from './taskChoices';
@@ -1891,10 +1892,6 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
     setWorkspaceOpen(true);
     return true;
   }, []);
-  const previewInThread = useMemo(() => hasConversationMedia(task?.previewImage,
-    [...timeline.flatMap((item) => item.source === 'comment' ? [item.comment] : []), ...(pinnedDeliveryId && deliveryWord ? [deliveryWord] : [])],
-    timeline.flatMap((item) => item.source === 'session' ? [item.msg] : []),
-  ), [task?.previewImage, timeline, pinnedDeliveryId, deliveryWord]);
   const foldedDeliveryNotes = useMemo(() => deliveryNotesToFold(
     timeline.flatMap((item) => item.source === 'comment' ? [item.comment] : []),
   ), [timeline]);
@@ -2028,6 +2025,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
         }}
       >
         <div ref={threadContentRef} className="chat-measure space-y-2 px-3">
+        {mediaPaths.length > 0 && <DeliveryEvidence paths={mediaPaths} />}
         {details}
         {detailsOpen && chronicle.length > 0 && (
           <div data-testid="task-chronicle" className="rounded-md border border-app-border-subtle px-2 py-2">
@@ -2036,14 +2034,6 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
               <ThreadRuns comments={chronicle} renderRow={wordRow} renderStatusRun={statusRun} isService={() => false} />
             </div>
           </div>
-        )}
-        {task.previewImage && !previewInThread && (
-          <button type="button" data-testid="task-conversation-attachment" onClick={() => openTaskPane(mediaPaneIdFor(task.previewImage!))}
-            className="flex w-full items-center gap-2 rounded border border-app-border px-2.5 py-2 text-left text-compact leading-4 text-app-text-secondary hover:bg-white/5 coarse:min-h-11">
-            <Paperclip className="h-3.5 w-3.5 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">{task.previewImage.split('/').pop()}</span>
-            <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
-          </button>
         )}
         {/* IL VUOTO DICE COSA SUCCEDERA', non che e' vuoto. «Nessun commento»
             constatava un'assenza che si vede gia' da sola; questa riga e'
@@ -2092,7 +2082,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
       </div>
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- action callbacks use the task state listed below
-  }, [task, timeline, commentReceipt, deliveryWord, agentBusy, busy, sending, uploading, pending, lastThreadComment, replyOptions, tr, ownerName, children, sessionKey, openTaskPane, previewInThread, foldedDeliveryNotes, composerHeight, sessionRuns, detailsOpen]);
+  }, [task, timeline, commentReceipt, deliveryWord, agentBusy, busy, sending, uploading, pending, lastThreadComment, replyOptions, tr, ownerName, children, sessionKey, openTaskPane, foldedDeliveryNotes, composerHeight, sessionRuns, detailsOpen]);
 
   const renderSurface = useCallback<RenderSurface>((pane, _isVisible) => {
     if (pane.id.startsWith('plan:') && planComment)
