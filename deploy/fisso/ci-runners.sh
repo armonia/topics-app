@@ -38,17 +38,26 @@ getent group ci >/dev/null || groupadd ci
 chmod 700 /home/topics 2>/dev/null || true
 
 # Firewall: the ci group cannot reach the Topics node (3333 http, 3341 tunnel listener,
-# 19222 agent browser), the reverse tunnel to the Mac's model proxy (3301) nor the
-# metadata service. The e2e test servers use 13910-13949, CDP 19910-19949 and the
+# 3302 its agent browser, 3303-3340 its previews), the reverse tunnel to the Mac's model
+# proxy (3301), 19222 nor the metadata service. The e2e test servers use 13910-13949, CDP 19910-19949 and the
 # preview pool 3400-3450, which must stay open (run 42930031047, RECAPTURE-01).
 cat > /usr/local/sbin/ci-firewall <<'EOS'
 #!/bin/bash
 for t in iptables ip6tables; do
   $t -N CI-OUT 2>/dev/null || $t -F CI-OUT
   $t -C OUTPUT -m owner --gid-owner ci -j CI-OUT 2>/dev/null || $t -I OUTPUT -m owner --gid-owner ci -j CI-OUT
-  $t -A CI-OUT -o lo -p tcp -m multiport --dports 3301,3333,3341,19222 -j REJECT
+  $t -A CI-OUT -o lo -p tcp -m multiport --dports 3301:3341,19222 -j REJECT
 done
 iptables -A CI-OUT -d 169.254.169.254 -j REJECT
+# From the internet only ssh comes in: the e2e test servers listen on *:139xx.
+for t in iptables ip6tables; do
+  $t -N FISSO-IN 2>/dev/null || $t -F FISSO-IN
+  $t -C INPUT -j FISSO-IN 2>/dev/null || $t -I INPUT -j FISSO-IN
+  $t -A FISSO-IN -i lo -j RETURN
+  $t -A FISSO-IN -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+  $t -A FISSO-IN -p tcp --dport 22 -j RETURN
+  $t -A FISSO-IN -p tcp -j DROP
+done
 EOS
 chmod 755 /usr/local/sbin/ci-firewall
 cat > /etc/systemd/system/ci-firewall.service <<'EOS'
@@ -76,6 +85,9 @@ printf '[Service]\nCPUWeight=500\n' > /etc/systemd/system/topics.service.d/prece
 # The node answers only on loopback (the Mac comes through the ssh tunnel): a server made
 # from an older recipe listened on *:3333, on the public address.
 printf '[Service]\nEnvironment=SERVER_HOST=127.0.0.1\n' > /etc/systemd/system/topics.service.d/locale.conf
+# Its agent browser and its previews below 3342 too: privileged ports the runners can
+# neither take nor reach. The e2e servers keep CDP 199xx and previews 3400-3450.
+printf '[Service]\nEnvironment=TOPICS_CDP_PORT=3302\nEnvironment=TOPICS_PREVIEW_PORTS=3303-3340\n' > /etc/systemd/system/topics.service.d/porte-nodo.conf
 
 # Kills what the job left behind: every process of this runner's cgroup that is not
 # an ancestor of this hook (run.sh, Runner.Listener, Runner.Worker).
