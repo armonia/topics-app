@@ -28,7 +28,7 @@ import { ScheduledCardsError, type ScheduledCardsService } from "../services/sch
 import { invalidateProbeCache } from "../services/url-probe-cache";
 import { STALE_TASK_MODEL_ERROR, isStaleModelChange, taskModelIsCurrent } from "../services/task-model-catalog";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
-import { knownTopicId, resolveCreatedBy, resolveCreatedSource } from "../lib/created-by";
+import { knownTopicId, resolveBoardActor, resolveCreatedBy, resolveCreatedSource } from "../lib/created-by";
 import { readBoardWorkflow, readOwnWorkflowPreset } from "../services/board-workflow";
 import { WORKFLOW_PRESET_IDS, isWorkflowPresetId } from "../../shared/workflow";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
@@ -199,7 +199,14 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         if (method === "DELETE") { scheduledCards.remove(scheduleId, projectId); return json({ ok: true }); }
       } catch (error) { return error instanceof ScheduledCardsError ? json({ error: error.message }, error.status) : fail(error); }
     }
-    const HUMAN = "user";
+    // Who actually signs a comment/status row on this human-facing route.
+    // Before this, every write below hardcoded the literal "user" — the
+    // owner's own name — no matter who called: a script hitting
+    // `/api/boards/...` directly, or another installation's coordinator,
+    // signed as the project owner. `resolveBoardActor` only grants that
+    // signature to a true interface request; everything else is automation,
+    // named via `X-Topics-Agent` when it identifies itself.
+    const HUMAN = resolveBoardActor(req);
     // Presentation metadata only. A caller cannot claim MCP/system through
     // this header, and it never participates in the human permission gates.
     const actionOrigin = req.headers.get("X-Topics-Action-Origin") === "interface" ? "interface" : "api";
@@ -589,7 +596,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             if (dispatcher && task.parentTaskId) {
               const root = svc.boundRootOf(task.id);
               if (root && root.status === "review" && root.assignedTopicId) {
-                const rejected = svc.reviewDecision({ taskId: root.id, by: "user", decision: "reject", projectId, origin: actionOrigin });
+                const rejected = svc.reviewDecision({ taskId: root.id, by: HUMAN, decision: "reject", projectId, origin: actionOrigin });
                 broadcastToAll({ type: "task:updated", projectId, task: rejected });
                 dispatcher.resume(root.id, `L'umano ha aggiunto un nuovo step al tuo task: "${task.text.slice(0, 80)}" (id=${task.id}). Lavoralo e marcalo done prima della consegna.`)
                   .catch((err) => console.warn(`[Tasks] resume after add-step failed for ${root.id}:`, err));

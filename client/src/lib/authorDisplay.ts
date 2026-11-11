@@ -94,9 +94,20 @@ export function authorDisplay(
   tr: (key: string, vars?: Record<string, string | number>) => string,
   ownerName?: string | null,
   guestActor?: GuestActor | null,
+  origin?: TaskActionOrigin | null,
 ): AuthorDisplay {
   const kind = who.kind;
   if (kind === 'user') {
+    // The stored role `user` used to mean "the owner typed this" unconditionally.
+    // A row recorded before the write side named its real caller (card
+    // f0295c4c) can still say `user` while its `origin` says `api` or `mcp` —
+    // nobody typed this at a keyboard, a script or another installation's
+    // session did. Only `interface` (or no recorded origin, i.e. history from
+    // before origin was tracked, which this cannot second-guess) keeps the
+    // owner's own name; anything else reads as the generic automation it is.
+    if (origin === 'api' || origin === 'mcp') {
+      return { name: tr(AUTHOR_NAME_KEYS.agent), detail: 'user', kind: 'agent', self: false };
+    }
     const name = shortProfileName(ownerName) || tr(AUTHOR_NAME_KEYS.user);
     return { name, detail: 'user', kind, self: true };
   }
