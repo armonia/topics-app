@@ -116,4 +116,44 @@ describe("the preview gate", () => {
     label(t.id, "feature");
     expect((await deliver(r, t.id))!.status).toBe(200);
   });
+
+  // No agent on this fleet can open a browser for its own before/after shot
+  // (kickoff rule), so this gate is the agent's only path to evidence: before
+  // refusing, it must try the auto-capture ("Ricattura evidenza") itself.
+  test("no preview yet, but an auto-capture succeeds: tried once, then delivered", async () => {
+    let calls = 0;
+    const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
+      taskCheckoutRef: async () => ({ cwd: "/wt/of/the/card", commit: "abc1234" }),
+      taskWorktreeDirtProbe: async () => ({ ok: true, paths: [] }),
+      preparePreview: async (taskId: string) => {
+        calls++;
+        db.run("UPDATE tasks SET preview_image = ? WHERE id = ?", ["/tmp/auto-shot.png", taskId]);
+      },
+    } as any);
+    const t = await delivered(r);
+    label(t.id, "visibile");
+
+    const resp = (await deliver(r, t.id))!;
+    expect(resp.status).toBe(200);
+    expect(calls).toBe(1);
+    const got = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
+    expect(got.task.status).toBe("review");
+    expect(got.task.previewImage).toBe("/tmp/auto-shot.png");
+  });
+
+  test("the auto-capture is tried but still comes back empty: refused the same way as without it", async () => {
+    let calls = 0;
+    const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
+      taskCheckoutRef: async () => ({ cwd: "/wt/of/the/card", commit: "abc1234" }),
+      taskWorktreeDirtProbe: async () => ({ ok: true, paths: [] }),
+      preparePreview: async () => { calls++; },
+    } as any);
+    const t = await delivered(r);
+    label(t.id, "visibile");
+
+    const resp = (await deliver(r, t.id))!;
+    expect(resp.status).toBe(409);
+    expect((await resp.json()).code).toBe("review_needs_preview");
+    expect(calls).toBe(1);
+  });
 });

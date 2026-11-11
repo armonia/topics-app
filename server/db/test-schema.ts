@@ -193,7 +193,9 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   overflow_skip_until TEXT,
   -- 20261111043101: the scheduled run outside Topics that does this card's work.
   scheduled_at TEXT,
-  scheduled_by TEXT
+  scheduled_by TEXT,
+  -- 20261111174458: consecutive bounces off the visibile-no-preview gate.
+  visible_preview_bounces INTEGER NOT NULL DEFAULT 0
 )`;
 
 /**

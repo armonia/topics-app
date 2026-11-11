@@ -2873,7 +2873,17 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // producing evidence for itself instead of for the person reading it.
     const reviewLabels = reviewGateTask?.task.labels ?? [];
     if (reviewLabels.some((l) => l.label === "visibile")) {
-      const preview = (reviewGateTask?.task.previewImage ?? "").trim();
+      let preview = (reviewGateTask?.task.previewImage ?? "").trim();
+      // AN AGENT ON THIS MACHINE CANNOT OPEN A BROWSER (kickoff rule), so it
+      // can never produce the before/after shot itself. Before refusing, try
+      // «Ricattura evidenza» (the same auto-capture the review edge and the
+      // manual action use) ONCE: it boots the card's own worktree and shoots
+      // it independently of any agent-side browser. Only if THAT still comes
+      // back empty is the refusal the honest answer.
+      if (!preview && opts?.preparePreview) {
+        try { await opts.preparePreview(taskId); } catch { /* best-effort */ }
+        preview = (svc.get(taskId, { projectId })?.task.previewImage ?? "").trim();
+      }
       if (!preview) {
         return json({
           error:
