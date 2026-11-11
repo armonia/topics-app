@@ -24,6 +24,7 @@ export function DeliveryEvidence({ paths }: { paths: readonly string[] }) {
         key={n}
         type="button"
         data-testid="delivery-evidence-item"
+        aria-label={tr('board.preview.openFullSize')}
         onClick={() => setOpen(n)}
         className="block w-full text-left"
       >

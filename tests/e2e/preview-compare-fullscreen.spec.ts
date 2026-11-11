@@ -93,6 +93,11 @@ test.describe('full-screen before/after evidence', () => {
     await expect(page.getByTestId('evidence-label-before')).toBeVisible();
     await expect(page.getByTestId('evidence-label-after')).toBeVisible();
     // Drag the divider to the left quarter of the frame.
+    // The frame reshapes once the bitmap loads (4x3 here): wait for that, or the pointer lands on the backdrop.
+    await expect.poll(async () => {
+      const b = (await frame.boundingBox())!;
+      return Math.abs(b.width / b.height - 4 / 3) < 0.02;
+    }).toBe(true);
     const box = (await frame.boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
