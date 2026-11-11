@@ -6,6 +6,8 @@
  * again, and a duplicate sent to a real person cannot be undone. Proven at the
  * critical point: the claim CAS and the queue (`rankQueue`, read as "how many
  * are ahead of me").
+ *
+ * @covers KANBAN-112
  */
 import { test, expect, describe, beforeEach, beforeAll, afterAll } from "bun:test";
 import type { Database } from "bun:sqlite";
