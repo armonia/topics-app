@@ -38,6 +38,8 @@ import { checksMemFloorGB } from "../../shared/checks-memory-floor";
 import { parseCreatedBy, UNOWNED_BACKLOG_MS } from "../../shared/created-by";
 /** Automatic requeues of a machine-parked card before it stays for a human. */
 export const MACHINE_RETRY_CAP = 3;
+/** Rounds a `visibile` card may bounce off the no-preview gate before it stays in backlog for a human. */
+export const VISIBLE_PREVIEW_BOUNCE_CAP = 2;
 /** First delay before a machine-parked card goes back to todo; doubles each round. */
 export const MACHINE_RETRY_BASE_MS = 30 * 60_000;
 import { agentCardGaps, incompleteCardNotice, INCOMPLETE_CARD_NOTICE_PREFIX } from "../../shared/agent-card-contract";
@@ -4662,6 +4664,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           put("wait_streak", 0);
           put("wait_reason", null);
           put("wait_since", null);
+          // Same reset, same reason: a delivery that actually reaches review
+          // (or a card closed) is not a card still bouncing off the preview
+          // gate — see `visible_preview_bounces` in `deliverToReviewBySystem`.
+          if (patch.status === "review") put("visible_preview_bounces", 0);
         }
         // A CLOSED CARD DOES NOT WEAR A FAILURE.
         //
@@ -5755,6 +5761,55 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           catch { /* best-effort */ }
         }
         return rowToTask(getTaskRow(taskId));
+      }
+      // VISIBLE CARD, NO REAL EVIDENCE: this door used to hand Review a
+      // generic delivery-sheet diagram for a card labelled `visibile` (it
+      // touches client/src), leaving the reviewer nothing to judge "a vista".
+      // The agent-driven PATCH already refuses this with `review_needs_preview`
+      // (routes/tasks.ts) — but THIS door fires when the turn ends on its own,
+      // with no agent left to answer a 409. Same fix as the children guard
+      // above: do not finalize into review, send it back for another turn.
+      const cardLabels = (db.prepare(
+        "SELECT label FROM task_labels WHERE task_id = ?",
+      ).all(taskId) as Array<{ label: string }>).map((r) => r.label);
+      if (cardLabels.includes("visibile")) {
+        const currentPreview = (row.preview_image ?? "").trim();
+        if (!currentPreview || isDeliverySheetPath(currentPreview)) {
+          // THE BOUNCE HAS A TETTO. Sending the card back to `todo` hands it to
+          // the next agent, who has no browser either (kickoff rule on this
+          // fleet), hits the same gate and bounces again — measured 11/11: 5
+          // cards in 30 minutes, none of them an agent's own turn burning its
+          // own budget, all of them this door's requeue. After
+          // `VISIBLE_PREVIEW_BOUNCE_CAP` rounds the condition is not "try
+          // again", it is "nobody on this board can produce this photo" — a
+          // decision for a human, not another turn. `todo` keeps dispatching;
+          // `backlog` stops until a person acts (land a headless-browser path,
+          // or attach the evidence by hand).
+          const bounces = Number(row.visible_preview_bounces ?? 0) + 1;
+          const capped = bounces >= VISIBLE_PREVIEW_BOUNCE_CAP;
+          const nota = capped
+            ? `Card visibile (tocca client/src) senza foto prima/dopo dopo ${bounces} giri: nessun agente di questa board può aprire un browser per farla, quindi non la rimetto in coda a vuoto. Resta in Backlog finché una persona non decide (ricattura automatica dell'evidenza, un browser senza schermo su un nodo che non è questo, o l'anteprima allegata a mano).`
+            : "Card visibile (tocca client/src) senza foto prima/dopo: non entra in review così, torna in coda per un altro turno.";
+          db.prepare(
+            `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
+                status = ?, dispatch_state = NULL, dispatch_error = ?,
+                wait_streak = 0, wait_reason = NULL, wait_since = NULL,
+                dispatch_deferred_until = NULL, visible_preview_bounces = ?, updated_at = ? WHERE id = ?`,
+          ).run(capped ? "backlog" : "todo", nota, bounces, ts, taskId);
+          const dest = capped ? "backlog" : "todo";
+          if (row.status !== dest) logStatus(taskId, row.status, dest, "dispatcher");
+          markReopened(taskId, row.status, dest, "system", "dispatcher");
+          try {
+            this.addComment({
+              taskId, author: "system", kind: "service",
+              content: capped
+                ? nota
+                : `${nota} Allega update_task(previewImage=<path assoluto>) con la foto prima/dopo, poi richiedi di nuovo lo status review.`,
+              messageId: messageId ?? null,
+            });
+          } catch { /* best-effort */ }
+          return rowToTask(getTaskRow(taskId));
+        }
       }
       // Qui, e solo qui, la card va DAVVERO in review: è il punto in cui «l'ho
       // portato io in review» smette di essere una previsione e diventa un fatto.
