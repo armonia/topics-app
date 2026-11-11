@@ -190,7 +190,10 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   auto_requeues INTEGER NOT NULL DEFAULT 0,
   -- 20261110192117: the node an empty run came back from, skipped by the overflow until then.
   overflow_skip_machine TEXT,
-  overflow_skip_until TEXT
+  overflow_skip_until TEXT,
+  -- 20261111043101: the scheduled run outside Topics that does this card's work.
+  scheduled_at TEXT,
+  scheduled_by TEXT
 )`;
 
 /**

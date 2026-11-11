@@ -70,6 +70,12 @@ export interface Task {
   runComputerName?: string | null;
   dueDate?: string;
   /**
+   * The scheduled run outside Topics that does this card's work: who (a name)
+   * and when (ISO, null = recurring or unknown). ON THE WIRE only when set.
+   * While present the dispatcher never claims the card.
+   */
+  scheduled?: { by: string; at: string | null };
+  /**
    * When a server shutdown cut this card's turn in half.
    *
    * ON THE WIRE, not in the fixed body: it travels only when it has a value,
@@ -527,6 +533,8 @@ export interface UpdateTaskPatch {
   priority?: number;
   assignedTo?: string | null;
   dueDate?: string | null;
+  /** Who runs this card's work outside Topics and when; null clears. */
+  scheduled?: { by: string; at: string | null } | null;
   kanbanOrder?: number;
   /** http(s) URL of the reviewable output; empty string / null clears it. */
   outputUrl?: string | null;

@@ -2978,6 +2978,8 @@ const EN = {
   'board.card.due': 'Due {date}',
   'board.card.dueOverdue': 'Overdue {date}',
   'board.card.dueTitle': 'Due date: {date}',
+  'board.card.scheduledTitle': 'Scheduled: {label}. A timed run does this work, no agent is started on it.',
+  'board.card.assigneeTitle': 'Closed by {name}',
   'board.card.dueOverdueTitle': 'Past its due date: {date}',
   'board.card.runComputerTitle': 'Delegated run executed on {name}',
 

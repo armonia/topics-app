@@ -89,6 +89,8 @@ const canonical = new URL(path, Astro.site).href;
       on a child matches nothing and Astro silently drops it — which is how /v3
       shipped a `noindex` that was never in the document at all. */}
   <slot name="head" />
+  <!-- Cloudflare Web Analytics, senza cookie: annunciato in /privacy («Analytics, since 2026-11-11»). Solo sul sito, mai nell'app. -->
+  <script is:inline defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "62819b321b8e45ceb10f6ade52604a42"}'></script>
 </head>
 <body class={bodyClass} {...bodyAttrs}>
   <slot />

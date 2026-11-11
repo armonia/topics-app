@@ -2,6 +2,17 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.85 — 2026-11-11
+
+### Sotto il cofano
+- Card programmata: niente chip «in coda» né timer di grazia all'arrivo in todo (#773)
+
+## 2.3.84 — 2026-11-11
+
+### Sotto il cofano
+- CI e nodo Topics su un server Hetzner fisso (topics-fisso, cx53) (#767)
+- Card programmate: chi e quando sul fronte, fuori dalla coda del dispatcher (#772)
+
 ## 2.3.83 — 2026-11-11
 
 ### Sotto il cofano

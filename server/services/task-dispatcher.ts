@@ -5322,6 +5322,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     }
     const manualTaskId = manualMemoryStart.selectedTask(projectId);
     if (manualTaskId) todos = todos.filter((task) => task.id === manualTaskId);
+    // A card a scheduled run outside Topics works is not part of this queue at
+    // all: no claim, no queue chip, no parking. The run does the work.
+    todos = todos.filter((task) => !task.scheduled);
     const nowIso = new Date().toISOString();
     // Budget dei tentativi finito = NON riproverà MAI più, e finché lo si scarta
     // in silenzio la card resta in colonna «coda» fingendosi lavorabile: nessun
@@ -5341,6 +5344,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // chi aspetta un altro task non sta fallendo.
     const pronto = (t: Task) =>
       !t.assignedTopicId &&
+      !t.scheduled &&
       (!t.dispatchDeferredUntil || t.dispatchDeferredUntil <= nowIso) &&
       (() => { try { return !deps.svc.isDispatchBlocked(t.id); } catch { return true; } })();
     const exhausted = todos.filter((t) => pronto(t) && t.dispatchAttempts >= settings.dispatchRetryCap);
@@ -6225,6 +6229,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // never fire — the chip would strand). The client derives its own
     // "in attesa di…" chip from blockedByTaskId; onBlockerDone re-kicks it.
     try { if (deps.svc.isDispatchBlocked(taskId)) return; } catch { /* fall through */ }
+    // A card a scheduled run works is planned, not queued: no chip, no grace timer.
+    try { if (deps.svc.get(taskId)?.task?.scheduled) return; } catch { return; }
     // Show "queued" immediately; the claim waits out the grace window so a quick
     // drag-through never spawns. If the task still carries a topic binding (it was
     // dispatched before and dragged back from review/done), clear the binding via
