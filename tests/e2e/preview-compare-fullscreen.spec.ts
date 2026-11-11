@@ -1,6 +1,6 @@
 /**
  * FULL-SCREEN EVIDENCE with a before/after divider (card c7afcd0b).
- * A delivery with a "prima" and a "dopo" file opens, from the board card,
+ * A delivery with a before file and an after file opens, from the board card,
  * a dark viewer with one frame and a divider; Esc closes it. The drawer shows
  * the proof open at the top of the conversation, no click needed.
  */
@@ -54,24 +54,24 @@ test.afterAll(async ({ request }) => {
   removeTmpDir(MEDIA_DIR);
 });
 
-async function apriBoard(page: Page): Promise<void> {
+async function openBoard(page: Page): Promise<void> {
   await page.goto('/');
   await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
-  const sezione = page.getByRole('button', { name: /sezione Progetti/ });
-  if ((await sezione.count()) > 0 && (await sezione.getAttribute('aria-expanded')) === 'false') await sezione.click();
-  const riga = projectRow(page, /e2e-compare/);
-  await expect(riga).toBeVisible({ timeout: 20_000 });
-  await riga.click();
+  const projectsSection = page.getByRole('button', { name: /sezione Progetti/ });
+  if ((await projectsSection.count()) > 0 && (await projectsSection.getAttribute('aria-expanded')) === 'false') await projectsSection.click();
+  const projectEntry = projectRow(page, /e2e-compare/);
+  await expect(projectEntry).toBeVisible({ timeout: 20_000 });
+  await projectEntry.click();
   await expect(page.getByTestId('project-window')).toBeVisible({ timeout: 20_000 });
 
   const triggers = page.getByTestId('pane-add-menu-trigger');
-  const voce = page.getByTestId('pane-add-menu-kanban');
+  const kanbanEntry = page.getByTestId('pane-add-menu-kanban');
   for (let i = (await triggers.count()) - 1; i >= 0; i--) {
     const t = triggers.nth(i);
     if (!(await t.isVisible().catch(() => false))) continue;
     if (!(await t.click({ timeout: 3000 }).then(() => true, () => false))) continue;
-    if (await voce.waitFor({ state: 'visible', timeout: 2000 }).then(() => true, () => false)) {
-      await voce.click();
+    if (await kanbanEntry.waitFor({ state: 'visible', timeout: 2000 }).then(() => true, () => false)) {
+      await kanbanEntry.click();
       return;
     }
     await page.keyboard.press('Escape');
@@ -82,7 +82,7 @@ async function apriBoard(page: Page): Promise<void> {
 
 test.describe('full-screen before/after evidence', () => {
   test('opens from the card, moves the divider, closes with Esc', async ({ page }) => {
-    await apriBoard(page);
+    await openBoard(page);
     const img = page.locator('[data-testid="preview-card"] img').first();
     await expect(img).toBeVisible({ timeout: 20_000 });
     await img.click();
@@ -103,7 +103,7 @@ test.describe('full-screen before/after evidence', () => {
   });
 
   test('the drawer shows the proof open at the top of the conversation', async ({ page }) => {
-    await apriBoard(page);
+    await openBoard(page);
     await page.getByTestId('kanban-board').getByText('card con prima e dopo').first().click();
     const evidence = page.getByTestId('delivery-evidence');
     await expect(evidence).toBeVisible({ timeout: 15_000 });
