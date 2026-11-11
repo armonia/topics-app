@@ -159,6 +159,58 @@ describe("deliverToReviewBySystem: porte di sistema annota review_needs_summary"
   });
 });
 
+// ── visible card, no real evidence ───────────────────────────────────────────
+//
+// `Colori e icone di stato`, 08/11 and 11/11: the agent's turn ended before it
+// attached a screenshot, and this door handed Review a generic delivery-sheet
+// diagram instead of refusing like the agent-driven PATCH already does. The
+// reviewer judges the card "a vista" and had nothing to look at.
+
+describe("deliverToReviewBySystem: card visibile senza foto torna in coda, non in review", () => {
+  let db: Database;
+  beforeEach(() => { db = freshDb(); });
+
+  function label(db: Database, taskId: string, value: string) {
+    db.run("INSERT INTO task_labels (task_id, label, source, created_at) VALUES (?, ?, 'derived', ?)",
+      [taskId, value, new Date().toISOString()]);
+  }
+
+  test("etichetta `visibile` + nessuna anteprima vera ⇒ torna in todo, non in review", () => {
+    const svc = createTaskService(db);
+    const taskId = seedInProgress(db, svc);
+    label(db, taskId, "visibile");
+
+    const t = svc.deliverToReviewBySystem({ taskId, reason: "turni esauriti" });
+
+    expect(t.status).toBe("todo");
+    expect(t.assignedTopicId ?? null).toBeNull();
+    const texts = db.prepare("SELECT content FROM task_comments WHERE task_id = ?")
+      .all(taskId).map((r: any) => r.content as string);
+    expect(texts.some((x) => x.includes("senza foto prima/dopo"))).toBe(true);
+  });
+
+  test("etichetta `visibile` ma con una vera anteprima allegata ⇒ in review come sempre", () => {
+    const svc = createTaskService(db);
+    const taskId = seedInProgress(db, svc);
+    label(db, taskId, "visibile");
+    db.prepare("UPDATE tasks SET preview_image = ? WHERE id = ?").run("/tmp/shot.png", taskId);
+
+    const t = svc.deliverToReviewBySystem({ taskId, reason: "turni esauriti" });
+
+    expect(t.status).toBe("review");
+    expect(t.previewImage).toBe("/tmp/shot.png");
+  });
+
+  test("senza l'etichetta `visibile` il comportamento non cambia: in review come sempre", () => {
+    const svc = createTaskService(db);
+    const taskId = seedInProgress(db, svc);
+
+    const t = svc.deliverToReviewBySystem({ taskId, reason: "turni esauriti" });
+
+    expect(t.status).toBe("review");
+  });
+});
+
 // ── askParkedChildren ─────────────────────────────────────────────────────────
 
 describe("askParkedChildren: porta di sistema annota review_needs_summary", () => {

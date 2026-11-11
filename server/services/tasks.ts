@@ -5756,6 +5756,38 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         }
         return rowToTask(getTaskRow(taskId));
       }
+      // VISIBLE CARD, NO REAL EVIDENCE: this door used to hand Review a
+      // generic delivery-sheet diagram for a card labelled `visibile` (it
+      // touches client/src), leaving the reviewer nothing to judge "a vista".
+      // The agent-driven PATCH already refuses this with `review_needs_preview`
+      // (routes/tasks.ts) — but THIS door fires when the turn ends on its own,
+      // with no agent left to answer a 409. Same fix as the children guard
+      // above: do not finalize into review, send it back for another turn.
+      const cardLabels = (db.prepare(
+        "SELECT label FROM task_labels WHERE task_id = ?",
+      ).all(taskId) as Array<{ label: string }>).map((r) => r.label);
+      if (cardLabels.includes("visibile")) {
+        const currentPreview = (row.preview_image ?? "").trim();
+        if (!currentPreview || isDeliverySheetPath(currentPreview)) {
+          const nota = "Card visibile (tocca client/src) senza foto prima/dopo: non entra in review così, torna in coda per un altro turno.";
+          db.prepare(
+            `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
+                status = 'todo', dispatch_state = NULL, dispatch_error = ?,
+                wait_streak = 0, wait_reason = NULL, wait_since = NULL,
+                dispatch_deferred_until = NULL, updated_at = ? WHERE id = ?`,
+          ).run(nota, ts, taskId);
+          if (row.status !== "todo") logStatus(taskId, row.status, "todo", "dispatcher");
+          markReopened(taskId, row.status, "todo", "system", "dispatcher");
+          try {
+            this.addComment({
+              taskId, author: "system", kind: "service",
+              content: `${nota} Allega update_task(previewImage=<path assoluto>) con la foto prima/dopo, poi richiedi di nuovo lo status review.`,
+              messageId: messageId ?? null,
+            });
+          } catch { /* best-effort */ }
+          return rowToTask(getTaskRow(taskId));
+        }
+      }
       // Qui, e solo qui, la card va DAVVERO in review: è il punto in cui «l'ho
       // portato io in review» smette di essere una previsione e diventa un fatto.
       // PREDICATO review_needs_summary, PORTA DI SISTEMA.
