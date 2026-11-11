@@ -278,6 +278,19 @@ export interface PreviewManager {
 
 const DEFAULT_RANGE: [number, number] = [3400, 3450];
 
+/**
+ * The pool from TOPICS_PREVIEW_PORTS ("low-high"), else the default. A Topics node that
+ * shares its machine with CI runners (the fixed server, deploy/fisso/ci-runners.sh) moves
+ * its previews below 3342, where the runners can neither bind nor connect, while the e2e
+ * servers there keep 3400-3450. Anything malformed falls back to the default.
+ */
+export function previewPortRange(env: Record<string, string | undefined> = process.env): [number, number] {
+  const m = /^(\d+)-(\d+)$/.exec((env.TOPICS_PREVIEW_PORTS ?? "").trim());
+  if (!m) return DEFAULT_RANGE;
+  const low = Number(m[1]), high = Number(m[2]);
+  return low > 0 && high >= low && high < 65536 ? [low, high] : DEFAULT_RANGE;
+}
+
 /** A url whose host is loopback — the only kind safe to advertise for a preview. */
 export function isLocalUrl(raw: string): boolean {
   try {
@@ -337,7 +350,7 @@ function defaultPortFree(port: number): Promise<boolean> {
 
 export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
   const live = new Map<string, LivePreview>();
-  const range = deps.portRange ?? DEFAULT_RANGE;
+  const range = deps.portRange ?? previewPortRange();
   const readyTimeoutMs = deps.readyTimeoutMs ?? 40_000;
   const readyPollMs = deps.readyPollMs ?? 500;
   const now = deps.now ?? (() => Date.now());

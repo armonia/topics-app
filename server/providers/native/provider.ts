@@ -264,7 +264,8 @@ export function nativeSystemPrompt(args: {
  * here, so a model Claude Code offers and this list lacks cannot be routed.
  * Probed on 2026-09-28 through runAgentTurn, max_tokens 1, user-agent
  * claude-cli/2.1.284, against the Claude Code catalog of that day:
- * 200 for claude-fable-5-1, claude-opus-4-8, claude-opus-4-8[1m],
+ * 200 for claude-fable-5-1 (claude-fable-5-2 added 2026-11, the one Claude Code
+ * 2.1.322 ships as "Fable 5.2"; same family and price as 5-1, not probed here), claude-opus-4-8, claude-opus-4-8[1m],
  * claude-sonnet-5-5, claude-sonnet-5-5[1m] (added below) and claude-haiku-4-5
  * (an alias of the dated id, see NATIVE_MODEL_ALIASES). Left out:
  * claude-sonnet-4-6[1m] answered 429 "Usage credits are required for long
@@ -281,6 +282,7 @@ const MODELS = [
   "claude-sonnet-5-5[1m]",
   "claude-sonnet-5-5",
   "claude-sonnet-5",
+  "claude-fable-5-2",
   "claude-fable-5-1",
   "claude-fable-5",
   "claude-opus-4-8[1m]",

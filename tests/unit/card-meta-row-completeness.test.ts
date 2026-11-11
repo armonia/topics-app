@@ -80,6 +80,7 @@ describe("la fascia dei chip conosce tutti i suoi chip", () => {
     const governatoDa: Record<string, string> = {
       "card-delivery-stat": "deliveryStat",
       "card-due-date": "dueChip",
+      "card-scheduled": "plannedChip",
       // Un ramo senza un solo commit (18/08): non e' una consegna piccola, e'
       // nessuna consegna, e il land si rifiutera'. Va detto dalla colonna.
       "card-uncommitted": "senzaCommit",

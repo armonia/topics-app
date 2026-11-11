@@ -18,6 +18,7 @@
  * that run fine there; it goes to review with its buttons, like any question.
  */
 import { pendingQuestionComment } from "../../shared/board";
+import { namesMacOnlyPaths } from "./dispatch-overflow";
 import type { Task, TaskService } from "./tasks";
 
 interface EmptyRunDeps {
@@ -38,16 +39,38 @@ export const EMPTY_RUN_PIN_MS = 6 * 60 * 60_000;
 
 /** `true` = the card is back in the queue and the caller has nothing more to do. */
 export function returnEmptyNodeRunToTodo(deps: EmptyRunDeps, task: Task, nodeName: string): boolean {
-  if (!task.overflowedAt) return false;
-  if (pendingQuestionComment(deps.svc.get(task.id)?.comments ?? [])) return false;
+  // A card naming this Mac's own files comes back empty from ANY node, also one a person sent by hand: in review it
+  // asked a choice nobody had to make (10/11, five cards twice in 2-5 min). It goes back here, pinned.
+  const macOnly = namesMacOnlyPaths({ text: task.text, description: task.description ?? task.descriptionPreview });
+  if (!task.overflowedAt && !macOnly) return false;
+  if (!macOnly && pendingQuestionComment(deps.svc.get(task.id)?.comments ?? [])) return false;
+  if (macOnly) {
+    try {
+      deps.releaseAndEmit({ taskId: task.id, requeue: true, rollbackAttempt: true });
+      deps.emit(deps.svc.update({ taskId: task.id, actor: "agent", by: "dispatcher", patch: { machineId: null, stayLocal: true } }));
+      deps.svc.addComment({
+        taskId: task.id, author: "system", kind: "service",
+        content: `La corsa su «${nodeName}» è finita senza nessun commit: la card usa file che stanno solo su questo Mac. La rimetto in coda qui, «solo Mac».`,
+      });
+      return true;
+    } catch (err) {
+      deps.log(`nodo: la card ${task.id} vuota non è tornata in coda`, err);
+      return false;
+    }
+  }
   try {
     deps.releaseAndEmit({ taskId: task.id, requeue: true, rollbackAttempt: true });
-    deps.emit(deps.svc.update({ taskId: task.id, actor: "agent", by: "dispatcher", patch: { machineId: null, stayLocal: true, stayLocalUntil: new Date(Date.now() + EMPTY_RUN_PIN_MS).toISOString() } }));
+    // Skip THAT node, do not pin the card here: pinned, a Mac under its memory floor held it for hours while another
+    // node was online (10/11: five cards in the memory queue, PC and Nodo cloud 1 free).
+    const skip = task.machineId ? { machineId: task.machineId, until: new Date(Date.now() + EMPTY_RUN_PIN_MS).toISOString() } : null;
+    deps.emit(deps.svc.update({ taskId: task.id, actor: "agent", by: "dispatcher", patch: skip
+      ? { machineId: null, overflowSkip: skip }
+      : { machineId: null, stayLocal: true, stayLocalUntil: new Date(Date.now() + EMPTY_RUN_PIN_MS).toISOString() } }));
     deps.svc.addComment({
       taskId: task.id, author: "system", kind: "service",
       content:
         `La corsa su «${nodeName}» è finita senza nessun commit: lì mancano strumenti che questa card usa. ` +
-        "La rimetto in coda su questa macchina, e ci resta per 6 ore: poi può tornare fuori se il Mac è pieno.",
+        "La rimetto in coda: per 6 ore non torna lì, ma se il Mac è pieno può andare su un'altra macchina.",
     });
     return true;
   } catch (err) {

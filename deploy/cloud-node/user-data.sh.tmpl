@@ -41,6 +41,8 @@ WorkingDirectory=/home/topics/topics-app
 Environment=HOME=/home/topics
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 Environment=NO_TLS=1
+# only the Mac reaches the node, through the ssh tunnel: nothing on the public address
+Environment=SERVER_HOST=127.0.0.1
 Environment=TOPICS_TUNNEL_PORT=3341
 Environment=TOPICS_SERVER_WATCH=0
 Environment=GIT_TERMINAL_PROMPT=0

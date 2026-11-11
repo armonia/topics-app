@@ -156,6 +156,15 @@ const MIRROR_KEY_PREFIX = "node-run:";
  *    does not carry it, so over there it would be implemented without an
  *    approved plan. Those cards stay here (decision of 31/10/2026).
  */
+/**
+ * A card whose text names this Mac's own files (the home folder, launchd): a node has none of them, and the run
+ * comes back empty. Measured 10/11: five cards on ~/.claude/jarvis came back empty from the PC twice in 2-5 min.
+ */
+const MAC_ONLY_PATH = /(^|[\s`'"(])(~\/|\/Users\/)|\bLaunchAgents\b|\blaunchd\b|\blaunchctl\b/;
+export function namesMacOnlyPaths(task: { text?: string | null; description?: string | null }): boolean {
+  return MAC_ONLY_PATH.test(`${task.text ?? ""}\n${task.description ?? ""}`);
+}
+
 export function overflowEligible(
   task: {
     machineId: string | null;
@@ -165,12 +174,15 @@ export function overflowEligible(
     deliveryUncommittedFiles?: number | null;
     priorUncommittedFiles?: number | null;
     planFirst?: boolean;
+    text?: string | null;
+    description?: string | null;
   },
   board: { dispatchOverflow?: boolean; dispatchStayLocal?: boolean },
   localMachineId: string | null,
 ): boolean {
   if (board.dispatchOverflow === false || board.dispatchStayLocal) return false;
   if (task.stayLocal || task.delegated || task.planFirst) return false;
+  if (namesMacOnlyPaths(task)) return false;
   if (task.claudeTaskId?.startsWith(MIRROR_KEY_PREFIX)) return false;
   if ((task.deliveryUncommittedFiles ?? 0) > 0 || (task.priorUncommittedFiles ?? 0) > 0) return false;
   return task.machineId == null || (localMachineId != null && task.machineId === localMachineId);

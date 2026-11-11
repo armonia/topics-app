@@ -434,6 +434,27 @@ export function dueDateChip(
 }
 
 /**
+ * Scheduled chip: the run outside Topics that works this card, as «who · when»
+ * in Europe/Rome (e.g. «Jarvis · gio 12/11 10:00»). `null` = no scheduled run.
+ * The card is planned work, not queued work: the dispatcher leaves it alone.
+ */
+export function scheduledChip(
+  task: Pick<BoardTask, 'scheduled'>,
+  tr: Translate,
+  locale?: string,
+): { label: string; title: string } | null {
+  const s = task.scheduled;
+  if (!s?.by) return null;
+  const when = s.at ? new Date(s.at) : null;
+  const at = when && !Number.isNaN(when.getTime())
+    ? new Intl.DateTimeFormat(locale, { timeZone: 'Europe/Rome', weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+      .format(when).replace(',', '')
+    : null;
+  const label = at ? `${s.by} · ${at}` : s.by;
+  return { label, title: tr('board.card.scheduledTitle', { label }) };
+}
+
+/**
  * Il chip «riaperta»: una card che ERA consegnata e non lo è più lo dice sulla
  * card, dove si guarda — non solo nel thread.
  *
@@ -545,6 +566,8 @@ export interface BoardTask {
   runComputerName?: string | null;
   /** ON THE WIRE: it arrives only when it has a value (absent = never happened). */
   dueDate?: string;
+  /** The scheduled run outside Topics that works this card (who, when). Absent = none. */
+  scheduled?: { by: string; at: string | null };
   createdAt: string;
   /** ON THE WIRE: it arrives only when it has a value (absent = never happened). */
   completedAt?: string;

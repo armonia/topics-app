@@ -632,6 +632,8 @@ export function App({ copy: baseCopy, copies, embedPath, edition }: {
   };
   const sidebarEl = (
     <Sidebar
+      /* Remounted by every reset: a row menu left open (OrgRow's own state) kept its z-9999 click-away layer over the next probe's dialog. */
+      key={epoch}
       model={sidebar}
       copy={copy}
       onSelect={(id) => {
