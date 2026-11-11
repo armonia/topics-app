@@ -209,6 +209,43 @@ describe("deliverToReviewBySystem: card visibile senza foto torna in coda, non i
 
     expect(t.status).toBe("review");
   });
+
+  // No agent on this fleet can open a browser for its own shot (kickoff
+  // rule): bouncing to `todo` forever would just burn turns for nothing.
+  // After VISIBLE_PREVIEW_BOUNCE_CAP rounds the card stops in backlog, with
+  // the reason written.
+  test("due giri senza foto ⇒ il terzo non rimanda a todo, va in backlog col motivo", () => {
+    const svc = createTaskService(db);
+    const taskId = seedInProgress(db, svc);
+    label(db, taskId, "visibile");
+
+    const first = svc.deliverToReviewBySystem({ taskId, reason: "turni esauriti" });
+    expect(first.status).toBe("todo");
+
+    const second = svc.deliverToReviewBySystem({ taskId, reason: "turni esauriti" });
+    expect(second.status).toBe("backlog");
+    const texts = db.prepare("SELECT content FROM task_comments WHERE task_id = ?")
+      .all(taskId).map((r: any) => r.content as string);
+    expect(texts.some((x) => x.includes("nessun agente") && x.includes("Backlog"))).toBe(true);
+  });
+
+  test("una vera anteprima dopo un giro azzera il contatore: non resta un debito silenzioso", () => {
+    const svc = createTaskService(db);
+    const taskId = seedInProgress(db, svc);
+    label(db, taskId, "visibile");
+
+    expect(svc.deliverToReviewBySystem({ taskId, reason: "turni esauriti" }).status).toBe("todo");
+    svc.update({ taskId, actor: "agent", by: "agent", patch: { previewImage: "/tmp/shot.png" } });
+    const delivered = svc.update({
+      taskId, actor: "agent", by: "agent",
+      patch: { status: "review", summary: "fatto" },
+    });
+    expect(delivered?.previewImage).toBe("/tmp/shot.png");
+    expect(
+      (db.prepare("SELECT visible_preview_bounces FROM tasks WHERE id = ?").get(taskId) as any)
+        .visible_preview_bounces,
+    ).toBe(0);
+  });
 });
 
 // ── askParkedChildren ─────────────────────────────────────────────────────────
