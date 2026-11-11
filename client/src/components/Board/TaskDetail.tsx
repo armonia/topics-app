@@ -1177,10 +1177,6 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
     setWorkspaceOpen(true);
     return true;
   }, []);
-  const previewInThread = useMemo(() => hasConversationMedia(task?.previewImage,
-    [...timeline.flatMap((item) => item.source === 'comment' ? [item.comment] : []), ...(pinnedDeliveryId && deliveryWord ? [deliveryWord] : [])],
-    timeline.flatMap((item) => item.source === 'session' ? [item.msg] : []),
-  ), [task?.previewImage, timeline, pinnedDeliveryId, deliveryWord]);
   const foldedDeliveryNotes = useMemo(() => deliveryNotesToFold(
     timeline.flatMap((item) => item.source === 'comment' ? [item.comment] : []),
   ), [timeline]);
