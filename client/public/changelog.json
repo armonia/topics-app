@@ -1,7 +1,29 @@
 [
   {
-    "version": "2.3.82",
+    "version": "2.3.83",
     "date": "2026-11-11",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Fable punta a claude-fable-5-2: alias dei sottoagenti, modelli serviti, prezzo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "il reset della demo rimonta anche la barra laterale, così un menu di riga rimasto aperto non copre più il dialogo «Nuova variante» (#769)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.82",
+    "date": "2026-11-10",
     "sections": {
       "new": [],
       "fixes": [

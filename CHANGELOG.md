@@ -2,7 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.3.82 — 2026-11-11
+## 2.3.83 — 2026-11-11
+
+### Sotto il cofano
+- Fable punta a claude-fable-5-2: alias dei sottoagenti, modelli serviti, prezzo
+- il reset della demo rimonta anche la barra laterale, così un menu di riga rimasto aperto non copre più il dialogo «Nuova variante» (#769)
+
+## 2.3.82 — 2026-11-10
 
 ### Correzioni
 - **overflow** · il vincolo «solo Mac» di una corsa vuota sul nodo scade dopo 6 ore (#746)
