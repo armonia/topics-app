@@ -79,6 +79,8 @@ import { SessionLiveRow } from './SessionLiveRow';
 import { mergeTaskTimeline, type TimelineItem } from './taskTimeline';
 import { commentChip, commentChipTestId } from './chipKey';
 import { deliveryNotesToFold } from './taskDeliveryNotes';
+import { AskBox } from './PlanTileParts';
+import { readableCommentContent } from './readableCommentContent';
 import { isChronicleRow, liveToolRow } from './columnFilter';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { followChoiceMayChange } from '../../lib/taskConversationFollow';
@@ -929,6 +931,8 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
   const focusDiff = diffFocusPath(focusPaneId);
   const paneFocus = focusDiff ? undefined : focusPaneId;
   const [deliveryOpen, setDeliveryOpen] = useState(!!focusDiff);
+  // A card in Review opens on its decision actions (Approva sat one tab away).
+  const openedOnReview = useRef(false);
   const isMobile = useMediaQuery('(max-width: 767px)');
   const [workspaceOpen, setWorkspaceOpen] = useState(!!paneFocus);
   const toggleWorkspaceOpen = () => setWorkspaceOpen((open) => !open);
@@ -1080,6 +1084,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
     try {
       const { task, comments, children } = await boardApi.get(projectId, taskId);
       if (generation !== loadGeneration.current) return;
+      if (task.status === 'review' && !openedOnReview.current) { openedOnReview.current = true; setDeliveryOpen(true); }
       setTask(task); setComments(reconcileAcknowledgedComments(comments, acknowledgedComments.current)); setChildren(children ?? []);
       // After revalidation, queued/delivered follows the task and session
       // envelopes again; a transient receipt cannot outlive that evidence.
@@ -2641,6 +2646,14 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
   const taskDelivery = deliveryOpen && task ? (
     <div data-testid="task-delivery-panel" className="-mx-3 -mt-3 mb-3 border-b border-app-border">
       <div className="space-y-2 px-3 py-3">
+            {task.status === 'review' && (
+              <AskBox
+                question={pending ? stripMarkdown(pending.question) : (task.humanAsk ?? null)}
+                options={pending ? replyOptions : []}
+                busy={sending || busy || uploading}
+                onAnswer={(opt) => void answerOption(opt)}
+              />
+            )}
             {/* Lifecycle choices belong to delivery. Stop is owned by the composer. */}
             {task.status !== 'review' && (
               <TaskChoiceRow
@@ -3693,7 +3706,7 @@ export function StatusTrail({ comments, ownerName }: { comments: TaskComment[]; 
   );
 }
 
-export function CommentBubble({ comment, ownerName = null, resolvedParked = false, onPreview, questionActions, historicalQuestion = false, continuation = false }: {
+export function CommentBubble({ comment: rawComment, ownerName = null, resolvedParked = false, onPreview, questionActions, historicalQuestion = false, continuation = false }: {
   comment: TaskComment;
   /** Come si chiama chi usa l'app: le TUE righe si firmano col tuo nome. */
   ownerName?: string | null;
@@ -3710,6 +3723,7 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
   continuation?: boolean;
 }) {
   const tr = useT();
+  const comment = useMemo(() => ({ ...rawComment, content: readableCommentContent(rawComment.content, tr) }), [rawComment, tr]);
   const origin = actionOriginDisplay(comment.origin, tr);
   // Machine-authored review evidence (live-preview screenshot from the verifier).
   // Distinct from human/agent speech: it never woke the agent, it just informs.

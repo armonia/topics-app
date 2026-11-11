@@ -1507,6 +1507,8 @@ const EN = {
   'settings.org.guide.pairing': 'Open this link on the collaborator’s computer. The installation owner verifies its pairing code; after approval, that computer opens the confined guest view. This does not use Google, an OTP or an anonymous share link.',
   'board.filter.projectUnknown': 'Not among the open projects: still filterable, but where it lives is unknown.',
   'board.card.systemNote': 'System note',
+  'board.task.incompleteCardNotice': "Incomplete card: an agent opened it without all the required fields. Accepted for now, it will be refused soon.",
+  'board.task.asksYou': 'Asks you',
   'board.card.noSummary': 'No summary: what follows is machine bookkeeping',
   'board.card.commentMore': 'Show all',
   'board.card.noteShow': 'show',

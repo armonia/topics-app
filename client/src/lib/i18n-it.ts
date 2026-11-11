@@ -1664,6 +1664,8 @@ const IT: Dict = {
   // `lib/reviewEvidence.ts`: il silenzio e' onesto, ma va detto.
   'board.filter.projectUnknown': "Non è tra i progetti aperti: resta filtrabile, ma non si sa dove stia.",
   'board.card.systemNote': 'Nota di sistema',
+  'board.task.incompleteCardNotice': "Card incompleta: l'ha aperta un agente senza tutti i campi richiesti. Accettata per ora, presto verrà rifiutata.",
+  'board.task.asksYou': 'Ti chiede',
   'board.card.noSummary': 'Nessun riassunto della consegna: sotto c’è solo la cronaca della macchina',
   'board.card.commentMore': 'Mostra tutto',
   'board.card.noteShow': 'mostra',
