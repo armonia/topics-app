@@ -105,6 +105,9 @@ Environment=SHELL=/bin/bash
 Environment=ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/usr/local/bin/ci-job-done.sh
 ExecStart=/srv/runner-%i/run.sh
 KillMode=control-group
+# A /tmp of its own: the test servers use fixed paths there (/tmp/topics-mcp), and one
+# runner user creating them locks the others out with EACCES (run 42926274612, shard 1).
+PrivateTmp=yes
 SocketBindDeny=tcp:3333
 SocketBindDeny=tcp:3341
 SocketBindDeny=tcp:3391
@@ -140,7 +143,12 @@ done
 systemctl daemon-reload
 systemctl enable --now ci-firewall.service >/dev/null
 systemctl set-property --runtime topics.service CPUWeight=500 2>/dev/null || true
-for i in 0 $(seq 1 "$N"); do systemctl enable --now "ci-runner@$i.service" >/dev/null; done
+# A unit changed by a re-run of this script takes effect on restart: only idle runners,
+# a busy one would lose its job (the next re-run catches it).
+for i in 0 $(seq 1 "$N"); do
+  systemctl enable "ci-runner@$i.service" >/dev/null
+  pgrep -u "ci$i" -x Runner.Worker >/dev/null || systemctl restart "ci-runner@$i.service"
+done
 
 # SocketBindDeny needs systemd built with +BPF_FRAMEWORK, and Ubuntu 24.04's is not
 # (measured on topics-fisso, 11/11): there it is ignored without a word. Then every port
