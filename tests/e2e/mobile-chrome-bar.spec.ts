@@ -666,6 +666,10 @@ test.describe.serial("La chrome del telefono", () => {
     // with a single tab.
     await resetPaneStore(request, [topicId!, ...crowdIds]);
     await apri(page);
+    // The bar shows before the column has its rows: wait for all of them.
+    await expect
+      .poll(() => page.locator('[aria-label="Topics sidebar"] [role="treeitem"]').count(), { timeout: 15_000 })
+      .toBeGreaterThanOrEqual(CROWD);
 
     // THE TOP ROW IS A LAYER, NOT A STEP. From card 1e015ad6: "the top bar
     // should have no background, so that scrolling the sidebar the tabs go

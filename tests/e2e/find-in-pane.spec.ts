@@ -314,6 +314,7 @@ test.describe("Cerca nella pane: barre per pane, terminale", () => {
     await expect(term.locator(".xterm-rows")).toContainText("linea 300", { timeout: 15_000 });
     await page.keyboard.press("Meta+f");
     await expect(term.getByTestId("find-bar")).toBeVisible();
+    await expect(term.getByTestId("find-input")).toBeFocused();
     await page.keyboard.type("linea 150");
     // Once on screen: the command line holds «150» too, but not «linea 150».
     await expect(term.getByTestId("find-count")).toHaveText(/^[01] di 1$/, { timeout: 10_000 });
@@ -594,7 +595,7 @@ test.describe("Cerca nella pane: le schermate", () => {
 
   for (const vp of [{ name: "desktop", width: 1280, height: 800 }, { name: "phone", width: 390, height: 844 }]) {
     for (const scheme of ["light", "dark"] as const) {
-      test(`evidence: ${vp.name} ${scheme}`, async ({ page, request }) => {
+      test(`evidence: ${vp.name} ${scheme}`, async ({ page, request, chatPage }) => {
         await page.setViewportSize({ width: vp.width, height: vp.height });
         await page.emulateMedia({ colorScheme: scheme });
         await resetPaneStore(request, [topicId]);
@@ -605,6 +606,9 @@ test.describe("Cerca nella pane: le schermate", () => {
           await page.getByTestId("mobile-pane-find").filter({ visible: true }).first().click({ timeout: 15_000 });
         } else {
           await expect(page.locator(`[data-pane-id="${topicId}"]`).filter({ visible: true }).first()).toBeVisible({ timeout: 15_000 });
+          // The tab shows before the chat body mounts and registers its finder:
+          // ⌘F before that opens nothing. The composer is the body being there.
+          await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
           await blurAll(page);
           await page.keyboard.press("Meta+f");
         }
