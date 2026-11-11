@@ -1,7 +1,7 @@
 /**
  * `resolveBoardActor`: who signs a comment/status row on the human board
  * route. Only a true interface call may sign as the owner.
- * @covers KANBAN-f0295c4c
+ * @covers KANBAN-113
  */
 import { describe, test, expect } from "bun:test";
 import { resolveBoardActor } from "./created-by";
