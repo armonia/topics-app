@@ -1666,6 +1666,8 @@ const IT: Dict = {
   'board.card.systemNote': 'Nota di sistema',
   'board.task.incompleteCardNotice': "Card incompleta: l'ha aperta un agente senza tutti i campi richiesti. Accettata per ora, presto verrà rifiutata.",
   'board.task.asksYou': 'Ti chiede',
+  'board.task.resendWithNote': 'Rimanda con nota',
+  'board.task.closeUndone': 'Chiudi senza fare',
   'board.card.noSummary': 'Nessun riassunto della consegna: sotto c’è solo la cronaca della macchina',
   'board.card.commentMore': 'Mostra tutto',
   'board.card.noteShow': 'mostra',
@@ -2095,7 +2097,7 @@ const IT: Dict = {
   'board.card.reviewAgeTitle': 'E\' in review dal {when}, e nessuno ha ancora deciso.',
   'board.card.deliveryFiles': '{n} file',
   'board.card.deliveryFilesEmpty': 'nessun file nel commit di consegna',
-  'board.card.deliveryStatTitle': '{files} file, +{add} -{del} righe nel commit {commit}. E\' cio\' che approvare farebbe entrare.',
+  'board.card.deliveryStatTitle': '{files} file, +{add} -{del} righe nel commit {commit}. Approva non unisce su main: per quello c\'è Landa.',
   // The turn is still running: the delivery counters do not exist, and what
   // you read is the worktree as it stands right now.
   'board.card.gitChanges': 'modifiche git',

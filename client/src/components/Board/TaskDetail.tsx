@@ -2649,6 +2649,19 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
         busy={sending || busy || uploading}
         onAnswer={(opt) => void answerOption(opt)}
       />
+      {/* The same two exits on every card in Review, whatever the question. */}
+      <div data-testid="task-review-bar" className="mt-1.5 flex flex-wrap gap-1.5">
+        <button type="button" disabled={busy || sending} data-testid="task-resend-note"
+          onClick={() => commentRef.current?.focus()}
+          className="rounded border border-app-border px-2.5 py-1.5 text-compact leading-4 text-app-text-secondary hover:bg-white/10 disabled:opacity-50 coarse:min-h-11">
+          {tr('board.task.resendWithNote')}
+        </button>
+        <button type="button" disabled={busy || sending} data-testid="task-close-undone"
+          onClick={() => { setBusy(true); boardApi.archive(projectId, taskId).then(() => { setError(null); void load(); onChanged(); }).catch(showError).finally(() => setBusy(false)); }}
+          className="rounded border border-app-border px-2.5 py-1.5 text-compact leading-4 text-app-text-secondary hover:bg-white/10 disabled:opacity-50 coarse:min-h-11">
+          {tr('board.task.closeUndone')}
+        </button>
+      </div>
     </div>
   ) : null;
   const taskDelivery = deliveryOpen && task ? (
