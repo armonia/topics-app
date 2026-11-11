@@ -186,9 +186,14 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   created_missing TEXT,
   -- 20261110140000: when the dispatcher's "this Mac only" pin expires.
   stay_local_until TEXT,
-  -- 20261110170000: who declared the wait, and how many automatic requeues.
   wait_source TEXT,
-  auto_requeues INTEGER NOT NULL DEFAULT 0
+  auto_requeues INTEGER NOT NULL DEFAULT 0,
+  -- 20261110192117: the node an empty run came back from, skipped by the overflow until then.
+  overflow_skip_machine TEXT,
+  overflow_skip_until TEXT,
+  -- 20261111043101: the scheduled run outside Topics that does this card's work.
+  scheduled_at TEXT,
+  scheduled_by TEXT
 )`;
 
 /**

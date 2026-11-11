@@ -1133,10 +1133,24 @@ describe("la consegna del nodo è una consegna come le altre", () => {
     expect(measured).toEqual([]);
   });
 
-  it("zero commit propri, card messa sul nodo dal sistema: torna in todo e resta su questa macchina", async () => {
+  it("zero commit propri su una card che usa file di questo Mac, mandata a mano: torna in todo «solo Mac», non in review (10/11)", async () => {
+    const { h } = plantedHarness({ commit: null, files: [] });
+    h.seed();
+    h.db.run("UPDATE tasks SET description = 'aggiorna ~/.claude/jarvis/tools/usage-hub' WHERE id = ?", [TASK]);
+    await dispatch(h);
+    h.svc.updateBoardSettings(PID, { autoDispatch: false });
+    await poll(h);
+    const t = h.task();
+    expect(t.status).toBe("todo");
+    expect(t.stayLocal).toBe(true);
+    expect(t.machineId).toBeNull();
+  });
+
+  it("zero commit propri, card messa sul nodo dal sistema: torna in todo e salta quel nodo, senza «solo Mac»", async () => {
     const { h, measured } = plantedHarness({ commit: null, files: [] });
     h.seed();
     h.db.run("UPDATE tasks SET overflowed_at = ? WHERE id = ?", [new Date().toISOString(), TASK]);
+    const node = (h.db.query("SELECT machine_id AS m FROM tasks WHERE id = ?").get(TASK) as { m: string | null }).m;
     await dispatch(h);
     // The queue must not hand it out again inside this case: we read where it was put.
     h.svc.updateBoardSettings(PID, { autoDispatch: false });
@@ -1144,10 +1158,12 @@ describe("la consegna del nodo è una consegna come le altre", () => {
 
     const t = h.task();
     expect(t.status).toBe("todo");
-    expect(t.stayLocal).toBe(true);
-    // The pin has a deadline: the node's missing tools get installed.
-    const until = h.db.query("SELECT stay_local_until AS u FROM tasks WHERE id = ?").get(TASK) as { u: string | null };
-    expect(Date.parse(until.u ?? "") - Date.now()).toBeGreaterThan(5 * 3_600_000);
+    // Not pinned here: a Mac under its memory floor would hold it while another node is free (10/11).
+    expect(t.stayLocal).toBe(false);
+    // That node is skipped, with a deadline: its missing tools get installed.
+    const skip = h.db.query("SELECT overflow_skip_machine AS m, overflow_skip_until AS u FROM tasks WHERE id = ?").get(TASK) as { m: string | null; u: string | null };
+    expect(skip.m).toBe(node);
+    expect(Date.parse(skip.u ?? "") - Date.now()).toBeGreaterThan(5 * 3_600_000);
     expect(t.machineId).toBeNull();
     expect(measured).toEqual([]);
     expect(h.comments().some((c) => c.content.includes("finita senza nessun commit"))).toBe(true);

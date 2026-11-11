@@ -188,6 +188,7 @@ describe("5.5 generation: own rows and per-model cache-read rate", () => {
   test("a cache read costs what THAT model charges, not a flat tenth", () => {
     expect(readOnly("claude-opus-5-5")).toBeCloseTo(0.2, 6);    // 0.05x of $4
     expect(readOnly("claude-sonnet-5-5")).toBeCloseTo(0.1, 6);  // 0.05x of $2
+    expect(readOnly("claude-fable-5-2")).toBeCloseTo(0.25, 6);  // same row as 5.1
     expect(readOnly("claude-fable-5-1")).toBeCloseTo(0.25, 6);  // 0.025x of $10
     expect(readOnly("claude-fable-5")).toBeCloseTo(1, 6);       // 0.1x of $10
     expect(readOnly("claude-opus-5")).toBeCloseTo(0.5, 6);      // 0.1x of $5
@@ -317,6 +318,11 @@ describe("every model Topics runs has a price of its own", () => {
     ]);
     const unpriced = [...offered].filter((m) => !ownModelPrice(m));
     expect(unpriced, "models offered without a row in shared/model-pricing.ts").toEqual([]);
+  });
+
+  test("Fable 5.2 has its own row and the family fallback lands on it", () => {
+    expect(ownModelPrice("claude-fable-5-2")).not.toBeNull();
+    expect(calculateCost("claude-fable-6", 1_000_000, 0)).toBeCloseTo(10, 6);
   });
 
   test("an id with no row of its own is reported, even when a fallback would price it", () => {

@@ -2,6 +2,62 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.85 — 2026-11-11
+
+### Sotto il cofano
+- Card programmata: niente chip «in coda» né timer di grazia all'arrivo in todo (#773)
+
+## 2.3.84 — 2026-11-11
+
+### Sotto il cofano
+- CI e nodo Topics su un server Hetzner fisso (topics-fisso, cx53) (#767)
+- Card programmate: chi e quando sul fronte, fuori dalla coda del dispatcher (#772)
+
+## 2.3.83 — 2026-11-11
+
+### Sotto il cofano
+- Fable punta a claude-fable-5-2: alias dei sottoagenti, modelli serviti, prezzo
+- il reset della demo rimonta anche la barra laterale, così un menu di riga rimasto aperto non copre più il dialogo «Nuova variante» (#769)
+
+## 2.3.82 — 2026-11-10
+
+### Correzioni
+- **overflow** · il vincolo «solo Mac» di una corsa vuota sul nodo scade dopo 6 ore (#746)
+
+### Sotto il cofano
+- Browser degli agenti nella loro sezione, non nello spazio di lavoro (#744)
+- Node 413 becomes payload_too_large: the card parks with the body size instead of retrying forever
+- Map payload_too_large in machines upstream status
+- topics/ready-equator (card 75dd2d5d) (#742)
+- External proxy: relay absolute-form http:// requests instead of answering 501
+- retry_of nello schema e nel risultato, la sveglia di un guasto dice di passarlo (#639)
+- document tray fetchLive main-thread lag root cause (#661)
+- external-proxy.ts a 868 righe registrato nel baseline, il proxy ha preso la gestione del gateway
+- topics/global-lance (card ca0c08ca) (#747)
+- topics/regal-jay (#706)
+- **cloud-nodes** · stato 0.7/0.8 in attesa dell'ok al token
+- topics/shimmering-bugle (card 6b29e466) (#717)
+- topics/ancient-sprig (card e7371dbc) (#701)
+- topics/briny-badge (card 04c2b10f) (#748)
+- Hub, switchboard e tray dentro Topics: change con 13 tracce (#643)
+- cloud-nodes Fase 2: pool di nodi Hetzner on demand (#755)
+- deploy/cloud-node: fuori il .pyc entrato con la #755 (#757)
+- topics/salty-horse (card 8d0492b7) (#709)
+- **tauri** · cache dei pacchetti apt webview su ubuntu (#750)
+- **unit** · 6 worker invece di 4 (#751)
+- Corsa remota persa non riporta in coda una card già in review, done o archiviata (#756)
+- Card fermate dalla macchina rientrano in coda da sole (#754)
+- **gates** · tre passi lenti su gates-2 in parallelo (#752)
+- e2e shards on an ephemeral Hetzner server (#745)
+- topics/lavish-plume (card cd972f2f) (#760)
+- topics/mild-chestnut (card 485681d6) (#682)
+- Cover the wake breaker through the remote lane: two vetoes open it (#762)
+- **unit** · torna a 4 worker (annulla #751) (#763)
+- Review con domanda, attesa macchina azzerata al cambio, overflow che salta il nodo vuoto e tiene qui le card del Mac (#761)
+- e2e su PC, poi Hetzner, poi GitHub (#759)
+- Una corsa vuota su una card che usa file di questo Mac torna in coda «solo Mac» anche se mandata a mano, invece di finire in review (#766)
+- CI di main di nuovo verde: fast-xml-parser 5.12.0 in landing (GHSA-474x-hrwr-fgx4) e il test exit-grace aspetta l'eco dei rid prima di partire (#768)
+
 ## 2.3.81 — 2026-11-10
 
 ### Sotto il cofano
@@ -45,12 +101,15 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - istruzioni per chat, chi può scrivere e orari dei lavori modificabili (#723)
 - nota di consegna della traccia R2 del servizio sempre acceso (#726)
 - topics/crested-manor (card 73f93690) (#722)
+- **e2e** · board-card-live-fields in serie, il conteggio colonna letto da fermo
 - Tab di anteprima nei progetti, e le chat degli agenti fuori dalla barra (#721)
+- **e2e** · niente attesa a tempo nel test dello stato
 - Card e12b765a: ramo UI unito in un commit, senza gli script temporanei di lead (dati di persone)
 - topics/bold-siren (card b1b60a20) (#724)
 - topics/timely-grain (card 680ce412) (#718)
 - topics/equal-camel (card 511a992a) (#720)
 - topics/dawning-frost (card 97e3951f) (#727)
+- **e2e** · ogni test toglie le sue card dalla board
 - Card e12b765a: parole del progetto e baseline degli identificatori
 - Card e12b765a: baseline del bloat per le fixture dello strato UI
 - Card e12b765a: tipografia sulla scala, lingua della UI, test dichiarati, check UI nel workflow

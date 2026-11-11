@@ -308,7 +308,7 @@
       ]
     },
 
-    "client/src/components/Board/Card.tsx": 2283,
+    "client/src/components/Board/Card.tsx": 2298,
 
     "client/src/components/Board/FloatingTaskComposer.tsx": {
       "lines": 907,
@@ -389,16 +389,16 @@
 
     "client/src/hooks/useTauriBrowser.ts": 2198,
 
-    "client/src/lib/api.ts": 1993,
+    "client/src/lib/api.ts": 1995,
 
-    "client/src/lib/board.ts": 1448,
+    "client/src/lib/board.ts": 1471,
 
     "client/src/lib/buildSidebarItems.test.ts": 1048,
 
     "client/src/lib/buildSidebarItems.ts": 1020,
 
     "client/src/lib/i18n-en.ts": {
-      "lines": 3439,
+      "lines": 3441,
       "why": [
         "2026-10-15, first-run (D6a): 3024 measured. Main 2863 -> 2992 since the last record (scheduled cards and the merges before them); this branch +32 on top, the strings of the first-run screen and its provider box.",
         "2026-10-03, commands-ui: +56 on main (2790), the English twin of the same keys.",
@@ -407,7 +407,7 @@
     },
 
     "client/src/lib/i18n-it.ts": {
-      "lines": 3799,
+      "lines": 3801,
       "why": [
         "2026-10-15, live-terminals-launchd: 3393 measured on main 703294a85. The last +12 (over the 3381 ceiling) are the liveTerminals.* strings of #331, the menu of the terminals live on the Mac; the other +161 came in under the ceiling through D5f, D6a and D6d. Recorded by hand, this row only.",
         "2026-10-03, commands-ui: +56 on main (3147), the strings of the three menu groups, /resume, the command card, /fast /rename /export, the week bar, the pinned line and the board hint.",
@@ -434,7 +434,7 @@
       ]
     },
 
-    "client/src/ui-gallery/app/Container.tsx": 856,
+    "client/src/ui-gallery/app/Container.tsx": 858,
 
     "client/src/ui/fixtures/nocera-org/cards.ts": 1737,
 
@@ -444,11 +444,11 @@
 
     "client/src/ui/fixtures/sarim-org/knowledge.ts": 1045,
 
-    "desktop-tauri/pty-bridge/src/bridge.rs": 1266,
+    "desktop-tauri/pty-bridge/src/bridge.rs": 1275,
 
     "desktop-tauri/src-tauri/src/lib.rs": 14089,
 
-    "playwright.config.ts": 865,
+    "playwright.config.ts": 868,
 
     "relay/ponte-ws.test.ts": 968,
 
@@ -495,7 +495,7 @@
       ]
     },
 
-    "server.ts": 7567,
+    "server.ts": 7569,
 
     "server/attention/store.ts": {
       "lines": 1292,
@@ -534,7 +534,7 @@
 
     "server/providers/acp.ts": 917,
 
-    "server/providers/claude-code.ts": 4948,
+    "server/providers/claude-code.ts": 4952,
 
     "server/providers/codex.ts": 1378,
 
@@ -555,14 +555,14 @@
     "server/providers/native/agent-loop.ts": 1217,
 
     "server/providers/native/provider.ts": {
-      "lines": 1463,
+      "lines": 1469,
       "why": [
         "2026-11-07, lossless-restart: +180, the native turn runs in its own process under the AI broker (detached-turn.ts, turn-host.ts). What stays here is the provider contract that process needs: stop() detaching instead of aborting, reattach(), hasLiveSession(), the Stop that reaches a re-adopted turn, and the turn spec built from the same per-turn reads as the in-process path. The journal, the host and the broker client live in their own files."
       ]
     },
 
     "server/providers/native/tools.ts": {
-      "lines": 821,
+      "lines": 837,
       "why": [
         "2026-10-22, topics/gateway-token-secretref: +1 on main (800), the native bash tool spawns with agentBaseEnv(): with no env Bun hands the child the server's launch environment, secrets included."
       ]
@@ -578,7 +578,7 @@
     "server/routes/auth.ts": 1717,
 
     "server/routes/browser-bridge.test.ts": {
-      "lines": 1788,
+      "lines": 1813,
       "why": [
         "2026-10-12, op-opens-pane r1 (unrecorded, 1127 -> 1242): the six auto-open tests, the bridge opening before a pane-less page op. r2 1242 -> 1283 (+41): the task-topic no-announce case, the live-url-beats-persisted case, the 60 s retry-window case, and the getUrl/liveUrls harness seam. Recorded, not split: every case drives the same bridge harness through the helpers at the top of the file.",
         "2026-10-24, 1306 -> 1436 (+130) from two fixes: #420 open-pane from a terminal answers 400 on a refused URL (four URL cases), #421 every 5xx of the bridge logs its reason (eval, open-pane and list-tabs cases, plus the harness options evalRejects and listContextsThrows). Recorded, not split: both drive the same bridge harness.",
@@ -615,7 +615,7 @@
 
     "server/routes/tasks.test.ts": 2881,
 
-    "server/routes/tasks.ts": 4302,
+    "server/routes/tasks.ts": 4347,
 
     "server/routes/terminal.ts": {
       "lines": 4355,
@@ -630,7 +630,7 @@
     "server/routes/topics.control.test.ts": 869,
 
     "server/routes/topics.ts": {
-      "lines": 3288,
+      "lines": 3308,
       "why": [
         "2026-10-03, commands-ui: +55 on main (3244): GET /api/topics/:id/resumable-sessions (/resume, CMDUI-03), the transcriptPath adopt-claude now accepts, the `compact` case of /api/command for the native engine, the slash menu read per provider. The reader lives in lib/resumable-claude-sessions.ts and the menu in lib/slash-command-menu.ts.",
         "2026-10-03, merged with main 5125e396b (tornata 3b): 3309 measured. Main 3244 -> 3254 bought +10 (find inside one conversation: the POST /api/history-find door and the e2e switch that splits stored tool outputs); this branch +55 on top (the routes listed above)."
@@ -642,6 +642,8 @@
     "server/services/dispatch-capacity.ts": 1295,
 
     "server/services/external-proxy.ts": 877,
+
+    "server/services/preview-manager.ts": 813,
 
     "server/services/relay-client.ts": 1300,
 
@@ -657,10 +659,10 @@
 
     "server/services/task-dispatcher-held-resume-quiet.test.ts": 860,
 
-    "server/services/task-dispatcher-overflow.test.ts": 1176,
+    "server/services/task-dispatcher-overflow.test.ts": 1241,
 
     "server/services/task-dispatcher-remote-node.test.ts": {
-      "lines": 1152,
+      "lines": 1261,
       "why": [
         "2026-10-26, copia vecchia dopo un riavvio: 998 on main -> 1124, +126 the five cases of the stale mirror a node hands back after a server restart (retired and requeued, the slot freed, a cancel that fails keeps it, one that never works parks the card, a live run is never taken for it) on the lane's own fake node and clock, which a second file would have to copy.",
         "2026-10-26, pc-nodo (PR #457): 750 on main -> 899, +149 the node-run hook's cases (green light, veto deferred like a silent node with no attempt burned, a runner that throws, the hook before the cancel of the old run, the payload) on the lane's own fake node and clock, which a second file would have to copy."
@@ -668,7 +670,7 @@
     },
 
     "server/services/task-dispatcher-remote-node.ts": {
-      "lines": 1146,
+      "lines": 1200,
       "why": [
         "2026-10-30, overflow dispatch (card 6d60b323): 939 on main -> 982, +43 a card's own branch carried to the node (pushed first, parked when it cannot reach origin) and a cloud account without an active environment parked with its cause instead of deferred as a silent node. The push lives in branch-on-origin.ts.",
         "2026-10-26, pc-nodo (PR #457): 797 on main -> 831, +34 the node-run hook that wakes a sleeping node before any call to it (two optional NodeDeps fields, the call and its veto). The hook runner lives in server/services/lifecycle-hooks.ts; the lane stays whole in one file as its header says."
@@ -678,7 +680,7 @@
     "server/services/task-dispatcher.test.ts": 5110,
 
     "server/services/task-dispatcher.ts": {
-      "lines": 7100,
+      "lines": 7115,
       "why": [
         "2026-10-27, measured card weight and the cap on agent waits: 6710 -> 6727, +17 the wiring only (the meter is its own module, server/services/dispatch-card-weight.ts): the meter fed to the price table, the vote at the two places a local turn ends, the sampleCardWeight entry the host calls on the [memsig] minute, the re-ask opened to any card priced under the machine's price, and the source of a wait (agent or machine).",
         "2026-10-26, per-board card price: 6658 on main -> 6710, +52 the wiring of the price (the price table is its own module, server/services/dispatch-card-price.ts): the reservation priced per launched turn, the stateless light-card re-ask (lightMemoryPass) with its call sites and the fresh look right before the claim, and the board argument of the capacity preview. The gates stay in the dispatcher because they close over its launch map and its hysteresis state."
@@ -689,7 +691,7 @@
 
     "server/services/tasks.test.ts": 2847,
 
-    "server/services/tasks.ts": 7214,
+    "server/services/tasks.ts": 7335,
 
     "server/services/worktree-gc.test.ts": 997,
 
@@ -700,7 +702,7 @@
     "shared/board.test.ts": 1260,
 
     "shared/board.ts": {
-      "lines": 2639,
+      "lines": 2644,
       "why": [
         "2026-10-30, overflow dispatch (card 6d60b323): 2624 on main -> 2637, +13 the board's overflow switch and its \"this Mac only\" mark (dispatchOverflow, dispatchStayLocal), documented where every other board setting is."
       ]
