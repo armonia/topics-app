@@ -451,10 +451,15 @@ export interface BoardFilters {
   runComputer: string[];
   /** Who opened the card: all, mine (a person's) or others (an agent or a schedule). Absent = all. */
   creator?: CreatorFilter;
+  /** One-click chips over the board, in AND with every other axis. Absent = none. */
+  quick?: QuickFilter[];
 }
+
+export const QUICK_FILTERS = ['needsYou', 'jarvis', 'agents', 'scheduled'] as const;
+export type QuickFilter = (typeof QUICK_FILTERS)[number];
 
 export type CreatorFilter = 'all' | 'mine' | 'others';
 
 /** What the ONE field owns: every axis except the project, which keeps its own
  *  control (it already has a search box and an inline chip strip of its own). */
-export type BoardFieldFilters = Omit<BoardFilters, 'projectId' | 'creator'>;
+export type BoardFieldFilters = Omit<BoardFilters, 'projectId' | 'creator' | 'quick'>;

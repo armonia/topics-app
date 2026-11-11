@@ -26,6 +26,8 @@ import {
 import { SIGNAL_KEY, milestoneChoices, openOf, progressLabel, progressPct, sortForPlan } from './planTree';
 
 interface Props {
+  /** The cards the board's filters let through; `null` = no filter active, show everything. */
+  visibleTaskIds?: ReadonlySet<string> | null;
   onOpenTask: (id: string) => void;
   onOpenTopic?: (topicId: string) => void;
   /**
@@ -84,7 +86,7 @@ function SignalBadges({ signals }: { signals: readonly PlanSignal[] }) {
 
 const shortDate = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 
-export function PlanView({ onOpenTask, onOpenTopic, renderTaskCard }: Props) {
+export function PlanView({ visibleTaskIds = null, onOpenTask, onOpenTopic, renderTaskCard }: Props) {
   const tr = useT();
   // The same folded set as the Kanban lanes: a project folded there is folded here.
   const { collapsed, toggle: toggleCollapsed } = useCollapsedProjects();
@@ -105,6 +107,9 @@ export function PlanView({ onOpenTask, onOpenTopic, renderTaskCard }: Props) {
   const act = async (fn: () => Promise<unknown>) => {
     try { await fn(); setForm(null); await load(); } catch (e) { setError((e as Error).message); }
   };
+
+  /** A card stays when the filters let it through, or when one of its sub-cards does. */
+  const keeps = (c: PlanCard): boolean => !visibleTaskIds || visibleTaskIds.has(c.id) || !!c.children?.some(keeps);
 
   const renderCard = (c: PlanCard, project: PlanProject, nested = false): ReactNode => {
     const choices = milestoneChoices(project);
@@ -155,7 +160,7 @@ export function PlanView({ onOpenTask, onOpenTopic, renderTaskCard }: Props) {
             </span>
           )}
         </div>
-        {c.children?.map((child) => renderCard(child, project, true))}
+        {c.children?.filter((child) => !visibleTaskIds || visibleTaskIds.has(c.id) || keeps(child)).map((child) => renderCard(child, project, true))}
       </div>
     );
   };
@@ -163,7 +168,7 @@ export function PlanView({ onOpenTask, onOpenTopic, renderTaskCard }: Props) {
   /** A list of cards that stays short: the busiest first, the rest behind «+N». */
   const CardList = ({ id, cards, project }: { id: string; cards: PlanCard[]; project: PlanProject }) => {
     const all = open.has(`all:${id}`);
-    const sorted = sortForPlan(cards);
+    const sorted = sortForPlan(cards.filter(keeps));
     const shown = all ? sorted : sorted.slice(0, CARDS_SHOWN);
     return (
       <div className="flex flex-col">
@@ -258,7 +263,7 @@ export function PlanView({ onOpenTask, onOpenTopic, renderTaskCard }: Props) {
           <ProjectOpenCount roots={project.openCount} subs={project.openSubCount} />
         </ProjectGroupHeader>
         {!folded && <>
-        <NeedsYouBox needs={project.needsYou} onOpenTask={onOpenTask} />
+        <NeedsYouBox needs={visibleTaskIds ? project.needsYou.filter((n) => visibleTaskIds.has(n.taskId)) : project.needsYou} onOpenTask={onOpenTask} />
         {form === `area:${project.projectId}` && <AreaForm project={project} />}
         {project.areas.map((a) => (
           <div key={a.id} data-testid="plan-area" className="flex flex-col gap-1.5">

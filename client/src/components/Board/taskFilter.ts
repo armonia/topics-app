@@ -1,6 +1,26 @@
 import type { BoardTask } from '../../lib/board';
-import type { BoardFilters } from './constants';
+import { splitCreatedBy } from '../../../../shared/created-by';
+import { taskWaitsOnPerson } from './boardLanes';
+import type { BoardFilters, QuickFilter } from './constants';
 import { creatorKind } from './createdByLabel';
+
+/** The rule behind each one-click chip, so the board, the list and the Plan agree on who is in it. */
+export function taskMatchesQuick(task: BoardTask, quick: QuickFilter): boolean {
+  const by = splitCreatedBy(task.createdBy);
+  switch (quick) {
+    case 'needsYou': return task.status !== 'done' && taskWaitsOnPerson(task);
+    case 'jarvis': return by?.kind === 'agent' && by.name === 'jarvis';
+    case 'agents': return by?.kind === 'agent';
+    case 'scheduled': return !!task.scheduled || by?.kind === 'cron';
+  }
+}
+
+/** Any axis narrowing the board: the Plan only filters its cards when this is true. */
+export function filtersActive(filters: BoardFilters): boolean {
+  return (filters.quick?.length ?? 0) > 0 || filters.text !== '' || (filters.creator !== undefined && filters.creator !== 'all')
+    || [filters.priority, filters.assignedTo, filters.person, filters.computer, filters.initiator, filters.runComputer, filters.projectId, filters.labels]
+      .some((axis) => axis.length > 0);
+}
 
 export function runInitiatorName(
   task: Pick<BoardTask, 'runInitiatorPersonName' | 'runInitiatorDeviceName'>,
@@ -22,6 +42,7 @@ export function taskMatchesFilters(task: BoardTask, filters: BoardFilters): bool
   // A card with no author (born before the field) is neither: only `all` shows it.
   if (filters.creator === 'mine' && creatorKind(task.createdBy) !== 'human') return false;
   if (filters.creator === 'others' && creatorKind(task.createdBy) !== 'other') return false;
+  if (filters.quick && !filters.quick.every((q) => taskMatchesQuick(task, q))) return false;
   if (filters.labels.length > 0) {
     const labels = new Set(task.labels.map((label) => label.label));
     if (!filters.labels.every((label) => labels.has(label))) return false;

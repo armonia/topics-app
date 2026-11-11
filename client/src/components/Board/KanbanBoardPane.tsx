@@ -63,7 +63,8 @@ import { useCardBoardSettings } from '../../hooks/useCardBoardSettings';
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
 import { CREATED_FLASH_MS, filterFocusRingClass, PRIORITY_DOT, PRIORITY_LABEL, TOOLBAR_CONTROL_H, TOOLBAR_ICON_W, type BoardFilters, type LiveUsage, type OpenTask } from './constants';
-import { runInitiatorName, taskMatchesFilters } from './taskFilter';
+import { filtersActive, runInitiatorName, taskMatchesFilters } from './taskFilter';
+import { QuickFilters } from './QuickFilters';
 import { boardCollision } from './format';
 import { FilterTokenField } from './FilterTokenField';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
@@ -729,7 +730,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   const canRunMissions = hasProject && devInstall && !!onStartMission;
   // 'project' = this project only · 'all' = the global cross-project board.
   const [mode, setMode] = useState<'project' | 'all'>(canToggle ? 'project' : 'all');
-  const [planVisible, setPlanVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // L'errore di UNA card sta sulla card, non nella barra qui sopra: quella vive
   // in cima al pannello, mentre la card che ha rifiutato il click può essere
@@ -930,6 +930,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     try { localStorage.setItem(DETAIL_STORAGE_KEY, detail); } catch { /* private mode, best effort */ }
   }, [detail]);
   // The summary level has no columns; the row below it keeps the grid shape.
+  // The Plan is the fourth stop of the slider, on the global board only.
+  const planActive = detail === 'plan' && mode === 'all';
   const boardLayout: BoardLayout = detail === 'list' ? 'list' : 'grid';
   // Per-viewer view choices, kept beside the layout: lanes per project, and the Done column.
   const [groupByPref, setGroupByPref] = useState<BoardGroupBy>(readBoardGroupBy);
@@ -1251,6 +1253,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
    * lavoro, e ogni giro costerebbe una misura di tutti i rettangoli.
    */
   // The cards of each workflow column: a status's cards split by their stage.
+  // The Plan shows the cards the board's filters let through; null = no filter, show all.
+  const planVisibleIds = useMemo(
+    () => (filtersActive(filters) ? new Set(tasks.filter((t) => taskMatchesFilters(t, filters)).map((t) => t.id)) : null),
+    [tasks, filters],
+  );
   const byColumn = useMemo(() => {
     const out = new Map<string, BoardTask[]>(boardColumns.map((c) => [c.id, []]));
     for (const s of TASK_STATUSES) {
@@ -2022,10 +2029,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             >{tr('board.toolbar.allProjects')}</button>
           </>
         )}
-        {mode === 'all' && <button type="button" data-testid="board-plan-toggle" aria-pressed={planVisible}
-          onClick={() => setPlanVisible((v) => !v)}
-          className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact leading-4 ${planVisible ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
-        >{tr(planVisible ? 'plan.buttonBack' : 'plan.button')}</button>}
         <LoadAdviceChip />
         <WorktreeControl
           count={worktreeCount}
@@ -2195,6 +2198,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           />
         )}
       </Menu>
+      <QuickFilters filters={filters} onFiltersChange={setFilters} tasks={tasks} />
       {/* Board area + drawer share a flex row: an open (narrow) drawer SHRINKS
           the columns viewport instead of covering it, so every column stays
           reachable through the row's own horizontal scroll — nothing is ever
@@ -2202,13 +2206,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           (the drawer positions itself; out of flow, the board re-expands). */}
       <div ref={drawerHostRef} className="flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
-          {mode === 'all' && planVisible ? (
+          {planActive ? (
             <Suspense fallback={<SpinnerFallback fill />}>
               {/* A DndContext with no sensors: the board's card is a sortable,
                   and here nothing is dragged — the Plan moves cards with its
                   own «move to» control. */}
               <DndContext sensors={NO_SENSORS}>
-                <PlanView onOpenTask={openTask} onOpenTopic={onOpenTopic} renderTaskCard={renderPlanCard} />
+                <PlanView visibleTaskIds={planVisibleIds} onOpenTask={openTask} onOpenTopic={onOpenTopic} renderTaskCard={renderPlanCard} />
               </DndContext>
             </Suspense>
           ) : <>
@@ -2331,7 +2335,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             global={mode === 'all'}
             onCreated={onCreatedHere}
             onError={setError}
-            hidden={typingElsewhere || (mode === 'all' && planVisible)}
+            hidden={typingElsewhere || planActive}
             hiddenBelowLg={!!selected}
             onDraft={setDraft}
             paneSettings={settings}

@@ -86,3 +86,18 @@ describe('la colonna Review si allarga quando ha lavoro dentro', () => {
     expect(motion).toContain('slideLanes(root, previous.lanes, now.lanes)');
   });
 });
+
+describe('Plan as a view of the board, with the same filters', () => {
+  test('the Plan is a stop of the slider, not a tab of its own', () => {
+    expect(PANE).toContain("detail === 'plan' && mode === 'all'");
+    expect(PANE).not.toContain('board-plan-toggle');
+  });
+
+  test('columns, list and Plan all read ONE filtered set', () => {
+    // Columns and list: byStatus filters through taskMatchesFilters; the Plan: the same ids.
+    expect(PANE).toContain('tasks.filter((task) => taskMatchesFilters(task, filters))');
+    expect(PANE).toContain('tasks.filter((t) => taskMatchesFilters(t, filters)).map((t) => t.id)');
+    expect(PANE).toContain('visibleTaskIds={planVisibleIds}');
+    expect(PANE).toContain('<QuickFilters filters={filters}');
+  });
+});

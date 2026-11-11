@@ -2,7 +2,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { BoardTask } from '../../lib/board';
 import type { BoardFilters } from './constants';
-import { runInitiatorName, taskMatchesFilters } from './taskFilter';
+import { filtersActive, runInitiatorName, taskMatchesFilters } from './taskFilter';
 
 const base = {
   priority: 3, assignedTo: 'agent', text: 'Visible task', projectId: 'project-one',
@@ -38,5 +38,30 @@ describe('delegated-run board filters', () => {
     const deviceFilters = { ...filters, initiator: ['Authorized device'] };
     expect(runInitiatorName(deviceRun)).toBe('Authorized device');
     expect(taskMatchesFilters(deviceRun, deviceFilters)).toBe(true);
+  });
+});
+
+describe('quick filters', () => {
+  const waiting = { ...base, id: 'w', status: 'review', stage: 'human_review', humanAsk: 'Ok?', createdBy: 'agent:jarvis' } as unknown as BoardTask;
+  const working = { ...base, id: 'k', status: 'in_progress', createdBy: 'human' } as unknown as BoardTask;
+  const cron = { ...base, id: 'c', status: 'backlog', createdBy: 'cron:nightly' } as unknown as BoardTask;
+  const none: BoardFilters = { priority: [], assignedTo: [], text: '', projectId: [], labels: [], person: [], computer: [], initiator: [], runComputer: [] };
+  const only = (quick: BoardFilters['quick']) => [waiting, working, cron].filter((t) => taskMatchesFilters(t, { ...none, quick })).map((t) => t.id);
+
+  test('«needs you» keeps only the cards waiting on a person', () => {
+    expect(only(['needsYou'])).toEqual(['w']);
+  });
+
+  test('Jarvis, agents and scheduled read who opened the card', () => {
+    expect(only(['jarvis'])).toEqual(['w']);
+    expect(only(['agents'])).toEqual(['w']);
+    expect(only(['scheduled'])).toEqual(['c']);
+  });
+
+  test('chips combine in AND, and no chip leaves everything', () => {
+    expect(only(['needsYou', 'scheduled'])).toEqual([]);
+    expect(only([])).toEqual(['w', 'k', 'c']);
+    expect(filtersActive({ ...none, quick: ['jarvis'] })).toBe(true);
+    expect(filtersActive(none)).toBe(false);
   });
 });

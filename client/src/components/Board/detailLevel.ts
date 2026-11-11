@@ -1,16 +1,16 @@
 /**
  * The board's DETAIL LEVELS, from the least detailed (projects with counts)
- * to the most detailed (the kanban). Pure helpers, shared by the slider and
+ * to the kanban, then the Plan (the same cards by milestone). Pure helpers, shared by the slider and
  * the pane so the stored preference and the arrow keys agree on the order.
  */
-export const DETAIL_LEVELS = ['summary', 'list', 'grid'] as const;
+export const DETAIL_LEVELS = ['summary', 'list', 'grid', 'plan'] as const;
 export type DetailLevel = (typeof DETAIL_LEVELS)[number];
 
 /** Where the preference is kept; the key predates the summary level, so 'list' and 'grid' still read back. */
 export const DETAIL_STORAGE_KEY = 'topics.board.layout';
 
 export function parseDetailLevel(raw: string | null): DetailLevel {
-  return raw === 'summary' || raw === 'list' ? raw : 'grid';
+  return raw === 'summary' || raw === 'list' || raw === 'plan' ? raw : 'grid';
 }
 
 export function readDetailLevel(): DetailLevel {
