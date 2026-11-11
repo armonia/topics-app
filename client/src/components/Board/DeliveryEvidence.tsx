@@ -16,8 +16,9 @@ export function DeliveryEvidence({ paths }: { paths: readonly string[] }) {
   if (slides.length === 0) return null;
   const thumb = (slide: EvidenceSlide, n: number) => {
     const path = slide.kind === 'pair' ? slide.after : slide.path;
-    const cls = 'block w-full rounded border border-app-border bg-black/20 cursor-zoom-in';
-    const sbs = slide.kind === 'sideBySide';
+    // Fixed aspect box: the bitmap loads after first paint and must not shift the thread under the reader.
+    const cls = 'block aspect-[16/10] w-full max-h-[60vh] rounded border border-app-border bg-black/20 object-contain cursor-zoom-in';
+    const isComposite = slide.kind === 'sideBySide';
     return (
       <button
         key={n}
@@ -27,9 +28,9 @@ export function DeliveryEvidence({ paths }: { paths: readonly string[] }) {
         className="block w-full text-left"
       >
         {isVideoPath(path)
-          ? <video src={getMediaUrl(path)} muted playsInline preload="metadata" className={`${cls} max-h-[60vh] object-contain`} />
-          : <img src={getMediaUrl(path)} alt="" loading="lazy" draggable={false} className={`${cls} max-h-[60vh] object-contain`} />}
-        {(slide.kind === 'pair' || sbs) && (
+          ? <video src={getMediaUrl(path)} muted playsInline preload="metadata" className={`${cls}`} />
+          : <img src={getMediaUrl(path)} alt="" draggable={false} className={`${cls}`} />}
+        {(slide.kind === 'pair' || isComposite) && (
           <span className="mt-1 block text-mini uppercase tracking-wide text-app-text-muted">{tr('board.evidence.beforeAfter')}</span>
         )}
       </button>
