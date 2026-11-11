@@ -80,6 +80,7 @@ import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import { effectiveDelegatedSettings, runWithDelegatedDeadline } from "./task-dispatcher-delegated";
 import { BACKGROUND_WORK_CAP_MS } from "../providers/claude/background-work";
 import { hasCommandShell } from "../lib/command-process";
+import { isDeliverySheetPath } from "../../shared/media-kind";
 
 /** Fallback retry cap when a board's setting can't be read (default 2). */
 const DEFAULT_RETRY_CAP = 2;
@@ -4711,6 +4712,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           const reason = recovered
             ? `${base}\n\nUltime parole dell'agent (recuperate dalla sessione): ${recovered.text}`
             : base;
+          // "RICATTURA EVIDENZA" (RECAPTURE EVIDENCE) STARTS ON ITS OWN, BEFORE
+          // THE GATE, not after. No agent on this fleet can open a browser for its own before/after
+          // shot (kickoff rule), so on a `visibile` card the auto-capture is
+          // this door's ONLY chance to give the gate below something real to
+          // find — awaited here, not fired in the background after the
+          // bounce already happened.
+          if (t.labels.some((l) => l.label === "visibile")) {
+            const preview = (t.previewImage ?? "").trim();
+            if (!preview || isDeliverySheetPath(preview)) {
+              try { await deps.preparePreview?.(taskId); } catch { /* best-effort */ }
+            }
+          }
           try {
             const delivered = deps.svc.deliverToReviewBySystem({
               taskId,
