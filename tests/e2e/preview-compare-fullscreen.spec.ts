@@ -82,6 +82,7 @@ async function openBoard(page: Page): Promise<void> {
 
 test.describe('full-screen before/after evidence', () => {
   test('opens from the card, moves the divider, closes with Esc', async ({ page }) => {
+    test.info().annotations.push({ type: 'spec', description: 'PREVIEW-02' });
     await openBoard(page);
     const img = page.locator('[data-testid="preview-card"] img').first();
     await expect(img).toBeVisible({ timeout: 20_000 });
