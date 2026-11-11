@@ -612,21 +612,8 @@ jobs:
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bun run check:bundle
 
-      # The landing demo is the real client with a mock seam in place of the
-      # server, and nothing in a build fails when a mock stops matching the
-      # code that reads it: the bundle compiles and dies at render. Until now
-      # only `deploy:landing` ran this check, by hand, so a client change that
-      # broke the demo was found when the site was published. The demo builds
-      # into landing/public/app (not client/dist), so the bundle steps above
-      # are untouched; the browser is the Chromium installed in the setup step.
-      - name: Landing demo boots clean
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: |
-          bun run build:landing
-          bun run check:demo landing/public
-          # Same boot with an unblurred 72% translucent menu: the glass probe has
-          # to go red, or it cannot see the defect it guards against.
-          bun run check:demo landing/public --mutant
+      # Landing demo, graphify-regen and e2e-stop-on-red live in `gates-2`
+      # below: same steps, in parallel (run 42837284629: 202 of gates' 462 s).
 
       # Le LATENZE delle rotte calde, contro una baseline dichiarata: stesso
       # mestiere di `check:bundle`, altro asse. Gira dopo la suite perche' vuole
@@ -788,6 +775,58 @@ jobs:
           fi
           exit "$rc"
 
+  # I tre passi piu' lenti di `gates` che non dipendono dal suo bundle, su un
+  # secondo runner in parallelo. Stessi comandi; `check` porta anche questo
+  # verdetto.
+  gates-2:
+    timeout-minutes: 25
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      # Same install steps as `gates`, for the reasons written there.
+      - name: Install server deps (root)
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Rebuild node-pty (Linux)
+        run: npm rebuild node-pty
+
+      - name: Rimetti il bit +x sugli spawn-helper (il postinstall e' stato saltato)
+        run: bun run scripts/fix-node-pty-exec-bit.ts
+
+      - name: Install client deps
+        run: bun install --frozen-lockfile
+        working-directory: client
+
+      - name: Install Playwright browsers (Chromium and WebKit)
+        id: setup
+        run: npx playwright install --with-deps chromium webkit
+
+      # The landing demo is the real client with a mock seam in place of the
+      # server, and nothing in a build fails when a mock stops matching the
+      # code that reads it: the bundle compiles and dies at render. Until now
+      # only `deploy:landing` ran this check, by hand, so a client change that
+      # broke the demo was found when the site was published. The demo builds
+      # into landing/public/app (not client/dist).
+      - name: Landing demo boots clean
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: |
+          bun run build:landing
+          bun run check:demo landing/public
+          # Same boot with an unblurred 72% translucent menu: the glass probe has
+          # to go red, or it cannot see the defect it guards against.
+          bun run check:demo landing/public --mutant
+
       # The gates of the post-commit rebuild (scripts/graphify-regen.sh). They
       # run on a fake sysctl and graphify, so the runner's own readings do not
       # matter: a regression here loses the code graph silently on every commit.
@@ -803,6 +842,18 @@ jobs:
       - name: Guardie della fermata degli shard e2e (e2e-stop-on-red)
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bash scripts/e2e-stop-on-red.test.sh
+
+      # Where the e2e shards go (PC, fixed server, GitHub). The failure it guards
+      # is a run that never ends: more shards on a label than runners online.
+      - name: Posto degli shard e2e (e2e-placement)
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: bash scripts/e2e-placement.test.sh
+
+      # The booking of the fixed server's runners. The failure it guards: one
+      # runner booked by two runs, so a shard queues behind another run. About 20 s.
+      - name: Prenotazione dei runner del server fisso (ci-fisso-reserve)
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: bash scripts/ci-fisso-reserve.test.sh
 
   # THE VERDICT OF THE RUN'S TESTS AND GATES, IN THE JOB AND STEP THE BOARD READS.
   #
@@ -821,7 +872,7 @@ jobs:
   # before `unit` does.
   check:
     timeout-minutes: 30
-    needs: [unit, gates]
+    needs: [unit, gates, gates-2]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
@@ -839,8 +890,13 @@ jobs:
         if: ${{ !cancelled() }}
         env:
           GATES_RESULT: ${{ needs.gates.result }}
+          GATES2_RESULT: ${{ needs.gates-2.result }}
         run: |
-          echo "gates job of this run: $GATES_RESULT"
+          echo "gates jobs of this run: $GATES_RESULT / $GATES2_RESULT"
+          if [ "$GATES2_RESULT" != "success" ]; then
+            echo "::error title=Gates::the gates-2 job of this run concluded '$GATES2_RESULT': the red step is in its log"
+            exit 1
+          fi
           if [ "$GATES_RESULT" != "success" ]; then
             echo "::error title=Gates::the gates job of this run concluded '$GATES_RESULT': the red step is in its log"
             exit 1
@@ -869,10 +925,24 @@ jobs:
   # board calls a `prepare-e2e` that is not `success` NOT MEASURED (PREPARE_JOB in
   # server/services/ci-evidence.ts), so a skipped job would hold the pull request
   # back instead of letting it through.
+  #
+  # ON A MACHINE OF OURS WHEN ONE IS UP. Measured on 10/11: this job waited 6-20
+  # minutes in the queue for one of the 20 GitHub jobs of the organisation, and
+  # every shard waits for it (run 42878426792: queued 18:57, started 19:17). The
+  # fixed server and the PC bring one runner of their own for it (label
+  # `<run label>-prep`, see `hcloud`); without one it runs on ubuntu-latest as
+  # before. It waits for `hcloud` to know: seconds for the fixed server, up to
+  # 2 minutes when the PC is asked.
   prepare-e2e:
     timeout-minutes: 10
-    needs: changes
-    runs-on: ubuntu-latest
+    needs: [changes, hcloud]
+    if: ${{ !cancelled() && needs.changes.result == 'success' }}
+    runs-on: ${{ needs.hcloud.outputs.attempt == format('{0}', github.run_attempt) && fromJSON(needs.hcloud.outputs.placement || '{}').prep || 'ubuntu-latest' }}
+    # Read-only token: this job may run on the fixed server's persistent runner, which
+    # pull requests of this repository use too.
+    permissions:
+      contents: read
+      actions: read
     outputs:
       plan-ok: ${{ steps.plan.outputs.ok }}
     steps:
@@ -937,10 +1007,80 @@ jobs:
           path: plan/
           retention-days: 1
 
+  # WHERE THE E2E SHARDS RUN: THE PC FIRST, THEN THE FIXED SERVER, THEN GITHUB.
+  #
+  # Measured on 10/11/2026: a green run took 37 minutes, and every e2e job
+  # waited 5-29 of them in the queue for one of the 20 jobs the organisation
+  # may run at once, before 10-13 minutes of tests (runs 42856852451,
+  # 42839400563). A shard on a machine of ours starts in seconds. A shard runs
+  # two Playwright processes and loads its 4 vCPU to ~5 with ~3.6 GB in use
+  # (the `[carico]` lines of run 42814604772), so a runner gets what a GitHub
+  # one has, 4 vCPU and 8 GB.
+  #
+  # The order, decided by Attilio on 10/11:
+  #  1. Attilio's PC, which costs nothing: up to 4 ephemeral runners started
+  #     by a broker on the Mac (`ci-pc-broker` in jarvis) only while nobody is
+  #     using the PC, when it sees the job below running. It publishes PC_CI=1
+  #     on the repository while it can take shards; with PC_CI=0 the job does
+  #     not wait for it.
+  #  2. The fixed server topics-fisso (one Hetzner cx53 always on, 29.49 EUR a
+  #     month, shared with a Topics node that comes first): 4 persistent
+  #     runners `fisso` and one `fisso-prep` (deploy/fisso/ci-runners.sh). A
+  #     run books the idle ones by adding its own label to them
+  #     (scripts/ci-fisso-reserve.sh), so a shard never queues behind another
+  #     run. FISSO_CI=0 on the repository leaves it out.
+  #  3. ubuntu-latest for every shard left.
+  # `e2e-placement.sh` makes the map, and a label never gets more shards than
+  # runners booked or online: one shard too many would wait in the queue.
+  #
+  # The repository is PUBLIC, so the rules (hcloud-runner.yml has the rest):
+  #  - self-hosted only for a push to main or a pull request from this
+  #    repository; a fork's pull request never reaches a machine of ours;
+  #  - RUNNER_ADMIN_TOKEN lives only in the create and delete jobs, which run
+  #    on ubuntu-latest and execute no code of the change but the two
+  #    placement scripts; no Hetzner token in the CI any more;
+  #  - the machines can make the run faster, never red: anything that fails in
+  #    the create job sends the shards to ubuntu-latest as before.
+  #  - `hcloud-delete` gives the runners back with `always()`; a booking of a
+  #    run that is over is dropped by the next booking and by the sweeper.
+  hcloud:
+    name: e2e placement
+    needs: changes
+    # Skipped when there is nothing to look for (no fixed server, no PC): a create
+    # job that does nothing would still take a GitHub slot, and `prepare-e2e`, which
+    # waits for it, would queue a second time (4.5 minutes in run 42900864752).
+    # `vars` are read when the run is created, not when a job starts.
+    if: ${{ needs.changes.outputs.e2e != 'false' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && (vars.FISSO_CI != '0' || vars.PC_CI == '1') }}
+    uses: ./.github/workflows/hcloud-runner.yml
+    with:
+      mode: create
+      # The same list as the matrix of `e2e`: the map has one entry per job.
+      shards: ${{ github.event_name == 'pull_request' && '[0, 1, 2, 3, 4, 5, 6, 7, 8]' || '[1, 2, 3, 4, 5, 6, 7, 8]' }}
+      pc_slots: 4
+    secrets:
+      RUNNER_ADMIN_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}
+
+  hcloud-delete:
+    name: give back the fixed server's runners
+    needs: [hcloud, e2e]
+    if: ${{ always() && needs.hcloud.result != 'skipped' }}
+    uses: ./.github/workflows/hcloud-runner.yml
+    with:
+      mode: delete
+      label: ${{ needs.hcloud.outputs.label }}
+    secrets:
+      RUNNER_ADMIN_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}
+
   e2e:
     timeout-minutes: 25
-    runs-on: ubuntu-latest
-    needs: [changes, prepare-e2e]
+    # Per SHARD, from the map of the `hcloud` job (see the top of it): PC, fixed
+    # server, or ubuntu-latest for a shard the map does not name. The map is only
+    # good for the attempt that made it: "Re-run failed jobs" keeps the outputs of
+    # the green `hcloud` job, and a shard sent back to that run's label would wait
+    # forever for runners already given back. A re-run shard goes to ubuntu-latest.
+    runs-on: ${{ needs.hcloud.outputs.attempt == format('{0}', github.run_attempt) && fromJSON(needs.hcloud.outputs.placement || '{}')[format('s{0}', matrix.shard)] || 'ubuntu-latest' }}
+    needs: [changes, prepare-e2e, hcloud]
+    if: ${{ !cancelled() && needs.prepare-e2e.result == 'success' }}
     # WHEN NOTHING THE SHARDS READ HAS CHANGED the matrix is the single job `e2e (0)`
     # and only its first step runs; every other step of this job carries
     # `needs.changes.outputs.e2e != 'false'`. It ends `success`, which is what the
@@ -1037,6 +1177,17 @@ jobs:
         if: ${{ needs.changes.outputs.e2e == 'false' }}
         run: echo "::notice title=e2e not needed::none of the changed files is read by an e2e shard (scripts/ci-changes.ts)"
 
+      # Every runner of ours should come with a HOME (the fixed server's systemd
+      # units set /srv/rh-<i>); one without would install Playwright into one place
+      # and look for Chromium in /.cache (run 42836011389, shard 2).
+      - name: Give the self-hosted runner a HOME
+        if: ${{ runner.environment != 'github-hosted' && needs.changes.outputs.e2e != 'false' }}
+        run: |
+          if [ -z "${HOME:-}" ] || [ "$HOME" = / ]; then
+            mkdir -p /srv/rh-1 && echo "HOME=/srv/rh-1" >> "$GITHUB_ENV"
+          fi
+          [ -n "${SHELL:-}" ] || echo "SHELL=/bin/bash" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v5
         if: ${{ needs.changes.outputs.e2e != 'false' }}
 
@@ -1123,8 +1274,11 @@ jobs:
         id: runner-image
         run: echo "id=${ImageOS:-unknown}-${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
 
+      # On the fixed server the system libraries were installed once
+      # (deploy/fisso/ci-runners.sh), and its runners are not root: no apt cache
+      # and no --with-deps there.
       - name: Restore the apt packages of the Playwright browsers
-        if: ${{ needs.changes.outputs.e2e != 'false' }}
+        if: ${{ needs.changes.outputs.e2e != 'false' && runner.environment == 'github-hosted' }}
         uses: actions/cache@v4
         with:
           path: ~/apt-playwright
@@ -1143,6 +1297,9 @@ jobs:
           build_log="$RUNNER_TEMP/build-client.log"
           bun run build:client > "$build_log" 2>&1 &
           build_pid=$!
+          if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+            npx playwright install chromium webkit
+          else
           if compgen -G "$HOME/apt-playwright/*.deb" > /dev/null; then
             sudo cp "$HOME"/apt-playwright/*.deb /var/cache/apt/archives/
           fi
@@ -1154,6 +1311,7 @@ jobs:
           rm -rf "$HOME/apt-playwright" && mkdir -p "$HOME/apt-playwright"
           if compgen -G "/var/cache/apt/archives/*.deb" > /dev/null; then
             cp /var/cache/apt/archives/*.deb "$HOME/apt-playwright/"
+          fi
           fi
           if ! wait "$build_pid"; then
             cat "$build_log"
@@ -1200,6 +1358,14 @@ jobs:
         run: |
           PROCS=2
           SHARD=${{ matrix.shard }}
+          # Several runners share the fixed server: each takes its own band of
+          # 10 ports, from its HOME (/srv/rh-<i>, set per runner by
+          # deploy/fisso/ci-runners.sh).
+          # Run 42839400563: two shards both on 13910 ("Un'altra run E2E sta usando la porta").
+          idx=1
+          case "${HOME:-}" in /srv/rh-[0-9]*) idx=${HOME#/srv/rh-} ;; esac
+          BAND=$((13910 + (idx - 1) * 10))
+          echo "[ci] runner ${RUNNER_NAME:-?} -> porte da $BAND"
           mkdir -p test-results/sub
           ( while sleep 30; do echo "[carico] $(cut -d' ' -f1-3 /proc/loadavg) memoria $(free -m | awk '/Mem/{print $3"/"$2}') MB"; done ) &
           monitor=$!
@@ -1218,7 +1384,7 @@ jobs:
             # writeFileSync, so a sibling can read a half-written module
             # ("projectIdForPath is not a function", run 42762634932).
             PWTEST_CACHE_DIR="$RUNNER_TEMP/pw-cache-$k" \
-            E2E_PORT=$((13910 + k - 1)) \
+            E2E_PORT=$((BAND + k - 1)) \
             PLAYWRIGHT_JSON_OUTPUT_FILE="test-results/sub/report-$k.json" \
             PLAYWRIGHT_HTML_OUTPUT_DIR="test-results/html-report-$k" PLAYWRIGHT_HTML_OPEN=never \
               npx playwright test "${SELECTORS[@]}" --reporter=list,json,html --output="test-results/sub/artifacts-$k" \
@@ -1352,13 +1518,32 @@ jobs:
 
       # webkit2gtk-sys e i suoi vicini si configurano con pkg-config: senza
       # queste, il crate Linux non arriva nemmeno a compilare.
+      # Il mirror Azure di apt va da 1 a 10 minuti per gli stessi 179
+      # pacchetti (run 42837284629: 9,5 min): i .deb restano in cache fra
+      # le run, l'installazione e quindi il controllo restano identici.
+      # Solo i .deb in cache, l'install resta apt-get vero: cache-apt-pkgs-action
+      # ripristinava i file ma non i link -dev (run 42844534396: «unable to
+      # find library -lcairo»).
+      - name: Cache Linux webview .deb
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-debs
+          key: apt-webview-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: apt-webview-${{ runner.os }}-
+
       - name: Install Linux webview deps
         if: matrix.os == 'ubuntu-latest'
         run: |
+          mkdir -p ~/apt-debs/partial
+          sudo rm -f /var/lib/man-db/auto-update
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+          sudo apt-get install -y -o Dir::Cache::Archives="$HOME/apt-debs" \
+            libwebkit2gtk-4.1-dev libgtk-3-dev \
             libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libappindicator3-dev \
             librsvg2-dev patchelf
+          sudo chown -R "$USER" ~/apt-debs
+          rm -rf ~/apt-debs/partial ~/apt-debs/lock
 
       - name: Rust build cache
         uses: Swatinem/rust-cache@v2

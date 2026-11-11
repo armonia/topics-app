@@ -11,7 +11,7 @@
  */
 import Reading from '../layouts/Reading.astro';
 
-const UPDATED = '2026-08-05';
+const UPDATED = '2026-11-11';
 
 const jsonLd = {
   '@context': 'https://schema.org',
@@ -27,7 +27,7 @@ const jsonLd = {
 
 <Reading
   title="Privacy · Topics"
-  description="The Topics app collects nothing and talks to no server of ours. This website is a separate question, and this page answers both, including what would change if analytics were ever added."
+  description="The Topics app collects nothing and talks to no server of ours. This website is a separate question, and this page answers both, including the one visit counter the website uses."
   path="/privacy"
   jsonLd={jsonLd}
   current="docs"
@@ -71,9 +71,9 @@ const jsonLd = {
 
       <h2 id="this-website">This website</h2>
       <p>
-        Static pages on Cloudflare, with <strong>no analytics, no cookies and no third-party
-        scripts</strong> as of {UPDATED}. Nothing on the page profiles you, and there is no
-        consent banner because there is nothing to consent to.
+        Static pages on Cloudflare, with <strong>no cookies and nothing that profiles you</strong>
+        as of {UPDATED}. Since 2026-11-11 the pages load one script, Cloudflare Web Analytics, to
+        count visits (below). There is no consent banner because there is nothing to consent to.
       </p>
       <p>Two things do happen, and they are worth naming:</p>
       <ul>
@@ -94,12 +94,13 @@ const jsonLd = {
         browser. It talks to no backend and stores nothing outside that tab.
       </p>
 
-      <h2 id="if-analytics-are-ever-added">If analytics are ever added</h2>
+      <h2 id="if-analytics-are-ever-added">Analytics, since 2026-11-11</h2>
       <p>
-        They might be. Knowing whether anybody reads the blog is a reasonable thing to want.
-        If it happens it will be Cloudflare Web Analytics, which is cookieless and records no
-        cross-site identifier, and this page will say so with the date, before the script goes
-        up rather than after.
+        Knowing whether anybody reads the site is a reasonable thing to want, so on 2026-11-11
+        the pages started loading Cloudflare Web Analytics, as this page had said they would.
+        It sets no cookie, stores nothing in your browser and records no cross-site identifier:
+        it counts page loads, with the page, the referrer, the country and the browser type.
+        This paragraph went up together with the script.
       </p>
       <p>
         What will not happen: cookies, a third-party tag manager, any product that follows a

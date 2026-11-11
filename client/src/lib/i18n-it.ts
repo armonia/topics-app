@@ -2217,8 +2217,8 @@ const IT: Dict = {
 
   'board.toolbar.groupBy.project': 'Raggruppa per progetto',
   'board.toolbar.groupBy.off': 'Togli il raggruppamento per progetto',
-  'board.toolbar.density.compact': 'Card compatte',
-  'board.toolbar.density.full': 'Card complete',
+  'board.toolbar.done.show': 'Mostra i task completati',
+  'board.toolbar.done.hide': 'Nascondi i task completati',
   'board.group.collapse': 'Richiudi {name}',
   'board.group.expand': 'Apri {name}',
   'board.group.total': '{n} card in questo progetto',
@@ -3333,6 +3333,8 @@ const IT: Dict = {
   'board.card.due': 'Scade {date}',
   'board.card.dueOverdue': 'Scaduta {date}',
   'board.card.dueTitle': 'Scadenza: {date}',
+  'board.card.scheduledTitle': 'Programmata: {label}. La fa un giro a orario, nessun agente parte su questa card.',
+  'board.card.assigneeTitle': 'La chiude {name}',
   'board.card.dueOverdueTitle': 'Scadenza superata: {date}',
   'board.card.runComputerTitle': 'Esecuzione delegata eseguita su {name}',
 

@@ -21,11 +21,20 @@ import { agentAuthOk } from "./agent-auth";
  *   arrives unmarked), so it gets `agent:api` instead of an empty field.
  */
 export function resolveCreatedBy(req: Request, body: { createdBy?: unknown } | null | undefined): string {
-  if (!agentAuthOk(req) && req.headers.get("X-Topics-Action-Origin") === "interface") return CREATED_BY_HUMAN;
+  if (isInterfaceRequest(req)) return CREATED_BY_HUMAN;
   // The body can name an agent or a schedule, never a person: «human» is
   // reserved to the interface branch above.
   const named = parseCreatedBy(body?.createdBy) ?? parseCreatedBy(headerName(req));
   return named && named !== CREATED_BY_HUMAN ? named : API_CALLER_CREATED_BY;
+}
+
+/**
+ * Did this request come from the interface? It carries the interface mark and
+ * no agent credential: an agent that sends the mark with its daemon token is
+ * still an agent (see `resolveCreatedBy` above).
+ */
+export function isInterfaceRequest(req: Request): boolean {
+  return !agentAuthOk(req) && req.headers.get("X-Topics-Action-Origin") === "interface";
 }
 
 /**

@@ -1995,8 +1995,8 @@ const EN = {
 
   'board.toolbar.groupBy.project': 'Group by project',
   'board.toolbar.groupBy.off': 'Stop grouping by project',
-  'board.toolbar.density.compact': 'Compact cards',
-  'board.toolbar.density.full': 'Full cards',
+  'board.toolbar.done.show': 'Show done tasks',
+  'board.toolbar.done.hide': 'Hide done tasks',
   'board.group.collapse': 'Collapse {name}',
   'board.group.expand': 'Expand {name}',
   'board.group.total': '{n} cards in this project',
@@ -2978,6 +2978,8 @@ const EN = {
   'board.card.due': 'Due {date}',
   'board.card.dueOverdue': 'Overdue {date}',
   'board.card.dueTitle': 'Due date: {date}',
+  'board.card.scheduledTitle': 'Scheduled: {label}. A timed run does this work, no agent is started on it.',
+  'board.card.assigneeTitle': 'Closed by {name}',
   'board.card.dueOverdueTitle': 'Past its due date: {date}',
   'board.card.runComputerTitle': 'Delegated run executed on {name}',
 

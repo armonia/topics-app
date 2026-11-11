@@ -2,7 +2,7 @@
  * @covers KANBAN-23
  */
 import { describe, it, expect } from "bun:test";
-import { createPreviewManager, isLocalUrl, isEvidencePage, isPlaceholderPage, type PreviewManagerDeps, type PreviewProcess, type PreviewWorktree, PREVIEW_NOTE_PREFIX, PREVIEW_NOTE_SLOT } from "./preview-manager";
+import { createPreviewManager, previewPortRange, isLocalUrl, isEvidencePage, isPlaceholderPage, type PreviewManagerDeps, type PreviewProcess, type PreviewWorktree, PREVIEW_NOTE_PREFIX, PREVIEW_NOTE_SLOT } from "./preview-manager";
 
 // ── Fakes ────────────────────────────────────────────────────────────────────
 
@@ -767,5 +767,15 @@ describe("l'auto-scatto non scavalca l'evidenza propria della card", () => {
     const pm = createPreviewManager(h.deps);
     await pm.prepareForReview("t1");
     expect(h.reviewNotes.at(-1)!.media?.length).toBe(1);
+  });
+});
+
+describe("previewPortRange: the preview pool from TOPICS_PREVIEW_PORTS", () => {
+  it("unset or malformed keeps 3400-3450, a valid band replaces it", () => {
+    expect(previewPortRange({})).toEqual([3400, 3450]);
+    expect(previewPortRange({ TOPICS_PREVIEW_PORTS: "3303-3340" })).toEqual([3303, 3340]);
+    expect(previewPortRange({ TOPICS_PREVIEW_PORTS: "3340-3303" })).toEqual([3400, 3450]);
+    expect(previewPortRange({ TOPICS_PREVIEW_PORTS: "abc" })).toEqual([3400, 3450]);
+    expect(previewPortRange({ TOPICS_PREVIEW_PORTS: "0-10" })).toEqual([3400, 3450]);
   });
 });

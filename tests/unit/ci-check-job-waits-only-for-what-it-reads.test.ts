@@ -77,6 +77,9 @@ describe("ci.yml: a job waits only for the jobs whose result it reads", () => {
     const idle: string[] = [];
     for (const job of jobNames) {
       for (const need of needsOf(job)) {
+        // The one wait for an END, not a result: the Hetzner server is deleted after
+        // the shards it carries, whatever they concluded (`if: always()`).
+        if (job === "hcloud-delete" && need === "e2e") continue;
         if (!jobBody(job).includes(`needs.${need}.`)) idle.push(`${job} needs ${need} and never reads it`);
       }
     }
@@ -89,7 +92,7 @@ describe("ci.yml: a job waits only for the jobs whose result it reads", () => {
   });
 
   it(`the board's job \`${UNIT_JOB}\` needs the unit jobs and the gates, and runs even when they are red`, () => {
-    expect(needsOf(UNIT_JOB).sort()).toEqual(["gates", "unit"]);
+    expect(needsOf(UNIT_JOB).sort()).toEqual(["gates", "gates-2", "unit"]);
     expect(jobBody(UNIT_JOB)).toMatch(/^ {4}if: \$\{\{ !cancelled\(\) \}\}$/m);
   });
 
@@ -116,7 +119,12 @@ describe("ci.yml: a job waits only for the jobs whose result it reads", () => {
     it(`EXECUTED: the gates step with the gates job ${gates} exits ${gates === "success" ? 0 : 1}`, () => {
       const step = stepsOf(UNIT_JOB)[1]!;
       expect(step.body).toContain("GATES_RESULT: ${{ needs.gates.result }}");
-      expect(runStep(step, { GATES_RESULT: gates })).toBe(gates === "success" ? 0 : 1);
+      expect(runStep(step, { GATES_RESULT: gates, GATES2_RESULT: "success" })).toBe(gates === "success" ? 0 : 1);
+    });
+    it(`EXECUTED: the gates step with the gates-2 job ${gates} exits ${gates === "success" ? 0 : 1}`, () => {
+      const step = stepsOf(UNIT_JOB)[1]!;
+      expect(step.body).toContain("GATES2_RESULT: ${{ needs.gates-2.result }}");
+      expect(runStep(step, { GATES_RESULT: "success", GATES2_RESULT: gates })).toBe(gates === "success" ? 0 : 1);
     });
   }
 });

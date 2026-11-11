@@ -389,6 +389,17 @@ describe("ci.yml obeys the answer: the workflow is evaluated, not read", () => {
     if (path === "needs.prepare-e2e.outputs.plan-ok") return "";
     if (/^steps\.\w+\.outputs\.\w+$/.test(path)) return "";
     if (path === "github.event_name") return ctx.event;
+    // The Hetzner server of the e2e shards (hcloud jobs): a same-repo event, no server.
+    if (path === "github.repository" || path === "github.event.pull_request.head.repo.full_name") return "armonia/topics-app";
+    if (path === "needs.hcloud.result") return ctx.answer.e2e === "false" ? "skipped" : "success";
+    if (path === "needs.prepare-e2e.result") return "success";
+    if (path === "needs.changes.result") return "success";
+    // The fixed server on (FISSO_CI unset reads as on), the PC off.
+    if (path === "vars.FISSO_CI") return "1";
+    if (path === "vars.PC_CI") return "0";
+    if (/^needs\.hcloud\.outputs\.\w+$/.test(path)) return "";
+    // The GitHub image (the server skips its apt cache and --with-deps).
+    if (path === "runner.environment") return "github-hosted";
     if (path === "matrix.shard") return ctx.shard;
     throw new Error(`the evaluator does not know the context "${path}": teach it here, do not skip the step`);
   }
@@ -485,18 +496,19 @@ describe("ci.yml obeys the answer: the workflow is evaluated, not read", () => {
 
   const EXEMPT = "Nothing the e2e shards read has changed";
 
-  it("only unit, gates, check and changes never wait for a path", () => {
+  it("only unit, gates, gates-2, check and changes never wait for a path", () => {
     const needsOf = (j: Job) => [j.needs ?? []].flat();
     expect(needsOf(jobs.unit!)).toEqual([]);
     expect(needsOf(jobs.gates!)).toEqual([]);
-    expect(needsOf(jobs.check!).sort()).toEqual(["gates", "unit"]);
+    expect(needsOf(jobs["gates-2"]!)).toEqual([]);
+    expect(needsOf(jobs.check!).sort()).toEqual(["gates", "gates-2", "unit"]);
     expect(needsOf(jobs.changes!)).toEqual([]);
     for (const name of ["prepare-e2e", "e2e", "process-groups", "tauri"]) expect(needsOf(jobs[name]!), name).toContain("changes");
   });
 
   it("a documents-only pull request: no heavy step runs, and the two jobs the board reads still end success", () => {
     const run = plan(answerOf(["docs/board-protocol.md"]), "pull_request");
-    expect(Object.keys(run).sort()).toEqual(["changes", "check", "e2e", "gates", "prepare-e2e", "unit"]);
+    expect(Object.keys(run).sort()).toEqual(["changes", "check", "e2e", "gates", "gates-2", "prepare-e2e", "unit"]);
     expect(run["prepare-e2e"]).toEqual([{ leg: "", steps: [EXEMPT] }]);
     // ONE leg named `e2e (0)`: the board matches /^e2e( \(\d+\))?$/ and wants every one of them success
     expect(run.e2e).toEqual([{ leg: "0", steps: [EXEMPT] }]);

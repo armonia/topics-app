@@ -1,0 +1,172 @@
+name: Posto degli shard e2e (PC, server fisso, GitHub)
+
+# Workflow riusabile. mode: create fa la mappa `placement` di dove va ogni job della matrice
+# e prenota i runner che servono; mode: delete li restituisce a fine run.
+#
+# Dall'11/11 (Attilio, Discord 10/11 23:31) i server Hetzner a richiesta non ci sono più: c'è UN
+# server fisso, topics-fisso (cx53, 16 vCPU, 32 GB, 29,49 €/mese), sempre acceso, che fa da
+# runner della CI e da nodo di Topics. Sopra ci girano runner PERSISTENTI (deploy/fisso/ci-runners.sh):
+# 4 con l'etichetta `fisso` per gli shard e 1 `fisso-prep` per prepare-e2e. Topics ha la
+# precedenza (peso CPU e tetto di memoria del ci.slice).
+#
+# Ordine: PC di Attilio (runner del broker sul Mac, quando è libero), poi i runner liberi del
+# fisso, poi ubuntu-latest. Un runner del fisso si prenota aggiungendogli l'etichetta della run
+# (fz-<run>-<tentativo>, scripts/ci-fisso-reserve.sh): gli shard puntano a quella etichetta,
+# quindi uno shard non aspetta mai un runner occupato da un'altra run. Quello che non si
+# prenota va su GitHub subito: mai una run appesa.
+#
+# Repo PUBBLICO:
+# - create e delete girano su ubuntu-latest, mai su macchine nostre: sono gli unici job che
+#   vedono RUNNER_ADMIN_TOKEN, ed eseguono del ramo solo i due script della mappa;
+# - nessun token Hetzner nella CI: il server non lo crea né lo cancella più la CI;
+# - se qualcosa qui fallisce, `placement` resta vuota e ogni job va su GitHub.
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: create | delete
+        type: string
+        required: true
+      label:
+        description: (delete) etichetta di prenotazione restituita da create
+        type: string
+        default: ""
+      controller:
+        description: runs-on (JSON) dei job di create/delete
+        type: string
+        default: '"ubuntu-latest"'
+      shards:
+        description: (create) i job della matrice da piazzare, JSON (es. [0,1,2]); vuoto = nessuna mappa
+        type: string
+        default: ""
+      pc_slots:
+        description: (create) quanti runner del PC aspettare al massimo (0 = il PC non si chiede)
+        type: number
+        default: 0
+    outputs:
+      label:
+        value: ${{ jobs.create.outputs.label }}
+      runners:
+        description: quanti runner del fisso sono prenotati per questa run
+        value: ${{ jobs.create.outputs.runners }}
+      placement:
+        description: 'mappa {"s<N>": etichetta} di dove va ogni job; chi manca va su ubuntu-latest'
+        value: ${{ jobs.create.outputs.placement }}
+      attempt:
+        description: il tentativo della run per cui vale la mappa
+        value: ${{ jobs.create.outputs.attempt }}
+    secrets:
+      RUNNER_ADMIN_TOKEN:
+        required: true
+
+jobs:
+  create:
+    if: ${{ inputs.mode == 'create' }}
+    runs-on: ${{ fromJSON(inputs.controller) }}
+    timeout-minutes: 10
+    # A red here would make the whole run red, and auto-bump ships only green runs of main:
+    # the machines can make the run faster, never red. Without outputs every job goes to GitHub.
+    continue-on-error: true
+    outputs:
+      label: ${{ steps.online.outputs.label }}
+      runners: ${{ steps.online.outputs.hz_n }}
+      placement: ${{ steps.online.outputs.placement }}
+      attempt: ${{ github.run_attempt }}
+    steps:
+      - name: Ora di inizio
+        run: echo "JOB_T0=$(date +%s)" >> "$GITHUB_ENV"
+
+      # Solo i due script della mappa: questo job vede il token e non esegue altro codice del ramo.
+      - uses: actions/checkout@v5
+        if: ${{ inputs.shards != '' }}
+        with:
+          sparse-checkout: |
+            scripts/e2e-placement.sh
+            scripts/ci-fisso-reserve.sh
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      # QUANTI RUNNER CI SONO DAVVERO, E DOVE VA OGNI JOB.
+      #
+      # Il PC li accende il broker sul Mac (`ci-pc-broker`, in jarvis) quando vede questo job in
+      # corso e il PC è libero: etichetta pc-<run>-<tentativo>, runner effimeri JIT. Si aspetta il
+      # PC (al massimo 2 minuti) PRIMA di prenotare il fisso, così il fisso prende solo gli shard
+      # che il PC non prende e non tiene runner fermi che servirebbero a un'altra run.
+      - name: Runner online e posto di ogni job
+        id: online
+        env:
+          GH_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}
+          PC_WANT: ${{ (vars.PC_CI == '1' && inputs.shards != '') && inputs.pc_slots || 0 }}
+          FISSO: ${{ vars.FISSO_CI != '0' && inputs.shards != '' }}
+          SHARDS: ${{ inputs.shards }}
+        run: |
+          set -uo pipefail
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runners?per_page=100"
+          pc_label="pc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          hz_label="fz-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          count() {  # runner online con l'etichetta $1 e ancora liberi
+            curl -fsS -H "Authorization: Bearer $GH_TOKEN" "$api" 2>/dev/null \
+              | jq --arg l "$1" '[.runners[] | select(.status == "online" and (.busy | not) and any(.labels[]; .name == $l))] | length' 2>/dev/null \
+              || echo 0
+          }
+          hz_n=0; pc_n=0; prep=""
+          pc_end=$(( ${JOB_T0:-$(date +%s)} + 120 ))
+          while [ "${PC_WANT:-0}" -gt 0 ]; do
+            pc_n=$(count "$pc_label")
+            [ "$pc_n" -ge "$PC_WANT" ] || [ "$(date +%s)" -ge "$pc_end" ] && break
+            sleep 10
+          done
+          [ "$pc_n" -gt "${PC_WANT:-0}" ] && pc_n=$PC_WANT
+          if [ "${PC_WANT:-0}" -gt 0 ] && [ "$(count "$pc_label-prep")" -gt 0 ]; then prep="$pc_label-prep"; fi
+          if [ "$FISSO" = "true" ]; then
+            want=$(( $(jq length <<<"$SHARDS") - pc_n ))
+            hz_n=$(bash scripts/ci-fisso-reserve.sh reserve fisso "$want" "$hz_label")
+            [[ $hz_n =~ ^[0-9]+$ ]] || hz_n=0
+            if [ -z "$prep" ] && [ "$(bash scripts/ci-fisso-reserve.sh reserve fisso-prep 1 "$hz_label-prep")" = 1 ]; then
+              prep="$hz_label-prep"
+            fi
+          fi
+          echo "label=$hz_label" >> "$GITHUB_OUTPUT"
+          echo "hz_n=$hz_n" >> "$GITHUB_OUTPUT"
+          placement='{}'
+          if [ -n "$SHARDS" ]; then
+            placement=$(bash scripts/e2e-placement.sh "$SHARDS" "$pc_label" "$pc_n" "$hz_label" "$hz_n" "$prep") || placement='{}'
+          fi
+          echo "placement=$placement" >> "$GITHUB_OUTPUT"
+          echo "PC: $pc_n runner ($pc_label) · fisso: $hz_n runner ($hz_label) · mappa: $placement"
+          echo "::notice title=Posto degli shard e2e::PC $pc_n, server fisso $hz_n, il resto su GitHub; prepare-e2e su ${prep:-GitHub}"
+
+  delete:
+    if: ${{ inputs.mode == 'delete' }}
+    runs-on: ${{ fromJSON(inputs.controller) }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts/ci-fisso-reserve.sh
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      # I runner del fisso tornano liberi per le altre run. Se questo passo salta, la prenotazione
+      # di una run finita la toglie la prossima `reserve` (o lo sweeper ogni ora).
+      - name: Restituisci i runner del fisso e togli quelli del PC
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}
+          LABEL: ${{ inputs.label }}
+        run: |
+          set -uo pipefail
+          lab=${LABEL:-fz-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}}
+          bash scripts/ci-fisso-reserve.sh release "$lab"
+          bash scripts/ci-fisso-reserve.sh release "$lab-prep"
+          echo "runner del fisso restituiti ($lab)"
+          # The PC's runners of this run that took no shard go too: once removed from
+          # GitHub their process on the PC exits (the broker on the Mac also sweeps them).
+          # A GitHub API hiccup here is a warning, not a red job: the sweeper retries.
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runners"
+          { curl -fsS -H "Authorization: Bearer $GH_TOKEN" "$api?per_page=100" \
+            | jq -r --arg q "pc-${GITHUB_RUN_ID}-" '.runners[] | select((.name | startswith($q)) and (.busy | not)) | .id' \
+            | while read -r id; do
+                curl -fsS -X DELETE -H "Authorization: Bearer $GH_TOKEN" "$api/$id" && echo "tolto runner $id"
+              done; } || echo "::warning::runner del PC di questa run non tolti da GitHub: li toglie lo sweeper"

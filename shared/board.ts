@@ -1213,6 +1213,8 @@ export function deriveQueueReason(
     dispatchAttempts: number;
     dispatchDeferredUntil: string | null | undefined;
     dispatchError?: string | null;
+    /** A scheduled run outside Topics works this card: it is not in the queue, and the card front says who and when. */
+    scheduledBy?: string | null;
     /**
      * CHI ha portato la card in review, quando non è stato l'agente. Serve a un
      * ramo solo — distinguere la domanda di sistema sui figli fermi da tutte le
@@ -1350,6 +1352,9 @@ export function deriveQueueReason(
   }
 
   if (task.status !== 'todo') return null;
+
+  // Planned work, not queued work: no queue sentence would be true here.
+  if (task.scheduledBy) return null;
 
   if (task.parentTaskId) {
     if (ctx.parentStatus === 'review') {

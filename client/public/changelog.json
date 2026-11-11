@@ -1,5 +1,260 @@
 [
   {
+    "version": "2.3.85",
+    "date": "2026-11-11",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Card programmata: niente chip «in coda» né timer di grazia all'arrivo in todo (#773)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.84",
+    "date": "2026-11-11",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "CI e nodo Topics su un server Hetzner fisso (topics-fisso, cx53) (#767)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Card programmate: chi e quando sul fronte, fuori dalla coda del dispatcher (#772)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.83",
+    "date": "2026-11-11",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Fable punta a claude-fable-5-2: alias dei sottoagenti, modelli serviti, prezzo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "il reset della demo rimonta anche la barra laterale, così un menu di riga rimasto aperto non copre più il dialogo «Nuova variante» (#769)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.82",
+    "date": "2026-11-10",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "il vincolo «solo Mac» di una corsa vuota sul nodo scade dopo 6 ore (#746)",
+          "en": "",
+          "scope": "overflow",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Browser degli agenti nella loro sezione, non nello spazio di lavoro (#744)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Node 413 becomes payload_too_large: the card parks with the body size instead of retrying forever",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Map payload_too_large in machines upstream status",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "topics/ready-equator (card 75dd2d5d) (#742)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "External proxy: relay absolute-form http:// requests instead of answering 501",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "retry_of nello schema e nel risultato, la sveglia di un guasto dice di passarlo (#639)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "document tray fetchLive main-thread lag root cause (#661)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "external-proxy.ts a 868 righe registrato nel baseline, il proxy ha preso la gestione del gateway",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/global-lance (card ca0c08ca) (#747)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/regal-jay (#706)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "stato 0.7/0.8 in attesa dell'ok al token",
+          "en": "",
+          "scope": "cloud-nodes",
+          "breaking": false
+        },
+        {
+          "it": "topics/shimmering-bugle (card 6b29e466) (#717)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/ancient-sprig (card e7371dbc) (#701)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/briny-badge (card 04c2b10f) (#748)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Hub, switchboard e tray dentro Topics: change con 13 tracce (#643)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "cloud-nodes Fase 2: pool di nodi Hetzner on demand (#755)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "deploy/cloud-node: fuori il .pyc entrato con la #755 (#757)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "topics/salty-horse (card 8d0492b7) (#709)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "cache dei pacchetti apt webview su ubuntu (#750)",
+          "en": "",
+          "scope": "tauri",
+          "breaking": false
+        },
+        {
+          "it": "6 worker invece di 4 (#751)",
+          "en": "",
+          "scope": "unit",
+          "breaking": false
+        },
+        {
+          "it": "Corsa remota persa non riporta in coda una card già in review, done o archiviata (#756)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Card fermate dalla macchina rientrano in coda da sole (#754)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "tre passi lenti su gates-2 in parallelo (#752)",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "e2e shards on an ephemeral Hetzner server (#745)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/lavish-plume (card cd972f2f) (#760)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/mild-chestnut (card 485681d6) (#682)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Cover the wake breaker through the remote lane: two vetoes open it (#762)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "torna a 4 worker (annulla #751) (#763)",
+          "en": "",
+          "scope": "unit",
+          "breaking": false
+        },
+        {
+          "it": "Review con domanda, attesa macchina azzerata al cambio, overflow che salta il nodo vuoto e tiene qui le card del Mac (#761)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "e2e su PC, poi Hetzner, poi GitHub (#759)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Una corsa vuota su una card che usa file di questo Mac torna in coda «solo Mac» anche se mandata a mano, invece di finire in review (#766)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "CI di main di nuovo verde: fast-xml-parser 5.12.0 in landing (GHSA-474x-hrwr-fgx4) e il test exit-grace aspetta l'eco dei rid prima di partire (#768)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.81",
     "date": "2026-11-10",
     "sections": {
@@ -180,9 +435,21 @@
           "breaking": false
         },
         {
+          "it": "board-card-live-fields in serie, il conteggio colonna letto da fermo",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
           "it": "Tab di anteprima nei progetti, e le chat degli agenti fuori dalla barra (#721)",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "niente attesa a tempo nel test dello stato",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
         },
         {
           "it": "Card e12b765a: ramo UI unito in un commit, senza gli script temporanei di lead (dati di persone)",
@@ -211,6 +478,12 @@
           "it": "topics/dawning-frost (card 97e3951f) (#727)",
           "en": "",
           "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "ogni test toglie le sue card dalla board",
+          "en": "",
+          "scope": "e2e",
           "breaking": false
         },
         {

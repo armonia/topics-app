@@ -63,6 +63,7 @@ import {
 } from "../providers/stop-reason";
 import { createRemoteNodeLane, isNodeSessionKey, type NodeDeps, type NodeSlot } from "./task-dispatcher-remote-node";
 import { carriedBranch } from "./branch-on-origin";
+import { wakeBreaker } from "./wake-breaker";
 import { OVERFLOW_AFTER_MS, OVERFLOW_MAX_PER_ROUND, overflowEligible, overflowNote, pickOverflowMachine, type OverflowMachine } from "./dispatch-overflow";
 import { createDispatchMemoryQueuePublisher, createDispatchMemoryQueueSnapshot } from "./dispatch-memory-queue";
 import { createDispatchMemoryStartController } from "./dispatch-memory-start";
@@ -2438,7 +2439,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // A delegated card's authority names THIS machine (`policy.machineId`):
     // moved, it would be parked over there as no longer valid.
     const delegated = delegatedPolicy(t) !== undefined;
-    if (!localId || !overflowEligible({ ...t, delegated }, settings, localId)) { memoryHeldSince.delete(t.id); return false; }
+    if (!localId || !overflowEligible({ ...t, delegated, description: t.description ?? t.descriptionPreview }, settings, localId)) { memoryHeldSince.delete(t.id); return false; }
     // Asked from the first held round, so the answer is in by the time it matters.
     const origin = overflowOriginOf(t.projectId);
     const held = unbrokenHold(t, round.no);
@@ -2447,7 +2448,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // Its own branch reaches origin first; `null` = the push is under way.
     if (overflowBranchReady(t) !== true) return false;
     let machines: OverflowMachine[] = [];
-    try { machines = deps.overflowMachines().filter((m) => m.id !== localId); } catch (err) { log("overflow: machine list failed", err); return false; }
+    try { machines = deps.overflowMachines().filter((m) => m.id !== localId && m.id !== t.overflowSkipMachine); } catch (err) { log("overflow: machine list failed", err); return false; }
     let cloudCredit = true;
     try { cloudCredit = deps.cloudCredit?.() ?? (!providerHold() && !providerHold(Date.now(), CLOUD_HOLD_KEY)); } catch { cloudCredit = false; }
     const target = pickOverflowMachine(machines, {
@@ -2457,6 +2458,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       model: t.model ?? (settings.dispatchModel && settings.dispatchModel !== "auto" ? settings.dispatchModel : null),
       // Read after this round's own moves: they are written before the next card is asked.
       load: machineLoad,
+      wakeBlocked: (id) => wakeBreaker.isOpen(id),
     });
     if (!target) return false;
     let moved: Task | null = null;
@@ -5320,6 +5322,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     }
     const manualTaskId = manualMemoryStart.selectedTask(projectId);
     if (manualTaskId) todos = todos.filter((task) => task.id === manualTaskId);
+    // A card a scheduled run outside Topics works is not part of this queue at
+    // all: no claim, no queue chip, no parking. The run does the work.
+    todos = todos.filter((task) => !task.scheduled);
     const nowIso = new Date().toISOString();
     // Budget dei tentativi finito = NON riproverà MAI più, e finché lo si scarta
     // in silenzio la card resta in colonna «coda» fingendosi lavorabile: nessun
@@ -5339,6 +5344,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // chi aspetta un altro task non sta fallendo.
     const pronto = (t: Task) =>
       !t.assignedTopicId &&
+      !t.scheduled &&
       (!t.dispatchDeferredUntil || t.dispatchDeferredUntil <= nowIso) &&
       (() => { try { return !deps.svc.isDispatchBlocked(t.id); } catch { return true; } })();
     const exhausted = todos.filter((t) => pronto(t) && t.dispatchAttempts >= settings.dispatchRetryCap);
@@ -6223,6 +6229,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // never fire — the chip would strand). The client derives its own
     // "in attesa di…" chip from blockedByTaskId; onBlockerDone re-kicks it.
     try { if (deps.svc.isDispatchBlocked(taskId)) return; } catch { /* fall through */ }
+    // A card a scheduled run works is planned, not queued: no chip, no grace timer.
+    try { if (deps.svc.get(taskId)?.task?.scheduled) return; } catch { return; }
     // Show "queued" immediately; the claim waits out the grace window so a quick
     // drag-through never spawns. If the task still carries a topic binding (it was
     // dispatched before and dragged back from review/done), clear the binding via
@@ -6883,6 +6891,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         emit(t);
       }
     } catch (err) { log("sweep delle serie di attese fallito", err); }
+    // 1-quater-bis) A CARD PARKED BY THE MACHINE GOES BACK BY ITSELF (see
+    //    `sweepMachineWaitedOut`). After the pass above: a card parked just now
+    //    has a fresh `updated_at` and does not come back in the same pass.
+    try {
+      for (const t of deps.svc.sweepMachineWaitedOut({ eligible: acceso })) {
+        log(`card fermata dalla macchina rimessa in coda: ${t.id}`);
+        emit(t);
+      }
+    } catch (err) { log("rientro delle card fermate dalla macchina fallito", err); }
     // 2) Opportunistically fill free slots on every board that has queued todos.
     //
     //    UNA PROIEZIONE, NON I TASK. Qui serve un insieme di id di board, e si

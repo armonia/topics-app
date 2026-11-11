@@ -5491,3 +5491,35 @@ The body of a card in progress SHALL show ONE progress line: the last step of th
 - **WHEN** a task is in progress and a tool is running
 - **THEN** the body SHALL show the tool step as its single progress line
 - **AND** the measure band SHALL show the full model name and the time without cutting either
+
+### Requirement: KANBAN-110 - A session route signs as its caller, not as the session named in the URL
+
+The `/api/sessions/:sessionKey/...` and `/api/orchestrator-sessions/:sessionKey/...` routes SHALL take the signature from the session token the caller carries (`lib/session-token.ts`), never from the key in the path. A token of another session SHALL be refused with 403 on every write route; no token SHALL sign as an anonymous agent with no topic. The coordinator's routes SHALL refuse a missing token too. A delivery the server re-issues after its checks SHALL be signed again for the same coordinator.
+
+#### Scenario: a forged signature
+- **WHEN** an agent posts a comment on another session's route carrying its own token
+- **THEN** the route SHALL answer 403 and no comment SHALL be written
+
+#### Scenario: the coordinator's delivery after the checks
+- **WHEN** the coordinator delivers to review with checks pending and stops polling
+- **THEN** the server's re-issued PATCH SHALL be accepted and the card SHALL reach review
+
+### Requirement: KANBAN-111 - A board agent cannot declare its own model
+
+For a topic that is the agent of a board task, `model` SHALL change only from the interface (the interface mark and no agent credential, `lib/created-by.ts`). A PATCH from the agent's own credential naming a model SHALL be refused and the stored model SHALL stay.
+
+#### Scenario: the agent claims a model
+- **WHEN** the agent of a board task PATCHes its topic with a model
+- **THEN** the route SHALL refuse it and the thread SHALL keep showing the model the interface set
+
+### Requirement: KANBAN-112 — A card worked by a scheduled run is never dispatched
+
+A card MAY carry `scheduled` (`{ by, at }`): a run outside Topics (a timed job of an assistant) does its work, `by` names who and `at` says when. While it is set the dispatcher SHALL NOT claim the card, SHALL NOT count it in the queue, and SHALL NOT give it a queue reason, whatever its column. The card front SHALL show who and when.
+
+#### Scenario: a scheduled card in todo
+- **WHEN** a card in todo carries `scheduled`
+- **THEN** the claim SHALL return nothing, the other cards SHALL not count it ahead of them, and the card SHALL show «⏰ who · when»
+
+#### Scenario: the schedule is removed
+- **WHEN** `scheduled` is cleared on a card in todo
+- **THEN** the card SHALL be claimable again

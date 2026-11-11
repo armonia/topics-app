@@ -104,6 +104,19 @@ const asPastIsoUtc = (raw: unknown): FieldRead => {
   return t <= Date.now() ? ok(s) : no(`una data di chiusura non sta nel futuro, ricevuto "${s}"`);
 };
 
+/**
+ * The scheduled run that works the card outside Topics: `{ by, at }`, with `by`
+ * a non-blank name and `at` an ISO instant or null. `null` clears it.
+ */
+const asScheduled = (raw: unknown): FieldRead => {
+  if (raw === null) return ok(null);
+  if (typeof raw !== "object" || Array.isArray(raw)) return no(`atteso { by, at } o null, ricevuto ${kindOf(raw)}`);
+  const { by, at } = raw as { by?: unknown; at?: unknown };
+  if (typeof by !== "string" || !by.trim()) return no("scheduled.by: serve un nome");
+  if (at != null && (typeof at !== "string" || Number.isNaN(Date.parse(at)))) return no("scheduled.at: attesa una data ISO o null");
+  return ok({ by: by.trim().slice(0, 60), at: at ? new Date(at as string).toISOString() : null });
+};
+
 /** Stato: uno dei cinque della board. */
 const asStatus = (raw: unknown): FieldRead => {
   const read = asString(raw);
@@ -136,6 +149,7 @@ const HUMAN_FIELDS: Record<string, FieldSpec> = {
   created_source: { to: "createdSource", read: asStringOrNull },
   kanbanOrder: { to: "kanbanOrder", read: asNumber },
   dueDate: { to: "dueDate", read: asStringOrNull },
+  scheduled: { to: "scheduled", read: asScheduled },
   outputUrl: { to: "outputUrl", read: asStringOrNull },
   output_url: { to: "outputUrl", read: asStringOrNull },
   summary: { to: "summary", read: asString },
@@ -186,6 +200,8 @@ const AGENT_FIELDS: Record<string, FieldSpec> = {
   created_source: { to: "createdSource", read: asStringOrNull },
   outputUrl: { to: "outputUrl", read: asStringOrNull },
   output_url: { to: "outputUrl", read: asStringOrNull },
+  // Scripts that sync timed runs (task-sync) write with the agent token.
+  scheduled: { to: "scheduled", read: asScheduled },
   // THE DELIVERY IN WORDS, which the agent sends together with
   // `status: 'review'`. Not a task field: the service writes it into the thread
   // as a `kind: 'delivery'` comment, and without it review is refused.

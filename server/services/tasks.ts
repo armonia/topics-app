@@ -36,7 +36,12 @@ import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
 import { readChecksMemFloorGB, readGlobalCap, readSpendCaps } from "./dispatch-capacity";
 import { checksMemFloorGB } from "../../shared/checks-memory-floor";
 import { parseCreatedBy, UNOWNED_BACKLOG_MS } from "../../shared/created-by";
+/** Automatic requeues of a machine-parked card before it stays for a human. */
+export const MACHINE_RETRY_CAP = 3;
+/** First delay before a machine-parked card goes back to todo; doubles each round. */
+export const MACHINE_RETRY_BASE_MS = 30 * 60_000;
 import { agentCardGaps, incompleteCardNotice, INCOMPLETE_CARD_NOTICE_PREFIX } from "../../shared/agent-card-contract";
+import { waitsLineAsk } from "../../shared/waits-on-person";
 import { STAGE_AI_REVIEW, STAGE_HUMAN_REVIEW, agentAskInThread, awaitsHumanSql, defaultColumnFor, namesHumanReviewWithoutAsk, stageAtBirth, stageForDelivery, stageForStatusChange, type WorkflowColumn, type WorkflowPresetId } from "../../shared/workflow";
 import { requestAiReviewNotice } from "./ai-review-notice";
 import { checkStage, clearStagesOutsideWorkflow, dropStageOutsideTarget, readBoardWorkflow, routeAskOutOfAiReview, stampStaleAiReview, clearAiReviewReminderStamp, writeBoardWorkflow } from "./board-workflow";
@@ -685,6 +690,8 @@ export interface TaskService {
    * parking it would cut that turn in half.
    */
   sweepWaitedOut(args?: { eligible?: (projectId: string) => boolean; busy?: (taskId: string) => boolean }): Task[];
+  /** Cards parked `waited_out` by a MACHINE wait (node down, PC asleep), put back in todo after a doubling delay, up to `MACHINE_RETRY_CAP` times. */
+  sweepMachineWaitedOut(args?: { eligible?: (projectId: string) => boolean }): Task[];
   /**
    * Cards that sat in backlog past `UNOWNED_BACKLOG_MS` with nobody on them
    * (`UNOWNED_BACKLOG_SQL`). Each one is returned ONCE per round: the sweep
@@ -754,6 +761,8 @@ export interface TaskService {
    * si tocca (una correzione che scade alla consegna dopo non è una correzione).
    */
   deriveLabelsFromDiff(args: { taskId: string; files: readonly TaskFile[] }): Task | null;
+  /** True when the card is archived (soft-deleted). Optional so fakes need not implement it. */
+  isArchived?(taskId: string): boolean;
   /** Soft-delete (archive) — the row stays for history but drops off the board. */
   /**
    * Fonde `taskId` dentro `intoTaskId`: il thread e i sottotask passano alla
@@ -1979,6 +1988,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           AND t.assigned_topic_id IS NULL
           AND t.dispatch_attempts < COALESCE(bs.dispatch_retry_cap, 2)
           AND (t.dispatch_deferred_until IS NULL OR t.dispatch_deferred_until <= ?)
+          AND t.scheduled_by IS NULL
           AND (t.blocked_by_task_id IS NULL OR EXISTS (
                  SELECT 1 FROM tasks bk
                   WHERE bk.id = t.blocked_by_task_id AND (bk.status = 'done' OR bk.archived = 1)))
@@ -2520,6 +2530,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           dispatchAttempts: r.dispatch_attempts ?? 0,
           dispatchDeferredUntil: r.dispatch_deferred_until ?? null,
           dispatchError: r.dispatch_error ?? null,
+          scheduledBy: r.scheduled_by ?? null,
           deliveredReason: r.delivered_reason ?? null,
           blockedByTaskId: r.blocked_by_task_id ?? null,
           blockedBy: r.blocked_by_task_id ? (b.blockers.get(r.blocked_by_task_id) ?? null) : null,
@@ -2673,6 +2684,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // `checksCommit`, `doneActor`, `waitStreak`/`waitReason`/`waitSince`,
       // and `parentTaskId`, where null means root.
       ...(r.due_date ? { dueDate: r.due_date } : {}),
+      ...(r.scheduled_by ? { scheduled: { by: r.scheduled_by, at: r.scheduled_at ?? null } } : {}),
       ...(r.chat_id ? { chatId: r.chat_id } : {}),
       ...(r.completed_at ? { completedAt: r.completed_at } : {}),
       ...(r.plan_comment_id ? { planCommentId: r.plan_comment_id } : {}),
@@ -2705,6 +2717,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // A pin with a deadline (`stay_local_until`, set after an empty node run)
       // reads as unmarked once the deadline is past.
       stayLocal: !!r.stay_local && !(r.stay_local_until && r.stay_local_until <= now()),
+      ...(r.overflow_skip_machine && r.overflow_skip_until && r.overflow_skip_until > now() ? { overflowSkipMachine: r.overflow_skip_machine } : {}),
       // Only while it still runs where the overflow sent it.
       ...(r.overflowed_at && r.machine_id ? { overflowedAt: r.overflowed_at } : {}),
       ...(r.base_branch ? { baseBranch: r.base_branch } : {}),
@@ -3857,6 +3870,22 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     });
   }
 
+  /**
+   * The question a card carries into review when nobody wrote one: the
+   * «aspetta: attilio — …» line of its description, else the move the
+   * delivery itself names (a branch to look at, the system's next move).
+   * Without it the card sat in review asking nothing, and nobody knew what to
+   * decide (10/11: e9a68aa7 had the line, 887341aa and cd972f2f a node delivery).
+   */
+  // Never an invented question: a card with no line and no declared move stays without one, so the auto-land
+  // (which refuses a card that asks something) still takes a green invisible delivery.
+  function reviewAskFallback(row: { description?: string | null }, hint?: string | null, description?: string | null): string | null {
+    const line = waitsLineAsk(description ?? row.description);
+    if (line) return line;
+    if (hint && hint.trim()) return hint.trim().split("\n")[0]!.slice(0, 240);
+    return null;
+  }
+
   /** `agentAskInThread` (shared/workflow.ts) on this card's thread. */
   function agentAskOnThread(taskId: string): string | null {
     try { return agentAskInThread(service.get(taskId)?.comments ?? []); } catch { return null; }
@@ -3868,11 +3897,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * `humanAsk` the question the thread or the system asks the person. Written
    * only when it changes something, like `update()`.
    */
-  function routeSystemDelivery(taskId: string, humanAsk: string | null): void {
+  function routeSystemDelivery(taskId: string, humanAsk: string | null, fallback?: string | null): void {
     const row = getTaskRow(taskId);
     if (!row || row.parent_task_id) return;
     const stage = stageForDelivery(readBoardWorkflow(db, row.project_id).columns, { createdBy: row.created_by, humanAsk });
-    if (stage === null && row.stage == null && row.human_ask == null) return;
+    // A card that reaches the person says what it asks (10/11, `solido`: three cards in review with no question)
+    if (!humanAsk && stage !== STAGE_AI_REVIEW) humanAsk = reviewAskFallback(row, fallback);
+    if (stage === null && row.stage == null && row.human_ask == null && !humanAsk) return;
     db.prepare("UPDATE tasks SET stage = ?, human_ask = ? WHERE id = ?").run(stage, humanAsk, taskId);
     if (stage === STAGE_AI_REVIEW) announceAiReview(taskId);
   }
@@ -4190,6 +4221,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           nextStage = stageForStatusChange(columns, { from: current, to: patch.status!, byAgent: actor === "agent", createdBy: row.created_by, humanAsk });
         }
       }
+      // Into review without a question for the person: the card says one anyway (`reviewAskFallback`),
+      // unless the workflow sends it to AI review, where the opener and not the person closes it.
+      if (!row.parent_task_id && patch.status === "review" && current !== "review" && !humanAsk
+        && (nextStage ?? row.stage) !== STAGE_AI_REVIEW) {
+        humanAsk = reviewAskFallback(row, null, patch.description);
+        askFromThread = !!humanAsk;
+      }
 
       if (patch.status !== undefined) {
         if (!STATUSES.includes(patch.status)) throw new TaskServiceError("invalid_input", `invalid status "${patch.status}"`);
@@ -4345,6 +4383,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       if (patch.assignedTo !== undefined) put("assigned_to", patch.assignedTo);
       if (patch.dueDate !== undefined) put("due_date", patch.dueDate);
+      if (patch.scheduled !== undefined) {
+        const by = patch.scheduled?.by?.trim() || null;
+        put("scheduled_by", by);
+        put("scheduled_at", by ? (patch.scheduled?.at ?? null) : null);
+        // Out of the queue: a 'queued' chip on it would promise an agent that never comes.
+        if (by && row.dispatch_state === "queued") put("dispatch_state", null);
+      }
       if (patch.kanbanOrder !== undefined) put("kanban_order", patch.kanbanOrder);
       if (patch.outputUrl !== undefined) {
         const url = (patch.outputUrl ?? "").trim();
@@ -4394,6 +4439,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // A person's mark holds for good: it clears any deadline the dispatcher set.
       if (patch.stayLocalUntil !== undefined) put("stay_local_until", patch.stayLocalUntil);
       else if (patch.stayLocal !== undefined) put("stay_local_until", null);
+      if (patch.overflowSkip !== undefined) {
+        put("overflow_skip_machine", patch.overflowSkip?.machineId ?? null);
+        put("overflow_skip_until", patch.overflowSkip?.until ?? null);
+      }
       if (patch.blockedByTaskId !== undefined) {
         if (patch.blockedByTaskId) assertBlockerValid(taskId, patch.blockedByTaskId);
         put("blocked_by_task_id", patch.blockedByTaskId || null);
@@ -4606,6 +4655,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // aperta tornerebbe a mordere al primo riavvio del lavoro, contando
         // insieme attese separate da giorni.
         if ((patch.status === "todo" && actor === "human") || patch.status === "review" || patch.status === "done") {
+          // A human gesture (or a delivery) also resets the automatic requeues:
+          // the cap counts the machine's own rounds, not the card's lifetime.
+          put("auto_requeues", 0);
+          put("wait_source", null);
           put("wait_streak", 0);
           put("wait_reason", null);
           put("wait_since", null);
@@ -4639,6 +4692,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // The question for the person belongs to one delivery: back to work drops it.
       if (patch.humanAsk !== undefined || askFromThread) put("human_ask", humanAsk);
       else if (row.human_ask != null && patch.status !== undefined && patch.status !== "review" && patch.status !== "done") put("human_ask", null);
+      // A card moved to another machine (or pinned to this Mac) no longer waits for the old node: the series named a
+      // machine it will not go to, and kept counting hours (10/11: 1dc60129 «cloud claude non risponde» for 7 h after
+      // being pinned here; 966dc257 and c5aab453 still «PC non pronto» after the empty-run requeue to the Mac).
+      if (((patch.machineId !== undefined && (patch.machineId ?? null) !== (row.machine_id ?? null)) || (patch.stayLocal === true && !row.stay_local))
+        && (row.wait_reason != null || row.wait_since != null) && patch.status === undefined) {
+        put("wait_streak", 0);
+        put("wait_reason", null);
+        put("wait_since", null);
+        put("wait_source", null);
+      }
       put("updated_at", now());
 
       db.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...params, taskId);
@@ -5213,6 +5276,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       );
     },
 
+    isArchived(taskId: string): boolean {
+      return !!getTaskRow(taskId)?.archived;
+    },
+
     archive({ taskId, projectId }): Task {
       const row = getTaskRow(taskId);
       if (!row || (projectId && row.project_id !== projectId)) {
@@ -5458,6 +5525,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
                 dispatch_deferred_until = NULL, updated_at = ?
           WHERE id = ? AND status = 'todo' AND assigned_topic_id IS NULL AND dispatch_attempts < ?
             AND (dispatch_deferred_until IS NULL OR dispatch_deferred_until <= ?)
+            -- A scheduled run outside Topics does this card's work: an agent on top would do it twice.
+            AND scheduled_by IS NULL
             AND (blocked_by_task_id IS NULL OR EXISTS (
                   SELECT 1 FROM tasks bk
                    WHERE bk.id = tasks.blocked_by_task_id AND (bk.status = 'done' OR bk.archived = 1)))`,
@@ -5572,6 +5641,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // A limitare le attese ci pensano i loro tetti, qui sotto.
       const rimborso = "dispatch_attempts = MAX(dispatch_attempts - 1, 0),";
 
+      // Who declared the wait decides whether the resulting park comes back by
+      // itself (`sweepMachineWaitedOut`). Written before the caps so the park
+      // right below reads it too.
+      db.prepare("UPDATE tasks SET wait_source = ? WHERE id = ?").run(source === "machine" ? "machine" : "agent", taskId);
       const ceiling = source === "machine" ? WAIT_STREAK_CAP : AGENT_WAIT_STREAK_CAP;
       if (streak > ceiling || serieMs >= WAIT_SERIES_MAX_MS) {
         return parkWaitedOut(this, { row, streak, serieMs, chiave, since, detto, ts, refundAttempt: true });
@@ -5766,7 +5839,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // THE BOARD'S WORKFLOW ROUTES THIS DELIVERY TOO: a machine card goes
       // back to whoever opened it unless the AGENT's last word (not the
       // thread's: this door writes its own notes under it) asks the person.
-      routeSystemDelivery(taskId, agentAskOnThread(taskId));
+      routeSystemDelivery(taskId, agentAskOnThread(taskId), nextMove);
       // Open the pending review approval so the review decision flow works, just
       // like an agent-initiated hand-off would.
       try {
@@ -6067,6 +6140,50 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // give back. Refunding would hand the card a retry it never spent.
         refundAttempt: false,
       });
+    },
+
+    sweepMachineWaitedOut({ eligible } = {}): Task[] {
+      // A CARD PARKED BY THE MACHINE GOES BACK BY ITSELF. The `waited_out` park
+      // asks a human to decide, which is right for a wait an agent named; for a
+      // silent node or a PC that does not wake up the condition usually comes
+      // back on its own, and the card sat in backlog for hours (2026-11-10:
+      // 1dc60129, parked while the cloud node came back). Here it returns to
+      // todo after a doubling delay (30, 60, 120 min), at most
+      // `MACHINE_RETRY_CAP` times: if the node is still silent the card goes
+      // through the wait caps again and re-parks, until the cap stops the loop.
+      const ts = now();
+      const nowMs = Date.parse(ts);
+      let rows: Array<{ id: string; project_id: string; updated_at: string; auto_requeues: number }> = [];
+      try {
+        rows = db.prepare(
+          `SELECT id, project_id, updated_at, auto_requeues FROM tasks
+            WHERE archived = 0 AND status = 'backlog' AND dispatch_state = ?
+              AND wait_source = 'machine' AND auto_requeues < ?`,
+        ).all(PARKED_WAITED_OUT, MACHINE_RETRY_CAP) as typeof rows;
+      } catch { return []; }
+      const out: Task[] = [];
+      for (const r of rows) {
+        const n = Number(r.auto_requeues) || 0;
+        if (nowMs - Date.parse(r.updated_at) < MACHINE_RETRY_BASE_MS * 2 ** n) continue;
+        if (eligible) { let ok = false; try { ok = eligible(r.project_id); } catch { ok = false; } if (!ok) continue; }
+        const res = db.prepare(
+          `UPDATE tasks SET status = 'todo', dispatch_state = NULL, dispatch_error = NULL, dispatch_attempts = 0,
+              dispatch_deferred_until = NULL, wait_streak = 0, wait_reason = NULL, wait_since = NULL,
+              auto_requeues = auto_requeues + 1, updated_at = ?
+            WHERE id = ? AND status = 'backlog' AND dispatch_state = ? AND wait_source = 'machine'`,
+        ).run(ts, r.id, PARKED_WAITED_OUT);
+        if (!res.changes) continue;
+        logStatus(r.id, "backlog", "todo", "dispatcher");
+        try {
+          this.addComment({
+            taskId: r.id, author: "system", kind: "service",
+            content: `Rimessa in coda da sola (giro ${n + 1} di ${MACHINE_RETRY_CAP}): era ferma per una condizione della macchina, che può essere tornata.`,
+          });
+        } catch { /* the note never blocks the requeue */ }
+        const t = getTaskRow(r.id);
+        if (t) out.push(rowToTask(t));
+      }
+      return out;
     },
 
     sweepWaitedOut({ eligible, busy } = {}): Task[] {
