@@ -1,3 +1,4 @@
+/** @covers KANBAN-73 */
 import { describe, expect, test } from 'bun:test';
 import { readableCommentContent } from './readableCommentContent';
 
