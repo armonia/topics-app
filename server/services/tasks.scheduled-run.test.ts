@@ -1,11 +1,11 @@
 /**
- * UNA CARD PROGRAMMATA NON LA PRENDE NESSUN AGENTE.
+ * A SCHEDULED CARD IS NEVER CLAIMED BY AN AGENT.
  *
- * Il lavoro di una card collegata a un giro a orario (una mail, una telefonata
- * a un cliente) lo fa quel giro. Se il dispatcher la reclamasse, un agente
- * rifarebbe lo stesso lavoro: un doppione verso una persona vera non si
- * annulla. Qui si prova sul punto critico: il CAS del claim e la fila
- * (`rankQueue`, letta come «quanti ne ho davanti»).
+ * The work of a card tied to a timed run (a mail, a call to a client) is done
+ * by that run. If the dispatcher claimed it, an agent would do the same work
+ * again, and a duplicate sent to a real person cannot be undone. Proven at the
+ * critical point: the claim CAS and the queue (`rankQueue`, read as "how many
+ * are ahead of me").
  */
 import { test, expect, describe, beforeEach, beforeAll, afterAll } from "bun:test";
 import type { Database } from "bun:sqlite";
