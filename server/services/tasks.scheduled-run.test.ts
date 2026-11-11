@@ -72,6 +72,14 @@ describe("card scheduled: fuori dalla coda del dispatcher", () => {
     expect(s.get(scheduled.id)!.task.queueReason).toBeNull();
   });
 
+  test("scheduling a queued card turns its queue chip off", () => {
+    const t = s.create({ projectId: PID, text: "Giro a orario" });
+    toTodo(s, t.id);
+    s.setDispatchState({ taskId: t.id, state: "queued" });
+    s.update({ taskId: t.id, actor: "human", by: "mario", patch: { scheduled: { by: "Jarvis", at: AT } } });
+    expect(s.get(t.id)!.task.dispatchState).toBeNull();
+  });
+
   test("il payload porta chi e quando", () => {
     const t = s.create({ projectId: PID, text: "Giro a orario" });
     s.update({ taskId: t.id, actor: "human", by: "mario", patch: { scheduled: { by: "Jarvis", at: AT } } });

@@ -4387,6 +4387,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         const by = patch.scheduled?.by?.trim() || null;
         put("scheduled_by", by);
         put("scheduled_at", by ? (patch.scheduled?.at ?? null) : null);
+        // Out of the queue: a 'queued' chip on it would promise an agent that never comes.
+        if (by && row.dispatch_state === "queued") put("dispatch_state", null);
       }
       if (patch.kanbanOrder !== undefined) put("kanban_order", patch.kanbanOrder);
       if (patch.outputUrl !== undefined) {

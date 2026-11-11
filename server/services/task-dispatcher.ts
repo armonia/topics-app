@@ -6229,6 +6229,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // never fire — the chip would strand). The client derives its own
     // "in attesa di…" chip from blockedByTaskId; onBlockerDone re-kicks it.
     try { if (deps.svc.isDispatchBlocked(taskId)) return; } catch { /* fall through */ }
+    // A card a scheduled run works is planned, not queued: no chip, no grace timer.
+    try { if (deps.svc.get(taskId)?.task?.scheduled) return; } catch { return; }
     // Show "queued" immediately; the claim waits out the grace window so a quick
     // drag-through never spawns. If the task still carries a topic binding (it was
     // dispatched before and dragged back from review/done), clear the binding via
