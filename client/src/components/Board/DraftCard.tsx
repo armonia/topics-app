@@ -23,7 +23,7 @@ export function DraftCard({ draft }: { draft: DraftPreview }) {
     <div
       data-testid="kanban-draft-card"
       aria-label={tr('board.draft.label')}
-      className="rounded-lg border border-dashed border-app-border-light bg-white/[0.03] p-3 opacity-80"
+      className="rounded-lg border border-dashed border-app-border-light bg-black/[0.03] dark:bg-white/[0.03] p-3 opacity-80"
     >
       <p className="mb-1.5 text-mini font-medium uppercase tracking-wide text-app-text-muted">{tr('board.draft.label')}</p>
       {draft.images.length > 0 && (

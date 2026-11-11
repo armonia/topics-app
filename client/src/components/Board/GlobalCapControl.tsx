@@ -212,7 +212,7 @@ function CapChoice({ overflow }: { overflow?: OverflowSwitch }) {
             aria-checked={overflow.checked}
             data-testid="board-dispatch-overflow"
             onClick={() => overflow.onChange(!overflow.checked)}
-            className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${overflow.checked ? 'bg-emerald-500' : 'bg-white/20'}`}
+            className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${overflow.checked ? 'bg-emerald-500' : 'bg-black/20 dark:bg-white/20'}`}
           ><i className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${overflow.checked ? 'left-3.5' : 'left-0.5'}`} /></button>
         </label>
       )}
@@ -276,7 +276,7 @@ export function ChecksFloorField() {
           onChange={(e) => { const v = e.target.value; setDraft(v); }}
           onBlur={(e) => commit(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') commit((e.target as HTMLInputElement).value); }}
-          className="w-20 shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-right text-app-text outline-none"
+          className="w-20 shrink-0 rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-right text-app-text outline-none"
         />
       </label>
       {/* OFF IS A STATE WITH A NAME. A numeric field that changes meaning at one
@@ -383,7 +383,7 @@ function CountBrake({ quiet }: { quiet: boolean }) {
     <>
       {/* The live line comes before the controls: it is the one people come to
           read. */}
-      {!quiet && <RunningLine quiet={quiet} className={full ? 'text-amber-300' : 'text-app-text-heading'}>
+      {!quiet && <RunningLine quiet={quiet} className={full ? 'text-amber-800 dark:text-amber-300' : 'text-app-text-heading'}>
         {limit === null
           ? tr('board.dispatch.runningLoading')
           : !bounded
@@ -400,7 +400,7 @@ function CountBrake({ quiet }: { quiet: boolean }) {
         <p className="text-mini leading-snug"><Verdict admission={s.capacity.admission} cap={s.capacity} /></p>
       )}
       {full && (
-        <p className="text-mini leading-snug text-amber-300/80">
+        <p className="text-mini leading-snug text-amber-800/80 dark:text-amber-300/80">
           {tr(over ? 'board.dispatch.capOver' : 'board.dispatch.capFull')}
         </p>
       )}
@@ -438,7 +438,7 @@ function CountBrake({ quiet }: { quiet: boolean }) {
             max={GLOBAL_CAP_MAX}
             value={lastFixed}
             onChange={(e) => { void saveGlobalCap({ max: Number(e.target.value) }); }}
-            className="w-14 shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-right text-app-text outline-none"
+            className="w-14 shrink-0 rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-right text-app-text outline-none"
           />
         </label>
       )}
@@ -573,7 +573,7 @@ function BudgetSlider({ share, onCommit, onDraft }: {
         max={BUDGET_SHARE_MAX}
         step={0.05}
         value={shown}
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-white/10"
+        className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-black/5 dark:bg-white/10"
         onPointerDown={() => { dragging.current = true; }}
         onPointerUp={() => { dragging.current = false; if (draft != null) commit(draft); }}
         onPointerCancel={() => { dragging.current = false; if (draft != null) commit(draft); }}
