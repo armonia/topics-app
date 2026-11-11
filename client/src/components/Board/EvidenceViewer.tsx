@@ -43,7 +43,11 @@ function CompareFrame({ slide }: { slide: Extract<EvidenceSlide, { kind: 'pair' 
       data-testid="evidence-compare"
       className="relative select-none touch-none overflow-hidden rounded-lg shadow-2xl"
       style={{ aspectRatio: ratio, width: `min(94vw, calc(88vh * ${ratio}))` }}
-      onPointerDown={(e) => { e.stopPropagation(); (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); move(e.clientX); }}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        move(e.clientX);
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* synthetic pointers have nothing to capture */ }
+      }}
       onPointerMove={(e) => { if (e.buttons || e.pointerType === 'touch') move(e.clientX); }}
       onClick={(e) => e.stopPropagation()}
     >
