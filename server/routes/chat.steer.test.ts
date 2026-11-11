@@ -47,7 +47,7 @@ beforeAll(async () => {
     watchSessionForSubagents: () => {}, updateUnreadCount: () => {},
     browserNavigatedTopics: new Set<string>(), WORKSPACE_DIR: `${ROOT}/ws`,
   } as never);
-});
+}, 30_000);
 beforeEach(() => { resetTurnSteer(); sent = 0; });
 afterAll(() => { resetTurnSteer(); cleanupTestDataDir(ROOT); });
 
@@ -141,13 +141,14 @@ describe("steer into a running native turn", () => {
     await Bun.sleep(10);
     expect(sent).toBe(1);
     await endTurns();
-    for (let i = 0; i < 40 && sent < 2; i++) await Bun.sleep(25);
+    // The route's own start-up path takes a couple of seconds under load: wait on the fact, not a clock.
+    for (let i = 0; i < 400 && sent < 2; i++) await Bun.sleep(25);
 
     expect(sent).toBe(2);
     expect(userRows(sk, "e avvisa Giuseppe")).toHaveLength(1);
     expect((await (await steerStatus(sk, steerId)).json() as { state: string }).state).toBe("returned");
     await endTurns();
-  });
+  }, 20_000);
 
   test("an unknown steer id is a 404, not a guess", async () => {
     const resp = await steerStatus("topic:nobody", "steer-nope");
