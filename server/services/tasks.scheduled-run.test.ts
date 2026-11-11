@@ -33,7 +33,7 @@ function toTodo(s: TaskService, taskId: string) {
   return s.update({ taskId, actor: "human", by: "mario", patch: { status: "todo" } });
 }
 
-describe("card programmata: fuori dalla coda del dispatcher", () => {
+describe("card scheduled: fuori dalla coda del dispatcher", () => {
   let db: Database; let s: TaskService;
   beforeEach(() => {
     clock = 0;
@@ -42,7 +42,7 @@ describe("card programmata: fuori dalla coda del dispatcher", () => {
     s = svc(db);
   });
 
-  test("il claim rifiuta una card programmata in todo", () => {
+  test("il claim rifiuta una card scheduled in todo", () => {
     const t = s.create({ projectId: PID, text: "Mail al cliente finto" });
     toTodo(s, t.id);
     s.update({ taskId: t.id, actor: "human", by: "mario", patch: { scheduled: { by: "Jarvis", at: AT } } });
@@ -58,16 +58,16 @@ describe("card programmata: fuori dalla coda del dispatcher", () => {
     expect(s.claim({ taskId: t.id, cap: 5, maxAttempts: 3 })?.status).toBe("in_progress");
   });
 
-  test("una card programmata non conta nella fila e non ha frase di coda", () => {
-    const programmata = s.create({ projectId: PID, text: "Giro a orario", priority: 4 });
-    const normale = s.create({ projectId: PID, text: "Lavoro da agente" });
-    toTodo(s, programmata.id);
-    toTodo(s, normale.id);
-    s.update({ taskId: programmata.id, actor: "human", by: "mario", patch: { scheduled: { by: "Jarvis", at: AT } } });
-    const reason = s.get(normale.id)!.task.queueReason;
+  test("una card scheduled non conta nella fila e non ha frase di coda", () => {
+    const scheduled = s.create({ projectId: PID, text: "Giro a orario", priority: 4 });
+    const regular = s.create({ projectId: PID, text: "Lavoro da agente" });
+    toTodo(s, scheduled.id);
+    toTodo(s, regular.id);
+    s.update({ taskId: scheduled.id, actor: "human", by: "mario", patch: { scheduled: { by: "Jarvis", at: AT } } });
+    const reason = s.get(regular.id)!.task.queueReason;
     expect(reason?.kind).toBe("slot");
     expect(reason?.params?.ahead ?? 0).toBe(0);
-    expect(s.get(programmata.id)!.task.queueReason).toBeNull();
+    expect(s.get(scheduled.id)!.task.queueReason).toBeNull();
   });
 
   test("il payload porta chi e quando", () => {
