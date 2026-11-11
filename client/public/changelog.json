@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.85",
+    "date": "2026-11-11",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Card programmata: niente chip «in coda» né timer di grazia all'arrivo in todo (#773)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.84",
     "date": "2026-11-11",
     "sections": {
