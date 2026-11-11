@@ -2334,7 +2334,9 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          -- Same migration: the branch kept when the card went back to the queue.
          prior_branch = 'topics/endless-calf',
          -- Same migration: the uncommitted files kept when it went back to the queue.
-         prior_uncommitted_files = 3
+         prior_uncommitted_files = 3,
+         -- 20261111140000: the plain-words summary and the key it came from.
+         for_you = '{"asked":"a","happened":"b","done":"c","remains":"d","options":[]}', for_you_key = 'k'
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite

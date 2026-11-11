@@ -103,6 +103,7 @@ import { createCheckpointsRouter } from "./server/routes/checkpoints";
 import { createGoalsRouter } from "./server/routes/goals";
 import { createPlanRouter } from "./server/routes/plan";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
+import { forYouSweep } from "./server/services/task-for-you";
 import { createTaskService, projectIdForPath } from "./server/services/tasks";
 import { mainPushGit, pushMainToOrigin, sweepUnpushedMains } from "./server/services/main-on-origin";
 import { configureChannelOriginCards } from "./server/lib/channel-origin-cards";
@@ -2406,6 +2407,18 @@ const taskDispatcher = createTaskDispatcher({
 });
 const scheduledCardsTimer = setInterval(tickScheduledCards, 15_000);
 scheduledCardsTimer.unref?.();
+
+// The plain-words «Per te» summary of every card in Review (`services/task-for-you.ts`).
+let forYouRunning = false;
+const forYouTimer = setInterval(() => {
+  if (forYouRunning) return;
+  forYouRunning = true;
+  void forYouSweep(ctx.db, () => tryGetProvider() ?? null, (taskId, projectId) => {
+    const task = dispatcherSvc.get(taskId, { projectId })?.task;
+    if (task) ctx.broadcastToAll({ type: "task:updated", projectId, task });
+  }).catch(() => { /* a summary is a convenience: the next pass retries */ }).finally(() => { forYouRunning = false; });
+}, 30_000);
+forYouTimer.unref?.();
 
 // Opt-in auto-merge on approve (board setting `dispatchAutoMerge`). Resolves a
 // task → its dispatch topic → worktree → project's main checkout, then merges the

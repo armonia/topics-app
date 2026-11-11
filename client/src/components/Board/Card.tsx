@@ -1639,6 +1639,10 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           )}
         </div>
       )}
+      {/* The first of the four plain-words lines the system wrote for the person («Per te»). */}
+      {task.status === 'review' && task.forYou && !(compact && pending) && (
+        <p data-testid="card-for-you" className="mt-1 line-clamp-2 break-words text-compact leading-snug font-medium text-app-text" title={task.forYou.remains}>{task.forYou.asked}</p>
+      )}
       {/* COMPACT: a question with quick replies shows both (`CompactQuestion`). */}
       {compact && task.status === 'review' && pending && (
         <CompactQuestion question={pending.question} options={replyOptions} busy={busy} onAnswer={answer} />

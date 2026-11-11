@@ -2645,6 +2645,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
     <div className="-mx-3 -mt-3 mb-3 px-3 pt-3">
       <AskBox
         question={pending ? stripMarkdown(pending.question) : (task.humanAsk ?? null)}
+        forYou={task.forYou ?? null}
         options={pending ? replyOptions : []}
         busy={sending || busy || uploading}
         onAnswer={(opt) => void answerOption(opt)}
