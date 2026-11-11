@@ -11,11 +11,12 @@
 # Why each piece:
 # - one Linux user per runner (group `ci`), never root: the Topics node on this box
 #   trusts loopback as its owner, and a CI job must not reach it, nor the Mac's model
-#   proxy behind the ssh tunnel, its agent browser (CDP 19222), nor /home/topics
-#   (iptables by group, home 0700). Nor TAKE its ports: a job holding 3333 when
-#   topics.service restarts would push the node onto a random port outside the
-#   firewall and answer the Mac's tunnel itself, so the runner units deny binding
-#   them (SocketBindDeny);
+#   proxy behind the ssh tunnel (3301), its agent browser (CDP 19222), nor
+#   /home/topics (iptables by group, home 0700). Nor TAKE its ports: a job holding
+#   3333 when topics.service restarts would push the node onto a random port outside
+#   the firewall and answer the Mac's tunnel itself, so every port below 3342 is
+#   privileged (SocketBindDeny would do it per unit, but Ubuntu 24.04's systemd has
+#   no BPF and ignores it in silence: measured on topics-fisso, 11/11);
 # - persistent runners: caches in each HOME (bun, Playwright browsers) survive between
 #   jobs, and no admin token lives here to re-register ephemeral ones;
 # - HOME=/srv/rh-<i>: ci.yml derives the e2e port band from it (13910 + (i-1)*10);
@@ -37,14 +38,15 @@ getent group ci >/dev/null || groupadd ci
 chmod 700 /home/topics 2>/dev/null || true
 
 # Firewall: the ci group cannot reach the Topics node (3333 http, 3341 tunnel listener,
-# 19222 agent browser), the reverse tunnel to the Mac's model proxy (3411-3413) nor the
-# metadata service. The e2e test servers use 13910-13949 and CDP 19910-19949.
+# 19222 agent browser), the reverse tunnel to the Mac's model proxy (3301) nor the
+# metadata service. The e2e test servers use 13910-13949, CDP 19910-19949 and the
+# preview pool 3400-3450, which must stay open (run 42930031047, RECAPTURE-01).
 cat > /usr/local/sbin/ci-firewall <<'EOS'
 #!/bin/bash
 for t in iptables ip6tables; do
   $t -N CI-OUT 2>/dev/null || $t -F CI-OUT
   $t -C OUTPUT -m owner --gid-owner ci -j CI-OUT 2>/dev/null || $t -I OUTPUT -m owner --gid-owner ci -j CI-OUT
-  $t -A CI-OUT -o lo -p tcp -m multiport --dports 3333,3341,3391,3400:3420,19222 -j REJECT
+  $t -A CI-OUT -o lo -p tcp -m multiport --dports 3301,3333,3341,19222 -j REJECT
 done
 iptables -A CI-OUT -d 169.254.169.254 -j REJECT
 EOS
@@ -108,11 +110,6 @@ KillMode=control-group
 # A /tmp of its own: the test servers use fixed paths there (/tmp/topics-mcp), and one
 # runner user creating them locks the others out with EACCES (run 42926274612, shard 1).
 PrivateTmp=yes
-SocketBindDeny=tcp:3333
-SocketBindDeny=tcp:3341
-SocketBindDeny=tcp:3391
-SocketBindDeny=tcp:3400-3420
-SocketBindDeny=tcp:19222
 Restart=always
 RestartSec=10
 [Install]
@@ -141,7 +138,8 @@ for i in 0 $(seq 1 "$N"); do
   fi
 done
 systemctl daemon-reload
-systemctl enable --now ci-firewall.service >/dev/null
+systemctl enable ci-firewall.service >/dev/null
+systemctl restart ci-firewall.service  # a re-run must apply the rules it just wrote
 systemctl set-property --runtime topics.service CPUWeight=500 2>/dev/null || true
 # A unit changed by a re-run of this script takes effect on restart: only idle runners,
 # a busy one would lose its job (the next re-run catches it).
@@ -150,18 +148,17 @@ for i in 0 $(seq 1 "$N"); do
   pgrep -u "ci$i" -x Runner.Worker >/dev/null || systemctl restart "ci-runner@$i.service"
 done
 
-# SocketBindDeny needs systemd built with +BPF_FRAMEWORK, and Ubuntu 24.04's is not
-# (measured on topics-fisso, 11/11): there it is ignored without a word. Then every port
-# up to 3420 becomes privileged (the e2e servers use 13910+) and Topics gets the
+# Ports below 3342 privileged (3301, 3333, 3341 are the node's), Topics with the
 # capability to bind its own. The proof binds a FREE port of the range as a runner
 # would: probing 3333 itself says nothing, the node already holds it (EADDRINUSE).
-if ! systemctl --version | grep -q '+BPF_FRAMEWORK'; then
-  echo 'net.ipv4.ip_unprivileged_port_start=3421' > /etc/sysctl.d/60-ci-ports.conf
-  sysctl -q -p /etc/sysctl.d/60-ci-ports.conf
-  printf '[Service]\nAmbientCapabilities=CAP_NET_BIND_SERVICE\n' > /etc/systemd/system/topics.service.d/porte.conf
-  systemctl daemon-reload
-fi
-if runuser -u ci1 -- python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 3419))' 2>/dev/null; then
+echo 'net.ipv4.ip_unprivileged_port_start=3342' > /etc/sysctl.d/60-ci-ports.conf
+sysctl -q -p /etc/sysctl.d/60-ci-ports.conf
+printf '[Service]\nAmbientCapabilities=CAP_NET_BIND_SERVICE\n' > /etc/systemd/system/topics.service.d/porte.conf
+systemctl daemon-reload
+if runuser -u ci1 -- python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 3340))' 2>/dev/null; then
   echo "un runner può prendere le porte del nodo Topics: fermo" >&2; exit 1
+fi
+if ! runuser -u ci1 -- python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 3449))' 2>/dev/null; then
+  echo "un runner non può aprire le porte delle anteprime (3400-3450): fermo" >&2; exit 1
 fi
 echo "porte del nodo Topics chiuse ai runner"

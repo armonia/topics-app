@@ -60,6 +60,14 @@ EXPIRES_S = 2 * 3600
 BOOT_MAX_S = 600
 SLOTS_PER_NODE = int(os.environ.get("NODE_POOL_SLOTS", "2"))
 LPORT, RPORT, PROXY = 3400, 3410, 3391
+# On the fixed server the model proxy comes back on 3301, not 3411: ports below 3342 are
+# privileged there, so no CI job can take it while the tunnel is down, and 3400-3450 is
+# the preview pool the e2e servers use (deploy/fisso/ci-runners.sh).
+FIXED_RPORT = 3301
+
+
+def rport(sl):
+    return FIXED_RPORT if sl.get("fixed") else RPORT + sl["n"]
 FIXED_NAME = os.environ.get("NODE_POOL_FIXED", "topics-fisso")
 FIXED_SLOT = 1
 FIXED_SLOTS_CI, FIXED_SLOTS_IDLE = 2, 4
@@ -392,7 +400,7 @@ def open_tunnel(sl):
     p = subprocess.Popen(["ssh", "-N", "-i", KEY, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes",
                           "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", "-o", "StrictHostKeyChecking=accept-new",
                           "-o", f"UserKnownHostsFile={known}", "-L", f"127.0.0.1:{LPORT + sl['n']}:127.0.0.1:3341",
-                          "-R", f"127.0.0.1:{RPORT + sl['n']}:127.0.0.1:{PROXY}", f"root@{sl['ip']}"],
+                          "-R", f"127.0.0.1:{rport(sl)}:127.0.0.1:{PROXY}", f"root@{sl['ip']}"],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     sl["tunnel_pid"] = p.pid
     for _ in range(20):
@@ -440,7 +448,7 @@ def pair(sl):
 def wire_model(sl):
     """Il CLI del nodo usa i modelli del Mac dal tunnel -R: nessun login sul nodo."""
     tok = mac("POST", f"/api/machines/{sl['machine_id']}/model-token")["token"]
-    env = {"ANTHROPIC_BASE_URL": f"http://127.0.0.1:{RPORT + sl['n']}", "ANTHROPIC_AUTH_TOKEN": tok}
+    env = {"ANTHROPIC_BASE_URL": f"http://127.0.0.1:{rport(sl)}", "ANTHROPIC_AUTH_TOKEN": tok}
     settings = json.dumps({"env": env})
     dropin = "[Service]\n" + "".join(f"Environment={k}={v}\n" for k, v in env.items())
     script = (f"mkdir -p /home/topics/.claude /etc/systemd/system/topics.service.d && "
