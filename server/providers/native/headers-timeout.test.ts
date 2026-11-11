@@ -12,6 +12,7 @@
  * Reproduced with a local TCP server that accepts the connection and never
  * writes a byte: the closest the loopback gets to a socket that never opens.
  * The real `fetch` runs against it (no fake), through `ANTHROPIC_BASE_URL`.
+ * @covers CHAT-REL-09
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";

@@ -290,3 +290,29 @@ already accepted, producing the duplicate the idempotency key exists to prevent.
 - **GIVEN** a plain-text 502 from a proxy in front of the server
 - **THEN** the body is thrown as it came, because it is the most informative thing available
 - **AND** an empty body falls back to the HTTP status text rather than an empty banner
+
+### Requirement: CHAT-REL-09 - A request that never gets its response headers does not hold the turn
+
+The native runtime SHALL bound the wait for the response headers of every model
+call (90 s), apart from the person's Stop. When the bound expires it SHALL drop
+the socket and retry the call as a transport failure, on a new connection; it
+SHALL give up after three such expiries in a row and end the turn in error. The
+bound SHALL NOT cut a streamed body once the headers have arrived, and its
+expiry SHALL NOT read as a Stop.
+
+> **Why.** On 2026-11-11 a native turn ran 40+ minutes without a round: its
+> socket sat in `SYN_SENT` towards the local API proxy, the fetch had no limit
+> but the Stop signal, and the route kept extending its deadlines because the
+> turn's process was alive.
+
+#### Scenario: The address accepts and never answers
+- **GIVEN** a model endpoint that accepts the TCP connection and never writes a byte
+- **WHEN** a native turn calls it
+- **THEN** each attempt is dropped after the headers bound and retried on a new connection
+- **AND** after three expiries in a row the turn ends with an error naming the missing headers
+
+#### Scenario: Stop during the wait
+- **GIVEN** a call waiting for its headers
+- **WHEN** the person presses Stop
+- **THEN** the turn is cancelled, and no retry is announced
+
