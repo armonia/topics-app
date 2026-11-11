@@ -1,3 +1,6 @@
+/**
+ * @covers PREVIEW-02
+ */
 import { describe, expect, test } from 'bun:test';
 import { buildEvidenceSlides } from './taskMedia';
 

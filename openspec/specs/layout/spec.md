@@ -780,6 +780,24 @@ SHALL restare in uno stato di attesa perpetua.
 - **GIVEN** l'elenco chiuso
 - **THEN** SHALL mostrare il conteggio, e aprirlo NON SHALL aprire il pannello
 
+### Requirement: PREVIEW-02 — La prova di consegna si vede aperta e a schermo intero, con il cursore prima/dopo
+
+Nel dettaglio della card la prova SHALL stare in cima alla Conversazione, larga
+quanto il pannello e già aperta, senza clic. Un clic sulla prova, dal dettaglio o
+dall'anteprima sulla card, SHALL aprirla a schermo intero: fondo scuro, immagine
+alla risoluzione vera, zoom con rotella e pizzico, frecce se le prove sono più di
+una, chiusura con Esc o con la X.
+
+Se la prova è un prima/dopo (due file, o un affiancato con le etichette
+prima/dopo o reference/dopo) lo schermo intero SHALL mostrare un cursore che scorre
+fra Prima e Dopo sulla STESSA immagine, con le etichette; sul telefono il cursore
+SHALL trascinarsi col dito.
+
+#### Scenario: prima e dopo dalla card
+- **GIVEN** una card con un file prima e un file dopo
+- **WHEN** si clicca l'anteprima, si sposta il cursore e si preme Esc
+- **THEN** SHALL aprirsi la vista con le due etichette, il cursore SHALL muoversi e Esc SHALL chiuderla
+
 ### Requirement: TYPO-01 — Nessun glifo viene tagliato dalla propria riga
 
 Nessuna coda e nessun accento SHALL essere TAGLIATO dalla riga che lo contiene:
