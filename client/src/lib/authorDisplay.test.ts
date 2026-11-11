@@ -112,4 +112,23 @@ describe('authorDisplay', () => {
       expect(show(a).name.trim().length).toBeGreaterThan(0);
     }
   });
+
+  test('«user» with origin api or mcp is not the owner: they never typed that line', () => {
+    // Card f0295c4c: a historical row signed `user` whose `origin` is not
+    // `interface` was never typed by the owner at a keyboard — a script, or
+    // another installation's session, wrote it.
+    const api = authorDisplay(commentAuthorLabel('user'), tr, 'Nome Cognome', null, 'api');
+    expect(api.name).not.toBe('Nome');
+    expect(api.name).toBe(tr('board.task.author.agent'));
+    expect(api.self).toBe(false);
+    const mcp = authorDisplay(commentAuthorLabel('user'), tr, 'Nome Cognome', null, 'mcp');
+    expect(mcp.self).toBe(false);
+    // `interface`, or no recorded origin (history from before it was tracked),
+    // stays the owner: there is nothing here to contradict that.
+    const ui = authorDisplay(commentAuthorLabel('user'), tr, 'Nome Cognome', null, 'interface');
+    expect(ui.name).toBe('Nome');
+    expect(ui.self).toBe(true);
+    const unknown = authorDisplay(commentAuthorLabel('user'), tr, 'Nome Cognome', null, null);
+    expect(unknown.self).toBe(true);
+  });
 });

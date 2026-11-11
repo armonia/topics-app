@@ -1,4 +1,5 @@
 import { API_CALLER_CREATED_BY, CREATED_BY_HUMAN, parseCreatedBy } from "../../shared/created-by";
+import { AGENT_AUTHOR } from "../../shared/comment-author";
 import type { Database } from "bun:sqlite";
 import { agentAuthOk } from "./agent-auth";
 
@@ -44,6 +45,28 @@ export function isInterfaceRequest(req: Request): boolean {
 function headerName(req: Request): string | null {
   const raw = req.headers.get("X-Topics-Agent")?.trim();
   return raw ? `agent:${raw}` : null;
+}
+
+/**
+ * Who actually spoke, for a comment/status row's `author`/`by` — the free-text
+ * identity `shared/comment-author.ts` reads, not `created_by`'s coarse
+ * human/agent/cron grammar.
+ *
+ * Only an interface request signs as the project owner. Everything else —
+ * a script hitting `/api/boards/...` directly, with or without a daemon
+ * token — is automation: named when it declares itself with `X-Topics-Agent`,
+ * the generic `agent` label otherwise. Without this, a caller that never
+ * identifies itself still fell through to the human board route's hardcoded
+ * `author: "user"`, so a comment from a script or another installation's
+ * orchestrator read as the owner's own words.
+ */
+export function resolveBoardActor(req: Request): string {
+  // "user" is the reserved role `shared/comment-author.ts` renders as the
+  // owner — a different vocabulary from `created_by`'s "human" above, kept
+  // deliberately separate rather than unified into one constant.
+  if (isInterfaceRequest(req)) return "user";
+  const named = req.headers.get("X-Topics-Agent")?.trim();
+  return named || AGENT_AUTHOR;
 }
 
 /**

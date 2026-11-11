@@ -464,11 +464,25 @@ describe("board router (human, project-scoped)", () => {
 
   test("human comment is authored 'user'", async () => {
     const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
-    const acknowledgement = await (await call(router, "POST", `/api/boards/pX/tasks/${t.id}/comments`, { content: "hi" }))!.json();
+    const acknowledgement = await (await call(router, "POST", `/api/boards/pX/tasks/${t.id}/comments`, { content: "hi" }, {
+      "X-Topics-Action-Origin": "interface",
+    }))!.json();
     expect(acknowledgement.delivery).toBe('note');
     const got = await (await call(router, "GET", `/api/boards/pX/tasks/${t.id}`))!.json();
     expect(got.comments[0].author).toBe("user");
-    expect(got.comments[0].origin).toBe("api");
+    expect(got.comments[0].origin).toBe("interface");
+  });
+
+  test("a board comment with no interface marker is NOT signed with the owner's name", async () => {
+    // Card f0295c4c: a script (or another installation's coordinator) hitting
+    // `/api/boards/.../comments` directly, with no browser behind it, used to
+    // be indistinguishable from the project owner — both landed as author
+    // "user". Only a real `X-Topics-Action-Origin: interface` call may sign
+    // as the owner now; this one carries none, so it must not.
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    await rawCall(router, "POST", `/api/boards/pX/tasks/${t.id}/comments`, { content: "from a script" });
+    const got = await (await call(router, "GET", `/api/boards/pX/tasks/${t.id}`))!.json();
+    expect(got.comments[0].author).not.toBe("user");
   });
 
   test("created_by: the interface is human, a direct caller is automation and may name itself", async () => {

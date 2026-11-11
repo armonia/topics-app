@@ -5523,3 +5523,19 @@ A card MAY carry `scheduled` (`{ by, at }`): a run outside Topics (a timed job o
 #### Scenario: the schedule is removed
 - **WHEN** `scheduled` is cleared on a card in todo
 - **THEN** the card SHALL be claimable again
+
+### Requirement: KANBAN-113 — A board comment signs as the owner only from a real interface request
+
+The `/api/boards/.../tasks/:taskId/comments` route and the other HUMAN-signed writes on that router SHALL sign a write as the owner only when the request carries the interface's own marker. A caller with no marker SHALL be signed as automation, never as the owner. A caller that names itself (an agent credential) SHALL be signed with that name. The display SHALL NOT read a historical row signed `user` as the owner when its recorded origin is `api` or `mcp`.
+
+#### Scenario: an API call with no marker
+- **WHEN** a request with no interface marker posts a board comment
+- **THEN** it SHALL NOT be signed as the owner
+
+#### Scenario: a caller that names itself
+- **WHEN** a request carries an agent name
+- **THEN** the comment SHALL be signed with that name, not the owner's
+
+#### Scenario: a historical row from automation
+- **WHEN** a stored comment is signed `user` but its recorded origin is `api` or `mcp`
+- **THEN** the display SHALL NOT show the owner's name for it
