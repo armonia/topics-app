@@ -2,9 +2,9 @@
  * board-misleading-review-buttons.spec.ts — three review-column buttons that
  * said one thing and did another (2026-11-11 review).
  *
- * 1. "Invia all'agente" on a card whose land already closed its loop
+ * 1. "Invia all'agente" on a card whose land already closed its loop allow-italian: quoted UI label
  *    (landed): `/comments` keeps any message there a note (tasks-board.ts),
- *    so the composer must not promise a turn — it reads as a plain note
+ *    so the composer must not promise a turn, it reads as a plain note
  *    instead (`canSendToAgent` in shared/board.ts).
  * 2. After "Archivia" the open drawer must not keep showing "Review" with
  *    its decision buttons live: it banners "Archiviata" with a restore
