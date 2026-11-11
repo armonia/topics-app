@@ -24,6 +24,7 @@ import type { TurnEndInfo } from "../stop-reason";
 import { journalReader, type JournalEvent, type JournalReader, type RoundUsage } from "./turn-journal";
 import { applyTurnEffects, type HostControl } from "./turn-effects";
 import type { TurnSpec } from "./turn-host";
+import { steerTaken, type SteerItem } from "../../lib/turn-steer";
 
 const PREFIX = "native:";
 
@@ -88,7 +89,13 @@ function follow(
   const client = getAiBridgeClient();
   const sessionKey = sessionKeyOfBrokerId(id) ?? id;
   const effects = applyTurnEffects(sessionKey, (msg) => { void sendControl(id, msg); });
-  const reader = journalReader(handler, { onUsage: extra.onUsage, onEvent: effects.apply });
+  const reader = journalReader(handler, {
+    onUsage: extra.onUsage,
+    onEvent: (ev) => {
+      if (ev.e === "steered") steerTaken(sessionKey, ev.ids);
+      effects.apply(ev);
+    },
+  });
   let consumed = 0;
   let settle!: (r: DetachedTurnResult) => void;
   const done = new Promise<DetachedTurnResult>((r) => { settle = r; });
@@ -206,7 +213,13 @@ async function sendControl(id: string, msg: HostControl, fallback?: () => void):
 export async function runDetachedTurn(
   spec: TurnSpec,
   handler: StreamHandler,
-  extra: { onUsage?: (u: RoundUsage, model: string | null) => void; signal?: AbortSignal; env?: Record<string, string> },
+  extra: {
+    onUsage?: (u: RoundUsage, model: string | null) => void;
+    signal?: AbortSignal;
+    env?: Record<string, string>;
+    /** The host has its spec: from now on it reads control lines. */
+    onStarted?: () => void;
+  },
 ): Promise<DetachedTurnResult> {
   const client = getAiBridgeClient();
   const id = brokerIdFor(spec.sessionKey);
@@ -222,6 +235,7 @@ export async function runDetachedTurn(
     await client.spawn(id, { cliPath: process.execPath, args: [HOST_PATH], cwd: spec.workspace || env.HOME || "/", env });
     client.write(id, JSON.stringify(spec) + "\n");
     f.armReconnect();
+    extra.onStarted?.();
   } catch (err) {
     followed.get(id)?.();
     followed.delete(id);
@@ -240,6 +254,11 @@ export async function runDetachedTurn(
   } finally {
     extra.signal?.removeEventListener("abort", onAbort);
   }
+}
+
+/** A steered message to the turn's process; one that cannot be sent stays queued and is handed back at the end. */
+export function steerDetachedTurn(sessionKey: string, item: SteerItem): void {
+  void sendControl(brokerIdFor(sessionKey), { t: "steer", id: item.id, text: item.text });
 }
 
 /**

@@ -165,8 +165,12 @@ async function readSpecAndControls(onControl: (msg: Partial<HostControl> & { t?:
 
 export async function main(): Promise<void> {
   const abort = new AbortController();
+  /** Steered messages the server sent, waiting for the next round boundary. */
+  const steerWaiting: Array<{ id: string; text: string }> = [];
   const spec = await readSpecAndControls((msg) => {
-    if (msg.t === "abort" && !abort.signal.aborted) {
+    if (msg.t === "steer" && typeof (msg as { id?: unknown }).id === "string" && typeof (msg as { text?: unknown }).text === "string") {
+      steerWaiting.push({ id: (msg as { id: string }).id, text: (msg as { text: string }).text });
+    } else if (msg.t === "abort" && !abort.signal.aborted) {
       const cause = (msg as { cause?: string }).cause;
       log(`abort (${cause ?? "no cause"})`);
       abort.abort((cause ?? "user") as StopCause);
@@ -213,6 +217,13 @@ export async function main(): Promise<void> {
     hooks: defaultLifecycleHooks(),
     sessionId: spec.sessionKey,
     signal: abort.signal,
+    // Taken here, acknowledged on the journal in the same breath: the server
+    // hands back at the turn's end only what this line does not name.
+    takeSteer: () => {
+      const taken = steerWaiting.splice(0);
+      if (taken.length > 0) handler.emit({ e: "steered", ids: taken.map((m) => m.id) });
+      return taken.map((m) => m.text);
+    },
     onRequestStart: () => handler.emit({ e: "req", at: Date.now() }),
     onRoundUsage: (u: RoundUsage) => {
       // A round's usage means the API answered: the server lifts an outage hold on it.

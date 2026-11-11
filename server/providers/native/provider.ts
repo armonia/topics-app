@@ -22,6 +22,7 @@
  * turn costs a whole process, and here it costs an array.
  */
 
+import { openSteerTarget } from "../../lib/turn-steer";
 import { pingPromptCache, runAgentTurn, toProviderUsage, type AgentMessage, type AgentTurnOptions, type RoundRequestOptions } from "./agent-loop";
 import { recordTurnUsage } from "../native-usage-registry";
 import { CODING_TOOLS, WORKSPACE_FREE_TOOLS } from "./tools";
@@ -68,6 +69,7 @@ import {
   runDetachedTurn,
   reattachDetachedTurn,
   abortDetachedTurn,
+  steerDetachedTurn,
   detachAll,
   liveDetachedSessions,
   brokerIdFor,
@@ -853,6 +855,10 @@ export class NativeProvider implements AIProvider {
     options: { model?: string; history?: ChatMessage[]; systemPrompt?: string; turnId?: string } | undefined,
     abort: AbortController,
   ): Promise<{ runId?: string }> {
+    // From here to the end of the turn a message written in this chat joins
+    // the turn at its next round (`lib/turn-steer.ts`); closed in `finally`,
+    // which hands back whatever the turn did not take.
+    const steer = openSteerTarget(sessionKey);
     try {
       // Senza una radice i tool di file non si offrono nemmeno: un agente che
       // riceve `read_file` e non ha una workspace prova a indovinare dove sia
@@ -984,6 +990,7 @@ export class NativeProvider implements AIProvider {
           try { handler.onCallUsage?.({ ...toProviderUsage(u), model: turnModel }); }
           catch { /* the measurement never stops the work */ }
         },
+        takeSteer: () => steer.take(),
       };
       let requestedAt = Date.now();
       turnOpts.onRequestStart = () => { requestedAt = Date.now(); };
@@ -1012,7 +1019,9 @@ export class NativeProvider implements AIProvider {
           server: { baseUrl: topicsAppBaseUrl(), topicsHome: topicsHome() },
           hold: providerHold(),
         };
-        const r = await this.runDetached(sessionKey, session, spec, handler, abort, turnModel);
+        const r = await this.runDetached(sessionKey, session, spec, handler, abort, turnModel, () => {
+          steer.forwardTo((item) => steerDetachedTurn(sessionKey, item));
+        });
         if (r) {
           // The conversation comes back whole: compaction and the language
           // reminder rewrite it in place inside the turn.
@@ -1062,6 +1071,7 @@ export class NativeProvider implements AIProvider {
       recordTurnEnd(sessionKey, { end: "error", cause: "provider-error", detail, turnId: options?.turnId });
       return {};
     } finally {
+      steer.close();
       // ONLY ITS OWN HANDLE. An unconditional clear is how the first turn's
       // end made the second turn look dead: the handle is released by the turn
       // that set it, and a newer claimant's stays where it is.
@@ -1097,6 +1107,7 @@ export class NativeProvider implements AIProvider {
     handler: StreamHandler,
     abort: AbortController,
     model: string,
+    onStarted?: () => void,
   ): Promise<DetachedTurnResult | null> {
     session.detached = true;
     this.detachedLive.add(sessionKey);
@@ -1106,6 +1117,7 @@ export class NativeProvider implements AIProvider {
       return await runDetachedTurn(spec, handler, {
         signal: abort.signal,
         onUsage: this.usageListener(sessionKey, handler, model),
+        onStarted,
       });
     } catch (err) {
       console.warn(`[native] ${sessionKey}: could not start the turn in its own process, running it in the server:`, err instanceof Error ? err.message : err);

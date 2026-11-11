@@ -36,7 +36,9 @@ import type { JournalEvent } from "./turn-journal";
 export type HostControl =
   | { t: "abort"; cause: string }
   | { t: "freeze"; pid: number }
-  | { t: "thaw"; pid: number; frozenMs: number };
+  | { t: "thaw"; pid: number; frozenMs: number }
+  /** A message the person wrote meanwhile, for the next round (`lib/turn-steer.ts`). */
+  | { t: "steer"; id: string; text: string };
 
 /**
  * Host side: journal every change to the shared registries until the returned

@@ -208,6 +208,13 @@ export interface AgentTurnOptions {
    * stays the next round's prefix. Absent = the rounds are what they were.
    */
   reminder?: string;
+  /**
+   * Messages the person wrote while this turn runs (`lib/turn-steer.ts`),
+   * taken at each round boundary: after the tool results, before the next
+   * model call. Each one joins the history as the person's words in the same
+   * user message as the results. Absent = nobody can steer this turn.
+   */
+  takeSteer?: () => string[];
 }
 
 /** Puts `text` at the end of the last message when the person wrote it (the
@@ -1269,7 +1276,25 @@ export async function runAgentTurn(
         return { turnEnd: end, text: finalText, usage: total };
       }
     }
-    opts.history.push({ role: "user", content: opts.reminder ? [...results, { type: "text", text: opts.reminder }] : results });
+    // WHAT THE PERSON WROTE MEANWHILE GOES IN NOW, after the results the
+    // model asked for (the API wants every `tool_result` first) and before
+    // the reminder, so the model reads it on this very next call instead of
+    // after the whole turn. A failing source never costs the round.
+    let steered: string[] = [];
+    try { steered = opts.takeSteer?.() ?? []; } catch (err) {
+      console.warn(`[native] steer: could not read the waiting messages: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (steered.length > 0) {
+      console.log(`[native] steer: session_key=${opts.sessionId ?? "unknown"} round=${i + 1} messages=${steered.length}`);
+    }
+    opts.history.push({
+      role: "user",
+      content: [
+        ...results,
+        ...steered.map((text): Block => ({ type: "text", text })),
+        ...(opts.reminder ? [{ type: "text", text: opts.reminder }] : []),
+      ],
+    });
   }
 
   // Tetto raggiunto. È una fine anomala e va detta — ma va detta per quello che

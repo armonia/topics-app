@@ -46,6 +46,8 @@ export type JournalEvent =
   | { e: "done"; m?: unknown }
   | { e: "aborted"; m?: unknown }
   | { e: "error"; msg: string }
+  /** The loop took these steered messages into the history (`lib/turn-steer.ts`). */
+  | { e: "steered"; ids: string[] }
   /**
    * The server's shared state, changed inside the host. The host's own copy of
    * these registries is invisible to the server, so each change travels here
