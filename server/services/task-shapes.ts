@@ -456,6 +456,11 @@ export interface Task {
    * asks `svc.get`, which carries it whole.
    */
   recentComments: CardComment[];
+  /** Soft-deleted: off the board, kept for history. A GET still answers for
+   *  it (someone's drawer may be open on it), so the client has to be told —
+   *  a status untouched by `archive()` (still e.g. `review`) read as a live
+   *  card with its buttons active. */
+  archived: boolean;
 }
 
 export interface CreateTaskInput {

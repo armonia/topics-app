@@ -18,6 +18,8 @@ import {
   STATUS_EVENT_REASON_MAX,
   TAKE_OVER_PARKED_LABEL,
   UNIT_CI_CHECK,
+  canDecideReview,
+  canSendToAgent,
   deriveQueueReason,
   deriveSubtaskWork,
   formatStatusEvent,
@@ -941,6 +943,48 @@ describe("«non su main» dice il vero, oppure tace", () => {
   test("solo su una card chiusa: in review non essere su main è la norma", () => {
     for (const status of ["review", "in_progress", "todo", "backlog"]) {
       expect(showsLandingDebt({ ...done, status })).toBe(false);
+    }
+  });
+});
+
+describe("canSendToAgent: la scatola non promette un turno che il server non fa", () => {
+  const reviewDelivered = { status: "review", assignedTopicId: "topic-1", landingState: null as string | null };
+
+  test("review con sessione viva: puo' davvero mandarglielo", () => {
+    expect(canSendToAgent(reviewDelivered)).toBe(true);
+  });
+
+  test("atterrata: /comments la tiene una nota, quindi niente «Invia all'agente»", () => {
+    expect(canSendToAgent({ ...reviewDelivered, landingState: "landed" })).toBe(false);
+  });
+
+  test("senza una sessione da riprendere non c'e' nessuno a cui mandarlo", () => {
+    expect(canSendToAgent({ ...reviewDelivered, assignedTopicId: null })).toBe(false);
+  });
+
+  test("fuori da review (in corso, in coda) non e' questo bottone", () => {
+    for (const status of ["in_progress", "todo", "backlog", "done"]) {
+      expect(canSendToAgent({ ...reviewDelivered, status })).toBe(false);
+    }
+  });
+});
+
+describe("canDecideReview: archiviata non e' piu' in attesa di verdetto", () => {
+  test("review viva: i tre bottoni restano", () => {
+    expect(canDecideReview({ status: "review", archived: false })).toBe(true);
+  });
+
+  test("review ma archiviata: l'archivio ha gia' deciso, i bottoni no", () => {
+    expect(canDecideReview({ status: "review", archived: true })).toBe(false);
+  });
+
+  test("senza il flag (card vecchie, fake di test) si comporta come non archiviata", () => {
+    expect(canDecideReview({ status: "review" })).toBe(true);
+  });
+
+  test("fuori da review resta no, archiviata o no", () => {
+    for (const archived of [true, false]) {
+      expect(canDecideReview({ status: "in_progress", archived })).toBe(false);
     }
   });
 });

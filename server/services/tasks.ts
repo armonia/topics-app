@@ -2630,6 +2630,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       createdAt: r.created_at,
       updatedAt: r.updated_at,
       assignedTopicId: r.assigned_topic_id ?? null,
+      archived: !!r.archived,
       dispatchState: r.dispatch_state ?? null,
       dispatchAttempts: r.dispatch_attempts ?? 0,
       dispatchError: r.dispatch_error ?? null,
