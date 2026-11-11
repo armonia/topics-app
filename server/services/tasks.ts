@@ -21,6 +21,7 @@
  * optional injectable `now`/`uuid`, so tests run on a deterministic `:memory:`
  * DB without booting the server.
  */
+import { parseForYou } from "../../shared/for-you";
 import { checkReport as checkDeliveryReport, gitQuestions } from "./deliveryReportChecks";
 import { repoProbe, probeForRoot } from "./deliveryReportProbe";
 import type { RepoProbe } from "./deliveryReportChecks";
@@ -2733,6 +2734,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // the default workflow sends the same row as before.
       ...(r.stage ? { stage: r.stage } : {}),
       ...(r.human_ask ? { humanAsk: r.human_ask } : {}),
+      ...(r.for_you ? { forYou: parseForYou(r.for_you) } : {}),
       // Delegation metadata is rare. Absence means an ordinary owner run, not
       // a UI state, so five repeated null keys on every board card carry no
       // information. A delegated row still gets the complete audit identity.

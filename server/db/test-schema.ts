@@ -193,7 +193,10 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   overflow_skip_until TEXT,
   -- 20261111043101: the scheduled run outside Topics that does this card's work.
   scheduled_at TEXT,
-  scheduled_by TEXT
+  scheduled_by TEXT,
+  -- 20261111140000: the plain-words «Per te» summary and the key of the material it came from.
+  for_you TEXT,
+  for_you_key TEXT
 )`;
 
 /**

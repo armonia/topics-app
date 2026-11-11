@@ -79,6 +79,8 @@ import { SessionLiveRow } from './SessionLiveRow';
 import { mergeTaskTimeline, type TimelineItem } from './taskTimeline';
 import { commentChip, commentChipTestId } from './chipKey';
 import { deliveryNotesToFold } from './taskDeliveryNotes';
+import { AskBox } from './PlanTileParts';
+import { readableCommentContent } from './readableCommentContent';
 import { isChronicleRow, liveToolRow } from './columnFilter';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { followChoiceMayChange } from '../../lib/taskConversationFollow';
@@ -929,6 +931,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
   const focusDiff = diffFocusPath(focusPaneId);
   const paneFocus = focusDiff ? undefined : focusPaneId;
   const [deliveryOpen, setDeliveryOpen] = useState(!!focusDiff);
+
   const isMobile = useMediaQuery('(max-width: 767px)');
   const [workspaceOpen, setWorkspaceOpen] = useState(!!paneFocus);
   const toggleWorkspaceOpen = () => setWorkspaceOpen((open) => !open);
@@ -2638,6 +2641,30 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
     </div>
   ) : null;
 
+  const askBox = task?.status === 'review' ? (
+    <div className="-mx-3 -mt-3 mb-3 px-3 pt-3">
+      <AskBox
+        question={pending ? stripMarkdown(pending.question) : (task.humanAsk ?? null)}
+        forYou={task.forYou ?? null}
+        options={pending ? replyOptions : []}
+        busy={sending || busy || uploading}
+        onAnswer={(opt) => void answerOption(opt)}
+      />
+      {/* The same two exits on every card in Review, whatever the question. */}
+      <div data-testid="task-review-bar" className="mt-1.5 flex flex-wrap gap-1.5">
+        <button type="button" disabled={busy || sending} data-testid="task-resend-note"
+          onClick={() => commentRef.current?.focus()}
+          className="rounded border border-app-border px-2.5 py-1.5 text-compact leading-4 text-app-text-secondary hover:bg-white/10 disabled:opacity-50 coarse:min-h-11">
+          {tr('board.task.resendWithNote')}
+        </button>
+        <button type="button" disabled={busy || sending} data-testid="task-close-undone"
+          onClick={() => { setBusy(true); boardApi.archive(projectId, taskId).then(() => { setError(null); void load(); onChanged(); }).catch(showError).finally(() => setBusy(false)); }}
+          className="rounded border border-app-border px-2.5 py-1.5 text-compact leading-4 text-app-text-secondary hover:bg-white/10 disabled:opacity-50 coarse:min-h-11">
+          {tr('board.task.closeUndone')}
+        </button>
+      </div>
+    </div>
+  ) : null;
   const taskDelivery = deliveryOpen && task ? (
     <div data-testid="task-delivery-panel" className="-mx-3 -mt-3 mb-3 border-b border-app-border">
       <div className="space-y-2 px-3 py-3">
@@ -3152,7 +3179,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
       <div className={`flex min-h-0 flex-1 ${twoCol ? 'flex-row' : 'flex-col'}`}>
         <div className={`relative flex min-h-0 min-w-0 flex-col ${twoCol ? 'w-[min(50%,30rem)] shrink-0 border-r border-app-border' : 'flex-1'}`}>
           <div className={`${workspaceOpen && !twoCol ? 'hidden' : 'flex'} min-h-0 flex-1 flex-col`} data-testid="task-session-column">
-            {renderThread(<>{taskDetails}{taskDelivery}</>)}
+            {renderThread(<>{askBox}{taskDetails}{taskDelivery}</>)}
           </div>
           {workspaceOpen && !twoCol && (
             <div className="flex min-h-0 flex-1 flex-col" data-testid="task-drawer-body">
@@ -3693,7 +3720,7 @@ export function StatusTrail({ comments, ownerName }: { comments: TaskComment[]; 
   );
 }
 
-export function CommentBubble({ comment, ownerName = null, resolvedParked = false, onPreview, questionActions, historicalQuestion = false, continuation = false }: {
+export function CommentBubble({ comment: rawComment, ownerName = null, resolvedParked = false, onPreview, questionActions, historicalQuestion = false, continuation = false }: {
   comment: TaskComment;
   /** Come si chiama chi usa l'app: le TUE righe si firmano col tuo nome. */
   ownerName?: string | null;
@@ -3710,6 +3737,7 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
   continuation?: boolean;
 }) {
   const tr = useT();
+  const comment = useMemo(() => ({ ...rawComment, content: readableCommentContent(rawComment.content, tr) }), [rawComment, tr]);
   const origin = actionOriginDisplay(comment.origin, tr);
   // Machine-authored review evidence (live-preview screenshot from the verifier).
   // Distinct from human/agent speech: it never woke the agent, it just informs.
