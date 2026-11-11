@@ -54,6 +54,7 @@ function withFast(row: ModelPrice, input: number, output: number): ModelPrice {
 
 const PRICE_TABLE: Record<string, ModelPrice> = {
   // Claude, current generation.
+  "claude-fable-5-2": price(10, 50, 0.025),
   "claude-fable-5-1": price(10, 50, 0.025),
   "claude-mythos-5-1": price(10, 50, 0.025),
   "claude-fable-5": price(10, 50),
@@ -161,7 +162,7 @@ export function ownModelPrice(model: string): ModelPrice | null {
  * make every new model look as expensive as the oldest one.
  */
 function familyFallback(lower: string): ModelPrice | null {
-  if (lower.includes("fable") || lower.includes("mythos")) return PRICE_TABLE["claude-fable-5-1"]!;
+  if (lower.includes("fable") || lower.includes("mythos")) return PRICE_TABLE["claude-fable-5-2"]!;
   if (lower.includes("opus")) return PRICE_TABLE["claude-opus-5-5"]!;
   if (lower.includes("sonnet")) return PRICE_TABLE["claude-sonnet-5-5"]!;
   if (lower.includes("haiku")) return PRICE_TABLE["claude-haiku-5-5"]!;
