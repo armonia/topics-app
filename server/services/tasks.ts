@@ -1988,6 +1988,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           AND t.assigned_topic_id IS NULL
           AND t.dispatch_attempts < COALESCE(bs.dispatch_retry_cap, 2)
           AND (t.dispatch_deferred_until IS NULL OR t.dispatch_deferred_until <= ?)
+          AND t.scheduled_by IS NULL
           AND (t.blocked_by_task_id IS NULL OR EXISTS (
                  SELECT 1 FROM tasks bk
                   WHERE bk.id = t.blocked_by_task_id AND (bk.status = 'done' OR bk.archived = 1)))
@@ -2529,6 +2530,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           dispatchAttempts: r.dispatch_attempts ?? 0,
           dispatchDeferredUntil: r.dispatch_deferred_until ?? null,
           dispatchError: r.dispatch_error ?? null,
+          scheduledBy: r.scheduled_by ?? null,
           deliveredReason: r.delivered_reason ?? null,
           blockedByTaskId: r.blocked_by_task_id ?? null,
           blockedBy: r.blocked_by_task_id ? (b.blockers.get(r.blocked_by_task_id) ?? null) : null,
@@ -2682,6 +2684,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // `checksCommit`, `doneActor`, `waitStreak`/`waitReason`/`waitSince`,
       // and `parentTaskId`, where null means root.
       ...(r.due_date ? { dueDate: r.due_date } : {}),
+      ...(r.scheduled_by ? { scheduled: { by: r.scheduled_by, at: r.scheduled_at ?? null } } : {}),
       ...(r.chat_id ? { chatId: r.chat_id } : {}),
       ...(r.completed_at ? { completedAt: r.completed_at } : {}),
       ...(r.plan_comment_id ? { planCommentId: r.plan_comment_id } : {}),
@@ -4380,6 +4383,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       if (patch.assignedTo !== undefined) put("assigned_to", patch.assignedTo);
       if (patch.dueDate !== undefined) put("due_date", patch.dueDate);
+      if (patch.scheduled !== undefined) {
+        const by = patch.scheduled?.by?.trim() || null;
+        put("scheduled_by", by);
+        put("scheduled_at", by ? (patch.scheduled?.at ?? null) : null);
+      }
       if (patch.kanbanOrder !== undefined) put("kanban_order", patch.kanbanOrder);
       if (patch.outputUrl !== undefined) {
         const url = (patch.outputUrl ?? "").trim();
@@ -5515,6 +5523,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
                 dispatch_deferred_until = NULL, updated_at = ?
           WHERE id = ? AND status = 'todo' AND assigned_topic_id IS NULL AND dispatch_attempts < ?
             AND (dispatch_deferred_until IS NULL OR dispatch_deferred_until <= ?)
+            -- A scheduled run outside Topics does this card's work: an agent on top would do it twice.
+            AND scheduled_by IS NULL
             AND (blocked_by_task_id IS NULL OR EXISTS (
                   SELECT 1 FROM tasks bk
                    WHERE bk.id = tasks.blocked_by_task_id AND (bk.status = 'done' OR bk.archived = 1)))`,

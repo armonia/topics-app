@@ -5322,6 +5322,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     }
     const manualTaskId = manualMemoryStart.selectedTask(projectId);
     if (manualTaskId) todos = todos.filter((task) => task.id === manualTaskId);
+    // A card a scheduled run outside Topics works is not part of this queue at
+    // all: no claim, no queue chip, no parking. The run does the work.
+    todos = todos.filter((task) => !task.scheduled);
     const nowIso = new Date().toISOString();
     // Budget dei tentativi finito = NON riproverà MAI più, e finché lo si scarta
     // in silenzio la card resta in colonna «coda» fingendosi lavorabile: nessun
@@ -5341,6 +5344,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // chi aspetta un altro task non sta fallendo.
     const pronto = (t: Task) =>
       !t.assignedTopicId &&
+      !t.scheduled &&
       (!t.dispatchDeferredUntil || t.dispatchDeferredUntil <= nowIso) &&
       (() => { try { return !deps.svc.isDispatchBlocked(t.id); } catch { return true; } })();
     const exhausted = todos.filter((t) => pronto(t) && t.dispatchAttempts >= settings.dispatchRetryCap);

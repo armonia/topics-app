@@ -3333,6 +3333,8 @@ const IT: Dict = {
   'board.card.due': 'Scade {date}',
   'board.card.dueOverdue': 'Scaduta {date}',
   'board.card.dueTitle': 'Scadenza: {date}',
+  'board.card.scheduledTitle': 'Programmata: {label}. La fa un giro a orario, nessun agente parte su questa card.',
+  'board.card.assigneeTitle': 'La chiude {name}',
   'board.card.dueOverdueTitle': 'Scadenza superata: {date}',
   'board.card.runComputerTitle': 'Esecuzione delegata eseguita su {name}',
 
