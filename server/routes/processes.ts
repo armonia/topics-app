@@ -23,12 +23,11 @@ import { finishBackgroundShell, sweepOrphanedShellTree } from "./processes-shell
 import { broadcastScriptsUpdate, getPortsForProcesses, notifyScriptOutput, publicRow } from "./processes-snapshot";
 import { MAX_RECENT, type ScriptProcess, isPersonRun, recentScripts, runningScripts, scriptsResponseCache, setScriptsResponseCache, setBroadcastCtx } from "./processes-state";
 
-export { commandBackgroundWork, commandServices, topicCommandProcesses, liveCommandsOf, isChatServerTask, type CommandWakeState, commandWakeState, stopCommandWakesOf, sessionsAwaitingCommandWake } from "./processes-commands";
+export { commandBackgroundWork, commandServices, topicCommandProcesses, liveCommandsOf, isChatServerTask, commandWakeState, stopCommandWakesOf, sessionsAwaitingCommandWake } from "./processes-commands";
 export { DETECTION_INTERVAL_MS, DETECTION_INTERVAL_MAX_MS, GHOST_CWD_PROBE_MIN_INTERVAL_MS, processDetectionViewIsOpen, ghostCwdProbeDue, nextDetectionDelay, startProcessDetection, stopProcessDetectionForTests, bumpProcessDetection } from "./processes-detection";
 export { logPathOf, readoptVerdict, loadProcessRegistry } from "./processes-persist";
 export { registerPreviewProcess, trackedScriptPidTrees, unregisterPreviewProcess, registerBackgroundShell, settleEndedShells, noteBackgroundShellOutput, closeBackgroundShell, listBackgroundShells, esitoShellMorta, captureShellTree, sweepOrphanedShellTree } from "./processes-shells";
 export { listOwnedScripts, listSessionOwnedProcesses, listUnownedScriptPids, getScriptsSnapshot } from "./processes-snapshot";
-export { getListeningPorts } from "./processes-snapshot";
 export {
   stopCardCommandProcesses, stopTopicCommandProcesses,
 } from "./command-process-lifecycle";
