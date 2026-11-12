@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.3.88",
+    "date": "2026-11-12",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a failed ui-state read no longer lets a later commit PUT over the saved layout/tabs",
+          "scope": "task-browser"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.3.82",
     "date": "2026-11-10",
     "sections": {

@@ -23,7 +23,11 @@ export function useChannelTitles(): Record<string, string> {
     void apiFetch('/api/agent-channels', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((body: { titles?: Record<string, string> } | null) => {
-        titlesCache = body?.titles ?? {};
+        // Only a real payload is worth caching: a non-ok response (or one with
+        // no `titles`) must leave `titlesCache` unset so the next mount retries,
+        // instead of freezing an empty object forever.
+        if (!body?.titles) return;
+        titlesCache = body.titles;
         if (alive) setTitles(titlesCache);
       })
       .catch(() => {});
