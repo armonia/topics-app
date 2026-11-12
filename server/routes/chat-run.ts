@@ -226,7 +226,7 @@ export async function runProviderTurn(turn: ChatTurnScope): Promise<Response | u
         try {
           const emptyRow = updateLastMessage(sessionKey, { partial: undefined, streamedAt: undefined }, ownRow);
           const discarded = discardIfEmptyTurn(sessionKey, emptyRow);
-          if (discarded) console.log(`[StreamWS] ${sessionKey}: riga del risveglio non adottato discarded (${discarded})`);
+          if (discarded) console.log(`[StreamWS] ${sessionKey}: riga del risveglio non adottato scartata (${discarded})`);
         } catch (e) { console.warn(`[StreamWS] ${sessionKey}: riga del risveglio non ripulita:`, e); }
         await writeSSE("[DONE]");
         await closeClient();
