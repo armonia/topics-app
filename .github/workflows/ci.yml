@@ -161,6 +161,24 @@ jobs:
       # CI, but it still caps the run at 60 min) around the runner.
       - name: Unit + integration tests (one process per file)
         run: bun run scripts/slot.ts test:unit -- "bun run scripts/test-unit-shards.ts"
+        # On a push to main every file also writes its JUnit, merged into one
+        # report for the `living-doc` job: it is the outcome of most requirements
+        # on specflow.armonia.io. Same run, not a second one (scripts/test-unit-shards.ts).
+        env:
+          TOPICS_UNIT_JUNIT_OUT: ${{ github.event_name == 'push' && 'test-results/bun-junit.xml' || '' }}
+
+      - name: Upload the unit JUnit for the living-doc
+        if: ${{ always() && github.event_name == 'push' }}
+        # Never the reason a shard or `unit` goes red: the living-doc is not the verdict.
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: specflow-unit-junit
+          path: test-results/bun-junit.xml
+          if-no-files-found: ignore
+          retention-days: 1
+          # A re-run of a failed job uploads the same name again: without this, 409 and red.
+          overwrite: true
 
   # Process groups are a POSIX contract, so keep the focused real-process tests
   # on both supported CI operating systems instead of relying on Linux alone.
@@ -343,16 +361,15 @@ jobs:
       #
       # Gli altri `check:*`/`lint:*` di package.json restano FUORI da qui, e
       # ognuno per un motivo che vale la pena scrivere (task b8092abe):
-      #  · `lint:gherkin` (e i fratelli `tag:scenarios`, `uat`) — il codice sta
-      #    in `spec-flow/`, che è in .gitignore:129: su un checkout di CI la
-      #    cartella NON esiste, quindi il passo misurerebbe la presenza di un
-      #    clone, non la qualità dei .feature. E di .feature ce ne sono zero:
-      #    fino a questa modifica il comando rispondeva «✓ 0 feature files:
-      #    tagging OK», un verde che nessuno aveva guadagnato. Ora FALLISCE
-      #    dicendo che non ha niente da controllare (guardia in package.json,
-      #    non nel clone ignorato, dove la modifica sarebbe deriva invisibile);
-      #    quando tornerà un .feature ricomincia a mordere davvero — provato:
-      #    con un file taggato male esce 1 elencando le tre violazioni.
+      #  · `lint:gherkin` (e i fratelli `tag:scenarios`, `uat`) — dal 12/11/2026
+      #    il codice sta nel pacchetto `@armonia-io/spec-flow`, quindi la CI lo
+      #    avrebbe; resta fuori perche' di .feature ce ne sono zero, e il
+      #    comando FALLISCE dicendo che non ha niente da controllare (guardia in
+      #    package.json): un verde a vuoto e' peggio di nessun cancello. Quando
+      #    tornera' un .feature si aggiunge qui e ricomincia a mordere — provato:
+      #    con un file taggato male esce 1 elencando le tre violazioni. Il suo
+      #    fratello sulle spec, `lint:openspec`, invece gira (sotto, dopo
+      #    `check:spec-coverage`).
       #  · `check:lockfile` — è la versione «una botta sola» per l'umano (root,
       #    client, landing). In CI gli stessi tre lockfile sono già coperti dai
       #    due install qui sopra più il passo `landing/` dedicato, senza pagare
@@ -464,6 +481,10 @@ jobs:
           # is, so it is invisible until the unlucky grouping shows up.
           bun run check:module-mock-restore
           bun run check:spec-coverage
+          # Il linter delle spec del pacchetto spec-flow: un requisito senza
+          # scenario non ha niente da provare, e la living-doc lo pubblicherebbe
+          # come «coperto». Rigenera la mappa (ignorata da git) e poi la legge.
+          bun run lint:openspec
           # `check:untraced-tests` guarda nella direzione OPPOSTA a
           # `check:spec-coverage`: quello parte dalle spec e cerca i test, questo
           # parte dai test e cerca il requisito. La direzione mancante e' quella
@@ -1401,6 +1422,33 @@ jobs:
           E2E_TIER: pr
           E2E_STOP_TOKEN: ${{ github.token }}
 
+      # The JSON reports for the `living-doc` job, only on a push to main. Renamed
+      # report-<piece>.json (the piece of the plan, 1-16) so that the eight shards
+      # land in one folder without overwriting each other: that is the shape
+      # scripts/merge-shard-reports.ts reads. A few MB, kept one day.
+      - name: Collect the reports for the living-doc
+        if: ${{ always() && github.event_name == 'push' && matrix.shard != 0 && needs.changes.outputs.e2e != 'false' }}
+        run: |
+          mkdir -p test-results/specflow
+          for k in 1 2; do
+            f="test-results/sub/report-$k.json"
+            [ -f "$f" ] && cp "$f" "test-results/specflow/report-$(( (${{ matrix.shard }} - 1) * 2 + k )).json"
+          done
+          ls -la test-results/specflow
+
+      - name: Upload the reports for the living-doc
+        if: ${{ always() && github.event_name == 'push' && matrix.shard != 0 && needs.changes.outputs.e2e != 'false' }}
+        # Never the reason a shard or `unit` goes red: the living-doc is not the verdict.
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: specflow-e2e-report-${{ matrix.shard }}
+          path: test-results/specflow
+          if-no-files-found: ignore
+          retention-days: 1
+          # A re-run of a failed job uploads the same name again: without this, 409 and red.
+          overwrite: true
+
       # IL TIER PR NON E' TUTTA LA SUITE, e cio' che salta non ha nessun altro cancello
       # bloccante: 161 test (22 spec via `testIgnore` + 12 taggati @nightly) girano solo
       # nella nightly, che nessuna PR puo' far partire. Se un ramo tocca una di quelle
@@ -1457,6 +1505,100 @@ jobs:
           # UAT di quadra sono morti con "Artifact storage quota has been hit". Un report di
           # un rosso si guarda entro il giorno; tre giorni sono gia' larghi.
           retention-days: 3
+
+  # THE LIVING-DOC ON specflow.armonia.io, REPUBLISHED BY EVERY PUSH TO MAIN.
+  #
+  # Before this job it was published by hand from a Mac (scripts/specflow-evidence.sh)
+  # and stood still from 26/08 to 12/11: 57 capabilities online, 75 in the repo.
+  # Here it is rebuilt from what this run already measured, without running any
+  # suite a second time: the JSON reports of the eight e2e shards and the merged
+  # JUnit of `unit` (both uploaded only on a push to main).
+  #
+  # WHAT IT PUBLISHES: requirements and outcomes. Not videos or traces: the shards
+  # run without E2E_EVIDENCE (it costs them time), and carrying evidence through
+  # artifacts would fill the organisation's 500 MB quota on a busy day. The full
+  # chain with evidence stays scripts/specflow-evidence.sh.
+  #
+  # IT PUBLISHES A RED RUN TOO, like the script: a page that shows three failures
+  # is the truth. It does NOT publish when a shard left no report, or when the
+  # e2e did not run (nothing measured, nothing to say).
+  #
+  # Not read by the board, not on the critical path of a pull request (it does
+  # not exist there). The openspec lint, which can be fixed in the repo, is a
+  # blocking step of `gates`; here it only guards what gets published.
+  #
+  # Two pushes close together publish in the order they FINISH: an older run
+  # with slower shards can land after a newer one, until the next push.
+  living-doc:
+    needs: [changes, unit, e2e]
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.changes.outputs.e2e != 'false' && (needs.e2e.result == 'success' || needs.e2e.result == 'failure') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The job can be red (its own row says so) without turning the run red:
+    # auto-bump ships only a green run, and a living-doc that could not be
+    # published is not a broken commit. No `concurrency:` group either: an
+    # evicted pending job is `cancelled`, and that WOULD reach the run.
+    continue-on-error: true
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Setup Node (the spec-flow CLI runs on node)
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Install root deps (spec-flow included)
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Download the e2e reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: specflow-e2e-report-*
+          path: specflow-reports
+          merge-multiple: true
+
+      - name: Download the unit JUnit
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: specflow-unit-junit
+          path: test-results
+
+      - name: Merge the shard reports
+        run: |
+          n=$(ls specflow-reports/report-*.json 2>/dev/null | wc -l)
+          echo "report degli shard: $n su 16"
+          [ "$n" -eq 16 ] || { echo "::error title=living-doc::$n report su 16: uno shard e' morto senza report, la pagina direbbe «mai eseguito» per una parte della suite"; exit 1; }
+          bun run scripts/merge-shard-reports.ts specflow-reports --out test-results/uat-report.json
+          # The shards run on other machines (permanent node, PC, Hetzner) and the
+          # report keeps THEIR testDir: spec.file is relative to it, and
+          # check-spec-coverage rebuilds the path from it. Left as it is, no e2e
+          # file matches a claim and every e2e requirement reads «not run here».
+          jq --arg r "$PWD/tests/e2e" '.config.rootDir = $r' test-results/uat-report.json > test-results/uat-report.tmp
+          mv test-results/uat-report.tmp test-results/uat-report.json
+
+      - name: Coverage map with the outcomes
+        run: |
+          # `unit` is waited for only for its JUnit; its result says why one is missing.
+          [ -f test-results/bun-junit.xml ] || echo "::warning title=living-doc::manca il JUnit di unit (esito del job: ${{ needs.unit.result }}): i requisiti provati dai test unitari resteranno «non eseguito»"
+          bun run scripts/check-spec-coverage.ts --json openspec/coverage-map.json --junit test-results/bun-junit.xml --pw-report test-results/uat-report.json > /dev/null || true
+
+      - name: Openspec lint
+        run: node_modules/.bin/spec-flow lint-openspec
+
+      - name: Publish to specflow.armonia.io
+        run: node_modules/.bin/spec-flow publish-uat
+        env:
+          SPEC_FLOW_PUBLISH_SECRET: ${{ secrets.SPEC_FLOW_PUBLISH_SECRET }}
+          SPEC_FLOW_SKIP_TRACES: "1"
 
   # The Tauri shell is the primary desktop app (Electron was archived in v2.0.0,
   # recoverable on branch `electron-archive`). Its Rust crate compiles only on a

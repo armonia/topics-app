@@ -251,6 +251,8 @@ tests/**/node_modules/
 
 # Debug screenshots
 tabbar-*.png
+# Old clone of armonia/spec-flow, replaced by the @armonia-io/spec-flow package (12/11/2026).
+# Still ignored: checkouts that have it would otherwise see it as untracked.
 spec-flow/
 
 # What `bun run landing:vividness` writes to look at. Diagnostics, not artefacts.

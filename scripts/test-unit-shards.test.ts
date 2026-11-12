@@ -23,6 +23,7 @@ import {
   planUnderLoad,
   defaultShards,
   aggregateVerdict,
+  mergeJUnit,
   snapshotEntries,
   newEntries,
 } from "./test-unit-shards.ts";
@@ -280,5 +281,51 @@ describe("newEntries", () => {
 
   test("a folder that cannot be read is empty, not an error", () => {
     expect([...snapshotEntries(join(tmpdir(), "does-not-exist-" + process.pid))]).toEqual([]);
+  });
+});
+
+describe("mergeJUnit", () => {
+  const green = (file: string) =>
+    `<?xml version="1.0" encoding="UTF-8"?>\n<testsuites name="bun test" tests="2">\n` +
+    `<testsuite name="${file}" file="${file}" tests="2"><testcase name="a" file="${file}" /><testcase name="b" file="${file}" /></testsuite>\n</testsuites>\n`;
+
+  test("one document with every testcase of every file, keeping the file attribute", () => {
+    const xml = mergeJUnit([
+      { file: "b.test.ts", code: 0, junit: green("b.test.ts") },
+      { file: "a.test.ts", code: 0, junit: green("a.test.ts") },
+    ]);
+    expect(xml.match(/<\?xml/g)).toHaveLength(1);
+    expect(xml.match(/<testsuites\b/g)).toHaveLength(1);
+    expect(xml.match(/<testcase\b/g)).toHaveLength(4);
+    expect(xml).toContain('tests="4" failures="0"');
+    expect(xml.indexOf('file="a.test.ts"')).toBeLessThan(xml.indexOf('file="b.test.ts"'));
+  });
+
+  test("a file whose process failed with every testcase green is still red", () => {
+    const xml = mergeJUnit([{ file: "hook.test.ts", code: 1, junit: green("hook.test.ts") }]);
+    expect(xml).toContain('<failure message="exit 1" />');
+    expect(xml).toContain('tests="3" failures="1"');
+  });
+
+  test("a file that wrote no report and failed is red, one that wrote none and passed adds nothing", () => {
+    const xml = mergeJUnit([
+      { file: "crash.test.ts", code: 137, junit: null },
+      { file: "quiet.test.ts", code: 0, junit: null },
+    ]);
+    expect(xml).toContain('file="crash.test.ts"');
+    expect(xml).toContain('<failure message="exit 137" />');
+    expect(xml).not.toContain("quiet.test.ts");
+  });
+
+  test("a red testcase is not counted twice", () => {
+    const red = green("r.test.ts").replace('<testcase name="b" file="r.test.ts" />', '<testcase name="b" file="r.test.ts"><failure message="x" /></testcase>');
+    const xml = mergeJUnit([{ file: "r.test.ts", code: 1, junit: red }]);
+    expect(xml.match(/<failure\b/g)).toHaveLength(1);
+    expect(xml).toContain('tests="2" failures="1"');
+  });
+
+  test("a path with quotes or ampersands stays a valid attribute", () => {
+    const xml = mergeJUnit([{ file: 'we"ird&.test.ts', code: 2, junit: null }]);
+    expect(xml).toContain('file="we&quot;ird&amp;.test.ts"');
   });
 });
