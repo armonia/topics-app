@@ -40,8 +40,11 @@ import { SUITE_ROOTS, enumerateTestFiles } from "./test-unit-shards.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 
-/** Where modules a test may import live, beyond the suite roots. */
-export const GRAPH_ROOTS = [...SUITE_ROOTS, "tests/helpers", "tests/setup", "tests/fixtures", "tests/e2e", "server.ts"] as const;
+/**
+ * Where modules a test may import live, beyond the suite roots. `knip.jsonc` is here as a file: only the
+ * dead-code gate and the tests that name it read it, so a change selects those tests instead of the whole suite.
+ */
+export const GRAPH_ROOTS = [...SUITE_ROOTS, "tests/helpers", "tests/setup", "tests/fixtures", "tests/e2e", "server.ts", "knip.jsonc"] as const;
 
 const CODE_EXTENSIONS = [".ts", ".tsx", ".mjs", ".js", ".json"] as const;
 
@@ -54,7 +57,6 @@ const FULL_SUITE_PATTERNS: readonly RegExp[] = [
   /^(bun\.lockb?|client\/bun\.lockb?|package-lock\.json)$/,
   /^bunfig\.toml$/,
   /(^|\/)tsconfig[^/]*\.json$/,
-  /^knip\.jsonc?$/,
   /^tests\/setup\//,
   /\.d\.ts$/,
   /^shared\/types[^/]*$/,
@@ -101,7 +103,7 @@ export function pathLiterals(text: string, files: readonly string[]): Set<string
   const out = new Set<string>();
   for (const m of text.matchAll(QUOTED_PATH)) {
     const token = m[1].replace(/^(\.\.?\/)+/, "");
-    if (!/\.[a-z]{2,4}$/.test(token)) continue;
+    if (!/\.[a-z]{2,5}$/.test(token)) continue;
     const hits = bySuffix.get(token);
     if (!hits) continue;
     // A bare file name is evidence only when it names one file.
@@ -198,7 +200,7 @@ export function changedFiles(base: string, cwd = REPO_ROOT): string[] {
 export function graphFiles(cwd: string): string[] {
   const out = new Set<string>();
   for (const root of GRAPH_ROOTS) {
-    if (root.endsWith(".ts")) {
+    if (/\.[a-z]+$/.test(root)) {
       if (existsSync(join(cwd, root))) out.add(root);
       continue;
     }

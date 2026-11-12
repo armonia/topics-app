@@ -31,6 +31,7 @@ const SOURCES: Record<string, string> = {
   "server/lib/reader.ts": "export const reader = 1;",
   "tests/unit/reads-text.test.ts": 'readFileSync(join(ROOT, "server", "lib", "reader.ts"), "utf8");',
   "tests/unit/reads-path.test.ts": 'readFileSync("shared/leaf.ts", "utf8");',
+  "tests/unit/reads-knip.test.ts": 'readFileSync(join(ROOT, "knip.jsonc"), "utf8");',
   "tests/unit/walks-tree.test.ts": 'Bun.spawnSync(["git", "ls-files"]);',
   "tests/e2e/helper.ts": "export const helper = 1;",
   "tests/unit/uses-e2e-helper.test.ts": 'import { helper } from "../e2e/helper";',
@@ -90,8 +91,11 @@ describe("selectTests", () => {
   test("docs select nothing", () => {
     expect(selectTests(["README.md"], graph(), suite)).toEqual({ kind: "tests", tests: [] });
   });
-  test.each(["package.json", "bun.lock", "bunfig.toml", "tsconfig.server.json", "tests/setup/bun-test-preload.ts", "shared/types.ts", "knip.jsonc"])("%s falls back to the whole suite", (file) => {
+  test.each(["package.json", "bun.lock", "bunfig.toml", "tsconfig.server.json", "tests/setup/bun-test-preload.ts", "shared/types.ts"])("%s falls back to the whole suite", (file) => {
     expect(selectTests([file], graph(), suite).kind).toBe("full");
+  });
+  test("knip.jsonc feeds only the dead-code gate: it selects the tests that name it, not the whole suite", () => {
+    expect(selectTests(["knip.jsonc"], graph(), suite)).toEqual({ kind: "tests", tests: ["tests/unit/reads-knip.test.ts"] });
   });
   test("an unknown data file falls back to the whole suite, a deleted one does not", () => {
     expect(selectTests([".github/workflows/ci.yml"], graph(), suite).kind).toBe("full");
