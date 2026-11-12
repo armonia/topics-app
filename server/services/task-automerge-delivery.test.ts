@@ -3,7 +3,7 @@
  */
 import { describe, test, expect } from "bun:test";
 import { createTaskAutoMerge, declaredDeliveryFor, landFallout } from "./task-automerge";
-import { mkdtempSync, writeFileSync, existsSync, rmSync } from "fs";
+import { mkdtempSync, writeFileSync, existsSync, rmSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
@@ -296,12 +296,10 @@ describe("server.ts wires the land through declaredDeliveryFor and nothing of it
   // The wiring is the one place a regression hid: the logic can be right in
   // `declaredDeliveryFor` while server.ts goes back to reading `deliveryBranch`
   // alone (12/11). server.ts cannot be imported in a test, so the test reads it.
-  const source = require("fs").readFileSync(join(import.meta.dir, "../../server.ts"), "utf8") as string;
+  const source = readFileSync(join(import.meta.dir, "../../server.ts"), "utf8");
   const at = source.indexOf("createTaskAutoMerge({");
   const block = source.slice(at, source.indexOf("log: (msg, err) => console.error", at))
-    .split(/?
-/).filter((line) => !line.trim().startsWith("//")).join("
-");
+    .split(/\r?\n/).filter((line) => !line.trim().startsWith("//")).join("\n");
 
   test("declaredDelivery is declaredDeliveryFor(...)", () => {
     expect(at).toBeGreaterThan(0);
