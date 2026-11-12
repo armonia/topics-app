@@ -33,6 +33,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { createHash } from "crypto";
 import { worktreeRegistrationLost } from "./worktree-registration";
+import { carriedBranch } from "./branch-on-origin";
 import { findAttributionViolations } from "./land-attribution-gate";
 import { commitIsIn, countOwnCommits, otherLocalBranches } from "./own-commits";
 import { lastLook } from "./landing-last-look";
@@ -289,6 +290,17 @@ export interface DeclaredDelivery {
   repoPath: string | null;
   /** Il ramo registrato alla consegna. `null` = la card non ne dichiara uno. */
   branch: string | null;
+}
+
+/**
+ * The branch a card declares for the land: its delivery branch, or the one it
+ * carried to another machine (`priorBranch`). A card that ran on a node or the
+ * PC comes back with `deliveryBranch` null and the branch only in `priorBranch`;
+ * ignoring it made the land answer `no-branch` and close the card with its code
+ * outside main. `null` means no branch ever existed.
+ */
+export function declaredBranchOf(task: { deliveryBranch?: string | null; priorBranch?: string | null }): string | null {
+  return carriedBranch(task);
 }
 
 /** Il ramo scelto per il land, o il perché non ce n'è uno. */

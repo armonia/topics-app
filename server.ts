@@ -126,7 +126,7 @@ import { createBudgetGovernor, freezableRuns, liveCheckTreeGB, setActiveBudgetGo
 import { createSwapBrake, killCheckTree, stopReviewChecks } from "./server/services/review-checks-brakes";
 import { awaitCiEvidence } from "./server/services/ci-evidence";
 import { buildBranchInventory, scanBranchesOutsideBase, summarizeInventory } from "./server/services/branch-inventory";
-import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
+import { createTaskAutoMerge, declaredBranchOf, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
 import { imageShape, isBlankLikeImage } from "./server/services/image-shape";
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
 import { createPreviewBrowser } from "./server/services/preview-browser";
@@ -2662,7 +2662,10 @@ const taskAutoMerge = createTaskAutoMerge({
   declaredDelivery: (taskId) => {
     const task = dispatcherSvc.get(taskId)?.task;
     if (!task) return null;
-    const branch = task.deliveryBranch ?? null;
+    // A card that ran on another machine comes back with no delivery branch: the
+    // branch it carried there survives as `priorBranch`. Without this fallback the
+    // land answered `no-branch` and closed the card with its code outside main.
+    const branch = declaredBranchOf(task);
     if (!branch) return null;
     let repoPath: string | null = null;
     try {

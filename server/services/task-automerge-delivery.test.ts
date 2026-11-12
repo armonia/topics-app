@@ -2,7 +2,7 @@
  * @covers LAND-03
  */
 import { describe, test, expect } from "bun:test";
-import { createTaskAutoMerge, landFallout } from "./task-automerge";
+import { createTaskAutoMerge, declaredBranchOf, landFallout } from "./task-automerge";
 import { mkdtempSync, writeFileSync, existsSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -172,6 +172,31 @@ describe("land vs consegna — su git vero", () => {
       rmSync(repo, { recursive: true, force: true });
     }
   }, 30_000);
+
+  // A card run on another machine returns with `deliveryBranch` null and the
+  // branch only in `priorBranch`: the land must use it, never accept the card.
+  test("remote card: deliveryBranch null with priorBranch lands the prior branch", async () => {
+    const { repo } = repoConDueRami();
+    try {
+      const task = { deliveryBranch: null, priorBranch: "topics/consegnato" };
+      const am = createTaskAutoMerge({
+        resolveTaskMerge: () => null,
+        declaredDelivery: () => ({ repoPath: repo, branch: declaredBranchOf(task) }),
+      });
+      const res = await am.tryMerge("t7", "remote card", { branch: null, commit: null });
+
+      expect(res.status).toBe("merged");
+      git(repo, "switch", "-q", "main");
+      expect(existsSync(join(repo, "lavoro.txt"))).toBe(true);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("no branch ever existed: still no-branch", () => {
+    expect(declaredBranchOf({ deliveryBranch: null, priorBranch: null })).toBeNull();
+    expect(declaredBranchOf({ deliveryBranch: "topics/a", priorBranch: "topics/b" })).toBe("topics/a");
+  });
 
   test("agente rilasciato e ramo davvero potato: fallisce con un codice che TOGLIE la card da Done", async () => {
     const { repo } = repoConDueRami();
