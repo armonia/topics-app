@@ -93,7 +93,7 @@ function follow(
     onUsage: extra.onUsage,
     onEvent: (ev) => {
       if (ev.e === "steered") steerTaken(sessionKey, ev.items);
-      if (ev.e === "end" && ev.steerLeft?.length) steerLeftByHost(sessionKey, ev.steerLeft);
+      if (ev.e === "end" && ev.steerLeft?.length) steerLeftByHost(sessionKey, ev.steerLeft, ev.stoppedByPerson === true);
       effects.apply(ev);
     },
   });

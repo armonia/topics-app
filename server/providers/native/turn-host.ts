@@ -252,6 +252,7 @@ export async function main(): Promise<void> {
     calibration: opts.calibration,
     warm: { model: opts.model, effort: opts.effort, maxTokens: opts.maxTokens, system: opts.system, tools: lastTools },
     ...(steerWaiting.length > 0 ? { steerLeft: steerWaiting.splice(0) } : {}),
+    ...(abort.signal.aborted && String(abort.signal.reason ?? "") === "user" ? { stoppedByPerson: true } : {}),
   });
 }
 

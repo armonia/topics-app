@@ -33,6 +33,8 @@ export interface SteerMeta {
   author: { authorPersonId?: string | null; authorDeviceId?: string | null } | null;
   /** The assistant row of the turn the message joins. */
   into: string | null;
+  /** Fields of the first request its own turn reuses if the running turn never reads it (sender kind, model, provider). */
+  replay?: Record<string, unknown>;
 }
 
 export interface SteerItem {
@@ -133,12 +135,13 @@ export function steerTaken(sessionKey: string, items: SteerItem[]): void {
 /**
  * The detached host ended and names what it never took. Only those the queue
  * does not hold any more (a server that restarted meanwhile) are handled
- * here; the others are the target's `close` to hand back.
+ * here; the others are the target's `close` to hand back. After a person's
+ * Stop they are held, as `close` would hold them.
  */
-export function steerLeftByHost(sessionKey: string, items: SteerItem[]): void {
+export function steerLeftByHost(sessionKey: string, items: SteerItem[], stoppedByPerson = false): void {
   const known = new Set((queues.get(sessionKey) ?? []).map((it) => it.id));
   const orphans = items.filter((it) => !known.has(it.id) && steerState(sessionKey, it.id)?.state !== "taken");
-  settle(sessionKey, orphans, "returned");
+  settle(sessionKey, orphans, stoppedByPerson ? "held" : "returned");
 }
 
 /** The route records the row a message became, so a later status answer can name it. */

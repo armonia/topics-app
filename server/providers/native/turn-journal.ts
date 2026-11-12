@@ -75,6 +75,8 @@ export type JournalEvent =
       e: "end"; history: unknown[]; calibration?: unknown; warm?: TurnWarmPrefix;
       /** Steered messages the host got and never took: sent on as turns of their own. */
       steerLeft?: SteerItem[];
+      /** The turn ended on a person's Stop: what it left is held, not sent (a server that restarted cannot tell otherwise). */
+      stoppedByPerson?: true;
     };
 
 export interface TurnWarmPrefix {

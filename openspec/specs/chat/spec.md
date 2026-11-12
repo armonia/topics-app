@@ -3163,8 +3163,10 @@ row: the resume sweep SHALL NOT read it as unanswered, and a history rebuilt
 from the database SHALL place it before that turn's answer.
 
 Nothing SHALL be lost or read twice. A message the turn never read SHALL go as
-a turn of its own once the session is free, with the same key and author. A
-person's Stop SHALL hold it instead (Stop stops). A detached turn that may have
+a turn of its own once the session is free, with the same key, author and
+sender kind, unless the chat was archived meanwhile. A person's Stop SHALL hold
+it instead (Stop stops), after a server restart too. A turn cut after a message
+was steered into it SHALL be resumed as if that row were not there. A detached turn that may have
 read it, whose journal ended before saying so, SHALL leave it `unknown` for the
 sender to decide. A resend under the same key while the message waits SHALL get
 the same steer id. `GET /api/chat/steer?sessionKey=&id=` SHALL say what became

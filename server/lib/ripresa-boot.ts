@@ -591,10 +591,18 @@ export const MAX_RESTART_CONTINUATIONS = 10;
 
 const CONTINUATION_OPENING = "[Topics] The server restarted in the middle of your previous turn.";
 
+/**
+ * A person's row steered into a turn that was already running (CHAT-QUEUE-08):
+ * stored after that turn's assistant row, answered by it. Every read here that
+ * asks "what did the person write last?" skips it, or a cut turn would be
+ * resent as the steered words, which the model already read.
+ */
+export const NOT_STEERED_ROW = `NOT (role = 'user' AND typeof(blocks) = 'text' AND blocks LIKE '%"kind":"steered"%')`;
+
 /** The chat's last user rows that are continuation notes, counted back to the first that is not. */
 function continuationsInARow(db: Pick<Database, "query">, sessionKey: string): number {
   const rows = db.query(
-    `SELECT content FROM messages WHERE session_key = ? AND role = 'user' ORDER BY rowid DESC LIMIT ?`,
+    `SELECT content FROM messages WHERE session_key = ? AND role = 'user' AND ${NOT_STEERED_ROW} ORDER BY rowid DESC LIMIT ?`,
   ).all(sessionKey, MAX_RESTART_CONTINUATIONS + 1) as Array<{ content: unknown }>;
   let n = 0;
   for (const row of rows) {
@@ -864,7 +872,7 @@ async function assessLastRow(ctx: CtxRipresa, found: LastRow, ora: number): Prom
   if (!topic || topic.archived) return null;
   // The message a resend sends, which keys its count (lib/resend-count.ts).
   const lastUser = ctx.db.query(
-    `SELECT id, content FROM messages WHERE session_key = ? AND role = 'user' ORDER BY rowid DESC LIMIT 1`,
+    `SELECT id, content FROM messages WHERE session_key = ? AND role = 'user' AND ${NOT_STEERED_ROW} ORDER BY rowid DESC LIMIT 1`,
   ).get(r.sk) as { id: string; content: unknown } | undefined | null;
   if (!lastUser) return null;
   // A native sub-agent's turn is resent only while it is `running`: a child
@@ -929,7 +937,7 @@ function stillPending(row: RigaDaValutare, ora: number): boolean {
 export async function cutTurnResumable(ctx: CtxRipresa, sessionKey: string): Promise<boolean> {
   const found = ctx.db.query(
     `SELECT session_key AS sk, id, role AS ruolo, blocks, timestamp AS ts FROM messages
-      WHERE session_key = ? AND timestamp >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-25 hours')
+      WHERE session_key = ? AND timestamp >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-25 hours') AND ${NOT_STEERED_ROW}
       ORDER BY rowid DESC LIMIT 1`,
   ).get(sessionKey) as LastRow | null;
   if (!found) return false;
@@ -956,7 +964,7 @@ export const LAST_RECENT_MESSAGES_SQL = `SELECT m.session_key AS sk, m.id AS id,
   FROM messages m
  WHERE m.timestamp >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-25 hours')
    AND m.rowid = (SELECT MAX(rowid) FROM messages WHERE session_key = m.session_key
-                    AND NOT (role = 'user' AND typeof(blocks) = 'text' AND blocks LIKE '%"kind":"steered"%'))`;
+                    AND ${NOT_STEERED_ROW})`;
 
 /**
  * I TURNI CHE ABBIAMO UCCISO NOI, RIPRESI DA NOI.

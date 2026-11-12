@@ -431,6 +431,13 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
 
   /** Every steered row carries a key: the sender's, or the steer's own id, so writing it twice (a journal replayed after a restart) stores it once. */
   const steerKey = (item: SteerItem) => item.meta.key ?? item.id;
+  /** What a steered message's own turn needs from its first request, if the running turn never reads it: who sent it and how to run it. */
+  const replayFieldsOf = (body: Record<string, unknown>, sentByAgent: boolean): Record<string, unknown> => ({
+    ...(sentByAgent ? { fromAgent: true } : {}),
+    ...(typeof body.model === "string" && body.model.trim() ? { model: body.model } : {}),
+    ...(typeof body.provider === "string" && body.provider.trim() ? { provider: body.provider } : {}),
+    ...(body.fastMode === true ? { fastMode: true } : {}),
+  });
 
   setSteerSink({
     taken(sessionKey, item) {
@@ -462,8 +469,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           type: "message:new", topicId, sessionKey, role: "user",
           messageId: stored.id, content: item.text, preview: item.text.slice(0, 100),
           ...(stored.blocks?.length ? { blocks: stored.blocks } : {}),
+          // The sender's window matches its own bubble by this key, as for any message.
+          ...(item.meta.key ? { clientMessageId: item.meta.key } : {}),
         });
       }
+      const topic = ctx.getTopicBySessionKey(sessionKey);
+      if (topic) bumpTopicActivity(topic);
     },
     returned(sessionKey, item) {
       pendingSteerBySlot.delete(`${sessionKey} ${steerKey(item)}`);
@@ -505,7 +516,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     sessionKey: string,
     m: {
       idempotencyKey: string | null; idempotencySlot: string | null; dispatched: boolean;
-      dispatchedFor: string[]; liveMessageId?: string;
+      dispatchedFor: string[]; liveMessageId?: string; sentByAgent: boolean;
     },
   ): Response | null {
     const messages = body.messages as Array<{ role?: unknown; content?: unknown }> | undefined;
@@ -519,6 +530,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       dispatchedFor: m.dispatchedFor,
       author: authorFor(req) ?? null,
       into: m.liveMessageId ?? null,
+      replay: replayFieldsOf(body, m.sentByAgent),
     });
     if (!offered) return null;
     if (m.idempotencySlot) pendingSteerBySlot.set(m.idempotencySlot, offered.id);
@@ -536,6 +548,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
   function replayReturnedSteer(sessionKey: string, item: SteerItem): void {
     const key = steerKey(item);
     const payload = JSON.stringify({
+      ...(item.meta.replay ?? {}),
       sessionKey, messages: [{ role: "user", content: item.text }], clientMessageId: key,
       ...(item.meta.dispatched ? { dispatched: true } : {}),
       ...(item.meta.dispatchedFor.length ? { dispatchedFor: item.meta.dispatchedFor } : {}),
@@ -551,11 +564,30 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       timer = setTimeout(() => { void attempt(); }, ms);
       timer.unref?.();
     };
+    const refused = (why: string) => {
+      failures++;
+      console.warn(`[steer] ${sessionKey} ${item.id}: ${why}`);
+      if (failures >= 5) {
+        finish();
+        noteSteerFailed(sessionKey, item.id);
+        console.warn(`[steer] ${sessionKey} ${item.id}: given up after ${failures} refusals`);
+        return;
+      }
+      later(Math.min(60_000, 2_000 * 2 ** failures));
+    };
     const attempt = async (): Promise<void> => {
       if (done || sending) return;
       if (isStreaming(sessionKey)) { later(5_000); return; }
       sending = true;
       try {
+        // A chat archived or deleted meanwhile gets no turn from the machine, as in the resume sweep.
+        const topic = ctx.getTopicBySessionKey(sessionKey);
+        if (!topic || topic.archived) {
+          finish();
+          noteSteerFailed(sessionKey, item.id);
+          console.warn(`[steer] ${sessionKey} ${item.id}: the chat is ${topic ? "archived" : "gone"}, not sent`);
+          return;
+        }
         const url = new URL("http://localhost/api/chat");
         const req = new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: payload });
         replayAuthors.set(req, item.meta.author);
@@ -576,15 +608,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           return;
         }
         if (resp?.status === 409 && answer?.code === "stream_in_flight") { later(5_000); return; }
-        failures++;
-        console.warn(`[steer] ${sessionKey} ${item.id}: the chat route answered ${resp?.status ?? "nothing"} ${String(answer?.code ?? "")}`);
-        if (failures >= 5) {
-          finish();
-          noteSteerFailed(sessionKey, item.id);
-          console.warn(`[steer] ${sessionKey} ${item.id}: given up after ${failures} refusals`);
-          return;
-        }
-        later(Math.min(60_000, 2_000 * 2 ** failures));
+        refused(`the chat route answered ${resp?.status ?? "nothing"} ${String(answer?.code ?? "")}`);
+      } catch (err) {
+        // Not a refusal the route wrote: a throw (a busy database on the row's
+        // append). Called with `void`, it would end the process.
+        refused(`the chat route threw: ${err instanceof Error ? err.message : String(err)}`);
       } finally {
         sending = false;
       }
@@ -653,8 +681,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       // A steered message under this key is still waiting for its turn: the
       // resend gets the same answer, not a second copy in the model's history.
       const pendingSteer = idempotencySlot ? pendingSteerBySlot.get(idempotencySlot) : undefined;
-      if (pendingSteer && steerState(sessionKey, pendingSteer)?.state === "pending") {
-        return json({ steered: true, steerId: pendingSteer, duplicate: true, messageId: null }, 202);
+      if (pendingSteer) {
+        if (steerState(sessionKey, pendingSteer)?.state === "pending") {
+          return json({ steered: true, steerId: pendingSteer, duplicate: true, messageId: null }, 202);
+        }
+        // Held, unknown or failed: the key is free again for the sender's own resend.
+        pendingSteerBySlot.delete(idempotencySlot!);
       }
       if (idempotencySlot) {
         const already = chatIdempotency.lookup(idempotencySlot) ?? rowStoredUnderKey(ctx.db, sessionKey, idempotencyKey!);
@@ -885,7 +917,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // (`steer: true`, `lib/turn-steer.ts`), and that turn takes messages.
           if (body.steer === true) {
             const steered = steerIntoRunningTurn(req, body, sessionKey, {
-              idempotencyKey, idempotencySlot, dispatched, dispatchedFor, liveMessageId: live?.messageId,
+              idempotencyKey, idempotencySlot, dispatched, dispatchedFor, liveMessageId: live?.messageId, sentByAgent,
             });
             if (steered) return steered;
           }

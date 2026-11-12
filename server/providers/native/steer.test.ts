@@ -209,6 +209,13 @@ describe("the steer queue", () => {
     expect(told).toEqual([["taken", "presa"], ["returned", "lasciata"]]);
   });
 
+  test("after a restart, what a host left on a person's Stop is held, not sent", () => {
+    const left: SteerItem = { id: "steer-before-restart-3", text: "dopo lo stop", meta: META };
+    steerLeftByHost(SK, [left], true);
+    expect(told).toEqual([]);
+    expect(steerState(SK, left.id)).toEqual({ state: "held" });
+  });
+
   test("a turn that replaced another one keeps the session open when the old one closes", () => {
     const old = openSteerTarget(SK);
     const current = openSteerTarget(SK);

@@ -15,7 +15,7 @@ import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir 
 import { createChatRouter } from "./chat";
 import type { AIProvider, StreamHandler } from "../providers/types";
 import type { AppContext, Topic } from "../types";
-import { openSteerTarget, resetTurnSteer } from "../lib/turn-steer";
+import { offerSteer, openSteerTarget, resetTurnSteer } from "../lib/turn-steer";
 import { LAST_RECENT_MESSAGES_SQL } from "../lib/ripresa-boot";
 import { nativeHistorySource } from "../providers/native/history-source";
 import { historyFromPersistedThread } from "../providers/native/history-rehydrate";
@@ -27,6 +27,8 @@ let sent = 0;
 let chat: ReturnType<typeof createChatRouter>;
 /** The identity the gate would pin on a request, by its body's marker. */
 let identityOf: (req: Request) => unknown = () => null;
+/** Set: reading the chat throws, as a busy database would inside the route. */
+let topicReadThrows = false;
 
 beforeAll(async () => {
   setupTestDataDir(`${ROOT}/data`);
@@ -34,6 +36,11 @@ beforeAll(async () => {
   (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = () => {};
   (ctx as { broadcastToTopicSubscribers: (id: string, m: unknown) => void }).broadcastToTopicSubscribers = () => {};
   (ctx as { requestIdentity: (req: Request) => unknown }).requestIdentity = (req) => identityOf(req);
+  const readTopic = ctx.getTopicBySessionKey.bind(ctx);
+  (ctx as { getTopicBySessionKey: typeof readTopic }).getTopicBySessionKey = (sk) => {
+    if (topicReadThrows) throw new Error("SQLITE_BUSY: database is locked");
+    return readTopic(sk);
+  };
   const provider = {
     name: "topics",
     capabilities: new Set(["streaming"]),
@@ -55,7 +62,7 @@ beforeAll(async () => {
     browserNavigatedTopics: new Set<string>(), WORKSPACE_DIR: `${ROOT}/ws`,
   } as never);
 }, 30_000);
-beforeEach(() => { resetTurnSteer(); sent = 0; });
+beforeEach(() => { resetTurnSteer(); sent = 0; topicReadThrows = false; });
 afterAll(() => { resetTurnSteer(); cleanupTestDataDir(ROOT); });
 
 function topic(name: string): string {
@@ -224,5 +231,45 @@ describe("a steered row, once taken, stays answered", () => {
     expect(row?.authorDeviceId).toBe("dev-guest-1");
     await endTurns();
   }, 20_000);
+
+  test("a throw while sending a returned message neither ends the process nor loses the message", async () => {
+    const sk = topic("steer-throw");
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown) => { unhandled.push(e); };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      // No turn streams: the returned message is sent at once, and that first try throws inside the route.
+      const target = openSteerTarget(sk);
+      offerSteer(sk, "il secondo", { key: "k-throw", dispatched: false, dispatchedFor: [], author: null, into: null });
+      topicReadThrows = true;
+      target.close();
+      await Bun.sleep(100);
+      topicReadThrows = false;
+      expect(unhandled).toEqual([]);
+      // The next try, a few seconds later, goes through.
+      for (let i = 0; i < 400 && sent < 1; i++) await Bun.sleep(25);
+      expect(sent).toBe(1);
+      expect(userRows(sk, "il secondo")).toHaveLength(1);
+      await endTurns();
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  }, 20_000);
+
+  test("a returned message is not sent into a chat archived meanwhile", async () => {
+    const sk = topic("steer-archived");
+    expect((await post(sk, "primo")).status).toBe(200);
+    const target = openSteerTarget(sk);
+    const resp = await post(sk, "dopo l'archivio", { steer: true });
+    const { steerId } = await resp.json() as { steerId: string };
+    const t = ctx.getTopicBySessionKey(sk)!;
+    ctx.saveSingleTopic({ ...t, archived: true });
+    target.close();
+    await endTurns();
+    await Bun.sleep(300);
+    expect(sent).toBe(1);
+    expect(userRows(sk, "dopo l'archivio")).toHaveLength(0);
+    expect((await (await steerStatus(sk, steerId)).json() as { state: string }).state).toBe("failed");
+  });
 });
 

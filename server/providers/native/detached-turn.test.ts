@@ -33,7 +33,8 @@ delete process.env.TOPICS_NATIVE_DETACHED;
 // written in settings.json and send the fake token to the real API.
 delete process.env.ANTHROPIC_BASE_URL;
 
-const { runDetachedTurn, reattachDetachedTurn, liveDetachedSessions, awaitStrayTurn, brokerIdFor, forwardHostLog } = await import("./detached-turn");
+const { runDetachedTurn, reattachDetachedTurn, liveDetachedSessions, awaitStrayTurn, brokerIdFor, forwardHostLog, steerDetachedTurn } = await import("./detached-turn");
+const { offerSteer, openSteerTarget, setSteerSink, steerState } = await import("../../lib/turn-steer");
 const { __resetAiBridgeClientForTests, getAiBridgeClient } = await import("../../lib/ai-bridge-client");
 const { clearProviderHold, holdForApiDown, providerHold, setProviderHold } = await import("../../lib/provider-hold");
 import type { TurnSpec } from "./turn-host";
@@ -49,6 +50,8 @@ beforeAll(async () => {
     stalehold: [{ textPieces: 6, pieceMs: 150 }],
     spawndrop: [{ textPieces: PIECES, pieceMs: 150 }],
     short: [{ text: "subito" }],
+    // A round that calls a tool while its text streams, then the answer: a steered message lands between the two.
+    steer: [{ textPieces: 6, pieceMs: 150, tools: [{ name: "no_such_tool", input: {} }] }, { text: "fatto" }],
   });
   undoFake = installFakeAnthropic(home, fake.baseUrl);
 });
@@ -111,6 +114,34 @@ describe("detached native turn", () => {
     expect(out.end?.history.length).toBe(2);
     // The broker forgets a session whose ending a server read.
     expect((await liveDetachedSessions()).has("topic:dt000001")).toBe(false);
+  }, 30_000);
+
+  test("a message offered while the host runs reaches the model at its next round, and the journal writes its row", async () => {
+    // @covers CHAT-QUEUE-08: the real host and broker, the wiring `driveTurn` uses (forwardTo the control channel).
+    const sk = "topic:dt0000st";
+    const taken: string[] = [];
+    setSteerSink({ taken: (_sk, item) => { taken.push(item.text); }, returned: () => {} });
+    try {
+      const target = openSteerTarget(sk);
+      const r = recorder();
+      const turn = runDetachedTurn(spec(sk, "steer"), r.handler, {
+        onStarted: () => target.forwardTo((item) => steerDetachedTurn(sk, item)),
+      });
+      await until(() => r.events.some((e) => e.startsWith("text:")));
+      const item = offerSteer(sk, "usa la porta 2222", { key: null, dispatched: false, dispatchedFor: [], author: null, into: null })!;
+      await turn;
+      target.close();
+      expect(r.events).toContain("done");
+      expect(taken).toEqual(["usa la porta 2222"]);
+      expect(steerState(sk, item.id)?.state).toBe("taken");
+      // The second request carries it, after the tool result.
+      const second = fake.requests.find((q) => q.scen === "steer" && q.round === 1)!;
+      const last = second.messages[second.messages.length - 1]!;
+      expect(JSON.stringify(last.content)).toContain("usa la porta 2222");
+      expect(JSON.stringify(last.content).indexOf("tool_result")).toBeLessThan(JSON.stringify(last.content).indexOf("usa la porta 2222"));
+    } finally {
+      setSteerSink(null);
+    }
   }, 30_000);
 
   test("the server dies mid-answer: the next one finds the same turn, nothing regenerated", async () => {
