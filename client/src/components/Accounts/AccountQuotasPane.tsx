@@ -80,10 +80,10 @@ function useProxyReads(enabled: boolean): { reads: ProxyReads | null; failing: b
   const alive = useRef(true);
   const apply = useCallback(({ profiles, settings, board }: Fetched) => {
     if (!alive.current) return;
-    const any = Boolean(profiles || settings);
-    setFailing(!any);
+    const hasProxy = Boolean(profiles || settings);
+    setFailing(!hasProxy);
     // A failed read keeps the last good one: the band says how old it is.
-    if (any || board) setReads((prev) => ({ profiles: profiles ?? prev?.profiles, settings: settings ?? prev?.settings, board: board ?? prev?.board, at: any ? Date.now() : prev?.at ?? Date.now() }));
+    if (hasProxy || board) setReads((prev) => ({ profiles: profiles ?? prev?.profiles, settings: settings ?? prev?.settings, board: board ?? prev?.board, at: hasProxy ? Date.now() : prev?.at ?? Date.now() }));
   }, []);
   const reread = useCallback(() => fetchProxy().then(apply), [apply]);
   useEffect(() => {

@@ -41,6 +41,7 @@ function tagHtml(opts: { ua: string; platform: string; tauri: boolean }): Set<st
   const src = read("client/public/boot.js");
   const from = src.indexOf("var __isMac =");
   expect(from).toBeGreaterThan(0);
+  // the block ends at its own catch, whatever comment that catch carries
   const to = src.indexOf("} catch (e) {", from);
   expect(to).toBeGreaterThan(from);
   const block = src.slice(from, to);
