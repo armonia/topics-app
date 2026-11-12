@@ -1915,6 +1915,7 @@ export function useChat() {
         }
         break;
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- handleStreamEventRef is a stable ref mirror declared right after this callback
   }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn, relightSettledTurn, reserveThinkingRow]);
   // The held frames run through the handler of the moment they are released.
   const handleStreamEventRef = useRefMirror(handleStreamEvent);
