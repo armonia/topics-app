@@ -94,8 +94,8 @@ export const hetznerAdapter: ProviderAdapter = {
     if (!res.ok) throw new Error(`http_${res.status}`);
     const body = (await res.json()) as { servers?: HetznerServer[] };
     return (body.servers ?? []).map((s): ProviderServer => {
-      const loc = s.datacenter?.location?.name;
-      const price = s.server_type?.prices?.find((p) => p.location === loc) ?? s.server_type?.prices?.[0];
+      const place = s.datacenter?.location?.name;
+      const price = s.server_type?.prices?.find((p) => p.location === place) ?? s.server_type?.prices?.[0];
       const monthly = price ? Number(price.price_monthly.gross) : NaN;
       const hourly = price ? Number(price.price_hourly.gross) : NaN;
       const created = Date.parse(s.created);
@@ -108,7 +108,7 @@ export const hetznerAdapter: ProviderAdapter = {
           providerLabel: "Hetzner Cloud",
           monthly: Number.isFinite(monthly) ? money(monthly) : null,
           spentThisMonth: Number.isFinite(monthly) && Number.isFinite(hourly) && Number.isFinite(created) ? money(hetznerSpentThisMonth(created, now, hourly, monthly)) : null,
-          location: s.datacenter?.location?.city ?? loc ?? null,
+          location: s.datacenter?.location?.city ?? place ?? null,
           serverType: s.server_type?.name ?? null,
           createdAt: Number.isFinite(created) ? created : null,
         },

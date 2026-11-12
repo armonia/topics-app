@@ -12,7 +12,7 @@ import { DANGER_TEXT, WARNING_TEXT, SUCCESS_TEXT } from '../../lib/popoverStyles
 import { NOT_MEASURED, formatPct, formatRate } from '../../lib/machineProcesses';
 import { formatMoney, formatUptime, sampleSeries } from '../../lib/machineOverviewView';
 import { FAINT, SECTION, SECTION_HEAD } from './processesStyles';
-import { Gauge } from './MachineProcessesPane';
+import { Gauge } from './Gauge';
 
 const KNOWN_REASONS = new Set(['not_paired', 'unreachable', 'not_a_node', 'powered_off', 'empty']);
 

@@ -110,13 +110,13 @@ export function createMachinesOverviewRoute(ctx: AppContext, opts: { registry?: 
     if (method === "GET" && pathname === "/api/system/machine-metrics") {
       return json({ metrics: readLocalMetrics(now()), hostname: os.hostname() });
     }
-    const tok = matchRoute(pathname, "/api/machines/providers/:id/token");
-    if (tok && method === "PUT") {
-      if (!registry.adapters().some((a) => a.id === tok.id)) return errorResponse(404, "unknown provider");
+    const tokenRoute = matchRoute(pathname, "/api/machines/providers/:id/token");
+    if (tokenRoute && method === "PUT") {
+      if (!registry.adapters().some((a) => a.id === tokenRoute.id)) return errorResponse(404, "unknown provider");
       const body = await readJSON(req);
       if (!body || (body.token !== null && typeof body.token !== "string")) return errorResponse(400, "token must be a string or null");
-      if (!writeProviderToken(ctx.STATE_DIR, tok.id, body.token as string | null)) return errorResponse(400, "that does not look like an API token");
-      return json({ ok: true, configured: registry.configured(tok.id) });
+      if (!writeProviderToken(ctx.STATE_DIR, tokenRoute.id, body.token as string | null)) return errorResponse(400, "that does not look like an API token");
+      return json({ ok: true, configured: registry.configured(tokenRoute.id) });
     }
     return null;
   };
