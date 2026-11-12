@@ -2,7 +2,7 @@
  * @covers LAND-03
  */
 import { describe, test, expect } from "bun:test";
-import { createTaskAutoMerge, declaredBranchOf, landFallout } from "./task-automerge";
+import { createTaskAutoMerge, declaredDeliveryFor, landFallout } from "./task-automerge";
 import { mkdtempSync, writeFileSync, existsSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -173,30 +173,105 @@ describe("land vs consegna — su git vero", () => {
     }
   }, 30_000);
 
-  // A card run on another machine returns with `deliveryBranch` null and the
-  // branch only in `priorBranch`: the land must use it, never accept the card.
-  test("remote card: deliveryBranch null with priorBranch lands the prior branch", async () => {
-    const { repo } = repoConDueRami();
+  /**
+   * A card run on another machine returns with `deliveryBranch` null and its
+   * branch only in `priorBranch`, pushed to origin from there (12/11, 17436204
+   * and 403aad1f). The land goes through `declaredDeliveryFor`, the wiring the
+   * server uses, against a real bare origin.
+   */
+  function remoteCardRepo(): { root: string; repo: string; clone: string } {
+    const root = mkdtempSync(join(tmpdir(), "land-remote-"));
+    const origin = join(root, "origin.git");
+    const repo = join(root, "here");
+    const clone = join(root, "there");
+    git(root, "init", "-q", "--bare", "-b", "main", origin);
+    git(root, "clone", "-q", origin, repo);
+    git(repo, "config", "user.email", "t@t.t");
+    git(repo, "config", "user.name", "t");
+    git(repo, "switch", "-q", "-c", "main");
+    commit(repo, "base.txt", "base\n", "base");
+    git(repo, "push", "-q", "origin", "main");
+    git(root, "clone", "-q", origin, clone);
+    git(clone, "config", "user.email", "t@t.t");
+    git(clone, "config", "user.name", "t");
+    return { root, repo, clone };
+  }
+
+  function landRemoteCard(repo: string, task: { deliveryBranch: string | null; priorBranch: string | null }) {
+    return createTaskAutoMerge({
+      resolveTaskMerge: () => null,
+      declaredDelivery: declaredDeliveryFor({
+        getTask: () => ({ projectId: "topics-app-abc123", ...task }),
+        resolveRepoPath: () => repo,
+      }),
+    }).tryMerge("t7", "remote card", { branch: null, commit: null });
+  }
+
+  test("remote card, branch only on origin: the land fetches it and brings its commits to main", async () => {
+    const { root, repo, clone } = remoteCardRepo();
     try {
-      const task = { deliveryBranch: null, priorBranch: "topics/consegnato" };
-      const am = createTaskAutoMerge({
-        resolveTaskMerge: () => null,
-        declaredDelivery: () => ({ repoPath: repo, branch: declaredBranchOf(task) }),
-      });
-      const res = await am.tryMerge("t7", "remote card", { branch: null, commit: null });
+      git(clone, "switch", "-q", "-c", "topics/vexing-thorn");
+      commit(clone, "remote-work.txt", "done there\n", "work done on the node");
+      git(clone, "push", "-q", "origin", "topics/vexing-thorn");
+
+      const res = await landRemoteCard(repo, { deliveryBranch: null, priorBranch: "topics/vexing-thorn" });
 
       expect(res.status).toBe("merged");
       git(repo, "switch", "-q", "main");
-      expect(existsSync(join(repo, "lavoro.txt"))).toBe(true);
+      expect(existsSync(join(repo, "remote-work.txt"))).toBe(true);
     } finally {
-      rmSync(repo, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
     }
   }, 30_000);
 
-  test("no branch ever existed: still no-branch", () => {
-    expect(declaredBranchOf({ deliveryBranch: null, priorBranch: null })).toBeNull();
-    expect(declaredBranchOf({ deliveryBranch: "topics/a", priorBranch: "topics/b" })).toBe("topics/a");
-  });
+  test("remote card, stale local branch: origin's later commit lands too", async () => {
+    const { root, repo, clone } = remoteCardRepo();
+    try {
+      git(clone, "switch", "-q", "-c", "topics/singing-locket");
+      commit(clone, "first.txt", "1\n", "first commit");
+      git(clone, "push", "-q", "origin", "topics/singing-locket");
+      git(repo, "fetch", "-q", "origin", "topics/singing-locket:topics/singing-locket");
+      commit(clone, "second.txt", "2\n", "second commit, pushed later");
+      git(clone, "push", "-q", "origin", "topics/singing-locket");
+
+      const res = await landRemoteCard(repo, { deliveryBranch: null, priorBranch: "topics/singing-locket" });
+
+      expect(res.status).toBe("merged");
+      git(repo, "switch", "-q", "main");
+      expect(existsSync(join(repo, "first.txt"))).toBe(true);
+      expect(existsSync(join(repo, "second.txt"))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("remote card, branch nowhere: refused, the card leaves Done", async () => {
+    const { root, repo } = remoteCardRepo();
+    try {
+      const res = await landRemoteCard(repo, { deliveryBranch: null, priorBranch: "topics/lost-branch" });
+
+      expect(res.status).toBe("skipped");
+      if (res.status !== "skipped") return;
+      expect(res.code).toBe("branch-missing");
+      // The remote run left both delivery columns empty: the prior branch alone refuses.
+      expect(landFallout(res.code, { deliveryCommit: null, priorBranch: "topics/lost-branch" }).status).toBe("review");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("no branch ever existed: still no-branch", async () => {
+    const { root, repo } = remoteCardRepo();
+    try {
+      const res = await landRemoteCard(repo, { deliveryBranch: null, priorBranch: null });
+      expect(res.status).toBe("skipped");
+      if (res.status !== "skipped") return;
+      expect(res.code).toBe("no-branch");
+      expect(landFallout(res.code, { deliveryCommit: null, priorBranch: null }).status).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   test("agente rilasciato e ramo davvero potato: fallisce con un codice che TOGLIE la card da Done", async () => {
     const { repo } = repoConDueRami();

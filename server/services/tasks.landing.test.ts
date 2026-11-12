@@ -463,16 +463,17 @@ describe("uscita da done: la traccia sulla card e chi può riaprirla", () => {
     expect(back.reopenedAt).not.toBeNull();
   });
 
-  test("anche le porte di SISTEMA lasciano il segno: requeue, attesa dichiarata, consegna forzata", () => {
+  test("anche le porte di SISTEMA lasciano il segno: attesa dichiarata, consegna forzata", () => {
     // Non passano da `update()` — scrivono lo status a SQL grezzo. Erano tre
     // modi di far uscire una card da `done` senza che la board lo dicesse.
+    // The dispatcher's requeue no longer is one: a done card stays done
+    // (12/11, 403aad1f; see tasks.done-not-claimed.test.ts).
     const requeued = doneByDrag("rimessa in coda");
     s.release({ taskId: requeued.id, requeue: true, reason: "server ripartito", by: "dispatcher" });
     const r = s.get(requeued.id)!.task;
-    expect(r.status).toBe("todo");
-    expect(r.reopenedActor).toBe("system");
-    expect(r.reopenedAt).not.toBeNull();
-    expect(r.doneActor).toBeNull();
+    expect(r.status).toBe("done");
+    expect(r.reopenedActor ?? null).toBeNull();
+    expect(r.doneActor).not.toBeNull();
 
     const waiting = doneByDrag("in attesa");
     s.deferForWait({ taskId: waiting.id, reason: "aspetto il server", minutes: 5, by: "claude" });

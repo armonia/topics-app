@@ -5573,6 +5573,20 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     release({ taskId, requeue, reason, by, parkState, rollbackAttempt, keepStatus }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      // A DONE CARD STAYS DONE. Measured 12/11 on 403aad1f: closed at 13:04, a
+      // remote-run path released it with `requeue` at 13:05 (`reopenedBy:
+      // dispatcher`), the next claim started an agent on finished work, which
+      // then asked whether to close it. Several callers release without looking
+      // at the column (mirror retirement, weekly limit, restart requeue, empty
+      // node run): the guard lives here, once, for all of them. The link to the
+      // topic is still cleared; the column, the reason and the reopen are not.
+      if (row.status === "done") {
+        db.prepare(
+          `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
+              dispatch_state = NULL, dispatch_error = NULL, updated_at = ? WHERE id = ?`,
+        ).run(now(), taskId);
+        return rowToTask(getTaskRow(taskId));
+      }
       // Note first (so the "worked in topic X" trail survives clearing the link).
       if (reason && reason.trim()) {
         try { this.addComment({ taskId, author: by ?? "system", content: reason }); } catch { /* dedupe/best-effort */ }

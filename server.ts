@@ -126,7 +126,7 @@ import { createBudgetGovernor, freezableRuns, liveCheckTreeGB, setActiveBudgetGo
 import { createSwapBrake, killCheckTree, stopReviewChecks } from "./server/services/review-checks-brakes";
 import { awaitCiEvidence } from "./server/services/ci-evidence";
 import { buildBranchInventory, scanBranchesOutsideBase, summarizeInventory } from "./server/services/branch-inventory";
-import { createTaskAutoMerge, declaredBranchOf, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
+import { createTaskAutoMerge, declaredDeliveryFor, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
 import { imageShape, isBlankLikeImage } from "./server/services/image-shape";
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
 import { createPreviewBrowser } from "./server/services/preview-browser";
@@ -2659,27 +2659,19 @@ const taskAutoMerge = createTaskAutoMerge({
   // registrato quando è entrata in review), e il checkout del suo progetto si
   // ricava dal board id come fa l'audit: invertendo l'hash del percorso.
   ownBranches: (taskId) => taskAttemptStore.list(taskId).map((a) => a.branch).filter((b): b is string => typeof b === "string" && b.length > 0),
-  declaredDelivery: (taskId) => {
-    const task = dispatcherSvc.get(taskId)?.task;
-    if (!task) return null;
-    // A card that ran on another machine comes back with no delivery branch: the
-    // branch it carried there survives as `priorBranch`. Without this fallback the
-    // land answered `no-branch` and closed the card with its code outside main.
-    const branch = declaredBranchOf(task);
-    if (!branch) return null;
-    let repoPath: string | null = null;
-    try {
-      repoPath = resolveProjectPath(
-        task.projectId,
-        buildProjectCandidates({
-          projectStore: ctx.projectStore,
-          workspaceDir: DISPATCH_WORKSPACE_DIR,
-          extraPaths: dispatchExtraPaths,
-        }),
-      )?.path ?? null;
-    } catch (err) { console.warn("[land] checkout non risolto per", taskId, err); }
-    return { repoPath, branch };
-  },
+  // A card that ran on another machine declares its branch as `priorBranch`.
+  declaredDelivery: declaredDeliveryFor({
+    getTask: (taskId) => dispatcherSvc.get(taskId)?.task,
+    resolveRepoPath: (projectId) => resolveProjectPath(
+      projectId,
+      buildProjectCandidates({
+        projectStore: ctx.projectStore,
+        workspaceDir: DISPATCH_WORKSPACE_DIR,
+        extraPaths: dispatchExtraPaths,
+      }),
+    )?.path ?? null,
+    log: (msg, err) => console.warn(msg, err),
+  }),
   log: (msg, err) => console.error(msg, err ?? ""),
 });
 
