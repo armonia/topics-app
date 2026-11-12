@@ -3150,6 +3150,54 @@ after the Stop waiting.
 - **WHEN** the window reconnects before the boot has reattached or resumed that turn
 - **THEN** the session SHALL be open until the boot has decided about it, and the message SHALL leave after the resumed turn
 
+### Requirement: CHAT-QUEUE-08 — A sender that asks to steer joins the running native turn at its next round
+
+An exception to CHAT-QUEUE-07, opt-in per request. A `POST /api/chat` with
+`steer: true` on a session whose running turn is native (the `topics` runtime)
+SHALL be answered 202 with a steer id instead of `stream_in_flight`. The turn
+SHALL read the message at its next round boundary (after the tool results,
+before the next model call, never on the last allowed round) as the person's
+words. The person's row SHALL be written when the turn reads it, under the
+sender's idempotency key, with its author, marked as steered into that turn's
+row: the resume sweep SHALL NOT read it as unanswered, and a history rebuilt
+from the database SHALL place it before that turn's answer.
+
+Nothing SHALL be lost or read twice. A message the turn never read SHALL go as
+a turn of its own once the session is free, with the same key and author. A
+person's Stop SHALL hold it instead (Stop stops). A detached turn that may have
+read it, whose journal ended before saying so, SHALL leave it `unknown` for the
+sender to decide. A resend under the same key while the message waits SHALL get
+the same steer id. `GET /api/chat/steer?sessionKey=&id=` SHALL say what became
+of it (pending, taken, returned, held, unknown, failed) and, once written, its
+row id. Without `steer: true`, or with no native turn running, CHAT-QUEUE-07
+applies unchanged.
+
+#### Scenario: Taken at the next round
+- **GIVEN** a native turn running a tool
+- **WHEN** a message arrives with `steer: true`
+- **THEN** the answer is 202, and the next model call carries the message after the tool result
+- **AND** the person's row is written then, under the sender's key
+
+#### Scenario: Not taken before the turn ends
+- **GIVEN** a steered message the turn never read
+- **WHEN** the turn ends without a Stop
+- **THEN** the message is sent as a turn of its own, with the same key and author
+
+#### Scenario: Stop holds it
+- **GIVEN** a steered message the turn never read
+- **WHEN** the person presses Stop
+- **THEN** the message is held, not sent
+
+#### Scenario: A resend while it waits
+- **GIVEN** a steered message still waiting
+- **WHEN** the sender resends it under the same key
+- **THEN** it gets the same steer id and the model reads the message once
+
+#### Scenario: The steered row stays answered
+- **GIVEN** a steered message the turn read
+- **WHEN** the server restarts, or the history is rebuilt from the database
+- **THEN** the resume sweep does not resend it, and it sits before the turn's answer
+
 ### Requirement: CHAT-BUBBLE-01 — La bolla porta l'id del SERVER, e una riadozione non la raddoppia
 
 Il segnaposto disegnato quando parte un turno SHALL portare l'IDENTIFICATIVO che

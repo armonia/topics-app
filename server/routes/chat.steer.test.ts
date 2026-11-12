@@ -8,6 +8,7 @@
  * is written when the turn takes the message, under the sender's key. A
  * message the turn never takes goes as a turn of its own once the first one
  * ends, so nothing is lost.
+ * @covers CHAT-QUEUE-08
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
@@ -15,18 +16,24 @@ import { createChatRouter } from "./chat";
 import type { AIProvider, StreamHandler } from "../providers/types";
 import type { AppContext, Topic } from "../types";
 import { openSteerTarget, resetTurnSteer } from "../lib/turn-steer";
+import { LAST_RECENT_MESSAGES_SQL } from "../lib/ripresa-boot";
+import { nativeHistorySource } from "../providers/native/history-source";
+import { historyFromPersistedThread } from "../providers/native/history-rehydrate";
 
 const ROOT = testTmpDir("chat-steer");
 let ctx: AppContext;
 const handlers: StreamHandler[] = [];
 let sent = 0;
 let chat: ReturnType<typeof createChatRouter>;
+/** The identity the gate would pin on a request, by its body's marker. */
+let identityOf: (req: Request) => unknown = () => null;
 
 beforeAll(async () => {
   setupTestDataDir(`${ROOT}/data`);
   ctx = await createTestAppContext();
   (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = () => {};
   (ctx as { broadcastToTopicSubscribers: (id: string, m: unknown) => void }).broadcastToTopicSubscribers = () => {};
+  (ctx as { requestIdentity: (req: Request) => unknown }).requestIdentity = (req) => identityOf(req);
   const provider = {
     name: "topics",
     capabilities: new Set(["streaming"]),
@@ -155,3 +162,67 @@ describe("steer into a running native turn", () => {
     expect(resp.status).toBe(404);
   });
 });
+
+describe("a steered row, once taken, stays answered", () => {
+  test("the row carries the steered mark, the resume sweep skips it, the rebuilt history puts it before the answer", async () => {
+    const sk = topic("steer-placement");
+    expect((await post(sk, "prepara il deploy")).status).toBe(200);
+    const target = openSteerTarget(sk);
+    const resp = await post(sk, "e avvisa il cliente", { steer: true });
+    expect(resp.status).toBe(202);
+    const { messageId: turnRow } = await resp.json() as { messageId: string };
+    target.take();
+    await Bun.sleep(10);
+    target.close();
+    await endTurns();
+
+    const rows = ctx.loadLocalMessages(sk);
+    const steered = rows.find((m) => m.content === "e avvisa il cliente")!;
+    expect(steered.blocks?.some((b) => b.kind === "steered" && b.into === turnRow)).toBe(true);
+    // Stored after the turn's row, but the sweep reads the turn's row as the last.
+    const last = (ctx.db.query(LAST_RECENT_MESSAGES_SQL).all() as Array<{ sk: string; id: string }>).find((r) => r.sk === sk);
+    expect(last?.id).toBe(turnRow);
+    // Rebuilt for the next turn: the steered words before the answer, not after it as an open question.
+    const history = historyFromPersistedThread(nativeHistorySource(ctx, sk), 0, null);
+    expect(history.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(String(history[0]!.content)).toContain("e avvisa il cliente");
+  });
+
+  test("a resend under the same key while the message waits gets the same steer, and the model reads it once", async () => {
+    const sk = topic("steer-dup-pending");
+    expect((await post(sk, "migra")).status).toBe(200);
+    const target = openSteerTarget(sk);
+    const a = await post(sk, "porta 2222", { steer: true, clientMessageId: "k-dup" });
+    const b = await post(sk, "porta 2222", { steer: true, clientMessageId: "k-dup" });
+    expect([a.status, b.status]).toEqual([202, 202]);
+    const [ja, jb] = [await a.json(), await b.json()] as Array<{ steerId: string }>;
+    expect(jb.steerId).toBe(ja.steerId);
+    expect(target.take()).toEqual(["porta 2222"]);
+    target.close();
+    await endTurns();
+  });
+
+  test("a returned message keeps its sender as the author of its row", async () => {
+    const sk = topic("steer-author");
+    expect((await post(sk, "primo")).status).toBe(200);
+    const target = openSteerTarget(sk);
+    // The row's author references a real device.
+    ctx.db.run("INSERT OR IGNORE INTO devices (id, name, token_hash, created_at, role) VALUES (?,?,?,1,?)",
+      ["dev-guest-1", "dev-guest-1", "h-dev-guest-1", "guest"]);
+    identityOf = (req) => req.headers.get("x-test-guest") ? { role: "guest", deviceId: "dev-guest-1" } : null;
+    const url = new URL("http://topics.test/api/chat");
+    const req = new Request(url, {
+      method: "POST", headers: { "content-type": "application/json", "x-test-guest": "1" },
+      body: JSON.stringify({ sessionKey: sk, messages: [{ role: "user", content: "dal telefono" }], steer: true }),
+    });
+    expect((await chat(req, url, url.pathname, "POST"))!.status).toBe(202);
+    identityOf = () => null;
+    target.close();
+    await endTurns();
+    for (let i = 0; i < 400 && sent < 2; i++) await Bun.sleep(25);
+    const row = userRows(sk, "dal telefono")[0];
+    expect(row?.authorDeviceId).toBe("dev-guest-1");
+    await endTurns();
+  }, 20_000);
+});
+

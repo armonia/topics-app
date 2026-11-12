@@ -955,7 +955,8 @@ export async function cutTurnResumable(ctx: CtxRipresa, sessionKey: string): Pro
 export const LAST_RECENT_MESSAGES_SQL = `SELECT m.session_key AS sk, m.id AS id, m.role AS ruolo, m.blocks AS blocks, m.timestamp AS ts
   FROM messages m
  WHERE m.timestamp >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-25 hours')
-   AND m.rowid = (SELECT MAX(rowid) FROM messages WHERE session_key = m.session_key)`;
+   AND m.rowid = (SELECT MAX(rowid) FROM messages WHERE session_key = m.session_key
+                    AND NOT (role = 'user' AND typeof(blocks) = 'text' AND blocks LIKE '%"kind":"steered"%'))`;
 
 /**
  * I TURNI CHE ABBIAMO UCCISO NOI, RIPRESI DA NOI.

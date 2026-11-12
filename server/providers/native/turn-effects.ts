@@ -14,6 +14,7 @@
  * and is applied only if nothing newer is already there.
  */
 
+import type { SteerItem } from "../../lib/turn-steer";
 import {
   clearProviderHold,
   lastApiAnswerMs,
@@ -38,7 +39,7 @@ export type HostControl =
   | { t: "freeze"; pid: number }
   | { t: "thaw"; pid: number; frozenMs: number }
   /** A message the person wrote meanwhile, for the next round (`lib/turn-steer.ts`). */
-  | { t: "steer"; id: string; text: string };
+  | { t: "steer"; item: SteerItem };
 
 /**
  * Host side: journal every change to the shared registries until the returned

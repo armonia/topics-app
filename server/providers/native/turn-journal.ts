@@ -18,6 +18,7 @@
  * round restarts from empty).
  */
 
+import type { SteerItem } from "../../lib/turn-steer";
 import { StringDecoder } from "node:string_decoder";
 import type { StreamHandler } from "../types";
 import type { ToolSpec } from "./tools";
@@ -46,8 +47,11 @@ export type JournalEvent =
   | { e: "done"; m?: unknown }
   | { e: "aborted"; m?: unknown }
   | { e: "error"; msg: string }
-  /** The loop took these steered messages into the history (`lib/turn-steer.ts`). */
-  | { e: "steered"; ids: string[] }
+  /**
+   * The loop took these steered messages into the history (`lib/turn-steer.ts`).
+   * Whole, not just ids: a server that restarted meanwhile no longer has them.
+   */
+  | { e: "steered"; items: SteerItem[] }
   /**
    * The server's shared state, changed inside the host. The host's own copy of
    * these registries is invisible to the server, so each change travels here
@@ -67,7 +71,11 @@ export type JournalEvent =
    * request prefix the cache keep-alive needs, which a server that found the
    * turn after a restart has no other way to know.
    */
-  | { e: "end"; history: unknown[]; calibration?: unknown; warm?: TurnWarmPrefix };
+  | {
+      e: "end"; history: unknown[]; calibration?: unknown; warm?: TurnWarmPrefix;
+      /** Steered messages the host got and never took: sent on as turns of their own. */
+      steerLeft?: SteerItem[];
+    };
 
 export interface TurnWarmPrefix {
   model: string;

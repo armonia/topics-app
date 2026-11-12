@@ -32,6 +32,7 @@ import { bridgeAuthHeaders, loopbackInit } from "../../mcp/topics-http";
 import { defaultLifecycleHooks } from "../../services/lifecycle-hooks";
 import type { AutonomyLevel } from "../../../shared/types";
 import type { StopCause } from "../stop-reason";
+import type { SteerItem } from "../../lib/turn-steer";
 
 export interface TurnSpec {
   v: number;
@@ -166,10 +167,11 @@ async function readSpecAndControls(onControl: (msg: Partial<HostControl> & { t?:
 export async function main(): Promise<void> {
   const abort = new AbortController();
   /** Steered messages the server sent, waiting for the next round boundary. */
-  const steerWaiting: Array<{ id: string; text: string }> = [];
+  const steerWaiting: SteerItem[] = [];
   const spec = await readSpecAndControls((msg) => {
-    if (msg.t === "steer" && typeof (msg as { id?: unknown }).id === "string" && typeof (msg as { text?: unknown }).text === "string") {
-      steerWaiting.push({ id: (msg as { id: string }).id, text: (msg as { text: string }).text });
+    const item = (msg as { item?: SteerItem }).item;
+    if (msg.t === "steer" && typeof item?.id === "string" && typeof item.text === "string") {
+      steerWaiting.push(item);
     } else if (msg.t === "abort" && !abort.signal.aborted) {
       const cause = (msg as { cause?: string }).cause;
       log(`abort (${cause ?? "no cause"})`);
@@ -221,7 +223,7 @@ export async function main(): Promise<void> {
     // hands back at the turn's end only what this line does not name.
     takeSteer: () => {
       const taken = steerWaiting.splice(0);
-      if (taken.length > 0) handler.emit({ e: "steered", ids: taken.map((m) => m.id) });
+      if (taken.length > 0) handler.emit({ e: "steered", items: taken });
       return taken.map((m) => m.text);
     },
     onRequestStart: () => handler.emit({ e: "req", at: Date.now() }),
@@ -249,6 +251,7 @@ export async function main(): Promise<void> {
     history: opts.history,
     calibration: opts.calibration,
     warm: { model: opts.model, effort: opts.effort, maxTokens: opts.maxTokens, system: opts.system, tools: lastTools },
+    ...(steerWaiting.length > 0 ? { steerLeft: steerWaiting.splice(0) } : {}),
   });
 }
 

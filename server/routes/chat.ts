@@ -137,7 +137,9 @@ import {
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 import { subagentWakeState } from "../lib/subagent-runtime";
 import { forgetLiveToolTail, rememberLiveToolTail } from "../lib/live-tool-tail";
-import { noteSteerMessage, offerSteer, steerState } from "../lib/turn-steer";
+import {
+  noteSteerFailed, noteSteerMessage, offerSteer, setSteerSink, steerState, type SteerItem, type SteerMeta,
+} from "../lib/turn-steer";
 import { onTurnEnded } from "../lib/turn-ended";
 import { firstTimes, toolTimesOfRow, type ToolTimes } from "../lib/tool-call-times";
 
@@ -415,6 +417,61 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
   };
 
   /**
+   * The author of a message this route sends on someone else's behalf (a
+   * steered message the turn did not take): the request is a new object, so
+   * the sender's identity, which the gate pinned to the original one, is
+   * carried here instead.
+   */
+  const replayAuthors = new WeakMap<Request, SteerMeta["author"]>();
+  const authorFor = (req: Request) => replayAuthors.has(req)
+    ? replayAuthors.get(req) ?? undefined
+    : autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null);
+  /** A steered message still waiting for the turn, by its idempotency slot: a resend under the same key gets the same answer, not a second copy. */
+  const pendingSteerBySlot = new Map<string, string>();
+
+  /** Every steered row carries a key: the sender's, or the steer's own id, so writing it twice (a journal replayed after a restart) stores it once. */
+  const steerKey = (item: SteerItem) => item.meta.key ?? item.id;
+
+  setSteerSink({
+    taken(sessionKey, item) {
+      const key = steerKey(item);
+      pendingSteerBySlot.delete(`${sessionKey} ${key}`);
+      let stored: ReturnType<typeof appendLocalMessage>;
+      try {
+        const marks = [
+          ...(userRowMarks({
+            dispatched: item.meta.dispatched, commentIds: item.meta.dispatchedFor,
+            repeats: repeatedRowMarks(ctx.db, sessionKey, item.text),
+          }) ?? []),
+          // Read by the turn of `into`, though written after its row: the
+          // resume sweep and the rebuilt history read this mark (CHAT-QUEUE-08).
+          { kind: "steered" as const, ...(item.meta.into ? { into: item.meta.into } : {}) },
+        ];
+        stored = appendLocalMessage(sessionKey, "user", item.text, item.meta.author ?? undefined, marks, key);
+      } catch (err) {
+        const taken = keyTakenBy(err, ctx.db, sessionKey, key);
+        if (taken) noteSteerMessage(sessionKey, item.id, taken);
+        else console.warn(`[steer] ${sessionKey} ${item.id}: taken by the turn, row not written: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+      chatIdempotency.remember(`${sessionKey} ${key}`, stored.id);
+      noteSteerMessage(sessionKey, item.id, stored.id);
+      const topicId = ctx.getTopicBySessionKey(sessionKey)?.id;
+      if (topicId) {
+        broadcastToAll({
+          type: "message:new", topicId, sessionKey, role: "user",
+          messageId: stored.id, content: item.text, preview: item.text.slice(0, 100),
+          ...(stored.blocks?.length ? { blocks: stored.blocks } : {}),
+        });
+      }
+    },
+    returned(sessionKey, item) {
+      pendingSteerBySlot.delete(`${sessionKey} ${steerKey(item)}`);
+      replayReturnedSteer(sessionKey, item);
+    },
+  });
+
+  /**
    * The owed answers a request took (`lib/answer-relay.ts`), by request. A
    * request that ends without starting the turn that carries them (a refusal
    * after the gate, a throw, a provider it could not reach) gives them back
@@ -439,18 +496,13 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
    * messages (not a native turn, or one adopted after a restart): the caller
    * answers the usual 409.
    *
-   * The row is written when the loop TAKES the message, not now: until then
-   * the model has not read it, and a row written now would sit in the chat as
-   * answered by a turn that never saw it. A message the turn ends without
-   * taking is sent again through this route as an ordinary turn of its own,
-   * once the session is free, with the same body and the same key, so a
-   * sender that resends it as well gets `duplicate_message` instead of a copy.
+   * The row is written when the loop TAKES the message (`steerSink.taken`),
+   * not now: until then the model has not read it.
    */
   function steerIntoRunningTurn(
     req: Request,
     body: Record<string, unknown>,
     sessionKey: string,
-    matchedTopic: { id: string } | null | undefined,
     m: {
       idempotencyKey: string | null; idempotencySlot: string | null; dispatched: boolean;
       dispatchedFor: string[]; liveMessageId?: string;
@@ -461,79 +513,78 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     const text = last?.role === "user" && typeof last.content === "string" ? last.content : "";
     // A slash command is a command to the route, not words for the model.
     if (!text.trim() || text.trim().startsWith("/")) return null;
-    const offered = offerSteer(sessionKey, text);
-    if (!offered) return null;
-    const author = autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null);
-    const headers = new Headers(req.headers);
-    console.log(`[HTTP] POST /api/chat 202 — steer ${offered.id} into the turn running on ${sessionKey}`);
-    void offered.outcome.then((outcome) => {
-      if (outcome === "taken") {
-        let stored: ReturnType<typeof appendLocalMessage>;
-        try {
-          stored = appendLocalMessage(
-            sessionKey, "user", text, author,
-            userRowMarks({ dispatched: m.dispatched, commentIds: m.dispatchedFor, repeats: repeatedRowMarks(ctx.db, sessionKey, text) }),
-            m.idempotencyKey ?? undefined,
-          );
-        } catch (err) {
-          const taken = keyTakenBy(err, ctx.db, sessionKey, m.idempotencyKey);
-          if (taken) noteSteerMessage(offered.id, taken);
-          else console.warn(`[steer] ${sessionKey} ${offered.id}: taken by the turn, row not written: ${err instanceof Error ? err.message : String(err)}`);
-          return;
-        }
-        if (m.idempotencySlot) chatIdempotency.remember(m.idempotencySlot, stored.id);
-        noteSteerMessage(offered.id, stored.id);
-        if (matchedTopic) {
-          broadcastToAll({
-            type: "message:new", topicId: matchedTopic.id, sessionKey, role: "user",
-            messageId: stored.id, content: text, preview: text.slice(0, 100),
-            ...(stored.blocks?.length ? { blocks: stored.blocks } : {}),
-          });
-        }
-        return;
-      }
-      const { steer: _steer, ...rest } = body;
-      replayReturnedSteer(sessionKey, offered.id, JSON.stringify(rest), headers);
+    const offered = offerSteer(sessionKey, text, {
+      key: m.idempotencyKey,
+      dispatched: m.dispatched,
+      dispatchedFor: m.dispatchedFor,
+      author: authorFor(req) ?? null,
+      into: m.liveMessageId ?? null,
     });
+    if (!offered) return null;
+    if (m.idempotencySlot) pendingSteerBySlot.set(m.idempotencySlot, offered.id);
+    console.log(`[HTTP] POST /api/chat 202 — steer ${offered.id} into the turn running on ${sessionKey}`);
     return json({ steered: true, steerId: offered.id, messageId: m.liveMessageId ?? null }, 202);
   }
 
   /**
    * The ordinary turn of a steered message the running turn did not take.
    * Sent when the session is free: a turn end is the signal, as for the
-   * answer relay. Somebody else's turn getting in first (`stream_in_flight`)
-   * leaves it for the next end; three refusals of any other kind give up.
+   * answer relay, and a timer backs it up for a refusal no turn end follows.
+   * Somebody else's turn getting in first (`stream_in_flight`) waits for the
+   * next try; five other refusals give up and say so on the status.
    */
-  function replayReturnedSteer(sessionKey: string, steerId: string, payload: string, headers: Headers): void {
-    let attempts = 0;
+  function replayReturnedSteer(sessionKey: string, item: SteerItem): void {
+    const key = steerKey(item);
+    const payload = JSON.stringify({
+      sessionKey, messages: [{ role: "user", content: item.text }], clientMessageId: key,
+      ...(item.meta.dispatched ? { dispatched: true } : {}),
+      ...(item.meta.dispatchedFor.length ? { dispatchedFor: item.meta.dispatchedFor } : {}),
+    });
+    let failures = 0;
     let sending = false;
+    let done = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const off = onTurnEnded((sk) => { if (sk === sessionKey) void attempt(); });
+    const finish = () => { done = true; off(); if (timer) clearTimeout(timer); };
+    const later = (ms: number) => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => { void attempt(); }, ms);
+      timer.unref?.();
+    };
     const attempt = async (): Promise<void> => {
-      if (sending || isStreaming(sessionKey)) return;
+      if (done || sending) return;
+      if (isStreaming(sessionKey)) { later(5_000); return; }
       sending = true;
       try {
         const url = new URL("http://localhost/api/chat");
-        const resp = await chatRouter(new Request(url, { method: "POST", headers, body: payload }), url, "/api/chat", "POST");
+        const req = new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: payload });
+        replayAuthors.set(req, item.meta.author);
+        const resp = await chatRouter(req, url, "/api/chat", "POST");
         if (resp?.ok) {
-          off();
+          finish();
           const reader = resp.body?.getReader();
           if (reader) void (async () => { while (!(await reader.read()).done) { /* drain */ } })().catch(() => {});
-          console.log(`[steer] ${sessionKey} ${steerId}: not taken by the turn, sent as a turn of its own`);
+          const row = chatIdempotency.lookup(`${sessionKey} ${key}`) ?? rowStoredUnderKey(ctx.db, sessionKey, key);
+          if (row) noteSteerMessage(sessionKey, item.id, row);
+          console.log(`[steer] ${sessionKey} ${item.id}: not taken by the turn, sent as a turn of its own`);
           return;
         }
         const answer = (await resp?.json().catch(() => null)) as { code?: unknown; messageId?: unknown } | null;
         if (resp?.status === 409 && answer?.code === "duplicate_message") {
-          off();
-          if (typeof answer.messageId === "string") noteSteerMessage(steerId, answer.messageId);
+          finish();
+          if (typeof answer.messageId === "string") noteSteerMessage(sessionKey, item.id, answer.messageId);
           return;
         }
-        if (resp?.status === 409 && answer?.code === "stream_in_flight") return;
-        attempts++;
-        console.warn(`[steer] ${sessionKey} ${steerId}: the chat route answered ${resp?.status ?? "nothing"} ${String(answer?.code ?? "")}`);
-        if (attempts >= 3) {
-          off();
-          console.warn(`[steer] ${sessionKey} ${steerId}: given up after ${attempts} refusals`);
+        if (resp?.status === 409 && answer?.code === "stream_in_flight") { later(5_000); return; }
+        failures++;
+        console.warn(`[steer] ${sessionKey} ${item.id}: the chat route answered ${resp?.status ?? "nothing"} ${String(answer?.code ?? "")}`);
+        if (failures >= 5) {
+          finish();
+          noteSteerFailed(sessionKey, item.id);
+          console.warn(`[steer] ${sessionKey} ${item.id}: given up after ${failures} refusals`);
+          return;
         }
+        later(Math.min(60_000, 2_000 * 2 ** failures));
       } finally {
         sending = false;
       }
@@ -599,6 +650,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         req.headers.get("x-idempotency-key")
         ?? (typeof body.clientMessageId === "string" && body.clientMessageId.trim() ? body.clientMessageId.trim() : null);
       const idempotencySlot = idempotencyKey ? `${sessionKey} ${idempotencyKey}` : null;
+      // A steered message under this key is still waiting for its turn: the
+      // resend gets the same answer, not a second copy in the model's history.
+      const pendingSteer = idempotencySlot ? pendingSteerBySlot.get(idempotencySlot) : undefined;
+      if (pendingSteer && steerState(sessionKey, pendingSteer)?.state === "pending") {
+        return json({ steered: true, steerId: pendingSteer, duplicate: true, messageId: null }, 202);
+      }
       if (idempotencySlot) {
         const already = chatIdempotency.lookup(idempotencySlot) ?? rowStoredUnderKey(ctx.db, sessionKey, idempotencyKey!);
         if (already) {
@@ -827,7 +884,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // STEER: the sender asked for its message to join the running turn
           // (`steer: true`, `lib/turn-steer.ts`), and that turn takes messages.
           if (body.steer === true) {
-            const steered = steerIntoRunningTurn(req, body, sessionKey, matchedTopic, {
+            const steered = steerIntoRunningTurn(req, body, sessionKey, {
               idempotencyKey, idempotencySlot, dispatched, dispatchedFor, liveMessageId: live?.messageId,
             });
             if (steered) return steered;
@@ -876,7 +933,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           for (const answer of carry?.answers ?? []) {
             const stored = appendLocalMessage(
               sessionKey, "user", answer.content,
-              autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null),
+              authorFor(req),
               userRowMarks({ repeats: repeatedRowMarks(ctx.db, sessionKey, answer.content) }),
             );
             if (matchedTopic) {
@@ -909,7 +966,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         try {
           storedUserMsg = appendLocalMessage(
             sessionKey, "user", lastUserMsg.content,
-            autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null),
+            authorFor(req),
             userRowMarks({
               goalNudge: body.goalNudge, dispatched, commentIds: dispatchedFor, processExit: body.processExit, subagentResults: body.subagentResults,
               repeats: repeatedRowMarks(ctx.db, sessionKey, lastUserMsg.content),

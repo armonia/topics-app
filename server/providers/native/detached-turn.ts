@@ -24,7 +24,7 @@ import type { TurnEndInfo } from "../stop-reason";
 import { journalReader, type JournalEvent, type JournalReader, type RoundUsage } from "./turn-journal";
 import { applyTurnEffects, type HostControl } from "./turn-effects";
 import type { TurnSpec } from "./turn-host";
-import { steerTaken, type SteerItem } from "../../lib/turn-steer";
+import { steerLeftByHost, steerTaken, type SteerItem } from "../../lib/turn-steer";
 
 const PREFIX = "native:";
 
@@ -92,7 +92,8 @@ function follow(
   const reader = journalReader(handler, {
     onUsage: extra.onUsage,
     onEvent: (ev) => {
-      if (ev.e === "steered") steerTaken(sessionKey, ev.ids);
+      if (ev.e === "steered") steerTaken(sessionKey, ev.items);
+      if (ev.e === "end" && ev.steerLeft?.length) steerLeftByHost(sessionKey, ev.steerLeft);
       effects.apply(ev);
     },
   });
@@ -258,7 +259,7 @@ export async function runDetachedTurn(
 
 /** A steered message to the turn's process; one that cannot be sent stays queued and is handed back at the end. */
 export function steerDetachedTurn(sessionKey: string, item: SteerItem): void {
-  void sendControl(brokerIdFor(sessionKey), { t: "steer", id: item.id, text: item.text });
+  void sendControl(brokerIdFor(sessionKey), { t: "steer", item });
 }
 
 /**

@@ -1280,8 +1280,11 @@ export async function runAgentTurn(
     // model asked for (the API wants every `tool_result` first) and before
     // the reminder, so the model reads it on this very next call instead of
     // after the whole turn. A failing source never costs the round.
+    // Not on the last round allowed: no call follows it, and a message taken
+    // here would be marked read by a model that never saw it. Left in the
+    // queue, it goes as a turn of its own.
     let steered: string[] = [];
-    try { steered = opts.takeSteer?.() ?? []; } catch (err) {
+    if (i < MAX_ITERATIONS - 1) try { steered = opts.takeSteer?.() ?? []; } catch (err) {
       console.warn(`[native] steer: could not read the waiting messages: ${err instanceof Error ? err.message : String(err)}`);
     }
     if (steered.length > 0) {

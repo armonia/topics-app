@@ -859,6 +859,7 @@ export class NativeProvider implements AIProvider {
     // the turn at its next round (`lib/turn-steer.ts`); closed in `finally`,
     // which hands back whatever the turn did not take.
     const steer = openSteerTarget(sessionKey);
+    let detachedJournalLost = false;
     try {
       // Senza una radice i tool di file non si offrono nemmeno: un agente che
       // riceve `read_file` e non ha una workspace prova a indovinare dove sia
@@ -1032,6 +1033,7 @@ export class NativeProvider implements AIProvider {
           } else {
             // No `end`: the process died and its history went with it. The
             // next turn rebuilds the conversation from the DB.
+            detachedJournalLost = true;
             this.sessions.delete(sessionKey);
           }
           recordTurnEnd(sessionKey, { ...detachedTurnEnd(r), turnId: options?.turnId });
@@ -1071,7 +1073,13 @@ export class NativeProvider implements AIProvider {
       recordTurnEnd(sessionKey, { end: "error", cause: "provider-error", detail, turnId: options?.turnId });
       return {};
     } finally {
-      steer.close();
+      // Stop stops: what the person wrote meanwhile is not sent on by itself.
+      // A detached turn whose journal ended without `end` may have read what
+      // it was sent: that is the sender's call, not a blind resend.
+      steer.close({
+        stoppedByPerson: abort.signal.aborted && stopCauseFromSignal(abort.signal) === "user",
+        journalLost: detachedJournalLost,
+      });
       // ONLY ITS OWN HANDLE. An unconditional clear is how the first turn's
       // end made the second turn look dead: the handle is released by the turn
       // that set it, and a newer claimant's stays where it is.

@@ -8,6 +8,7 @@
  * to the session (`lib/turn-steer.ts`). The request of round two must carry
  * it, after the tool result; a message offered during the last round, which
  * asks for no tool, is handed back for a turn of its own.
+ * @covers CHAT-QUEUE-08
  */
 import { describe, expect, test, beforeAll, afterAll, beforeEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
@@ -16,7 +17,10 @@ import { join } from "path";
 import { runAgentTurn, type AgentMessage } from "./agent-loop";
 import type { StreamHandler } from "../types";
 import type { RetryPolicy } from "./retry";
-import { offerSteer, openSteerTarget, resetTurnSteer, steerOpen, steerState, steerTaken, type SteerOutcome } from "../../lib/turn-steer";
+import {
+  offerSteer, openSteerTarget, resetTurnSteer, setSteerSink, steerLeftByHost, steerOpen, steerState, steerTaken,
+  type SteerItem, type SteerMeta,
+} from "../../lib/turn-steer";
 
 const REAL_HOME = process.env.HOME;
 const REAL_KEYCHAIN = process.env.TOPICS_CREDENTIALS_KEYCHAIN;
@@ -26,6 +30,17 @@ let ws: string;
 
 const FAST: RetryPolicy = { maxAttempts: 2, baseMs: 1, capMs: 2, jitter: () => 1 };
 const SK = "topic:steer0001";
+const META: SteerMeta = { key: null, dispatched: false, dispatchedFor: [], author: null, into: "row-a" };
+
+/** What the sink was told, in order. */
+let told: Array<[string, string]> = [];
+function recordSink() {
+  told = [];
+  setSteerSink({
+    taken: (_sk, item) => { told.push(["taken", item.text]); },
+    returned: (_sk, item) => { told.push(["returned", item.text]); },
+  });
+}
 
 function sse(events: unknown[]): string {
   return events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join("");
@@ -92,6 +107,7 @@ describe("steering a running native turn", () => {
   beforeEach(() => {
     ws = mkdtempSync(join(tmpdir(), "native-steer-ws-"));
     resetTurnSteer();
+    recordSink();
   });
 
   afterAll(() => {
@@ -107,13 +123,13 @@ describe("steering a running native turn", () => {
     const bodies: string[] = [];
     scriptFetch([bashRound, lastRound], bodies);
     const steer = openSteerTarget(SK);
-    let outcome: Promise<SteerOutcome> | null = null;
+    let offered: SteerItem | null = null;
     const history: AgentMessage[] = [{ role: "user", content: "fai il lavoro" }];
     const out = await runAgentTurn({
       model: "claude-haiku-4-5-20251001", history, toolContext: { workspace: ws }, autonomy: "auto-apply",
       retryPolicy: FAST, sessionId: SK, reminder: "rispondi in italiano",
       takeSteer: () => steer.take(),
-    }, handler(() => { outcome = offerSteer(SK, "e poi controlla anche i log")!.outcome; }));
+    }, handler(() => { offered = offerSteer(SK, "e poi controlla anche i log", META); }));
     steer.close();
 
     expect(out.turnEnd.end).toBe("end_turn");
@@ -126,44 +142,71 @@ describe("steering a running native turn", () => {
     expect(content[1]!.text).toBe("e poi controlla anche i log");
     // The language reminder stays the last thing the model reads.
     expect(content[2]!.text).toBe("rispondi in italiano");
-    expect(await outcome!).toBe("taken");
+    expect(steerState(SK, offered!.id)).toEqual({ state: "taken" });
+    expect(told).toEqual([["taken", "e poi controlla anche i log"]]);
   });
 
   test("a message offered during the last round, which asks for no tool, is handed back", async () => {
     const bodies: string[] = [];
     const steer = openSteerTarget(SK);
-    let offered: ReturnType<typeof offerSteer> = null;
-    scriptFetch([lastRound], bodies, () => { offered = offerSteer(SK, "un'altra cosa"); });
+    let offered: SteerItem | null = null;
+    scriptFetch([lastRound], bodies, () => { offered = offerSteer(SK, "un'altra cosa", META); });
     await runAgentTurn({
       model: "claude-haiku-4-5-20251001", history: [{ role: "user", content: "ciao" }],
       toolContext: { workspace: ws }, autonomy: "auto-apply", retryPolicy: FAST, takeSteer: () => steer.take(),
     }, handler());
-    expect(await Promise.race([offered!.outcome, Bun.sleep(50).then(() => "still pending")])).toBe("still pending");
+    expect(steerState(SK, offered!.id)).toEqual({ state: "pending" });
     steer.close();
-    expect(await offered!.outcome).toBe("returned");
     expect(steerState(SK, offered!.id)).toEqual({ state: "returned" });
+    expect(told).toEqual([["returned", "un'altra cosa"]]);
     expect(steerOpen(SK)).toBe(false);
   });
+
 });
 
 describe("the steer queue", () => {
-  beforeEach(() => resetTurnSteer());
+  beforeEach(() => { resetTurnSteer(); recordSink(); });
 
   test("no running turn, no steer: the caller goes the usual way", () => {
-    expect(offerSteer("topic:none", "ciao")).toBeNull();
+    expect(offerSteer("topic:none", "ciao", META)).toBeNull();
   });
 
-  test("a detached turn gets every message waiting and every later one, and only what it names is taken", async () => {
+  test("a detached turn gets every message waiting and every later one, and only what it names is taken", () => {
     const steer = openSteerTarget(SK);
-    const early = offerSteer(SK, "prima")!;
+    const early = offerSteer(SK, "prima", META)!;
     const sent: string[] = [];
     steer.forwardTo((item) => sent.push(item.text));
-    const late = offerSteer(SK, "dopo")!;
+    offerSteer(SK, "dopo", META);
     expect(sent).toEqual(["prima", "dopo"]);
-    steerTaken(SK, [early.id]);
+    steerTaken(SK, [early]);
     steer.close();
-    expect(await early.outcome).toBe("taken");
-    expect(await late.outcome).toBe("returned");
+    expect(told).toEqual([["taken", "prima"], ["returned", "dopo"]]);
+  });
+
+  test("Stop stops: what is left is held, not sent on", () => {
+    const steer = openSteerTarget(SK);
+    const item = offerSteer(SK, "fai anche X", META)!;
+    steer.close({ stoppedByPerson: true });
+    expect(steerState(SK, item.id)).toEqual({ state: "held" });
+    expect(told).toEqual([]);
+  });
+
+  test("a detached host whose journal was cut: what it was sent is unknown, what it never got is returned", () => {
+    const steer = openSteerTarget(SK);
+    const sentToHost = offerSteer(SK, "inoltrato", META)!;
+    steer.forwardTo(() => {});
+    steer.close({ journalLost: true });
+    expect(steerState(SK, sentToHost.id)).toEqual({ state: "unknown" });
+    expect(told).toEqual([]);
+  });
+
+  test("after a restart the journal still writes the row of a message the host took, and sends on one it left", () => {
+    // Nothing in this process offered them: the host's journal carries them whole.
+    const took: SteerItem = { id: "steer-before-restart-1", text: "presa", meta: META };
+    const left: SteerItem = { id: "steer-before-restart-2", text: "lasciata", meta: META };
+    steerTaken(SK, [took]);
+    steerLeftByHost(SK, [left]);
+    expect(told).toEqual([["taken", "presa"], ["returned", "lasciata"]]);
   });
 
   test("a turn that replaced another one keeps the session open when the old one closes", () => {
@@ -171,7 +214,7 @@ describe("the steer queue", () => {
     const current = openSteerTarget(SK);
     old.close();
     expect(steerOpen(SK)).toBe(true);
-    expect(offerSteer(SK, "x")).not.toBeNull();
+    expect(offerSteer(SK, "x", META)).not.toBeNull();
     expect(current.take()).toEqual(["x"]);
   });
 });
