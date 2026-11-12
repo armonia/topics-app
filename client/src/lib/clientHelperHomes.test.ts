@@ -127,8 +127,8 @@ describe('one copy of each helper in the client', () => {
    * parameter list and reaches the body within a few lines.
    */
   const jsonOrNullBodies = () => {
-    const decl = String.raw`(?:function\s+\w+\s*\(\s*\w+|const\s+\w+\s*=\s*(?:async\s*)?\(\s*\w+\s*(?::\s*string)?\s*(?:,[^)]*)?\)[^;{]{0,40}=>)`;
-    const body = String.raw`(?:\.ok\s*\?\s*(?:await\s+)?\w+\.json\(\)\s*:\s*null|!\w+\.ok\)\s*(?:\{\s*)?return null;?\s*\}?\s*return\s+(?:await\s+)?\w+\.json\(\))`;
+    const decl = String.raw`(?:function\s+\w+\s*(?:<[^>]*>)?\s*\(\s*\w+|const\s+\w+\s*=\s*(?:async\s*)?(?:<[^>]*>\s*)?\(\s*\w+\s*(?::\s*string)?\s*(?:,[^)]*)?\)[^;{]{0,40}=>)`;
+    const body = String.raw`(?:\.ok\s*\?\s*(?:await\s+)?\w+\.json\(\)(?:\s+as\s+[^:;]+?)?\s*:\s*null|if\s*\(\w+\.ok\)\s*(?:\{\s*)?return\s+(?:await\s+)?\w+\.json\(\)[^;]*;?\s*\}?\s*return null|!\w+\.ok\)\s*(?:\{\s*)?return null;?\s*\}?\s*return\s+(?:await\s+)?\w+\.json\(\))`;
     const re = new RegExp(`${decl}[\\s\\S]{0,260}?${body}`);
     return texts.filter((t) => re.test(t.src)).map((t) => t.rel).sort();
   };
