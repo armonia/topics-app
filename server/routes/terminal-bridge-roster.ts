@@ -2,6 +2,8 @@ import { TERMINAL_ROSTER_WARMING_CODE, TERMINAL_ROSTER_WARMING_RETRY_AFTER_S } f
 import { getDatabase } from "../db";
 import { warnThrottled } from "../lib/warn-throttled";
 import fs from "fs";
+// The same verdict the AI bridge already reached for the same question: a late
+// pong is not a dead daemon if bytes are still arriving. See `startBridgeWatchdog`.
 import { bridgeWatchdogStep } from "../lib/bridge-watchdog";
 import { decideOnRestart } from "../lib/terminal-restart-policy";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
