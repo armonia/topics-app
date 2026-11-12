@@ -112,7 +112,9 @@
     "shared/task-similarity.ts": 31
   },
   "untranslated": {
-    "client/src/App.tsx": 6,
+    "client/src/App.tsx": 2,
+    "client/src/app/AppSidebar.tsx": 1,
+    "client/src/app/SidebarHeader.tsx": 2,
     "client/src/components/Board/UnifiedDiff.tsx": 2,
     "client/src/components/Browser/BrowserKeyboardCapture.tsx": 1,
     "client/src/components/Browser/DownloadsMenu.tsx": 1,

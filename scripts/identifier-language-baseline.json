@@ -1,7 +1,7 @@
 {
   "$schema": "identifier-language-baseline-v1",
   "files": {
-    "client/src/App.tsx": [
+    "client/src/app/BootDeepLinkResolver.tsx": [
       "BOOT_TAB_PERMALINK"
     ],
     "client/src/components/Auth/PairingApproval.tsx": [
