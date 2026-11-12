@@ -169,12 +169,16 @@ jobs:
 
       - name: Upload the unit JUnit for the living-doc
         if: ${{ always() && github.event_name == 'push' }}
+        # Never the reason a shard or `unit` goes red: the living-doc is not the verdict.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: specflow-unit-junit
           path: test-results/bun-junit.xml
           if-no-files-found: ignore
           retention-days: 1
+          # A re-run of a failed job uploads the same name again: without this, 409 and red.
+          overwrite: true
 
   # Process groups are a POSIX contract, so keep the focused real-process tests
   # on both supported CI operating systems instead of relying on Linux alone.
@@ -1434,12 +1438,16 @@ jobs:
 
       - name: Upload the reports for the living-doc
         if: ${{ always() && github.event_name == 'push' && matrix.shard != 0 && needs.changes.outputs.e2e != 'false' }}
+        # Never the reason a shard or `unit` goes red: the living-doc is not the verdict.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: specflow-e2e-report-${{ matrix.shard }}
           path: test-results/specflow
           if-no-files-found: ignore
           retention-days: 1
+          # A re-run of a failed job uploads the same name again: without this, 409 and red.
+          overwrite: true
 
       # IL TIER PR NON E' TUTTA LA SUITE, e cio' che salta non ha nessun altro cancello
       # bloccante: 161 test (22 spec via `testIgnore` + 12 taggati @nightly) girano solo
@@ -1516,21 +1524,24 @@ jobs:
   # e2e did not run (nothing measured, nothing to say).
   #
   # Not read by the board, not on the critical path of a pull request (it does
-  # not exist there), and it never fails the run because of the platform: the
-  # publish step is `continue-on-error`, a living-doc that is down is not a red
-  # commit. The openspec lint, which can be fixed in the repo, is in `gates`.
+  # not exist there). The openspec lint, which can be fixed in the repo, is a
+  # blocking step of `gates`; here it only guards what gets published.
+  #
+  # Two pushes close together publish in the order they FINISH: an older run
+  # with slower shards can land after a newer one, until the next push.
   living-doc:
     needs: [changes, unit, e2e]
     if: ${{ !cancelled() && github.event_name == 'push' && needs.changes.outputs.e2e != 'false' && (needs.e2e.result == 'success' || needs.e2e.result == 'failure') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # The job can be red (its own row says so) without turning the run red:
+    # auto-bump ships only a green run, and a living-doc that could not be
+    # published is not a broken commit. No `concurrency:` group either: an
+    # evicted pending job is `cancelled`, and that WOULD reach the run.
+    continue-on-error: true
     permissions:
       contents: read
       actions: read
-    # One publication at a time; a newer push replaces the one waiting.
-    concurrency:
-      group: specflow-living-doc
-      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v5
 
@@ -1567,6 +1578,12 @@ jobs:
           echo "report degli shard: $n su 16"
           [ "$n" -eq 16 ] || { echo "::error title=living-doc::$n report su 16: uno shard e' morto senza report, la pagina direbbe «mai eseguito» per una parte della suite"; exit 1; }
           bun run scripts/merge-shard-reports.ts specflow-reports --out test-results/uat-report.json
+          # The shards run on other machines (permanent node, PC, Hetzner) and the
+          # report keeps THEIR testDir: spec.file is relative to it, and
+          # check-spec-coverage rebuilds the path from it. Left as it is, no e2e
+          # file matches a claim and every e2e requirement reads «not run here».
+          jq --arg r "$PWD/tests/e2e" '.config.rootDir = $r' test-results/uat-report.json > test-results/uat-report.tmp
+          mv test-results/uat-report.tmp test-results/uat-report.json
 
       - name: Coverage map with the outcomes
         run: |
@@ -1578,18 +1595,10 @@ jobs:
         run: node_modules/.bin/spec-flow lint-openspec
 
       - name: Publish to specflow.armonia.io
-        id: publish
-        continue-on-error: true
         run: node_modules/.bin/spec-flow publish-uat
         env:
           SPEC_FLOW_PUBLISH_SECRET: ${{ secrets.SPEC_FLOW_PUBLISH_SECRET }}
           SPEC_FLOW_SKIP_TRACES: "1"
-
-      # continue-on-error keeps the commit green (auto-bump ships only green
-      # runs); this keeps the failure from being silent.
-      - name: Say that the publication failed
-        if: ${{ steps.publish.outcome == 'failure' }}
-        run: echo "::warning title=living-doc non pubblicata::specflow.armonia.io ha rifiutato o non ha risposto, la pagina resta alla corsa precedente (log del passo qui sopra)"
 
   # The Tauri shell is the primary desktop app (Electron was archived in v2.0.0,
   # recoverable on branch `electron-archive`). Its Rust crate compiles only on a
