@@ -11,7 +11,7 @@ describe("buildAgentToolsInventory", () => {
       mkdirSync(join(home, ".agents", "skills", "demo"), { recursive: true });
       writeFileSync(join(home, ".agents", "skills", "demo", "SKILL.md"), "---\nname: demo-skill\ndescription: A demo\n---\nbody");
       writeFileSync(join(home, "extra.json"), JSON.stringify({ mcpServers: { extra: { type: "http", url: "https://x" } } }));
-      const inv = buildAgentToolsInventory({
+      const result = buildAgentToolsInventory({
         home,
         settings: { extraMcpFiles: ["~/extra.json"], extraSkillDirs: [], parkedMcp: ["b"] },
         fleet: {
@@ -24,11 +24,11 @@ describe("buildAgentToolsInventory", () => {
         },
         clis: [{ id: "x", name: "X", path: null, installed: false, install: "npm i x" }],
       });
-      expect(inv.mcp.map((m) => [m.name, m.state])).toEqual([["a", "active"], ["b", "parked"], ["c", "needs-auth"], ["extra", "parked"]]);
-      expect(inv.mcp[1].parkedByUser).toBe(true);
-      expect(inv.mcp[0].source).toBe("~/.claude.json");
-      expect(inv.skills).toEqual([{ name: "demo-skill", description: "A demo", source: "~/.agents/skills" }]);
-      expect(inv.clis[0].installed).toBe(false);
+      expect(result.mcp.map((m) => [m.name, m.state])).toEqual([["a", "active"], ["b", "parked"], ["c", "needs-auth"], ["extra", "parked"]]);
+      expect(result.mcp[1].parkedByUser).toBe(true);
+      expect(result.mcp[0].source).toBe("~/.claude.json");
+      expect(result.skills).toEqual([{ name: "demo-skill", description: "A demo", source: "~/.agents/skills" }]);
+      expect(result.clis[0].installed).toBe(false);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
