@@ -417,7 +417,7 @@ function getCachedMessages(sessionKey: string): ChatMessage[] | null {
 }
 
 function clearCachedMessages(sessionKey: string) {
-  try { localStorage.removeItem(CACHE_PREFIX + sessionKey); } catch {}
+  try { localStorage.removeItem(CACHE_PREFIX + sessionKey); } catch { /* cache entry may already be gone or storage blocked */ }
 }
 
 /**

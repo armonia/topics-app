@@ -753,7 +753,7 @@ function emergencyCleanup() {
   // chiamarlo qui non può mai scoprire la porta a un'altra run.
   if (runLockHeld) {
     runLockHeld = false;
-    try { releaseRunLock(TEST_SERVER_PORT); } catch {}
+    try { releaseRunLock(TEST_SERVER_PORT); } catch { /* only clears our own lock; emergency path, process is exiting */ }
   }
   killSavedTestServer(); // only while that PID is still a test server (helpers/port-guard.ts)
   try {

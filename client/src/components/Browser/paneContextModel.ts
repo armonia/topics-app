@@ -54,7 +54,7 @@ export const PANE_CONTEXT_HOOK_JS =
   // ramo la voce «Copia link» copiava «[object SVGAnimatedString]».
   "var href=a?(typeof a.href==='string'?a.href:((a.href&&a.href.baseVal)||'')):'';" +
   "var src=im?(im.currentSrc||im.src||''):'';" +
-  "var sel='';try{var s=getSelection();sel=s?String(s):''}catch(e2){}" +
+  "var sel='';try{var s=getSelection();sel=s?String(s):''}catch(e2){ /* selection is optional context; empty string is fine */ }" +
   "window.__topicsCtxSeq++;" +
   "window.__topicsCtx={x:Math.round(e.clientX),y:Math.round(e.clientY)," +
   "selection:sel.slice(0,200),linkUrl:href,imageUrl:src,seq:window.__topicsCtxSeq};" +

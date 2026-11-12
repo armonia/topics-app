@@ -20,6 +20,15 @@ const budget = JSON.parse(readFileSync(resolve(ROOT, "scripts/any-budget.json"),
 };
 
 describe("check:any-budget — il cricchetto sugli any", () => {
+  it("vede anche i file direttamente sotto server/, non solo quelli nelle sottocartelle", () => {
+    // Without `:(glob)` git's `server/**/*.ts` needed at least one directory in between:
+    // 144 files (utils.ts, db.ts...) stayed out and the ceiling counted 332 of 445 (12/11).
+    const files = trackedFiles();
+    expect(files).toContain("server/utils.ts");
+    expect(files).toContain("server/db.ts");
+    expect(files.filter((f) => /^server\/[^/]+\.ts$/.test(f)).length).toBeGreaterThan(50);
+  });
+
   it("conta un `any` scritto in codice", () => {
     expect(countAny("function f(x: any) {}")).toBe(1);
     expect(countAny("const a = b as any;")).toBe(1);

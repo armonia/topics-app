@@ -259,7 +259,7 @@ const RRWEB_RECORD_BUNDLE =
 // allow-emdash-block: sotto c'è sorgente JS iniettato nella pagina. I trattini
 // stanno nei suoi COMMENTI, che non si leggono da nessuna parte nella app.
 const RRWEB_RECORD_START = `(function(){
-  function emit(p){ try { window.__rrwebEmit && window.__rrwebEmit(JSON.stringify(p)); } catch(_){} }
+  function emit(p){ try { window.__rrwebEmit && window.__rrwebEmit(JSON.stringify(p)); } catch(_){ /* page may be tearing down: rrweb emit is best-effort */ } }
   if (window.__rrwebStarted) {
     // A recorder is already live on this document (another viewer enabled DOM
     // first, or a reconnect re-asserted the mode). rrweb emits Meta+FullSnapshot
@@ -296,7 +296,7 @@ const RRWEB_RECORD_START = `(function(){
 })();`;
 // Detach the recorder (stops all MutationObservers) and allow a clean restart.
 // end-allow-emdash
-const RRWEB_STOP = `(function(){ try { if (window.__rrwebStop) { window.__rrwebStop(); window.__rrwebStop = null; } window.__rrwebStarted = false; } catch(_){} })();`;
+const RRWEB_STOP = `(function(){ try { if (window.__rrwebStop) { window.__rrwebStop(); window.__rrwebStop = null; } window.__rrwebStarted = false; } catch(_){ /* recorder already detached or page gone */ } })();`;
 
 /**
  * «Dimentica questo sito», il pezzo che gira DENTRO la pagina aperta sul silo
@@ -306,8 +306,8 @@ const RRWEB_STOP = `(function(){ try { if (window.__rrwebStop) { window.__rrwebS
  * impedire a localStorage di svuotarsi.
  */
 const CLEAR_PAGE_STORAGE = `(async function(){
-  try { localStorage.clear(); } catch(_){}
-  try { sessionStorage.clear(); } catch(_){}
+  try { localStorage.clear(); } catch(_){ /* storage blocked in this page: skip */ }
+  try { sessionStorage.clear(); } catch(_){ /* storage blocked in this page: skip */ }
   try {
     var dbs = indexedDB.databases ? await indexedDB.databases() : [];
     await Promise.all(dbs.map(function(d){
@@ -320,7 +320,7 @@ const CLEAR_PAGE_STORAGE = `(async function(){
         req.onsuccess = req.onerror = req.onblocked = function(){ res(null); };
       });
     }));
-  } catch(_){}
+  } catch(_){ /* IndexedDB listing unsupported or blocked: skip it */ }
 })();`;
 
 export interface AccessibilityNode {
@@ -560,7 +560,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   // rule (lib/data-dir.ts), not from a hardcoded legacy name (card 211605ee).
   const appDataDir = resolveAppDataDir();
   const cookieDir = join(appDataDir, "workspace", "topics-app", ".browser-cookies");
-  try { mkdirSync(cookieDir, { recursive: true }); } catch {}
+  try { mkdirSync(cookieDir, { recursive: true }); } catch { /* best-effort: a later write reports the real failure */ }
 
   // Downloads triggered by the headless page are saved here and served at
   // /media/browser/downloads/<file> (mediaBase = <app data root>/media, see
@@ -568,7 +568,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   // surfaces a user-clickable link to the saved file instead of losing the
   // download.
   const browserDownloadDir = join(appDataDir, "media", "browser", "downloads");
-  try { mkdirSync(browserDownloadDir, { recursive: true }); } catch {}
+  try { mkdirSync(browserDownloadDir, { recursive: true }); } catch { /* best-effort: a later write reports the real failure */ }
 
   const contexts = new Map<string, BrowserContextEntry>();
   const targetIds = new Map<string, string>();  // contextId → CDP targetId
@@ -962,7 +962,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       opts.broadcastToBrowserWs?.(id, { type: "download", filename: rawName, href, state: "started" });
       download.saveAs(dest).then(() => {
         let size: number | undefined;
-        try { size = statSync(dest).size; } catch {}
+        try { size = statSync(dest).size; } catch { /* size is optional in the download event */ }
         opts.broadcastToBrowserWs?.(id, { type: "download", filename: rawName, href, size, state: "completed" });
       }).catch((err: any) => {
         console.warn(`[BrowserService] download saveAs failed for ${id}:`, err?.message);
@@ -1270,10 +1270,10 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         // Chromium engine: disconnect the CDP client — NEVER close the shared
         // sidecar context (that would kill the user's other sidecar tabs).
         if (entry.engine === "chromium") {
-          try { await entry.page.close(); } catch {}
-          try { await entry.engineBrowser?.close(); } catch {}
+          try { await entry.page.close(); } catch { /* page may already be closed */ }
+          try { await entry.engineBrowser?.close(); } catch { /* CDP client may already be disconnected */ }
         } else {
-          try { await entry.context.close(); } catch {}
+          try { await entry.context.close(); } catch { /* context may already be closed */ }
         }
       }
       // Same reason as the crash purge: the caches keyed by contextId outside
@@ -1284,7 +1284,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       contexts.clear();
       targetIds.clear();
       if (browser) {
-        try { await browser.close(); } catch {}
+        try { await browser.close(); } catch { /* browser may already be closed */ }
         browser = null;
       }
       console.log("[BrowserService] Closed");
@@ -1349,7 +1349,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
           targetIds.delete(id);
           agentActionHints.delete(id);
           // Disconnect the CDP client (never kill the sidecar — the registry owns it).
-          try { await engineBrowser.close(); } catch {}
+          try { await engineBrowser.close(); } catch { /* CDP client may already be disconnected; the original error is rethrown */ }
           throw err;
         }
       }
@@ -1576,8 +1576,8 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         // other tabs — closing it would nuke them. Close only this pane's page,
         // then disconnect the CDP client. The sidecar process itself lives on;
         // its lifetime is the engine registry's ref count, released elsewhere.
-        try { await entry.page.close(); } catch {}
-        try { await entry.engineBrowser?.close(); } catch {}
+        try { await entry.page.close(); } catch { /* page may already be closed */ }
+        try { await entry.engineBrowser?.close(); } catch { /* CDP client may already be disconnected */ }
         forgetContext(id);
         console.log(`[BrowserService] Chromium-engine context destroyed: ${id} (remaining: ${contexts.size})`);
         return;
@@ -1590,7 +1590,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         console.warn(`[BrowserService] Final state save failed for ${id}:`, err.message);
       }
       if (entry.persistCookies) await service.saveCookies(id);
-      try { await entry.context.close(); } catch {}
+      try { await entry.context.close(); } catch { /* context may already be closed */ }
       // Every per-context entry goes at once, callback included. The agent-action
       // hint and the viewport hint are tied to the context's lifetime on purpose:
       // a context torn down mid-action would otherwise leave a stale entry that
