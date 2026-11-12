@@ -90,6 +90,8 @@ export interface HeavySlotBroker {
   request(input: { label: string; pid?: number | null; id?: string }): HeavySlotAnswer;
   /** Keep a lease alive. False when it is unknown (already reaped). */
   renew(id: string): boolean;
+  /** Ties a held lease to the process that was started under it (it is freed when the pid dies). */
+  bind(id: string, pid: number): boolean;
   /** Free a lease or leave the line. Idempotent. */
   release(id: string): boolean;
   status(): { held: Lease[]; waiting: Waiter[]; config: HeavySlotConfig };
@@ -164,6 +166,12 @@ export function createHeavySlotBroker(deps: HeavySlotDeps, overrides: Partial<He
       const l = held.get(id);
       if (!l) return false;
       l.renewed = deps.now();
+      return true;
+    },
+    bind(id, pid) {
+      const l = held.get(id);
+      if (!l) return false;
+      l.pid = pid;
       return true;
     },
     release(id) {

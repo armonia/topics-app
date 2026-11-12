@@ -8,36 +8,14 @@
  * so a queued caller is admitted within one step of a slot freeing instead of
  * sleeping a whole interval. The client asks again with the id it was given.
  */
-import os from "node:os";
 import type { AppContext, RouteHandler } from "../types";
-import { createHeavySlotBroker, type HeavySlotBroker } from "../services/heavy-slot";
-import { availableMemGB } from "../services/dispatch-capacity";
-import { machineCpuPct } from "../lib/machine-cpu";
+import type { HeavySlotBroker } from "../services/heavy-slot";
+import { sharedHeavySlotBroker } from "../services/heavy-slot-default";
 
 const HOLD_MS = 15_000;
 const STEP_MS = 400;
 
-function pidAlive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; }
-}
-
-function createDefaultHeavySlotBroker(): HeavySlotBroker {
-  return createHeavySlotBroker({
-    now: () => Date.now(),
-    alive: pidAlive,
-    pressure: () => {
-      let mem: number | null = null;
-      try { mem = availableMemGB(); } catch { /* not measured */ }
-      // Off macOS the vm_stat probe is absent: fall back to what the OS calls free.
-      mem ??= os.freemem() / 1e9;
-      let cpu: number | null = null;
-      try { cpu = machineCpuPct(null); } catch { /* not measured */ }
-      return { availableMemGB: mem, cpuPct: cpu };
-    },
-  });
-}
-
-export function createHeavySlotRouter(ctx: AppContext, broker: HeavySlotBroker = createDefaultHeavySlotBroker()): RouteHandler {
+export function createHeavySlotRouter(ctx: AppContext, broker: HeavySlotBroker = sharedHeavySlotBroker()): RouteHandler {
   const { json } = ctx;
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
