@@ -6,6 +6,8 @@
  *   (`instanceof Error ? message : String(err)`), which turned a thrown
  *   `{ message }` object into «[object Object]» in the file-explorer and git
  *   toasts.
+ * - `readJson`: «apiFetch, json on 2xx, null otherwise» was copied into five
+ *   files; one passed `{ cache: 'no-store' }`, which must still arrive.
  * - `shortTokens`: three functions with the same name printed the same count as
  *   `1,2 M`, `1200 k`, `1,2M` and `786K`.
  * - the editor toolbar buttons and the Files header of the project sidebar,
@@ -14,13 +16,14 @@
  * The last block reads the sources: a copy that comes back is a red here, not a
  * drift discovered months later.
  *
- * @covers FILE-01 FILE-02 HUBBR-13 HUBBR-16 HUBBR-17
+ * @covers FILE-01 FILE-02 HUBBR-13 HUBBR-16 HUBBR-17 NETSHIM-01
  */
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { errMessage } from './errMessage';
 import { shortTokens } from './formatTokens';
+import { readJson } from './readJson';
 
 describe('errMessage', () => {
   test('an Error, a string and a plain { message } object all give their words', () => {
@@ -60,6 +63,41 @@ describe('shortTokens', () => {
   });
 });
 
+describe('readJson', () => {
+  let originalFetch: typeof globalThis.fetch;
+  let seen: { url: string; init?: RequestInit }[];
+  let answer: () => Promise<Response>;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    seen = [];
+    answer = () => Promise.resolve(new Response('{"ok":1}', { status: 200 }));
+    globalThis.fetch = ((url: string, init?: RequestInit) => {
+      seen.push({ url, init });
+      return answer();
+    }) as unknown as typeof globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test('the body on a 2xx, and the init reaches the request', async () => {
+    expect(await readJson('/api/hub/queue', { cache: 'no-store' })).toEqual({ ok: 1 });
+    expect(seen[0]!.url).toBe('/api/hub/queue');
+    expect(seen[0]!.init?.cache).toBe('no-store');
+  });
+
+  test('null on a non-2xx, on a network error and on a body that is not JSON', async () => {
+    answer = () => Promise.resolve(new Response('{"error":"x"}', { status: 503 }));
+    expect(await readJson('/api/hub/live')).toBeNull();
+    answer = () => Promise.reject(new TypeError('Failed to fetch'));
+    expect(await readJson('/api/hub/live')).toBeNull();
+    answer = () => Promise.resolve(new Response('<html>', { status: 200 }));
+    expect(await readJson('/api/hub/live')).toBeNull();
+  });
+});
+
 describe('one copy of each helper in the client', () => {
   const SRC = join(import.meta.dir, '..');
   const files: string[] = [];
@@ -71,26 +109,46 @@ describe('one copy of each helper in the client', () => {
     }
   };
   walk(SRC);
-  const definers = (re: RegExp) => files.filter((f) => re.test(readFileSync(f, 'utf8'))).map((f) => relative(SRC, f)).sort();
+  const texts = files.map((f) => ({ rel: relative(SRC, f), src: readFileSync(f, 'utf8') }));
 
-  test('errMessage is defined only in lib/errMessage.ts', () => {
-    expect(definers(/^(export )?function errMessage\(/m)).toEqual(['lib/errMessage.ts']);
+  /**
+   * Files filesDeclaring `name` at top level in any form: `function`, `async function`,
+   * `const x = …`, with or without `export`. Matching one spelling only let the
+   * other spellings of a copy through.
+   */
+  const filesDeclaring = (...names: string[]) => {
+    const re = new RegExp(`^(?:export\\s+)?(?:(?:async\\s+)?function\\s+|(?:const|let|var)\\s+)(?:${names.join('|')})\\b`, 'm');
+    return texts.filter((t) => re.test(t.src)).map((t) => t.rel).sort();
+  };
+  /** Files holding a body that reads «json on 2xx, else null», whatever they call it. */
+  const jsonOrNullBodies = () => texts.filter((t) => /\.ok\s*\?\s*await\s+\w+\.json\(\)\s*:\s*null/.test(t.src)).map((t) => t.rel).sort();
+
+  test('errMessage is declared only in lib/errMessage.ts', () => {
+    expect(filesDeclaring('errMessage')).toEqual(['lib/errMessage.ts']);
   });
 
-  test('readJson copies are gone; proxyActivity and LoadScreen keep theirs', () => {
-    expect(definers(/^async function readJson\(/m)).toEqual(['components/LoadScreen/LoadScreen.tsx', 'state/proxyActivity.ts']);
+  test('readJson is declared only in lib/readJson.ts, plus the proxyActivity one that reads through an injectable fetch', () => {
+    expect(filesDeclaring('readJson', 'readJsonOrNull')).toEqual(['lib/readJson.ts', 'state/proxyActivity.ts']);
   });
 
-  test('shortTokens is defined only in lib/formatTokens.ts', () => {
-    expect(definers(/^(export )?function shortTokens\(/m)).toEqual(['lib/formatTokens.ts']);
+  test('the «json on 2xx, else null» body lives only in those two files, under any name', () => {
+    expect(jsonOrNullBodies()).toEqual(['lib/readJson.ts', 'state/proxyActivity.ts']);
+  });
+
+  test('shortTokens is declared only in lib/formatTokens.ts', () => {
+    expect(filesDeclaring('shortTokens')).toEqual(['lib/formatTokens.ts']);
   });
 
   test('the editor toolbar buttons live in one module', () => {
-    expect(definers(/^(export )?function (CopyPathBtn|WrapBtn|PreviewBtn)\(/m)).toEqual(['components/Editor/ToolbarButtons.tsx']);
+    expect(filesDeclaring('CopyPathBtn')).toEqual(['components/Editor/ToolbarButtons.tsx']);
+    expect(filesDeclaring('WrapBtn')).toEqual(['components/Editor/ToolbarButtons.tsx']);
+    expect(filesDeclaring('PreviewBtn')).toEqual(['components/Editor/ToolbarButtons.tsx']);
   });
 
-  test('the Files header of the project sidebar is written once', () => {
+  test('the Files header of the project sidebar is one component, drawn from both columns', () => {
     const src = readFileSync(join(SRC, 'components/Project/ProjectSidebar.tsx'), 'utf8');
-    expect(src.match(/fileExplorerRef\.current\?\.newFile\(\)|explorerRef\.current\?\.newFile\(\)/g)?.length).toBe(1);
+    expect(src.match(/data-testid="project-sidebar-files"/g)?.length).toBe(1);
+    expect(src.match(/explorerRef\.current\?\.newFile\(\)/g)?.length).toBe(1);
+    expect(src.match(/<FilesSectionHeader\b/g)?.length).toBe(2);
   });
 });
