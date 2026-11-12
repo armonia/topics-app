@@ -1,5 +1,34 @@
 [
   {
+    "version": "2.3.86",
+    "date": "2026-11-11",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-11 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Cloudflare Web Analytics, annunciato in /privacy con la data come la pagina prometteva (#776)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/valiant-tundra (card c1ec9dd1) (#787)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.85",
     "date": "2026-11-11",
     "sections": {
@@ -141,6 +170,12 @@
           "breaking": false
         },
         {
+          "it": "Asia Enviro mockup with fake data (card 6fe51453)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "topics/ancient-sprig (card e7371dbc) (#701)",
           "en": "",
           "scope": null,
@@ -228,6 +263,12 @@
           "it": "torna a 4 worker (annulla #751) (#763)",
           "en": "",
           "scope": "unit",
+          "breaking": false
+        },
+        {
+          "it": "confronto contabilita open source vs suite unica (card 7ce15e25)",
+          "en": "",
+          "scope": null,
           "breaking": false
         },
         {
