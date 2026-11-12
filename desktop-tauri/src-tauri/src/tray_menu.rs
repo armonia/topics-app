@@ -432,11 +432,18 @@ fn brake_nodes(gates: &Option<String>) -> Vec<Node> {
 }
 
 /// Preferences that stay on this machine: nothing here is a service setting.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Prefs {
     pub five_hour: bool,
     pub api_credit: bool,
     pub cloud_bonus: bool,
+}
+
+/// All three on, like the old tray and like a file that does not exist yet.
+impl Default for Prefs {
+    fn default() -> Self {
+        Prefs { five_hour: true, api_credit: true, cloud_bonus: true }
+    }
 }
 
 pub fn prefs_path() -> Option<std::path::PathBuf> {
