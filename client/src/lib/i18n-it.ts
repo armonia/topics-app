@@ -1283,6 +1283,8 @@ const IT: Dict = {
   'board.task.landUnlandedRest': ': il ramo NON è su main. La card resta qui.',
   'board.task.landUnverifiable': 'non verificabile',
   'board.task.landUnverifiableRest': ": la fusione è uscita zero ma main non si è potuto rileggere. Controlla prima di darlo per atterrato.",
+  'board.task.archivedBanner': "Archiviata: è uscita dalla board. Lo stato qui sotto è quello di prima, non più in vigore.",
+  'board.task.approveLeavesBranchOut': "Il codice resta fuori da main: Approva chiude la card senza fonderlo. Per unirlo usa «Landa su main».",
   'board.task.deployProposed': "La board propone il deploy: conferma per lanciarlo nel checkout main.",
   'board.task.deployNow': 'Deploya ora',
   'board.task.deployRunning': 'Deploy in corso…',

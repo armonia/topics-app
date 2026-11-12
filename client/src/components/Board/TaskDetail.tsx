@@ -11,7 +11,7 @@ import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useOwnerName } from '../../hooks/useOwnerName';
 import { actionOriginDisplay, authorDisplay } from '../../lib/authorDisplay';
-import { AlertTriangle, ArrowUp, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Rocket, Send, Server, ShieldCheck, Sparkles, Square, StickyNote, Tag, TriangleAlert, UserRound, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, ArchiveRestore, ArrowUp, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Rocket, Send, Server, ShieldCheck, Sparkles, Square, StickyNote, Tag, Trash2, TriangleAlert, UserRound, WifiOff, X } from 'lucide-react';
 import { SectionHeader, useSectionOpen } from './sectionAccordion';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { PlanSurface } from './PlanSurface';
@@ -27,7 +27,7 @@ import { isSupersededPreviewNote } from '../../../../shared/preview-retirement';
 import { isResolvedParkedQuestion } from '../../../../shared/parked-question';
 import { isDoneThreadService, isFreshSessionNote, isServiceComment } from '../../../../shared/task-comment-service';
 import { questionToProse } from '../../../../shared/question-prose';
-import { pendingQuestionComment } from '../../../../shared/board';
+import { canDecideReview, canSendToAgent as canSendToAgentTask, pendingQuestionComment } from '../../../../shared/board';
 import { ThreadRuns } from './ThreadRuns';
 import { runningToolLabel } from '../Chat/runningToolLabel';
 import { surfaceTopicsRoutingEnabled } from '../../lib/topicsRoutingGate';
@@ -48,7 +48,7 @@ import { emptyThreadKey } from './emptyThread';
 import { LandingNotice } from './LandingNotice';
 import { landingBand } from './landingBand';
 import { useLandingTicket } from './useLandingTicket';
-import { boardApi, commentAuthorLabel, diffTotals, NOT_MEASURED_EXIT, hasCodeQuestion, showsLandingDebt, showsDeployProposal, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, subtaskQueueChip, subtaskOpenable, reopenedChip, attemptHasWork, priorityAwaitingAgent, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type DiffPanelSource, type CheckRun, type TaskAttempt } from '../../lib/board';
+import { boardApi, commentAuthorLabel, diffTotals, NOT_MEASURED_EXIT, hasCodeQuestion, hasDeliveryToMerge, showsLandingDebt, showsDeployProposal, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, subtaskQueueChip, subtaskOpenable, reopenedChip, attemptHasWork, priorityAwaitingAgent, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type DiffPanelSource, type CheckRun, type TaskAttempt } from '../../lib/board';
 import { ZoomableImage } from '../Shared/ImageLightbox';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths, hasConversationMedia } from './taskMedia';
@@ -842,6 +842,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
   // cambiano con lo stato della card e devono restare uguali a quelle che il
   // de-duplicatore delle risposte rapide sottrae.
   const landWord = taskActionWord('land', tr);
+  const restoreWord = taskActionWord('restore', tr);
   // Le tab del task, lette QUI e non dalla `browser` più in basso: il manifesto
   // serve a callback definiti molto prima di quel hook.
   const taskTabsState = useTaskBrowserTabs(taskId);
@@ -1170,6 +1171,12 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
     [comments, task],
   );
   const isAgentReview = !!task && task.status === 'review' && !!task.assignedTopicId;
+  // `isAgentReview` is also "a review card an agent delivered" (the quiet
+  // note button, the preview recapture). The composer's own label and title
+  // need the narrower `canSendToAgentTask` instead: a landed card is still
+  // `isAgentReview`, but `/comments` keeps any message on it a note — see
+  // the function's own doc in shared/board.ts.
+  const canSendToAgent = !!task && canSendToAgentTask(task);
   // The empty composer can still resume without a new instruction.
   // Le parole dei tre bottoni di decisione stanno in `ReviewDecisionRow`, che le
   // chiede a `reviewDecisionButtons`: cambiano tutte con lo stato della card (i
@@ -1325,6 +1332,18 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
       setLanding(res.landing ?? null);
       setError(null); await load(); onChanged();
     }
+    catch (e) { showError(e); }
+    finally { setBusy(false); }
+  };
+
+  // ARCHIVIATA, NON APPROVATA. `archive()` never touches `status` (a card can
+  // be archived from any column, review included), so a drawer already open
+  // on one still reads `review` with its decision buttons live — the banner
+  // below and this restore are what tell the truth instead.
+  const doRestore = async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await boardApi.restore(projectId, taskId); setError(null); await load(); onChanged(); }
     catch (e) { showError(e); }
     finally { setBusy(false); }
   };
@@ -1829,7 +1848,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
    * Then the box is not a steer, it is the answer the turn restarts from.
    */
   const steerable = !!task && (task.status === 'in_progress' || agentBusy);
-  const composerPlaceholder = isAgentReview
+  const composerPlaceholder = canSendToAgent
     ? tr('board.task.replyPlaceholder')
     : steerable
       ? (pending ? tr('board.task.answerPlaceholder') : tr('board.task.steerPlaceholder'))
@@ -2641,8 +2660,11 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
   const taskDelivery = deliveryOpen && task ? (
     <div data-testid="task-delivery-panel" className="-mx-3 -mt-3 mb-3 border-b border-app-border">
       <div className="space-y-2 px-3 py-3">
-            {/* Lifecycle choices belong to delivery. Stop is owned by the composer. */}
-            {task.status !== 'review' && (
+            {/* Lifecycle choices belong to delivery. Stop is owned by the composer.
+                NEVER on an archived card: the choices below assume it is still
+                live on the board, which an archived one no longer is — the
+                banner above is its only button now. */}
+            {task.status !== 'review' && !task.archived && (
               <TaskChoiceRow
                 task={task} disabled={busy} exclude={['stop']} className="mb-2"
                 onDone={() => { void load(); onChanged(); }}
@@ -2650,7 +2672,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
               />
             )}
             {/* Review decisions stay next to the checks and delivery evidence. */}
-            {task.status === 'review' && (
+            {canDecideReview(task) && (
               <div className="mb-2 space-y-1.5">
                 {/* L'evidenza sta ATTACCATA alla decisione: il gate rifiuta un
                     approve coi checks rossi, e scoprirlo da un 409 dopo il click
@@ -2682,6 +2704,20 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                   onError={setError} onNeedText={() => commentRef.current?.focus()}
                 />
                 </div>
+                {/* Approve closes the card WITHOUT merging: two separate
+                    buttons by design (see `ReviewDecisionRow` and the
+                    "approve decoupled from landing" tests), but only Land
+                    said so — in its own word, not Approve's. Clicking
+                    Approve on a real delivery (card db21df04) closed the
+                    task believing the merge had happened too. The line lives
+                    here, not in the button's title, because it has to be
+                    read BEFORE the click: the same condition
+                    (`hasDeliveryToMerge`) that makes Land appear. */}
+                {hasDeliveryToMerge(task) && (
+                  <p data-testid="task-approve-leaves-branch-note" className="mt-1 text-mini text-app-text-secondary">
+                    {tr('board.task.approveLeavesBranchOut')}
+                  </p>
+                )}
                 {/* «Ricattura evidenza» NON è più qui: era un'azione di
                     servizio sull'anteprima disegnata larga quanto una
                     decisione, in mezzo alle decisioni, e a occhio faceva
@@ -3007,6 +3043,22 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
           <button aria-label={tr('board.task.closeDetail')} onClick={onClose} className="rounded p-1.5 text-app-text-secondary hover:bg-white/10 coarse:p-3.5"><X className="h-4 w-4" /></button>
         </div>
       </div>
+      {/* ARCHIVIATA, PRIMA DI TUTTO IL RESTO. `archive()` lascia lo status
+          com'era (una card in review resta `review`), quindi senza questa
+          banda il drawer di una card appena archiviata continuava a dire
+          «Review» coi bottoni di decisione ancora premibili — e un click lì
+          sopra non faceva niente che l'archivio non avesse già deciso. */}
+      {task?.archived && (
+        <div data-testid="task-archived-banner" className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-app-border bg-app-hover px-3 py-1.5 text-mini text-app-text-secondary">
+          <span className="min-w-0"><Trash2 className="w-4 h-4 inline-block align-[-2px]" aria-hidden="true" /> {tr('board.task.archivedBanner')}</span>
+          <button
+            data-testid="task-archived-restore"
+            disabled={busy} onClick={doRestore}
+            title={restoreWord.title}
+            className="flex shrink-0 items-center gap-1 rounded border border-app-border bg-app-surface px-2 py-0.5 font-medium hover:bg-app-hover disabled:opacity-50"
+          ><ArchiveRestore className="h-3 w-3" /> {restoreWord.label}</button>
+        </div>
+      )}
       {/* L'errore NON sta qui: vive in fondo, nella zona di decisione, appiccicato
           ai bottoni che lo producono. Questa banda resta al `notice`, che è un
           avviso sul task e non il verdetto di un click. */}
@@ -3292,8 +3344,8 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
               <button type="button" data-testid="task-composer-submit"
                 onClick={() => { if (agentBusy && !draft.trim() && !attachments.length) void stopAgent(); else void send(); }}
                 disabled={busy || sending || uploading || (!agentBusy && !draft.trim() && !attachments.length)}
-                title={agentBusy && !draft.trim() && !attachments.length ? taskActionWord('stop', tr).title : isAgentReview ? tr('board.task.sendToAgent') : composerSendTitle}
-                aria-label={agentBusy && !draft.trim() && !attachments.length ? taskActionWord('stop', tr).label : isAgentReview ? tr('board.task.sendToAgent') : composerSendTitle}
+                title={agentBusy && !draft.trim() && !attachments.length ? taskActionWord('stop', tr).title : canSendToAgent ? tr('board.task.sendToAgent') : composerSendTitle}
+                aria-label={agentBusy && !draft.trim() && !attachments.length ? taskActionWord('stop', tr).label : canSendToAgent ? tr('board.task.sendToAgent') : composerSendTitle}
                 className={`flex ${COMPOSER_ICON_BUTTON} shrink-0 items-center justify-center rounded-lg transition-all disabled:opacity-50 ${
                   draft.trim() || attachments.length ? 'bg-primary text-white hover:bg-primary-hover'
                     : agentBusy ? 'bg-app-text/15 text-app-text hover:bg-app-text/25'

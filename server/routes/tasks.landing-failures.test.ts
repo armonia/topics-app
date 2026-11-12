@@ -146,4 +146,51 @@ describe("un land fallito dice perche', e non lascia la card in done", () => {
     expect(t.task.status).toBe("review");
     expect(t.comments.some((c) => c.content.includes("Niente da atterrare"))).toBe(true);
   });
+
+  /**
+   * A HUMAN-CLOSED CARD STAYS CLOSED, even when its land fails. @covers LAND-05
+   *
+   * Card 7ce15e25 ("Studio software…"): closed by a person on 10/11, bounced
+   * back to Review on its own the moment its (stale) delivery branch failed
+   * to land, through the very `actor: "human"` impersonation this file's
+   * other tests rely on to get a MACHINE-closed card back from an agent
+   * closing its own cards. The impersonation is correct there; it is not
+   * correct here, because the one thing it was built to walk around — "no
+   * agent reopens a card a human closed" — is exactly what this retraction
+   * is doing, just with a different door.
+   */
+  async function doneTaskClosedByHuman(code: string | undefined): Promise<{ id: string; db: Database; resumed: Array<[string, string]> }> {
+    const d = freshDb(); const b: any[] = []; const r: Array<[string, string]> = [];
+    const autoMerge = {
+      tryMerge: async () => (code === undefined ? { status: "conflict" } : { status: "skipped", reason: "non so quali commit siano suoi", code }),
+      buildClient: async () => ({ code: 0, stderr: "" }),
+    } as any;
+    const dispatcher = {
+      onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {},
+      resume: async (id: string, msg: string) => { r.push([id, msg]); },
+    } as any;
+    const rt = createTasksRouter(makeCtx(d, b), dispatcher, { autoMerge });
+    d.run("INSERT INTO topics (id) VALUES ('top-h')");
+    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "studio software" }))!.json();
+    d.prepare("UPDATE tasks SET assigned_topic_id='top-h', status='done', done_actor='human' WHERE id = ?").run(t.id);
+    await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+    await new Promise((res) => setTimeout(res, 20)); // the land runs fire-and-forget
+    return { id: t.id, db: d, resumed: r };
+  }
+
+  test("CONFLITTO su una card chiusa da una persona: resta chiusa, nessun agente si risveglia", async () => {
+    const { id, db: d, resumed: r } = await doneTaskClosedByHuman(undefined);
+    expect(createTaskService(d).get(id)!.task.status).toBe("done");
+    expect(r).toEqual([]);
+    const t = createTaskService(d).get(id)!;
+    expect(t.comments.some((c) => c.content.includes("l'ha chiusa una persona"))).toBe(true);
+  });
+
+  test("land che non isola i commit su una card chiusa da una persona: resta chiusa, nessun resume", async () => {
+    const { id, db: d, resumed: r } = await doneTaskClosedByHuman("unisolable");
+    expect(createTaskService(d).get(id)!.task.status).toBe("done");
+    expect(r).toEqual([]);
+    const t = createTaskService(d).get(id)!;
+    expect(t.comments.some((c) => c.content.includes("l'ha chiusa una persona"))).toBe(true);
+  });
 });
