@@ -76,6 +76,8 @@ async function as<T>(m: Outcome, call: () => Promise<T>): Promise<T> {
 }
 
 /** `{ code, stdout, stderr }` runners, with the code each one gives a deadline. */
+// Both git runners go through `runGit`, which passes the directory as `git -C`
+// (no spawn `cwd`): a missing directory is git's own 128, not a spawn failure.
 const RESULT_RUNNERS: { name: string; timeoutCode: number; call: () => Promise<unknown>; argv: () => string[]; cwd?: () => string }[] = [
   {
     name: "own-commits defaultRunGit", timeoutCode: 124,
@@ -154,7 +156,8 @@ describe("branch-inventory run", () => {
     expect(seen.map((s) => s.argv)).toEqual([["git", "-C", dir, "rev-parse", MARK]]);
   });
   test("non-zero exit", async () => { expect(await as("fail", call)).toEqual({ code: 3, stdout: "out" }); });
-  test("deadline: 1", async () => { expect(await as("timeout", call)).toEqual({ code: 1, stdout: "partial" }); });
+  // A deadline is 124 now (it was 1 before the runners shared `runGit`).
+  test("deadline: 124", async () => { expect(await as("timeout", call)).toEqual({ code: 124, stdout: "partial" }); });
   test("did not start: 1", async () => { expect(await as("spawn", call)).toEqual({ code: 1, stdout: "" }); });
   test("killed by a signal", async () => { expect(await as("signal", call)).toEqual({ code: 137, stdout: "out" }); });
 });
@@ -165,7 +168,7 @@ describe("branch-status gitExit / gitOut / commitIsAncestor", () => {
   const ancestor = () => commitIsAncestor(dir, MARK, "main");
 
   test.each([
-    ["ok", 0], ["fail", 3], ["timeout", 1], ["spawn", 1], ["signal", 137],
+    ["ok", 0], ["fail", 3], ["timeout", 124], ["spawn", 1], ["signal", 137],
   ] as const)("gitExit, %s: %d", async (m, code) => {
     expect(await as(m, exit)).toBe(code);
   });

@@ -1,7 +1,7 @@
 /**
- * One HTML escape for every page the server writes. The copy in the media error
- * page left the apostrophe alone: harmless in its markup today, an injection
- * the first time a value lands in a single-quoted attribute.
+ * One HTML escape for every page and SVG the server writes (views, media error
+ * page, public profile, profile banner, delivery sheet). Pins the five
+ * characters, `&` first, and the apostrophe as `&#39;`, valid in HTML and XML.
  *
  * @covers MEDIAERR-01
  */

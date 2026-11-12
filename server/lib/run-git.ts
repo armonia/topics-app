@@ -8,8 +8,11 @@
  * timeout is ALWAYS 124 (the convention of `timeout(1)`): any code other than
  * 0 and 1 is "no answer".
  *
- * A failed spawn (no `git` on PATH, bad cwd) and an exception thrown while
- * preparing the call answer 1 with the reason in `stderr`, as before.
+ * A failed spawn (no `git` on PATH) and an exception thrown while preparing
+ * the call answer 1 with the reason in `stderr`. The directory goes through
+ * `git -C`, so a missing `cwd` is git's own answer (128, "cannot change to"),
+ * not a spawn failure: the old identity runner passed it as the spawn `cwd`
+ * and answered 1 "ENOENT". Callers read 128 as "no answer", which is safer.
  */
 import { runBounded } from "./bounded-spawn";
 import { gitEnvFor } from "./git-identity";

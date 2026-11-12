@@ -1,9 +1,9 @@
 /**
  * One runner, one answer to "git did not answer": exit 124.
  *
- * Four services carried their own copy of the runner, and on a timeout two
- * answered 124 while two answered 1. Exit 1 is a real verdict for many git
- * questions, so the copies that answered 1 turned a silent git into an answer.
+ * Every service runner goes through `runGit`. Exit 1 is a real verdict for many
+ * git questions, so a timeout must never read as 1; this pins 124 for all of
+ * them, including the ones that once answered 1.
  * The fake `git` hangs on `log`; with the deadline capped at 300 ms every
  * runner must come back with 124.
  *

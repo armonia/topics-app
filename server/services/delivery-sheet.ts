@@ -1,34 +1,32 @@
 /**
- * LA SCHEDA DI CONSEGNA: l'anteprima che c'e' SEMPRE.
+ * THE DELIVERY SHEET: the preview that is ALWAYS there.
  *
- * ── Il rilievo (20/08/2026) ────────────────────────────────────────────────
- * 9 card su 16 in review non mostravano nulla nel riquadro dell'anteprima.
- * Nessuna delle 9 aveva un allegato nel thread, quindi la promozione
- * automatica (`promoteReviewPreview`) non aveva niente da promuovere; e
- * l'anteprima viva non nasceva perche' il worktree serve un 503 «Bundle not
- * built yet», che il cancello sul CONTENUTO giustamente rifiuta di fotografare.
- * Risultato: la colonna review era una lista di rettangoli vuoti, e la domanda
- * di chi guarda la board era sempre la stessa: «cos'e' stato fatto qui?».
+ * The finding (2026-08-20): 9 review cards out of 16 showed nothing in the
+ * preview frame. None of the 9 had an attachment in the thread, so the
+ * automatic promotion (`promoteReviewPreview`) had nothing to promote; and the
+ * live preview was never born because the worktree serves a 503 "Bundle not
+ * built yet", which the CONTENT gate rightly refuses to photograph. The review
+ * column was a list of empty rectangles, and whoever looked at the board kept
+ * asking the same thing: "what was done here?".
  *
- * ── La scelta ──────────────────────────────────────────────────────────────
- * Il riquadro vuoto era una scelta: «un silenzio onesto». Ma il silenzio vale
- * come segnale solo se e' raro, e a 9 card su 16 non segnalava piu' niente.
- * Quindi l'ultimo ramo del protocollo (DIAGRAMMA, per le consegne senza
- * superficie renderizzata) lo disegna il server per conto suo, con i fatti che
- * ha gia' in colonna: ramo, file toccati, righe aggiunte e tolte, sottotask.
+ * The choice: the empty frame was deliberate, "an honest silence". But silence
+ * is a signal only when it is rare, and at 9 cards out of 16 it signalled
+ * nothing. So the last branch of the protocol (a DIAGRAM, for deliveries with
+ * no rendered surface) is drawn by the server itself, from the facts the
+ * column already has: branch, touched files, lines added and removed, subtasks.
  *
- * ── L'onesta' resta ────────────────────────────────────────────────────────
- * Una scheda NON deve poter essere scambiata per una fotografia del lavoro:
- * e' dichiaratamente disegnata (intestazione «SCHEDA DI CONSEGNA», nota in
- * fondo), non ha mai l'aria di uno screenshot, e appena arriva un'evidenza vera
- * (previewImage esplicita, allegato promuovibile, screenshot vivo) viene
- * sostituita. Il suo path la rende riconoscibile: `.../task-sheets/<id>.svg`.
+ * Honesty stays: a sheet must NOT be mistaken for a photograph of the work. It
+ * is openly drawn (header "SCHEDA DI CONSEGNA", a note at the bottom), never
+ * looks like a screenshot, and is replaced as soon as real evidence arrives
+ * (explicit previewImage, promotable attachment, live screenshot). Its path
+ * makes it recognisable: `.../task-sheets/<id>.svg`.
  *
- * Puro per costruzione: qui si compone testo SVG e basta. Chi lo scrive su
- * disco e' il chiamante (`writeDeliverySheet` iniettato in `tasks.ts`), cosi'
- * questo modulo resta verificabile senza filesystem.
+ * Pure by construction: this only composes SVG text. Whoever writes it to disk
+ * is the caller (`writeDeliverySheet`, injected in `tasks.ts`), so this module
+ * stays testable without a filesystem.
  */
 
+import { escapeHtml } from "../lib/escape-html";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { questionToProse } from "../../shared/question-prose";
 import { dirname, join } from "node:path";
@@ -82,14 +80,6 @@ export interface DeliverySheetData {
 const W = 1200;
 const H = 720; // rapporto 0.6: sotto la soglia della card (0.70), non viene tagliata
 
-function escapeXml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
 
 /**
  * Manda a capo su `maxLines` righe da `perLine` caratteri circa. SVG non sa
@@ -146,7 +136,7 @@ export function renderDeliverySheet(data: DeliverySheetData): string {
 
   const titleLines = wrapText(data.title || "(senza titolo)", 34, 3);
   const titleSvg = titleLines
-    .map((l, i) => `<text x="72" y="${TITLE_Y + i * TITLE_STEP}" class="t">${escapeXml(l)}</text>`)
+    .map((l, i) => `<text x="72" y="${TITLE_Y + i * TITLE_STEP}" class="t">${escapeHtml(l)}</text>`)
     .join("\n    ");
 
   // WHAT WAS DONE, always - and never the diffstat. See `summary` above.
@@ -170,7 +160,7 @@ export function renderDeliverySheet(data: DeliverySheetData): string {
       ? "Il ramo non porta ancora nessun commit: il lavoro non e' consegnato."
       : "";
   // CONSTANT TEXT, not data: this file writes both sentences and the only
-  // variable part is a number. Running them through `escapeXml` would turn
+  // variable part is a number. Running them through `escapeHtml` would turn
   // their apostrophes into `&apos;` while protecting nothing.
   const stateLine = stateText
     ? `<text x="72" y="${BRANCH_Y}" class="k">${stateText}</text>`
@@ -188,7 +178,7 @@ export function renderDeliverySheet(data: DeliverySheetData): string {
       const larghezza = 40 + testo.length * 14;
       const x = 72 + i * 200;
       return `<rect x="${x}" y="${CHIP_Y - 30}" width="${larghezza}" height="42" rx="21" class="chip"/>` +
-        `<text x="${x + 20}" y="${CHIP_Y}" class="chiptext">${escapeXml(testo)}</text>`;
+        `<text x="${x + 20}" y="${CHIP_Y}" class="chiptext">${escapeHtml(testo)}</text>`;
     })
     .join("\n    ");
 
@@ -210,7 +200,7 @@ export function renderDeliverySheet(data: DeliverySheetData): string {
   <rect width="${W}" height="${H}" fill="#0f1116"/>
   <rect x="18" y="18" width="${W - 36}" height="${H - 36}" rx="28" fill="#171a21" stroke="#272c37" stroke-width="2"/>
   <text x="72" y="110" class="h">SCHEDA DI CONSEGNA</text>
-  <text x="${W - 72}" y="110" class="id" text-anchor="end">#${escapeXml(data.taskId.slice(0, 8))}</text>
+  <text x="${W - 72}" y="110" class="id" text-anchor="end">#${escapeHtml(data.taskId.slice(0, 8))}</text>
   <rect x="72" y="140" width="${W - 144}" height="2" fill="#272c37"/>
   ${titleSvg}
   <rect x="72" y="${RULE_Y}" width="${W - 144}" height="2" fill="#272c37"/>${stats}
@@ -277,6 +267,6 @@ function summarySvg(summary: string | null | undefined, NUM_Y: number, KEY_Y: nu
   // which is the gate the whole sheet has to pass.
   const righe = wrapText(testo, 62, 3);
   return righe
-    .map((l, i) => `<text x="72" y="${NUM_Y - 22 + i * 44}" class="b">${escapeXml(l)}</text>`)
+    .map((l, i) => `<text x="72" y="${NUM_Y - 22 + i * 44}" class="b">${escapeHtml(l)}</text>`)
     .join("\n    ");
 }
