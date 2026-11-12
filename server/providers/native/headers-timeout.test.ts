@@ -14,8 +14,9 @@
  * need to be: the timer aborts the fetch whatever the socket's state, and the
  * real `fetch` runs against it (no fake), through `ANTHROPIC_BASE_URL`.
  *
- * The account engine's settings are served by a second local server
- * (`TOPICS_SWITCHBOARD_URL`): a hold it declares is a wait, not a dead socket.
+ * The account engine's status is served by a second local server
+ * (`TOPICS_SWITCHBOARD_URL`): a hold it logged for the request is a wait, not
+ * a dead socket.
  * @covers CHAT-REL-09
  */
 import { describe, expect, test, beforeAll, afterAll, beforeEach } from "bun:test";
@@ -23,6 +24,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { runAgentTurn, type AgentMessage } from "./agent-loop";
+import { engineHoldUntil } from "./base-url";
 import type { StreamHandler } from "../types";
 import { ApiHeadersTimeoutError, ApiHttpError, MAX_HEADERS_TIMEOUTS, retryRound, type RetryPolicy } from "./retry";
 
@@ -36,14 +38,23 @@ let homeDir: string;
 let ws: string;
 let silent: { port: number; stop: (force?: boolean) => void };
 let connections = 0;
-/** The account engine's dashboard: answers its settings with this hold. */
+/** The account engine's dashboard: `recentEvents`, as Switchboard's `/api/proxy-status`. */
 let engine: ReturnType<typeof Bun.serve>;
-let holdMin = 0;
-/** An API that answers, after `answerAfterMs`, with a stream whose deltas take `bodyMs`. */
+let engineEvents: Array<{ type: string; ts: number; until: number }> = [];
+/** How long the engine takes to answer its status. */
+let engineDelayMs = 0;
+/** When > 0, every request that reaches an API logs a hold of this length, as the engine does when it parks one. */
+let holdForMs = 0;
+/** An API that answers, after `answerAfterMs`, with a stream whose deltas take `bodyMs` (or with `answerStatus`). */
 let slowApi: ReturnType<typeof Bun.serve>;
 let answerAfterMs = 0;
 let bodyMs = 0;
+let answerStatus = 200;
 let slowRequests = 0;
+
+function parkedByEngine(): void {
+  if (holdForMs > 0) engineEvents.unshift({ type: "cap-hold", ts: Date.now(), until: Date.now() + holdForMs });
+}
 
 const okEvents = [
   { type: "message_start", message: { usage: { input_tokens: 1 } } },
@@ -104,16 +115,23 @@ describe("a round whose request never gets response headers", () => {
     silent = Bun.listen({
       hostname: "127.0.0.1",
       port: 0,
-      socket: { open() { connections++; }, data() {} },
+      socket: { open() { connections++; parkedByEngine(); }, data() {} },
     });
     process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${silent.port}`;
-    engine = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ usageCapHoldMin: holdMin }) });
+    engine = Bun.serve({
+      hostname: "127.0.0.1", port: 0,
+      async fetch() { await Bun.sleep(engineDelayMs); return Response.json({ recentEvents: engineEvents.slice(0, 20) }); },
+    });
     process.env.TOPICS_SWITCHBOARD_URL = `http://127.0.0.1:${engine.port}`;
     slowApi = Bun.serve({
       hostname: "127.0.0.1", port: 0, idleTimeout: 30,
       async fetch() {
         slowRequests++;
+        parkedByEngine();
         await Bun.sleep(answerAfterMs);
+        if (answerStatus !== 200) {
+          return Response.json({ type: "error", error: { type: "rate_limit_error", message: "Usage cap reached" } }, { status: answerStatus });
+        }
         const gap = bodyMs / okEvents.length;
         const stream = new ReadableStream({
           async start(c) {
@@ -141,9 +159,12 @@ describe("a round whose request never gets response headers", () => {
   });
 
   beforeEach(() => {
-    holdMin = 0;
+    engineEvents = [];
+    engineDelayMs = 0;
+    holdForMs = 0;
     answerAfterMs = 0;
     bodyMs = 0;
+    answerStatus = 200;
     process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${silent.port}`;
   });
 
@@ -223,11 +244,24 @@ describe("a round whose request never gets response headers", () => {
     expect(reg.text).toBe("ok");
   }, 15_000);
 
-  test("an engine that declares a hold is waited on, on the same socket, past the headers timer", async () => {
+  test("headers that arrive while the engine is being asked are not cut by its answer", async () => {
+    // The timer fires, the engine takes longer to answer than the API: the late "no hold" must not cut the body.
+    process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${slowApi.port}`;
+    answerAfterMs = HEADERS_MS + 80;
+    engineDelayMs = 400;
+    bodyMs = 900;
+    const reg = ledger();
+    await turn(reg, { maxAttempts: 2, baseMs: 1, capMs: 4, jitter: () => 1 });
+    expect(reg.retries).toEqual([]);
+    expect(reg.done).toBe(1);
+    expect(reg.text).toBe("ok");
+  }, 15_000);
+
+  test("a request the engine parks is waited on, on the same socket, past the headers bound", async () => {
     // Switchboard parks a request while every account is capped: no header
     // until an account frees up. Cutting it would turn a wait into an error.
     process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${slowApi.port}`;
-    holdMin = 1;
+    holdForMs = HEADERS_MS * 6;
     answerAfterMs = HEADERS_MS * 4;
     const before = slowRequests;
     const reg = ledger();
@@ -236,6 +270,50 @@ describe("a round whose request never gets response headers", () => {
     expect(reg.done).toBe(1);
     expect(slowRequests - before).toBe(1);
   }, 15_000);
+
+  test("the wait ends with the engine's hold: a socket that stays silent after it is cut", async () => {
+    holdForMs = HEADERS_MS * 2;
+    const before = connections;
+    const started = Date.now();
+    let message = "";
+    await turn(ledger(), { maxAttempts: 28, baseMs: 1, capMs: 4, jitter: () => 1 }).catch((e: Error) => { message = e.message; });
+    expect(message).toContain("no response headers");
+    expect(connections - before).toBe(MAX_HEADERS_TIMEOUTS);
+    // Each attempt waited about its hold plus one bound, not forever.
+    expect(Date.now() - started).toBeLessThan(MAX_HEADERS_TIMEOUTS * (HEADERS_MS * 4) + 3_000);
+  }, 15_000);
+
+  test("a hold the engine logged before the request was sent does not extend it", async () => {
+    // The setting, or a hold of someone else's earlier request, says nothing about this socket.
+    engineEvents = [{ type: "cap-hold", ts: Date.now() - 30_000, until: Date.now() + 60_000 }];
+    const started = Date.now();
+    let message = "";
+    await turn(ledger(), { maxAttempts: 28, baseMs: 1, capMs: 4, jitter: () => 1 }).catch((e: Error) => { message = e.message; });
+    expect(message).toContain("no response headers");
+    expect(Date.now() - started).toBeLessThan(5_000);
+  }, 15_000);
+
+  test("a 429 at the end of the engine's hold stops the round instead of parking another attempt", async () => {
+    process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${slowApi.port}`;
+    holdForMs = HEADERS_MS * 6;
+    answerAfterMs = HEADERS_MS * 4;
+    answerStatus = 429;
+    const before = slowRequests;
+    const reg = ledger();
+    let message = "";
+    await turn(reg, { maxAttempts: 28, baseMs: 1, capMs: 4, jitter: () => 1 }).catch((e: Error) => { message = e.message; });
+    expect(message).toContain("no account freed up");
+    expect(reg.retries).toEqual([]);
+    expect(slowRequests - before).toBe(1);
+  }, 15_000);
+
+  test("an address that is not on this machine never asks the local engine", async () => {
+    engineEvents = [{ type: "cap-hold", ts: Date.now(), until: Date.now() + 60_000 }];
+    process.env.ANTHROPIC_BASE_URL = "https://llm-gateway.example.invalid";
+    expect(await engineHoldUntil(Date.now() - 1_000)).toBe(0);
+    process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${silent.port}`;
+    expect(await engineHoldUntil(Date.now() - 1_000)).toBeGreaterThan(Date.now());
+  });
 });
 
 describe("the count of header timeouts in a round", () => {

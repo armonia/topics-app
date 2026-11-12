@@ -51,7 +51,7 @@ import { stopCauseFromSignal } from "../stop-reason";
 import { splitLongWindow, betaHeader, spiegaErrore } from "./long-window";
 import { thinkingConfigFor, DEFAULT_MAX_TOKENS } from "../../lib/native-parity";
 import type { LifecycleHookRunner } from "../../services/lifecycle-hooks";
-import { anthropicMessagesUrl, engineHoldMs } from "./base-url";
+import { anthropicMessagesUrl, engineHoldUntil } from "./base-url";
 
 const API_VERSION = "2023-06-01";
 
@@ -349,14 +349,12 @@ function apiHeaders(token: string, longWindow: boolean): Record<string, string> 
  * 90 s, not less: the headers of a streamed answer can wait for the prompt to
  * be read, and a long-window request with a cold cache takes tens of seconds
  * before the first byte. The one healthy wait beyond that is the account
- * engine parking a request while every account is capped (`engineHoldMs`):
- * when the timer fires the engine is asked, and a hold it declares extends the
- * wait on the same socket instead of cutting it.
+ * engine parking our request while every account is capped: at each firing
+ * the engine is asked (`engineHoldUntil`), and a hold it logged since the
+ * request was sent extends the wait on the same socket to that hold's end,
+ * plus this same bound for its answer.
  */
 export const API_HEADERS_TIMEOUT_MS = 90_000;
-
-/** Added to an engine's declared hold: its own 429 must reach us before our cut. */
-const ENGINE_HOLD_MARGIN_MS = 60_000;
 
 /** The line the keep-alive puts after the history. Nobody answers it: the request is dropped at `message_start`. */
 const KEEP_ALIVE_PROMPT = "(prompt cache keep-alive, no answer needed)";
@@ -442,24 +440,25 @@ async function streamOnce(
   // `opts.signal`, so it can never read as a Stop.
   const headersTimeoutMs = opts.headersTimeoutMs ?? API_HEADERS_TIMEOUT_MS;
   const headersCut = new AbortController();
+  const headersWaitStartedAt = Date.now();
   let headersSettled = false;
-  let headersExtended = false;
+  let heldByEngine = false;
   const onHeadersTimer = () => {
-    // Second firing, or nothing to ask: cut.
-    if (headersExtended) { headersCut.abort(); return; }
-    headersExtended = true;
-    void engineHoldMs().then((holdMs) => {
+    if (headersSettled) return;
+    // Asked again at every firing: a hold that ended, or none logged for this request, means cut.
+    void engineHoldUntil(headersWaitStartedAt).then((until) => {
       if (headersSettled) return;
-      if (holdMs <= 0) { headersCut.abort(); return; }
+      const left = until - Date.now();
+      if (left <= 0) { headersCut.abort(); return; }
+      heldByEngine = true;
       console.warn(
-        `[native] no response headers from ${apiUrl} within ${headersTimeoutMs}ms, but the account engine may hold`
-        + ` a request up to ${Math.round(holdMs / 60_000)} min (session_key=${opts.sessionId ?? "unknown"}): waiting on the same socket`,
+        `[native] no response headers from ${apiUrl} after ${Date.now() - headersWaitStartedAt}ms: the account engine holds`
+        + ` requests for ${Math.round(left / 1000)}s more (session_key=${opts.sessionId ?? "unknown"}): waiting on the same socket`,
       );
-      headersTimer = setTimeout(onHeadersTimer, holdMs + ENGINE_HOLD_MARGIN_MS);
-    }, () => headersCut.abort());
+      headersTimer = setTimeout(onHeadersTimer, left + headersTimeoutMs);
+    }, () => { if (!headersSettled) headersCut.abort(); });
   };
   let headersTimer = setTimeout(onHeadersTimer, headersTimeoutMs);
-  const headersWaitStartedAt = Date.now();
   const signal = opts.signal ? AbortSignal.any([opts.signal, headersCut.signal]) : headersCut.signal;
   try {
     res = await fetch(apiUrl, {
@@ -495,6 +494,12 @@ async function streamOnce(
 
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
+    // The engine held this request for its whole hold and then said 429: no
+    // account freed up. Trying again would park the next attempt for another
+    // hold, up to the policy's 28 of them; the round stops here, in its words.
+    if (heldByEngine && res.status === 429) {
+      throw new Error(`The account engine held this request ${Math.round((Date.now() - headersWaitStartedAt) / 60_000)} min and no account freed up: ${detail.slice(0, 300)}`);
+    }
     // `spiegaErrore` translates ONLY the long-window 400, which otherwise lands
     // mid-turn as an English sentence with no way out. Everything else passes
     // as it came: see long-window.ts. The status and the `retry-after` travel

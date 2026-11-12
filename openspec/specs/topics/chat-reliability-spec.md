@@ -299,9 +299,12 @@ the socket and retry the call as a transport failure, on a new connection; it
 SHALL give up after three such expiries in the same call, counted across other
 failures in between, and end the turn in error. The bound SHALL NOT cut a
 streamed body once the headers have arrived, and its expiry SHALL NOT read as a
-Stop. When the endpoint is the local account engine and the engine declares a
-hold (it parks requests, without headers, while every account is capped), the
-wait SHALL extend on the same socket to that hold plus a margin.
+Stop. When the endpoint is on this machine and the account engine there
+reports a hold logged since the request was sent (it parks requests, without
+headers, while every account is capped), the wait SHALL extend on the same
+socket to that hold's end plus the bound; a hold logged before the request, or
+the hold setting alone, SHALL NOT extend it. A 429 at the end of such a hold
+SHALL end the call without another attempt.
 
 > **Why.** On 2026-11-11 a native turn ran 40+ minutes without a round: its
 > socket sat in `SYN_SENT` towards the local API proxy, the fetch had no limit
@@ -320,7 +323,8 @@ wait SHALL extend on the same socket to that hold plus a margin.
 - **THEN** the turn is cancelled at once, and no retry is announced
 
 #### Scenario: The account engine holds the request
-- **GIVEN** the local account engine declares a hold of N minutes and answers after the headers bound
+- **GIVEN** the local account engine parks the request, logs the hold, and answers after the headers bound
 - **WHEN** a native turn calls it
 - **THEN** the call waits on the same connection and the turn completes, with no retry
+- **AND** if the engine answers 429 when its hold ends, the call ends there, without another attempt
 
