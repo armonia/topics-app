@@ -38,7 +38,7 @@ function isLoopback(url: string): boolean {
   try { return ["127.0.0.1", "localhost", "[::1]"].includes(new URL(url).hostname); } catch { return false; }
 }
 
-function loopbackCertInit(url: string): RequestInit {
+function loopbackFetchOptions(url: string): RequestInit {
   return (isLoopback(url) ? { tls: { rejectUnauthorized: false } } : {}) as RequestInit;
 }
 
@@ -52,7 +52,7 @@ export async function resolveHeavyBase(opts: { url?: string; port?: number | str
   for (const scheme of ["https", "http"]) {
     const base = `${scheme}://127.0.0.1:${opts.port || 3333}`;
     try {
-      const res = await fetchFn(`${base}/api/heavy-slot`, { signal: AbortSignal.timeout(2_000), ...loopbackCertInit(base) });
+      const res = await fetchFn(`${base}/api/heavy-slot`, { signal: AbortSignal.timeout(2_000), ...loopbackFetchOptions(base) });
       if (res.ok) return base;
     } catch { /* try the next scheme */ }
   }
@@ -65,7 +65,7 @@ async function post(fetchFn: typeof fetch, url: string, body: unknown, timeoutMs
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(timeoutMs),
-    ...loopbackCertInit(url),
+    ...loopbackFetchOptions(url),
   });
   if (!res.ok) throw new Error(`status ${res.status}`);
   return res.json();
