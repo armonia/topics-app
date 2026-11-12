@@ -1386,7 +1386,7 @@ function handleBridgeMessage(msg: any) {
         // The code is kept WITH the parked row, so a pane opened after the
         // fact reads it too. NULL when the bridge gave none: an unknown
         // code is not a zero.
-        settleExitedSessionRow(getDatabase(), { id: msg.id, resumable: canResume, exitCode });
+        settleExitedSessionRow(getDatabase, { id: msg.id, resumable: canResume, exitCode });
         // Mirror the lifecycle into the phase tracker so the loading signal
         // clears: dormant (resumable) → not loading; otherwise forget it.
         if (exitedSession.claudeSessionId && (exitedSession.type === 'claude-code' || exitedSession.type === 'claude-code-team')) {

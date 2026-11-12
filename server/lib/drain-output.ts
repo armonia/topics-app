@@ -1,8 +1,11 @@
+import { warnThrottled } from "./warn-throttled";
+
 /**
  * Reads a child's stdout/stderr to the end, handing each decoded chunk to
- * `onText`. A read or `onText` failure stops the drain, which truncates the log
- * and leaves the pipe unread: it is reported with the process id instead of
- * vanishing.
+ * `onText`. An `onText` that throws is reported and the drain goes on: stopping
+ * would truncate the log and leave the pipe unread, blocking the child. A read
+ * failure ends the drain (nothing more can come), is reported with the process
+ * id, and releases the stream.
  */
 export async function drainOutput(
   stream: ReadableStream<Uint8Array>,
@@ -15,9 +18,14 @@ export async function drainOutput(
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      onText(decoder.decode(value, { stream: true }));
+      try {
+        onText(decoder.decode(value, { stream: true }));
+      } catch (e) {
+        warnThrottled(`processes:drain-sink:${processId}`, `[Processes] ${processId}: handling an output chunk failed, the log may miss it:`, e);
+      }
     }
   } catch (e) {
     console.warn(`[Processes] ${processId}: output drain stopped, the log is truncated:`, e);
+    await reader.cancel().catch(() => {});
   }
 }

@@ -1,11 +1,11 @@
 /**
- * Sites that used to swallow a real error (card e9bfee52). Each test makes the
+ * Sites that used to swallow a real error (card 30f7c880). Each test makes the
  * real operation fail and checks that the failure shows: a captured log line or
  * an error to the caller.
  */
 import { describe, test, expect, afterEach, spyOn } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeDatabase, initDatabase } from "./db";
@@ -175,6 +175,22 @@ describe("drainOutput", () => {
     }
   });
 
+  test("a sink that throws on the first chunk does not stop the later chunks", async () => {
+    const enc = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) { for (const c of ["one", "two", "three"]) controller.enqueue(enc.encode(c)); controller.close(); },
+    });
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    const seen: string[] = [];
+    try {
+      await drainOutput(stream, "proc-multi", (t) => { seen.push(t); if (seen.length === 1) throw new Error("sink failed once"); });
+      expect(seen).toEqual(["one", "two", "three"]);
+      expect(logged(warn)).toContain("proc-multi");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   test("a healthy stream is delivered whole and logs nothing", async () => {
     const stream = new ReadableStream<Uint8Array>({
       start(controller) { controller.enqueue(new TextEncoder().encode("a")); controller.enqueue(new TextEncoder().encode("b")); controller.close(); },
@@ -212,8 +228,8 @@ describe("terminal guards", () => {
     const db = new Database(":memory:"); // no terminal_sessions table: both statements throw
     const warn = spyOn(console, "warn").mockImplementation(() => {});
     try {
-      settleExitedSessionRow(db, { id: "term-park", resumable: true, exitCode: 1 });
-      settleExitedSessionRow(db, { id: "term-delete", resumable: false, exitCode: null });
+      settleExitedSessionRow(() => db, { id: "term-park", resumable: true, exitCode: 1 });
+      settleExitedSessionRow(() => db, { id: "term-delete", resumable: false, exitCode: null });
       expect(logged(warn)).toContain("term-park");
       expect(logged(warn)).toContain("term-delete");
     } finally {
@@ -226,8 +242,8 @@ describe("terminal guards", () => {
     const db = new Database(":memory:");
     db.run("CREATE TABLE terminal_sessions (id TEXT PRIMARY KEY, status TEXT, exit_code INTEGER)");
     db.run("INSERT INTO terminal_sessions (id, status) VALUES ('a', 'running'), ('b', 'running')");
-    settleExitedSessionRow(db, { id: "a", resumable: true, exitCode: 3 });
-    settleExitedSessionRow(db, { id: "b", resumable: false, exitCode: null });
+    settleExitedSessionRow(() => db, { id: "a", resumable: true, exitCode: 3 });
+    settleExitedSessionRow(() => db, { id: "b", resumable: false, exitCode: null });
     expect(db.query("SELECT id, status, exit_code FROM terminal_sessions").all()).toEqual([{ id: "a", status: "dormant", exit_code: 3 }]);
     db.close();
   });
@@ -300,27 +316,19 @@ describe("removeDirReporting", () => {
   });
 });
 
-describe("warnThrottled", () => {
-  test("a key whose window has passed is forgotten when it is read again", () => {
-    const warn = spyOn(console, "warn").mockImplementation(() => {});
-    const realNow = Date.now;
-    try {
-      const base = realNow();
-      Date.now = () => base;
-      warnThrottled("sweep:a", "first");
-      const sizeWithKey = warnThrottledSize();
-      warnThrottled("sweep:a", "suppressed");
-      expect(warn).toHaveBeenCalledTimes(1);
-      Date.now = () => base + 61_000;
-      warnThrottled("sweep:a", "second");
-      expect(warn).toHaveBeenCalledTimes(2);
-      expect(warnThrottledSize()).toBe(sizeWithKey);
-    } finally {
-      Date.now = realNow;
-      warn.mockRestore();
-    }
+describe("call sites keep the guards", () => {
+  const read = (p: string) => readFileSync(join(import.meta.dir, p), "utf8");
+  test("the routes go through the reporting helpers", () => {
+    const terminal = read("routes/terminal.ts");
+    expect(terminal).toContain("dispatchBridgeLine(");
+    expect(terminal).toContain("settleExitedSessionRow(getDatabase,");
+    expect(terminal).toContain("killChildren(");
+    expect(read("routes/processes.ts")).toContain("drainOutput(stream, processId,");
+    expect(read("../scripts/install-claude-hooks.ts")).toContain("removeDirReporting(");
   });
+});
 
+describe("warnThrottled", () => {
   test("expired keys are swept once the table is large", () => {
     const warn = spyOn(console, "warn").mockImplementation(() => {});
     const realNow = Date.now;

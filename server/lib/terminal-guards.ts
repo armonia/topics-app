@@ -21,10 +21,11 @@ export function dispatchBridgeLine(line: string, handle: (msg: unknown) => void)
  * exited. A failure leaves a ghost row that revives on reload: it is reported.
  */
 export function settleExitedSessionRow(
-  db: Database,
+  getDb: () => Database,
   row: { id: string; resumable: boolean; exitCode: number | null },
 ): void {
   try {
+    const db = getDb();
     if (row.resumable) {
       db.run("UPDATE terminal_sessions SET status = 'dormant', exit_code = ? WHERE id = ?", [row.exitCode, row.id]);
     } else {
