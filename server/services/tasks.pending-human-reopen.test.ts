@@ -145,6 +145,19 @@ describe("pendingHumanReopen", () => {
     expect(r.text).toBe("l'obiezione vera");
   });
 
+  test("un rifiuto via API/MCP (niente header interfaccia) resta una bocciatura da consegnare", () => {
+    // The row's `author` stays the literal "user" the board route always
+    // writes (KANBAN-113's predecessor broke this by making it vary with the
+    // caller): a reject without the interface marker must still be found
+    // here, or the agent reads "your turn was interrupted" instead of the
+    // actual rejection — the KANBAN-92 regression, but from the other door.
+    const { id, commentId } = rejected("Rifiutato via API, senza marcatore interfaccia.");
+    const c = s.addComment({ taskId: id, author: "user", content: "seconda riga, stesso turno", origin: "api" });
+    const r = s.pendingHumanReopen({ taskId: id })!;
+    expect(r).not.toBeNull();
+    expect(r.commentIds).toEqual([commentId, c.id]);
+  });
+
   test("una card mai riaperta non ha niente da dire", () => {
     const t = s.create({ projectId: PID, text: "mai bocciata", status: "in_progress" });
     expect(s.pendingHumanReopen({ taskId: t.id })).toBeNull();
