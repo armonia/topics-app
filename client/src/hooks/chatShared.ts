@@ -16,7 +16,7 @@ getAllMessages,
 updateMessages as setMessages
 } from '../state/messageStore';
 import { type TurnRef } from '../state/serverTurn';
-import { flagMapRef,flagSetter,getSessionFlag } from '../state/sessionFlags';
+import { flagMapRef, flagSetter, getSessionFlag } from '../state/sessionFlags';
 import {
 EXPIRED_QUEUE_KEY,
 OUTBOUND_QUEUE_KEY,
