@@ -17,9 +17,11 @@ hermetic(test);
 /**
  * Lo stato git nell'albero, il diff viewer, staging e commit.
  *
- * Gli ultimi due test MODIFICANO lo stato git del progetto (stage e commit):
- * stanno in fondo per questo, e in un file a parte perche' il loro progetto non
- * deve essere quello su cui gli altri asseriscono M/D/U.
+ * The last three tests MODIFY the project's git state (stage and commit); now
+ * that isolation is PER TEST (each test seeds its OWN project in `beforeEach`,
+ * not one shared by the file's `beforeAll`), the mutation does not outlive
+ * the test that makes it, so there is no longer a reason to keep them at the
+ * bottom: nothing ties them to execution order any more.
  *
  * Fa parte della famiglia file-explorer, spezzata in tre file per TEMA
  * (`file-explorer`, `file-explorer-git`, `file-explorer-panels`). Erano un
@@ -36,11 +38,6 @@ test.describe("File Explorer — Git", () => {
   let tmpDir = "";
   let topicName = "";
 
-  test.beforeAll(async ({ request }) => {
-    project = await seedFileProject(request, "git");
-    ({ topicId, tmpDir, topicName } = project);
-  });
-
   // Isolamento del pane-store fra un test e l'altro. `pane-store-v2` e' UNA
   // chiave sincronizzata dal server e condivisa da tutta la run: senza reset,
   // una pane di progetto aperta da una spec precedente — o dal test precedente
@@ -53,11 +50,14 @@ test.describe("File Explorer — Git", () => {
   // topic figlia ha una tab aperta, e con lo store vuoto `gotoProject` non
   // troverebbe l'intestazione da cliccare.
   test.beforeEach(async ({ request }) => {
-    if (topicId) await resetPaneStore(request, [topicId]);
+    project = await seedFileProject(request, "git");
+    ({ topicId, tmpDir, topicName } = project);
+    await resetPaneStore(request, [topicId]);
   });
 
-  test.afterAll(async ({ request }) => {
+  test.afterEach(async ({ request }) => {
     await cleanupFileProject(request, project);
+    project = undefined;
   });
 
   test("EXPLORER-03: git status indicators on files", async ({
@@ -105,7 +105,7 @@ test.describe("File Explorer — Git", () => {
     test.info().annotations.push({ type: "spec", description: "FILE-02" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
 
-    // The Git section should show README.md with D status (deleted in beforeAll)
+    // The Git section should show README.md with D status (deleted per-test by seedFileProject)
     const gitChanges = page.locator('[data-testid="git-changes"]');
     await expect(gitChanges).toBeVisible({ timeout: 10000 });
 
@@ -304,7 +304,7 @@ test.describe("File Explorer — Git", () => {
       await gitHeader.click();
     }
 
-    // src/index.ts was modified (from beforeAll setup) -- find it in the changes list
+    // src/index.ts was modified (by the per-test seedFileProject) -- find it in the changes list
     // In compact mode, changed files are inside the git-changes section
     // Click on the file text (not buttons) to trigger handleFileClick which opens diff
     // All fixture changes are unstaged (nothing is `git add`-ed), so GitChanges
