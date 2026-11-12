@@ -1854,7 +1854,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
    * The fourth case is the one that was missing: the agent asked and is waiting.
    * Then the box is not a steer, it is the answer the turn restarts from.
    */
-  const steerable = !!task && (task.status === 'in_progress' || agentBusy);
+  const steerable = !!task && !task.archived && (task.status === 'in_progress' || agentBusy);
   const composerPlaceholder = canSendToAgent
     ? tr('board.task.replyPlaceholder')
     : steerable

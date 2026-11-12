@@ -14,13 +14,20 @@ import { test, expect, describe } from "bun:test";
 import { createTasksRouter } from "./tasks";
 import { freshDb, makeCtx, call } from "./tasks-test-support";
 
-function setup() {
+function setup(withNode = false) {
   const db = freshDb(); const resumed: string[] = [];
   const dispatcher = {
     onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {},
     resume: async (id: string) => { resumed.push(id); },
   } as any;
-  const router = createTasksRouter(makeCtx(db, []), dispatcher);
+  const ctx: any = makeCtx(db, []);
+  if (withNode) {
+    ctx.machineStore = {
+      upsertLocal: () => ({ id: "here" }),
+      get: (id: string) => (id === "node-1" ? { baseUrl: "http://node.test" } : null),
+    };
+  }
+  const router = createTasksRouter(ctx, dispatcher);
   async function reviewCard(): Promise<string> {
     db.run("INSERT INTO topics (id) VALUES ('top-1')");
     const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "studio" }))!.json();
@@ -52,5 +59,45 @@ describe("comments on a review card", () => {
     expect((await resp.json()).delivery).toBe("queued");
     expect(row(id).status).toBe("in_progress");
     expect(resumed).toEqual([id]);
+  });
+
+  test("archived card delivered by a node: the comment does not send it back to todo", async () => {
+    const { db, router, reviewCard, row } = setup(true);
+    const id = await reviewCard();
+    db.run("INSERT INTO machines VALUES ('node-1','Node','http://node.test')");
+    db.prepare("UPDATE tasks SET machine_id = 'node-1' WHERE id = ?").run(id);
+    await call(router, "DELETE", `/api/boards/pX/tasks/${id}`);
+    const resp = (await call(router, "POST", `/api/boards/pX/tasks/${id}/comments`, { content: "nota" }))!;
+    expect((await resp.json()).delivery).toBe("note");
+    expect(row(id).status).toBe("review");
+  });
+});
+
+describe("a card closed by its owner", () => {
+  async function closedCard() {
+    const { db, router } = setup();
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "chiusa" }))!.json();
+    db.prepare("UPDATE tasks SET status = 'done', done_actor = 'human' WHERE id = ?").run(t.id);
+    const status = () => (db.query("SELECT status FROM tasks WHERE id = ?").get(t.id) as { status: string }).status;
+    return { router, id: t.id as string, status };
+  }
+
+  test("a script PATCHing it out of done is refused", async () => {
+    const { router, id, status } = await closedCard();
+    const resp = (await call(router, "PATCH", `/api/boards/pX/tasks/${id}`, { status: "backlog" }))!;
+    expect(resp.status).toBe(409);
+    expect((await resp.json()).code).toBe("closed_by_owner");
+    expect(status()).toBe("done");
+  });
+
+  test("a click in the interface, or a script that says it is deliberate, reopens it", async () => {
+    const a = await closedCard();
+    const viaUi = (await call(a.router, "PATCH", `/api/boards/pX/tasks/${a.id}`, { status: "backlog" }, { "X-Topics-Action-Origin": "interface" }))!;
+    expect(viaUi.status).toBe(200);
+    expect(a.status()).toBe("backlog");
+    const b = await closedCard();
+    const sure = (await call(b.router, "PATCH", `/api/boards/pX/tasks/${b.id}`, { status: "backlog" }, { "X-Topics-Confirm-Reopen": "1" }))!;
+    expect(sure.status).toBe(200);
+    expect(b.status()).toBe("backlog");
   });
 });

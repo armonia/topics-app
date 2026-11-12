@@ -1218,7 +1218,7 @@ const EN = {
   'board.task.landUnverifiable': 'unverifiable',
   'board.task.landUnverifiableRest': ': the merge exited zero but main could not be read back. Check before calling it landed.',
   'board.task.archivedChip': 'Archived',
-  'board.task.archivedBanner': "Archived: off the board. The status at the top is the one it had before, no longer in force.",
+  'board.task.archivedBanner': "Archived: off the board. The status it had before is no longer in force: press \"Restore\" to get it back.",
   'board.task.approveLeavesBranchOut': "The code stays out of main: «{approve}» closes the card without merging it. To merge it use «{land}».",
   'board.task.deployProposed': "The board proposes deploying: confirm to run it in the main checkout.",
   'board.task.deployNow': 'Deploy now',

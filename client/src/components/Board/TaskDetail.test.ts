@@ -178,7 +178,8 @@ describe('the drawer wires the honest review buttons', () => {
     const at = src.indexOf('data-testid="task-approve-leaves-branch-note"');
     expect(at).toBeGreaterThan(0);
     const before = src.slice(Math.max(0, at - 200), at);
-    expect(before).toContain('hasDeliveryToMerge(task)');
+    expect(before).toMatch(/\{\s*hasDeliveryToMerge\(task\)\s*&&/);
+    expect(before).not.toContain('!hasDeliveryToMerge');
     const after = src.slice(at, at + 400);
     expect(after).toContain("approve: reviewDecisionButtons(task, tr).accept.label");
     expect(after).toContain('land: reviewDecisionButtons(task, tr).land');
@@ -192,6 +193,10 @@ describe('the drawer wires the honest review buttons', () => {
     expect(src).toContain('canSendToAgentTask(task)');
     expect(src).toContain("task.assignedTopicId && !task.archived;");
     expect(src).toContain('canDecideReview(task)');
+    // Each guard is the positive reading: an inverted condition would keep the substrings and flip the behaviour.
+    expect(src).toMatch(/const steerable = !!task && !task\.archived && /);
+    expect(src).not.toMatch(/\{\s*task\?\.archived\s*&&[^}]*task-decision/);
+    expect(src).toMatch(/!task\.archived\) setStatusMenuOpen|task && !task\.archived && setStatusMenuOpen/);
   });
 
   test('the send button borrows the send-back word on a card the agent never finished', () => {
