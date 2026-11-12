@@ -1,4 +1,7 @@
 /**
+ * @covers LAYOUT-01
+ */
+/**
  * `draft-meta` is the SOLE persisted copy of a draft pane's project
  * association (read back only at init). A `setItem` failure used to be
  * swallowed silently; it is now logged, and the draft still has its

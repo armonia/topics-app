@@ -1,3 +1,6 @@
+/**
+ * @covers CHAT-DEF-04
+ */
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { __resetDraftWarnOnce, readDraft, saveDraft } from './chatDraft';
 
