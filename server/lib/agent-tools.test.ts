@@ -1,3 +1,6 @@
+/**
+ * @covers AGENT-TOOLS-01
+ */
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
