@@ -33,7 +33,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { createHash } from "crypto";
 import { worktreeRegistrationLost } from "./worktree-registration";
-import { carriedBranch } from "./branch-on-origin";
+import { carriedBranch, isPlainBranchName } from "./branch-on-origin";
 import { findAttributionViolations } from "./land-attribution-gate";
 import { commitIsIn, countOwnCommits, otherLocalBranches } from "./own-commits";
 import { lastLook } from "./landing-last-look";
@@ -194,7 +194,10 @@ const REBASE_INSTRUCTION =
  * altrove, o uno nuovo aggiunto senza passare di qui) vale come fallito: sbaglia
  * verso il rimandare indietro una card, mai verso il chiuderla.
  */
-export function landFallout(code: LandSkipCode | undefined, ctx: { deliveryCommit?: string | null } = {}): LandFallout {
+export function landFallout(
+  code: LandSkipCode | undefined,
+  ctx: { deliveryCommit?: string | null; priorBranch?: string | null } = {},
+): LandFallout {
   switch (code) {
     case "no-branch":
       return { status: null, reason: "" };
@@ -209,6 +212,13 @@ export function landFallout(code: LandSkipCode | undefined, ctx: { deliveryCommi
     // And so does a caller who did not LOOK (`deliveryCommit` undefined): the
     // acceptance is an explicit statement, never the default.
     case "branch-missing":
+      // A card that carried its branch to another machine has code on it even
+      // with no delivery commit recorded here: the remote run returns with both
+      // delivery columns empty. Missing here AND on origin is a loss to look at,
+      // never an acceptance (12/11, 17436204 and 403aad1f closed outside main).
+      if (ctx.priorBranch?.trim()) {
+        return { status: "review", reason: `il ramo \`${ctx.priorBranch.trim()}\` portato su un'altra macchina non si trova né qui né su origin` };
+      }
       if (ctx.deliveryCommit === null) return { status: null, reason: "" };
       return { status: "review", reason: "il ramo consegnato non è più confrontabile con main" };
     case "unisolable":
@@ -292,15 +302,36 @@ export interface DeclaredDelivery {
   branch: string | null;
 }
 
+/** What `declaredDeliveryFor` reads of a card. */
+export interface DeclaredTask {
+  projectId: string;
+  deliveryBranch?: string | null;
+  priorBranch?: string | null;
+}
+
 /**
- * The branch a card declares for the land: its delivery branch, or the one it
- * carried to another machine (`priorBranch`). A card that ran on a node or the
- * PC comes back with `deliveryBranch` null and the branch only in `priorBranch`;
+ * The `declaredDelivery` wiring of the server, as a function the tests can call.
+ *
+ * The branch a card declares is its delivery branch, or the one it carried to
+ * another machine (`priorBranch`): a card that ran on a node or the PC comes
+ * back with `deliveryBranch` null and the branch only in `priorBranch`, and
  * ignoring it made the land answer `no-branch` and close the card with its code
- * outside main. `null` means no branch ever existed.
+ * outside main (12/11, 17436204 and 403aad1f). `null` means no branch ever existed.
  */
-export function declaredBranchOf(task: { deliveryBranch?: string | null; priorBranch?: string | null }): string | null {
-  return carriedBranch(task);
+export function declaredDeliveryFor(deps: {
+  getTask: (taskId: string) => DeclaredTask | null | undefined;
+  resolveRepoPath: (projectId: string) => string | null;
+  log?: (msg: string, err?: unknown) => void;
+}): (taskId: string) => DeclaredDelivery | null {
+  return (taskId) => {
+    const task = deps.getTask(taskId);
+    if (!task) return null;
+    const branch = carriedBranch(task);
+    if (!branch) return null;
+    let repoPath: string | null = null;
+    try { repoPath = deps.resolveRepoPath(task.projectId); } catch (err) { deps.log?.(`[land] checkout non risolto per ${taskId}`, err); }
+    return { repoPath, branch };
+  };
 }
 
 /** Il ramo scelto per il land, o il perché non ce n'è uno. */
@@ -511,6 +542,12 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
    * dallo scatto della consegna (ramo diverso, commit aggiunti dopo, commit di
    * consegna riscritto da un rebase) diventa una riga nel thread.
    */
+  /** `git fetch origin B:B`, best effort: no remote or no such branch changes nothing. */
+  async function fetchBranchFromOrigin(repoPath: string, branch: string): Promise<void> {
+    if (!isPlainBranchName(branch)) return;
+    await runGit(repoPath, ["fetch", "--no-tags", "origin", `refs/heads/${branch}:refs/heads/${branch}`]).catch(() => undefined);
+  }
+
   async function resolveLanding(
     repoPath: string,
     liveBranch: string,
@@ -1087,6 +1124,16 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         base = await comparisonBase(repoPath, defaultBranch);
         const head = await runGit(repoPath, ["symbolic-ref", "--short", "-q", "HEAD"]);
         const cur = head.stdout.trim();
+
+        // The branch as origin has it, before anything measures it. A card that
+        // ran on another machine pushed its branch there: this checkout may not
+        // have it at all (then `branch-missing` closed the card with nothing
+        // landed) or may hold an older tip (then the merge left origin's later
+        // commits out). The fetch is non-forced, so it only creates the branch
+        // or fast-forwards it: a local branch that is ahead, diverged, or checked
+        // out in a worktree is left exactly as it is.
+        await fetchBranchFromOrigin(repoPath, branch);
+        if (delivery?.branch?.trim() && delivery.branch.trim() !== branch) await fetchBranchFromOrigin(repoPath, delivery.branch.trim());
 
         // Quale ramo si pubblica, e cosa dire se non è lo scatto della consegna.
         // PRIMA di ogni controllo: tutto quello che segue (ahead, commit propri,

@@ -2181,7 +2181,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // The delivery commit decides whether a missing branch is a loss or a
         // no-op (see `landFallout`): an analysis card whose branch was reaped
         // after a "nothing to land" must be closable.
-        const fall = landFallout(res.code, { deliveryCommit: cur ? (cur.deliveryCommit ?? null) : undefined });
+        const fall = landFallout(res.code, {
+          deliveryCommit: cur ? (cur.deliveryCommit ?? null) : undefined,
+          priorBranch: cur?.priorBranch ?? null,
+        });
         // Da `done` la card si RITIRA; da `review` non si è mai mossa (il land
         // non approva più prima di atterrare) e ci resta — tranne dove il
         // fallout la manda dall'agente, che è l'unico posto in cui c'è qualcosa
