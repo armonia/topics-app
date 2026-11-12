@@ -152,6 +152,12 @@ async function apiRequest<T>(
   return { status: res.status, body: parsed };
 }
 
+/** What a caught value says: its `message` when it has one, else the value itself as text. */
+function errorText(err: unknown): string {
+  if (typeof err === "object" && err !== null && "message" in err) return String(err.message);
+  return String(err);
+}
+
 function usage(): string {
   return `Usage: topics <command> [args]
 
@@ -208,8 +214,8 @@ async function cmdAuth(sub: string) {
       } else {
         console.log(`status: state file present but daemon unreachable (HTTP ${status})`);
       }
-    } catch (err: any) {
-      console.log(`status: state file present but unreachable (${err?.message ?? err})`);
+    } catch (err) {
+      console.log(`status: state file present but unreachable (${errorText(err)})`);
     }
     return;
   }
@@ -302,8 +308,8 @@ async function cmdDaemon(sub: string) {
     try {
       process.kill(state.pid, "SIGTERM");
       console.log(`SIGTERM sent to pid ${state.pid}`);
-    } catch (err: any) {
-      console.error(`failed to signal pid ${state.pid}: ${err?.message ?? err}`);
+    } catch (err) {
+      console.error(`failed to signal pid ${state.pid}: ${errorText(err)}`);
       process.exit(1);
     }
     return;
