@@ -87,6 +87,8 @@
         "scripts/test-unit-shards.ts!",
         // `bun run test:touched`: the unit tests the branch diff reaches, picked from the import graph.
         "scripts/test-touched.ts!",
+        // `bun scripts/test-touched-measure.ts`: replays the selector on past red CI runs (needs gh).
+        "scripts/test-touched-measure.ts!",
         // Same shape: only .github/workflows/e2e-nightly.yml runs it, to name the
         // red tests inside the issue instead of sending the reader to the run.
         "scripts/e2e-failed-titles.ts!",
