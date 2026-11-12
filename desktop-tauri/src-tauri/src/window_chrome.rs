@@ -401,13 +401,13 @@ pub(crate) fn read_aot(app: &tauri::AppHandle) -> bool {
 
 #[derive(Deserialize)]
 pub(crate) struct VibRegion {
-    id: String,
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
+    pub(crate) id: String,
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) width: f64,
+    pub(crate) height: f64,
     #[serde(default)]
-    radius: f64,
+    pub(crate) radius: f64,
 }
 
 /// Per-window frost views, keyed by NSWindow pointer → (region id → NSView ptr).

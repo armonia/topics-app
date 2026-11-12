@@ -882,12 +882,13 @@
     "",
     "2026-11-07 (vista Piano, PR #608): entry_eager 960.644 -> 961.585 raw (+941), total_assets 9.783.822 -> 9.795.944 (+12.122), misurati con `bun run build:client` su origin/main e sul ramo. Il +941 e' il dizionario italiano del Piano e il pulsante nella board; PlanView e' `lazy()`.",
     "",
-    "2026-11-06, proposta multi-progetto dall'input (card a5906c31): total_assets +13.380 raw, misurato sulla card con main 9.248.521 contro ramo 9.261.901. Sono la funzione stessa (pannello pigro, schema della proposta): si scaricano solo se il pannello si apre. Il tetto sale della stessa misura, +13.380 sul tetto di main (9.795.944 -> 9.809.324)."
+    "2026-11-06, proposta multi-progetto dall'input (card a5906c31): total_assets +13.380 raw, misurato sulla card con main 9.248.521 contro ramo 9.261.901. Sono la funzione stessa (pannello pigro, schema della proposta): si scaricano solo se il pannello si apre. Il tetto sale della stessa misura, +13.380 sul tetto di main (9.795.944 -> 9.809.324).",
+    "2026-11-12, useChat.ts spezzato in cinque hook fratelli (card 475724bc): misurato dalla CI sul ramo, entry_eager raw 981.966 (tetto 980.817), total_assets 10.007.195 (tetto 10.005.510). Il costo e' il contesto condiviso fra i file (destructuring e oggetti di ritorno che il minificatore non elimina); nessun import nuovo. entry_eager 961.585 -> 962.800, total_assets 9.809.324 -> 9.813.000."
   ],
   "updated": "2026-11-07",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 961585,
+    "raw": 962800,
     "gz": 392156
   },
   "critical_path": {
@@ -896,6 +897,6 @@
     "files": 5
   },
   "total_assets": {
-    "raw": 9809324
+    "raw": 9813000
   }
 }

@@ -216,24 +216,24 @@ pub(crate) unsafe fn close_web_view(view: *mut crate::mac::Object) -> bool {
 /// status bar was understating usage by ~100x. See `responsible_pids`.
 #[derive(Serialize, Clone)]
 pub(crate) struct PerfMetrics {
-    version: String,
+    pub(crate) version: String,
     /// Whole-app memory footprint in MB — this is Activity Monitor's "Memory"
     /// column (`phys_footprint`), so the user can cross-check it there and get
     /// the same number. Includes memory the OS has compressed or swapped out,
     /// which is the point: that memory is still the app's, and paging it back in
     /// is exactly what makes the UI stutter.
-    total_mb: f64,
+    pub(crate) total_mb: f64,
     /// The slice of `total_mb` currently resident in physical RAM. The gap
     /// between the two IS the compression/swap pressure the app is generating.
-    resident_mb: f64,
+    pub(crate) resident_mb: f64,
     /// Footprint of the WKWebView CONTENT processes — one per pane, and where
     /// essentially all of the app's memory actually lives.
-    renderer_mb: f64,
+    pub(crate) renderer_mb: f64,
     /// Footprint of the shared WKWebView GPU process.
-    gpu_mb: f64,
+    pub(crate) gpu_mb: f64,
     /// Everything else in the set: the shell itself, WKWebView Networking, and
     /// the platform-support helpers.
-    other_mb: f64,
+    pub(crate) other_mb: f64,
     /// CPU usage percent summed over the process set (delta-based), oppure `null`
     /// quando NESSUN processo aveva ancora un campione precedente su cui fare il
     /// delta.
@@ -248,35 +248,35 @@ pub(crate) struct PerfMetrics {
     /// sparire il contatore sia quando la misura mancava sia quando era davvero
     /// bassa. Ora `null` vuol dire "non misurato" e `0.0` vuol dire "misurato,
     /// quasi zero": sono due cose diverse e si vedono diverse.
-    cpu_percent: Option<f32>,
+    pub(crate) cpu_percent: Option<f32>,
     /// The `cpu_percent` share burnt by the WKWebView content processes...
-    cpu_renderer: f32,
+    pub(crate) cpu_renderer: f32,
     /// ...and by the GPU/compositor process. Same buckets as the memory split,
     /// so the dropdown's CPU and memory rows describe the same partition.
-    cpu_gpu: f32,
+    pub(crate) cpu_gpu: f32,
     /// Quanti processi dell'insieme hanno davvero contribuito a `cpu_percent`, e
     /// quanti erano in tutto. `cpu_sampled < cpu_pids` significa copertura
     /// PARZIALE: la somma e' vera ma incompleta, perche' i pid appena comparsi
     /// (una pane aperta, un WebContent rinato) non hanno ancora un delta. Il
     /// client lo dice invece di far passare la somma per completa.
-    cpu_sampled: u32,
-    cpu_pids: u32,
+    pub(crate) cpu_sampled: u32,
+    pub(crate) cpu_pids: u32,
     /// How many processes the figures cover (1 = shell only).
-    process_count: u32,
+    pub(crate) process_count: u32,
     /// True when the figure covers only the shell process. Now false on macOS;
     /// still true elsewhere, where we have no equivalent attribution API.
-    partial: bool,
+    pub(crate) partial: bool,
     /// Consumo attribuito alla singola webview, per label — il pezzo che i totali
     /// qui sopra non possono dare: quale SCHEDA sta consumando.
     ///
     /// Vuoto finche' nessun WebContent e' associato (primo campionamento, o
     /// WebKit che ritira la SPI): le schede risultano allora "non ancora
     /// misurate", che e' diverso da "ferme a zero" e il client lo dice.
-    webviews: Vec<WebviewUsage>,
+    pub(crate) webviews: Vec<WebviewUsage>,
     /// Physical RAM of the machine, in MB (`None` if the OS did not say). The
     /// denominator a person understands: «this tab takes 4% of the Mac's
     /// memory» reads without knowing what a core or a footprint is.
-    system_mem_mb: Option<f64>,
+    pub(crate) system_mem_mb: Option<f64>,
 }
 
 /// Quanto consuma UNA webview, con il label che la lega alla sua pane.
@@ -284,16 +284,16 @@ pub(crate) struct PerfMetrics {
 pub(crate) struct WebviewUsage {
     /// Lo stesso label con cui la webview e' stata creata, cioe' l'aggancio alla
     /// pane lato client.
-    label: String,
+    pub(crate) label: String,
     /// Pid del processo WebContent che la rende.
-    pid: i32,
+    pub(crate) pid: i32,
     /// `phys_footprint` in MB: la stessa metrica dei totali e di Monitoraggio
     /// Attivita', non `rss` — cosi' la parte e il tutto si possono confrontare.
-    memory_mb: f64,
+    pub(crate) memory_mb: f64,
     /// `None` = NON MISURATA. Un WebContent appena nato non ha ancora un delta
     /// da cui ricavare una percentuale, e uno 0 lo farebbe passare per fermo.
     /// Per-core come il resto di questo payload: il client normalizza sui core.
-    cpu_percent: Option<f32>,
+    pub(crate) cpu_percent: Option<f32>,
 }
 
 // macOS process-responsibility + libproc entry points, declared by hand: they
@@ -318,8 +318,8 @@ extern "C" {
 #[cfg(target_os = "macos")]
 #[repr(C)]
 pub(crate) struct MachTimebaseInfo {
-    numer: u32,
-    denom: u32,
+    pub(crate) numer: u32,
+    pub(crate) denom: u32,
 }
 
 #[cfg(target_os = "macos")]
@@ -574,16 +574,16 @@ pub(crate) fn perf_bucket(name: &str) -> PerfBucket {
 /// One CPU sample of a pid set: the app totals, the renderer/GPU split, and the
 /// per-pid figure every other consumer of the same sample must reuse.
 pub(crate) struct CpuSample {
-    total: f32,
-    renderer: f32,
-    gpu: f32,
+    pub(crate) total: f32,
+    pub(crate) renderer: f32,
+    pub(crate) gpu: f32,
     /// Pids that produced a delta, out of `pids` found alive.
-    sampled: u32,
-    pids: u32,
-    buckets: std::collections::HashMap<i32, PerfBucket>,
+    pub(crate) sampled: u32,
+    pub(crate) pids: u32,
+    pub(crate) buckets: std::collections::HashMap<i32, PerfBucket>,
     /// Only the pids that produced `Some`: absent means "not measured".
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-    by_pid: std::collections::HashMap<i32, f32>,
+    pub(crate) by_pid: std::collections::HashMap<i32, f32>,
 }
 
 /// Read each pid's CPU counter exactly once. A second read of the same pid in

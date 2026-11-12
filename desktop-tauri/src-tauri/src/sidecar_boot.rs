@@ -1093,9 +1093,9 @@ pub(crate) fn sidecar_integrity() -> sidecar_integrity::SidecarReport {
 /// Update metadata handed to the renderer by `updater_check`.
 #[derive(Serialize)]
 pub(crate) struct UpdateInfo {
-    version: String,
-    current_version: String,
-    notes: Option<String>,
+    pub(crate) version: String,
+    pub(crate) current_version: String,
+    pub(crate) notes: Option<String>,
 }
 
 /// Check the configured endpoint for a newer signed release. Returns the update

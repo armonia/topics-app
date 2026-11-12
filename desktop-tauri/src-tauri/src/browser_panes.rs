@@ -145,21 +145,21 @@ pub(crate) fn pane_id_from_label(label: &str) -> Option<&str> {
 // a start spinner then a done check, no %.
 #[derive(Clone, Serialize)]
 pub(crate) struct DownloadEventMsg {
-    kind: String, // "start" | "done"
-    id: String,
-    url: String,
-    filename: String,
-    success: bool,
-    state: String, // done: "completed" | "interrupted"
+    pub(crate) kind: String, // "start" | "done"
+    pub(crate) id: String,
+    pub(crate) url: String,
+    pub(crate) filename: String,
+    pub(crate) success: bool,
+    pub(crate) state: String, // done: "completed" | "interrupted"
     #[serde(rename = "savedPath")]
-    saved_path: String,
+    pub(crate) saved_path: String,
     // Pane this download belongs to. The queue is a single GLOBAL Vec shared by
     // every open browser webview, so draining it whole (the old behaviour) let
     // whichever pane's Download menu happened to poll first steal every other pane's
     // events. Internal bookkeeping only — not serialized to the client, which
     // already scoped its poll by passing its own contextId.
     #[serde(skip)]
-    pane_id: String,
+    pub(crate) pane_id: String,
 }
 
 pub(crate) static DOWNLOAD_EVENTS: std::sync::Mutex<Vec<DownloadEventMsg>> = std::sync::Mutex::new(Vec::new());
@@ -202,9 +202,9 @@ pub(crate) fn browser_take_download_events(id: String) -> Vec<DownloadEventMsg> 
 /// percentage would be worse than no percentage.
 #[derive(Clone, Serialize)]
 pub(crate) struct DownloadProgressMsg {
-    id: String,
-    received: i64,
-    total: i64,
+    pub(crate) id: String,
+    pub(crate) received: i64,
+    pub(crate) total: i64,
 }
 
 // ENGINES: wkwebview, webview2, webkitgtk - portable: stats the files the wry download handler recorded.
@@ -478,10 +478,10 @@ pub(crate) fn install_nav_failure_hook(wv: &tauri::Webview, pane_id: &str) {
 /// asked). Same per-pane scoped-drain contract as NAV_ERROR_EVENTS.
 #[derive(Clone, Serialize)]
 pub(crate) struct NewTabMsg {
-    url: String,
+    pub(crate) url: String,
     // Pane that asked for it: internal scoping only, like NavErrorMsg.
     #[serde(skip)]
-    pane_id: String,
+    pub(crate) pane_id: String,
 }
 
 pub(crate) static NEW_TAB_REQUESTS: std::sync::Mutex<Vec<NewTabMsg>> = std::sync::Mutex::new(Vec::new());
@@ -607,12 +607,12 @@ pub(crate) fn browser_take_nav_errors(id: String) -> Vec<NavErrorMsg> {
 // hand the client twenty stale drains to replay.
 #[derive(Clone, Serialize)]
 pub(crate) struct NavStateMsg {
-    url: String,
-    title: String,
-    loading: bool,
+    pub(crate) url: String,
+    pub(crate) title: String,
+    pub(crate) loading: bool,
     // Pane this state belongs to — internal scoping only, like NavErrorMsg.
     #[serde(skip)]
-    pane_id: String,
+    pub(crate) pane_id: String,
 }
 
 pub(crate) static NAV_STATE_EVENTS: std::sync::Mutex<Vec<NavStateMsg>> = std::sync::Mutex::new(Vec::new());
@@ -1343,8 +1343,8 @@ pub(crate) fn browser_open(
 /// pane asked for.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct BrowserOpenAnswer {
-    reused: bool,
-    url: String,
+    pub(crate) reused: bool,
+    pub(crate) url: String,
 }
 
 /// What `browser_open` does with a pane id. Decided apart from tauri so the
@@ -2948,8 +2948,8 @@ pub(crate) unsafe fn empty_store_cache(bytes: [u8; 16], label: String) {
 #[derive(Serialize)]
 pub(crate) struct SiteDataRecordJson {
     #[serde(rename = "displayName")]
-    display_name: String,
-    types: Vec<String>,
+    pub(crate) display_name: String,
+    pub(crate) types: Vec<String>,
 }
 
 /// Il nome di record che si dà a un dominio di cookie: minuscolo e senza il
@@ -3763,20 +3763,20 @@ pub(crate) async fn browser_screenshot(app: tauri::AppHandle, id: String) -> Res
 /// `expires`: epoch seconds, -1 (or absent) = session cookie.
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct CookieJson {
-    name: String,
-    value: String,
+    pub(crate) name: String,
+    pub(crate) value: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    domain: Option<String>,
+    pub(crate) domain: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    path: Option<String>,
+    pub(crate) path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    expires: Option<f64>,
+    pub(crate) expires: Option<f64>,
     #[serde(rename = "httpOnly", skip_serializing_if = "Option::is_none")]
-    http_only: Option<bool>,
+    pub(crate) http_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    secure: Option<bool>,
+    pub(crate) secure: Option<bool>,
     #[serde(rename = "sameSite", skip_serializing_if = "Option::is_none")]
-    same_site: Option<String>,
+    pub(crate) same_site: Option<String>,
 }
 
 /// NSString (or any NSObject via `description`) → Rust String. nil → "".

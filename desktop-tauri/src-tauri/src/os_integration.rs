@@ -404,12 +404,12 @@ pub(crate) fn set_clipboard_image(bytes: Vec<u8>) -> Result<(), String> {
 /// topics that navigate on click).
 #[derive(Deserialize)]
 pub(crate) struct StatusItem {
-    id: String,
-    title: String,
+    pub(crate) id: String,
+    pub(crate) title: String,
     /// Board the row comes from. Empty for a chat row (topics have no board);
     /// on a task row it is what tells two same-named cards apart.
     #[serde(default, rename = "projectId")]
-    project_id: String,
+    pub(crate) project_id: String,
 }
 
 /// One board column in the tray menu: a status, how many tasks it holds and the
@@ -421,9 +421,9 @@ pub(crate) struct StatusItem {
 #[derive(Deserialize)]
 pub(crate) struct StatusGroup {
     /// Kanban status id: picks the label and builds the row id that reopens the board.
-    status: String,
-    count: u32,
-    rows: Vec<StatusItem>,
+    pub(crate) status: String,
+    pub(crate) count: u32,
+    pub(crate) rows: Vec<StatusItem>,
 }
 
 /// Come si chiama una colonna nel menu. Le stesse parole delle colonne della
