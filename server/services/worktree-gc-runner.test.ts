@@ -52,7 +52,6 @@ function fakeDeps(over: Partial<WorktreeGcDeps> = {}): { deps: WorktreeGcDeps; t
     worktreeOfTask: () => null,
     projectIdForPath: () => null,
     deliveryIsOnMain: async () => null,
-    tryMerge: async () => { toccati.push("tryMerge"); return { status: "nothing" }; },
     previewList: () => [],
     previewTeardown: async () => { toccati.push("previewTeardown"); },
     ...over,

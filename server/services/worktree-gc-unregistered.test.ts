@@ -107,7 +107,6 @@ describe("la cartella non registrata, su git vero", () => {
       realDirt: (p) => worktreeDirtProbe(p),
       branchStatus: (wt) => branchStatusFromRepo(repo, wt.branchName),
       autoMergeEnabled: () => true,
-      tryLand: async () => "skipped",
       commitResidue: async (wt) => (await commitWorktreeResidue(wt.absPath)).ok,
       freeCheckout: async (id) => { removeFolder(trees.get(id)!); trees.delete(id); return true; },
       reap: async (id) => {

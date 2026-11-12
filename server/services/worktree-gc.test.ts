@@ -219,7 +219,6 @@ function makeDeps(over: Partial<WorktreeGcDeps> = {}): WorktreeGcDeps {
     realDirt: async () => ({ ok: true, paths: [] }),
     branchStatus: async () => "merged",
     autoMergeEnabled: () => true,
-    tryLand: async () => "landed",
     reap: async () => true,
     log: () => {},
     ...over,
@@ -248,99 +247,34 @@ describe("sweepWorktrees", () => {
     expect(s.kept).toBe(1);
   });
 
-  test("lands unmerged clean commits before reaping", async () => {
+  test("unmerged clean commits are archived and the checkout freed, never landed or reaped", async () => {
     const calls: string[] = [];
-    let landed = false;
     const s = await sweepWorktrees(makeDeps({
       listWorktrees: () => [wt("unmerged")],
-      // Unmerged before the land, merged after it — the post-land re-read is
-      // what earns the reap.
-      branchStatus: async () => (landed ? "merged" : "unmerged"),
-      tryLand: async (id) => { calls.push(`land:${id}`); landed = true; return "landed"; },
+      branchStatus: async () => "unmerged",
+      archiveBranch: async (id) => { calls.push(`archive:${id}`); return true; },
+      freeCheckout: async (id) => { calls.push(`free:${id}`); return true; },
       reap: async (id) => { calls.push(`reap:${id}`); return true; },
       resolveTask: () => ({ taskId: "t9", status: "done", archived: false }),
     }));
-    // Land is keyed by taskId, reap by worktreeId, and land MUST come first.
-    expect(calls).toEqual(["land:t9", "reap:unmerged"]);
-    expect(s.landed).toBe(1);
-    expect(s.reaped).toBe(1);
+    expect(calls).toEqual(["archive:t9", "free:unmerged"]);
+    expect(s.landed).toBe(0);
+    expect(s.reaped).toBe(0);
+    expect(s.freed).toBe(1);
   });
 
-  // The 2026-07-19 regression, end to end through the sweep.
-  test("land says 'nothing' but the branch is still unmerged → keep + note on the task", async () => {
-    const reaped: string[] = [];
-    const notes: Array<[string, string]> = [];
-    const s = await sweepWorktrees(makeDeps({
-      listWorktrees: () => [wt("purple-finch")],
-      branchStatus: async () => "unmerged", // still unmerged AFTER the land
-      tryLand: async () => "nothing",
-      reap: async (id) => { reaped.push(id); return true; },
-      noteOnTask: (taskId, msg) => notes.push([taskId, msg]),
-      resolveTask: () => ({ taskId: "b01711ff", status: "done", archived: false }),
-    }));
-    expect(reaped).toEqual([]);
-    expect(s.kept).toBe(1);
-    expect(notes).toHaveLength(1);
-    expect(notes[0][0]).toBe("b01711ff");
-    expect(notes[0][1]).toContain("topics/purple-finch");
-  });
-
-  // Stessa bugia del task `5770b9de`, vista dal lato del land: il keep nasce
-  // dallo sporco nel tree, ma il branch è già stato cancellato dal land — la
-  // nota NON deve dire «è stato conservato» di un ref che non c'è più.
-  test("keep con branch già sparito → la nota non promette un branch conservato", async () => {
-    const notes: Array<[string, string]> = [];
-    let landed = false;
-    await sweepWorktrees(makeDeps({
-      listWorktrees: () => [wt("gone-after")],
-      realDirt: async () => ({ ok: true, paths: landed ? ["server/foo.ts"] : [] }),
-      branchStatus: async () => (landed ? "gone" : "unmerged"),
-      tryLand: async () => { landed = true; return "landed"; },
-      noteOnTask: (taskId, msg) => notes.push([taskId, msg]),
-      resolveTask: () => ({ taskId: "t-gone", status: "done", archived: false }),
-    }));
-    expect(notes).toHaveLength(1);
-    expect(notes[0][1]).toContain("NON è più nel repo");
-    expect(notes[0][1]).not.toContain("è stato conservato");
-  });
-
-  test("keep con branch ancora presente → la nota dice che è stato conservato", async () => {
-    const notes: Array<[string, string]> = [];
-    await sweepWorktrees(makeDeps({
-      listWorktrees: () => [wt("kept-branch")],
-      branchStatus: async () => "unmerged",
-      tryLand: async () => "nothing",
-      noteOnTask: (taskId, msg) => notes.push([taskId, msg]),
-      resolveTask: () => ({ taskId: "t-kept", status: "done", archived: false }),
-    }));
-    expect(notes[0][1]).toContain("è stato conservato");
-  });
-
-  test("land succeeded but dirt appeared in the tree → keep (uncommitted work wins)", async () => {
-    const reaped: string[] = [];
-    let landed = false;
-    const s = await sweepWorktrees(makeDeps({
-      listWorktrees: () => [wt("dirty-after")],
-      // Clean at decision time, dirty when re-read after the land.
-      realDirt: async () => ({ ok: true, paths: landed ? ["server/foo.ts"] : [] }),
-      branchStatus: async () => (landed ? "merged" : "unmerged"),
-      tryLand: async () => { landed = true; return "landed"; },
-      reap: async (id) => { reaped.push(id); return true; },
-    }));
-    expect(reaped).toEqual([]);
-    expect(s.kept).toBe(1);
-  });
-
-  test("a merge conflict keeps the worktree (no reap)", async () => {
-    const reaped: string[] = [];
-    const s = await sweepWorktrees(makeDeps({
-      listWorktrees: () => [wt("conflicted")],
-      branchStatus: async () => "unmerged",
-      tryLand: async () => "conflict",
-      reap: async (id) => { reaped.push(id); return true; },
-    }));
-    expect(reaped).toEqual([]);
-    expect(s.kept).toBe(1);
+  test("archive refused or missing → keep, nothing freed", async () => {
+    for (const archiveBranch of [async () => false, undefined]) {
+      const freed: string[] = [];
+      const s = await sweepWorktrees(makeDeps({
+        listWorktrees: () => [wt("no-archive")],
+        branchStatus: async () => "unmerged",
+        archiveBranch,
+        freeCheckout: async (id) => { freed.push(id); return true; },
+      }));
+      expect(freed).toEqual([]);
+      expect(s.kept).toBe(1);
+    }
   });
 
   test("ghost row: branch already gone → reap directly (no land attempt)", async () => {
@@ -348,7 +282,6 @@ describe("sweepWorktrees", () => {
     const s = await sweepWorktrees(makeDeps({
       listWorktrees: () => [wt("ghost")],
       branchStatus: async () => "gone",
-      tryLand: async (id) => { calls.push(`land:${id}`); return "skipped"; },
       reap: async (id) => { calls.push(`reap:${id}`); return true; },
     }));
     expect(calls).toEqual(["reap:ghost"]); // reaped, never tried to land
@@ -731,7 +664,6 @@ describe("sweepWorktrees — perché i kept sono tenuti", () => {
       realDirt: async () => ({ ok: true, paths: [] }),
       autoMergeEnabled: () => false,
       reap: async () => true,
-      tryLand: async () => "landed",
       log: () => {},
       ...rest,
     } as WorktreeGcDeps;
@@ -944,7 +876,6 @@ describe("sweepWorktrees — re-dispatch con worktree sporco", () => {
       resolveTask: () => ({ taskId: "eef64e32", status: "done", archived: false }),
       realDirt: async () => ({ ok: true, paths: ["scripts/e2e-plan-shards.ts", "tests/unit/e2e-shard-regex.test.ts"] }),
       branchStatus: async () => "unmerged",
-      tryLand: async () => "nothing",
       reap: async (id) => { reaped.push(id); return true; },
       noteOnTask: (taskId, msg) => notes.push([taskId, msg]),
     }));
@@ -969,7 +900,6 @@ describe("sweepWorktrees — re-dispatch con worktree sporco", () => {
       // La sonda non risponde (ok:false) — vale sporco.
       realDirt: async () => ({ ok: false, paths: [] }),
       branchStatus: async () => "unmerged",
-      tryLand: async () => "nothing",
       reap: async (id) => { reaped.push(id); return true; },
       noteOnTask: (taskId, msg) => notes.push([taskId, msg]),
     }));

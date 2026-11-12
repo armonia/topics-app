@@ -25,6 +25,7 @@ import { join } from "path";
 import { sweepWorktrees, type GcWorktree, type TaskStatus, type WorktreeGcDeps } from "./worktree-gc";
 import { worktreeDirtProbe } from "./task-automerge";
 import { branchStatusFromRepo } from "./branch-status";
+import { archiveBranchRef, ARCHIVE_REF_PREFIX } from "./worktree-archive";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 /**
@@ -99,8 +100,7 @@ describe("free-checkout su git vero", () => {
       realDirt: (p) => worktreeDirtProbe(p),
       branchStatus: (wt) => branchStatusFromRepo(repo, wt.branchName),
       autoMergeEnabled: () => true,
-      // The `03ca44c3` gate: the branch carries commits that are not the card's.
-      tryLand: async () => "skipped",
+      archiveBranch: (taskId, wt) => archiveBranchRef(repo, wt.branchName!, taskId),
       freeCheckout: async (id) => {
         const wt = trees.get(id)!;
         // `deleteBranch: false` - the folder, not the ref.
@@ -300,24 +300,31 @@ describe("free-checkout su git vero", () => {
     expect(branchResolves(repo, wt.branchName!)).toBe(true);
   });
 
-  test("land riuscito davvero (contenuto su main) → reap pieno, branch incluso", async () => {
-    const wt = mountWorktree("landato");
-    statuses.set("landato", "done");
+  test("a card closed WITHOUT a land never reaches main: commits archived under a ref, main untouched", async () => {
+    const wt = mountWorktree("senza-land");
+    statuses.set("senza-land", "done");
+    const mainBefore = git(repo, "rev-parse", "main").out.trim();
+    const tip = git(repo, "rev-parse", wt.branchName!).out.trim();
 
-    const s = await sweepWorktrees(deps({
-      tryLand: async () => {
-        // A real land: the content arrives on main.
-        expect(git(repo, "merge", "--no-ff", "-m", "land", wt.branchName!).code).toBe(0);
-        return "landed";
-      },
-    }));
+    const s = await sweepWorktrees(deps());
 
-    expect(s.landed).toBe(1);
-    expect(s.reaped).toBe(1);
-    expect(s.freed).toBe(0);
+    expect(s.landed).toBe(0);
+    expect(git(repo, "rev-parse", "main").out.trim()).toBe(mainBefore);
+    expect(git(repo, "log", "main", "--merges", "--oneline").out).not.toContain("senza-land");
+    expect(git(repo, "rev-parse", `${ARCHIVE_REF_PREFIX}task-senza-land`).out.trim()).toBe(tip);
+    expect(s.freed).toBe(1);
     expect(existsSync(wt.absPath)).toBe(false);
-    expect(branchResolves(repo, wt.branchName!)).toBe(false);
-    // The work is not lost: it is on main.
-    expect(git(repo, "show", "main:landato.txt").out).toBe("lavoro consegnato");
+    expect(branchResolves(repo, wt.branchName!)).toBe(true);
+  });
+
+  test("archive failing keeps the checkout: nothing is freed without a pinned ref", async () => {
+    const wt = mountWorktree("archivio-rotto");
+    statuses.set("archivio-rotto", "done");
+
+    const s = await sweepWorktrees(deps({ archiveBranch: async () => false }));
+
+    expect(s.freed).toBe(0);
+    expect(s.kept).toBe(1);
+    expect(existsSync(wt.absPath)).toBe(true);
   });
 });

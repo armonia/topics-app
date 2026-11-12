@@ -28,6 +28,7 @@ import { worktreeDirtProbe } from "./task-automerge";
 import { branchStatusFromRepo } from "./branch-status";
 import { abandonNoticeFromRepo } from "./worktree-abandon-notice";
 import { formatMb, parseSlimSkip, slimWorktree } from "./worktree-slim";
+import { archiveBranchRef } from "./worktree-archive";
 import { commitWorktreeResidue } from "./worktree-residue";
 import { isTopicsSpawned } from "../lib/ghost-script";
 import { topicSessionKey } from "./agent-census";
@@ -35,7 +36,7 @@ import { topicSessionKey } from "./agent-census";
 /**
  * Tutto cio' che la potatura chiede al resto del server, dichiarato.
  *
- * Sono closure e non valori di proposito: alcune di queste cose (`tryMerge`,
+ * Sono closure e non valori di proposito: alcune di queste cose (`previewList`,
  * l'anteprima) nascono DOPO il punto in cui la fabbrica viene costruita, e
  * leggerle alla chiamata e' esattamente cio' che l'hoisting garantiva prima.
  */
@@ -94,19 +95,6 @@ export interface WorktreeGcDeps {
   projectIdForPath: (path: string) => string | null;
   /** La consegna e' su main? Risposta per CONTENUTO, non per discendenza. */
   deliveryIsOnMain: (repoPath: string, commit: string) => Promise<boolean | null>;
-  /**
-   * Il merge del ramo del task nel checkout principale (nasce dopo: closure).
-   *
-   * Il terzo argomento NON e' decorazione: e' la fotografia della consegna
-   * (ramo e commit gia' registrati sulla card), ed e' cio' che tiene una card
-   * landabile quando la cartella del worktree non c'e' piu'. Toglierlo fa
-   * fallire il land proprio nei casi per cui questa potatura esiste.
-   */
-  tryMerge: (
-    taskId: string,
-    text: string,
-    delivery?: { branch: string | null; commit: string | null },
-  ) => Promise<any>;
   /** L'anteprima viva di un task, se c'e' (nasce dopo: closure). */
   previewList: () => { taskId: string }[];
   previewTeardown: (taskId: string) => Promise<void>;
@@ -582,14 +570,11 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
         // `deleteBranch: false` is the whole point of this path.
         return deps.worktreeManager.delete(wt.id, { deleteBranch: false });
       },
-      tryLand: async (taskId) => {
-        const t = deps.svc.get(taskId)?.task;
-        const text = t?.text ?? "";
-        const res = await deps.tryMerge(taskId, text, {
-          branch: t?.deliveryBranch ?? null,
-          commit: t?.deliveryCommit ?? null,
-        });
-        return res.status === "merged" ? "landed" : res.status === "nothing" ? "nothing" : res.status === "conflict" ? "conflict" : "skipped";
+      // Never a merge: see the archive branch in `sweepWorktrees`.
+      archiveBranch: async (taskId, wt) => {
+        const repoPath = deps.projectStore.get(wt.projectId)?.path;
+        if (!repoPath || !wt.branchName) return false;
+        return archiveBranchRef(repoPath, wt.branchName, taskId);
       },
       // Solo la cartella. `deleteBranch: false` è tutta la differenza con `reap`
       // qui sotto: i commit restano raggiungibili dal ref, e il worktree smette di

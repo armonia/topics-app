@@ -316,6 +316,20 @@ describe("auditLandings", () => {
     expect(h.logs.some((l) => l.includes("3/3") && l.includes("non verificabili"))).toBe(true);
   });
 
+  it("the unlanded line counts what is outside main and says what the rest of the pass measured", async () => {
+    const h = harness({
+      tasks: [task("a"), task("b"), task("c")],
+      status: (commit) => (commit === task("a").deliveryCommit ? "merged" : "unmerged"),
+      debt: () => "unlanded",
+    });
+    await auditLandings(h.deps);
+    const line = h.logs.find((l) => l.includes("NON sono su main locale"));
+    expect(line).toContain("2 task consegnati");
+    expect(line).toContain("1 landed");
+    expect(line).toContain("3 riesaminati");
+    expect(line).not.toContain("2/3");
+  });
+
   it("nessun rumore quando ogni verdetto è certo", async () => {
     const h = harness({ tasks: [task("a"), task("b")], status: () => "merged" });
     await auditLandings(h.deps);

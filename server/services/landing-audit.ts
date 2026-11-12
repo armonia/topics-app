@@ -223,7 +223,17 @@ export async function auditLandings(deps: LandingAuditDeps): Promise<LandingAudi
   }
 
   if (summary.unlanded > 0) {
-    deps.log(`[landing-audit] ${summary.unlanded}/${summary.checked} task consegnati NON sono su main`);
+    // WHAT THE DENOMINATOR IS. `checked` counts the cards RE-ASKED in this pass,
+    // not every delivered card: a settled `landed` or `unverifiable` is asked once
+    // a day (see `listLandingAuditCandidates`), so the 30-minute passes see
+    // mostly the unlanded ones and the ratio reads 22/22 by construction. The
+    // number that is true is the count of cards still outside the LOCAL main
+    // (the push to origin is the push sweep's business, state `unpushed`).
+    deps.log(
+      `[landing-audit] ${summary.unlanded} task consegnati NON sono su main locale ` +
+      `(${summary.landed} landed, ${summary.unverifiable} non verificabili fra i ${summary.checked} riesaminati in questo giro; ` +
+      "i landed già assestati si rivalutano una volta al giorno e non entrano nel conto)",
+    );
   }
   // `unverifiable` è conservativo per scelta, e per questo è anche il posto
   // dove un audit rotto si nasconde: se `repoPath` non risolve più nulla, ogni

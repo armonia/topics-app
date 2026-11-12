@@ -408,8 +408,11 @@ export interface WorktreeGcDeps {
    * `null` non autorizza a chiamarlo fallimento.
    */
   deliveryLanded?: (taskId: string, wt: GcWorktree) => Promise<boolean | null>;
-  /** Land the task's branch. Returns the coarse outcome. */
-  tryLand: (taskId: string) => Promise<LandOutcome>;
+  /**
+   * Pin the task's branch tip under an archive ref (never a merge into main).
+   * Absent or false ⇒ the checkout is kept.
+   */
+  archiveBranch?: (taskId: string, wt: GcWorktree) => Promise<boolean>;
   /** Reap worktree + branch + row (worktreeManager.delete). */
   reap: (worktreeId: string) => Promise<boolean>;
   /**
@@ -791,48 +794,15 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
           await slimKept(wt, taskStatus, taskArchived, present);
           continue;
         }
-        const outcome = await deps.tryLand(taskId);
-        if (outcome === "landed") summary.landed += 1;
-
-        // VERIFY BEFORE DESTROY. Re-read the repo — the land's own verdict is
-        // not evidence (see `decidePostLandReap`).
-        const [branchAfter, probeAfter] = await Promise.all([
-          deps.branchStatus(wt).catch(() => "unmerged" as BranchStatus),
-          deps.diskPresent(wt.absPath)
-            ? deps.realDirt(wt.absPath).catch(() => ({ ok: false, paths: [] as string[] }))
-            : Promise.resolve({ ok: true, paths: [] as string[] }),
-        ]);
-        const dirtAfter = probeAfter.paths;
-        const post = decidePostLandReap({ outcome, branchAfter, dirtAfter, dirtReadable: probeAfter.ok });
-        // Il land non è passato (quasi sempre: il cancello di `03ca44c3` rifiuta
-        // un branch che porta commit di un'altra sessione), ma l'albero è pulito
-        // e il branch c'è. I commit restano dove sono; la cartella no.
-        //
-        // Se l'host non sa liberare un checkout si ricade nel `keep` qui sotto,
-        // NOTA COMPRESA: la riga che avverte «il branch è conservato, verificalo»
-        // è l'unica cosa che rende visibile un worktree tenuto in vita, e perderla
-        // in silenzio riaprirebbe il buco da otto giorni che l'ha fatta scrivere.
-        if (post.action === "free-checkout" && await freeCheckout(wt, taskId, post.reason)) continue;
-        if (post.action === "keep" || post.action === "free-checkout") {
-          deps.log(`[worktree-gc] keep ${wt.branchName ?? wt.id}: ${post.reason}`);
-          if (outcome === "landed" || outcome === "nothing") {
-            // Anche qui si dice solo ciò che è stato VERIFICATO: `branchAfter` è
-            // la ri-lettura del repo dopo il land. Un keep può nascere dallo
-            // sporco nel tree con il branch già cancellato dal land stesso, e in
-            // quel caso «il branch è stato conservato» sarebbe falso — la stessa
-            // bugia del task `5770b9de`, vista da questo lato.
-            const branchNote = branchAfter === "gone"
-              ? `Il branch \`${wt.branchName ?? wt.id}\` NON è più nel repo: quello che resta è nel worktree, controllalo prima che sparisca.`
-              : `Il branch \`${wt.branchName ?? wt.id}\` è stato conservato. Verifica a mano prima di cancellarlo.`;
-            // Stessa famiglia: si riscrive a ogni passata finche' il worktree
-            // resta li'. Il FATTO conta (il ramo puo' non esserci piu'), la
-            // ripetizione no.
-            deps.noteOnTask?.(taskId, `⚠️ Worktree NON ripulito: ${post.reason}. ${branchNote}`, { once: true });
-          }
-          keep(post.reason);
-          await slimKept(wt, taskStatus, taskArchived, deps.diskPresent(wt.absPath));
-          continue;
-        }
+        // THE GC NEVER LANDS. A closed card may have been closed on purpose
+        // WITHOUT a land (decided in review); merging it here put such a commit
+        // on the local main (2026-11-12). The commits are pinned under an
+        // archive ref and the checkout is freed; landing stays a human act.
+        const archived = deps.archiveBranch ? await deps.archiveBranch(taskId, wt).catch(() => false) : false;
+        if (archived && await freeCheckout(wt, taskId, "task chiuso con commit non su main: archiviati, NON uniti a main")) continue;
+        keep(archived ? "archiviato ma checkout non liberabile" : "commit non su main e archivio non riuscito");
+        await slimKept(wt, taskStatus, taskArchived, present);
+        continue;
       }
 
       const ok = await deps.reap(wt.id);

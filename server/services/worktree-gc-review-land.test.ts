@@ -170,7 +170,6 @@ describe("una card in review che viene landata", () => {
       realDirt: (p) => worktreeDirtProbe(p),
       branchStatus: (wt) => branchStatusFromRepo(repo, wt.branchName),
       autoMergeEnabled: () => true,
-      tryLand: async () => "skipped",
       deliveryLanded: async (taskId) => {
         const commit = svc.get(taskId)?.task?.deliveryCommit;
         if (!commit) return null;

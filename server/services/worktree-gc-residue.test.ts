@@ -173,7 +173,6 @@ describe("il residuo su git vero", () => {
       realDirt: (p) => worktreeDirtProbe(p),
       branchStatus: (wt) => branchStatusFromRepo(repo, wt.branchName),
       autoMergeEnabled: () => true,
-      tryLand: async () => "skipped",
       commitResidue: async (wt) => (await commitWorktreeResidue(wt.absPath)).ok,
       freeCheckout: async (id) => {
         const wt = trees.get(id)!;
