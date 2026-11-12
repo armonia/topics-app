@@ -2,10 +2,23 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.89 — 2026-11-12
+
+### Correzioni
+- **browser** · stop stale HTTP poll re-arm and fix screenshot origin under Tauri
+
+### Sotto il cofano
+- **remote-browser** · POLL-CANCEL-01 and SNAPSHOT-URL-01 requirements
+
 ## 2.3.88 — 2026-11-12
+
+### Correzioni
+- **task-browser** · a failed ui-state read no longer lets a later commit PUT over the saved layout/tabs
+- do not latch empty channel-titles cache; check-any respects strings
 
 ### Sotto il cofano
 - Windows open_external: launch via rundll32, never cmd /C start
+- declare TITLES-CACHE-01 for the channel-titles cache test
 
 ## 2.3.87 — 2026-11-12
 

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { NATIVE_HOST_PARAM, parseBrowserWsMessage, type BrowserInputPayload, type BrowserWsMessage } from '../../../shared/browser-ws-messages';
 import type { ElementDescription } from '../../../shared/element-describe';
 import type { RemoteField } from '../../../shared/browser-keyboard-field';
-import { serverWsBase } from '@/lib/shell/net';
+import { serverWsBase, serverHttpBase } from '@/lib/shell/net';
 import { createDomEventJoiner } from '../lib/domEventJoiner';
 import { browserClientId } from '../lib/browserClientId';
 import { BOOT_READ_TTL_MS, coalescedFetch } from '../lib/coalesceFetch';
@@ -561,7 +561,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     preload.onerror = () => {
       // Don't clear existing screenshot on transient errors.
     };
-    preload.src = `/api/browsers/${encodedId}/snapshot?t=${Date.now()}`;
+    preload.src = `${serverHttpBase()}/api/browsers/${encodedId}/snapshot?t=${Date.now()}`;
   }, [encodedId]);
 
   // Fetch context info via REST (URL/title check + connection probe).
@@ -1254,9 +1254,11 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       return;
     }
     mountedRef.current = true;
+    let cancelled = false;
     const poll = async () => {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || cancelled) return;
       const exists = await fetchInfo();
+      if (cancelled) return;
       if (exists) {
         fetchScreenshot();
       }
@@ -1266,6 +1268,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     };
     poll();
     return () => {
+      cancelled = true;
       if (pollingRef.current) {
         clearTimeout(pollingRef.current);
         pollingRef.current = null;
