@@ -25,6 +25,7 @@
  *    requeues (bounded by the retry cap) or parks a task that ended without
  *    reaching `review`.
  */
+import { isAgentAuthor } from "../../shared/comment-author";
 import { awaitsHuman } from "../../shared/workflow";
 import { activeFrozenCount } from "./budget-governor";
 import { LAND_ACTION_LABEL, UNASSIGNED_PROJECT_ID, commentAsksHuman, type Task, type TaskService } from "./tasks";
@@ -4350,7 +4351,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         }
       }
       return comments.some((c) =>
-        c.author !== "user" && c.author !== "system" && c.kind === "comment" &&
+        isAgentAuthor(c.author) && c.kind === "comment" &&
         Date.parse(c.createdAt) >= turnStart);
     } catch { return false; }
   }
@@ -4383,7 +4384,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const comments = deps.svc.get(taskId)?.comments ?? [];
       // kind='status' rows are transition events, not the agent speaking:
       // "the agent's last word" must be an actual comment.
-      const lastAgent = [...comments].reverse().find((c) => c.author !== "user" && c.author !== "system" && c.kind === "comment");
+      const lastAgent = [...comments].reverse().find((c) => isAgentAuthor(c.author) && c.kind === "comment");
       if (lastAgent && !commentAsksHuman(lastAgent.content)) return CHIP_DELIVERED;
     } catch { /* default to needs_input */ }
     return CHIP_NEEDS_INPUT;
