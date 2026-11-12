@@ -11,7 +11,10 @@ export type {
 async function send<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await apiFetch(`/api${path}`, {
     method,
-    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    // The plan view is part of the interface: `apiFetch` alone does not add
+    // this marker (unlike `boardApi.req`), so without it a card moved from
+    // here would read as an API call instead of a person's click.
+    headers: { 'X-Topics-Action-Origin': 'interface', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = (await res.json().catch(() => ({}))) as { error?: string };

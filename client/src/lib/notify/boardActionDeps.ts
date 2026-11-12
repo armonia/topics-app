@@ -24,7 +24,10 @@ export function boardNotificationDeps(): NotificationActionDeps {
       // d'autenticazione la respinge.
       const resp = await apiFetch(req.path, {
         method: req.method,
-        headers: { 'Content-Type': 'application/json' },
+        // A notification button is pressed on this device, through the
+        // browser: the server's only proof of that is this marker, which
+        // `apiFetch` does not add on its own (unlike `boardApi.req`).
+        headers: { 'Content-Type': 'application/json', 'X-Topics-Action-Origin': 'interface' },
         credentials: 'same-origin',
         body: JSON.stringify(req.body),
       });
