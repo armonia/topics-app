@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.86 — 2026-11-11
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-11 [skip ci]
+- Cloudflare Web Analytics, annunciato in /privacy con la data come la pagina prometteva (#776)
+- topics/valiant-tundra (card c1ec9dd1) (#787)
+
 ## 2.3.85 — 2026-11-11
 
 ### Sotto il cofano
@@ -37,6 +44,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - topics/regal-jay (#706)
 - **cloud-nodes** · stato 0.7/0.8 in attesa dell'ok al token
 - topics/shimmering-bugle (card 6b29e466) (#717)
+- Asia Enviro mockup with fake data (card 6fe51453)
 - topics/ancient-sprig (card e7371dbc) (#701)
 - topics/briny-badge (card 04c2b10f) (#748)
 - Hub, switchboard e tray dentro Topics: change con 13 tracce (#643)
@@ -53,6 +61,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - topics/mild-chestnut (card 485681d6) (#682)
 - Cover the wake breaker through the remote lane: two vetoes open it (#762)
 - **unit** · torna a 4 worker (annulla #751) (#763)
+- confronto contabilita open source vs suite unica (card 7ce15e25)
 - Review con domanda, attesa macchina azzerata al cambio, overflow che salta il nodo vuoto e tiene qui le card del Mac (#761)
 - e2e su PC, poi Hetzner, poi GitHub (#759)
 - Una corsa vuota su una card che usa file di questo Mac torna in coda «solo Mac» anche se mandata a mano, invece di finire in review (#766)
