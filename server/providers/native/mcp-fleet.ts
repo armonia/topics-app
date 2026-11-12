@@ -102,8 +102,9 @@ function authFor(name: string) {
 }
 
 async function mountOne(name: string, def: McpServerDef): Promise<void> {
+  let conn: McpConnection | null = null;
   try {
-    const conn = await connectMcpServer(name, def, authFor(name));
+    conn = await connectMcpServer(name, def, authFor(name));
     const [tools, prompts] = await Promise.all([conn.listTools(), conn.listPrompts()]);
     connections.set(name, conn);
     const mountedNames: string[] = [];
@@ -129,6 +130,10 @@ async function mountOne(name: string, def: McpServerDef): Promise<void> {
       skills: prompts.map((p) => p.name).filter(Boolean),
     });
   } catch (err) {
+    // A connection that reached us (handshake done, `tools/list` still
+    // pending or failing) must not leak its process: nobody else holds a
+    // reference to close it once this call returns its error.
+    try { conn?.close(); } catch { /* already gone */ }
     // WAITING FOR A SIGN-IN IS NOT A FAULT, and the difference is the whole
     // point of the state: `failed` sends a person looking for a broken server,
     // while this one has a button that fixes it. The reason is fixed wording
