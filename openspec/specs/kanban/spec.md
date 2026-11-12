@@ -5535,3 +5535,15 @@ A comment written through the API or the MCP SHALL NOT show the owner's name. Th
 #### Scenario: a reject without the interface header
 - **WHEN** a script posts a reject on the review route
 - **THEN** the stored author SHALL be `user` and the agent SHALL receive the rejection after a restart
+
+### Requirement: REVIEW-BUTTONS-01 - A review button does what its label says
+
+The composer of a landed card SHALL read as a plain note, not promise a turn to the agent. After a card is archived the open drawer SHALL show an "archived" banner with a restore button and no live review decisions. A card closed by a person SHALL NOT return to review because a queued land failed. Next to "Approva" on a card whose branch holds commits outside main, the drawer SHALL say that the code stays out and that landing is the way to merge it.
+
+#### Scenario: archived while the drawer is open
+- **WHEN** a card open in the drawer is archived
+- **THEN** the drawer SHALL show the archived banner and its restore button, and the review actions SHALL be gone
+
+#### Scenario: approve on an unlanded branch
+- **WHEN** the drawer shows a review card with an unmerged delivery
+- **THEN** a note beside the decision buttons SHALL say that Approva leaves the code out of main

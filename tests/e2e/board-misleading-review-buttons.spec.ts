@@ -107,6 +107,9 @@ async function openDeliveryTab(drawer: Locator) {
 
 test.describe("Tre bottoni della review che dicevano una cosa e ne facevano un'altra", () => {
   test.describe.configure({ timeout: 90_000 });
+  test.beforeEach(() => {
+    test.info().annotations.push({ type: "spec", description: "REVIEW-BUTTONS-01" });
+  });
   test.use({ viewport: { width: 1800, height: 1000 } });
 
   test.beforeAll(async ({ request }) => {
