@@ -95,6 +95,8 @@ const WS_OPEN_TIMEOUT_MS = 15_000;
  * ceiling on how many. Acceptable only because of who can do it: a process on this machine (the listener
  * is loopback-only), through at most `WS_MAX_RELAYS` sessions. A real bound needs a drain signal.
  */
+/** How long a client gets to read the tail queued for it after the far end closed. */
+const FLUSH_GRACE_MS = 60_000;
 const RELAY_BACKLOG_LIMIT_BYTES = 64 * 1024 * 1024;
 /** The largest single WebSocket message accepted from the client. */
 const WS_MAX_MESSAGE_BYTES = 16 * 1024 * 1024;
@@ -681,8 +683,20 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
       }
       client.destroy();
     });
-    upstream.on("close", () => client.destroy());
+    upstream.on("close", () => endAfterFlush(client));
     client.on("close", () => upstream.destroy());
+  }
+
+  /**
+   * The far end is gone: let the client read what is already queued for it, then close. `destroy()` here dropped the
+   * unsent tail (a close frame included) of a client that reads slowly. The timer bounds a client that never reads.
+   */
+  function endAfterFlush(client: net.Socket): void {
+    if (client.destroyed) return;
+    client.end();
+    const timer = setTimeout(() => client.destroy(), FLUSH_GRACE_MS);
+    timer.unref();
+    client.once("close", () => clearTimeout(timer));
   }
 
   function refuse(client: net.Socket, host: string, port: number): void {
@@ -738,7 +752,7 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
       }
       client.destroy();
     });
-    upstream.on("close", () => client.destroy());
+    upstream.on("close", () => endAfterFlush(client));
     client.on("close", () => upstream.destroy());
   }
 

@@ -280,7 +280,7 @@ describe("WebSocket", () => {
   });
 
   /** A client that stops reading for `pauseMs` while the upstream sends `count` messages of 256 KB, each numbered. */
-  async function slowClientRun(opts: { count: number; pauseMs: number; relayBacklogLimitBytes?: number }) {
+  async function slowClientRun(opts: { count: number; pauseMs: number; relayBacklogLimitBytes?: number; resumeOnLog?: string }) {
     const size = 256 * 1024;
     const upstreamClosed: { code: number; reason: string }[] = [];
     const upstream = Bun.serve({
@@ -308,7 +308,11 @@ describe("WebSocket", () => {
       secure.write(upgradeRequest("/v1/ws"));
       await wire.head();
       secure.pause();
-      await sleep(opts.pauseMs);
+      if (opts.resumeOnLog) {
+        // Event, not clock: the client resumes only once the relay has logged that it gave up on this connection.
+        for (let i = 0; i < 2000 && !lines.some((l) => l.startsWith(opts.resumeOnLog!)); i++) await sleep(10);
+        await sleep(300); // let the relay's close travel toward the (paused) client before it reads anything
+      } else await sleep(opts.pauseMs);
       secure.resume();
       const sequence: number[] = [];
       let end: { opcode: number; code?: number; text?: string } | null = null;
@@ -332,13 +336,40 @@ describe("WebSocket", () => {
   }, 60_000);
 
   test("past the backlog limit the relay CLOSES the connection (1013): the client never sees a hole, only a prefix and the close", async () => {
-    const run = await slowClientRun({ count: 160, pauseMs: 3000, relayBacklogLimitBytes: 1024 * 1024 });
+    const run = await slowClientRun({ count: 160, pauseMs: 3000, relayBacklogLimitBytes: 1024 * 1024, resumeOnLog: "ws-backpressure " });
     expect(run.end).toEqual({ opcode: 8, code: 1013 });
     expect(run.sequence.length).toBeLessThan(160);
     expect(run.sequence).toEqual(run.sequence.map((_, i) => i)); // contiguous from 0: nothing skipped in the middle
     expect(run.lines.some((l) => l.startsWith("ws-backpressure "))).toBe(true);
     // Anthropic is let go too, with the close we send (1011), or as a drop when it is still busy sending and never reads the close
     expect([1011, 1006]).toContain(run.upstreamClosed[0]?.code);
+  }, 60_000);
+
+  test("a tunnel whose far end closes right after its last byte still delivers every byte to a client that has not read yet", async () => {
+    const total = 32 * 1024 * 1024;
+    const far = net.createServer((socket) => { socket.on("error", () => {}); socket.end(Buffer.alloc(total, 0x62)); });
+    await new Promise<void>((resolve) => far.listen(0, "127.0.0.1", resolve));
+    const { proxy } = await start({ enginePort: await closedPort(), upstreamPort: 1, allowLocalTargets: true } as Parameters<typeof startProxy>[1]);
+    try {
+      const raw = net.connect(proxy.port, "127.0.0.1");
+      raw.on("error", () => {});
+      raw.pause();
+      let received = 0;
+      let head = "";
+      const done = new Promise<void>((resolve) => raw.on("close", () => resolve()));
+      raw.on("data", (d: Buffer) => {
+        if (head.indexOf("\r\n\r\n") === -1) {
+          head += d.toString("latin1");
+          const at = head.indexOf("\r\n\r\n");
+          if (at !== -1) received += head.length - at - 4;
+        } else received += d.length;
+      });
+      raw.write(`CONNECT 127.0.0.1:${(far.address() as net.AddressInfo).port} HTTP/1.1\r\nhost: x\r\n\r\n`);
+      await sleep(1500); // the far end has long since closed: whatever the relay still holds must survive that
+      raw.resume();
+      await Promise.race([done, sleep(8000)]);
+      expect(received).toBe(total);
+    } finally { await proxy.close(); far.close(); }
   }, 60_000);
 
   test("a message of 16 MB goes through; one byte more is refused with 1009 and never reaches Anthropic", async () => {
