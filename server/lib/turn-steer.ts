@@ -3,8 +3,9 @@
  *
  * On 2026-11-11 Attilio wrote a second message in a Discord thread while
  * Jarvis was working on the first: the chat route answered `stream_in_flight`
- * and the message waited for the end of the turn, minutes later. OpenClaw
- * "steers" instead: the message joins the running turn at its next round.
+ * and the message waited for the end of the turn, minutes later. The gateway
+ * Jarvis ran on before "steered" instead: the message joined the running turn
+ * at its next round.
  *
  * Here a running native turn opens a TARGET for its session. The chat route
  * offers a message to it (`offerSteer`); the agent loop takes what is waiting

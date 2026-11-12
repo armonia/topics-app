@@ -53,6 +53,7 @@
  *     dire far comparire una risposta a una domanda che chi legge non ha più
  *     in mente.
  */
+import { NOT_STEERED_ROW } from "./steered-row";
 import type { ContentBlock } from "../types";
 import { cancelled } from "../providers/stop-reason";
 import { readTurnEnd, type RecordedTurnEnd } from "../providers/turn-end-registry";
@@ -591,13 +592,6 @@ export const MAX_RESTART_CONTINUATIONS = 10;
 
 const CONTINUATION_OPENING = "[Topics] The server restarted in the middle of your previous turn.";
 
-/**
- * A person's row steered into a turn that was already running (CHAT-QUEUE-08):
- * stored after that turn's assistant row, answered by it. Every read here that
- * asks "what did the person write last?" skips it, or a cut turn would be
- * resent as the steered words, which the model already read.
- */
-export const NOT_STEERED_ROW = `NOT (role = 'user' AND typeof(blocks) = 'text' AND blocks LIKE '%"kind":"steered"%')`;
 
 /** The chat's last user rows that are continuation notes, counted back to the first that is not. */
 function continuationsInARow(db: Pick<Database, "query">, sessionKey: string): number {

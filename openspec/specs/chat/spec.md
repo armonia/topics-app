@@ -3166,7 +3166,10 @@ Nothing SHALL be lost or read twice. A message the turn never read SHALL go as
 a turn of its own once the session is free, with the same key, author and
 sender kind, unless the chat was archived meanwhile. A person's Stop SHALL hold
 it instead (Stop stops), after a server restart too. A turn cut after a message
-was steered into it SHALL be resumed as if that row were not there. A detached turn that may have
+was steered into it SHALL be resumed as if that row were not there; the same
+holds wherever "the person's last row" is read: a turn adopted after a restart
+keeps writing into its own row, a resent row keeps its marks, and Retry resends
+what opened the turn. A detached turn that may have
 read it, whose journal ended before saying so, SHALL leave it `unknown` for the
 sender to decide. A resend under the same key while the message waits SHALL get
 the same steer id. `GET /api/chat/steer?sessionKey=&id=` SHALL say what became
@@ -3199,6 +3202,7 @@ applies unchanged.
 - **GIVEN** a steered message the turn read
 - **WHEN** the server restarts, or the history is rebuilt from the database
 - **THEN** the resume sweep does not resend it, and it sits before the turn's answer
+- **AND** a turn still running is adopted into its own row, not into a second one after the steered row
 
 ### Requirement: CHAT-BUBBLE-01 — La bolla porta l'id del SERVER, e una riadozione non la raddoppia
 

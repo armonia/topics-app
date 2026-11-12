@@ -34,7 +34,7 @@ delete process.env.TOPICS_NATIVE_DETACHED;
 delete process.env.ANTHROPIC_BASE_URL;
 
 const { runDetachedTurn, reattachDetachedTurn, liveDetachedSessions, awaitStrayTurn, brokerIdFor, forwardHostLog, steerDetachedTurn } = await import("./detached-turn");
-const { offerSteer, openSteerTarget, setSteerSink, steerState } = await import("../../lib/turn-steer");
+const { offerSteer, openSteerTarget, resetTurnSteer, setSteerSink, steerState } = await import("../../lib/turn-steer");
 const { __resetAiBridgeClientForTests, getAiBridgeClient } = await import("../../lib/ai-bridge-client");
 const { clearProviderHold, holdForApiDown, providerHold, setProviderHold } = await import("../../lib/provider-hold");
 import type { TurnSpec } from "./turn-host";
@@ -197,6 +197,33 @@ describe("detached native turn", () => {
     expect(r.text()).toBe(pieceTexts(PIECES).join(""));
     expect(r.events.at(-1)).toBe("done");
     expect(out.end).not.toBeNull();
+  }, 30_000);
+
+  test("after a restart, a message the host holds when the person presses Stop stays held, it does not go out on its own", async () => {
+    // @covers CHAT-QUEUE-08: the server no longer knows the message; the host's ending says the Stop was the person's.
+    const sk = "topic:dt0000sp";
+    setSteerSink({ taken: () => {}, returned: () => {} });
+    try {
+      const target = openSteerTarget(sk);
+      const r = recorder();
+      const stop = new AbortController();
+      const run = runDetachedTurn(spec(sk, "long"), r.handler, {
+        signal: stop.signal,
+        onStarted: () => target.forwardTo((item) => steerDetachedTurn(sk, item)),
+      });
+      await until(() => textCount(r) >= 2);
+      const item = offerSteer(sk, "e avvisa il cliente", { key: null, dispatched: false, dispatchedFor: [], author: null, into: null })!;
+      await Bun.sleep(100);
+      // A restart: the server forgets its queue, only the host still has the message.
+      resetTurnSteer();
+      stop.abort("user");
+      await run;
+      target.close();
+      expect(r.events).toContain("aborted");
+      expect(steerState(sk, item.id)?.state).toBe("held");
+    } finally {
+      setSteerSink(null);
+    }
   }, 30_000);
 
   test("a Stop pressed while the socket is being re-made still stops the turn", async () => {

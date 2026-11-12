@@ -20,7 +20,7 @@ import { INTERRUPTED_MARKER } from "./stale-stream-sweep";
 const SK = "topic:steered-cut";
 const tool = { kind: "tool", toolCall: { id: "toolu_1", name: "bash", args: {}, status: "success" } };
 
-function chatDb(cut: unknown | null, withSteered: boolean): Database {
+function chatDb(cut: unknown | null, withSteered: boolean, steeredAgoMs = 30_000): Database {
   const db = new Database(":memory:");
   db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, session_key TEXT, role TEXT, content TEXT, blocks TEXT, partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER, end_reason TEXT, latency_ms INTEGER)`);
   db.run(RESEND_COUNTS_DDL);
@@ -31,7 +31,7 @@ function chatDb(cut: unknown | null, withSteered: boolean): Database {
   const blocks = cut ? [{ kind: "text", text: "sto lavorando" }, tool, cut] : [{ kind: "text", text: "fatto" }];
   db.run("INSERT INTO messages VALUES ('a0', ?, 'assistant', ?, ?, 0, ?, 1, 'u0', 0, ?, NULL)", [SK, cut ? "sto lavorando" : "fatto", JSON.stringify(blocks), at(60_000), cut ? "error" : "done"]);
   if (withSteered) {
-    db.run("INSERT INTO messages VALUES ('us', ?, 'user', 'usa la porta 2222', ?, 0, ?, 2, 'a0', 0, NULL, NULL)", [SK, JSON.stringify([{ kind: "steered", into: "a0" }]), at(30_000)]);
+    db.run("INSERT INTO messages VALUES ('us', ?, 'user', 'usa la porta 2222', ?, 0, ?, 2, 'a0', 0, NULL, NULL)", [SK, JSON.stringify([{ kind: "steered", into: "a0" }]), at(steeredAgoMs)]);
   }
   return db;
 }
@@ -84,6 +84,8 @@ describe("a turn cut after a message was steered into it", () => {
     console.log = () => {};
     try {
       expect(await cutTurnResumable(ctxOf(db) as never, SK)).toBe(false);
+      // A steered row past the 15 minutes a cut turn stays resumable reads as the person's last word gone stale.
+      expect(await cutTurnResumable(ctxOf(chatDb(null, true, 16 * 60_000)) as never, SK)).toBe(false);
     } finally {
       console.log = log;
     }

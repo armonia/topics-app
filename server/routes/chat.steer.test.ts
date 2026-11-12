@@ -27,6 +27,8 @@ let sent = 0;
 let chat: ReturnType<typeof createChatRouter>;
 /** The identity the gate would pin on a request, by its body's marker. */
 let identityOf: (req: Request) => unknown = () => null;
+/** What each turn handed the provider, in order. */
+const sends: unknown[][] = [];
 /** Set: reading the chat throws, as a busy database would inside the route. */
 let topicReadThrows = false;
 
@@ -48,7 +50,7 @@ beforeAll(async () => {
     get connected() { return true; },
     registerStreamHandler: (_sk: string, _rid: string | undefined, h: StreamHandler) => { handlers.push(h); },
     unregisterStreamHandler: () => {},
-    sendChat: () => { sent++; return new Promise<{ runId?: string }>(() => {}); },
+    sendChat: (...args: unknown[]) => { sent++; sends.push(args); return new Promise<{ runId?: string }>(() => {}); },
     defaultModel: () => "fake-model",
     abort: async () => {},
     start: () => {}, stop: () => {},
@@ -209,7 +211,7 @@ describe("a steered row, once taken, stays answered", () => {
     await endTurns();
   });
 
-  test("a returned message keeps its sender as the author of its row", async () => {
+  test("a returned message keeps its sender as the author of its row, and the model it asked for", async () => {
     const sk = topic("steer-author");
     expect((await post(sk, "primo")).status).toBe(200);
     const target = openSteerTarget(sk);
@@ -220,7 +222,7 @@ describe("a steered row, once taken, stays answered", () => {
     const url = new URL("http://topics.test/api/chat");
     const req = new Request(url, {
       method: "POST", headers: { "content-type": "application/json", "x-test-guest": "1" },
-      body: JSON.stringify({ sessionKey: sk, messages: [{ role: "user", content: "dal telefono" }], steer: true }),
+      body: JSON.stringify({ sessionKey: sk, messages: [{ role: "user", content: "dal telefono" }], steer: true, model: "claude-scelto" }),
     });
     expect((await chat(req, url, url.pathname, "POST"))!.status).toBe(202);
     identityOf = () => null;
@@ -229,6 +231,8 @@ describe("a steered row, once taken, stays answered", () => {
     for (let i = 0; i < 400 && sent < 2; i++) await Bun.sleep(25);
     const row = userRows(sk, "dal telefono")[0];
     expect(row?.authorDeviceId).toBe("dev-guest-1");
+    // ...and the model it was sent with: the replay is the sender's request, not a bare one.
+    expect(JSON.stringify(sends.at(-1))).toContain("claude-scelto");
     await endTurns();
   }, 20_000);
 
