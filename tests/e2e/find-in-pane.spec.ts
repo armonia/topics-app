@@ -595,7 +595,7 @@ test.describe("Cerca nella pane: le schermate", () => {
 
   for (const vp of [{ name: "desktop", width: 1280, height: 800 }, { name: "phone", width: 390, height: 844 }]) {
     for (const scheme of ["light", "dark"] as const) {
-      test(`evidence: ${vp.name} ${scheme}`, async ({ page, request, chatPage }) => {
+      test(`evidence: ${vp.name} ${scheme}`, async ({ page, request }) => {
         await page.setViewportSize({ width: vp.width, height: vp.height });
         await page.emulateMedia({ colorScheme: scheme });
         await resetPaneStore(request, [topicId]);
@@ -605,10 +605,10 @@ test.describe("Cerca nella pane: le schermate", () => {
           await openTopic(page, new RegExp(topicName));
           await page.getByTestId("mobile-pane-find").filter({ visible: true }).first().click({ timeout: 15_000 });
         } else {
-          await expect(page.locator(`[data-pane-id="${topicId}"]`).filter({ visible: true }).first()).toBeVisible({ timeout: 15_000 });
           // The tab shows before the chat body mounts and registers its finder:
-          // ⌘F before that opens nothing. The composer is the body being there.
-          await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+          // ⌘F before that opens nothing. The body's root carries the topic id,
+          // and it is the component that registers the finder.
+          await expect(page.locator(`[data-chat-topic-id="${topicId}"]`).filter({ visible: true }).first()).toBeVisible({ timeout: 15_000 });
           await blurAll(page);
           await page.keyboard.press("Meta+f");
         }
