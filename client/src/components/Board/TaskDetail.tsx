@@ -88,7 +88,8 @@ import { ProjectPickerBody } from './ProjectPicker';
 import { addBoardProject, projectNameFromId, useBoardProjects, UNKNOWN_PROJECT_NAME } from '../../lib/boardProjectsStore';
 import { GroupLayout } from '../Layout/GroupLayout';
 import { useTaskBrowserGroupLayout, type TaskBrowserGroupLayout, type RenderSurface } from './useTaskBrowserGroupLayout';
-import { POPOVER_DIVIDER, POPOVER_ITEM } from '@/lib/popoverStyles';
+import { DANGER_TEXT, POPOVER_DIVIDER, POPOVER_ITEM } from '@/lib/popoverStyles';
+import { STATUS_CHIP } from '@/lib/statusVisual';
 import { machineStopOf, subagentResultOf } from '../Chat/machineRow';
 import { SubAgentResultRow } from '../Chat/SubAgentResultCard';
 import { MachineStopLine } from '../Chat/MachineStopLine';
@@ -2200,7 +2201,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
               <DispatchChip state={task.dispatchState} error={task.dispatchError} deliveredBy={task.deliveredBy} />
             ) : task && showsStoppedChip(task) ? (
               // Same rule as the card, one module: `stoppedChip.ts`.
-              <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-mini text-rose-300" title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
+              <span className={`shrink-0 rounded px-1.5 py-0.5 text-mini ${STATUS_CHIP.danger}`} title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
             ) : null}
           </div>
         )}
@@ -2849,7 +2850,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
         >
           {/* A failed first read must not keep saying «Loading…»: the spinner is
               a promise, and here nothing is coming. */}
-          {chipStatus ? <StatusIcon status={chipStatus} /> : loadFailedMessage ? <AlertTriangle className="h-3.5 w-3.5 text-rose-300" /> : <Spinner size="sm" tone="current" />}
+          {chipStatus ? <StatusIcon status={chipStatus} /> : loadFailedMessage ? <AlertTriangle className={`h-3.5 w-3.5 ${DANGER_TEXT}`} /> : <Spinner size="sm" tone="current" />}
           {chipStatus ? STATUS_LABEL[chipStatus] : loadFailedMessage ? tr('board.task.loadFailedChip') : tr('board.task.loading')}
           <ChevronDown className="h-3 w-3 text-app-text-faint" />
         </button>

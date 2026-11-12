@@ -92,7 +92,7 @@ interface Exception {
 }
 const EXCEPTIONS: Exception[] = [
   { kind: "text-size", selector: /identity-glyph/, why: "a monogram inside the fixed 14px avatar (IDENTITY_GLYPH_BOX): a picture of a name that is written out in the title, `text-nano` reserved by check:typography" },
-  { kind: "target-size", selector: /group\/proj\.row-card\.flex > but/, floor: { w: 12, h: 34 }, why: "the accordion chevron of a project row, 12px column shared by every sidebar row (ROW_CHEVRON_SLOT); WCAG 2.5.8 «equivalent»: the project name beside it toggles the same accordion on a second click" },
+  { kind: "target-size", selector: /group\/proj\.row-card\.flex > but|testid=project-chevron$/, floor: { w: 12, h: 34 }, why: "the accordion chevron of a project row, 12px column shared by every sidebar row (ROW_CHEVRON_SLOT); WCAG 2.5.8 «equivalent»: the project name beside it toggles the same accordion on a second click" },
   { kind: "axe:target-size", selector: /testid=project-chevron$/, why: "same chevron as above, seen by axe on its box" },
   { kind: "axe:target-size", selector: /testid=task-id-chip$/, why: "the task id chip (atoms.tsx): axe reads the 18px BOX, the area that answers is the 24x24 `.tap-expand` projection, which the hit probe above measures and holds to the threshold" },
   { kind: "target-size", selector: /topic-row-archive|span\.row-actions/, viewport: "phone", floor: { w: 36, h: 44 }, why: "the command rail at the end of a row: two 36px commands side by side, a 44px area each would overlap and the last in the DOM would take the other's taps (index.css, `.tap-expand-y`)" },

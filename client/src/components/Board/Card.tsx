@@ -1519,7 +1519,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           {checksRed && (
             <span
               title={tr('board.card.checksRedTitle', { commands: (task.checks ?? []).filter((c) => !c.ok).map((c) => c.cmd).join(', ') || tr('board.card.checksRedUnknown') })}
-              className="flex items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-rose-800 dark:text-rose-300"
+              className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${STATUS_CHIP.danger}`}
             ><AlertTriangle className="h-3 w-3 shrink-0" /> {tr('board.card.checksRed')}</span>
           )}
           {task.planFirst && (
@@ -1937,7 +1937,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           <DispatchChip state={task.dispatchState} error={task.dispatchError} deliveredBy={task.deliveredBy} hasWork={taskHasWork(task)} />
         ) : showsStoppedChip(task) ? (
           // Not on a done card: see `stoppedChip.ts`.
-          <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-rose-800 dark:text-rose-300" title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
+          <span className={`shrink-0 rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${STATUS_CHIP.danger}`} title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
         ) : null}
         {/* Il primo tratto del turno, quello in cui la card sembra ferma:
             l'agente sta leggendo e inquadrando, e il titolo che si sta per
@@ -2212,7 +2212,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
         <div
           data-testid="card-action-error"
           onClick={(e) => e.stopPropagation()}
-          className="mt-2 flex items-start gap-1.5 rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 text-compact leading-snug text-rose-800 dark:text-rose-300"
+          className={`mt-2 flex items-start gap-1.5 rounded-md border border-red-500/30 px-2 py-1.5 text-compact leading-snug ${STATUS_CHIP.danger}`}
         >
           <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
           <span className="min-w-0 flex-1 break-words">{error}</span>

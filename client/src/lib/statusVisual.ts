@@ -19,13 +19,17 @@ import { DANGER_TEXT, WARNING_TEXT } from './popoverStyles';
  * surface live in `popoverStyles` and are re-exported here; the variants below
  * were measured per surface and keep their own names.
  *
- * Measured on the sidebar chrome (#eaecf0 light, #080a0e dark):
+ * Measured on the sidebar chrome (#eaecf0 light, #080a0e dark), from the
+ * Tailwind v4 oklch values converted to sRGB (WCAG 2 relative luminance):
  *
- *   sky-800 / sky-400      text   6.39 / 9.25
- *   sky-600 / sky-400      dot    3.46 / 9.25
- *   amber-700 / amber-400  dot    4.25 / 11.87
- *   emerald-600 / -400     dot    3.19 / 10.30
- *   red-500 / red-400      dot    3.18 / 7.16
+ *   sky-800 / sky-400          text   6.35 / 9.07
+ *   sky-600 / sky-400          dot    3.40 / 9.07
+ *   amber-700 / amber-400      dot    4.27 / 11.54
+ *   emerald-600 / emerald-400  dot    3.10 / 10.25
+ *   red-500 / red-400          dot    3.23 / 6.85
+ *
+ * CHROME-SIGNAL-01 (tests/e2e/board-theme.spec.ts) measures the same pairs in
+ * the real sidebar.
  */
 export const STATUS_INK = {
   wait: WARNING_TEXT,
@@ -50,7 +54,7 @@ export const STATUS_CHIP = {
 } as const;
 
 /** One icon per meaning: Hourglass is retired, each of its jobs got its own glyph. */
-export const STATUS_ICON: Readonly<Record<string, LucideIcon>> = {
+export const STATUS_ICON = {
   /** Waits for you. */
   wait: CircleAlert,
   /** Postponed: back in the queue until a window elapses. */
@@ -59,4 +63,4 @@ export const STATUS_ICON: Readonly<Record<string, LucideIcon>> = {
   blocking: Link2,
   /** The agent is stopped, idle. */
   paused: Pause,
-};
+} as const satisfies Record<string, LucideIcon>;
