@@ -137,12 +137,13 @@ function commitCon(termine: string, ambito: string[]): number {
   // `--` closes the rev list. Without it a working-tree path spelled like a ref
   // makes git exit `fatal: ambiguous argument … both revision and filename` and
   // print nothing, which used to read as "zero commits" for every term.
-  const contenuti = gitMeasure("log", "--format=%H", "-S", termine, ...ambito, "--");
+  // `-i` on both, as in the working-tree check: "mario" in the list must catch "Mario".
+  const contenuti = gitMeasure("log", "-i", "--format=%H", "-S", termine, ...ambito, "--");
   // `--grep` is a REGEX unless `-F` says otherwise, so a term carrying `[`, `(`
   // or `.` silently matched nothing in the MESSAGES — the exact half `--grep`
   // was added for. Measured: `Acme [Milano] srl` in a published commit message,
   // 0 hits without `-F`, 1 with it. (`-S` is a fixed string already.)
-  const messaggi = gitMeasure("log", "--format=%H", "-F", "--grep", termine, ...ambito, "--");
+  const messaggi = gitMeasure("log", "-i", "--format=%H", "-F", "--grep", termine, ...ambito, "--");
   const insieme = new Set(
     [...contenuti.split("\n"), ...messaggi.split("\n")].filter(Boolean),
   );

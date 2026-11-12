@@ -80,8 +80,10 @@ function gitMeasure(...args: string[]): string {
  *  closes the rev list, so a path spelled like a ref cannot turn the whole
  *  question into a fatal that `git()` would have swallowed into zero. */
 function hits(term: string, range: string[]): string[] {
-  const content = gitMeasure("log", "--format=%H", "-S", term, ...range, "--");
-  const message = gitMeasure("log", "--format=%H", "-F", "--grep", term, ...range, "--");
+  // `-i` on both: the working-tree check ignores case, so the history must too,
+  // or a term listed as "mario" passes a commit that writes "Mario".
+  const content = gitMeasure("log", "-i", "--format=%H", "-S", term, ...range, "--");
+  const message = gitMeasure("log", "-i", "--format=%H", "-F", "--grep", term, ...range, "--");
   return [...new Set([...content.split("\n"), ...message.split("\n")].filter(Boolean))];
 }
 
