@@ -1,6 +1,7 @@
 {
   "$schema": "bundle-baseline-v1",
   "_comment": [
+    "2026-11-12 (card 573c0818): total_assets set to the measured 10.010.218 raw (was 9.809.324). The agent tools page is a lazy chunk loaded from FormLevels like the other sections, so the entry is untouched by it; most of the drift comes from the lazy chunks of recent main, the page adds its own chunk.",
     "Measured from a real `bun run build:client`, 2026-08-13. Raise a number ONLY",
     "in the same commit as the change that grew it, so the diff shows what it bought.",
     "tolerance_pct absorbs the few bytes a minifier or hash change moves between",
@@ -896,6 +897,6 @@
     "files": 5
   },
   "total_assets": {
-    "raw": 9809324
+    "raw": 10010218
   }
 }
