@@ -112,11 +112,11 @@ describe('one copy of each helper in the client', () => {
   const texts = files.map((f) => ({ rel: relative(SRC, f), src: readFileSync(f, 'utf8') }));
 
   /**
-   * Files filesDeclaring `name` at top level in any form: `function`, `async function`,
+   * Files filesWithDeclaration `name` at top level in any form: `function`, `async function`,
    * `const x = …`, with or without `export`. Matching one spelling only let the
    * other spellings of a copy through.
    */
-  const filesDeclaring = (...names: string[]) => {
+  const filesWithDeclaration = (...names: string[]) => {
     const re = new RegExp(`^(?:export\\s+)?(?:(?:async\\s+)?function\\s+|(?:const|let|var)\\s+)(?:${names.join('|')})\\b`, 'm');
     return texts.filter((t) => re.test(t.src)).map((t) => t.rel).sort();
   };
@@ -124,11 +124,11 @@ describe('one copy of each helper in the client', () => {
   const jsonOrNullBodies = () => texts.filter((t) => /\.ok\s*\?\s*await\s+\w+\.json\(\)\s*:\s*null/.test(t.src)).map((t) => t.rel).sort();
 
   test('errMessage is declared only in lib/errMessage.ts', () => {
-    expect(filesDeclaring('errMessage')).toEqual(['lib/errMessage.ts']);
+    expect(filesWithDeclaration('errMessage')).toEqual(['lib/errMessage.ts']);
   });
 
   test('readJson is declared only in lib/readJson.ts, plus the proxyActivity one that reads through an injectable fetch', () => {
-    expect(filesDeclaring('readJson', 'readJsonOrNull')).toEqual(['lib/readJson.ts', 'state/proxyActivity.ts']);
+    expect(filesWithDeclaration('readJson', 'readJsonOrNull')).toEqual(['lib/readJson.ts', 'state/proxyActivity.ts']);
   });
 
   test('the «json on 2xx, else null» body lives only in those two files, under any name', () => {
@@ -136,13 +136,13 @@ describe('one copy of each helper in the client', () => {
   });
 
   test('shortTokens is declared only in lib/formatTokens.ts', () => {
-    expect(filesDeclaring('shortTokens')).toEqual(['lib/formatTokens.ts']);
+    expect(filesWithDeclaration('shortTokens')).toEqual(['lib/formatTokens.ts']);
   });
 
   test('the editor toolbar buttons live in one module', () => {
-    expect(filesDeclaring('CopyPathBtn')).toEqual(['components/Editor/ToolbarButtons.tsx']);
-    expect(filesDeclaring('WrapBtn')).toEqual(['components/Editor/ToolbarButtons.tsx']);
-    expect(filesDeclaring('PreviewBtn')).toEqual(['components/Editor/ToolbarButtons.tsx']);
+    expect(filesWithDeclaration('CopyPathBtn')).toEqual(['components/Editor/ToolbarButtons.tsx']);
+    expect(filesWithDeclaration('WrapBtn')).toEqual(['components/Editor/ToolbarButtons.tsx']);
+    expect(filesWithDeclaration('PreviewBtn')).toEqual(['components/Editor/ToolbarButtons.tsx']);
   });
 
   test('the Files header of the project sidebar is one component, drawn from both columns', () => {
