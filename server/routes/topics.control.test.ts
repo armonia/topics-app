@@ -160,6 +160,7 @@ function makeHarness() {
     saveSingleTopic: (t: Topic) => { topics.set(t.id, t); },
     loadUnread: () => ({}),
     saveUnread: () => {},
+    saveUnreadEntries: () => {},
     projectStore: {
       list: () => [],
       getByPath: () => null,
@@ -190,6 +191,7 @@ function makeHarness() {
     broadcasts,
     workspaceDir,
     call,
+    router,
     cleanup,
     uiState,
     readUi,
@@ -696,6 +698,57 @@ describe("PATCH /api/topics/:id — archived", () => {
       expect(resp.status).toBe(400);
       expect((await resp.json()).error).toContain("DELETE");
       expect(h.topics.get("t1")!.archived).toBe(false);
+    } finally { h.cleanup(); }
+  });
+});
+
+/**
+ * DELETE /api/topics/:id is also the unarchive/reopen route: an empty body
+ * archives (the destructive default), any other body names what to do. A
+ * malformed or wrongly-typed body must never be read as "archive anyway".
+ */
+describe("DELETE /api/topics/:id — archived body validation", () => {
+  test("a malformed JSON body answers 400 and does not archive", async () => {
+    const h = makeHarness();
+    try {
+      h.topics.set("t1", makeTopic({ id: "t1", archived: false }));
+      const url = new URL("http://topics.test/api/topics/t1");
+      const req = new Request(url.toString(), { method: "DELETE", body: "{not json", headers: { "content-type": "application/json" } });
+      const resp = (await h.router(req, url, url.pathname, "DELETE"))!;
+      expect(resp.status).toBe(400);
+      expect(h.topics.get("t1")!.archived).toBe(false);
+    } finally { h.cleanup(); }
+  });
+
+  test("archived as a string, not a boolean, answers 400 instead of archiving", async () => {
+    const h = makeHarness();
+    try {
+      h.topics.set("t1", makeTopic({ id: "t1", archived: false }));
+      const resp = (await h.call("DELETE", "/api/topics/t1", { archived: "false" }))!;
+      expect(resp.status).toBe(400);
+      expect(h.topics.get("t1")!.archived).toBe(false);
+    } finally { h.cleanup(); }
+  });
+
+  test("archived:false reopens an archived topic", async () => {
+    const h = makeHarness();
+    try {
+      h.topics.set("t1", makeTopic({ id: "t1", archived: true }));
+      const resp = (await h.call("DELETE", "/api/topics/t1", { archived: false }))!;
+      expect(resp.status).toBe(200);
+      expect(h.topics.get("t1")!.archived).toBe(false);
+    } finally { h.cleanup(); }
+  });
+
+  test("an empty body still archives — the destructive default stays the default", async () => {
+    const h = makeHarness();
+    try {
+      h.topics.set("t1", makeTopic({ id: "t1", archived: false }));
+      const url = new URL("http://topics.test/api/topics/t1");
+      const req = new Request(url.toString(), { method: "DELETE" });
+      const resp = (await h.router(req, url, url.pathname, "DELETE"))!;
+      expect(resp.status).toBe(200);
+      expect(h.topics.get("t1")!.archived).toBe(true);
     } finally { h.cleanup(); }
   });
 });

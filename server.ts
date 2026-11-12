@@ -4363,7 +4363,10 @@ const opzioniServer = {
             },
           });
         }
-      } catch {}
+      } catch (err) {
+        console.warn("[preview] read failed", resolved, err);
+        return new Response("Internal Server Error", { status: 500 });
+      }
       return new Response("Not Found", { status: 404 });
     }
 
@@ -4784,7 +4787,7 @@ const opzioniServer = {
             // Il `message` handler non e' async: si sequenzia in una IIFE, che
             // e' comunque l'ordine che serve (prima lo stop, poi la distruzione).
             void (async () => {
-              try { await cleanup?.(); } catch {}
+              try { await cleanup?.(); } catch (err) { console.warn(`[WS][browser] cleanup failed for ${ctxId}:`, err); }
               // La condizione NON e' «l'ho creato io» ma «lo sta guardando
               // qualcun altro?».
               //

@@ -392,6 +392,7 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
           if (existsSync(jsonlPath)) {
             const lines = readFileSync(jsonlPath, "utf-8").split("\n").filter(Boolean);
             const messages: any[] = [];
+            let skippedLines = 0;
             for (const line of lines) {
               try {
                 const d = JSON.parse(line);
@@ -404,7 +405,12 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
                     if (text.trim() && !text.startsWith("[Chat messages since your last reply")) messages.push({ role: msg.role, content: text, timestamp: d.timestamp });
                   }
                 }
-              } catch {}
+              } catch {
+                skippedLines++; // malformed JSONL line: skip it, persisted below without it
+              }
+            }
+            if (skippedLines > 0) {
+              console.warn(`[Messages] JSONL migration for ${sessionKey} skipped ${skippedLines} malformed line(s)`);
             }
             for (const msg of messages) appendLocalMessage(sessionKey, msg.role, msg.content);
             const total = messages.length;

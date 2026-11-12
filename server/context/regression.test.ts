@@ -188,6 +188,10 @@ function buildLegacyHistoryAware(_providerName: string = "claude"): { systemMess
         content += `\n\nProject context files:\n\n${templateParts.join("\n\n")}`;
       } else {
         try {
+          // A failed readdir here (unlike in the real pipeline) only omits this
+          // listing; the real pipeline (server/context/adapt.ts) always appends
+          // it, so the byte-identity assertions below are what actually catches
+          // a divergence, not this try itself.
           const entries = readdirSync(projectDir, { withFileTypes: true }).slice(0, 30);
           const listing = entries.map((e) => (e.isDirectory() ? `${e.name}/` : e.name)).join(", ");
           content += `\n\nProject root files: ${listing}`;

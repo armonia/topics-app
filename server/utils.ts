@@ -2924,25 +2924,33 @@ export function createAppContext(baseDir: string): AppContext {
           try {
             const lines = readFileSync(jsonlPath, "utf-8").split("\n").filter(Boolean);
             for (const line of lines) {
+              let parsed: { type?: string; message?: unknown; timestamp?: string };
               try {
-                const d = JSON.parse(line);
-                if (d.type === "message" && d.message) {
-                  const msg = d.message;
-                  if (msg.role === "user" || msg.role === "assistant") {
-                    let text = "";
-                    if (typeof msg.content === "string") text = msg.content;
-                    else if (Array.isArray(msg.content)) text = (msg.content as { type?: string; text?: string }[]).filter((c) => c.type === "text").map((c) => c.text).join("\n");
-                    if (text.toLowerCase().includes(lowerQuery)) {
-                      results.push({ messageId: null, sessionKey: key, topicId: topic?.id || null, topicName: topic?.name || key, topicIcon: topic?.icon || "MessageSquare", role: msg.role, content: text, timestamp: d.timestamp || null });
-                      if (results.length >= limit) return results;
-                    }
+                parsed = JSON.parse(line);
+              } catch {
+                continue; // malformed JSONL line: skip it
+              }
+              const d = parsed;
+              if (d.type === "message" && d.message) {
+                const msg = d.message as { role?: string; content?: unknown };
+                if (msg.role === "user" || msg.role === "assistant") {
+                  let text = "";
+                  if (typeof msg.content === "string") text = msg.content;
+                  else if (Array.isArray(msg.content)) text = (msg.content as ({ type?: string; text?: string } | null)[]).filter((c) => c?.type === "text").map((c) => c!.text ?? "").join("\n");
+                  if (text.toLowerCase().includes(lowerQuery)) {
+                    results.push({ messageId: null, sessionKey: key, topicId: topic?.id || null, topicName: topic?.name || key, topicIcon: topic?.icon || "MessageSquare", role: msg.role, content: text, timestamp: d.timestamp || null });
+                    if (results.length >= limit) return results;
                   }
                 }
-              } catch {}
+              }
             }
-          } catch {}
+          } catch (err) {
+            console.warn(`[Search] legacy transcript unreadable, skipping session ${key}:`, err);
+          }
         }
-      } catch {}
+      } catch (err) {
+        console.warn("[Search] legacy sessions.json scan failed:", err);
+      }
     }
 
     return results;

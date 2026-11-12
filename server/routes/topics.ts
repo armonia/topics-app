@@ -1848,7 +1848,20 @@ export function createTopicsRouter(
           }, 403);
         }
         let archive = true;
-        try { const body = await req.json(); if (typeof body.archived === 'boolean') archive = body.archived; } catch {}
+        const rawBody = await req.text();
+        if (rawBody.trim()) {
+          let body: unknown;
+          try {
+            body = JSON.parse(rawBody);
+          } catch {
+            return json({ error: "invalid JSON body" }, 400);
+          }
+          const archived = (body as { archived?: unknown })?.archived;
+          if (archived !== undefined) {
+            if (typeof archived !== "boolean") return json({ error: "archived must be boolean" }, 400);
+            archive = archived;
+          }
+        }
         if (archive) {
           // Un solo posto sa cosa vuol dire "archiviato": flag + unread a zero
           // + purge da ui_state. Lo stesso servizio che usa il dispatcher, così
