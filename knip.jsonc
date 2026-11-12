@@ -226,6 +226,7 @@
         // imported except by its own bench.
         "scripts/test-junit.ts!",
     "scripts/disk-report.ts!",        // `bun run report:disk`
+    "scripts/toolchain-parity.ts!",   // `bun run barra:toolchain`
         // Does the PTY bridge boot and open a terminal on THIS platform?
         // `node scripts/pty-bridge-probe.mjs`, or on the Windows PC
         // `tools/topwin run "node scripts\\pty-bridge-probe.mjs"`. Run by hand:
