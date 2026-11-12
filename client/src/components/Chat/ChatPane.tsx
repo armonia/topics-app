@@ -1548,7 +1548,8 @@ function ChatPaneComponent({
   }, [promoteGoal, toast, tr]);
 
   const handleRetry = useCallback(() => {
-    const lastUserMsg = [...currentMessages].reverse().find(m => m.role === 'user');
+    // A row steered into a turn was already read by it: Retry resends what opened the turn.
+    const lastUserMsg = [...currentMessages].reverse().find(m => m.role === 'user' && !m.blocks?.some(b => b.kind === 'steered'));
     if (!lastUserMsg) return;
     const opts: { provider?: string; model?: string } = {};
     if (!isGlobalOrchestrator && providerOverride) {

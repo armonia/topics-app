@@ -42,6 +42,25 @@ export interface PersistedTurn {
    * longer knew which files it had read or edited, and started over.
    */
   toolCalls?: ToolCall[] | null;
+  /** The row's id: what a steered row's `steeredInto` names. */
+  id?: string;
+  /**
+   * A person's row the turn of this assistant row read mid-turn (steer,
+   * CHAT-QUEUE-08). It is stored after that row, and read in that order it
+   * becomes an open question after the answer: it is put back before it.
+   */
+  steeredInto?: string | null;
+}
+
+/** Steered rows back before the turn that read them; a row whose turn is not in the thread stays where it is. */
+export function placeSteeredRows<T extends PersistedTurn>(thread: readonly T[]): T[] {
+  const out = thread.filter((r) => !(r.steeredInto && thread.some((x) => x.id === r.steeredInto)));
+  for (const row of thread) {
+    if (!row.steeredInto || out.includes(row)) continue;
+    const at = out.findIndex((x) => x.id === row.steeredInto);
+    if (at >= 0) out.splice(at, 0, row);
+  }
+  return out;
 }
 
 /** In the same shape the loop keeps in memory: prose or blocks. */
@@ -173,7 +192,7 @@ export function historyFromPersistedThread(
 ): RehydratedTurn[] {
   // Rule 1 (+5): stumps and placeholders out; tool calls expand into pairs.
   const rows: RehydratedTurn[] = [];
-  for (const row of thread) {
+  for (const row of placeSteeredRows(thread)) {
     const partial = row.partial === 1 || row.partial === true;
     const content = typeof row.content === "string" ? row.content : "";
     const calls = row.role === "assistant" && Array.isArray(row.toolCalls) ? row.toolCalls : [];
