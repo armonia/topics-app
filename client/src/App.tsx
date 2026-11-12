@@ -999,7 +999,7 @@ function App() {
     };
     window.addEventListener('topics:open-terminal-pane', handler as EventListener);
     return () => window.removeEventListener('topics:open-terminal-pane', handler as EventListener);
-  }, [handleTerminalClick]);
+  }, [handleTerminalClick, topicsRef]);
 
   // «Open in terminal» under a code block of a reply (CHAT-RUN-05): a shell
   // where that chat's agent works, with the command typed and not run. Same
