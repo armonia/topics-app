@@ -39,7 +39,7 @@ function readMcpFile(path: string): Record<string, { type?: string; url?: string
 }
 
 /** Minimal frontmatter reader: only `name` and `description`, one line each. */
-function frontmatter(text: string): { name?: string; description?: string } {
+function readSkillHeader(text: string): { name?: string; description?: string } {
   const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
   if (!m) return {};
   const pick = (key: string) => {
@@ -57,8 +57,8 @@ function readSkills(dir: string, sourceLabel: string): AgentToolSkill[] {
     const file = join(dir, entry, "SKILL.md");
     try {
       if (!statSync(file).isFile()) continue;
-      const fm = frontmatter(readFileSync(file, "utf-8"));
-      out.push({ name: fm.name || entry, description: fm.description || "", source: sourceLabel });
+      const header = readSkillHeader(readFileSync(file, "utf-8"));
+      out.push({ name: header.name || entry, description: header.description || "", source: sourceLabel });
     } catch { /* a folder without SKILL.md is not a skill */ }
   }
   return out;
