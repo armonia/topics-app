@@ -97,10 +97,12 @@ export class ApiHeadersTimeoutError extends ApiTransportError {
 }
 
 /**
- * How many header timeouts in a row a round tolerates before it gives up.
+ * How many header timeouts a round tolerates before it gives up, counted over
+ * the whole round: another failure in between does not reset the count, or a
+ * stray 503 every third attempt would let the round spend all its attempts
+ * at 90 s each (about forty minutes parked).
  * One is the measured case (a socket stuck in SYN_SENT: the next one works);
- * three in a row mean the address accepts and never answers, and at 90 s each
- * the full policy would park the turn for over forty minutes.
+ * three mean the address accepts and never answers.
  */
 export const MAX_HEADERS_TIMEOUTS = 3;
 
@@ -259,7 +261,7 @@ export async function retryRound<T>(run: (token: string) => Promise<T>, ctx: Ret
       if (signal?.aborted) throw err;
       const verdict = classifyFailure(err);
       const message = err instanceof Error ? err.message : String(err);
-      headersTimeouts = err instanceof ApiHeadersTimeoutError ? headersTimeouts + 1 : 0;
+      if (err instanceof ApiHeadersTimeoutError) headersTimeouts++;
       if (headersTimeouts >= MAX_HEADERS_TIMEOUTS) {
         throw new Error(exhaustedMessage(message, attempt, Date.now() - startedAt));
       }

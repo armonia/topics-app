@@ -45,3 +45,31 @@ export function anthropicBaseUrl(): string {
 export function anthropicMessagesUrl(): string {
   return `${anthropicBaseUrl()}/v1/messages`;
 }
+
+/** Switchboard's dashboard, where the account engine keeps its settings (same env as the hub bridge, `routes/hub.ts`). */
+const SWITCHBOARD_DASHBOARD_URL = "http://127.0.0.1:3335";
+/** The engine's own ceiling on a hold (`MAX_HOLD_MIN` in Switchboard): 24 h. */
+const ENGINE_HOLD_CEILING_MS = 24 * 60 * 60_000;
+const ENGINE_SETTINGS_TIMEOUT_MS = 3_000;
+
+/**
+ * How long the account engine behind the base URL may keep a request without
+ * answering, by design: with every account capped or rate-limited it parks the
+ * request for up to `usageCapHoldMin` minutes before any header, then answers
+ * or says 429. 0 when the base URL is Anthropic's own, when the engine holds
+ * nothing, or when its settings cannot be read within 3 s (a silent engine is
+ * not holding anything worth waiting for).
+ */
+export async function engineHoldMs(): Promise<number> {
+  if (anthropicBaseUrl() === DEFAULT_ANTHROPIC_BASE_URL) return 0;
+  if (process.env.TOPICS_E2E === "1" && !process.env.TOPICS_SWITCHBOARD_URL) return 0;
+  const base = (process.env.TOPICS_SWITCHBOARD_URL?.trim() || SWITCHBOARD_DASHBOARD_URL).replace(/\/+$/, "");
+  try {
+    const res = await fetch(`${base}/api/settings`, { signal: AbortSignal.timeout(ENGINE_SETTINGS_TIMEOUT_MS) });
+    if (!res.ok) return 0;
+    const minutes = Number((await res.json() as { usageCapHoldMin?: unknown }).usageCapHoldMin);
+    return Number.isFinite(minutes) && minutes > 0 ? Math.min(minutes * 60_000, ENGINE_HOLD_CEILING_MS) : 0;
+  } catch {
+    return 0;
+  }
+}

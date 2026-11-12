@@ -296,9 +296,12 @@ already accepted, producing the duplicate the idempotency key exists to prevent.
 The native runtime SHALL bound the wait for the response headers of every model
 call (90 s), apart from the person's Stop. When the bound expires it SHALL drop
 the socket and retry the call as a transport failure, on a new connection; it
-SHALL give up after three such expiries in a row and end the turn in error. The
-bound SHALL NOT cut a streamed body once the headers have arrived, and its
-expiry SHALL NOT read as a Stop.
+SHALL give up after three such expiries in the same call, counted across other
+failures in between, and end the turn in error. The bound SHALL NOT cut a
+streamed body once the headers have arrived, and its expiry SHALL NOT read as a
+Stop. When the endpoint is the local account engine and the engine declares a
+hold (it parks requests, without headers, while every account is capped), the
+wait SHALL extend on the same socket to that hold plus a margin.
 
 > **Why.** On 2026-11-11 a native turn ran 40+ minutes without a round: its
 > socket sat in `SYN_SENT` towards the local API proxy, the fetch had no limit
@@ -314,5 +317,10 @@ expiry SHALL NOT read as a Stop.
 #### Scenario: Stop during the wait
 - **GIVEN** a call waiting for its headers
 - **WHEN** the person presses Stop
-- **THEN** the turn is cancelled, and no retry is announced
+- **THEN** the turn is cancelled at once, and no retry is announced
+
+#### Scenario: The account engine holds the request
+- **GIVEN** the local account engine declares a hold of N minutes and answers after the headers bound
+- **WHEN** a native turn calls it
+- **THEN** the call waits on the same connection and the turn completes, with no retry
 

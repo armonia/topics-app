@@ -51,7 +51,7 @@ import { stopCauseFromSignal } from "../stop-reason";
 import { splitLongWindow, betaHeader, spiegaErrore } from "./long-window";
 import { thinkingConfigFor, DEFAULT_MAX_TOKENS } from "../../lib/native-parity";
 import type { LifecycleHookRunner } from "../../services/lifecycle-hooks";
-import { anthropicMessagesUrl } from "./base-url";
+import { anthropicMessagesUrl, engineHoldMs } from "./base-url";
 
 const API_VERSION = "2023-06-01";
 
@@ -348,9 +348,15 @@ function apiHeaders(token: string, longWindow: boolean): Record<string, string> 
  *
  * 90 s, not less: the headers of a streamed answer can wait for the prompt to
  * be read, and a long-window request with a cold cache takes tens of seconds
- * before the first byte. Beyond that nothing healthy is still connecting.
+ * before the first byte. The one healthy wait beyond that is the account
+ * engine parking a request while every account is capped (`engineHoldMs`):
+ * when the timer fires the engine is asked, and a hold it declares extends the
+ * wait on the same socket instead of cutting it.
  */
 export const API_HEADERS_TIMEOUT_MS = 90_000;
+
+/** Added to an engine's declared hold: its own 429 must reach us before our cut. */
+const ENGINE_HOLD_MARGIN_MS = 60_000;
 
 /** The line the keep-alive puts after the history. Nobody answers it: the request is dropped at `message_start`. */
 const KEEP_ALIVE_PROMPT = "(prompt cache keep-alive, no answer needed)";
@@ -436,7 +442,24 @@ async function streamOnce(
   // `opts.signal`, so it can never read as a Stop.
   const headersTimeoutMs = opts.headersTimeoutMs ?? API_HEADERS_TIMEOUT_MS;
   const headersCut = new AbortController();
-  const headersTimer = setTimeout(() => headersCut.abort(), headersTimeoutMs);
+  let headersSettled = false;
+  let headersExtended = false;
+  const onHeadersTimer = () => {
+    // Second firing, or nothing to ask: cut.
+    if (headersExtended) { headersCut.abort(); return; }
+    headersExtended = true;
+    void engineHoldMs().then((holdMs) => {
+      if (headersSettled) return;
+      if (holdMs <= 0) { headersCut.abort(); return; }
+      console.warn(
+        `[native] no response headers from ${apiUrl} within ${headersTimeoutMs}ms, but the account engine may hold`
+        + ` a request up to ${Math.round(holdMs / 60_000)} min (session_key=${opts.sessionId ?? "unknown"}): waiting on the same socket`,
+      );
+      headersTimer = setTimeout(onHeadersTimer, holdMs + ENGINE_HOLD_MARGIN_MS);
+    }, () => headersCut.abort());
+  };
+  let headersTimer = setTimeout(onHeadersTimer, headersTimeoutMs);
+  const headersWaitStartedAt = Date.now();
   const signal = opts.signal ? AbortSignal.any([opts.signal, headersCut.signal]) : headersCut.signal;
   try {
     res = await fetch(apiUrl, {
@@ -448,12 +471,13 @@ async function streamOnce(
   } catch (err) {
     // Stop wins over the timer: when both fired, it is a cancellation.
     if (headersCut.signal.aborted && !opts.signal?.aborted) {
+      const waitedMs = Date.now() - headersWaitStartedAt;
       console.warn(
-        `[native] no response headers from ${apiUrl} within ${headersTimeoutMs}ms`
+        `[native] no response headers from ${apiUrl} within ${waitedMs}ms`
         + ` (session_key=${opts.sessionId ?? "unknown"}): dropping the socket and retrying`,
       );
       throw new ApiHeadersTimeoutError(
-        `API did not answer at ${apiUrl}: no response headers within ${Math.round(headersTimeoutMs / 1000)}s`,
+        `API did not answer at ${apiUrl}: no response headers within ${Math.round(waitedMs / 1000)}s`,
       );
     }
     // No status, no event: the connection itself failed. Nothing has been
@@ -465,6 +489,7 @@ async function streamOnce(
   } finally {
     // Headers arrived (or the fetch failed): from here on only `opts.signal`
     // governs the body, so a long round is never cut by this timer.
+    headersSettled = true;
     clearTimeout(headersTimer);
   }
 
