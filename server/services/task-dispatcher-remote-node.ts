@@ -868,7 +868,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     const task = svc.get(taskId)?.task;
     if (!task) return;
     const branch = report.deliveryBranch;
-    let planted: PlantBranchResult = { planted: false, commit: null, reason: report.reason || "il nodo non ha consegnato nessun ramo" };
+    let planted: PlantBranchResult = {
+      planted: false, commit: null, commitCount: 0, reason: report.reason || "il nodo non ha consegnato nessun ramo",
+    };
     if (branch) {
       let bundle: Uint8Array | null = null;
       let fetchFailed: string | null = null;
@@ -882,12 +884,12 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         log(`nodo: bundle della corsa ${node.runId} non scaricato`, err);
       }
       planted = fetchFailed
-        ? { planted: false, commit: null, reason: fetchFailed }
+        ? { planted: false, commit: null, commitCount: 0, reason: fetchFailed }
         : await client
           .plantBranch({ projectId: task.projectId, branch, baseSha: report.baseSha, bundle })
           .catch((err): PlantBranchResult => {
             log(`nodo: impianto del ramo ${branch} fallito`, err);
-            return { planted: false, commit: null, reason: "l'impianto del ramo è fallito su questa macchina" };
+            return { planted: false, commit: null, commitCount: 0, reason: "l'impianto del ramo è fallito su questa macchina" };
           });
       if (planted.planted) {
         try {
@@ -910,7 +912,13 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       }
     }
     const fresh = svc.get(taskId)?.task;
-    const producedNothing = planted.planted ? !!fresh && !fresh.deliveryCommit : !branch && !report.reason && !report.dispatchError;
+    // The planted branch's own commit COUNT above its base, not the run's: a
+    // run that adds nothing to a branch already ahead of main is a delivery
+    // the review door must see, and `commitCount` answers that regardless of
+    // what THIS run's own-commit capture could attribute to it.
+    const producedNothing = planted.planted
+      ? !!fresh && planted.commitCount === 0
+      : !branch && !report.reason && !report.dispatchError;
     if (fresh && producedNothing && returnEmptyNodeRunToTodo({ svc, releaseAndEmit, emit, log }, fresh, name)) return;
     const reason = planted.planted
       ? `Consegnato dal nodo «${name}»: il ramo \`${branch}\` è stato piantato in questo checkout` +

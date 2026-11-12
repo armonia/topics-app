@@ -56,6 +56,14 @@ export interface NodesRouterOpts {
   taskModelSnapshot?: () => ProvidersSnapshot | null;
   /** Shared server-side retry loop; tests may omit it and get the same service locally. */
   revocations?: DelegatedRevocationRetry;
+  /**
+   * The worktree THIS run is dispatched on, when this machine still has one.
+   * `branchName` is the branch the worktree was BORN on (KANBAN-76 part 2):
+   * an agent that checks out a new branch inside it leaves that name stale,
+   * so it is read here against the worktree's actual HEAD rather than
+   * trusted on its own.
+   */
+  worktreeOfTask?: (taskId: string) => { absPath: string; branchName: string | null; mode: "branch" | "reuse" | "detached" } | null;
 }
 
 /**
@@ -94,6 +102,29 @@ function normalizeRemoteUrl(raw: unknown): string | null {
 function statOf(task: Task): { filesChanged: number; insertions: number; deletions: number } | null {
   if (task.deliveryFilesChanged === null || task.deliveryInsertions === null || task.deliveryDeletions === null) return null;
   return { filesChanged: task.deliveryFilesChanged, insertions: task.deliveryInsertions, deletions: task.deliveryDeletions };
+}
+
+/**
+ * The run's worktree checked out a branch other than the one it was born on
+ * (KANBAN-76 part 2): an agent that ran `git checkout -b` inside it left the
+ * registered name pointing at the OLD tip, and bundling that name would hand
+ * the origin board a branch planted on the run's real work's base — a
+ * delivery that reads as empty while the work sits one `git log` away.
+ *
+ * `null` = no mismatch (or nothing to check: no worktree here, a `reuse` or
+ * `detached` worktree has no branch of its own to compare).
+ */
+export async function nodeRunHeadMismatch(
+  runGit: GitRunner,
+  worktreeOfTask: ((taskId: string) => { absPath: string; branchName: string | null; mode: "branch" | "reuse" | "detached" } | null) | undefined,
+  taskId: string,
+): Promise<string | null> {
+  const wt = worktreeOfTask?.(taskId);
+  if (!wt || wt.mode !== "branch" || !wt.branchName) return null;
+  const head = await runGit(wt.absPath, ["symbolic-ref", "--short", "-q", "HEAD"]);
+  const headBranch = head.code === 0 ? head.stdout.trim() : "";
+  if (!headBranch || headBranch === wt.branchName) return null;
+  return `il worktree della corsa è passato al ramo \`${headBranch}\`, non più su \`${wt.branchName}\`: non consegno il ramo registrato come se fosse nuovo, sistemalo a mano sul nodo.`;
 }
 
 /**
@@ -673,7 +704,8 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       if (!got) return json({ error: "run not found", code: "not_found" }, 404);
       const repoPath = repoPathOf(got.task);
       if (!repoPath) return json({ error: "project of the run has no checkout", code: "repo_unresolved" }, 409);
-      const branch = got.task.deliveryBranch;
+      const mismatch = await nodeRunHeadMismatch(runGit, opts.worktreeOfTask, got.task.id);
+      const branch = mismatch ? null : got.task.deliveryBranch;
       // A ref that starts with "-" would be read by git as an option. The
       // value comes from our own row, but a bundle is the one place where a
       // stray name turns into a flag on a subprocess.
@@ -706,7 +738,8 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       const task = await confinedRun(req, delegatedBundle.id);
       if (!task) return json({ error: "run not found", code: "not_found" }, 404);
       const repoPath = repoPathOf(task)!;
-      const branch = task.deliveryBranch;
+      const mismatch = await nodeRunHeadMismatch(runGit, opts.worktreeOfTask, task.id);
+      const branch = mismatch ? null : task.deliveryBranch;
       if (branch && branch.startsWith("-")) return json({ error: "invalid delivery branch", code: "invalid_input" }, 400);
       const facts = await deliveryFacts(runGit, repoPath, branch);
       if (!branch || facts.commitCount === 0 || !facts.baseSha) return json({ empty: true, baseSha: facts.baseSha });
@@ -734,18 +767,21 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
           .filter((c) => !since || c.createdAt >= since)
           .map((c) => ({ id: c.id, author: c.author, content: c.content, kind: c.kind, createdAt: c.createdAt }));
         const repoPath = repoPathOf(task);
-        const facts = repoPath ? await deliveryFacts(runGit, repoPath, task.deliveryBranch) : { baseSha: null, commitCount: 0 };
+        const mismatch = await nodeRunHeadMismatch(runGit, opts.worktreeOfTask, task.id);
+        const branch = mismatch ? null : task.deliveryBranch;
+        const facts = repoPath ? await deliveryFacts(runGit, repoPath, branch) : { baseSha: null, commitCount: 0 };
         return json({
           runId: task.id,
           status: task.status,
           dispatchState: task.dispatchState,
           dispatchError: task.dispatchError,
           comments,
-          deliveryBranch: task.deliveryBranch,
-          deliveryCommit: task.deliveryCommit,
+          deliveryBranch: branch,
+          deliveryCommit: mismatch ? null : task.deliveryCommit,
           baseSha: facts.baseSha,
           commitCount: facts.commitCount,
           stat: statOf(task),
+          reason: mismatch,
         });
       }
       if (method === "DELETE") {
@@ -775,12 +811,14 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
             kind: comment.kind, createdAt: comment.createdAt,
           }));
         const repoPath = repoPathOf(task)!;
-        const facts = await deliveryFacts(runGit, repoPath, task.deliveryBranch);
+        const mismatch = await nodeRunHeadMismatch(runGit, opts.worktreeOfTask, task.id);
+        const branch = mismatch ? null : task.deliveryBranch;
+        const facts = await deliveryFacts(runGit, repoPath, branch);
         return json({
           runId: task.id, status: task.status, dispatchState: task.dispatchState,
-          dispatchError: task.dispatchError, comments, deliveryBranch: task.deliveryBranch,
-          deliveryCommit: task.deliveryCommit, baseSha: facts.baseSha,
-          commitCount: facts.commitCount, stat: statOf(task),
+          dispatchError: task.dispatchError, comments, deliveryBranch: branch,
+          deliveryCommit: mismatch ? null : task.deliveryCommit, baseSha: facts.baseSha,
+          commitCount: facts.commitCount, stat: statOf(task), reason: mismatch,
         });
       }
       if (method === "DELETE") {

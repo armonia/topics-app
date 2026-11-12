@@ -515,6 +515,7 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
         deliveryCommit: typeof out.deliveryCommit === "string" ? out.deliveryCommit : null,
         baseSha: typeof out.baseSha === "string" ? out.baseSha : null,
         stat: out.stat ?? null,
+        reason: typeof out.reason === "string" ? out.reason : null,
       };
     },
 
