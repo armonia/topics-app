@@ -109,11 +109,13 @@ export function isAgentAuthor(author: string | null | undefined): boolean {
 
 /**
  * The same predicate for SQL, over `column` (a trusted identifier, never user
- * input). Mirrors `isAgentAuthor`: trimmed, case-insensitive, NULL is an agent.
+ * input). Mirrors `isAgentAuthor`: trimmed of space, tab and line breaks (SQLite
+ * TRIM alone strips only spaces, so '	user' would diverge from JS),
+ * case-insensitive, NULL is an agent.
  */
 export function agentAuthorSql(column = 'author'): string {
   const roles = RESERVED_AUTHORS.map((role) => `'${role}'`).join(', ');
-  const normalized = `LOWER(TRIM(COALESCE(${column}, '')))`;
+  const normalized = `LOWER(TRIM(COALESCE(${column}, ''), ' ' || char(9) || char(10) || char(13)))`;
   return `(${normalized} NOT IN (${roles}) AND ${normalized} NOT LIKE '${GUEST_AUTHOR_PREFIX}%')`;
 }
 

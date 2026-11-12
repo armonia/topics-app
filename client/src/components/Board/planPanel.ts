@@ -1,3 +1,4 @@
+import { isAgentAuthor } from '../../../../shared/comment-author';
 import { hasPlanApproveOption, parseQuestionBlock, type TaskComment } from '../../lib/board';
 
 /**
@@ -33,7 +34,7 @@ export function pickPlanComment(
   // Senza puntatore la ricaduta vale solo su una card ancora viva.
   if (task.status === 'done' || task.status === 'archived') return null;
   return [...speech].reverse().find((c) => (
-    c.author !== 'user' && c.author !== 'system'
+    isAgentAuthor(c.author)
     && hasPlanApproveOption(parseQuestionBlock(c.content)?.options ?? [])
   )) ?? null;
 }

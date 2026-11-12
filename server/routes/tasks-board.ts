@@ -1189,7 +1189,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
               try {
                 svc.addComment({
                   taskId: bComments.taskId,
-                  author: "agent",
+                  author: "system",
                   content: "Questa risposta era per una domanda che non e' piu' quella aperta su questa card: non e' stata consegnata e non e' partito niente. La domanda aperta adesso e' un'altra.",
                   projectId: bComments.projectId,
                   origin: actionOrigin,
@@ -1227,7 +1227,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           try {
             svc.addComment({
               taskId: bComments.taskId,
-              author: "agent",
+              author: "system",
               content: DEAD_QUESTION_LINE,
               projectId: bComments.projectId,
               origin: actionOrigin,

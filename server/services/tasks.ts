@@ -79,7 +79,7 @@ import { sliceCodePoints } from "../lib/code-points";
 import { allWideRows } from "../lib/wide-rows";
 import type { Task, CreateTaskInput, UpdateTaskPatch, ListTasksInput } from "./task-shapes";
 
-import { agentAuthorSql } from "../../shared/comment-author";
+import { agentAuthorSql, isAgentAuthor } from "../../shared/comment-author";
 import { markTargetNotificationsSeen } from "../db/notification-log";
 import { withCardAttention } from "../attention/card-sync";
 import {
@@ -4913,7 +4913,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // dall'umano). Un piano rifatto dopo «Da rivedere» porta le stesse opzioni
       // e quindi RIMPIAZZA il puntatore; una rettifica qualunque, o la consegna
       // con «Landa su main», non lo toccano.
-      if (isPlanDelivery && row.plan_first && author !== "user" && author !== "system") {
+      if (isPlanDelivery && row.plan_first && isAgentAuthor(author)) {
         db.prepare("UPDATE tasks SET plan_comment_id = ? WHERE id = ?").run(id, taskId);
       }
       // Evidence attached AFTER the review transition (review-first delivery
