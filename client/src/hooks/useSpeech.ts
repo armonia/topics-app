@@ -519,6 +519,7 @@ export function useVoiceCall(
   // would stop the getUserMedia stream if the component just goes away.
   useEffect(() => {
     return () => {
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- a plain generation counter, not a DOM node: the cleanup must bump the live value
       callGenRef.current++;
       isCallActiveRef.current = false;
       vadRef.current?.stop();
