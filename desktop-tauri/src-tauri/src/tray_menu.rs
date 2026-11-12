@@ -34,29 +34,34 @@ fn sub(label: impl Into<String>, children: Vec<Node>) -> Node {
 #[derive(Debug, Default, Clone)]
 pub struct Snapshot {
     pub board: Option<String>,
-    pub machines: Option<String>,
+    pub overview: Option<String>,
+    pub heavy: Option<String>,
     pub procs: Option<String>,
     pub automations: Option<String>,
     pub live: Option<String>,
     pub gates: Option<String>,
-    /// Content of `state/backup-mac.json`, read from disk so it survives a dead service.
+    /// Content of the backup state file, read from disk so it survives a dead service.
     pub backup: Option<String>,
+    /// A backup state file is configured on this machine: only then the backup row exists.
+    pub backup_set: bool,
 }
 
 impl Snapshot {
     pub fn fetch(base: &str, backup_path: Option<&std::path::Path>) -> Self {
         Snapshot {
             board: http_get(base, "/api/board"),
-            machines: http_get(base, "/api/machines"),
+            overview: http_get(base, "/api/overview"),
+            heavy: http_get(base, "/api/heavy"),
             procs: http_get(base, "/api/mac/procs"),
             automations: http_get(base, "/api/automations/summary"),
             live: http_get(base, "/api/live"),
             gates: http_get(base, "/api/gates"),
             backup: backup_path.and_then(|p| std::fs::read_to_string(p).ok()),
+            backup_set: backup_path.is_some(),
         }
     }
     pub fn service_up(&self) -> bool {
-        self.board.is_some() || self.machines.is_some() || self.gates.is_some() || self.procs.is_some()
+        self.board.is_some() || self.overview.is_some() || self.gates.is_some() || self.procs.is_some()
     }
 }
 
@@ -72,13 +77,16 @@ fn n(v: &Value, k: &str) -> f64 {
 
 // ------------------------------------------------------------------ backup
 
-/// Where the backup state file lives; overridable for tests.
+/// Where the backup state file lives: an environment override (tests) or the
+/// `backupState` key of the tray preferences. Nothing is guessed from the home
+/// directory: a machine with no such setting simply has no backup row.
 pub fn backup_state_path() -> Option<std::path::PathBuf> {
     if let Ok(p) = std::env::var("TOPICS_BACKUP_STATE") {
         return Some(p.into());
     }
-    let home = std::env::var_os("HOME")?;
-    Some(std::path::Path::new(&home).join(".claude/jarvis/state/backup-mac.json"))
+    let text = std::fs::read_to_string(prefs_path()?).ok()?;
+    let v: Value = serde_json::from_str(&text).ok()?;
+    v.get("backupState").and_then(Value::as_str).filter(|p| !p.is_empty()).map(Into::into)
 }
 
 fn day_word(now: i64, at: i64) -> String {
@@ -171,7 +179,7 @@ pub fn procs_nodes(body: &Option<String>) -> Vec<Node> {
     let (sys, mut real): (Vec<&Value>, Vec<&Value>) = units.iter().partition(|u| s(u, "type") == "macos");
     real.sort_by(|a, b| n(b, "memMB").partial_cmp(&n(a, "memMB")).unwrap_or(std::cmp::Ordering::Equal));
     let total: f64 = real.iter().map(|u| n(u, "memMB")).sum();
-    let mut out = vec![note(format!("GIRA ADESSO · {} · {}", real.len(), mem_text(total)))];
+    let mut out = vec![note(format!("GIRA ADESSO · {} · {}", real.len(), mem_text(total))), item("open:processes", "Apri Processi (cerca, ordina)…"), Node::Sep];
     for u in real.iter().take(PROCS_SHOWN) {
         let mut children = vec![note(format!(
             "{} // {}",
@@ -231,30 +239,19 @@ pub fn leftover_pids(body: &Option<String>) -> Vec<u32> {
 
 // ------------------------------------------------------------------ the menu
 
-fn machine_nodes(body: &Option<String>) -> Vec<Node> {
-    let v = parse(body);
-    let Some(ms) = v.as_array() else { return vec![note("Mac e PC: il servizio non risponde")] };
-    ms.iter()
-        .filter(|m| s(m, "id") != "hetzner")
-        .map(|m| {
-            let mut kids = vec![note(format!("{} · {}", s(m, "state"), s(m, "caption")))];
-            for l in m.get("lines").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
-                kids.push(note(l));
-            }
-            for x in m.get("metrics").and_then(Value::as_array).into_iter().flatten() {
-                let on = m.get("on").and_then(Value::as_bool).unwrap_or(true);
-                if on {
-                    kids.push(note(format!("{} {}% · {}", s(x, "name"), n(x, "pct") as i64, s(x, "note"))));
-                }
-            }
-            let head = format!("{} · {}", s(m, "name"), if m.get("on").and_then(Value::as_bool).unwrap_or(true) { s(m, "state") } else { "spento" });
-            sub(head, kids)
-        })
-        .collect()
+/// The 5-hour window of one account, from the overview, when the preference asks for it.
+fn five_hour_row(overview: &Value, label: &str) -> Option<Node> {
+    let acc = overview.get("providers")?.as_array()?.iter()
+        .flat_map(|p| p.get("accounts").and_then(Value::as_array).cloned().unwrap_or_default())
+        .find(|a| s(a, "label") == label)?;
+    let q = acc.get("quotas")?.as_array()?.iter().find(|q| s(q, "key").eq_ignore_ascii_case("5h"))?;
+    let reset = Some(s(q, "resetText")).filter(|t| !t.is_empty()).map(|t| format!(" · libera tra {t}")).unwrap_or_default();
+    Some(note(format!("5 ore {}%{reset}", n(q, "usedPct") as i64)))
 }
 
-fn quota_nodes(board: &Option<String>) -> Vec<Node> {
+fn quota_nodes(board: &Option<String>, overview: &Option<String>, prefs: Prefs) -> Vec<Node> {
     let v = parse(board);
+    let ov = parse(overview);
     let Some(accs) = v.get("accounts").and_then(Value::as_array) else { return vec![note("Quote: il servizio non risponde")] };
     let mut out = Vec::new();
     for a in accs {
@@ -263,9 +260,100 @@ fn quota_nodes(board: &Option<String>) -> Vec<Node> {
         if let Some(t) = a.get("access").map(|x| s(x, "say")).filter(|t| !t.is_empty()) {
             kids.push(note(t));
         }
+        if prefs.five_hour {
+            kids.extend(five_hour_row(&ov, s(a, "label")));
+        }
         let offline = a.get("access").map_or(false, |x| s(x, "state") != "ok");
         let label = format!("{} · {}% · {}{}", s(a, "label"), n(a, "used") as i64, s(&g, "short"), if offline { " · non risponde" } else { "" });
         out.push(sub(label, kids));
+    }
+    out
+}
+
+/// «Ritmo di oggi»: the last 24 hours of each account against what it can spend per day.
+fn pace_nodes(heavy: &Option<String>) -> Vec<Node> {
+    let v = parse(heavy);
+    let Some(rows) = v.get("today").and_then(Value::as_array) else { return Vec::new() };
+    let kids: Vec<Node> = rows
+        .iter()
+        .filter(|r| n(r, "perDay") > 0.0)
+        .map(|r| {
+            let x = n(r, "last24h") / n(r, "perDay");
+            note(format!("{} · {:.0}% in 24 h · ok {:.0}% · {:.1}×", s(r, "account"), n(r, "last24h"), n(r, "perDay"), x).replace('.', ","))
+        })
+        .collect();
+    if kids.is_empty() { Vec::new() } else { vec![sub("Ritmo di oggi", kids)] }
+}
+
+/// Renewals (from the plans) and, per the preferences, API credit and cloud bonus / AI credit.
+fn extras_nodes(overview: &Option<String>, prefs: Prefs) -> Vec<Node> {
+    let v = parse(overview);
+    let mut out = Vec::new();
+    if let Some(plans) = v.get("plans").and_then(Value::as_object) {
+        let mut kids: Vec<Node> = plans
+            .iter()
+            .filter_map(|(who, p)| {
+                let to = p.get("period").map(|x| s(x, "to")).filter(|t| !t.is_empty())?;
+                Some(note(format!("{who} · {} · {} · rinnovo {to}", s(p, "plan"), s(p, "price"))))
+            })
+            .collect();
+        if !kids.is_empty() {
+            kids.sort_by_key(|k| if let Node::Item { label, .. } = k { label.clone() } else { String::new() });
+            out.push(sub("Rinnovi", kids));
+        }
+    }
+    if prefs.api_credit {
+        if let Some(line) = v.get("apiSpend").map(|x| s(x, "line")).filter(|l| !l.is_empty()) {
+            out.push(note(line));
+        }
+    }
+    if prefs.cloud_bonus {
+        if let Some(credits) = v.get("credits").and_then(Value::as_object) {
+            let mut kids = Vec::new();
+            for (who, c) in credits {
+                if c.get("nobonus").and_then(Value::as_bool) == Some(true) {
+                    continue;
+                }
+                if let (Some(left), Some(lim)) = (c.get("remaining").and_then(Value::as_f64), c.get("limit").and_then(Value::as_f64)) {
+                    if lim > 0.0 {
+                        let renews = Some(s(c, "renewsAt")).filter(|t| !t.is_empty()).map(|t| format!(" · scade {t}")).unwrap_or_default();
+                        kids.push(note(format!("Bonus {who} · {:.0} su {:.0} rimasti{renews}", left, lim)));
+                    }
+                }
+                for m in c.get("models").and_then(Value::as_array).into_iter().flatten() {
+                    kids.push(note(format!("{who} · {} {}%", s(m, "name"), n(m, "pct") as i64)));
+                }
+            }
+            if !kids.is_empty() {
+                out.push(sub("Credito AI e bonus cloud", kids));
+            }
+        }
+    }
+    out
+}
+
+/// Jobs, sessions and Topics chats of one project; a session that is open somewhere opens there.
+fn project_work_nodes(p: &Value) -> Vec<Node> {
+    let mut out = Vec::new();
+    let list = p.get("agents").and_then(|a| a.get("list")).and_then(Value::as_array).cloned().unwrap_or_default();
+    for a in list.iter().take(6) {
+        let title = Some(s(a, "title")).filter(|t| !t.is_empty()).unwrap_or("sessione");
+        let url = a.get("open").map(|o| s(o, "url")).unwrap_or("");
+        if url.is_empty() {
+            out.push(note(format!("{} · {}", s(a, "kind"), title)));
+        } else {
+            out.push(item(&format!("session-open:{url}"), format!("{} · {}", s(a, "kind"), title)));
+        }
+    }
+    for t in p.get("topics").and_then(Value::as_array).into_iter().flatten().take(6) {
+        let title = Some(s(t, "title")).filter(|x| !x.is_empty()).or(Some(s(t, "name")).filter(|x| !x.is_empty())).unwrap_or("chat");
+        out.push(note(format!("Chat Topics · {title}")));
+    }
+    if let Some(j) = p.get("lastJob").filter(|j| !j.is_null()) {
+        out.push(note(format!("Ultimo lavoro · {} · {}", s(j, "task"), s(j, "status"))));
+    }
+    if !out.is_empty() {
+        out.push(Node::Sep);
     }
     out
 }
@@ -293,8 +381,9 @@ fn project_nodes(live: &Option<String>) -> Vec<Node> {
                 kids.push(item(&format!("proj-priority:{name}:{pr}"), format!("Priorità {pr}{}", if pr == cur { " ✓" } else { "" })));
             }
             kids.push(Node::Sep);
+            kids.extend(project_work_nodes(p));
             kids.push(item(&format!("proj-open:{name}"), "Apri in Topics"));
-            let shown = p.get("display").and_then(Value::as_str).filter(|d| !d.is_empty()).unwrap_or(name);
+            let shown = p.get("title").and_then(Value::as_str).filter(|d| !d.is_empty()).or(p.get("display").and_then(Value::as_str).filter(|d| !d.is_empty())).unwrap_or(name);
             sub(format!("{shown} · {:.1}%", n(p, "total")), kids)
         })
         .collect()
@@ -310,7 +399,8 @@ fn brake_nodes(gates: &Option<String>) -> Vec<Node> {
     let hold = ov.iter().any(|o| o.get("hold").and_then(Value::as_bool) == Some(true));
     if let Some(provs) = v.get("providers").and_then(Value::as_object) {
         for (id, p) in provs {
-            let unlocked = ov.iter().any(|o| s(o, "provider") == id && o.get("hold").and_then(Value::as_bool) != Some(true));
+            // An exhausted entry is spent: the service does not remove it on DELETE, so it is no revocable unlock.
+            let unlocked = ov.iter().any(|o| s(o, "provider") == id && o.get("hold").and_then(Value::as_bool) != Some(true) && o.get("exhausted").and_then(Value::as_bool) != Some(true));
             out.push(note(format!("{id}: {}", s(p, "state"))));
             if unlocked {
                 out.push(item(&format!("brake-unlock-off:{id}"), format!("Togli lo sblocco di {id}")));
@@ -383,34 +473,40 @@ fn automation_nodes(body: &Option<String>) -> Vec<Node> {
 }
 
 /// The whole hub part of the menu. The caller adds the Topics rows (attention, board, show, quit).
-pub fn build_menu(snap: &Snapshot, prefs: Prefs, now: i64) -> Vec<Node> {
+/// `ever_answered`: the service has answered at least once since launch. Until then a machine
+/// with no usage service gets no hub section at all (no «offline» row on a plain Topics install).
+pub fn build_menu(snap: &Snapshot, prefs: Prefs, now: i64, ever_answered: bool) -> Vec<Node> {
     let mut m = Vec::new();
-    if !snap.service_up() {
-        m.push(note("Servizio quote: offline"));
-    } else {
-        m.extend(quota_nodes(&snap.board));
+    if snap.service_up() {
+        m.extend(quota_nodes(&snap.board, &snap.overview, prefs));
+        m.extend(pace_nodes(&snap.heavy));
         m.push(Node::Sep);
-        m.push(sub("Mac e PC", machine_nodes(&snap.machines)));
         m.push(sub("Processi", procs_nodes(&snap.procs)));
         m.push(sub("Progetti", project_nodes(&snap.live)));
         m.push(Node::Sep);
         let mut more = brake_nodes(&snap.gates);
         more.push(Node::Sep);
+        more.extend(extras_nodes(&snap.overview, prefs));
         more.push(item("pref:five-hour", tick("Fascia 5 ore", prefs.five_hour)));
         more.push(item("pref:api-credit", tick("Credito API", prefs.api_credit)));
         more.push(item("pref:cloud-bonus", tick("Bonus cloud", prefs.cloud_bonus)));
         m.push(sub("Altri abbonamenti e opzioni", more));
         m.extend(automation_nodes(&snap.automations));
+    } else if ever_answered {
+        m.push(note("Servizio quote: offline"));
     }
-    // The backup row reads a file, so it stays when the service is down.
-    let lines = backup_lines(snap.backup.as_deref(), now);
-    let mut it = lines.into_iter();
-    let head = it.next().unwrap_or_default();
-    m.push(sub(head, it.map(note).collect()));
+    // The backup row reads a file, so it stays when the service is down; no file configured, no row.
+    if snap.backup_set {
+        let lines = backup_lines(snap.backup.as_deref(), now);
+        let mut it = lines.into_iter();
+        let head = it.next().unwrap_or_default();
+        m.push(sub(head, it.map(note).collect()));
+    }
     m
 }
 
-/// One line per node, children indented; the bar scripts read this.
+/// One line per node, children indented; the bar scripts read this (through the dump test).
+#[cfg(test)]
 pub fn dump_text(nodes: &[Node]) -> String {
     fn go(nodes: &[Node], depth: usize, out: &mut String) {
         for nd in nodes {
@@ -435,7 +531,9 @@ pub fn dump_text(nodes: &[Node]) -> String {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     Http { method: &'static str, path: String, body: Option<Value> },
-    ClosePids { name: String, pids: Vec<u32> },
+    /// `unit`: the census id to re-read before closing; `None` = the leftovers group.
+    ClosePids { name: String, unit: Option<String>, pids: Vec<u32> },
+    OpenUrl(String),
     TogglePref(String),
     Open(String),
 }
@@ -453,7 +551,7 @@ pub fn action_for(id: &str, procs: &Option<String>) -> Option<Action> {
         "brake-hold" => return http("POST", "/api/hold", Some(json!({"hours": 1, "by": "tray"}))),
         "brake-hold-off" => return http("DELETE", "/api/hold", None),
         "proc-close-leftovers" => {
-            return Some(Action::ClosePids { name: "i resti senza padrone".into(), pids: leftover_pids(procs) });
+            return Some(Action::ClosePids { name: "i resti senza padrone".into(), unit: None, pids: leftover_pids(procs) });
         }
         _ => {}
     }
@@ -469,7 +567,15 @@ pub fn action_for(id: &str, procs: &Option<String>) -> Option<Action> {
     }
     if let Some(u) = id.strip_prefix("proc-close:") {
         let (name, pids) = unit_pids(procs, u)?;
-        return Some(Action::ClosePids { name, pids });
+        return Some(Action::ClosePids { name, unit: Some(u.to_string()), pids });
+    }
+    if let Some(name) = id.strip_prefix("proj-open:") {
+        return Some(Action::Open(format!("project:{name}")));
+    }
+    if let Some(url) = id.strip_prefix("session-open:") {
+        // Only addresses of the places a session lives in; nothing else is handed to the system.
+        let ok = ["claude://", "https://", "http://127.0.0.1", "http://localhost"].iter().any(|p| url.starts_with(p));
+        return ok.then(|| Action::OpenUrl(url.to_string()));
     }
     if let Some(k) = id.strip_prefix("pref:") {
         return Some(Action::TogglePref(k.into()));
@@ -497,6 +603,32 @@ pub fn http_send(base: &str, method: &str, path: &str, body: Option<&Value>) -> 
     let _ = st.read_to_end(&mut buf);
     let text = String::from_utf8_lossy(&buf);
     text.split_whitespace().nth(1).map_or(false, |c| c.starts_with('2'))
+}
+
+/// The pids that may still be closed once the person said yes: the ones the menu showed AND
+/// that a census read just now still lists for the same unit (a pid that left or was reused
+/// by another process is not in it).
+pub fn still_closable(fresh: &Option<String>, unit: Option<&str>, shown: &[u32]) -> Vec<u32> {
+    let now: Vec<u32> = match unit {
+        Some(u) => unit_pids(fresh, u).map(|(_, p)| p).unwrap_or_default(),
+        None => leftover_pids(fresh),
+    };
+    shown.iter().copied().filter(|p| now.contains(p)).collect()
+}
+
+/// The close, after the dialog: nothing without a yes; with it, a fresh census decides the pids.
+pub fn close_confirmed(
+    confirmed: bool,
+    fresh_census: impl FnOnce() -> Option<String>,
+    unit: Option<&str>,
+    shown: &[u32],
+    kill: impl FnOnce(&[u32]) -> usize,
+) -> usize {
+    if !confirmed {
+        return 0;
+    }
+    let pids = still_closable(&fresh_census(), unit, shown);
+    if pids.is_empty() { 0 } else { kill(&pids) }
 }
 
 /// SIGTERM, never SIGKILL: the process gets to save. Only pids the census listed as closable.
@@ -578,7 +710,7 @@ mod tests {
     #[test]
     fn close_needs_a_closable_unit_and_lists_its_pids() {
         let p = Some(PROCS.to_string());
-        assert_eq!(action_for("proc-close:agent:1", &p), Some(Action::ClosePids { name: "Claude · alpha".into(), pids: vec![91001, 91002] }));
+        assert_eq!(action_for("proc-close:agent:1", &p), Some(Action::ClosePids { name: "Claude · alpha".into(), unit: Some("agent:1".into()), pids: vec![91001, 91002] }));
         assert_eq!(action_for("proc-close:macos", &p), None);
         assert_eq!(action_for("proc-close:gone", &p), None);
         assert_eq!(leftover_pids(&p), vec![91050, 91051]);
@@ -631,30 +763,116 @@ mod tests {
         assert_eq!(backup_lines(None, now)[0], "Backup · nessun dato");
     }
 
+    const BOARD: &str = r#"{"accounts":[{"label":"Claude · a","used":39,"gauge":{"short":"frenato fino a lun","say":"Oggi consuma troppo."},"access":{"state":"ok","say":"Collegato dal 13 set."}},{"label":"Codex · b","used":5,"gauge":{"short":"libero","say":"Ok."},"access":{"state":"scaduto","say":"Accesso scaduto."}}]}"#;
+    const OVERVIEW: &str = r#"{"providers":[{"id":"claude","accounts":[{"label":"Claude · a","quotas":[{"key":"5h","usedPct":61,"resetText":"2h10"},{"key":"7d","usedPct":39}]}]}],
+      "plans":{"Claude · a":{"plan":"Ultra","price":"180 euro","period":{"from":"2026-10-23","to":"2026-11-23"}}},
+      "apiSpend":{"line":"API Claude: 0 oggi"},
+      "credits":{"Claude · a":{"remaining":40,"limit":250,"renewsAt":"2026-11-05","models":[{"name":"Fable","pct":12}]},"Codex · b":{"nobonus":true}}}"#;
+    const LIVE: &str = r#"{"projects":[{"name":"topics-app","title":"Topics","total":11.4,"state":"attivo","priority":"normale","budgetPct":null,
+      "agents":{"list":[{"kind":"sessione","title":"Stato chiamate","open":{"url":"claude://claude.ai/epitaxy/local_1"}},{"kind":"sessione","title":"Senza finestra"}]},
+      "topics":[{"title":"Chat di prova"}],"lastJob":{"task":"Revisione card","status":"done"}}]}"#;
+
+    fn full_snap() -> Snapshot {
+        Snapshot {
+            board: Some(BOARD.into()),
+            overview: Some(OVERVIEW.into()),
+            heavy: Some(r#"{"today":[{"account":"Claude · a","last24h":57,"perDay":3.7},{"account":"Muse","last24h":2,"perDay":0}]}"#.into()),
+            procs: Some(PROCS.into()),
+            automations: Some(r#"{"needsYou":5,"broken":3,"calendar":{"count":39,"next":{"title":"Rinnovo"}}}"#.into()),
+            live: Some(LIVE.into()),
+            gates: Some(r#"{"providers":{"claude":{"state":"libero"}},"overrides":[{"provider":"claude","until":1}]}"#.into()),
+            backup: None,
+            backup_set: true,
+        }
+    }
+
     #[test]
-    fn service_down_keeps_backup_and_says_offline() {
-        let snap = Snapshot { backup: Some(r#"{"last_ok":1800000000,"last_error":null}"#.into()), ..Default::default() };
-        let t = dump_text(&build_menu(&snap, Prefs::default(), 1_800_000_000));
+    fn plain_install_has_no_hub_section_until_the_service_answers() {
+        let none = Snapshot::default();
+        assert!(build_menu(&none, Prefs::default(), 0, false).is_empty());
+        let t = dump_text(&build_menu(&none, Prefs::default(), 0, true));
+        assert!(t.contains("Servizio quote: offline"));
+    }
+
+    #[test]
+    fn service_down_keeps_backup_when_configured() {
+        let snap = Snapshot { backup: Some(r#"{"last_ok":1800000000,"last_error":null}"#.into()), backup_set: true, ..Default::default() };
+        let t = dump_text(&build_menu(&snap, Prefs::default(), 1_800_000_000, true));
         assert!(t.contains("Servizio quote: offline") && t.contains("Backup · tutto a posto"));
         assert!(!t.contains("Processi"));
+        let t = dump_text(&build_menu(&snap, Prefs::default(), 1_800_000_000, false));
+        assert!(t.contains("Backup · tutto a posto") && !t.contains("offline"));
+        let unset = Snapshot { backup_set: false, ..Default::default() };
+        assert!(build_menu(&unset, Prefs::default(), 0, true).iter().all(|n| !dump_text(std::slice::from_ref(n)).contains("Backup")));
     }
 
     #[test]
     fn full_menu_has_every_section() {
-        let snap = Snapshot {
-            board: Some(r#"{"accounts":[{"label":"Claude · a","used":39,"gauge":{"short":"frenato fino a lun","say":"Oggi consuma troppo."},"access":{"state":"ok","say":"Collegato dal 13 set."}},{"label":"Codex · b","used":5,"gauge":{"short":"libero","say":"Ok."},"access":{"state":"scaduto","say":"Accesso scaduto."}}]}"#.into()),
-            machines: Some(r#"[{"id":"local","name":"Mac","on":true,"state":"tranquillo","caption":"12 core","lines":[],"metrics":[{"name":"CPU","pct":44,"note":"5 di 12"}]},{"id":"pc","name":"PC","on":false,"state":"dorme","caption":"x","lines":[],"metrics":[]}]"#.into()),
-            procs: Some(PROCS.into()),
-            automations: Some(r#"{"needsYou":5,"broken":3,"calendar":{"count":39,"next":{"title":"Rinnovo"}}}"#.into()),
-            live: Some(r#"{"projects":[{"name":"topics-app","display":"Topics","total":11.4,"state":"attivo","priority":"normale","budgetPct":null}]}"#.into()),
-            gates: Some(r#"{"providers":{"claude":{"state":"libero"}},"overrides":[{"provider":"claude","until":1}]}"#.into()),
-            backup: None,
-        };
-        let t = dump_text(&build_menu(&snap, Prefs { five_hour: true, ..Default::default() }, 0));
-        for want in ["Claude · a · 39% · frenato fino a lun", "Codex · b · 5% · libero · non risponde", "Mac · tranquillo", "PC · spento", "Processi",
-            "Topics · 11.4%", "Priorità normale ✓", "Togli lo sblocco di claude", "Ferma i lavori nuovi", "Fascia 5 ore ✓", "Automazioni · 5 ti aspettano · 3 rotte", "In calendario · 39 · prossimo: Rinnovo", "Backup · nessun dato"] {
+        let t = dump_text(&build_menu(&full_snap(), Prefs { five_hour: true, ..Default::default() }, 0, true));
+        for want in ["Claude · a · 39% · frenato fino a lun", "Codex · b · 5% · libero · non risponde", "Ritmo di oggi", "Claude · a · 57% in 24 h", "Processi", "Apri Processi",
+            "Topics · 11.4%", "sessione · Stato chiamate", "Chat Topics · Chat di prova", "Ultimo lavoro · Revisione card · done", "Priorità normale ✓", "Rinnovi",
+            "rinnovo 2026-11-23", "Togli lo sblocco di claude", "Ferma i lavori nuovi", "Fascia 5 ore ✓", "Automazioni · 5 ti aspettano · 3 rotte", "In calendario · 39 · prossimo: Rinnovo", "Backup · nessun dato"] {
             assert!(t.contains(want), "manca «{want}» in:\n{t}");
         }
+        assert!(!t.contains("Mac e PC"), "the machine rows are drawn by the Topics tray, not here");
+    }
+
+    #[test]
+    fn each_switch_changes_what_the_menu_shows() {
+        let show = |p: Prefs| dump_text(&build_menu(&full_snap(), p, 0, true));
+        let off = Prefs { five_hour: false, api_credit: false, cloud_bonus: false };
+        assert!(!show(off).contains("5 ore 61%") && show(Prefs { five_hour: true, ..off }).contains("5 ore 61% · libera tra 2h10"));
+        assert!(!show(off).contains("API Claude") && show(Prefs { api_credit: true, ..off }).contains("API Claude: 0 oggi"));
+        let on = show(Prefs { cloud_bonus: true, ..off });
+        assert!(!show(off).contains("Credito AI") && on.contains("Bonus Claude · a · 40 su 250 rimasti · scade 2026-11-05") && on.contains("Fable 12%"));
+    }
+
+    fn clickable_ids(nodes: &[Node], out: &mut Vec<String>) {
+        for n in nodes {
+            match n {
+                Node::Item { id, enabled: true, .. } if !id.is_empty() => out.push(id.clone()),
+                Node::Sub { children, .. } => clickable_ids(children, out),
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn every_clickable_row_does_something() {
+        let snap = full_snap();
+        let mut ids = Vec::new();
+        clickable_ids(&build_menu(&snap, Prefs::default(), 0, true), &mut ids);
+        assert!(ids.iter().any(|i| i.starts_with("proj-open:")) && ids.iter().any(|i| i.starts_with("session-open:")) && ids.contains(&"open:processes".to_string()));
+        let dead: Vec<&String> = ids.iter().filter(|i| action_for(i, &snap.procs).is_none()).collect();
+        assert!(dead.is_empty(), "rows that do nothing on click: {dead:?}");
+        assert_eq!(action_for("proj-open:topics-app", &None), Some(Action::Open("project:topics-app".into())));
+        assert_eq!(action_for("session-open:file:///etc/passwd", &None), None);
+    }
+
+    #[test]
+    fn an_exhausted_unlock_is_not_offered_for_revoking() {
+        let g = Some(r#"{"providers":{"claude":{"state":"frenato"}},"overrides":[{"provider":"claude","exhausted":true}]}"#.to_string());
+        let t = dump_text(&brake_nodes(&g));
+        assert!(t.contains("Sblocca claude per 2 ore") && !t.contains("Togli lo sblocco"));
+    }
+
+    #[test]
+    fn close_waits_for_the_yes_and_rereads_the_census() {
+        let p = Some(PROCS.to_string());
+        let mut killed: Vec<u32> = Vec::new();
+        // no yes: the census is not even read, nothing is signalled
+        let n = close_confirmed(false, || panic!("no read without a yes"), Some("agent:1"), &[91001, 91002], |p| { killed.extend_from_slice(p); p.len() });
+        assert_eq!((n, killed.len()), (0, 0));
+        // yes, same census: both pids
+        let n = close_confirmed(true, || p.clone(), Some("agent:1"), &[91001, 91002], |p| { killed.extend_from_slice(p); p.len() });
+        assert_eq!((n, killed.clone()), (2, vec![91001, 91002]));
+        // yes, but the unit lost one pid and another unit now owns nothing: only the survivor
+        let fresh = Some(PROCS.replace("[91001,91002]", "[91002]"));
+        assert_eq!(still_closable(&fresh, Some("agent:1"), &[91001, 91002]), vec![91002]);
+        // the unit is gone or no longer closable: nothing
+        assert!(still_closable(&Some(r#"{"units":[]}"#.into()), Some("agent:1"), &[91001]).is_empty());
+        assert!(still_closable(&None, None, &[91050]).is_empty());
+        assert_eq!(still_closable(&p, None, &[91050, 5]), vec![91050]);
     }
 
     #[test]
@@ -680,13 +898,13 @@ mod tests {
         let snap = match std::env::var("TRAY_MENU_FIXTURES") {
             Ok(dir) => {
                 let f = |n: &str| std::fs::read_to_string(std::path::Path::new(&dir).join(n)).ok();
-                Snapshot { board: f("board.json"), procs: f("procs.json"), backup: f("backup.json"), ..Default::default() }
+                Snapshot { board: f("board.json"), procs: f("procs.json"), backup: f("backup.json"), backup_set: true, ..Default::default() }
             }
             Err(_) => Snapshot::fetch(&crate::tray_quota::hub_base(), backup_state_path().as_deref()),
         };
         let now = std::env::var("TRAY_MENU_NOW").ok().and_then(|n| n.parse().ok()).unwrap_or_else(|| {
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64
         });
-        println!("---MENU---\n{}---END---", dump_text(&build_menu(&snap, Prefs::default(), now)));
+        println!("---MENU---\n{}---END---", dump_text(&build_menu(&snap, Prefs::default(), now, true)));
     }
 }

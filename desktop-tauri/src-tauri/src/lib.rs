@@ -25,6 +25,7 @@ mod shortcuts_generated;
 /// outside the tests.
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod chords;
+mod tray_machines;
 mod tray_menu;
 mod tray_quota;
 #[cfg(target_os = "windows")]
@@ -3051,6 +3052,7 @@ fn set_app_status(
     count: u32,
     items: Vec<StatusItem>,
     groups: Option<Vec<StatusGroup>>,
+    machines: Option<Vec<tray_machines::StatusMachine>>,
 ) {
     if !accepts_app_status_from(window.label()) {
         return;
@@ -3060,9 +3062,9 @@ fn set_app_status(
     // window dispatcher — same poisoned-mutex SIGABRT class (see no_abort
     // doc). Fires on every attention-status change.
     let _ = no_abort("set_app_status", || {
-        use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
         use tauri::Manager;
         let groups = groups.unwrap_or_default();
+        let machines = machines.unwrap_or_default();
         // The dock-tile badge is an AppKit UI mutation — must run on the main thread.
         if let Some(win) = app.get_window("main") {
             let _ = win.run_on_main_thread(move || set_dock_badge(count));
@@ -3073,7 +3075,7 @@ fn set_app_status(
             // Keep what the Topics rows need, then draw the whole menu from one place:
             // the service poller redraws it too, and must not lose these rows.
             if let Ok(mut st) = TRAY_STATUS.lock() {
-                *st = (items.clone(), groups.clone());
+                *st = (items.clone(), groups.clone(), machines.clone());
             }
             rebuild_tray_menu(&app);
 
@@ -3089,16 +3091,19 @@ fn set_app_status(
         Ok(())
     });
     #[cfg(not(target_os = "macos"))]
-    let _ = (app, count, items, groups);
+    let _ = (app, count, items, groups, machines);
 }
 
 /// Last attention rows and board columns, kept so the service poller can redraw the
 /// menu without waiting for the next client status push.
 #[cfg(target_os = "macos")]
-static TRAY_STATUS: std::sync::Mutex<(Vec<StatusItem>, Vec<StatusGroup>)> = std::sync::Mutex::new((Vec::new(), Vec::new()));
+static TRAY_STATUS: std::sync::Mutex<(Vec<StatusItem>, Vec<StatusGroup>, Vec<tray_machines::StatusMachine>)> = std::sync::Mutex::new((Vec::new(), Vec::new(), Vec::new()));
 /// Latest hub sections (quotas, machines, processes, projects, brake, backup).
 #[cfg(target_os = "macos")]
 static HUB_MENU: std::sync::Mutex<Vec<tray_menu::Node>> = std::sync::Mutex::new(Vec::new());
+/// The usage service answered at least once since launch.
+#[cfg(target_os = "macos")]
+static HUB_EVER_ANSWERED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// Latest census body, for the safe close of one unit.
 #[cfg(target_os = "macos")]
 static HUB_PROCS: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
@@ -3161,7 +3166,7 @@ fn hub_submenu(
 #[cfg(target_os = "macos")]
 fn rebuild_tray_menu(app: &tauri::AppHandle) {
     use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-    let (items, groups) = TRAY_STATUS.lock().map(|g| g.clone()).unwrap_or_default();
+    let (items, groups, machines) = TRAY_STATUS.lock().map(|g| g.clone()).unwrap_or_default();
     let hub = HUB_MENU.lock().map(|g| g.clone()).unwrap_or_default();
     let Some(tray) = app.tray_by_id("main") else { return };
             // Rebuild the menu: one `nav:<topicId>` row per attention chat, then a
@@ -3229,6 +3234,39 @@ fn rebuild_tray_menu(app: &tauri::AppHandle) {
                 }
                 mb = mb.separator();
             }
+            // Every machine Topics knows: a submenu with its gauges, the provider
+            // extras as disabled rows and the history line as the icon of the
+            // first one. The client wrote the words; this side only draws.
+            if !machines.is_empty() {
+                for m in &machines {
+                    let mut sb = SubmenuBuilder::new(app, tray_label(&m.title));
+                    if let Ok(head) = tauri::menu::IconMenuItemBuilder::new(tray_label(&m.title))
+                        .id(format!("machine-head:{}", m.id))
+                        .icon(tauri::image::Image::new_owned(
+                            tray_machines::render_spark(&m.spark),
+                            tray_machines::SPARK_W,
+                            tray_machines::SPARK_H,
+                        ))
+                        .enabled(false)
+                        .build(app)
+                    {
+                        sb = sb.item(&head);
+                    }
+                    for (i, line) in m.lines.iter().enumerate() {
+                        if let Ok(row) = MenuItemBuilder::with_id(format!("machine-line:{}:{i}", m.id), tray_label(line))
+                            .enabled(false)
+                            .build(app)
+                        {
+                            sb = sb.item(&row);
+                        }
+                    }
+                    sb = sb.separator().text(format!("machine-open:{}", m.id), "Apri Processi");
+                    if let Ok(sub) = sb.build() {
+                        mb = mb.item(&sub);
+                    }
+                }
+                mb = mb.separator();
+            }
             if !hub.is_empty() {
                 mb = hub_node_to_menu(app, &hub, mb);
                 mb = mb.separator();
@@ -3259,11 +3297,14 @@ fn refresh_hub_menu(app: &tauri::AppHandle) {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
+    // No hub section (not even an «offline» row) until the service has answered once.
+    let ever = HUB_EVER_ANSWERED.load(std::sync::atomic::Ordering::Relaxed) || snap.service_up();
+    HUB_EVER_ANSWERED.store(ever, std::sync::atomic::Ordering::Relaxed);
     if let Ok(mut g) = HUB_PROCS.lock() {
         *g = snap.procs.clone();
     }
     if let Ok(mut g) = HUB_MENU.lock() {
-        *g = tray_menu::build_menu(&snap, prefs, now);
+        *g = tray_menu::build_menu(&snap, prefs, now, ever);
     }
     rebuild_tray_menu(app);
 }
@@ -3280,16 +3321,26 @@ fn run_hub_action(app: &tauri::AppHandle, id: &str) {
             tray_menu::Action::Http { method, path, body } => {
                 let _ = tray_menu::http_send(&tray_quota::hub_base(), method, &path, body.as_ref());
             }
-            tray_menu::Action::ClosePids { name, pids } => {
+            tray_menu::Action::ClosePids { name, unit, pids } => {
                 let ok = app
                     .dialog()
                     .message(format!("Chiudere {name}? I processi ricevono una richiesta di chiusura e possono salvare."))
                     .title("Chiudi")
                     .buttons(MessageDialogButtons::OkCancelCustom("Chiudi".into(), "Annulla".into()))
                     .blocking_show();
-                if ok {
-                    tray_menu::terminate(&pids);
-                }
+                // The census shown in the menu may be a minute old and the dialog took longer:
+                // the pids are checked again against a fresh read before anything is signalled.
+                tray_menu::close_confirmed(
+                    ok,
+                    || tray_quota::http_get(&tray_quota::hub_base(), "/api/mac/procs"),
+                    unit.as_deref(),
+                    &pids,
+                    tray_menu::terminate,
+                );
+            }
+            tray_menu::Action::OpenUrl(url) => {
+                let _ = std::process::Command::new("open").arg(&url).status();
+                return;
             }
             tray_menu::Action::TogglePref(k) => {
                 if let Some(p) = tray_menu::prefs_path() {
@@ -12189,6 +12240,9 @@ pub fn run() {
                                 let a = app.clone();
                                 let _ = std::thread::Builder::new().name("tray-refresh".into()).spawn(move || refresh_hub_menu(&a));
                             }
+                        } else if id.starts_with("machine-open:") {
+                            // Every machine's detail lives in the Processes view.
+                            tray_dispatch(app, "topics:tray-open-processes", None);
                         } else if id.starts_with("board:") {
                             // La testa della sezione e il piede di ogni sottomenu:
                             // portano alla board, che è dove il lavoro si guarda per

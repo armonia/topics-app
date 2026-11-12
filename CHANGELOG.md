@@ -2,6 +2,30 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.93 — 2026-11-12
+
+### Correzioni
+- **mcp** · read CRLF SSE events and close orphaned stdio children
+- **gates** · fold case on every history check
+- **tasks** · cards say who really wrote each message
+- **tasks** · one agent-author predicate for every delivery reader
+- **co-browse** · masking of card fields fails closed
+- **nodes** · a node refusing a card parks it with its reason
+- **boot** · the shipped boot.js matches its source again
+- **tray** · a machine without the usage service keeps the plain icon
+
+### Sotto il cofano
+- Keep shipped service worker copy identical
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-12 [skip ci]
+- **gates** · lower the any ratchet to 332
+- **solido** · every empty catch says why, utils.ts loses its any, the any ratchet sees all of server/
+- example that shows the quota strip as a status item for a photo
+- **solido** · the any ratchet counts server.ts too, and the last any outside it get real types
+- sync shipped boot.js with its source (unit gate, c675633f)
+- windows-acrylic test: slice boot.js at a catch that now has a comment
+- Regola Topics generica nel kickoff degli agenti
+- Test della regola generica: dichiara il requisito che prova (KANBAN-59)
+
 ## 2.3.92 — 2026-11-12
 
 ### Sotto il cofano
@@ -10,6 +34,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - native steer v2: nothing lost, nothing read twice, rows stay answered
 - native steer: a cut turn never resends the steered row, Stop holds after a restart
 - native steer: every read of the person's last row skips a steered one
+- Il server topics-fisso diventa topics-permanent-node
+- PERMANENT_NODE_CI assente vale acceso
 
 ## 2.3.89 — 2026-11-12
 
@@ -144,6 +170,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - Demo della landing: un caricatore piccolo e scenari tipizzati al posto di landing-boot.js
 - Demo della landing: via il contesto del vecchio gateway dallo scenario
+- strip delle quote disegnata a runtime, dati dal servizio su thread proprio (card c675633f)
 - Demo della landing: lo scenario comune è un passaggio nella lista chiusa della preferenza
 - nota di consegna della traccia R2 del servizio sempre acceso
 - topics/whispering-ether (card 57fe1061) (#712)
