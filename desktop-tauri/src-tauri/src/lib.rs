@@ -10575,7 +10575,7 @@ fn read_disk_asset(public_dir: &std::path::Path, rel: &str) -> Option<Vec<u8>> {
 }
 
 /// Try to satisfy a request from disk using the SAME fallback chain the embedded
-/// resolver uses: `path`, then `path.html`, then `path/index.html`, then the SPA
+/// resolver uses: `path`, then `path.html`, then `path/index.html`, then the single-page app
 /// `index.html`. Returns `(bytes, mime)` on a disk hit; `None` ⇒ fall back to
 /// embedded. MIME comes from `tauri::utils::mime_type::MimeType::parse` — the exact
 /// function the embedded resolver calls — so `.js`/`.mjs` get `text/javascript`
@@ -12207,7 +12207,7 @@ pub fn run() {
             window_is_maximized,
             window_set_floating,
             os_open::take_os_open_paths,
-            // The boot verdict, for the SPA's own offline state: the reconnect page
+            // The boot verdict, for the single-page app's own offline state: the reconnect page
             // says it too, but only a document navigation ever reaches that page.
             boot_degraded::boot_degraded,
             boot_degraded::boot_degraded_clear
@@ -12856,7 +12856,7 @@ mod app_origin_tests {
         for origin in ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"] {
             assert_eq!(asset_request_path(&format!("{origin}/index.html")), "index.html");
             assert_eq!(asset_request_path(&format!("{origin}/assets/index-Aa.js")), "assets/index-Aa.js");
-            // Bare root ⇒ the SPA.
+            // Bare root ⇒ the single-page app.
             assert_eq!(asset_request_path(&format!("{origin}/")), "index.html");
             assert_eq!(asset_request_path(origin), "index.html");
             // Query and fragment are not part of the key (the detached window's
