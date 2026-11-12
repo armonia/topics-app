@@ -61,9 +61,10 @@ const HOLD_CLOCK_SLACK_MS = 2_000;
  * sent) counts: the setting alone says nothing, since the engine parks only
  * while nothing is selectable, and on 2026-11-11 it was answering everyone else.
  *
- * 0 when the base URL is not on this machine, when the engine logged no such
- * hold, or when it cannot be read within 3 s (a silent engine is not holding
- * anything worth waiting for).
+ * The end of the latest such hold, even one already over (the answer may be
+ * on its way); 0 when the base URL is not on this machine, when the engine
+ * logged no such hold, or when it cannot be read within 3 s (a silent engine
+ * is not holding anything worth waiting for).
  */
 export async function engineHoldUntil(sinceMs: number): Promise<number> {
   let host: string;
@@ -76,11 +77,10 @@ export async function engineHoldUntil(sinceMs: number): Promise<number> {
     if (!res.ok) return 0;
     const events = (await res.json() as { recentEvents?: unknown }).recentEvents;
     if (!Array.isArray(events)) return 0;
-    const now = Date.now();
     let until = 0;
     for (const e of events as Array<{ type?: unknown; ts?: unknown; until?: unknown }>) {
       if (e?.type !== "cap-hold" || typeof e.ts !== "number" || typeof e.until !== "number") continue;
-      if (e.ts >= sinceMs - HOLD_CLOCK_SLACK_MS && e.until > now) until = Math.max(until, e.until);
+      if (e.ts >= sinceMs - HOLD_CLOCK_SLACK_MS) until = Math.max(until, e.until);
     }
     return until;
   } catch {

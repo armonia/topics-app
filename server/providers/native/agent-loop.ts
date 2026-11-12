@@ -356,6 +356,9 @@ function apiHeaders(token: string, longWindow: boolean): Record<string, string> 
  */
 export const API_HEADERS_TIMEOUT_MS = 90_000;
 
+/** A 429 this close to the end of the engine's hold is the hold's own verdict, not a passing limit. */
+const HOLD_END_SLACK_MS = 5_000;
+
 /** The line the keep-alive puts after the history. Nobody answers it: the request is dropped at `message_start`. */
 const KEEP_ALIVE_PROMPT = "(prompt cache keep-alive, no answer needed)";
 
@@ -442,20 +445,18 @@ async function streamOnce(
   const headersCut = new AbortController();
   const headersWaitStartedAt = Date.now();
   let headersSettled = false;
-  let heldByEngine = false;
   const onHeadersTimer = () => {
     if (headersSettled) return;
-    // Asked again at every firing: a hold that ended, or none logged for this request, means cut.
+    // Asked again at every firing: past the end of the hold plus the bound, or no hold logged for this request, means cut.
     void engineHoldUntil(headersWaitStartedAt).then((until) => {
       if (headersSettled) return;
-      const left = until - Date.now();
-      if (left <= 0) { headersCut.abort(); return; }
-      heldByEngine = true;
+      const left = until + headersTimeoutMs - Date.now();
+      if (until <= 0 || left <= 0) { headersCut.abort(); return; }
       console.warn(
-        `[native] no response headers from ${apiUrl} after ${Date.now() - headersWaitStartedAt}ms: the account engine holds`
-        + ` requests for ${Math.round(left / 1000)}s more (session_key=${opts.sessionId ?? "unknown"}): waiting on the same socket`,
+        `[native] no response headers from ${apiUrl} after ${Date.now() - headersWaitStartedAt}ms: the account engine held`
+        + ` this request until ${new Date(until).toISOString()} (session_key=${opts.sessionId ?? "unknown"}): waiting on the same socket`,
       );
-      headersTimer = setTimeout(onHeadersTimer, left + headersTimeoutMs);
+      headersTimer = setTimeout(onHeadersTimer, left);
     }, () => { if (!headersSettled) headersCut.abort(); });
   };
   let headersTimer = setTimeout(onHeadersTimer, headersTimeoutMs);
@@ -494,11 +495,16 @@ async function streamOnce(
 
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    // The engine held this request for its whole hold and then said 429: no
-    // account freed up. Trying again would park the next attempt for another
-    // hold, up to the policy's 28 of them; the round stops here, in its words.
-    if (heldByEngine && res.status === 429) {
-      throw new Error(`The account engine held this request ${Math.round((Date.now() - headersWaitStartedAt) / 60_000)} min and no account freed up: ${detail.slice(0, 300)}`);
+    // The engine held this request to the end of its hold and then said 429:
+    // no account freed up. Trying again would park the next attempt for
+    // another hold, up to the policy's 28 of them; the call stops here, in its
+    // words. A 429 well before the hold's end is an account that freed up and
+    // then hit a passing limit upstream: that one is retried as usual.
+    if (res.status === 429) {
+      const until = await engineHoldUntil(headersWaitStartedAt);
+      if (until > 0 && Date.now() >= until - HOLD_END_SLACK_MS) {
+        throw new Error(`The account engine held this request ${Math.round((Date.now() - headersWaitStartedAt) / 1000)}s and no account freed up: ${detail.slice(0, 300)}`);
+      }
     }
     // `spiegaErrore` translates ONLY the long-window 400, which otherwise lands
     // mid-turn as an English sentence with no way out. Everything else passes

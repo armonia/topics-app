@@ -50,6 +50,8 @@ let slowApi: ReturnType<typeof Bun.serve>;
 let answerAfterMs = 0;
 let bodyMs = 0;
 let answerStatus = 200;
+/** Statuses for the next requests, one each, before `answerStatus` applies again. */
+let nextStatuses: number[] = [];
 let slowRequests = 0;
 
 function parkedByEngine(): void {
@@ -129,8 +131,9 @@ describe("a round whose request never gets response headers", () => {
         slowRequests++;
         parkedByEngine();
         await Bun.sleep(answerAfterMs);
-        if (answerStatus !== 200) {
-          return Response.json({ type: "error", error: { type: "rate_limit_error", message: "Usage cap reached" } }, { status: answerStatus });
+        const status = nextStatuses.shift() ?? answerStatus;
+        if (status !== 200) {
+          return Response.json({ type: "error", error: { type: "rate_limit_error", message: "Usage cap reached" } }, { status });
         }
         const gap = bodyMs / okEvents.length;
         const stream = new ReadableStream({
@@ -165,6 +168,7 @@ describe("a round whose request never gets response headers", () => {
     answerAfterMs = 0;
     bodyMs = 0;
     answerStatus = 200;
+    nextStatuses = [];
     process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${silent.port}`;
   });
 
@@ -293,9 +297,49 @@ describe("a round whose request never gets response headers", () => {
     expect(Date.now() - started).toBeLessThan(5_000);
   }, 15_000);
 
+  test("a hold shorter than the bound still buys one bound past its end", async () => {
+    // The engine let the request go at once; the answer is on its way. The
+    // bound starts again from the end of the hold, not from the request.
+    process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${slowApi.port}`;
+    holdForMs = HEADERS_MS / 2;
+    answerAfterMs = HEADERS_MS * 1.4;
+    const before = slowRequests;
+    const reg = ledger();
+    await turn(reg, { maxAttempts: 4, baseMs: 1, capMs: 4, jitter: () => 1 });
+    expect(reg.retries).toEqual([]);
+    expect(reg.done).toBe(1);
+    expect(slowRequests - before).toBe(1);
+  }, 15_000);
+
+  test("a 429 well before the end of the engine's hold is a passing limit: retried as usual", async () => {
+    // An account freed up, then hit a limit upstream: the next attempt may well pass.
+    process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${slowApi.port}`;
+    holdForMs = 60_000;
+    answerAfterMs = HEADERS_MS * 2;
+    nextStatuses = [429];
+    const before = slowRequests;
+    const reg = ledger();
+    await turn(reg, { maxAttempts: 4, baseMs: 1, capMs: 4, jitter: () => 1 });
+    expect(reg.retries.length).toBe(1);
+    expect(reg.done).toBe(1);
+    expect(slowRequests - before).toBe(2);
+  }, 15_000);
+
+  test("a 429 after a hold shorter than the bound stops the round too", async () => {
+    process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${slowApi.port}`;
+    holdForMs = HEADERS_MS / 3;
+    answerAfterMs = HEADERS_MS / 2;
+    answerStatus = 429;
+    const before = slowRequests;
+    let message = "";
+    await turn(ledger(), { maxAttempts: 28, baseMs: 1, capMs: 4, jitter: () => 1 }).catch((e: Error) => { message = e.message; });
+    expect(message).toContain("no account freed up");
+    expect(slowRequests - before).toBe(1);
+  }, 15_000);
+
   test("a 429 at the end of the engine's hold stops the round instead of parking another attempt", async () => {
     process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${slowApi.port}`;
-    holdForMs = HEADERS_MS * 6;
+    holdForMs = HEADERS_MS * 4;
     answerAfterMs = HEADERS_MS * 4;
     answerStatus = 429;
     const before = slowRequests;
@@ -313,6 +357,9 @@ describe("a round whose request never gets response headers", () => {
     expect(await engineHoldUntil(Date.now() - 1_000)).toBe(0);
     process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${silent.port}`;
     expect(await engineHoldUntil(Date.now() - 1_000)).toBeGreaterThan(Date.now());
+    // A hold already over is still its end: the answer may be on its way.
+    engineEvents = [{ type: "cap-hold", ts: Date.now(), until: Date.now() - 10 }];
+    expect(await engineHoldUntil(Date.now() - 1_000)).toBeGreaterThan(0);
   });
 });
 
