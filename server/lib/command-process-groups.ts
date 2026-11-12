@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { dlopen, FFIType, ptr } from "bun:ffi";
+import { warnThrottled } from "./warn-throttled";
 import { writeFileAtomic } from "./atomic-write";
 import { readJsonStateFile } from "./state-file";
 import { resolveStateDir, stateDirTarget } from "./data-dir";
@@ -69,7 +70,9 @@ export function commandProcessGroupStopPath(processId: string): string {
 }
 
 function markGroupStopping(processId: string): void {
-  try { writeFileSync(commandProcessGroupStopPath(processId), ""); } catch {}
+  try { writeFileSync(commandProcessGroupStopPath(processId), ""); } catch (e) {
+    warnThrottled(`command-process-groups:stop-marker:${processId}`, `[CommandProcessGroups] writing the stop marker of ${processId} failed, the stop may leave orphans:`, e);
+  }
 }
 
 function clearGroupStopping(processId: string): void {

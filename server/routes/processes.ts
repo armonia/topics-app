@@ -2215,7 +2215,9 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
             appendOutput(sp, useTty ? stripAnsi(chunk) : chunk);
             notifyScriptOutput(ctx, processId);
           }
-        } catch {}
+        } catch (e) {
+          console.warn(`[Processes] ${processId}: output drain stopped, the log is truncated:`, e);
+        }
       })();
     }
 
@@ -2231,7 +2233,9 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
             appendOutput(sp, useTty ? stripAnsi(chunk) : chunk);
             notifyScriptOutput(ctx, processId);
           }
-        } catch {}
+        } catch (e) {
+          console.warn(`[Processes] ${processId}: output drain stopped, the log is truncated:`, e);
+        }
       })();
     }
 

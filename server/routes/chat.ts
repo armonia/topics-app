@@ -3055,7 +3055,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   updateLastMessageWithMedia(sessionKey, propri, ownRow);
                   broadcastToAll({ type: "message:media", sessionKey, topicId: matchedTopic?.id, media: propri });
                 }
-              } catch {}
+              } catch (e) {
+                console.warn(`[Media] ${sessionKey}: attaching the media of the turn failed:`, e);
+              }
             }, 1000);
 
             if (matchedTopic && !matchedTopic.projectPath && !globalOrchestrator) {

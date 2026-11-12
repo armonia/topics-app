@@ -1074,9 +1074,13 @@ function setupSocketReader(socket: net.Socket) {
     // Any line at all is proof of life, even one we cannot parse. The watchdog
     // reads this, not just the pong.
     lastByteAt = Date.now();
+    let parsed: unknown;
+    try { parsed = JSON.parse(line); } catch { return; }
     try {
-      handleBridgeMessage(JSON.parse(line));
-    } catch {}
+      handleBridgeMessage(parsed);
+    } catch (e) {
+      warnThrottled("terminal:bridge-handler", "[Terminal] bridge message handler threw, terminal state may be stale:", e);
+    }
   });
 
   socket.on('close', () => {
@@ -1393,7 +1397,9 @@ function handleBridgeMessage(msg: any) {
             }
             getDatabase().run("DELETE FROM terminal_sessions WHERE id = ?", [msg.id]);
           }
-        } catch {}
+        } catch (e) {
+          warnThrottled(`terminal_sessions:exit-row:${msg.id}`, `[Terminal] terminal_sessions: parking or deleting the row of exited session ${msg.id} failed, it may revive on reload:`, e);
+        }
         // Mirror the lifecycle into the phase tracker so the loading signal
         // clears: dormant (resumable) → not loading; otherwise forget it.
         if (exitedSession.claudeSessionId && (exitedSession.type === 'claude-code' || exitedSession.type === 'claude-code-team')) {
@@ -2793,7 +2799,7 @@ function isCodexBridgeOnlyTopic(ctx: AppContext, sessionKey: string): boolean {
  *  dead owner) is worse than reaping them. */
 function cascadeKillChildren(parentSessionKey: string, caller: string) {
   for (const child of liveChildrenOf(parentSessionKey)) {
-    try { sendTerminalKill(child.id, 'subagent-cascade', caller); } catch {}
+    try { sendTerminalKill(child.id, 'subagent-cascade', caller); } catch (e) { warnThrottled(`terminal:cascade-kill:${child.id}`, `[Terminal] killing child ${child.id} of ${parentSessionKey} failed, it may stay alive without an owner:`, e); }
     // The bridge's `exit` frame will clean up maps/DB/tracker for each child.
   }
 }

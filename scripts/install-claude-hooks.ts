@@ -228,12 +228,16 @@ function uninstall(): void {
 
   // The legacy copy goes. The script under TOPICS_HOME stays, with the token:
   // the server's own spawns still use it.
+  let legacyRemoved = true;
   try {
     rmSync(LEGACY_HOOKS_DIR, { recursive: true, force: true });
-  } catch {}
+  } catch (e) {
+    legacyRemoved = false;
+    console.warn(`! Could not remove ${LEGACY_HOOKS_DIR}:`, e);
+  }
 
   console.log(`✓ Removed ${removed} Topics App hook entries from ${SETTINGS_PATH}`);
-  console.log(`✓ Removed ${LEGACY_HOOKS_DIR}`);
+  if (legacyRemoved) console.log(`✓ Removed ${LEGACY_HOOKS_DIR}`);
 }
 
 const cmd = process.argv[2] ?? "install";

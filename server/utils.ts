@@ -2514,7 +2514,9 @@ export function createAppContext(baseDir: string): AppContext {
         if (changed) {
           db.prepare(`UPDATE messages SET tool_calls = ?, blocks = ? WHERE id = ?`).run(tcStr, blStr, stream.messageId);
         }
-      } catch {}
+      } catch (e) {
+        console.warn(`[Turn] closing the interrupted tool calls of ${sessionKey} failed, the box may stay in progress on disk:`, e);
+      }
     }
     // A tool kept awaiting a person (the plan approval) is said with the close:
     // every window holds its queue on it, whatever its transcript shows yet.
