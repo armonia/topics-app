@@ -17,8 +17,9 @@
  * deadline (fail-open, see `scripts/heavy-slot.ts`): a queue that can block
  * work forever is worse than no queue.
  *
- * A HOLDER NEVER LEAKS. A lease is dropped when its process is dead, when it
- * stopped renewing, or at the wall-clock cap. A waiter that stopped polling is
+ * A HOLDER NEVER LEAKS. A lease with a pid is dropped when that process is dead
+ * (renewal is not needed: a shell hook cannot renew), one without a pid when it
+ * stopped renewing; both at the wall-clock cap. A waiter that stopped polling is
  * dropped from the line, so a killed harness cannot hold the queue.
  */
 
@@ -38,7 +39,7 @@ export interface HeavySlotConfig {
   criticalMemGB: number;
   /** Extra holders are not admitted above this machine-wide CPU percentage. */
   cpuCeilingPct: number;
-  /** A lease not renewed for this long is gone. */
+  /** A lease WITHOUT a pid not renewed for this long is gone (one with a pid lives while the pid does). */
   leaseTtlMs: number;
   /** A lease older than this is gone whatever it says. */
   maxRunMs: number;
@@ -106,7 +107,9 @@ export function createHeavySlotBroker(deps: HeavySlotDeps, overrides: Partial<He
     const t = deps.now();
     for (const [id, l] of held) {
       const dead = l.pid != null && !deps.alive(l.pid);
-      if (dead || t - l.renewed > cfg.leaseTtlMs || t - l.since > cfg.maxRunMs) held.delete(id);
+      // A lease with a pid lives as long as the pid does: a shell hook cannot renew.
+      const lapsed = l.pid == null && t - l.renewed > cfg.leaseTtlMs;
+      if (dead || lapsed || t - l.since > cfg.maxRunMs) held.delete(id);
     }
     for (let i = line.length - 1; i >= 0; i--) {
       const w = line[i]!;

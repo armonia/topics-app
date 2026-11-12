@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createHeavySlotBroker, type HeavyPressure } from "./heavy-slot";
-import { acquireHeavySlot } from "../../scripts/heavy-slot-client";
+import { acquireHeavySlot, resolveHeavyBase } from "../../scripts/heavy-slot-client";
 
 function rig(pressure: HeavyPressure = { availableMemGB: 20, cpuPct: 10 }, maxSlots = 2) {
   const state = { t: 1_000, dead: new Set<number>(), pressure };
@@ -42,6 +42,24 @@ describe("heavy slot broker", () => {
     expect(broker.request({ label: "b", id: b.id }).state).toBe("granted");
   });
 
+  test("a lease with a live pid outlives the renewal TTL, up to the run cap", () => {
+    const { broker, state } = rig(undefined, 1);
+    broker.request({ label: "tsc", pid: 777 });
+    const b = broker.request({ label: "b" });
+    state.t += 10 * 60_000;
+    expect(broker.request({ label: "b", id: b.id }).state).toBe("waiting");
+    expect(broker.status().held).toHaveLength(1);
+    state.t += 60 * 60_000;
+    expect(broker.request({ label: "b", id: b.id }).state).toBe("granted");
+  });
+
+  test("a lease with a dead pid is freed even inside the TTL", () => {
+    const { broker, state } = rig(undefined, 1);
+    broker.request({ label: "tsc", pid: 777 });
+    state.dead.add(777);
+    expect(broker.status().held).toHaveLength(0);
+  });
+
   test("memory decides, not the count: low memory keeps the second one out", () => {
     const { broker, state } = rig({ availableMemGB: 3, cpuPct: 5 });
     expect(broker.request({ label: "a" }).state).toBe("granted");
@@ -62,6 +80,30 @@ describe("heavy slot broker", () => {
     broker.request({ label: "ghost" });
     state.t += 50_000;
     expect(broker.status().waiting).toHaveLength(0);
+  });
+});
+
+describe("heavy slot client base", () => {
+  test("a Topics that speaks only https is found (http is refused)", async () => {
+    const seen: string[] = [];
+    const fetchFn = (async (url: string) => {
+      seen.push(url);
+      if (url.startsWith("https://")) return new Response("{}");
+      throw new Error("ECONNREFUSED");
+    }) as unknown as typeof fetch;
+    expect(await resolveHeavyBase({ port: 3333, fetchFn })).toBe("https://127.0.0.1:3333");
+    expect(seen).toEqual(["https://127.0.0.1:3333/api/heavy-slot"]);
+  });
+
+  test("falls back to http, honours TOPICS_URL, and gives null when nothing answers", async () => {
+    const httpOnly = (async (url: string) => {
+      if (url.startsWith("http://")) return new Response("{}");
+      throw new Error("tls");
+    }) as unknown as typeof fetch;
+    expect(await resolveHeavyBase({ port: 4000, fetchFn: httpOnly })).toBe("http://127.0.0.1:4000");
+    expect(await resolveHeavyBase({ url: "https://box:1/", fetchFn: httpOnly })).toBe("https://box:1");
+    const none = (async () => { throw new Error("down"); }) as unknown as typeof fetch;
+    expect(await resolveHeavyBase({ port: 3333, fetchFn: none })).toBeNull();
   });
 });
 

@@ -24,8 +24,39 @@ export interface AcquireOptions {
   fetchFn?: typeof fetch;
   now?: () => number;
   onWait?: (message: string) => void;
-  /** Renewal cadence while the command runs; 0 disables (tests). */
+  /** Renewal cadence while the command runs; 0 disables (tests, and shell hooks: a pid lease lives while the pid does). */
   renewEveryMs?: number;
+}
+
+/**
+ * Topics serves TLS on its own when it finds certificates (self-signed, loopback
+ * only), so a plain `http://127.0.0.1:3333` is refused on a real install and a
+ * fail-open client would skip the queue forever, silently. The certificate check
+ * is relaxed for loopback hosts only: elsewhere it would be an open MITM.
+ */
+function isLoopback(url: string): boolean {
+  try { return ["127.0.0.1", "localhost", "[::1]"].includes(new URL(url).hostname); } catch { return false; }
+}
+
+function loopbackCertInit(url: string): RequestInit {
+  return (isLoopback(url) ? { tls: { rejectUnauthorized: false } } : {}) as RequestInit;
+}
+
+/**
+ * Where Topics listens: `TOPICS_URL` when set, else https then http on the local
+ * port (the order the server itself prefers). `null` when nothing answers.
+ */
+export async function resolveHeavyBase(opts: { url?: string; port?: number | string; fetchFn?: typeof fetch }): Promise<string | null> {
+  if (opts.url) return opts.url.replace(/\/$/, "");
+  const fetchFn = opts.fetchFn ?? fetch;
+  for (const scheme of ["https", "http"]) {
+    const base = `${scheme}://127.0.0.1:${opts.port || 3333}`;
+    try {
+      const res = await fetchFn(`${base}/api/heavy-slot`, { signal: AbortSignal.timeout(2_000), ...loopbackCertInit(base) });
+      if (res.ok) return base;
+    } catch { /* try the next scheme */ }
+  }
+  return null;
 }
 
 async function post(fetchFn: typeof fetch, url: string, body: unknown, timeoutMs: number): Promise<any> {
@@ -34,9 +65,15 @@ async function post(fetchFn: typeof fetch, url: string, body: unknown, timeoutMs
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(timeoutMs),
+    ...loopbackCertInit(url),
   });
   if (!res.ok) throw new Error(`status ${res.status}`);
   return res.json();
+}
+
+/** Frees a place by id. Never throws. */
+export async function releaseHeavySlot(base: string, id: string, fetchFn: typeof fetch = fetch): Promise<void> {
+  await post(fetchFn, `${base}/api/heavy-slot/release`, { id }, 3_000).catch(() => {});
 }
 
 /** A lease, or `null` when the command should simply run (fail-open). */
