@@ -1243,7 +1243,16 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         // specific reply lives on the step's own thread, not necessarily on
         // the main task's. Best-effort: the comment above is already saved.
         try {
-          const root = dispatcher ? svc.boundRootOf(bComments.taskId) : null;
+          // `boundRootOf` only finds an ancestor with a LOCAL topic bound to it
+          // (`assigned_topic_id`), which is exactly what a card run on a remote
+          // node never has: the session lives on the node, not here. For such a
+          // card `boundRootOf` comes back null even though the card ITSELF sits
+          // in review waiting on this very comment, so the node branch below
+          // never ran — a comment on a card delivered by a node saved fine and
+          // moved nothing, the exact gap measured on 28b5facb/30f7c880 (12/11).
+          // The fallback is the comment's own task: the same `?? taskId` pattern
+          // the open-question check above already uses.
+          const root = (dispatcher ? svc.boundRootOf(bComments.taskId) : null) ?? task ?? null;
           // A human comment on a dispatched task is DELIVERED to the agent, not
           // left as an unread note. Two live cases, both through resume():
           //  • review       → the agent is waiting: reject-with-text re-kicks it;

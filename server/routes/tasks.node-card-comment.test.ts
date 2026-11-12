@@ -37,9 +37,15 @@ describe("comment on a card in review", () => {
     router = createTasksRouter(ctx, fakeDispatcher);
   });
 
-  async function cardInReview(machineId: string): Promise<string> {
+  async function cardInReview(machineId: string, opts?: { withLocalTopic?: boolean }): Promise<string> {
     const t = await (await call(router, "POST", `/api/boards/${BOARD}/tasks`, { text: "deliver", status: "in_progress", machineId }))!.json();
-    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-x' WHERE id = ?").run(t.id);
+    // A LOCALLY dispatched card is bound to a topic (the live session); a card
+    // a NODE delivered never gets one here, because the session it ran lives
+    // on the node, not on this Mac — `assigned_topic_id` stays NULL for the
+    // whole chain. Setting it unconditionally used to hide exactly that gap:
+    // see the «without a local topic» test below, which is the real shape of
+    // 28b5facb/30f7c880.
+    if (opts?.withLocalTopic !== false) db.prepare("UPDATE tasks SET assigned_topic_id = 'top-x' WHERE id = ?").run(t.id);
     await call(router, "PATCH", `/api/boards/${BOARD}/tasks/${t.id}`, { status: "review" });
     return t.id;
   }
@@ -47,6 +53,21 @@ describe("comment on a card in review", () => {
 
   test("a card delivered by a node goes back to todo and the node launches it again", async () => {
     const id = await cardInReview(nodeId);
+    const resp = (await call(router, "POST", `/api/boards/${BOARD}/tasks/${id}/comments`, { content: "rispondo alla tua domanda" }))!;
+    expect(resp.status).toBe(201);
+    expect((await resp.json()).delivery).toBe("queued");
+    expect(statusOf(id)).toBe("todo");
+    expect(entered).toEqual([[BOARD, id]]);
+    expect(resumed).toEqual([]);
+  });
+
+  // THE CARD AS IT REALLY ARRIVES: no local topic was ever bound, because the
+  // run lived entirely on the node (28b5facb, 30f7c880, measured 12/11).
+  // `boundRootOf` finds no ancestor with a topic and comes back null — the
+  // route must still recognise the task itself as a node card in review
+  // instead of silently doing nothing while answering "queued".
+  test("a card delivered by a node with no local topic bound still goes back to todo", async () => {
+    const id = await cardInReview(nodeId, { withLocalTopic: false });
     const resp = (await call(router, "POST", `/api/boards/${BOARD}/tasks/${id}/comments`, { content: "rispondo alla tua domanda" }))!;
     expect(resp.status).toBe(201);
     expect((await resp.json()).delivery).toBe("queued");
