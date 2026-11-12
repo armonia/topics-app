@@ -199,9 +199,10 @@ for (const r of rows) {
   // (`aliveOutside` -> `classifyBranchLanding`), which is the only one that can
   // answer. Counting it `merged`, as before, closed the case on empty evidence;
   // leaving it out of every bucket would drop it from the count altogether.
+  // `reverted` (reached main, then undone) is outside too, and counted so.
   const commitStatus = repoPath ? await commitStatusFromRepo(repoPath, r.delivery_commit) : null;
   const status: BranchStatus | "no-repo" =
-    commitStatus === null ? "no-repo" : commitStatus === "empty" ? "unmerged" : commitStatus;
+    commitStatus === null ? "no-repo" : commitStatus === "empty" || commitStatus === "reverted" ? "unmerged" : commitStatus;
   verdicts.push({
     id: r.id, text: r.text ?? "", projectId: r.project_id,
     branch: r.delivery_branch, commit: r.delivery_commit,

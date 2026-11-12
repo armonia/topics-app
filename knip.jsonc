@@ -226,6 +226,9 @@
         // imported except by its own bench.
         "scripts/test-junit.ts!",
     "scripts/disk-report.ts!",        // `bun run report:disk`
+        // Read-only run of the landing audit over a whole board:
+        // `bun run scripts/landing-audit-probe.ts --db <topics.db>`.
+        "scripts/landing-audit-probe.ts!",
         // Does the PTY bridge boot and open a terminal on THIS platform?
         // `node scripts/pty-bridge-probe.mjs`, or on the Windows PC
         // `tools/topwin run "node scripts\\pty-bridge-probe.mjs"`. Run by hand:

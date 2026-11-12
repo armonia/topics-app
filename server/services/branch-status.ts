@@ -21,6 +21,7 @@
 
 import { commitIsIn, listOwnCommits, type GitRunner } from "./own-commits";
 import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
+import { changeUndoneOn } from "./change-undone";
 
 /** Generated, build-output, lockfile and lockstep-version paths — never unique work. */
 const NOISE_RE =
@@ -108,8 +109,11 @@ export type BranchStatus = "gone" | "merged" | "unmerged";
  * sense, and because that union is cross-assigned to the worktree sweep's own
  * three-value type: widening it there would have made every caller of a
  * different question absorb an answer it cannot get.
+ *
+ * `reverted`: the commit reached main (ancestry or the land's copy) and its
+ * change was undone afterwards. Not "merged": the work is not in the product.
  */
-export type CommitStatus = BranchStatus | "empty";
+export type CommitStatus = BranchStatus | "empty" | "reverted";
 
 export async function branchStatusFromRepo(
   repoPath: string,
@@ -158,11 +162,24 @@ export async function commitStatusFromRepo(
   if (!commit) return "gone";
   if ((await gitExit(repoPath, ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`], runGit)) !== 0) return "gone";
 
+  // WHAT THE COMMIT ITSELF BRINGS. For a plain commit, its diff from its
+  // parent. For a MERGE, the diff from the side it merged in (`^2`): a
+  // "Merge main" on a card branch has main as second parent, and its diff from
+  // the first parent is main's own files, which are on main by definition. Read
+  // that way, the delivery of card 48588f6e (`5e3bdd62`, a "Merge main") said
+  // `merged` over a branch that never landed. From `^2` it says what the branch
+  // adds over the main it merged, which is the card's work.
+  const parents = (await gitOut(repoPath, ["rev-list", "--parents", "-n", "1", commit], runGit)).trim().split(/\s+/).slice(1);
+  const base = parents.length > 1 ? `${commit}^2` : parents.length === 1 ? `${commit}^` : null;
+  // Ancestry and the twin copy prove the change REACHED main, not that it is
+  // still there: a revert leaves both standing (`change-undone.ts`).
+  const undone = async () => base !== null && (await changeUndoneOn(repoPath, base, commit, mainRef, runGit)) === true;
+
   // (1) Discendenza. La domanda sta in `commitIsIn` perché non è solo di qui: il
   // cancello del land la fa per decidere se c'è qualcosa da pubblicare, questo
   // per decidere se c'è qualcosa da rifare. Due copie che divergono vogliono dire
   // ridispacciare ciò che il land ha appena chiuso.
-  if ((await commitIsIn(repoPath, commit, mainRef, { runGit })) === true) return "merged";
+  if ((await commitIsIn(repoPath, commit, mainRef, { runGit })) === true) return (await undone()) ? "reverted" : "merged";
 
   // (2) La copia ricopiata dal land. `-F` perché l'oggetto di un commit è prosa
   // e contiene parentesi, backtick e accenti: come regex sarebbe un'altra
@@ -174,12 +191,12 @@ export async function commitStatusFromRepo(
   if (at && subject) {
     const twins = (await gitOut(repoPath, ["log", mainRef, "-F", `--grep=${subject}`, "--format=%at%x09%s"], runGit))
       .split("\n").map((l) => l.trim());
-    if (twins.includes(`${at}\t${subject}`)) return "merged";
+    if (twins.includes(`${at}\t${subject}`)) return (await undone()) ? "reverted" : "merged";
   }
 
   // (3) Il contenuto del SUO cambiamento, non di tutto il ramo. Su un commit
   // radice `^` non esiste: `show` lo elenca comunque.
-  const ownDiff = await gitOut(repoPath, ["diff", "--name-only", `${commit}^`, commit], runGit);
+  const ownDiff = base ? await gitOut(repoPath, ["diff", "--name-only", base, commit], runGit) : "";
   const changed = filterUniqueSourceFiles(
     (ownDiff.trim() ? ownDiff : await gitOut(repoPath, ["show", "--format=", "--name-only", commit], runGit)).split("\n"),
   );

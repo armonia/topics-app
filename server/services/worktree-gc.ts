@@ -14,9 +14,11 @@
  *
  * Never reaped: a worktree whose task is still active (backlog/todo/
  * in_progress/review), one with real uncommitted work (junk excluded), one
- * with unmerged commits when we can't safely land them, or one under a live
- * agent turn. A closed task whose clean commits never landed is re-merged
- * first (land-then-reap), never dropped.
+ * with unmerged commits no ref would still reach, or one under a live agent
+ * turn. A closed task whose clean commits never landed is NEVER merged into
+ * main by the sweep: its branch tip is pinned under `refs/topics/archive/<task>`
+ * and only then is the checkout freed (archive-then-free). Landing stays a
+ * human act.
  *
  * The one exception to "active ⇒ untouchable" is `abandon`: a task stuck in
  * `in_progress` with no sign of life for days is active only on paper, and it
@@ -32,7 +34,7 @@
  * va, il branch resta, il lavoro è al sicuro dove è sempre stato.
  */
 
-export type WorktreeReapAction = "reap" | "land-then-reap" | "free-checkout" | "commit-residue" | "abandon" | "keep";
+export type WorktreeReapAction = "reap" | "archive-then-free" | "free-checkout" | "commit-residue" | "abandon" | "keep";
 
 export interface WorktreeReapDecision {
   action: WorktreeReapAction;
@@ -75,9 +77,11 @@ export interface WorktreeReapInput {
    * quella giusta.
    */
   canCommitResidue?: boolean;
-  /** The task's board opted into auto-merge (so land-then-reap is allowed). */
-  autoMergeEnabled: boolean;
-  /** Only `branch`-mode worktrees own a landable branch. */
+  /**
+   * Only `branch`-mode worktrees own a branch that can be archived. The board's
+   * auto-merge setting is deliberately NOT an input: archiving is not landing,
+   * so it happens whatever that setting says.
+   */
   mode: "branch" | "reuse" | "detached";
   /**
    * Days since the last sign of life on the bound task — a turn, a comment, a
@@ -163,24 +167,19 @@ export function decideWorktreeReap(input: WorktreeReapInput): WorktreeReapDecisi
   // Fully on main already → the worktree holds nothing main doesn't. Safe.
   if (input.mergedIntoMain) return { action: "reap", reason: "già interamente su main" };
 
-  // Closed task, clean tree, but commits never landed (e.g. an approve the
-  // old dirty-main bug skipped). Land them first, THEN reap — never drop.
-  if (input.autoMergeEnabled && input.mode === "branch") {
-    return { action: "land-then-reap", reason: "task chiuso con commit non ancora su main" };
-  }
-
-  // Commit che non si possono auto-landare (automerge spento, o modo non-branch).
-  // Restano da decidere a mano — ma «da decidere» riguarda i COMMIT, non la
-  // cartella: se un branch li raggiunge ancora, il checkout è una copia in più e
-  // può andarsene senza che nessuno perda niente.
+  // Closed task, clean tree, commits not on main. The card may have been closed
+  // on purpose WITHOUT a land, so the sweep never merges them: it pins the tip
+  // under an archive ref, THEN frees the checkout. Whether the commits ever
+  // reach main stays a human decision, and the board's auto-merge setting has
+  // no say here (archiving is not landing).
   if (input.mode === "branch" && !input.branchGone) {
-    return { action: "free-checkout", reason: "task chiuso, commit non su main: branch conservato, checkout liberato" };
+    return { action: "archive-then-free", reason: "closed task with commits not on main: archive the branch, then free the checkout" };
   }
 
   // `detached` non ha un branch proprio: i suoi commit sono raggiungibili solo
   // dall'HEAD della cartella. `reuse` sta su un ramo di qualcun altro, di cui
   // qui non abbiamo letto lo stato. In entrambi i casi la cartella È l'appiglio.
-  return { action: "keep", reason: "commit non mergiati, automerge non disponibile → decisione umana" };
+  return { action: "keep", reason: "unmerged commits with no branch of their own to archive: human decision" };
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -375,8 +374,6 @@ export interface WorktreeGcDeps {
    * `merged` (ancestor of main → nothing to lose), or `unmerged`.
    */
   branchStatus: (wt: GcWorktree) => Promise<BranchStatus>;
-  /** The worktree's board opted into auto-merge. */
-  autoMergeEnabled: (projectId: string) => boolean;
   /**
    * Days since the last sign of life on the task, or `null` when unmeasurable.
    * Absent ⇒ the abandon TTL is off entirely.
@@ -489,7 +486,12 @@ export function shouldSlimOnKeep(taskStatus: TaskStatus | null, taskArchived: bo
 export interface WorktreeGcSummary {
   total: number;
   reaped: number;
-  landed: number;
+  /**
+   * Closed tasks whose unmerged branch tip was pinned under an archive ref this
+   * pass (`archive-then-free`). Counted when the ref is written, freed or not:
+   * `freed` says how many of those checkouts actually went.
+   */
+  archived: number;
   /** Checkouts freed under a task abandoned in `in_progress` (branch kept). */
   abandoned: number;
   /**
@@ -551,7 +553,7 @@ export function normalizeKeepReason(reason: string): string {
 export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSummary> {
   const worktrees = deps.listWorktrees();
   const summary: WorktreeGcSummary = {
-    total: worktrees.length, reaped: 0, landed: 0, abandoned: 0, unbound: 0, freed: 0, kept: 0,
+    total: worktrees.length, reaped: 0, archived: 0, abandoned: 0, unbound: 0, freed: 0, kept: 0,
     residueCommitted: 0, slimmed: 0, slimmedBytes: 0, errors: 0, keptReasons: {},
   };
   /** Un keep senza motivo registrato e' un keep che nessuno puo' spiegare. */
@@ -701,7 +703,6 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
         unregistered,
         mergedIntoMain: branch === "merged" || landedForUnregistered === true,
         branchGone: branch === "gone",
-        autoMergeEnabled: deps.autoMergeEnabled(wt.projectId),
         mode: wt.mode,
         // Measured only for a task that could BE abandoned: for everything else
         // the answer changes nothing and the probe (a stat on the transcript)
@@ -780,14 +781,14 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
         continue;
       }
 
-      if (decision.action === "land-then-reap") {
-        // Needs a real task to land. An orphan (taskId null) with unmerged
-        // commits can't be landed → keep it for a human rather than lose work.
+      if (decision.action === "archive-then-free") {
+        // The archive ref is named after the task. An orphan (taskId null) has
+        // none to name it after: its live branch is the only ref, and it stays.
         if (!taskId) {
-          // Nessun task a cui landare — ma il BRANCH raggiunge ancora quei
-          // commit, quindi la cartella è una copia in più esattamente come nel
-          // ramo `free-checkout` di `decideWorktreeReap`. Tenerla per sempre
-          // non protegge nessun commit: costa solo disco.
+          // No task to archive under, but the BRANCH still reaches those
+          // commits, so the folder is one more copy exactly as in the
+          // `free-checkout` branch of `decideWorktreeReap`. Keeping it forever
+          // protects no commit: it only costs disk.
           if (wt.mode === "branch" && branch !== "gone"
               && await freeCheckout(wt, null, "orfano: nessun task a cui landare, branch conservato")) continue;
           keep("commit non su main e nessun task a cui landarli (orfano)");
@@ -799,6 +800,10 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
         // on the local main (2026-11-12). The commits are pinned under an
         // archive ref and the checkout is freed; landing stays a human act.
         const archived = deps.archiveBranch ? await deps.archiveBranch(taskId, wt).catch(() => false) : false;
+        if (archived) {
+          summary.archived += 1;
+          deps.log(`[worktree-gc] archived ${wt.branchName ?? wt.id} under the task's archive ref (not merged into main)`);
+        }
         if (archived && await freeCheckout(wt, taskId, "task chiuso con commit non su main: archiviati, NON uniti a main")) continue;
         keep(archived ? "archiviato ma checkout non liberabile" : "commit non su main e archivio non riuscito");
         await slimKept(wt, taskStatus, taskArchived, present);
@@ -828,25 +833,24 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
     }
   }
 
-  if (summary.reaped || summary.landed || summary.abandoned || summary.freed || summary.residueCommitted || summary.slimmed || summary.errors) {
+  if (summary.reaped || summary.archived || summary.abandoned || summary.freed || summary.residueCommitted || summary.slimmed || summary.errors) {
     deps.log(
-      `[worktree-gc] sweep done: ${summary.reaped} reaped, ${summary.landed} landed, ` +
+      `[worktree-gc] sweep done: ${summary.reaped} reaped, ${summary.archived} archived, ` +
       `${summary.freed} checkout liberati, ${summary.residueCommitted} residui salvati, ` +
       `${summary.abandoned} abbandonati, ` +
       `${summary.slimmed} snelliti (${(summary.slimmedBytes / 1_048_576).toFixed(0)} MB), ` +
       `${summary.kept} kept, ${summary.errors} errors (of ${summary.total})`,
     );
   }
-  // I MOTIVI dei kept, sempre — anche quando la passata non ha fatto altro.
+  // The REASONS for the kept ones, always, even when the pass did nothing else.
   //
-  // La riga sopra è condizionata a reap/land/abbandoni/errori: una passata che
-  // tiene TUTTO non stampava niente. È così che 38 worktree tenuti sono
-  // diventati invisibili — nessuna riga, nessun numero, nessun perché, mentre
-  // sul disco crescevano. Un GC che tace quando non agisce è indistinguibile da
-  // un GC che non gira.
+  // The line above is conditional on reaps/archives/abandons/errors: a pass that
+  // keeps EVERYTHING used to print nothing. That is how 38 kept worktrees became
+  // invisible (no line, no number, no why) while they grew on disk. A GC that is
+  // silent when it does not act is indistinguishable from a GC that does not run.
   //
-  // Ordinati per frequenza: la categoria più grossa è quella su cui vale la
-  // pena agire, e va letta per prima.
+  // Sorted by frequency: the biggest category is the one worth acting on, and it
+  // is read first.
   const reasons = Object.entries(summary.keptReasons).sort((a, b) => b[1] - a[1]);
   if (reasons.length > 0) {
     deps.log(

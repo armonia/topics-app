@@ -39,7 +39,7 @@ const branchResolves = (repo: string, b: string) =>
 describe("la decisione pura", () => {
   const base = {
     taskStatus: "done" as TaskStatus, taskArchived: false, hasRealDirt: true,
-    mergedIntoMain: false, autoMergeEnabled: true, mode: "branch" as const,
+    mergedIntoMain: false, mode: "branch" as const,
     idleDays: null, abandonAfterDays: 7,
   };
 
@@ -172,7 +172,6 @@ describe("il residuo su git vero", () => {
       diskPresent: (p) => existsSync(p),
       realDirt: (p) => worktreeDirtProbe(p),
       branchStatus: (wt) => branchStatusFromRepo(repo, wt.branchName),
-      autoMergeEnabled: () => true,
       commitResidue: async (wt) => (await commitWorktreeResidue(wt.absPath)).ok,
       freeCheckout: async (id) => {
         const wt = trees.get(id)!;

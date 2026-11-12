@@ -12,9 +12,9 @@
  *   • task `in_progress` → folder UNTOUCHED even if clean;
  *   • uncommitted changes → folder UNTOUCHED, and the GC says why.
  *
- * The land is forced to `skipped`: it is the NORMAL case since `03ca44c3` (the
- * land refuses a branch carrying commits from another session) and it is exactly
- * the scenario that kept 77 worktrees alive for 33.9 GB.
+ * The sweep never lands: a closed card's unmerged branch is archived under a
+ * ref, then the checkout is freed. That is exactly the scenario that once kept
+ * 77 worktrees alive for 33.9 GB.
  *
  * @covers WORKTREE-10
  */
@@ -99,7 +99,6 @@ describe("free-checkout su git vero", () => {
       diskPresent: (p) => existsSync(p),
       realDirt: (p) => worktreeDirtProbe(p),
       branchStatus: (wt) => branchStatusFromRepo(repo, wt.branchName),
-      autoMergeEnabled: () => true,
       archiveBranch: (taskId, wt) => archiveBranchRef(repo, wt.branchName!, taskId),
       freeCheckout: async (id) => {
         const wt = trees.get(id)!;
@@ -300,6 +299,9 @@ describe("free-checkout su git vero", () => {
     expect(branchResolves(repo, wt.branchName!)).toBe(true);
   });
 
+  // The sweep in isolation, with hand-made deps. The same promise is proven end
+  // to end (TaskService review -> approve, the runner's own wiring) in
+  // `worktree-gc-runner-archive.test.ts`.
   test("a card closed WITHOUT a land never reaches main: commits archived under a ref, main untouched", async () => {
     const wt = mountWorktree("senza-land");
     statuses.set("senza-land", "done");
@@ -308,7 +310,7 @@ describe("free-checkout su git vero", () => {
 
     const s = await sweepWorktrees(deps());
 
-    expect(s.landed).toBe(0);
+    expect(s.archived).toBe(1);
     expect(git(repo, "rev-parse", "main").out.trim()).toBe(mainBefore);
     expect(git(repo, "log", "main", "--merges", "--oneline").out).not.toContain("senza-land");
     expect(git(repo, "rev-parse", `${ARCHIVE_REF_PREFIX}task-senza-land`).out.trim()).toBe(tip);

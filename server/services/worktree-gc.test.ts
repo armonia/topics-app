@@ -14,7 +14,6 @@ describe("decideWorktreeReap — safety contract", () => {
     taskArchived: false,
     hasRealDirt: false,
     mergedIntoMain: true,
-    autoMergeEnabled: true,
     mode: "branch" as const,
   };
 
@@ -40,22 +39,19 @@ describe("decideWorktreeReap — safety contract", () => {
     expect(decideWorktreeReap({ ...base, hasRealDirt: true, mergedIntoMain: false }).action).toBe("keep");
   });
 
-  test("done + clean + UNMERGED + automerge on + branch → land-then-reap", () => {
-    expect(decideWorktreeReap({ ...base, mergedIntoMain: false }).action).toBe("land-then-reap");
-  });
-
-  // I COMMIT restano da decidere a mano; la CARTELLA no. Il branch li tiene
-  // raggiungibili, quindi il checkout è una copia — e 77 copie da ~400 MB sono
-  // i 33,9 GB che questa riga, dicendo `keep`, difendeva.
-  test("done + clean + UNMERGED + automerge OFF → free-checkout (branch conservato)", () => {
-    const d = decideWorktreeReap({ ...base, mergedIntoMain: false, autoMergeEnabled: false });
-    expect(d.action).toBe("free-checkout");
-    expect(d.reason).toContain("branch conservato");
+  // The COMMITS stay a human decision; the FOLDER does not. They are pinned
+  // under an archive ref and the checkout goes: 77 copies of ~400 MB are the
+  // 33.9 GB that a `keep` here used to defend. The board's auto-merge setting
+  // is not an input at all: archiving is not landing.
+  test("done + clean + UNMERGED + branch → archive-then-free, never a land", () => {
+    const d = decideWorktreeReap({ ...base, mergedIntoMain: false });
+    expect(d.action).toBe("archive-then-free");
+    expect(d.reason).toContain("archive");
   });
 
   test("done + clean + UNMERGED + branch SPARITO → keep (la cartella è l'unica copia)", () => {
     expect(
-      decideWorktreeReap({ ...base, mergedIntoMain: false, autoMergeEnabled: false, branchGone: true }).action,
+      decideWorktreeReap({ ...base, mergedIntoMain: false, branchGone: true }).action,
     ).toBe("keep");
   });
 
@@ -65,17 +61,15 @@ describe("decideWorktreeReap — safety contract", () => {
 
   test("detached: i commit vivono solo nell'HEAD della cartella → keep", () => {
     expect(
-      decideWorktreeReap({ ...base, mergedIntoMain: false, autoMergeEnabled: false, mode: "detached" }).action,
+      decideWorktreeReap({ ...base, mergedIntoMain: false, mode: "detached" }).action,
     ).toBe("keep");
   });
 
   test("free-checkout non distrugge MAI un branch: nessun input pulito+non-mergiato produce 'reap'", () => {
     for (const mode of ["branch", "reuse", "detached"] as const) {
-      for (const autoMergeEnabled of [true, false]) {
-        for (const branchGone of [true, false]) {
-          const d = decideWorktreeReap({ ...base, mergedIntoMain: false, mode, autoMergeEnabled, branchGone });
-          expect(d.action).not.toBe("reap");
-        }
+      for (const branchGone of [true, false]) {
+        const d = decideWorktreeReap({ ...base, mergedIntoMain: false, mode, branchGone });
+        expect(d.action).not.toBe("reap");
       }
     }
   });
@@ -218,7 +212,6 @@ function makeDeps(over: Partial<WorktreeGcDeps> = {}): WorktreeGcDeps {
     diskPresent: () => true,
     realDirt: async () => ({ ok: true, paths: [] }),
     branchStatus: async () => "merged",
-    autoMergeEnabled: () => true,
     reap: async () => true,
     log: () => {},
     ...over,
@@ -258,7 +251,7 @@ describe("sweepWorktrees", () => {
       resolveTask: () => ({ taskId: "t9", status: "done", archived: false }),
     }));
     expect(calls).toEqual(["archive:t9", "free:unmerged"]);
-    expect(s.landed).toBe(0);
+    expect(s.archived).toBe(1);
     expect(s.reaped).toBe(0);
     expect(s.freed).toBe(1);
   });
@@ -274,6 +267,7 @@ describe("sweepWorktrees", () => {
       }));
       expect(freed).toEqual([]);
       expect(s.kept).toBe(1);
+      expect(s.archived).toBe(0);
     }
   });
 
@@ -368,7 +362,6 @@ describe("decideWorktreeReap — TTL sui task abbandonati in in_progress", () =>
     taskArchived: false,
     hasRealDirt: false,
     mergedIntoMain: false,
-    autoMergeEnabled: true,
     mode: "branch" as const,
     idleDays: 30,
     abandonAfterDays: 7,
@@ -662,7 +655,6 @@ describe("sweepWorktrees — perché i kept sono tenuti", () => {
       branchStatus: async () => "unmerged",
       diskPresent: () => true,
       realDirt: async () => ({ ok: true, paths: [] }),
-      autoMergeEnabled: () => false,
       reap: async () => true,
       log: () => {},
       ...rest,
@@ -839,7 +831,7 @@ describe("sweepWorktrees — snellimento", () => {
     const slimmed: string[] = [];
     const s = await sweepWorktrees(inReview({
       resolveTask: () => ({ taskId: "t-chiuso", status: "done", archived: false }),
-      autoMergeEnabled: () => false,
+      archiveBranch: async () => true,
       freeCheckout: async () => false,
       slim: async (w) => { slimmed.push(w.id); return 42; },
     }));

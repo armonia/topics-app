@@ -57,12 +57,14 @@ export interface AuditTask {
   deliveryBranch: string | null;
   /** Branch tip recorded at delivery time — the durable handle. */
   deliveryCommit: string | null;
+  /** `review` or `done`, when the caller knows it: only the log line reads it. */
+  status?: string;
 }
 
 /** Map a repo verdict onto the audit's vocabulary. Pure. */
 export function classifyLanding(status: CommitStatus): LandingState {
   if (status === "merged") return "landed";
-  if (status === "unmerged") return "unlanded";
+  if (status === "unmerged" || status === "reverted") return "unlanded";
   // `gone`  — the commit is no longer in the repo (pruned, or the project
   //           moved). Saying "unlanded" would cry wolf on every old task.
   // `empty` — the delivery commit carries no source change, so it cannot speak
@@ -131,6 +133,12 @@ export interface LandingAuditDeps {
    * so». Assente ⇒ la domanda non si fa, e l'audit resta quello di prima.
    */
   landedMerge?: (task: AuditTask, repoPath: string) => Promise<boolean | null>;
+  /**
+   * The verdict is asked of the PUBLISHED main (origin/main) where there is
+   * one. A card that is not there may still be on the local main: that is
+   * `unpushed`, not `landed` and not `unlanded`. Absent: no such question.
+   */
+  localOnly?: (task: AuditTask, repoPath: string) => Promise<boolean>;
   /** Persist the verdict (landing_state + landing_checked_at). */
   record: (taskId: string, state: LandingState, checkedAt: string) => void;
   /** Called once per task that flipped INTO `unlanded` — the human must see it. */
@@ -163,6 +171,7 @@ export interface LandingAuditSummary {
  */
 export async function auditLandings(deps: LandingAuditDeps): Promise<LandingAuditSummary> {
   const summary: LandingAuditSummary = { checked: 0, landed: 0, unlanded: 0, unverifiable: 0, superseded: 0, unpushed: 0 };
+  const outside = { done: 0, review: 0 };
   const checkedAt = deps.now();
 
   for (const task of deps.listCandidates()) {
@@ -196,7 +205,11 @@ export async function auditLandings(deps: LandingAuditDeps): Promise<LandingAudi
       // that was still outside — 958 lines on 53fc5aed, 2026-09-09. In both
       // cases the real answer belongs to the BRANCH, which is exactly what
       // `debtVerdict` goes and asks.
-      if ((state === "unlanded" || status === "empty") && repo && deps.debtVerdict) {
+      //
+      // NOT on `reverted`: that answer is already about the content (the
+      // change applies forward on main again), and the line index would read
+      // the files the revert left alone as the work being there.
+      if (((state === "unlanded" && status !== "reverted") || status === "empty") && repo && deps.debtVerdict) {
         state = await deps.debtVerdict(task, repo);
       }
       // Restato un «non lo so» (commit potato, o mai registrato), c'è ancora il
@@ -204,10 +217,12 @@ export async function auditLandings(deps: LandingAuditDeps): Promise<LandingAudi
       if (state === "unverifiable" && repo && deps.landedMerge) {
         if ((await deps.landedMerge(task, repo)) === true) state = "landed";
       }
+      if (state !== "landed" && repo && deps.localOnly && (await deps.localOnly(task, repo))) state = "unpushed";
 
       deps.record(task.id, state, checkedAt);
       summary.checked += 1;
       summary[state] += 1;
+      if (state === "unlanded") outside[task.status === "review" ? "review" : "done"] += 1;
 
       if (state === "unlanded" && before !== "unlanded") {
         deps.log(
@@ -222,17 +237,24 @@ export async function auditLandings(deps: LandingAuditDeps): Promise<LandingAudi
     }
   }
 
-  if (summary.unlanded > 0) {
-    // WHAT THE DENOMINATOR IS. `checked` counts the cards RE-ASKED in this pass,
-    // not every delivered card: a settled `landed` or `unverifiable` is asked once
-    // a day (see `listLandingAuditCandidates`), so the 30-minute passes see
-    // mostly the unlanded ones and the ratio reads 22/22 by construction. The
-    // number that is true is the count of cards still outside the LOCAL main
-    // (the push to origin is the push sweep's business, state `unpushed`).
+  if (summary.unlanded > 0 || summary.unpushed > 0) {
+    // WHAT THIS LINE MEASURES, because "22/22 not on main" on every pass read
+    // like a broken check. Two facts made it so:
+    //   - the DENOMINATOR is the cards re-asked in THIS pass, not every delivered
+    //     card. A settled `landed` or `unverifiable` is re-asked once a day
+    //     (`listLandingAuditCandidates`), so a 30-minute pass sees mostly the
+    //     cards that were already outside, and the ratio is N/N by construction;
+    //   - it mixed two columns. A card in REVIEW is outside main by definition
+    //     (that is what the column is); only a card in DONE outside main is debt.
+    //     Measured on 2026-11-12: 24 = 16 done + 8 review.
+    // So the line names the debt (done) and the expected (review) apart, against
+    // the main the verdict was asked of (origin/main where the repo has one),
+    // and says the denominator is this pass.
     deps.log(
-      `[landing-audit] ${summary.unlanded} task consegnati NON sono su main locale ` +
-      `(${summary.landed} landed, ${summary.unverifiable} non verificabili fra i ${summary.checked} riesaminati in questo giro; ` +
-      "i landed già assestati si rivalutano una volta al giorno e non entrano nel conto)",
+      `[landing-audit] not on the published main: ${outside.done} done (debt), ` +
+      `${outside.review} in review (not landed yet, expected); ${summary.unpushed} only on the local main; ` +
+      `${summary.landed} landed, ${summary.unverifiable} unverifiable, of the ${summary.checked} cards re-asked this pass ` +
+      "(settled verdicts are re-asked once a day and are not in this count)",
     );
   }
   // `unverifiable` è conservativo per scelta, e per questo è anche il posto

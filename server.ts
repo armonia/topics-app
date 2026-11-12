@@ -2700,7 +2700,6 @@ const worktreeGc = createWorktreeGcRunner({
   broadcast: (msg) => ctx.broadcastToAll(msg as Parameters<typeof ctx.broadcastToAll>[0]),
   isInFlight: (taskId) => taskDispatcher.isInFlight(taskId),
   worktreeOfTask: (taskId) => worktreeOfTask(taskId),
-  projectIdForPath: (path) => projectIdForPath(path),
   deliveryIsOnMain: (repoPath, commit) => deliveryIsOnMain(repoPath, commit),
   previewList: () => previewManager?.list() ?? [],
   previewTeardown: (taskId) => previewManager?.teardown(taskId) ?? Promise.resolve(),

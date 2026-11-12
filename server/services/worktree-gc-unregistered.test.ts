@@ -38,7 +38,7 @@ const branchResolves = (repo: string, b: string) =>
 describe("la decisione pura con `unregistered`", () => {
   const base = {
     taskStatus: "done" as TaskStatus, taskArchived: false, hasRealDirt: true, unregistered: true,
-    mergedIntoMain: false, autoMergeEnabled: true, mode: "branch" as const, canCommitResidue: true,
+    mergedIntoMain: false, mode: "branch" as const, canCommitResidue: true,
   };
 
   test("lavoro su main → reap, anche se la sonda era muta", () => {
@@ -106,7 +106,6 @@ describe("la cartella non registrata, su git vero", () => {
       diskPresent: (p) => existsSync(p),
       realDirt: (p) => worktreeDirtProbe(p),
       branchStatus: (wt) => branchStatusFromRepo(repo, wt.branchName),
-      autoMergeEnabled: () => true,
       commitResidue: async (wt) => (await commitWorktreeResidue(wt.absPath)).ok,
       freeCheckout: async (id) => { removeFolder(trees.get(id)!); trees.delete(id); return true; },
       reap: async (id) => {

@@ -316,18 +316,21 @@ describe("auditLandings", () => {
     expect(h.logs.some((l) => l.includes("3/3") && l.includes("non verificabili"))).toBe(true);
   });
 
-  it("the unlanded line counts what is outside main and says what the rest of the pass measured", async () => {
+  it("the unlanded line splits done (debt) from review (expected) and names its denominator", async () => {
+    // 2026-11-12: "24 not on main" was 16 done + 8 review, and only the first
+    // is debt. The line must not add them up.
     const h = harness({
-      tasks: [task("a"), task("b"), task("c")],
+      tasks: [task("a"), { ...task("b"), status: "done" }, { ...task("c"), status: "review" }, { ...task("d"), status: "done" }],
       status: (commit) => (commit === task("a").deliveryCommit ? "merged" : "unmerged"),
       debt: () => "unlanded",
     });
     await auditLandings(h.deps);
-    const line = h.logs.find((l) => l.includes("NON sono su main locale"));
-    expect(line).toContain("2 task consegnati");
+    const line = h.logs.find((l) => l.includes("not on the published main"));
+    expect(line).toContain("2 done (debt)");
+    expect(line).toContain("1 in review");
     expect(line).toContain("1 landed");
-    expect(line).toContain("3 riesaminati");
-    expect(line).not.toContain("2/3");
+    expect(line).toContain("of the 4 cards re-asked this pass");
+    expect(line).not.toContain("3/4");
   });
 
   it("nessun rumore quando ogni verdetto è certo", async () => {
