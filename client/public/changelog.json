@@ -1,5 +1,58 @@
 [
   {
+    "version": "2.3.87",
+    "date": "2026-11-12",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "cap the wait for response headers, retry on a new socket",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "CHAT-REL-09, the headers bound the new test covers",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "wait out an account-engine hold, count header timeouts per call",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "extend the headers wait only for a hold logged for this request",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "a hold that already ended still buys one bound, a 429 ends the call only at the hold's end",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "a 429 ends the call only on the engine's own give-up, the hold is read once",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the engine's give-up counts only between our request and our 429",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.86",
     "date": "2026-11-11",
     "sections": {
@@ -18,6 +71,11 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Chiusura tab progetto: la X chiude anche se la tab non risulta in openPanels",
+          "en": "",
+          "scope": null
         },
         {
           "it": "topics/valiant-tundra (card c1ec9dd1) (#787)",
@@ -54,6 +112,11 @@
       "internal": [
         {
           "it": "CI e nodo Topics su un server Hetzner fisso (topics-fisso, cx53) (#767)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "chiama --prova vive nel repo jarvis (f89337c9): commit vuoto per la misura della CI della card",
           "en": "",
           "scope": null
         },
