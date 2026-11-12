@@ -25,6 +25,7 @@ mod shortcuts_generated;
 /// outside the tests.
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod chords;
+mod tray_menu;
 mod tray_quota;
 #[cfg(target_os = "windows")]
 mod chords_win;
@@ -2880,7 +2881,7 @@ fn set_clipboard_image(bytes: Vec<u8>) -> Result<(), String> {
 /// One attention row for the dynamic tray menu: a chat topic needing the user,
 /// clickable to jump straight to it (Electron parity: the tray listed unread
 /// topics that navigate on click).
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 struct StatusItem {
     id: String,
     title: String,
@@ -2896,7 +2897,7 @@ struct StatusItem {
 /// `shared/tray-board.ts`; this side only draws it. `count` is the WHOLE column,
 /// `rows` the ones that fit: the difference is what the submenu declares as
 /// "altri N", instead of letting them vanish.
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 struct StatusGroup {
     /// Kanban status id: picks the label and builds the row id that reopens the board.
     status: String,
@@ -3069,11 +3070,105 @@ fn set_app_status(
         // Menu-bar tray: glyph + tooltip + the clickable attention rows.
         // Retrieved by the id assigned at build time (`TrayIconBuilder::with_id`).
         if let Some(tray) = app.tray_by_id("main") {
+            // Keep what the Topics rows need, then draw the whole menu from one place:
+            // the service poller redraws it too, and must not lose these rows.
+            if let Ok(mut st) = TRAY_STATUS.lock() {
+                *st = (items.clone(), groups.clone());
+            }
+            rebuild_tray_menu(&app);
+
+            let title = if count > 0 { Some(count.to_string()) } else { None };
+            let tip = if count > 0 {
+                format!("Topics — {count} in attesa")
+            } else {
+                "Topics".to_string()
+            };
+            let _ = tray.set_title(title);
+            let _ = tray.set_tooltip(Some(tip));
+        }
+        Ok(())
+    });
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, count, items, groups);
+}
+
+/// Last attention rows and board columns, kept so the service poller can redraw the
+/// menu without waiting for the next client status push.
+#[cfg(target_os = "macos")]
+static TRAY_STATUS: std::sync::Mutex<(Vec<StatusItem>, Vec<StatusGroup>)> = std::sync::Mutex::new((Vec::new(), Vec::new()));
+/// Latest hub sections (quotas, machines, processes, projects, brake, backup).
+#[cfg(target_os = "macos")]
+static HUB_MENU: std::sync::Mutex<Vec<tray_menu::Node>> = std::sync::Mutex::new(Vec::new());
+/// Latest census body, for the safe close of one unit.
+#[cfg(target_os = "macos")]
+static HUB_PROCS: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+#[cfg(target_os = "macos")]
+fn hub_node_to_menu<'m>(
+    app: &tauri::AppHandle,
+    nodes: &[tray_menu::Node],
+    mut mb: tauri::menu::MenuBuilder<'m, tauri::Wry, tauri::AppHandle>,
+) -> tauri::menu::MenuBuilder<'m, tauri::Wry, tauri::AppHandle> {
+    use tauri::menu::MenuItemBuilder;
+    for n in nodes {
+        match n {
+            tray_menu::Node::Sep => mb = mb.separator(),
+            tray_menu::Node::Item { id, label, enabled } => {
+                // A disabled note has no id of its own: a unique one keeps the menu valid.
+                let id = if id.is_empty() { format!("note:{label}") } else { id.clone() };
+                if let Ok(it) = MenuItemBuilder::with_id(id, tray_label(label)).enabled(*enabled).build(app) {
+                    mb = mb.item(&it);
+                }
+            }
+            tray_menu::Node::Sub { label, children } => {
+                if let Ok(sub) = hub_submenu(app, label, children) {
+                    mb = mb.item(&sub);
+                }
+            }
+        }
+    }
+    mb
+}
+
+#[cfg(target_os = "macos")]
+fn hub_submenu(
+    app: &tauri::AppHandle,
+    label: &str,
+    children: &[tray_menu::Node],
+) -> tauri::Result<tauri::menu::Submenu<tauri::Wry>> {
+    use tauri::menu::{MenuItemBuilder, SubmenuBuilder};
+    let mut sb = SubmenuBuilder::new(app, tray_label(label));
+    for c in children {
+        match c {
+            tray_menu::Node::Sep => sb = sb.separator(),
+            tray_menu::Node::Item { id, label, enabled } => {
+                let id = if id.is_empty() { format!("note:{label}") } else { id.clone() };
+                if let Ok(it) = MenuItemBuilder::with_id(id, tray_label(label)).enabled(*enabled).build(app) {
+                    sb = sb.item(&it);
+                }
+            }
+            tray_menu::Node::Sub { label, children } => {
+                if let Ok(s2) = hub_submenu(app, label, children) {
+                    sb = sb.item(&s2);
+                }
+            }
+        }
+    }
+    sb.build()
+}
+
+/// The whole tray menu: attention rows, hub sections, board, then the fixed actions.
+#[cfg(target_os = "macos")]
+fn rebuild_tray_menu(app: &tauri::AppHandle) {
+    use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+    let (items, groups) = TRAY_STATUS.lock().map(|g| g.clone()).unwrap_or_default();
+    let hub = HUB_MENU.lock().map(|g| g.clone()).unwrap_or_default();
+    let Some(tray) = app.tray_by_id("main") else { return };
             // Rebuild the menu: one `nav:<topicId>` row per attention chat, then a
             // separator, then the static Show/Quit. The tray's `on_menu_event`
             // (installed at build) routes `nav:` clicks — it fires for whatever
             // menu is currently set, so dynamically-swapped rows still navigate.
-            let mut mb = MenuBuilder::new(&app);
+            let mut mb = MenuBuilder::new(app);
             for it in &items {
                 mb = mb.text(format!("nav:{}", it.id), tray_label(&it.title));
             }
@@ -3090,7 +3185,7 @@ fn set_app_status(
                 mb = mb.text("board:open", format!("Board ({open} aperti)"));
                 for g in &groups {
                     let mut sb = SubmenuBuilder::new(
-                        &app,
+                        app,
                         format!("{} ({})", tray_status_label(&g.status), g.count),
                     );
                     for it in &g.rows {
@@ -3120,7 +3215,7 @@ fn set_app_status(
                             format!("altri {more}…"),
                         )
                         .enabled(false)
-                        .build(&app)
+                        .build(app)
                         {
                             sb = sb.item(&rest);
                         }
@@ -3134,6 +3229,10 @@ fn set_app_status(
                 }
                 mb = mb.separator();
             }
+            if !hub.is_empty() {
+                mb = hub_node_to_menu(app, &hub, mb);
+                mb = mb.separator();
+            }
             // Le azioni che il menu si era perso per strada: la app è cresciuta
             // (chat, board, aggiornatore) e la tray era rimasta a Mostra/Esci,
             // cioè non sapeva far FARE niente. Sono le stesse porte del menu
@@ -3141,26 +3240,69 @@ fn set_app_status(
             mb = mb
                 .text("tray-new-chat", "Nuova chat")
                 .text("tray-check-updates", "Controlla aggiornamenti")
+                .text("tray-refresh", "Aggiorna")
                 .separator()
-                .text("tray-show", "Mostra Topics")
+                .text("tray-show", "Apri Topics")
                 .text("tray-quit", "Esci");
             if let Ok(menu) = mb.build() {
                 let _ = tray.set_menu(Some(menu));
             }
+}
 
-            let title = if count > 0 { Some(count.to_string()) } else { None };
-            let tip = if count > 0 {
-                format!("Topics — {count} in attesa")
-            } else {
-                "Topics".to_string()
-            };
-            let _ = tray.set_title(title);
-            let _ = tray.set_tooltip(Some(tip));
+/// One hub poll: fetch every endpoint, rebuild the hub sections, redraw the menu.
+#[cfg(target_os = "macos")]
+fn refresh_hub_menu(app: &tauri::AppHandle) {
+    let base = tray_quota::hub_base();
+    let snap = tray_menu::Snapshot::fetch(&base, tray_menu::backup_state_path().as_deref());
+    let prefs = tray_menu::prefs_path().map(|p| tray_menu::load_prefs(&p)).unwrap_or_default();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    if let Ok(mut g) = HUB_PROCS.lock() {
+        *g = snap.procs.clone();
+    }
+    if let Ok(mut g) = HUB_MENU.lock() {
+        *g = tray_menu::build_menu(&snap, prefs, now);
+    }
+    rebuild_tray_menu(app);
+}
+
+/// A click on a hub row: one action, run off the UI thread; the menu is redrawn after.
+#[cfg(target_os = "macos")]
+fn run_hub_action(app: &tauri::AppHandle, id: &str) {
+    let procs = HUB_PROCS.lock().ok().and_then(|g| g.clone());
+    let Some(action) = tray_menu::action_for(id, &procs) else { return };
+    let app = app.clone();
+    let _ = std::thread::Builder::new().name("tray-action".into()).spawn(move || {
+        use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+        match action {
+            tray_menu::Action::Http { method, path, body } => {
+                let _ = tray_menu::http_send(&tray_quota::hub_base(), method, &path, body.as_ref());
+            }
+            tray_menu::Action::ClosePids { name, pids } => {
+                let ok = app
+                    .dialog()
+                    .message(format!("Chiudere {name}? I processi ricevono una richiesta di chiusura e possono salvare."))
+                    .title("Chiudi")
+                    .buttons(MessageDialogButtons::OkCancelCustom("Chiudi".into(), "Annulla".into()))
+                    .blocking_show();
+                if ok {
+                    tray_menu::terminate(&pids);
+                }
+            }
+            tray_menu::Action::TogglePref(k) => {
+                if let Some(p) = tray_menu::prefs_path() {
+                    tray_menu::toggle_pref(&p, &k);
+                }
+            }
+            tray_menu::Action::Open(place) => {
+                tray_dispatch(&app, "topics:tray-open-hub", Some(("place", place.as_str())));
+                return;
+            }
         }
-        Ok(())
+        refresh_hub_menu(&app);
     });
-    #[cfg(not(target_os = "macos"))]
-    let _ = (app, count, items, groups);
 }
 
 /// Set (or clear, when 0) the macOS dock-icon badge label via the shared
@@ -12041,6 +12183,12 @@ pub fn run() {
                             // Identico alla voce del menu nativo (updater_check +
                             // UpdaterToast lato client).
                             tray_dispatch(app, "topics:check-for-updates", None);
+                        } else if id == "tray-refresh" {
+                            #[cfg(target_os = "macos")]
+                            {
+                                let a = app.clone();
+                                let _ = std::thread::Builder::new().name("tray-refresh".into()).spawn(move || refresh_hub_menu(&a));
+                            }
                         } else if id.starts_with("board:") {
                             // La testa della sezione e il piede di ogni sottomenu:
                             // portano alla board, che è dove il lavoro si guarda per
@@ -12061,6 +12209,9 @@ pub fn run() {
                             // the @tauri-apps/event dependency — same bridge the native
                             // shortcut forwarder uses.
                             tray_dispatch(app, "topics:tray-navigate", Some(("topicId", topic_id)));
+                        } else {
+                            #[cfg(target_os = "macos")]
+                            run_hub_action(app, id);
                         }
                     });
                 if let Some(icon) = app.default_window_icon() {
@@ -12078,6 +12229,16 @@ pub fn run() {
                         let _ = tray.set_icon_as_template(false);
                     }
                 });
+                // The menu content follows the same service, on its own thread, so it
+                // keeps updating with the window hidden or the client restarted.
+                #[cfg(target_os = "macos")]
+                {
+                    let menu_handle = app.handle().clone();
+                    let _ = std::thread::Builder::new().name("tray-menu".into()).spawn(move || loop {
+                        refresh_hub_menu(&menu_handle);
+                        std::thread::sleep(std::time::Duration::from_secs(tray_quota::POLL_SECS));
+                    });
+                }
             }
 
             // Restore the persisted always-on-top state (Electron parity — it was
