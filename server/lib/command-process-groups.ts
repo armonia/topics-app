@@ -78,8 +78,9 @@ function clearGroupStopping(processId: string): void {
   } catch (err) {
     // `force: true` already swallows ENOENT — reaching here means a real fs
     // error (EPERM, EBUSY, EIO) left the marker behind. START_UNLESS_STOPPING
-    // only checks that the file EXISTS, so an orphaned marker blocks this
-    // processId's next start until something else clears it.
+    // only checks that the file EXISTS, so an orphaned marker is stale
+    // litter. The processId is a fresh UUID per start, so it does not block a
+    // later start; the cost is a leftover file in the state directory.
     console.warn(`[command-process-groups] could not clear stop marker for ${processId}:`, err);
   }
 }

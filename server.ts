@@ -4801,11 +4801,10 @@ const opzioniServer = {
               try {
                 await cleanup?.();
               } catch (err) {
-                // Logged, not swallowed: if the screencast stop itself fails, the
-                // ghost context this whole block exists to kill (see the 2026-07-30
-                // comment above: nine Chromium processes, 664 MB, zero panes open)
-                // can survive with no trace. Proceeding to destroyContext below
-                // regardless — a failed stop must not block the destroy that follows.
+                // Logged, not swallowed: a failed screencast stop is worth a trace.
+                // It does not skip the destroy below, which runs regardless and is
+                // what kills the ghost context. No automated test: this needs a live
+                // native-delegate WebSocket plus a real browser context to throw in.
                 console.warn(`[WS][browser] cleanup failed for ${ctxId}:`, err);
               }
               // La condizione NON e' «l'ho creato io» ma «lo sta guardando

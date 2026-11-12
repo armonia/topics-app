@@ -91,6 +91,25 @@ describe("searchTranscripts — legacy JSONL scan", () => {
     expect(hits.some((h) => h.content === "findable-after-null-row")).toBe(true);
   });
 
+  test("a null element inside message content is skipped, the rest of the session is still searched", () => {
+    const topic = makeTopic("22222222-aaaa-bbbb-cccc-000000000002");
+    ctx.saveSingleTopic(topic);
+    writeFileSync(
+      join(sessionsDir, "sessions.json"),
+      JSON.stringify({ [topic.sessionKey]: { sessionId: "sess-null-content" } }),
+    );
+    writeFileSync(
+      join(sessionsDir, "sess-null-content.jsonl"),
+      [
+        JSON.stringify({ type: "message", message: { role: "user", content: [null] } }),
+        JSON.stringify({ type: "message", message: { role: "user", content: "findable-after-null-element" }, timestamp: "2024-01-01T00:00:00Z" }),
+      ].join("\n"),
+    );
+
+    const hits = ctx.searchTranscripts("findable-after-null-element");
+    expect(hits.some((h) => h.content === "findable-after-null-element")).toBe(true);
+  });
+
   test("malformed sessions.json logs a warning naming the real cause, and SQLite hits still come back", () => {
     const topic = makeTopic("22222222-aaaa-bbbb-cccc-000000000002");
     ctx.saveSingleTopic(topic);

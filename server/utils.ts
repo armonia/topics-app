@@ -2940,7 +2940,7 @@ export function createAppContext(baseDir: string): AppContext {
                 if (msg.role === "user" || msg.role === "assistant") {
                   let text = "";
                   if (typeof msg.content === "string") text = msg.content;
-                  else if (Array.isArray(msg.content)) text = (msg.content as { type?: string; text?: string }[]).filter((c) => c.type === "text").map((c) => c.text).join("\n");
+                  else if (Array.isArray(msg.content)) text = (msg.content as { type?: string; text?: string }[]).filter((c) => c && typeof c === "object" && c.type === "text").map((c) => c.text).join("\n");
                   if (text.toLowerCase().includes(lowerQuery)) {
                     results.push({ messageId: null, sessionKey: key, topicId: topic?.id || null, topicName: topic?.name || key, topicIcon: topic?.icon || "MessageSquare", role: msg.role, content: text, timestamp: entryRecord.timestamp || null });
                     if (results.length >= limit) return results;
@@ -2948,7 +2948,9 @@ export function createAppContext(baseDir: string): AppContext {
                 }
               }
             }
-          } catch {}
+          } catch (err) {
+            console.warn(`[Search] legacy transcript scan failed for ${entry.sessionId}:`, err);
+          }
         }
       } catch (err) {
         // sessions.json is unreadable or malformed: legacy JSONL transcripts are
