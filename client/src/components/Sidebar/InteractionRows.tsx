@@ -27,6 +27,7 @@ export function InteractionRows() {
   // The fast interactions only move the total when asked: a panel that just
   // opened divides by a fresh one.
   useEffect(() => { refreshTotal(); }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- discards is a re-run trigger: the usage is re-measured when storage is discarded
   const usage = useMemo(() => measureStorageUsage(), [discards]);
   const mb = (bytes: number) => (bytes / (1024 * 1024)).toFixed(1);
 
