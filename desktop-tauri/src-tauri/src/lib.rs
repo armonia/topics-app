@@ -25,6 +25,7 @@ mod shortcuts_generated;
 /// outside the tests.
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod chords;
+mod tray_quota;
 #[cfg(target_os = "windows")]
 mod chords_win;
 
@@ -12059,6 +12060,17 @@ pub fn run() {
                     builder = builder.icon(icon.clone());
                 }
                 let _ = builder.build(app.handle())?;
+                // The quota strip polls the service itself (hidden window, restarted
+                // client: it keeps updating). Card c675633f.
+                let tray_handle = app.handle().clone();
+                tray_quota::spawn_poller(move |strip| {
+                    if let Some(tray) = tray_handle.tray_by_id("main") {
+                        let img = tauri::image::Image::new_owned(strip.rgba, strip.width, strip.height);
+                        let _ = tray.set_icon(Some(img));
+                        #[cfg(target_os = "macos")]
+                        let _ = tray.set_icon_as_template(false);
+                    }
+                });
             }
 
             // Restore the persisted always-on-top state (Electron parity — it was

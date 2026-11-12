@@ -78,6 +78,8 @@ sysinfo = "0.33"
 # port; this re-originates TLS to the data server (whose local-CA cert WKWebView
 # won't trust). tokio comes via tauri's async runtime.
 tokio = { version = "1", features = ["net", "io-util", "rt"] }
+# Rasterises the text of the tray quota strip (tray_quota.rs).
+fontdue = { version = "0.9", default-features = false, features = ["std"] }
 tokio-native-tls = "0.3"
 native-tls = "0.2"
 
@@ -160,3 +162,6 @@ objc2-user-notifications = { version = "0.3", features = [
     "UNNotificationCategory",
     "block2",
 ] }
+
+[dev-dependencies]
+png = "0.18"
