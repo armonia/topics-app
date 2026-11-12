@@ -171,9 +171,10 @@ test.describe("Tab Notification Badges", () => {
     await expect(tabA).toHaveAttribute("data-attention", "done", { timeout: 5000 });
 
     // Badge should NOT appear — tab is active, suppressOnSelect zeroes it in
-    // the same render that landed `data-attention` above.
-    const badge = tabA.locator("span.rounded-full.bg-primary");
-    await expect(badge).toHaveCount(0);
+    // the same render that landed `data-attention` above. A badge on an
+    // active tab still renders (in its onFill color variant), so the count
+    // marker is the only reliable negative check.
+    await expect(tabA.locator("[data-notification-count]")).toHaveCount(0);
   });
 
   test("TAB-BADGE-09: badge styling is pill-shaped and non-intrusive", async ({

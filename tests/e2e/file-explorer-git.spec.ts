@@ -514,8 +514,9 @@ test.describe("File Explorer — Git", () => {
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "FILE-02" });
-    // FILE-17 ha appena committato tutto: senza una modifica nuova non c'e'
-    // niente da mettere in stage, e il bottone Commit resta disabilitato.
+    // This test seeds its OWN project (no leftover state from another test
+    // in the file), so without this write there would be nothing staged and
+    // the Commit button would stay disabled.
     writeFileSync(join(tmpDir, "rifiutato.txt"), "una riga che non verra' committata\n");
 
     const STDERR = "fatal: Unable to create '/tmp/e2e/.git/index.lock': File exists.";

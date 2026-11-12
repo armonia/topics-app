@@ -55,7 +55,11 @@ export type FileProject = {
  * `realpathSync` on a missing path throws.
  */
 export function canonicalTmpDir(prefix: string): string {
-  return join(canonicalTmpRoot(), `${prefix}-${Date.now()}`);
+  // `Date.now()` alone collides when two tests (now one per test, not one
+  // per file) create their project folder in the same millisecond — the
+  // random suffix matches the one `topicName` already carries below.
+  const suffix = Math.random().toString(36).slice(2, 8);
+  return join(canonicalTmpRoot(), `${prefix}-${Date.now()}-${suffix}`);
 }
 
 /**
