@@ -37,6 +37,7 @@ interface FakeCall {
   topicsHome: string | null;
   ci: string | null;
   gateHeld: string | null;
+  gateSlotDir: string | null;
   timeSlack: string | null;
   runId: string | null;
   gateMaxRunMs: string | null;
@@ -97,7 +98,7 @@ const record = {
   tmpdir: process.env.TMPDIR ?? null, tmp: process.env.TMP ?? null, temp: process.env.TEMP ?? null,
   dataDir: process.env.DATA_DIR ?? null, topicsDataDir: process.env.TOPICS_DATA_DIR ?? null,
   topicsHome: process.env.TOPICS_HOME ?? null,
-  ci: process.env.CI ?? null, gateHeld: process.env.TOPICS_GATE_HELD ?? null,
+  ci: process.env.CI ?? null, gateHeld: process.env.TOPICS_GATE_HELD ?? null, gateSlotDir: process.env.TOPICS_GATE_SLOT_DIR ?? null,
   timeSlack: process.env.TOPICS_TEST_TIME_SLACK ?? null, runId: process.env.TOPICS_TEST_RUN_ID ?? null,
   gateMaxRunMs: process.env.TOPICS_GATE_MAX_RUN_MS ?? null,
   stdoutIsFile: stat1.isFile(), stdoutIsPipe: stat1.isFIFO() || stat1.isSocket(),
@@ -250,6 +251,15 @@ describe("unit shards CLI", () => {
       expect(existsSync(junit)).toBe(true);
     } finally {
       rmSync(junit, { force: true });
+    }
+  });
+
+  test("the children's gate slot dir lives inside the run root, never in the real temp root", () => {
+    const result = runRunner({ files: ALL_FILES });
+    expect(result.code).toBe(0);
+    for (const call of result.calls) {
+      expect(call.gateSlotDir).not.toBeNull();
+      expect(call.gateSlotDir!.startsWith(join(tmpdir(), "tu-"))).toBe(true);
     }
   });
 

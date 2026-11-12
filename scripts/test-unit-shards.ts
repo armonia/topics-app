@@ -496,6 +496,11 @@ if (import.meta.main) {
     // Covers the children with the slot this process already holds: bun's
     // preload sees the marker and does NOT queue for a second slot.
     [GATE_HELD_ENV]: process.env[GATE_HELD_ENV] ?? "test-unit-shards",
+    // The children's reporter-outfile claim (JUnit on push to main) writes lock
+    // files into the gate slot dir, which defaults to a fixed folder in the real
+    // temp root and showed up as "a test writes outside TMPDIR". Inside the run
+    // root it is removed with the run; an explicit setting still wins.
+    TOPICS_GATE_SLOT_DIR: process.env.TOPICS_GATE_SLOT_DIR || join(runRoot, "gate-slots"),
   };
   const env = fileEnv(baseEnv);
   const results: FileResult[] = [];
