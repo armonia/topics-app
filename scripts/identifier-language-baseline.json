@@ -3932,6 +3932,16 @@
       "primo",
       "secondo"
     ],
+    "server/routes/processes-detection.ts": [
+      "pcwd"
+    ],
+    "server/routes/processes-output.ts": [
+      "buf"
+    ],
+    "server/routes/processes-shells.ts": [
+      "esitoShellMorta",
+      "unregisterPreviewProcess"
+    ],
     "server/routes/processes.session-run.test.ts": [
       "multiCtx"
     ],
@@ -3989,6 +3999,26 @@
       "migliore",
       "prov"
     ],
+    "server/routes/tasks-checks-delivery.ts": [
+      "spente"
+    ],
+    "server/routes/tasks-intake.ts": [
+      "aggiornata",
+      "esc",
+      "fresca",
+      "migliore",
+      "prov",
+      "titoloInSottofondo"
+    ],
+    "server/routes/tasks-land.ts": [
+      "aperti",
+      "capturaConsegna",
+      "elenco"
+    ],
+    "server/routes/tasks-reap.ts": [
+      "capturaConsegna",
+      "nota"
+    ],
     "server/routes/tasks.test.ts": [
       "NUOVI",
       "archivio",
@@ -4036,6 +4066,13 @@
     "server/routes/terminal.ts": [
       "idemKey",
       "idempotencyCache"
+    ],
+    "server/routes/topics-tool-response.ts": [
+      "normalised",
+      "submittedAt"
+    ],
+    "server/routes/topics-ui-state.ts": [
+      "rec"
     ],
     "server/routes/topics.ts": [
       "detectLocalhostAutoNav",
