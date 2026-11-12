@@ -90,6 +90,16 @@ A grant on a chat SHALL open the conversation itself (`/messages` answers
 `context-snapshots` and `project-id` SHALL answer 403 to the guest. The
 allowlist of sub-routes a grant opens is exact, not a prefix match.
 
+#### Scenario: A granted chat opens the conversation
+- **GIVEN** a guest holding a grant on a chat
+- **WHEN** it requests `GET /api/topics/:id/messages` for that chat
+- **THEN** the server SHALL answer 200
+
+#### Scenario: A granted chat does not open its introspection sub-routes
+- **GIVEN** the same guest and chat
+- **WHEN** it requests any of `context-preview`, `environment`, `checkpoints`, `turn-checkpoints`, `context-snapshots` or `project-id` for that chat
+- **THEN** the server SHALL answer 403
+
 ### Requirement: GUEST-02 — A guest reads, including on what was shared with it
 
 > Written from the test. `SHARE-06` in the `task-sharing-guests` proposal also
