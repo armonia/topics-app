@@ -610,7 +610,14 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     setTimeout(doFit, 50);
     setTimeout(doFit, 200);
     setTimeout(doFit, 500);
-    setTimeout(() => { doFit(); term.focus(); }, 600);
+    // The late focus is for a pane nobody has touched yet. If the cursor already
+    // sits somewhere else (this pane's find bar, the chat composer), taking it
+    // back mid-word sends the rest of the word to the shell.
+    setTimeout(() => {
+      doFit();
+      const held = document.activeElement;
+      if (!held || held === document.body || el.contains(held)) term.focus();
+    }, 600);
 
     // xterm measures its character cell once, when it opens. JetBrains Mono
     // arrives later (font-display: swap), so a cold open measures the fallback
