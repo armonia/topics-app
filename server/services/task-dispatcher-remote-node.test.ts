@@ -120,6 +120,18 @@ describe("la card parte sul nodo, non qui", () => {
     expect(t.dispatchError ?? "").toContain("troppo grande");
   });
 
+  it("400 dal nodo (modello fuori catalogo): la card si parcheggia col motivo del nodo, non resta in coda come node_unreachable", async () => {
+    const h = harness({ createRun: () => Promise.reject(Object.assign(new Error("create run answered 400: Il modello scelto non è nel catalogo attuale"), { reason: "rejected" })) });
+    h.seed();
+
+    await dispatch(h);
+
+    const t = h.task();
+    expect(t.dispatchError).not.toBe("node_unreachable");
+    expect(t.dispatchDeferredUntil).toBeNull();
+    expect(t.dispatchError ?? "").toContain("non è nel catalogo");
+  });
+
   it("nodo muto due volte: la card resta in coda, il tetto dei rimandi dell'agente non la ferma", async () => {
     // The node's retry opens no turn, so it keeps the wide streak cap; the
     // agent's cap (one wait, then the card asks) would park it on the second.
