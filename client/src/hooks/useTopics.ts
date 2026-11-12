@@ -92,7 +92,7 @@ function getInitialWorkspaceProjects(): string[] {
       const parsed = JSON.parse(cached);
       if (Array.isArray(parsed)) return parsed;
     }
-  } catch {}
+  } catch { /* unreadable cache: start empty until the server answers */ }
   return [];
 }
 

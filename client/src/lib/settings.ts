@@ -80,7 +80,7 @@ export function loadSettings(): AppSettings {
         return { ...DEFAULT_SETTINGS, ...(known as Partial<AppSettings>) };
       }
     }
-  } catch {}
+  } catch { /* unreadable cache: fall back to the default settings */ }
   return DEFAULT_SETTINGS;
 }
 

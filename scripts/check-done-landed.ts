@@ -148,9 +148,9 @@ function projectPaths(): string[] {
     const clean = p.replace(/\/+$/, "");
     if (clean) seen.add(clean);
   };
-  try { for (const r of db.prepare("SELECT path FROM projects").all() as any[]) add(r.path); } catch { /* tabella assente */ }
+  try { for (const r of db.prepare("SELECT path FROM projects").all() as Array<{ path: string }>) add(r.path); } catch { /* tabella assente */ }
   try {
-    for (const r of db.prepare("SELECT DISTINCT project_path FROM topics WHERE project_path IS NOT NULL").all() as any[]) add(r.project_path);
+    for (const r of db.prepare("SELECT DISTINCT project_path FROM topics WHERE project_path IS NOT NULL").all() as Array<{ project_path: string }>) add(r.project_path);
   } catch { /* idem */ }
   for (const p of scanWorkspaceProjects(WORKSPACE_DIR)) add(p);
   return [...seen];
@@ -167,7 +167,7 @@ for (const path of projectPaths()) {
 // `landing_witnessed` può non esistere ancora (database precedente alla 099):
 // la sua assenza vale «nessuna testimonianza», non un errore.
 const hasWitness = (() => {
-  try { return (db.prepare("PRAGMA table_info(tasks)").all() as any[]).some((c) => c.name === "landing_witnessed"); }
+  try { return (db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).some((c) => c.name === "landing_witnessed"); }
   catch { return false; }
 })();
 
@@ -247,7 +247,7 @@ function turniPagatiDopoUnLand(): { turni: number; usd: number; ultimo: string |
            AND COALESCE(m.cost_cents, 0) > 0
       )
       SELECT COUNT(*) AS turni, COALESCE(SUM(cost_cents), 0) AS cents, MAX(timestamp) AS ultimo FROM sprechi
-    `).get() as any;
+    `).get() as { turni?: number; cents?: number; ultimo?: string } | null;
     return { turni: r?.turni ?? 0, usd: (r?.cents ?? 0) / 100, ultimo: r?.ultimo ?? null };
   } catch {
     // Un host senza `messages` (o senza colonne di costo) non ha questo conto:

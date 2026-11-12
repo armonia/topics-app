@@ -606,7 +606,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
 
     const detachTouchScroll = attachTerminalTouchScroll(el, term);
 
-    const doFit = () => { try { fitAddon.fit(); } catch {} };
+    const doFit = () => { try { fitAddon.fit(); } catch { /* xterm may be disposed or hidden (zero size) when the fit runs */ } };
     setTimeout(doFit, 50);
     setTimeout(doFit, 200);
     setTimeout(doFit, 500);
@@ -1143,7 +1143,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     // Mirrors NativeBrowserPlaceholder's drag ref-count.
     let resizeDepth = 0;
     let missed = false;
-    const fit = () => { if (termRef.current) { try { termRef.current.fit.fit(); } catch {} } };
+    const fit = () => { if (termRef.current) { try { termRef.current.fit.fit(); } catch { /* xterm may be disposed or hidden (zero size) when the fit runs */ } } };
     // Stagger fits ONE PER FRAME (staggeredFit): N terminals fitting in one tick thrash
     // layout (each fit reads layout after the previous wrote → full reflow per fit →
     // ~570ms for 8 on a sidebar reclaim). Spreading lets layout settle between fits so
@@ -1211,7 +1211,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     const handleFocus = () => {
       const ref = termRef.current;
       if (!ref) return;
-      try { ref.fit.fit(); } catch {}
+      try { ref.fit.fit(); } catch { /* fit can throw on a hidden terminal; the next resize refits */ }
       if (attachedRef.current) postTerminalResize(sessionId, ref.term.cols, ref.term.rows);
     };
     window.addEventListener('focus', handleFocus);
@@ -1235,8 +1235,8 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     const raf = requestAnimationFrame(() => {
       const ref = termRef.current;
       if (!ref) return;
-      try { ref.fit.fit(); } catch {}
-      try { ref.term.refresh(0, ref.term.rows - 1); } catch {}
+      try { ref.fit.fit(); } catch { /* fit can throw on a just-shown terminal that has no size yet */ }
+      try { ref.term.refresh(0, ref.term.rows - 1); } catch { /* refresh is cosmetic and throws if the terminal was disposed */ }
       if (attachedRef.current) postTerminalResize(sessionId, ref.term.cols, ref.term.rows);
     });
     return () => cancelAnimationFrame(raf);
@@ -1251,7 +1251,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       if (document.visibilityState !== 'visible') return;
       const ref = termRef.current;
       if (!ref) return;
-      try { ref.fit.fit(); } catch {}
+      try { ref.fit.fit(); } catch { /* fit can throw on a hidden terminal; the next resize refits */ }
       if (attachedRef.current) postTerminalResize(sessionId, ref.term.cols, ref.term.rows);
     };
     document.addEventListener('visibilitychange', handleVisible);

@@ -51,7 +51,7 @@ import { releaseHumanHold } from "./lib/human-hold";
 import { closeWatchesOfSession } from "./lib/process-wait";
 import { createTurnLedger } from "./lib/turn-ledger";
 import { announceTurnEnded } from "./lib/turn-ended";
-import { isAwaitingHuman } from "../shared/types";
+import { isAwaitingHuman, type ToolCallDetail } from "../shared/types";
 import type { OutboundMessage } from "../shared/ws-outbound";
 import { imageShape } from "./services/image-shape";
 import { withMediaSizes } from "./lib/media-size";
@@ -64,6 +64,25 @@ import {
 
 /** A `messages` row as the lean read gives it: the object `rowToMessage` expects, without `blocks` and `tool_calls`. */
 type LeanMessageRow = { id: string } & Record<string, unknown>;
+/** A raw SQLite row: the columns read in this file are typed, any other stays unknown. */
+interface TranscriptHit {
+  messageId: string | null; sessionKey: string; topicId: string | null; topicName: string;
+  topicIcon: string; role: string; content: string; timestamp: string | null;
+}
+interface DbRow {
+  id: string;
+  session_key: string;
+  topic_id: string;
+  parent_id: string | null;
+  branch_index: number | null;
+  active_branch_index: number;
+  tool_calls: string | Uint8Array | null;
+  blocks: string | Uint8Array | null;
+  content: string | null;
+  has_blocks?: number;
+  has_tool_calls?: number;
+  [column: string]: unknown;
+}
 
 /** The `messages` columns without `blocks` and `tool_calls`: the lean read (see `getMessagesLean`). */
 const LEAN_MESSAGE_COLUMNS = `id, session_key, role, content, thinking, media, partial, streamed_at,
@@ -116,11 +135,16 @@ function devValidateOutbound(message: object): void {
  * Both log one throttled line at NORM-DB level so drift stays observable
  * without the 3653 identical lines the untrottled warn used to write.
  */
-export function sanitizeToolCallDetail(tc: any): any {
-  if (!tc || typeof tc !== 'object' || !tc.detail) return tc;
+/** What `sanitizeToolCallDetail` hands back: the same tool call with `detail` parsed, degraded or gone. */
+export type SanitizedToolCall<T> = T extends object ? Omit<T, 'detail'> & { detail?: ToolCallDetail } : T;
+
+export function sanitizeToolCallDetail<T>(input: T): SanitizedToolCall<T> {
+  type Loose = { id?: string; name?: string; detail?: { type?: unknown } };
+  const tc = input as Loose | null | undefined;
+  if (!tc || typeof tc !== 'object' || !tc.detail) return input as SanitizedToolCall<T>;
   const result = parseToolCallDetail(tc.detail);
   if (result.ok) {
-    return tc.detail === result.data ? tc : { ...tc, detail: result.data };
+    return (tc.detail === result.data ? tc : { ...tc, detail: result.data }) as SanitizedToolCall<T>;
   }
   const declaredType = typeof tc.detail?.type === 'string' ? tc.detail.type : undefined;
   if (declaredType && !knownDetailTypes.has(declaredType)) {
@@ -128,7 +152,7 @@ export function sanitizeToolCallDetail(tc: any): any {
       `NORM-DB:unknown-type:${declaredType}`,
       `[NORM-DB] Unknown detail type '${declaredType}' (${tc.name ?? '?'}): kept as raw`,
     );
-    return { ...tc, detail: { type: 'unknown', raw: { args: tc.detail } } };
+    return { ...tc, detail: { type: 'unknown', raw: { args: tc.detail } } } as SanitizedToolCall<T>;
   }
   warnThrottled(
     `NORM-DB:malformed:${declaredType ?? '?'}`,
@@ -137,7 +161,7 @@ export function sanitizeToolCallDetail(tc: any): any {
   // `_drop` non si usa PER COSTRUZIONE: destrutturare-e-scartare è il modo di
   // togliere una chiave da un oggetto senza mutarlo. Il valore che conta è `rest`.
   const { detail: _drop, ...rest } = tc;
-  return rest;
+  return rest as SanitizedToolCall<T>;
 }
 
 /**
@@ -161,8 +185,9 @@ export function timingSafeEqualStr(a: string, b: string): boolean {
 export function restoreToolCallsFromBlocks(msg: StoredMessage): void {
   if (!msg.toolCalls?.length && msg.blocks?.length) {
     const fromBlocks = msg.blocks
-      .filter((b: any) => b && b.kind === 'tool' && b.toolCall)
-      .map((b: any) => b.toolCall);
+      .map((b) => b as { kind?: string; toolCall?: ToolCall })
+      .filter((b) => b && b.kind === 'tool' && b.toolCall)
+      .map((b) => b.toolCall as ToolCall);
     if (fromBlocks.length > 0) msg.toolCalls = fromBlocks;
   }
 }
@@ -550,13 +575,13 @@ export function createAppContext(baseDir: string): AppContext {
       const arr = m.get(k); if (arr) arr.push(v); else m.set(k, [v]);
     };
     const links = new Map<string, string[]>();
-    for (const r of stmts.getAllTopicLinks.all() as any[]) push(links, r.source_id, r.target_id);
+    for (const r of stmts.getAllTopicLinks.all() as { source_id: string; target_id: string }[]) push(links, r.source_id, r.target_id);
     const contextFiles = new Map<string, string[]>();
-    for (const r of stmts.getAllTopicContextFiles.all() as any[]) push(contextFiles, r.topic_id, r.file_path);
+    for (const r of stmts.getAllTopicContextFiles.all() as { topic_id: string; file_path: string }[]) push(contextFiles, r.topic_id, r.file_path);
     const pinnedMessages = new Map<string, string[]>();
-    for (const r of stmts.getAllTopicPinnedMessages.all() as any[]) push(pinnedMessages, r.topic_id, r.message_id);
+    for (const r of stmts.getAllTopicPinnedMessages.all() as { topic_id: string; message_id: string }[]) push(pinnedMessages, r.topic_id, r.message_id);
     const disabledSources = new Map<string, string[]>();
-    for (const r of stmts.getAllTopicDisabledSources.all() as any[]) push(disabledSources, r.topic_id, r.source_id);
+    for (const r of stmts.getAllTopicDisabledSources.all() as { topic_id: string; source_id: string }[]) push(disabledSources, r.topic_id, r.source_id);
     return {
       links,
       contextFiles,
@@ -574,13 +599,14 @@ export function createAppContext(baseDir: string): AppContext {
   // --- Helper: Convert SQLite topic row to Topic object ---
   // `rels` (supplied by loadTopics) reads relations from pre-grouped maps;
   // without it each relation is a per-id sub-query (single-topic read path).
+  // `any`: a full topics-table row; typing its ~20 nullable columns would force casts that hide drift.
   function rowToTopic(row: any, rels?: TopicRelations): Topic {
     const topic: Topic = {
       id: row.id,
       name: row.name,
       slug: row.slug,
       parentId: row.parent_id || null,
-      links: rels ? (rels.links.get(row.id) ?? []) : (stmts.getTopicLinks.all(row.id) as any[]).map(r => r.target_id),
+      links: rels ? (rels.links.get(row.id) ?? []) : (stmts.getTopicLinks.all(row.id) as { target_id: string }[]).map(r => r.target_id),
       sessionKey: row.session_key,
       color: row.color,
       icon: row.icon,
@@ -641,13 +667,13 @@ export function createAppContext(baseDir: string): AppContext {
       try { topic.browserState = JSON.parse(row.browser_state); } catch { /* ignora */ }
     }
 
-    const contextFiles = rels ? (rels.contextFiles.get(row.id) ?? []) : (stmts.getTopicContextFiles.all(row.id) as any[]).map(r => r.file_path);
+    const contextFiles = rels ? (rels.contextFiles.get(row.id) ?? []) : (stmts.getTopicContextFiles.all(row.id) as { file_path: string }[]).map(r => r.file_path);
     if (contextFiles.length > 0) topic.contextFiles = contextFiles;
 
-    const pinnedMessages = rels ? (rels.pinnedMessages.get(row.id) ?? []) : (stmts.getTopicPinnedMessages.all(row.id) as any[]).map(r => r.message_id);
+    const pinnedMessages = rels ? (rels.pinnedMessages.get(row.id) ?? []) : (stmts.getTopicPinnedMessages.all(row.id) as { message_id: string }[]).map(r => r.message_id);
     if (pinnedMessages.length > 0) topic.pinnedMessages = pinnedMessages;
 
-    const disabledSources = rels ? (rels.disabledSources.get(row.id) ?? []) : (stmts.getTopicDisabledSources.all(row.id) as any[]).map(r => r.source_id);
+    const disabledSources = rels ? (rels.disabledSources.get(row.id) ?? []) : (stmts.getTopicDisabledSources.all(row.id) as { source_id: string }[]).map(r => r.source_id);
     if (disabledSources.length > 0) topic.disabledContextSources = disabledSources;
 
     const fork = rels ? rels.forks.get(row.session_key) : stmts.getChatFork.get(row.session_key) as ChatForkSql | null;
@@ -821,7 +847,7 @@ export function createAppContext(baseDir: string): AppContext {
       return parsed.map((block: ContentBlock) => {
         const tool = block as { kind?: string; toolCall?: unknown };
         if (tool && tool.kind === 'tool' && tool.toolCall) {
-          return { ...block, toolCall: sanitizeToolCallDetail(tool.toolCall) };
+          return { ...block, toolCall: sanitizeToolCallDetail(tool.toolCall as ToolCall) };
         }
         return block;
       });
@@ -838,6 +864,7 @@ export function createAppContext(baseDir: string): AppContext {
     return opts?.withToolOutputs === false && !partial ? "stub" : "full";
   }
 
+  // `any`: a full messages-table row; typing its ~25 nullable columns would force casts that hide drift.
   function rowToMessage(row: any, opts?: ThreadLoadOpts): StoredMessage {
     const msg: StoredMessage = {
       id: row.id,
@@ -1293,7 +1320,7 @@ export function createAppContext(baseDir: string): AppContext {
     const statement = filter?.archived === undefined
       ? stmts.getAllTopics
       : filter.archived ? stmts.getArchivedTopics : stmts.getLiveTopics;
-    const rows = statement.all() as any[];
+    const rows = statement.all() as DbRow[];
     // Batch-load every relation once (1 + 5 scans) instead of 5 sub-queries per
     // topic — GET /api/topics is the hot UI-hydration path, hit on every load /
     // reconnect, and this DB carries ~hundreds of topics.
@@ -1313,7 +1340,7 @@ export function createAppContext(baseDir: string): AppContext {
    * across concurrent requests.
    */
   function getTopicById(id: string): Topic | null {
-    const row = stmts.getTopicById.get(id) as any;
+    const row = stmts.getTopicById.get(id) as DbRow;
     if (!row) return null;
     return rowToTopic(row);
   }
@@ -1429,7 +1456,7 @@ export function createAppContext(baseDir: string): AppContext {
    * only know the session, not the topic id.
    */
   function getTopicBySessionKey(sessionKey: string): Topic | null {
-    const row = stmts.getTopicBySessionKey.get(sessionKey) as any;
+    const row = stmts.getTopicBySessionKey.get(sessionKey) as DbRow;
     if (!row) return null;
     return rowToTopic(row);
   }
@@ -1454,17 +1481,17 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   // --- Unread (SQLite-backed) ---
-  function unreadFromRows(rows: any[]): UnreadData {
+  function unreadFromRows(rows: DbRow[]): UnreadData {
     const result: UnreadData = {};
-    for (const row of rows) result[row.topic_id] = { lastReadAt: row.last_read_at, unreadCount: row.unread_count };
+    for (const row of rows) result[row.topic_id] = { lastReadAt: row.last_read_at as string, unreadCount: row.unread_count as number };
     return result;
   }
-  function loadUnread(): UnreadData { return unreadFromRows(stmts.getAllUnread.all() as any[]); }
+  function loadUnread(): UnreadData { return unreadFromRows(stmts.getAllUnread.all() as DbRow[]); }
 
   function saveUnread(data: UnreadData): void {
     db.transaction(() => {
       // Get current unread topic IDs
-      const currentRows = stmts.getAllUnread.all() as any[];
+      const currentRows = stmts.getAllUnread.all() as DbRow[];
       const currentIds = new Set(currentRows.map(r => r.topic_id));
       const newIds = new Set(Object.keys(data));
 
@@ -1510,11 +1537,11 @@ export function createAppContext(baseDir: string): AppContext {
     // nor the tool calls gets the lean read: those two columns are never asked
     // of SQLite at all, instead of arriving only to be thrown away.
     const lean = opts?.withBlocks === false && opts?.withToolCalls === false;
-    const allRows = (lean ? stmts.getMessagesLean : stmts.getMessages).all(sessionKey) as any[];
+    const allRows = (lean ? stmts.getMessagesLean : stmts.getMessages).all(sessionKey) as DbRow[];
     if (allRows.length === 0) return [];
 
     // Build parent→children map
-    const childrenMap = new Map<string | null, any[]>(); // parentId → child rows
+    const childrenMap = new Map<string | null, DbRow[]>(); // parentId → child rows
     for (const row of allRows) {
       const pid = row.parent_id || null;
       if (!childrenMap.has(pid)) childrenMap.set(pid, []);
@@ -1523,7 +1550,7 @@ export function createAppContext(baseDir: string): AppContext {
 
     // Sort children by branch_index
     for (const children of childrenMap.values()) {
-      children.sort((a: any, b: any) => (a.branch_index || 0) - (b.branch_index || 0));
+      children.sort((a, b) => (a.branch_index || 0) - (b.branch_index || 0));
     }
 
     // Walk from root(s) following active branches. Recursive descent (was an
@@ -1550,7 +1577,7 @@ export function createAppContext(baseDir: string): AppContext {
       if (children.length > 1) {
         // For root messages (parent_id IS NULL), use '__root__' key
         const lookupKey = currentParentId === null ? '__root__' : currentParentId;
-        const active = stmts.getActiveBranch.get(lookupKey, sessionKey) as any;
+        const active = stmts.getActiveBranch.get(lookupKey, sessionKey) as DbRow;
         if (active) activeBranchIndex = active.active_branch_index;
       }
 
@@ -1558,7 +1585,7 @@ export function createAppContext(baseDir: string): AppContext {
       // sorted by branch_index (stable over the sort_order load order), so
       // any duplicates come out in chronological order. Fall back to the first
       // child if the active index matches nothing (stale active_branches row).
-      let selected = children.filter((c: any) => (c.branch_index || 0) === activeBranchIndex);
+      let selected = children.filter((c) => (c.branch_index || 0) === activeBranchIndex);
       if (selected.length === 0) selected = [children[0]];
       if (selected.length > 1) {
         console.warn(`[loadActiveThread] ${sessionKey}: ${selected.length} siblings share branch_index ${activeBranchIndex} under ${currentParentId ?? '__root__'} — including all to avoid truncating the thread`);
@@ -1835,7 +1862,7 @@ export function createAppContext(baseDir: string): AppContext {
     /** The send's key (`clientMessageId`), on the person's row a send stored. Unique per session. */
     clientMessageId?: string,
   ): StoredMessage {
-    const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order;
+    const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as { max_order: number }).max_order;
     // Find the last message in the active thread to set as parent.
     // Serve UN id, quindi si legge magro: senza queste due opzioni la chiamata
     // idratava tutto il ramo attivo con `blocks` e `tool_calls` riparsati da
@@ -1887,7 +1914,7 @@ export function createAppContext(baseDir: string): AppContext {
   function appendImportedMessages(sessionKey: string, msgs: StoredMessage[]): void {
     if (msgs.length === 0) return;
     db.transaction(() => {
-      const base = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order as number;
+      const base = (stmts.getMaxSortOrder.get(sessionKey) as { max_order: number }).max_order as number;
       for (let i = 0; i < msgs.length; i++) {
         const msg = msgs[i]!;
         writeMessage(msg.id, msg.blocks, true, (col) => stmts.insertMessage.run({
@@ -1912,7 +1939,7 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   function createPartialMessage(sessionKey: string, role: "user" | "assistant"): StoredMessage {
-    const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order;
+    const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as { max_order: number }).max_order;
     // Find the last message in the active thread to set as parent.
     // Serve UN id, quindi si legge magro: senza queste due opzioni la chiamata
     // idratava tutto il ramo attivo con `blocks` e `tool_calls` riparsati da
@@ -2002,7 +2029,7 @@ export function createAppContext(baseDir: string): AppContext {
    *  after such a row, finished, stopped or failed, is the last turn row, and
    *  with its latency it is not taken. */
   function reuseOrCreatePartialForReattach(sessionKey: string): ReattachedPartial {
-    const row = (stmts.getTurnRow.get({ $sk: sessionKey }) ?? stmts.getLastMessage.get(sessionKey)) as any;
+    const row = (stmts.getTurnRow.get({ $sk: sessionKey }) ?? stmts.getLastMessage.get(sessionKey)) as DbRow;
     const isAssistant = row && row.role === "assistant";
     const stillPartial = isAssistant && (row.partial === 1 || row.partial === true);
     // A row the MACHINE wrote (a goal's stop line, the line under a turn the
@@ -2040,7 +2067,7 @@ export function createAppContext(baseDir: string): AppContext {
    * `streamed_at` restarts because the row is alive again.
    */
   function reuseHeadstoneOrCreate(sessionKey: string): StoredMessage {
-    const row = stmts.getLastMessage.get(sessionKey) as any;
+    const row = stmts.getLastMessage.get(sessionKey) as DbRow;
     const riusabile = isReusableHeadstone(
       row
         ? {
@@ -2084,7 +2111,7 @@ export function createAppContext(baseDir: string): AppContext {
     // e quello se lo chiede lui con `messageBodyPresence`.
     const row = (opts?.rowId
       ? stmts.getMessageForBodyUpdateById.get(opts.rowId, sessionKey)
-      : stmts.getLastMessageForBodyUpdate.get(sessionKey)) as any;
+      : stmts.getLastMessageForBodyUpdate.get(sessionKey)) as DbRow;
     if (!row) return null;
     const msg = rowToMessage(row, { withBlocks: false, withToolCalls: false });
     Object.assign(msg, updates);
@@ -2112,7 +2139,7 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   function appendToLastMessage(sessionKey: string, contentDelta: string, thinkingDelta?: string): StoredMessage | null {
-    const row = stmts.getLastMessage.get(sessionKey) as any;
+    const row = stmts.getLastMessage.get(sessionKey) as DbRow;
     if (!row) return null;
     const msg = rowToMessage(row);
     if (contentDelta) msg.content += contentDelta;
@@ -2134,7 +2161,7 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   function finalizeLastMessage(sessionKey: string): StoredMessage | null {
-    const row = stmts.getLastMessage.get(sessionKey) as any;
+    const row = stmts.getLastMessage.get(sessionKey) as DbRow;
     if (!row) return null;
     const msg = rowToMessage(row);
     delete msg.partial;
@@ -2189,10 +2216,10 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   /** The row the two hot tool writers patch: the named one, or the session's last. */
-  function toolUpdateRow(sessionKey: string, rowId: string | undefined): any {
+  function toolUpdateRow(sessionKey: string, rowId: string | undefined): DbRow | null {
     return rowId
-      ? stmts.getMessageForToolUpdateById.get(rowId, sessionKey)
-      : stmts.getLastMessageForToolUpdate.get(sessionKey);
+      ? stmts.getMessageForToolUpdateById.get(rowId, sessionKey) as DbRow | null
+      : stmts.getLastMessageForToolUpdate.get(sessionKey) as DbRow | null;
   }
 
   function addToolCallToLastMessage(sessionKey: string, toolCall: ToolCall, opts?: { mirroredInBlocks?: boolean; rowId?: string }): StoredMessage | null {
@@ -2293,7 +2320,7 @@ export function createAppContext(baseDir: string): AppContext {
     // persona, non a ogni evento di tool.
     const row = (opts?.rowId
       ? stmts.getMessageForToolFieldsById.get(opts.rowId, sessionKey)
-      : stmts.getLastMessageForToolFields.get(sessionKey)) as any;
+      : stmts.getLastMessageForToolFields.get(sessionKey)) as DbRow;
     if (!row) return null;
     const msg = rowToMessage(row, { withBlocks: true });
     const tc = msg.toolCalls?.find(t => t.id === toolCallId);
@@ -2421,9 +2448,9 @@ export function createAppContext(baseDir: string): AppContext {
     const interrupted: ToolCall[] = [];
     if (stream?.messageId) {
       try {
-        const row = db.prepare(`SELECT tool_calls, blocks FROM messages WHERE id = ?`).get(stream.messageId) as any;
+        const row = db.prepare(`SELECT tool_calls, blocks FROM messages WHERE id = ?`).get(stream.messageId) as DbRow;
         const endedAt = Date.now();
-        const fix = (tc: any): boolean | 'detached' => {
+        const fix = (tc: ToolCall | null | undefined): boolean | 'detached' => {
           if (tc && (tc.status === 'running' || tc.status === 'pending')) {
             tc.status = 'error';
             if (tc.endedAt == null) tc.endedAt = endedAt;
@@ -2484,7 +2511,7 @@ export function createAppContext(baseDir: string): AppContext {
         // present, so finalize the block copy too or the spinner keeps ticking.
         if (row?.blocks) {
           const blocksDecoded = decodeCol(row.blocks);
-          const bl = JSON.parse(blocksDecoded ?? "null") as any[];
+          const bl = JSON.parse(blocksDecoded ?? "null") as { kind?: string; toolCall?: ToolCall }[];
           let c = false;
           // A tool repaired HERE has to be announced too, not just written.
           // `interrupted` is what the caller broadcasts `stream:tool_result`
@@ -2556,11 +2583,11 @@ export function createAppContext(baseDir: string): AppContext {
   // `bun --watch` hot reload. Removed — don't reintroduce a sweeper here.
 
   // --- Request helpers (unchanged) ---
-  async function readJSON(req: Request): Promise<any> {
+  async function readJSON(req: Request): Promise<unknown> {
     try { return await req.json(); } catch { return null; }
   }
 
-  function json(data: any, status = 200): Response {
+  function json(data: unknown, status = 200): Response {
     // no-store: API payloads (tasks, topics, chat history…) are live state.
     // Without an explicit Cache-Control a WKWebView/URLSession is allowed to
     // heuristically cache 200 GETs — the board or a chat thread would then
@@ -2810,9 +2837,9 @@ export function createAppContext(baseDir: string): AppContext {
           const fullPath = join(dir, entry.name);
           if (seen.has(fullPath)) continue;
           seen.add(fullPath);
-          try { const stat = await statAsync(fullPath); if (stat.mtimeMs >= sinceMs) results.push(fullPath); } catch {}
+          try { const stat = await statAsync(fullPath); if (stat.mtimeMs >= sinceMs) results.push(fullPath); } catch { /* file vanished or unreadable: skip it */ }
         }
-      } catch {} // dir missing or unreadable — skip
+      } catch { /* dir missing or unreadable: skip it */ }
     }
     return results;
   }
@@ -2822,7 +2849,7 @@ export function createAppContext(baseDir: string): AppContext {
     // walk backwards to the newest assistant row.
     const row = (opts?.rowId
       ? stmts.getAssistantMessageById.get(opts.rowId, sessionKey)
-      : stmts.getLastAssistantMessage.get(sessionKey)) as any;
+      : stmts.getLastAssistantMessage.get(sessionKey)) as DbRow;
     if (!row) return;
     const mediaLines = mediaPaths.map((p: string) => `\nMEDIA:${p}`).join("");
     stmts.appendMessageContent.run((row.content || '') + mediaLines, row.id);
@@ -2838,8 +2865,8 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   // --- Search (hybrid: SQLite local + gateway JSONL) ---
-  function searchTranscripts(query: string, limit = 50): any[] {
-    const results: any[] = [];
+  function searchTranscripts(query: string, limit = 50): TranscriptHit[] {
+    const results: TranscriptHit[] = [];
     const lowerQuery = query.toLowerCase();
     const topicsData = loadTopics();
     const sessionToTopic: Record<string, Topic> = {};
@@ -2860,7 +2887,7 @@ export function createAppContext(baseDir: string): AppContext {
            WHERE content LIKE ? ESCAPE '\\'
            ORDER BY timestamp DESC LIMIT ?`,
         )
-        .all(like, limit) as any[];
+        .all(like, limit) as DbRow[];
       for (const row of rows) {
         const topic = sessionToTopic[row.session_key];
         if (!topic) continue; // orphaned session — nothing to open from the palette
@@ -2872,9 +2899,9 @@ export function createAppContext(baseDir: string): AppContext {
           topicId: topic.id,
           topicName: topic.name,
           topicIcon: topic.icon || "MessageSquare",
-          role: row.role,
-          content: row.content,
-          timestamp: row.timestamp,
+          role: row.role as string,
+          content: row.content as string,
+          timestamp: row.timestamp as string | null,
         });
         if (results.length >= limit) return results;
       }
@@ -2887,7 +2914,7 @@ export function createAppContext(baseDir: string): AppContext {
     if (existsSync(sessionsStorePath)) {
       try {
         const store = JSON.parse(readFileSync(sessionsStorePath, "utf-8"));
-        for (const [key, entry] of Object.entries(store) as any[]) {
+        for (const [key, entry] of Object.entries(store) as [string, { sessionId?: unknown } | null][]) {
           if (!entry?.sessionId) continue;
           // Guard against path traversal — sessionId becomes a filename below.
           if (typeof entry.sessionId !== "string" || !/^[a-zA-Z0-9_-]+$/.test(entry.sessionId)) continue;
@@ -2906,7 +2933,7 @@ export function createAppContext(baseDir: string): AppContext {
                   if (msg.role === "user" || msg.role === "assistant") {
                     let text = "";
                     if (typeof msg.content === "string") text = msg.content;
-                    else if (Array.isArray(msg.content)) text = msg.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n");
+                    else if (Array.isArray(msg.content)) text = (msg.content as { type?: string; text?: string }[]).filter((c) => c.type === "text").map((c) => c.text).join("\n");
                     if (text.toLowerCase().includes(lowerQuery)) {
                       results.push({ messageId: null, sessionKey: key, topicId: topic?.id || null, topicName: topic?.name || key, topicIcon: topic?.icon || "MessageSquare", role: msg.role, content: text, timestamp: d.timestamp || null });
                       if (results.length >= limit) return results;
@@ -2936,12 +2963,12 @@ export function createAppContext(baseDir: string): AppContext {
 
   // --- Branching helpers ---
   function getMessageById(id: string): StoredMessage | null {
-    const row = stmts.getMessageById.get(id) as any;
+    const row = stmts.getMessageById.get(id) as DbRow;
     return row ? rowToMessage(row) : null;
   }
 
   function getMessageSessionKey(id: string): string | null {
-    const row = stmts.getMessageById.get(id) as any;
+    const row = stmts.getMessageById.get(id) as DbRow;
     return row?.session_key || null;
   }
 
@@ -2954,8 +2981,8 @@ export function createAppContext(baseDir: string): AppContext {
      *  riscrive una domanda invece di ribatterla sparisce dai conteggi. */
     autore?: { authorPersonId?: string | null; authorDeviceId?: string | null },
   ): StoredMessage {
-    const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order;
-    const maxBranch = (stmts.getMaxBranchIndex.get(parentId) as any).max_idx;
+    const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as { max_order: number }).max_order;
+    const maxBranch = (stmts.getMaxBranchIndex.get(parentId) as { max_idx: number }).max_idx;
     const branchIndex = maxBranch + 1;
     const stored: StoredMessage = {
       id: crypto.randomUUID(), role, content, timestamp: new Date().toISOString(), parentId, branchIndex,
@@ -2985,14 +3012,14 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   function createBranchPartialMessage(sessionKey: string, parentId: string): StoredMessage {
-    const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order;
+    const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as { max_order: number }).max_order;
     // Allocate the next branch index under the parent, like createBranchMessage.
     // This used to hardcode 0 — correct on the EDIT path (the parent is a
     // brand-new user message with no children) but colliding on REGENERATE,
     // where the anchor user message already has the original assistant reply
     // at index 0: two children with the same branch_index break both
     // loadActiveThread's selection and the sibling arrows.
-    const maxBranch = (stmts.getMaxBranchIndex.get(parentId) as any).max_idx;
+    const maxBranch = (stmts.getMaxBranchIndex.get(parentId) as { max_idx: number }).max_idx;
     const branchIndex = maxBranch + 1;
     const stored: StoredMessage = {
       id: crypto.randomUUID(), role: "assistant", content: "", timestamp: new Date().toISOString(),
@@ -3150,7 +3177,7 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   function getSiblingMessages(parentId: string): StoredMessage[] {
-    const rows = stmts.getSiblings.all(parentId) as any[];
+    const rows = stmts.getSiblings.all(parentId) as DbRow[];
     return rows.map((row) => rowToMessage(row));
   }
 

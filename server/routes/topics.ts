@@ -2619,7 +2619,7 @@ export function createTopicsRouter(
 
       // Abort the gateway request (HTTP fallback)
       if (stream.abortController) {
-        try { stream.abortController.abort(); } catch {}
+        try { stream.abortController.abort(); } catch { /* the controller may already be aborted */ }
       }
 
       // If a `mcp__topics__ask_user_question` bridge handler is blocked waiting

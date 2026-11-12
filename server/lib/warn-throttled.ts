@@ -1,4 +1,4 @@
-// Throttled console.warn for LOAD-BEARING catch{} blocks.
+// Throttled console.warn for LOAD-BEARING empty catch blocks.
 //
 // Some swallowed errors are recoverable (a corrupt DB row, a transient
 // misconfig) so we intentionally keep the swallow — but silent is wrong: the

@@ -594,7 +594,7 @@ const nativeHostLiveness = createNativeHostLiveness<MirrorSocket>({
     nativeDelegateRegistry.unregister(contextId, socket);
     browserWsClients.get(contextId)?.delete(socket as never);
     hostMirror.onClose(socket, contextId);
-    try { (socket as unknown as ServerWebSocket<WSData>).close(1001, "Native host unresponsive"); } catch {}
+    try { (socket as unknown as ServerWebSocket<WSData>).close(1001, "Native host unresponsive"); } catch { /* handle may already be closed */ }
   },
 });
 
@@ -3427,10 +3427,10 @@ const wsHeartbeatTimer = setInterval(() => {
     if (now - ws.data.lastPong > WS_TIMEOUT_MS) {
       console.log(`[WS] Removing stale client ${ws.data.id} (no pong for ${Math.round((now - ws.data.lastPong) / 1000)}s)`);
       wsClients.delete(ws);
-      try { ws.close(1001, "Connection timeout"); } catch {}
+      try { ws.close(1001, "Connection timeout"); } catch { /* handle may already be closed */ }
       continue;
     }
-    if (ws.readyState === 1) { try { ws.ping(); } catch {} }
+    if (ws.readyState === 1) { try { ws.ping(); } catch { /* ping on a dying socket: the next sweep drops it */ } }
   }
   // Browser screencast sockets are kept OUT of wsClients, so reap them here too.
   // Without this, a half-open TCP break (laptop sleep / network drop) never
@@ -3458,7 +3458,7 @@ const wsHeartbeatTimer = setInterval(() => {
         });
         continue;
       }
-      if (ws.readyState === 1) { try { ws.ping(); } catch {} }
+      if (ws.readyState === 1) { try { ws.ping(); } catch { /* ping on a dying socket: the next sweep drops it */ } }
     }
     if (set.size === 0) {
       browserWsClients.delete(ctxId);
@@ -4508,7 +4508,7 @@ const opzioniServer = {
             console.warn(`[WS][browser] startScreencast failed for ${ctxId}:`, err.message);
             try {
               ws.send(JSON.stringify({ type: 'error', message: `Screencast start failed: ${err.message}` }));
-            } catch {}
+            } catch { /* socket may have closed before the error could be sent */ }
           });
         };
         hostBootRace.begin(ws, ctxId, ws.data.expectsNativeHost === true, (frames) => {
@@ -4714,7 +4714,7 @@ const opzioniServer = {
           // handled before parseBrowserWsMessage.
           const delegated = handleNativeDelegationFrame(
             raw, ctxId,
-            (m) => { try { ws.send(JSON.stringify(m)); } catch {} },
+            (m) => { try { ws.send(JSON.stringify(m)); } catch { /* socket may already be closed */ } },
             nativeDelegateRegistry,
             ws, // owner — lets unregister() skip stale-socket cleanups after a re-register
             // Liveness del proprietario corrente: e' cio' che distingue una
@@ -4736,7 +4736,7 @@ const opzioniServer = {
                 reason: "un esecutore nativo vivo serve gia' questo contextId",
               }));
             } catch { /* socket gia' andato */ }
-            try { ws.close(1008, "native executor already registered"); } catch {}
+            try { ws.close(1008, "native executor already registered"); } catch { /* socket may already be closed */ }
             return;
           }
           if (delegated === 'registered') {
