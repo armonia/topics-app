@@ -88,6 +88,16 @@ const DEFAULT_RETRY_CAP = 2;
 const WAITING_MEMORY = "waiting-memory" as const;
 
 /** The tool a dispatched session is running, as the session tracker knows it. */
+/**
+ * Working rule for every kickoff: Topics is a product for anybody, so no single
+ * person's data is hard-coded. Exported so the unit test reads the same sentence
+ * the agent receives; `docs/board-protocol.md` carries the human copy.
+ */
+export const GENERIC_PRODUCT_RULE =
+  "- Topics is a product for ANYONE: never write one person's names, paths, IPs, accounts or servers into the code. " +
+  "What varies between users lives in settings, in the machines table or in a configurable adapter. " +
+  "Does a personal value look needed? It goes into configuration, with an empty default that works.";
+
 export interface SessionActivity { name: string; input?: unknown; since: number }
 
 /** How much of a tool input travels on the wire: the card cuts further. */
@@ -3296,6 +3306,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             ]
           : []),
         "- Comments SHORT and useful: 1-2 sentences at the milestones (what is done / what is blocking). Never logs, diffs or code dumps in the thread (the server rejects long comments).",
+        GENERIC_PRODUCT_RULE,
         "- Lean context (keep the turns light): Grep to find, then Read in slices (offset/limit) on files over ~400 lines — never read whole files 'to be safe'.",
         `- ${longCommandsRule()}`,
         // Il coordinatore. Sta QUI, subito dopo la riga sul contesto snello,
