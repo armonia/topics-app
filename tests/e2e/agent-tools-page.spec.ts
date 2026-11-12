@@ -27,7 +27,8 @@ test("dal menu utente si apre Strumenti: autorizza, parcheggia, rimonta, aggiorn
   const mail = () => state.mcp[2] as { state: string; toolCount: number; reason?: string };
   const posted: Array<Record<string, unknown>> = [];
   let refreshes = 0;
-  await page.route("**/api/agent-tools", (route) => route.fulfill({ json: state }));
+  let inventoryReads = 0;
+  await page.route("**/api/agent-tools", (route) => { inventoryReads += 1; return route.fulfill({ json: state }); });
   // The server mounts a server only at the OAuth callback, never at /start.
   await page.route("**/api/mcp/oauth/start", (route) => route.fulfill({ json: { authorizeUrl: "about:blank" } }));
   await page.route("**/api/mcp/fleet/refresh", (route) => { refreshes += 1; return route.fulfill({ json: {} }); });
@@ -58,8 +59,9 @@ test("dal menu utente si apre Strumenti: autorizza, parcheggia, rimonta, aggiorn
   await expect(pageEl.getByTestId("agent-tools-cli-fake-cli")).toHaveAttribute("data-installed", "true");
 
   // Authorize: the page stays on "needs sign-in" until the callback, then follows it by itself.
+  const readsAtClick = inventoryReads;
   await row("mail-server").getByRole("button", { name: /Authorize|Autorizza/ }).click();
-  await page.waitForTimeout(2500);
+  await expect.poll(() => inventoryReads, { timeout: 10_000 }).toBeGreaterThan(readsAtClick);
   await expect(row("mail-server")).toHaveAttribute("data-state", "needs-auth");
   mail().state = "active";
   mail().toolCount = 2;
