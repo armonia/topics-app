@@ -1048,6 +1048,13 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     for (const [taskId, slot] of [...inFlight]) {
       const node = slot.node;
       if (!node) continue;
+      // A card closed while its run was alive: cancel the run on the node and
+      // clear the chip. Left alone, the mirror rewrote `working` on a done card
+      // and the delivery that followed carried it back to review (12/11, 17436204).
+      if (svc.get(taskId)?.task?.status === "done") {
+        await retireDoneRun(taskId, node);
+        continue;
+      }
       if (node.cancelPending) {
         await cancelTask(taskId);
         continue;
@@ -1160,6 +1167,24 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       log(`nodo: card ${task.id} non rimessa in coda dopo il riavvio`, err);
       return false;
     }
+  }
+
+  /**
+   * The run of a card that is already done. The cancel is best effort: a node
+   * that cannot be reached must not keep the slot forever, and a late report is
+   * harmless now that a done card ignores system deliveries.
+   */
+  async function retireDoneRun(taskId: string, node: NodeSlot): Promise<void> {
+    const client = host.client;
+    if (client) {
+      try {
+        await client.cancelRun({ baseUrl: node.baseUrl, token: node.token, runId: node.runId, delegation: node.delegation });
+      } catch (err) { log(`node: run ${node.runId} of the done card ${taskId} was not cancelled`, err); }
+    }
+    inFlight.delete(taskId);
+    lastNodeRun.delete(taskId);
+    try { releaseAndEmit({ taskId, requeue: false }); }
+    catch (err) { log(`node: done card ${taskId} was not released`, err); }
   }
 
   async function cancelTask(taskId: string): Promise<boolean | null> {

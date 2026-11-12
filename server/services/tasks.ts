@@ -5579,8 +5579,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // then asked whether to close it. Several callers release without looking
       // at the column (mirror retirement, weekly limit, restart requeue, empty
       // node run): the guard lives here, once, for all of them. The link to the
-      // topic is still cleared; the column, the reason and the reopen are not.
+      // topic is still cleared and the reason still lands as a note (the GC
+      // writes why it unbound or abandoned a worktree); the column and the
+      // reopen mark are not touched.
       if (row.status === "done") {
+        if (reason && reason.trim()) {
+          try { this.addComment({ taskId, author: by ?? "system", content: reason }); } catch { /* dedupe/best-effort */ }
+        }
         db.prepare(
           `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
               dispatch_state = NULL, dispatch_error = NULL, updated_at = ? WHERE id = ?`,
@@ -5639,6 +5644,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     deferForWait({ taskId, reason, minutes, by, source }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      // A done card waits for nothing: same rule as `release`.
+      if (row.status === "done") return rowToTask(row);
       const mins = clampInt(minutes ?? 15, 1, 1440);
       const ts = now();
       const detto = reason && reason.trim() ? reason.trim() : "";
@@ -5695,6 +5702,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     deliverToReviewBySystem({ taskId, reason, cause, nextMove, uncommittedFiles, messageId, quietReason }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      // A done card is never carried back to review by the system: a remote run
+      // that reports after the card was closed must not reopen it
+      // (`reopenedBy: dispatcher`, measured 12/11 on 17436204). Same rule as `release`.
+      if (row.status === "done") return rowToTask(row);
       const ts = now();
       // LA RIGA SI SCRIVE DOPO LE GUARDIE, non prima. Stava in cima perché così
       // era «l'ultima parola sulla card» — ragione caduta con `ad1516aca`, che

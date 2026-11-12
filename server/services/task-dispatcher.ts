@@ -2794,7 +2794,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     //
     // Si legge PRIMA della release: dopo, il legame non c'è più e non si
     // saprebbe più quale topic ritirare.
-    const boundTopicId = deps.svc.get(args.taskId)?.task?.assignedTopicId ?? null;
+    const before = deps.svc.get(args.taskId)?.task;
+    const boundTopicId = before?.assignedTopicId ?? null;
+    const wasDone = before?.status === "done";
     const task = deps.svc.release(args);
     // Il registro dei token vale finché il task è in mano al dispatcher: al
     // rilascio le sue sessioni sono chiuse, e la base del prossimo giro va
@@ -2807,7 +2809,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       catch (err) { log(`archivio del topic ${boundTopicId} fallito al rilascio`, err); }
     }
     emit(task);
-    const parked = opts?.announce === false ? null : parkedEdgeEvent(task, args);
+    // A release that found the card done changed nothing about its column:
+    // no parked edge, so no push for a card that is finished.
+    const parked = opts?.announce === false || wasDone ? null : parkedEdgeEvent(task, args);
     if (parked) {
       try { deps.broadcast(parked); } catch { /* best-effort */ }
     }

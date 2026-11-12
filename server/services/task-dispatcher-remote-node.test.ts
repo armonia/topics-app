@@ -1253,7 +1253,9 @@ describe("una corsa remota persa non riporta mai indietro una card chiusa", () =
       const t = h.task();
       expect(t.status).toBe(expected);
       if (label === "archiviata") expect(h.svc.isArchived!(TASK)).toBe(true);
-      expect(h.comments().filter((c) => c.content.includes("persa")).length).toBe(1);
+      // A done card's run is cancelled the moment the card is seen done (see
+      // task-dispatcher-remote-node-done.test.ts): it is never "lost", so no note.
+      expect(h.comments().filter((c) => c.content.includes("persa")).length).toBe(label === "done" ? 0 : 1);
       expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
     });
   }

@@ -291,3 +291,25 @@ describe("land vs consegna — su git vero", () => {
     }
   }, 30_000);
 });
+
+describe("server.ts wires the land through declaredDeliveryFor and nothing of its own", () => {
+  // The wiring is the one place a regression hid: the logic can be right in
+  // `declaredDeliveryFor` while server.ts goes back to reading `deliveryBranch`
+  // alone (12/11). server.ts cannot be imported in a test, so the test reads it.
+  const source = require("fs").readFileSync(join(import.meta.dir, "../../server.ts"), "utf8") as string;
+  const at = source.indexOf("createTaskAutoMerge({");
+  const block = source.slice(at, source.indexOf("log: (msg, err) => console.error", at))
+    .split(/?
+/).filter((line) => !line.trim().startsWith("//")).join("
+");
+
+  test("declaredDelivery is declaredDeliveryFor(...)", () => {
+    expect(at).toBeGreaterThan(0);
+    expect(block).toMatch(/declaredDelivery:\s*declaredDeliveryFor\(/);
+  });
+
+  test("the block reads no branch column itself", () => {
+    expect(block).not.toContain("deliveryBranch");
+    expect(block).not.toContain("priorBranch");
+  });
+});

@@ -79,7 +79,7 @@ describe("un land fallito dice perche', e non lascia la card in done", () => {
    * which is the one column nobody reopens, with the code outside main and a
    * worktree GC free to prune that branch.
    */
-  async function landSkipping(code: string | undefined): Promise<{ id: string; db: Database; resumed: Array<[string, string]> }> {
+  async function landSkipping(code: string | undefined, setup?: (d: Database, id: string) => void): Promise<{ id: string; db: Database; resumed: Array<[string, string]> }> {
     const d = freshDb(); const b: any[] = []; const r: Array<[string, string]> = [];
     const autoMerge = {
       tryMerge: async () => ({ status: "skipped", reason: "non so quali commit siano suoi", code }),
@@ -95,6 +95,7 @@ describe("un land fallito dice perche', e non lascia la card in done", () => {
     d.prepare("UPDATE tasks SET assigned_topic_id='top-s', status='review' WHERE id = ?").run(t.id);
     d.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES ('cs', ?, 'claude', 'consegna', 'comment', ?)")
       .run(t.id, new Date().toISOString());
+    setup?.(d, t.id);
     await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
     await new Promise((res) => setTimeout(res, 20)); // the land runs fire-and-forget
     return { id: t.id, db: d, resumed: r };
@@ -144,6 +145,29 @@ describe("un land fallito dice perche', e non lascia la card in done", () => {
     const { id, db: d } = await landSkipping("no-branch");
     const t = createTaskService(d).get(id)!;
     expect(t.task.status).toBe("review");
+    expect(t.comments.some((c) => c.content.includes("Niente da atterrare"))).toBe(true);
+  });
+
+  // 12/11, 17436204 and 403aad1f: a card that ran on another machine comes back
+  // with no delivery columns and its branch only in `priorBranch`. The branch
+  // missing here and on origin is a loss, not "nothing to land": the card goes
+  // back to review (from done too) instead of being accepted.
+  for (const start of ["review", "done"] as const) {
+    test(`ramo mancante con priorBranch dichiarato: la card (${start}) torna in review, mai accettata`, async () => {
+      const { id, db: d } = await landSkipping("branch-missing", (db, taskId) => {
+        db.prepare("UPDATE tasks SET prior_branch = 'topics/vexing-thorn', delivery_commit = NULL, status = ? WHERE id = ?").run(start, taskId);
+      });
+      const t = createTaskService(d).get(id)!;
+      expect(t.task.status).toBe("review");
+      expect(t.comments.some((c) => c.content.includes("Niente da atterrare"))).toBe(false);
+    });
+  }
+
+  test("ramo mancante senza priorBranch e senza commit di consegna resta il caso «niente da atterrare»", async () => {
+    const { id, db: d } = await landSkipping("branch-missing", (db, taskId) => {
+      db.prepare("UPDATE tasks SET delivery_commit = NULL WHERE id = ?").run(taskId);
+    });
+    const t = createTaskService(d).get(id)!;
     expect(t.comments.some((c) => c.content.includes("Niente da atterrare"))).toBe(true);
   });
 });
