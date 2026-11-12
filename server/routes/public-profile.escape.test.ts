@@ -18,7 +18,7 @@ test("the public profile never interpolates the name unescaped", () => {
   const raw = interpolations.filter((expr) =>
     [...expr.matchAll(/\bnome\b/g)].some((m) => {
       const before = expr.slice(0, m.index);
-      // A bare `? ...` right after the name is the presence check, not a print.
+      // The ternary test on the variable is a presence check, not a print.
       return !/escapeHtml\($/.test(before) && !/^\s*\?/.test(expr.slice(m.index! + 4));
     }),
   );
