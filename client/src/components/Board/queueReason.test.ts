@@ -156,7 +156,7 @@ describe('la ragione della coda non ha una copia nel client', () => {
   });
 
   test('la card e il drawer disegnano lo STESSO chip, con la stessa precedenza', () => {
-    for (const f of ['components/Board/Card.tsx', 'components/Board/TaskDetail.tsx']) {
+    for (const f of ['components/Board/Card.tsx', 'components/Board/TaskHeader.tsx']) {
       const src = readFileSync(join(SRC, f), 'utf8');
       expect(src, `${f} deve rendere il chip della ragione`).toContain('<QueueReasonChip reason={task.queueReason} />');
       // Prima del chip di stato: «in coda» è la parola che questo sostituisce.

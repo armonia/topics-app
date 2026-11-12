@@ -40,7 +40,7 @@ describe('chi lo monta', () => {
   });
 
   test('il drawer del task pure', () => {
-    const s = sorgente('TaskDetail.tsx');
+    const s = sorgente('TaskHeader.tsx');
     expect(s).toContain('<MorphText text={task.text} />');
   });
 });
