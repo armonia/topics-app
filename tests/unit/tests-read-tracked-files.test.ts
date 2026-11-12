@@ -55,7 +55,7 @@ const GENERATE = new Map<string, string>([
   ["ai-bridge/", "store del broker, scritto a runtime"],
   ["journal/", "diario scritto a runtime"],
   ["messages/", "scritto a runtime"],
-  ["spec-flow/", "clone di un repo separato (armonia/spec-flow), assente da ogni checkout"],
+  ["spec-flow/", "vecchio clone di armonia/spec-flow, sostituito dal pacchetto @armonia-io/spec-flow"],
   ["certs/", "certificati locali, non vanno in un repo pubblico"],
 ]);
 

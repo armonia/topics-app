@@ -186,6 +186,34 @@ identificativo di prova distinto, o un e2e può agganciare il bottone sbagliato.
 installazione che non ha ancora eseguito la migration: la degradazione si MISURA
 su uno schema costruito apposta, non si dichiara in un commento.
 
+#### Scenario: una richiesta è una riga e le due parti la leggono diversamente
+- **GIVEN** una persona che ha chiesto l'amicizia a un'altra
+- **THEN** il grafo SHALL contenere UNA riga sola per la coppia
+- **AND** chi ha chiesto SHALL trovarsi in attesa e chi è stato chiesto SHALL trovarsi a dover rispondere
+
+#### Scenario: un rifiuto sopravvive alla riga
+- **GIVEN** una richiesta che l'altra parte ha rifiutato
+- **WHEN** chi è stato rifiutato chiede di nuovo
+- **THEN** la richiesta SHALL essere rifiutata e la riga SHALL restare
+- **AND** chi ha rifiutato SHALL poter chiedere a sua volta
+
+#### Scenario: il rifiuto non è detto a chi l'ha subito
+- **GIVEN** una richiesta rifiutata
+- **THEN** chi l'ha subito SHALL vedere lo stato di una richiesta ancora in attesa, e la risposta SHALL comparire solo dal lato che è stato chiesto
+
+#### Scenario: due richieste a vicenda sono un'accettazione
+- **GIVEN** una richiesta già inviata da una persona a un'altra
+- **WHEN** l'altra chiede a sua volta la prima
+- **THEN** la seconda richiesta SHALL atterrare come un'accettazione, con UNA riga sola e nessuna delle due parti in attesa
+
+#### Scenario: un'interfaccia con un gesto primario per stato
+- **GIVEN** ciascuno degli stati dell'amicizia
+- **THEN** l'interfaccia SHALL offrire almeno un gesto, mai due gesti primari, e identificativi di prova distinti fra i gesti di quello stato
+
+#### Scenario: un database senza la tabella
+- **GIVEN** un database senza la tabella delle amicizie
+- **THEN** nessuna funzione SHALL sollevare e nessuna SHALL dichiarare una relazione che non c'è
+
 ### Requirement: ACCOUNT-03 — La porta dell'account NON risponde MAI con un guasto del server
 
 NESSUN ramo di questa porta SHALL rispondere con un errore del server. Il modo in
