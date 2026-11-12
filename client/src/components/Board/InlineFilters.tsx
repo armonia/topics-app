@@ -62,7 +62,7 @@ export function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterP
 
       {/* WHO OPENED THE CARDS: one button that cycles all, mine, others. The
           margin keeps it off the search field when the row is narrow. With a
-          finger it is 44 wide at least: «Tutte» alone measured 41. */}
+          finger it is 44 wide at least: the shortest label alone measured 41. */}
       <button
         type="button"
         data-testid="filter-creator"

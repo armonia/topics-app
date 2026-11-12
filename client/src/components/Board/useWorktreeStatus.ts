@@ -86,11 +86,11 @@ export function useWorktreeStatus(projectPath: string | undefined, global: boole
       // The same goes for `snelliti`: a pass that keeps ALL the worktrees may
       // still have freed a few gigabytes of `node_modules`, and without this
       // entry it would only say "0, 0, 0, N tenuti".
-      const slimmedNote = (sm.slimmed ?? 0) > 0
+      const trimmedNote = (sm.slimmed ?? 0) > 0
         ? `, ${sm.slimmed} snelliti (${Math.round((sm.slimmedBytes ?? 0) / 1_048_576)} MB)`
         : '';
       setGcResult(
-        `${sm.reaped ?? 0} ripuliti, ${sm.freed ?? 0} liberati (branch salvo), ${sm.landed ?? 0} landati${slimmedNote}, ${sm.kept ?? 0} tenuti`
+        `${sm.reaped ?? 0} ripuliti, ${sm.freed ?? 0} liberati (branch salvo), ${sm.landed ?? 0} landati${trimmedNote}, ${sm.kept ?? 0} tenuti`
         + (reasons ? `: ${reasons}` : ''),
       );
       // The count next to it must reflect the pass that just ran.
