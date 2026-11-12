@@ -234,11 +234,13 @@ fn chains() -> &'static [Chain; 3] {
     FONTS.get_or_init(|| {
         [
             load_chain(&[
+                ("/System/Library/Fonts/SFNS.ttf", 0),
                 ("/System/Library/Fonts/Helvetica.ttc", 1),
                 ("C:\\Windows\\Fonts\\seguisb.ttf", 0),
                 ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 0),
             ]),
             load_chain(&[
+                ("/System/Library/Fonts/SFNSMono.ttf", 0),
                 ("/System/Library/Fonts/Menlo.ttc", 0),
                 ("C:\\Windows\\Fonts\\consola.ttf", 0),
                 ("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 0),
@@ -260,17 +262,32 @@ fn glyph_font(face: Face, ch: char) -> Option<&'static fontdue::Font> {
 /// Monospaced advance of the original strip's font, in em. The fallback faces
 /// (Menlo, Consolas) are a hair narrower, which would shift every column.
 const MONO_ADVANCE_EM: f32 = 0.6181;
-/// The original header font is about 7% wider than the sans face available here;
-/// spreading the letters by the same factor keeps every column the same width.
-const SANS_TRACKING: f32 = 1.071;
+/// Extra advance per header letter (em): the original draws the 7pt header with open tracking.
+const SANS_EXTRA_ADVANCE_EM: f32 = 0.09;
+/// The variable system faces load at their regular weight; strokes are thickened by this
+/// share of the em to reach the semibold and bold weights of the original.
+const SANS_EMBOLDEN_EM: f32 = 0.045;
+const MONO_BOLD_EMBOLDEN_EM: f32 = 0.03;
+const MONO_EMBOLDEN_EM: f32 = 0.01;
 
 /// The original ellipsis is much narrower than the one in the stand-in face.
+/// The original draws these two glyphs larger than the stand-in face does.
+const RESET_GLYPH_SCALE: f32 = 1.25;
+const ELLIPSIS_GLYPH_SCALE: f32 = 1.3;
 const SANS_ELLIPSIS_EM: f32 = 0.57;
+
+fn embolden(face: Face) -> f32 {
+    match face {
+        Face::Sans => SANS_EMBOLDEN_EM,
+        Face::Mono => MONO_EMBOLDEN_EM,
+        Face::MonoBold => MONO_BOLD_EMBOLDEN_EM,
+    }
+}
 
 fn advance(face: Face, font: &fontdue::Font, ch: char, px: f32) -> f32 {
     match face {
         Face::Sans if ch == '…' => px * SANS_ELLIPSIS_EM,
-        Face::Sans => font.metrics(ch, px).advance_width * SANS_TRACKING,
+        Face::Sans => font.metrics(ch, px).advance_width + px * SANS_EXTRA_ADVANCE_EM,
         Face::Mono | Face::MonoBold => px * MONO_ADVANCE_EM,
     }
 }
@@ -315,20 +332,34 @@ impl Canvas {
         }
         self.px[i + 3] = (oa * 255.0).round() as u8;
     }
-    fn glyphs(&mut self, face: Face, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32) -> f32 {
+    fn glyphs(&mut self, face: Face, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32, thick: bool) -> f32 {
         let mut pen = x;
         for ch in s.chars() {
             let Some(f) = glyph_font(face, ch) else {
                 pen += size * 0.55;
                 continue;
             };
-            let (m, bm) = f.rasterize(ch, size);
+            let glyph_size = size * if ch == '↻' { RESET_GLYPH_SCALE } else if ch == '…' { ELLIPSIS_GLYPH_SCALE } else { 1.0 };
+            let (m, bm) = f.rasterize(ch, glyph_size);
             let gx = pen.round() as i32 + m.xmin;
             let gy = baseline.round() as i32 - m.height as i32 - m.ymin;
-            for row in 0..m.height {
-                for col in 0..m.width {
-                    let cov = bm[row * m.width + col] as f32 / 255.0;
-                    self.blend(gx + col as i32, gy + row as i32, c, cov * a);
+            let grow = if thick { embolden(face) * size } else { 0.0 };
+            let passes = if grow > 0.0 { 3 } else { 1 };
+            for pass in 0..passes {
+                let off = grow * pass as f32 / 2.0;
+                let (ox, fx) = (off.floor() as i32, off.fract());
+                let (oy, fy) = (0, 0.0_f32);
+                for row in 0..m.height {
+                    for col in 0..m.width {
+                        let cov = bm[row * m.width + col] as f32 / 255.0;
+                        if cov > 0.0 {
+                            let (x0, y0) = (gx + col as i32 + ox, gy + row as i32 - oy);
+                            self.blend(x0, y0, c, cov * (1.0 - fx) * (1.0 - fy) * a);
+                            self.blend(x0 + 1, y0, c, cov * fx * (1.0 - fy) * a);
+                            self.blend(x0, y0 - 1, c, cov * (1.0 - fx) * fy * a);
+                            self.blend(x0 + 1, y0 - 1, c, cov * fx * fy * a);
+                        }
+                    }
                 }
             }
             pen += advance(face, f, ch, size);
@@ -338,8 +369,8 @@ impl Canvas {
     /// Text with the soft drop shadow the original draws under every string.
     /// `baseline` is in pixels from the TOP edge; `size` is the em size in pixels.
     fn text(&mut self, face: Face, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32) -> f32 {
-        self.glyphs(face, s, x, baseline + 0.5 * SCALE, size, [0, 0, 0], SHADOW_ALPHA * a);
-        self.glyphs(face, s, x, baseline, size, c, a)
+        self.glyphs(face, s, x, baseline + 0.5 * SCALE, size, [0, 0, 0], SHADOW_ALPHA * a, false);
+        self.glyphs(face, s, x, baseline, size, c, a, true)
     }
     /// Rounded bar: a track and a fill clipped to it, anti-aliased on the corners.
     fn bar(&mut self, x: f32, y: f32, w: f32, h: f32, r: f32, fill_w: f32, track: ([u8; 3], f32), fill: ([u8; 3], f32)) {
