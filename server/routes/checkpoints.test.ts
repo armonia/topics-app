@@ -347,4 +347,40 @@ describe("the automatic turn checkpoints", () => {
     expect(read("a.txt")).toBe("a before\n");
     expect(read("b.txt")).toBe("b by hand\n");
   });
+
+  test("a malformed, non-empty body on restore answers 400 instead of silently restoring the newest point", async () => {
+    await captureTurnCheckpoint(repo, SESSION, "before", "before");
+    write("a.txt", "a by the turn\n");
+    await closeTurn();
+
+    const req = new Request(`http://x/api/topics/${TOPIC}/turn-checkpoints/restore`, {
+      method: "POST",
+      body: "{not json",
+      headers: { "content-type": "application/json" },
+    });
+    const res = await router(req, new URL(req.url), `/api/topics/${TOPIC}/turn-checkpoints/restore`, "POST");
+    expect(res?.status).toBe(400);
+    // The commit named by the (malformed) request was never looked at — the
+    // file must still be exactly what the turn left it as, not rolled back.
+    expect(read("a.txt")).toBe("a by the turn\n");
+  });
+
+  test("a non-boolean-shaped commit field on the preflight also answers 400, not a silent fallback", async () => {
+    await captureTurnCheckpoint(repo, SESSION, "before", "before");
+    const r = await call("POST", `/api/topics/${TOPIC}/turn-checkpoints/plan`, { commit: 123 });
+    expect(r.status).toBe(400);
+  });
+
+  test("an empty body still falls back to the newest restore point", async () => {
+    await captureTurnCheckpoint(repo, SESSION, "before", "before");
+    write("a.txt", "a by the turn\n");
+    await closeTurn();
+
+    const req = new Request(`http://x/api/topics/${TOPIC}/turn-checkpoints/restore`, {
+      method: "POST",
+    });
+    const res = await router(req, new URL(req.url), `/api/topics/${TOPIC}/turn-checkpoints/restore`, "POST");
+    expect(res?.status).toBe(200);
+    expect(read("a.txt")).toBe("a before\n");
+  });
 });

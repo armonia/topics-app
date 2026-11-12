@@ -198,8 +198,18 @@ async function run(cmd: string[], timeoutMs = 10_000): Promise<{ code: number; o
 
 /** Restart only when no turn is in flight: a restart would cut a live reply. */
 async function reload(paths: Paths): Promise<string> {
+  const inflightPath = join(paths.home, "inflight.json");
   let inflight: Json = {};
-  try { inflight = readJson(join(paths.home, "inflight.json")); } catch {}
+  if (existsSync(inflightPath)) {
+    try {
+      inflight = readJson(inflightPath);
+    } catch (err) {
+      // Partial write, EACCES or EIO: we cannot tell if a turn is in flight,
+      // so wait instead of risking a kickstart that SIGKILLs a live reply.
+      console.warn("[agent-config] could not read inflight.json, assuming a turn may be in flight:", err);
+      return "pending";
+    }
+  }
   if (Object.keys(inflight).length) return "pending";
   if (process.env.AGENT_CONFIG_NO_RESTART) return "skipped";
   const userId = process.getuid?.() ?? 501;

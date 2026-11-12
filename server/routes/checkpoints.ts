@@ -44,6 +44,9 @@ function refusedPlan(code: RestoreBlockerCode, targetCommit = ""): RestorePlan {
   return { targetCommit, latestCommit: null, entries: [], skipped: [], blockers: [{ code }], safe: false };
 }
 
+/** A non-empty request body that is not valid JSON, or names a non-string `commit`. */
+class InvalidCheckpointBody extends Error {}
+
 /**
  * The blockers that stop the WHOLE gesture. The other codes (`not-a-repo`,
  * `legacy-checkpoint`) only say the files half cannot happen: a manual
@@ -302,7 +305,17 @@ export function createCheckpointsRouter(ctx: AppContext): RouteHandler {
     ): Promise<{ checkpoint: TurnCheckpoint | null; plan: RestorePlan }> => {
       if (!topic.projectPath || !existsSync(topic.projectPath)) return { checkpoint: null, plan: refusedPlan("not-a-repo") };
       let body: { commit?: string } = {};
-      try { body = await req.json(); } catch {}
+      const text = await req.text();
+      if (text.trim()) {
+        try {
+          body = JSON.parse(text);
+        } catch {
+          throw new InvalidCheckpointBody("Request body is not valid JSON");
+        }
+        if (body.commit !== undefined && typeof body.commit !== "string") {
+          throw new InvalidCheckpointBody("commit must be a string");
+        }
+      }
       const list = await listRestorePoints(topic.projectPath, topic.sessionKey);
       const target = body.commit ? list.find((c) => c.commit === body.commit) : list[0];
       if (!target) return { checkpoint: null, plan: refusedPlan("no-checkpoint", body.commit ?? "") };
@@ -320,8 +333,13 @@ export function createCheckpointsRouter(ctx: AppContext): RouteHandler {
         const data = loadTopics();
         const topic = data.topics[params.id];
         if (!topic) return json({ error: "Topic not found" }, 404);
-        const { checkpoint, plan } = await targetTurnPoint(topic, req);
-        return json({ checkpoint, plan, ...verdictFor(plan, "turn") });
+        try {
+          const { checkpoint, plan } = await targetTurnPoint(topic, req);
+          return json({ checkpoint, plan, ...verdictFor(plan, "turn") });
+        } catch (err) {
+          if (err instanceof InvalidCheckpointBody) return json({ error: err.message }, 400);
+          throw err;
+        }
       }
     }
 
@@ -340,7 +358,14 @@ export function createCheckpointsRouter(ctx: AppContext): RouteHandler {
           // not on every failure of a chat that happens to have no project.
           return json({ error: "This chat is not bound to a project folder", code: "no_project" }, 400);
         }
-        const { checkpoint, plan } = await targetTurnPoint(topic, req);
+        let checkpoint: TurnCheckpoint | null;
+        let plan: RestorePlan;
+        try {
+          ({ checkpoint, plan } = await targetTurnPoint(topic, req));
+        } catch (err) {
+          if (err instanceof InvalidCheckpointBody) return json({ error: err.message }, 400);
+          throw err;
+        }
         const verdict = verdictFor(plan, "turn");
         if (!checkpoint || !verdict.canProceed) return json({ error: "Restore refused", plan, ...verdict }, 409);
         try {

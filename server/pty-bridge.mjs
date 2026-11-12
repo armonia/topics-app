@@ -333,18 +333,25 @@ function probeBridge(timeoutMs = 1500) {
         while ((nl = buffer.indexOf('\n')) !== -1) {
           const line = buffer.slice(0, nl);
           buffer = buffer.slice(nl + 1);
+          let msg;
           try {
-            const msg = JSON.parse(line);
-            if (msg.id !== probeId) continue;
-            if (msg.type === 'created') {
-              // Probe succeeded — clean up the throwaway PTY.
+            msg = JSON.parse(line);
+          } catch {
+            continue; // malformed line from the bridge: skip it
+          }
+          if (msg.id !== probeId) continue;
+          if (msg.type === 'created') {
+            // Probe succeeded — clean up the throwaway PTY.
+            try {
               conn.write(JSON.stringify({ type: 'kill', id: probeId, reason: 'probe-cleanup', caller: 'bridge-probe' }) + '\n');
-              console.error(`[Terminal] kill ${probeId.slice(0, 8)} reason=probe-cleanup caller=bridge-probe`);
-              finish({ ok: true });
-              return;
+            } catch (err) {
+              console.error(`[Terminal] probe-cleanup write failed for ${probeId.slice(0, 8)}:`, err);
             }
-            if (msg.type === 'error') { finish({ ok: false, reason: 'spawn-error', detail: msg.error }); return; }
-          } catch {}
+            console.error(`[Terminal] kill ${probeId.slice(0, 8)} reason=probe-cleanup caller=bridge-probe`);
+            finish({ ok: true });
+            return;
+          }
+          if (msg.type === 'error') { finish({ ok: false, reason: 'spawn-error', detail: msg.error }); return; }
         }
       });
     });
