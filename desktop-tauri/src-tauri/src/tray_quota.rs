@@ -212,82 +212,85 @@ enum Face {
     Mono,
     /// Window tag and percentage: monospaced bold.
     MonoBold,
+    /// Never drawn: the semibold sans used to decide where a name is cropped. The drawn weight
+    /// is pushed heavier to match the original's text rasterizer, which would crop a letter early.
+    SansMetrics,
 }
 
-type Chain = Vec<fontdue::Font>;
-static FONTS: OnceLock<[Chain; 3]> = OnceLock::new();
+use ab_glyph::{Font as _, FontVec, ScaleFont as _, VariableFont as _};
 
-fn load_chain(primary: &[(&str, u32)]) -> Chain {
+type Chain = Vec<FontVec>;
+static FONTS: OnceLock<[Chain; 4]> = OnceLock::new();
+
+/// Variable weight axis values and the optical size the system uses for text this small.
+const WEIGHT_SEMIBOLD: f32 = 800.0;
+const WEIGHT_SEMIBOLD_LAYOUT: f32 = 760.0;
+/// Where the original rasterizer puts a glyph relative to its pen position, in pixels.
+const GLYPH_DX: f32 = -0.5;
+const GLYPH_DY: f32 = -0.2;
+const WEIGHT_REGULAR: f32 = 600.0;
+const WEIGHT_BOLD: f32 = 900.0;
+const OPTICAL_SIZE_TEXT: f32 = 17.0;
+
+fn load_chain(primary: &[&str], weight: f32) -> Chain {
     // Symbols last: the reset badge glyph is missing from most text faces.
-    const SYMBOLS: &[(&str, u32)] = &[("/System/Library/Fonts/Apple Symbols.ttf", 0), ("/System/Library/Fonts/SFNS.ttf", 0)];
-    let load = |(p, i): &(&str, u32)| {
-        let bytes = std::fs::read(p).ok()?;
-        let settings = fontdue::FontSettings { collection_index: *i, ..Default::default() };
-        fontdue::Font::from_bytes(bytes, settings).ok()
+    const SYMBOLS: &[&str] = &["/System/Library/Fonts/Apple Symbols.ttf", "/System/Library/Fonts/SFNS.ttf"];
+    let load = |p: &&str| {
+        let mut font = FontVec::try_from_vec(std::fs::read(p).ok()?).ok()?;
+        // Faces without these axes simply ignore the request.
+        font.set_variation(b"wght", weight);
+        font.set_variation(b"opsz", OPTICAL_SIZE_TEXT);
+        Some(font)
     };
     let mut chain: Chain = primary.iter().find_map(load).into_iter().collect();
     chain.extend(SYMBOLS.iter().filter_map(load));
     chain
 }
 
-fn chains() -> &'static [Chain; 3] {
+fn chains() -> &'static [Chain; 4] {
     FONTS.get_or_init(|| {
         [
-            load_chain(&[
-                ("/System/Library/Fonts/SFNS.ttf", 0),
-                ("/System/Library/Fonts/Helvetica.ttc", 1),
-                ("C:\\Windows\\Fonts\\seguisb.ttf", 0),
-                ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 0),
-            ]),
-            load_chain(&[
-                ("/System/Library/Fonts/SFNSMono.ttf", 0),
-                ("/System/Library/Fonts/Menlo.ttc", 0),
-                ("C:\\Windows\\Fonts\\consola.ttf", 0),
-                ("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 0),
-            ]),
-            load_chain(&[
-                ("/System/Library/Fonts/Menlo.ttc", 1),
-                ("C:\\Windows\\Fonts\\consolab.ttf", 0),
-                ("/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf", 0),
-            ]),
+            load_chain(
+                &["/System/Library/Fonts/SFNS.ttf", "C:\\Windows\\Fonts\\seguisb.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"],
+                WEIGHT_SEMIBOLD,
+            ),
+            load_chain(
+                &["/System/Library/Fonts/SFNSMono.ttf", "C:\\Windows\\Fonts\\consola.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"],
+                WEIGHT_REGULAR,
+            ),
+            load_chain(
+                &["/System/Library/Fonts/SFNSMono.ttf", "C:\\Windows\\Fonts\\consolab.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"],
+                WEIGHT_BOLD,
+            ),
+            load_chain(
+                &["/System/Library/Fonts/SFNS.ttf", "C:\\Windows\\Fonts\\seguisb.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"],
+                WEIGHT_SEMIBOLD_LAYOUT,
+            ),
         ]
     })
 }
 
-fn glyph_font(face: Face, ch: char) -> Option<&'static fontdue::Font> {
+/// Scale that makes the font's em exactly `px` pixels (ab_glyph scales by line height).
+fn em_scale(font: &FontVec, px: f32) -> Option<ab_glyph::PxScale> {
+    let em = font.units_per_em()?;
+    Some(ab_glyph::PxScale::from(px * font.height_unscaled() / em))
+}
+
+fn glyph_font(face: Face, ch: char) -> Option<&'static FontVec> {
     let chain = &chains()[face as usize];
-    chain.iter().find(|f| f.lookup_glyph_index(ch) != 0).or_else(|| chain.first())
+    chain.iter().find(|f| f.glyph_id(ch).0 != 0).or_else(|| chain.first())
 }
 
-/// Monospaced advance of the original strip's font, in em. The fallback faces
-/// (Menlo, Consolas) are a hair narrower, which would shift every column.
+/// Monospaced advance of the original strip's font, in em.
 const MONO_ADVANCE_EM: f32 = 0.6181;
-/// Extra advance per header letter (em): the original draws the 7pt header with open tracking.
-const SANS_EXTRA_ADVANCE_EM: f32 = 0.09;
-/// The variable system faces load at their regular weight; strokes are thickened by this
-/// share of the em to reach the semibold and bold weights of the original.
-const SANS_EMBOLDEN_EM: f32 = 0.045;
-const MONO_BOLD_EMBOLDEN_EM: f32 = 0.03;
-const MONO_EMBOLDEN_EM: f32 = 0.01;
 
-/// The original ellipsis is much narrower than the one in the stand-in face.
-/// The original draws these two glyphs larger than the stand-in face does.
-const RESET_GLYPH_SCALE: f32 = 1.25;
-const ELLIPSIS_GLYPH_SCALE: f32 = 1.3;
-const SANS_ELLIPSIS_EM: f32 = 0.57;
 
-fn embolden(face: Face) -> f32 {
+fn advance(face: Face, font: &FontVec, ch: char, px: f32) -> f32 {
     match face {
-        Face::Sans => SANS_EMBOLDEN_EM,
-        Face::Mono => MONO_EMBOLDEN_EM,
-        Face::MonoBold => MONO_BOLD_EMBOLDEN_EM,
-    }
-}
-
-fn advance(face: Face, font: &fontdue::Font, ch: char, px: f32) -> f32 {
-    match face {
-        Face::Sans if ch == '…' => px * SANS_ELLIPSIS_EM,
-        Face::Sans => font.metrics(ch, px).advance_width + px * SANS_EXTRA_ADVANCE_EM,
+        Face::Sans | Face::SansMetrics => match em_scale(font, px) {
+            Some(scale) => font.as_scaled(scale).h_advance(font.glyph_id(ch)),
+            None => px * 0.55,
+        },
         Face::Mono | Face::MonoBold => px * MONO_ADVANCE_EM,
     }
 }
@@ -332,33 +335,29 @@ impl Canvas {
         }
         self.px[i + 3] = (oa * 255.0).round() as u8;
     }
-    fn glyphs(&mut self, face: Face, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32, thick: bool) -> f32 {
+    fn glyphs(&mut self, face: Face, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32) -> f32 {
         let mut pen = x;
         for ch in s.chars() {
             let Some(f) = glyph_font(face, ch) else {
                 pen += size * 0.55;
                 continue;
             };
-            let glyph_size = size * if ch == '↻' { RESET_GLYPH_SCALE } else if ch == '…' { ELLIPSIS_GLYPH_SCALE } else { 1.0 };
-            let (m, bm) = f.rasterize(ch, glyph_size);
-            let gx = pen.round() as i32 + m.xmin;
-            let gy = baseline.round() as i32 - m.height as i32 - m.ymin;
-            let grow = if thick { embolden(face) * size } else { 0.0 };
-            let passes = if grow > 0.0 { 3 } else { 1 };
-            for pass in 0..passes {
-                let off = grow * pass as f32 / 2.0;
-                let (ox, fx) = (off.floor() as i32, off.fract());
-                let (oy, fy) = (0, 0.0_f32);
-                for row in 0..m.height {
-                    for col in 0..m.width {
-                        let cov = bm[row * m.width + col] as f32 / 255.0;
-                        if cov > 0.0 {
-                            let (x0, y0) = (gx + col as i32 + ox, gy + row as i32 - oy);
-                            self.blend(x0, y0, c, cov * (1.0 - fx) * (1.0 - fy) * a);
-                            self.blend(x0 + 1, y0, c, cov * fx * (1.0 - fy) * a);
-                            self.blend(x0, y0 - 1, c, cov * (1.0 - fx) * fy * a);
-                            self.blend(x0 + 1, y0 - 1, c, cov * fx * fy * a);
+            if let Some(scale) = em_scale(f, size) {
+                let glyph = f.glyph_id(ch).with_scale_and_position(scale, ab_glyph::point(pen + GLYPH_DX, baseline.round() + GLYPH_DY));
+                if let Some(outline) = f.outline_glyph(glyph) {
+                    let bounds = outline.px_bounds();
+                    let (bx, by) = (bounds.min.x.floor() as i32, bounds.min.y.floor() as i32);
+                    // Coverage is gathered first: overlapping contours must not stack alpha.
+                    let (gw, gh) = (bounds.width().ceil() as usize + 1, bounds.height().ceil() as usize + 1);
+                    let mut cover = vec![0.0_f32; gw * gh];
+                    outline.draw(|gx, gy, cov| {
+                        let at = gy as usize * gw + gx as usize;
+                        if at < cover.len() {
+                            cover[at] = cover[at].max(cov);
                         }
+                    });
+                    for (i, cov) in cover.iter().enumerate() {
+                        self.blend(bx + (i % gw) as i32, by + (i / gw) as i32, c, cov * a);
                     }
                 }
             }
@@ -369,8 +368,8 @@ impl Canvas {
     /// Text with the soft drop shadow the original draws under every string.
     /// `baseline` is in pixels from the TOP edge; `size` is the em size in pixels.
     fn text(&mut self, face: Face, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32) -> f32 {
-        self.glyphs(face, s, x, baseline + 0.5 * SCALE, size, [0, 0, 0], SHADOW_ALPHA * a, false);
-        self.glyphs(face, s, x, baseline, size, c, a, true)
+        self.glyphs(face, s, x, baseline + 0.5 * SCALE, size, [0, 0, 0], SHADOW_ALPHA * a);
+        self.glyphs(face, s, x, baseline, size, c, a)
     }
     /// Rounded bar: a track and a fill clipped to it, anti-aliased on the corners.
     fn bar(&mut self, x: f32, y: f32, w: f32, h: f32, r: f32, fill_w: f32, track: ([u8; 3], f32), fill: ([u8; 3], f32)) {
@@ -457,7 +456,7 @@ const WHITE: [u8; 3] = [255, 255, 255];
 fn status_color(status: &str) -> ([u8; 3], f32) {
     match status {
         "ok" => ([48, 209, 88], 1.0),
-        "warning" => ([255, 159, 10], 1.0),
+        "warning" => ([255, 145, 46], 1.0),
         "critical" | "depleted" => ([255, 65, 68], 1.0),
         _ => ([235, 235, 245], 0.6),
     }
@@ -475,7 +474,7 @@ fn quota_width(q: &Quota) -> f32 {
 /// Upper-cased name, cropped with an ellipsis beyond `cap` points.
 fn crop_header(label: &str, cap: f32) -> String {
     let up = label.to_uppercase();
-    let wide = |s: &str| width_pt(Face::Sans, s, HEADER_PT);
+    let wide = |s: &str| width_pt(Face::SansMetrics, s, HEADER_PT);
     if wide(&up) <= cap {
         return up;
     }
