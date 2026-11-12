@@ -144,6 +144,7 @@ const PASSAGES = new Set([
   "client/src/hooks/useCardBoardSettings.ts", "client/src/components/Board/BoardSettingsPanel.tsx",
   "client/src/components/Board/FloatingTaskComposer.tsx", "client/src/components/Board/KanbanBoardPane.tsx",
   "client/src/components/Board/TaskDetail.tsx", "client/src/components/Chat/ChatInput.tsx", "client/src/components/Chat/ChatPane.tsx",
+  "client/src/components/Chat/useComposerPicks.ts", // ChatPane picks hook, moved out of ChatPane.tsx
   "client/src/demo/scenarios/common.ts", // demo settings fixture, only supplies a value
 ]);
 /** Boolean coercions of the preference that are not readings: a write that
