@@ -1,5 +1,7 @@
 /**
  * The cloud node recipe: sshd drop-ins and the commit identity (card 12f7522f).
+ *
+ * @covers LAND-13
  */
 import { describe, test, expect } from "bun:test";
 import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "fs";
