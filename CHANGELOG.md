@@ -2,6 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.92 — 2026-11-12
+
+### Sotto il cofano
+- a message written while a turn runs joins it at the next round
+- **steer** · wait on the replayed turn, not on a clock
+- native steer v2: nothing lost, nothing read twice, rows stay answered
+- native steer: a cut turn never resends the steered row, Stop holds after a restart
+- native steer: every read of the person's last row skips a steered one
+
 ## 2.3.89 — 2026-11-12
 
 ### Correzioni
