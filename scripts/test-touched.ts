@@ -19,8 +19,13 @@
  * those the whole suite runs, and the output says so. CI always runs the whole
  * suite anyway: a false negative here costs a CI round, not a broken main.
  *
- * WHAT IT DOES NOT CATCH, said out loud: a test that reads a source file as
- * text (a source-scanning guard) is not linked to it by an import.
+ * WHAT IT DOES NOT CATCH, said out loud:
+ *   - a test that reads a file as text through a path built at run time (not a
+ *     string literal) is not linked to it, unless it walks the whole tree;
+ *   - a test that depends on the machine or on timing (a flake) is red or green
+ *     whatever the diff; the measurement script counts those as proven noise;
+ *   - code outside the graph roots never reaches the graph: the selector does
+ *     not skip it, it runs the whole suite instead.
  *
  * USAGE
  *   bun run test:touched                  diff against origin/main (or main)
@@ -36,7 +41,7 @@ import { SUITE_ROOTS, enumerateTestFiles } from "./test-unit-shards.ts";
 const REPO_ROOT = resolve(import.meta.dir, "..");
 
 /** Where modules a test may import live, beyond the suite roots. */
-const GRAPH_ROOTS = [...SUITE_ROOTS, "tests/helpers", "tests/setup", "tests/fixtures", "server.ts"] as const;
+export const GRAPH_ROOTS = [...SUITE_ROOTS, "tests/helpers", "tests/setup", "tests/fixtures", "tests/e2e", "server.ts"] as const;
 
 const CODE_EXTENSIONS = [".ts", ".tsx", ".mjs", ".js", ".json"] as const;
 
@@ -137,10 +142,6 @@ export function isTestFile(file: string): boolean {
   return /\.test\.tsx?$/.test(file);
 }
 
-function isInsideGraphRoots(file: string): boolean {
-  return GRAPH_ROOTS.some((r) => file === r || file.startsWith(`${r}/`));
-}
-
 export type Selection = { kind: "tests"; tests: string[] } | { kind: "full"; reason: string };
 
 /**
@@ -164,8 +165,6 @@ export function selectTests(changed: readonly string[], graph: Map<string, Set<s
     if (FULL_SUITE_PATTERNS.some((p) => p.test(file))) return { kind: "full", reason: `${file} is config, lockfile, test setup or shared types` };
     if (!graph.has(file)) {
       if (INERT_EXTENSIONS.has(extname(file)) || gone(file)) continue;
-      // Source outside every graph root (landing page, desktop shell) is not reachable from a unit test.
-      if (/\.(ts|tsx|mjs|js)$/.test(file) && !isInsideGraphRoots(file)) continue;
       return { kind: "full", reason: `${file} is outside the import graph, a test may read it directly` };
     }
     const stack = [file];

@@ -1,4 +1,6 @@
 /**
+ * @covers GATE-01
+ *
  * The selector of `test:touched` has its own gate.
  *
  * Its failure mode is silent: a missing edge in the import graph means a test
@@ -6,7 +8,13 @@
  * transitive case, the fallback and a mutant on the graph are all pinned.
  */
 import { describe, expect, test } from "bun:test";
-import { buildGraph, pathLiterals, resolveSpecifier, selectTests, specifiersOf, treeWalkers } from "./test-touched.ts";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { GRAPH_ROOTS, buildGraph, changedFiles, pathLiterals, resolveSpecifier, selectTests, specifiersOf, treeWalkers } from "./test-touched.ts";
+
+// Spelled in two pieces so the module-mock scan does not read the fixture as a real mock.
+const MOCK_CALL = "mock." + "module";
 
 const SOURCES: Record<string, string> = {
   "shared/leaf.ts": "export const leaf = 1;",
@@ -14,7 +22,7 @@ const SOURCES: Record<string, string> = {
   "server/top.ts": 'import { mid } from "../shared/mid.ts";\nexport const top = mid;',
   "server/top.test.ts": 'import { top } from "./top";',
   "server/lazy.test.ts": 'const m = await import("../shared/leaf.js");',
-  "server/mocked.test.ts": 'mock.module("../shared/mid", () => ({}));',
+  "server/mocked.test.ts": `${MOCK_CALL}("../shared/mid", () => ({}));`,
   "server/alone.ts": "export const alone = 1;",
   "server/alone.test.ts": 'import { alone } from "./alone";',
   "client/src/ui/x.ts": "export const x = 1;",
@@ -23,6 +31,15 @@ const SOURCES: Record<string, string> = {
   "tests/unit/reads-text.test.ts": 'readFileSync(join(ROOT, "server", "lib", "reader.ts"), "utf8");',
   "tests/unit/reads-path.test.ts": 'readFileSync("shared/leaf.ts", "utf8");',
   "tests/unit/walks-tree.test.ts": 'Bun.spawnSync(["git", "ls-files"]);',
+  "tests/e2e/helper.ts": "export const helper = 1;",
+  "tests/unit/uses-e2e-helper.test.ts": 'import { helper } from "../e2e/helper";',
+  "package.json": "{}",
+  "bun.lock": "",
+  "bunfig.toml": "",
+  "tsconfig.server.json": "{}",
+  "knip.jsonc": "{}",
+  "tests/setup/bun-test-preload.ts": "export {};",
+  "shared/types.ts": "export type T = 1;",
 };
 const files = Object.keys(SOURCES);
 const suite = new Set(files.filter((f) => f.endsWith(".test.ts")));
@@ -62,6 +79,13 @@ describe("selectTests", () => {
   test("an unrelated module does not drag in other tests", () => {
     expect(selectTests(["server/alone.ts"], graph(), suite)).toEqual({ kind: "tests", tests: ["server/alone.test.ts"] });
   });
+  test("a changed module under tests/e2e selects the unit tests that import it", () => {
+    expect(GRAPH_ROOTS).toContain("tests/e2e");
+    expect(selectTests(["tests/e2e/helper.ts"], graph(), suite)).toEqual({ kind: "tests", tests: ["tests/unit/uses-e2e-helper.test.ts"] });
+  });
+  test("code outside the import graph runs the whole suite instead of being skipped", () => {
+    for (const file of ["landing/src/page.ts", "desktop-tauri/build.mjs", "scripts/not-in-graph.ts"]) expect(selectTests([file], graph(), suite).kind).toBe("full");
+  });
   test("docs select nothing", () => {
     expect(selectTests(["README.md"], graph(), suite)).toEqual({ kind: "tests", tests: [] });
   });
@@ -72,10 +96,51 @@ describe("selectTests", () => {
     expect(selectTests([".github/workflows/ci.yml"], graph(), suite).kind).toBe("full");
     expect(selectTests([".github/workflows/old.yml"], graph(), suite, () => true).kind).toBe("tests");
   });
-  test("MUTANT: a graph that loses the transitive edge is caught by the assertion above", () => {
-    const broken = graph();
-    broken.get("shared/mid.ts")!.clear();
-    const selection = selectTests(["shared/leaf.ts"], broken, suite);
-    expect(selection).not.toEqual({ kind: "tests", tests: ["server/lazy.test.ts", "server/mocked.test.ts", "server/top.test.ts", "tests/unit/reads-path.test.ts"] });
+  test("MUTANT: the real selector with its reverse walk removed misses what the original finds", async () => {
+    const original = await Bun.file(join(import.meta.dir, "test-touched.ts")).text();
+    const walk = "for (const parent of reverse.get(cur) ?? []) stack.push(parent);";
+    expect(original).toContain(walk);
+    const mutantPath = join(import.meta.dir, `test-touched.mutant-${process.pid}.tmp.ts`);
+    writeFileSync(mutantPath, original.replace(walk, ""));
+    try {
+      const mutant = (await import(mutantPath)) as typeof import("./test-touched.ts");
+      const expected = ["server/lazy.test.ts", "server/mocked.test.ts", "server/top.test.ts", "tests/unit/reads-path.test.ts"];
+      expect(selectTests(["shared/leaf.ts"], graph(), suite)).toEqual({ kind: "tests", tests: expected });
+      expect(mutant.selectTests(["shared/leaf.ts"], graph(), suite)).not.toEqual({ kind: "tests", tests: expected });
+    } finally {
+      rmSync(mutantPath, { force: true });
+    }
+  });
+});
+
+describe("changedFiles", () => {
+  test("lists committed changes since the merge base plus untracked files, not what main already had", () => {
+    const dir = mkdtempSync(join(tmpdir(), "touched-git-"));
+    const git = (...args: string[]) => {
+      const r = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...args], { cwd: dir });
+      if (r.exitCode !== 0) throw new Error(r.stderr.toString());
+    };
+    try {
+      git("init", "-q", "-b", "main");
+      writeFileSync(join(dir, "old.ts"), "export {};");
+      git("add", "-A");
+      git("commit", "-q", "-m", "base");
+      git("checkout", "-q", "-b", "work");
+      writeFileSync(join(dir, "old.ts"), "export const a = 1;");
+      git("commit", "-q", "-am", "edit");
+      mkdirSync(join(dir, "sub"));
+      writeFileSync(join(dir, "sub", "fresh.ts"), "export {};");
+      expect(changedFiles("main", dir)).toEqual(["old.ts", "sub/fresh.ts"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("main", () => {
+  test("a base that cannot be resolved falls back to the whole suite and says so", () => {
+    const r = Bun.spawnSync(["bun", join(import.meta.dir, "test-touched.ts"), "--list", "--base", "refs/heads/no-such-base-ref"]);
+    expect(r.stdout.toString().trim()).toBe("(whole suite)");
+    expect(r.stderr.toString()).toContain("running the whole suite");
   });
 });

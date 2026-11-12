@@ -53,10 +53,22 @@ function redFiles(log: string): string[] {
   return [...out].sort();
 }
 
+/** GitHub drops log streams now and then; a log that stays unreadable counts as no red files. */
+function retry(fn: () => string): string {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return fn();
+    } catch (e) {
+      if (attempt === 2) console.error(`unreadable log, skipped: ${(e as Error).message.split("\n")[0]}`);
+    }
+  }
+  return "";
+}
+
 function redOf(run: Run): { job: Job; files: string[] } | null {
   const job = unitJob(run.databaseId);
   if (!job || job.conclusion !== "failure") return null;
-  const files = redFiles(sh(["gh", "run", "view", String(run.databaseId), "--job", String(job.databaseId), "--log"]));
+  const files = redFiles(retry(() => sh(["gh", "run", "view", String(run.databaseId), "--job", String(job.databaseId), "--log"])));
   return files.length ? { job, files } : null;
 }
 
