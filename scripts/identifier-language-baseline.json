@@ -4018,21 +4018,10 @@
       "vivo"
     ],
     "server/routes/tasks.ts": [
-      "aggiornata",
-      "aperti",
-      "capturaConsegna",
       "condivisi",
-      "elenco",
-      "esc",
-      "fresca",
       "giaScelto",
       "identita",
-      "miePath",
-      "migliore",
-      "nota",
-      "prov",
-      "spente",
-      "titoloInSottofondo"
+      "miePath"
     ],
     "server/routes/terminal-bridge-roster.ts": [
       "cbs"
