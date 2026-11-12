@@ -98,7 +98,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}
           PC_WANT: ${{ (vars.PC_CI == '1' && inputs.shards != '') && inputs.pc_slots || 0 }}
-          PERMANENT: ${{ vars.PERMANENT_NODE_CI != '0' && inputs.shards != '' }}
+          PERMANENT: ${{ (vars.PERMANENT_NODE_CI || '1') != '0' && inputs.shards != '' }}
           SHARDS: ${{ inputs.shards }}
         run: |
           set -uo pipefail

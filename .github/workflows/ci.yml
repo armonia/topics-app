@@ -1050,7 +1050,7 @@ jobs:
     # job that does nothing would still take a GitHub slot, and `prepare-e2e`, which
     # waits for it, would queue a second time (4.5 minutes in run 42900864752).
     # `vars` are read when the run is created, not when a job starts.
-    if: ${{ needs.changes.outputs.e2e != 'false' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && (vars.PERMANENT_NODE_CI != '0' || vars.PC_CI == '1') }}
+    if: ${{ needs.changes.outputs.e2e != 'false' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && ((vars.PERMANENT_NODE_CI || '1') != '0' || vars.PC_CI == '1') }}
     uses: ./.github/workflows/hcloud-runner.yml
     with:
       mode: create
