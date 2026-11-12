@@ -15,7 +15,6 @@
     "`allow-italian: <why>` instead."
   ],
   "files": {
-    "client/src/App.tsx": 558,
     "client/src/components/Auth/PairingApproval.tsx": 30,
     "client/src/components/Auth/PairingGate.tsx": 32,
     "client/src/components/Board/BoardSettingsPanel.tsx": 60,
