@@ -3128,18 +3128,26 @@ export function useChat() {
             const data = line.slice(6).trim();
             if (data === '[DONE]') { isDone = true; continue; }
 
+            let parsed: { choices?: Array<{ delta?: { content?: string } }> };
             try {
-              const parsed = JSON.parse(data);
-              const delta = parsed.choices?.[0]?.delta;
-              if (delta?.content) {
-                let chunk = delta.content;
-                if (chunk.includes('<thinking>')) { isInThinking = true; setThinking(prev => ({ ...prev, [sessionKey]: true })); chunk = chunk.replace('<thinking>', ''); }
-                if (chunk.includes('</thinking>')) { isInThinking = false; setThinking(prev => ({ ...prev, [sessionKey]: false })); chunk = chunk.replace('</thinking>', ''); }
-                if (!isInThinking) chunk = cleanInvisibleMarkers(chunk);
-                if (isInThinking) { thinkingBatch += chunk; }
-                else if (chunk) { contentBatch += chunk; }
-              }
-            } catch {}
+              parsed = JSON.parse(data);
+            } catch (e) {
+              // Not every `data:` line is a content frame — keepalives and
+              // comments share the wire — but a line that LOOKS like JSON and
+              // fails to parse drops a real chunk of the answer with no trace,
+              // so it is worth seeing rather than silently skipped.
+              console.warn('[useChat] SSE data line failed to parse, skipping', e);
+              continue;
+            }
+            const delta = parsed.choices?.[0]?.delta;
+            if (delta?.content) {
+              let chunk = delta.content;
+              if (chunk.includes('<thinking>')) { isInThinking = true; setThinking(prev => ({ ...prev, [sessionKey]: true })); chunk = chunk.replace('<thinking>', ''); }
+              if (chunk.includes('</thinking>')) { isInThinking = false; setThinking(prev => ({ ...prev, [sessionKey]: false })); chunk = chunk.replace('</thinking>', ''); }
+              if (!isInThinking) chunk = cleanInvisibleMarkers(chunk);
+              if (isInThinking) { thinkingBatch += chunk; }
+              else if (chunk) { contentBatch += chunk; }
+            }
           }
 
           // Same coalescing as the sendMessage reader above — this branch has no

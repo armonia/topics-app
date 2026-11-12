@@ -197,7 +197,9 @@ async function globalTeardown() {
       console.log("[global-teardown] No orphaned Chromium processes found." +
         (spared.size ? ` (${spared.size} pre-existing spared)` : ""));
     }
-  } catch {}
+  } catch (err) {
+    console.warn("[global-teardown] Chromium reap failed:", err);
+  }
 
   // Auto-run AI visual review on screenshots
   try {
