@@ -610,7 +610,18 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     setTimeout(doFit, 50);
     setTimeout(doFit, 200);
     setTimeout(doFit, 500);
-    setTimeout(() => { doFit(); term.focus(); }, 600);
+    // The late focus gives the new terminal the keyboard, also when it was
+    // opened from a button or a menu item that still holds the focus. It yields
+    // only to a text field outside the terminal (this pane's find bar, the chat
+    // composer): taking the cursor from there mid-word sent the rest of the word
+    // to the shell.
+    setTimeout(() => {
+      doFit();
+      const held = document.activeElement;
+      const typingElsewhere = held instanceof HTMLElement && !el.contains(held)
+        && (held.isContentEditable || held.matches('input, textarea, select'));
+      if (!typingElsewhere) term.focus();
+    }, 600);
 
     // xterm measures its character cell once, when it opens. JetBrains Mono
     // arrives later (font-display: swap), so a cold open measures the fallback
