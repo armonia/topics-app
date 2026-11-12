@@ -89,6 +89,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DEFAULT_PROJECT_ID, THRESHOLDS, type SizeClass } from "./board-baseline";
+import { agentAuthorSql } from "../shared/comment-author";
 import { splitAheadCommits, type GitRunner } from "../server/services/own-commits";
 
 // ── Parametri dichiarati ─────────────────────────────────────────────────────
@@ -1276,7 +1277,7 @@ export async function collect(opts: CollectOptions = {}): Promise<Collected> {
     // descrizione vuota sia dei check pre-review rossi).
     const lastAgent = db.prepare(
       `SELECT content, created_at FROM task_comments
-        WHERE task_id = ? AND author NOT IN ('user','system')
+        WHERE task_id = ? AND ${agentAuthorSql()}
           AND COALESCE(kind,'comment') NOT IN ('status','service')
         ORDER BY created_at DESC LIMIT 1`,
     );
