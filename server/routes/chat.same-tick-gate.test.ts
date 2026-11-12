@@ -8,6 +8,8 @@
  *
  * Real route, real database (`createTestAppContext`), a provider that never
  * answers: the first POST keeps its turn open, the second must be refused.
+ *
+ * @covers CHAT-DOOR-01
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
