@@ -449,23 +449,20 @@ function FilesSectionHeader({ open, onToggle, explorerRef, reveal, headerRef }: 
       data-testid="project-sidebar-files"
       role="button"
       aria-expanded={open}
-      // Il bordo sotto SOLO da chiusa. Il contenitore di «File» resta
-      // `flex-1` anche quando è chiusa — serve a spingere Git e Processi
-      // in fondo — quindi il divisore da 1px finisce in fondo alla
-      // colonna, lontanissimo dall'intestazione: la riga chiusa restava
-      // senza linea, sospesa sopra il vuoto. Da aperta non serve, perché
-      // sotto ci sono i file.
+      // The bottom border shows ONLY when closed. The Files container stays
+      // `flex-1` even when closed (it pushes Git and Processes to the bottom),
+      // so the 1px divider would land at the far end of the column, away from
+      // the header: the closed row hung over the empty space with no line.
+      // When open it is not needed, the files sit below.
       //
-      // Il COLORE sta fuori dalla condizione, e non è pignoleria: si
-      // alterna solo `border-b`, cioè la LARGHEZZA. Con
-      // `border-b border-app-border` dentro il ramo, chiudendo la sezione
-      // il bordo lampeggiava scuro e poi sbiadiva — `transition-colors`
-      // anima anche `border-color`, la larghezza no. Il preflight di
-      // Tailwind v4 mette `border: 0 solid` senza colore, quindi il
-      // colore di partenza era `currentColor`, che qui è
-      // `--text-secondary` (#5a5a5a) contro un `--border` di #e8e8e8:
-      // la linea compariva quasi nera e ci metteva 150ms a schiarirsi.
-      // Tenendo il colore sempre acceso non c'è più niente da animare.
+      // The border COLOR stays outside the condition: only `border-b` (the
+      // WIDTH) toggles. With `border-b border-app-border` inside the branch,
+      // closing the section flashed a dark border that then faded, because
+      // `transition-colors` animates `border-color` but not the width.
+      // Tailwind v4 preflight sets `border: 0 solid` with no color, so the
+      // starting color was `currentColor`, here `--text-secondary` against a
+      // much lighter `--border`. Keeping the color always on leaves nothing
+      // to animate.
       className={`${SECTION_CARD} group/files`}
     >
       <FolderTree size={14} className="flex-shrink-0" />
