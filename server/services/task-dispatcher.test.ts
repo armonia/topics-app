@@ -4444,11 +4444,11 @@ describe("l'envelope non parla italiano", () => {
     h.dispatcher.shutdown();
   });
 
-  it("with the CI unit row: the full suite is read from the PR CI, targeted bun test stays, and an e2e line is not invented", async () => {
+  it("with the CI unit row: the full suite is read from the PR CI, test:touched stays, and an e2e line is not invented", async () => {
     const { h, kickoff } = await envelopeDiKickoff(undefined, [UNIT_CI_CHECK]);
     expect(kickoff).not.toContain("github-ci:unit");
     const unit = kickoff.split("\n").find((r) => r.includes("UNIT TESTS RUN ON GITHUB CI, NEVER HERE")) ?? "";
-    for (const word of ["`Unit + integration tests`", "`check` job", "Do not run `bun run test:unit`", "targeted `bun test <file>`", "NOT MEASURED, never green"]) {
+    for (const word of ["`Unit + integration tests`", "`check` job", "Do not run `bun run test:unit`", "`bun run test:touched`", "NOT MEASURED, never green"]) {
       expect(unit).toContain(word);
     }
     // A unit row alone reads no e2e: the e2e line stays the one of a board without it.
