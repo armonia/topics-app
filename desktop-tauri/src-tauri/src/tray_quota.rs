@@ -324,12 +324,26 @@ pub fn spawn_poller<F>(apply: F)
 where
     F: Fn(Strip) + Send + 'static,
 {
-    let _ = std::thread::Builder::new().name("tray-quota".into()).spawn(move || loop {
-        let base = hub_base();
-        let cols = fetch_columns(&base);
-        apply(render_strip(cols.as_deref()));
-        std::thread::sleep(Duration::from_secs(POLL_SECS));
+    let _ = std::thread::Builder::new().name("tray-quota".into()).spawn(move || {
+        let mut ever_answered = false;
+        loop {
+            let base = hub_base();
+            let cols = fetch_columns(&base);
+            let answered_now = cols.is_some();
+            if strip_due(ever_answered, answered_now) {
+                apply(render_strip(cols.as_deref()));
+            }
+            ever_answered |= answered_now;
+            std::thread::sleep(Duration::from_secs(POLL_SECS));
+        }
     });
+}
+
+/// Whether the strip replaces the tray icon. A machine that has no usage service
+/// keeps the plain Topics icon: the strip, and its "offline" state, appear only
+/// once the service has answered at least once since launch.
+pub fn strip_due(ever_answered: bool, answered_now: bool) -> bool {
+    ever_answered || answered_now
 }
 
 #[cfg(test)]
@@ -352,6 +366,13 @@ mod tests {
         assert_eq!(cols.len(), 2);
         assert_eq!(cols[0].label, "b@example.com", "active account first");
         assert_eq!(cols[0].quotas[1], Quota { key: "7D".into(), used_pct: 33, reset_text: "5d6h".into() });
+    }
+
+    #[test]
+    fn no_service_keeps_the_plain_icon() {
+        assert!(!strip_due(false, false), "never answered: no strip, no offline");
+        assert!(strip_due(false, true));
+        assert!(strip_due(true, false), "service went down after answering: offline strip");
     }
 
     #[test]
