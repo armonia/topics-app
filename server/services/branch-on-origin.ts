@@ -28,6 +28,15 @@ export function carriedBranch(task: { deliveryBranch?: string | null; priorBranc
   return task.deliveryBranch?.trim() || task.priorBranch?.trim() || null;
 }
 
+/**
+ * The delivery commit of a node round that came back with nothing planted and
+ * no commit of its own: there is a delivery, and it is not in this checkout.
+ * No real commit has this id, so the land's `delivery-absent` check refuses it
+ * (otherwise `no-branch` or `priorBranch` would close the card over code that
+ * never arrived).
+ */
+export const UNPLANTED_DELIVERY_COMMIT = "0".repeat(40);
+
 export type BranchOnOrigin = { ok: true } | { ok: false; reason: string };
 
 /** The real git: bounded, no prompt for credentials (a prompt nobody answers is a hang). */

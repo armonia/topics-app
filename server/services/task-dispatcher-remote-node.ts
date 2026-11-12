@@ -29,7 +29,7 @@ import type { PlantBranchInput, PlantBranchResult } from "./node-branch-plant";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { CLOUD_HOLD_KEY, parseCloudWeeklyLimit, type CloudWeeklyLimit } from "../lib/cloud-weekly-limit";
 import { setProviderHold } from "../lib/provider-hold";
-import { carriedBranch } from "./branch-on-origin";
+import { carriedBranch, UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
 import { defaultLifecycleHooks, type HookOutcome, type LifecycleHookRunner } from "./lifecycle-hooks";
 import { nodeRunDescription, withNodeRunLanguage } from "./node-run-brief";
 import type { OutputLanguage } from "../../shared/types";
@@ -913,14 +913,17 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         if (host.captureDelivery) {
           try { await host.captureDelivery(taskId); } catch { /* never block the delivery on git */ }
         }
-      } else if (report.deliveryCommit) {
+      } else {
         // The node's commit, with the branch columns left alone: the land then
         // finds a delivered commit this checkout lacks and refuses, instead of
         // landing `priorBranch`, the round a person sent back. Recording the
         // node's branch would also break the next run, which starts from a
         // branch it must find here or on origin.
         try {
-          svc.recordDelivery({ taskId, branch: svc.get(taskId)?.task?.deliveryBranch ?? null, commit: report.deliveryCommit });
+          svc.recordDelivery({
+            taskId, branch: svc.get(taskId)?.task?.deliveryBranch ?? null,
+            commit: report.deliveryCommit || UNPLANTED_DELIVERY_COMMIT,
+          });
         } catch (err) { log(`node: unplanted delivery not recorded on ${taskId}`, err); }
       }
     }

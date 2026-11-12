@@ -33,7 +33,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { createHash } from "crypto";
 import { worktreeRegistrationLost } from "./worktree-registration";
-import { carriedBranch, isPlainBranchName } from "./branch-on-origin";
+import { carriedBranch, isPlainBranchName, UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
 import { findAttributionViolations } from "./land-attribution-gate";
 import { commitIsIn, countOwnCommits, otherLocalBranches } from "./own-commits";
 import { lastLook } from "./landing-last-look";
@@ -561,7 +561,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     const missing = cherry.code === 0 ? cherry.stdout.split("\n").filter((l) => l.startsWith("+")).length : -1;
     if (missing === 0) return null;
     const what = missing > 0 ? `${missing} commit (${sha.slice(0, 8)})` : `commit (${sha.slice(0, 8)})`;
-    return `il ramo \`${branch}\` su origin ha ${what} che questo checkout non ha e il fetch non è riuscito a portarli (ramo in uso in un worktree o divergente)`;
+    return `il ramo \`${branch}\` su origin ha ${what} che questo checkout non ha per patch-id (il fetch non li ha portati: ramo in uso in un worktree o divergente, oppure ribasato con un conflitto risolto, che cambia il patch-id). Se il ramo locale è quello giusto, riallinealo a origin o spingilo prima di atterrare`;
   }
 
   /**
@@ -835,6 +835,14 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
   }
 
   async function tryMerge(taskId: string, title: string, delivery?: DeliverySnapshot): Promise<AutoMergeResult> {
+    // A node round that came back with nothing planted and no commit: whatever
+    // branch this checkout holds is an earlier round, or none exists at all.
+    if (delivery?.commit?.trim() === UNPLANTED_DELIVERY_COMMIT) {
+      return {
+        status: "skipped", code: "delivery-absent",
+        reason: "la consegna del nodo non è arrivata in questo checkout: il giro è da rifare, il ramo che c'è qui non è il suo lavoro",
+      };
+    }
     const choice = chooseMergeTarget(
       deps.resolveTaskMerge(taskId),
       deps.declaredDelivery?.(taskId) ?? null,

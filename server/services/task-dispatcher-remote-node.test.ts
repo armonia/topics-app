@@ -28,6 +28,7 @@
  * @covers GUEST-15
  * @covers GUEST-17
  */
+import { UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
 import { describe, it, expect } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -880,6 +881,33 @@ describe("lo specchio: stato, commenti e il ramo che torna", () => {
     expect(h.task().status).toBe("review");
     expect(h.task().deliveryBranch).toBeNull();
     expect(h.comments().some((c) => c.content.includes("il commit di base 1234abcd non è in questo checkout"))).toBe(true);
+  });
+
+  it("impianto fallito senza commit del nodo: la consegna è segnata assente, il land non ha ramo da prendere", async () => {
+    const h = harness({
+      bundle: new Uint8Array([9, 9]),
+      planted: { planted: false, commit: null, reason: "bundle non applicabile" },
+      readRun: () => Promise.resolve(report({ status: "review", deliveryBranch: "topics/corsa-remota", baseSha: "1234abcd" })),
+    });
+    h.seed();
+    await dispatch(h);
+    await poll(h);
+    expect(h.task().deliveryBranch).toBeNull();
+    expect(h.task().deliveryCommit).toBe(UNPLANTED_DELIVERY_COMMIT);
+  });
+
+  it("impianto fallito con il commit del nodo: si registra quel commit, mai un ramo", async () => {
+    const h = harness({
+      bundle: new Uint8Array([9, 9]),
+      planted: { planted: false, commit: null, reason: "bundle non applicabile" },
+      readRun: () =>
+        Promise.resolve(report({ status: "review", deliveryBranch: "topics/corsa-remota", deliveryCommit: "deadbeefdeadbeef", baseSha: "1234abcd" })),
+    });
+    h.seed();
+    await dispatch(h);
+    await poll(h);
+    expect(h.task().deliveryBranch).toBeNull();
+    expect(h.task().deliveryCommit).toBe("deadbeefdeadbeef");
   });
 });
 

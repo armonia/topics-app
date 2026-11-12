@@ -4,6 +4,7 @@
  */
 import { describe, test, expect } from "bun:test";
 import { createTaskAutoMerge, declaredDeliveryFor, landFallout } from "./task-automerge";
+import { UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
 import { mkdtempSync, writeFileSync, existsSync, rmSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -314,6 +315,27 @@ describe("land vs consegna — su git vero", () => {
       expect(res.code).toBe("delivery-absent");
       expect(landFallout(res.code, { deliveryCommit: nodeCommit }).status).toBe("review");
       git(repo, "switch", "-q", "main");
+      expect(existsSync(join(repo, "rejected.txt"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("node round that failed to plant and sent no commit: refused, with a prior branch or with none", async () => {
+    const { root, repo } = remoteCardRepo();
+    try {
+      git(repo, "switch", "-q", "-c", "topics/round1");
+      commit(repo, "rejected.txt", "no\n", "the rejected round");
+      git(repo, "push", "-q", "origin", "topics/round1");
+      git(repo, "switch", "-q", "main");
+
+      for (const priorBranch of ["topics/round1", null]) {
+        const res = await landRemoteCard(repo, { deliveryBranch: null, priorBranch }, UNPLANTED_DELIVERY_COMMIT);
+        expect(res.status).toBe("skipped");
+        if (res.status !== "skipped") return;
+        expect(res.code).toBe("delivery-absent");
+        expect(landFallout(res.code, { deliveryCommit: UNPLANTED_DELIVERY_COMMIT }).status).toBe("review");
+      }
       expect(existsSync(join(repo, "rejected.txt"))).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
