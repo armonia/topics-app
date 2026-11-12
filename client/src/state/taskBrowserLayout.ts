@@ -445,13 +445,15 @@ export function sanitizeTaskLayout(v: unknown): TaskLayoutState | null {
 
 // ── persistence (ui-state, per-task key) — mirrors state/taskBrowserTabs ───────
 
-async function uiGet<T>(key: string): Promise<T | null> {
+/** `undefined` = the read FAILED (says nothing about the saved row); `null` = the row is empty. */
+async function uiGet<T>(key: string): Promise<T | null | undefined> {
   try {
     const r = await apiFetch(`/api/ui-state/${key}`); // PANE-01-ALLOWED: task-browser-layout keys, not pane state
-    if (!r.ok) return null;
+    if (r.status === 404) return null;
+    if (!r.ok) return undefined;
     const d = await r.json().catch(() => null);
     return (d?.value ?? null) as T | null;
-  } catch { return null; }
+  } catch { return undefined; }
 }
 
 const writeTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -471,6 +473,8 @@ const keyFor = (taskId: string) => `task-browser-layout:${taskId}`;
 const cache = new Map<string, TaskLayoutState>();
 const loaded = new Set<string>();
 const loading = new Set<string>();
+/** Tasks edited before any read of their row succeeded: the PUT waits for it. */
+const heldWrites = new Set<string>();
 const listeners = new Set<() => void>();
 
 function notify(): void {
@@ -482,10 +486,16 @@ export async function ensureTaskLayoutLoaded(taskId: string): Promise<void> {
   loading.add(taskId);
   const v = await uiGet<unknown>(keyFor(taskId));
   loading.delete(taskId);
+  // A failed read stays unloaded: the next mount reads again, and a write waits.
+  if (v === undefined) return;
   loaded.add(taskId);
   if (!cache.has(taskId)) {
     const sanitized = sanitizeTaskLayout(v);
     if (sanitized) { cache.set(taskId, sanitized); notify(); }
+  }
+  if (heldWrites.delete(taskId)) {
+    const cur = cache.get(taskId);
+    if (cur) uiPutDebounced(keyFor(taskId), cur);
   }
 }
 
@@ -497,8 +507,11 @@ function commit(taskId: string, next: TaskLayoutState): void {
   const cur = cache.get(taskId) ?? EMPTY_TASK_LAYOUT;
   if (next === cur) return;
   cache.set(taskId, next);
-  loaded.add(taskId);
-  uiPutDebounced(keyFor(taskId), next);
+  if (loaded.has(taskId)) uiPutDebounced(keyFor(taskId), next);
+  else {
+    heldWrites.add(taskId);
+    void ensureTaskLayoutLoaded(taskId);
+  }
   notify();
 }
 
@@ -511,6 +524,7 @@ export function forgetTaskLayout(taskId: string): void {
   const t = writeTimers.get(key);
   if (t) { clearTimeout(t); writeTimers.delete(key); }
   loaded.delete(taskId);
+  heldWrites.delete(taskId);
   if (cache.delete(taskId)) notify();
 }
 

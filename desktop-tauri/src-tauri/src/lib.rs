@@ -2797,30 +2797,37 @@ fn validate_external_url(url: &str) -> Result<(), String> {
     }
 }
 
+/// Launcher program and arguments that hand `url` to the OS default handler.
+/// Pure so the construction is testable on every platform. On Windows this
+/// must never go through `cmd /C start`: Rust only quotes an argument that
+/// contains a space or tab, so `&`, `|`, `^` and `%VAR%` in a URL would reach
+/// cmd.exe as metacharacters and run a second command. `rundll32` receives
+/// the URL as data and has no shell grammar.
+fn external_launcher(url: &str) -> (&'static str, Vec<String>) {
+    #[cfg(target_os = "windows")]
+    {
+        (
+            "rundll32",
+            vec!["url.dll,FileProtocolHandler".to_string(), url.to_string()],
+        )
+    }
+    #[cfg(target_os = "macos")]
+    {
+        ("/usr/bin/open", vec![url.to_string()])
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        ("xdg-open", vec![url.to_string()])
+    }
+}
+
 #[tauri::command]
 fn open_external(url: String) -> Result<(), String> {
     validate_external_url(&url)?;
 
-    #[cfg(target_os = "macos")]
-    let mut cmd = {
-        let mut c = std::process::Command::new("/usr/bin/open");
-        c.arg(&url);
-        c
-    };
-    #[cfg(target_os = "linux")]
-    let mut cmd = {
-        let mut c = std::process::Command::new("xdg-open");
-        c.arg(&url);
-        c
-    };
-    #[cfg(target_os = "windows")]
-    let mut cmd = {
-        // `start` is a cmd builtin, not an executable. The empty "" is the
-        // window title it would otherwise eat the URL as.
-        let mut c = std::process::Command::new("cmd");
-        c.args(["/C", "start", "", &url]);
-        c
-    };
+    let (program, args) = external_launcher(&url);
+    let mut cmd = std::process::Command::new(program);
+    cmd.args(args);
 
     let child = cmd
         .stdin(std::process::Stdio::null())
@@ -12643,6 +12650,16 @@ mod child_reaper_tests {
                 "{bad} should have been rejected"
             );
         }
+    }
+
+    /// The launcher must pass the URL whole and never be a shell: `&calc.exe`
+    /// in a link used to run a second command through `cmd /C start`.
+    #[test]
+    fn launcher_passes_url_intact_and_is_not_a_shell() {
+        let url = "https://x/?a=1&calc.exe";
+        let (program, args) = crate::external_launcher(url);
+        assert_ne!(program.to_ascii_lowercase(), "cmd");
+        assert_eq!(args.last().map(String::as_str), Some(url));
     }
 
     /// Scheme matching is case-insensitive: `HTTPS://` is a valid URL.

@@ -2,11 +2,43 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.89 — 2026-11-12
+
+### Correzioni
+- **browser** · stop stale HTTP poll re-arm and fix screenshot origin under Tauri
+
+### Sotto il cofano
+- Pin the flaky find-in-pane and phone chrome e2e to their real conditions
+- Register the chat finder in the mounting commit; let a new terminal yield only to a text field
+- **remote-browser** · POLL-CANCEL-01 and SNAPSHOT-URL-01 requirements
+
+## 2.3.88 — 2026-11-12
+
+### Correzioni
+- **task-browser** · a failed ui-state read no longer lets a later commit PUT over the saved layout/tabs
+- do not latch empty channel-titles cache; check-any respects strings
+
+### Sotto il cofano
+- Windows open_external: launch via rundll32, never cmd /C start
+- declare TITLES-CACHE-01 for the channel-titles cache test
+
+## 2.3.87 — 2026-11-12
+
+### Sotto il cofano
+- cap the wait for response headers, retry on a new socket
+- CHAT-REL-09, the headers bound the new test covers
+- wait out an account-engine hold, count header timeouts per call
+- extend the headers wait only for a hold logged for this request
+- a hold that already ended still buys one bound, a 429 ends the call only at the hold's end
+- a 429 ends the call only on the engine's own give-up, the hold is read once
+- the engine's give-up counts only between our request and our 429
+
 ## 2.3.86 — 2026-11-11
 
 ### Sotto il cofano
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-11 [skip ci]
 - Cloudflare Web Analytics, annunciato in /privacy con la data come la pagina prometteva (#776)
+- Chiusura tab progetto: la X chiude anche se la tab non risulta in openPanels
 - topics/valiant-tundra (card c1ec9dd1) (#787)
 
 ## 2.3.85 — 2026-11-11
@@ -18,6 +50,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - CI e nodo Topics su un server Hetzner fisso (topics-fisso, cx53) (#767)
+- chiama --prova vive nel repo jarvis (f89337c9): commit vuoto per la misura della CI della card
 - Card programmate: chi e quando sul fronte, fuori dalla coda del dispatcher (#772)
 
 ## 2.3.83 — 2026-11-11
