@@ -290,9 +290,9 @@ function ProviderTokens() {
             autoComplete="off"
             placeholder={t('settings.machines.provider.placeholder')}
             data-testid={`provider-token-${p.id}`}
-            className="w-56 rounded-md border border-app-border bg-app-surface px-2 py-1"
+            className="w-56 min-w-0 rounded-md border border-app-border bg-app-surface px-2 py-1 coarse:min-h-11"
           />
-          <button type="submit" className="rounded-md border border-app-border px-2 py-1 text-mini hover:bg-app-hover">{t('settings.machines.provider.save')}</button>
+          <button type="submit" className="rounded-md border border-app-border px-2 py-1 text-mini hover:bg-app-hover coarse:min-h-11 coarse:px-3">{t('settings.machines.provider.save')}</button>
         </form>
       ))}
     </div>

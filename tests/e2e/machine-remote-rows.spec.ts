@@ -21,6 +21,7 @@ import { expect, test } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
 import { goToApp } from "./helpers";
 import { openPerfPanel } from "./helpers/open-perf-panel";
+import { startFakeHub, type FakeHub } from "./helpers/fake-hub";
 import { E2E_BASE, providerApiPortFor } from "./helpers/test-server";
 
 hermetic(test);
@@ -60,8 +61,11 @@ function nodeHandler(name: string, answers: boolean): Parameters<typeof createSe
 test.describe("remote machines in Processes", () => {
   const closers: Array<() => void> = [];
   const machineIds: string[] = [];
+  // The Processes menu row exists once the live reader holds a hub: the fake one stands in.
+  let hub: FakeHub | null = null;
 
   test.beforeAll(async ({ request }) => {
+    hub = await startFakeHub();
     // The fake provider knows "cloud-one" only.
     const provider = await listen((req, res) => {
       if (req.headers.authorization !== `Bearer ${TOKEN}`) { res.writeHead(401); res.end("{}"); return; }
@@ -92,9 +96,14 @@ test.describe("remote machines in Processes", () => {
     await request.put(`${E2E_BASE}/api/machines/providers/hetzner/token`, { data: { token: null } }).catch(() => {});
     for (const id of machineIds) await request.delete(`${E2E_BASE}/api/machines/${id}`).catch(() => {});
     closers.forEach((c) => c());
+    await hub?.close();
   });
 
-  test("the node has the Mac's gauges and hover; the cost only where the provider knows it; the silent one says why", async ({ page }) => {
+  test("the node has the Mac's gauges and hover; the cost only where the provider knows it; the silent one says why", async ({ page, request }) => {
+    await expect.poll(async () => {
+      const snap = (await (await request.get(`${E2E_BASE}/api/hub-live`)).json()) as Record<string, { data?: { services?: unknown[] } }>;
+      return snap.services?.data?.services?.length ?? -1;
+    }, { timeout: 30_000, message: "the live reader never read the fake hub" }).toBeGreaterThan(0);
     await goToApp(page);
     await openPerfPanel(page);
     await page.getByTestId("menu-system-processes").click();
