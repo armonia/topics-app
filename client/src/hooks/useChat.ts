@@ -1,139 +1,103 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import type { ChatMessage, ChatRequest, CompactionMarker, ContentBlock, HistoryMessage, Message, ToolCall, WSFrameRow, WSMessage } from '../types';
-import { chatApi, apiErrorCode } from '../lib/api';
+import { useCallback,useEffect,useRef,useState } from 'react';
+import { apiErrorCode,chatApi } from '../lib/api';
+import type { ChatMessage,ChatRequest,CompactionMarker,ContentBlock,HistoryMessage,Message,ToolCall,WSFrameRow,WSMessage } from '../types';
 import { decideClientWipeOnStop } from './stopSessionPolicy';
 // "Un turno che non ha prodotto niente non lascia niente" — la STESSA regola che
 // applica il server prima di cancellare la riga. Due definizioni di "vuoto"
 // vorrebbero dire bolla via da una parte e ancora lì dall'altra.
 import { isEmptyAssistantTurn } from '../../../shared/empty-turn';
-import { mergeCatchupIntoPartial, shouldAdoptIntoPlaceholder, CLIENT_MESSAGE_ID_PREFIX } from './streamCatchupMerge';
-import { clearPartialForReattach, reviveClosedBubble } from './streamReattachReset';
-import { LiveTurnIds, carryLateStart, frameTargetIndex, lateStartContent, liveAssistantIndex, queueLateDelta, shouldFillFromBroadcast, takeLateDeltas, type LateDelta } from './liveTurn';
-import { liveInterruptionBlock } from '../components/Chat/turnError';
-import { mergeMediaSizes, type MediaSizes } from '../components/Chat/mediaBox';
-import { carryWatchedLive } from '../components/Chat/turnFold';
-import { mergeHistoryPage, mergeOlderHistory, pageOverlapsExisting, rowsAboveLocalCopy } from './historyPaging';
-import { noteLocalCopyRows, settleLocalCopyRows, showsLocalCopyRows } from '../state/localCopyRows';
-import { HISTORY_FETCH_ALL, HISTORY_FIRST_PAGE } from '../../../shared/history-paging';
+import { HISTORY_FETCH_ALL,HISTORY_FIRST_PAGE } from '../../../shared/history-paging';
 import { SEND_NOW_STOP_CAUSE } from '../../../shared/types';
-import {
-  getHistoryCompleteness,
-  markHistoryComplete,
-  markHistoryPartial,
-  markHistoryStaged,
-  registerHistoryCompleter,
-  resetHistoryCompleteness,
-  type HistoryCompletionMode,
-} from '../state/historyCompleteness';
-import { useRefMirror } from './useRefMirror';
-import { reconcileMessages, mergeFetchedHistory } from './reconcileMessages';
-import { adoptDurableMessageId, afterUnfinishedSend, insertBeside, namedByServer, placeOwnBubble } from './ownBubble';
-import { buildRequestMessages } from './chatRequestPayload';
-import { reconcileOrphanStreams } from '../state/signals';
-import { clearHistoryFromCache, markHistoryFromCache } from '../state/historyFromCache';
-import { answerFromText, findPendingAsk } from '../state/pendingAsk';
-import { armPushAsk } from '../state/pushAsk';
-import {
-  claimBatch as claimQueuedTurns,
-  decideDrain,
-  decideSend,
-  enqueueTurn,
-  getQueue as getTurnQueue,
-  isHeld as isQueueHeld,
-  holdQueue,
-  liftedStop,
-  mergeBatch,
-  releaseClaim,
-  releaseHold,
-  removeTurn,
-  dropStoredTurns,
-  requeueFront,
-  storedQueueSessions,
-  unshiftTurn,
-  type QueuedTurn,
-} from '../state/chatQueue';
-import { lastStopOf, noteServerTurn, noteStopHeard, noteTurnSnapshot, openTurnRef, serverTurnOf, type TurnRef } from '../state/serverTurn';
-import { registerFeatureWeight, roughBytes } from '../lib/featureWeight';
-import {
-  evictSessions,
-  getAllMessages,
-  getSessionMessagesFromStore,
-  listSessions,
-  replaceAllMessages,
-  // Importata con l'alias storico: e' una funzione di MODULO, quindi stabile per
-  // definizione — ed e' anche il motivo per cui non compare in nessuna lista di
-  // dipendenze, mentre il vecchio `setMessages` di `useState` ci compariva.
-  updateMessages as setMessages,
-} from '../state/messageStore';
-import {
-  MESSAGE_MIN_IDLE_MS,
-  MESSAGE_RESIDENCY_BUDGET,
-  MESSAGE_RESIDENCY_MAX_IDLE_MESSAGES,
-  decideMessageResidency,
-  type MessageResidencyInput,
-} from '../state/messageResidency';
-import { senderAlsoSeesFrame } from './senderAlsoSees';
-import { toolCallFromSse, withSseToolResult, type SseToolCallDelta, type SseToolResultDelta } from './sseToolFrames';
-import { toolUpdatePatch, withPartialResult, withToolUpdate, type ToolUpdateEvent } from './toolUpdatePatch';
-import { HeldToolFacts, patchToolCallOrFollow, patchToolCallOrHold, withAnnouncedToolCall, withPermissionAsked, withPermissionResolved, withQuestionAsked } from './heldToolFacts';
-import {
-  beginStreamTokenRate,
-  finishStreamTokenRate,
-  forgetStreamTokenRate,
-  recordStreamText,
-} from '../state/streamTokenRate';
-import {
-  EXPIRED_QUEUE_KEY,
-  OUTBOUND_QUEUE_KEY,
-  decideQueuedMessage,
-  enqueue,
-  moveToExpired,
-  queueItemKey,
-  readQueue,
-  removeItem as removeQueueItem,
-  removeSession as removeQueueSession,
-  writeQueue,
-  type QueueStorage,
-  type QueuedMessage,
-} from './outboundQueue';
-import { flagMapRef, flagSetter, getSessionFlag } from '../state/sessionFlags';
-import { apiFetch } from '../lib/shell/net';
+import { mergeMediaSizes } from '../components/Chat/mediaBox';
+import { liveInterruptionBlock } from '../components/Chat/turnError';
+import { carryWatchedLive } from '../components/Chat/turnFold';
 import { COMMAND_ANSWER_EVENT } from '../lib/commandAnswer';
+import { registerFeatureWeight,roughBytes } from '../lib/featureWeight';
+import { apiFetch } from '../lib/shell/net';
+import {
+claimBatch as claimQueuedTurns,
+decideDrain,
+decideSend,
+dropStoredTurns,
+enqueueTurn,
+getQueue as getTurnQueue,
+holdQueue,
+isHeld as isQueueHeld,
+liftedStop,
+releaseClaim,
+releaseHold,
+removeTurn,
+storedQueueSessions,
+unshiftTurn
+} from '../state/chatQueue';
+import {
+getHistoryCompleteness,
+markHistoryComplete,
+markHistoryPartial,
+markHistoryStaged,
+registerHistoryCompleter,
+resetHistoryCompleteness,
+type HistoryCompletionMode,
+} from '../state/historyCompleteness';
+import { clearHistoryFromCache,markHistoryFromCache } from '../state/historyFromCache';
+import { noteLocalCopyRows,settleLocalCopyRows,showsLocalCopyRows } from '../state/localCopyRows';
+import {
+MESSAGE_MIN_IDLE_MS,
+MESSAGE_RESIDENCY_BUDGET,
+MESSAGE_RESIDENCY_MAX_IDLE_MESSAGES,
+decideMessageResidency,
+type MessageResidencyInput,
+} from '../state/messageResidency';
+import {
+evictSessions,
+getAllMessages,
+getSessionMessagesFromStore,
+listSessions,
+replaceAllMessages,
+// Importata con l'alias storico: e' una funzione di MODULO, quindi stabile per
+// definizione — ed e' anche il motivo per cui non compare in nessuna lista di
+// dipendenze, mentre il vecchio `setMessages` di `useState` ci compariva.
+updateMessages as setMessages,
+} from '../state/messageStore';
+import { answerFromText,findPendingAsk } from '../state/pendingAsk';
+import { armPushAsk } from '../state/pushAsk';
+import { lastStopOf,noteServerTurn,noteStopHeard,noteTurnSnapshot,openTurnRef,serverTurnOf,type TurnRef } from '../state/serverTurn';
+import { reconcileOrphanStreams } from '../state/signals';
+import {
+beginStreamTokenRate,
+finishStreamTokenRate,
+forgetStreamTokenRate,
+recordStreamText,
+} from '../state/streamTokenRate';
+import { cacheMessages,clearCachedMessages,getCachedMessages,getInitialMessages,pruneMessageCache } from './chatMessageCache';
+import { buildRequestMessages } from './chatRequestPayload';
+import { CLAIM_CLIENT_ID,SSE_FAILSAFE_MS,STREAM_TIMEOUT_MS,SWEEP_EVERY_MS,TURN_DRAIN_MAX_ATTEMPTS,TURN_DRAIN_RETRY_MS,batchSend,cleanInvisibleMarkers,generateMessageId,getExpiredQueue,getOutboundQueue,isContextMessage,isSessionLoading,isSessionStreaming,isSessionThinking,loadingRef,messagesRef,queueStorage,setLoading,setStoppedByUser,setStreaming,setThinking,stoppedByUserRef,streamingRef,thinkingRef,wasSessionStopped,withdrawWaitingBubble,type LoadHistoryOptions,type SendMessageOptions,type StopSessionOptions } from './chatShared';
+import { HeldToolFacts,patchToolCallOrFollow,patchToolCallOrHold,withAnnouncedToolCall,withPermissionAsked,withPermissionResolved,withQuestionAsked } from './heldToolFacts';
+import { mergeHistoryPage,mergeOlderHistory,pageOverlapsExisting,rowsAboveLocalCopy } from './historyPaging';
+import { LiveTurnIds,carryLateStart,frameTargetIndex,lateStartContent,liveAssistantIndex,queueLateDelta,shouldFillFromBroadcast,takeLateDeltas,type LateDelta } from './liveTurn';
+import {
+EXPIRED_QUEUE_KEY,
+OUTBOUND_QUEUE_KEY,
+decideQueuedMessage,
+enqueue,
+moveToExpired,
+queueItemKey,
+removeItem as removeQueueItem,
+removeSession as removeQueueSession,
+writeQueue,
+type QueuedMessage
+} from './outboundQueue';
+import { adoptDurableMessageId,afterUnfinishedSend,insertBeside,namedByServer,placeOwnBubble } from './ownBubble';
+import { mergeFetchedHistory,reconcileMessages } from './reconcileMessages';
+import { senderAlsoSeesFrame } from './senderAlsoSees';
+import { toolCallFromSse,withSseToolResult,type SseToolCallDelta,type SseToolResultDelta } from './sseToolFrames';
+import { mergeCatchupIntoPartial,shouldAdoptIntoPlaceholder } from './streamCatchupMerge';
+import { clearPartialForReattach,reviveClosedBubble } from './streamReattachReset';
 import { TextPaintGate } from './textPaintGate';
-import { cacheMessages, clearCachedMessages, getCachedMessages, getInitialMessages, pruneMessageCache } from './chatMessageCache';
+import { toolUpdatePatch,withPartialResult,withToolUpdate,type ToolUpdateEvent } from './toolUpdatePatch';
+import { useRefMirror } from './useRefMirror';
+export type { LoadHistoryOptions,QueuedMessage,SendMessageOptions,StopSessionOptions };
 
-// The turn flags' setters, readers and live refs: module constants, so every
-// callback that uses them stays stable (see `state/sessionFlags.ts`).
-const setLoading = flagSetter('loading');
-const setStreaming = flagSetter('streaming');
-const setThinking = flagSetter('thinking');
-const setStoppedByUser = flagSetter('stopped');
-const loadingRef = flagMapRef('loading');
-const streamingRef = flagMapRef('streaming');
-const thinkingRef = flagMapRef('thinking');
-const stoppedByUserRef = flagMapRef('stopped');
-const isSessionLoading = (sessionKey: string): boolean => getSessionFlag('loading', sessionKey);
-const isSessionStreaming = (sessionKey: string): boolean => getSessionFlag('streaming', sessionKey);
-const isSessionThinking = (sessionKey: string): boolean => getSessionFlag('thinking', sessionKey);
-/** Vero se il turno di questa sessione l'ha fermato l'umano e non ne è ancora partito un altro. */
-const wasSessionStopped = (sessionKey: string): boolean => getSessionFlag('stopped', sessionKey);
-
-
-// The chat still ends up holding the COMPLETE thread - never a fixed window. An
-// old fixed limit of 100 silently dropped the head of long topics and the chat
-// rendered "tagliata". The thread now arrives in two requests: the tail
-// (`HISTORY_FIRST_PAGE`) that lifts the curtain, then everything before it
-// (`HISTORY_FETCH_ALL` + `before`), merged only while nobody is looking at the
-// list or when somebody asks for it (`completeHistory` below). The paths that
-// must hold the whole thread at once (branch switch, delete, the reload after
-// an edit) keep asking for it in one go.
-
-/**
- * Ogni quanto passa lo spazzino dei trascritti. Mezzo minuto: la grazia della
- * politica è di un minuto, quindi nulla può essere sfrattato prima di averla
- * superata, e il costo di un giro è contare le chiavi di un oggetto.
- */
-const SWEEP_EVERY_MS = 30_000;
 
 /**
  * Quante sessioni lo spazzino ha restituito da quando la finestra è aperta.
@@ -142,138 +106,6 @@ const SWEEP_EVERY_MS = 30_000;
  */
 let sweptSessions = 0;
 
-// Dopo tre minuti di silenzio si va a CHIEDERE al server se il turno è ancora
-// vivo. Non si spegne a scadenza: il silenzio non vuol dire morte.
-//
-// Un auto-compact della CLI tace fino a 188 secondi — è documentato, ed è la
-// ragione per cui il server estende il proprio grace fino a mezz'ora quando il
-// processo è vivo (`STREAM_GRACE_MS` in routes/chat.ts). Spegnere qui a 180 s
-// contraddiceva frontalmente quel fix: in ogni finestra che osserva via WS — la
-// seconda finestra, la PWA sul telefono, e la stessa dopo un ⌘R — il turno vivo
-// risultava finito, il bottone Stop spariva, l'aura si spegneva, e la coda
-// visibile veniva scaricata in mezzo al turno.
-const STREAM_TIMEOUT_MS = 3 * 60 * 1000;
-
-// Quanto aspettiamo che il nostro SSE si chiuda da solo dopo che il server ha
-// annunciato la fine del turno via WS. Nel caso sano `[DONE]` arriva nello
-// stesso momento; questa finestra serve solo a non abortire un drain lento.
-const SSE_FAILSAFE_MS = 5000;
-
-const generateMessageId = () => `${CLIENT_MESSAGE_ID_PREFIX}${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-// Topic/project/browser control moved from {{...}} markers to MCP/SDK tools,
-// so the model no longer emits markers and stored history was backfilled clean.
-// This is now a no-op kept at the call sites as a thin seam (cheap identity) in
-// case any legacy content needs future normalisation.
-const cleanInvisibleMarkers = (text: string): string => text;
-
-// Filter out internal gateway context messages
-const isContextMessage = (content: string): boolean => {
-  return content.startsWith('[Chat messages since your last reply');
-};
-
-/** How `loadHistory` reads a session. */
-export interface LoadHistoryOptions {
-  /** Past the 5 s dedup: rows changed with no frame to carry them. */
-  fresh?: boolean;
-  /** The turn is known live here: it stays lit until the answer says otherwise. */
-  keepLit?: boolean;
-}
-
-export interface StopSessionOptions {
-  /** «Send now»: stop the turn to send the queue, leave its sub-agents working. */
-  sendNow?: boolean;
-}
-
-export interface SendMessageOptions {
-  /**
-   * Fast Mode flag for this turn. Forwarded as `chatRequest.fastMode`; the
-   * server resolves the actual model via `getFastModelFor(provider.name)`.
-   * Picker (`options.model`) wins over fast — see openspec change
-   * `chat-fast-mode`.
-   */
-  fastMode?: boolean;
-  provider?: string;
-  model?: string;
-  /**
-   * La chiave con cui il server riconosce che questo invio è LO STESSO di prima.
-   *
-   * Si conia una volta per messaggio e sopravvive ai tentativi: l'invio diretto
-   * la genera, la coda durevole la conserva (è l'`id` dell'item) e il drain la
-   * rimanda identica. È l'unica cosa che distingue «il server non l'ha mai
-   * ricevuto» da «l'ha ricevuto e la connessione è caduta dopo» — due casi che
-   * da qui sono indistinguibili, e che chiedono l'opposto l'uno dall'altro.
-   */
-  clientMessageId?: string;
-  /**
-   * The id of the user's bubble when it is already on screen: a draft's first
-   * send stages it at the key, before the topic exists (`state/firstSend.ts`).
-   * The send then adds no second row: the one on screen is this message.
-   */
-  userMessageId?: string;
-  /** This message already left once under `clientMessageId`, and the server may hold it (`QueuedTurn.sent`). */
-  mayBeStored?: boolean;
-  /** The sizes of the pictures the person attached, read in the composer: the bubble's pictures have their box before their bytes (`Chat/attachmentSizes.ts`). */
-  mediaSizes?: MediaSizes;
-}
-
-export type { QueuedMessage };
-
-/**
- * Adattatore verso `localStorage` per le due code di `outboundQueue.ts`. I
- * metodi risolvono `localStorage` alla chiamata, non alla definizione: dove non
- * esiste, l'errore cade nel try/catch del modulo invece che all'import.
- */
-const queueStorage: QueueStorage = {
-  getItem: (k) => localStorage.getItem(k),
-  setItem: (k, v) => localStorage.setItem(k, v),
-  removeItem: (k) => localStorage.removeItem(k),
-};
-
-/**
- * Identità di QUESTA finestra per le prenotazioni della coda del turno. Non è
- * il `clientId` del WS di proposito: quello arriva col frame `welcome`, cioè
- * dopo, e un drain nei primi istanti di vita della pagina resterebbe senza
- * identità. Qui serve solo che due finestre non si scambino il nome.
- */
-const CLAIM_CLIENT_ID = (() => {
-  try { return crypto.randomUUID(); } catch { return `w-${Math.random().toString(36).slice(2)}-${Date.now()}`; }
-})();
-
-/** Ritenta del drain quando la sessione è ancora occupata: 10 × 200 ms = 2 s. */
-const TURN_DRAIN_RETRY_MS = 200;
-const TURN_DRAIN_MAX_ATTEMPTS = 10;
-
-const getOutboundQueue = (): QueuedMessage[] => readQueue(queueStorage, OUTBOUND_QUEUE_KEY);
-
-/**
- * An outbound resend that meets a turn in flight waits in the turn queue,
- * under the key it already left with (`enqueueTurn`): its bubble, still
- * waiting for a name, leaves the thread, since the queue now shows it.
- */
-function withdrawWaitingBubble(sessionKey: string, key: string | undefined): void {
-  if (!key) return;
-  setMessages(prev => {
-    const rows = prev[sessionKey] ?? [];
-    const next = afterUnfinishedSend(rows, key, undefined, 'withdraw');
-    return next === rows ? prev : { ...prev, [sessionKey]: next };
-  });
-}
-
-/**
- * A claimed batch as ONE send: merged words, the head's id as the key. If it
- * fails it goes back as it was, or, when the server may hold it, as one
- * `sent` item with the words it left with (`requeueFront`).
- */
-function batchSend(sessionKey: string, batch: QueuedTurn[]) {
-  const turn = mergeBatch(batch);
-  return {
-    content: turn.content,
-    options: { ...turn.options, clientMessageId: batch[0]!.id, ...(batch[0]!.sent ? { mayBeStored: true } : {}) },
-    restore: (waitsFor?: TurnRef, mayBeStored?: boolean) => requeueFront(sessionKey, batch, waitsFor, mayBeStored ? turn : undefined),
-  };
-}
-const getExpiredQueue = (): QueuedMessage[] => readQueue(queueStorage, EXPIRED_QUEUE_KEY);
 
 
 // Shared stable empty array so getSessionMessages returns a reference-equal
@@ -282,24 +114,6 @@ const getExpiredQueue = (): QueuedMessage[] => readQueue(queueStorage, EXPIRED_Q
 
 let messageStoreHydrated = false;
 
-/**
- * Lo specchio dei messaggi per le closure, senza piu' uno specchio.
- *
- * Prima era `useRefMirror(messages)`, cioe' una ref riallineata a ogni render
- * per evitare che una closure leggesse un valore vecchio. Adesso lo store E' la
- * fonte fresca: `getAllMessages()` restituisce l'ultimo valore al momento della
- * chiamata, che e' esattamente cio' che quello specchio inseguiva — e senza il
- * render di ritardo che uno specchio ha per costruzione.
- *
- * A livello di MODULO e non dentro l'hook: legge da uno store globale, quindi
- * non ha ragione di essere per-istanza, e un oggetto ricreato a ogni render
- * destabilizzerebbe le quattro callback che lo hanno fra le dipendenze.
- */
-const messagesRef = {
-  get current(): Record<string, ChatMessage[]> {
-    return getAllMessages();
-  },
-};
 
 export function useChat() {
   // I messaggi NON sono piu' stato di questo hook, e quindi non sono piu' stato
