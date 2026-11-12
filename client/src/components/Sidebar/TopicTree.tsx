@@ -1343,6 +1343,7 @@ export function TopicTree({
             className={`${ROW_CHEVRON_SLOT} tap-expand-y h-full text-app-text-secondary hover:text-app-text transition-colors`}
             aria-label={isExpanded ? `Collapse ${item.name}` : `Expand ${item.name}`}
             aria-expanded={isExpanded}
+            data-testid="project-chevron"
           >
             <ChevronRight size={ROW_CHEVRON} className={`transition-transform duration-fast ${isExpanded ? 'rotate-90' : ''}`} />
           </button>
