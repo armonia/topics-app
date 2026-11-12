@@ -98,6 +98,25 @@ export interface CommentAuthorLabel {
   derived: boolean;
 }
 
+/**
+ * Did the agent write this comment? The one predicate the readers share, so
+ * a collaborator's note or a board-signed row is never taken for the agent's
+ * word. Legacy free-text authors stay agents, as in `commentAuthorLabel`.
+ */
+export function isAgentAuthor(author: string | null | undefined): boolean {
+  return commentAuthorLabel(author).kind === 'agent';
+}
+
+/**
+ * The same predicate for SQL, over `column` (a trusted identifier, never user
+ * input). Mirrors `isAgentAuthor`: trimmed, case-insensitive, NULL is an agent.
+ */
+export function agentAuthorSql(column = 'author'): string {
+  const roles = RESERVED_AUTHORS.map((role) => `'${role}'`).join(', ');
+  const normalized = `LOWER(TRIM(COALESCE(${column}, '')))`;
+  return `(${normalized} NOT IN (${roles}) AND ${normalized} NOT LIKE '${GUEST_AUTHOR_PREFIX}%')`;
+}
+
 /** Is this string one of the roles the board writes for itself? */
 function reservedAuthor(trimmed: string): ReservedAuthor | null {
   const lower = trimmed.toLowerCase();

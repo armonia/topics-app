@@ -109,6 +109,23 @@ describe("deliverToReviewBySystem: porte di sistema annota review_needs_summary"
     expect(mutedNote, "turno non muto: la nota non deve comparire").toBeFalsy();
   });
 
+  test("a guest comment during the turn is not the agent's word", () => {
+    const svc = createTaskService(db);
+    const taskId = seedInProgress(db, svc);
+    db.prepare(
+      "INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES (?,?,?,?,?,?)",
+    ).run("g-1", taskId, "guest:device-123", "looks fine to me", "comment", new Date().toISOString());
+
+    const t = svc.deliverToReviewBySystem({ taskId, reason: "turni esauriti" });
+
+    expect(t.status).toBe("review");
+    const rows = db.prepare(
+      "SELECT author, content, kind FROM task_comments WHERE task_id = ?",
+    ).all(taskId) as Array<{ author: string; content: string; kind: string }>;
+    expect(rows.some((c) => c.kind === "delivery" && c.author.startsWith("guest:"))).toBe(false);
+    expect(rows.some((c) => c.content.includes("senza riassunto"))).toBe(true);
+  });
+
   /**
    * (c) CATENA review_needs_commit: ramo + deliveryFilesChanged === 0 =>
    * reviewEvidence.kind === 'uncommitted'.
