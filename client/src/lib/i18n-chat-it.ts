@@ -243,6 +243,7 @@ const CHAT_IT: Dict = {
   'processlog.stopTitle': 'Ferma il processo',
   'processlog.fetchFailed': 'Lettura del log non riuscita',
   'processlog.readError': 'Errore: {error}',
+  'processlog.stopFailed': 'Stop non riuscito: il processo è ancora in corso',
   ...VIEWS_IT,
 };
 
