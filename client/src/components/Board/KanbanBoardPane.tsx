@@ -8,13 +8,16 @@
  * project-scoped board API (client/src/lib/board.ts).
  */
 import { useHeldDraft } from './useHeldDraft';
+import { useCreatedFlash } from './useCreatedFlash';
+import { useWorktreeStatus } from './useWorktreeStatus';
+import { EMPTY_WRITES, useBoardDrag, useDragPreview } from './useBoardDrag';
+import { DeliveryControl, LoadAdviceChip, MissionsMenu, WorktreeControl } from './BoardToolbarControls';
+import { InlineFilters } from './InlineFilters';
 import { useT } from '../../hooks/useT';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { DndContext, DragOverlay, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
-import { PoliteKeyboardSensor, PoliteMouseSensor, PoliteTouchSensor } from './dndSensors';
-import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { AlertTriangle, Archive, ChevronDown, ChevronRight, Music4, Settings, Target, UploadCloud, X } from 'lucide-react';
+import { DndContext, DragOverlay } from '@dnd-kit/core';
+import { Archive, ChevronRight, Music4, Settings } from 'lucide-react';
 import type { Topic, WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { BrakeChip } from './BrakeChip';
@@ -24,21 +27,16 @@ import { useTaskDeepLink } from './useTaskDeepLink';
 import { DEAD_TAB_MESSAGE } from '../../lib/tabLink';
 import { useToast } from '../Shared/Toast';
 import { usePaneStore } from '../../state/pane/store';
-import { startVisibleInterval } from '../../state/documentVisibility';
 import { parseUtilityPanelType } from '../Layout/UtilityPanel';
 import { useTaskSessionResolver } from '../../hooks/useTaskSession';
 import { useBoardFeed } from '../../hooks/useBoardFeed';
 import { canAbsorbBoardTaskFrame } from '../../lib/boardTasksStore';
 import {
-  boardApi, boardIdForPath, isProjectlessId, showsLandingDebt, TASK_STATUSES,
+  boardApi, boardIdForPath, showsLandingDebt, TASK_STATUSES,
   STATUS_LABEL, taskDetailBump, WORKFLOW_PRESETS, columnOfTask,
   type BoardTask, type TaskStatus, type BoardSettings, type BoardWorkflowView,
-  type PublishProject, type DiffBundle,
 } from '../../lib/board';
-import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
-import { loadAdvice } from './dispatchLoad';
-import { MachineBusyLine } from '../Shared/MachineBusyLine';
-import { applyPendingWrites, groupByStatus, manualStatusTarget, planDrop, type DropPlan, type OrderScope } from '../../lib/boardOrder';
+import { applyPendingWrites, groupByStatus, manualStatusTarget, type OrderScope } from '../../lib/boardOrder';
 import { COLUMN_FLASH_MS, landedInColumn, statusSnapshot } from '../../lib/columnFlash';
 import { useBoardMotion } from './useBoardMotion';
 import { useDrawerPresence } from './useDrawerPresence';
@@ -49,7 +47,7 @@ import {
   BOARD_GROUP_BY_STORAGE_KEY, BOARD_SHOW_DONE_STORAGE_KEY, COLUMNS_ROW_GRID, COLUMNS_ROW_LIST,
   readBoardGroupBy, readBoardShowDone, writeBoardPreference, type BoardGroupBy, type BoardLayout,
 } from './boardGeometry';
-import { columnIdOfDropTarget, dropsOnOtherProject, laneDropId, type BoardLane } from './boardLanes';
+import { laneDropId, type BoardLane } from './boardLanes';
 import { BoardViewToggles, ProjectLanes } from './ProjectLanes';
 import { useProjectLanes } from './useProjectLanes';
 import { useCollapsedProjects } from './useCollapsedProjects';
@@ -58,18 +56,13 @@ import { DetailSlider } from './DetailSlider';
 import { ProjectsSummary } from './ProjectsSummary';
 import { useColumnClearance } from './columnClearance';
 import { scrollDelta } from '../../lib/scrollDelta';
-import { resolveProjectRefs, useBoardProjectLabels } from '../../lib/boardProjectsStore';
+import { useBoardProjectLabels } from '../../lib/boardProjectsStore';
 import { useCardBoardSettings } from '../../hooks/useCardBoardSettings';
-import { UnifiedDiff } from './UnifiedDiff';
-import { useConfirm } from '../../hooks/useConfirm';
-import { CREATED_FLASH_MS, filterFocusRingClass, PRIORITY_DOT, PRIORITY_LABEL, TOOLBAR_CONTROL_H, TOOLBAR_ICON_W, type BoardFilters, type LiveUsage, type OpenTask } from './constants';
-import { runInitiatorName, taskMatchesFilters } from './taskFilter';
+import { CREATED_FLASH_MS, PRIORITY_DOT, TOOLBAR_CONTROL_H, TOOLBAR_ICON_W, type BoardFilters, type LiveUsage, type OpenTask } from './constants';
+import { taskMatchesFilters } from './taskFilter';
 import { boardCollision } from './format';
-import { FilterTokenField } from './FilterTokenField';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
-import { ProjectFilterPicker } from './ProjectFilterPicker';
 import { Card, Column } from './Card';
-import { taskActionErrorMessage } from './taskActionError';
 import { taskActionWord } from './taskActionWords';
 import { TaskDetail } from './TaskDetail';
 import { OrchestratorDrawer } from './OrchestratorDrawer';
@@ -77,10 +70,8 @@ import { BoardSettingsPanel } from './BoardSettingsPanel';
 import { ScheduledCardsControl } from './ScheduledCardsControl';
 import { SpinnerFallback } from '../Shared/Spinner';
 import { GlobalOnlySettingsPanel } from './BoardSettingsSections';
-import { POPOVER_ITEM } from '@/lib/popoverStyles';
-import { MISSIONS, type Mission } from '../../lib/missions';
+import type { Mission } from '../../lib/missions';
 import { useDevInstall } from '../../hooks/useDevInstall';
-import { apiFetch } from '../../lib/shell/net';
 import { registerFindFallback, useFindPaneId } from '../../state/findRegistry';
 
 // Lazy: the Plan is opened from the global board only, it stays out of the first load.
@@ -89,9 +80,6 @@ const PlanView = lazy(async () => {
   return { default: Body };
 });
 
-/** Identità stabile per «nessuna scrittura in volo»: una Map nuova a ogni render
- *  rifarebbe il memo che sovrappone le patch, e con lui tutte le colonne. */
-const EMPTY_WRITES: ReadonlyMap<string, Partial<BoardTask>> = new Map();
 /** The Plan's cards are not dragged: one stable empty sensor list for its DndContext. */
 const NO_SENSORS: never[] = [];
 
@@ -140,441 +128,6 @@ interface Props {
   onStartMission?: (mission: Mission) => string | null;
 }
 
-/**
- * LA CONSEGNA, IN UN CONTROLLO SOLO.
- *
- * Prima erano due bottoni adiacenti: «N non su main» (rosso) e «Pubblica M»
- * (ambra). Due numeri grandi, due colori d'allarme, la stessa frase implicita
- * — «c'è del lavoro che non è ancora arrivato dove deve» — e nessuno dei due
- * che dicesse in cosa differisce dall'altro. «14 non su main mi sembra uguale a
- * Pubblica» (Attilio, 13/08): letti da fuori erano lo stesso allarme scritto
- * due volte.
- *
- * Sono invece i DUE GRADINI della stessa scala, e adesso stanno nello stesso
- * pannello, in quest'ordine:
- *
- *   1. NON SU MAIN — task chiusi la cui consegna non risulta unita. Il lavoro
- *      esiste su un ramo e nessuno lo sta guardando. Si apre il task per
- *      landarlo, o per scoprire perché quel lavoro non c'è.
- *   2. SU MAIN, NON PUBBLICATO — commit che main ha e `origin` no. Qui il
- *      lavoro c'è, manca solo il push (e il deploy dove è configurato).
- *
- * Il bottone porta i due numeri con due glifi diversi, non due pastiglie nude:
- * il triangolo è un problema da guardare, la nuvola è un'azione da fare. E resta
- * SEMPRE in barra, anche a zero, perché «Pubblica» è anche il posto dove si va a
- * verificare che non ci sia niente da pubblicare.
- */
-/**
- * The publish failures the server names with a `code`, in the reader's
- * language. The server sentence is English and stays as the fallback: a code
- * this table does not know still reaches the reader as a sentence, not as a
- * silence.
- */
-const PUBLISH_ERROR_KEY: Record<string, string> = {
-  not_found: 'board.publish.notFound',
-  detached_head: 'board.publish.detachedHead',
-};
-
-function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: (id: string) => void }) {
-  const tr = useT();
-  const [projects, setProjects] = useState<PublishProject[] | null>(null);
-  const [open, setOpen] = useState(false);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [diffs, setDiffs] = useState<Record<string, DiffBundle | 'loading' | 'error'>>({});
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const confirm = useConfirm();
-  const refresh = useCallback(() => {
-    boardApi.publishStatus().then(setProjects).catch(() => setProjects([]));
-  }, []);
-  const readDiff = (projectId: string) => {
-    boardApi.publishDiff(projectId)
-      .then((b) => setDiffs((d) => ({ ...d, [projectId]: b })))
-      .catch(() => setDiffs((d) => ({ ...d, [projectId]: 'error' })));
-  };
-  const toggleExpand = (projectId: string, isOpen: boolean) => {
-    if (isOpen) { setExpanded(null); return; }
-    setExpanded(projectId);
-    // Lazy-load the diff once per project when it's first opened.
-    if (!diffs[projectId]) {
-      setDiffs((d) => ({ ...d, [projectId]: 'loading' }));
-      readDiff(projectId);
-    }
-  };
-  useEffect(() => { refresh(); }, [refresh]);
-  const pending = (projects ?? []).filter((p) => p.ahead > 0);
-  const total = pending.reduce((n, p) => n + p.ahead, 0);
-  const doPublish = async (p: PublishProject) => {
-    // Show the exact commits in the confirm so a wrong-project / un-approved
-    // commit is caught before the push — a push ships the WHOLE branch tip.
-    const shown = p.commits.slice(0, 8);
-    const more = p.commits.length > 8 ? p.commits.length - 8 : 0;
-    const ok = await confirm({
-      title: tr('board.publish.confirmTitle', { name: p.name }),
-      confirmLabel: tr('board.publish.confirmLabel', { n: p.ahead }),
-      body: (
-        <div className="space-y-2">
-          <p>{tr('board.publish.confirmBodyStart', { n: p.ahead })}<span className="font-mono">origin/{p.branch}</span>{tr('board.publish.confirmBodyEnd')}</p>
-          <ul className="max-h-48 overflow-y-auto space-y-0.5 font-mono text-mini">
-            {shown.map((c) => (
-              <li key={c.hash} className="truncate">• {c.subject} ({c.hash}, {c.author})</li>
-            ))}
-          </ul>
-          {more > 0 && <p className="text-app-text-secondary">{tr('board.publish.andMore', { n: more })}</p>}
-        </div>
-      ),
-    });
-    if (!ok) return;
-    setBusy(p.projectId); setMsg(null);
-    try {
-      const r = await boardApi.publish(p.projectId);
-      const key = r.code ? PUBLISH_ERROR_KEY[r.code] : undefined;
-      const why = key ? tr(key) : r.error ?? tr('board.publish.error');
-      setMsg(r.ok ? tr('board.publish.done', { name: p.name }) : `${p.name}: ${why}`);
-      refresh();
-    } catch (e) { setMsg(`${p.name}: ${(e as Error).message}`); }
-    finally { setBusy(null); }
-  };
-  // Il tono del bottone segue il gradino più grave che ha qualcosa da dire: un
-  // lavoro che non è su main è un problema (rosa), un commit da pubblicare è
-  // un'azione pronta (ambra), niente dei due è riposo (neutro).
-  const tone = unlanded.length > 0
-    ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'
-    : total > 0
-      ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
-      : 'bg-white/10 text-app-text-secondary hover:bg-white/15';
-  const title = [
-    unlanded.length > 0 ? tr('board.delivery.unlandedTitle', { n: unlanded.length }) : null,
-    total > 0 ? tr('board.delivery.toPublishTitle', { n: total }) : tr('board.delivery.nothingTitle'),
-  ].filter(Boolean).join(' · ');
-  return (
-    <>
-      <button
-        ref={btnRef}
-        data-testid="delivery-badge"
-        onClick={() => { setOpen((s) => !s); refresh(); }}
-        title={title}
-        /* The row's one height (`TOOLBAR_CONTROL_H`), not a literal of its own. */
-        className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1.5 rounded px-2 text-mini transition-colors ${tone}`}
-      >
-        <span>{tr('board.toolbar.delivery')}</span>
-        {unlanded.length > 0 && (
-          <span data-testid="delivery-unlanded-count" className="flex items-center gap-0.5 rounded bg-rose-500/25 px-1 font-medium tabular-nums text-rose-200">
-            <AlertTriangle className="h-3 w-3 shrink-0" />{unlanded.length}
-          </span>
-        )}
-        {total > 0 && (
-          <span data-testid="delivery-publish-count" className="flex items-center gap-0.5 rounded bg-amber-500/25 px-1 font-medium tabular-nums text-amber-200">
-            <UploadCloud className="h-3 w-3 shrink-0" />{total}
-          </span>
-        )}
-      </button>
-      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} align="right" minWidth={384} className="max-h-[70vh] w-96 overflow-y-auto" unmanagedFocus>
-          {/* GRADINO 1 — il lavoro che non è nemmeno arrivato su main. Sta in
-              cima perché è l'unico dei due che segnala un GUASTO: un task
-              chiuso il cui lavoro non risulta da nessuna parte. */}
-          {unlanded.length > 0 && (
-            <div className="border-b border-app-border pb-1">
-              <div className="px-3 pb-1 pt-2 text-mini font-semibold uppercase tracking-wide text-rose-300/90">
-                {tr('board.unlanded.title')}
-              </div>
-              {unlanded.map((t) => (
-                <button
-                  key={t.id}
-                  data-testid="unlanded-item"
-                  onClick={() => { setOpen(false); onOpen(t.id); }}
-                  className={`${POPOVER_ITEM} !items-start`}
-                >
-                  <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[t.priority] ?? PRIORITY_DOT[2]}`} />
-                  <span className="min-w-0 flex-1 truncate text-left">{t.text}</span>
-                </button>
-              ))}
-              <p className="px-3 pb-1 pt-1 text-mini leading-snug text-app-text-muted">
-                {tr('board.unlanded.blurb')}
-              </p>
-            </div>
-          )}
-          {/* GRADINO 2 — su main, ma non ancora fuori. */}
-          <div className="px-3 pb-1 pt-2 text-mini font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.publish.toPublish')}</div>
-          {/* COSA SUCCEDE DOPO IL PUSH, detto PRIMA del clic e non in un
-              tooltip: su questo repo main e' spedito, quindi «Pubblica» non e'
-              un salvataggio — fa uscire una release che arriva all'auto-updater
-              di chiunque abbia Topics aperta. Chi preme sta decidendo una
-              pubblicazione, e nessuna schermata gliela nominava: diceva solo
-              quali commit sarebbero usciti.
-              Compare solo quando c'e' qualcosa da pubblicare: su una lista
-              vuota sarebbe un avviso su un gesto che nessuno sta per fare. */}
-          {pending.length > 0 && (
-            <p
-              data-testid="publish-consequence"
-              title={tr('board.publish.consequenceTitle')}
-              /* amber-300/80 su tema chiaro dava 1,24:1 misurato sui pixel:
-                 un avviso che non si legge non e' un avviso. Stessa taratura
-                 dei segnali della status bar (amber-800 chiaro / amber-400
-                 scuro, 6,04 e 11,52), che l'ha gia' pagata una volta. */
-              className="px-3 pb-1 text-mini leading-snug text-amber-800 dark:text-amber-400"
-            >
-              {tr('board.publish.consequence')}
-            </p>
-          )}
-          <div className="p-1 pt-0">
-            {pending.length === 0 ? (
-              <div className="px-2 py-1.5 text-mini text-app-text-muted">{tr('board.publish.nothing')}</div>
-            ) : pending.map((p) => {
-              const isOpen = expanded === p.projectId;
-              return (
-                <div key={p.projectId} className="rounded">
-                  <div className="flex items-center gap-1.5 px-1 py-1 hover:bg-white/5">
-                    <button
-                      onClick={() => toggleExpand(p.projectId, isOpen)}
-                      className="flex min-w-0 flex-1 items-center gap-1 text-left"
-                      title={isOpen ? tr('board.unlanded.hide') : tr('board.unlanded.show')}
-                    >
-                      {isOpen ? <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" /> : <ChevronRight className="h-3 w-3 shrink-0 text-app-text-muted" />}
-                      <span className="min-w-0 flex-1 truncate text-compact text-app-text">{p.name}<span className="ml-1 text-mini text-app-text-muted">{p.ahead} commit · {p.branch}</span></span>
-                    </button>
-                    <button disabled={busy === p.projectId} onClick={() => doPublish(p)} className="shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-mini text-amber-200 hover:bg-amber-500/30 disabled:opacity-50">{busy === p.projectId ? '…' : 'Pubblica'}</button>
-                  </div>
-                  {isOpen && (
-                    <ul className="mb-1 ml-4 space-y-0.5 border-l border-app-border pl-2">
-                      {p.commits.map((c) => (
-                        <li key={c.hash} className="flex items-baseline gap-1.5 text-mini leading-tight">
-                          <code className="shrink-0 text-app-text-muted">{c.hash}</code>
-                          <span className="min-w-0 flex-1 truncate text-app-text-heading" title={c.subject}>{c.subject}</span>
-                          <span className="shrink-0 text-app-text-faint">{c.author} · {c.when}</span>
-                        </li>
-                      ))}
-                      {p.commits.length >= 50 && <li className="text-mini text-app-text-faint">{tr('board.publish.truncated')}</li>}
-                    </ul>
-                  )}
-                  {isOpen && (
-                    <div className="mb-1.5 ml-4 border-l border-app-border pl-2">
-                      <div className="mb-0.5 text-mini uppercase tracking-wide text-app-text-faint">{tr('board.publish.diffTitle')}</div>
-                      {diffs[p.projectId] === 'loading' && <div className="text-mini text-app-text-muted">{tr('board.publish.loadingDiff')}</div>}
-                      {diffs[p.projectId] === 'error' && <div className="text-mini text-red-400">{tr('board.publish.diffError')}</div>}
-                      {diffs[p.projectId] && typeof diffs[p.projectId] === 'object' && (
-                        <UnifiedDiff
-                          bundle={diffs[p.projectId] as DiffBundle}
-                          source={{ kind: 'publish', projectId: p.projectId }}
-                          onStale={() => readDiff(p.projectId)}
-                        />
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            {msg && <div className="mt-0.5 border-t border-app-border px-2 py-1.5 text-mini text-app-text-secondary">{msg}</div>}
-          </div>
-      </Menu>
-    </>
-  );
-}
-
-/**
- * LE CARTELLE DI LAVORO — il numero che diceva soltanto sé stesso.
- *
- * Era un `<span>` con dentro «7 worktree» e la spiegazione nel `title`: un
- * numero nudo in una barra non dice di cosa è, e «worktree» è una parola che
- * chi guarda la board non ha nessun motivo di conoscere. Qui diventa un
- * comando: l'etichetta dice la cosa in italiano, e il click apre l'unico posto
- * che risponde alle due domande vere — che cosa sono, e come si liberano.
- *
- * Dentro ci sta anche il GC («Pulisci landati») col suo esito, che prima erano
- * due elementi in più IN BARRA, sempre presenti, per un'azione che si fa una
- * volta ogni tanto. La barra ci guadagna lo spazio, e la spiegazione ci
- * guadagna il posto giusto: accanto al bottone che la mette in pratica.
- *
- * I due accumuli restano DUE numeri distinti, ed è il punto: un branch landato
- * libera la sua cartella, ma una cartella tenuta perché il task è ancora aperto
- * non ha nessun branch da landare. Con un numero solo non si capisce quale dei
- * due sta crescendo — ed è cresciuto in silenzio fino a ~40 cartelle il 21/07.
- */
-function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: {
-  count: number;
-  branches: { total: number; orphan: number; onOpenTasks: number } | null;
-  gcRunning: boolean;
-  gcResult: string | null;
-  onGc: () => void;
-}) {
-  const tr = useT();
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  if (count === 0) return null;
-  const orphan = branches?.orphan ?? 0;
-  return (
-    <>
-      <button
-        ref={btnRef}
-        onClick={() => setOpen((o) => !o)}
-        data-testid="worktree-count-badge"
-        className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-mini ${orphan > 0
-          ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
-          : 'bg-white/10 text-app-text-secondary hover:bg-white/20'}`}
-      >{tr('board.worktree.count', { n: count })}{orphan > 0 && <span className="tabular-nums">{tr('board.worktree.orphanBranches', { n: orphan })}</span>}</button>
-      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={320}>
-        <div className="space-y-1.5 px-3 py-2.5 text-mini leading-snug text-app-text-secondary">
-          <p className="text-compact font-medium text-app-text-heading">{tr('board.worktree.countOpen', { n: count })}</p>
-          <p>{tr('board.worktree.whatStart')}<span className="font-mono">git worktree</span>{tr('board.worktree.whatEnd')}</p>
-          {branches && branches.total > 0 && (
-            <p data-testid="worktree-branches-line">
-              {tr('board.worktree.branchesStart')}<span className="text-app-text-heading">{tr('board.worktree.branchesCount', { n: branches.total })}</span>{tr('board.worktree.branchesMid')}
-              {branches.orphan > 0 && <> <span className="text-amber-300">{branches.orphan}</span>{tr('board.worktree.branchesOrphan')}</>}
-              {branches.onOpenTasks > 0 && <>{tr('board.worktree.branchesOpen', { n: branches.onOpenTasks })}</>}
-            </p>
-          )}
-          <p className="text-app-text-muted">{tr('board.worktree.twoPiles')}</p>
-        </div>
-        <div className="flex items-center gap-2 border-t border-app-border px-3 py-2">
-          <button
-            onClick={onGc}
-            disabled={gcRunning}
-            className="shrink-0 rounded bg-white/10 px-2 py-1 text-mini text-app-text-secondary hover:bg-white/20 disabled:opacity-50"
-            data-testid="worktree-gc-button"
-          >{tr(gcRunning ? 'board.worktree.gcRunning' : 'board.worktree.gc')}</button>
-          <span className="text-mini leading-snug text-app-text-muted">
-            {tr('board.worktree.gcHint')}
-          </span>
-        </div>
-        {gcResult && (
-          <p className="border-t border-app-border px-3 py-1.5 text-mini leading-snug text-app-text-secondary" data-testid="worktree-gc-result">{gcResult}</p>
-        )}
-      </Menu>
-    </>
-  );
-}
-
-/**
- * IL CARICO, DETTO COME UNA FRASE.
- *
- * La versione precedente diceva «Carico critico · max 1», e nessuna delle due
- * metà si spiegava da sola: «carico critico» è un fatto sulla macchina che non
- * chiede niente a chi legge, e «max 1» sembra un LIMITE imposto mentre è un
- * CONSIGLIO — due cose molto diverse per chi le legge in una barra. La
- * spiegazione c'era, ma stava nel `title`: su un telefono non esiste, e col
- * mouse va cercata. Un tooltip non è una spiegazione.
- *
- * Quindi due regole:
- *
- * 1. **Compare solo quando c'è qualcosa da fare.** Il chip vive sullo SCARTO
- *    fra gli agent che stanno girando (`running`, dal dispatcher) e quelli che
- *    la macchina regge adesso (`recommended`). Scarto ≤ 0 → niente chip, anche
- *    con la macchina in ginocchio: se non c'è niente da fermare, un allarme è
- *    solo rumore. È anche il motivo per cui `running` è stato aggiunto alla
- *    capacità: senza, «max N» non poteva sapere se c'era uno scarto.
- * 2. **Quello che si vede è già l'azione, in due parole.** «Fermane 2», non un
- *    aggettivo e non una frase. La barra è una fila di controlli, non un posto
- *    dove si legge: «Macchina carica: meglio fermare 2 agent» erano trentotto
- *    caratteri che spingevano fuori i filtri dei progetti, e la parte che
- *    contava era il numero. Il verbo resta perché un numero da solo non dice
- *    cosa farne. Il dettaglio (CPU, core, perché) sta nel popover, apribile col
- *    dito, che dice anche che è un consiglio e non un tetto.
- *
- * La sonda (ogni 15s) è quella dello store del tetto globale, non una seconda
- * per chip: la stessa lettura serve il chip, il menu del titolo e il pannello
- * delle impostazioni.
- */
-function LoadAdviceChip() {
-  const tr = useT();
-  const store = useGlobalDispatchCap();
-  const cap = store.capacity;
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  // Nothing to stop, or the brake by resources, where the count does not apply:
-  // there the advice drew "stop 12" while the gate was admitting
-  // (`loadAdvice`, which also holds the severity rule).
-  const advice = loadAdvice(store);
-  if (!cap || !advice) return null;
-  const { over, severe } = advice;
-  const cls = severe
-    ? 'bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/30 hover:bg-rose-500/25'
-    : 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30 hover:bg-amber-500/25';
-  return (
-    <>
-      <button
-        ref={btnRef}
-        onClick={() => setOpen((o) => !o)}
-        data-testid="load-advice-chip"
-        className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-mini font-medium ${cls}`}
-      >
-        <AlertTriangle className="h-3 w-3 shrink-0" />
-        {tr('board.load.stopN', { n: over })}
-      </button>
-      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={288}>
-        <div className="space-y-1.5 px-3 py-2.5 text-mini leading-snug text-app-text-secondary">
-          <p className="text-compact font-medium text-app-text-heading">
-            {tr('board.load.headline', { running: cap.running ?? 0, recommended: cap.recommended })}
-          </p>
-          {/* How busy the Mac is, in the one number every load surface says.
-              The server's own derivation ("12 core -> base 4 ...") is true and
-              technical: it waits under "Details" for whoever asks. */}
-          <MachineBusyLine shares={cap} />
-          <p>{tr('board.load.advice')}</p>
-          <details className="group">
-            <summary className="flex cursor-pointer list-none items-center gap-1 text-mini text-app-text-muted hover:text-app-text-secondary">
-              <ChevronRight size={10} className="transition-transform group-open:rotate-90" aria-hidden="true" />
-              {tr('board.gauge.details')}
-            </summary>
-            <p className="mt-1 text-app-text-muted">{cap.reason}</p>
-          </details>
-        </div>
-      </Menu>
-    </>
-  );
-}
-
-/**
- * LE MISSIONI — l'unico comando che la board ha verso la sessione laterale.
- *
- * Tre cose, e sono tutte deliberate:
- *
- * 1. **Non è una superficie sulla board.** È un bottone che apre un menu e
- *    consegna il testo a una chat di progetto NORMALE, quella che c'è già. La
- *    versione precedente (5f39a2c1) faceva l'opposto — un chip dentro il
- *    composer, cioè dentro il punto da cui nasce ogni card, che cambiava il
- *    significato dell'intera riga — ed è il motivo per cui è stata bocciata.
- * 2. **Fuori dallo sviluppo non esiste** (`useDevInstall`): non è nascosto, non
- *    è disabilitato, non è renderizzato. Chi usa Topics per lavorare non deve
- *    trovarsi un pannello di governo della sua board.
- * 3. **La barra si legge PRIMA di scegliere** (`doneWhen` sotto ogni nome): è
- *    ciò che distingue una missione da un prompt, e metterla solo dentro il
- *    testo vorrebbe dire sceglierla senza sapere quando finisce.
- */
-function MissionsMenu({ onStart }: { onStart: (m: Mission) => void }) {
-  const tr = useT();
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button
-        ref={btnRef}
-        onClick={() => setOpen((o) => !o)}
-        data-testid="missions-button"
-        title={tr('board.toolbar.missionsTitle')}
-        className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-mini ${open ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10'}`}
-      ><Target className="h-3 w-3 shrink-0" /><span className="hidden sm:inline">{tr('board.toolbar.missions')}</span></button>
-      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={330}>
-        <div className="px-3 pb-1 pt-2 text-mini font-semibold uppercase tracking-wide text-app-text-muted">
-          {tr('board.mission.toProject')}
-        </div>
-        {MISSIONS.map((m) => (
-          <button
-            key={m.id}
-            data-testid={`mission-${m.id}`}
-            onClick={() => { setOpen(false); onStart(m); }}
-            className={`${POPOVER_ITEM} flex-col !items-start gap-0.5 py-1.5`}
-          >
-            <span className="font-medium text-app-text">{m.name}</span>
-            <span className="text-mini leading-snug text-app-text-secondary">{m.summary}</span>
-            <span className="text-mini leading-snug text-app-text-muted">{tr('board.mission.doneWhen', { what: m.doneWhen })}</span>
-          </button>
-        ))}
-      </Menu>
-    </>
-  );
-}
-
 /* UNA sola porta alle impostazioni, ed e' il ⚙ a destra.
  *
  * Qui, accanto al titolo, viveva un secondo ingresso: un ▾ che apriva un menu
@@ -584,113 +137,6 @@ function MissionsMenu({ onStart }: { onStart: (m: Mission) => void }) {
  * quando l'altro pannello lo cambiava. Il pannello del ⚙ contiene gia' quel
  * blocco (`GlobalSettingsSection`: interruttore + `GlobalCapControl`) su ogni
  * board, anche quella generale, quindi togliendo il ▾ non sparisce niente. */
-
-interface FilterPanelProps {
-  filters: BoardFilters;
-  onFiltersChange: (filters: BoardFilters) => void;
-  tasks: readonly BoardTask[];
-  mode: 'project' | 'all';
-}
-
-/** Filters shown INLINE in the board header. Built from the SAME picker primitive
- *  as the task composer (`Menu` chip + dropdown), just multi-select — no separate
- *  bespoke widgets. Priority/assignee/project have no "auto" entry: filtering by
- *  "let the agent decide" makes no sense, so it's dropped. */
-function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelProps) {
-  const tr = useT();
-  const reset = () => onFiltersChange({ priority: [], assignedTo: [], text: '', projectId: [], labels: [], person: [], computer: [], initiator: [], runComputer: [], creator: 'all' });
-
-  const assignees = Array.from(new Set(tasks.map((t) => t.assignedTo).filter(Boolean) as string[])).sort();
-  // Built from `lastActorPersonName`/`lastActorDeviceName` — the same
-  // "options come from what is currently on the board" rule `assignees`
-  // already follows. Empty on a board with no collaborator activity yet: the
-  // catalogue simply does not offer a group with nothing in it (see
-  // `buildFilterRows`, which drops an empty group by construction).
-  const persons = Array.from(new Set(tasks.map((t) => t.lastActorPersonName).filter(Boolean) as string[])).sort();
-  const computers = Array.from(new Set(tasks.map((t) => t.lastActorDeviceName).filter(Boolean) as string[])).sort();
-  const initiators = Array.from(new Set(tasks.map(runInitiatorName).filter(Boolean))).sort();
-  const runComputers = Array.from(new Set(tasks.map((t) => t.runComputerName).filter(Boolean) as string[])).sort();
-
-  const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + filters.labels.length + filters.person.length + filters.computer.length + filters.initiator.length + filters.runComputer.length + (filters.text ? 1 : 0) + (filters.creator && filters.creator !== 'all' ? 1 : 0) > 0;
-
-  // The shell of every filter control lives in `constants.ts`: the search box
-  // here, the labels chip below, the token field and the project picker all
-  // wear it, and they name it — no local alias, so a grep for the shell finds
-  // every control that wears it.
-
-  return (
-    /* `grow` e NON `flex-1`: la riga dei filtri deve arrivare fino al gruppo di
-       destra quando c'è spazio, ma la sua base resta il CONTENUTO. Con
-       `flex-1` (base 0) una barra affollata la calcolava larga zero e i suoi
-       stessi chip finivano a disegnarsi sopra i comandi accanto — la striscia
-       dei progetti si guadagnava lo spazio togliendolo ai filtri veri. */
-    <div className="flex min-w-0 grow items-center gap-1.5">
-      {/* ONE field: text, priority, who-closes, kind and assignee, with the
-          catalogue in its own dropdown. See `FilterTokenField.tsx`. The project
-          keeps its own picker (it already has a search box and an inline chip
-          strip), and the reset keeps its own button. */}
-      <FilterTokenField
-        value={{ priority: filters.priority, assignedTo: filters.assignedTo, text: filters.text, labels: filters.labels, person: filters.person, computer: filters.computer, initiator: filters.initiator, runComputer: filters.runComputer }}
-        onChange={(next) => onFiltersChange({ ...filters, ...next })}
-        assignees={assignees}
-        persons={persons}
-        computers={computers}
-        initiators={initiators}
-        runComputers={runComputers}
-      />
-
-      {/* WHO OPENED THE CARDS: one button that cycles all, mine, others. The
-          margin keeps it off the search field when the row is narrow. With a
-          finger it is 44 wide at least: «Tutte» alone measured 41. */}
-      <button
-        type="button"
-        data-testid="filter-creator"
-        data-creator={filters.creator ?? 'all'}
-        title={tr('board.filter.creatorTitle')}
-        onClick={() => onFiltersChange({ ...filters, creator: (filters.creator ?? 'all') === 'all' ? 'mine' : filters.creator === 'mine' ? 'others' : 'all' })}
-        className={`ml-1 flex ${TOOLBAR_CONTROL_H} shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded px-2 text-mini coarse:min-w-11 ${filterFocusRingClass} ${(filters.creator ?? 'all') === 'all' ? 'text-app-text-muted' : 'bg-white/10 text-app-text'} hover:bg-white/10 hover:text-app-text`}
-      >{tr(`board.filter.creator.${filters.creator ?? 'all'}`)}</button>
-
-      {/* Reset — only when something is active */}
-      {anyActive && (
-        <button
-          onClick={reset}
-          title={tr('board.filter.reset')}
-          data-testid="filter-reset"
-          // `h-6 w-6` and not `p-0.5`: a 12px icon with 2px of padding is a
-          // 16px target, the smallest on the row. Same inset ring as the
-          // shells: being the smallest target, it is also the one the global
-          // offset outline overflows worst.
-          className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} shrink-0 place-items-center rounded ${filterFocusRingClass} text-app-text-muted hover:bg-white/10 hover:text-app-text`}
-        >
-          <X className="h-3 w-3" />
-        </button>
-      )}
-
-      {/* PROGETTO: il chip col menu E i suoi suggerimenti, un blocco solo.
-          Vedi `ProjectFilterPicker.tsx`. Sta in fondo alla riga perche' e' il
-          solo filtro che cresce: si prende la larghezza che avanza per sporgere
-          i progetti fuori dal menu, e quando non ne avanza resta il chip. */}
-      <ProjectFilterPicker
-        tasks={tasks}
-        mode={mode}
-        selectedIds={filters.projectId}
-        onChange={(projectId) => onFiltersChange({ ...filters, projectId })}
-      />
-    </div>
-  );
-}
-
-// SENSOR OPTIONS LIVE AT MODULE LEVEL, NOT INLINE. dnd-kit memoizes each sensor
-// on `[sensor, options]`, so an inline options object made `sensors` a new array
-// on every render of the pane, which rebuilt dnd-kit's InternalContext, which
-// re-rendered every `useSortable` card at identical props: the `memo(Card)`
-// below never held from the day it was written (measured 2026-09-07: 32/32
-// cards re-rendered 25-29 times in 30 idle seconds, ~550 ms of JS per 30 s with
-// four agents at work). Hoisting the three objects is the whole fix.
-const MOUSE_SENSOR_OPTS = { activationConstraint: { distance: 4 } } as const;
-const TOUCH_SENSOR_OPTS = { activationConstraint: { delay: 200, tolerance: 8 } } as const;
-const KEYBOARD_SENSOR_OPTS = { coordinateGetter: sortableKeyboardCoordinates } as const;
 
 export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHistory, onOpenTopic, orchestrator, onStartMission }: Props) {
   const tr = useT();
@@ -963,59 +409,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // Ghost card of what the composer is about to create (card 058ea722), held until the real one arrives.
   const { draft, setDraft, holdCreated } = useHeldDraft(tasks);
 
-  // ── Un task appena NATO ────────────────────────────────────────────────────
-  // Scrivevi nel composer, quello si svuotava, e la card atterrava in fondo a
-  // una colonna che spesso non stavi guardando: nessun modo di sapere QUALE
-  // card fosse, né se ce ne fosse una. Due segnali distinti, e apposta con due
-  // regole diverse:
-  //
-  //  · il LAMPO risponde a «è nato un task»: vale per chiunque l'abbia creato,
-  //    quindi la sorgente è l'evento WS `task:created` — anche quando arriva da
-  //    un agent o dall'MCP, su un'altra macchina.
-  //  · lo SCORRIMENTO risponde a «l'ho appena scritto io»: muove la board sotto
-  //    gli occhi di chi guarda, e farlo per una creazione altrui vorrebbe dire
-  //    strappargli via la colonna che stava leggendo. Quindi lo arma SOLO il
-  //    ritorno della POST fatta da questo client, mai il broadcast.
-  //
-  // Il broadcast torna indietro anche a chi ha creato: `flashCreated` è
-  // idempotente finché il lampo è acceso, così l'eco non riarma il timer e non
-  // allunga la durata.
-  const [justCreated, setJustCreated] = useState<Set<string>>(() => new Set());
-  const createdFlashTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  const flashCreated = useCallback((id: string) => {
-    if (createdFlashTimers.current.has(id)) return; // già acceso: non riarmare
-    setJustCreated((prev) => {
-      if (prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.add(id);
-      return next;
-    });
-    createdFlashTimers.current.set(id, setTimeout(() => {
-      createdFlashTimers.current.delete(id);
-      setJustCreated((prev) => {
-        if (!prev.has(id)) return prev;
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-    }, CREATED_FLASH_MS));
-  }, []);
-  // Smontando la pane a lampo acceso i timer resterebbero appesi a chiamare un
-  // setState su un componente che non c'è più.
-  useEffect(() => {
-    const timers = createdFlashTimers.current;
-    return () => { for (const t of timers.values()) clearTimeout(t); timers.clear(); };
-  }, []);
-  /** La card che questo client vuole vedere: creata QUI, non ancora inquadrata. */
-  const [scrollTarget, setScrollTarget] = useState<string | null>(null);
-  /** Spegne la sorveglianza «la card resta fuori dal composer» (vedi sotto). */
-  const keepClearRef = useRef<(() => void) | null>(null);
-  useEffect(() => () => keepClearRef.current?.(), []);
-  /** Creazione partita da questa finestra: lampo + la board ci va sopra. */
-  const onCreatedHere = useCallback((taskId?: string) => {
-    if (taskId) { flashCreated(taskId); setScrollTarget(taskId); holdCreated(taskId); }
-    refetch();
-  }, [flashCreated, holdCreated, refetch]);
+  const { justCreated, flashCreated, scrollTarget, setScrollTarget, keepClearRef, onCreatedHere } = useCreatedFlash(holdCreated, refetch);
 
   // Live updates. In 'all' mode any task event is relevant; in 'project' mode
   // only events for this project (or project-less broadcasts) trigger a refetch.
@@ -1129,104 +523,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     [tasks],
   );
 
-  // Quanti CHECKOUT vivi tiene questo progetto.
-  //
-  // Il chip «non su main» (accanto a Pubblica) conta i BRANCH non landati;
-  // questo conta le cartelle. Sono due accumuli diversi e si spostano
-  // separatamente: un branch landato libera il suo worktree, ma un worktree
-  // tenuto perche' il task e' ancora aperto non ha nessun branch da landare.
-  // Con un numero solo non si capisce quale dei due sta crescendo — ed e'
-  // cresciuto in silenzio fino a ~40 worktree il 21/07. Li mostra
-  // `WorktreeControl`, che li tiene distinti e li spiega a parole.
-  const [worktreeCount, setWorktreeCount] = useState(0);
-  const [gcRunning, setGcRunning] = useState(false);
-  /** Rami locali non su main: quanti, e quanti non li reclama nessun task. */
-  const [branchInv, setBranchInv] = useState<{ total: number; orphan: number; onOpenTasks: number } | null>(null);
-  const [gcResult, setGcResult] = useState<string | null>(null);
-  useEffect(() => {
-    if (!projectPath || global) { setWorktreeCount(0); return; }
-    let alive = true;
-    const load = () => {
-      apiFetch(`/api/worktrees?project_path=${encodeURIComponent(projectPath)}&status=ready`)
-        .then((r) => (r.ok ? r.json() : null))
-        .then((b: { worktrees?: unknown[] } | null) => {
-          if (alive && Array.isArray(b?.worktrees)) setWorktreeCount(b.worktrees.length);
-        })
-        .catch(() => {});
-    };
-    load();
-    // Il GC gira ogni 30 minuti e i dispatch creano worktree in continuazione:
-    // un conteggio letto una volta sola al mount invecchia sotto gli occhi.
-    const stopPolling = startVisibleInterval(load, 60_000);
-    return () => { alive = false; stopPolling(); };
-  }, [projectPath, global]);
-
-  // I RAMI non su main, col task che li reclama.
-  //
-  // Il chip «N non su main» conta solo i task CHIUSI: un ramo di un task
-  // ancora in backlog — o di nessun task — non compariva da nessuna parte. È
-  // così che quattro rami con lavoro fatto sono rimasti invisibili per
-  // settimane, mentre la board riproponeva come «da fare» cose già scritte lì
-  // dentro. Il numero che conta è quello degli ORFANI: nessuno li reclamerà.
-  useEffect(() => {
-    if (!projectPath || global) { setBranchInv(null); return; }
-    let alive = true;
-    apiFetch(`/api/worktrees/branches?project_path=${encodeURIComponent(projectPath)}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((b: { summary?: { total: number; orphan: number; onOpenTasks: number } } | null) => {
-        if (alive && b?.summary) setBranchInv(b.summary);
-      })
-      // Un progetto che non è un repo git risponde 500: nessun inventario, e va
-      // bene — non è un errore da mostrare, è un progetto senza rami.
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [projectPath, global]);
-
-  // «Pulisci landati»: anticipa la passata del GC invece di aspettarne una.
-  //
-  // Non è più permissivo dell'automatico — è la STESSA passata, che reapa solo
-  // ciò che è provabilmente sicuro. Per questo l'esito deve dire anche quanti
-  // ne ha TENUTI e perché: un «0 ripuliti» secco farebbe sembrare rotto un
-  // bottone che sta facendo la cosa giusta.
-  const runGc = useCallback(async () => {
-    setGcRunning(true);
-    setGcResult(null);
-    try {
-      const r = await apiFetch('/api/worktrees/gc', { method: 'POST' });
-      const b = (await r.json()) as { summary?: { reaped?: number; landed?: number; freed?: number; kept?: number; slimmed?: number; slimmedBytes?: number; keptReasons?: Record<string, number> } };
-      const sm = b?.summary;
-      if (!sm) { setGcResult(tr('board.gc.noAnswer')); return; }
-      const motivi = Object.entries(sm.keptReasons ?? {}).sort((a, b2) => b2[1] - a[1]).slice(0, 2)
-        .map(([m, n]) => `${n}× ${m}`).join('; ');
-      // `liberati` è la voce che oggi fa quasi tutto il lavoro (cartella via,
-      // branch conservato): senza, la passata che ne libera 77 direbbe «0
-      // ripuliti, 0 landati» e sembrerebbe non aver fatto niente.
-      //
-      // Lo stesso vale per gli `snelliti`: una passata che tiene TUTTI i
-      // worktree può comunque aver liberato qualche giga di `node_modules`, e
-      // senza questa voce direbbe solo «0, 0, 0, N tenuti».
-      const snelliti = (sm.slimmed ?? 0) > 0
-        ? `, ${sm.slimmed} snelliti (${Math.round((sm.slimmedBytes ?? 0) / 1_048_576)} MB)`
-        : '';
-      setGcResult(
-        `${sm.reaped ?? 0} ripuliti, ${sm.freed ?? 0} liberati (branch salvo), ${sm.landed ?? 0} landati${snelliti}, ${sm.kept ?? 0} tenuti`
-        + (motivi ? `: ${motivi}` : ''),
-      );
-      // Il conteggio accanto deve riflettere la passata appena fatta.
-      if (projectPath) {
-        const rr = await apiFetch(`/api/worktrees?project_path=${encodeURIComponent(projectPath)}&status=ready`);
-        if (rr.ok) {
-          const bb = (await rr.json()) as { worktrees?: unknown[] };
-          if (Array.isArray(bb.worktrees)) setWorktreeCount(bb.worktrees.length);
-        }
-      }
-    } catch {
-      setGcResult(tr('board.gc.noAnswer'));
-    } finally {
-      setGcRunning(false);
-    }
-  }, [projectPath, tr]);
-
+  const { worktreeCount, gcRunning, branchInv, gcResult, runGc } = useWorktreeStatus(projectPath, global);
   // `kanbanOrder` è una chiave PER BOARD: nella board generale i numeri vengono
   // da sequenze indipendenti e non si confrontano. Lo scope lo dice al
   // comparatore (e a `planDrop`, che lì non scrive posizioni).
@@ -1522,67 +819,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     grouped, showArchived, draft, tasks, byColumn, columnIds, projectIndex,
   });
 
-  /**
-   * Persist a drop: status and/or position, optimistically. Routed by the
-   * task's OWN projectId so it works identically in the global board.
-   *
-   * `plan.renumber` c'è solo nel caso raro in cui l'interstizio frazionario si
-   * è esaurito (vedi `lib/boardOrder`): allora la colonna va riscritta a interi,
-   * N patch invece di una. Si spedisce PRIMA la colonna e poi la card
-   * trascinata, così se una scrittura cade a metà la card non resta l'unica
-   * spostata in un ordine che non le corrisponde più; un errore qualsiasi
-   * rifetcha e la verità torna dal server.
-   */
-  const dropTo = useCallback(async (task: BoardTask, plan: DropPlan) => {
-    // A redirected drop onto a card that is already where the redirect sends it
-    // has nothing to write: the plan exists only to carry the notice. Niente da
-    // scrivere = niente da aspettare, quindi la lettura parcheggiata parte qui.
-    if (Object.keys(plan.patch).length === 0 && !plan.renumber?.length) { flushDeferredRead(); return; }
-    for (const r of plan.renumber ?? []) patchTask(r.id, { kanbanOrder: r.kanbanOrder });
-    patchTask(task.id, plan.patch); // optimistic
-    // Le stesse patch, ma marcate IN VOLO: `patchTask` scrive nella lista di
-    // adesso, questo strato le riappoggia su quelle che arriveranno prima che il
-    // server confermi (vedi `pendingWrites`).
-    const inFlight = new Map<string, Partial<BoardTask>>();
-    for (const r of plan.renumber ?? []) inFlight.set(r.id, { kanbanOrder: r.kanbanOrder });
-    inFlight.set(task.id, plan.patch);
-    setPendingWrites((prev) => new Map([...prev, ...inFlight]));
-    try {
-      // `renumber` esiste solo nello scope `board` (nella board generale la
-      // posizione non si scrive affatto), quindi le card riscritte sono per
-      // costruzione dello STESSO progetto della trascinata.
-      for (const r of plan.renumber ?? []) {
-        await boardApi.update(task.projectId, r.id, { kanbanOrder: r.kanbanOrder });
-      }
-      await boardApi.update(task.projectId, task.id, plan.patch);
-      onCardError(task.id, null);
-    } catch (e) {
-      // The notice was written before the PATCH (it explains the GESTURE, and
-      // waiting for the round trip would make it arrive late). If the write
-      // failed the card is where it was, so the notice is now false: it goes,
-      // and the error speaks alone.
-      setDropNotice(null);
-      // E parla SULLA CARD. Trascinare in Done un padre con figli aperti è lo
-      // stesso rifiuto del bottone Approva: il refetch riporta la card al suo
-      // posto, e il perché la aspetta lì invece che in cima al pannello, dove
-      // con la colonna scrollata non lo leggeva nessuno.
-      onCardError(task.id, taskActionErrorMessage(e, tr, tr('board.actionError.moveFailed')));
-      refetch();
-    } finally {
-      // La scrittura ha risposto (bene o male): da qui in poi comanda il
-      // server, quindi lo strato ottimistico si toglie e SOLO ADESSO parte la
-      // lettura che il drag aveva parcheggiato. Mandarla prima significava
-      // chiedere lo stato a chi non l'aveva ancora ricevuto, e riprendersi in
-      // risposta la colonna di partenza.
-      setPendingWrites((prev) => {
-        const next = new Map(prev);
-        for (const id of inFlight.keys()) next.delete(id);
-        return next.size === 0 ? EMPTY_WRITES : next;
-      });
-      flushDeferredRead();
-    }
-  }, [patchTask, refetch, onCardError, flushDeferredRead, tr]);
-
   // Il movimento della board si aggancia qui: misura le colonne quando la firma
   // cambia e anima chi si e' spostato. Mentre una card e' IN MANO non anima
   // niente (comanda dnd-kit, che sta gia' muovendo gli stessi nodi), e la card
@@ -1612,96 +848,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     window.addEventListener('focusout', sync);
     return () => { window.removeEventListener('focusin', sync); window.removeEventListener('focusout', sync); };
   }, []);
-  // Mouse: pick a card up after a 4px drag. Touch: require a 200ms press-and-hold
-  // (with an 8px slop) before a drag starts, so a horizontal swipe scrolls the
-  // snap carousel instead of yanking the card under the finger.
-  // Tastiera: spazio/invio afferra la card, le frecce la spostano, spazio molla,
-  // Esc annulla. Senza questo sensore riordinare una colonna era possibile SOLO
-  // col mouse — cambiare stato no (il selettore nel drawer c'è), ma la posizione
-  // dentro la colonna non era raggiungibile in nessun altro modo.
-  // Sensori SORDI ai campi e ai comandi: un click nell'input di risposta non
-  // deve diventare un trascinamento (vedi `dndSensors.ts` per il perché).
-  const sensors = useSensors(
-    useSensor(PoliteMouseSensor, MOUSE_SENSOR_OPTS),
-    useSensor(PoliteTouchSensor, TOUCH_SENSOR_OPTS),
-    useSensor(PoliteKeyboardSensor, KEYBOARD_SENSOR_OPTS),
-  );
-  const onDragStart = useCallback((e: DragStartEvent) => {
-    // Le righe si congelano qui e si scongelano in `endDrag`: fin quando la card
-    // è in mano nessuna rilettura (di questa pane o dello store condiviso) può
-    // rifare le colonne sotto il puntatore.
-    beginDrag();
-    // No snap while the card is in hand: dnd-kit's auto-scroll near the row's
-    // edge would otherwise jump whole columns under a pointer that has not
-    // moved, and the drop would land on a column nobody aimed at.
-    holdColumnsSnap();
-    setActiveId(String(e.active.id));
-    // A new gesture retires the previous one's explanation, whatever this drag
-    // turns out to do (including being cancelled, or ending on a card that is
-    // no longer in the list).
-    setDropNotice(null);
-  }, [beginDrag, holdColumnsSnap]);
-  // Cosa produce un drop sta in `lib/boardOrder` — puro e testato (bun:test):
-  // qui resta solo il raccordo fra dnd-kit e la PATCH.
-  const onDragEnd = useCallback((e: DragEndEvent) => {
-    setActiveId(null);
-    // Questa card non viaggia al prossimo giro: il dito l'ha appena portata
-    // dov'e', e farla ripartire da dov'era per rifare il tragitto da sola
-    // sarebbe l'unica animazione che contraddice il gesto di chi guarda.
-    skipFlight(String(e.active.id));
-    // Scongela le righe, e SOLO quello: la lettura che il drag ha parcheggiato
-    // partirebbe prima della PATCH del drop e risponderebbe con lo stato di
-    // partenza — la card tornava nella colonna di prima per un giro di rete
-    // intero. La rilascia `dropTo`, quando la scrittura ha risposto.
-    endDrag();
-    const task = tasks.find((t) => t.id === e.active.id);
-    if (!task) { flushDeferredRead(); return; }
-    // WHICH WORKFLOW COLUMN the hand let go on: a column's own id (Triage, AI
-    // review...) or a card inside one. `planDrop` speaks statuses, so it gets
-    // the column's base; the column itself travels as `stage`.
-    // A card keeps its project: a drop in another project's lane is refused with
-    // a word, not carried out as a status change in a project nobody aimed at.
-    if (grouped && dropsOnOtherProject(task, e.over ? String(e.over.id) : null, (id) => tasks.find((t) => t.id === id)?.projectId)) {
-      setDropNotice(tr('board.drop.otherProject'));
-      flushDeferredRead();
-      return;
-    }
-    const overRaw = e.over ? columnIdOfDropTarget(String(e.over.id)) : null;
-    const overColumn = overRaw ? boardColumns.find((c) => c.id === overRaw) : undefined;
-    const overCard = !overColumn && overRaw ? tasks.find((t) => t.id === overRaw) : undefined;
-    const targetColumn = overColumn ?? (overCard ? columnOfTask(boardColumns, overCard) : null);
-    const plan = planDrop({
-      task,
-      overId: overColumn ? overColumn.base : overRaw,
-      byStatus,
-      // I numeri li decide la colonna INTERA, non quella filtrata: vedi
-      // `planDrop`. Con un filtro attivo erano la stessa lista, e la
-      // rinumerazione riscriveva 1..N sopra le card nascoste.
-      //
-      // Si raggruppa QUI e non in un memo del render: serve una volta per drop,
-      // e un memo lo ricalcolerebbe a ogni arrivo di righe — cioè nel percorso
-      // caldo che questa tornata sta cercando di alleggerire.
-      byStatusAll: groupByStatus(tasks, orderScope),
-      scope: orderScope,
-    });
-    // The card did not land where the hand let it go: say it, or the gesture
-    // reads as a bug. `onDragStart` already cleared the previous one, so this
-    // only ever adds.
-    if (plan?.redirectedFrom === 'in_progress') setDropNotice(tr('board.drop.inProgressRedirected'));
-    // The column changes, the status may not (AI review → Human review): the
-    // stage says it. Only when the card really lands in that column: a
-    // redirected drop goes where the redirect sends it, with no stage.
-    if (plan && targetColumn && !plan.redirectedFrom) {
-      const landsIn = plan.patch.status ?? task.status;
-      const fromColumn = columnOfTask(boardColumns, task);
-      if (landsIn === targetColumn.base && fromColumn?.id !== targetColumn.id) {
-        plan.patch = { ...plan.patch, status: targetColumn.base, stage: targetColumn.id === targetColumn.base ? null : targetColumn.id };
-      }
-    }
-    // Nessun piano = nessuna scrittura da aspettare: la lettura parcheggiata
-    // non ha più niente dietro cui mettersi in fila.
-    if (plan) dropTo(task, plan); else flushDeferredRead();
-  }, [tasks, byStatus, boardColumns, dropTo, endDrag, flushDeferredRead, grouped, orderScope, skipFlight, tr]);
+  const { sensors, onDragStart, onDragEnd } = useBoardDrag({
+    tasks, byStatus, boardColumns, grouped, orderScope, setActiveId, setDropNotice, setPendingWrites,
+    onCardError, patchTask, refetch, beginDrag, endDrag, flushDeferredRead, holdColumnsSnap, skipFlight,
+  });
   const activeTask = activeId ? tasks.find((t) => t.id === activeId) ?? null : null;
   // The Plan draws the board's own card, compact: one card, two views (Plan + Kanban).
   const renderPlanCard = useCallback((taskId: string) => {
@@ -1763,43 +913,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     />
   );
 
-  /**
-   * COSA HO IN MANO, in parole: la riga di contesto e i badge che la scheda di
-   * trascinamento porta sotto al titolo (il `DragOverlay` in fondo al render).
-   *
-   * Si calcola qui e non dentro il JSX perché mentre la card è in mano questa
-   * pane ridisegna a ogni movimento del puntatore, e `resolveProjectRefs`
-   * ricostruirebbe l'indice dei progetti a ogni fotogramma per leggere un nome
-   * solo.
-   */
-  const dragPreview = useMemo(() => {
-    if (!activeTask) return null;
-    // Il progetto SOLO dove distingue qualcosa. Su una board di progetto
-    // sarebbe la stessa parola su ogni card, cioè rumore. Il nome lo dà
-    // `resolveProjectRefs`, lo stesso indice condiviso da cui lo prendono il
-    // filtro e la card: un id senza progetto (`isProjectlessId`) non ha nome da
-    // mostrare, esattamente come la card che non disegna il chip.
-    const progetto = mode === 'all' && !isProjectlessId(activeTask.projectId)
-      ? resolveProjectRefs([activeTask.projectId], projectIndex)[0]?.name ?? null
-      : null;
-    // La colonna di partenza è il fatto che il titolo non dice mai. Trascinando
-    // fra cinque colonne, «da dove viene» è metà di quello che serve sapere.
-    const subtitle = [STATUS_LABEL[activeTask.status], progetto].filter(Boolean).join(' · ');
-    // Tre al massimo, priorità per prima perché è l'unica che c'è sempre. Le
-    // etichette sono già la parola che si legge (`shared/task-labels`: il
-    // vocabolario È il testo), e restano nell'ordine in cui le disegna la card,
-    // così l'anteprima non racconta una card diversa da quella che hai preso.
-    // Oltre il terzo badge la scheda cresce più di quanto dica.
-    //
-    // `filter(Boolean)` copre una priorità fuori scala, che nella mappa dei
-    // nomi non ha nessuna voce e lascerebbe un badge senza testo.
-    const badges = [
-      PRIORITY_LABEL[activeTask.priority],
-      ...activeTask.labels.map((l) => l.label),
-    ].filter(Boolean).slice(0, 3);
-    return { subtitle, badges };
-  }, [activeTask, mode, projectIndex]);
-
+  const dragPreview = useDragPreview(activeTask, mode, projectIndex);
   const create = useCallback(async (status: TaskStatus, text: string) => {
     // A task can't be created directly in Done — land it in Todo instead.
     // In Progress is the same story for a different reason (`manualStatusTarget`):
