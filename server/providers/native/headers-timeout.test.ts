@@ -24,7 +24,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { runAgentTurn, type AgentMessage } from "./agent-loop";
-import { engineHoldUntil } from "./base-url";
+import { engineHoldUntil, engineJustGaveUp } from "./base-url";
 import type { StreamHandler } from "../types";
 import { ApiHeadersTimeoutError, ApiHttpError, MAX_HEADERS_TIMEOUTS, retryRound, type RetryPolicy } from "./retry";
 
@@ -404,6 +404,21 @@ describe("a round whose request never gets response headers", () => {
     // A hold already over is still its end: the answer may be on its way.
     engineEvents = [{ type: "cap-hold", ts: Date.now(), until: Date.now() - 10 }];
     expect(await engineHoldUntil(Date.now() - 1_000)).toBeGreaterThan(0);
+  });
+
+  test("only the engine's give-up between our request and our 429 is its verdict on us", async () => {
+    const now = Date.now();
+    // Someone else's hold expired halfway through our long one: not ours.
+    engineEvents = [{ type: "cap-exhausted", ts: now - 30_000 }];
+    expect(await engineJustGaveUp(now - 60_000, now)).toBe(false);
+    // Logged a second before our 429 arrived, read later on a slow machine: still ours.
+    engineEvents = [{ type: "cap-exhausted", ts: now - 1_000 }];
+    expect(await engineJustGaveUp(now - 60_000, now)).toBe(true);
+    // Logged before our request was sent (beyond the clock slack): not ours, however fresh.
+    expect(await engineJustGaveUp(now + 2_000, now + 2_500)).toBe(false);
+    // Logged after our 429, while the engine was being read: not ours.
+    engineEvents = [{ type: "cap-exhausted", ts: now + 3_000 }];
+    expect(await engineJustGaveUp(now - 60_000, now)).toBe(false);
   });
 });
 

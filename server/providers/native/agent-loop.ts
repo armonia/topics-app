@@ -493,6 +493,7 @@ async function streamOnce(
   }
 
   if (!res.ok) {
+    const answeredAt = Date.now();
     const detail = await res.text().catch(() => "");
     // The engine held a request to the end of its hold and said 429: no
     // account freed up (it logs `cap-exhausted` in the same tick). Trying
@@ -500,7 +501,7 @@ async function streamOnce(
     // 28 of them; the call stops here, in its words. Any other 429 is a
     // passing limit upstream and is retried as usual.
     if (res.status === 429) {
-      if (await engineJustGaveUp(headersWaitStartedAt)) {
+      if (await engineJustGaveUp(headersWaitStartedAt, answeredAt)) {
         throw new Error(`The account engine held this request ${Math.round((Date.now() - headersWaitStartedAt) / 1000)}s and no account freed up: ${detail.slice(0, 300)}`);
       }
     }

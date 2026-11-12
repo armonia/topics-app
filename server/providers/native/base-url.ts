@@ -103,13 +103,16 @@ export async function engineHoldUntil(sinceMs: number): Promise<number> {
 const CAP_EXHAUSTED_FRESH_MS = 5_000;
 
 /**
- * Whether the account engine has just given up on a hold: when a hold expires
- * with no account free it logs `cap-exhausted` and answers that request 429 in
- * the same tick. A 429 with no such event in the last seconds is a passing
- * limit upstream, not the engine's verdict.
+ * Whether the account engine gave up on a hold when it answered us: when a
+ * hold expires with no account free it logs `cap-exhausted` and answers that
+ * request 429 in the same tick. Only an event in the seconds before
+ * `answeredAt` (when our 429 arrived, not when the engine is read) and after
+ * `sinceMs` (when our request was sent) counts; a 429 with no such event is a
+ * passing limit upstream, not the engine's verdict.
  */
-export async function engineJustGaveUp(sinceMs: number): Promise<boolean> {
+export async function engineJustGaveUp(sinceMs: number, answeredAt: number): Promise<boolean> {
   const events = await engineEvents();
-  const from = Math.max(sinceMs, Date.now() - CAP_EXHAUSTED_FRESH_MS) - HOLD_CLOCK_SLACK_MS;
-  return (events ?? []).some((e) => e?.type === "cap-exhausted" && typeof e.ts === "number" && e.ts >= from);
+  const from = Math.max(sinceMs, answeredAt - CAP_EXHAUSTED_FRESH_MS) - HOLD_CLOCK_SLACK_MS;
+  const to = answeredAt + HOLD_CLOCK_SLACK_MS / 2;
+  return (events ?? []).some((e) => e?.type === "cap-exhausted" && typeof e.ts === "number" && e.ts >= from && e.ts <= to);
 }
