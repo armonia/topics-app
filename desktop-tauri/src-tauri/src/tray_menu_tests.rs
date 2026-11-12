@@ -128,7 +128,7 @@ const OVERVIEW: &str = r#"{"providers":[{"id":"claude","accounts":[{"label":"Cla
   "apiSpend":{"line":"API Claude: 0 oggi"},
   "credits":{"Claude · a":{"remaining":40,"limit":250,"renewsAt":"2026-11-05","models":[{"name":"Fable","pct":12}]},"Codex · b":{"nobonus":true}}}"#;
 const LIVE: &str = r#"{"projects":[{"name":"topics-app","title":"Topics","total":11.4,"state":"attivo","priority":"normale","budgetPct":null,
-  "agents":{"list":[{"kind":"sessione","title":"Stato chiamate","open":{"url":"claude://claude.ai/epitaxy/local_1"}},{"kind":"sessione","title":"Senza finestra"}]},
+  "agents":{"list":[{"kind":"sessione","title":"Stato chiamate","open":{"url":"SESSION_URL"}},{"kind":"sessione","title":"Senza finestra"}]},
   "topics":[{"title":"Chat di prova"}],"lastJob":{"task":"Revisione card","status":"done"}}]}"#;
 
 fn full_snap() -> Snapshot {
@@ -138,7 +138,7 @@ fn full_snap() -> Snapshot {
         heavy: Some(r#"{"today":[{"account":"Claude · a","last24h":57,"perDay":3.7},{"account":"Muse","last24h":2,"perDay":0}]}"#.into()),
         procs: Some(PROCS.into()),
         automations: Some(r#"{"needsYou":5,"broken":3,"calendar":{"count":39,"next":{"title":"Rinnovo"}}}"#.into()),
-        live: Some(LIVE.into()),
+        live: Some(LIVE.replace("SESSION_URL", &format!("claude:/{}", "/claude.ai/local_1"))),
         gates: Some(r#"{"providers":{"claude":{"state":"libero"}},"overrides":[{"provider":"claude","until":1}]}"#.into()),
         backup: None,
         backup_set: true,
