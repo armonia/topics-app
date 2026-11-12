@@ -3936,13 +3936,9 @@
       "multiCtx"
     ],
     "server/routes/processes.ts": [
-      "buf",
       "dpid",
-      "esitoShellMorta",
-      "pcwd",
       "rilevati",
-      "rilevato",
-      "unregisterPreviewProcess"
+      "rilevato"
     ],
     "server/routes/profile.ts": [
       "servizio"
