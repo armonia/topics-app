@@ -60,7 +60,7 @@ test.describe.serial("Provider/Model picker", () => {
     let capturedBody: any = null;
     await page.route("**/api/chat", async (route: Route) => {
       if (route.request().method() === "POST") {
-        try { capturedBody = JSON.parse(route.request().postData() ?? ""); } catch {}
+        try { capturedBody = JSON.parse(route.request().postData() ?? ""); } catch { /* non-JSON body leaves capturedBody null; the assertion reports it */ }
       }
       return route.fallback();
     });

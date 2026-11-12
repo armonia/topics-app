@@ -19,7 +19,7 @@ const { archiveTopicFully } = await import("../services/archive-topic");
 const owned: Array<{ proc: ReturnType<typeof Bun.spawn>; pgid: number }> = [];
 
 afterAll(async () => {
-  for (const { proc } of owned) { try { proc.kill("SIGKILL"); } catch {} }
+  for (const { proc } of owned) { try { proc.kill("SIGKILL"); } catch { /* test cleanup: the process may already be gone */ } }
   await Promise.all(owned.map(({ proc }) => Promise.race([proc.exited, Bun.sleep(1000)])));
   if (previousDataDir === undefined) delete process.env.DATA_DIR;
   else process.env.DATA_DIR = previousDataDir;

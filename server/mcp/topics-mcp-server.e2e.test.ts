@@ -29,7 +29,7 @@ beforeAll(() => {
     async fetch(req) {
       const u = new URL(req.url);
       let body: any = null;
-      try { body = await req.json(); } catch {}
+      try { body = await req.json(); } catch { /* request without a JSON body: body stays null */ }
       seenRequests.push({ method: req.method, path: u.pathname, body });
 
       if (u.pathname.endsWith("/scripts/run")) {
@@ -52,7 +52,7 @@ beforeAll(() => {
   baseUrl = `http://localhost:${httpServer.port}`;
 });
 
-afterAll(() => { try { httpServer.stop(true); } catch {} });
+afterAll(() => { try { httpServer.stop(true); } catch { /* handle may already be closed */ } });
 
 // ── JSON-RPC-over-stdio driver ─────────────────────────────────────────────
 function makeClient() {
@@ -99,7 +99,7 @@ function makeClient() {
   }
 
   async function close() {
-    try { proc.stdin.end(); } catch {}
+    try { proc.stdin.end(); } catch { /* handle may already be closed */ }
     await proc.exited;
   }
 

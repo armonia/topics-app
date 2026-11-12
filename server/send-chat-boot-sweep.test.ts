@@ -41,8 +41,8 @@ beforeAll(() => {
   ctx = createAppContext(tmpRoot);
 });
 afterAll(() => {
-  try { closeDatabase(); } catch {}
-  try { rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
+  try { closeDatabase(); } catch { /* test teardown: the db may already be closed */ }
+  try { rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* test teardown: temp dir may already be gone */ }
   if (DATA_DIR_BEFORE === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = DATA_DIR_BEFORE;
 });
 

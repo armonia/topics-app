@@ -662,7 +662,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       for (const [id, meta] of Object.entries(prev)) {
         if (meta.createdAt && (now - new Date(meta.createdAt).getTime()) >= TWENTY_FOUR_HOURS) {
           changed = true;
-          try { localStorage.removeItem(`draft-content-${id}`); } catch {}
+          try { localStorage.removeItem(`draft-content-${id}`); } catch { /* stale draft content may already be gone */ }
         } else {
           next[id] = meta;
         }
@@ -2306,10 +2306,10 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     setDraftMeta(prev => {
       const next = { ...prev };
       delete next[draftId];
-      try { localStorage.removeItem(`draft-content-${draftId}`); } catch {}
+      try { localStorage.removeItem(`draft-content-${draftId}`); } catch { /* draft content may already be gone */ }
       return next;
     });
-    try { localStorage.removeItem(draftTextKey(draftId)); } catch {}
+    try { localStorage.removeItem(draftTextKey(draftId)); } catch { /* draft text may already be gone */ }
     forgetDraft(draftId);
     await sendMessage(topic.sessionKey, firstMessage, { ...options, userMessageId: bubbleId });
   }, [draftMeta, createTopic, sendMessage, focusedPanelIdRef]);

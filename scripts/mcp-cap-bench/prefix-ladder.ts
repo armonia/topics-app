@@ -76,10 +76,10 @@ function mirrorHome(tag: string, omit: string[]): string {
   const real = homedir();
   for (const entry of readdirSync(join(real, ".claude"))) {
     if (omit.includes(entry)) continue;
-    try { symlinkSync(join(real, ".claude", entry), join(home, ".claude", entry)); } catch {}
+    try { symlinkSync(join(real, ".claude", entry), join(home, ".claude", entry)); } catch { /* best-effort link; a missing entry stays absent in the bench home */ }
   }
   for (const entry of [".claude.json"]) {
-    try { symlinkSync(join(real, entry), join(home, entry)); } catch {}
+    try { symlinkSync(join(real, entry), join(home, entry)); } catch { /* best-effort link; a missing entry stays absent in the bench home */ }
   }
   return home;
 }
@@ -90,7 +90,7 @@ function cleanHome(): string {
   mkdirSync(join(home, ".claude"), { recursive: true });
   const cred = join(homedir(), ".claude", ".credentials.json");
   if (existsSync(cred)) {
-    try { symlinkSync(cred, join(home, ".claude", ".credentials.json")); } catch {}
+    try { symlinkSync(cred, join(home, ".claude", ".credentials.json")); } catch { /* best-effort link; the bench home may already have it */ }
   }
   writeFileSync(
     join(home, ".claude.json"),

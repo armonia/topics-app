@@ -73,8 +73,8 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  try { closeDatabase(); } catch {}
-  try { rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
+  try { closeDatabase(); } catch { /* best-effort: DB may already be closed */ }
+  try { rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* best-effort: temp dir may already be gone */ }
 });
 
 describe("getTopicWorkspaceForSession", () => {

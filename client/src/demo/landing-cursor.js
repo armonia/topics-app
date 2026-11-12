@@ -116,7 +116,7 @@
     ms = ms || 750;
     if (REDUCED) ms = 0;   // jump, don't travel
     return new Promise(function (resolve) {
-      try { setTransition(ms); place(x, y); } catch (e) {}
+      try { setTransition(ms); place(x, y); } catch (e) { /* decorative demo cursor; a failed move must not stop the script */ }
       setTimeout(resolve, ms + 60);
     });
   }
@@ -133,15 +133,15 @@
         "background:rgba(255,255,255,.18);pointer-events:none;z-index:2147483646;" +
         "animation:lgc-ripple 450ms ease-out forwards;";
       document.body.appendChild(r);
-      setTimeout(function () { try { r.remove(); } catch (e) {} }, 520);
-    } catch (e) {}
+      setTimeout(function () { try { r.remove(); } catch (e) { /* ripple node may already be gone */ } }, 520);
+    } catch (e) { /* decorative ripple; the demo must keep running */ }
   }
   function press() {
     try {
       if (!cursorSvg) return;
       cursorSvg.style.transform = "scale(.82)";
-      setTimeout(function () { try { cursorSvg.style.transform = ""; } catch (e) {} }, 140);
-    } catch (e) {}
+      setTimeout(function () { try { cursorSvg.style.transform = ""; } catch (e) { /* cursor element may be detached by now */ } }, 140);
+    } catch (e) { /* decorative press animation; the demo must keep running */ }
   }
 
   /* ---- interaction primitives -------------------------------------------- */
@@ -205,7 +205,7 @@
       // for the duration of the drag. The pointer is at the same z-index, so
       // the later element wins and the pointer would vanish exactly while it is
       // doing the most visible thing on the page. Re-appending puts it last.
-      try { if (cursor && document.body) document.body.appendChild(cursor); } catch (e) {}
+      try { if (cursor && document.body) document.body.appendChild(cursor); } catch (e) { /* decorative re-append of the cursor above the drag overlay */ }
       var chain = Promise.resolve({ x: p.x, y: p.y });
       waypoints.forEach(function (w) {
         chain = chain.then(function (cur) {

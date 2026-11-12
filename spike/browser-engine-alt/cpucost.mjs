@@ -3,7 +3,7 @@ import { CDP, newPage, sleep } from "./bench.mjs";
 const cpu=(pid)=>{try{return parseFloat(execSync(`ps -o %cpu= -p ${pid}`).toString().trim())}catch{return -1}};
 const bin=process.argv[2],port=+process.argv[3];
 const p=spawn(bin,["serve","--port",String(port),"--allow-private-network","--quiet"],{stdio:"ignore"});
-let up=null;for(let i=0;i<160;i++){try{const r=await fetch(`http://127.0.0.1:${port}/json/version`,{signal:AbortSignal.timeout(500)});if(r.ok){up=await r.json();break}}catch{}await sleep(60);}
+let up=null;for(let i=0;i<160;i++){try{const r=await fetch(`http://127.0.0.1:${port}/json/version`,{signal:AbortSignal.timeout(500)});if(r.ok){up=await r.json();break}}catch { /* CDP endpoint not up yet; the loop polls again */ }await sleep(60);}
 const br=await CDP.connect(up.webSocketDebuggerUrl||`ws://127.0.0.1:${port}/devtools/browser`);
 const {sessionId:s}=await newPage(br);
 await br.send("Emulation.setDeviceMetricsOverride",{width:1440,height:900,deviceScaleFactor:2,mobile:false},s).catch(()=>{});

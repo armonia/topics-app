@@ -7,7 +7,7 @@ const rss=(pid)=>{const o=execSync("ps -Ao pid=,ppid=,rss=").toString();const k=
  if(r.has(p))t+=r.get(p);for(const c of k.get(p)||[])s.push(c);}return Math.round(t/1024);};
 const bin=process.argv[2],port=+process.argv[3];
 const p=spawn(bin,["serve","--port",String(port),"--allow-private-network","--quiet"],{stdio:"ignore"});
-let up=null;for(let i=0;i<160;i++){try{const r=await fetch(`http://127.0.0.1:${port}/json/version`,{signal:AbortSignal.timeout(500)});if(r.ok){up=await r.json();break}}catch{}await sleep(60);}
+let up=null;for(let i=0;i<160;i++){try{const r=await fetch(`http://127.0.0.1:${port}/json/version`,{signal:AbortSignal.timeout(500)});if(r.ok){up=await r.json();break}}catch { /* CDP endpoint not up yet; the loop polls again */ }await sleep(60);}
 await sleep(600); const base=rss(p.pid);
 const br=await CDP.connect(up.webSocketDebuggerUrl||`ws://127.0.0.1:${port}/devtools/browser`);
 const {sessionId:s}=await newPage(br);

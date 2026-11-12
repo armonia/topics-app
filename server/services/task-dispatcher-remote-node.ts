@@ -632,6 +632,17 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         );
         return;
       }
+      // A 400/422 is the node refusing THIS card (12/11: a model outside its
+      // catalog, retried every 5 minutes for half an hour as a silent node).
+      if (nodeFailureReason(err) === "rejected") {
+        const why = err instanceof Error ? err.message : String(err);
+        parkNodeCard(
+          task,
+          `Il nodo «${name}» ha rifiutato la card: ${why}. ` +
+            "Correggi la card (per esempio il modello) oppure togli la macchina dalla card.",
+        );
+        return;
+      }
       // The node answered, and what it said is that THIS ACCOUNT cannot run there
       // (no active cloud environment, credentials refused): waiting does not fix
       // it, so the card stops with the cause instead of "not answering" for half an

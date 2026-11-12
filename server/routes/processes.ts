@@ -420,10 +420,10 @@ function loadState() {
           const recent = recentScripts.find(s => s.processId === processId);
           if (recent?.completedAt && (now - new Date(recent.completedAt).getTime()) < SEVEN_DAYS) continue;
           // Remove old log
-          try { unlinkSync(join(scriptsDir, file)); } catch {}
+          try { unlinkSync(join(scriptsDir, file)); } catch { /* best-effort cleanup: the log may already be gone, the next sweep retries */ }
         }
       }
-    } catch {}
+    } catch { /* best-effort cleanup: an unreadable scripts dir is retried at the next sweep */ }
   } catch (err) {
     console.error(`[processes] restoring the registry from ${persistPath()} failed:`, err);
   }
@@ -1055,7 +1055,7 @@ function startCommandProcess(o: {
   const startedAt = new Date().toISOString();
   let groupIdentity: ProcessGroupIdentity | null;
   try { groupIdentity = captureProcessGroup(proc.pid); }
-  catch (error) { try { proc.kill("SIGKILL"); } catch {} throw error; }
+  catch (error) { try { proc.kill("SIGKILL"); } catch { /* the leader may already be dead; the original error is rethrown */ } throw error; }
   if (groupIdentity) {
     try {
       registerCommandProcessGroup({
@@ -1065,7 +1065,7 @@ function startCommandProcess(o: {
       });
     } catch (error) {
       if (processGroupIdentityMatches(groupIdentity) && processGroupAlive(groupIdentity.pgid)) {
-        try { process.kill(-groupIdentity.pgid, "SIGKILL"); } catch {}
+        try { process.kill(-groupIdentity.pgid, "SIGKILL"); } catch { /* the group may already be gone; the original error is rethrown */ }
       }
       throw error;
     }
@@ -1919,7 +1919,7 @@ async function getProcessCwds(pids: number[]): Promise<Map<number, string>> {
       if (line[0] === "p") cur = parseInt(line.slice(1), 10);
       else if (line[0] === "n" && cur) out.set(cur, line.slice(1));
     }
-  } catch {}
+  } catch { /* lsof failure or timeout: callers treat a missing cwd as unknown */ }
   return out;
 }
 
@@ -2164,7 +2164,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     if (owner) {
       let identity: ProcessGroupIdentity | null;
       try { identity = captureProcessGroup(proc.pid); }
-      catch (error) { try { proc.kill("SIGKILL"); } catch {} throw error; }
+      catch (error) { try { proc.kill("SIGKILL"); } catch { /* the leader may already be dead; the original error is rethrown */ } throw error; }
       if (identity) {
         try {
           registerCommandProcessGroup({
@@ -2173,7 +2173,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
           });
         } catch (error) {
           if (processGroupIdentityMatches(identity) && processGroupAlive(identity.pgid)) {
-            try { process.kill(-identity.pgid, "SIGKILL"); } catch {}
+            try { process.kill(-identity.pgid, "SIGKILL"); } catch { /* the group may already be gone; the original error is rethrown */ }
           }
           throw error;
         }
@@ -2404,7 +2404,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     try {
       process.kill(-pid, "SIGTERM");
     } catch {
-      try { process.kill(pid, "SIGTERM"); } catch {}
+      try { process.kill(pid, "SIGTERM"); } catch { /* the process may already have exited */ }
     }
     setTimeout(() => {
       // Identity guard: if OUR process already exited (proc.exited handler set
@@ -2412,7 +2412,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       // have been recycled by the OS — SIGKILLing it now could hit an unrelated
       // fresh process. Our own bookkeeping is the authoritative liveness check.
       if (sp.status !== "running") return;
-      try { process.kill(pid, 0); process.kill(pid, "SIGKILL"); } catch {}
+      try { process.kill(pid, 0); process.kill(pid, "SIGKILL"); } catch { /* the process may have exited during the grace period */ }
     }, 5000);
     return true;
   }

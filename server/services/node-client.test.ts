@@ -231,6 +231,12 @@ describe("node-client · i guasti hanno un nome", () => {
     expect(await reasonOf(jsonResponse({ error: "no repo for that origin", code: "no_such_repo" }, 404))).toBe("no_such_repo");
   });
 
+  test("400 e 422 sono rejected (il nodo rifiuta il contenuto), 500 resta server_error", async () => {
+    expect(await reasonOf(new Response(JSON.stringify({ error: "modello fuori catalogo" }), { status: 400 }))).toBe("rejected");
+    expect(await reasonOf(new Response("bad", { status: 422 }))).toBe("rejected");
+    expect(await reasonOf(new Response("boom", { status: 500 }))).toBe("server_error");
+  });
+
   test("413 e' payload_too_large, non server_error, e createRun dice quanti byte ha mandato", async () => {
     expect(await reasonOf(new Response("too big", { status: 413 }))).toBe("payload_too_large");
     const c = createNodeClient({
