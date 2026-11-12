@@ -26,6 +26,7 @@ describe("check:any-budget — il cricchetto sugli any", () => {
     const files = trackedFiles();
     expect(files).toContain("server/utils.ts");
     expect(files).toContain("server/db.ts");
+    expect(files).toContain("server.ts");
     expect(files.filter((f) => /^server\/[^/]+\.ts$/.test(f)).length).toBeGreaterThan(50);
   });
 
