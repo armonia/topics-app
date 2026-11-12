@@ -1,3 +1,7 @@
+/**
+ * The machine-wide queue for heavy commands: admission, leases, client.
+ * @covers KANBAN-114
+ */
 import { describe, expect, test } from "bun:test";
 import { createHeavySlotBroker, type HeavyPressure } from "./heavy-slot";
 import { acquireHeavySlot, resolveHeavyBase } from "../../scripts/heavy-slot-client";
