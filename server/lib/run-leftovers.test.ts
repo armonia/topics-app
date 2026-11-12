@@ -1,3 +1,6 @@
+/**
+ * @covers RUNTIME-25
+ */
 import { test, expect } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
