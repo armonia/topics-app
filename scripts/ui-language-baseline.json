@@ -92,7 +92,7 @@
     "client/src/state/pane/adapters/paneConfig.ts": 1,
     "client/src/state/turnClock.ts": 4,
     "client/src/test/reactHarness.ts": 6,
-    "server/routes/topics.ts": 2,
+    "server/routes/topics-commands.ts": 2,
     "server/routes/voice.ts": 1,
     "shared/board.ts": 9,
     "shared/element-describe.ts": 3,
