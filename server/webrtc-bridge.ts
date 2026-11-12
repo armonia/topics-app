@@ -318,10 +318,10 @@ export function createWebrtcBridge(): WebrtcBridge {
     async shutdown() {
       try {
         sock?.destroy();
-      } catch {}
+      } catch { /* socket may already be destroyed */ }
       try {
         child?.kill();
-      } catch {}
+      } catch { /* child may already have exited */ }
       sock = null;
       child = null;
       ready = false;

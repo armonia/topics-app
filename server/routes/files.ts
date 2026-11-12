@@ -539,7 +539,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
             const headProc = spawnBounded(["git", "rev-parse", "--short", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
             const headRef = (await new Response(headProc.stdout).text()).trim();
             if (headRef) branches.unshift({ name: headRef, current: true, isRemote: false, ahead: 0, behind: 0 });
-          } catch {}
+          } catch { /* HEAD name is cosmetic here: without it the branch list is returned as is */ }
         }
         // Fresh repo (git init, no commits) — git branch returns nothing but HEAD exists
         if (branches.length === 0) {
@@ -547,7 +547,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
             const headProc = spawnBounded(["git", "symbolic-ref", "--short", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
             const headName = (await new Response(headProc.stdout).text()).trim();
             if (headName) branches.push({ name: headName, current: true, isRemote: false, ahead: 0, behind: 0 });
-          } catch {}
+          } catch { /* fresh repo without a resolvable HEAD: an empty branch list is the right answer */ }
         }
         return json(branches);
       } catch (err: any) { return json({ error: "Git branches error: " + err.message }, 500); }
@@ -989,7 +989,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           const gitRoot = (await new Response(toplevelProc.stdout).text()).trim();
           const { prefix } = repoPrefixOf(resolvedDir, gitRoot);
           if (prefix) gitRelativePath = prefix + filePath;
-        } catch {}
+        } catch { /* no toplevel: the path stays as given and the git call below reports its own error */ }
         // `:0:` è lo stage 0 dell'indice — quello normale, non un lato di
         // merge. Il `0` è composto QUI e non arriva mai dal client.
         const spec = side === "index" ? `:0:${gitRelativePath}` : `${rev}:${gitRelativePath}`;
@@ -1224,7 +1224,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
             const content = readFileSync(gitignorePath, "utf-8");
             for (const line of content.split("\n")) { const trimmed = line.trim(); if (trimmed && !trimmed.startsWith("#")) { const clean = trimmed.replace(/\/$/, "").replace(/^\//, ""); if (clean) patterns.add(clean); } }
           }
-        } catch {}
+        } catch { /* a missing or unreadable .gitignore only means no extra ignore patterns */ }
         return patterns;
       }
       const gitignorePatterns = parseGitignoreFlat(resolvedPath);
@@ -1283,7 +1283,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         const pkgPath = join(resolvedPath, "package.json");
         let engines: Record<string, string> = {};
         if (existsSync(pkgPath)) {
-          try { engines = JSON.parse(readFileSync(pkgPath, "utf-8")).engines || {}; } catch {}
+          try { engines = JSON.parse(readFileSync(pkgPath, "utf-8")).engines || {}; } catch { /* a malformed package.json simply has no engines to show */ }
         }
         return json({ scripts, found, looked: MANIFESTS, engines });
       } catch (err: any) {

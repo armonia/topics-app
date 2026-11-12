@@ -55,7 +55,7 @@ async function probeCdp(port) {
   try {
     const r = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(800) });
     if (r.ok) return await r.json();
-  } catch {}
+  } catch { /* CDP endpoint not up yet: report no info */ }
   return null;
 }
 
@@ -76,11 +76,11 @@ export async function launch(key, port) {
     await sleep(20);
   }
   const startupMs = +(now() - t0).toFixed(1);
-  if (!info) { try { proc.kill("SIGKILL"); } catch {} throw new Error("no CDP: " + stderr.slice(0, 400)); }
+  if (!info) { try { proc.kill("SIGKILL"); } catch { /* process may have already exited */ } throw new Error("no CDP: " + stderr.slice(0, 400)); }
   return {
     proc, port, startupMs, info, stderr: () => stderr,
     wsUrl: info.webSocketDebuggerUrl || `ws://127.0.0.1:${port}/devtools/browser`,
-    dispose() { try { proc.kill("SIGKILL"); } catch {} try { rmSync(udd, { recursive: true, force: true }); } catch {} },
+    dispose() { try { proc.kill("SIGKILL"); } catch { /* process may have already exited */ } try { rmSync(udd, { recursive: true, force: true }); } catch { /* temp profile cleanup is best-effort */ } },
   };
 }
 
@@ -110,7 +110,7 @@ export class CDP {
     });
   }
   on(m, h) { if (!this.handlers.has(m)) this.handlers.set(m, []); this.handlers.get(m).push(h); }
-  close() { try { this.ws.close(); } catch {} }
+  close() { try { this.ws.close(); } catch { /* socket may already be closed */ } }
 }
 
 export async function newPage(browser) {

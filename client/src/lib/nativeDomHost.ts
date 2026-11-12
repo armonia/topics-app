@@ -146,7 +146,7 @@ function parseHostEvents(raw: string): Record<string, unknown>[] {
 }
 
 const STOP_JS =
-  '(function(){var h=window.__topicsDomHost;if(h&&h.stop){try{h.stop()}catch(e){}}' +
+  '(function(){var h=window.__topicsDomHost;if(h&&h.stop){try{h.stop()}catch(e){ /* the recorder may already be stopped */ }}' +
   "window.__topicsDomHost=undefined;return 'ok'})()";
 
 const SNAPSHOT_JS =
@@ -225,7 +225,7 @@ const LAYOUT_JS =
  */
 export function armJs(bundle: string): string {
   return (
-    "(function(){var previous=window.__topicsDomHost;try{if(previous){previous.rrweb=null;if(previous.stop)previous.stop()}}catch(e){}" +
+    "(function(){var previous=window.__topicsDomHost;try{if(previous){previous.rrweb=null;if(previous.stop)previous.stop()}}catch(e){ /* previous recorder may already be stopped or half torn down */ }" +
     'var h=window.__topicsDomHost={q:[],stop:null,rrweb:null,placed:null};' +
     'try{\n' + bundle + '\n;h.rrweb=rrweb;}catch(e){h.error=String(e&&e.message||e);return \'failed\'}' +
     LAYOUT_JS +
@@ -246,7 +246,7 @@ export function armJs(bundle: string): string {
     '}catch(x){return}' +
     'try{if(e.type===3&&v&&v.source===3){v.anchor=h.echo(v.id);if(typeof h.scrollSeq===\'number\'){v.scrollSeq=h.scrollSeq;v.scrollFrom=h.scrollFrom}}' +
     'else if(e.type===2&&v&&v.node){h.placed=null;v.anchor=h.anchor(h.rrweb.record.mirror.getNode(v.node.id))}' +
-    '}catch(x){}h.q.push(e)},' +
+    '}catch(x){ /* anchor is optional decoration; the event is still queued */ }h.q.push(e)},' +
     'inlineStylesheet:true,inlineImages:false,collectFonts:false,recordCanvas:false,' +
     'maskInputOptions:{password:true},' +
     "sampling:{mousemove:50,scroll:100,media:400,input:'all'}" +

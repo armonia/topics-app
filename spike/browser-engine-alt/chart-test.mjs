@@ -3,7 +3,7 @@ import { writeFileSync } from "node:fs";
 import { CDP, newPage, sleep } from "./bench.mjs";
 const bin=process.argv[2], tag=process.argv[3], port=+process.argv[4];
 const p=spawn(bin,["serve","--port",String(port),"--allow-private-network","--quiet"],{stdio:["ignore","ignore","pipe"]});
-let up=null; for(let i=0;i<200;i++){ try{const r=await fetch(`http://127.0.0.1:${port}/json/version`);if(r.ok){up=await r.json();break}}catch{} await sleep(50); }
+let up=null; for(let i=0;i<200;i++){ try{const r=await fetch(`http://127.0.0.1:${port}/json/version`);if(r.ok){up=await r.json();break}}catch { /* CDP endpoint not up yet; the loop polls again */ } await sleep(50); }
 if(!up){ console.log(tag,"NO CDP"); p.kill(9); process.exit(1); }
 const br=await CDP.connect(up.webSocketDebuggerUrl||`ws://127.0.0.1:${port}/devtools/browser`);
 const {sessionId:s}=await newPage(br);

@@ -142,7 +142,7 @@ export function createCheckpointsRouter(ctx: AppContext): RouteHandler {
         if (!topic) return json({ error: "Topic not found" }, 404);
 
         let body: { description?: string } = {};
-        try { body = await req.json(); } catch {}
+        try { body = await req.json(); } catch { /* the description is optional; an empty or invalid body keeps the default */ }
 
         const msgs = loadLocalMessages(topic.sessionKey);
         const checkpoints = loadCheckpoints(STATE_DIR, params.id);

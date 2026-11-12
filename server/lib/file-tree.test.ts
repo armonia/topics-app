@@ -12,7 +12,7 @@ import { makeFakeHome } from "./protected-app-data.fixture";
 
 const root = mkdtempSync(join(tmpdir(), "file-tree-"));
 afterAll(() => {
-  try { chmodSync(join(root, "locked"), 0o755); } catch {}
+  try { chmodSync(join(root, "locked"), 0o755); } catch { /* best-effort: the locked dir may not exist if the test bailed early */ }
   rmSync(root, { recursive: true, force: true });
 });
 

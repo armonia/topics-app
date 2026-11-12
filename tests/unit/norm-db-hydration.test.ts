@@ -67,7 +67,8 @@ describe('sanitizeToolCallDetail — the three names from the log', () => {
     const out = sanitizeToolCallDetail({ id: 'toolu_1', name: 'ask_user_question', detail });
 
     expect(out.detail).toBeDefined();
-    expect(out.detail.type).toBe('ask_user');
+    expect(out.detail?.type).toBe('ask_user');
+    if (out.detail?.type !== 'ask_user') throw new Error('expected an ask_user detail');
     expect(out.detail.questions[0].question).toBe('Which route do we take for the fix?');
     expect(out.detail.questions[0].header).toBe('Route');
     expect(out.detail.questions[0].options).toEqual(['Schema', 'Renderer']);
@@ -88,7 +89,8 @@ describe('sanitizeToolCallDetail — the three names from the log', () => {
       name: 'ToolSearch',
       detail: deriveToolDetail('ToolSearch', { query: 'browser' }, 'browser_act, browser_observe'),
     });
-    expect(out.detail.type).toBe('search');
+    expect(out.detail?.type).toBe('search');
+    if (out.detail?.type !== 'search') throw new Error('expected a search detail');
     expect(out.detail.toolName).toBe('tool_search');
     expect(out.detail.query).toBe('browser');
   });
@@ -116,7 +118,7 @@ describe('sanitizeToolCallDetail — a type the schema never heard of degrades',
     expect(out.args).toEqual({ a: 1 });
     expect(out.status).toBe('success');
     expect(out.contentOffset).toBe(42);
-    expect(out.detail.type).toBe('unknown');
+    expect(out.detail?.type).toBe('unknown');
   });
 });
 

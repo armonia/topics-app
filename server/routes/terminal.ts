@@ -1223,7 +1223,7 @@ const SPAWN_ERROR_LIMIT = 3;
 function recycleBridge(reason: string) {
   console.warn(`[Terminal] Recycling bridge: ${reason}`);
   if (bridgeSocket && !bridgeSocket.destroyed) {
-    try { bridgeSocket.destroy(); } catch {}
+    try { bridgeSocket.destroy(); } catch { /* the socket may already be destroyed */ }
   }
   bridgeSocket = null;
   bridgeReady = false;
@@ -1244,10 +1244,10 @@ function recycleBridge(reason: string) {
               detail: reason,
             }));
           }
-        } catch {}
+        } catch { /* the old bridge may already be gone; the respawn below replaces it */ }
       }
     }
-  } catch {}
+  } catch { /* an unreadable or missing pidfile means no old bridge to stop */ }
   // ensureBridge will respawn on next demand.
   ensureBridge().catch(() => {});
 }
@@ -1366,7 +1366,7 @@ function handleBridgeMessage(msg: any) {
         const restingVerdict = canResume && !reloading;
         const reason = encodeExitReason(restingVerdict ? 'dormant' : 'ended', exitCode);
         for (const ws of sockets) {
-          try { ws.close(restingVerdict ? TERMINAL_WS_CLOSE_DORMANT : 1000, reason); } catch {}
+          try { ws.close(restingVerdict ? TERMINAL_WS_CLOSE_DORMANT : 1000, reason); } catch { /* the websocket may already be closed */ }
         }
         sessionSockets.delete(msg.id);
       }
@@ -1504,7 +1504,7 @@ function startBridgeWatchdog() {
         recycleArmedAt = now;
         console.warn('[Terminal] Bridge mute for 60s (no pong, no bytes): resetting the socket, PTYs untouched');
         if (bridgeSocket && !bridgeSocket.destroyed) {
-          try { bridgeSocket.destroy(); } catch {}
+          try { bridgeSocket.destroy(); } catch { /* the socket may already be destroyed */ }
         }
         bridgeSocket = null;
         bridgeReady = false;
@@ -2747,7 +2747,7 @@ function stopLiveCliChild(child: TerminalSession, caller: string): string | null
   sessions.delete(child.id);
   const sockets = sessionSockets.get(child.id);
   if (sockets) {
-    for (const ws of sockets) { try { ws.close(1000, "Sub-agent stopped"); } catch {} }
+    for (const ws of sockets) { try { ws.close(1000, "Sub-agent stopped"); } catch { /* the websocket may already be closed */ } }
     sessionSockets.delete(child.id);
   }
   try { getDatabase().run("DELETE FROM terminal_sessions WHERE id = ?", [child.id]); }
@@ -3071,7 +3071,7 @@ export function retireTerminalSession(
     const sockets = sessionSockets.get(id);
     if (sockets) {
       for (const ws of sockets) {
-        try { ws.close(1000, "Session killed"); } catch {}
+        try { ws.close(1000, "Session killed"); } catch { /* the websocket may already be closed */ }
       }
     }
     sessionSockets.delete(id);
@@ -3341,7 +3341,7 @@ export function parkTerminalSession(id: string, exitCode: number | null = null):
           resumable ? TERMINAL_WS_CLOSE_DORMANT : 1000,
           resumable ? encodeExitReason('dormant', exitCode) : 'Session parked',
         );
-      } catch {}
+      } catch { /* the websocket may already be closed */ }
     }
     sessionSockets.delete(id);
   }
@@ -4304,7 +4304,7 @@ export function handleTerminalWebSocket(ws: any, sessionId: string) {
       // Always send the marker, even on empty backlog — the client uses
       // it as the gate to start broadcasting `terminal:activity` pulses.
       ws.send(JSON.stringify({ type: "replay-end" }));
-    } catch {}
+    } catch { /* the websocket closed mid-replay: nothing left to deliver */ }
   });
 
   return {

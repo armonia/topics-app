@@ -59,6 +59,20 @@ const fmt = (n: number) => n.toLocaleString("it-IT");
 
 type Surface = { name: string; tools: number; bytes: number; note?: string };
 
+/** A JSON-RPC envelope over MCP HTTP, wide enough for `tools/list` and `initialize`. */
+interface RpcEnvelope {
+  result?: { tools?: Array<Record<string, unknown>> };
+  error?: unknown;
+}
+
+/** One line of a CLI transcript: only the usage block is read. */
+interface TranscriptUsageLine {
+  type?: string;
+  message?: {
+    usage?: { input_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number };
+  };
+}
+
 // ── 1. Il bridge di Topics, letto dal codice vero ────────────────────────────
 async function topicsBridge(): Promise<Surface[]> {
   const mod = await import(join(import.meta.dir, "..", "server", "mcp", "topics-mcp-server.ts"));
@@ -93,7 +107,7 @@ async function rpc(url: string, body: unknown, sessionId?: string) {
     signal: AbortSignal.timeout(15_000),
   });
   const text = await res.text();
-  let parsed: any = null;
+  let parsed: RpcEnvelope | null = null;
   for (const line of text.split("\n")) {
     const s = line.replace(/^data:\s*/, "").trim();
     if (!s.startsWith("{")) continue;
@@ -110,7 +124,10 @@ async function rpc(url: string, body: unknown, sessionId?: string) {
  *  sessione negli header. Il gateway è del secondo tipo, e senza handshake
  *  risultava «non raggiungibile» — cioè 0 token per il server che ne pesa di più. */
 async function httpToolsList(url: string): Promise<Array<Record<string, unknown>> | null> {
-  const list = (j: any) => (Array.isArray(j?.result?.tools) ? j.result.tools : null);
+  const list = (j: RpcEnvelope | null | undefined): Array<Record<string, unknown>> | null => {
+    const tools = j?.result?.tools;
+    return Array.isArray(tools) ? tools : null;
+  };
   try {
     const bare = await rpc(url, { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} });
     const direct = list(bare.json);
@@ -159,7 +176,7 @@ function probePrefix(label: string, extraArgs: string[], cwd: string): number | 
   if (!file) { console.error(`  ${label}: nessun transcript nuovo`); return null; }
   for (const line of readFileSync(file, "utf-8").split("\n")) {
     if (!line.trim()) continue;
-    let d: any; try { d = JSON.parse(line); } catch { continue; }
+    let d: TranscriptUsageLine | undefined; try { d = JSON.parse(line) as TranscriptUsageLine; } catch { continue; }
     if (d?.type !== "assistant") continue;
     const u = d?.message?.usage;
     if (!u) continue;
@@ -182,7 +199,7 @@ const rows: Surface[] = await topicsBridge();
 const servers = globalServers();
 
 for (const [name, def] of Object.entries(servers)) {
-  const url = (def as any)?.url;
+  const url = (def as { url?: unknown } | null | undefined)?.url;
   if (typeof url !== "string") { rows.push({ name, tools: 0, bytes: 0, note: "stdio — non interrogato" }); continue; }
   const tools = await httpToolsList(url);
   if (!tools) { rows.push({ name, tools: 0, bytes: 0, note: "non raggiungibile" }); continue; }

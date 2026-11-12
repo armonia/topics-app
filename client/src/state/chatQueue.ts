@@ -140,7 +140,7 @@ let nextLocalId = 0;
 function newId(): string {
   try {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-  } catch {}
+  } catch { /* randomUUID may be unavailable; counter id below */ }
   return `q-${++nextLocalId}-${Date.now()}`;
 }
 
@@ -377,7 +377,7 @@ function parseClaim(raw: string | null): Claim | null {
   try {
     const c = JSON.parse(raw) as Partial<Claim>;
     if (typeof c?.clientId === 'string' && typeof c.at === 'number') return { clientId: c.clientId, at: c.at };
-  } catch {}
+  } catch { /* corrupt claim record is treated as no claim */ }
   return null;
 }
 

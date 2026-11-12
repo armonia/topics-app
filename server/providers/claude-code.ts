@@ -238,7 +238,7 @@ function resolveCliPath(): string {
   const launcher = join(process.env.HOME || "", ".local/bin/claude");
   try {
     if (existsSync(launcher)) return launcher;
-  } catch {}
+  } catch { /* probe: a stat failure means the launcher is unusable, try the next fallback */ }
 
   // Last resort: PATH
   return "claude";
@@ -4815,7 +4815,7 @@ export class ClaudeCodeProvider implements AIProvider {
       this.tellHandlerSafely(pp, "onAborted", () => endKilledTurn(handler, new ProcessKilledError(cause)));
     }
     this.cleanupTimers(pp);
-    try { pp.readline?.close(); } catch {}
+    try { pp.readline?.close(); } catch { /* best-effort: readline may already be closed */ }
     pp.io.kill();
     // Best-effort cleanup of the per-session MCP config file. Doesn't block
     // the kill — if removal fails (file already gone, fs error), the next
