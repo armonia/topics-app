@@ -32,6 +32,7 @@ import { detectUserInputRequest } from "../ask-user-detector";
 import { PARTIAL_ARGS_EMIT_MS, extractPrimaryToolArg } from "../partial-tool-input";
 import type { ProviderUsage } from "../types";
 import { decide, DEFAULT_AUTONOMY } from "./permissions";
+import { createTurnFiles } from "./turn-files";
 import { applyPromptCache } from "../prompt-cache";
 import {
   windowFor, clipToolResult, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS,
@@ -1000,6 +1001,9 @@ export async function runAgentTurn(
   const recovery: { attempts: number; imagesStripped?: boolean } = { attempts: 0 };
   if (opts.reminder) appendReminder(opts.history, opts.reminder);
   let compactedForNextRequest = false;
+  // The files THIS turn creates in its workspace: the guard lets the turn
+  // remove them and nothing else it finds there (`turn-files.ts`).
+  const turnFiles = createTurnFiles(opts.toolContext.workspace);
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     if (opts.signal?.aborted) {
@@ -1188,7 +1192,10 @@ export async function runAgentTurn(
       // once the wait is already over.
       const askSchema = detectUserInputRequest({ name: t.name!, input: t.input ?? {} });
       if (askSchema) handler.onUserInputRequired?.(t.id!, t.name!, askSchema);
-      const verdict = decide(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.autonomy ?? DEFAULT_AUTONOMY);
+      const verdict = decide(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.autonomy ?? DEFAULT_AUTONOMY, {
+        workspace: opts.toolContext.workspace || undefined,
+        createdByTurn: turnFiles.has,
+      });
       // THE USER'S HOOK SPEAKS AFTER THE PERMISSION, never instead of it
       // (HOOKS-02): a tool the verdict denied is not offered to the hook, and
       // a tool the verdict allowed can still be refused by the user's own
@@ -1203,6 +1210,9 @@ export async function runAgentTurn(
           tool_input: t.input ?? {},
         })
         : null;
+      // Opened only for a call that will really run, closed right after it:
+      // the registry keeps what did not exist before and exists now.
+      const doneWatching = verdict.allow && (!hookVeto || hookVeto.ok) ? turnFiles.watch(t.name!, (t.input ?? {}) as Record<string, unknown>) : () => {};
       // Tre famiglie di tool, un solo giro. I mestieri di Topics passano dai
       // loro handler (`topics-tools.ts`), quelli di macchina dai nostri, e i
       // tool dei server MCP globali dalla flotta (`mcp-fleet.ts`).
@@ -1231,6 +1241,7 @@ export async function runAgentTurn(
               ...opts.toolContext,
               onOutput: (tail) => handler.onToolUpdate?.(t.id!, tail),
             });
+      doneWatching();
       handler.onToolResult(t.id!, out.content, out.isError);
       // EVERY RESULT IS CAPPED HERE, whichever family produced it (machine,
       // Topics, MCP): one place, one budget. The UI above gets the whole

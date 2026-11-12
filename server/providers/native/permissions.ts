@@ -30,7 +30,11 @@
  * riga di configurazione non deve poter lanciare `rm -rf`.
  */
 
+import { isAbsolute, relative, resolve } from "node:path";
 import type { AutonomyLevel } from "../../../shared/types";
+import { argsAfterWord, callCwd, resolveTarget, segmentCreations, unquote, walkShell, type ShellSegment } from "./shell-walk";
+import { isWithin, topmostNew } from "./turn-files";
+import { isRemovableTempPath } from "./temp-roots";
 
 export type ToolDecision =
   | { allow: true }
@@ -81,7 +85,7 @@ const DESTRUCTIVE = [
   { re: /\bgit\s+clean\s+-[a-zA-Z]*f/, what: "git clean -f" },
   { re: /\bgit\s+push\b.*(--force\b|-f\b)/, what: "git push forzato" },
   { re: /\bgit\s+branch\s+-D\b/, what: "cancellazione forzata di un ramo" },
-  { re: /\b(mkfs|dd)\s/, what: "scrittura diretta su disco" },
+  { re: /\bmkfs\s/, what: "scrittura diretta su disco" },
   { re: /\bchmod\s+-R\s+777\b/, what: "chmod -R 777" },
   { re: />\s*\/dev\/(sd|disk)/, what: "scrittura su un device" },
   // Il caso che ha fatto storia altrove: cancellare la home o la radice.
@@ -89,25 +93,98 @@ const DESTRUCTIVE = [
 
 const RM_FORCED = /\brm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)/;
 const RM_ROOT = /\brm\s+.*(\s|^)(\/|~|\$HOME)(\s|$)/;
-const TEMP_ROOT = /^(\/tmp|\/private\/tmp|\/var\/folders|\/private\/var\/folders)\/[^\s]+$/;
 
 /**
- * Returns the reason when an `rm` segment is dangerous, otherwise null.
- * An rm whose targets all sit under a temp root (no `..`) only removes the
- * turn's own temporaries, so it passes.
+ * What a turn may touch besides the temp folders: the files it created itself.
+ *
+ * `workspace` anchors relative paths and bounds the second clause; without one
+ * only the temp folders count. `createdByTurn` is the registry of `turn-files.ts`
+ * (earlier calls of the same turn); what an earlier part of the SAME command
+ * creates counts too, read from the command text. Both are optional on purpose:
+ * a caller that passes neither gets the rule as it was before the scope
+ * existed, minus the parsing bugs listed in `rmReason`.
  */
-function rmReason(segment: string): string | null {
-  const forced = RM_FORCED.test(segment);
-  const root = RM_ROOT.test(segment);
-  if (!forced && !root) return null;
-  const args = segment.slice(segment.search(/\brm\b/)).split(/\s+/).slice(1);
-  const targets = args.filter((a) => !a.startsWith("-"));
-  const unquoted = targets.map((t) => t.replace(/^["']|["']$/g, ""));
-  const allTemp =
-    unquoted.length > 0 &&
-    unquoted.every((t) => TEMP_ROOT.test(t) && !t.includes(".."));
-  if (allTemp) return null;
-  return root ? "rm sulla radice o sulla home" : "rm ricorsivo o forzato";
+export interface PermissionScope {
+  workspace?: string;
+  createdByTurn?: (abs: string) => boolean;
+}
+
+/** A path with nothing left for the shell to rewrite. */
+const PLAIN_PATH = /^[^$`(){}]*$/;
+
+/** Strictly inside the workspace: never the workspace itself, never a parent. */
+function insideWorkspace(abs: string, workspace: string): boolean {
+  const rel = relative(resolve(workspace), abs);
+  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+}
+
+/** An `rm` target the turn may remove: under a temp folder, or a file it created in its workspace. */
+function mayRemove(abs: string, scope: PermissionScope | undefined, madeHere: string[]): boolean {
+  if (isRemovableTempPath(abs)) return true;
+  const ws = scope?.workspace;
+  if (!ws || !PLAIN_PATH.test(abs) || !insideWorkspace(abs, ws)) return false;
+  return madeHere.some((m) => isWithin(abs, m)) || !!scope.createdByTurn?.(abs);
+}
+
+/**
+ * Returns the reason when an `rm` in `cmd` is dangerous, otherwise null.
+ *
+ * An rm whose targets all sit under a temp root, or are files the turn created
+ * in its workspace, only removes the turn's own things, so it passes.
+ *
+ * HOW THE TARGETS ARE READ matters as much as the list. Three parsing bugs used
+ * to refuse temp-only commands (measured 10-12 Nov, 113 refusals): a trailing
+ * space before `&&` became an empty target, `2>/dev/null` became a target, and
+ * a relative path after `cd /tmp` was judged against the workspace. Anything the
+ * reader cannot resolve to one absolute path stays refused.
+ */
+function rmReason(cmd: string, startCwd: string | null, scope: PermissionScope | undefined): string | null {
+  let reason: string | null = null;
+  // Folders and files an earlier part of this very command creates and that do
+  // not exist yet: `cat > s.sh <<EOF ...; bash s.sh; rm -f s.sh`.
+  const madeHere: string[] = [];
+  walkShell(cmd, startCwd, (seg: ShellSegment) => {
+    if (reason) return;
+    const forced = RM_FORCED.test(seg.text);
+    const root = RM_ROOT.test(seg.text);
+    if (forced || root) {
+      const targets = argsAfterWord(seg.text, /\brm\b/).filter((a) => !a.startsWith("-"));
+      const allMine =
+        targets.length > 0 &&
+        targets.every((t) => {
+          const abs = resolveTarget(t, seg);
+          return abs !== null && mayRemove(abs, scope, madeHere);
+        });
+      if (!allMine) reason = root ? "rm sulla radice o sulla home" : "rm ricorsivo o forzato";
+    }
+    const ws = scope?.workspace;
+    if (ws) {
+      for (const abs of segmentCreations(seg)) {
+        const top = topmostNew(abs, ws);
+        if (top) madeHere.push(top);
+      }
+    }
+  });
+  return reason;
+}
+
+const DD_WORD = /\bdd\s/;
+const DD_OUTPUT = /\bof=(\S+)/g;
+
+/**
+ * `dd` is destructive through ONE thing: where it writes (`of=`). The old rule
+ * matched the word `dd` anywhere, and refused `yyyy-mm-dd` in a comment, a
+ * `<dd>` tag in a JSX file, a python variable named `dd` and `for dd in ...`
+ * (7 refusals, 10-12 Nov, none of them a disk write). A segment now counts only
+ * when it names `dd` and an `of=` that is not an absolute path under a temp
+ * folder: `of=/dev/disk2`, `of=$DEV`, `of=~/x` and `of=../x` all stay refused.
+ */
+function ddRefused(cmd: string): boolean {
+  return cmd.split(/[;&|\n]+/).some((seg) => {
+    if (!DD_WORD.test(seg)) return false;
+    const outputs = [...seg.matchAll(DD_OUTPUT)].map((m) => unquote(m[1]!));
+    return !outputs.every((o) => o.startsWith("/") && !o.includes("..") && isRemovableTempPath(resolve(o)));
+  });
 }
 
 /**
@@ -121,6 +198,7 @@ export function decide(
   tool: string,
   input: Record<string, unknown>,
   level: AutonomyLevel = DEFAULT_AUTONOMY,
+  scope?: PermissionScope,
 ): ToolDecision {
   if (READ_ONLY.has(tool)) return { allow: true };
 
@@ -138,17 +216,15 @@ export function decide(
   // auto-apply: si lavora, ma le cose irreversibili no.
   if (tool === "bash") {
     const cmd = String(input.command ?? "");
-    for (const seg of cmd.split(/[;&|\n]+/)) {
-      const what = rmReason(seg);
-      if (what) {
-        return {
-          allow: false,
-          reason:
-            `Comando bloccato (${what}): è un'operazione che non si annulla, e questa ` +
-            `conversazione non è in modalità «yolo». Se serve davvero, chiedilo all'utente. ` +
-            `rm su /tmp e sulle cartelle temporanee è invece permesso.`,
-        };
-      }
+    const what = rmReason(cmd, callCwd(input, scope?.workspace), scope);
+    if (what) {
+      return {
+        allow: false,
+        reason:
+          `Comando bloccato (${what}): è un'operazione che non si annulla, e questa ` +
+          `conversazione non è in modalità «yolo». Se serve davvero, chiedilo all'utente. ` +
+          `rm su /tmp e sulle cartelle temporanee è invece permesso.`,
+      };
     }
     for (const d of DESTRUCTIVE) {
       if (d.re.test(cmd)) {
@@ -159,6 +235,14 @@ export function decide(
             `conversazione non è in modalità «yolo». Se serve davvero, chiedilo all'utente.`,
         };
       }
+    }
+    if (ddRefused(cmd)) {
+      return {
+        allow: false,
+        reason:
+          `Comando bloccato (scrittura diretta su disco): è un'operazione che non si annulla, e questa ` +
+          `conversazione non è in modalità «yolo». Se serve davvero, chiedilo all'utente.`,
+      };
     }
   }
 

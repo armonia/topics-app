@@ -253,6 +253,23 @@ scelta; lo stesso limite non scritto è una sorpresa.
 - **GIVEN** un comando di uso quotidiano col nome simile
 - **THEN** SHALL passare
 
+#### Scenario: il turno lavora nelle proprie cartelle temporanee
+- **GIVEN** il livello intermedio e un comando che cancella, scrive o parte da
+  `/tmp`, `/private/tmp` o `$TMPDIR`, con o senza un `cd`, una variabile o un
+  `2>/dev/null` accanto
+- **THEN** SHALL passare, e `write_file`, `edit_file` e il `cwd` di `bash` SHALL
+  poter arrivare in quelle cartelle da qualunque cartella di lavoro
+- **AND** un percorso che non si lascia ridurre a uno solo, un `..`, una radice
+  o la cartella personale SHALL restare rifiutato
+
+#### Scenario: il turno rimuove i file che ha creato lui
+- **GIVEN** un file che il turno ha creato nella propria cartella di lavoro, in
+  una chiamata precedente o in una parte precedente dello stesso comando, e che
+  prima non esisteva
+- **THEN** la sua rimozione SHALL passare
+- **AND** un file trovato lì, o creato fuori dalla cartella di lavoro, o creato
+  da uno script che il turno ha lanciato, SHALL restare rifiutato
+
 #### Scenario: un valore di autonomia sconosciuto
 - **GIVEN** un livello non riconosciuto
 - **THEN** SHALL valere il predefinito, non quello permissivo

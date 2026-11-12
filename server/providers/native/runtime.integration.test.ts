@@ -12,8 +12,8 @@
   * @covers RT-11
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, copyFileSync } from "fs";
-import { tmpdir } from "os";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, copyFileSync, existsSync } from "fs";
+import { homedir, tmpdir } from "os";
 import { join, resolve } from "path";
 import { hasCredentials, getAccessToken } from "./auth";
 import { runAgentTurn, type AgentMessage } from "./agent-loop";
@@ -297,8 +297,12 @@ describe("i tool di coding", () => {
     const abs = await executeTool("read_file", { path: "/etc/hosts" }, ctx());
     expect(abs.isError).toBe(true);
 
-    const w = await executeTool("write_file", { path: "../fuori.txt", content: "no" }, ctx());
+    // Outside the workspace AND outside the scratch folders: the workspace sits
+    // under the OS temp dir, so a path one level up would land in a scratch folder.
+    const home = join(homedir(), "native-tools-test-never-created.txt");
+    const w = await executeTool("write_file", { path: home, content: "no" }, ctx());
     expect(w.isError).toBe(true);
+    expect(existsSync(home)).toBe(false);
   });
 
   // Il vicino che comincia per lo stesso prefisso: `startsWith` lo lascerebbe

@@ -36,6 +36,7 @@ import { resolveSearchRoot } from "./search-root";
 import { imageShape } from "../../services/image-shape";
 import { imageCaption, type ToolImage } from "./image-normalize";
 import { insideAnyRoot, loadWriteRoots } from "./write-roots";
+import { scratchRoots } from "./temp-roots";
 
 import { expandHome } from "../../lib/expand-home";
 /**
@@ -172,8 +173,11 @@ function safePath(ctx: ToolContext, p: string): string {
 }
 
 /**
- * Like `safePath`, for WRITING: the workspace plus the roots declared for it in
- * `native-write-roots.json` (see `write-roots.ts`). Everything else stays closed.
+ * Like `safePath`, for WRITING: the workspace, the roots declared for it in
+ * `native-write-roots.json` (see `write-roots.ts`), and the scratch folders
+ * (`/tmp`, `/private/tmp`, `$TMPDIR`: `temp-roots.ts`). Everything else stays
+ * closed. The path is resolved before it is compared, so `/tmp/../etc/x` is
+ * `/etc/x` and stays refused.
  */
 function safeWritePath(ctx: ToolContext, raw: string): string {
   const expanded = expandHome(raw);
@@ -181,7 +185,18 @@ function safeWritePath(ctx: ToolContext, raw: string): string {
     return safePath(ctx, expanded);
   } catch (err) {
     const abs = isAbsolute(expanded) ? resolve(expanded) : resolve(ctx.workspace, expanded);
-    if (insideAnyRoot(abs, loadWriteRoots(resolve(ctx.workspace)))) return abs;
+    if (insideAnyRoot(abs, [...loadWriteRoots(resolve(ctx.workspace)), ...scratchRoots()])) return abs;
+    throw err;
+  }
+}
+
+/** The directory a `bash` call starts in: the workspace, or the scratch folders that a turn works in. */
+function safeCwd(ctx: ToolContext, raw: string): string {
+  try {
+    return safePath(ctx, raw);
+  } catch (err) {
+    const abs = isAbsolute(raw) ? resolve(raw) : resolve(ctx.workspace, raw);
+    if (insideAnyRoot(abs, scratchRoots())) return abs;
     throw err;
   }
 }
@@ -731,7 +746,7 @@ export async function executeTool(
       }
 
       case "bash": {
-        const cwd = input.cwd ? safePath(ctx, String(input.cwd)) : resolve(ctx.workspace);
+        const cwd = input.cwd ? safeCwd(ctx, String(input.cwd)) : resolve(ctx.workspace);
         const { out, code, annullato } = await runCommand(
           "/bin/bash", ["-lc", String(input.command)],
           cwd, resolveBashTimeoutMs(input.timeout, ctx.bashTimeoutMs ?? DEFAULT_BASH_TIMEOUT_MS), ctx.signal,
