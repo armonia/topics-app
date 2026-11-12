@@ -314,6 +314,7 @@ test.describe("Cerca nella pane: barre per pane, terminale", () => {
     await expect(term.locator(".xterm-rows")).toContainText("linea 300", { timeout: 15_000 });
     await page.keyboard.press("Meta+f");
     await expect(term.getByTestId("find-bar")).toBeVisible();
+    await expect(term.getByTestId("find-input")).toBeFocused();
     await page.keyboard.type("linea 150");
     // Once on screen: the command line holds «150» too, but not «linea 150».
     await expect(term.getByTestId("find-count")).toHaveText(/^[01] di 1$/, { timeout: 10_000 });
@@ -604,7 +605,10 @@ test.describe("Cerca nella pane: le schermate", () => {
           await openTopic(page, new RegExp(topicName));
           await page.getByTestId("mobile-pane-find").filter({ visible: true }).first().click({ timeout: 15_000 });
         } else {
-          await expect(page.locator(`[data-pane-id="${topicId}"]`).filter({ visible: true }).first()).toBeVisible({ timeout: 15_000 });
+          // The tab shows before the chat body mounts and registers its finder:
+          // ⌘F before that opens nothing. The body's root carries the topic id,
+          // and it is the component that registers the finder.
+          await expect(page.locator(`[data-chat-topic-id="${topicId}"]`).filter({ visible: true }).first()).toBeVisible({ timeout: 15_000 });
           await blurAll(page);
           await page.keyboard.press("Meta+f");
         }
