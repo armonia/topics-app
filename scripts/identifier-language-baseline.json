@@ -66,11 +66,8 @@
     ],
     "client/src/components/Board/KanbanBoardPane.tsx": [
       "compRect",
-      "motivi",
-      "progetto",
       "raf",
-      "raf2",
-      "snelliti"
+      "raf2"
     ],
     "client/src/components/Board/PreviewMedia.tsx": [
       "expandable"

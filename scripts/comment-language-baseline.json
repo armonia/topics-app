@@ -24,7 +24,7 @@
     "client/src/components/Board/FloatingTaskComposer.tsx": 111,
     "client/src/components/Board/GlobalCapControl.test.tsx": 26,
     "client/src/components/Board/GlobalCapControl.tsx": 1,
-    "client/src/components/Board/KanbanBoardPane.tsx": 516,
+    "client/src/components/Board/KanbanBoardPane.tsx": 296,
     "client/src/components/Board/NightModeCard.test.ts": 14,
     "client/src/components/Board/NightModeCard.tsx": 27,
     "client/src/components/Board/PreviewMedia.test.ts": 25,
