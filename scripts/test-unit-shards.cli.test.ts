@@ -122,6 +122,8 @@ if (isRed) process.exit(7);
   if (options.timeoutMs !== undefined) env.TOPICS_TEST_TIMEOUT_MS = options.timeoutMs;
   if (options.shards !== undefined) env.TOPICS_UNIT_SHARDS = options.shards;
   delete env.TOPICS_UNIT_JUNIT_OUT;
+  // The outer runner sets it for this very file; the inner one must start from a bare environment.
+  delete env.TOPICS_GATE_SLOT_DIR;
   if (options.junitOut !== undefined) env.TOPICS_UNIT_JUNIT_OUT = options.junitOut;
   env.PATH = `${dir}${delimiter}${env.PATH ?? ""}`;
   env.TOPICS_GATE_HELD = "unit-shards-cli-fixture";
