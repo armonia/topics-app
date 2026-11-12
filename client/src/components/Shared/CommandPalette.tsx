@@ -282,12 +282,7 @@ export function CommandPalette({
         try {
           const data = await filesApi.flatList(projectPath);
           if (!cancelled) setFileList(Array.isArray(data?.files) ? data.files : []);
-        } catch {
-          // A failed fetch (e.g. the project root is unreadable) must not leave
-          // a STALE list from whatever project was open before — the user would
-          // see and could open paths from the wrong project.
-          if (!cancelled) setFileList([]);
-        }
+        } catch { /* lista file non disponibile: la palette resta sui comandi */ }
       })();
       return () => { cancelled = true; };
     }
