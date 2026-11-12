@@ -238,7 +238,7 @@ describe("checks under load: the semaphore, the memory floor, the shutdown", () 
       .toBeGreaterThan(beat.indexOf("memSignal.sample()"));
     // The brake kills a check the way the round's own kill does: with its process group.
     expect(server).toMatch(/createSwapBrake\(\{\s*kill:\s*killCheckTree,/);
-    const route = readFileSync(join(import.meta.dir, "../routes/tasks.ts"), "utf8");
+    const route = readFileSync(join(import.meta.dir, "../routes/tasks-checks-delivery.ts"), "utf8");
     expect(route).toContain("memoryFloor: opts?.checksMemoryFloor,");
   });
 });
