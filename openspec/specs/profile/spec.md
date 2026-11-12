@@ -315,3 +315,15 @@ Con il relay attivo SHALL vincere l'indirizzo del relay, che arriva ovunque.
 #### Scenario: nel browser
 - **GIVEN** l'origine della pagina è già un indirizzo http
 - **THEN** il link SHALL usare quella, come prima
+
+### Requirement: PUBLIC-PROFILE-ESCAPE-01 — Il nome del proprietario si stampa sempre con l'escape
+
+La pagina pubblica del profilo è servita a chiunque abbia il link, e il nome viene
+da `people.display_name`, testo libero. Ogni punto in cui la pagina stampa il nome
+SHALL passarlo da `escapeHtml`, attributi compresi: un apice nel nome chiudeva il
+`content="…"` della meta description.
+
+#### Scenario: un apice nel nome non esce dall'attributo
+- **GIVEN** un proprietario il cui nome contiene `"` e `<`
+- **WHEN** si apre la sua pagina pubblica
+- **THEN** il nome compare con l'escape in ogni posizione, meta description compresa
