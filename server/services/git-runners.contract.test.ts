@@ -85,7 +85,7 @@ const RESULT_RUNNERS: { name: string; timeoutCode: number; call: () => Promise<u
   {
     name: "task-automerge defaultRunGit", timeoutCode: 124,
     call: () => automergeRunGit(dir, ["rev-parse", MARK]),
-    argv: () => ["git", "rev-parse", MARK], cwd: () => dir,
+    argv: () => ["git", "-C", dir, "rev-parse", MARK],
   },
   {
     name: "task-automerge runRepoScript", timeoutCode: 124,
@@ -95,7 +95,7 @@ const RESULT_RUNNERS: { name: string; timeoutCode: number; call: () => Promise<u
   {
     name: "worktree-residue defaultRunGit", timeoutCode: 124,
     call: () => residueRunGit(dir, ["rev-parse", MARK]),
-    argv: () => ["git", "rev-parse", MARK], cwd: () => dir,
+    argv: () => ["git", "-C", dir, "rev-parse", MARK],
   },
 ];
 
