@@ -196,7 +196,7 @@ export async function captureAnnotatedScreenshotOnPage(
         const c = document.getElementById('__topics_observe_overlay');
         if (c) c.remove();
       });
-    } catch {}
+    } catch { /* overlay cleanup on an already-failing path: the original error is rethrown */ }
     throw err;
   }
 }

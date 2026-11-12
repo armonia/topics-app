@@ -171,7 +171,7 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
         const body = route.request().postDataJSON();
         captured.fastMode = body?.fastMode;
         captured.planMode = body?.planMode;
-      } catch {}
+      } catch { /* non-JSON body: captured stays undefined and the assertion reports it */ }
       await route.fulfill({
         status: 200,
         headers: { "Content-Type": "text/event-stream" },
@@ -219,7 +219,7 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
         const body = route.request().postDataJSON();
         captured.fastMode = body?.fastMode;
         captured.planMode = body?.planMode;
-      } catch {}
+      } catch { /* non-JSON body: captured stays undefined and the assertion reports it */ }
       await route.fulfill({
         status: 200,
         headers: { "Content-Type": "text/event-stream" },

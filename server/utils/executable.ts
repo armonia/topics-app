@@ -35,7 +35,7 @@ export function probeBinaryPath(path: string): Promise<ProbeResult> {
     }
 
     const timer = setTimeout(() => {
-      try { child.kill(); } catch {}
+      try { child.kill(); } catch { /* probe child may have exited already */ }
       finish({ available: true, path });
     }, PROBE_TIMEOUT_MS);
 

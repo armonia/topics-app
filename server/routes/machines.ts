@@ -99,6 +99,7 @@ const UPSTREAM_STATUS: Record<NodeFailureReason, number> = {
   no_such_repo: 502,
   branch_unreachable: 502,
   payload_too_large: 502,
+  rejected: 502,
   not_found: 502,
   server_error: 502,
 };

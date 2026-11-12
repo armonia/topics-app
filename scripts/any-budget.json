@@ -1,6 +1,6 @@
 {
-  "max": 332,
-  "measured": 332,
+  "max": 395,
+  "measured": 395,
   "updated": "2026-11-12",
-  "why": "Il tetto e' la misura del giorno in cui e' stato scritto: fallisce se sale, e si riscrive quando scende. Non e' un obiettivo, e' un cricchetto."
+  "why": "Il tetto e' la misura del giorno in cui e' stato scritto: fallisce se sale, e si riscrive quando scende. Non e' un obiettivo, e' un cricchetto. 12/11: da 332 a 395 non perche' il debito sia salito ma perche' il glob senza :(glob) saltava i 144 file direttamente sotto server/ (utils.ts, db.ts...): misurati, erano 445, e la passata su server/utils.ts li ha portati a 395."
 }

@@ -58,14 +58,14 @@ function readIgnore(dir: string, base: string, parent?: IgnoreSet): IgnoreSet {
   let content: string | null = null;
   try {
     if (existsSync(f)) content = readFileSync(f, "utf-8");
-  } catch {}
+  } catch { /* unreadable .gitignore = no rules from this dir */ }
   if (content === null && parent) return parent;
   const set = parent ? parent.clone() : new IgnoreSet();
   // A pattern that is not a valid regex throws halfway through the file: the
   // rules read before it stay, as they always have.
   try {
     if (content !== null) set.addFile(content, base);
-  } catch {}
+  } catch { /* invalid pattern: rules read before it are kept */ }
   return set;
 }
 

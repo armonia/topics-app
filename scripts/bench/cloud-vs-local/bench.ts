@@ -80,7 +80,7 @@ async function localCard(i: number) {
   // The result is not necessarily the last line: a task_summary can arrive after it.
   const result = out.split("\n").filter((l) => l.includes('"type":"result"')).at(-1) ?? "";
   let outcome = "error";
-  try { if (code === 0 && JSON.parse(result).subtype === "success") outcome = "done"; } catch {}
+  try { if (code === 0 && JSON.parse(result).subtype === "success") outcome = "done"; } catch { /* unparsable result line counts as outcome error */ }
   return { i, mode: "local", ms: Date.now() - t0, outcome, exit: code, tail: result.slice(-400) };
 }
 
