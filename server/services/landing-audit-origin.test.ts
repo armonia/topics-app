@@ -10,6 +10,8 @@
  * the card's name was there.
  *
  * Real git, with a bare origin: the questions are git's to answer.
+ *
+ * @covers LAND-05
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync, unlinkSync } from "node:fs";
