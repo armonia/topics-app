@@ -1,3 +1,7 @@
+/**
+ * The tray's machine submenus read the same overview as the Processes view. Card 672744e2.
+ * @covers HUBBR-08
+ */
 import { describe, expect, test } from 'bun:test';
 import type { MachineOverviewRow } from '../../../shared/machine-overview';
 import { trayMachines } from './trayMachines';

@@ -2,6 +2,7 @@
  * The overview gives every machine the same row; the provider facts (cost,
  * location) appear ONLY on a machine an adapter recognises, and a node that
  * does not answer says why. Card 672744e2.
+ * @covers HUBBR-08
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
