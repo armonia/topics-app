@@ -26,6 +26,7 @@ mod shortcuts_generated;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod chords;
 mod tray_machines;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod tray_menu;
 mod tray_quota;
 #[cfg(target_os = "windows")]
@@ -3291,7 +3292,7 @@ fn rebuild_tray_menu(app: &tauri::AppHandle) {
 #[cfg(target_os = "macos")]
 fn refresh_hub_menu(app: &tauri::AppHandle) {
     let base = tray_quota::hub_base();
-    let snap = tray_menu::Snapshot::fetch(&base, tray_menu::backup_state_path().as_deref());
+    let snap = tray_menu::Snapshot::fetch(&base, tray_menu::backup_cache_path().as_deref());
     let prefs = tray_menu::prefs_path().map(|p| tray_menu::load_prefs(&p)).unwrap_or_default();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -3329,10 +3330,13 @@ fn run_hub_action(app: &tauri::AppHandle, id: &str) {
                     .buttons(MessageDialogButtons::OkCancelCustom("Chiudi".into(), "Annulla".into()))
                     .blocking_show();
                 // The census shown in the menu may be a minute old and the dialog took longer:
-                // the pids are checked again against a fresh read before anything is signalled.
+                // the service is asked for a new one (`fresh=1`, otherwise it may answer from its
+                // cache) and a census older than 90 s is refused before anything is signalled.
+                let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
                 tray_menu::close_confirmed(
                     ok,
-                    || tray_quota::http_get(&tray_quota::hub_base(), "/api/mac/procs"),
+                    now_ms,
+                    || tray_quota::http_get(&tray_quota::hub_base(), "/api/mac/procs?fresh=1"),
                     unit.as_deref(),
                     &pids,
                     tray_menu::terminate,

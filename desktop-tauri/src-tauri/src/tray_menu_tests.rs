@@ -4,7 +4,7 @@ use super::*;
 use std::net::TcpListener;
 use std::sync::mpsc;
 
-const PROCS: &str = r#"{"units":[
+const PROCS: &str = r#"{"at":1000,"units":[
   {"id":"macos","name":"macOS","type":"macos","closable":false,"memMB":5300,"use":{},"returns":"lo gestisce macOS","pids":[1,2]},
   {"id":"agent:1","name":"Claude · alpha","type":"sessione","owner":{"label":"Claude (app)"},"use":{"text":"aperta da 24 h"},"returns":"non torna da sola","verb":"Chiudi sessione","closable":true,"memMB":1010,"pids":[91001,91002]},
   {"id":"rest:1","name":"Vecchio server","type":"resto","use":{"text":"nessun client"},"returns":"non torna","verb":"Chiudi","closable":true,"memMB":300,"pids":[91050]},
@@ -122,8 +122,8 @@ fn backup_words_per_state() {
     assert_eq!(backup_lines(None, now)[0], "Backup · nessun dato");
 }
 
-const BOARD: &str = r#"{"accounts":[{"label":"Claude · a","used":39,"gauge":{"short":"frenato fino a lun","say":"Oggi consuma troppo."},"access":{"state":"ok","say":"Collegato dal 13 set."}},{"label":"Codex · b","used":5,"gauge":{"short":"libero","say":"Ok."},"access":{"state":"scaduto","say":"Accesso scaduto."}}]}"#;
-const OVERVIEW: &str = r#"{"providers":[{"id":"claude","accounts":[{"label":"Claude · a","quotas":[{"key":"5h","usedPct":61,"resetText":"2h10"},{"key":"7d","usedPct":39}]}]}],
+const BOARD: &str = r#"{"accounts":[{"id":"claude:a@example.org","email":"a@example.org","label":"Claude · a","used":39,"gauge":{"short":"frenato fino a lun","say":"Oggi consuma troppo."},"access":{"state":"ok","say":"Collegato dal 13 set."}},{"label":"Codex · b","used":5,"gauge":{"short":"libero","say":"Ok."},"access":{"state":"scaduto","say":"Accesso scaduto."}}]}"#;
+const OVERVIEW: &str = r#"{"providers":[{"id":"claude","accounts":[{"id":"a@example.org","label":"a@example.org","quotas":[{"key":"5h","usedPct":61,"resetText":"2h10"},{"key":"7d","usedPct":39}]}]}],
   "plans":{"Claude · a":{"plan":"Ultra","price":"180 euro","period":{"from":"2026-10-23","to":"2026-11-23"}}},
   "apiSpend":{"line":"API Claude: 0 oggi"},
   "credits":{"Claude · a":{"remaining":40,"limit":250,"renewsAt":"2026-11-05","models":[{"name":"Fable","pct":12}]},"Codex · b":{"nobonus":true}}}"#;
@@ -168,7 +168,7 @@ fn service_down_keeps_backup_when_configured() {
 #[test]
 fn full_menu_has_every_section() {
     let t = dump_text(&build_menu(&full_snap(), Prefs { five_hour: true, ..Default::default() }, 0, true));
-    for want in ["Claude · a · 39% · frenato fino a lun", "Codex · b · 5% · libero · non risponde", "Ritmo di oggi", "Claude · a · 57% in 24 h", "Processi", "Apri Processi",
+    for want in ["Claude · a · 39% · frenato fino a lun", "Codex · b · 5% · libero · non risponde", "Ritmo di oggi", "Claude · a · 57,0% in 24 h", "Processi", "Apri Processi",
         "Topics · 11.4%", "sessione · Stato chiamate", "Chat Topics · Chat di prova", "Ultimo lavoro · Revisione card · done", "Priorità normale ✓", "Rinnovi",
         "rinnovo 2026-11-23", "Togli lo sblocco di claude", "Ferma i lavori nuovi", "Fascia 5 ore ✓", "Automazioni · 5 ti aspettano · 3 rotte", "In calendario · 39 · prossimo: Rinnovo", "Backup · nessun dato"] {
         assert!(t.contains(want), "manca «{want}» in:\n{t}");
@@ -220,10 +220,10 @@ fn close_waits_for_the_yes_and_rereads_the_census() {
     let p = Some(PROCS.to_string());
     let mut killed: Vec<u32> = Vec::new();
     // no yes: the census is not even read, nothing is signalled
-    let n = close_confirmed(false, || panic!("no read without a yes"), Some("agent:1"), &[91001, 91002], |p| { killed.extend_from_slice(p); p.len() });
+    let n = close_confirmed(false, 0, || panic!("no read without a yes"), Some("agent:1"), &[91001, 91002], |p| { killed.extend_from_slice(p); p.len() });
     assert_eq!((n, killed.len()), (0, 0));
     // yes, same census: both pids
-    let n = close_confirmed(true, || p.clone(), Some("agent:1"), &[91001, 91002], |p| { killed.extend_from_slice(p); p.len() });
+    let n = close_confirmed(true, 1_000, || p.clone(), Some("agent:1"), &[91001, 91002], |p| { killed.extend_from_slice(p); p.len() });
     assert_eq!((n, killed.clone()), (2, vec![91001, 91002]));
     // yes, but the unit lost one pid and another unit now owns nothing: only the survivor
     let fresh = Some(PROCS.replace("[91001,91002]", "[91002]"));
@@ -240,7 +240,7 @@ fn prefs_round_trip() {
     let f = dir.join("p.json");
     assert!(load_prefs(&f).five_hour);
     let p = toggle_pref(&f, "api-credit");
-    assert!(p.api_credit && load_prefs(&f).api_credit);
+    assert!(!p.api_credit && !load_prefs(&f).api_credit, "on by default, like the old tray");
     assert!(!toggle_pref(&f, "five-hour").five_hour);
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -259,10 +259,70 @@ fn dump_live() {
             let f = |n: &str| std::fs::read_to_string(std::path::Path::new(&dir).join(n)).ok();
             Snapshot { board: f("board.json"), procs: f("procs.json"), backup: f("backup.json"), backup_set: true, ..Default::default() }
         }
-        Err(_) => Snapshot::fetch(&crate::tray_quota::hub_base(), backup_state_path().as_deref()),
+        Err(_) => Snapshot::fetch(&crate::tray_quota::hub_base(), backup_cache_path().as_deref()),
     };
     let now = std::env::var("TRAY_MENU_NOW").ok().and_then(|n| n.parse().ok()).unwrap_or_else(|| {
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64
     });
     println!("---MENU---\n{}---END---", dump_text(&build_menu(&snap, Prefs::default(), now, true)));
+}
+
+#[test]
+fn a_stale_census_is_refused_for_the_close() {
+    let p = Some(PROCS.to_string());
+    let mut killed: Vec<u32> = Vec::new();
+    // taken at 1000 ms, now 200 s later: nothing is signalled
+    let n = close_confirmed(true, 201_000, || p.clone(), Some("agent:1"), &[91001], |p| { killed.extend_from_slice(p); p.len() });
+    assert_eq!((n, killed.len()), (0, 0));
+    assert!(!census_is_fresh(r#"{"units":[]}"#, 1_000), "no time on it: refused");
+    assert!(census_is_fresh(PROCS, 60_000));
+}
+
+#[test]
+fn switching_keeps_the_other_keys_of_the_file() {
+    let dir = std::env::temp_dir().join(format!("tray-keep-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let f = dir.join("p.json");
+    std::fs::write(&f, r#"{"other":"kept","fiveHour":true}"#).unwrap();
+    toggle_pref(&f, "five-hour");
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(&f).unwrap()).unwrap();
+    assert_eq!(v["other"], "kept");
+    assert_eq!(v["fiveHour"], false);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn pace_keeps_emails_and_decimals() {
+    let h = Some(r#"{"today":[{"account":"a@example.org","last24h":2.3,"perDay":11.5}]}"#.to_string());
+    let t = dump_text(&pace_nodes(&h));
+    assert!(t.contains("a@example.org · 2,3% in 24 h · ok 11,5% · 0,2×"), "{t}");
+}
+
+#[test]
+fn the_backup_comes_from_the_service_and_survives_it_going_down() {
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", l.local_addr().unwrap());
+    std::thread::spawn(move || {
+        // the snapshot asks many paths: answer the backup one, refuse the rest
+        while let Ok((mut c, _)) = l.accept() {
+            let mut b = [0u8; 2048];
+            let k = c.read(&mut b).unwrap_or(0);
+            let ask = String::from_utf8_lossy(&b[..k]).to_string();
+            let reply: &[u8] = if ask.contains("/api/backup-mac") {
+                b"HTTP/1.0 200 OK\r\n\r\n{\"last_ok\":1800000000,\"last_error\":null}"
+            } else {
+                b"HTTP/1.0 404 Not Found\r\n\r\n{}"
+            };
+            let _ = c.write_all(reply);
+        }
+    });
+    let dir = std::env::temp_dir().join(format!("tray-bk-{}", std::process::id()));
+    let cache = dir.join("c.json");
+    let up = Snapshot::fetch(&base, Some(&cache));
+    assert!(up.backup_set && up.backup.is_some());
+    // the service is gone: the last good answer is read from the cache
+    let down = Snapshot::fetch("http://127.0.0.1:1", Some(&cache));
+    assert!(down.backup_set && down.backup.as_deref().unwrap().contains("last_ok"));
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(!Snapshot::fetch("http://127.0.0.1:1", Some(&cache)).backup_set, "never answered, no row");
 }

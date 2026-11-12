@@ -40,14 +40,22 @@ pub struct Snapshot {
     pub automations: Option<String>,
     pub live: Option<String>,
     pub gates: Option<String>,
-    /// Content of the backup state file, read from disk so it survives a dead service.
+    /// Backup state: asked of the service, and the last good answer kept on disk so the row survives a dead service.
     pub backup: Option<String>,
-    /// A backup state file is configured on this machine: only then the backup row exists.
+    /// The service has answered with a backup state at least once on this machine: only then the backup row exists.
     pub backup_set: bool,
 }
 
 impl Snapshot {
-    pub fn fetch(base: &str, backup_path: Option<&std::path::Path>) -> Self {
+    pub fn fetch(base: &str, backup_cache: Option<&std::path::Path>) -> Self {
+        let live_backup = http_get(base, "/api/backup-mac").filter(|b| serde_json::from_str::<Value>(b).map_or(false, |v| v.is_object()));
+        if let (Some(b), Some(p)) = (&live_backup, backup_cache) {
+            if let Some(dir) = p.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = std::fs::write(p, b);
+        }
+        let backup = live_backup.or_else(|| backup_cache.and_then(|p| std::fs::read_to_string(p).ok()));
         Snapshot {
             board: http_get(base, "/api/board"),
             overview: http_get(base, "/api/overview"),
@@ -56,8 +64,8 @@ impl Snapshot {
             automations: http_get(base, "/api/automations/summary"),
             live: http_get(base, "/api/live"),
             gates: http_get(base, "/api/gates"),
-            backup: backup_path.and_then(|p| std::fs::read_to_string(p).ok()),
-            backup_set: backup_path.is_some(),
+            backup_set: backup.is_some(),
+            backup,
         }
     }
     pub fn service_up(&self) -> bool {
@@ -77,16 +85,12 @@ fn n(v: &Value, k: &str) -> f64 {
 
 // ------------------------------------------------------------------ backup
 
-/// Where the backup state file lives: an environment override (tests) or the
-/// `backupState` key of the tray preferences. Nothing is guessed from the home
-/// directory: a machine with no such setting simply has no backup row.
-pub fn backup_state_path() -> Option<std::path::PathBuf> {
-    if let Ok(p) = std::env::var("TOPICS_BACKUP_STATE") {
+/// Where the last backup state the service gave is kept; overridable for tests.
+pub fn backup_cache_path() -> Option<std::path::PathBuf> {
+    if let Ok(p) = std::env::var("TOPICS_BACKUP_CACHE") {
         return Some(p.into());
     }
-    let text = std::fs::read_to_string(prefs_path()?).ok()?;
-    let v: Value = serde_json::from_str(&text).ok()?;
-    v.get("backupState").and_then(Value::as_str).filter(|p| !p.is_empty()).map(Into::into)
+    Some(std::path::Path::new(&std::env::var_os("HOME")?).join(".topics/tray-backup-cache.json"))
 }
 
 fn day_word(now: i64, at: i64) -> String {
@@ -179,7 +183,7 @@ pub fn procs_nodes(body: &Option<String>) -> Vec<Node> {
     let (sys, mut real): (Vec<&Value>, Vec<&Value>) = units.iter().partition(|u| s(u, "type") == "macos");
     real.sort_by(|a, b| n(b, "memMB").partial_cmp(&n(a, "memMB")).unwrap_or(std::cmp::Ordering::Equal));
     let total: f64 = real.iter().map(|u| n(u, "memMB")).sum();
-    let mut out = vec![note(format!("GIRA ADESSO · {} · {}", real.len(), mem_text(total))), item("open:processes", "Apri Processi (cerca, ordina)…"), Node::Sep];
+    let mut out = vec![note(format!("GIRA ADESSO · {} · {}", real.len(), mem_text(total))), item("open:processes", "Apri Processi…"), Node::Sep];
     for u in real.iter().take(PROCS_SHOWN) {
         let mut children = vec![note(format!(
             "{} // {}",
@@ -240,10 +244,13 @@ pub fn leftover_pids(body: &Option<String>) -> Vec<u32> {
 // ------------------------------------------------------------------ the menu
 
 /// The 5-hour window of one account, from the overview, when the preference asks for it.
-fn five_hour_row(overview: &Value, label: &str) -> Option<Node> {
+fn five_hour_row(overview: &Value, email: &str, board_id: &str) -> Option<Node> {
     let acc = overview.get("providers")?.as_array()?.iter()
         .flat_map(|p| p.get("accounts").and_then(Value::as_array).cloned().unwrap_or_default())
-        .find(|a| s(a, "label") == label)?;
+        .find(|a| {
+            let id = s(a, "id");
+            !id.is_empty() && (id == email || board_id.ends_with(&format!(":{id}")))
+        })?;
     let q = acc.get("quotas")?.as_array()?.iter().find(|q| s(q, "key").eq_ignore_ascii_case("5h"))?;
     let reset = Some(s(q, "resetText")).filter(|t| !t.is_empty()).map(|t| format!(" · libera tra {t}")).unwrap_or_default();
     Some(note(format!("5 ore {}%{reset}", n(q, "usedPct") as i64)))
@@ -261,7 +268,7 @@ fn quota_nodes(board: &Option<String>, overview: &Option<String>, prefs: Prefs) 
             kids.push(note(t));
         }
         if prefs.five_hour {
-            kids.extend(five_hour_row(&ov, s(a, "label")));
+            kids.extend(five_hour_row(&ov, s(a, "email"), s(a, "id")));
         }
         let offline = a.get("access").map_or(false, |x| s(x, "state") != "ok");
         let label = format!("{} · {}% · {}{}", s(a, "label"), n(a, "used") as i64, s(&g, "short"), if offline { " · non risponde" } else { "" });
@@ -279,7 +286,8 @@ fn pace_nodes(heavy: &Option<String>) -> Vec<Node> {
         .filter(|r| n(r, "perDay") > 0.0)
         .map(|r| {
             let x = n(r, "last24h") / n(r, "perDay");
-            note(format!("{} · {:.0}% in 24 h · ok {:.0}% · {:.1}×", s(r, "account"), n(r, "last24h"), n(r, "perDay"), x).replace('.', ","))
+            let num = |v: f64| format!("{v:.1}").replace('.', ",");
+            note(format!("{} · {}% in 24 h · ok {}% · {}×", s(r, "account"), num(n(r, "last24h")), num(n(r, "perDay")), num(x)))
         })
         .collect();
     if kids.is_empty() { Vec::new() } else { vec![sub("Ritmo di oggi", kids)] }
@@ -347,7 +355,12 @@ fn project_work_nodes(p: &Value) -> Vec<Node> {
     }
     for t in p.get("topics").and_then(Value::as_array).into_iter().flatten().take(6) {
         let title = Some(s(t, "title")).filter(|x| !x.is_empty()).or(Some(s(t, "name")).filter(|x| !x.is_empty())).unwrap_or("chat");
-        out.push(note(format!("Chat Topics · {title}")));
+        let url = s(t, "url");
+        if url.is_empty() {
+            out.push(note(format!("Chat Topics · {title}")));
+        } else {
+            out.push(item(&format!("session-open:{url}"), format!("Chat Topics · {title}")));
+        }
     }
     if let Some(j) = p.get("lastJob").filter(|j| !j.is_null()) {
         out.push(note(format!("Ultimo lavoro · {} · {}", s(j, "task"), s(j, "status"))));
@@ -435,7 +448,7 @@ pub fn prefs_path() -> Option<std::path::PathBuf> {
 pub fn load_prefs(path: &std::path::Path) -> Prefs {
     let v: Value = std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
     let b = |k: &str, d: bool| v.get(k).and_then(Value::as_bool).unwrap_or(d);
-    Prefs { five_hour: b("fiveHour", true), api_credit: b("apiCredit", false), cloud_bonus: b("cloudBonus", false) }
+    Prefs { five_hour: b("fiveHour", true), api_credit: b("apiCredit", true), cloud_bonus: b("cloudBonus", true) }
 }
 pub fn toggle_pref(path: &std::path::Path, key: &str) -> Prefs {
     let mut p = load_prefs(path);
@@ -445,7 +458,11 @@ pub fn toggle_pref(path: &std::path::Path, key: &str) -> Prefs {
         "cloud-bonus" => p.cloud_bonus = !p.cloud_bonus,
         _ => {}
     }
-    let body = json!({"fiveHour": p.five_hour, "apiCredit": p.api_credit, "cloudBonus": p.cloud_bonus});
+    // Keep every other key of the file: only the three switches are ours to write.
+    let mut body: Value = std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}));
+    body["fiveHour"] = json!(p.five_hour);
+    body["apiCredit"] = json!(p.api_credit);
+    body["cloudBonus"] = json!(p.cloud_bonus);
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
@@ -616,9 +633,18 @@ pub fn still_closable(fresh: &Option<String>, unit: Option<&str>, shown: &[u32])
     shown.iter().copied().filter(|p| now.contains(p)).collect()
 }
 
+/// A census older than this is not a basis for signalling anything.
+pub const CENSUS_MAX_AGE_MS: i64 = 90_000;
+
+/// The census carries the time it was taken (`at`, ms); one without it, or too old, is refused.
+pub fn census_is_fresh(body: &str, now_ms: i64) -> bool {
+    serde_json::from_str::<Value>(body).ok().and_then(|v| v.get("at").and_then(Value::as_i64)).map_or(false, |at| now_ms - at <= CENSUS_MAX_AGE_MS)
+}
+
 /// The close, after the dialog: nothing without a yes; with it, a fresh census decides the pids.
 pub fn close_confirmed(
     confirmed: bool,
+    now_ms: i64,
     fresh_census: impl FnOnce() -> Option<String>,
     unit: Option<&str>,
     shown: &[u32],
@@ -627,7 +653,8 @@ pub fn close_confirmed(
     if !confirmed {
         return 0;
     }
-    let pids = still_closable(&fresh_census(), unit, shown);
+    let census = fresh_census().filter(|c| census_is_fresh(c, now_ms));
+    let pids = still_closable(&census, unit, shown);
     if pids.is_empty() { 0 } else { kill(&pids) }
 }
 
