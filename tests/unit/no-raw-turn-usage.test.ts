@@ -34,7 +34,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = join(import.meta.dir, '..', '..');
@@ -43,7 +43,12 @@ const ROOT = join(import.meta.dir, '..', '..');
 const RAW_FIELDS = ['cacheCreation', 'cacheCreation1h'] as const;
 
 describe('routes/chat.ts non copia a mano le quote annidate di un turno', () => {
-  const src = readFileSync(join(ROOT, 'server', 'routes', 'chat.ts'), 'utf8');
+  // The route is split in sibling modules (chat-*.ts): the guard reads them all.
+  const routesDir = join(ROOT, 'server', 'routes');
+  const src = readdirSync(routesDir)
+    .filter((f) => /^chat(-[a-z-]+)?\.ts$/.test(f))
+    .map((f) => readFileSync(join(routesDir, f), 'utf8'))
+    .join('\n');
 
   test('nessun `live.cacheCreation…`: la traduzione passa da turnUsageWire/turnUsageParts', () => {
     // `live` è l'accumulatore del turno in corso. Ogni suo uso diretto delle
@@ -63,7 +68,7 @@ describe('routes/chat.ts non copia a mano le quote annidate di un turno', () => 
     // invece di collegarlo — verde per assenza, che è il modo in cui una
     // guardia smette di guardare.
     expect(src).toContain('turnUsageWire');
-    expect(rowsWith(src, 'turnUsageWire(live)').length).toBeGreaterThan(0);
+    expect(rowsWith(src, 'turnUsageWire(turn.live)').length).toBeGreaterThan(0);
   });
 });
 
