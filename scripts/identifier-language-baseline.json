@@ -4045,10 +4045,7 @@
     "server/routes/topics.ts": [
       "detectLocalhostAutoNav",
       "localhostMatch",
-      "normalised",
-      "rec",
-      "stmt",
-      "submittedAt"
+      "stmt"
     ],
     "server/routes/ui-state-settings-strip.test.ts": [
       "arr"
