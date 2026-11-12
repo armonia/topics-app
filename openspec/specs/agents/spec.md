@@ -1184,3 +1184,12 @@ person in its own channel. A chat that is not a child keeps the tool.
 - **GIVEN** a native child whose profile lists `ask_user_question`
 - **WHEN** the tool policy is asked about that tool
 - **THEN** it is refused, while the child's other granted tools stay allowed
+
+### Requirement: TITLES-CACHE-01 — A failed channel-titles fetch is retried by the next mount
+
+The channel titles are read once per window, but only a successful answer counts as the read. A non-ok response, or a body without `titles`, SHALL leave the cache empty so the next mount asks again; it SHALL NOT latch an empty object for the rest of the window.
+
+#### Scenario: The first fetch answers with an error
+- **GIVEN** `/api/agent-channels` answers with a non-ok status on the first mount
+- **WHEN** the hook mounts again
+- **THEN** it asks the endpoint again and shows the titles it returns
