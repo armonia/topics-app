@@ -11,7 +11,7 @@
   try {
     var raw = localStorage.getItem('theme');
     if (raw) { try { theme = JSON.parse(raw); } catch (e2) { theme = raw; } }
-  } catch (e) {}
+  } catch (e) { /* localStorage may be blocked; fall back to the default theme */ }
   var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   if (dark) document.documentElement.classList.add('dark');
 
@@ -91,13 +91,13 @@
       document.documentElement.classList.add('windows-acrylic');
       document.documentElement.classList.add('native-frost');
     }
-  } catch (e) {}
+  } catch (e) { /* platform class is cosmetic; boot continues without it */ }
 
   // Pre-apply sidebar collapsed state
   try {
     var settings = JSON.parse(localStorage.getItem('app-settings') || '{}');
     if (settings.sidebarCollapsed) document.documentElement.classList.add('sidebar-pre-collapsed');
-  } catch (e) {}
+  } catch (e) { /* unreadable settings: leave the sidebar expanded */ }
 })();
 
 // ---- Service Worker (PWA): on every secure origin outside the desktop shell ----
