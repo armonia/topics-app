@@ -13,14 +13,16 @@ import { agentSessionName } from '../../lib/agentSessions';
 import { DANGER_TEXT } from '../../lib/popoverStyles';
 import { useSharedNow } from '../../state/useSharedNow';
 import type { AgentSession, AgentSessionState, AgentTerminal } from '../../lib/agentSessions';
-import { PALLINO_ATTESA, PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from '../Sidebar/chromeSignals';
+import { STATUS_DOT, STATUS_INK } from '../../lib/statusVisual';
 import { AgentProfiles } from './AgentProfiles';
 import { useAgentRegistry } from '../../state/agentRegistry';
 
 type Tr = ReturnType<typeof useT>;
 
-const DOT: Record<AgentSessionState, string> = { working: PALLINO_OK, waiting: PALLINO_ATTESA, idle: 'bg-app-border-light' };
-const TEXT: Record<AgentSessionState, string> = { working: SEGNALE_OK, waiting: SEGNALE_ATTESA, idle: 'text-app-text-muted' };
+// Working is the sky of in_progress, not green: green is "done", and an agent
+// at work is not done (`lib/statusVisual.ts`).
+const DOT: Record<AgentSessionState, string> = { working: STATUS_DOT.working, waiting: STATUS_DOT.wait, idle: 'bg-app-border-light' };
+const TEXT: Record<AgentSessionState, string> = { working: STATUS_INK.working, waiting: STATUS_INK.wait, idle: 'text-app-text-muted' };
 
 function openSession(id: string) {
   window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId: id, mode: 'permanent', reveal: true } }));
@@ -127,14 +129,14 @@ export function AgentsPane() {
               <h2 className="text-body-lg font-semibold text-app-text">{g.name}</h2>
               <span data-testid="agents-group-counts" className="flex items-center gap-2 text-mini">
                 {g.waiting > 0 && (
-                  <span className={`flex items-center gap-1 ${SEGNALE_ATTESA}`}>
-                    <span className={`h-2 w-2 rounded-full ${PALLINO_ATTESA}`} aria-hidden="true" />
+                  <span className={`flex items-center gap-1 ${STATUS_INK.wait}`}>
+                    <span className={`h-2 w-2 rounded-full ${STATUS_DOT.wait}`} aria-hidden="true" />
                     {tr('agents.waitingYou', { n: g.waiting })}
                   </span>
                 )}
                 {g.working > 0 && (
-                  <span className={`flex items-center gap-1 ${SEGNALE_OK}`}>
-                    <span className={`h-2 w-2 rounded-full ${PALLINO_OK}`} aria-hidden="true" />
+                  <span className={`flex items-center gap-1 ${STATUS_INK.working}`}>
+                    <span className={`h-2 w-2 rounded-full ${STATUS_DOT.working}`} aria-hidden="true" />
                     {tr('agents.working', { n: g.working })}
                   </span>
                 )}

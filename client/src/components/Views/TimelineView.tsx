@@ -8,7 +8,7 @@
  */
 import { useMemo } from 'react';
 import {
-  BedDouble, Bus, Car, CircleDot, Flag, Footprints, Hourglass, Plane, Ship, TrainFront, TramFront, type LucideIcon,
+  BedDouble, Bus, Car, CircleDot, Flag, Footprints, Plane, Ship, Timer, TrainFront, TramFront, type LucideIcon,
 } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { groupStepsByDay, type StepMode, type TimelineStep, type TimelineViewSpec } from '../../../../shared/views-timeline';
@@ -18,7 +18,7 @@ import { ViewHeader, ViewLink, type ViewVariant } from './ViewChrome';
 
 const MODE_ICON: Record<StepMode, LucideIcon> = {
   walk: Footprints, bus: Bus, train: TrainFront, metro: TramFront, plane: Plane, taxi: Car,
-  car: Car, boat: Ship, wait: Hourglass, stay: BedDouble, other: CircleDot,
+  car: Car, boat: Ship, wait: Timer, stay: BedDouble, other: CircleDot,
 };
 
 function facts(duration: string | undefined, price: ViewPrice | undefined, locale: string): string[] {

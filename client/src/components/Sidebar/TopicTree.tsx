@@ -4,10 +4,11 @@ import { chatStopTarget, parentLabel, useConfirmSubagentStop, useConfirmTerminal
 import { useTerminalSessions, useTopics } from '../../contexts/TopicsContext';
 import { boardIdForPath } from '../../lib/board';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
+import { STATUS_DOT, STATUS_ICON } from '../../lib/statusVisual';
 import { useExitGhost } from '../../lib/exitGhost';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
-import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Workflow, Kanban, UserRound, Hourglass, BellOff, BellRing, CircleCheck, type LucideIcon, Share2, Gauge } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Workflow, Kanban, UserRound, BellOff, BellRing, type LucideIcon, Share2, Gauge } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -83,9 +84,9 @@ import { useArchivedSidebarPages } from './useArchivedSidebarPages';
  * Le etichette dicono CHI deve muoversi, non il nome tecnico della fase.
  */
 const STATE_SECTIONS: readonly { key: SidebarStateBucket; icon: LucideIcon; labelKey: string }[] = [
-  { key: 'needs-you', icon: Hourglass, labelKey: 'sidebar.state.needsYou' },
-  { key: 'finished', icon: CircleCheck, labelKey: 'sidebar.state.finished' },
-  { key: 'working', icon: Activity, labelKey: 'sidebar.state.working' },
+  { key: 'needs-you', icon: STATUS_ICON.wait, labelKey: 'sidebar.state.needsYou' },
+  { key: 'finished', icon: STATUS_ICON.ok, labelKey: 'sidebar.state.finished' },
+  { key: 'working', icon: STATUS_ICON.working, labelKey: 'sidebar.state.working' },
   { key: 'rest', icon: MoreHorizontal, labelKey: 'sidebar.state.rest' },
 ];
 
@@ -1124,7 +1125,7 @@ export function TopicTree({
           <span>{label}</span>
           {summary.needsYou
             ? <span role="img" aria-label={tr('sidebar.subagents.needsYou')} className="inline-flex"><SparkLoader state="waiting" /></span>
-            : summary.working && <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-label={tr('sidebar.subagents.working')} />}
+            : summary.working && <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT.working}`} aria-label={tr('sidebar.subagents.working')} />}
         </button>
         {open && subAgents.map(child => renderSubAgentItem(child, depth))}
       </>

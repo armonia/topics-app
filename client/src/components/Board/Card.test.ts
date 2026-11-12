@@ -77,7 +77,7 @@ describe('il chip dei checks distingue rosso da non-misurato', () => {
     // riusare `rose` avrebbe rimesso in piedi il difetto lasciando i test verdi.
     expect(src).toContain('data-testid="card-checks-unknown"');
     const chip = src.slice(src.indexOf('data-testid="card-checks-unknown"'));
-    expect(chip.slice(0, 400)).toContain('amber');
+    expect(chip.slice(0, 400)).toContain('STATUS_CHIP.wait');
     expect(chip.slice(0, 400)).not.toContain('rose');
   });
 

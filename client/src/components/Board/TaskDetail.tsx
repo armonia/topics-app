@@ -11,7 +11,7 @@ import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useOwnerName } from '../../hooks/useOwnerName';
 import { actionOriginDisplay, authorDisplay } from '../../lib/authorDisplay';
-import { AlertTriangle, ArrowUp, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Rocket, Send, Server, ShieldCheck, Sparkles, Square, StickyNote, Tag, TriangleAlert, UserRound, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, ArrowUp, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, CircleHelp, Clock, Copy, Download, ExternalLink, GitCompare, GitMerge, Globe, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, PackageCheck, Paperclip, Plus, Rocket, Send, Server, ShieldCheck, Sparkles, Square, StickyNote, Tag, TriangleAlert, UserRound, WifiOff, X } from 'lucide-react';
 import { SectionHeader, useSectionOpen } from './sectionAccordion';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { PlanSurface } from './PlanSurface';
@@ -88,7 +88,8 @@ import { ProjectPickerBody } from './ProjectPicker';
 import { addBoardProject, projectNameFromId, useBoardProjects, UNKNOWN_PROJECT_NAME } from '../../lib/boardProjectsStore';
 import { GroupLayout } from '../Layout/GroupLayout';
 import { useTaskBrowserGroupLayout, type TaskBrowserGroupLayout, type RenderSurface } from './useTaskBrowserGroupLayout';
-import { POPOVER_DIVIDER, POPOVER_ITEM } from '@/lib/popoverStyles';
+import { DANGER_TEXT, POPOVER_DIVIDER, POPOVER_ITEM } from '@/lib/popoverStyles';
+import { STATUS_CHIP, STATUS_INK } from '@/lib/statusVisual';
 import { machineStopOf, subagentResultOf } from '../Chat/machineRow';
 import { SubAgentResultRow } from '../Chat/SubAgentResultCard';
 import { MachineStopLine } from '../Chat/MachineStopLine';
@@ -138,7 +139,7 @@ function OutputUrlProbeNotice({ task }: { task: BoardTask }) {
   const tr = useT();
   if (!task.outputUrl || task.urlProbeStatus !== 'dead') return null;
   return (
-    <div className="flex items-start gap-1.5 rounded bg-red-500/10 px-2 py-1.5 text-mini text-red-300">
+    <div className={`flex items-start gap-1.5 rounded px-2 py-1.5 text-mini ${STATUS_CHIP.danger}`}>
       <WifiOff className="mt-px h-3 w-3 shrink-0" />
       <span className="min-w-0 flex-1">
         <span className="font-medium">{tr('board.task.previewUnreachable')}</span>{' '}
@@ -152,8 +153,8 @@ function SystemDeliveryNotice({ task }: { task: BoardTask }) {
   const tr = useT();
   if (task.deliveredBy !== 'system') return null;
   return (
-    <div className="flex items-start gap-1.5 rounded bg-amber-500/10 px-2 py-1.5 text-mini text-amber-200">
-      <Hourglass className="mt-px h-3 w-3 shrink-0" />
+    <div className={`flex items-start gap-1.5 rounded px-2 py-1.5 text-mini ${STATUS_CHIP.wait}`}>
+      <PackageCheck className="mt-px h-3 w-3 shrink-0" />
       <span className="min-w-0 flex-1">
         <span className="font-medium">{tr('board.task.movedToReviewBySystem')}</span>{' '}
         {systemDeliveryNote(task.deliveredReason, tr)}
@@ -328,7 +329,7 @@ function ChecksSection({ task }: { task: BoardTask }) {
    * GitHub e non misurano niente quando la run muore, è la casella più probabile
    * dopo il verde. */
   const unmeasured = task.checksState === 'unknown';
-  const box = unmeasured ? 'bg-amber-500/10 text-amber-200' : 'bg-rose-500/10 text-rose-200';
+  const box = unmeasured ? STATUS_CHIP.wait : STATUS_CHIP.danger;
   const headline = unmeasured ? tr('board.task.checks.unknown') : tr('board.task.checks.fail');
   return (
     <div className={`rounded text-mini ${box}`}>
@@ -345,12 +346,12 @@ function ChecksSection({ task }: { task: BoardTask }) {
         <div className="space-y-1.5 px-2 pb-2">
           {runs.map((r, i) => (
             <div key={i}>
-              <div className={r.ok ? 'text-emerald-300' : r.notMeasured || r.code === NOT_MEASURED_EXIT ? 'text-amber-200' : 'text-rose-200'}>
+              <div className={r.ok ? STATUS_INK.ok : r.notMeasured || r.code === NOT_MEASURED_EXIT ? STATUS_INK.wait : STATUS_INK.danger}>
                 {r.ok
-                  ? <Check size={14} className="inline-block text-emerald-300" aria-hidden="true" />
+                  ? <Check size={14} className="inline-block" aria-hidden="true" />
                   : r.notMeasured || r.code === NOT_MEASURED_EXIT
-                    ? <Hourglass size={14} className="inline-block text-amber-300" aria-hidden="true" />
-                    : <X size={14} className="inline-block text-rose-300" aria-hidden="true" />} <code className="font-mono">{r.cmd}</code>{r.ok ? '' : `: ${short(r)}`}
+                    ? <CircleHelp size={14} className="inline-block" aria-hidden="true" />
+                    : <X size={14} className="inline-block" aria-hidden="true" />} <code className="font-mono">{r.cmd}</code>{r.ok ? '' : `: ${short(r)}`}
               </div>
               {!r.ok && (r.tail || r.spawnError) && (
                 <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 p-1.5 font-mono text-mini leading-snug text-app-text-heading">
@@ -574,7 +575,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent, focusPath 
           <div className="mt-1.5 flex items-center gap-2 rounded border border-indigo-500/25 bg-indigo-500/5 px-2 py-1.5">
             <span className="min-w-0 flex-1 text-mini text-app-text-heading">
               {notesError
-                ? <span className="text-rose-300">{tr('board.task.changes.sendFailedInline', { msg: notesError })}</span>
+                ? <span className={DANGER_TEXT}>{tr('board.task.changes.sendFailedInline', { msg: notesError })}</span>
                 : tr(notes.length === 1 ? 'board.task.changes.notes.one' : 'board.task.changes.notes.many', { n: notes.length })}
             </span>
             <button
@@ -667,7 +668,7 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
           {tr('board.task.attempts.pickHint')}
         </p>
       )}
-      {error && <p className="mt-1 text-mini text-rose-300">{error}</p>}
+      {error && <p className={`mt-1 text-mini ${DANGER_TEXT}`}>{error}</p>}
       <div className="mt-1.5 space-y-1.5">
         {attempts.map((a) => {
           const won = a.state === 'selected';
@@ -757,7 +758,7 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
   }, [projectId, taskId, attemptId, reads]);
   const source = useMemo<DiffPanelSource>(() => ({ kind: 'task', projectId, taskId, attemptId }), [projectId, taskId, attemptId]);
   if (state === 'loading') return <div className="mt-1.5 flex items-center gap-1 text-mini text-app-text-muted"><Spinner size="sm" tone="current" /> {tr('board.task.loadingDiff')}</div>;
-  if (state === 'error') return <p className="mt-1.5 text-mini text-rose-300">{tr('board.task.diffUnreadable')}</p>;
+  if (state === 'error') return <p className={`mt-1.5 text-mini ${DANGER_TEXT}`}>{tr('board.task.diffUnreadable')}</p>;
   // Un tentativo si legge SOLO dal suo worktree (i riferimenti durevoli parlano
   // del vincitore), quindi qui i codici sono due: «non ha prodotto niente» e
   // «non ricostruibile» — e restano distinti anche in una riga sola.
@@ -2200,7 +2201,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
               <DispatchChip state={task.dispatchState} error={task.dispatchError} deliveredBy={task.deliveredBy} />
             ) : task && showsStoppedChip(task) ? (
               // Same rule as the card, one module: `stoppedChip.ts`.
-              <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-mini text-rose-300" title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
+              <span className={`shrink-0 rounded px-1.5 py-0.5 text-mini ${STATUS_CHIP.danger}`} title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
             ) : null}
           </div>
         )}
@@ -2505,7 +2506,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                 data-kind={workChip.kind}
                 title={workChip.title}
                 className={workChip.kind === 'unattended'
-                  ? 'flex min-w-0 items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-mini text-rose-300'
+                  ? `flex min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-mini ${STATUS_CHIP.danger}`
                   : 'flex min-w-0 items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-muted'}
               >
                 {workChip.kind === 'unattended'
@@ -2849,7 +2850,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
         >
           {/* A failed first read must not keep saying «Loading…»: the spinner is
               a promise, and here nothing is coming. */}
-          {chipStatus ? <StatusIcon status={chipStatus} /> : loadFailedMessage ? <AlertTriangle className="h-3.5 w-3.5 text-rose-300" /> : <Spinner size="sm" tone="current" />}
+          {chipStatus ? <StatusIcon status={chipStatus} /> : loadFailedMessage ? <AlertTriangle className={`h-3.5 w-3.5 ${DANGER_TEXT}`} /> : <Spinner size="sm" tone="current" />}
           {chipStatus ? STATUS_LABEL[chipStatus] : loadFailedMessage ? tr('board.task.loadFailedChip') : tr('board.task.loading')}
           <ChevronDown className="h-3 w-3 text-app-text-faint" />
         </button>
@@ -3036,7 +3037,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
           invece di offrire una via d'uscita, ed è il motivo per cui otto card
           sono rimaste così per settimane. */}
       {task && showsLandingDebt(task) && (
-        <div data-testid="task-not-landed-banner" className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-mini text-rose-300">
+        <div data-testid="task-not-landed-banner" className={`flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-red-500/20 px-3 py-1.5 text-mini ${STATUS_CHIP.danger}`}>
           <span className="min-w-0">
             <TriangleAlert className="w-4 h-4 inline-block align-[-2px]" aria-hidden="true" /> {tr('task.landing.closedBut')} <strong>{tr('board.task.notOnMain')}</strong>{tr('task.landing.commitIs')}
             {task.deliveryCommit ? <> <code className="rounded bg-black/30 px-1">{task.deliveryCommit.slice(0, 8)}</code></> : null}
@@ -3047,12 +3048,12 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
             data-testid="task-not-landed-land"
             disabled={busy} onClick={doLand}
             title={landWord.title}
-            // Nessun colore di testo proprio: eredita il `text-rose-300` della
-            // banda, che è la coppia già provata su questo velo nei due temi.
-            // Con un `text-rose-100` il bottone spariva sul tema chiaro, biancore
-            // su rosa: l'affordance la fanno il bordo e il fondo, non un testo
-            // più chiaro del fondo su cui sta.
-            className="flex shrink-0 items-center gap-1 rounded border border-rose-400/40 bg-rose-500/20 px-2 py-0.5 font-medium hover:bg-rose-500/30 disabled:opacity-50"
+            // No text colour of its own: it inherits the band's
+            // `STATUS_CHIP.danger`, the pair measured on this veil in both
+            // themes. With a lighter ink the button vanished in the light theme:
+            // the affordance is the border and the ground, not a text lighter
+            // than the ground it sits on.
+            className="flex shrink-0 items-center gap-1 rounded border border-red-400/40 bg-red-500/20 px-2 py-0.5 font-medium hover:bg-red-500/30 disabled:opacity-50"
           ><GitMerge className="h-3 w-3" /> {landWord.label}</button>
         </div>
       )}
@@ -3085,7 +3086,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
            window. Here the server's own sentence and one button that calls the
            same `load()`. */
         <div data-testid="task-load-error" className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-          <AlertTriangle className="h-6 w-6 text-rose-300" />
+          <AlertTriangle className={`h-6 w-6 ${DANGER_TEXT}`} />
           <p className="text-body-lg leading-5 text-app-text-heading">{tr('board.task.loadFailedTitle')}</p>
           <p className="max-w-sm break-words text-mini text-app-text-muted">{loadFailedMessage}</p>
           <button
@@ -3222,7 +3223,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
             {error && (
               <div
                 data-testid="task-action-error"
-                className="mb-2 flex items-start gap-2 rounded border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 text-mini text-rose-300"
+                className={`mb-2 flex items-start gap-2 rounded border border-red-500/30 px-2 py-1.5 text-mini ${STATUS_CHIP.danger}`}
               >
                 <span className="min-w-0 flex-1 break-words">{error}</span>
                 <button aria-label={tr('board.task.closeError')} onClick={() => setError(null)} className="tap-expand shrink-0 rounded p-0.5 hover:bg-white/10 coarse:p-1.5"><X className="h-3 w-3" /></button>
@@ -3421,7 +3422,7 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
             data-testid={`subtask-work-${node.id}`}
             data-kind="unattended"
             title={work.title}
-            className="flex shrink-0 items-center gap-1 rounded bg-rose-500/20 px-1 py-0.5 text-mini text-rose-300"
+            className={`flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-mini ${STATUS_CHIP.danger}`}
           ><AlertTriangle className="h-2.5 w-2.5 shrink-0" /> {work.label}</span>
         ) : (
           <span

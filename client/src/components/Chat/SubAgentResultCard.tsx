@@ -9,20 +9,21 @@
  * it is drawn as cards, never as the person's bubble.
  */
 import type { ComponentType } from 'react';
-import { Ban, Bot, CircleCheck, CircleStop, CircleX, Hourglass, MailX, SquareTerminal, Unplug } from 'lucide-react';
+import { Ban, Bot, CircleCheck, CircleStop, CircleX, MailX, SquareTerminal, Unplug } from 'lucide-react';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { useT } from '../../hooks/useT';
+import { STATUS_ICON as TONE_ICON, STATUS_INK } from '../../lib/statusVisual';
 import { useTerminalSessions } from '../../contexts/TopicsContext';
 import type { SubagentResultCard, ToolCallDetail } from '../../types';
 import type { SubagentResultBlock } from './machineRow';
 import { foregroundSpawnResult, reasonText, spawnCardState, spawnRefusal, useSubagentResult, type SpawnCardState } from './subagentResult';
 
 const STATUS_ICON: Record<SubagentResultCard['status'], { icon: ComponentType<{ size?: number; className?: string }>; tone: string }> = {
-  completed: { icon: CircleCheck, tone: 'text-emerald-500' },
-  failed: { icon: CircleX, tone: 'text-red-500' },
-  stopped: { icon: CircleStop, tone: 'text-amber-500' },
-  undelivered: { icon: MailX, tone: 'text-amber-500' },
-  lost: { icon: Unplug, tone: 'text-red-500' },
+  completed: { icon: CircleCheck, tone: STATUS_INK.ok },
+  failed: { icon: CircleX, tone: STATUS_INK.danger },
+  stopped: { icon: CircleStop, tone: STATUS_INK.danger },
+  undelivered: { icon: MailX, tone: STATUS_INK.wait },
+  lost: { icon: Unplug, tone: STATUS_INK.danger },
 };
 
 function openPane(agentId: string, name: string): void {
@@ -91,11 +92,11 @@ const SparkIcon = () => <SparkLoader className="flex-shrink-0" />;
 
 const PHASE_ICON: Record<SpawnCardState, { icon: ComponentType<{ size?: number; className?: string }>; className: string }> = {
   starting: { icon: SparkIcon, className: '' },
-  'waiting-prompt': { icon: Hourglass, className: 'text-amber-500' },
+  'waiting-prompt': { icon: TONE_ICON.wait, className: STATUS_INK.wait },
   working: { icon: SparkIcon, className: '' },
-  finished: { icon: CircleCheck, className: 'text-blue-500' },
+  finished: { icon: CircleCheck, className: STATUS_INK.ok },
   ended: { icon: CircleStop, className: 'text-app-text-muted' },
-  refused: { icon: Ban, className: 'text-red-500' },
+  refused: { icon: Ban, className: STATUS_INK.danger },
 };
 
 /** The card of a `spawn_agent` call: who it started, and where that child is now. */
