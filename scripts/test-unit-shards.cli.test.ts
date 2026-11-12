@@ -40,6 +40,7 @@ interface FakeCall {
   timeSlack: string | null;
   runId: string | null;
   gateMaxRunMs: string | null;
+  gateSlotDir: string | null;
   tmpdirOwned: string | null;
   stdoutIsFile: boolean;
   stdoutIsPipe: boolean;
@@ -100,6 +101,7 @@ const record = {
   ci: process.env.CI ?? null, gateHeld: process.env.TOPICS_GATE_HELD ?? null,
   timeSlack: process.env.TOPICS_TEST_TIME_SLACK ?? null, runId: process.env.TOPICS_TEST_RUN_ID ?? null,
   gateMaxRunMs: process.env.TOPICS_GATE_MAX_RUN_MS ?? null,
+  gateSlotDir: process.env.TOPICS_GATE_SLOT_DIR ?? null,
   stdoutIsFile: stat1.isFile(), stdoutIsPipe: stat1.isFIFO() || stat1.isSocket(),
   start, end: Date.now(),
 };
@@ -246,6 +248,9 @@ describe("unit shards CLI", () => {
         // The fake reads the file from the last argument: it must be the real file, not a flag.
         expect(call.args[call.args.length - 1]).toBe(call.file);
         expect(ALL_FILES).toContain(call.file);
+        // The preload claims the outfile inside the gate-slot folder: it must be the file's own
+        // scratch, never the machine-wide /tmp/topics-gate-slots (a leak the CI run turns red).
+        expect(call.gateSlotDir).toBe(`${call.tmpdir}/slots`);
       }
       expect(existsSync(junit)).toBe(true);
     } finally {
