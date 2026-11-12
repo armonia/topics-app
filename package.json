@@ -133,6 +133,7 @@
     "test:ui": "npx playwright test --ui",
     "test:evidence": "E2E_EVIDENCE=1 npx playwright test",
     "test:report": "npx playwright show-report test-results/html-report",
+    "test:touched": "bun run scripts/slot.ts test:touched -- 'bun run scripts/test-touched.ts'",
     "test:unit": "bun run scripts/slot.ts test:unit -- 'bun run scripts/test-unit-shards.ts'",
     "test:unit:shuffle": "bun run scripts/slot.ts test:unit -- 'bun run scripts/test-unit-shards.ts --shuffle'",
     "test:unit:durations": "bun run scripts/slot.ts test:unit -- 'bun run scripts/test-unit-shards.ts --record'",
