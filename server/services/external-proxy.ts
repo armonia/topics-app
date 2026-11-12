@@ -417,6 +417,8 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
     client: ServerWebSocket<RelayData> | null;
     /** Set once the relay ended the connection by its own decision (a slow client, an oversized message): from then on nothing more is relayed. */
     overflowed: boolean;
+    /** The close the client still owes, held back because its own socket write queue had not drained yet: closing on top of it is what used to lose the tail of the backlog. */
+    pendingClose: { code: number; reason: string } | null;
     started: number;
     path: string;
   }
@@ -430,14 +432,20 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
     return typeof message === "string" ? Buffer.byteLength(message) : message.byteLength;
   }
 
-  /** The relay ends the connection by its own decision: the client is told `code`, Anthropic 1011, nothing more is relayed (a prefix, never a hole). */
+  /**
+   * The relay ends the connection by its own decision: the client is told `code`, Anthropic 1011, nothing more is
+   * relayed (a prefix, never a hole). A client still mid-drain of its own write queue is not closed on the spot:
+   * Bun's own close races the socket's pending bytes under backpressure, and the loser is the tail of the backlog
+   * (reproduced under load: `--repeat-each` with concurrent runs, never alone). The close is held back for `drain`.
+   */
   function giveUp(data: RelayData, code: number, reason: string, event: string): void {
     if (data.overflowed) return;
     data.overflowed = true;
     data.backlog.length = 0;
     data.backlogBytes = 0;
     log(event, { path: data.path, ms: Date.now() - data.started });
-    try { data.client?.close(code, reason); } catch { /* already closed */ }
+    if (data.client && data.client.getBufferedAmount() > 0) data.pendingClose = { code, reason };
+    else try { data.client?.close(code, reason); } catch { /* already closed */ }
     try { data.upstream.close(1011, reason); } catch { /* already closed */ }
   }
   const overflow = (data: RelayData) => giveUp(data, 1013, "relay buffer full", "ws-backpressure");
@@ -486,7 +494,9 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
       // `headers` is a Bun extension of the constructor options, missing from the DOM typings
       const upstream = new WebSocket(url, { protocols, headers: Object.fromEntries(headers) } as unknown as string[]);
       upstream.binaryType = "arraybuffer";
-      const data: RelayData = { upstream, backlog: [], backlogBytes: 0, ended: null, client: null, overflowed: false, started: Date.now(), path };
+      const data: RelayData = {
+        upstream, backlog: [], backlogBytes: 0, ended: null, client: null, overflowed: false, pendingClose: null, started: Date.now(), path,
+      };
       let settled = false;
       const finish = (error?: Error) => {
         if (settled) return;
@@ -572,6 +582,14 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
             if (messageBytes(message) > WS_MAX_MESSAGE_BYTES) return giveUp(data, 1009, "message too big", "ws-too-big");
             // No byte count toward Anthropic: see "WebSocket limits". `upstream.bufferedAmount` is always 0 on Bun's client socket.
             data.upstream.send(message);
+          },
+          drain(ws) {
+            const data = ws.data;
+            if (data.pendingClose && ws.getBufferedAmount() === 0) {
+              const { code, reason } = data.pendingClose;
+              data.pendingClose = null;
+              try { ws.close(code, reason); } catch { /* already closed */ }
+            }
           },
           close(ws, code, reason) {
             openRelays--;
