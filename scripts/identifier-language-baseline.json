@@ -3821,27 +3821,11 @@
       "evalResult"
     ],
     "server/routes/chat.ts": [
-      "adoptWoken",
       "adottaTurnoVivo",
-      "avviso",
-      "candidati",
-      "cevt",
       "chatIdempotency",
-      "evt",
-      "haProdotto",
       "idempotencyKey",
       "idempotencySlot",
-      "inTok",
-      "isWoken",
-      "localhostScanCarry",
-      "localhostScanWindow",
-      "outTok",
-      "riprendeDaSolo",
-      "scartata",
-      "soloCompattazione",
-      "uevt",
-      "verdetto",
-      "vuota"
+      "isWoken"
     ],
     "server/routes/claude-hooks.ts": [
       "isLocalhost"
