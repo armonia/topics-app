@@ -339,6 +339,8 @@ describe('resyncTaskTabsFromServer (riconnessione)', () => {
 
   test('una scrittura ancora in coda vince: niente GET, l\'edit locale resta', async () => {
     const tid = uniq('pending');
+    await taskBrowserTabs.ensureLoaded(tid);              // a write only arms after a successful read
+    fetched.length = 0;
     taskBrowserTabs.addTab(tid, 'https://locale.test');   // arma il PUT debounced
     served.set(`task-browser-tabs:${tid}`, { tabs: [], activeContextId: null, nextSeq: 0 });
 
@@ -375,8 +377,11 @@ describe('resyncTaskTabsFromServer (riconnessione)', () => {
 // diventati immortali.
 
 describe('forgetTaskTabs (task archiviato)', () => {
-  test('svuota la cache, avvisa, e ANNULLA la scrittura in coda', () => {
+  test('svuota la cache, avvisa, e ANNULLA la scrittura in coda', async () => {
     const tid = uniq('forget');
+    const realFetch = globalThis.fetch;
+    (globalThis as unknown as { fetch: unknown }).fetch = async () => new Response('null', { status: 200 });
+    try { await taskBrowserTabs.ensureLoaded(tid); } finally { (globalThis as unknown as { fetch: unknown }).fetch = realFetch; }
     taskBrowserTabs.addTab(tid, 'https://e.test');
     expect(getTaskTabs(tid).tabs).toHaveLength(1);
 
