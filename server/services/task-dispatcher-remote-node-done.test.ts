@@ -2,6 +2,8 @@
  * A card closed while its remote run is alive (12/11, 17436204 and 403aad1f):
  * the run is cancelled on the node, the chip is cleared, and nothing the lane
  * does afterwards carries the card back out of `done`.
+ *
+ * @covers KANBAN-114
  */
 import { describe, expect, it } from "bun:test";
 import { TASK, dispatch, flush, harness, poll, report } from "./task-dispatcher-remote-node-test-support";

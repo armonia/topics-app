@@ -5535,3 +5535,15 @@ A comment written through the API or the MCP SHALL NOT show the owner's name. Th
 #### Scenario: a reject without the interface header
 - **WHEN** a script posts a reject on the review route
 - **THEN** the stored author SHALL be `user` and the agent SHALL receive the rejection after a restart
+
+### Requirement: KANBAN-114 - A card in done is never picked up again
+
+A card in `done` SHALL NOT go back to the queue: `release` with `requeue` SHALL leave its status as it is, and a system delivery or a deferral SHALL NOT move it. A remote run still alive when the card is closed SHALL be cancelled on the node and its `dispatchState` cleared, and a report or a bundle that arrives afterwards SHALL NOT reopen the card.
+
+#### Scenario: closed while a remote attempt is queued
+- **WHEN** a card is moved to done and its attempt is then released with requeue
+- **THEN** the card SHALL stay done and the claim SHALL not return it
+
+#### Scenario: closed while the node is working
+- **WHEN** a card is moved to done while its run on a node is alive
+- **THEN** the next poll SHALL send the cancel, clear `dispatchState`, and the card SHALL stay done

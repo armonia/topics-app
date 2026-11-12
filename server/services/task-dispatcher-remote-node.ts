@@ -913,6 +913,15 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         if (host.captureDelivery) {
           try { await host.captureDelivery(taskId); } catch { /* never block the delivery on git */ }
         }
+      } else if (report.deliveryCommit) {
+        // The node's commit, with the branch columns left alone: the land then
+        // finds a delivered commit this checkout lacks and refuses, instead of
+        // landing `priorBranch`, the round a person sent back. Recording the
+        // node's branch would also break the next run, which starts from a
+        // branch it must find here or on origin.
+        try {
+          svc.recordDelivery({ taskId, branch: svc.get(taskId)?.task?.deliveryBranch ?? null, commit: report.deliveryCommit });
+        } catch (err) { log(`node: unplanted delivery not recorded on ${taskId}`, err); }
       }
     }
     const fresh = svc.get(taskId)?.task;

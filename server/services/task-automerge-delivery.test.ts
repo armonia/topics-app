@@ -1,5 +1,6 @@
 /**
  * @covers LAND-03
+ * @covers LAND-15
  */
 import { describe, test, expect } from "bun:test";
 import { createTaskAutoMerge, declaredDeliveryFor, landFallout } from "./task-automerge";
@@ -197,14 +198,14 @@ describe("land vs consegna — su git vero", () => {
     return { root, repo, clone };
   }
 
-  function landRemoteCard(repo: string, task: { deliveryBranch: string | null; priorBranch: string | null }) {
+  function landRemoteCard(repo: string, task: { deliveryBranch: string | null; priorBranch: string | null }, commit: string | null = null) {
     return createTaskAutoMerge({
       resolveTaskMerge: () => null,
       declaredDelivery: declaredDeliveryFor({
         getTask: () => ({ projectId: "topics-app-abc123", ...task }),
         resolveRepoPath: () => repo,
       }),
-    }).tryMerge("t7", "remote card", { branch: null, commit: null });
+    }).tryMerge("t7", "remote card", { branch: task.deliveryBranch, commit });
   }
 
   test("remote card, branch only on origin: the land fetches it and brings its commits to main", async () => {
@@ -264,6 +265,56 @@ describe("land vs consegna — su git vero", () => {
       expect(landFallout(res.code).status).toBe("review");
       git(repo, "switch", "-q", "main");
       expect(existsSync(join(repo, "first.txt"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("local branch rebased after its push: origin differs by sha only, so the land goes through", async () => {
+    const { root, repo, clone } = remoteCardRepo();
+    try {
+      git(repo, "switch", "-q", "-c", "topics/rebased");
+      commit(repo, "card.txt", "card\n", "the card's work");
+      git(repo, "push", "-q", "origin", "topics/rebased");
+      git(clone, "pull", "-q", "origin", "main");
+      commit(clone, "other.txt", "other\n", "main moves on");
+      git(clone, "push", "-q", "origin", "main");
+      git(repo, "fetch", "-q", "origin", "main");
+      git(repo, "rebase", "-q", "origin/main");
+      git(repo, "switch", "-q", "main");
+
+      const res = await landRemoteCard(repo, { deliveryBranch: "topics/rebased", priorBranch: null });
+
+      expect(res.status).toBe("merged");
+      git(repo, "switch", "-q", "main");
+      expect(existsSync(join(repo, "card.txt"))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("node round that failed to plant: the round sent back before it does not land", async () => {
+    const { root, repo, clone } = remoteCardRepo();
+    try {
+      // Round 1, rejected by a person: its branch stays as `priorBranch` and on origin.
+      git(repo, "switch", "-q", "-c", "topics/round1");
+      commit(repo, "rejected.txt", "no\n", "the rejected round");
+      git(repo, "push", "-q", "origin", "topics/round1");
+      git(repo, "switch", "-q", "main");
+      // Round 2 ran on the node and committed there; the bundle never planted
+      // here, so the card holds the node's commit and no delivery branch.
+      git(clone, "fetch", "-q", "origin", "topics/round1:topics/round1");
+      git(clone, "switch", "-q", "topics/round1");
+      const nodeCommit = commit(clone, "accepted.txt", "yes\n", "round 2 on the node");
+
+      const res = await landRemoteCard(repo, { deliveryBranch: null, priorBranch: "topics/round1" }, nodeCommit);
+
+      expect(res.status).toBe("skipped");
+      if (res.status !== "skipped") return;
+      expect(res.code).toBe("delivery-absent");
+      expect(landFallout(res.code, { deliveryCommit: nodeCommit }).status).toBe("review");
+      git(repo, "switch", "-q", "main");
+      expect(existsSync(join(repo, "rejected.txt"))).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
