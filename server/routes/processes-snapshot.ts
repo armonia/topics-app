@@ -8,9 +8,6 @@ import { type ScriptProcess, recentScripts, runningScripts } from "./processes-s
 
 // ── Port detection per process ───────────────────────────────────────────────
 
-// The listening ports, one cached `lsof` shared by every reader: `lib/listening-ports.ts`.
-export { getListeningPorts };
-
 export async function getPortsForProcess(pid: number): Promise<number[]> {
   const allPorts = await getListeningPorts();
   const treePids = await getDescendantPids(pid);
