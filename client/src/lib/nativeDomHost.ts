@@ -230,17 +230,22 @@ export function armJs(bundle: string): string {
     'try{\n' + bundle + '\n;h.rrweb=rrweb;}catch(e){h.error=String(e&&e.message||e);return \'failed\'}' +
     LAYOUT_JS +
     // autocomplete is a token list: "billing cc-number" and "section-pay cc-csc" are card fields too.
-    "function privateInput(n){if(!n)return false;var v;try{v=n.getAttribute?n.getAttribute('autocomplete'):n.attributes&&n.attributes.autocomplete}catch(e){}if(typeof v!=='string')return false;var t=v.toLowerCase().split(/\\s+/);for(var i=0;i<t.length;i++)if(['cc-number','cc-csc','cc-exp','cc-exp-month','cc-exp-year','one-time-code'].indexOf(t[i])>=0)return true;return false}" +
+    // An element whose attributes cannot be read is masked: when in doubt, the field is private.
+    "function privateInput(n){if(!n)return false;var v;try{v=n.getAttribute?n.getAttribute('autocomplete'):n.attributes&&n.attributes.autocomplete}catch(e){return true}if(typeof v!=='string')return false;var t=v.toLowerCase().split(/\\s+/);for(var i=0;i<t.length;i++)if(['cc-number','cc-csc','cc-exp','cc-exp-month','cc-exp-year','one-time-code'].indexOf(t[i])>=0)return true;return false}" +
     "function maskInput(v){return typeof v==='string'?'*'.repeat(v.length):v}" +
     'function maskSnapshot(n){if(!n||typeof n!==\'object\')return;if(n.type===2&&String(n.tagName).toLowerCase()===\'input\'&&privateInput(n))n.attributes.value=maskInput(n.attributes.value);' +
     'if(Array.isArray(n.childNodes))for(var i=0;i<n.childNodes.length;i++)maskSnapshot(n.childNodes[i])}' +
     'function start(){if(h.stop||!h.rrweb)return;try{h.stop=h.rrweb.record({' +
-    'emit:function(e){try{var v=e.data;if(e.type===3&&v&&v.source===3){v.anchor=h.echo(v.id);if(typeof h.scrollSeq===\'number\'){v.scrollSeq=h.scrollSeq;v.scrollFrom=h.scrollFrom}}' +
-    'else if(e.type===2&&v&&v.node){maskSnapshot(v.node);h.placed=null;v.anchor=h.anchor(h.rrweb.record.mirror.getNode(v.node.id))}' +
+    // Masking fails closed: an event the recorder could not mask is dropped, never queued as it is.
+    // The anchors after it are best effort and may fail without losing the event.
+    'emit:function(e){var v=e.data;try{if(e.type===2&&v&&v.node)maskSnapshot(v.node);' +
     'else if(e.type===3&&v&&v.source===5&&privateInput(h.rrweb.record.mirror.getNode(v.id)))v.text=maskInput(v.text);' +
     // A field mounted after the snapshot, or a value set as an attribute, travels as a mutation.
     'else if(e.type===3&&v&&v.source===0){var a=v.adds||[],t=v.attributes||[],k;for(k=0;k<a.length;k++)maskSnapshot(a[k]&&a[k].node);' +
     "for(k=0;k<t.length;k++)if(t[k]&&t[k].attributes&&typeof t[k].attributes.value==='string'&&privateInput(h.rrweb.record.mirror.getNode(t[k].id)))t[k].attributes.value=maskInput(t[k].attributes.value)}" +
+    '}catch(x){return}' +
+    'try{if(e.type===3&&v&&v.source===3){v.anchor=h.echo(v.id);if(typeof h.scrollSeq===\'number\'){v.scrollSeq=h.scrollSeq;v.scrollFrom=h.scrollFrom}}' +
+    'else if(e.type===2&&v&&v.node){h.placed=null;v.anchor=h.anchor(h.rrweb.record.mirror.getNode(v.node.id))}' +
     '}catch(x){}h.q.push(e)},' +
     'inlineStylesheet:true,inlineImages:false,collectFonts:false,recordCanvas:false,' +
     'maskInputOptions:{password:true},' +
