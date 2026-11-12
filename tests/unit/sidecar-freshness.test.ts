@@ -26,6 +26,7 @@
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { readTauriShellSource } from "../helpers/tauri-shell-source";
 
 const ROOT = resolve(import.meta.dir, "../..");
 const read = (p: string) => readFileSync(resolve(ROOT, p), "utf8");
@@ -34,7 +35,7 @@ const CONF = JSON.parse(read("desktop-tauri/src-tauri/tauri.conf.json"));
 const HOOKS = read("desktop-tauri/src-tauri/installer-hooks.nsh");
 const BUILD_RS = read("desktop-tauri/src-tauri/build.rs");
 const INTEGRITY_RS = read("desktop-tauri/src-tauri/src/sidecar_integrity.rs");
-const LIB_RS = read("desktop-tauri/src-tauri/src/lib.rs");
+const LIB_RS = readTauriShellSource();
 const CLIENT = read("client/src/lib/sidecarIntegrity.ts");
 const POPOVER = read("client/src/components/Sidebar/VersionPanel.tsx");
 const IT = read("client/src/lib/i18n-it.ts");
@@ -97,7 +98,7 @@ describe("il guscio verifica le impronte, non solo il numero di versione", () =>
     // Two different names switch the check off without breaking anything: the
     // call fails, the client reads `null` and shows nothing.
     expect(LIB_RS).toContain("fn sidecar_integrity()");
-    expect(LIB_RS).toContain("            sidecar_integrity,");
+    expect(LIB_RS).toContain("            sidecar_boot::sidecar_integrity,");
     expect(CLIENT).toContain("tauriInvoke<SidecarReport>('sidecar_integrity')");
   });
 });

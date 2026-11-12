@@ -87,8 +87,13 @@ mod tests {
     /// pause and its polls never stop), so the call sites are counted here.
     #[test]
     fn every_window_kind_is_wired() {
-        let shell = include_str!("lib.rs");
-        let calls = shell.matches("window_focus::wire(").count();
+        // The call sites live in the modules split out of lib.rs.
+        let shell = [
+            include_str!("lib.rs"),
+            include_str!("sidecar_boot.rs"),
+            include_str!("window_chrome.rs"),
+        ];
+        let calls: usize = shell.iter().map(|s| s.matches("window_focus::wire(").count()).sum();
         assert_eq!(calls, 3, "main, window_detach and window_detach_space each wire once");
     }
 }

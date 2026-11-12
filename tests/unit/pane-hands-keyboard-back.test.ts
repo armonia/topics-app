@@ -39,9 +39,10 @@
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { readTauriShellSource } from "../helpers/tauri-shell-source";
 
 const SRC = join(import.meta.dir, "..", "..", "desktop-tauri", "src-tauri", "src");
-const lib = readFileSync(join(SRC, "lib.rs"), "utf8");
+const lib = readTauriShellSource();
 const win = readFileSync(join(SRC, "browser_win.rs"), "utf8");
 const linux = readFileSync(join(SRC, "browser_linux.rs"), "utf8");
 
@@ -50,7 +51,7 @@ function body(rust: string, signature: string): string {
   const start = rust.indexOf(signature);
   expect(start, `${signature} not found`).toBeGreaterThan(-1);
   const rest = rust.slice(start + signature.length);
-  const end = rest.search(/\n(?:pub )?fn /);
+  const end = rest.search(/\n(?:pub(?:\(crate\))? )?(?:async )?fn /);
   return end === -1 ? rest : rest.slice(0, end);
 }
 

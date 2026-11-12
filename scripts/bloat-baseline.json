@@ -446,7 +446,10 @@
 
     "desktop-tauri/pty-bridge/src/bridge.rs": 1275,
 
-    "desktop-tauri/src-tauri/src/lib.rs": 14089,
+    "desktop-tauri/src-tauri/src/browser_panes.rs": 5564,
+    "desktop-tauri/src-tauri/src/perf_metrics.rs": 1059,
+    "desktop-tauri/src-tauri/src/sidecar_boot.rs": 3304,
+    "desktop-tauri/src-tauri/src/window_chrome.rs": 2150,
 
     "playwright.config.ts": 868,
 
