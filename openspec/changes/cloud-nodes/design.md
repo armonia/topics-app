@@ -39,7 +39,7 @@ creato.
 **Obiettivi**
 - Togliere dal Mac le card pesanti e i loro alberi di processi (CLI, tsserver,
   controlli, dev server) quando la board lavora.
-- Crescere senza riscrivere: la Fase 1 ha un nodo fisso; la Fase 2 un pool di posti
+- Crescere senza riscrivere: la Fase 1 ha un nodo permanente; la Fase 2 un pool di posti
   a nome fisso, con lo stesso instradamento e la stessa riga macchina.
 - Che ogni nodo si legga come una macchina: cosa è, quanto lavora, quanto costa,
   con quale quota.
@@ -140,9 +140,9 @@ Mac è il comportamento di oggi.
   e il raccoglitore cancella per label: nel progetto del CRM un errore cancellerebbe
   il CRM. Il token Read & Write va nel Keychain come `hcloud/topics-nodes`. Si crea
   solo dalla console.
-- **Il nodo fisso (Fase 1) è un cx43** (8 vCPU, 16 GB, 160 GB). Si crea quando
+- **Il nodo permanente (Fase 1) è un cx43** (8 vCPU, 16 GB, 160 GB). Si crea quando
   Hetzner lo rende ordinabile: quattro letture del 04/10 dicono `available:false`
-  in fsn1, nbg1 e hel1. Il fisso si tiene acceso perché la creazione è limitata a
+  in fsn1, nbg1 e hel1. Il nodo permanente si tiene acceso perché la creazione è limitata a
   caso anche per i clienti esistenti (incidente `0a75c7ae`, documentato), e un
   server che esiste dovrebbe conservare il suo posto. Quest'ultima parte è
   **dedotta**: il testo dell'incidente parla solo della creazione (proposal §«Prima
@@ -158,7 +158,7 @@ Mac è il comportamento di oggi.
 
 ### D5. Il pool on demand (Fase 2)
 
-- **Posti, non server.** Ci sono `topics-node-1` (il fisso) e `topics-node-2…N`.
+- **Posti, non server.** Ci sono `topics-node-1` (il nodo permanente) e `topics-node-2…N`.
   Ogni posto è una riga `machines` stabile, con il suo `base_url`; ogni server è una
   **vita** del posto, in `node_lives`. Prima del `DELETE` il nodo fa `tailscale
   logout`: così il nome si libera e il posto rinasce con lo stesso indirizzo. Senza
@@ -179,9 +179,9 @@ Mac è il comportamento di oggi.
   `expires`, anche quello che il DB non conosce (POOL-03).
 - **La spesa.** Per ogni vita del mese vale `min(ceil(ore) × €/h, tetto del tipo)`,
   con il prezzo letto da `GET /v1/pricing` alla creazione e salvato nella vita. Il
-  tetto del pool vale per i soli nodi a richiesta: il fisso è un costo dichiarato a
+  tetto del pool vale per i soli nodi a richiesta: il nodo permanente è un costo dichiarato a
   parte.
-- **Il massimo.** Sono 3 nodi in tutto, fisso compreso. Il limite di default è di 5
+- **Il massimo.** Sono 3 nodi in tutto, nodo permanente compreso. Il limite di default è di 5
   server per **account**, e il CRM ne occupa 1. Che gli altri progetti dell'account
   siano vuoti non si vede col token (proposal §«Prima del codice» 7).
 - **Il tempo massimo per nascere.** Sono 10 minuti dal `POST` al nodo accoppiato,
@@ -206,7 +206,7 @@ Mac è il comportamento di oggi.
 - **Le altre credenziali** le spinge il Mac dopo l'ingresso nella tailnet, via
   Tailscale SSH:
   - **Claude**: nella Fase 1 un `/login` interattivo, una volta sola, sul nodo
-    fisso. Nella Fase 2 una credenziale per i nodi a richiesta, tenuta nel
+    permanente. Nella Fase 2 una credenziale per i nodi a richiesta, tenuta nel
     Keychain. La forma esatta dipende dalla Fase 0: file `.credentials.json`
     oppure `setup-token`. Il `setup-token` chiederebbe di far passare
     `CLAUDE_CODE_OAUTH_TOKEN` da `agent-env.ts:17-30` e di farlo leggere al runtime
@@ -310,7 +310,7 @@ on demand è compreso uno snapshot da 10 GB.
 
 - On demand conviene finché un nodo resta acceso meno di circa 624 ore al mese,
   cioè il tetto mensile diviso il prezzo orario.
-- Le scelte consigliate (fisso cx43 e tetto di 10 €) fanno al massimo 26,49 €/mese.
+- Le scelte consigliate (nodo permanente cx43 e tetto di 10 €) fanno al massimo 26,49 €/mese.
 - Hetzner non ha un tetto di spesa vero: l'allarme in console.hetzner.com/usage è
   una comodità. Il tetto lo tiene il pool (POOL-02), e l'allarme si mette comunque
   alla stessa cifra.
@@ -323,7 +323,7 @@ on demand è compreso uno snapshot da 10 GB.
 | Fase | Cosa | Spesa | Uscita (si esegue sempre uguale) |
 |---|---|---|---|
 | 0 | prove a mano su un server a ore, poi cancellato | < 1 € una tantum | gli 11 punti di «Prima del codice» chiusi e scritti qui; `GET /v1/servers?label_selector=topics-node` vuoto; nessuno snapshot rimasto se la Fase 1 non è approvata |
-| 1 | un nodo fisso, instradamento, macchina tracciata | 16,49 €/mese | una card pesante va al nodo da sola e torna in review (video `.webm`); la riga del nodo con capacità, uso, €/h, spesa e quota (screenshot chiaro e scuro); test verdi |
+| 1 | un nodo permanente, instradamento, macchina tracciata | 16,49 €/mese | una card pesante va al nodo da sola e torna in review (video `.webm`); la riga del nodo con capacità, uso, €/h, spesa e quota (screenshot chiaro e scuro); test verdi |
 | 2 | pool on demand | fino al tetto | tre card pesanti in coda fanno nascere un nodo dallo snapshot, che muore a fine ora (video); la spesa del mese nella vista coincide con console.hetzner.com/usage, entro l'arrotondamento |
 
 ## Alternativa scartata: cloud di Claude e Codex
@@ -382,10 +382,10 @@ Va in una card a parte.
   - l'allarme in console alla cifra del tetto.
 
   L'esposizione massima è uguale alle ore di sonno per il prezzo orario. Col massimo
-  di D5 (3 nodi, fisso cx43 compreso) i nodi a richiesta sono al più 2: 2 cpx42 per
-  48 ore fanno 2 × 48 × 0,1114 = 10,69 €, oltre il fisso che si paga comunque. Un raccoglitore fuori dal Mac (una GitHub Action pianificata col
+  di D5 (3 nodi, nodo permanente cx43 compreso) i nodi a richiesta sono al più 2: 2 cpx42 per
+  48 ore fanno 2 × 48 × 0,1114 = 10,69 €, oltre il nodo permanente che si paga comunque. Un raccoglitore fuori dal Mac (una GitHub Action pianificata col
   token nei secret) si valuta solo se succede davvero.
-- **Hetzner limita la creazione a caso.** Il nodo fisso dovrebbe conservare il suo
+- **Hetzner limita la creazione a caso.** Il nodo permanente dovrebbe conservare il suo
   posto (dedotto, D4), i nodi
   a richiesta possono ricevere `412`: hanno un nome e un ripiego (POOL-07). Il Mac
   resta il ripiego di tutto.
@@ -398,8 +398,8 @@ Va in una card a parte.
   Il rischio che resta è la credenziale Claude o Codex sul nodo, la stessa che
   c'è sul Mac.
 - **Una versione diversa fra Mac e nodo.** La forma delle rotte `/api/nodes/runs`
-  potrebbe non coincidere. Il nodo si allinea al commit del Mac a ogni avvio, e il
-  fisso a ogni rilascio.
+  potrebbe non coincidere. Il nodo si allinea al commit del Mac a ogni avvio, e il nodo
+  permanente a ogni rilascio.
 - **La base vecchia** porta conflitti al land (D9), e si misura nella Fase 1.
 - **Linux senza pavimento di memoria.** Lo tiene a bada il tetto a mano, fissato
   sulla misura; il lettore di `MemAvailable` arriva solo se serve (D1).

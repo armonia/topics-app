@@ -280,7 +280,7 @@ const DEFAULT_RANGE: [number, number] = [3400, 3450];
 
 /**
  * The pool from TOPICS_PREVIEW_PORTS ("low-high"), else the default. A Topics node that
- * shares its machine with CI runners (the fixed server, deploy/fisso/ci-runners.sh) moves
+ * shares its machine with CI runners (the permanent node, deploy/permanent-node/ci-runners.sh) moves
  * its previews below 3342, where the runners can neither bind nor connect, while the e2e
  * servers there keep 3400-3450. Anything malformed falls back to the default.
  */
