@@ -8,6 +8,7 @@ import { clientReceivesTopicDelta } from "./lib/ws-topic-routing";
 import { OUTBOUND_FRAME_CLASSES } from "../shared/ws-outbound";
 import { warnThrottled } from "./lib/warn-throttled";
 import { isReusableHeadstone } from "./lib/empty-turn-headstone";
+import { NOT_STEERED_ROW } from "./lib/steered-row";
 import type {
   WSData, GuestBroadcastFilter, StoredMessage, ReattachedPartial, ToolCall, Topic, TopicsData, TopicsFilter, UnreadData,
   ActiveStream, ErrorResponseOptions, AppContext, Project, ThreadLoadOpts, ContentBlock, ThreadSkeletonNode,
@@ -373,7 +374,7 @@ export function createAppContext(baseDir: string): AppContext {
     getTurnRow: db.prepare(
       `SELECT * FROM messages WHERE session_key = $sk AND role = 'assistant'
          AND (partial = 1 OR (end_reason IS NOT NULL AND (end_reason <> 'done' OR latency_ms IS NOT NULL)))
-         AND sort_order > COALESCE((SELECT MAX(sort_order) FROM messages WHERE session_key = $sk AND role = 'user'), -1)
+         AND sort_order > COALESCE((SELECT MAX(sort_order) FROM messages WHERE session_key = $sk AND role = 'user' AND ${NOT_STEERED_ROW}), -1)
        ORDER BY sort_order DESC LIMIT 1`,
     ),
     /**

@@ -3645,20 +3645,21 @@ function StatusChip({ comment, ownerName }: { comment: TaskComment; ownerName: s
   const to = ev?.to as TaskStatus | undefined;
   const valid = !!to && TASK_STATUSES.includes(to);
   const at = new Date(comment.createdAt);
-  const who = authorDisplay(commentAuthorLabel(comment.author), tr, ownerName, { personName: comment.actorPersonName, deviceName: comment.actorDeviceName });
+  const who = authorDisplay(commentAuthorLabel(comment.author), tr, ownerName, { personName: comment.actorPersonName, deviceName: comment.actorDeviceName }, comment.origin);
   const origin = actionOriginDisplay(comment.origin, tr);
+  const shownOrigin = who.kind === 'user' && !who.self ? null : origin;
   // L'app che sposta una card da sé non è una notizia: il nome resta solo per
   // chi lo è (tu, un agent, la verifica).
   const mover = who.kind === 'system' || who.kind === 'dispatcher' ? null : who.name;
   return (
     <span
       className="inline-flex min-w-0 max-w-full flex-wrap items-center justify-center gap-1 px-1.5 py-0.5 text-mini text-app-text-muted"
-      title={`${who.name} (${who.detail})${origin ? ` · ${origin}` : ''} · ${comment.content} · ${at.toLocaleString('it-IT')}`}
+      title={`${who.name} (${who.detail})${shownOrigin ? ` · ${shownOrigin}` : ''} · ${comment.content} · ${at.toLocaleString('it-IT')}`}
       data-testid="task-status-event"
     >
       {valid ? <StatusIcon status={to} /> : <span className="h-1 w-1 shrink-0 rounded-full bg-app-text-faint" />}
       {mover && <span className="shrink-0 text-app-text-secondary">{mover}</span>}
-      {origin && <span className="shrink-0 text-app-text-faint">{origin}</span>}
+      {shownOrigin && <span className="shrink-0 text-app-text-faint">{shownOrigin}</span>}
       {mover && <span className="shrink-0 text-app-text-secondary">→</span>}
       <span className="shrink-0">{valid ? STATUS_LABEL[to] : comment.content}</span>
       {/* Reasons wrap so touch users can read them without a tooltip. */}
@@ -3732,7 +3733,9 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
       </div>
     );
   }
-  const who = authorDisplay(commentAuthorLabel(comment.author), tr, ownerName, { personName: comment.actorPersonName, deviceName: comment.actorDeviceName });
+  const who = authorDisplay(commentAuthorLabel(comment.author), tr, ownerName, { personName: comment.actorPersonName, deviceName: comment.actorDeviceName }, comment.origin);
+  // A 'user' row from the API/MCP is already named by `authorDisplay` ("via API"); the origin chip would say it twice.
+  const shownOrigin = who.kind === 'user' && !who.self ? null : origin;
   const app = who.kind === 'system' || who.kind === 'dispatcher';
   /**
    * UNA RIGA DELL'APP È UN CHIP, non un paragrafo con un'intestazione sopra.
@@ -3757,10 +3760,10 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
       <div
         className="mx-auto flex w-fit max-w-full items-center justify-center gap-1.5 px-1.5 py-0.5 text-center text-mini text-app-text-muted"
         data-testid="task-app-note"
-        title={`${who.name} (${who.detail})${origin ? ` · ${origin}` : ''} · ${comment.content} · ${new Date(comment.createdAt).toLocaleString('it-IT')}`}
+        title={`${who.name} (${who.detail})${shownOrigin ? ` · ${shownOrigin}` : ''} · ${comment.content} · ${new Date(comment.createdAt).toLocaleString('it-IT')}`}
       >
         <Bot className="h-3 w-3 shrink-0" />
-        {origin && <span className="shrink-0 text-app-text-faint">{origin}</span>}
+        {shownOrigin && <span className="shrink-0 text-app-text-faint">{shownOrigin}</span>}
         <span className="min-w-0 break-words">{isFreshSessionNote(comment) ? tr('board.task.freshSessionQueued') : parseQuestionBlock(comment.content)?.question ?? comment.content}</span>
         <span className="ml-auto shrink-0 text-app-text-faint">{commentTime(comment.createdAt)}</span>
       </div>
@@ -3775,7 +3778,7 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
       <div className="pr-8">
         {(!continuation || app) && <p className="flex items-baseline gap-1.5 text-mini" title={who.detail}>
           <span className={`font-medium uppercase tracking-wide ${app ? 'text-app-text-faint' : 'text-app-text-secondary'}`}>{who.name}</span>
-          {origin && <span className="text-app-text-faint">{origin}</span>}
+          {shownOrigin && <span className="text-app-text-faint">{shownOrigin}</span>}
           <span className="ml-auto text-app-text-faint">{commentTime(comment.createdAt)}</span>
         </p>}
         <div className={`text-body-lg leading-5 ${app ? 'text-app-text-muted' : 'text-app-text'}`}>
@@ -3796,7 +3799,7 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
         <CommentBody content={comment.content} />
         <MediaStrip media={comment.media} onPreview={onPreview} />
         <p className="mt-0.5 text-right text-mini text-app-text-muted" title={who.detail}>
-          {who.name}{origin ? ` · ${origin}` : ''} · {commentTime(comment.createdAt)}
+          {who.name}{shownOrigin ? ` · ${shownOrigin}` : ''} · {commentTime(comment.createdAt)}
         </p>
       </div>
     </div>

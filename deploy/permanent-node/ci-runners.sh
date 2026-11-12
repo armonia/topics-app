@@ -1,8 +1,9 @@
 #!/bin/bash
-# GitHub runners of armonia/topics-app on the fixed server (topics-fisso), next to the Topics node.
+# GitHub runners of armonia/topics-app on the permanent node (topics-permanent-node), next to the Topics node.
 #
-#   node-pool fisso-ci    from the Mac: asks GitHub for a registration token and runs
-#                         this file as root over ssh with REG_TOKEN and N in the environment
+#   node-pool permanent-ci    from the Mac: asks GitHub for a registration and a removal token
+#                             and runs this file as root over ssh with REG_TOKEN, REMOVE_TOKEN
+#                             and N in the environment
 #
 # Idempotent: a runner already configured is only (re)started. The registration token
 # is used once by config.sh and never written to disk; afterwards each runner holds only
@@ -16,7 +17,7 @@
 #   3333 when topics.service restarts would push the node onto a random port outside
 #   the firewall and answer the Mac's tunnel itself, so every port below 3342 is
 #   privileged (SocketBindDeny would do it per unit, but Ubuntu 24.04's systemd has
-#   no BPF and ignores it in silence: measured on topics-fisso, 11/11);
+#   no BPF and ignores it in silence: measured on topics-permanent-node, 11/11);
 # - persistent runners: caches in each HOME (bun, Playwright browsers) survive between
 #   jobs, and no admin token lives here to re-register ephemeral ones;
 # - HOME=/srv/rh-<i>: ci.yml derives the e2e port band from it (13910 + (i-1)*10);
@@ -24,6 +25,7 @@
 # - a job-completed hook kills what a job left running in the runner's cgroup.
 set -euo pipefail
 : "${REG_TOKEN:?registration token}"
+pending=0
 N=${N:-4}
 URL=${URL:-https://github.com/armonia/topics-app}
 PW_VERSION=${PW_VERSION:-1.59.1}
@@ -51,12 +53,12 @@ done
 iptables -A CI-OUT -d 169.254.169.254 -j REJECT
 # From the internet only ssh comes in: the e2e test servers listen on *:139xx.
 for t in iptables ip6tables; do
-  $t -N FISSO-IN 2>/dev/null || $t -F FISSO-IN
-  $t -C INPUT -j FISSO-IN 2>/dev/null || $t -I INPUT -j FISSO-IN
-  $t -A FISSO-IN -i lo -j RETURN
-  $t -A FISSO-IN -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
-  $t -A FISSO-IN -p tcp --dport 22 -j RETURN
-  $t -A FISSO-IN -p tcp -j DROP
+  $t -N PERMANENT-IN 2>/dev/null || $t -F PERMANENT-IN
+  $t -C INPUT -j PERMANENT-IN 2>/dev/null || $t -I INPUT -j PERMANENT-IN
+  $t -A PERMANENT-IN -i lo -j RETURN
+  $t -A PERMANENT-IN -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+  $t -A PERMANENT-IN -p tcp --dport 22 -j RETURN
+  $t -A PERMANENT-IN -p tcp -j DROP
 done
 EOS
 chmod 755 /usr/local/sbin/ci-firewall
@@ -132,21 +134,33 @@ V=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest | jq 
 tgz=/opt/actions-runner-$V.tar.gz
 [ -f "$tgz" ] || curl -fsSL -o "$tgz" "https://github.com/actions/runner/releases/download/v$V/actions-runner-linux-x64-$V.tar.gz"
 
-# i = 0 is the prep runner (label fisso-prep, one light job per run), 1..N take shards.
+# i = 0 is the prep runner (label permanent-prep, one light job per run), 1..N take shards.
 for i in 0 $(seq 1 "$N"); do
   u=ci$i
   id "$u" >/dev/null 2>&1 || useradd -M -d "/srv/rh-$i" -g ci -s /bin/bash "$u"
   mkdir -p "/srv/rh-$i" "/srv/runner-$i"
   chown "$u:ci" "/srv/rh-$i" "/srv/runner-$i"; chmod 700 "/srv/rh-$i" "/srv/runner-$i"
+  name="topics-permanent-node-$i"
+  # A runner registered under another name (the server had an Italian name until 12/11):
+  # GitHub cannot rename a runner, so the old registration goes and a new one comes.
+  # A busy runner keeps its job; the next run of this script renames it.
+  if [ -f "/srv/runner-$i/.runner" ] && [ "$(jq -r .agentName "/srv/runner-$i/.runner")" != "$name" ]; then
+    if pgrep -u "$u" -x Runner.Worker >/dev/null; then
+      echo "runner $i busy: not renamed, run this again" >&2; pending=1; continue
+    fi
+    systemctl stop "ci-runner@$i.service"
+    (cd "/srv/runner-$i" && ACTIONS_RUNNER_INPUT_TOKEN=${REMOVE_TOKEN:-} runuser -u "$u" -- ./config.sh remove) >>"/var/log/ci-runner-$i.log" 2>&1 \
+      || rm -f "/srv/runner-$i/.runner" "/srv/runner-$i/.credentials" "/srv/runner-$i/.credentials_rsaparams"
+  fi
   if [ ! -f "/srv/runner-$i/.runner" ]; then
-    tar xzf "$tgz" -C "/srv/runner-$i"
+    [ -x "/srv/runner-$i/config.sh" ] || tar xzf "$tgz" -C "/srv/runner-$i"
     [ "$i" = 0 ] && /srv/runner-0/bin/installdependencies.sh >/var/log/ci-runner-deps.log 2>&1
     chown -R "$u:ci" "/srv/runner-$i"
-    l=fisso; [ "$i" = 0 ] && l=fisso-prep
+    l=permanent; [ "$i" = 0 ] && l=permanent-prep
     # The token goes through the environment (ACTIONS_RUNNER_INPUT_TOKEN), not argv:
     # /proc/<pid>/environ is readable only by that user, a command line by everybody.
     (cd "/srv/runner-$i" && ACTIONS_RUNNER_INPUT_TOKEN=$REG_TOKEN runuser -u "$u" -- ./config.sh --unattended \
-      --url "$URL" --name "topics-fisso-$i" --labels "$l" --no-default-labels --replace) >"/var/log/ci-runner-$i.log" 2>&1
+      --url "$URL" --name "$name" --labels "$l" --no-default-labels --replace) >"/var/log/ci-runner-$i.log" 2>&1
   fi
 done
 systemctl daemon-reload
@@ -174,3 +188,4 @@ if ! runuser -u ci1 -- python3 -c 'import socket; s=socket.socket(); s.bind(("12
   echo "un runner non può aprire le porte delle anteprime (3400-3450): fermo" >&2; exit 1
 fi
 echo "porte del nodo Topics chiuse ai runner"
+[ "$pending" = 0 ] || exit 3

@@ -4,6 +4,7 @@
  * Dispatch resumption after a server restart: this file and
  * task-dispatcher-interrupted.test.ts are where that requirement is exercised.
  */
+import { isAgentAuthor } from "../../shared/comment-author";
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -1311,7 +1312,7 @@ describe("task-dispatcher", () => {
     const comments = h.svc.get("t1")!.comments;
     // Recovered into the SYSTEM note — never faked as an agent comment.
     expect(comments.some((c) => c.author === "system" && c.content.includes("Ho implementato login"))).toBe(true);
-    expect(comments.some((c) => c.author !== "user" && c.author !== "system" && c.content.includes("Ho implementato login"))).toBe(false);
+    expect(comments.some((c) => isAgentAuthor(c.author) && c.content.includes("Ho implementato login"))).toBe(false);
   });
 
   it("still parks when the agent produced NOTHING (no comment AND no final message)", async () => {

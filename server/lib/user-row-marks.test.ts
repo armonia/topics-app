@@ -100,6 +100,15 @@ describe("repeatedRowMarks", () => {
     expect(repeatedRowMarks(db, "s", "Command `x` finished")).toBeUndefined();
   });
 
+  test("a row steered into the turn in between is not the row being repeated", () => {
+    // A wake, a message steered into the turn it opened, then a cut: the sweep resends the wake's text.
+    const db = dbWith([
+      { content: "Command `x` finished: exit 1.", blocks: JSON.stringify([wake]) },
+      { content: "usa la porta 2222", blocks: JSON.stringify([{ kind: "steered", into: "a0" }]) },
+    ]);
+    expect(repeatedRowMarks(db, "s", "Command `x` finished: exit 1.")).toEqual([wake] as never);
+  });
+
   test("nothing from a row the person wrote, nor from an older row", () => {
     const db = dbWith([
       { content: "same", blocks: JSON.stringify([wake]) },
