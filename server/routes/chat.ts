@@ -16,7 +16,7 @@
  * dispatch wrapper changed.
  */
 import type { ChatTurnScope } from "./chat-turn-scope";
-import { prepareTurnMessages } from "./chat-prepare";
+import { prepareTurnMessages, takeTurnCheckpoint } from "./chat-prepare";
 import { assembleTurnContext } from "./chat-context";
 import { resolveTurnProvider } from "./chat-provider";
 import { createFailureHandlers } from "./chat-failure";
@@ -948,8 +948,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         ? [...carried.map((c) => c.content), lastUserMsg.content].join("\n\n")
         : lastUserMsg?.content ?? "";
       turn.turnUserContent = turnUserContent;
-      const earlyPersist = await prepareTurnMessages(turn);
+      const earlyPersist = prepareTurnMessages(turn);
       if (earlyPersist) return earlyPersist;
+      // The opt-in checkpoint is the only await between the gate and `startStream`.
+      if (turn.turnCheckpointMark) await takeTurnCheckpoint(turn);
 
       assembleTurnContext(turn);
 

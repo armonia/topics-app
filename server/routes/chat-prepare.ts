@@ -8,8 +8,13 @@ import { scaffoldNewProject } from "../services/project-path-resolver";
 import { homedir } from "os";
 import type { ChatTurnScope } from "./chat-turn-scope";
 
-/** Persists the message of a turn, with the answers it carries, before the turn starts. */
-export async function prepareTurnMessages(turn: ChatTurnScope): Promise<Response | undefined> {
+/**
+ * Persists the message of a turn, with the answers it carries, before the turn starts.
+ * Synchronous on purpose: nothing may yield between the one-turn-per-session gate and
+ * `startStream`, or a second POST in the same tick passes the gate too. The only await
+ * allowed there is the opt-in checkpoint, taken by `takeTurnCheckpoint` right after.
+ */
+export function prepareTurnMessages(turn: ChatTurnScope): Response | undefined {
   const { WORKSPACE_DIR, appendLocalMessage, authorFor, bindTopicToProject, body, broadcastToAll, bumpTopicActivity, chatIdempotency, ctx, dispatched, dispatchedFor, getWorkspaceProjects, idempotencyKey, idempotencySlot, json, knownProjectPaths, lastUserMsg, matchedTopic, nativeChildChat, req, resolveProjectRef, resumeAttempt, sentByPerson, sessionKey, supersedeOpenQuestions } = turn;
   if (lastUserMsg?.role === "user" && lastUserMsg?.content) {
     // L'AUTORE si stampa QUI, ed è l'unico posto in cui un prompt umano
@@ -89,11 +94,6 @@ export async function prepareTurnMessages(turn: ChatTurnScope): Promise<Response
         projectPath: matchedTopic.projectPath,
         label: lastUserMsg.content.trim().slice(0, 72).replace(/\s+/g, " "),
       };
-      try {
-        await captureTurnCheckpoint(turn.turnCheckpointMark.projectPath, sessionKey, turn.turnCheckpointMark.label);
-      } catch (err) {
-        console.warn(`[Chat] automatic checkpoint failed for ${sessionKey}:`, err);
-      }
     }
 
     // Handle board chat control commands (/ prefixed)
@@ -182,5 +182,19 @@ export async function prepareTurnMessages(turn: ChatTurnScope): Promise<Response
         }
       }
     }
+  }
+}
+
+/**
+ * Takes the automatic checkpoint `prepareTurnMessages` marked. A slash command never
+ * carries a mark, so running it after the command handling keeps the original order.
+ */
+export async function takeTurnCheckpoint(turn: ChatTurnScope): Promise<void> {
+  const mark = turn.turnCheckpointMark;
+  if (!mark) return;
+  try {
+    await captureTurnCheckpoint(mark.projectPath, turn.sessionKey, mark.label);
+  } catch (err) {
+    console.warn(`[Chat] automatic checkpoint failed for ${turn.sessionKey}:`, err);
   }
 }
