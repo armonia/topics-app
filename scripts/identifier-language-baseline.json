@@ -1702,7 +1702,6 @@
     "client/src/state/chatQueue.ts": [
       "readback",
       "rec",
-      "requeueFront",
       "unshiftTurn"
     ],
     "client/src/state/layout/goldenGeometry.test.ts": [
@@ -4732,7 +4731,6 @@
       "figlio",
       "landata",
       "nuovo",
-      "requeued",
       "riga",
       "riletta",
       "vivo"
@@ -5032,11 +5030,7 @@
     ],
     "shared/board.ts": [
       "MAX_FANOUT",
-      "NOTE_UNQUEUED_BY_HUMAN",
-      "PARKED_REQUEUED_TAIL",
-      "PARKED_REQUEUE_NOTE_LIKE",
-      "REQUEUE_PARKED_LABEL",
-      "isRequeueParkedLabel"
+      "NOTE_UNQUEUED_BY_HUMAN"
     ],
     "shared/browser-snapshot-core.ts": [
       "acc",
@@ -5088,7 +5082,6 @@
       "isPreviewablePath"
     ],
     "shared/notify-actions.test.ts": [
-      "requeue",
       "roundTripped"
     ],
     "shared/os-open-path.test.ts": [
