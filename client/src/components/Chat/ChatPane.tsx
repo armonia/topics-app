@@ -18,6 +18,7 @@ import { markDraftTouched, setDraftDirty } from '../../state/draftPane';
 import { ChatEmptyState } from './ChatEmptyState';
 import { findPendingPlan, planApprovalMessage } from './planDetection';
 import { clearAskDraft, readAskDraft } from './askDraft';
+import { readDraft, saveDraft } from './chatDraft';
 import { PLAN_APPROVAL_QUESTION, PLAN_APPROVE_LABEL, PLAN_EDIT_KEY, PLAN_REJECT_LABEL } from '../../../../shared/plan-decision';
 import { forkModeFor } from '../../../../shared/chat-fork';
 import { providerLabel } from '../../../../shared/provider-labels';
@@ -178,11 +179,6 @@ const EMPTY_MESSAGES: ChatMessage[] = [];
 const QUEUE_KICK_ATTEMPTS = 6;
 const QUEUE_KICK_RETRY_MS = 150;
 
-/** The composer's saved text (`draft:<topicId>`), empty when there is none or localStorage refuses (private mode). */
-function readDraft(key: string): string {
-  try { return localStorage.getItem(key) || ''; } catch { return ''; }
-}
-
 function ChatPaneComponent({
   topic, isFocused,
   getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped, stopSession, sendMessage, loadHistory,
@@ -227,9 +223,10 @@ function ChatPaneComponent({
     const raf = requestAnimationFrame(() => restoreCursor(`chat:${topic.id}`, textareaRef.current));
     return () => cancelAnimationFrame(raf);
   }, [topic.id]);
-  // Persist draft to localStorage
+  // Persist draft to localStorage, the only copy of the text typed in a pane
+  // that is not focused right now.
   useEffect(() => {
-    try { if (message) localStorage.setItem(draftKey, message); else localStorage.removeItem(draftKey); } catch {}
+    saveDraft(draftKey, message);
   }, [message, draftKey]);
 
   /**
@@ -1384,7 +1381,10 @@ function ChatPaneComponent({
     const next = !fastModeRef.current;
     setFastMode(next);
     fastModeRef.current = next;
-    try { localStorage.setItem(`fastMode:${topic.id}`, String(next)); } catch {}
+    // local mirror for cold-boot hydration; a draft has no server row yet, so
+    // for a draft topic this write (plus `fastModeRef`) is the only copy
+    // until promotion carries the bit to the real topic id.
+    try { localStorage.setItem(`fastMode:${topic.id}`, String(next)); } catch (e) { console.warn('[ChatPane] fastMode could not be cached locally', e); }
     // Draft topics aren't persisted yet — skip the PUT (would 404). Local
     // state is sufficient until the draft is promoted; the promotion effect
     // above migrates the bit to the new real topic id once it exists.
