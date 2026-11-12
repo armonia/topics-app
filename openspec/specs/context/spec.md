@@ -597,3 +597,8 @@ con un errore o oltre 3 s il turno SHALL partire senza richiamo.
 ### Requirement: NATIVE-MEM-03 — Lo stesso interruttore della CLI
 
 Con `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` indice e richiamo SHALL essere assenti.
+
+#### Scenario: interruttore acceso
+- **GIVEN** `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, un `MEMORY.md` per la cartella del turno e un `memrecall` che risponderebbe sempre
+- **THEN** il contesto nativo non contiene l'indice
+- **AND** il richiamo per il prompt è assente
