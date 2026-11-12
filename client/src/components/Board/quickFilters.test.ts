@@ -1,3 +1,4 @@
+/** @covers KANBAN-107 */
 import { describe, expect, test } from 'bun:test';
 import type { BoardTask } from '../../lib/board';
 import { countQuickFilters, taskMatchesQuick } from './quickFilters';
