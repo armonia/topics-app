@@ -24,6 +24,7 @@ import { createDelegatedRevocationRetry, type DelegatedRevocationRetry } from ".
 import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 import { mintModelToken, revokeModelToken } from "../services/model-proxy";
 import { stripCtrl } from "../lib/strip-ctrl";
+import { createMachinesOverviewRoute } from "./machines-overview";
 
 const NAME_MAX = 200;
 
@@ -147,7 +148,11 @@ export function createMachinesRouter(ctx: AppContext, opts: { revocations?: Dele
     return json({ error: err.message, code: err.reason }, UPSTREAM_STATUS[err.reason]);
   };
 
+  const overviewRoute = createMachinesOverviewRoute(ctx);
+
   return async function machinesRouter(req, _url, pathname, method) {
+    const overviewAnswer = await overviewRoute(req, _url, pathname, method);
+    if (overviewAnswer) return overviewAnswer;
     if (pathname === "/api/machines/delegated-requests" && method === "POST") {
       const owner = installationOwner(req);
       if (!owner) return json({ error: "installation owner required", code: "owner_required" }, 403);
