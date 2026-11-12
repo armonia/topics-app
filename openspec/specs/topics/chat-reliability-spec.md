@@ -301,12 +301,13 @@ failures in between, and end the turn in error. The bound SHALL NOT cut a
 streamed body once the headers have arrived, and its expiry SHALL NOT read as a
 Stop. When the endpoint is on this machine and the account engine there
 reports a hold logged since the request was sent (it parks requests, without
-headers, while every account is capped), the wait SHALL extend on the same
-socket to that hold's end plus the bound, also when the hold was shorter than
-the bound; a hold logged before the request, or the hold setting alone, SHALL
-NOT extend it. A 429 within seconds of the end of such a hold SHALL end the call
-without another attempt; a 429 well before it is a passing limit and is retried
-as usual.
+headers, while every account is capped), the wait SHALL extend once, on the
+same socket, to that hold's end plus the bound, also when the hold was shorter
+than the bound; a hold logged before the request, the hold setting alone, or
+holds logged after the bound fired SHALL NOT extend it. A 429 the engine
+answers right after logging that it gave up on a hold (`cap-exhausted`) SHALL
+end the call without another attempt; any other 429 is a passing limit and is
+retried as usual.
 
 > **Why.** On 2026-11-11 a native turn ran 40+ minutes without a round: its
 > socket sat in `SYN_SENT` towards the local API proxy, the fetch had no limit
@@ -329,5 +330,5 @@ as usual.
 - **WHEN** a native turn calls it
 - **THEN** the call waits on the same connection and the turn completes, with no retry
 - **AND** if the engine answers 429 when its hold ends, the call ends there, without another attempt
-- **AND** a 429 that comes well before the hold's end is retried like any other 429
+- **AND** a 429 with no fresh give-up logged by the engine is retried like any other 429, even right after a hold ended
 

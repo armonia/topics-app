@@ -51,7 +51,7 @@ import { stopCauseFromSignal } from "../stop-reason";
 import { splitLongWindow, betaHeader, spiegaErrore } from "./long-window";
 import { thinkingConfigFor, DEFAULT_MAX_TOKENS } from "../../lib/native-parity";
 import type { LifecycleHookRunner } from "../../services/lifecycle-hooks";
-import { anthropicMessagesUrl, engineHoldUntil } from "./base-url";
+import { anthropicMessagesUrl, engineHoldUntil, engineJustGaveUp } from "./base-url";
 
 const API_VERSION = "2023-06-01";
 
@@ -349,15 +349,12 @@ function apiHeaders(token: string, longWindow: boolean): Record<string, string> 
  * 90 s, not less: the headers of a streamed answer can wait for the prompt to
  * be read, and a long-window request with a cold cache takes tens of seconds
  * before the first byte. The one healthy wait beyond that is the account
- * engine parking our request while every account is capped: at each firing
- * the engine is asked (`engineHoldUntil`), and a hold it logged since the
- * request was sent extends the wait on the same socket to that hold's end,
- * plus this same bound for its answer.
+ * engine parking our request while every account is capped: when the bound
+ * fires the engine is asked once (`engineHoldUntil`), and a hold it logged
+ * since the request was sent extends the wait on the same socket, once, to
+ * that hold's end plus this same bound for its answer.
  */
 export const API_HEADERS_TIMEOUT_MS = 90_000;
-
-/** A 429 this close to the end of the engine's hold is the hold's own verdict, not a passing limit. */
-const HOLD_END_SLACK_MS = 5_000;
 
 /** The line the keep-alive puts after the history. Nobody answers it: the request is dropped at `message_start`. */
 const KEEP_ALIVE_PROMPT = "(prompt cache keep-alive, no answer needed)";
@@ -445,19 +442,21 @@ async function streamOnce(
   const headersCut = new AbortController();
   const headersWaitStartedAt = Date.now();
   let headersSettled = false;
+  const cut = () => { if (!headersSettled) headersCut.abort(); };
+  // Asked once: the engine names no request in its holds, so asking again would
+  // let other requests' later holds stretch this wait without end.
   const onHeadersTimer = () => {
     if (headersSettled) return;
-    // Asked again at every firing: past the end of the hold plus the bound, or no hold logged for this request, means cut.
     void engineHoldUntil(headersWaitStartedAt).then((until) => {
       if (headersSettled) return;
       const left = until + headersTimeoutMs - Date.now();
       if (until <= 0 || left <= 0) { headersCut.abort(); return; }
       console.warn(
-        `[native] no response headers from ${apiUrl} after ${Date.now() - headersWaitStartedAt}ms: the account engine held`
-        + ` this request until ${new Date(until).toISOString()} (session_key=${opts.sessionId ?? "unknown"}): waiting on the same socket`,
+        `[native] no response headers from ${apiUrl} after ${Date.now() - headersWaitStartedAt}ms: the account engine holds`
+        + ` requests until ${new Date(until).toISOString()} (session_key=${opts.sessionId ?? "unknown"}): waiting on the same socket`,
       );
-      headersTimer = setTimeout(onHeadersTimer, left);
-    }, () => { if (!headersSettled) headersCut.abort(); });
+      headersTimer = setTimeout(cut, left);
+    }, cut);
   };
   let headersTimer = setTimeout(onHeadersTimer, headersTimeoutMs);
   const signal = opts.signal ? AbortSignal.any([opts.signal, headersCut.signal]) : headersCut.signal;
@@ -495,14 +494,13 @@ async function streamOnce(
 
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    // The engine held this request to the end of its hold and then said 429:
-    // no account freed up. Trying again would park the next attempt for
-    // another hold, up to the policy's 28 of them; the call stops here, in its
-    // words. A 429 well before the hold's end is an account that freed up and
-    // then hit a passing limit upstream: that one is retried as usual.
+    // The engine held a request to the end of its hold and said 429: no
+    // account freed up (it logs `cap-exhausted` in the same tick). Trying
+    // again would park the next attempt for another hold, up to the policy's
+    // 28 of them; the call stops here, in its words. Any other 429 is a
+    // passing limit upstream and is retried as usual.
     if (res.status === 429) {
-      const until = await engineHoldUntil(headersWaitStartedAt);
-      if (until > 0 && Date.now() >= until - HOLD_END_SLACK_MS) {
+      if (await engineJustGaveUp(headersWaitStartedAt)) {
         throw new Error(`The account engine held this request ${Math.round((Date.now() - headersWaitStartedAt) / 1000)}s and no account freed up: ${detail.slice(0, 300)}`);
       }
     }

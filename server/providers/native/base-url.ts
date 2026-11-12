@@ -52,38 +52,64 @@ const ENGINE_STATUS_TIMEOUT_MS = 3_000;
 /** A hold logged this long before our request was sent still counts: the two clocks are the same, the log is not instant. */
 const HOLD_CLOCK_SLACK_MS = 2_000;
 
+type EngineEvent = { type?: unknown; ts?: unknown; until?: unknown };
+
+/**
+ * The account engine's recent events (`GET /api/proxy-status`, `recentEvents`,
+ * the last 20), or null when the base URL is not on this machine or the engine
+ * cannot be read within 3 s (a silent engine is not holding anything worth
+ * waiting for).
+ */
+async function engineEvents(): Promise<EngineEvent[] | null> {
+  let host: string;
+  try { host = new URL(anthropicBaseUrl()).hostname; } catch { return null; }
+  if (host !== "127.0.0.1" && host !== "localhost" && host !== "[::1]") return null;
+  if (process.env.TOPICS_E2E === "1" && !process.env.TOPICS_SWITCHBOARD_URL) return null;
+  const base = (process.env.TOPICS_SWITCHBOARD_URL?.trim() || SWITCHBOARD_DASHBOARD_URL).replace(/\/+$/, "");
+  try {
+    const res = await fetch(`${base}/api/proxy-status`, { signal: AbortSignal.timeout(ENGINE_STATUS_TIMEOUT_MS) });
+    if (!res.ok) return null;
+    const events = (await res.json() as { recentEvents?: unknown }).recentEvents;
+    return Array.isArray(events) ? events as EngineEvent[] : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Until when the account engine behind the base URL is holding requests on
  * purpose, as it says itself: with every account capped or rate-limited it
  * parks a request, before any header, until an account frees up or its hold
- * expires, and logs a `cap-hold` event with that end (`GET /api/proxy-status`,
- * `recentEvents`). Only a hold logged since `sinceMs` (when our request was
- * sent) counts: the setting alone says nothing, since the engine parks only
- * while nothing is selectable, and on 2026-11-11 it was answering everyone else.
+ * expires, and logs a `cap-hold` event with that end. Only a hold logged since
+ * `sinceMs` (when our request was sent) counts: the setting alone says
+ * nothing, since the engine parks only while nothing is selectable, and on
+ * 2026-11-11 it was answering everyone else. The event names no request, so a
+ * hold logged since then may be another request's: the caller reads it once.
  *
  * The end of the latest such hold, even one already over (the answer may be
- * on its way); 0 when the base URL is not on this machine, when the engine
- * logged no such hold, or when it cannot be read within 3 s (a silent engine
- * is not holding anything worth waiting for).
+ * on its way); 0 when the engine logged no such hold or cannot be read.
  */
 export async function engineHoldUntil(sinceMs: number): Promise<number> {
-  let host: string;
-  try { host = new URL(anthropicBaseUrl()).hostname; } catch { return 0; }
-  if (host !== "127.0.0.1" && host !== "localhost" && host !== "[::1]") return 0;
-  if (process.env.TOPICS_E2E === "1" && !process.env.TOPICS_SWITCHBOARD_URL) return 0;
-  const base = (process.env.TOPICS_SWITCHBOARD_URL?.trim() || SWITCHBOARD_DASHBOARD_URL).replace(/\/+$/, "");
-  try {
-    const res = await fetch(`${base}/api/proxy-status`, { signal: AbortSignal.timeout(ENGINE_STATUS_TIMEOUT_MS) });
-    if (!res.ok) return 0;
-    const events = (await res.json() as { recentEvents?: unknown }).recentEvents;
-    if (!Array.isArray(events)) return 0;
-    let until = 0;
-    for (const e of events as Array<{ type?: unknown; ts?: unknown; until?: unknown }>) {
-      if (e?.type !== "cap-hold" || typeof e.ts !== "number" || typeof e.until !== "number") continue;
-      if (e.ts >= sinceMs - HOLD_CLOCK_SLACK_MS) until = Math.max(until, e.until);
-    }
-    return until;
-  } catch {
-    return 0;
+  const events = await engineEvents();
+  let until = 0;
+  for (const e of events ?? []) {
+    if (e?.type !== "cap-hold" || typeof e.ts !== "number" || typeof e.until !== "number") continue;
+    if (e.ts >= sinceMs - HOLD_CLOCK_SLACK_MS) until = Math.max(until, e.until);
   }
+  return until;
+}
+
+/** How fresh a `cap-exhausted` must be to be the verdict behind the 429 we just got. */
+const CAP_EXHAUSTED_FRESH_MS = 5_000;
+
+/**
+ * Whether the account engine has just given up on a hold: when a hold expires
+ * with no account free it logs `cap-exhausted` and answers that request 429 in
+ * the same tick. A 429 with no such event in the last seconds is a passing
+ * limit upstream, not the engine's verdict.
+ */
+export async function engineJustGaveUp(sinceMs: number): Promise<boolean> {
+  const events = await engineEvents();
+  const from = Math.max(sinceMs, Date.now() - CAP_EXHAUSTED_FRESH_MS) - HOLD_CLOCK_SLACK_MS;
+  return (events ?? []).some((e) => e?.type === "cap-exhausted" && typeof e.ts === "number" && e.ts >= from);
 }

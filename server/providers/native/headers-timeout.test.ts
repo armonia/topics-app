@@ -40,7 +40,7 @@ let silent: { port: number; stop: (force?: boolean) => void };
 let connections = 0;
 /** The account engine's dashboard: `recentEvents`, as Switchboard's `/api/proxy-status`. */
 let engine: ReturnType<typeof Bun.serve>;
-let engineEvents: Array<{ type: string; ts: number; until: number }> = [];
+let engineEvents: Array<{ type: string; ts: number; until?: number }> = [];
 /** How long the engine takes to answer its status. */
 let engineDelayMs = 0;
 /** When > 0, every request that reaches an API logs a hold of this length, as the engine does when it parks one. */
@@ -52,6 +52,8 @@ let bodyMs = 0;
 let answerStatus = 200;
 /** Statuses for the next requests, one each, before `answerStatus` applies again. */
 let nextStatuses: number[] = [];
+/** When true, a 429 is the engine giving up on its hold: it logs `cap-exhausted` first, as Switchboard does. */
+let exhaustOn429 = false;
 let slowRequests = 0;
 
 function parkedByEngine(): void {
@@ -132,6 +134,7 @@ describe("a round whose request never gets response headers", () => {
         parkedByEngine();
         await Bun.sleep(answerAfterMs);
         const status = nextStatuses.shift() ?? answerStatus;
+        if (status === 429 && exhaustOn429) engineEvents.unshift({ type: "cap-exhausted", ts: Date.now() });
         if (status !== 200) {
           return Response.json({ type: "error", error: { type: "rate_limit_error", message: "Usage cap reached" } }, { status });
         }
@@ -169,6 +172,7 @@ describe("a round whose request never gets response headers", () => {
     bodyMs = 0;
     answerStatus = 200;
     nextStatuses = [];
+    exhaustOn429 = false;
     process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${silent.port}`;
   });
 
@@ -200,10 +204,10 @@ describe("a round whose request never gets response headers", () => {
     const policy: RetryPolicy = { maxAttempts: 4, baseMs: 1, capMs: 4, jitter: () => 1 };
     let stoppedAt = 0;
     let err: unknown;
-    setTimeout(() => { stoppedAt = Date.now(); stop.abort("user"); }, HEADERS_MS / 3);
+    setTimeout(() => { stoppedAt = Date.now(); stop.abort("user"); }, HEADERS_MS / 10);
     await turn(reg, policy, stop.signal).catch((e) => { err = e; });
     // The Stop closes the fetch itself: it does not wait for the headers timer.
-    expect(Date.now() - stoppedAt).toBeLessThan(HEADERS_MS / 2);
+    expect(Date.now() - stoppedAt).toBeLessThan(HEADERS_MS * 0.8);
     expect(err).not.toBeInstanceOf(ApiHeadersTimeoutError);
     expect(String((err as Error | undefined)?.message ?? "")).not.toContain("no response headers");
     expect(reg.retries).toEqual([]);
@@ -301,8 +305,8 @@ describe("a round whose request never gets response headers", () => {
     // The engine let the request go at once; the answer is on its way. The
     // bound starts again from the end of the hold, not from the request.
     process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${slowApi.port}`;
-    holdForMs = HEADERS_MS / 2;
-    answerAfterMs = HEADERS_MS * 1.4;
+    holdForMs = HEADERS_MS * 0.8;
+    answerAfterMs = HEADERS_MS * 1.25;
     const before = slowRequests;
     const reg = ledger();
     await turn(reg, { maxAttempts: 4, baseMs: 1, capMs: 4, jitter: () => 1 });
@@ -311,7 +315,7 @@ describe("a round whose request never gets response headers", () => {
     expect(slowRequests - before).toBe(1);
   }, 15_000);
 
-  test("a 429 well before the end of the engine's hold is a passing limit: retried as usual", async () => {
+  test("a 429 the engine did not give up on is a passing limit: retried as usual", async () => {
     // An account freed up, then hit a limit upstream: the next attempt may well pass.
     process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${slowApi.port}`;
     holdForMs = 60_000;
@@ -325,27 +329,67 @@ describe("a round whose request never gets response headers", () => {
     expect(slowRequests - before).toBe(2);
   }, 15_000);
 
-  test("a 429 after a hold shorter than the bound stops the round too", async () => {
+  test("a 429 right after a hold that already ended is still a passing limit", async () => {
+    // The hold of an earlier attempt, or of someone else, ended a moment ago: it says nothing about this 429.
     process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${slowApi.port}`;
     holdForMs = HEADERS_MS / 3;
     answerAfterMs = HEADERS_MS / 2;
-    answerStatus = 429;
+    nextStatuses = [429];
     const before = slowRequests;
+    const reg = ledger();
+    await turn(reg, { maxAttempts: 4, baseMs: 1, capMs: 4, jitter: () => 1 });
+    expect(reg.retries.length).toBe(1);
+    expect(reg.done).toBe(1);
+    expect(slowRequests - before).toBe(2);
+  }, 15_000);
+
+  test("a give-up the engine logged before this request does not end it", async () => {
+    process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${slowApi.port}`;
+    engineEvents = [{ type: "cap-exhausted", ts: Date.now() - 30_000 }];
+    nextStatuses = [429];
+    const reg = ledger();
+    await turn(reg, { maxAttempts: 4, baseMs: 1, capMs: 4, jitter: () => 1 });
+    expect(reg.retries.length).toBe(1);
+    expect(reg.done).toBe(1);
+  }, 15_000);
+
+  test("holds other requests log after the bound fired do not stretch the wait", async () => {
+    // The engine names no request in its holds: only what it said when the bound fired counts.
+    holdForMs = HEADERS_MS;
+    let others: ReturnType<typeof setInterval> | undefined;
+    const othersStart = setTimeout(() => {
+      others = setInterval(() => {
+        engineEvents.unshift({ type: "cap-hold", ts: Date.now(), until: Date.now() + 30_000 });
+      }, 40);
+    }, HEADERS_MS + 60);
+    const started = Date.now();
     let message = "";
-    await turn(ledger(), { maxAttempts: 28, baseMs: 1, capMs: 4, jitter: () => 1 }).catch((e: Error) => { message = e.message; });
-    expect(message).toContain("no account freed up");
-    expect(slowRequests - before).toBe(1);
+    try {
+      await turn(ledger(), { maxAttempts: 1, baseMs: 1, capMs: 4, jitter: () => 1 }).catch((e: Error) => { message = e.message; });
+    } finally {
+      clearTimeout(othersStart);
+      clearInterval(others);
+    }
+    expect(message).toContain("no response headers");
+    expect(Date.now() - started).toBeLessThan(HEADERS_MS * 3 + 2_000);
   }, 15_000);
 
   test("a 429 at the end of the engine's hold stops the round instead of parking another attempt", async () => {
     process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${slowApi.port}`;
     holdForMs = HEADERS_MS * 4;
-    answerAfterMs = HEADERS_MS * 4;
+    // The engine answers as its hold expires; a little early here, so a slow machine does not hit the cut first.
+    answerAfterMs = HEADERS_MS * 3;
     answerStatus = 429;
+    exhaustOn429 = true;
+    // Another request parked later, with a later end: it must not turn the verdict into a passing limit.
+    const other = setTimeout(() => {
+      engineEvents.unshift({ type: "cap-hold", ts: Date.now(), until: Date.now() + 60_000 });
+    }, HEADERS_MS * 2);
     const before = slowRequests;
     const reg = ledger();
     let message = "";
     await turn(reg, { maxAttempts: 28, baseMs: 1, capMs: 4, jitter: () => 1 }).catch((e: Error) => { message = e.message; });
+    clearTimeout(other);
     expect(message).toContain("no account freed up");
     expect(reg.retries).toEqual([]);
     expect(slowRequests - before).toBe(1);
