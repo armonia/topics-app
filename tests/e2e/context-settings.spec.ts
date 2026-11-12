@@ -314,8 +314,13 @@ test.describe("Context, Memory & Settings", () => {
       const server = ws.connectToServer();
       server.onMessage((message) => {
         if (typeof message === "string") {
+          let parsed: { type?: string; data?: { theme?: unknown }; key?: string; value?: unknown } | null;
           try {
-            const parsed = JSON.parse(message);
+            parsed = JSON.parse(message);
+          } catch {
+            parsed = null;
+          }
+          if (parsed) {
             if (parsed.type === "ui-state:init" && parsed.data?.theme !== undefined) {
               parsed.data.theme = "dark";
               ws.send(JSON.stringify(parsed));
@@ -326,7 +331,7 @@ test.describe("Context, Memory & Settings", () => {
               ws.send(JSON.stringify(parsed));
               return;
             }
-          } catch {}
+          }
         }
         ws.send(message);
       });

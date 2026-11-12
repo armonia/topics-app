@@ -776,7 +776,9 @@ function emergencyCleanup() {
       (pid) => !foreignChromiumPids.has(pid) && mine.has(pid) && /^\d+$/.test(pid),
     );
     if (ours.length) killPids(ours, { force: true });
-  } catch {}
+  } catch (e) {
+    console.warn('[global-setup] emergency cleanup failed:', e);
+  }
 }
 process.on('SIGINT', emergencyCleanup);
 process.on('SIGTERM', emergencyCleanup);
