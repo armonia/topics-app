@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Book runners of the fixed server (topics-fisso) for one CI run, and give them back.
+# Book runners of the permanent node (topics-permanent-node) for one CI run, and give them back.
 #
-#   ci-fisso-reserve.sh reserve <pool label> <how many> <run label>   prints how many it got
-#   ci-fisso-reserve.sh release <run label>
+#   ci-permanent-reserve.sh reserve <pool label> <how many> <run label>   prints how many it got
+#   ci-permanent-reserve.sh release <run label>
 #
 # The runners there are persistent and shared by every run. A run takes a runner by
-# adding its own label to it (`fz-<run>-<attempt>`), and its shards target that label
+# adding its own label to it (`pn-<run>-<attempt>`), and its shards target that label
 # only, so a shard never waits for a runner another run is using: what is not booked
 # goes to GitHub at once.
 #
@@ -21,8 +21,8 @@
 # Needs GH_TOKEN (repository admin, to edit runner labels) and GITHUB_REPOSITORY.
 set -uo pipefail
 
-PREFIX=fz-
-SETTLE_S=${FISSO_SETTLE_S:-4}
+PREFIX=pn-
+SETTLE_S=${PERMANENT_SETTLE_S:-4}
 
 gh_api() {  # <method> <path> [json body]: the GitHub REST API, overridden by the test
   local m=$1 p=$2
@@ -37,7 +37,7 @@ gh_api() {  # <method> <path> [json body]: the GitHub REST API, overridden by th
 
 runners() { gh_api GET "/actions/runners?per_page=100"; }
 
-bookings_of() {  # <runners json> <runner id>: the fz- labels on that runner
+bookings_of() {  # <runners json> <runner id>: the pn- labels on that runner
   jq -r --argjson id "$2" --arg p "$PREFIX" '.runners[] | select(.id == $id) | .labels[].name | select(startswith($p))' <<<"$1"
 }
 
@@ -62,7 +62,7 @@ reserve() {
   # Free = online, idle, one of ours by name (a runner registered by anybody else with
 # the same label is never booked), in the pool, booked by nobody.
   ids=$(jq -r --arg pool "$pool" --arg p "$PREFIX" --argjson n "$want" '
-    [.runners[] | select(.status == "online" and (.busy | not) and (.name | startswith("topics-fisso-"))
+    [.runners[] | select(.status == "online" and (.busy | not) and (.name | startswith("topics-permanent-node-"))
       and any(.labels[]; .name == $pool)
       and all(.labels[]; .name | startswith($p) | not)) | .id] | sort | .[:$n][]' <<<"$all")
   [ -n "$ids" ] || { echo 0; return 0; }

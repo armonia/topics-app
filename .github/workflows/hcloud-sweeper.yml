@@ -1,6 +1,6 @@
 name: Rete per i runner della CI
 
-# Ogni ora: toglie le prenotazioni dei runner del server fisso rimaste da run finite
+# Ogni ora: toglie le prenotazioni dei runner del nodo permanente rimaste da run finite
 # (un delete saltato non deve tenere un runner fermo per sempre) e toglie da GitHub i
 # runner gh-runner-* dei vecchi server a richiesta rimasti offline.
 # Dall'11/11 la CI non crea più server Hetzner: quelli effimeri rimasti li cancella
@@ -21,18 +21,18 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          sparse-checkout: scripts/ci-fisso-reserve.sh
+          sparse-checkout: scripts/ci-permanent-reserve.sh
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
-      - name: Prenotazioni di run finite sui runner del fisso
+      - name: Prenotazioni di run finite sui runner del nodo permanente
         env:
           GH_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}
         run: |
           set -uo pipefail
-          source scripts/ci-fisso-reserve.sh
+          source scripts/ci-permanent-reserve.sh
           all=$(runners) && drop_stale "$all"
-          runners | jq -r '.runners[] | select(.name | startswith("topics-fisso")) | "\(.name) \(.status) busy=\(.busy) \([.labels[].name] | join(","))"'
+          runners | jq -r '.runners[] | select(.name | startswith("topics-permanent-node")) | "\(.name) \(.status) busy=\(.busy) \([.labels[].name] | join(","))"'
 
       - name: Togli da GitHub i runner effimeri offline
         env:

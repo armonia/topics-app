@@ -2,9 +2,9 @@
 
 Nodi cloud, piano parcheggiato: 4 scelte. Il nodo libera RAM al Mac, non quota.
 1. Al nodo vanno da sole le card pesanti o ferme per memoria; chat e sessioni restano qui. Perché: peso e pavimento esistono già (o: solo card scelte a mano).
-2. Fase 1: un cx43 fisso (8 vCPU, 16 GB, 16,49 €/mese) appena torna in vendita. Perché: un server vivo dovrebbe tenere il posto, dedotto (o: cpx42 subito, 69,99 €/mese).
+2. Fase 1: un cx43 permanente (8 vCPU, 16 GB, 16,49 €/mese) appena torna in vendita. Perché: un server vivo dovrebbe tenere il posto, dedotto (o: cpx42 subito, 69,99 €/mese).
 3. Nessun nodo libero: la card torna nella coda del Mac. Perché: è il comportamento di oggi (o: aspetta il nodo).
-4. Fase 2: pool da snapshot, fino a 3 nodi col fisso, tetto 10 €/mese oltre il fisso, cancellato da fermo a fine ora pagata. Perché: spento si paga (o: solo il fisso).
+4. Fase 2: pool da snapshot, fino a 3 nodi col nodo permanente, tetto 10 €/mese oltre il nodo permanente, cancellato da fermo a fine ora pagata. Perché: spento si paga (o: solo il nodo permanente).
 Compreso: progetto Hetzner separato dal CRM; niente segreti in snapshot e user_data; ogni nodo è una macchina con vCPU, RAM, €/h, spesa del mese e quota.
 Non verificato: Topics come nodo su Linux (la corsia remota non ha mai girato), login CLI senza schermo, Tailscale da cloud-init, quanta RAM sposta un nodo (misurata solo a board ferma: circa 0 GB). È la Fase 0.
 Col sì: Fase 0 su un server a ore poi cancellato (meno di 1 €); progetto Hetzner e client OAuth Tailscale li crei tu. Costo: col Mac che dorme il conto corre.
@@ -15,13 +15,13 @@ Col sì: Fase 0 su un server a ore poi cancellato (meno di 1 €); progetto Hetz
 | # | Scelta | Requisito |
 |---|--------|-----------|
 | 1 | da sole le card pesanti o ferme per memoria; chat, sessioni e `spawn_agent` mai | `KANBAN-96` (primo paragrafo e scenari «pesante», «ferma per memoria», «una chat»); `KANBAN-76` modificato (paragrafo sulla scelta umana); design §D2 |
-| 2 | Fase 1 su un cx43 fisso, solo quando Hetzner lo vende | design §D4 (tipo del fisso) e §Fasi; tasks §1.1 |
+| 2 | Fase 1 su un cx43 permanente, solo quando Hetzner lo vende | design §D4 (tipo del nodo permanente) e §Fasi; tasks §1.1 |
 | 3 | nessun nodo libero → coda del Mac | `KANBAN-96` (scenario «nessun nodo libero»); `POOL-02` e `POOL-07` (ripiego); design §D3 |
-| 4 | pool on demand: 3 nodi col fisso, 10 €/mese oltre il fisso, cancellazione a fine ora pagata | `POOL-01`, `POOL-02`; design §D5 |
+| 4 | pool on demand: 3 nodi col nodo permanente, 10 €/mese oltre il nodo permanente, cancellazione a fine ora pagata | `POOL-01`, `POOL-02`; design §D5 |
 
 ---
 
-# Nodi cloud: il lavoro pesante su macchine affittate, da un nodo fisso a un pool che nasce e muore
+# Nodi cloud: il lavoro pesante su macchine affittate, da un nodo permanente a un pool che nasce e muore
 
 Bozza parcheggiata (`status: draft`, `parcheggiata` in `.openspec.yaml`, con il testo
 esatto della richiesta del 04/10). È un piano futuro: niente codice e niente spesa
@@ -110,7 +110,7 @@ card e di uno shard su Linux, tempo dal `POST` al nodo pronto, dimensione dello
 snapshot. Nel repo entra solo la ricetta (`cloud-init`, unit systemd) e l'esito
 scritto nel design.
 
-**Fase 1: un nodo fisso.**
+**Fase 1: un nodo permanente.**
 1. **Instradamento** (KANBAN-96, KANBAN-97, KANBAN-76 modificato). Una card senza
    `machine_id` va da sola al nodo se è pesante (`dispatch_weight = heavy`, che
    esiste già) o se il Mac la terrebbe ferma per memoria, purché il nodo sia pronto,
@@ -133,7 +133,7 @@ scritto nel design.
 
 **Fase 2: pool on demand** (capability nuova `node-pool`, POOL-01…07).
 1. Nodi creati da snapshot quando la coda pesante non trova posto, e cancellati da
-   fermi alla fine dell'ora già pagata; il fisso non si tocca.
+   fermi alla fine dell'ora già pagata; il nodo permanente non si tocca.
 2. Tetto di spesa in euro e numero massimo di nodi; sopra il tetto si ripiega sul
    Mac con una nota.
 3. Un progetto Hetzner solo per i nodi; ogni risorsa ha la label `topics-node`, e il
@@ -288,7 +288,7 @@ punto non è chiuso.
    - la dimensione dello snapshot (stimata 6-12 GB);
    - se i cx mancano a tutti o solo a questo account: lo dice solo un `POST`;
    - se un server che esiste già è al riparo dalla limitazione dell'incidente
-     `0a75c7ae`: il testo non lo dice, e la scelta 2 (un fisso che «tiene il
+     `0a75c7ae`: il testo non lo dice, e la scelta 2 (un nodo permanente che «tiene il
      posto») lo presume.
 8. **Cosa contano le code locali.** `heavyInFlight` (`server/services/tasks.ts:1474-1479`)
    e `dispatchedTaskCount` (`server/services/agent-census.ts:116-127`) non
