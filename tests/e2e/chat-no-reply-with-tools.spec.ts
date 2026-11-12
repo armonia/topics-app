@@ -56,9 +56,15 @@ test.describe("chat NO_REPLY with tools", () => {
     await openTopic(page, new RegExp(topicName));
     await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
 
-    await expect(page.getByText("ultima riga visibile")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId("tool-call-row-send-1")).toBeVisible();
-    await expect(page.getByTestId("message-content-assistant")).toHaveCount(1);
-    await expect(page.getByText("NO_REPLY", { exact: false })).toHaveCount(0);
+    const assertions = async () => {
+      await expect(page.getByTestId("virtuoso-item-list").getByText("ultima riga visibile")).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId("tool-call-row-send-1")).toBeVisible();
+      await expect(page.getByTestId("message-content-assistant")).toHaveCount(1);
+      await expect(page.getByText("NO_REPLY", { exact: false })).toHaveCount(0);
+    };
+    await assertions();
+    await page.reload();
+    await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+    await assertions();
   });
 });
