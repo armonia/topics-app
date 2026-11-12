@@ -417,7 +417,7 @@ export function MessageList({
         unsaved={queued.length > 0 && hasQueuePersistError(topic.sessionKey)}
       />
     </>
-  ), [queued, isMobile, onUpdateQueued, onRemoveQueued, onClearQueue, onSendQueueNow, queueBusy, topic.id]);
+  ), [queued, isMobile, onUpdateQueued, onRemoveQueued, onClearQueue, onSendQueueNow, queueBusy, topic.id, topic.sessionKey]);
 
   /**
    * LA CODA VIVA SI SEPARA DAL RESTO — perché è l'unica cosa che cambia.
