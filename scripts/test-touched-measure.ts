@@ -17,10 +17,11 @@
  *   bun run scripts/test-touched-measure.ts [--limit 100] [--runs 10]
  * --limit is how many failed CI runs to scan, --runs how many reds to measure.
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { selectForBase } from "./test-touched.ts";
+import { SUITE_ROOTS, enumerateTestFiles } from "./test-unit-shards.ts";
 
 const REPO = "armonia/topics-app";
 const REPO_URL = `https://github.com/${REPO}.git`;
@@ -73,6 +74,29 @@ function redOf(run: Run): { job: Job; files: string[] } | null {
 }
 
 type Row = { run: Run; file: string; included: boolean; why: string; proof: string | null };
+type Cost = { run: Run; selected: number; total: number; share: number };
+
+/**
+ * The share of the suite's time the selection would have cost, weighted by the
+ * per-file durations the runner records (a file with no duration weighs the median).
+ */
+function timeShare(dir: string, selected: string[] | "full"): { selected: number; total: number; share: number } {
+  const all = enumerateTestFiles(SUITE_ROOTS, dir).map((f) => f.replaceAll("\\", "/"));
+  if (selected === "full") return { selected: all.length, total: all.length, share: 1 };
+  const path = join(dir, "scripts/test-unit-durations.json");
+  const durations: Record<string, number> = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};
+  const known = Object.values(durations).sort((a, b) => a - b);
+  const median = known.length ? known[Math.floor(known.length / 2)] : 1;
+  const weight = (f: string) => durations[f] ?? median;
+  const sum = (files: string[]) => files.reduce((acc, f) => acc + weight(f), 0);
+  const total = sum(all);
+  return { selected: selected.length, total: all.length, share: total ? sum(selected) / total : 0 };
+}
+
+/** The main the branch was compared with when CI ran: today's main already holds merged branches. */
+function mainAt(createdAt: string): string {
+  return sh(["git", "rev-list", "-1", "--first-parent", `--before=${createdAt}`, "origin/main"]).trim();
+}
 
 function main() {
   const argv = process.argv.slice(2);
@@ -94,13 +118,15 @@ function main() {
   }
 
   const rows: Row[] = [];
+  const costs: Cost[] = [];
   for (const { run, files } of branchReds) {
     let included: (f: string) => { ok: boolean; why: string };
     const dir = mkdtempSync(join(tmpdir(), "touched-measure-"));
     try {
       sh(["git", "fetch", "--quiet", REPO_URL, run.headSha]);
       sh(["git", "worktree", "add", "--detach", "--quiet", dir, run.headSha]);
-      const sel = selectForBase("origin/main", dir);
+      const sel = selectForBase(mainAt(run.createdAt), dir);
+      costs.push({ run, ...timeShare(dir, sel.kind === "full" ? "full" : sel.tests) });
       included = (f) => (sel.kind === "full" ? { ok: true, why: `whole suite (${sel.reason})` } : sel.tests.includes(f) ? { ok: true, why: "in the selection" } : { ok: false, why: `not among ${sel.tests.length} selected tests` });
     } catch (e) {
       included = () => ({ ok: false, why: `cannot replay: ${(e as Error).message.split("\n")[0]}` });
@@ -113,7 +139,7 @@ function main() {
       rows.push({ run, file, included: ok, why, proof: ok ? null : proofFor(run, file, mainReds) });
     }
   }
-  report(rows);
+  report(rows, costs);
   process.exit(rows.some((r) => !r.included && !r.proof) ? 1 : 0);
 }
 
@@ -131,11 +157,15 @@ function proofFor(run: Run, file: string, mainReds: { file: string; run: Run }[]
 
 const link = (run: Run) => `https://github.com/${REPO}/actions/runs/${run.databaseId}`;
 
-function report(rows: Row[]) {
+function report(rows: Row[], costs: Cost[]) {
   console.log("| run | branch | red file | included | reason | proof |\n|---|---|---|---|---|---|");
   for (const r of rows) {
     console.log(`| ${link(r.run)} | ${r.run.headBranch} | ${r.file} | ${r.included ? "yes" : "no"} | ${r.why} | ${r.proof ?? (r.included ? "" : "UNPROVEN")} |`);
   }
+  console.log("\n| run | selected tests | suite tests | share of suite time |\n|---|---|---|---|");
+  for (const c of costs) console.log(`| ${link(c.run)} | ${c.selected} | ${c.total} | ${(c.share * 100).toFixed(1)}% |`);
+  const mean = costs.length ? costs.reduce((acc, c) => acc + c.share, 0) / costs.length : 0;
+  console.log(`\nmean cost of the selection: ${(mean * 100).toFixed(1)}% of the whole suite's time over ${costs.length} run(s)`);
   const missed = rows.filter((r) => !r.included);
   console.log(`\n${rows.length} red file(s): ${rows.length - missed.length} included, ${missed.length} not (${missed.filter((r) => r.proof).length} proven not from the diff, ${missed.filter((r) => !r.proof).length} unproven)`);
 }
