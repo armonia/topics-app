@@ -12,6 +12,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GRAPH_ROOTS, buildGraph, changedFiles, pathLiterals, resolveSpecifier, selectTests, specifiersOf, treeWalkers } from "./test-touched.ts";
+import { gitEnv } from "../tests/setup/bun-test-preload";
 
 // Spelled in two pieces so the module-mock scan does not read the fixture as a real mock.
 const MOCK_CALL = "mock." + "module";
@@ -117,7 +118,7 @@ describe("changedFiles", () => {
   test("lists committed changes since the merge base plus untracked files, not what main already had", () => {
     const dir = mkdtempSync(join(tmpdir(), "touched-git-"));
     const git = (...args: string[]) => {
-      const r = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...args], { cwd: dir });
+      const r = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...args], { cwd: dir, env: gitEnv() });
       if (r.exitCode !== 0) throw new Error(r.stderr.toString());
     };
     try {

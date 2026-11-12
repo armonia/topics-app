@@ -125,9 +125,9 @@ function main() {
     try {
       sh(["git", "fetch", "--quiet", REPO_URL, run.headSha]);
       sh(["git", "worktree", "add", "--detach", "--quiet", dir, run.headSha]);
-      const sel = selectForBase(mainAt(run.createdAt), dir);
-      costs.push({ run, ...timeShare(dir, sel.kind === "full" ? "full" : sel.tests) });
-      included = (f) => (sel.kind === "full" ? { ok: true, why: `whole suite (${sel.reason})` } : sel.tests.includes(f) ? { ok: true, why: "in the selection" } : { ok: false, why: `not among ${sel.tests.length} selected tests` });
+      const selection = selectForBase(mainAt(run.createdAt), dir);
+      costs.push({ run, ...timeShare(dir, selection.kind === "full" ? "full" : selection.tests) });
+      included = (f) => (selection.kind === "full" ? { ok: true, why: `whole suite (${selection.reason})` } : selection.tests.includes(f) ? { ok: true, why: "in the selection" } : { ok: false, why: `not among ${selection.tests.length} selected tests` });
     } catch (e) {
       included = () => ({ ok: false, why: `cannot replay: ${(e as Error).message.split("\n")[0]}` });
     } finally {
