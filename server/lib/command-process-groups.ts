@@ -73,7 +73,15 @@ function markGroupStopping(processId: string): void {
 }
 
 function clearGroupStopping(processId: string): void {
-  try { rmSync(commandProcessGroupStopPath(processId), { force: true }); } catch {}
+  try {
+    rmSync(commandProcessGroupStopPath(processId), { force: true });
+  } catch (err) {
+    // `force: true` already swallows ENOENT — reaching here means a real fs
+    // error (EPERM, EBUSY, EIO) left the marker behind. START_UNLESS_STOPPING
+    // only checks that the file EXISTS, so an orphaned marker blocks this
+    // processId's next start until something else clears it.
+    console.warn(`[command-process-groups] could not clear stop marker for ${processId}:`, err);
+  }
 }
 
 function validGroup(value: unknown): value is CommandProcessGroup {
