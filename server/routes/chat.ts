@@ -568,6 +568,13 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       return st ? json(st) : json({ error: "unknown steer id", code: "steer_unknown" }, 404);
     }
     if (method === "POST" && pathname === "/api/chat") {
+      // The cast gives up the definite-assignment check: the scope starts with
+      // the route's dependencies only, and every other field is written later,
+      // piece by piece. That is safe because the units run in the order the
+      // single function ran on main, and each field is assigned by the unit
+      // that declared it as a local there before any later unit reads it.
+      // Reading one too early would yield `undefined` where main threw a
+      // TDZ error, so a new reader must come after the field's writer.
       const turn = {
         MIRRORED, WORKSPACE_DIR, addToolCallToLastMessage, appendLocalMessage, authorFor, autoBindProject, backgroundForAttention,
         bindTopicToProject, broadcastStreamToTopic, broadcastToAll, broadcastToTopicSubscribers, browserNavigatedTopics, browserService,
