@@ -1334,6 +1334,7 @@ export function TopicTree({
               means clicking the row to focus a project can't accidentally
               collapse it. */}
           <button
+            data-testid="project-chevron"
             onClick={(e) => { e.stopPropagation(); toggleProject(item.id); }}
             // The SHARED accordion slot (ROW_CHEVRON_SLOT): box = glyph, so the
             // chevron ink starts at the row inset and lands in the same column
