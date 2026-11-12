@@ -15,6 +15,16 @@
       "perf": [],
       "internal": [
         {
+          "it": "Pin the flaky find-in-pane and phone chrome e2e to their real conditions",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Register the chat finder in the mounting commit; let a new terminal yield only to a text field",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "POLL-CANCEL-01 and SNAPSHOT-URL-01 requirements",
           "en": "",
           "scope": "remote-browser",

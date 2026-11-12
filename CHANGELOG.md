@@ -8,6 +8,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **browser** · stop stale HTTP poll re-arm and fix screenshot origin under Tauri
 
 ### Sotto il cofano
+- Pin the flaky find-in-pane and phone chrome e2e to their real conditions
+- Register the chat finder in the mounting commit; let a new terminal yield only to a text field
 - **remote-browser** · POLL-CANCEL-01 and SNAPSHOT-URL-01 requirements
 
 ## 2.3.88 — 2026-11-12
