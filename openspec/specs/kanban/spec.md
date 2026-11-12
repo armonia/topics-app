@@ -5523,3 +5523,15 @@ A card MAY carry `scheduled` (`{ by, at }`): a run outside Topics (a timed job o
 #### Scenario: the schedule is removed
 - **WHEN** `scheduled` is cleared on a card in todo
 - **THEN** the card SHALL be claimable again
+
+### Requirement: KANBAN-113 - A message says who really wrote it
+
+A comment written through the API or the MCP SHALL NOT show the owner's name. The board route keeps the stored author `user` for a person's words (readers depend on it) and records the origin; the display SHALL name the origin («via API», «via MCP») for a `user` row whose origin is not the interface, and SHALL say it once. A rejection sent without the interface mark SHALL still be found by `pendingHumanReopen`.
+
+#### Scenario: a user comment from the API
+- **WHEN** a comment with author `user` and origin `api` is drawn
+- **THEN** the thread SHALL show «via API» once and not the owner's name
+
+#### Scenario: a reject without the interface header
+- **WHEN** a script posts a reject on the review route
+- **THEN** the stored author SHALL be `user` and the agent SHALL receive the rejection after a restart
