@@ -1216,6 +1216,12 @@
       "perdiIlFilo",
       "persa"
     ],
+    "client/src/lib/apiBase.ts": [
+      "obj"
+    ],
+    "client/src/lib/apiSystem.ts": [
+      "ProfiloGitHubClient"
+    ],
     "client/src/lib/auth/session.test.ts": [
       "fetchVero",
       "raccogli",
