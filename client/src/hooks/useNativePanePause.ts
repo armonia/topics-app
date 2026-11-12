@@ -52,9 +52,9 @@ const FULL_SCREEN_JS =
  *  <audio>/<video> that is playing (the document and its same-origin frames) is
  *  paused and remembered, and the resume replays exactly those. */
 const PAUSE_MEDIA_JS =
-  "(function(){try{var w=window,l=[];(function walk(d){d.querySelectorAll('audio,video').forEach(function(m){if(!m.paused&&!m.ended){m.pause();l.push(m)}});d.querySelectorAll('iframe').forEach(function(f){try{if(f.contentDocument)walk(f.contentDocument)}catch(e){}})})(document);w.__topicsPausedMedia=(w.__topicsPausedMedia||[]).concat(l);return String(l.length)}catch(e){return ''}})()";
+  "(function(){try{var w=window,l=[];(function walk(d){d.querySelectorAll('audio,video').forEach(function(m){if(!m.paused&&!m.ended){m.pause();l.push(m)}});d.querySelectorAll('iframe').forEach(function(f){try{if(f.contentDocument)walk(f.contentDocument)}catch(e){ /* cross-origin frames throw on access; skip them */ }})})(document);w.__topicsPausedMedia=(w.__topicsPausedMedia||[]).concat(l);return String(l.length)}catch(e){return ''}})()";
 const RESUME_MEDIA_JS =
-  "(function(){try{var w=window,l=w.__topicsPausedMedia||[];w.__topicsPausedMedia=[];l.forEach(function(m){if(m.isConnected&&m.paused){var p=m.play();if(p&&p.catch)p.catch(function(){})}});return String(l.length)}catch(e){return ''}})()";
+  "(function(){try{var w=window,l=w.__topicsPausedMedia||[];w.__topicsPausedMedia=[];l.forEach(function(m){if(m.isConnected&&m.paused){var p=m.play();if(p&&p.catch)p.catch(function(){ /* a replay refused by autoplay policy is fine */ })}});return String(l.length)}catch(e){return ''}})()";
 /** origin + pathname: the page a heavy verdict is about. */
 function urlKeyOf(u: string): string {
   try { const p = new URL(u); return p.origin + p.pathname; } catch { return u; }

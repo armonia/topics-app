@@ -27,7 +27,7 @@ const live: Array<{ proc: ReturnType<typeof Bun.spawn>; pgid: number }> = [];
 
 afterAll(async () => {
   for (const { proc, pgid } of live) {
-    try { process.kill(-pgid, "SIGKILL"); } catch { try { proc.kill("SIGKILL"); } catch {} }
+    try { process.kill(-pgid, "SIGKILL"); } catch { try { proc.kill("SIGKILL"); } catch { /* best-effort: the process may already have exited */ } }
   }
   await Promise.all(live.map(({ proc }) => Promise.race([proc.exited, Bun.sleep(1000)])));
   if (previousDataDir === undefined) delete process.env.DATA_DIR;
@@ -157,7 +157,7 @@ test("the group leader stays verifiable after its command leaves a child behind"
     expect(readExitCode(exitPath)).toBe(0);
   } finally {
     if (childIdentity && processGroupIdentityMatches(childIdentity)) {
-      try { process.kill(childIdentity.pid, "SIGKILL"); } catch {}
+      try { process.kill(childIdentity.pid, "SIGKILL"); } catch { /* best-effort: the child may already have exited */ }
     }
   }
 });
@@ -183,13 +183,13 @@ async function termDuringDrain(spawnArgv: (childPath: string) => string[]): Prom
   try {
     const until = Date.now() + 2_500;
     while (Date.now() < until) {
-      try { process.kill(identity.pid, "SIGTERM"); } catch {}
+      try { process.kill(identity.pid, "SIGTERM"); } catch { /* best-effort: the process may not be signalable yet or already gone */ }
       await Bun.sleep(1);
     }
     expect(proc.exitCode).toBeNull();
     expect(processGroupIdentityMatches(identity)).toBe(true);
   } finally {
-    try { process.kill(childPid, "SIGKILL"); } catch {}
+    try { process.kill(childPid, "SIGKILL"); } catch { /* best-effort: the child may already have exited */ }
   }
   await Promise.race([proc.exited, Bun.sleep(5_000)]);
   expect(processGroupAlive(identity.pgid)).toBe(false);
@@ -242,12 +242,12 @@ test("a TERM to the whole group during the drain never wedges the leader", async
   try {
     const until = Date.now() + 3_000;
     while (Date.now() < until) {
-      try { process.kill(-identity.pgid, "SIGTERM"); } catch {}
+      try { process.kill(-identity.pgid, "SIGTERM"); } catch { /* best-effort: the group may not be signalable yet or already gone */ }
       await Bun.sleep(1);
     }
     expect(proc.exitCode).toBeNull();
   } finally {
-    try { process.kill(childPid, "SIGKILL"); } catch {}
+    try { process.kill(childPid, "SIGKILL"); } catch { /* best-effort: the child may already have exited */ }
   }
   await Promise.race([proc.exited, Bun.sleep(3_000)]);
   expect(processGroupAlive(identity.pgid)).toBe(false);

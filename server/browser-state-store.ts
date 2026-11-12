@@ -202,7 +202,7 @@ function isPrivateHostUrl(url: string): boolean {
 
 /** Forget the persisted last URL for a context (no-op when there is none). */
 export function clearLastUrl(topicId: string): void {
-  try { unlinkSync(lastUrlFile(topicId)); } catch {}
+  try { unlinkSync(lastUrlFile(topicId)); } catch { /* file may already be gone */ }
 }
 
 export async function deleteStorageState(topicId: string): Promise<void> {
@@ -219,7 +219,7 @@ export async function deleteStorageState(topicId: string): Promise<void> {
     try {
       const entries = readdirSync(dir);
       if (entries.length === 0) rmdirSync(dir);
-    } catch {}
+    } catch { /* directory unreadable or not empty: leave it */ }
   }
 }
 

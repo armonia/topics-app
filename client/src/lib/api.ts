@@ -86,7 +86,7 @@ function readErrorBody(
       const { error: _, ...rest } = obj;
       if (Object.keys(rest).length) extra = rest;
     }
-  } catch {}
+  } catch { /* error body is not JSON: keep the status-based message */ }
   return { message, extra };
 }
 

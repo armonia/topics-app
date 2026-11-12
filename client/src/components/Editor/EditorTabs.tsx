@@ -94,7 +94,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
       const filtered = recent.filter(r => r.path !== path);
       filtered.unshift({ path, name, timestamp: Date.now() });
       localStorage.setItem(key, JSON.stringify(filtered.slice(0, 20)));
-    } catch {}
+    } catch { /* recent-files list is a convenience; corrupt or full storage is skipped */ }
 
     // Binary/media files (pdf, image, video, audio) are rendered via /preview/ iframe;
     // we must NOT fetch their bytes through /api/files/content (which has a 100KB text limit).

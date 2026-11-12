@@ -55,7 +55,7 @@ export function resolveCloudAccount(
   let others: string[] = [];
   try {
     others = readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5)).sort();
-  } catch {}
+  } catch { /* unreadable creds dir = no alternative accounts */ }
   const alt = others.find((a) => a !== wanted && hasSessionScopes(scopesOf(a, dir)));
   const msg = `[claude-cloud] account ${wanted} senza scope ${SESSION_SCOPES.join("+")}: uso ${alt ?? "il login del Portachiavi"}`;
   // Credentials are re-read on every call: say it once per change, not every heartbeat.

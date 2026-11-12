@@ -400,7 +400,7 @@ function ChatPaneComponent({
     if (typeof topic.fastMode === 'boolean') {
       if (topic.fastMode !== fastMode) {
         setFastMode(topic.fastMode);
-        try { localStorage.setItem(`fastMode:${topic.id}`, String(topic.fastMode)); } catch {}
+        try { localStorage.setItem(`fastMode:${topic.id}`, String(topic.fastMode)); } catch { /* local mirror of fastMode; the server value is the source of truth */ }
       }
     } else {
       try { setFastMode(localStorage.getItem(`fastMode:${topic.id}`) === 'true'); }
@@ -724,7 +724,7 @@ function ChatPaneComponent({
         try {
           localStorage.setItem(`fastMode:${topic.id}`, 'true');
           localStorage.removeItem(`fastMode:${prevId}`);
-        } catch {}
+        } catch { /* local mirror of fastMode; the server PUT above is authoritative */ }
       }
       // Same migration for the per-topic effort override (migration 033).
       if (effortRef.current) {
@@ -742,7 +742,7 @@ function ChatPaneComponent({
         try {
           localStorage.setItem(autonomyKey(topic.id), autonomyRef.current);
           localStorage.removeItem(autonomyKey(prevId));
-        } catch {}
+        } catch { /* local mirror of autonomy; the server PUT above is authoritative */ }
       }
       return;
     }

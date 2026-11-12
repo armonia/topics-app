@@ -1711,7 +1711,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     setSelectMode(false);
     void tauriInvoke('browser_exec_js', {
       id,
-      js: 'try{window.__topicsSelCleanup&&window.__topicsSelCleanup()}catch(e){}',
+      js: 'try{window.__topicsSelCleanup&&window.__topicsSelCleanup()}catch(e){ /* cleanup may run after the page replaced the helper */ }',
     }).catch(() => {});
   }, [id]);
 
@@ -1729,7 +1729,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       // c'è più e lo stato :hover è già decaduto.
       `function ck(e){e.preventDefault();e.stopPropagation();var d=null;try{d=describe({x:e.clientX,y:e.clientY})}catch(err){d=null}window.__topicsPick=d?JSON.stringify(d):'CANCEL';cl()}` +
       `function ke(e){if(e.key==='Escape'){window.__topicsPick='CANCEL';cl()}}` +
-      `function cl(){window.__topicsSelMode=false;document.removeEventListener('mousemove',mm,true);document.removeEventListener('click',ck,true);document.removeEventListener('keydown',ke,true);try{ov.remove();bn.remove()}catch(e){}window.__topicsSelCleanup=null}` +
+      `function cl(){window.__topicsSelMode=false;document.removeEventListener('mousemove',mm,true);document.removeEventListener('click',ck,true);document.removeEventListener('keydown',ke,true);try{ov.remove();bn.remove()}catch(e){ /* overlay nodes may already be removed by the page */ }window.__topicsSelCleanup=null}` +
       `window.__topicsSelCleanup=cl;document.addEventListener('mousemove',mm,true);document.addEventListener('click',ck,true);document.addEventListener('keydown',ke,true)})()`;
     void tauriInvoke('browser_exec_js', { id, js: inject }).catch(() => {});
     if (selectPollRef.current) clearInterval(selectPollRef.current);
@@ -1915,13 +1915,13 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       const fwd = opts?.forward !== false;
       await tauriInvoke('browser_exec_js', {
         id,
-        js: `try{window.find(${JSON.stringify(text)},${opts?.matchCase === true},${!fwd},true)}catch(e){}`,
+        js: `try{window.find(${JSON.stringify(text)},${opts?.matchCase === true},${!fwd},true)}catch(e){ /* find is best-effort on pages that refuse it */ }`,
       }).catch(() => {});
     },
     [id],
   );
   const stopFind = useCallback(async () => {
-    await tauriInvoke('browser_exec_js', { id, js: 'try{getSelection().removeAllRanges()}catch(e){}' }).catch(() => {});
+    await tauriInvoke('browser_exec_js', { id, js: 'try{getSelection().removeAllRanges()}catch(e){ /* selection clear is cosmetic */ }' }).catch(() => {});
   }, [id]);
 
   // window.find gives no count, so count occurrences in the page text ourselves
@@ -1947,7 +1947,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
 
   const clearConsole = useCallback(() => {
     setConsoleEntries([]);
-    void tauriInvoke('browser_exec_js', { id, js: 'try{window.__topicsConsole&&(window.__topicsConsole.length=0)}catch(e){}' }).catch(() => {});
+    void tauriInvoke('browser_exec_js', { id, js: 'try{window.__topicsConsole&&(window.__topicsConsole.length=0)}catch(e){ /* console buffer may not exist on this page */ }' }).catch(() => {});
   }, [id]);
 
   const consoleSummary = useMemo(() => ({
