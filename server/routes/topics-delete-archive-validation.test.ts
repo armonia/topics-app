@@ -1,4 +1,6 @@
 /**
+ * @covers TOPIC-01
+ *
  * DELETE /api/topics/:id — body validation for the archive/unarchive switch.
  *
  * Regression: `try { const body = await req.json(); if (typeof body.archived

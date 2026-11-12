@@ -1,4 +1,6 @@
 /**
+ * @covers FILE-02
+ *
  * `/api/git/log` and `/api/git/commit-files` both open with a `git rev-parse
  * --show-toplevel` to find the subdirectory scope (`repoPrefixOf`). That
  * lookup's result was read without ever checking `timedOut`: a TIMEOUT

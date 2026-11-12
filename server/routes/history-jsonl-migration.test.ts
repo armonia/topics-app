@@ -1,4 +1,6 @@
 /**
+ * @covers CHAT-01
+ *
  * GET /api/history/:sessionKey — one-time legacy JSONL migration (last resort
  * when a session has no local messages yet, server/routes/history.ts ~385).
  *

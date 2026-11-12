@@ -1,4 +1,6 @@
 /**
+ * @covers TERM-01
+ *
  * parseProbeFrame — pure parse/validate for one JSON-line frame on the probe
  * socket (server/pty-bridge.mjs, probeBridge()). Extracted so it is testable
  * without importing pty-bridge.mjs, whose module-level `start()` would spin up
@@ -12,7 +14,7 @@
  * caller can `continue` instead of touching `.id`/`.type` on them.
  */
 import { describe, expect, test } from "bun:test";
-import { parseProbeFrame } from "./pty-bridge-probe-frame.mjs";
+import { parseProbeFrame } from "./pty-bridge-platform.mjs";
 
 describe("parseProbeFrame", () => {
   test("parses a valid frame object", () => {

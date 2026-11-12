@@ -1,4 +1,6 @@
 /**
+ * @covers FILE-01
+ *
  * GET /api/files/flat (`walkFlat` in server/routes/files.ts) — unreadable
  * directories, root vs nested.
  *

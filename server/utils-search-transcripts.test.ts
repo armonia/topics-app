@@ -1,4 +1,6 @@
 /**
+ * @covers CHAT-01
+ *
  * searchTranscripts — legacy JSONL scan robustness.
  *
  * Regression coverage for a catch-swallows-everything bug: a bare `null` JSONL
