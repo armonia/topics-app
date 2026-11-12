@@ -143,7 +143,7 @@ const PASSAGES = new Set([
   "shared/board.ts", "shared/types.ts", "client/src/types/index.ts", "client/src/lib/board.ts",
   "client/src/hooks/useCardBoardSettings.ts", "client/src/components/Board/BoardSettingsPanel.tsx",
   "client/src/components/Board/FloatingTaskComposer.tsx", "client/src/components/Board/KanbanBoardPane.tsx",
-  "client/src/components/Board/TaskDetail.tsx", "client/src/components/Chat/ChatInput.tsx", "client/src/components/Chat/ChatPane.tsx",
+  "client/src/components/Board/TaskDetail.tsx", "client/src/components/Board/TaskMetadata.tsx", "client/src/components/Chat/ChatInput.tsx", "client/src/components/Chat/ChatPane.tsx",
   "client/src/components/Chat/useComposerPicks.ts", // ChatPane picks hook, moved out of ChatPane.tsx
   "client/src/demo/scenarios/common.ts", // demo settings fixture, only supplies a value
 ]);

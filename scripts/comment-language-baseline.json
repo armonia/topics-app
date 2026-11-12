@@ -31,7 +31,7 @@
     "client/src/components/Board/PreviewMedia.tsx": 156,
     "client/src/components/Board/ProjectPicker.tsx": 37,
     "client/src/components/Board/TaskChoiceRow.tsx": 60,
-    "client/src/components/Board/TaskDetail.tsx": 663,
+    "client/src/components/Board/TaskDetail.tsx": 133,
     "client/src/components/Board/ThreadRuns.test.tsx": 1,
     "client/src/components/Board/UnifiedDiff.tsx": 22,
     "client/src/components/Board/atoms.tsx": 99,
