@@ -22,7 +22,7 @@
  */
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { mkdirSync, writeFileSync } from "fs";
 import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
@@ -99,6 +99,12 @@ async function openDrawer(page: Page, text: string) {
   return drawer;
 }
 
+// The review decisions live under the delivery tab of the drawer, not on the
+// default conversation view.
+async function openDeliveryTab(drawer: Locator) {
+  await drawer.getByTestId("task-delivery-toggle").click();
+}
+
 test.describe("Tre bottoni della review che dicevano una cosa e ne facevano un'altra", () => {
   test.describe.configure({ timeout: 90_000 });
   test.use({ viewport: { width: 1800, height: 1000 } });
@@ -145,6 +151,7 @@ test.describe("Tre bottoni della review che dicevano una cosa e ne facevano un'a
     await page.goto("/");
     await openProjectBoard(page);
     const drawer = await openDrawer(page, text);
+    await openDeliveryTab(drawer);
     await expect(drawer.getByTestId("task-review-actions")).toBeVisible();
 
     const del = await page.request.delete(`${BASE}/api/boards/${PROJECT_ID}/tasks/${task.id}`);
@@ -164,6 +171,7 @@ test.describe("Tre bottoni della review che dicevano una cosa e ne facevano un'a
     await page.goto("/");
     await openProjectBoard(page);
     const drawer = await openDrawer(page, text);
+    await openDeliveryTab(drawer);
 
     await expect(drawer.getByTestId("task-approve-leaves-branch-note")).toBeVisible();
     await expect(drawer.getByTestId("task-approve-leaves-branch-note")).toContainText("Landa su main");
