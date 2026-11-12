@@ -1675,7 +1675,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // is already gone — bail before pushing a SECOND, spurious undo entry (its
     // panelIndex would be -1, and undo would splice the tab back at the wrong
     // slot, duplicating it). Undo/redo re-add the pane first, so both still work.
-    if (!openPanelsRef.current.includes(topicId)) return;
+    // A project tab can sit in the store's app-level group without being in
+    // the openPanels mirror (a stale snapshot, a restore); bailing there made
+    // its X a silent no-op. A project pane the store still holds closes.
+    const heldProjectPane = isProjectPaneId(topicId) && !!usePaneStore.getState().panes[topicId];
+    if (!openPanelsRef.current.includes(topicId) && !heldProjectPane) return;
     // Le tre (ora quattro) conseguenze della chiusura di una pane BROWSER
     // vivono qui, e non solo nel gestore per-tipo di usePaneLifecycle, perche'
     // questo e' l'UNICO imbuto da cui passano tutte le strade: la X, ⌘W, il
