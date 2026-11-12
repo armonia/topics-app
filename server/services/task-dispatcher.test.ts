@@ -4444,7 +4444,7 @@ describe("l'envelope non parla italiano", () => {
     h.dispatcher.shutdown();
   });
 
-  it("with the CI unit row: the full suite is read from the PR CI, targeted bun test stays, and an e2e line is not invented", async () => {
+  it("with the CI unit row: the full suite is read from the PR CI, test:touched stays, and an e2e line is not invented", async () => {
     const { h, kickoff } = await envelopeDiKickoff(undefined, [UNIT_CI_CHECK]);
     expect(kickoff).not.toContain("github-ci:unit");
     const unit = kickoff.split("\n").find((r) => r.includes("UNIT TESTS RUN ON GITHUB CI, NEVER HERE")) ?? "";
