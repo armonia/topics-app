@@ -128,6 +128,8 @@ export type LandSkipCode =
   | "realign-blocked"
   /** The automatic land found the branch behind `main` and refused to realign it (`DeliverySnapshot.noRealign`). */
   | "realign-needed"
+  /** The branch on origin holds commits this checkout does not have and the fetch could not bring them in. */
+  | "branch-stale"
   /**
    * The automatic land would publish something other than the commit the bar
    * measured: the delivered branch is gone, its tip moved after the delivery, or
@@ -239,6 +241,8 @@ export function landFallout(
       return { status: "review", reason: "il ramo è indietro su main e il riallineamento non si è potuto provare" };
     case "realign-needed":
       return { status: "review", reason: "il ramo è indietro su main: l'atterraggio automatico non lo riallinea" };
+    case "branch-stale":
+      return { status: "review", reason: "il ramo su origin ha commit che il checkout locale non ha" };
     case "not-as-measured":
       return { status: "review", reason: "l'atterraggio automatico avrebbe pubblicato un commit diverso da quello misurato" };
     case "auto-land-stopped":
@@ -526,6 +530,24 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
   }
 
   /**
+   * `git fetch origin B:B`, then a check that nothing on origin was left behind.
+   * Returns the refusal reason when origin holds commits of `branch` that the
+   * local one lacks (the fetch is non-forced, so a branch checked out in a
+   * worktree or diverged is not moved); `null` when nothing is missing, or when
+   * there is no origin or no such branch there.
+   */
+  async function fetchBranchFromOrigin(repoPath: string, branch: string): Promise<string | null> {
+    if (!isPlainBranchName(branch)) return null;
+    await runGit(repoPath, ["fetch", "--no-tags", "origin", `refs/heads/${branch}:refs/heads/${branch}`]).catch(() => undefined);
+    const remote = await runGit(repoPath, ["ls-remote", "--heads", "origin", `refs/heads/${branch}`]).catch(() => null);
+    const sha = remote && remote.code === 0 ? remote.stdout.trim().split(/\s+/)[0] ?? "" : "";
+    if (!sha) return null;
+    const contained = await runGit(repoPath, ["merge-base", "--is-ancestor", sha, `refs/heads/${branch}`]);
+    if (contained.code === 0) return null;
+    return `il ramo \`${branch}\` su origin ha commit (${sha.slice(0, 8)}) che questo checkout non ha e il fetch non è riuscito a portarli (ramo in uso in un worktree o divergente)`;
+  }
+
+  /**
    * Il ramo da pubblicare, e cosa dire se non è lo scatto della consegna.
    *
    * Il land risolve il ramo dal worktree VIVO della card (`resolveTaskMerge`),
@@ -542,12 +564,6 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
    * dallo scatto della consegna (ramo diverso, commit aggiunti dopo, commit di
    * consegna riscritto da un rebase) diventa una riga nel thread.
    */
-  /** `git fetch origin B:B`, best effort: no remote or no such branch changes nothing. */
-  async function fetchBranchFromOrigin(repoPath: string, branch: string): Promise<void> {
-    if (!isPlainBranchName(branch)) return;
-    await runGit(repoPath, ["fetch", "--no-tags", "origin", `refs/heads/${branch}:refs/heads/${branch}`]).catch(() => undefined);
-  }
-
   async function resolveLanding(
     repoPath: string,
     liveBranch: string,
@@ -1125,15 +1141,18 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         const head = await runGit(repoPath, ["symbolic-ref", "--short", "-q", "HEAD"]);
         const cur = head.stdout.trim();
 
-        // The branch as origin has it, before anything measures it. A card that
-        // ran on another machine pushed its branch there: this checkout may not
-        // have it at all (then `branch-missing` closed the card with nothing
+        // The branch as origin has it, before anything measures it. This checkout
+        // may not have it (then `branch-missing` closed the card with nothing
         // landed) or may hold an older tip (then the merge left origin's later
         // commits out). The fetch is non-forced, so it only creates the branch
-        // or fast-forwards it: a local branch that is ahead, diverged, or checked
-        // out in a worktree is left exactly as it is.
-        await fetchBranchFromOrigin(repoPath, branch);
-        if (delivery?.branch?.trim() && delivery.branch.trim() !== branch) await fetchBranchFromOrigin(repoPath, delivery.branch.trim());
+        // or fast-forwards it; if origin still holds commits we lack (branch
+        // diverged, or checked out in a worktree) the land refuses. Note that no
+        // remote lane pushes `priorBranch` to origin today (a node returns a
+        // bundle, the cloud lane a new branch), so for those cards the branch is
+        // found here or the land says it is missing.
+        const stale = await fetchBranchFromOrigin(repoPath, branch)
+          ?? (delivery?.branch?.trim() && delivery.branch.trim() !== branch ? await fetchBranchFromOrigin(repoPath, delivery.branch.trim()) : null);
+        if (stale) return { status: "skipped", code: "branch-stale", reason: stale };
 
         // Quale ramo si pubblica, e cosa dire se non è lo scatto della consegna.
         // PRIMA di ogni controllo: tutto quello che segue (ahead, commit propri,

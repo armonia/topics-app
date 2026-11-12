@@ -2183,7 +2183,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // after a "nothing to land" must be closable.
         const fall = landFallout(res.code, {
           deliveryCommit: cur ? (cur.deliveryCommit ?? null) : undefined,
-          priorBranch: cur?.priorBranch ?? null,
+          // Only when the land looked for it: a card with a delivery branch was measured on that one,
+          // and `prior_branch` is never cleared, so an old value would give a false reason.
+          priorBranch: cur?.deliveryBranch?.trim() ? null : (cur?.priorBranch ?? null),
         });
         // Da `done` la card si RITIRA; da `review` non si è mai mossa (il land
         // non approva più prima di atterrare) e ci resta — tranne dove il

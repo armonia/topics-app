@@ -76,3 +76,47 @@ describe("the system gates never move a done card", () => {
     expect(h.comments().some((c) => c.content.includes("abandoned by the GC"))).toBe(true);
   });
 });
+
+describe("a closure that lands while the lane is awaiting the node", () => {
+  it("closed during readRun: the report is not mirrored and the run is cancelled", async () => {
+    let close = false;
+    const holder: { h?: ReturnType<typeof harness> } = {};
+    const h = harness({
+      readRun: async () => {
+        if (close) closeAsDone(holder.h!);
+        return report({ status: "in_progress", dispatchState: "working" });
+      },
+    });
+    holder.h = h;
+    h.seed();
+    await dispatch(h);
+    close = true;
+    await poll(h);
+
+    expect(h.calls).toContain("cancel:run-1");
+    expect(h.task().status).toBe("done");
+    expect(h.task().dispatchState ?? null).toBeNull();
+  });
+
+  it("closed during the delivery download: the delivery of the done card is not overwritten", async () => {
+    let close = false;
+    const holder: { h?: ReturnType<typeof harness> } = {};
+    const h = harness({
+      readRun: async () => report({ status: "review", dispatchState: null, deliveryBranch: "topics/late", deliveryCommit: "abc1234" }),
+      bundle: new Uint8Array([1, 2, 3]),
+      onBundle: () => { if (close) closeAsDone(holder.h!); },
+    });
+    holder.h = h;
+    h.seed();
+    await dispatch(h);
+    h.db.run("UPDATE tasks SET delivery_branch = 'topics/final', delivery_commit = 'fff0000' WHERE id = ?", [TASK]);
+    close = true;
+    await poll(h, 3);
+
+    const task = h.task();
+    expect(task.status).toBe("done");
+    expect(task.deliveryBranch).toBe("topics/final");
+    expect(task.deliveryCommit).toBe("fff0000");
+    expect(h.calls).toContain("cancel:run-1");
+  });
+});

@@ -163,6 +163,13 @@ describe("un land fallito dice perche', e non lascia la card in done", () => {
     });
   }
 
+  test("un priorBranch vecchio non conta se il land ha cercato il deliveryBranch: la card done resta done", async () => {
+    const { id, db: d } = await landSkipping("branch-missing", (db, taskId) => {
+      db.prepare("UPDATE tasks SET delivery_branch = 'topics/round2', prior_branch = 'topics/round1', delivery_commit = NULL, status = 'done' WHERE id = ?").run(taskId);
+    });
+    expect(createTaskService(d).get(id)!.task.status).toBe("done");
+  });
+
   test("ramo mancante senza priorBranch e senza commit di consegna resta il caso «niente da atterrare»", async () => {
     const { id, db: d } = await landSkipping("branch-missing", (db, taskId) => {
       db.prepare("UPDATE tasks SET delivery_commit = NULL WHERE id = ?").run(taskId);

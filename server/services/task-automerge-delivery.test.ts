@@ -245,6 +245,50 @@ describe("land vs consegna — su git vero", () => {
     }
   }, 30_000);
 
+  test("remote card, stale local branch held by a worktree: the fetch is refused, so the land refuses with the reason", async () => {
+    const { root, repo, clone } = remoteCardRepo();
+    try {
+      git(clone, "switch", "-q", "-c", "topics/held");
+      commit(clone, "first.txt", "1\n", "first commit");
+      git(clone, "push", "-q", "origin", "topics/held");
+      git(repo, "fetch", "-q", "origin", "topics/held:topics/held");
+      git(repo, "worktree", "add", "-q", join(root, "wt"), "topics/held");
+      commit(clone, "second.txt", "2\n", "second commit, pushed later");
+      git(clone, "push", "-q", "origin", "topics/held");
+
+      const res = await landRemoteCard(repo, { deliveryBranch: null, priorBranch: "topics/held" });
+
+      expect(res.status).toBe("skipped");
+      if (res.status !== "skipped") return;
+      expect(res.code).toBe("branch-stale");
+      expect(landFallout(res.code).status).toBe("review");
+      git(repo, "switch", "-q", "main");
+      expect(existsSync(join(repo, "first.txt"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("delivered branch differing from the live one is fetched from origin too", async () => {
+    const { root, repo, clone } = remoteCardRepo();
+    try {
+      git(repo, "branch", "topics/live");
+      git(clone, "switch", "-q", "-c", "topics/delivered");
+      commit(clone, "delivered.txt", "d\n", "delivered work");
+      git(clone, "push", "-q", "origin", "topics/delivered");
+
+      const res = await createTaskAutoMerge({
+        resolveTaskMerge: () => ({ repoPath: repo, branch: "topics/live", defaultBranch: "main" }),
+      }).tryMerge("t8", "card", { branch: "topics/delivered", commit: null });
+
+      expect(res.status).toBe("merged");
+      git(repo, "switch", "-q", "main");
+      expect(existsSync(join(repo, "delivered.txt"))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   test("remote card, branch nowhere: refused, the card leaves Done", async () => {
     const { root, repo } = remoteCardRepo();
     try {

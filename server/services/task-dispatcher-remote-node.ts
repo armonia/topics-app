@@ -889,6 +889,12 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
             log(`nodo: impianto del ramo ${branch} fallito`, err);
             return { planted: false, commit: null, reason: "l'impianto del ramo è fallito su questa macchina" };
           });
+      // The bundle download and the plant are awaits: a card closed meanwhile
+      // keeps the delivery it was closed with, and the run is cancelled.
+      if (svc.get(taskId)?.task?.status === "done") {
+        await retireDoneRun(taskId, node);
+        return;
+      }
       if (planted.planted) {
         try {
           // `recordDelivery` and not `setDeliveryBranch` alone: the commit and
@@ -1099,6 +1105,13 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       // collects two deliveries (KANBAN-77).
       const still = inFlight.get(taskId);
       if (!still || still.runId !== slot.runId || still.node?.runId !== node.runId) continue;
+      // The card may have been closed while `readRun` was in the air: the first
+      // look above predates the report, and mirroring it would write `working`
+      // back on a done card.
+      if (svc.get(taskId)?.task?.status === "done") {
+        await retireDoneRun(taskId, node);
+        continue;
+      }
       node.fails = 0;
       node.setupFails = 0;
       if (!node.primed && report.status === "review" && isPreviousDelivery(taskId, report)) {

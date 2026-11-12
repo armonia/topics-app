@@ -79,6 +79,8 @@ export interface NodeFakeOptions {
   readRun?: (runId: string) => Promise<NodeRunReport>;
   cancelRun?: (runId: string) => Promise<void>;
   bundle?: Uint8Array | null;
+  /** Runs while the bundle download is in the air (a closure can land there). */
+  onBundle?: () => void;
   planted?: { planted: boolean; commit: string | null; reason: string | null };
   /** The `node-run` hook runner; absent = the lane's own default. */
   hooks?: LifecycleHookRunner;
@@ -106,6 +108,7 @@ export function nodeFake(o: NodeFakeOptions = {}) {
     },
     fetchBundle: async () => {
       calls.push("bundle");
+      o.onBundle?.();
       return o.bundle && o.bundle.length > 0 ? { empty: false as const, bytes: o.bundle } : { empty: true as const };
     },
     cancelRun: async ({ runId }) => {
