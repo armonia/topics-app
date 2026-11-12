@@ -98,12 +98,13 @@ test.describe('full-screen before/after evidence', () => {
       const b = (await frame.boundingBox())!;
       return Math.abs(b.width / b.height - 4 / 3) < 0.02;
     }).toBe(true);
-    const box = (await frame.boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width * 0.25, box.y + box.height / 2, { steps: 5 });
-    await page.mouse.up();
-    await expect.poll(async () => Number(await page.getByTestId('evidence-slider').inputValue())).toBeLessThan(35);
+    // The divider is a real range input: move it the way a keyboard user does.
+    const slider = page.getByTestId('evidence-slider');
+    await slider.focus();
+    await slider.press('Home');
+    await expect.poll(async () => Number(await slider.inputValue())).toBe(0);
+    await slider.press('End');
+    await expect.poll(async () => Number(await slider.inputValue())).toBe(100);
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('preview-lightbox')).toHaveCount(0);
   });
