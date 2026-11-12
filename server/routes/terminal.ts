@@ -7,6 +7,7 @@ import { createInterface } from "readline";
 import { getDatabase } from "../db";
 import { ptyBridgeOverride, resolvePtyBridgeCommand } from "../lib/pty-bridge-selection";
 import { warnThrottled } from "../lib/warn-throttled";
+import { dispatchBridgeLine, killChildren, settleExitedSessionRow } from "../lib/terminal-guards";
 import { bridgeWriteForSession, withoutSuspendKey } from "../lib/terminal-suspend-key";
 import { shouldCompressFrame } from "../lib/ws-compression";
 import { createHash } from "crypto";
@@ -1074,13 +1075,7 @@ function setupSocketReader(socket: net.Socket) {
     // Any line at all is proof of life, even one we cannot parse. The watchdog
     // reads this, not just the pong.
     lastByteAt = Date.now();
-    let parsed: unknown;
-    try { parsed = JSON.parse(line); } catch { return; }
-    try {
-      handleBridgeMessage(parsed);
-    } catch (e) {
-      warnThrottled("terminal:bridge-handler", "[Terminal] bridge message handler threw, terminal state may be stale:", e);
-    }
+    dispatchBridgeLine(line, handleBridgeMessage);
   });
 
   socket.on('close', () => {
@@ -1385,21 +1380,13 @@ function handleBridgeMessage(msg: any) {
         // it on every reload, which immediately exits again, producing the
         // "chat appears then closes" flicker. Treat those as dead: DELETE
         // the row so they stop haunting the UI.
-        try {
-          if (canResume) {
-            // The code is kept WITH the parked row, so a pane opened after the
-            // fact reads it too. NULL when the bridge gave none: an unknown
-            // code is not a zero.
-            getDatabase().run("UPDATE terminal_sessions SET status = 'dormant', exit_code = ? WHERE id = ?", [exitCode, msg.id]);
-          } else {
-            if (failedQuickly) {
-              console.warn(`[Terminal] Session ${msg.id} exited in ${ageMs}ms with code ${msg.exitCode} — deleting (failed launch).`);
-            }
-            getDatabase().run("DELETE FROM terminal_sessions WHERE id = ?", [msg.id]);
-          }
-        } catch (e) {
-          warnThrottled(`terminal_sessions:exit-row:${msg.id}`, `[Terminal] terminal_sessions: parking or deleting the row of exited session ${msg.id} failed, it may revive on reload:`, e);
+        if (!canResume && failedQuickly) {
+          console.warn(`[Terminal] Session ${msg.id} exited in ${ageMs}ms with code ${msg.exitCode} — deleting (failed launch).`);
         }
+        // The code is kept WITH the parked row, so a pane opened after the
+        // fact reads it too. NULL when the bridge gave none: an unknown
+        // code is not a zero.
+        settleExitedSessionRow(getDatabase(), { id: msg.id, resumable: canResume, exitCode });
         // Mirror the lifecycle into the phase tracker so the loading signal
         // clears: dormant (resumable) → not loading; otherwise forget it.
         if (exitedSession.claudeSessionId && (exitedSession.type === 'claude-code' || exitedSession.type === 'claude-code-team')) {
@@ -2798,10 +2785,8 @@ function isCodexBridgeOnlyTopic(ctx: AppContext, sessionKey: string): boolean {
  *  model-spawned ephemerals, so orphaning them (leaving drivable PTYs with a
  *  dead owner) is worse than reaping them. */
 function cascadeKillChildren(parentSessionKey: string, caller: string) {
-  for (const child of liveChildrenOf(parentSessionKey)) {
-    try { sendTerminalKill(child.id, 'subagent-cascade', caller); } catch (e) { warnThrottled(`terminal:cascade-kill:${child.id}`, `[Terminal] killing child ${child.id} of ${parentSessionKey} failed, it may stay alive without an owner:`, e); }
-    // The bridge's `exit` frame will clean up maps/DB/tracker for each child.
-  }
+  // The bridge's `exit` frame will clean up maps/DB/tracker for each child.
+  killChildren(liveChildrenOf(parentSessionKey), parentSessionKey, (id) => sendTerminalKill(id, 'subagent-cascade', caller));
 }
 
 /**

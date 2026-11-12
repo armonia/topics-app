@@ -109,7 +109,8 @@ import {
 import { computeCleanBroadcastDelta, stripSlowAnnotation } from "./stream-markers";
 import { createHumanWaitLedger } from "../lib/human-wait";
 import { crashedTurnNotice, rowCarriesWork, sendFailureNotice, shortErrorDetail, type CrashedTurnRow } from "./crashedTurnNotice";
-import { attribuisciMedia, type TurnToolTrace } from "../lib/media-ownership";
+import { type TurnToolTrace } from "../lib/media-ownership";
+import { attachMediaOfTurn } from "../lib/attach-media-of-turn";
 import { mergeReattachedRow, type RowSnapshot } from "./reattachMerge";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
@@ -3044,21 +3045,16 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             const toolsOfTurn: TurnToolTrace[] = blocks
               .filter((b): b is Extract<ContentBlock, { kind: "tool" }> => b.kind === "tool")
               .map((b) => ({ name: b.toolCall.name, args: b.toolCall.args, result: b.toolCall.result }));
-            setTimeout(async () => {
-              try {
-                const candidati = await findNewMediaFiles(requestStartMs);
-                const { propri, altrui } = attribuisciMedia(candidati, toolsOfTurn);
-                if (altrui.length > 0) {
-                  console.log(`[Media] ${sessionKey}: ${altrui.length} file scartati, non nominati da questo turno — ${altrui.map((p) => p.split("/").pop()).join(", ")}`);
-                }
-                if (propri.length > 0 && sessionKey) {
-                  updateLastMessageWithMedia(sessionKey, propri, ownRow);
-                  broadcastToAll({ type: "message:media", sessionKey, topicId: matchedTopic?.id, media: propri });
-                }
-              } catch (e) {
-                console.warn(`[Media] ${sessionKey}: attaching the media of the turn failed:`, e);
-              }
-            }, 1000);
+            setTimeout(() => void attachMediaOfTurn({
+              sessionKey,
+              topicId: matchedTopic?.id,
+              requestStartMs,
+              toolsOfTurn,
+              ownRow,
+              findNewMediaFiles,
+              updateLastMessageWithMedia,
+              broadcast: broadcastToAll,
+            }), 1000);
 
             if (matchedTopic && !matchedTopic.projectPath && !globalOrchestrator) {
               setTimeout(() => {

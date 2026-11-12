@@ -10,6 +10,8 @@
 const lastWarnAt = new Map<string, number>();
 
 const DEFAULT_WINDOW_MS = 60_000;
+/** Above this many remembered keys, the ones whose window has passed are dropped. */
+const SWEEP_ABOVE = 256;
 
 /**
  * console.warn at most once per `windowMs` for a given `key`. Extra args are
@@ -18,7 +20,20 @@ const DEFAULT_WINDOW_MS = 60_000;
 export function warnThrottled(key: string, ...args: unknown[]): void {
   const now = Date.now();
   const last = lastWarnAt.get(key);
-  if (last !== undefined && now - last < DEFAULT_WINDOW_MS) return;
+  if (last !== undefined) {
+    if (now - last < DEFAULT_WINDOW_MS) return;
+    // The window is over: the entry has nothing left to say, so it goes. Keys
+    // carrying an id (one per session) would otherwise pile up for good.
+    lastWarnAt.delete(key);
+  }
+  if (lastWarnAt.size >= SWEEP_ABOVE) {
+    for (const [k, at] of lastWarnAt) if (now - at >= DEFAULT_WINDOW_MS) lastWarnAt.delete(k);
+  }
   lastWarnAt.set(key, now);
   console.warn(...args);
+}
+
+/** Number of remembered keys, for tests. */
+export function warnThrottledSize(): number {
+  return lastWarnAt.size;
 }

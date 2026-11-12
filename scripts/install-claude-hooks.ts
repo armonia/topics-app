@@ -56,6 +56,7 @@ import {
   type HookMatcher,
 } from "../server/lib/topics-hooks";
 import { hookScriptPath, writeHookScript } from "../server/lib/topics-hook-script";
+import { removeDirReporting } from "../server/lib/remove-dir-reporting";
 
 const CLAUDE_DIR = join(homedir(), ".claude");
 const SETTINGS_PATH = join(CLAUDE_DIR, "settings.json");
@@ -228,13 +229,7 @@ function uninstall(): void {
 
   // The legacy copy goes. The script under TOPICS_HOME stays, with the token:
   // the server's own spawns still use it.
-  let legacyRemoved = true;
-  try {
-    rmSync(LEGACY_HOOKS_DIR, { recursive: true, force: true });
-  } catch (e) {
-    legacyRemoved = false;
-    console.warn(`! Could not remove ${LEGACY_HOOKS_DIR}:`, e);
-  }
+  const legacyRemoved = removeDirReporting(LEGACY_HOOKS_DIR);
 
   console.log(`✓ Removed ${removed} Topics App hook entries from ${SETTINGS_PATH}`);
   if (legacyRemoved) console.log(`✓ Removed ${LEGACY_HOOKS_DIR}`);

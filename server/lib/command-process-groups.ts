@@ -69,7 +69,7 @@ export function commandProcessGroupStopPath(processId: string): string {
   return join(dirname(registryPath()), `command-process-group-${encodeURIComponent(processId)}.stop`);
 }
 
-function markGroupStopping(processId: string): void {
+export function markGroupStopping(processId: string): void {
   try { writeFileSync(commandProcessGroupStopPath(processId), ""); } catch (e) {
     warnThrottled(`command-process-groups:stop-marker:${processId}`, `[CommandProcessGroups] writing the stop marker of ${processId} failed, the stop may leave orphans:`, e);
   }
