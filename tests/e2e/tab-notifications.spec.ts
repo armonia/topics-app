@@ -174,7 +174,15 @@ test.describe("Tab Notification Badges", () => {
     // the same render that landed `data-attention` above. A badge on an
     // active tab still renders (in its onFill color variant), so the count
     // marker is the only reliable negative check.
-    await expect(tabA.locator("[data-notification-count]")).toHaveCount(0);
+    //
+    // The timeout here MUST stay under SEEN_DWELL_MS (1200ms, shared/attention.ts):
+    // this pane is foreground, so `seeSubject` fires at the dwell and marks the
+    // subject seen server-side, which would ALSO zero the count -- independently
+    // of `suppressOnSelect`. A default (multi-second) timeout lets a broken
+    // `suppressOnSelect` pass anyway, because the retry loop just waits out the
+    // dwell and finds count 0 for the wrong reason. Asserting inside the dwell
+    // window means a badge that renders even for one frame is still caught.
+    await expect(tabA.locator("[data-notification-count]")).toHaveCount(0, { timeout: 500 });
   });
 
   test("TAB-BADGE-09: badge styling is pill-shaped and non-intrusive", async ({

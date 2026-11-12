@@ -7,8 +7,6 @@ import {
   type FileProject,
 } from "./helpers/file-project";
 import { hermetic } from "./fixtures/hermetic";
-import { writeFileSync, rmSync } from "fs";
-import { join } from "path";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -514,10 +512,6 @@ test.describe("File Explorer — Git", () => {
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "FILE-02" });
-    // This test seeds its OWN project (no leftover state from another test
-    // in the file), so without this write there would be nothing staged and
-    // the Commit button would stay disabled.
-    writeFileSync(join(tmpDir, "rifiutato.txt"), "una riga che non verra' committata\n");
 
     const STDERR = "fatal: Unable to create '/tmp/e2e/.git/index.lock': File exists.";
     await page.route("**/api/git/commit", (route) =>
@@ -564,6 +558,5 @@ test.describe("File Explorer — Git", () => {
     await expect(commitInput).toHaveValue("questo commit verra' rifiutato");
 
     await page.unroute("**/api/git/commit");
-    rmSync(join(tmpDir, "rifiutato.txt"), { force: true });
   });
 });
