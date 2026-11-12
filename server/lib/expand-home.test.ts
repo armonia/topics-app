@@ -2,7 +2,7 @@
  * `~` expansion for a path a person typed: one definition for the routes that
  * validate it and the code that later uses it.
  *
- * @covers EXPANDHOME-01
+ * @covers CLIADD-02
  */
 import { expect, test } from "bun:test";
 import { homedir } from "node:os";
