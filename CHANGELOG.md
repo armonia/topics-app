@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.88 — 2026-11-12
+
+### Sotto il cofano
+- Windows open_external: launch via rundll32, never cmd /C start
+
 ## 2.3.87 — 2026-11-12
 
 ### Sotto il cofano

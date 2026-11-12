@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.88",
+    "date": "2026-11-12",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Windows open_external: launch via rundll32, never cmd /C start",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.87",
     "date": "2026-11-12",
     "sections": {
