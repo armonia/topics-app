@@ -115,3 +115,23 @@ frase dell'hub e partire solo dal secondo tasto, verso un percorso `/api/...` de
 solo hub (`/api/hub/<resto>`).
 
 MISURA: `cd client && bun test src/lib/hubMachines.test.ts src/components/Sidebar/HubMachineRows.test.tsx` verde.
+
+#### Scenario: le macchine non locali dell'hub
+- **GIVEN** l'hub risponde con il Mac locale, il PC e il server Hetzner
+- **THEN** il livello Dispositivi SHALL mostrare una riga per il PC e una per il server Hetzner, con stato, spesa sul tetto e pallino
+- **AND** il Mac locale SHALL restare fuori, perché è già «questo computer»
+
+#### Scenario: un hub che non risponde
+- **GIVEN** un hub che non risponde
+- **THEN** il livello Dispositivi SHALL non produrre righe e nessun errore
+
+#### Scenario: «Spegni tutti» chiede prima
+- **GIVEN** una macchina con il comando «Spegni tutti»
+- **WHEN** l'utente preme il comando una prima volta
+- **THEN** la riga SHALL mostrare la frase dell'hub con il tasto di conferma e Annulla, senza partire
+- **WHEN** l'utente preme il tasto di conferma
+- **THEN** il comando SHALL partire verso il percorso `/api/hub/<resto>`
+
+#### Scenario: un percorso fuori dall'hub
+- **GIVEN** un comando il cui percorso non è `/api/...` del solo hub
+- **THEN** il comando SHALL non partire

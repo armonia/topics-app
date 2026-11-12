@@ -5,7 +5,7 @@
  * `content="…"` attribute of the meta description, which was the one spot
  * that printed it raw.
  *
- * @covers PUBLIC-PROFILE-ESCAPE-01
+ * @covers PROFILE-05
  */
 import { expect, test } from "bun:test";
 import { readFileSync } from "fs";
@@ -18,7 +18,7 @@ test("the public profile never interpolates the name unescaped", () => {
   const raw = interpolations.filter((expr) =>
     [...expr.matchAll(/\bnome\b/g)].some((m) => {
       const before = expr.slice(0, m.index);
-      // the `?` after the owner's name is the presence check, not a print
+      // The ternary test on the variable is a presence check, not a print.
       return !/escapeHtml\($/.test(before) && !/^\s*\?/.test(expr.slice(m.index! + 4));
     }),
   );

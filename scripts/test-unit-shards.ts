@@ -288,6 +288,8 @@ interface FileResult {
   cpuS: number;
   /** stdout + stderr, kept only when the file is red. */
   output: string;
+  /** The file's own JUnit report, only when UNIT_JUNIT_ENV asked for one. */
+  junit: string | null;
 }
 
 /**
@@ -299,12 +301,13 @@ interface FileResult {
  * last of them, and a runner that waits for a stray never reports. A file has
  * no end to wait for. Only a red file is read back.
  */
-async function runFile(file: string, scratch: string, outBase: string, env: Record<string, string | undefined>, timeoutMs: string): Promise<FileResult> {
+async function runFile(file: string, scratch: string, outBase: string, env: Record<string, string | undefined>, timeoutMs: string, junitPath: string | null): Promise<FileResult> {
   // `TMPDIR` is the file's own scratch directory: every `os.tmpdir()` of the
   // file lands there, and nowhere a neighbour can see it.
   mkdirSync(scratch, { recursive: true });
   const t0 = Date.now();
-  const proc = Bun.spawn(["bun", "test", "--timeout", timeoutMs, file], {
+  const reporter = junitPath ? ["--reporter=junit", `--reporter-outfile=${junitPath}`] : [];
+  const proc = Bun.spawn(["bun", "test", "--timeout", timeoutMs, ...reporter, file], {
     cwd: REPO_ROOT,
     env: { ...env, TMPDIR: scratch, TMP: scratch, TEMP: scratch, [PRIVATE_SCRATCH_ENV]: "1", TOPICS_GATE_MAX_RUN_MS: String(FILE_CAP_MS) },
     stdout: Bun.file(`${outBase}.out`),
@@ -319,7 +322,60 @@ async function runFile(file: string, scratch: string, outBase: string, env: Reco
   const out = read(`${outBase}.out`);
   rmSync(scratch, { recursive: true, force: true });
   const cpuS = Number(proc.resourceUsage()?.cpuTime.total ?? 0n) / 1e6;
-  return { file, code, wallS, cpuS, output: `${err}${out}` };
+  let junit: string | null = null;
+  if (junitPath) {
+    try { junit = readFileSync(junitPath, "utf8"); } catch { junit = null; }
+  }
+  return { file, code, wallS, cpuS, output: `${err}${out}`, junit };
+}
+
+/**
+ * Where the merged JUnit report goes, when somebody asks for one.
+ *
+ * WHY. The living-doc on specflow.armonia.io gives a requirement an outcome only when a report
+ * says how its test file went (scripts/check-spec-coverage.ts `--junit`). The unit suite is what
+ * proves most requirements, and the CI already runs it here, one process per file: running it a
+ * second time just to get a report would double the cost. So each file writes its own JUnit
+ * next to its run, and they are merged into one file at the end. Unset = no reporter at all.
+ */
+export const UNIT_JUNIT_ENV = "TOPICS_UNIT_JUNIT_OUT";
+
+const xmlAttr = (s: string): string =>
+  s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/**
+ * One JUnit document out of the per-file ones.
+ *
+ * A file whose PROCESS failed is a red file even when every testcase it wrote passed (a hook
+ * timed out, the process crashed after the last test, or it wrote no report at all): it gets a
+ * synthetic failing testcase, otherwise the page would paint green a file the bar called red.
+ */
+export function mergeJUnit(parts: ReadonlyArray<{ file: string; code: number; junit: string | null }>): string {
+  const bodies: string[] = [];
+  let tests = 0;
+  let failures = 0;
+  for (const p of [...parts].sort((a, b) => a.file.localeCompare(b.file))) {
+    const inner = (p.junit ?? "")
+      .replace(/<\?xml[^>]*\?>/g, "")
+      .replace(/<testsuites\b[^>]*>/g, "")
+      .replace(/<\/testsuites>/g, "")
+      .trim();
+    const cases = (inner.match(/<testcase\b/g) ?? []).length;
+    const failed = (inner.match(/<(failure|error)\b/g) ?? []).length;
+    tests += cases;
+    failures += failed;
+    if (inner) bodies.push(inner);
+    if (p.code !== 0 && failed === 0) {
+      tests += 1;
+      failures += 1;
+      bodies.push(
+        `<testsuite name="${xmlAttr(p.file)}" file="${xmlAttr(p.file)}" tests="1" failures="1">` +
+          `<testcase name="processo del file" classname="${xmlAttr(p.file)}" file="${xmlAttr(p.file)}">` +
+          `<failure message="exit ${p.code}" /></testcase></testsuite>`,
+      );
+    }
+  }
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<testsuites name="test:unit" tests="${tests}" failures="${failures}">\n${bodies.join("\n")}\n</testsuites>\n`;
 }
 
 /** Runs `fn` over `items` with `n` workers pulling from one shared queue, in order. */
@@ -443,12 +499,13 @@ if (import.meta.main) {
   };
   const env = fileEnv(baseEnv);
   const results: FileResult[] = [];
+  const junitOut = process.env[UNIT_JUNIT_ENV] ? resolve(REPO_ROOT, process.env[UNIT_JUNIT_ENV]!) : null;
   let seq = 0;
   let done = 0;
   const started = Date.now();
   const runOne = async (file: string): Promise<void> => {
     const n = seq++;
-    const r = await runFile(file, join(runRoot, String(n)), join(runRoot, "out", String(n)), env, timeoutMs);
+    const r = await runFile(file, join(runRoot, String(n)), join(runRoot, "out", String(n)), env, timeoutMs, junitOut ? join(runRoot, "out", `${n}.xml`) : null);
     results.push(r);
     done += 1;
     if (done % 200 === 0) console.error(`test-unit-shards: ${done}/${files.length}  ${((Date.now() - started) / 1000).toFixed(0)}s`);
@@ -461,6 +518,11 @@ if (import.meta.main) {
   await pool(serial, 1, runOne);
   const totalWallS = (Date.now() - started) / 1000;
   rmSync(runRoot, { recursive: true, force: true });
+  if (junitOut) {
+    mkdirSync(resolve(junitOut, ".."), { recursive: true });
+    writeFileSync(junitOut, mergeJUnit(results));
+    console.log(`  junit: ${results.length} file → ${junitOut}`);
+  }
   // What reached the REAL temp folder in spite of the private one: a test that
   // writes to a hard-coded path. Judged only where nobody else is writing to
   // it (CI); on a developer machine other programs add entries all the time.
