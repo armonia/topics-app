@@ -1972,7 +1972,7 @@ export function useChat() {
     }
     // Forward to registered handlers
     for (const handler of wsHandlersRef.current) {
-      try { handler(event); } catch {}
+      try { handler(event); } catch (e) { console.error('[chat] ws handler threw', e); }
     }
   }, [handleStreamEvent]);
 
@@ -2338,7 +2338,9 @@ export function useChat() {
         hydratedSessionsRef.current.add(sessionKey);
         // The whole thread, in one answer: nothing is missing above it.
         markHistoryComplete(sessionKey);
-      } catch {}
+      } catch (e) {
+        console.warn('[chat] history reload after stream failed', e);
+      }
 
       // Turno concluso in casa (SSE locale): stessa regola dello `stream:end`
       // via WS — tocca alla coda, se non è stata messa in freno da uno stop.

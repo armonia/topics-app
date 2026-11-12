@@ -120,7 +120,13 @@ function memoryStorage(): QueueStorage {
 
 const browserStorage: QueueStorage = {
   getItem: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
-  setItem: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+  // No storage at all (SSR, a test harness) is the same case `getItem`
+  // above falls back on: nothing to write to, nothing to report. A QUOTA
+  // or access error from an `localStorage` that DOES exist is different —
+  // that one propagates, where swallowing it here lost an undelivered
+  // message queue silently on reload. The caller (`setQueue`) catches,
+  // warns and marks the session so it can be surfaced.
+  setItem: (k, v) => { if (typeof localStorage !== 'undefined') localStorage.setItem(k, v); },
   removeItem: (k) => { try { localStorage.removeItem(k); } catch {} },
 };
 
@@ -189,7 +195,7 @@ const listeners = new Map<string, Set<() => void>>();
 function emit(sessionKey: string): void {
   const set = listeners.get(sessionKey);
   if (!set) return;
-  for (const cb of set) { try { cb(); } catch {} }
+  for (const cb of set) { try { cb(); } catch (e) { console.error('[chat-queue] listener threw', e); } }
 }
 
 /** La coda di una sessione, dalla cache (idratata alla prima lettura). */
@@ -244,11 +250,25 @@ export function queueCount(): { entries: number; items: number } {
   return { entries, items };
 }
 
+/** Sessions whose last persist to storage failed (quota, denied access): `hasQueuePersistError`. */
+const persistErrors = new Set<string>();
+
+/** Whether the queue for this session may be missing from disk after the last write. */
+export function hasQueuePersistError(sessionKey: string): boolean {
+  return persistErrors.has(sessionKey);
+}
+
 function setQueue(sessionKey: string, items: QueuedTurn[]): void {
   const next = items.length ? items : EMPTY;
   cache.set(sessionKey, next);
-  if (items.length) storage.setItem(queueKey(sessionKey), JSON.stringify(items));
-  else storage.removeItem(queueKey(sessionKey));
+  try {
+    if (items.length) storage.setItem(queueKey(sessionKey), JSON.stringify(items));
+    else storage.removeItem(queueKey(sessionKey));
+    persistErrors.delete(sessionKey);
+  } catch (e) {
+    console.warn('[chat-queue] failed to persist queue', e);
+    persistErrors.add(sessionKey);
+  }
   emit(sessionKey);
 }
 
