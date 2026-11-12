@@ -310,8 +310,8 @@ describe("WebSocket", () => {
       secure.pause();
       if (opts.resumeOnLog) {
         // Event, not clock: the client resumes only once the relay has logged that it gave up on this connection.
-        for (let i = 0; i < 2000 && !lines.some((l) => l.startsWith(opts.resumeOnLog!)); i++) await sleep(10);
-        await sleep(300); // let the relay's close travel toward the (paused) client before it reads anything
+        // The close frame is queued behind the data in order, so nothing else has to be waited for; the test timeout is the only ceiling.
+        while (!lines.some((l) => l.startsWith(opts.resumeOnLog!))) await sleep(10);
       } else await sleep(opts.pauseMs);
       secure.resume();
       const sequence: number[] = [];
@@ -345,31 +345,42 @@ describe("WebSocket", () => {
     expect([1011, 1006]).toContain(run.upstreamClosed[0]?.code);
   }, 60_000);
 
-  test("a tunnel whose far end closes right after its last byte still delivers every byte to a client that has not read yet", async () => {
-    const total = 32 * 1024 * 1024;
-    const far = net.createServer((socket) => { socket.on("error", () => {}); socket.end(Buffer.alloc(total, 0x62)); });
+  test("a tunnel whose far end closes right after its last byte still delivers every byte to a client that is not reading", async () => {
+    const total = 8 * 1024 * 1024;
+    let farClosed!: () => void;
+    const farDone = new Promise<void>((resolve) => { farClosed = resolve; });
+    const far = net.createServer((socket) => {
+      socket.on("error", () => {});
+      socket.on("close", farClosed);
+      socket.end(Buffer.alloc(total, 0x62));
+    });
     await new Promise<void>((resolve) => far.listen(0, "127.0.0.1", resolve));
     const { proxy } = await start({ enginePort: await closedPort(), upstreamPort: 1, allowLocalTargets: true } as Parameters<typeof startProxy>[1]);
-    try {
-      const raw = net.connect(proxy.port, "127.0.0.1");
-      raw.on("error", () => {});
-      raw.pause();
-      let received = 0;
-      let head = "";
-      const done = new Promise<void>((resolve) => raw.on("close", () => resolve()));
-      raw.on("data", (d: Buffer) => {
-        if (head.indexOf("\r\n\r\n") === -1) {
+    // The client is a separate process that reads one chunk per timer tick, so the kernel buffers stay full and the relay
+    // holds an unsent tail when the far end closes. Nothing here is a time budget: the outcome is a byte count.
+    const clientCode = `
+      const net = require("node:net");
+      const s = net.connect(${proxy.port}, "127.0.0.1");
+      let head = "", got = 0;
+      s.on("data", (d) => {
+        if (head.indexOf("\\r\\n\\r\\n") === -1) {
           head += d.toString("latin1");
-          const at = head.indexOf("\r\n\r\n");
-          if (at !== -1) received += head.length - at - 4;
-        } else received += d.length;
+          const at = head.indexOf("\\r\\n\\r\\n");
+          if (at !== -1) { got += head.length - at - 4; console.log("HEAD"); }
+        } else got += d.length;
+        s.pause(); // a slow reader: after every chunk it waits for the next turn of the event loop timers
+        setTimeout(() => s.resume(), 10);
       });
-      raw.write(`CONNECT 127.0.0.1:${(far.address() as net.AddressInfo).port} HTTP/1.1\r\nhost: x\r\n\r\n`);
-      await sleep(1500); // the far end has long since closed: whatever the relay still holds must survive that
-      raw.resume();
-      await Promise.race([done, sleep(8000)]);
-      expect(received).toBe(total);
-    } finally { await proxy.close(); far.close(); }
+      s.on("error", () => {});
+      s.on("close", () => { console.log("TOTAL " + got); process.exit(0); });
+      s.write("CONNECT 127.0.0.1:${(far.address() as net.AddressInfo).port} HTTP/1.1\\r\\nhost: x\\r\\n\\r\\n");
+    `;
+    const child = Bun.spawn([process.execPath, "-e", clientCode], { stdout: "pipe", stderr: "ignore" });
+    try {
+      await farDone;
+      const output = await new Response(child.stdout).text();
+      expect(output).toContain(`TOTAL ${total}`);
+    } finally { child.kill("SIGKILL"); await proxy.close(); far.close(); }
   }, 60_000);
 
   test("a message of 16 MB goes through; one byte more is refused with 1009 and never reaches Anthropic", async () => {

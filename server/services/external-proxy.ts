@@ -95,9 +95,9 @@ const WS_OPEN_TIMEOUT_MS = 15_000;
  * ceiling on how many. Acceptable only because of who can do it: a process on this machine (the listener
  * is loopback-only), through at most `WS_MAX_RELAYS` sessions. A real bound needs a drain signal.
  */
-/** How long a client gets to read the tail queued for it after the far end closed. */
-const FLUSH_GRACE_MS = 60_000;
 const RELAY_BACKLOG_LIMIT_BYTES = 64 * 1024 * 1024;
+/** How long a client gets to read the tail queued for it after the far end closed or failed. */
+const FLUSH_GRACE_MS = 60_000;
 /** The largest single WebSocket message accepted from the client. */
 const WS_MAX_MESSAGE_BYTES = 16 * 1024 * 1024;
 /** Bun drops a message above its `maxPayloadLength` without a close frame: its limit sits above ours, so 1009 can be sent. */
@@ -681,18 +681,24 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
         log("plain-error", { host, port, code: errorCode(e) });
         if (!established && !client.destroyed) client.end("HTTP/1.1 502 Bad Gateway\r\n\r\n");
       }
-      client.destroy();
+      // A reset on the far side must not drop what is already queued for the client (a 502 included).
+      endAfterFlush(client);
     });
     upstream.on("close", () => endAfterFlush(client));
     client.on("close", () => upstream.destroy());
   }
 
+  const flushing = new WeakSet<net.Socket>();
+
   /**
    * The far end is gone: let the client read what is already queued for it, then close. `destroy()` here dropped the
    * unsent tail (a close frame included) of a client that reads slowly. The timer bounds a client that never reads.
+   * It is armed only when the far side goes away: a dead client with the far end still open stays up until one of
+   * the two closes (unchanged from before, the client's own `close` event tears the far side down).
    */
   function endAfterFlush(client: net.Socket): void {
-    if (client.destroyed) return;
+    if (client.destroyed || flushing.has(client)) return;
+    flushing.add(client);
     client.end();
     const timer = setTimeout(() => client.destroy(), FLUSH_GRACE_MS);
     timer.unref();
@@ -750,7 +756,8 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
         if (!intercept) log("tunnel-error", { host: parsed.host, port: parsed.port, code: errorCode(e) });
         if (!established && !client.destroyed) client.end("HTTP/1.1 502 Bad Gateway\r\n\r\n");
       }
-      client.destroy();
+      // A reset on the far side must not drop what is already queued for the client (a 502 included).
+      endAfterFlush(client);
     });
     upstream.on("close", () => endAfterFlush(client));
     client.on("close", () => upstream.destroy());
