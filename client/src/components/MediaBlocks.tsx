@@ -104,11 +104,11 @@ function VoiceMessagePlayer({ path, isUserMessage }: { path: string; isUserMessa
       audio.removeEventListener('timeupdate', onTime);
       audio.removeEventListener('ended', onEnded);
       audio.removeEventListener('error', onError);
-      // Togliere i listener non basta: un media element con una sorgente
-      // caricata resta agganciato al proprio renderer audio, che in WebKit e'
-      // un thread vivo nel processo WebContent. Con le chat che si smontano
-      // (tetto di residenza), ogni messaggio vocale ascoltato ne lasciava uno.
-      // Vedi lib/releaseAudio.ts per la misura che ha portato qui.
+      // Removing the listeners is not enough: a media element holding a loaded
+      // source stays attached to its own audio renderer, which in WebKit is a
+      // live thread in the WebContent process. With chats unmounting (residency
+      // cap), every voice message played left one behind.
+      // See lib/releaseAudio.ts for the measurement that led here.
       releaseAudio(audio);
     };
   }, []);
