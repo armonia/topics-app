@@ -5547,3 +5547,20 @@ The composer of a landed card SHALL read as a plain note, not promise a turn to 
 #### Scenario: approve on an unlanded branch
 - **WHEN** the drawer shows a review card with an unmerged delivery
 - **THEN** a note beside the decision buttons SHALL say that the approve button leaves the code out of main, naming the buttons with their current labels in the current language
+=======
+### Requirement: KANBAN-114 - Heavy commands wait in one machine-wide line
+
+Topics SHALL serve one line for heavy commands (tests, typechecks, builds, renders) that every harness on the machine can ask before running one. A request SHALL be admitted when a place is free and the machine has room, measured on available memory first and CPU second, never on how many agents exist; with nothing running the first request SHALL be admitted unless memory is critically low. A place held by a process SHALL live as long as that process does, and SHALL be freed when it dies. The client SHALL fail open: with Topics off, in error, or past the wait limit, the command runs.
+
+#### Scenario: a full line
+- **WHEN** every place is held and another command asks
+- **THEN** it SHALL wait, and SHALL be admitted as soon as a place frees
+
+#### Scenario: a holder dies
+- **WHEN** the process holding a place exits without releasing it
+- **THEN** the place SHALL be freed and the next in line admitted
+
+#### Scenario: Topics does not answer
+- **WHEN** the client cannot reach Topics
+- **THEN** the command SHALL run at once
+>>>>>>> origin/main

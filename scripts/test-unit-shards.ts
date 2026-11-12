@@ -500,6 +500,10 @@ if (import.meta.main) {
   const env = fileEnv(baseEnv);
   const results: FileResult[] = [];
   const junitOut = process.env[UNIT_JUNIT_ENV] ? resolve(REPO_ROOT, process.env[UNIT_JUNIT_ENV]!) : null;
+  // The report is THIS runner's: a file that starts a runner of its own (the CLI tests do)
+  // must not inherit the path, or the nested run passes reporter flags its fake `bun` does
+  // not expect and writes over the report of the real one (main, 12/11/2026).
+  delete env[UNIT_JUNIT_ENV];
   let seq = 0;
   let done = 0;
   const started = Date.now();
