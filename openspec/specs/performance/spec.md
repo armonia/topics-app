@@ -239,6 +239,24 @@ confrontato col numero di contesti usciti. Una callback che scatta zero volte e
 una che ne scatta due sono difetti diversi, e un contatore li distingue
 entrambi; leggere il codice non distingue nessuno dei due.
 
+#### Scenario: chiusura esplicita di un contesto
+
+- **GIVEN** N contesti creati e chiusi uno alla volta con `destroyContext`
+- **WHEN** i cicli sono finiti
+- **THEN** le callback `onDestroy` osservate sono N, quanti i contesti usciti, e non resta nessun contesto vivo
+
+#### Scenario: sfratto di un contesto con la pagina morta
+
+- **GIVEN** un contesto la cui pagina è morta, riaperto N volte sotto lo stesso id
+- **WHEN** `getOrCreate` trova la pagina morta e scarta la voce
+- **THEN** la callback scatta una volta per ogni voce scartata, con quell'id
+
+#### Scenario: chiusura dell'intero servizio
+
+- **GIVEN** N contesti aperti
+- **WHEN** il servizio si chiude
+- **THEN** le callback osservate sono N e nessun contesto resta in lista
+
 ### Requirement: LEAK-05 — `window.matchMedia` è un'ALLOCAZIONE, e va chiesta una volta per query
 
 `window.matchMedia(q)` sembra una lettura e non lo è: il `MediaQueryList` che
@@ -258,6 +276,24 @@ Il cancello DEVE misurare la PENDENZA, non il totale: si sostituisce
 volte, e si asserisce che il conteggio smetta di crescere coi cicli. Un totale
 assoluto passerebbe anche con un leak lento, che è esattamente la forma del
 difetto che questo requisito esiste per prendere.
+
+#### Scenario: cicli di mount e unmount dello stesso hook
+
+- **GIVEN** `window.matchMedia` sostituito da un finto che conta le allocazioni
+- **WHEN** il hook è montato e smontato N volte con la stessa query
+- **THEN** il conteggio smette di crescere coi cicli: una sola lista per quella query
+
+#### Scenario: una query diversa ha la sua lista
+
+- **GIVEN** query diverse chieste una volta ciascuna
+- **WHEN** il conteggio è letto
+- **THEN** ogni query ha la propria lista, quindi la memoizzazione non è un mutismo
+
+#### Scenario: il controllo che può fallire
+
+- **GIVEN** lo stesso finto che conta
+- **WHEN** `window.matchMedia` è chiamata inline N volte
+- **THEN** il conteggio cresce di N, e il cancello sarebbe rosso senza la memoizzazione
 
 ### Requirement: COALESCE-01 — Il primo evento NON aspetta, la raffica costa DUE letture
 

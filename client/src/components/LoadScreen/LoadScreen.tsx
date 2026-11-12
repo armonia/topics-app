@@ -36,7 +36,8 @@ import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles
 import { formatMem, formatPct, macGauges, pcView } from '../../lib/machineProcesses';
 import { readScreenData, readoutRows, screenZoom, sessionsOn, sleepView, type Readout, type ScreenJob, type ScreenOutcome, type SleepView } from '../../lib/loadScreen';
 import { FAINT, SECTION, SECTION_HEAD } from '../Processes/processesStyles';
-import { Gauge, PcStateBadge, ProcessRowView } from '../Processes/MachineProcessesPane';
+import { PcStateBadge, ProcessRowView } from '../Processes/MachineProcessesPane';
+import { Gauge } from '../Processes/Gauge';
 import { ConsumptionNotes, SessionRowView } from '../Processes/SessionConsumption';
 import { useSecondTick, useSessionConsumption } from '../../hooks/useSessionConsumption';
 import { clockOf } from '../../lib/sessionConsumption';

@@ -398,6 +398,13 @@ queste regole.
    nuovi subtask del task in consegna. Un task con subtask aperti non è approvabile:
    i subtask sono la checklist dello STESSO task, non un modo per rimandare lavoro.
 
+Regola di prodotto (non numerata: è una riga di kickoff, non una regola di consegna).
+Topics è un prodotto per chiunque: niente nomi, percorsi, IP, account o server di una
+persona scritti nel codice; ciò che varia fra utenti sta nelle impostazioni, nella
+tabella `machines` o in un adattatore configurabile. Un dato personale serve? Va in
+configurazione, con un default vuoto che funziona. Copia umana di `GENERIC_PRODUCT_RULE`
+in `server/services/task-dispatcher.ts`: tenerle allineate.
+
 8. **Chi chiude la card lo dice un'ETICHETTA, e l'etichetta la deriva il server.**
    Sulla coda di review dell'11/08/2026 la domanda «chi chiude questa?» si
    rispondeva a mano, card per card, aprendo il diff. Il conto, rifatto con le
