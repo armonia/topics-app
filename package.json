@@ -82,6 +82,7 @@
     "obscura:build": "bun run scripts/obscura-track.ts build",
     "check:migrations": "bun run scripts/check-migration-numbers.ts",
     "migration:new": "bun run scripts/new-migration.ts",
+    "heavy-slot": "bun run scripts/heavy-slot.ts",
     "check:deadcode": "bun run scripts/slot.ts check:deadcode -- './node_modules/.bin/knip-bun'",
     "check:deadcode-blindspots": "bun run scripts/check-deadcode-blindspots.ts",
     "report:previews": "bun run scripts/check-preview-evidence.ts",
