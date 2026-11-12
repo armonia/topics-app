@@ -1,11 +1,15 @@
 /**
  * One runner, one answer to "git did not answer": exit 124.
  *
- * Every service runner goes through `runGit`. Exit 1 is a real verdict for many
+ * The service runners listed here go through `runGit` (a few keep their own shape, noted where they live). Exit 1 is a real verdict for many
  * git questions, so a timeout must never read as 1; this pins 124 for all of
  * them, including the ones that once answered 1.
  * The fake `git` hangs on `log`; with the deadline capped at 300 ms every
  * runner must come back with 124.
+ *
+ * A hung git also leaves "timeout" in stderr, so callers can say why.
+ * A load-sensitive case: under a loaded machine the 300 ms deadline can race
+ * the fake git start, so a lone failure here is re-run alone before blaming code.
  *
  * @covers GIT-DEADLINE-01
  */
@@ -16,7 +20,7 @@ import { join } from "node:path";
 import { runGit } from "./run-git";
 
 let dir = "";
-let codes: Record<string, number> = {};
+let codes: Record<string, number | string> = {};
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "run-git-hung-"));
@@ -45,6 +49,7 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }));
 test("a timeout is 124 for every runner, never 1", () => {
   expect(codes).toEqual({
     runGit: 124,
+    runGitStderr: "timeout",
     ownCommits: 124,
     taskAutomerge: 124,
     worktreeResidue: 124,
@@ -59,6 +64,17 @@ test("a real answer passes through with its own code", async () => {
     const yes = await runGit(outside, ["--version"], { timeoutMs: 30_000 });
     expect(yes.code).toBe(0);
     expect(yes.stdout).toContain("version");
+  } finally {
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("identity: true gives git a committer identity", async () => {
+  const outside = mkdtempSync(join(tmpdir(), "run-git-ident-"));
+  try {
+    const r = await runGit(outside, ["var", "GIT_COMMITTER_IDENT"], { timeoutMs: 30_000, identity: true });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("<");
   } finally {
     rmSync(outside, { recursive: true, force: true });
   }

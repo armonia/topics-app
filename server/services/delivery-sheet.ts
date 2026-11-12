@@ -161,7 +161,7 @@ export function renderDeliverySheet(data: DeliverySheetData): string {
       : "";
   // CONSTANT TEXT, not data: this file writes both sentences and the only
   // variable part is a number. Running them through `escapeHtml` would turn
-  // their apostrophes into `&apos;` while protecting nothing.
+  // their apostrophes into `&#39;` while protecting nothing.
   const stateLine = stateText
     ? `<text x="72" y="${BRANCH_Y}" class="k">${stateText}</text>`
     : "";

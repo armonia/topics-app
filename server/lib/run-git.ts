@@ -1,8 +1,8 @@
 /**
  * ONE way to ask git a question from the server, with a real deadline.
  *
- * Four services used to carry their own copy of this runner and disagreed on a
- * timeout: two answered 124, two answered 1. Exit 1 is a real answer for many
+ * Several services used to carry their own copy of this runner and disagreed on
+ * a timeout (124 in some, 1 in others). Exit 1 is a real answer for many
  * git commands (`merge-base --is-ancestor` reads it as "not an ancestor"), so a
  * timeout reported as 1 turns "git did not answer" into a verdict. Here a
  * timeout is ALWAYS 124 (the convention of `timeout(1)`): any code other than
@@ -49,7 +49,8 @@ export async function runGit(cwd: string, args: string[], opts: RunGitOptions): 
       ...(env ? { env } : {}),
     });
     if (r.spawnFailed) return { code: 1, stdout: "", stderr: r.spawnError ?? "" };
-    return { code: r.exitCode ?? GIT_TIMEOUT_CODE, stdout: r.stdout, stderr: r.stderr };
+    // A timeout leaves stderr empty: name it, or callers report "no reason".
+    return { code: r.exitCode ?? GIT_TIMEOUT_CODE, stdout: r.stdout, stderr: r.stderr || (r.timedOut ? "timeout" : "") };
   } catch (e) {
     return { code: 1, stdout: "", stderr: e instanceof Error ? e.message : String(e) };
   }

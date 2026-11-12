@@ -4,8 +4,8 @@
  * Every runner below launches one process with a deadline and turns the outcome
  * into its own shape. The callers read those shapes, and some read them very
  * closely: `commitIsIn` takes exit 1 as "verified outside", so own-commits says
- * 124 on a timeout; `worktree-base-ref` and the branch scanners say 1, which
- * their callers read as "no answer". Five outcomes per runner: success, a
+ * 124 on a timeout; every runner that goes through `runGit` says 124, which
+ * its callers read as "no answer". Five outcomes per runner: success, a
  * non-zero exit, the deadline, a process that does not start, and a process
  * killed by a signal from elsewhere (Bun's `exited` gives 128 + n, 137 here).
  *
@@ -76,9 +76,9 @@ async function as<T>(m: Outcome, call: () => Promise<T>): Promise<T> {
 }
 
 /** `{ code, stdout, stderr }` runners, with the code each one gives a deadline. */
-// Both git runners go through `runGit`, which passes the directory as `git -C`
+// These git runners go through `runGit`, which passes the directory as `git -C`
 // (no spawn `cwd`): a missing directory is git's own 128, not a spawn failure.
-const RESULT_RUNNERS: { name: string; timeoutCode: number; call: () => Promise<unknown>; argv: () => string[]; cwd?: () => string }[] = [
+const RESULT_RUNNERS: { name: string; timeoutCode: number; timeoutStderr?: string; call: () => Promise<unknown>; argv: () => string[]; cwd?: () => string }[] = [
   {
     name: "own-commits defaultRunGit", timeoutCode: 124,
     call: () => ownCommitsRunGit(dir, ["rev-parse", MARK]),
@@ -90,7 +90,7 @@ const RESULT_RUNNERS: { name: string; timeoutCode: number; call: () => Promise<u
     argv: () => ["git", "-C", dir, "rev-parse", MARK],
   },
   {
-    name: "task-automerge runRepoScript", timeoutCode: 124,
+    name: "task-automerge runRepoScript", timeoutCode: 124, timeoutStderr: "",
     call: () => runRepoScript(dir, [MARK]),
     argv: () => ["bun", "run", MARK], cwd: () => dir,
   },
@@ -101,7 +101,7 @@ const RESULT_RUNNERS: { name: string; timeoutCode: number; call: () => Promise<u
   },
 ];
 
-describe.each(RESULT_RUNNERS)("$name", ({ call, argv, cwd, timeoutCode }) => {
+describe.each(RESULT_RUNNERS)("$name", ({ call, argv, cwd, timeoutCode, timeoutStderr }) => {
   test("success: exit 0, both streams", async () => {
     expect(await as("ok", call)).toEqual({ code: 0, stdout: "out", stderr: "err" });
     expect(seen.map((s) => s.argv)).toEqual([argv()]);
@@ -111,7 +111,7 @@ describe.each(RESULT_RUNNERS)("$name", ({ call, argv, cwd, timeoutCode }) => {
     expect(await as("fail", call)).toEqual({ code: 3, stdout: "out", stderr: "err" });
   });
   test(`deadline: code ${timeoutCode}, what arrived before it`, async () => {
-    expect(await as("timeout", call)).toEqual({ code: timeoutCode, stdout: "partial", stderr: "" });
+    expect(await as("timeout", call)).toEqual({ code: timeoutCode, stdout: "partial", stderr: timeoutStderr ?? "timeout" });
   });
   test("did not start: code 1, the error in stderr", async () => {
     expect(await as("spawn", call)).toEqual({ code: 1, stdout: "", stderr: SPAWN_ERROR });
@@ -125,13 +125,13 @@ describe("routes/tasks runGitCap", () => {
   const call = () => runGitCap(dir, ["rev-parse", MARK]);
   test("success: exit 0, both streams, no credential prompt", async () => {
     expect(await as("ok", call)).toEqual({ code: 0, out: "out", err: "err" });
-    expect(seen.map((s) => [s.argv, s.cwd, s.env?.GIT_TERMINAL_PROMPT])).toEqual([[["git", "rev-parse", MARK], dir, "0"]]);
+    expect(seen.map((s) => [s.argv, s.cwd, s.env?.GIT_TERMINAL_PROMPT])).toEqual([[["git", "-C", dir, "rev-parse", MARK], undefined, "0"]]);
   });
   test("non-zero exit", async () => {
     expect(await as("fail", call)).toEqual({ code: 3, out: "out", err: "err" });
   });
   test("deadline: 124", async () => {
-    expect(await as("timeout", call)).toEqual({ code: 124, out: "partial", err: "" });
+    expect(await as("timeout", call)).toEqual({ code: 124, out: "partial", err: "timeout" });
   });
   test("did not start: 1, the error in err", async () => {
     expect(await as("spawn", call)).toEqual({ code: 1, out: "", err: SPAWN_ERROR });

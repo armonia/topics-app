@@ -9,8 +9,10 @@ import { defaultRunGit as taskAutomerge } from "../services/task-automerge";
 import { defaultRunGit as worktreeResidue } from "../services/worktree-residue";
 
 const cwd = process.argv[2]!;
+const hung = await runGit(cwd, ["log"], { timeoutMs: 60_000 });
 const codes = {
-  runGit: (await runGit(cwd, ["log"], { timeoutMs: 60_000 })).code,
+  runGit: hung.code,
+  runGitStderr: hung.stderr,
   ownCommits: (await ownCommits(cwd, ["log"])).code,
   taskAutomerge: (await taskAutomerge(cwd, ["log"])).code,
   worktreeResidue: (await worktreeResidue(cwd, ["log"])).code,
