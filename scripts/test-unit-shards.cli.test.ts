@@ -63,6 +63,7 @@ function runRunner(options: {
   sleepMs?: number;
   redBasename?: string;
   leakBasename?: string;
+  junitOut?: string;
 }): RunResult {
   const dir = mkdtempSync(join(tmpdir(), "unit-shards-cli-"));
   const executable = join(dir, "bun");
@@ -77,7 +78,8 @@ import { join } from "node:path";
 const args = process.argv.slice(2);
 const timeoutAt = args.indexOf("--timeout");
 const timeout = timeoutAt >= 0 ? args[timeoutAt + 1] : null;
-const file = timeoutAt >= 0 ? args[timeoutAt + 2] : args[args.length - 1];
+// The file is always the LAST argument: reporter flags may sit between --timeout and it.
+const file = args[args.length - 1];
 const start = Date.now();
 const sleepMs = Number(process.env.TOPICS_SHARDS_CLI_SLEEP_MS ?? "0");
 if (sleepMs > 0) await new Promise((r) => setTimeout(r, sleepMs));
@@ -118,6 +120,8 @@ if (isRed) process.exit(7);
   if (options.ci !== undefined) env.CI = options.ci;
   if (options.timeoutMs !== undefined) env.TOPICS_TEST_TIMEOUT_MS = options.timeoutMs;
   if (options.shards !== undefined) env.TOPICS_UNIT_SHARDS = options.shards;
+  delete env.TOPICS_UNIT_JUNIT_OUT;
+  if (options.junitOut !== undefined) env.TOPICS_UNIT_JUNIT_OUT = options.junitOut;
   env.PATH = `${dir}${delimiter}${env.PATH ?? ""}`;
   env.TOPICS_GATE_HELD = "unit-shards-cli-fixture";
   env.TOPICS_TEST_TIME_SLACK = "1";
@@ -225,6 +229,27 @@ describe("unit shards CLI", () => {
       expect(call.args).toEqual(["test", "--timeout", "17000", call.file]);
       expect(call.timeout).toBe("17000");
       expect(call.ci).toBeNull();
+    }
+  });
+
+  test("TOPICS_UNIT_JUNIT_OUT adds the reporter flags, and the file stays the last argument", () => {
+    const junit = join(tmpdir(), `unit-shards-cli-junit-${process.pid}.xml`);
+    try {
+      const result = runRunner({ files: ALL_FILES, junitOut: junit });
+      expect(result.code).toBe(0);
+      expect(result.calls.length).toBe(ALL_FILES.length);
+      for (const call of result.calls) {
+        expect(call.args.slice(0, 3)).toEqual(["test", "--timeout", call.timeout!]);
+        expect(call.args).toContain("--reporter=junit");
+        // One report per file, in the runner's scratch area; the merged file is written at the end.
+        expect(call.args.some((a) => a.startsWith("--reporter-outfile="))).toBe(true);
+        // The fake reads the file from the last argument: it must be the real file, not a flag.
+        expect(call.args[call.args.length - 1]).toBe(call.file);
+        expect(ALL_FILES).toContain(call.file);
+      }
+      expect(existsSync(junit)).toBe(true);
+    } finally {
+      rmSync(junit, { force: true });
     }
   });
 
