@@ -4,6 +4,8 @@
  * page is served to anyone with the link: a quote in it closed the
  * `content="…"` attribute of the meta description, which was the one spot
  * that printed it raw.
+ *
+ * @covers PROFILE-ESCAPE-01
  */
 import { expect, test } from "bun:test";
 import { readFileSync } from "fs";
