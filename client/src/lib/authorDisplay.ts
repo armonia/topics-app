@@ -94,9 +94,19 @@ export function authorDisplay(
   tr: (key: string, vars?: Record<string, string | number>) => string,
   ownerName?: string | null,
   guestActor?: GuestActor | null,
+  origin?: TaskActionOrigin | null,
 ): AuthorDisplay {
   const kind = who.kind;
   if (kind === 'user') {
+    // The owner's name is a claim ("this is what I wrote"), and the only
+    // surface that can back it is the interface itself: a `user` row born
+    // from an API/MCP call carries `origin` other than `interface`, and
+    // printing the owner's name on it would hand that caller Attilio's
+    // identity. Rows with no stored origin (written before the column
+    // existed) keep the old reading — there is nothing to check them against.
+    if (origin && origin !== 'interface') {
+      return { name: tr(ACTION_ORIGIN_KEYS[origin]), detail: `user via ${origin}`, kind, self: false };
+    }
     const name = shortProfileName(ownerName) || tr(AUTHOR_NAME_KEYS.user);
     return { name, detail: 'user', kind, self: true };
   }

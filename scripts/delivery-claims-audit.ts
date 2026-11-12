@@ -37,6 +37,7 @@
 import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { agentAuthorSql } from "../shared/comment-author";
 import { statusEventEnters } from "../shared/board";
 import { checkReport, type Finding, type RepoProbe } from "../server/services/deliveryReportChecks";
 import { repoProbe } from "../server/services/deliveryReportProbe";
@@ -106,7 +107,7 @@ export function loadCards(dbPath: string): CardReports[] {
     const comments = db
       .query<{ task_id: string; kind: string; content: string; created_at: string }, []>(
         `SELECT task_id, kind, content, created_at FROM task_comments
-          WHERE author NOT IN ('user', 'system')
+          WHERE ${agentAuthorSql()}
           ORDER BY created_at ASC`,
       )
       .all();

@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Bar of scripts/ci-fisso-reserve.sh. Exit 0 = every case holds.
+# Bar of scripts/ci-permanent-reserve.sh. Exit 0 = every case holds.
 # A fake GitHub API (a JSON file under a lock) plays the runners; no network.
 # The failure it guards: one runner booked by two runs (a shard waits in the
 # queue behind another run) or a booking that outlives its run.
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-export STATE="$tmp/state.json" FISSO_SETTLE_S=1
+export STATE="$tmp/state.json" PERMANENT_SETTLE_S=1
 fail=0
 ok() { if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1: got $2 want $3"; fail=1; fi; }
 
 # Fake gh_api: GET runners / runs, POST and DELETE labels, on $STATE under a mkdir lock (macOS has no flock).
 cat > "$tmp/fake.sh" <<'EOS'
-source "$HERE/ci-fisso-reserve.sh"
+source "$HERE/ci-permanent-reserve.sh"
 gh_api() {
   local m=$1 p=$2 body=${3:-}
   until mkdir "$STATE.lock" 2>/dev/null; do sleep 0.05; done
@@ -44,53 +44,53 @@ seed() {  # <runners spec: "id:status:busy:label ..."> [runs json]
   for r in $1; do
     IFS=: read -r id st b l <<<"$r"
     js=$(jq --argjson id "$id" --arg st "$st" --argjson b "$b" --arg l "$l" \
-      '. + [{id: $id, name: "topics-fisso-\($id)", status: $st, busy: $b, labels: ([$l] | map({name: .}))}]' <<<"$js")
+      '. + [{id: $id, name: "topics-permanent-node-\($id)", status: $st, busy: $b, labels: ([$l] | map({name: .}))}]' <<<"$js")
   done
   jq -n --argjson r "$js" --argjson runs "${2:-{\}}" '{runners: $r, runs: $runs}' > "$STATE"
 }
 booked() { jq -r --arg l "$1" '[.runners[] | select(any(.labels[]; .name == $l))] | length' "$STATE"; }
-double() { jq '[.runners[] | select([.labels[].name | select(startswith("fz-"))] | length > 1)] | length' "$STATE"; }
+double() { jq '[.runners[] | select([.labels[].name | select(startswith("pn-"))] | length > 1)] | length' "$STATE"; }
 
-FOUR="1:online:false:fisso 2:online:false:fisso 3:online:false:fisso 4:online:false:fisso"
+FOUR="1:online:false:permanent 2:online:false:permanent 3:online:false:permanent 4:online:false:permanent"
 
 seed "$FOUR"
-ok "four free, eight wanted: four booked" "$(run reserve fisso 8 fz-100-1)" 4
-ok "a second run finds none: its shards go to GitHub" "$(run reserve fisso 8 fz-101-1)" 0
-ok "the second run left no label behind" "$(booked fz-101-1)" 0
-run release fz-100-1
-ok "release frees all four" "$(booked fz-100-1)" 0
-ok "freed runners serve the next run" "$(run reserve fisso 3 fz-102-1)" 3
+ok "four free, eight wanted: four booked" "$(run reserve permanent 8 pn-100-1)" 4
+ok "a second run finds none: its shards go to GitHub" "$(run reserve permanent 8 pn-101-1)" 0
+ok "the second run left no label behind" "$(booked pn-101-1)" 0
+run release pn-100-1
+ok "release frees all four" "$(booked pn-100-1)" 0
+ok "freed runners serve the next run" "$(run reserve permanent 3 pn-102-1)" 3
 
-seed "1:online:true:fisso 2:offline:false:fisso 3:online:false:fisso-prep 4:online:false:fisso"
-ok "busy, offline and other pools are skipped" "$(run reserve fisso 4 fz-103-1)" 1
-ok "the prep pool books its own runner" "$(run reserve fisso-prep 1 fz-103-1-prep)" 1
+seed "1:online:true:permanent 2:offline:false:permanent 3:online:false:permanent-prep 4:online:false:permanent"
+ok "busy, offline and other pools are skipped" "$(run reserve permanent 4 pn-103-1)" 1
+ok "the prep pool books its own runner" "$(run reserve permanent-prep 1 pn-103-1-prep)" 1
 
 seed "$FOUR" '{"200": "completed"}'
-run 'gh_api POST /actions/runners/1/labels "{\"labels\":[\"fz-200-1\"]}"' >/dev/null
-ok "a booking of a finished run is dropped and the runner reused" "$(run reserve fisso 4 fz-201-1)" 4
-ok "the stale label is gone" "$(booked fz-200-1)" 0
+run 'gh_api POST /actions/runners/1/labels "{\"labels\":[\"pn-200-1\"]}"' >/dev/null
+ok "a booking of a finished run is dropped and the runner reused" "$(run reserve permanent 4 pn-201-1)" 4
+ok "the stale label is gone" "$(booked pn-200-1)" 0
 
 seed "$FOUR"
-ok "zero wanted books nothing" "$(run reserve fisso 0 fz-300-1)" 0
-ok "garbage count books nothing" "$(run reserve fisso abc fz-300-1)" 0
+ok "zero wanted books nothing" "$(run reserve permanent 0 pn-300-1)" 0
+ok "garbage count books nothing" "$(run reserve permanent abc pn-300-1)" 0
 
 seed "$FOUR"
 jq '.runners[0].name = "intruso-1"' "$STATE" > "$STATE.n" && mv "$STATE.n" "$STATE"
-ok "a runner not named topics-fisso-* is never booked" "$(run reserve fisso 4 fz-500-1)" 3
+ok "a runner not named topics-permanent-node-* is never booked" "$(run reserve permanent 4 pn-500-1)" 3
 
 # Both runs added their label before either read: this one gives every runner up.
-seed "1:online:false:fisso 2:online:false:fisso"
-ok "a runner booked by two runs at once is given up" "$(INJECT=fz-other-1 run reserve fisso 2 fz-400-1)" 0
-ok "...and its label taken back, the other run's left" "$(booked fz-400-1)/$(booked fz-other-1)" 0/2
+seed "1:online:false:permanent 2:online:false:permanent"
+ok "a runner booked by two runs at once is given up" "$(INJECT=pn-other-1 run reserve permanent 2 pn-400-1)" 0
+ok "...and its label taken back, the other run's left" "$(booked pn-400-1)/$(booked pn-other-1)" 0/2
 
 # Two runs at the same moment, ten times: never one runner kept by both.
 for i in $(seq 1 10); do
   seed "$FOUR"
-  run reserve fisso 3 fz-a-1 > "$tmp/a" & sleep "0.$((RANDOM % 9))"
-  run reserve fisso 3 fz-b-1 > "$tmp/b"; wait
+  run reserve permanent 3 pn-a-1 > "$tmp/a" & sleep "0.$((RANDOM % 9))"
+  run reserve permanent 3 pn-b-1 > "$tmp/b"; wait
   a=$(cat "$tmp/a"); b=$(cat "$tmp/b")
   [ "$(double)" = 0 ] || { echo "FAIL race $i: a runner with two bookings"; fail=1; }
-  [ "$a" = "$(booked fz-a-1)" ] && [ "$b" = "$(booked fz-b-1)" ] || { echo "FAIL race $i: count $a/$b, labels $(booked fz-a-1)/$(booked fz-b-1)"; fail=1; }
+  [ "$a" = "$(booked pn-a-1)" ] && [ "$b" = "$(booked pn-b-1)" ] || { echo "FAIL race $i: count $a/$b, labels $(booked pn-a-1)/$(booked pn-b-1)"; fail=1; }
 done
 [ "$fail" = 0 ] && echo "ok   two runs at once: never a runner booked twice (10 rounds)"
 

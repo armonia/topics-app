@@ -79,6 +79,7 @@ import { sliceCodePoints } from "../lib/code-points";
 import { allWideRows } from "../lib/wide-rows";
 import type { Task, CreateTaskInput, UpdateTaskPatch, ListTasksInput } from "./task-shapes";
 
+import { agentAuthorSql, isAgentAuthor } from "../../shared/comment-author";
 import { markTargetNotificationsSeen } from "../db/notification-log";
 import { withCardAttention } from "../attention/card-sync";
 import {
@@ -3478,7 +3479,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // have made this check blind to exactly the sentence it exists for.
       const rows = db.prepare(
         `SELECT content FROM task_comments
-          WHERE task_id = ? AND author NOT IN ('user', 'system')
+          WHERE task_id = ? AND ${agentAuthorSql()}
             AND COALESCE(kind, 'comment') IN ('comment', 'delivery')
             AND (? IS NULL OR created_at >= ?)
           ORDER BY created_at DESC LIMIT 3`,
@@ -3571,7 +3572,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (has) return false;
       const last = db.prepare(
         `SELECT id FROM task_comments
-          WHERE task_id = ? AND author NOT IN ('user', 'system') AND kind = 'comment' AND TRIM(content) <> ''
+          WHERE task_id = ? AND ${agentAuthorSql()} AND kind = 'comment' AND TRIM(content) <> ''
           ORDER BY created_at DESC, rowid DESC LIMIT 1`,
       ).get(taskId) as { id: string } | null;
       if (!last) return false;
@@ -3584,7 +3585,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     const turnStart = lastTurnStart(taskId);
     const c = (db.prepare(
       `SELECT COUNT(*) AS c FROM task_comments
-        WHERE task_id = ? AND author NOT IN ('user', 'system') AND kind IN ('comment', 'delivery')
+        WHERE task_id = ? AND ${agentAuthorSql()} AND kind IN ('comment', 'delivery')
           AND (? IS NULL OR created_at >= ?)`,
     ).get(taskId, turnStart, turnStart) as any).c as number;
     return c > 0;
@@ -4912,7 +4913,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // dall'umano). Un piano rifatto dopo «Da rivedere» porta le stesse opzioni
       // e quindi RIMPIAZZA il puntatore; una rettifica qualunque, o la consegna
       // con «Landa su main», non lo toccano.
-      if (isPlanDelivery && row.plan_first && author !== "user" && author !== "system") {
+      if (isPlanDelivery && row.plan_first && isAgentAuthor(author)) {
         db.prepare("UPDATE tasks SET plan_comment_id = ? WHERE id = ?").run(id, taskId);
       }
       // Evidence attached AFTER the review transition (review-first delivery
