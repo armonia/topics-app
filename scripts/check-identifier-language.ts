@@ -86,6 +86,10 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // requeue: putting a task back in `todo` for the dispatcher to claim fresh
+  // (`server/services/task-dispatcher.ts`, `server/routes/tasks-board.ts`) —
+  // the project's own word for it, already used as a parameter name project-wide.
+  "requeue",
   // hetzner, uptime, reboot: the hosting provider the first machine adapter talks to, and two terms of server operations (`server/services/machine-providers.ts`, card 672744e2).
   "hetzner", "uptime", "reboot",
   // UI layer (card e12b765a): plain English the dictionary lacks, and the names of the example organization's documents.
