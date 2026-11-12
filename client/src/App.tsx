@@ -1395,7 +1395,10 @@ function App() {
     // The hub rows of the tray (automations, calendar, a project): the places that
     // used to be hub pages are levels of System > Agenti e lavori, the one door
     // that exists today; the tray names the place and the client decides how.
-    const onHub = () => { void import('./lib/agentsJobsLink').then((m) => m.openAgentsJobs()); };
+    const onHub = async () => {
+      const { openAgentsJobs } = await import('./lib/agentsJobsLink');
+      openAgentsJobs();
+    };
     window.addEventListener('topics:tray-open-task', onTask as EventListener);
     window.addEventListener('topics:tray-open-board', onBoard);
     window.addEventListener('topics:tray-open-hub', onHub);
