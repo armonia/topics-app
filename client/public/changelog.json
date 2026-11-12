@@ -4,7 +4,14 @@
     "date": "2026-11-12",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "a failed ui-state read no longer lets a later commit PUT over the saved layout/tabs",
+          "en": "",
+          "scope": "task-browser",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {

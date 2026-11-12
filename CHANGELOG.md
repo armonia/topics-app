@@ -4,6 +4,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ## 2.3.88 — 2026-11-12
 
+### Correzioni
+- **task-browser** · a failed ui-state read no longer lets a later commit PUT over the saved layout/tabs
+
 ### Sotto il cofano
 - Windows open_external: launch via rundll32, never cmd /C start
 
