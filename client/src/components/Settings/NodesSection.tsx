@@ -14,6 +14,7 @@ import { useT } from '../../hooks/useT';
 import { nodesOf, reloadMachines, useMachines } from '../../state/machinesStore';
 import { RemoteNodeRequests } from './RemoteNodeRequests';
 import { apiFetch } from '../../lib/shell/net';
+import { useMachinesOverview } from '../../hooks/useMachinesOverview';
 
 /**
  * WHERE THE PAIRING IS, in three states and no more: type the address, read the
@@ -211,6 +212,7 @@ export function NodesSection() {
         )}
       </div>
       <NodeSlots />
+      <ProviderTokens />
       <RemoteNodeRequests />
     </div>
   );
@@ -248,6 +250,50 @@ function NodeSlots() {
             className="w-16 rounded-md border border-app-border bg-app-surface px-2 py-1 text-right"
           />
         </label>
+      ))}
+    </div>
+  );
+}
+
+/** One token field per hosting provider adapter: the token goes to the server's 0600 file and never comes back. */
+function ProviderTokens() {
+  const t = useT();
+  const overview = useMachinesOverview();
+  const [saved, setSaved] = useState<Record<string, boolean>>({});
+  if (!overview || overview.providers.length === 0) return null;
+  const send = async (id: string, token: string | null) => {
+    const res = await apiFetch(`/api/machines/providers/${encodeURIComponent(id)}/token`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+      credentials: 'same-origin',
+    });
+    setSaved((prev) => ({ ...prev, [id]: res.ok && token !== null }));
+  };
+  return (
+    <div className="space-y-2" data-testid="provider-tokens">
+      <p className="text-mini text-app-text-muted">{t('settings.machines.provider.blurb')}</p>
+      {overview.providers.map((p) => (
+        <form
+          key={p.id}
+          className="flex items-center justify-between gap-3 text-compact text-app-text"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const input = e.currentTarget.elements.namedItem('token') as HTMLInputElement;
+            void send(p.id, input.value.trim() === '' ? null : input.value).then(() => { input.value = ''; });
+          }}
+        >
+          <span>{p.label}{(p.configured || saved[p.id]) && <span className="ml-2 text-mini text-app-text-muted" data-testid={`provider-token-set-${p.id}`}>{t('settings.machines.provider.set')}</span>}</span>
+          <input
+            name="token"
+            type="password"
+            autoComplete="off"
+            placeholder={t('settings.machines.provider.placeholder')}
+            data-testid={`provider-token-${p.id}`}
+            className="w-56 rounded-md border border-app-border bg-app-surface px-2 py-1"
+          />
+          <button type="submit" className="rounded-md border border-app-border px-2 py-1 text-mini hover:bg-app-hover">{t('settings.machines.provider.save')}</button>
+        </form>
       ))}
     </div>
   );

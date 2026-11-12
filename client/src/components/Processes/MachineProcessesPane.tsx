@@ -40,6 +40,8 @@ import {
 
 import { SECTION, SECTION_HEAD, FAINT } from './processesStyles';
 import { SessionsPanel } from './SessionConsumption';
+import { RemoteMachineSection } from './RemoteMachineSection';
+import { useMachinesOverview } from '../../hooks/useMachinesOverview';
 
 type Tr = ReturnType<typeof useT>;
 
@@ -108,6 +110,7 @@ export function MachineProcessesPane() {
   const { reads, failing, reread } = useHubReads(present);
   const { allScripts, refresh } = useScripts({ ports: true });
   const now = useTick(5_000);
+  const remotes = useMachinesOverview()?.machines.filter((m) => !m.local) ?? [];
 
   const rows = useMemo(() => processRows(reads?.census, reads?.mac, allScripts), [reads, allScripts]);
   const gauges = useMemo(() => macGauges(reads?.mac, reads?.machines, reads?.census), [reads]);
@@ -135,14 +138,16 @@ export function MachineProcessesPane() {
         {present && stale && <HubDownBand onRetry={reread} />}
 
         {/* The sessions are the centre; the machine is the context beside them. */}
-        <div className={`grid items-start gap-3.5 ${present ? '@5xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]' : ''}`}>
+        <div className={`grid items-start gap-3.5 ${present || remotes.length > 0 ? '@5xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]' : ''}`}>
           {/* Topics' own sessions: they do not depend on the hub, so they are here even when it is gone. */}
           <SessionsPanel />
-          {present && (
+          {(present || remotes.length > 0) && (
             <div className="flex min-w-0 flex-col gap-3.5" data-testid="machine-processes-context">
-              <MacSection gauges={gauges} rows={rows} onStopped={refresh} />
-              {pc && <PcSection pc={pc} stale={stale} />}
-              <ServicesAndLog services={services} readAt={failing ? null : servicesReadAt(live.services?.data)} />
+              {present && <MacSection gauges={gauges} rows={rows} onStopped={refresh} />}
+              {present && pc && <PcSection pc={pc} stale={stale} />}
+              {/* Machines Topics reaches itself: they do not wait on the hub either. */}
+              {remotes.map((m) => <RemoteMachineSection key={m.id} machine={m} />)}
+              {present && <ServicesAndLog services={services} readAt={failing ? null : servicesReadAt(live.services?.data)} />}
             </div>
           )}
         </div>
