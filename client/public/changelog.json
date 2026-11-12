@@ -1,5 +1,29 @@
 [
   {
+    "version": "2.3.89",
+    "date": "2026-11-12",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "stop stale HTTP poll re-arm and fix screenshot origin under Tauri",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "POLL-CANCEL-01 and SNAPSHOT-URL-01 requirements",
+          "en": "",
+          "scope": "remote-browser",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.88",
     "date": "2026-11-12",
     "sections": {
@@ -10,6 +34,12 @@
           "en": "",
           "scope": "task-browser",
           "breaking": false
+        },
+        {
+          "it": "do not latch empty channel-titles cache; check-any respects strings",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ],
       "perf": [],
@@ -18,6 +48,12 @@
           "it": "Windows open_external: launch via rundll32, never cmd /C start",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "declare TITLES-CACHE-01 for the channel-titles cache test",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ]
     }
