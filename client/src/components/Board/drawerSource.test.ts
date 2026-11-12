@@ -6,6 +6,8 @@ import { join } from 'node:path';
  * The drawer lives in `TaskDetail.tsx` and the sibling modules it was split
  * into. Source-scanning tests read it as one text, in this order, so a check
  * written against "the drawer" keeps working wherever a piece sits.
+ *
+ * @covers KANBAN-12
  */
 const DRAWER_FILES = [
   'TaskDetail.tsx', 'TaskHeader.tsx', 'TaskMetadata.tsx', 'TaskComments.tsx', 'TaskThread.tsx',
