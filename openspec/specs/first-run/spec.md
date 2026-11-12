@@ -63,3 +63,15 @@ The remote account card SHALL start closed, explain that Topics works without
 an account, and link to the Account section. The first-run screen SHALL NOT ask
 for Google login or a GitHub key, and SHALL preserve the declared provider
 model list.
+
+#### Scenario: Remote account card closed and without login prompts
+
+- **GIVEN** the first-run screen is open on a new installation
+- **THEN** the remote account card SHALL be closed
+- **AND** the screen SHALL NOT mention Google login or a GitHub key
+
+#### Scenario: Declared provider model shown
+
+- **GIVEN** the provider snapshot declares a default provider with a model
+- **WHEN** the first-run screen is open
+- **THEN** it SHALL show the declared model
