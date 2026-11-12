@@ -90,6 +90,13 @@ async function openProjectBoard(page: Page) {
   await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10000 });
 }
 
+async function taskOf(request: any, id: string): Promise<{ status: string; archived?: boolean; landingState?: string | null }> {
+  const res = await request.get(`${BASE}/api/boards/${PROJECT_ID}/tasks/${id}`);
+  expect(res.ok()).toBe(true);
+  const body = await res.json();
+  return body.task ?? body;
+}
+
 async function openDrawer(page: Page, text: string) {
   const card = page.getByTestId("kanban-column-review").locator("[data-task-card]", { hasText: text });
   await expect(card).toBeVisible({ timeout: 10000 });
@@ -105,7 +112,7 @@ async function openDeliveryTab(drawer: Locator) {
   await drawer.getByTestId("task-delivery-toggle").click();
 }
 
-test.describe("Tre bottoni della review che dicevano una cosa e ne facevano un'altra", () => {
+test.describe("Quattro bottoni della review che dicevano una cosa e ne facevano un'altra", () => {
   test.describe.configure({ timeout: 90_000 });
   test.beforeEach(() => {
     test.info().annotations.push({ type: "spec", description: "REVIEW-BUTTONS-01" });
@@ -131,7 +138,7 @@ test.describe("Tre bottoni della review che dicevano una cosa e ne facevano un'a
     await seedProjectPane(page.request, PROJECT_PATH);
   });
 
-  test("1. su una card atterrata il composer non promette più un turno all'agente", async ({ page, request }) => {
+  test("1a. su una card atterrata scrivere e inviare salva una nota: il bottone non promette un turno", async ({ page, request }) => {
     const text = `Atterrata ${Date.now()}`;
     const task = await createReviewTask(request, text);
     await bindTopic(request, task.id);
@@ -141,31 +148,77 @@ test.describe("Tre bottoni della review che dicevano una cosa e ne facevano un'a
     await openProjectBoard(page);
     const drawer = await openDrawer(page, text);
 
-    const composer = drawer.getByTestId("task-reply-input");
-    await expect(composer).toHaveAttribute("placeholder", "Commenta: resta sulla card.");
     const submit = drawer.getByTestId("task-composer-submit");
     await expect(submit).not.toHaveAttribute("title", "Invia all'agente");
+    await drawer.getByTestId("task-reply-input").fill("una cosa in più");
+    await submit.click();
+
+    await expect(drawer.getByTestId("task-comment-receipt")).toBeVisible({ timeout: 10000 });
+    await expect(drawer.getByTestId("task-comment-queued")).toHaveCount(0);
+    expect((await taskOf(request, task.id)).status).toBe("review");
   });
 
-  test("2. dopo «Archivia» il drawer banna «Archiviata», non Review coi bottoni vivi", async ({ page, request }) => {
+  test("1b. a turni finiti il bottone dice «Rimandalo avanti» e l'invio porta la frase", async ({ page, request }) => {
+    const text = `[Jarvis] Prova a secco ${Date.now()}`;
+    const task = await createReviewTask(request, text);
+    await bindTopic(request, task.id);
+    const seeded = await request.post(`${BASE}/api/test/tasks/${task.id}/system-delivery`, { data: { cause: "retries_exhausted" } });
+    expect(seeded.ok()).toBe(true);
+
+    await page.goto("/");
+    await openProjectBoard(page);
+    const drawer = await openDrawer(page, text);
+
+    const submit = drawer.getByTestId("task-composer-submit");
+    await expect(submit).toHaveAttribute("title", "Rimandalo avanti");
+    await drawer.getByTestId("task-reply-input").fill("riprova da qui");
+    await submit.click();
+
+    // The e2e server has no dispatcher, so the restart itself is proven by
+    // server/routes/tasks.archived-comment.test.ts (queued + in_progress);
+    // here the button carried the words and the thread shows them.
+    await expect(drawer.getByText("riprova da qui")).toBeVisible({ timeout: 10000 });
+  });
+
+  test("2. dopo «Archivia» il drawer dice «Archiviata»: niente stato, niente bottoni, niente invio all'agente; «Ripristina» riporta tutto", async ({ page, request }) => {
     const text = `Da archiviare ${Date.now()}`;
     const task = await createReviewTask(request, text);
+    await bindTopic(request, task.id);
 
     await page.goto("/");
     await openProjectBoard(page);
     const drawer = await openDrawer(page, text);
     await openDeliveryTab(drawer);
     await expect(drawer.getByTestId("task-review-actions")).toBeVisible();
+    await expect(drawer.getByTestId("task-status-chip")).toContainText("Review");
 
-    const del = await page.request.delete(`${BASE}/api/boards/${PROJECT_ID}/tasks/${task.id}`);
-    expect(del.ok()).toBe(true);
+    // The real gesture: right click on the card, then «Archivia».
+    await page.getByTestId("kanban-column-review").locator(`[data-task-card="${task.id}"]`).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Archivia" }).click();
 
     await expect(drawer.getByTestId("task-archived-banner")).toBeVisible({ timeout: 10000 });
+    await expect(drawer.getByTestId("task-status-chip")).toContainText("Archiviata");
+    await expect(drawer.getByTestId("task-status-chip")).toBeDisabled();
     await expect(drawer.getByTestId("task-review-actions")).toHaveCount(0);
-    await expect(drawer.getByTestId("task-archived-restore")).toBeVisible();
+    await expect(drawer.getByTestId("task-reply-quiet-note")).toHaveCount(0);
+    await expect(drawer.getByTestId("task-composer-submit")).not.toHaveAttribute("title", "Invia all'agente");
+
+    // A message on it is a note: the card stays archived and nobody restarts.
+    await drawer.getByTestId("task-reply-input").fill("ancora una cosa");
+    await drawer.getByTestId("task-composer-submit").click();
+    await expect(drawer.getByTestId("task-comment-queued")).toHaveCount(0);
+    const still = await taskOf(request, task.id);
+    expect(still.status).toBe("review");
+    expect(still.archived).toBeTruthy();
+
+    await drawer.getByTestId("task-archived-restore").click();
+    await expect(drawer.getByTestId("task-archived-banner")).toHaveCount(0, { timeout: 10000 });
+    await expect(drawer.getByTestId("task-status-chip")).toContainText("Review");
+    if (!(await drawer.getByTestId("task-review-actions").isVisible())) await openDeliveryTab(drawer);
+    await expect(drawer.getByTestId("task-review-actions")).toBeVisible();
   });
 
-  test("4. «Approva» su un ramo non unito avvisa PRIMA del click", async ({ page, request }) => {
+  test("4. «Approva» su un ramo non unito: la riga lo dice prima, e dopo il click il codice è davvero ancora fuori", async ({ page, request }) => {
     const text = `Zeno ok informativa ${Date.now()}`;
     const task = await createReviewTask(request, text);
     await bindTopic(request, task.id);
@@ -176,8 +229,15 @@ test.describe("Tre bottoni della review che dicevano una cosa e ne facevano un'a
     const drawer = await openDrawer(page, text);
     await openDeliveryTab(drawer);
 
-    await expect(drawer.getByTestId("task-approve-leaves-branch-note")).toBeVisible();
-    await expect(drawer.getByTestId("task-approve-leaves-branch-note")).toContainText("Landa su main");
-    await expect(drawer.getByTestId("task-land")).toBeVisible();
+    const note = drawer.getByTestId("task-approve-leaves-branch-note");
+    await expect(note).toBeVisible();
+    await expect(note).toContainText("Approva");
+    await expect(note).toContainText("Landa su main");
+    await expect(drawer.getByTestId("task-land")).toHaveText(/Landa su main/);
+
+    await drawer.getByTestId("task-approve").click();
+    await expect.poll(async () => (await taskOf(request, task.id)).status, { timeout: 10000 }).toBe("done");
+    // Approve closed the card and merged nothing: that is what the line said.
+    expect((await taskOf(request, task.id)).landingState).not.toBe("landed");
   });
 });

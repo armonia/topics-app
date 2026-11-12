@@ -5538,7 +5538,7 @@ A comment written through the API or the MCP SHALL NOT show the owner's name. Th
 
 ### Requirement: REVIEW-BUTTONS-01 - A review button does what its label says
 
-The composer of a landed card SHALL read as a plain note, not promise a turn to the agent. After a card is archived the open drawer SHALL show an "archived" banner with a restore button and no live review decisions. A card closed by a person SHALL NOT return to review because a queued land failed. Next to "Approva" on a card whose branch holds commits outside main, the drawer SHALL say that the code stays out and that landing is the way to merge it.
+The composer of a landed card SHALL read as a plain note, not promise a turn to the agent. On a card whose agent never finished (turns exhausted, model refused) the send button SHALL carry the word of the send-back button, because that message restarts the agent. After a card is archived the open drawer SHALL show an "archived" chip in place of the status, a banner with a restore button, no live review decisions and no agent composer, and a message written on it SHALL stay a note that restarts nobody. A card closed by a person SHALL NOT return to review because a queued land failed or threw, and a person reopening it during the land SHALL be honoured. Next to "Approva" on a card whose branch holds commits outside main, the drawer SHALL say that the code stays out and that landing is the way to merge it.
 
 #### Scenario: archived while the drawer is open
 - **WHEN** a card open in the drawer is archived
@@ -5546,4 +5546,4 @@ The composer of a landed card SHALL read as a plain note, not promise a turn to 
 
 #### Scenario: approve on an unlanded branch
 - **WHEN** the drawer shows a review card with an unmerged delivery
-- **THEN** a note beside the decision buttons SHALL say that Approva leaves the code out of main
+- **THEN** a note beside the decision buttons SHALL say that the approve button leaves the code out of main, naming the buttons with their current labels in the current language

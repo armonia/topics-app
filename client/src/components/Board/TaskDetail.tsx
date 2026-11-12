@@ -48,7 +48,7 @@ import { emptyThreadKey } from './emptyThread';
 import { LandingNotice } from './LandingNotice';
 import { landingBand } from './landingBand';
 import { useLandingTicket } from './useLandingTicket';
-import { boardApi, commentAuthorLabel, diffTotals, NOT_MEASURED_EXIT, hasCodeQuestion, hasDeliveryToMerge, showsLandingDebt, showsDeployProposal, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, subtaskQueueChip, subtaskOpenable, reopenedChip, attemptHasWork, priorityAwaitingAgent, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type DiffPanelSource, type CheckRun, type TaskAttempt } from '../../lib/board';
+import { boardApi, commentAuthorLabel, diffTotals, NOT_MEASURED_EXIT, hasCodeQuestion, hasDeliveryToMerge, isUnfinishedReview, showsLandingDebt, showsDeployProposal, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, subtaskQueueChip, subtaskOpenable, reopenedChip, attemptHasWork, priorityAwaitingAgent, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type DiffPanelSource, type CheckRun, type TaskAttempt } from '../../lib/board';
 import { ZoomableImage } from '../Shared/ImageLightbox';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths, hasConversationMedia } from './taskMedia';
@@ -1170,13 +1170,20 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
     () => (task ? comments.filter((c) => !isSupersededPreviewNote(c, task)) : comments),
     [comments, task],
   );
-  const isAgentReview = !!task && task.status === 'review' && !!task.assignedTopicId;
+  const isAgentReview = !!task && task.status === 'review' && !!task.assignedTopicId && !task.archived;
   // `isAgentReview` is also "a review card an agent delivered" (the quiet
   // note button, the preview recapture). The composer's own label and title
   // need the narrower `canSendToAgentTask` instead: a landed card is still
   // `isAgentReview`, but `/comments` keeps any message on it a note — see
   // the function's own doc in shared/board.ts.
   const canSendToAgent = !!task && canSendToAgentTask(task);
+  // The send button names what it does. On a card the agent never finished
+  // (turns exhausted, model refused) the message restarts the agent exactly like
+  // the send-back button of the decision row, so it borrows that button's word
+  // instead of the generic one: label and effect cannot drift apart.
+  const sendToAgentWord = task && isUnfinishedReview(task)
+    ? reviewDecisionButtons(task, tr).sendBack.label
+    : tr('board.task.sendToAgent');
   // The empty composer can still resume without a new instruction.
   // Le parole dei tre bottoni di decisione stanno in `ReviewDecisionRow`, che le
   // chiede a `reviewDecisionButtons`: cambiano tutte con lo stato della card (i
@@ -2715,7 +2722,10 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                     (`hasDeliveryToMerge`) that makes Land appear. */}
                 {hasDeliveryToMerge(task) && (
                   <p data-testid="task-approve-leaves-branch-note" className="mt-1 text-mini text-app-text-secondary">
-                    {tr('board.task.approveLeavesBranchOut')}
+                    {tr('board.task.approveLeavesBranchOut', {
+                      approve: reviewDecisionButtons(task, tr).accept.label,
+                      land: reviewDecisionButtons(task, tr).land?.label ?? '',
+                    })}
                   </p>
                 )}
                 {/* «Ricattura evidenza» NON è più qui: era un'azione di
@@ -2878,16 +2888,17 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
         <button
           ref={statusBtnRef}
-          onClick={() => task && setStatusMenuOpen(true)}
+          onClick={() => task && !task.archived && setStatusMenuOpen(true)}
+          disabled={!!task?.archived}
           data-testid="task-status-chip"
           title={tr('board.task.changeStatusTitle')}
           className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-compact leading-4 text-app-text-heading hover:bg-white/10 coarse:min-h-11"
         >
           {/* A failed first read must not keep saying «Loading…»: the spinner is
               a promise, and here nothing is coming. */}
-          {chipStatus ? <StatusIcon status={chipStatus} /> : loadFailedMessage ? <AlertTriangle className="h-3.5 w-3.5 text-rose-300" /> : <Spinner size="sm" tone="current" />}
-          {chipStatus ? STATUS_LABEL[chipStatus] : loadFailedMessage ? tr('board.task.loadFailedChip') : tr('board.task.loading')}
-          <ChevronDown className="h-3 w-3 text-app-text-faint" />
+          {task?.archived ? <Trash2 className="h-3.5 w-3.5" aria-hidden="true" /> : chipStatus ? <StatusIcon status={chipStatus} /> : loadFailedMessage ? <AlertTriangle className="h-3.5 w-3.5 text-rose-300" /> : <Spinner size="sm" tone="current" />}
+          {task?.archived ? tr('board.task.archivedChip') : chipStatus ? STATUS_LABEL[chipStatus] : loadFailedMessage ? tr('board.task.loadFailedChip') : tr('board.task.loading')}
+          {!task?.archived && <ChevronDown className="h-3 w-3 text-app-text-faint" />}
         </button>
         {/* Condividere sta accanto allo STATO, non dentro un menù: è una
             proprietà della scheda come lo stato, e nasconderla in un
@@ -3344,8 +3355,8 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
               <button type="button" data-testid="task-composer-submit"
                 onClick={() => { if (agentBusy && !draft.trim() && !attachments.length) void stopAgent(); else void send(); }}
                 disabled={busy || sending || uploading || (!agentBusy && !draft.trim() && !attachments.length)}
-                title={agentBusy && !draft.trim() && !attachments.length ? taskActionWord('stop', tr).title : canSendToAgent ? tr('board.task.sendToAgent') : composerSendTitle}
-                aria-label={agentBusy && !draft.trim() && !attachments.length ? taskActionWord('stop', tr).label : canSendToAgent ? tr('board.task.sendToAgent') : composerSendTitle}
+                title={agentBusy && !draft.trim() && !attachments.length ? taskActionWord('stop', tr).title : canSendToAgent ? sendToAgentWord : composerSendTitle}
+                aria-label={agentBusy && !draft.trim() && !attachments.length ? taskActionWord('stop', tr).label : canSendToAgent ? sendToAgentWord : composerSendTitle}
                 className={`flex ${COMPOSER_ICON_BUTTON} shrink-0 items-center justify-center rounded-lg transition-all disabled:opacity-50 ${
                   draft.trim() || attachments.length ? 'bg-primary text-white hover:bg-primary-hover'
                     : agentBusy ? 'bg-app-text/15 text-app-text hover:bg-app-text/25'

@@ -2584,8 +2584,9 @@ export function canSendToAgent(task: {
   status?: TaskStatus | string | null;
   assignedTopicId?: string | null;
   landingState?: string | null;
+  archived?: boolean | null;
 }): boolean {
-  return task.status === 'review' && !!task.assignedTopicId && !isLandedWork(task);
+  return task.status === 'review' && !!task.assignedTopicId && !isLandedWork(task) && !task.archived;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1264,7 +1264,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           // and the node launches it again with the thread. The criterion is
           // the dispatcher's `isRemoteTask`: another machine, with an address
           // (this Mac's own row is the default «here» and has none).
-          if (dispatcher && root && root.status === "review" && !isLandedWork(root) && isNodeCard(root)) {
+          if (dispatcher && root && root.status === "review" && !isLandedWork(root) && !root.archived && isNodeCard(root)) {
             const backInQueue = svc.update({
               taskId: root.id, actor: "human", by: HUMAN, projectId: bComments.projectId,
               patch: { status: "todo" }, origin: actionOrigin,
@@ -1274,7 +1274,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
               dispatcher.onEnterTodo(bComments.projectId, root.id);
               delivery = 'queued';
             }
-          } else if (dispatcher && root && root.assignedTopicId && !isLandedWork(root)
+          } else if (dispatcher && root && root.assignedTopicId && !isLandedWork(root) && !root.archived
               && (root.status === "review" || root.status === "in_progress")) {
             if (root.status === "review") {
               const rejected = svc.reviewDecision({

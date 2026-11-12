@@ -166,3 +166,37 @@ describe('il dettaglio dei checks tiene i tre esiti separati', () => {
     expect(running).toContain("tr('board.task.checks.ciRun')");
   });
 });
+
+/**
+ * The drawer's review buttons say what they do (card 0d6384ff). The drawer does
+ * not mount under `bun test`, so the wiring is read on the source, as above;
+ * the clicks themselves are in `board-misleading-review-buttons.spec.ts`.
+ * @covers REVIEW-BUTTONS-01
+ */
+describe('the drawer wires the honest review buttons', () => {
+  test('the approve note renders under the decision row, gated by the merge condition, with the real labels', () => {
+    const at = src.indexOf('data-testid="task-approve-leaves-branch-note"');
+    expect(at).toBeGreaterThan(0);
+    const before = src.slice(Math.max(0, at - 200), at);
+    expect(before).toContain('hasDeliveryToMerge(task)');
+    const after = src.slice(at, at + 400);
+    expect(after).toContain("approve: reviewDecisionButtons(task, tr).accept.label");
+    expect(after).toContain('land: reviewDecisionButtons(task, tr).land');
+  });
+
+  test('an archived card draws the «archived» chip, a dead status menu and no agent composer', () => {
+    expect(src).toContain("tr('board.task.archivedChip')");
+    expect(src).toContain('disabled={!!task?.archived}');
+    expect(src).toContain('onClick={() => task && !task.archived && setStatusMenuOpen(true)}');
+    // canSendToAgent comes from the shared rule that knows `archived`; the quiet-note button needs the same.
+    expect(src).toContain('canSendToAgentTask(task)');
+    expect(src).toContain("task.assignedTopicId && !task.archived;");
+    expect(src).toContain('canDecideReview(task)');
+  });
+
+  test('the send button borrows the send-back word on a card the agent never finished', () => {
+    expect(src).toContain('isUnfinishedReview(task)');
+    expect(src).toContain('reviewDecisionButtons(task, tr).sendBack.label');
+    expect(src).not.toContain("canSendToAgent ? tr('board.task.sendToAgent')");
+  });
+});

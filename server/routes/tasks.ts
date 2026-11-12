@@ -2169,7 +2169,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const rc = res.realignConflict;
         const files = rc?.files ?? [];
         const elenco = files.length > 0 ? files.slice(0, 20).join(", ") : "nessun file elencabile";
-        if (closedByHuman) {
+        // Re-read AFTER the await: the owner may have closed or reopened the
+        // card while the land ran, and the value taken before it is stale.
+        const nowClosedByHuman = (() => {
+          try {
+            const fresh = svc.get(taskId, { projectId })?.task;
+            return !!fresh && fresh.status === "done" && fresh.doneActor === "human";
+          } catch { return closedByHuman; }
+        })();
+        if (nowClosedByHuman) {
           svc.addComment({
             taskId, author: "system",
             content: rc
@@ -2317,7 +2325,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       try { await opts?.stampLanding?.(taskId, "unlanded"); } catch { /* la spia non fa fallire il resto */ }
       try {
         const cur = svc.get(taskId, { projectId })?.task;
-        if (cur && cur.status === "done") {
+        // A card a person closed stays closed, whatever the land threw.
+        if (cur && cur.status === "done" && cur.doneActor !== "human") {
           // `actor: "human"` è l'asse dei PERMESSI, `by: "system"` la firma vera:
           // stessa scelta dei rami `conflict` e `skipped`.
           svc.update({

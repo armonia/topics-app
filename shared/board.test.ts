@@ -962,6 +962,11 @@ describe("canSendToAgent: la scatola non promette un turno che il server non fa"
     expect(canSendToAgent({ ...reviewDelivered, assignedTopicId: null })).toBe(false);
   });
 
+  test("archiviata: resta `review` ma e' fuori dalla board, niente turno da mandare", () => {
+    expect(canSendToAgent({ ...reviewDelivered, archived: true })).toBe(false);
+    expect(canSendToAgent({ ...reviewDelivered, archived: false })).toBe(true);
+  });
+
   test("fuori da review (in corso, in coda) non e' questo bottone", () => {
     for (const status of ["in_progress", "todo", "backlog", "done"]) {
       expect(canSendToAgent({ ...reviewDelivered, status })).toBe(false);
