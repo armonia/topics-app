@@ -32,7 +32,7 @@ import type { ProvidersSnapshot } from "../../shared/types";
 import { budgetShare, capMode, isAgentWorking, isCiEvidenceCheck, type CheckRun, isThreadSpeech, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type DispatchAdmission, type DispatchMemoryQueueSnapshot, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
 import { toFeedTask } from "../../shared/board-feed";
 import { selectTaskSessionPeek } from "../../shared/task-session-peek";
-import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
+import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX, isAgentAuthor } from "../../shared/comment-author";
 import { mintSessionToken, sessionProof, SESSION_TOKEN_HEADER } from "../lib/session-token";
 import { topicsHome } from "../services/daemon-state";
 import { isPreviewablePath } from "../../shared/media-kind";
@@ -2787,7 +2787,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     try {
       reviewGateTask = svc.get(taskId, { projectId });
       const lastOwn = reviewGateTask ? [...reviewGateTask.comments].reverse().find(
-        (comment) => comment.author !== "user" && comment.author !== "system" && comment.kind === "comment",
+        (comment) => isAgentAuthor(comment.author) && comment.kind === "comment",
       ) : null;
       const isQuestion = commentAsksHuman(lastOwn?.content);
       isDelivery = !!reviewGateTask && reviewGateTask.task.status !== "review" && !isQuestion;

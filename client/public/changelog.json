@@ -1,5 +1,43 @@
 [
   {
+    "version": "2.3.92",
+    "date": "2026-11-12",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "a message written while a turn runs joins it at the next round",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "wait on the replayed turn, not on a clock",
+          "en": "",
+          "scope": "steer",
+          "breaking": false
+        },
+        {
+          "it": "native steer v2: nothing lost, nothing read twice, rows stay answered",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "native steer: a cut turn never resends the steered row, Stop holds after a restart",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "native steer: every read of the person's last row skips a steered one",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.89",
     "date": "2026-11-12",
     "sections": {

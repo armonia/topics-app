@@ -1142,6 +1142,26 @@ next call, never leave the connection without a session for good.
 - **WHEN** a tool is called
 - **THEN** the call SHALL fail with no new handshake
 
+### Requirement: MCPSRV-07 — An MCP server answers in SSE with CRLF, and a failed mount leaves no process behind
+
+`readSseResponse` SHALL split SSE events on the blank-line separator whether
+the server writes it as `\n\n` or as `\r\n\r\n`, including when the `\r` of
+that separator lands in one chunk and the `\n` in the next. A failed stdio
+mount — a rejected handshake or a `tools/list` that errors — SHALL leave no
+child process running: `connectMcpServer` and `mountOne` SHALL close the
+connection before rethrowing or recording the failure.
+
+#### Scenario: an SSE event's blank line is split across two chunks by CRLF
+- **GIVEN** an HTTP MCP server whose response uses `\r\n\r\n` as the event separator, with the `\r` at the end of one chunk and `\n\r\n` at the start of the next
+- **WHEN** the client reads the response
+- **THEN** the event SHALL be parsed and the server SHALL mount
+
+#### Scenario: a failed mount leaves no process behind
+- **GIVEN** a stdio MCP server whose handshake or `tools/list` fails
+- **WHEN** the fleet mounts it
+- **THEN** the mount SHALL fail
+- **AND** the server's child process SHALL NOT still be alive afterward
+
 ### Requirement: CMD-COMMA-01 — La scorciatoia delle Impostazioni cede solo a chi POSSIEDE il tasto
 
 `⌘,` e `Ctrl+,` SHALL aprire le Impostazioni. La palette dei comandi lo
