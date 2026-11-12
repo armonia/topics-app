@@ -25,6 +25,7 @@
 import { describe, test, expect, beforeAll, afterAll, mock } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { readTauriShellSource } from '../../../../tests/helpers/tauri-shell-source';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ComponentType } from 'react';
 import {
@@ -182,10 +183,7 @@ describe('the reserved room', () => {
   });
 
   test('the Rust shell pins the same anchor and pitch', () => {
-    const rs = readFileSync(
-      join(import.meta.dir, '..', '..', '..', '..', 'desktop-tauri', 'src-tauri', 'src', 'lib.rs'),
-      'utf8',
-    );
+    const rs = readTauriShellSource();
     expect(rs).toContain(`const LEFT_INSET: f64 = ${WINDOW_CONTROLS_INSET_PX}.0;`);
     expect(rs).toContain(`const PITCH: f64 = ${TRAFFIC_LIGHT_DOT_PX + TRAFFIC_LIGHT_GAP_PX}.0;`);
   });
