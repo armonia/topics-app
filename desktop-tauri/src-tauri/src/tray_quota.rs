@@ -11,6 +11,7 @@
 use serde::Deserialize;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -22,11 +23,12 @@ pub const POLL_SECS: u64 = 60;
 /// Rendering scale (retina): every metric below is in logical points.
 const SCALE: f32 = 2.0;
 const HEIGHT_PT: f32 = 22.0;
-const MAX_WIDTH_PT: f32 = 760.0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Quota {
     pub key: String,
+    /// Service verdict: ok, warning, critical, depleted, stale. Drives the colours.
+    pub status: String,
     pub used_pct: u32,
     pub reset_text: String,
 }
@@ -35,7 +37,12 @@ pub struct Quota {
 pub struct Column {
     pub provider: String,
     pub label: String,
+    /// The account the agent is using right now: drawn at full strength.
     pub active: bool,
+    /// Marked current by the service: ranked like an active one, but not drawn brighter.
+    pub current: bool,
+    /// Manual resets still available, shown as a small badge after the name.
+    pub reset_credits: u32,
     pub quotas: Vec<Quota>,
 }
 
@@ -61,20 +68,29 @@ struct RawAccount {
     active: bool,
     #[serde(default)]
     current: Option<bool>,
+    #[serde(default, rename = "resetCredits")]
+    reset_credits: Option<RawCredits>,
     #[serde(default)]
     quotas: Vec<RawQuota>,
+}
+#[derive(Deserialize)]
+struct RawCredits {
+    #[serde(default)]
+    available: u32,
 }
 #[derive(Deserialize)]
 struct RawQuota {
     #[serde(default)]
     key: String,
+    #[serde(default)]
+    status: Option<String>,
     #[serde(default, rename = "usedPct")]
     used_pct: f64,
     #[serde(default, rename = "resetText")]
     reset_text: Option<String>,
 }
 
-/// Overview JSON to columns, in-use accounts first, then by highest quota.
+/// Overview JSON to columns, in the service order (provider by provider).
 pub fn parse_overview(body: &str) -> Option<Vec<Column>> {
     let raw: RawOverview = serde_json::from_str(body).ok()?;
     let mut cols = Vec::new();
@@ -83,13 +99,16 @@ pub fn parse_overview(body: &str) -> Option<Vec<Column>> {
             cols.push(Column {
                 provider: p.id.clone(),
                 label: a.label.clone(),
-                active: a.active || a.current == Some(true),
+                active: a.active,
+                current: a.current == Some(true),
+                reset_credits: a.reset_credits.as_ref().map_or(0, |c| c.available),
                 quotas: a
                     .quotas
                     .iter()
                     .take(2)
                     .map(|q| Quota {
                         key: q.key.to_uppercase(),
+                        status: q.status.clone().unwrap_or_else(|| "ok".into()),
                         used_pct: q.used_pct.clamp(0.0, 100.0).round() as u32,
                         reset_text: q.reset_text.clone().unwrap_or_default(),
                     })
@@ -97,8 +116,7 @@ pub fn parse_overview(body: &str) -> Option<Vec<Column>> {
             });
         }
     }
-    let peak = |c: &Column| c.quotas.iter().map(|q| q.used_pct).max().unwrap_or(0);
-    cols.sort_by(|a, b| b.active.cmp(&a.active).then(peak(b).cmp(&peak(a))));
+    // Provider order is kept: ranking only decides who survives the "+N" collapse.
     Some(cols)
 }
 
@@ -132,6 +150,53 @@ pub fn fetch_columns(base: &str) -> Option<Vec<Column>> {
 }
 
 // ---------------------------------------------------------------- drawing
+//
+// Every constant below is taken from the original menu-bar strip (card 83ec60cf):
+// same fonts, sizes, baselines, widths, colours and the same "+N" collapse rule.
+// Metrics are logical points, bottom-origin like the original; `S` scales to pixels.
+
+/// Vertical metrics of the three rows, measured from the bottom edge.
+const HEADER_BASELINE: f32 = 17.0;
+const ROW_TOP_BASELINE: f32 = 9.0;
+const ROW_BOTTOM_BASELINE: f32 = 1.0;
+const TAG_BASELINE_SHIFT: f32 = -0.5;
+const ICON_SIZE: f32 = 8.0;
+const ICON_Y: f32 = 15.0;
+const ICON_INDENT: f32 = 11.0;
+const HEADER_PT: f32 = 7.0;
+const TAG_PT: f32 = 7.0;
+const PCT_PT: f32 = 9.0;
+const TIME_PT: f32 = 9.0;
+const BAR_W: f32 = 20.0;
+const BAR_H: f32 = 6.0;
+const BAR_RADIUS: f32 = 2.5;
+const PCT_W: f32 = 22.0;
+const GAP: f32 = 2.0;
+const TIME_GAP: f32 = 3.0;
+const ACCOUNT_GAP: f32 = 6.0;
+const PAD_X: f32 = 4.0;
+/// The strip never takes more than this share of the screen width (and never more than the cap).
+const SCREEN_SHARE: f32 = 0.3;
+const MAX_STRIP_PT: f32 = 520.0;
+const DEFAULT_SCREEN_PT: f32 = 1440.0;
+const NOT_ACTIVE_BAR_DIM: f32 = 0.45;
+const NOT_ACTIVE_TEXT_DIM: f32 = 0.8;
+const TRACK_ALPHA: f32 = 0.22;
+const SHADOW_ALPHA: f32 = 0.5;
+
+/// Width of the main screen in points, set by the shell once it knows it.
+static SCREEN_W_PT: AtomicU32 = AtomicU32::new(0);
+
+pub fn set_screen_width_pt(w: f32) {
+    SCREEN_W_PT.store(w.max(0.0).round() as u32, Ordering::Relaxed);
+}
+
+fn screen_width_pt() -> f32 {
+    match SCREEN_W_PT.load(Ordering::Relaxed) {
+        0 => DEFAULT_SCREEN_PT,
+        w => w as f32,
+    }
+}
 
 pub struct Strip {
     pub width: u32,
@@ -139,22 +204,91 @@ pub struct Strip {
     pub rgba: Vec<u8>,
 }
 
-static FONT: OnceLock<Option<fontdue::Font>> = OnceLock::new();
+#[derive(Clone, Copy)]
+enum Face {
+    /// Header and labels: the semibold system sans.
+    Sans,
+    /// Reset time: monospaced regular.
+    Mono,
+    /// Window tag and percentage: monospaced bold.
+    MonoBold,
+}
 
-fn font() -> Option<&'static fontdue::Font> {
-    FONT.get_or_init(|| {
-        const CANDIDATES: &[&str] = &[
-            "/System/Library/Fonts/Helvetica.ttc",
-            "/System/Library/Fonts/SFNS.ttf",
-            "C:\\Windows\\Fonts\\segoeui.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        ];
-        CANDIDATES.iter().find_map(|p| {
-            let bytes = std::fs::read(p).ok()?;
-            fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default()).ok()
-        })
+type Chain = Vec<fontdue::Font>;
+static FONTS: OnceLock<[Chain; 3]> = OnceLock::new();
+
+fn load_chain(primary: &[(&str, u32)]) -> Chain {
+    // Symbols last: the reset badge glyph is missing from most text faces.
+    const SYMBOLS: &[(&str, u32)] = &[("/System/Library/Fonts/Apple Symbols.ttf", 0), ("/System/Library/Fonts/SFNS.ttf", 0)];
+    let load = |(p, i): &(&str, u32)| {
+        let bytes = std::fs::read(p).ok()?;
+        let settings = fontdue::FontSettings { collection_index: *i, ..Default::default() };
+        fontdue::Font::from_bytes(bytes, settings).ok()
+    };
+    let mut chain: Chain = primary.iter().find_map(load).into_iter().collect();
+    chain.extend(SYMBOLS.iter().filter_map(load));
+    chain
+}
+
+fn chains() -> &'static [Chain; 3] {
+    FONTS.get_or_init(|| {
+        [
+            load_chain(&[
+                ("/System/Library/Fonts/Helvetica.ttc", 1),
+                ("C:\\Windows\\Fonts\\seguisb.ttf", 0),
+                ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 0),
+            ]),
+            load_chain(&[
+                ("/System/Library/Fonts/Menlo.ttc", 0),
+                ("C:\\Windows\\Fonts\\consola.ttf", 0),
+                ("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 0),
+            ]),
+            load_chain(&[
+                ("/System/Library/Fonts/Menlo.ttc", 1),
+                ("C:\\Windows\\Fonts\\consolab.ttf", 0),
+                ("/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf", 0),
+            ]),
+        ]
     })
-    .as_ref()
+}
+
+fn glyph_font(face: Face, ch: char) -> Option<&'static fontdue::Font> {
+    let chain = &chains()[face as usize];
+    chain.iter().find(|f| f.lookup_glyph_index(ch) != 0).or_else(|| chain.first())
+}
+
+/// Monospaced advance of the original strip's font, in em. The fallback faces
+/// (Menlo, Consolas) are a hair narrower, which would shift every column.
+const MONO_ADVANCE_EM: f32 = 0.6181;
+/// The original header font is about 7% wider than the sans face available here;
+/// spreading the letters by the same factor keeps every column the same width.
+const SANS_TRACKING: f32 = 1.071;
+
+/// The original ellipsis is much narrower than the one in the stand-in face.
+const SANS_ELLIPSIS_EM: f32 = 0.57;
+
+fn advance(face: Face, font: &fontdue::Font, ch: char, px: f32) -> f32 {
+    match face {
+        Face::Sans if ch == '…' => px * SANS_ELLIPSIS_EM,
+        Face::Sans => font.metrics(ch, px).advance_width * SANS_TRACKING,
+        Face::Mono | Face::MonoBold => px * MONO_ADVANCE_EM,
+    }
+}
+
+/// Advance of `s` in pixels at `px` em size.
+fn text_width(face: Face, s: &str, px: f32) -> f32 {
+    s.chars()
+        .map(|c| match glyph_font(face, c) {
+            Some(f) => advance(face, f, c, px),
+            // No system font found: a fixed advance keeps the layout sane.
+            None => px * 0.55,
+        })
+        .sum()
+}
+
+/// Advance of `s` in points at `pt` font size.
+fn width_pt(face: Face, s: &str, pt: f32) -> f32 {
+    text_width(face, s, pt * SCALE) / SCALE
 }
 
 struct Canvas {
@@ -181,17 +315,13 @@ impl Canvas {
         }
         self.px[i + 3] = (oa * 255.0).round() as u8;
     }
-    fn rect(&mut self, x: i32, y: i32, w: i32, h: i32, c: [u8; 3], a: f32) {
-        for yy in y..y + h {
-            for xx in x..x + w {
-                self.blend(xx, yy, c, a);
-            }
-        }
-    }
-    fn text(&mut self, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32) -> f32 {
-        let Some(f) = font() else { return text_width(s, size) };
+    fn glyphs(&mut self, face: Face, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32) -> f32 {
         let mut pen = x;
         for ch in s.chars() {
+            let Some(f) = glyph_font(face, ch) else {
+                pen += size * 0.55;
+                continue;
+            };
             let (m, bm) = f.rasterize(ch, size);
             let gx = pen.round() as i32 + m.xmin;
             let gy = baseline.round() as i32 - m.height as i32 - m.ymin;
@@ -201,119 +331,249 @@ impl Canvas {
                     self.blend(gx + col as i32, gy + row as i32, c, cov * a);
                 }
             }
-            pen += m.advance_width;
+            pen += advance(face, f, ch, size);
         }
         pen - x
     }
-}
-
-fn text_width(s: &str, size: f32) -> f32 {
-    match font() {
-        Some(f) => s.chars().map(|c| f.metrics(c, size).advance_width).sum(),
-        // No system font found: a fixed advance keeps the layout sane.
-        None => s.chars().count() as f32 * size * 0.55,
+    /// Text with the soft drop shadow the original draws under every string.
+    /// `baseline` is in pixels from the TOP edge; `size` is the em size in pixels.
+    fn text(&mut self, face: Face, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32) -> f32 {
+        self.glyphs(face, s, x, baseline + 0.5 * SCALE, size, [0, 0, 0], SHADOW_ALPHA * a);
+        self.glyphs(face, s, x, baseline, size, c, a)
+    }
+    /// Rounded bar: a track and a fill clipped to it, anti-aliased on the corners.
+    fn bar(&mut self, x: f32, y: f32, w: f32, h: f32, r: f32, fill_w: f32, track: ([u8; 3], f32), fill: ([u8; 3], f32)) {
+        let (cx, cy) = (x + w / 2.0, y + h / 2.0);
+        for yy in y.floor() as i32..(y + h).ceil() as i32 {
+            for xx in x.floor() as i32..(x + w).ceil() as i32 {
+                let (px, py) = (xx as f32 + 0.5 - cx, yy as f32 + 0.5 - cy);
+                let (qx, qy) = (px.abs() - (w / 2.0 - r), py.abs() - (h / 2.0 - r));
+                let d = qx.max(0.0).hypot(qy.max(0.0)) + qx.max(qy).min(0.0) - r;
+                let cov = (0.5 - d).clamp(0.0, 1.0);
+                self.blend(xx, yy, track.0, track.1 * cov);
+                let fx = (x + fill_w - xx as f32).clamp(0.0, 1.0);
+                self.blend(xx, yy, fill.0, fill.1 * cov * fx);
+            }
+        }
+    }
+    /// Box-filtered copy of an RGBA image into a `size` square.
+    fn icon(&mut self, img: &Icon, x: i32, y: i32, size: i32, a: f32) {
+        let step = img.w as f32 / size as f32;
+        for dy in 0..size {
+            for dx in 0..size {
+                let (x0, x1) = ((dx as f32 * step) as usize, (((dx + 1) as f32 * step).ceil() as usize).min(img.w));
+                let (y0, y1) = ((dy as f32 * step) as usize, (((dy + 1) as f32 * step).ceil() as usize).min(img.h));
+                let (mut r, mut g, mut b, mut al, mut n) = (0.0, 0.0, 0.0, 0.0, 0.0);
+                for sy in y0..y1 {
+                    for sx in x0..x1 {
+                        let p = &img.rgba[(sy * img.w + sx) * 4..][..4];
+                        let pa = p[3] as f32 / 255.0;
+                        r += p[0] as f32 * pa;
+                        g += p[1] as f32 * pa;
+                        b += p[2] as f32 * pa;
+                        al += pa;
+                        n += 1.0;
+                    }
+                }
+                if al > 0.0 && n > 0.0 {
+                    self.blend(x + dx, y + dy, [(r / al) as u8, (g / al) as u8, (b / al) as u8], al / n * a);
+                }
+            }
+        }
     }
 }
 
-fn status_color(pct: u32) -> [u8; 3] {
-    match pct {
-        0..=69 => [102, 214, 130],
-        70..=89 => [245, 196, 66],
-        _ => [255, 98, 90],
+struct Icon {
+    w: usize,
+    h: usize,
+    rgba: Vec<u8>,
+}
+
+fn decode_icon(bytes: &[u8]) -> Option<Icon> {
+    let mut reader = png::Decoder::new(std::io::Cursor::new(bytes)).read_info().ok()?;
+    let mut buf = vec![0; reader.output_buffer_size()?];
+    let info = reader.next_frame(&mut buf).ok()?;
+    let (w, h) = (info.width as usize, info.height as usize);
+    let rgba = match info.color_type {
+        png::ColorType::Rgba => buf[..w * h * 4].to_vec(),
+        png::ColorType::Rgb => buf.chunks(3).take(w * h).flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
+        _ => return None,
+    };
+    Some(Icon { w, h, rgba })
+}
+
+/// Provider logo, or `None` for a provider without one (no placeholder square).
+fn provider_icon(id: &str) -> Option<&'static Icon> {
+    static ICONS: OnceLock<[Option<Icon>; 3]> = OnceLock::new();
+    let icons = ICONS.get_or_init(|| {
+        [
+            decode_icon(include_bytes!("../assets/tray/bar-anthropic.png")),
+            decode_icon(include_bytes!("../assets/tray/bar-openai.png")),
+            decode_icon(include_bytes!("../assets/tray/bar-meta.png")),
+        ]
+    });
+    let i = match id {
+        "claude" => 0,
+        "codex" => 1,
+        "muse" => 2,
+        _ => return None,
+    };
+    icons[i].as_ref()
+}
+
+const WHITE: [u8; 3] = [255, 255, 255];
+
+fn status_color(status: &str) -> ([u8; 3], f32) {
+    match status {
+        "ok" => ([48, 209, 88], 1.0),
+        "warning" => ([255, 159, 10], 1.0),
+        "critical" | "depleted" => ([255, 65, 68], 1.0),
+        _ => ([235, 235, 245], 0.6),
     }
 }
 
-fn crop(label: &str, max_px: f32, size: f32) -> String {
-    if text_width(label, size) <= max_px {
-        return label.to_string();
-    }
-    let mut out: String = label.to_string();
-    while out.chars().count() > 3 && text_width(&format!("{out}…"), size) > max_px {
-        out.pop();
-    }
-    format!("{out}…")
+/// A stale reading says only its age on the strip; the full sentence lives in the menu.
+fn bar_time(q: &Quota) -> String {
+    if q.status == "stale" { q.reset_text.replace("dato di ", "") } else { q.reset_text.clone() }
 }
 
-fn provider_color(id: &str) -> [u8; 3] {
-    match id {
-        "claude" => [217, 119, 87],
-        "codex" => [150, 160, 255],
-        "muse" => [190, 130, 235],
-        _ => [170, 170, 170],
+fn quota_width(q: &Quota) -> f32 {
+    width_pt(Face::MonoBold, &q.key, TAG_PT) + GAP + BAR_W + GAP + PCT_W + TIME_GAP + width_pt(Face::Mono, &bar_time(q), TIME_PT)
+}
+
+/// Upper-cased name, cropped with an ellipsis beyond `cap` points.
+fn crop_header(label: &str, cap: f32) -> String {
+    let up = label.to_uppercase();
+    let wide = |s: &str| width_pt(Face::Sans, s, HEADER_PT);
+    if wide(&up) <= cap {
+        return up;
     }
+    let mut t: Vec<char> = up.chars().collect();
+    while t.len() > 6 && wide(&format!("{}…", t.iter().collect::<String>())) > cap {
+        t.pop();
+    }
+    format!("{}…", t.iter().collect::<String>())
+}
+
+struct Cell<'a> {
+    col: &'a Column,
+    header: String,
+    badge: String,
+    width: f32,
 }
 
 /// Draws the strip. `None` (service down) renders the word "offline", never an empty image.
 pub fn render_strip(cols: Option<&[Column]>) -> Strip {
+    render_strip_on(cols, screen_width_pt())
+}
+
+pub fn render_strip_on(cols: Option<&[Column]>, screen_pt: f32) -> Strip {
     let s = SCALE;
     let h = (HEIGHT_PT * s) as u32;
-    let fs = 7.6 * s;
-    let pad = 6.0 * s;
-    let white = [255, 255, 255];
 
     let Some(cols) = cols.filter(|c| !c.is_empty()) else {
         let label = if cols.is_none() { "offline" } else { "nessun account" };
-        let w = (text_width(label, 9.0 * s) + pad * 2.0).ceil() as u32;
+        let w = (text_width(Face::Sans, label, 9.0 * s) + PAD_X * 3.0 * s).ceil() as u32;
         let mut cv = Canvas::new(w, h);
-        cv.text(label, pad, h as f32 * 0.66, 9.0 * s, white, 0.85);
+        cv.text(Face::Sans, label, PAD_X * 1.5 * s, h as f32 * 0.66, 9.0 * s, WHITE, 0.85);
         return Strip { width: w, height: h, rgba: cv.px };
     };
 
-    let gap = 10.0 * s;
-    let bar_w = 34.0 * s;
-    let tag_w = text_width("7D", fs) + 3.0 * s;
-    let row_w = |q: &Quota| tag_w + bar_w + 3.0 * s + text_width("100%", fs) + 3.0 * s + text_width(&q.reset_text, fs);
-    let icon = 7.0 * s;
-    let widths: Vec<f32> = cols
+    // First pass: the width of every account, no positions yet.
+    let cells: Vec<Cell> = cols
         .iter()
         .map(|c| {
-            let rows = c.quotas.iter().map(row_w).fold(0.0, f32::max);
-            rows.max(icon + 3.0 * s + text_width(&c.label, fs)).min(150.0 * s)
+            let badge = if c.reset_credits > 0 { format!(" ↻{}", c.reset_credits) } else { String::new() };
+            let badge_w = width_pt(Face::Sans, &badge, HEADER_PT);
+            let qw = c.quotas.iter().map(quota_width).fold(0.0, f32::max);
+            let header = crop_header(&c.label, (qw - ICON_INDENT - badge_w).max(30.0));
+            let hw = ICON_INDENT + width_pt(Face::Sans, &header, HEADER_PT) + badge_w;
+            Cell { col: c, header, badge, width: hw.max(qw) }
         })
         .collect();
 
-    // Keep what fits; the rest collapses into "+N".
-    let cap = MAX_WIDTH_PT * s - pad * 2.0 - 24.0 * s;
-    let mut shown = 0;
+    // Who fits: active accounts first, then the most loaded; the rest becomes "+N".
+    let plus_w = width_pt(Face::Sans, "+9", HEADER_PT) + ACCOUNT_GAP;
+    let room = (MAX_STRIP_PT.min(screen_pt * SCREEN_SHARE)) - PAD_X * 2.0 - plus_w;
+    let peak = |c: &Column| c.quotas.iter().map(|q| q.used_pct).max().unwrap_or(0);
+    let mut ranked: Vec<usize> = (0..cells.len()).collect();
+    ranked.sort_by(|&a, &b| {
+        let (ca, cb) = (cells[a].col, cells[b].col);
+        (cb.active || cb.current).cmp(&(ca.active || ca.current)).then(peak(cb).cmp(&peak(ca)))
+    });
+    let mut keep = vec![false; cells.len()];
     let mut used = 0.0;
-    for w in &widths {
-        let need = w + if shown > 0 { gap } else { 0.0 };
-        if used + need > cap && shown > 0 {
-            break;
+    let mut kept = 0;
+    for i in ranked {
+        let need = cells[i].width + if kept > 0 { ACCOUNT_GAP } else { 0.0 };
+        if used + need <= room || kept == 0 {
+            keep[i] = true;
+            used += need;
+            kept += 1;
         }
-        used += need;
-        shown += 1;
     }
-    let hidden = cols.len() - shown;
-    let more = if hidden > 0 { format!("+{hidden}") } else { String::new() };
-    let total = pad * 2.0 + used + if hidden > 0 { gap + text_width(&more, fs) } else { 0.0 };
-    let mut cv = Canvas::new(total.ceil() as u32, h);
+    let hidden = cells.len() - kept;
 
-    let mut x = pad;
-    for (c, w) in cols.iter().zip(&widths).take(shown) {
-        let dim = if c.active { 1.0 } else { 0.55 };
-        let (b0, b1, b2) = (7.4 * s, 14.9 * s, 21.6 * s);
-        let pc = provider_color(&c.provider);
-        cv.rect(x as i32, (b0 - icon + 1.0 * s) as i32, icon as i32, icon as i32, pc, dim);
-        let head = crop(&c.label, w - icon - 3.0 * s, fs);
-        cv.text(&head, x + icon + 3.0 * s, b0 + 0.5 * s, fs, white, if c.active { 1.0 } else { 0.8 });
-        for (i, q) in c.quotas.iter().enumerate() {
-            let base = if i == 0 { b1 } else { b2 };
-            cv.text(&q.key, x, base, fs, white, 0.8);
-            let bx = x + tag_w;
-            let bh = (3.0 * s) as i32;
-            let by = (base - 3.5 * s) as i32;
-            cv.rect(bx as i32, by, bar_w as i32, bh, white, 0.22 * dim.max(0.6));
-            let fill = (bar_w * q.used_pct as f32 / 100.0).round() as i32;
-            cv.rect(bx as i32, by, fill, bh, status_color(q.used_pct), dim);
-            let px = bx + bar_w + 3.0 * s;
-            cv.text(&format!("{}%", q.used_pct), px, base, fs, white, 0.9);
-            cv.text(&q.reset_text, px + text_width("100%", fs) + 3.0 * s, base, fs, white, 0.6);
+    // Second pass: positions for the survivors, in service order.
+    let mut x = PAD_X;
+    let mut placed: Vec<(f32, &Cell)> = Vec::new();
+    for (i, cell) in cells.iter().enumerate().filter(|(i, _)| keep[*i]) {
+        let _ = i;
+        placed.push((x, cell));
+        x += cell.width + ACCOUNT_GAP;
+    }
+    x -= ACCOUNT_GAP;
+    let plus_x = x + ACCOUNT_GAP;
+    if hidden > 0 {
+        x = plus_x + plus_w - ACCOUNT_GAP;
+    }
+    let total_pt = x + PAD_X;
+    let mut cv = Canvas::new((total_pt * s).ceil() as u32, h);
+
+    let top = |bottom_origin: f32| (HEIGHT_PT - bottom_origin) * s;
+    for (cx, cell) in placed {
+        let c = cell.col;
+        let text_dim = if c.active { 1.0 } else { NOT_ACTIVE_TEXT_DIM };
+        let bar_dim = if c.active { 1.0 } else { NOT_ACTIVE_BAR_DIM };
+        if let Some(icon) = provider_icon(&c.provider) {
+            let y = top(ICON_Y + ICON_SIZE);
+            cv.icon(icon, ((cx - 1.0) * s).round() as i32, y.round() as i32, (ICON_SIZE * s) as i32, 1.0);
         }
-        x += w + gap;
+        let hx = (cx + ICON_INDENT) * s;
+        cv.text(Face::Sans, &cell.header, hx, top(HEADER_BASELINE), HEADER_PT * s, WHITE, text_dim);
+        if !cell.badge.is_empty() {
+            let hw = text_width(Face::Sans, &cell.header, HEADER_PT * s);
+            cv.text(Face::Sans, &cell.badge, hx + hw, top(HEADER_BASELINE), HEADER_PT * s, WHITE, text_dim);
+        }
+        for (ri, q) in c.quotas.iter().enumerate() {
+            let base = if ri == 0 { ROW_TOP_BASELINE } else { ROW_BOTTOM_BASELINE };
+            let mut qx = cx;
+            let tag_w = width_pt(Face::MonoBold, &q.key, TAG_PT);
+            cv.text(Face::MonoBold, &q.key, qx * s, top(base + TAG_BASELINE_SHIFT), TAG_PT * s, WHITE, text_dim);
+            qx += tag_w + GAP;
+            let (color, calpha) = status_color(&q.status);
+            let fill_w = BAR_W * s * q.used_pct.min(100) as f32 / 100.0;
+            cv.bar(
+                qx * s,
+                top(base + BAR_H),
+                BAR_W * s,
+                BAR_H * s,
+                BAR_RADIUS * s,
+                if fill_w > 0.5 { fill_w } else { 0.0 },
+                (WHITE, TRACK_ALPHA * bar_dim),
+                (color, calpha * bar_dim),
+            );
+            qx += BAR_W + GAP;
+            let pct = format!("{}%", q.used_pct);
+            let pw = width_pt(Face::MonoBold, &pct, PCT_PT);
+            let (pc, pa) = if q.status == "ok" { (WHITE, text_dim) } else { (color, calpha * text_dim) };
+            cv.text(Face::MonoBold, &pct, (qx + (PCT_W - pw) / 2.0) * s, top(base), PCT_PT * s, pc, pa);
+            qx += PCT_W + TIME_GAP;
+            cv.text(Face::Mono, &bar_time(q), qx * s, top(base), TIME_PT * s, WHITE, text_dim);
+        }
     }
     if hidden > 0 {
-        cv.text(&more, x, 14.0 * s, fs, white, 0.8);
+        cv.text(Face::Sans, &format!("+{hidden}"), plus_x * s, top(HEADER_BASELINE), HEADER_PT * s, WHITE, 1.0);
     }
     Strip { width: cv.w, height: cv.h, rgba: cv.px }
 }
@@ -364,8 +624,11 @@ mod tests {
     fn parses_orders_and_skips_menu_only() {
         let cols = parse_overview(SAMPLE).unwrap();
         assert_eq!(cols.len(), 2);
-        assert_eq!(cols[0].label, "b@example.com", "active account first");
-        assert_eq!(cols[0].quotas[1], Quota { key: "7D".into(), used_pct: 33, reset_text: "5d6h".into() });
+        assert_eq!(cols[0].label, "a@example.com", "service order is kept");
+        assert_eq!(
+            cols[1].quotas[1],
+            Quota { key: "7D".into(), status: "ok".into(), used_pct: 33, reset_text: "5d6h".into() }
+        );
     }
 
     #[test]
@@ -412,6 +675,31 @@ mod tests {
     }
 
     #[test]
+    fn names_are_upper_case_and_cropped_with_an_ellipsis() {
+        assert_eq!(crop_header("alpha-account", 500.0), "ALPHA-ACCOUNT");
+        let cropped = crop_header("a.very.long.account.name.here", 40.0);
+        assert!(cropped.ends_with('…') && cropped.chars().count() < 31);
+    }
+
+    #[test]
+    fn what_does_not_fit_collapses_into_plus_n() {
+        let one = |n: usize| Column {
+            provider: "claude".into(),
+            label: format!("account{n}@example.com"),
+            active: n == 0,
+            current: false,
+            reset_credits: 0,
+            quotas: vec![Quota { key: "7D".into(), status: "ok".into(), used_pct: 10, reset_text: "5d6h".into() }],
+        };
+        let many: Vec<Column> = (0..20).map(one).collect();
+        let narrow = render_strip_on(Some(&many), 1000.0);
+        assert!(narrow.width as f32 <= MAX_STRIP_PT.min(1000.0 * SCREEN_SHARE) * SCALE + 4.0, "capped by the screen share");
+        let wide = render_strip_on(Some(&many), 5000.0);
+        assert!(wide.width > narrow.width);
+        assert!(wide.width as f32 <= MAX_STRIP_PT * SCALE + 4.0);
+    }
+
+    #[test]
     fn dead_port_is_none_fast() {
         // Port 1 is never open: connect must fail instead of hanging the poller.
         assert!(fetch_columns("http://127.0.0.1:1").is_none());
@@ -426,7 +714,8 @@ mod tests {
             Ok(f) => parse_overview(&std::fs::read_to_string(f).unwrap()),
             Err(_) => fetch_columns(&hub_base()),
         };
-        let strip = render_strip(cols.as_deref());
+        let screen = std::env::var("TRAY_SNAPSHOT_SCREEN_W").ok().and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_SCREEN_PT);
+        let strip = render_strip_on(cols.as_deref(), screen);
         let file = std::fs::File::create(out).unwrap();
         let mut enc = png::Encoder::new(file, strip.width, strip.height);
         enc.set_color(png::ColorType::Rgba);
