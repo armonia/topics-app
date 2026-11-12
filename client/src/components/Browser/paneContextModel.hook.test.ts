@@ -1,4 +1,7 @@
 /**
+ * @covers BROWSER-CHROME-01
+ */
+/**
  * `PANE_CONTEXT_HOOK_JS` runs inside the webview's page, not inside this app's
  * DOM — there is no real `window`/`document` to mount it on, so this installs
  * the minimal global surface it reads (`addEventListener`, `getSelection`,
