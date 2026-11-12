@@ -1,5 +1,47 @@
 [
   {
+    "version": "2.3.93",
+    "date": "2026-11-12",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "read CRLF SSE events and close orphaned stdio children",
+          "scope": "mcp"
+        },
+        {
+          "text": "fold case on every history check",
+          "scope": "gates"
+        },
+        {
+          "text": "cards say who really wrote each message",
+          "scope": "tasks"
+        },
+        {
+          "text": "one agent-author predicate for every delivery reader",
+          "scope": "tasks"
+        },
+        {
+          "text": "masking of card fields fails closed",
+          "scope": "co-browse"
+        },
+        {
+          "text": "a node refusing a card parks it with its reason",
+          "scope": "nodes"
+        },
+        {
+          "text": "the shipped boot.js matches its source again",
+          "scope": "boot"
+        },
+        {
+          "text": "a machine without the usage service keeps the plain icon",
+          "scope": "tray"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.3.89",
     "date": "2026-11-12",
     "sections": {
