@@ -1,4 +1,6 @@
 /**
+ * @covers PUBLIC-PROFILE-URL-01
+ *
  * Every place the public profile page prints the owner's name goes through
  * escapeHtml. The name comes from `people.display_name`, free text, and the
  * page is served to anyone with the link: a quote in it closed the
