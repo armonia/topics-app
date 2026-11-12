@@ -16,12 +16,20 @@ import { canonicalTmpDir, initGitRepo, removeTmpDir } from "./helpers/file-proje
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
 hermetic(test);
 
+// Per-test isolation: EXTDROP-03/04 really write to disk (the drop uploads
+// the file), so sharing one folder via `beforeAll` across every test in the
+// file would pile up files uploaded by one test into the next test's tree.
+// Each test seeds its OWN folder/topic in `beforeEach` and tears it down in
+// `afterEach`.
 test.describe("External File Drop", () => {
   let topicId: string;
-  const tmpDir = canonicalTmpDir("e2e-external-drop");
-  const topicName = "e2e-external-drop-test";
+  let tmpDir: string;
+  let topicName: string;
 
-  test.beforeAll(async ({ request }) => {
+  test.beforeEach(async ({ request }) => {
+    tmpDir = canonicalTmpDir("e2e-external-drop");
+    topicName = `e2e-external-drop-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
     mkdirSync(`${tmpDir}/src`, { recursive: true });
     writeFileSync(`${tmpDir}/package.json`, JSON.stringify({ name: "test" }, null, 2));
     writeFileSync(`${tmpDir}/src/index.ts`, 'export const x = 1;\n');
@@ -31,7 +39,7 @@ test.describe("External File Drop", () => {
     topicId = topic.id;
   });
 
-  test.afterAll(async ({ request }) => {
+  test.afterEach(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId);
     removeTmpDir(tmpDir);
   });

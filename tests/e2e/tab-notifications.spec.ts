@@ -153,10 +153,7 @@ test.describe("Tab Notification Badges", () => {
     await expect(badge).not.toBeVisible({ timeout: 5000 });
   });
 
-  // @nightly: pre-existing CI-Linux flake — timing-sensitive negative assertion
-  // (waitForTimeout then expect count 0). Off the PR gate until made
-  // deterministic. TODO(e2e-isolation).
-  test("TAB-BADGE-07: no badge on active tab @nightly", async ({ page }) => {
+  test("TAB-BADGE-07: no badge on active tab", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "TAB-BADGE-07" });
 
     const ws = await interceptWebSocket(page);
@@ -165,13 +162,18 @@ test.describe("Tab Notification Badges", () => {
     // Inject unread for the ACTIVE tab
     await stage(ws, attentionUpdated(`topic:${topicA.id}`, { state: "finished", unread: 2 }));
 
-    // Wait briefly for potential render
-    await page.waitForTimeout(1000);
-
-    // Badge should NOT appear — tab is active, getBadgeCount returns 0
     const tabA = page.locator(`[data-pane-id="${topicA.id}"]`);
+    // `data-attention` is the raw tier the server pushed, painted on the tab
+    // regardless of active/seen state. Waiting for it to land is the
+    // deterministic stand-in for the old fixed `waitForTimeout`: it proves
+    // the websocket message was applied to the store BEFORE the negative
+    // assertion below runs, instead of hoping a guessed delay was enough.
+    await expect(tabA).toHaveAttribute("data-attention", "done", { timeout: 5000 });
+
+    // Badge should NOT appear — tab is active, suppressOnSelect zeroes it in
+    // the same render that landed `data-attention` above.
     const badge = tabA.locator("span.rounded-full.bg-primary");
-    await expect(badge).toHaveCount(0, { timeout: 2000 });
+    await expect(badge).toHaveCount(0);
   });
 
   test("TAB-BADGE-09: badge styling is pill-shaped and non-intrusive", async ({
