@@ -289,7 +289,10 @@ async function runNotificationAction(notification, actionId) {
   try {
     const resp = await fetch(req.path, {
       method: req.method,
-      headers: { 'Content-Type': 'application/json' },
+      // Same marker `apiFetch`/`boardApi.req` add on the main thread: a
+      // notification action pressed from the OS tray is still the interface,
+      // and without this header the server reads it as a bare API call.
+      headers: { 'Content-Type': 'application/json', 'X-Topics-Action-Origin': 'interface' },
       credentials: 'same-origin',
       body: JSON.stringify(req.body || {}),
     });
