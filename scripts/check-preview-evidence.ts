@@ -71,7 +71,7 @@ if (db) db.run("PRAGMA busy_timeout = 10000");
 const tasksFor = (path: string): { id: string; text: string; status: string }[] => {
   if (!db) return [];
   try {
-    return db.prepare("SELECT id, text, status FROM tasks WHERE preview_image = ?").all(path) as any[];
+    return db.prepare("SELECT id, text, status FROM tasks WHERE preview_image = ?").all(path) as Array<{ id: string; text: string; status: string }>;
   } catch { return []; }
 };
 

@@ -39,7 +39,7 @@ const BUDGET_FILE = resolve(ROOT, "scripts/any-budget.json");
 
 /** Le aree che questo tetto copre. Il client ha eslint, che li vieta gia' suo. */
 // `:(glob)` makes `**/` match zero directories too: without it git skipped every file directly under server/ (utils.ts, db.ts...).
-const GLOBS = [":(glob)server/**/*.ts", ":(glob)shared/**/*.ts", ":(glob)relay/**/*.ts"];
+const GLOBS = ["server.ts", ":(glob)server/**/*.ts", ":(glob)shared/**/*.ts", ":(glob)relay/**/*.ts"];
 
 const ANY_RE = /(?<![A-Za-z0-9_$])any(?![A-Za-z0-9_$])/;
 
