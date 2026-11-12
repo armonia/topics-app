@@ -36,7 +36,7 @@ export function sharedHeavySlotBroker(): HeavySlotBroker {
   return (shared ??= createDefaultHeavySlotBroker());
 }
 
-/** Test seam: swaps the shared broker (null restores the real one). */
+/** Test seam: swaps the shared broker (null restores the real one). @knipignore */
 export function setSharedHeavySlotBrokerForTest(b: HeavySlotBroker | null): void {
   shared = b;
 }
