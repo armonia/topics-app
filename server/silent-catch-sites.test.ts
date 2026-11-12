@@ -2,6 +2,8 @@
  * Sites that used to swallow a real error (card 30f7c880). Each test makes the
  * real operation fail and checks that the failure shows: a captured log line or
  * an error to the caller.
+ *
+ * @covers SILENT-CATCH-01
  */
 import { describe, test, expect, afterEach, spyOn } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -324,6 +326,7 @@ describe("call sites keep the guards", () => {
     expect(terminal).toContain("settleExitedSessionRow(getDatabase,");
     expect(terminal).toContain("killChildren(");
     expect(read("routes/processes.ts")).toContain("drainOutput(stream, processId,");
+    expect(read("routes/chat.ts")).toContain("attachMediaOfTurn(");
     expect(read("../scripts/install-claude-hooks.ts")).toContain("removeDirReporting(");
   });
 });

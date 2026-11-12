@@ -22,10 +22,9 @@ export function warnThrottled(key: string, ...args: unknown[]): void {
   const last = lastWarnAt.get(key);
   if (last !== undefined) {
     if (now - last < DEFAULT_WINDOW_MS) return;
-    // The window is over: the entry has nothing left to say, so it goes. Keys
-    // carrying an id (one per session) would otherwise pile up for good.
-    lastWarnAt.delete(key);
   }
+  // Keys carrying an id (one per session) would otherwise pile up for good, so
+  // past a size the entries whose window has passed are swept out.
   if (lastWarnAt.size >= SWEEP_ABOVE) {
     for (const [k, at] of lastWarnAt) if (now - at >= DEFAULT_WINDOW_MS) lastWarnAt.delete(k);
   }
