@@ -3977,8 +3977,7 @@
       "testo"
     ],
     "server/routes/status.ts": [
-      "topicCountStmt",
-      "uptimeMs"
+      "topicCountStmt"
     ],
     "server/routes/task-patch.test.ts": [
       "inserisci",
@@ -4160,8 +4159,7 @@
       "corsa"
     ],
     "server/services/daemon-state.ts": [
-      "obj",
-      "uptimeMsSince"
+      "obj"
     ],
     "server/services/db-snapshot.ts": [
       "stmt"
