@@ -3,6 +3,8 @@
  * kickoff envelope, and the human copy in docs/board-protocol.md must say the
  * same thing. Reads the sources, like board-protocol-parity.test.ts, so the test
  * does not need to boot the dispatcher.
+ *
+ * @covers KANBAN-59
  */
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
