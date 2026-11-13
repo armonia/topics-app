@@ -11,7 +11,7 @@
  * once. The words are `formLevelTails.ts`; the frame is `FormLevel`.
  */
 import { lazy, useCallback, useEffect, useState } from 'react';
-import { CreditCard, Server } from 'lucide-react';
+import { CreditCard, Server, Wrench } from 'lucide-react';
 import { FormLevel } from './FormLevel';
 import { nodeRequestsLabel, nodesTail, planRowLabel, planRowTail, type LicensePlan, type Tail } from './formLevelTails';
 import { SEGNALE_ATTESA } from './chromeSignals';
@@ -29,6 +29,11 @@ const PlanSection = lazy(async () => {
 });
 const NodesSection = lazy(async () => {
   const { NodesSection: Body } = await import('../Settings/NodesSection');
+  return { default: Body };
+});
+
+const AgentToolsPage = lazy(async () => {
+  const { AgentToolsPage: Body } = await import('../Settings/AgentToolsPage');
   return { default: Body };
 });
 
@@ -134,6 +139,19 @@ export function MachinesLevel({ defaultOpen = false, onRequestsRead }: {
       }
     >
       <NodesSection />
+    </FormLevel>
+  );
+}
+
+/**
+ * EVERYTHING THE AGENTS CAN REACH, one row under the devices: MCP servers,
+ * skills and agent CLIs, each with its state and the actions that apply.
+ */
+export function AgentToolsLevel({ defaultOpen = false }: { defaultOpen?: boolean }) {
+  const tr = useT();
+  return (
+    <FormLevel icon={Wrench} label={tr('agentTools.row')} testId="topics-menu-agent-tools" defaultOpen={defaultOpen}>
+      <AgentToolsPage />
     </FormLevel>
   );
 }

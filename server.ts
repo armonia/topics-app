@@ -2659,7 +2659,13 @@ const taskAutoMerge = createTaskAutoMerge({
   // non-landabile. La card però il ramo lo dichiara da sé (`delivery_branch`,
   // registrato quando è entrata in review), e il checkout del suo progetto si
   // ricava dal board id come fa l'audit: invertendo l'hash del percorso.
-  ownBranches: (taskId) => taskAttemptStore.list(taskId).map((a) => a.branch).filter((b): b is string => typeof b === "string" && b.length > 0),
+  // Attempt branches plus the card's own delivery/prior pointers: an old delivery
+  // branch of the same card is its history, never "another session".
+  ownBranches: (taskId) => {
+    const task = dispatcherSvc.get(taskId)?.task;
+    const named = [...taskAttemptStore.list(taskId).map((a) => a.branch), task?.deliveryBranch, task?.priorBranch];
+    return [...new Set(named.filter((b): b is string => typeof b === "string" && b.length > 0))];
+  },
   declaredDelivery: (taskId) => {
     const task = dispatcherSvc.get(taskId)?.task;
     if (!task) return null;
@@ -2701,9 +2707,7 @@ const worktreeGc = createWorktreeGcRunner({
   broadcast: (msg) => ctx.broadcastToAll(msg as Parameters<typeof ctx.broadcastToAll>[0]),
   isInFlight: (taskId) => taskDispatcher.isInFlight(taskId),
   worktreeOfTask: (taskId) => worktreeOfTask(taskId),
-  projectIdForPath: (path) => projectIdForPath(path),
   deliveryIsOnMain: (repoPath, commit) => deliveryIsOnMain(repoPath, commit),
-  tryMerge: (taskId, text, delivery) => taskAutoMerge.tryMerge(taskId, text, delivery),
   previewList: () => previewManager?.list() ?? [],
   previewTeardown: (taskId) => previewManager?.teardown(taskId) ?? Promise.resolve(),
   // PUNTO 3 (task e3240a22): lista degli script vivi per rimandare lo slim.
@@ -4371,7 +4375,21 @@ const opzioniServer = {
             },
           });
         }
-      } catch {}
+      } catch (err) {
+        // `Bun.file(...).exists()` resolves to `false` on every stat error this
+        // machine could produce (verified by hand: ENOENT, a path through a
+        // non-directory, a name long enough for ENAMETOOLONG — none of them
+        // throw), so nothing between here and the `return` above is known to
+        // reach this catch today. The real byte-for-byte read (the one that
+        // CAN throw EACCES, e.g. a 0-perm file whose `stat` still succeeds)
+        // happens lazily once Bun streams the returned `Response` body, which
+        // is after this function has already returned — outside this
+        // try/catch entirely. Kept as a backstop (logged, not swallowed) for
+        // whatever future Bun behavior or edge case does land here; not
+        // covered by an automated test for the reason above.
+        console.warn("[preview] read failed", resolved, err);
+        return new Response("Internal Server Error", { status: 500 });
+      }
       return new Response("Not Found", { status: 404 });
     }
 
@@ -4792,7 +4810,15 @@ const opzioniServer = {
             // Il `message` handler non e' async: si sequenzia in una IIFE, che
             // e' comunque l'ordine che serve (prima lo stop, poi la distruzione).
             void (async () => {
-              try { await cleanup?.(); } catch {}
+              try {
+                await cleanup?.();
+              } catch (err) {
+                // Logged, not swallowed: a failed screencast stop is worth a trace.
+                // It does not skip the destroy below, which runs regardless and is
+                // what kills the ghost context. No automated test: this needs a live
+                // native-delegate WebSocket plus a real browser context to throw in.
+                console.warn(`[WS][browser] cleanup failed for ${ctxId}:`, err);
+              }
               // La condizione NON e' «l'ho creato io» ma «lo sta guardando
               // qualcun altro?».
               //
