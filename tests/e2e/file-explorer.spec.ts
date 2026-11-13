@@ -23,17 +23,17 @@ hermetic(test);
  * e' lo stesso per tutti e tre ma ISTANZIATO A PARTE per ciascuno
  * (`helpers/file-project.ts`), cosi' i test che committano non cambiano lo stato
  * git sotto i piedi di un file che gira in parallelo su un altro shard.
+ *
+ * Per-test isolation, not per-file: each test seeds its OWN project in
+ * `beforeEach` and tears it down in `afterEach` — no state carries over from
+ * one test to the next via a shared `beforeAll`, so execution order
+ * (shuffle, repeat-each) does not change the outcome.
  */
 test.describe("File Explorer — albero, editor e ricerca", () => {
   let project: FileProject | undefined;
   let topicId = "";
   let tmpDir = "";
   let topicName = "";
-
-  test.beforeAll(async ({ request }) => {
-    project = await seedFileProject(request, "tree");
-    ({ topicId, tmpDir, topicName } = project);
-  });
 
   // Isolamento del pane-store fra un test e l'altro. `pane-store-v2` e' UNA
   // chiave sincronizzata dal server e condivisa da tutta la run: senza reset,
@@ -47,11 +47,14 @@ test.describe("File Explorer — albero, editor e ricerca", () => {
   // topic figlia ha una tab aperta, e con lo store vuoto `gotoProject` non
   // troverebbe l'intestazione da cliccare.
   test.beforeEach(async ({ request }) => {
-    if (topicId) await resetPaneStore(request, [topicId]);
+    project = await seedFileProject(request, "tree");
+    ({ topicId, tmpDir, topicName } = project);
+    await resetPaneStore(request, [topicId]);
   });
 
-  test.afterAll(async ({ request }) => {
+  test.afterEach(async ({ request }) => {
     await cleanupFileProject(request, project);
+    project = undefined;
   });
 
   test("EXPLORER-01: file tree renders hierarchy", async ({
@@ -305,7 +308,7 @@ test.describe("File Explorer — albero, editor e ricerca", () => {
     await fileExplorerPage.gotoProject(tmpDir, topicName);
 
     // Open files rapidly in quick succession: newfile.txt, package.json, then
-    // src/index.ts (README.md is deleted in beforeAll to seed FILE-13, so use
+    // src/index.ts (README.md is deleted per-test to seed FILE-13, so use
     // newfile.txt as the first of the three distinct rapid opens).
     const readmeItem = fileExplorerPage.fileTree.getByRole("treeitem", {
       name: /newfile\.txt/,
