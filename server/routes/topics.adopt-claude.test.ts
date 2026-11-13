@@ -39,7 +39,7 @@ if (!inFakeHome) {
     const log = out.stdout.toString() + out.stderr.toString();
     if (out.exitCode !== 0) console.error(log);
     expect(out.exitCode).toBe(0);
-    expect(log).toMatch(/\b4 pass\b/);
+    expect(log).toMatch(/\b5 pass\b/);
   }, 120_000);
 }
 
@@ -167,5 +167,29 @@ describe.if(inFakeHome)("POST /api/topics/adopt-claude", () => {
     expect(body.worktreePath).toBeNull();
     expect(ctx.worktreeStore.getByAbsPath(wt)).toBeNull();
     expect(ctx.resolveTopicCwd(ctx.getTopicById(body.id))).toBe(wt);
+  });
+
+  test("a worktree under Topics' own worktree root never becomes an adopted row", async () => {
+    // The delete and the sweep spare an adopted folder because it is OUTSIDE
+    // that root: a row inside it would read as Topics' own and be removed.
+    const ctx0 = await createTestAppContext();
+    if (!ctx0.projectStore.getByPath(REPO)) ctx0.projectStore.create({ name: "repo", slug: "repo", path: REPO });
+    // A folder of its own: the one above already has its row.
+    const root = join(REPO, ".topics-root");
+    const nested = join(root, "repo", "inside");
+    git(REPO, "worktree", "add", "-q", "-b", "claude/inside", nested);
+    const orig = process.env.TOPICS_WORKTREES_DIR;
+    process.env.TOPICS_WORKTREES_DIR = root;
+    try {
+      const sid = "88888888-8888-4888-8888-888888888888";
+      seedTranscript(nested, sid, { branch: "claude/inside" });
+      const { ctx, status, body } = await adopt({ sessionId: sid });
+      expect(status).toBe(201);
+      expect(body.worktreeId ?? null).toBeNull();
+      expect(body.projectPath).toBe(nested);
+      expect(ctx.worktreeStore.getByAbsPath(nested)).toBeNull();
+    } finally {
+      if (orig === undefined) delete process.env.TOPICS_WORKTREES_DIR; else process.env.TOPICS_WORKTREES_DIR = orig;
+    }
   });
 });

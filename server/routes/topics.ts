@@ -2,6 +2,8 @@ import { restoreToolCallsFromBlocks } from "../utils";
 import { recentActiveRows, rowCarryingAsk, rowCarryingTool, type AskHaystackRow } from "../lib/ask-answer-routing";
 import { patchLiveTool } from "../lib/turn-body-flush";
 import { canonicalProjectPath } from "../lib/canonical-project-path";
+import { isInsideDir } from "../lib/path-containment";
+import { worktreeRootDir } from "../services/worktree-manager";
 import { clientProjectPathRefused, CLIENT_PROJECT_PATH_ERROR } from "../lib/client-project-path";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
 import { basename, dirname, join, resolve } from "path";
@@ -722,6 +724,10 @@ export function createTopicsRouter(
       ?? projectStore.list().find((p) => canonicalProjectPath(p.path) === projectDir)
       ?? null;
     if (!project) return { error: `no Topics project at ${projectDir}` };
+    // Under Topics' own root (a Claude worktree nested inside a Topics one) the
+    // path would read as Topics' and the sweep and delete would treat it so:
+    // the guard that keeps an adopted folder safe decides on the path alone.
+    if (isInsideDir(absPath, worktreeRootDir())) return { error: `worktree ${absPath} is inside Topics' worktree root` };
     const existing = worktreeStore.getByAbsPath(absPath);
     if (existing) {
       if (existing.projectId !== project.id) return { error: `worktree ${absPath} already belongs to another project` };
