@@ -63,3 +63,35 @@ fn only_the_working_glyph_moves() {
     assert_eq!(c.rgba, d.rgba, "nothing moves without an agent at work");
     assert!(!still.is_animated());
 }
+
+/// Goes red when a turn of the working glyph redraws the strip (text, gauges, bars)
+/// or pushes a new image to the tray instead of moving the overlay frame.
+#[test]
+fn animation_frames_never_render_the_strip() {
+    use crate::tray_quota::{Animation, STRIP_RENDERS};
+    crate::tray_quota::seed_for_test(cols(), states());
+    let mut anim = Animation::new();
+    // The first tick sees new counts: one redraw is allowed.
+    let (mut strips, mut frames) = (0, Vec::new());
+    anim.step(|_| strips += 1, |f| frames.push(f));
+    let after_first = STRIP_RENDERS.with(|c| c.get());
+    for _ in 0..(TURN_FRAMES * 2) {
+        anim.step(|_| strips += 1, |f| frames.push(f));
+    }
+    assert_eq!(STRIP_RENDERS.with(|c| c.get()), after_first, "a frame re-rendered the strip");
+    assert_eq!(strips, 1, "a frame pushed a new strip image");
+    assert_eq!(frames.len() as u32, TURN_FRAMES * 2 + 1);
+    assert!(frames.iter().all(|f| f.is_some()));
+}
+
+#[test]
+fn working_glyph_is_left_out_of_the_static_strip() {
+    let extras = Extras::default();
+    let on = render_strip_agents(Some(&cols()), &extras, 3440.0, &states(), STATIC_FRAME);
+    let off = render_strip_agents(Some(&cols()), &extras, 3440.0, &states(), 0);
+    assert_eq!(on.width, off.width, "same layout, glyph only missing");
+    assert_ne!(on.rgba, off.rgba);
+    let g = glyph_frames();
+    assert_eq!(g.frames.len() as u32, TURN_FRAMES);
+    assert_ne!(g.frames[0], g.frames[3]);
+}

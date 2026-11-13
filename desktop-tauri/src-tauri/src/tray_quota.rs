@@ -184,7 +184,7 @@ const PCT_W: f32 = 22.0;
 const GAP: f32 = 2.0;
 const TIME_GAP: f32 = 3.0;
 const ACCOUNT_GAP: f32 = 6.0;
-const PAD_X: f32 = 4.0;
+pub(crate) const PAD_X: f32 = 4.0;
 /// The strip never takes more than this share of the screen width (and never more than the cap).
 const SCREEN_SHARE: f32 = 0.3;
 const MAX_STRIP_PT: f32 = 520.0;
@@ -208,6 +208,12 @@ fn screen_width_pt() -> f32 {
     }
 }
 
+thread_local! {
+    /// Full strip renders done by this thread; the animation test reads it to prove a
+    /// frame never redraws the strip (text, gauges, bars).
+    pub(crate) static STRIP_RENDERS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
 pub struct Strip {
     pub width: u32,
     pub height: u32,
@@ -220,17 +226,21 @@ pub(crate) enum Face {
     Sans,
     /// Reset time: monospaced regular.
     Mono,
-    /// Window tag and percentage: monospaced bold.
+    /// Percentage: monospaced bold.
     MonoBold,
     /// Never drawn: the semibold sans used to decide where a name is cropped. The drawn weight
     /// is pushed heavier to match the original's text rasterizer, which would crop a letter early.
     SansMetrics,
+    /// Window tag: monospaced semibold (drawn heavier than the original only by ab_glyph).
+    MonoSemibold,
 }
 
+#[cfg(target_os = "macos")]
+use crate::tray_coretext::{FontSpec, SystemWeight};
 use ab_glyph::{Font as _, FontVec, ScaleFont as _, VariableFont as _};
 
 type Chain = Vec<FontVec>;
-static FONTS: OnceLock<[Chain; 4]> = OnceLock::new();
+static FONTS: OnceLock<[Chain; 5]> = OnceLock::new();
 
 /// Variable weight axis values and the optical size the system uses for text this small.
 const WEIGHT_SEMIBOLD: f32 = 800.0;
@@ -257,7 +267,7 @@ fn load_chain(primary: &[&str], weight: f32) -> Chain {
     chain
 }
 
-fn chains() -> &'static [Chain; 4] {
+fn chains() -> &'static [Chain; 5] {
     FONTS.get_or_init(|| {
         [
             load_chain(
@@ -275,6 +285,10 @@ fn chains() -> &'static [Chain; 4] {
             load_chain(
                 &["/System/Library/Fonts/SFNS.ttf", "C:\\Windows\\Fonts\\seguisb.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"],
                 WEIGHT_SEMIBOLD_LAYOUT,
+            ),
+            load_chain(
+                &["/System/Library/Fonts/SFNSMono.ttf", "C:\\Windows\\Fonts\\consolab.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"],
+                WEIGHT_BOLD,
             ),
         ]
     })
@@ -301,7 +315,7 @@ fn advance(face: Face, font: &FontVec, ch: char, px: f32) -> f32 {
             Some(scale) => font.as_scaled(scale).h_advance(font.glyph_id(ch)),
             None => px * 0.55,
         },
-        Face::Mono | Face::MonoBold => px * MONO_ADVANCE_EM,
+        Face::Mono | Face::MonoBold | Face::MonoSemibold => px * MONO_ADVANCE_EM,
     }
 }
 
@@ -324,7 +338,7 @@ pub(crate) fn width_pt(face: Face, s: &str, pt: f32) -> f32 {
 pub(crate) struct Canvas {
     w: u32,
     h: u32,
-    px: Vec<u8>,
+    pub(crate) px: Vec<u8>,
 }
 
 impl Canvas {
@@ -345,7 +359,47 @@ impl Canvas {
         }
         self.px[i + 3] = (oa * 255.0).round() as u8;
     }
+    /// macOS: CoreText with pixel-snapped pens. Elsewhere (and as the fallback when CoreText
+    /// cannot load the font) the ab_glyph rasterizer.
     fn glyphs(&mut self, face: Face, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32) -> f32 {
+        #[cfg(target_os = "macos")]
+        if let Some(w) = self.glyphs_coretext(face, s, x, baseline, size, c, a) {
+            return w;
+        }
+        self.glyphs_ab(face, s, x, baseline, size, c, a)
+    }
+    #[cfg(target_os = "macos")]
+    fn glyphs_coretext(&mut self, face: Face, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32) -> Option<f32> {
+        // True system weights (what AppKit draws), not the inflated ab_glyph axis values.
+        let spec = match face {
+            Face::Sans => FontSpec { mono: false, weight: SystemWeight::Semibold },
+            Face::SansMetrics => return None,
+            Face::Mono => FontSpec { mono: true, weight: SystemWeight::Regular },
+            Face::MonoSemibold => FontSpec { mono: true, weight: SystemWeight::Semibold },
+            Face::MonoBold => FontSpec { mono: true, weight: SystemWeight::Bold },
+        };
+        let chars: Vec<char> = s.chars().collect();
+        let mut pens = Vec::with_capacity(chars.len());
+        let mut pen = 0.0_f32;
+        for &ch in &chars {
+            pens.push(pen);
+            pen += match glyph_font(face, ch) {
+                Some(f) => advance(face, f, ch, size),
+                None => size * 0.55,
+            };
+        }
+        let origin = x.round();
+        let mask = crate::tray_coretext::rasterize(spec, size, &chars, &pens, pen)?;
+        let (left, top) = (origin as i32 - mask.margin, baseline.round() as i32 - mask.base_row);
+        for (i, cov) in mask.a.iter().enumerate() {
+            if *cov > 0 {
+                self.blend(left + (i % mask.w) as i32, top + (i / mask.w) as i32, c, *cov as f32 / 255.0 * a);
+            }
+        }
+        Some(pen)
+    }
+    #[cfg_attr(not(any(test, not(target_os = "macos"))), allow(dead_code))]
+    fn glyphs_ab(&mut self, face: Face, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32) -> f32 {
         let mut pen = x;
         for ch in s.chars() {
             let Some(f) = glyph_font(face, ch) else {
@@ -559,6 +613,7 @@ pub fn render_strip_on(cols: Option<&[Column]>, extras: &Extras, screen_pt: f32)
 /// The strip with the agents-by-state group on its LEFT, before the Mac dial and the
 /// quota columns. `frame` turns the working glyph; it changes nothing else.
 pub fn render_strip_agents(cols: Option<&[Column]>, extras: &Extras, screen_pt: f32, agents: &AgentStates, frame: u32) -> Strip {
+    STRIP_RENDERS.with(|c| c.set(c.get() + 1));
     let s = SCALE;
     let lead = agents.width();
     let h = (HEIGHT_PT * s) as u32;
@@ -622,7 +677,7 @@ pub fn render_strip_agents(cols: Option<&[Column]>, extras: &Extras, screen_pt: 
             let base = if ri == 0 { ROW_TOP_BASELINE } else { ROW_BOTTOM_BASELINE };
             let mut qx = cx;
             let tag_w = width_pt(Face::MonoBold, &q.key, TAG_PT);
-            cv.text(Face::MonoBold, &q.key, qx * s, top(base + TAG_BASELINE_SHIFT), TAG_PT * s, WHITE, text_dim);
+            cv.text(Face::MonoSemibold, &q.key, qx * s, top(base + TAG_BASELINE_SHIFT), TAG_PT * s, WHITE, text_dim);
             qx += tag_w + GAP;
             let (color, calpha) = status_color(&q.status);
             let fill_w = BAR_W * s * q.used_pct.min(100) as f32 / 100.0;
@@ -669,6 +724,13 @@ pub fn set_agents(states: AgentStates) {
     }
 }
 
+/// Test door: seeds the shared state the animation thread reads.
+#[cfg(test)]
+pub(crate) fn seed_for_test(cols: Vec<Column>, states: AgentStates) {
+    *LATEST.lock().unwrap() = Some(Latest { cols: Some(cols), extras: Extras::default(), ever_answered: true });
+    set_agents(states);
+}
+
 fn render_latest(frame: u32) -> Option<Strip> {
     let agents = AGENTS.lock().map(|g| *g).unwrap_or_default();
     let guard = LATEST.lock().ok()?;
@@ -676,16 +738,57 @@ fn render_latest(frame: u32) -> Option<Strip> {
     if !strip_due(l.ever_answered, l.cols.is_some()) {
         return None;
     }
+    // While an agent works its glyph belongs to the native overlay layer.
+    let frame = if agents.is_animated() { tray_agents::STATIC_FRAME } else { frame };
     Some(render_strip_agents(l.cols.as_deref(), &l.extras, screen_width_pt(), &agents, frame))
+}
+
+/// What the animation thread does on one tick.
+pub struct Animation {
+    frame: u32,
+    last: AgentStates,
+}
+
+impl Animation {
+    pub fn new() -> Self {
+        Animation { frame: 0, last: AgentStates::default() }
+    }
+
+    /// One tick: the strip is redrawn only when the counts changed; a plain turn of the
+    /// working glyph only moves the overlay to its next pre-rendered frame.
+    /// `overlay(Some(i))` shows frame `i`, `overlay(None)` hides the layer.
+    pub fn step(&mut self, mut strip: impl FnMut(Strip), mut overlay: impl FnMut(Option<u32>)) {
+        let now = AGENTS.lock().map(|g| *g).unwrap_or_default();
+        let changed = now != self.last;
+        if now.is_animated() {
+            self.frame = (self.frame + 1) % tray_agents::TURN_FRAMES;
+        } else if !changed {
+            return;
+        }
+        self.last = now;
+        if changed {
+            if let Some(s) = render_latest(0) {
+                strip(s);
+            }
+        }
+        overlay(now.is_animated().then_some(self.frame));
+    }
+}
+
+impl Default for Animation {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Worker: polls every `POLL_SECS`, hands each rendered strip to `apply`; a second
 /// thread turns the working glyph while an agent is at work (and redraws when the
 /// counts change). Both run on their own threads, so a hidden window or a restarted
 /// client changes nothing.
-pub fn spawn_poller<F>(apply: F)
+pub fn spawn_poller<F, G>(apply: F, overlay: G)
 where
     F: Fn(Strip) + Send + Sync + 'static,
+    G: Fn(Option<u32>) + Send + 'static,
 {
     let apply = std::sync::Arc::new(apply);
     let poll_apply = apply.clone();
@@ -706,19 +809,10 @@ where
         }
     });
     let _ = std::thread::Builder::new().name("tray-agents".into()).spawn(move || {
-        let (mut frame, mut last) = (0u32, AgentStates::default());
+        let mut anim = Animation::new();
         loop {
             std::thread::sleep(Duration::from_millis(tray_agents::FRAME_MS));
-            let now = AGENTS.lock().map(|g| *g).unwrap_or_default();
-            if now.is_animated() {
-                frame = (frame + 1) % tray_agents::TURN_FRAMES;
-            } else if now == last {
-                continue;
-            }
-            last = now;
-            if let Some(strip) = render_latest(frame) {
-                apply(strip);
-            }
+            anim.step(|s| apply(s), &overlay);
         }
     });
 }

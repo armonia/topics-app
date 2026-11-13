@@ -2,11 +2,24 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.100 — 2026-11-13
+
+### Correzioni
+- **ripresa** · non rimandare in un turno che il registro tiene aperto (#945)
+
+### Sotto il cofano
+- agents counted by state with animated working glyph, left of the quota strip
+- click overlay follows the full-size strip so the menu opens again (card 066276b6)
+- **ripresa** · il wake di un figlio tagliato dalla macchina porta il comando per riprenderlo
+- **ripresa** · asserzione sul comando di ripresa con l'id
+- **landing** · astro 7.4.12 per gli avvisi XSS e lettura file che facevano rosso il cancello dipendenze
+
 ## 2.3.99 — 2026-11-13
 
 ### Sotto il cofano
 - Flush the turn row before the stall hold reads the running tool
 - topics/precise-gull (card 06bf57c1) (#939)
+- Machine-cut sub-agent results tell the parent how to resume the child
 
 ## 2.3.98 — 2026-11-13
 
