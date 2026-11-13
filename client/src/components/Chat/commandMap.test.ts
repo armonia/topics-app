@@ -24,7 +24,8 @@ const ROOT = join(import.meta.dir, '..', '..', '..', '..');
 const CLI: { headless: string[]; aliases: Record<string, string>; refused: string[] } = JSON.parse(
   readFileSync(join(ROOT, 'shared/claude-cli-commands.json'), 'utf8'),
 );
-const CHAT_PANE = readFileSync(join(ROOT, 'client/src/components/Chat/ChatPane.tsx'), 'utf8');
+const CHAT_PANE = readFileSync(join(ROOT, 'client/src/components/Chat/ChatPane.tsx'), 'utf8')
+  + readFileSync(join(ROOT, 'client/src/components/Chat/chatSlashCommands.ts'), 'utf8');
 const listed = new Set(CLI.headless);
 const isCliName = (n: string) => listed.has(n) || (n in CLI.aliases && listed.has(CLI.aliases[n]!));
 

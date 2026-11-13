@@ -3238,6 +3238,10 @@ const nodesRouter = createNodesRouter(ctx, {
   deleteBoardTask: deleteDelegatedBoardTask,
   revocations: delegatedRevocations,
   onEnterTodo: (projectId, taskId) => taskDispatcher.onEnterTodo(projectId, taskId),
+  worktreeOfTask: (taskId) => {
+    const wt = worktreeOfTask(taskId);
+    return wt ? { absPath: wt.absPath, branchName: wt.branchName, mode: wt.mode } : null;
+  },
   // The browser acceptance server intentionally has no live coding account.
   // Give only that hermetic process one inert catalogue value so it can prove
   // the authorization handshake without probing or invoking an LLM.
@@ -4367,7 +4371,21 @@ const opzioniServer = {
             },
           });
         }
-      } catch {}
+      } catch (err) {
+        // `Bun.file(...).exists()` resolves to `false` on every stat error this
+        // machine could produce (verified by hand: ENOENT, a path through a
+        // non-directory, a name long enough for ENAMETOOLONG — none of them
+        // throw), so nothing between here and the `return` above is known to
+        // reach this catch today. The real byte-for-byte read (the one that
+        // CAN throw EACCES, e.g. a 0-perm file whose `stat` still succeeds)
+        // happens lazily once Bun streams the returned `Response` body, which
+        // is after this function has already returned — outside this
+        // try/catch entirely. Kept as a backstop (logged, not swallowed) for
+        // whatever future Bun behavior or edge case does land here; not
+        // covered by an automated test for the reason above.
+        console.warn("[preview] read failed", resolved, err);
+        return new Response("Internal Server Error", { status: 500 });
+      }
       return new Response("Not Found", { status: 404 });
     }
 
@@ -4788,7 +4806,15 @@ const opzioniServer = {
             // Il `message` handler non e' async: si sequenzia in una IIFE, che
             // e' comunque l'ordine che serve (prima lo stop, poi la distruzione).
             void (async () => {
-              try { await cleanup?.(); } catch {}
+              try {
+                await cleanup?.();
+              } catch (err) {
+                // Logged, not swallowed: a failed screencast stop is worth a trace.
+                // It does not skip the destroy below, which runs regardless and is
+                // what kills the ghost context. No automated test: this needs a live
+                // native-delegate WebSocket plus a real browser context to throw in.
+                console.warn(`[WS][browser] cleanup failed for ${ctxId}:`, err);
+              }
               // La condizione NON e' «l'ho creato io» ma «lo sta guardando
               // qualcun altro?».
               //

@@ -207,7 +207,7 @@ function harness(opts: {
       nameOf: (id) => NAME[id] ?? null,
       localMachineId: () => LOCAL,
       originUrlOf: async () => "git@github.com:acme/alpha.git",
-      plantBranch: async () => ({ planted: true, commit: "c0ffeec0ffee", reason: null }),
+      plantBranch: async () => ({ planted: true, commit: "c0ffeec0ffee", commitCount: 1, reason: null }),
       bundleBranch: async ({ branch }) => (opts.noOrigin ? bundleBranch(opts.noOrigin.mac, branch) : null),
       ensureBranchOnOrigin: async ({ branch }) => { pushed.push(branch); return opts.ensure?.(branch) ?? { ok: true }; },
     },
