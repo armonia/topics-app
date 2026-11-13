@@ -39,7 +39,7 @@ import { insideAnyRoot, loadWriteRoots } from "./write-roots";
 
 import { expandHome } from "../../lib/expand-home";
 import { isHeavyCommand, heavyLabel } from "../../lib/heavy-command";
-import { acquireHeavySlotInProcess } from "../../services/heavy-slot-default";
+import { acquireHeavySlotForCommand } from "../../services/heavy-slot-default";
 /**
  * Who hears a command start and end, besides this process's registry. A turn
  * in its own process (`turn-host.ts`) journals them, so the server's swap
@@ -391,7 +391,7 @@ async function runCommand(
   // A heavy command stands in the machine-wide line first (fail-open: any
   // trouble with the broker and it just starts), and frees its place when it ends.
   const heavyLease = owner?.command && isHeavyCommand(owner.command)
-    ? await acquireHeavySlotInProcess({ label: heavyLabel(owner.command), signal })
+    ? await acquireHeavySlotForCommand({ label: heavyLabel(owner.command), signal })
     : null;
   if (signal?.aborted) { heavyLease?.release(); return { out: MOTIVO_ANNULLATO, code: null, annullato: true }; }
   return new Promise((res) => {
@@ -401,7 +401,6 @@ async function runCommand(
     const argv = lowPriorityArgv([cmd, ...args]);
     const child = spawn(argv[0]!, argv.slice(1), { cwd, stdio: ["ignore", "pipe", "pipe"], env: agentBaseEnv() });
     if (heavyLease) {
-      if (child.pid) heavyLease.bind(child.pid);
       child.once("exit", () => heavyLease.release());
       child.once("error", () => heavyLease.release());
     }

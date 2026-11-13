@@ -2,12 +2,14 @@
  * The machine-wide heavy-command broker of THIS server, plus the in-process way
  * for a Topics session to stand in its line.
  *
- * The HTTP routes and the native engine's `bash` tool share one broker, so
- * `GET /api/heavy-slot` shows native sessions and external harnesses together.
+ * The HTTP routes expose the single broker; the native engine's `bash` tool reaches
+ * it over HTTP (see `acquireHeavySlotForCommand`), so `GET /api/heavy-slot`
+ * shows native sessions and external harnesses together.
  * Everything here fails open: a broker error means the command just starts.
  */
 import os from "node:os";
 import { createHeavySlotBroker, type HeavySlotBroker } from "./heavy-slot";
+import { acquireHeavySlot, resolveHeavyBase } from "../../scripts/heavy-slot-client";
 import { availableMemGB } from "./dispatch-capacity";
 import { machineCpuPct } from "../lib/machine-cpu";
 
@@ -36,19 +38,12 @@ export function sharedHeavySlotBroker(): HeavySlotBroker {
   return (shared ??= createDefaultHeavySlotBroker());
 }
 
-/** Test seam: swaps the shared broker (null restores the real one). @knipignore */
-export function setSharedHeavySlotBrokerForTest(b: HeavySlotBroker | null): void {
-  shared = b;
-}
-
-export interface InProcessLease {
-  /** Ties the place to the command's process: it is freed when that pid dies. */
-  bind: (pid: number) => void;
+export interface CommandLease {
+  /** Frees the place. Idempotent, never throws. */
   release: () => void;
 }
 
 const DEFAULT_MAX_WAIT_MS = 10 * 60_000;
-const POLL_MS = 400;
 
 function maxWaitFromEnv(): number {
   const raw = process.env.TOPICS_HEAVY_MAX_WAIT_MS;
@@ -56,48 +51,48 @@ function maxWaitFromEnv(): number {
   return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : DEFAULT_MAX_WAIT_MS;
 }
 
+/** Where this process reaches the server's line. Cached once found: a turn asks for it on every heavy command. */
+let baseFound: string | null = null;
+async function serverBase(): Promise<string | null> {
+  if (baseFound) return baseFound;
+  baseFound = await resolveHeavyBase({ port: process.env.BUN_PORT || process.env.PORT || 3333 });
+  return baseFound;
+}
+
 /**
- * Waits for a place and returns the lease, or `null` when the command should
- * simply run: queue disabled, wait past the deadline, abort, or any error.
+ * Waits for a place in the SERVER's line and returns the lease, or `null` when
+ * the command should simply run: queue disabled, wait past the deadline, abort,
+ * server unreachable, any error.
+ *
+ * It goes over HTTP even from inside the server, on purpose: a native turn runs
+ * detached in `turn-host.ts` by default, and a broker built in that process would
+ * be a private line with its own three places, invisible to every other session
+ * and to `GET /api/heavy-slot`. The place is tied to this process's pid (the
+ * command's pid is not known before it starts): released when the command ends,
+ * freed by the broker if this process dies first.
  */
-export async function acquireHeavySlotInProcess(opts: {
+export async function acquireHeavySlotForCommand(opts: {
   label: string;
   signal?: AbortSignal;
-  broker?: HeavySlotBroker;
   maxWaitMs?: number;
-  pollMs?: number;
-  onWait?: (message: string) => void;
-}): Promise<InProcessLease | null> {
+  base?: () => Promise<string | null>;
+  fetchFn?: typeof fetch;
+}): Promise<CommandLease | null> {
   const maxWaitMs = opts.maxWaitMs ?? maxWaitFromEnv();
-  if (maxWaitMs <= 0) return null;
-  const pollMs = opts.pollMs ?? POLL_MS;
-  let id: string | undefined;
-  let broker: HeavySlotBroker;
-  try { broker = opts.broker ?? sharedHeavySlotBroker(); } catch { return null; }
-  const started = Date.now();
-  let said = false;
-  try {
-    for (;;) {
-      const answer = broker.request({ label: opts.label, pid: null, id });
-      id = answer.id;
-      if (answer.state === "granted") break;
-      if (!said) { said = true; opts.onWait?.(`[heavy-slot] in line (${answer.reason})`); }
-      if (opts.signal?.aborted || Date.now() - started >= maxWaitMs) {
-        broker.release(id);
-        return null;
-      }
-      await new Promise((r) => setTimeout(r, pollMs));
-    }
-  } catch {
-    if (id) { try { broker.release(id); } catch { /* fail open */ } }
+  if (maxWaitMs <= 0 || opts.signal?.aborted) return null;
+  let base: string | null = null;
+  try { base = await (opts.base ?? serverBase)(); } catch { return null; }
+  if (!base) return null;
+  const pending = acquireHeavySlot({ base, label: opts.label, pid: process.pid, maxWaitMs, fetchFn: opts.fetchFn });
+  const aborted = new Promise<"aborted">((resolve) => {
+    if (opts.signal) opts.signal.addEventListener("abort", () => resolve("aborted"), { once: true });
+  });
+  const first = await Promise.race([pending, aborted]);
+  if (first === "aborted") {
+    // A place granted after the stop would be held for nothing: give it back as soon as it lands.
+    void pending.then((lease) => lease?.release());
     return null;
   }
-  const leaseId = id!;
-  // Until the command has a pid the lease lives by renewal; after `bind` the pid decides.
-  const timer = setInterval(() => { try { broker.renew(leaseId); } catch { /* fail open */ } }, 30_000);
-  timer.unref?.();
-  return {
-    bind: (pid) => { try { broker.bind(leaseId, pid); } catch { /* the lease then lives by renewal */ } },
-    release: () => { clearInterval(timer); try { broker.release(leaseId); } catch { /* fail open */ } },
-  };
+  if (!first) return null;
+  return { release: () => { void first.release(); } };
 }
