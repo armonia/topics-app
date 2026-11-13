@@ -85,6 +85,10 @@
         // has to MEASURE the load before bun starts, to hand the slack factor
         // down (GATE-16). Nobody imports it: it is a command, like the two above.
         "scripts/test-unit-shards.ts!",
+        // `bun run test:touched`: the unit tests the branch diff reaches, picked from the import graph.
+        "scripts/test-touched.ts!",
+        // `bun scripts/test-touched-measure.ts`: replays the selector on past red CI runs (needs gh).
+        "scripts/test-touched-measure.ts!",
         // Same shape: only .github/workflows/e2e-nightly.yml runs it, to name the
         // red tests inside the issue instead of sending the reader to the run.
         "scripts/e2e-failed-titles.ts!",
@@ -226,6 +230,7 @@
         // imported except by its own bench.
         "scripts/test-junit.ts!",
     "scripts/disk-report.ts!",        // `bun run report:disk`
+    "scripts/heavy-slot.ts!",         // `bun run heavy-slot <label> -- <cmd>`: any harness runs a heavy command behind the Topics queue
         // Does the PTY bridge boot and open a terminal on THIS platform?
         // `node scripts/pty-bridge-probe.mjs`, or on the Windows PC
         // `tools/topwin run "node scripts\\pty-bridge-probe.mjs"`. Run by hand:
