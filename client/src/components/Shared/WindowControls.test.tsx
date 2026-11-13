@@ -122,7 +122,7 @@ describe('WindowControls on Windows', () => {
 });
 
 describe('where they are mounted', () => {
-  const app = () => readFileSync(join(import.meta.dir, '..', '..', 'App.tsx'), 'utf8');
+  const app = () => readFileSync(join(import.meta.dir, '..', '..', 'app', 'SidebarHeader.tsx'), 'utf8');
 
   test('inside the Topics button wrapper, which is the positioning context', () => {
     const s = app();
@@ -213,7 +213,7 @@ describe('the reserved room', () => {
   });
 
   test('the title wrapper reserves it whenever the commands are on screen', () => {
-    const s = readFileSync(join(import.meta.dir, '..', '..', 'App.tsx'), 'utf8');
+    const s = readFileSync(join(import.meta.dir, '..', '..', 'app', 'SidebarHeader.tsx'), 'utf8');
     expect(s).toContain("windowChrome === 'mac' ? TITLE_INSET_WITH_CONTROLS_MAC");
     expect(s).toContain("windowChrome === 'windows' ? TITLE_INSET_WITH_CONTROLS_WINDOWS");
     // Not conditioned on a menu: the commands are permanent now, so is the room.

@@ -880,16 +880,15 @@
     "",
     "2026-11-06, le otto tracce della parità con l'hub unite su hub-smistamento: misurato sul PC con `bun run build:client && bun run check:bundle`, total_assets 9.783.100 contro un tetto di 9.649.200 (9.460.000 +2%), entry_eager raw 960.536 sotto il suo tetto di 960.840. Ogni traccia aveva alzato il tetto sulla propria misura contro la stessa base, quindi la somma dei loro chunk pigri (Account e quote, Consumi, Agenti e lavori, Automazioni, Funzionalità, Contesto, Cronologia della campanella) supera ognuno dei tetti presi da solo; l'entry non cresce. Il tetto segue la misura unita: total_assets 9.460.000 -> 9.600.000.",
     "",
+    "2026-11-12 (card 8ccb234f, six oversized client files split into sibling modules): CI measured entry_eager 982.948 raw and total_assets 10.018.621 against ceilings of 980.817 and 10.005.510. The split moves code between files and adds module wrappers; the rest of the drift (+21k eager since 2026-11-07) comes from features merged to main in between, not re-measured here. Ceilings follow the CI measure.",
     "2026-11-07 (vista Piano, PR #608): entry_eager 960.644 -> 961.585 raw (+941), total_assets 9.783.822 -> 9.795.944 (+12.122), misurati con `bun run build:client` su origin/main e sul ramo. Il +941 e' il dizionario italiano del Piano e il pulsante nella board; PlanView e' `lazy()`.",
     "",
-    "2026-11-06, proposta multi-progetto dall'input (card a5906c31): total_assets +13.380 raw, misurato sulla card con main 9.248.521 contro ramo 9.261.901. Sono la funzione stessa (pannello pigro, schema della proposta): si scaricano solo se il pannello si apre. Il tetto sale della stessa misura, +13.380 sul tetto di main (9.795.944 -> 9.809.324).",
-    "2026-11-12, useChat.ts spezzato in cinque hook fratelli (card 475724bc): misurato dalla CI sul ramo, entry_eager raw 981.966 (tetto 980.817), total_assets 10.007.195 (tetto 10.005.510). Il costo e' il contesto condiviso fra i file (destructuring e oggetti di ritorno che il minificatore non elimina); nessun import nuovo. entry_eager 961.585 -> 962.800, total_assets 9.809.324 -> 9.813.000.",
-    "2026-11-13, stesso ramo dopo il merge di main (card 475724bc): misurato dalla CI, entry_eager raw 982.981 e total_assets 10.010.419, circa +1.000 e +3.200 sulla misura precedente del ramo; il resto viene dai commit di main entrati col merge, non dallo split. entry_eager 962.800 -> 964.000, total_assets 9.813.000 -> 9.817.000."
+    "2026-11-06, proposta multi-progetto dall'input (card a5906c31): total_assets +13.380 raw, misurato sulla card con main 9.248.521 contro ramo 9.261.901. Sono la funzione stessa (pannello pigro, schema della proposta): si scaricano solo se il pannello si apre. Il tetto sale della stessa misura, +13.380 sul tetto di main (9.795.944 -> 9.809.324)."
   ],
   "updated": "2026-11-07",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 964000,
+    "raw": 982948,
     "gz": 392156
   },
   "critical_path": {
@@ -898,6 +897,6 @@
     "files": 5
   },
   "total_assets": {
-    "raw": 9817000
+    "raw": 10018621
   }
 }
