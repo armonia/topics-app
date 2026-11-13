@@ -24,6 +24,7 @@
 
 import { readFileSync } from "fs";
 import { join } from "path";
+import { readAgentToolsSettings } from "../lib/agent-tools-settings";
 
 /** A server definition, copied verbatim so it is mounted/spawned identically. */
 export type McpServerDef = Record<string, unknown>;
@@ -130,7 +131,8 @@ export function resolveInheritedMcp(): ResolvedMcpFleet {
     return { servers: null, excluded: [], source: path }; // unreadable -> don't risk stripping tools
   }
   const allow = parseCsvEnv("TOPICS_SESSION_MCP_ALLOW");
-  const deny = new Set([...parseCsvEnv("TOPICS_SESSION_MCP_DENY"), ...DEFAULT_DENY_MCP]);
+  // Servers the person parked from the Tools page join the deny list.
+  const deny = new Set([...parseCsvEnv("TOPICS_SESSION_MCP_DENY"), ...DEFAULT_DENY_MCP, ...readAgentToolsSettings().parkedMcp]);
   const coldBootOk = process.env.TOPICS_SESSION_MCP_COLDBOOT_OK === "1";
   const excluded: McpExclusion[] = [];
   const servers: Record<string, McpServerDef> = {};
