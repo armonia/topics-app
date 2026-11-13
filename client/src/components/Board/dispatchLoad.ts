@@ -174,8 +174,11 @@ export function loadWordKey(r: DispatchLoadReading): string {
   if (r.heldBy) {
     // "The Mac's floor holds it" is only half the truth when a node or the
     // cloud has a free seat right now: the card is not actually stuck, it is
-    // one overflow round away from running elsewhere.
-    if (r.nodeRoom?.some((n) => n.free)) return 'board.gauge.wait.floorElsewhere';
+    // one overflow round away from running elsewhere. ONLY the floor: a
+    // drain (a planned restart) or a frozen check run hold the machine for a
+    // reason a free node seat does not change, and saying "elsewhere" there
+    // would be false during the very restart this word is supposed to name.
+    if (r.heldBy === 'floor' && r.nodeRoom?.some((n) => n.free)) return 'board.gauge.wait.floorElsewhere';
     return `board.gauge.wait.${r.heldBy}`;
   }
   if (r.byResources) return 'board.gauge.byResources';

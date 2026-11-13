@@ -47,13 +47,21 @@ export function returnEmptyNodeRunToTodo(deps: EmptyRunDeps, task: Task, nodeNam
   if (macOnly) {
     try {
       deps.releaseAndEmit({ taskId: task.id, requeue: true, rollbackAttempt: true });
-      // THE ONE PLACE `stayLocal` IS SET WITHOUT `stayLocalUntil`: a permanent pin,
-      // by design. Every other pin in this file (and the overflow's own skip,
-      // below) carries an expiry because it answers a condition that can lift
-      // (a tool gets installed, a node comes back online). A mac-only path does
-      // not: the files it names live on this Mac and nowhere else, so there is
-      // no future tick where sending this card elsewhere would work, and no
+      // THE ONE PLACE THE DISPATCHER ITSELF pins a card for good: every other
+      // pin the dispatcher writes (and the overflow's own skip, below) carries
+      // an expiry, because it answers a condition that can lift (a tool gets
+      // installed, a node comes back online). A mac-only path does not: the
+      // files it names live on this Mac and nowhere else, so there is no
+      // future tick where sending this card elsewhere would work, and no
       // expiry to write that would ever be honest.
+      //
+      // NOT the one place in the whole codebase. A person can set the same
+      // permanent shape by hand — the PATCH route (`task-patch.ts`), the
+      // composer checkbox and the TaskDetail toggle all reach `tasks.ts`'s
+      // `update`/`create`, which is where EVERY permanent pin (this one
+      // included) gets its reason written to the thread (`stayLocalReason`,
+      // or a generic line when nobody typed one) — see `scripts/stay-local-audit.ts`
+      // for how that reason is told apart from this file's own.
       deps.emit(deps.svc.update({ taskId: task.id, actor: "agent", by: "dispatcher", patch: { machineId: null, stayLocal: true } }));
       deps.svc.addComment({
         taskId: task.id, author: "system", kind: "service",

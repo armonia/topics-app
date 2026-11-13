@@ -484,6 +484,8 @@ export interface CreateTaskInput {
   machineId?: string | null;
   /** The "this Mac only" mark, set at birth: the overflow dispatch never moves the card. */
   stayLocal?: boolean;
+  /** Why `stayLocal` holds with no expiry, for the audit trail — see `stayLocalReason` on the update patch below. */
+  stayLocalReason?: string | null;
   /** A node's mirror card: the branch its worktree starts from (default main). */
   baseBranch?: string | null;
   /** Wait for this task before dispatching (exists, not self, no cycle). */
@@ -568,6 +570,13 @@ export interface UpdateTaskPatch {
   stayLocal?: boolean;
   /** When `stayLocal` stops holding (ISO); null = for good. Set only by the dispatcher. */
   stayLocalUntil?: string | null;
+  /**
+   * Why a permanent `stayLocal` (no `stayLocalUntil`) holds, written to the
+   * thread as a system comment so a pin can be told apart from one nobody
+   * ever explained. Omit it and a permanent pin still gets a generic comment
+   * (see `tasks.ts`'s update path) rather than none at all.
+   */
+  stayLocalReason?: string | null;
   /** The node the overflow skips for this card, and until when (ISO). Set only by the dispatcher. */
   overflowSkip?: { machineId: string; until: string } | null;
   /** The executable acceptance bar; null clears. */

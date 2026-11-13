@@ -514,6 +514,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             machineId: bornMachine,
             // "This Mac only" at birth: the overflow dispatch never moves it.
             stayLocal: body?.stayLocal === true,
+            stayLocalReason: typeof body?.stayLocalReason === "string" ? body.stayLocalReason : null,
             // Who opened it: the interface marks itself, anyone else is automation.
             createdBy: resolveCreatedBy(req, body),
             // Channel and acceptance bar as the caller declares them; the chat

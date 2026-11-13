@@ -2446,6 +2446,21 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * that can take it (`pickOverflowMachine`). `true` = the card now runs
    * elsewhere, and the caller sends it down the remote lane in this same round.
    * `round.no` is the board's round (the clock's unit), `round.moved` its moves so far.
+   *
+   * SURFACED 2026-11-13: the caller (below) tries this same function with
+   * `requireHeld: false` FIRST, every round, for the same card, same
+   * `round` object, same eligibility and the same room check
+   * (`pickOverflowMachine` against the same machine list). `requireHeld: true`
+   * only adds a STRICTER condition (`held` past `OVERFLOW_AFTER_MS`) on top
+   * of what the first call already needs (room + a ready origin) — it can
+   * never pass when the first call did not, so for a single card this branch
+   * cannot currently change the outcome. The clock it reads (`unbrokenHold`,
+   * `memoryHeldSince`) still gets written every round a card is held by
+   * memory, for no consumer that affects behaviour. Left in place rather
+   * than ripped out in this same change (removing it also removes the many
+   * existing tests built around that clock, which is a bigger call than this
+   * fix), but worth knowing before adding tests THAT ASSUME this branch can
+   * still fire a move.
    */
   function overflowHeldCard(
     t: Task,
