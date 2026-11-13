@@ -641,6 +641,13 @@ export interface CtxRipresa {
   defaultProvider?(): string | undefined;
   /** Truthy when a turn is live on that chat (`ctx.isStreaming` in production). */
   isStreaming?(sessionKey: string): unknown;
+  /** True when the turn ledger holds a turn open on that chat, from a source
+   *  other than the boot hold: the same question the chat route asks before
+   *  it answers 409. A CLI turn adopted after a restart and parked on a
+   *  question is open there and absent from `activeStreams`: read only the
+   *  map, the sweep resent into it four times, each 409 spent an attempt, and
+   *  the cap notice hid the question (topic 085fc6ec, 13/11). */
+  turnOpen?(sessionKey: string): boolean;
   /** Whether a provider still holds a send for that chat, in flight or queued
    *  (`sessionHasPendingSend` in production). Absent means nobody can tell.
    *  It must answer from memory, with no I/O: see the loop that awaits it. */
@@ -890,7 +897,7 @@ async function assessLastRow(ctx: CtxRipresa, found: LastRow, ora: number): Prom
   const card = topic.id ? cardHold(ctx.db, topic.id) : { bound: false, landed: false, inProgress: false };
   const row: RigaDaValutare = {
     sessionKey: r.sk, ruolo: r.ruolo, blocks, timestampMs: Date.parse(r.ts), attempts: chain.attempts,
-    streaming: Boolean(ctx.isStreaming?.(r.sk)),
+    streaming: Boolean(ctx.isStreaming?.(r.sk)) || Boolean(ctx.turnOpen?.(r.sk)),
     // Settles in microtasks (a queue tail, no I/O), so reading the rows
     // and writing the traces still happen inside one macrotask, and a
     // second sweep started by a timer cannot pick the same row.
