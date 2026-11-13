@@ -13,7 +13,7 @@ const br = await CDP.connect(b.wsUrl);
 const { sessionId: s } = await newPage(br);
 const ev = async (expr) => (await br.send("Runtime.evaluate", { expression: expr, returnByValue: true }, s)).result?.value;
 
-try { await br.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 720, deviceScaleFactor: 1, mobile: false }, s); } catch {}
+try { await br.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 720, deviceScaleFactor: 1, mobile: false }, s); } catch (e) { log({ metricsOverride: "ERR " + String(e.message).slice(0, 50) }); }
 await br.send("Page.enable", {}, s).catch(() => {});
 await br.send("DOM.enable", {}, s).catch(() => {});
 await br.send("Page.navigate", { url: URL }, s);
