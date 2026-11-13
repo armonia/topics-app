@@ -1,7 +1,7 @@
 {
   "$schema": "identifier-language-baseline-v1",
   "files": {
-    "client/src/App.tsx": [
+    "client/src/app/BootDeepLinkResolver.tsx": [
       "BOOT_TAB_PERMALINK"
     ],
     "client/src/components/Auth/PairingApproval.tsx": [
@@ -66,11 +66,8 @@
     ],
     "client/src/components/Board/KanbanBoardPane.tsx": [
       "compRect",
-      "motivi",
-      "progetto",
       "raf",
-      "raf2",
-      "snelliti"
+      "raf2"
     ],
     "client/src/components/Board/PreviewMedia.tsx": [
       "expandable"
@@ -79,10 +76,8 @@
       "multi"
     ],
     "client/src/components/Board/TaskDetail.tsx": [
-      "descCard",
       "editCancelled",
       "escGuardRef",
-      "mio",
       "openProjMenu",
       "prioBtnRef",
       "projChipRef",
@@ -4359,7 +4354,6 @@
       "TEMI",
       "celle",
       "costo",
-      "esc",
       "riquadri"
     ],
     "server/services/profile-stats.test.ts": [

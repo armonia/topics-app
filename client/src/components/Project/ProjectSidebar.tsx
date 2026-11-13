@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, lazy, Suspense, type RefObject } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense, type Ref, type RefObject } from 'react';
 import { useExitGhost } from '../../lib/exitGhost';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
@@ -421,6 +421,54 @@ function FilesHeaderActions({ explorerRef, reveal }: { explorerRef: RefObject<Fi
       <button onClick={() => explorerRef.current?.newFolder()} className={btn} title={tr('project.sidebar.newFolder')}><FolderPlus size={12} /></button>
       <button onClick={() => explorerRef.current?.collapseAll()} className={btn} title={tr('project.sidebar.collapseAll')}><ChevronsDownUp size={12} /></button>
       <button onClick={() => explorerRef.current?.refresh()} className={btn} title={tr('project.sidebar.refresh')}><RefreshCw size={12} /></button>
+    </div>
+  );
+}
+
+/**
+ * The header of the Files section (toggle, label, chevron, actions). The mobile
+ * and the desktop column both draw it; `headerRef` is only passed by the desktop
+ * one, which measures it.
+ *
+ * `data-testid` is a stable anchor, as for Git and Processes: the label is
+ * translated text and this is a TOGGLE, so whoever clicks it blindly on an open
+ * section closes it again.
+ */
+function FilesSectionHeader({ open, onToggle, explorerRef, reveal, headerRef }: {
+  open: boolean;
+  onToggle: () => void;
+  explorerRef: RefObject<FileExplorerHandle | null>;
+  reveal: string;
+  headerRef?: Ref<HTMLDivElement>;
+}) {
+  const tr = useT();
+  return (
+    <div
+      ref={headerRef}
+      onClick={onToggle}
+      data-testid="project-sidebar-files"
+      role="button"
+      aria-expanded={open}
+      // The bottom border shows ONLY when closed. The Files container stays
+      // `flex-1` even when closed (it pushes Git and Processes to the bottom),
+      // so the 1px divider would land at the far end of the column, away from
+      // the header: the closed row hung over the empty space with no line.
+      // When open it is not needed, the files sit below.
+      //
+      // The border COLOR stays outside the condition: only `border-b` (the
+      // WIDTH) toggles. With `border-b border-app-border` inside the branch,
+      // closing the section flashed a dark border that then faded, because
+      // `transition-colors` animates `border-color` but not the width.
+      // Tailwind v4 preflight sets `border: 0 solid` with no color, so the
+      // starting color was `currentColor`, here `--text-secondary` against a
+      // much lighter `--border`. Keeping the color always on leaves nothing
+      // to animate.
+      className={`${SECTION_CARD} group/files`}
+    >
+      <FolderTree size={14} className="flex-shrink-0" />
+      <span>{tr('project.sidebar.files')}</span>
+      <ChevronRight size={12} className={`transition-transform duration-fast text-app-text-tertiary flex-shrink-0 ${open ? 'rotate-90' : ''}`} />
+      {open && <FilesHeaderActions explorerRef={explorerRef} reveal={reveal} />}
     </div>
   );
 }
@@ -1013,21 +1061,12 @@ export function ProjectSidebar({
           viene corretto da solo. */}
       <div className="flex-1 flex flex-col min-h-0 pb-[3px] sidebar-column">
             <div className={`flex flex-col ${expandedSections.files ? 'flex-1 min-h-0 pb-[3px]' : 'flex-shrink-0'}`}>
-              <div
-                onClick={() => toggleSection('files')}
-                // Stessa ancora della variante desktop qui sotto.
-                data-testid="project-sidebar-files"
-                role="button"
-                aria-expanded={expandedSections.files}
-                className={`${SECTION_CARD} group/files`}
-              >
-                <FolderTree size={14} className="flex-shrink-0" />
-                <span>{tr('project.sidebar.files')}</span>
-                <ChevronRight size={12} className={`transition-transform duration-fast text-app-text-tertiary flex-shrink-0 ${expandedSections.files ? 'rotate-90' : ''}`} />
-                {expandedSections.files && (
-                  <FilesHeaderActions explorerRef={fileExplorerRef} reveal={filesHeaderReveal} />
-                )}
-              </div>
+              <FilesSectionHeader
+                open={expandedSections.files}
+                onToggle={() => toggleSection('files')}
+                explorerRef={fileExplorerRef}
+                reveal={filesHeaderReveal}
+              />
               <KeptSection open={expandedSections.files}>
                 <div className="flex-1 min-h-0 overflow-y-auto">
                   <FileExplorer ref={fileExplorerRef} projectPath={projectPath} compact onOpenFile={onOpenFile} onWSMessage={onWSMessage} />
@@ -1201,41 +1240,13 @@ export function ProjectSidebar({
             «quando aperta, trigger e trigger degli altri accordion si trovano
             alla stessa distanza» (Attilio, 09/08). Adesso ci si trovano. */}
         <div ref={filesBoxRef} className={`flex flex-col flex-1 min-h-0 ${expandedSections.files ? 'pb-[3px]' : ''}`}>
-          <div
-            ref={filesHeaderRef}
-            onClick={() => toggleSection('files')}
-            // Ancora stabile, come per Git e Processi: l'etichetta e' testo
-            // tradotto e questo e' un TOGGLE — chi lo clicca alla cieca su una
-            // sezione gia' aperta la richiude.
-            data-testid="project-sidebar-files"
-            role="button"
-            aria-expanded={expandedSections.files}
-            // Il bordo sotto SOLO da chiusa. Il contenitore di «File» resta
-            // `flex-1` anche quando è chiusa — serve a spingere Git e Processi
-            // in fondo — quindi il divisore da 1px finisce in fondo alla
-            // colonna, lontanissimo dall'intestazione: la riga chiusa restava
-            // senza linea, sospesa sopra il vuoto. Da aperta non serve, perché
-            // sotto ci sono i file.
-            //
-            // Il COLORE sta fuori dalla condizione, e non è pignoleria: si
-            // alterna solo `border-b`, cioè la LARGHEZZA. Con
-            // `border-b border-app-border` dentro il ramo, chiudendo la sezione
-            // il bordo lampeggiava scuro e poi sbiadiva — `transition-colors`
-            // anima anche `border-color`, la larghezza no. Il preflight di
-            // Tailwind v4 mette `border: 0 solid` senza colore, quindi il
-            // colore di partenza era `currentColor`, che qui è
-            // `--text-secondary` (#5a5a5a) contro un `--border` di #e8e8e8:
-            // la linea compariva quasi nera e ci metteva 150ms a schiarirsi.
-            // Tenendo il colore sempre acceso non c'è più niente da animare.
-            className={`${SECTION_CARD} group/files`}
-          >
-            <FolderTree size={14} className="flex-shrink-0" />
-            <span>{tr('project.sidebar.files')}</span>
-            <ChevronRight size={12} className={`transition-transform duration-fast text-app-text-tertiary flex-shrink-0 ${expandedSections.files ? 'rotate-90' : ''}`} />
-            {expandedSections.files && (
-              <FilesHeaderActions explorerRef={fileExplorerRef} reveal={filesHeaderReveal} />
-            )}
-          </div>
+          <FilesSectionHeader
+            headerRef={filesHeaderRef}
+            open={expandedSections.files}
+            onToggle={() => toggleSection('files')}
+            explorerRef={fileExplorerRef}
+            reveal={filesHeaderReveal}
+          />
           <KeptSection open={expandedSections.files}>
             <div className="flex-1 min-h-0 overflow-y-auto">
               <FileExplorer ref={fileExplorerRef} projectPath={projectPath} compact onOpenFile={onOpenFile} onWSMessage={onWSMessage} />

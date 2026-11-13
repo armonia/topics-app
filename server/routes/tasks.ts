@@ -42,6 +42,7 @@ import { getTerminalSessionById } from "./terminal";
 import { createBoardRoutes } from "./tasks-board";
 import { applySpendCapPatch, hasSpendCapPatch, spendCapFields, spendSnapshot } from "./task-spend-caps";
 import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
+import { runGit } from "../lib/run-git";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import { confirmCardOrigin } from "../services/card-origin-notice";
 import { logActivity } from "../db/activity-log";
@@ -566,14 +567,8 @@ function requestCardProcessStop(opts: TasksRouterOpts | undefined, cardId: strin
  * fast instead of hanging the request.
  */
 export async function runGitCap(cwd: string, args: string[], timeoutMs: number = SPAWN_TIMEOUT.write): Promise<{ code: number; out: string; err: string }> {
-  const r = await runBounded(["git", ...args], {
-    cwd,
-    stderr: "pipe",
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-    timeoutMs,
-  });
-  if (r.spawnFailed) return { code: 1, out: "", err: r.spawnError ?? "" };
-  return { code: r.exitCode ?? 124, out: r.stdout, err: r.stderr };
+  const r = await runGit(cwd, args, { timeoutMs, env: { GIT_TERMINAL_PROMPT: "0" } });
+  return { code: r.code, out: r.stdout, err: r.stderr };
 }
 
 /**
