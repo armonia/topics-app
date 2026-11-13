@@ -309,7 +309,20 @@ async function runFile(file: string, scratch: string, outBase: string, env: Reco
   const reporter = junitPath ? ["--reporter=junit", `--reporter-outfile=${junitPath}`] : [];
   const proc = Bun.spawn(["bun", "test", "--timeout", timeoutMs, ...reporter, file], {
     cwd: REPO_ROOT,
-    env: { ...env, TMPDIR: scratch, TMP: scratch, TEMP: scratch, [PRIVATE_SCRATCH_ENV]: "1", TOPICS_GATE_MAX_RUN_MS: String(FILE_CAP_MS) },
+    env: {
+      ...env,
+      TMPDIR: scratch,
+      TMP: scratch,
+      TEMP: scratch,
+      [PRIVATE_SCRATCH_ENV]: "1",
+      TOPICS_GATE_MAX_RUN_MS: String(FILE_CAP_MS),
+      // A per-file `--reporter-outfile` is claimed by the preload inside the gate-slot
+      // folder (tests/setup/bun-test-preload.ts), which by default is the machine-wide
+      // /tmp/topics-gate-slots: it would appear in the REAL temp folder and the leak check
+      // below would turn the run red (main, 13/11/2026). The path is unique per file already,
+      // so its claim lives in the file's own scratch and goes away with it.
+      ...(junitPath ? { TOPICS_GATE_SLOT_DIR: join(scratch, "slots") } : {}),
+    },
     stdout: Bun.file(`${outBase}.out`),
     stderr: Bun.file(`${outBase}.err`),
   });
