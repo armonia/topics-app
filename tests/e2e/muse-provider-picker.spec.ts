@@ -10,7 +10,7 @@
  *
  * @covers MUSE-04
  */
-import { expect, type Route } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
@@ -92,14 +92,6 @@ test.describe.serial("Muse provider picker", () => {
     const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });
 
-    let capturedBody: any = null;
-    await page.route("**/api/chat", async (route: Route) => {
-      if (route.request().method() === "POST") {
-        try { capturedBody = JSON.parse(route.request().postData() ?? ""); } catch { /* non-JSON body leaves capturedBody null; the assertion reports it */ }
-      }
-      return route.fallback();
-    });
-
     const pickerBtn = page.getByTestId("provider-model-picker");
     await pickerBtn.waitFor({ state: "visible", timeout: 5_000 });
     await pickerBtn.click();
@@ -109,14 +101,38 @@ test.describe.serial("Muse provider picker", () => {
     await expect(current).toBeVisible({ timeout: 5_000 });
     await current.click();
 
+    // THE TURN IS READ ON THE REQUEST EVENT, NOT ON A ROUTE HANDLER.
+    //
+    // `boot.js` registers `/sw.js` on every secure origin, and `localhost` is
+    // one: from the moment that worker activates, the next load of the page is
+    // CONTROLLED by it. A request that passes through a service worker is not
+    // delivered to `page.route`, so the old `page.route("**/api/chat")` capture
+    // saw nothing exactly in those runs: the POST went out for real, the muse
+    // stub answered, the bubble appeared, and `capturedBody` stayed null until
+    // the poll gave up (measured 2026-11-13, webkit, 5 reds out of 20, and
+    // `navigator.serviceWorker.controller` non-null in every single one of
+    // them and null in every green). Whether the worker has taken the page over
+    // by now depends on how many reloads the helpers did before: a race on the
+    // machine, with nothing to say about the product.
+    //
+    // `page.waitForRequest` reports the request either way, worker or no
+    // worker, and reads the same body the route handler read. It is armed
+    // BEFORE the Enter, so the send cannot slip through between the two.
+    const chatPost = page.waitForRequest(
+      (req) => new URL(req.url()).pathname === "/api/chat" && req.method() === "POST",
+      { timeout: 15_000 },
+    );
+
     await textarea.click();
     await textarea.fill("ping");
     await textarea.press("Enter");
 
-    await expect.poll(() => !!capturedBody, { timeout: 15_000 }).toBe(true);
+    const postData = (await chatPost).postData();
+    expect(postData, "POST /api/chat carried no body").toBeTruthy();
+    const capturedBody = JSON.parse(postData!);
     expect(capturedBody.provider).toBe("muse");
     expect(capturedBody.model).toContain("muse-spark");
-    // The stub answers for real through the stack: no route mock on the way back.
+    // The stub answers for real through the stack: nothing is mocked on the way back.
     await expect(page.getByTestId("chat-message").filter({ hasText: "e2e-muse-ok" }).first())
       .toBeVisible({ timeout: 30_000 });
     await didascalia(page, "Il topic risponde sul modello muse");
