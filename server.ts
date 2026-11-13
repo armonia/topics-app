@@ -230,6 +230,7 @@ import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } fr
 import { createProvidersRouter } from "./server/routes/providers";
 import { createAppSettingsRouter } from "./server/routes/app-settings";
 import { createCalendarRouter } from "./server/routes/calendar";
+import { createHeavySlotRouter } from "./server/routes/heavy-slot";
 import { createAgentChannelsRouter } from "./server/routes/agent-channels";
 import { createAgentConfigRouter } from "./server/routes/agent-config";
 import {
@@ -3140,6 +3141,8 @@ const providersRouter = createProvidersRouter(ctx);
 const appSettingsRouter = createAppSettingsRouter(ctx);
 // L'agenda del calendario configurato, e la prova di un indirizzo prima di salvarlo.
 const calendarRouter = createCalendarRouter(ctx);
+// The machine-wide queue for heavy commands, asked by every harness on this Mac.
+const heavySlotRouter = createHeavySlotRouter(ctx);
 // The titles of the agents' Discord and WhatsApp chats, read from jarvis-channels.
 const agentChannelsRouter = createAgentChannelsRouter(ctx);
 // Anagrafica di Jarvis e Visione: legge e scrive i file di jarvis-channels.
@@ -3719,6 +3722,7 @@ const apiRouteTable = buildRouteTable({
   providersRouter,
   appSettingsRouter,
   calendarRouter,
+  heavySlotRouter,
   agentChannelsRouter,
   agentConfigRouter,
   tabsRouter,
