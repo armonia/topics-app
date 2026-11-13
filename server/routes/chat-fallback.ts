@@ -53,7 +53,11 @@ export async function runHttpFallback(turn: ChatTurnScope): Promise<Response | u
 
   const contentType = resp.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
-    const data = await resp.json() as any;
+    const data = await resp.json() as {
+      model?: string;
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    } | null;
     const content = data?.choices?.[0]?.message?.content || "";
     if (!globalOrchestrator) detectLocalhostAutoNav(content, matchedTopic);
     if (data?.usage) {
