@@ -594,6 +594,16 @@
           "it": "history-limit-cost: count hydrated rows instead of timing the full read",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "node-pool: drain the permanent node when it stays behind the Mac commit",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "node-pool: keep the behind clock across Mac commits, drain counts only running cards",
+          "en": "",
+          "scope": null
         }
       ]
     }

@@ -113,6 +113,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Count every earlier delivery branch of a card as its own in the land gate
 - Rebase past delivery branches migration on current main
 - history-limit-cost: count hydrated rows instead of timing the full read
+- node-pool: drain the permanent node when it stays behind the Mac commit
+- node-pool: keep the behind clock across Mac commits, drain counts only running cards
 
 ## 2.3.93 — 2026-11-12
 
