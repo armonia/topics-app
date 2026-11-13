@@ -12299,7 +12299,7 @@ pub fn run() {
                             // The tray library forces every image to 18 pt tall; the strip is
                             // drawn for the full 22 pt button, like the original one, so its
                             // text would come out about a fifth too small. Restore the size.
-                            use crate::mac::{id, msg_send, nil, NSSize};
+                            use crate::mac::{id, msg_send, nil, NSRect, NSSize};
                             let (w_pt, h_pt) = (strip_w as f64 / tray_quota::SCALE as f64, strip_h as f64 / tray_quota::SCALE as f64);
                             let _ = tray.with_inner_tray_icon(move |inner| {
                                 if let Some(item) = inner.ns_status_item() {
@@ -12310,6 +12310,19 @@ pub fn run() {
                                             let image: id = msg_send![button, image];
                                             if image != nil {
                                                 let _: () = msg_send![image, setSize: NSSize::new(w_pt, h_pt)];
+                                            }
+                                            // The library sizes its click-catching overlay (the subview
+                                            // that opens the menu) BEFORE the resize above, so it stays
+                                            // as small as the 18 pt image and most of the strip no longer
+                                            // opens the menu. Make it track the button from now on.
+                                            let _: () = msg_send![button, layoutSubtreeIfNeeded];
+                                            let bounds: NSRect = msg_send![button, bounds];
+                                            let subs: id = msg_send![button, subviews];
+                                            let n: usize = msg_send![subs, count];
+                                            for i in 0..n {
+                                                let v: id = msg_send![subs, objectAtIndex: i];
+                                                let _: () = msg_send![v, setAutoresizingMask: 18usize];
+                                                let _: () = msg_send![v, setFrame: bounds];
                                             }
                                         }
                                     }
