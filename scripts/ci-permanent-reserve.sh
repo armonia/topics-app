@@ -18,6 +18,13 @@
 # A booking whose run is over (cancelled before `release`, a dead job) is dropped by the
 # next `reserve`, so a runner is never held by a run that no longer exists.
 #
+# Why there is no per-run quota and no second pool (card 5d825e61, measured on the node,
+# 16 vCPU, ci.slice MemoryMax 26 GB): one e2e run on the 4 shard runners averages ~12 cores
+# (peak ~15.5) and ~7.6 GB of anonymous RAM. It is CPU bound, so two runs side by side
+# would each lose far more than 30%, and a fixed 2+2 split makes the common case (one run)
+# slower and pushes its other shards to the saturated GitHub queue. Parallel runs need a
+# bigger node, not a different split: the first run takes the free runners, a second one
+# takes what is left, the rest goes to GitHub.
 # Needs GH_TOKEN (repository admin, to edit runner labels) and GITHUB_REPOSITORY.
 set -uo pipefail
 
