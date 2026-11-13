@@ -7,10 +7,15 @@
  * tree kill on a human stop only reaches descendants of the CLI pid, and an
  * orphan is not one. What still ties it to the run is its working directory.
  *
- * So: every process whose cwd is inside the run's worktree is SIGTERMed (with
- * its own descendants) and SIGKILLed after the grace, through `killProcessTree`
- * (same identity guard against pid reuse). The session's own CLI is spared: a
- * delivered run may be resumed by a follow-up turn on the same CLI.
+ * So: an ORPHAN is a process whose cwd is inside the run's worktree and that is
+ * (or descends from) a process re-parented to init (ppid 1) with its cwd in the
+ * worktree. Orphans are SIGTERMed (with their descendants) and SIGKILLed after
+ * the grace, through `killProcessTree` (same identity guard against pid reuse).
+ *
+ * Never touched: anything descending from this server (the delivery checks run
+ * in the worktree as its children), from a PTY bridge (a terminal, or a shell a
+ * person opened there) or from the session's own CLI (a delivered run may be
+ * resumed by a follow-up turn on the same CLI).
  */
 import { readdirSync, readlinkSync, realpathSync } from "node:fs";
 import { relative, isAbsolute, sep } from "node:path";
@@ -58,7 +63,24 @@ async function commandOf(pid: number): Promise<string> {
   } catch { return "?"; }
 }
 
+export interface ProcEntry { ppid: number; command: string }
+
+/** pid → parent and command line, from one `ps` snapshot. */
+export async function readProcessTable(): Promise<Map<number, ProcEntry>> {
+  const out = new Map<number, ProcEntry>();
+  try {
+    for (const line of (await runText(["ps", "-axo", "pid=,ppid=,command="])).split("\n")) {
+      const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+      if (m) out.set(+m[1], { ppid: +m[2], command: m[3] });
+    }
+  } catch { /* best-effort */ }
+  return out;
+}
+
+const BRIDGE_COMMAND = /pty-bridge/;
+
 export interface SweepDeps {
+  table(): Promise<Map<number, ProcEntry>>;
   cwds(): Promise<Map<number, string>>;
   kill(pid: number): Promise<void>;
   describe(pid: number): Promise<string>;
@@ -68,16 +90,31 @@ export interface SweepDeps {
 export async function sweepRunLeftovers(
   worktreePath: string,
   opts: { spare?: Array<number | null | undefined> } = {},
-  deps: SweepDeps = { cwds: readProcessCwds, kill: (p) => killProcessTree(p), describe: commandOf },
+  deps: SweepDeps = { table: readProcessTable, cwds: readProcessCwds, kill: (p) => killProcessTree(p), describe: commandOf },
 ): Promise<Leftover[]> {
   if (!worktreePath || !isAbsolute(worktreePath)) return [];
   let root = worktreePath;
   try { root = realpathSync(worktreePath); } catch { /* directory already gone: match the literal path */ }
-  const spare = new Set<number>([process.pid, process.ppid, ...(opts.spare ?? []).filter((p): p is number => !!p)]);
+  const protectedPids = new Set<number>([process.pid, process.ppid, ...(opts.spare ?? []).filter((p): p is number => !!p)]);
+  const table = await deps.table();
+  // Without a process table we cannot tell an orphan from a live check: do nothing.
+  if (table.size === 0) return [];
+  for (const [pid, e] of table) if (BRIDGE_COMMAND.test(e.command)) protectedPids.add(pid);
+  const cwds = await deps.cwds();
+  const here = (pid: number) => { const c = cwds.get(pid); return !!c && (inside(root, c) || inside(worktreePath, c)); };
   const found: Leftover[] = [];
-  for (const [pid, cwd] of await deps.cwds()) {
-    if (spare.has(pid) || !(inside(root, cwd) || inside(worktreePath, cwd))) continue;
-    found.push({ pid, cwd, cmd: await deps.describe(pid) });
+  for (const pid of cwds.keys()) {
+    if (!here(pid)) continue;
+    let orphanRooted = false, shielded = false;
+    for (let n = pid, hops = 0; n > 1 && hops < 64; hops++) {
+      if (protectedPids.has(n)) { shielded = true; break; }
+      const e = table.get(n);
+      if (!e) break;
+      if (e.ppid <= 1 && here(n)) orphanRooted = true;
+      n = e.ppid;
+    }
+    if (shielded || !orphanRooted) continue;
+    found.push({ pid, cwd: cwds.get(pid)!, cmd: await deps.describe(pid) });
   }
   await Promise.all(found.map((f) => deps.kill(f.pid).catch(() => { /* already dead */ })));
   return found;
