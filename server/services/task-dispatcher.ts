@@ -1355,6 +1355,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * stale row of this Mac (one per hostname) has none. An unknown local id or
    * address reads as local: the gates stay on rather than open.
    */
+  /** The card's pinned machine declares 0 slots: it takes no new card, pinned ones included. */
+  function pinnedMachineDrained(task: Task): boolean {
+    if (!task.machineId || !deps.overflowMachines) return false;
+    try { return deps.overflowMachines().some((m) => m.id === task.machineId && m.slots === 0); } catch { return false; }
+  }
   function isRemoteTask(task: Task): boolean {
     if (!task.machineId) return false;
     let localMachine: string | null = null;
@@ -5775,6 +5780,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         noteSpendHold(t, caps.perTaskCents);
         continue;
       }
+      // A card pinned to a machine that is being drained (slots 0) waits in Todo.
+      if (remoteCard(t) && pinnedMachineDrained(t)) continue;
       const manualMemoryStartSelected = manualMemoryStart.selectedTask(projectId) === t.id;
       // THE OVERFLOW: a local card the memory floor has held for two minutes
       // goes to a machine where the floor does not apply, and goes down the

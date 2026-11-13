@@ -484,8 +484,8 @@ export function createMachinesRouter(ctx: AppContext, opts: { revocations?: Dele
           if (!body) return errorResponse(400, "body required");
           if (body.slots !== undefined && body.name === undefined) {
             const slots = body.slots;
-            if (slots !== null && (!Number.isInteger(slots) || slots < 1 || slots > 8)) {
-              return errorResponse(400, "slots must be an integer from 1 to 8");
+            if (slots !== null && (!Number.isInteger(slots) || slots < 0 || slots > 8)) {
+              return errorResponse(400, "slots must be an integer from 0 to 8 (0 = draining, no new cards)");
             }
             const declared = machineStore.setSlots(params.id, slots);
             if (!declared) return errorResponse(404, "Machine not found");
