@@ -1,5 +1,28 @@
 [
   {
+    "version": "2.3.97",
+    "date": "2026-11-13",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "cura la causa dei sette instabili, non il loro timeout",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Machine slots accept 0: drained machine takes no new card, pinned ones included",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.96",
     "date": "2026-11-13",
     "sections": {
