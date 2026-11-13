@@ -135,7 +135,7 @@ describe('a stale answer does not reopen a tool that returned', () => {
   });
 
   test('the stream handler goes through the guard', () => {
-    const src = readFileSync(join(import.meta.dir, 'useChat.ts'), 'utf8');
+    const src = readFileSync(join(import.meta.dir, 'chatStreamEvents.ts'), 'utf8');
     expect(src).toContain('(tc) => withToolUpdate(tc, patch)');
   });
 });

@@ -892,6 +892,9 @@
       "mapCoordinates",
       "vid"
     ],
+    "client/src/hooks/chatHistory.ts": [
+      "riconciliato"
+    ],
     "client/src/hooks/chatRequestPayload.test.ts": [
       "bolla",
       "contenuto",
@@ -907,6 +910,15 @@
     "client/src/hooks/chatRequestPayload.ts": [
       "speso",
       "testo"
+    ],
+    "client/src/hooks/chatSend.ts": [
+      "idemKey"
+    ],
+    "client/src/hooks/chatShared.ts": [
+      "SSE_FAILSAFE_MS"
+    ],
+    "client/src/hooks/chatStreamEvents.ts": [
+      "passaAncheAlMittente"
     ],
     "client/src/hooks/liveTurn.test.ts": [
       "utente"
@@ -961,14 +973,10 @@
       "bordi"
     ],
     "client/src/hooks/useChat.ts": [
-      "SSE_FAILSAFE_MS",
       "arr",
       "buf",
       "clearSSEFailsafe",
-      "idemKey",
       "liveDeltaRafRef",
-      "passaAncheAlMittente",
-      "riconciliato",
       "scheduleSSEFailsafe",
       "sseFailsafeRef",
       "toolUpdateRafRef"
@@ -1191,9 +1199,11 @@
       "perdiIlFilo",
       "persa"
     ],
-    "client/src/lib/api.ts": [
-      "ProfiloGitHubClient",
+    "client/src/lib/apiBase.ts": [
       "obj"
+    ],
+    "client/src/lib/apiSystem.ts": [
+      "ProfiloGitHubClient"
     ],
     "client/src/lib/auth/session.test.ts": [
       "fetchVero",
