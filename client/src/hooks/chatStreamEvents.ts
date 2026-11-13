@@ -701,7 +701,7 @@ export function useStreamEvents(ctx: StreamEventsCtx) {
     }
     // Forward to registered handlers
     for (const handler of wsHandlersRef.current) {
-      try { handler(event); } catch {}
+      try { handler(event); } catch (e) { console.error('[chat] ws handler threw', e); }
     }
   }, [handleStreamEvent, drainTurnQueueRef, setGatewayConnected, wsHandlersRef]);
 

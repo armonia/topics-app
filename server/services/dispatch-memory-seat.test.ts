@@ -45,7 +45,7 @@ function remoteNode(machineId: string): NonNullable<DispatcherDeps["node"]> {
     nameOf: () => "Remote machine",
     localMachineId: () => "local-machine",
     originUrlOf: async () => "git@github.com:acme/alpha.git",
-    plantBranch: async () => ({ planted: true, commit: "abcdef123456", reason: null }),
+    plantBranch: async () => ({ planted: true, commit: "abcdef123456", commitCount: 1, reason: null }),
   };
 }
 
