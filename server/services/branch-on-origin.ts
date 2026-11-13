@@ -17,7 +17,8 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runBounded, SPAWN_TIMEOUT } from "../lib/bounded-spawn";
+import { SPAWN_TIMEOUT } from "../lib/bounded-spawn";
+import { runGit } from "../lib/run-git";
 import type { GitRunner } from "./own-commits";
 
 /**
@@ -31,14 +32,8 @@ export function carriedBranch(task: { deliveryBranch?: string | null; priorBranc
 export type BranchOnOrigin = { ok: true } | { ok: false; reason: string };
 
 /** The real git: bounded, no prompt for credentials (a prompt nobody answers is a hang). */
-export const branchGit: GitRunner = async (cwd, args) => {
-  const r = await runBounded(["git", "-C", cwd, ...args], {
-    stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.commit,
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-  });
-  if (r.spawnFailed) return { code: 1, stdout: "", stderr: r.spawnError ?? "" };
-  return { code: r.exitCode ?? 1, stdout: r.stdout, stderr: r.stderr || (r.timedOut ? "timeout" : "") };
-};
+export const branchGit: GitRunner = (cwd, args) =>
+  runGit(cwd, args, { timeoutMs: SPAWN_TIMEOUT.commit, env: { GIT_TERMINAL_PROMPT: "0" } });
 
 /** A plain branch name: it becomes a git argument, so a dash or `..` is refused. */
 export function isPlainBranchName(name: string): boolean {
