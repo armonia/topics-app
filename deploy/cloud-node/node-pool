@@ -73,6 +73,10 @@ PERMANENT_SLOT = 1
 PERMANENT_SLOTS_CI, PERMANENT_SLOTS_IDLE = 2, 4
 CI_RUNNERS = int(os.environ.get("NODE_POOL_CI_RUNNERS", "4"))
 CI_REPO = "armonia/topics-app"
+# A node that stays behind the Mac commit longer than this is drained (slots 0) so the realign can run
+BEHIND_S = int(os.environ.get("NODE_POOL_BEHIND_MIN", "60")) * 60
+# Longest wait for the running cards to finish before the drain is given up and retried later
+DRAIN_MAX_S = int(os.environ.get("NODE_POOL_DRAIN_MAX_MIN", "180")) * 60
 
 
 def log(msg):
@@ -271,14 +275,16 @@ def machine_row(slot):
         db.close()
 
 
-def slot_busy(machine_id):
-    """Card vive del posto sul Mac: in coda o al lavoro con questa macchina."""
+def slot_busy(machine_id, running_only=False):
+    """Card vive del posto sul Mac: in coda o al lavoro con questa macchina. While draining only
+    the running ones count: queued cards cannot start with slots 0, they wait for the realign."""
     if not machine_id:
         return 0
     import sqlite3
     db = sqlite3.connect(f"file:{MAC_DB}?mode=ro", uri=True, timeout=5)
     try:
-        return db.execute("select count(*) from tasks where machine_id=? and status in ('todo','in_progress')",
+        states = "('in_progress')" if running_only else "('todo','in_progress')"
+        return db.execute(f"select count(*) from tasks where machine_id=? and status in {states}",
                           (machine_id,)).fetchone()[0]
     finally:
         db.close()
@@ -599,7 +605,7 @@ def ensure_permanent(state, fx):
     r = ssh(ip, "pgrep -c -x Runner.Worker", timeout=20)
     out = (r.stdout or "").split()
     ci_busy = int(out[0]) if out and out[0].isdigit() else 0
-    want = permanent_slots(ci_busy)
+    want = 0 if sl.get("draining") else permanent_slots(ci_busy)
     if sl.get("slots") != want and sl.get("machine_id"):
         try:
             mac("PATCH", f"/api/machines/{sl['machine_id']}", {"slots": want})
@@ -607,22 +613,59 @@ def ensure_permanent(state, fx):
             log(f"posto {key}: card del nodo permanente a {want} (CI {'al lavoro' if ci_busy else 'ferma'})")
         except Exception as e:
             log(f"posto {key}: slots del nodo permanente non impostati: {e}")
-    c = commit_of_mac()
-    # «aligned», not HEAD: a checkout that worked with a failed `bun install` moves HEAD
-    # while the running node is still the old one
-    if c and sl.get("aligned") != c and sl.get("align_failed") != c and not slot_busy(sl.get("machine_id")):
-        # restart only if the checkout succeeded: a commit of the Mac not yet on origin would
-        # otherwise restart Topics every minute; a failed commit is not retried until the next one
-        a = ssh(ip, "su - topics -c 'cd topics-app && git fetch -q origin && git checkout -q " + c +
-                " && export PATH=\"$HOME/.topics/bun/$(tr -d \"[:space:]\" < .bun-version):$PATH\" && bun install >/dev/null 2>&1'"
-                " && systemctl restart topics.service", timeout=600)
-        if a.returncode != 0:
-            sl["align_failed"] = c
-        else:
-            sl["aligned"] = c
-        log(f"posto {key}: nodo permanente riallineato a {c[:10]} (exit {a.returncode})")
+    align_permanent(sl, ip, key, commit_of_mac(), ci_busy)
     save_state(state)
     return sl
+
+
+def set_slots(sl, key, n):
+    try:
+        mac("PATCH", f"/api/machines/{sl['machine_id']}", {"slots": n})
+        sl["slots"] = n
+        return True
+    except Exception as e:
+        log(f"posto {key}: slots del nodo permanente non impostati: {e}")
+        return False
+
+
+def align_permanent(sl, ip, key, c, ci_busy, now=None):
+    """Realign the node to the Mac commit. Cards running: wait. Behind for more than BEHIND_S: drain
+    (slots 0, no new cards), then realign once the running ones finish. Never restart with a card live."""
+    now = now or time.time()
+    # «aligned», not HEAD: a checkout that worked with a failed `bun install` moves HEAD
+    # while the running node is still the old one
+    if not c or sl.get("aligned") == c or sl.get("align_failed") == c:
+        sl.pop("behind_since", None)
+        sl["draining"] = False
+        return
+    # The clock starts when the node first falls behind and only stops once it is aligned again:
+    # a Mac commit that moves every few minutes must not restart it
+    sl.setdefault("behind_since", now)
+    busy = slot_busy(sl.get("machine_id"), running_only=bool(sl.get("draining")))
+    if busy:
+        if not sl.get("draining") and now - sl["behind_since"] >= BEHIND_S and sl.get("machine_id"):
+            if set_slots(sl, key, 0):
+                sl["draining"], sl["drain_since"] = True, now
+                log(f"posto {key}: nodo indietro da {int((now - sl['behind_since']) / 60)} min, lo svuoto ({busy} card in corso)")
+        elif sl.get("draining") and now - sl.get("drain_since", now) >= DRAIN_MAX_S:
+            sl["draining"], sl["behind_since"] = False, now
+            set_slots(sl, key, permanent_slots(ci_busy))
+            log(f"posto {key}: svuotamento oltre il tetto, rimetto le card e riprovo più tardi")
+        return
+    # restart only if the checkout succeeded: a commit of the Mac not yet on origin would
+    # otherwise restart Topics every minute; a failed commit is not retried until the next one
+    a = ssh(ip, "su - topics -c 'cd topics-app && git fetch -q origin && git checkout -q " + c +
+            " && export PATH=\"$HOME/.topics/bun/$(tr -d \"[:space:]\" < .bun-version):$PATH\" && bun install >/dev/null 2>&1'"
+            " && systemctl restart topics.service", timeout=600)
+    if a.returncode != 0:
+        sl["align_failed"] = c
+    else:
+        sl["aligned"] = c
+    log(f"posto {key}: nodo permanente riallineato a {c[:10]} (exit {a.returncode})")
+    if sl.get("draining"):
+        sl["draining"] = False
+        set_slots(sl, key, permanent_slots(ci_busy))
+    sl.pop("behind_since", None)
 
 
 def permanent_ci():

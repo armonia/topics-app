@@ -175,7 +175,7 @@ export function applyServerSettings(raw: unknown): AppSettings | null {
   for (const key of failedKeys) delete fromServer[key];
   const merged: AppSettings = { ...loadSettings(), ...(fromServer as Partial<AppSettings>) };
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(merged)); } catch {}
-  try { window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT)); } catch {}
+  window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT));
   if (failedKeys.size > 0 && hydrated) putSettings(merged);
   return merged;
 }
@@ -253,7 +253,7 @@ export function saveSettings(settings: AppSettings) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
   lastLocalChange = Date.now();
   // Notify in-process consumers (cross-tab is covered by the 'storage' event).
-  try { window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT)); } catch {}
+  window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT));
 
   // Debounced server sync (1s for resize-heavy changes)
   if (settingsSaveTimer) clearTimeout(settingsSaveTimer);

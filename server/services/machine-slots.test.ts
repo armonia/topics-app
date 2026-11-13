@@ -49,6 +49,17 @@ describe("machine slots", () => {
   });
 });
 
+describe("slots 0 drains a machine", () => {
+  it("overflow wiring keeps 0 and the machine takes no card", () => {
+    const rows = [{ id: "pc", name: "PC", baseUrl: "http://pc.test", status: "online", slots: 0 }];
+    const [pc] = overflowMachinesFrom({ rows, isCloud: () => false, cloudEnabled: false, environmentOk: null, wakeable: false });
+    expect(pc!.slots).toBe(0);
+    expect(effectiveSlots(pc!)).toBe(0);
+    expect(pickOverflowMachine([pc!], { cloudCredit: false, githubOrigin: false, model: null, load: () => 0 })).toBeNull();
+    expect(pickOverflowMachine([{ ...pc!, slots: 2 }], { cloudCredit: false, githubOrigin: false, model: null, load: () => 0 })?.id).toBe("pc");
+  });
+});
+
 describe("PATCH /api/machines/:id with slots", () => {
   function patch(machines: ReturnType<typeof store>, id: string, body: unknown): Promise<Response | null> {
     const ctx = {
@@ -68,13 +79,20 @@ describe("PATCH /api/machines/:id with slots", () => {
     return Promise.resolve(createMachinesRouter(ctx)(req, url, url.pathname, "PATCH"));
   }
 
-  it("accepts 1-8 and null, refuses the rest", async () => {
+  it("accepts 0-8 and null, refuses the rest", async () => {
     const machines = store();
     const node = machines.upsertNode({ hostname: "pc:1", name: "PC", baseUrl: "http://pc.test" });
     const ok = await patch(machines, node.id, { slots: 4 });
     expect(ok!.status).toBe(200);
     expect(((await ok!.json()) as { slots: number }).slots).toBe(4);
-    for (const bad of [0, 9, 2.5, "4"]) expect((await patch(machines, node.id, { slots: bad }))!.status).toBe(400);
+    const zero = await patch(machines, node.id, { slots: 0 });
+    expect(zero!.status).toBe(200);
+    expect(machines.get(node.id)!.slots).toBe(0);
+    const back = await patch(machines, node.id, { slots: null });
+    expect(back!.status).toBe(200);
+    expect(machines.get(node.id)!.slots).toBeNull();
+    await patch(machines, node.id, { slots: 4 });
+    for (const bad of [9, -1, 2.5, "4"]) expect((await patch(machines, node.id, { slots: bad }))!.status).toBe(400);
     expect((await patch(machines, "gone", { slots: 2 }))!.status).toBe(404);
     expect(machines.get(node.id)!.slots).toBe(4);
   });
