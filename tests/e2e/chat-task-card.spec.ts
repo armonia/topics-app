@@ -18,6 +18,9 @@ import { E2E_BASE } from "./helpers/test-server";
 hermetic(test);
 test.use({ video: "on", viewport: { width: 1440, height: 900 } });
 
+/** Ad-hoc board id, so the card does not land in anybody else's column. */
+const BOARD_ID = "cardchat-e2e001";
+
 async function sessionKeyOf(request: APIRequestContext, topicId: string): Promise<string> {
   const res = await request.get(`${E2E_BASE}/api/topics`);
   const topics = ((await res.json()) as { topics: Record<string, { id: string; sessionKey: string }> }).topics;
@@ -32,10 +35,10 @@ test("the card in the transcript and the waiting line follow the board without a
   const sessionKey = await sessionKeyOf(request, topic.id);
 
   const title = `Chat card ${stamp}`;
-  const created = await request.post(`${E2E_BASE}/api/sessions/${encodeURIComponent(sessionKey)}/tasks`, { data: { text: title, status: "todo" } });
-  expect(created.ok(), "the session door refused to open the card").toBe(true);
-  const { id, projectId } = (await created.json()) as { id: string; projectId?: string };
-  const board = projectId ?? "";
+  // The board API takes the chat as the opener: the same stamp `create_task` leaves.
+  const created = await request.post(`${E2E_BASE}/api/boards/${BOARD_ID}/tasks`, { data: { text: title, status: "todo", originTopicId: topic.id } });
+  expect(created.ok(), "the board API refused to open the card").toBe(true);
+  const { id } = (await created.json()) as { id: string };
 
   await seedMessage(request, {
     sessionKey, role: "assistant", content: "",
@@ -59,7 +62,7 @@ test("the card in the transcript and the waiting line follow the board without a
   await expect(line).toContainText(title);
 
   const patch = (data: Record<string, unknown>) =>
-    request.patch(`${E2E_BASE}/api/boards/${board}/tasks/${id}`, { data });
+    request.patch(`${E2E_BASE}/api/boards/${BOARD_ID}/tasks/${id}`, { data });
 
   expect((await patch({ status: "in_progress" })).ok()).toBe(true);
   await expect(card).toHaveAttribute("data-phase", "working", { timeout: 20_000 });
