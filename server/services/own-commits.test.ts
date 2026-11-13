@@ -238,7 +238,7 @@ describe("own-commits — su git vero", () => {
   test("gli altri branch locali: tutti tranne sé stesso e quello d'integrazione", async () => {
     const others = await otherLocalBranches(repo, "topics/card");
     expect(others).toContain("refs/heads/dev");
-    // `vuota` is a strict ancestor of the card branch under topics/*: dropped, `dev` still covers A.
+    // the empty topics branch is a strict ancestor of the card: dropped, while dev still covers A.
     expect(others).not.toContain("refs/heads/topics/vuota");
     expect(others).not.toContain("refs/heads/topics/card");
     expect(others).not.toContain("refs/heads/main");
