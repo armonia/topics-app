@@ -30,9 +30,11 @@ interface Props {
   /** The view's own facts about the group (counts per column, open work, signals). */
   children?: ReactNode;
   testId?: string;
+  /** Replaces the project glyph when the group is not a project (`null` = no icon). */
+  icon?: ReactNode;
 }
 
-export function ProjectGroupHeader({ projectId, name, path, collapsed, onToggle, children, testId }: Props) {
+export function ProjectGroupHeader({ projectId, name, path, collapsed, onToggle, children, testId, icon }: Props) {
   const tr = useT();
   const Chevron = collapsed ? ChevronRight : ChevronDown;
   return (
@@ -45,7 +47,7 @@ export function ProjectGroupHeader({ projectId, name, path, collapsed, onToggle,
         className="flex min-w-0 flex-1 items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-app-hover"
       >
         <Chevron className="h-3.5 w-3.5 shrink-0 text-app-text-muted" aria-hidden />
-        <ProjectGlyph projectId={projectId} path={path} />
+        {icon === undefined ? <ProjectGlyph projectId={projectId} path={path} /> : icon}
         <h3 className="min-w-0 truncate text-compact font-semibold text-app-text-heading">{name}</h3>
       </button>
       {children}
@@ -58,7 +60,7 @@ export function ProjectGroupHeader({ projectId, name, path, collapsed, onToggle,
  * and its number, the empty ones skipped (a row of zeros says nothing). The
  * whole is in the title, for whoever wants the full sentence.
  */
-export function LaneCounts({ lane, columns }: { lane: BoardLane; columns: readonly WorkflowColumn[] }) {
+export function LaneCounts({ lane, columns }: { lane: Pick<BoardLane, 'counts' | 'total'>; columns: readonly WorkflowColumn[] }) {
   const tr = useT();
   const shown = columns.filter((c) => (lane.counts[c.id] ?? 0) > 0);
   return (
