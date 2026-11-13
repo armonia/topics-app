@@ -242,6 +242,10 @@
         // Misura a mano quanti doppioni ha una board, in sola lettura:
         // `bun scripts/board-duplicates.ts [--db <file>] [--json]`.
         "scripts/board-duplicates.ts!",
+        // Audit read-only of permanent `stay_local` pins against the reason
+        // that put them there: `bun scripts/stay-local-audit.ts [--db <file>]`.
+        // Writes nothing, run by hand, imported only by its own test.
+        "scripts/stay-local-audit.ts!",
         // La fusione dei progetti sdoppiati da un symlink, a mano e in due
         // tempi: `bun scripts/canonicalizza-progetti.ts` elenca, `--esegui` lo
         // fa davvero. Nessuno la importa, e non deve partire da sola.

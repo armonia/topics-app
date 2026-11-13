@@ -47,6 +47,13 @@ export function returnEmptyNodeRunToTodo(deps: EmptyRunDeps, task: Task, nodeNam
   if (macOnly) {
     try {
       deps.releaseAndEmit({ taskId: task.id, requeue: true, rollbackAttempt: true });
+      // THE ONE PLACE `stayLocal` IS SET WITHOUT `stayLocalUntil`: a permanent pin,
+      // by design. Every other pin in this file (and the overflow's own skip,
+      // below) carries an expiry because it answers a condition that can lift
+      // (a tool gets installed, a node comes back online). A mac-only path does
+      // not: the files it names live on this Mac and nowhere else, so there is
+      // no future tick where sending this card elsewhere would work, and no
+      // expiry to write that would ever be honest.
       deps.emit(deps.svc.update({ taskId: task.id, actor: "agent", by: "dispatcher", patch: { machineId: null, stayLocal: true } }));
       deps.svc.addComment({
         taskId: task.id, author: "system", kind: "service",

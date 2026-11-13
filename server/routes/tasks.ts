@@ -3366,6 +3366,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // board (in place, no local check) and a repo board are not held by the same line.
       const board = new URL(req.url).searchParams.get("board");
       try { admission = dispatcher?.admissionPreview?.(board) ?? null; } catch { /* best-effort */ }
+      // Every overflow-reachable machine, so a client can tell "the Mac is
+      // full" apart from "the Mac is full AND there is nowhere else to send
+      // a card" instead of guessing from `running` alone.
+      let nodes: ReturnType<NonNullable<typeof dispatcher>["nodeStatus"]> = [];
+      try { nodes = dispatcher?.nodeStatus?.() ?? []; } catch { /* best-effort */ }
       return json({
         ...computeDispatchCapacity(running, undefined, resolveAgentRuntime() === "cli", undefined, {
           share: budgetShare(svc.getGlobalCap()),
@@ -3374,6 +3379,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           resources: capMode(svc.getGlobalCap()) === "resources",
         }),
         admission,
+        nodes,
       });
     }
 

@@ -65,7 +65,7 @@ import {
 import { createRemoteNodeLane, isNodeSessionKey, type NodeDeps, type NodeSlot } from "./task-dispatcher-remote-node";
 import { carriedBranch } from "./branch-on-origin";
 import { wakeBreaker } from "./wake-breaker";
-import { OVERFLOW_AFTER_MS, OVERFLOW_MAX_PER_ROUND, overflowEligible, overflowNote, pickOverflowMachine, type OverflowMachine } from "./dispatch-overflow";
+import { effectiveSlots, OVERFLOW_AFTER_MS, OVERFLOW_MAX_PER_ROUND, overflowEligible, overflowNote, overflowNoteImmediate, pickOverflowMachine, type OverflowMachine } from "./dispatch-overflow";
 import { createDispatchMemoryQueuePublisher, createDispatchMemoryQueueSnapshot } from "./dispatch-memory-queue";
 import { createDispatchMemoryStartController } from "./dispatch-memory-start";
 import { buildDispatchAdmissionPreview } from "./dispatch-admission-preview";
@@ -726,6 +726,13 @@ export interface TaskDispatcher {
   busyCount(): number;
   /** The task ids behind `busyCount()`: what a restart is actually waiting for. */
   busyIds(): string[];
+  /**
+   * Every overflow-reachable machine (cloud row and paired nodes), with the
+   * seats it is declared to have and how many it is carrying now: what a
+   * client needs to tell "the Mac is full" apart from "the Mac is full AND
+   * there is nowhere else to send a card" (`/api/system/dispatch-capacity`).
+   */
+  nodeStatus(): { id: string; name: string; kind: "cloud" | "node"; online: boolean; slots: number; used: number }[];
   /**
    * The sessions those runs are bound to (setup slots, still without one, are
    * left out). A card turn streams through /api/chat, so the restart gate
@@ -2444,7 +2451,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     t: Task,
     settings: { dispatchOverflow?: boolean; dispatchStayLocal?: boolean; dispatchModel?: string | null },
     round: { no: number; moved: number },
+    opts?: {
+      /**
+       * `false` = try this card on a free node/cloud seat even when the Mac's
+       * memory floor is not holding it (and even before it has been held at
+       * all): a free seat elsewhere beats waiting out `OVERFLOW_AFTER_MS` on a
+       * Mac that is not even full. Default `true` keeps today's rule: only an
+       * unbroken hold past `OVERFLOW_AFTER_MS` moves the card.
+       */
+      requireHeld?: boolean;
+    },
   ): boolean {
+    const requireHeld = opts?.requireHeld ?? true;
     if (!deps.overflowMachines || !deps.node) return false;
     let localId: string | null = null;
     try { localId = deps.node.localMachineId?.() ?? null; } catch { /* unknown: no move */ }
@@ -2455,7 +2473,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // Asked from the first held round, so the answer is in by the time it matters.
     const origin = overflowOriginOf(t.projectId);
     const held = unbrokenHold(t, round.no);
-    if (!held || clock() - held.since < OVERFLOW_AFTER_MS || !origin.ok) return false;
+    if (requireHeld) {
+      if (!held || clock() - held.since < OVERFLOW_AFTER_MS || !origin.ok) return false;
+    } else if (!origin.ok) {
+      return false;
+    }
     if (round.moved >= OVERFLOW_MAX_PER_ROUND) return false;
     // Its own branch reaches origin first; `null` = the push is under way.
     if (overflowBranchReady(t) !== true) return false;
@@ -2481,10 +2503,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     memoryHeldSince.delete(t.id);
     overflowBranch.delete(t.id);
     floorBlockSent.delete(t.id);
-    log(`overflow: ${t.id} moved to ${target.name} (${target.kind}), memory floor held it ${Math.round((clock() - held.since) / 1000)} s`);
+    log(requireHeld && held
+      ? `overflow: ${t.id} moved to ${target.name} (${target.kind}), memory floor held it ${Math.round((clock() - held.since) / 1000)} s`
+      : `overflow: ${t.id} moved to ${target.name} (${target.kind}), a free seat there before the Mac's floor held it`);
     emit(moved);
-    try { deps.svc.addComment({ taskId: t.id, author: "system", kind: "service", content: overflowNote(target.name) }); }
-    catch { /* the move stands without its line */ }
+    try {
+      deps.svc.addComment({
+        taskId: t.id,
+        author: "system",
+        kind: "service",
+        content: requireHeld ? overflowNote(target.name) : overflowNoteImmediate(target.name),
+      });
+    } catch { /* the move stands without its line */ }
     return true;
   }
   // Board a cui si è già detto "il fan-out qui non si applica" (worktree off).
@@ -5775,10 +5805,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         continue;
       }
       const manualMemoryStartSelected = manualMemoryStart.selectedTask(projectId) === t.id;
-      // THE OVERFLOW: a local card the memory floor has held for two minutes
-      // goes to a machine where the floor does not apply, and goes down the
-      // remote lane in this same round.
-      if (memoryFloorHolds && !remoteCard(t) && !manualMemoryStartSelected && overflowHeldCard(t, settings, overflowRound)) {
+      // THE OVERFLOW: a free seat on a node or the cloud beats waiting out the
+      // Mac's memory floor, so an eligible card is offered one FIRST, whether
+      // or not the floor is holding it. Only when that immediate try finds no
+      // room does a card actually held by the floor past `OVERFLOW_AFTER_MS`
+      // get the slower, floor-only path below - unchanged from before this.
+      if (!remoteCard(t) && !manualMemoryStartSelected
+        && (overflowHeldCard(t, settings, overflowRound, { requireHeld: false })
+          || (memoryFloorHolds && overflowHeldCard(t, settings, overflowRound)))) {
         remoteIds.add(t.id);
       }
       const remoteTask = remoteCard(t);
@@ -7123,6 +7157,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // holding a handle on. Hiding it there would make a drain believe the board
     // is idle while a poll is still mirroring a card.
     busyIds: () => [...inFlight.keys()],
+    nodeStatus: () => {
+      let machines: OverflowMachine[] = [];
+      try { machines = deps.overflowMachines?.() ?? []; } catch { machines = []; }
+      return machines.map((m) => ({
+        id: m.id,
+        name: m.name,
+        kind: m.kind,
+        online: m.online,
+        slots: effectiveSlots(m),
+        used: machineLoad(m.id),
+      }));
+    },
     busySessionKeys: () => [...inFlight.values()].map((slot) => slot.sessionKey).filter((key) => key !== ""),
     // The same filter as `busyCount`: a run riding on a node holds no turn on
     // this machine, so it is not what a restart here waits for.
