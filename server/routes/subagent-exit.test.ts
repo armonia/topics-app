@@ -53,6 +53,13 @@ describe("formatSubAgentExitBody", () => {
     );
   });
 
+  it("names the machine's cut, never a retired parent", () => {
+    const outcome: SubAgentOutcome = { status: "stopped", partial: true, text: "", reason: { code: "machine-cut", detail: "stall" } };
+    expect(formatSubAgentExitBody({ outcome })).toContain("stall");
+    expect(formatSubAgentExitBody({ outcome })).not.toContain("non lavora più");
+    expect(formatSubAgentExitBody({ outcome }, "en")).toContain("stopped by the system (stall)");
+  });
+
   it("names a Reload as the reason a turn was cut", () => {
     const outcome: SubAgentOutcome = { status: "stopped", partial: false, text: "", reason: { code: "reloaded" } };
     expect(formatSubAgentExitBody({ outcome })).toBe("_(fermato prima di finire il turno: la sua tab è stata ricaricata)_");
