@@ -111,7 +111,7 @@ const TEST_RUNTIME: readonly RegExp[] = [
 /** The four test files of the `process-groups` job, plus what they import (see the closure test). */
 export const PROCESS_GROUPS_TRIGGERS: readonly RegExp[] = [
   ...TEST_RUNTIME,
-  /^scripts\/(gate-slot|stray-ai-bridges|fix-node-pty-exec-bit)\.ts$/,
+  /^scripts\/(gate-slot|heavy-slot-client|stray-ai-bridges|fix-node-pty-exec-bit)\.ts$/,
   /^scripts\/claude-hooks\//,
 ];
 
