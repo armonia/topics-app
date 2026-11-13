@@ -305,9 +305,16 @@ fn the_backup_comes_from_the_service_and_survives_it_going_down() {
     std::thread::spawn(move || {
         // the snapshot asks many paths: answer the backup one, refuse the rest
         while let Ok((mut c, _)) = l.accept() {
-            let mut b = [0u8; 2048];
-            let k = c.read(&mut b).unwrap_or(0);
-            let ask = String::from_utf8_lossy(&b[..k]).to_string();
+            // the client writes the request in pieces: read until the head is complete
+            let mut ask = String::new();
+            let mut b = [0u8; 512];
+            while !ask.contains("\r\n\r\n") {
+                let k = c.read(&mut b).unwrap_or(0);
+                if k == 0 {
+                    break;
+                }
+                ask.push_str(&String::from_utf8_lossy(&b[..k]));
+            }
             let reply: &[u8] = if ask.contains("/api/backup-mac") {
                 b"HTTP/1.0 200 OK\r\n\r\n{\"last_ok\":1800000000,\"last_error\":null}"
             } else {
