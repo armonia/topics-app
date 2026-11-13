@@ -6686,3 +6686,11 @@ la radice del disco SHALL essere scartata.
 #### Scenario: scrittura in una radice dichiarata
 - **GIVEN** `~/bin` elencata per il workspace
 - **THEN** una scrittura in `~/bin/x` SHALL passare, una in `~/altro/x` SHALL essere rifiutata
+
+### Requirement: CLIENT-SILENT-ERR-01 — Un errore del client non sparisce in silenzio
+
+Un handler WS che lancia, un frame malformato, il reload della history che fallisce, un listener della coda che lancia e uno `setItem` che fallisce SHALL lasciare un `console.error` o `console.warn`; lo storage in errore SHALL essere esposto al chiamante, e uno Stop rifiutato SHALL mostrare un errore visibile senza dire che il processo si è fermato.
+
+#### Scenario: setItem della coda fallisce
+- **GIVEN** uno storage la cui `setItem` lancia
+- **THEN** l'accodamento SHALL loggare un warn e `hasQueuePersistError` SHALL essere vero

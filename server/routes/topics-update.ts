@@ -274,8 +274,26 @@ export function createTopicUpdateRoutes(
             code: "orchestrator_topic_invariant",
           }, 403);
         }
+        // An empty body means "archive" (the DELETE-without-body default, kept
+        // as-is for backward compatibility). A NON-empty body must parse into
+        // an object carrying an explicit `archived` boolean — anything else
+        // (malformed JSON, `null`, an array, a primitive, a missing/mistyped
+        // key like the `archive` typo) is a 400, not a silent archive.
         let archive = true;
-        try { const body = await req.json(); if (typeof body.archived === 'boolean') archive = body.archived; } catch {}
+        const text = await req.text();
+        if (text.trim().length > 0) {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(text);
+          } catch {
+            return json({ error: "archived must be boolean" }, 400);
+          }
+          const requested = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? (parsed as { archived?: unknown }).archived
+            : undefined;
+          if (typeof requested !== "boolean") return json({ error: "archived must be boolean" }, 400);
+          archive = requested;
+        }
         if (archive) {
           // Un solo posto sa cosa vuol dire "archiviato": flag + unread a zero
           // + purge da ui_state. Lo stesso servizio che usa il dispatcher, così

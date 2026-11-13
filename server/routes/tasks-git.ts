@@ -1,7 +1,8 @@
 /**
  * Bounded git helpers of the tasks routes: the capture runner and the files a task's own commits touched.
  */
-import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
+import { SPAWN_TIMEOUT } from "../lib/bounded-spawn";
+import { runGit } from "../lib/run-git";
 import { listOwnCommits, mergeNameStatus } from "../services/own-commits";
 import { type TaskFile } from "../../shared/task-labels";
 
@@ -11,14 +12,8 @@ import { type TaskFile } from "../../shared/task-labels";
  * fast instead of hanging the request.
  */
 export async function runGitCap(cwd: string, args: string[], timeoutMs: number = SPAWN_TIMEOUT.write): Promise<{ code: number; out: string; err: string }> {
-  const r = await runBounded(["git", ...args], {
-    cwd,
-    stderr: "pipe",
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-    timeoutMs,
-  });
-  if (r.spawnFailed) return { code: 1, out: "", err: r.spawnError ?? "" };
-  return { code: r.exitCode ?? 124, out: r.stdout, err: r.stderr };
+  const r = await runGit(cwd, args, { timeoutMs, env: { GIT_TERMINAL_PROMPT: "0" } });
+  return { code: r.code, out: r.stdout, err: r.stderr };
 }
 
 /**

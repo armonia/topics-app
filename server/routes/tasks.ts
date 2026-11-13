@@ -69,7 +69,9 @@ import { resolveAgentRuntime } from "../services/app-settings";
 import { newProjectParentDir, scaffoldNewProject } from "../services/project-path-resolver";
 import { parkedEdgeEvent, type TaskDispatcher } from "../services/task-dispatcher";
 import { clampLegMs } from "../services/checks-gate";
-import { createTaskAttemptStore } from "../services/task-attempts";
+import { sweepRunLeftovers, describeLeftovers } from "../lib/run-leftovers";
+import { getSessionCliPid } from "../providers/session-pids";
+import { createTaskAttemptStore, setAttemptFinishedListener } from "../services/task-attempts";
 import { conditionalJson } from "../lib/conditional-json";
 import { attemptHasWork, formatAttemptStat } from "../../shared/task-attempt";
 import { makeSheetWriter } from "../services/delivery-sheet";
@@ -148,6 +150,20 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     },
   });
   const attempts = createTaskAttemptStore(db);
+  // Run end: close what the run left behind in its worktree (orphans, detached
+  // children). Fire-and-forget; the one thread line says how many and which.
+  setAttemptFinishedListener((a) => {
+    const wt = a.worktreeId ? ctx.worktreeStore.get(a.worktreeId) : null;
+    if (!wt?.absPath) return;
+    const topicKey = a.topicId ? "topic:" + a.topicId.slice(0, 8) : "";
+    void sweepRunLeftovers(wt.absPath, { spare: [topicKey ? getSessionCliPid(topicKey) : null] })
+      .then((found) => {
+        if (!found.length) return;
+        console.warn(`[run-leftovers] ${a.taskId}: ${describeLeftovers(found)}`);
+        svc.addComment({ taskId: a.taskId, author: "system", kind: "service", content: describeLeftovers(found) });
+      })
+      .catch(() => { /* best-effort */ });
+  });
 
   const late = {} as TasksLate;
   const core: TasksCore = {

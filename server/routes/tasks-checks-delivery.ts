@@ -7,7 +7,7 @@ import { mintSessionToken, SESSION_TOKEN_HEADER } from "../lib/session-token";
 import { topicsHome } from "../services/daemon-state";
 import { type Task } from "../services/tasks";
 import { type RealignOutcome } from "../services/task-automerge";
-import { checksVerdict, formatChecksComment, formatChecksThreadSummary, formatChecksWait, runReviewChecks, type ReviewCheck } from "../services/review-checks";
+import { FAST_GATES_CHECK, checksVerdict, formatChecksComment, formatChecksThreadSummary, formatChecksWait, hasFastGates, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 import { ChecksInterruptedError, createChecksGate, type ChecksLane, type ChecksLeg } from "../services/checks-gate";
 import { forgetDelivery, reviewChecksStopping, swapInterruptedDelivery, throwIfStopping } from "../services/review-checks-brakes";
 import { bumpPendingDeliveryRound, forgetPendingDelivery, loadPendingDeliveries, savePendingDelivery, type PendingDelivery } from "../services/pending-delivery-store";
@@ -439,6 +439,11 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
     // Past the realign, on a known checkout: from here on THIS is the commit
     // the delivery is measuring, and the one a restart has to carry over.
     roundCommit.set(taskId, ref.commit ?? null);
+    // The fast static guards run FIRST, so a missing @covers or a stray sleep
+    // costs seconds here instead of a queued CI run. The list lives in the
+    // `gates:fast` script, the one CI runs as well. A project without it
+    // (any repo but this one) is measured exactly as before.
+    if (hasFastGates(ref.cwd)) checks = [FAST_GATES_CHECK, ...checks.filter((c) => c.cmd !== FAST_GATES_CHECK.cmd)];
     // The CI evidence rows never reach a shell: they are read after the local commands.
     const localChecks = checks.filter((c) => !isCiEvidenceCheck(c));
     const ciChecks = checks.filter(isCiEvidenceCheck);

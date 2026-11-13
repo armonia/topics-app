@@ -1,6 +1,8 @@
 import { canonicalProjectPath } from "../lib/canonical-project-path";
+import { isInsideDir } from "../lib/path-containment";
+import { worktreeRootDir } from "../services/worktree-manager";
 import { existsSync, readdirSync, statSync } from "fs";
-import { join } from "path";
+import { basename, join } from "path";
 import { detectProjectPath } from "../lib/detect-project-path";
 import { homedir } from "os";
 import { scaffoldNewProject } from "../services/project-path-resolver";
@@ -15,10 +17,63 @@ export type ProjectBinding = ReturnType<typeof createProjectBinding>;
 
 /** Project resolution, scaffolding and binding: everything ctx alone is enough for. */
 export function createProjectBinding(ctx: AppContext) {
-  const { APP_DATA_DIR, broadcastToAll, loadTopics, saveSingleTopic, getTopicById, loadLocalMessages, projectStore, db } = ctx;
+  const { APP_DATA_DIR, broadcastToAll, loadTopics, saveSingleTopic, getTopicById, loadLocalMessages, projectStore, worktreeStore, db } = ctx;
 
   function isExistingDir(p: string): boolean {
     try { return existsSync(p) && statSync(p).isDirectory(); } catch { return false; }
+  }
+
+  /**
+   * The worktree row an adopted session works in, made when the folder is a
+   * linked worktree nobody in Topics registered (Claude Desktop's
+   * `.claude/worktrees/`, a `git worktree add` by hand). A row is what
+   * `resolveTopicCwd` and the provider read to spawn the CLI THERE, and what
+   * the worktree sweep sees. `mode: "reuse"` because the branch is not
+   * Topics': the sweep never lands it or deletes it (`decideWorktreeReap`),
+   * and it keeps the folder of a chat that is still open (`liveInside`).
+   *
+   * Idempotent on the path (`abs_path` is UNIQUE): the second adoption from
+   * the same folder reuses the row. A row from another project at that path
+   * is a conflict the caller reports, never an overwrite.
+   */
+  function registerAdoptedWorktree(projectDir: string, absPath: string, adminName: string | null, branch: string | null): { id: string } | { error: string } {
+    const project = projectStore.getByPath(projectDir)
+      ?? projectStore.list().find((p) => canonicalProjectPath(p.path) === projectDir)
+      ?? null;
+    if (!project) return { error: `no Topics project at ${projectDir}` };
+    // Under Topics' own root (a Claude worktree nested inside a Topics one) the
+    // path would read as Topics' and the sweep and delete would treat it so:
+    // the guard that keeps an adopted folder safe decides on the path alone.
+    if (isInsideDir(absPath, worktreeRootDir())) return { error: `worktree ${absPath} is inside Topics' worktree root` };
+    const existing = worktreeStore.getByAbsPath(absPath);
+    if (existing) {
+      if (existing.projectId !== project.id) return { error: `worktree ${absPath} already belongs to another project` };
+      if (existing.status !== "ready") worktreeStore.update(existing.id, { status: "ready" });
+      return { id: existing.id };
+    }
+    const taken = worktreeStore.listNamesForProject(project.id);
+    const stem = (adminName || basename(absPath)).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^[^a-z]+/, "").slice(0, 56) || "adopted";
+    let name = stem;
+    for (let i = 2; taken.has(name); i++) name = `${stem}-${i}`;
+    const row = worktreeStore.create({ projectId: project.id, name, branchName: branch, baseRef: branch, mode: "reuse", absPath });
+    worktreeStore.update(row.id, { status: "ready" });
+    return { id: row.id };
+  }
+
+  /** The model of the last real assistant turn, as the CLI stamped it. */
+  function lastTranscriptModel(text: string): string | null {
+    let end = text.length;
+    for (let scanned = 0; end > 0 && scanned < 400; scanned++) {
+      const start = text.lastIndexOf("\n", end - 1) + 1;
+      const line = text.slice(start, end);
+      end = start - 1;
+      if (!line.includes('"assistant"') || !line.includes('"model"')) continue;
+      try {
+        const m = JSON.parse(line)?.message?.model;
+        if (typeof m === "string" && m && !m.startsWith("<")) return m;
+      } catch { /* a cut line */ }
+    }
+    return null;
   }
 
   /**
@@ -264,6 +319,8 @@ export function createProjectBinding(ctx: AppContext) {
 
   return {
     isExistingDir,
+    registerAdoptedWorktree,
+    lastTranscriptModel,
     resolveProjectRef,
     knownProjectPaths,
     scaffoldProject,

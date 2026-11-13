@@ -126,7 +126,8 @@ describe('the catalog of a stored value (KANBAN-80)', () => {
 describe('the surfaces open the one selector', () => {
   const surfaces = {
     composer: readFileSync(join(board, 'FloatingTaskComposer.tsx'), 'utf8'),
-    drawer: readFileSync(join(board, 'TaskDetail.tsx'), 'utf8'),
+    drawer: readFileSync(join(board, 'TaskMetadata.tsx'), 'utf8'),
+    drawerShell: readFileSync(join(board, 'TaskDetail.tsx'), 'utf8'),
     settings: readFileSync(join(board, 'BoardSettingsPanel.tsx'), 'utf8'),
     pane: readFileSync(join(board, 'KanbanBoardPane.tsx'), 'utf8'),
   };
@@ -166,7 +167,7 @@ describe('the surfaces open the one selector', () => {
     expect(surfaces.composer).toContain('data-testid="composer-model-chip"');
     expect(surfaces.drawer).toContain('data-testid="task-model-chip"');
     expect(surfaces.composer).toContain('useTaskModelTrigger(model, composerRouting, \'task\', boardDispatchModel)');
-    expect(surfaces.drawer).toContain('useTaskModelTrigger(task?.model || null, drawerRouting, \'task\', boardDispatchModel)');
+    expect(surfaces.drawerShell).toContain('useTaskModelTrigger(task?.model || null, drawerRouting, \'task\', boardDispatchModel)');
     expect(surfaces.settings).toContain('useTaskModelTrigger(s?.dispatchModel ?? null');
     for (const src of [surfaces.composer, surfaces.drawer, surfaces.settings]) expect(src).toContain('{modelTrigger.line}'.replace('modelTrigger', src === surfaces.settings ? 'boardTrigger' : 'modelTrigger'));
   });
