@@ -39,7 +39,7 @@ if (!inFakeHome) {
     const log = out.stdout.toString() + out.stderr.toString();
     if (out.exitCode !== 0) console.error(log);
     expect(out.exitCode).toBe(0);
-    expect(log).toMatch(/\b5 pass\b/);
+    expect(log).toMatch(/\b6 pass\b/);
   }, 120_000);
 }
 
@@ -191,5 +191,32 @@ describe.if(inFakeHome)("POST /api/topics/adopt-claude", () => {
     } finally {
       if (orig === undefined) delete process.env.TOPICS_WORKTREES_DIR; else process.env.TOPICS_WORKTREES_DIR = orig;
     }
+  });
+
+  test("a chat that lost its binding gets it back with topicId, no second topic", async () => {
+    const sid = "99999999-9999-4999-8999-999999999999";
+    seedTranscript(REPO, sid);
+    const first = await adopt({ sessionId: sid });
+    expect(first.status).toBe(201);
+    const { ctx } = first;
+    // What the boot sweep of an older server did.
+    ctx.db.run("DELETE FROM claude_code_sessions WHERE session_key = ?", [first.body.sessionKey]);
+    const topicsBefore = Object.keys(ctx.loadTopics().topics).length;
+
+    const again = await adopt({ sessionId: sid, topicId: first.body.id });
+
+    expect(again.status).toBe(200);
+    expect(again.body.id).toBe(first.body.id);
+    const row = ctx.db.query("SELECT claude_session_id, import_offset FROM claude_code_sessions WHERE session_key = ?").get(first.body.sessionKey) as { claude_session_id: string; import_offset: number };
+    expect(row.claude_session_id).toBe(sid);
+    expect(row.import_offset).toBeGreaterThan(0);
+    expect(Object.keys(ctx.loadTopics().topics).length).toBe(topicsBefore);
+
+    // A chat that already runs ANOTHER session is not rewritten.
+    const other = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    seedTranscript(REPO, other);
+    const refused = await adopt({ sessionId: other, topicId: first.body.id });
+    expect(refused.status).toBe(409);
+    expect((ctx.db.query("SELECT claude_session_id FROM claude_code_sessions WHERE session_key = ?").get(first.body.sessionKey) as { claude_session_id: string }).claude_session_id).toBe(sid);
   });
 });
