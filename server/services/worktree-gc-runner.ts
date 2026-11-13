@@ -31,6 +31,7 @@ import { formatMb, parseSlimSkip, slimWorktree } from "./worktree-slim";
 import { archiveBranchRef } from "./worktree-archive";
 import { commitWorktreeResidue } from "./worktree-residue";
 import { isTopicsSpawned } from "../lib/ghost-script";
+import { isInsideDir } from "../lib/path-containment";
 import { topicSessionKey } from "./agent-census";
 
 /**
@@ -54,7 +55,7 @@ export interface WorktreeGcDeps {
    * touched, however old (the per-project queue can legitimately hold one
    * behind other installs).
    */
-  worktreeManager: { delete(id: string, opts?: any): Promise<any>; isMaterialising?(id: string): boolean };
+  worktreeManager: { delete(id: string, opts?: any): Promise<any>; isMaterialising?(id: string): boolean; worktreesDir?(): string };
   /** Il progetto di un worktree, per leggere lo stato del ramo dal checkout principale. */
   projectStore: { get(id: string): { path?: string } | null | undefined };
   getTopicBySessionKey: (sessionKey: string) => any;
@@ -458,6 +459,13 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
         return { taskId: t.id, status: (t.status ?? "todo") as GcTaskStatus, archived: !!t.archived };
       },
       isBusy: (taskId) => deps.isInFlight(taskId),
+      // Only the folders under Topics' own root are Topics' to judge: an
+      // adopted session's checkout elsewhere is kept as is. A manager that
+      // cannot name its root (tests, older hosts) judges everything, as before.
+      foreign: (w) => {
+        const root = deps.worktreeManager.worktreesDir?.();
+        return !!root && !isInsideDir(w.absPath, root);
+      },
       liveInside: (w) => {
         if (deps.chatActive) {
           const rows = deps.db.prepare("SELECT id FROM topics WHERE worktree_id = ?").all(w.id) as { id: string }[];

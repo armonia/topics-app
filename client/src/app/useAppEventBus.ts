@@ -124,13 +124,32 @@ export function useAppEventBus({
       if (taskId) openTaskInApp({ taskId });
     };
     const onBoard = () => { handleOpenBoard(); };
+    // The hub rows of the tray: each one names its place and the client opens
+    // exactly that place (Automations, its Calendar tab, the jobs level, Processes).
+    const onHub = async (e: Event) => {
+      const place = (e as CustomEvent<{ place?: string }>).detail?.place ?? '';
+      if (place === 'automations') {
+        window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'automations' } }));
+      } else if (place === 'calendar') {
+        const { openAutomationsCalendar } = await import('../state/automationTarget');
+        openAutomationsCalendar();
+      } else if (place === 'processes') {
+        window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'processes' } }));
+      } else {
+        // `project:<name>` and any other place: the jobs level, where projects and their work live.
+        const { openAgentsJobs } = await import('../lib/agentsJobsLink');
+        openAgentsJobs();
+      }
+    };
     const onProcesses = () => { window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'processes' } })); };
     window.addEventListener('topics:tray-open-processes', onProcesses);
     window.addEventListener('topics:tray-open-task', onTask as EventListener);
     window.addEventListener('topics:tray-open-board', onBoard);
+    window.addEventListener('topics:tray-open-hub', onHub as unknown as EventListener);
     return () => {
       window.removeEventListener('topics:tray-open-task', onTask as EventListener);
       window.removeEventListener('topics:tray-open-board', onBoard);
+      window.removeEventListener('topics:tray-open-hub', onHub as unknown as EventListener);
       window.removeEventListener('topics:tray-open-processes', onProcesses);
     };
   }, [handleOpenBoard]);

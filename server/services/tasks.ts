@@ -979,6 +979,10 @@ export interface TaskService {
   deferForWait(args: { taskId: string; reason: string; minutes?: number; by?: string; source?: "agent" | "machine" }): Task;
   /** Overwrite the topic binding of a claimed task (dispatcher: placeholder → real topic). */
   bindTopic(args: { taskId: string; topicId: string; freshSession?: boolean }): Task;
+  /** The run this card last created on a paired node (persisted, survives a restart), or null. */
+  nodeRunOf(taskId: string): string | null;
+  /** Remember (or forget, with null) the card's run on a paired node. */
+  setNodeRun(taskId: string, runId: string | null): void;
   /** Update just the dispatch state/error (queued|starting|working|needs_input). */
   setDispatchState(args: { taskId: string; state: string | null; error?: string | null }): Task;
   /** Persist the model actually resolved for a run (auto-pick → concrete id) so
@@ -2730,6 +2734,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       ...(r.overflowed_at && r.machine_id ? { overflowedAt: r.overflowed_at } : {}),
       ...(r.base_branch ? { baseBranch: r.base_branch } : {}),
       ...(r.prior_branch ? { priorBranch: r.prior_branch } : {}),
+      ...(r.past_delivery_branches ? { pastDeliveryBranches: String(r.past_delivery_branches).split(/\s+/).filter(Boolean) } : {}),
       ...(r.prior_uncommitted_files ? { priorUncommittedFiles: r.prior_uncommitted_files } : {}),
       // WHO opened it; NULL for every card written before the column.
       createdBy: r.created_by ?? null,
@@ -4563,6 +4568,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           if (row.delivery_branch) put("prior_branch", branchStillAhead(row) ? row.delivery_branch : null);
           // The tip that was sent back: a resumed turn handing in this same commit did no work.
           if (row.delivery_commit) put("prior_commit", row.delivery_commit);
+          if (row.delivery_branch) put("past_delivery_branches", `${row.past_delivery_branches ?? ""} ${row.delivery_branch}`.trim());
           // The uncommitted files outlive their count too: they are still in
           // this machine's worktree, and the overflow must not leave them behind.
           if (row.delivery_uncommitted_files != null) put("prior_uncommitted_files", row.delivery_uncommitted_files || null);
@@ -5099,6 +5105,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             "prior_branch = CASE WHEN delivery_branch IS NULL THEN prior_branch " +
             "WHEN landing_state IN ('landed', 'superseded') THEN NULL ELSE delivery_branch END, " +
             "prior_commit = COALESCE(delivery_commit, prior_commit), " +
+            "past_delivery_branches = CASE WHEN delivery_branch IS NULL THEN past_delivery_branches " +
+            "ELSE TRIM(COALESCE(past_delivery_branches, '') || ' ' || delivery_branch) END, " +
             "prior_uncommitted_files = CASE WHEN delivery_uncommitted_files IS NULL THEN prior_uncommitted_files " +
             "ELSE NULLIF(delivery_uncommitted_files, 0) END, " +
             DELIVERY_SNAPSHOT_COLUMNS.map((c) => `${c} = NULL`).join(", ") + ", " +
@@ -6659,6 +6667,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         "UPDATE tasks SET agent_tokens = MAX(COALESCE(agent_tokens, 0), ?), agent_cache_read_tokens = MAX(COALESCE(agent_cache_read_tokens, 0), ?), updated_at = ? WHERE id = ?",
       ).run(tok, cr, now(), taskId);
       return rowToTask(getTaskRow(taskId));
+    },
+
+    nodeRunOf(taskId) {
+      const row = db.prepare("SELECT node_run_id FROM tasks WHERE id = ?").get(taskId) as { node_run_id: string | null } | null;
+      return row?.node_run_id ?? null;
+    },
+
+    setNodeRun(taskId, runId) {
+      db.prepare("UPDATE tasks SET node_run_id = ? WHERE id = ?").run(runId, taskId);
     },
 
     setDispatchState({ taskId, state, error }): Task {

@@ -101,7 +101,6 @@ const record = {
   ci: process.env.CI ?? null, gateHeld: process.env.TOPICS_GATE_HELD ?? null, gateSlotDir: process.env.TOPICS_GATE_SLOT_DIR ?? null,
   timeSlack: process.env.TOPICS_TEST_TIME_SLACK ?? null, runId: process.env.TOPICS_TEST_RUN_ID ?? null,
   gateMaxRunMs: process.env.TOPICS_GATE_MAX_RUN_MS ?? null,
-  gateSlotDir: process.env.TOPICS_GATE_SLOT_DIR ?? null,
   stdoutIsFile: stat1.isFile(), stdoutIsPipe: stat1.isFIFO() || stat1.isSocket(),
   start, end: Date.now(),
 };

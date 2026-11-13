@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Topic, UpdateTopicRequest } from '../../types';
 import { topicsApi } from '../../lib/api';
+import { cacheFastMode } from './fastModeCache';
 import {
   autonomyKey,
   effortKey,
@@ -335,7 +336,8 @@ export function useComposerPicks({ topic, onUpdateTopic, toast }: ComposerPicksP
     const next = !fastModeRef.current;
     setFastMode(next);
     fastModeRef.current = next;
-    try { localStorage.setItem(`fastMode:${topic.id}`, String(next)); } catch {}
+    // Local mirror; for a draft topic it is the only copy until promotion.
+    cacheFastMode(topic.id, next);
     // Draft topics aren't persisted yet, skip the PUT (would 404). Local
     // state is sufficient until the draft is promoted; the promotion effect
     // above migrates the bit to the new real topic id once it exists.
