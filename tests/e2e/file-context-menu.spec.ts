@@ -9,12 +9,18 @@ import { canonicalTmpDir, initGitRepo, removeTmpDir } from "./helpers/file-proje
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
 hermetic(test);
 
+// Per-test isolation: each test seeds its OWN folder/topic in `beforeEach`
+// and tears it down in `afterEach`, instead of sharing one via `beforeAll` —
+// no state carries over from one test to the next.
 test.describe("File Context Menu (FILE-03) & Script Runner (FILE-04)", () => {
   let topicId: string;
-  const tmpDir = canonicalTmpDir("e2e-ctx-menu");
-  const topicName = `e2e-ctx-menu-${Date.now()}`;
+  let tmpDir: string;
+  let topicName: string;
 
-  test.beforeAll(async ({ request }) => {
+  test.beforeEach(async ({ request }) => {
+    tmpDir = canonicalTmpDir("e2e-ctx-menu");
+    topicName = `e2e-ctx-menu-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
     // Create temp directory with files and subdirectory
     mkdirSync(`${tmpDir}/src`, { recursive: true });
     writeFileSync(
@@ -39,7 +45,7 @@ test.describe("File Context Menu (FILE-03) & Script Runner (FILE-04)", () => {
     topicId = topic.id;
   });
 
-  test.afterAll(async ({ request }) => {
+  test.afterEach(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId);
     removeTmpDir(tmpDir);
   });
