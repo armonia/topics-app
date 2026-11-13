@@ -159,3 +159,19 @@ export function augmentedPath(env, home, platform = process.platform) {
   }
   return { key, value: parts.join(separator), drop: spellings.filter((k) => k !== key) };
 }
+
+// Pure parse/validate for one JSON-line frame read off the probe socket in
+// pty-bridge.mjs probeBridge(); exported so a test can reach it without
+// starting the daemon.
+export function parseProbeFrame(line) {
+  let msg;
+  try {
+    msg = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  // A bare `null`/number/string line parses fine but is not a frame — reject
+  // it here so callers never touch .id/.type on a non-object.
+  if (!msg || typeof msg !== 'object') return null;
+  return msg;
+}
