@@ -1,9 +1,615 @@
 [
   {
+    "version": "2.3.94",
+    "date": "2026-11-13",
+    "sections": {
+      "new": [
+        {
+          "it": "test:touched runs only the unit tests the diff reaches, with a whole-suite fallback",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "test-touched-measure replays the selector on red CI runs and demands a proof for every miss",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "a machine-wide queue for heavy commands, served by Topics",
+          "en": "",
+          "scope": "heavy-slot",
+          "breaking": false
+        },
+        {
+          "it": "native sessions queue their heavy bash commands in the machine-wide line (KANBAN-114)",
+          "en": "",
+          "scope": "heavy-slot",
+          "breaking": false
+        },
+        {
+          "it": "a redelivery closes the card's superseded PR and cancels its live runs",
+          "en": "",
+          "scope": "ci-evidence",
+          "breaking": false
+        },
+        {
+          "it": "Tools page in the user menu with GET /api/agent-tools and `topics tools`",
+          "en": "",
+          "scope": "agent-tools",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "44px targets for the provider token, fake hub in the e2e",
+          "en": "",
+          "scope": "machines",
+          "breaking": false
+        },
+        {
+          "it": "the public page escapes the owner's name in the meta description",
+          "en": "",
+          "scope": "profile",
+          "breaking": false
+        },
+        {
+          "it": "English wording in the public-profile escape test",
+          "en": "",
+          "scope": "comments",
+          "breaking": false
+        },
+        {
+          "it": "the GC archives a closed card's commits under a ref instead of merging them into main",
+          "en": "",
+          "scope": "worktree-gc",
+          "breaking": false
+        },
+        {
+          "it": "the profile escape guard declares its requirement and keeps its comment in English",
+          "en": "",
+          "scope": "tests",
+          "breaking": false
+        },
+        {
+          "it": "hold the client close until its write queue drains",
+          "en": "",
+          "scope": "relay",
+          "breaking": false
+        },
+        {
+          "it": "clear the 9 react-hooks/exhaustive-deps warnings",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        },
+        {
+          "it": "empty catches disproved by a scan get real reasons",
+          "en": "",
+          "scope": "client+e2e+spike",
+          "breaking": false
+        },
+        {
+          "it": "landed means on origin/main, and an undone land is not a land",
+          "en": "",
+          "scope": "landing-audit",
+          "breaking": false
+        },
+        {
+          "it": "name the timeout in stderr; runGitCap and the cloud node git go through runGit; comments and identity test",
+          "en": "",
+          "scope": "run-git",
+          "breaking": false
+        },
+        {
+          "it": "MediaBlocks comment in English, ui-language baseline follows the move",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        },
+        {
+          "it": "English comment, trimmedNote name, loadAdvice test follows the move",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        },
+        {
+          "it": "a node delivery measures the branch over its base and trusts the worktree HEAD",
+          "en": "",
+          "scope": "dispatcher",
+          "breaking": false
+        },
+        {
+          "it": "test:touched runs the whole suite for code outside the graph, covers tests/e2e, real-code mutant and more tests",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "split tests follow the moved code, covers tag, floating-surface exit entry, bundle ceiling follows the CI measure",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        },
+        {
+          "it": "log and surface 8 silent catches instead of swallowing them",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        },
+        {
+          "it": "footer memo recomputes when the session key changes",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        },
+        {
+          "it": "test-touched-measure compares with main as it was when CI ran and reports the selection's share of suite time",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "reach https Topics, pid leases outlive the renewal TTL, shell acquire/release",
+          "en": "",
+          "scope": "heavy-slot",
+          "breaking": false
+        },
+        {
+          "it": "identifier name",
+          "en": "",
+          "scope": "heavy-slot",
+          "breaking": false
+        },
+        {
+          "it": "align the unit kickoff test with the touched rule, isolated git env in the selector test, English name in the measure script",
+          "en": "",
+          "scope": "test-touched",
+          "breaking": false
+        },
+        {
+          "it": "knip ignore for the test seam",
+          "en": "",
+          "scope": "heavy-slot",
+          "breaking": false
+        },
+        {
+          "it": "knip.jsonc selects the tests that name it instead of the whole suite, path literals with five-letter extensions",
+          "en": "",
+          "scope": "test-touched",
+          "breaking": false
+        },
+        {
+          "it": "package.json selects by scripts-only diff, not the whole suite",
+          "en": "",
+          "scope": "test-touched",
+          "breaking": false
+        },
+        {
+          "it": "TREE_WALKER recognizes git grep as a tree walker",
+          "en": "",
+          "scope": "test-touched",
+          "breaking": false
+        },
+        {
+          "it": "git env in the origin test, report:landed asks origin/main, candidates keep their column",
+          "en": "",
+          "scope": "landing-audit",
+          "breaking": false
+        },
+        {
+          "it": "native sessions ask the server's line over HTTP, a detached turn-host no longer builds a private one; tests",
+          "en": "",
+          "scope": "heavy-slot",
+          "breaking": false
+        },
+        {
+          "it": "catches that swallowed real errors now log or answer 400",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "allow GitHub's 'cancelled' conclusion value, refresh baseline",
+          "en": "",
+          "scope": "identifier-language",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "branch/main-on-origin, branch-status/inventory and delivery-sheet use the shared runGit and escapeHtml; restore strip-ctrl and expand-home tests",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Revert the stray merge of card 48588f6e",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "spec-flow dal pacchetto npm, la living-doc la ripubblica la CI (#837)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "declare what the expand-home and public-profile escape tests cover",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "cover ids that exist in the specs",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "UsageRow reads through lib/readJson; guard sees promise-chain and early-return copies; translate a comment",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        },
+        {
+          "it": "declare @covers on the three new empty-catch tests",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "media renderers and ImageThumbnail leave MessageContent for MediaBlocks",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        },
+        {
+          "it": "RemoteBrowserPanel hooks move to browserPanelHooks",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        },
+        {
+          "it": "ChatPane slash commands, composer picks, plan and goal hooks into sibling modules",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        },
+        {
+          "it": "KanbanBoardPane toolbar controls, header filters, drag-drop, created flash and worktree status into sibling modules",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        },
+        {
+          "it": "topicsRouting passage list follows useComposerPicks",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "TaskDetail delivery band, comments and chat, checks and files, header and metadata into sibling modules",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        },
+        {
+          "it": "accept mirrored model its catalog does not list; model rejection requeues the card unpinned",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Map model_rejected status",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "App bootstrap hooks, boot deep-link, sidebar shell, dialogs and first-run/update screens into sibling modules",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        },
+        {
+          "it": "Cloud node recipe: sshd drop-ins and origin commit identity",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the fake bun reads the file as the last argument",
+          "en": "",
+          "scope": "unit-shards",
+          "breaking": false
+        },
+        {
+          "it": "trace the origin/main audit test to LAND-05",
+          "en": "",
+          "scope": "landing-audit",
+          "breaking": false
+        },
+        {
+          "it": "readJson guard sees generic, cast and if/return copies",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        },
+        {
+          "it": "Trace the cloud node recipe test to LAND-13",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "unit: il JUnit della living-doc resta del runner, non dei runner annidati (#846)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "KANBAN-114 names the machine-wide line, and its test says it covers it",
+          "en": "",
+          "scope": "heavy-slot",
+          "breaking": false
+        },
+        {
+          "it": "unit: il claim del JUnit dei figli scrive nella cartella del giro, non in /tmp (CI unit rossa su main)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Tray quota strip: port the original design (uppercase bold names, provider icons, thick bars, +N collapse)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tray strip: system faces with synthetic weight, open header tracking, larger reset glyph; parity bar at 2%",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tray strip: real variable-weight system faces, exact original colours, parity bar at 25% fuzz with colour check and mutations",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Close leftover processes of a finished card run by worktree cwd",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Declare RUNTIME-25 spec and cover it from the leftovers test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "unit: il test CLI parte senza TOPICS_GATE_SLOT_DIR ereditata dal runner esterno",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "drop a permanent-node booking once its run has no pending job on the label",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Tray parity bar: per-column colour check (distance 3), colour mutation",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Landing audit: a merge delivery commit answers empty, so the branch is asked",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Leftover sweep: async process listing instead of sync spawns",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "unit: il claim del JUnit per file non passa da /tmp/topics-gate-slots (#882)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "re-measure (unrelated e2e flakes: topbar webkit, first-send chromium)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "ci-changes: heavy-slot-client is a tauri trigger (red on main)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ci-changes: heavy-slot-client is a tauri trigger",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ci-changes: heavy-slot-client also triggers tauri",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "test-unit-shards cli test: drop duplicate gateSlotDir field (red on main)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "test-unit-shards.cli.test: drop duplicate gateSlotDir field",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Toglie il campo gateSlotDir duplicato nel test delle shard (typecheck server)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Toglie la proprietà duplicata gateSlotDir che rompe il typecheck",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Aggiunge heavy-slot-client ai trigger del job tauri (ci-changes)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ci-changes: heavy-slot-client è un trigger del job tauri",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Match cloud nodes by the hostname and public IPs they report, never a loopback base_url",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Pulizia a fine corsa: solo gli orfani, mai discendenti del server o del bridge PTY",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Add check:backup-residue rail and sed -i kickoff rule",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "strict topics/* ancestors do not hide a card's own commits; no-branch land never reads as accepted",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "test comment in English",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "node-branch-plant: accept a re-delivery whose local branch has only board realign merges on top",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "own old delivery/prior branches excluded from isolation; no-branch land reason says not on main",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "layout cache and fastMode mirror failures are visible; a 'data: null' SSE frame no longer aborts the stream",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Add backup-residue to qa-gate loop",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "why the permanent node keeps 4 runners and no per-run quota (measured)",
+          "en": "",
+          "scope": "ci",
+          "breaking": false
+        },
+        {
+          "it": "move supersedePreviousDelivery into ci-supersede.ts, one source for the card tag",
+          "en": "",
+          "scope": "ci-evidence",
+          "breaking": false
+        },
+        {
+          "it": "node-branch-plant: read the re-delivery tip from the bundle, not FETCH_HEAD; detach a clean worktree before moving the ref",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "declare @covers KANBAN-115 and add the requirement to the kanban spec",
+          "en": "",
+          "scope": "ci-supersede",
+          "breaking": false
+        },
+        {
+          "it": "Run the fast static guards (gates:fast) before a delivery opens its pull request",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "fast: pass the default test timeout like the other bun test scripts",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "a resumed node turn handing back the rejected tip with no summary does not reach review",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Same-tip test: declare what it covers",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Leggi le descrizioni skill scritte come blocco YAML",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Node resend: persist the node run id on the card, archive a finished mirror on POST",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Adopting a Claude Code session keeps the same conversation, in its project and worktree (#903)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fill node_run_id in the all-columns fixture",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Count every earlier delivery branch of a card as its own in the land gate",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rebase past delivery branches migration on current main",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "history-limit-cost: count hydrated rows instead of timing the full read",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.93",
     "date": "2026-11-12",
     "sections": {
-      "new": [],
+      "new": [
+        {
+          "it": "remote machines in Processes and the tray like the Mac, with provider extras",
+          "en": "",
+          "scope": "machines",
+          "breaking": false
+        }
+      ],
       "fixes": [
         {
           "it": "read CRLF SSE events and close orphaned stdio children",
@@ -52,6 +658,12 @@
           "en": "",
           "scope": "tray",
           "breaking": false
+        },
+        {
+          "it": "Gauge in its own module (no import cycle), English identifiers",
+          "en": "",
+          "scope": "machines",
+          "breaking": false
         }
       ],
       "perf": [],
@@ -74,6 +686,12 @@
           "breaking": false
         },
         {
+          "it": "a reply sent through a tool and closed with NO_REPLY stays in the chat",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
           "it": "every empty catch says why, utils.ts loses its any, the any ratchet sees all of server/",
           "en": "",
           "scope": "solido",
@@ -86,13 +704,29 @@
           "breaking": false
         },
         {
+          "it": "Barra di parità TS 5 vs TS 7: script, test e config ripristinati, dichiarata in knip",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "the any ratchet counts server.ts too, and the last any outside it get real types",
           "en": "",
           "scope": "solido",
           "breaking": false
         },
         {
+          "it": "a regression guard that keeps one home per client helper",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        },
+        {
           "it": "sync shipped boot.js with its source (unit gate, c675633f)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test acrylic: boot.js shipped copy resynced, catch search tolerates commented handlers",
           "en": "",
           "scope": null
         },
@@ -110,6 +744,36 @@
           "it": "Test della regola generica: dichiara il requisito che prova (KANBAN-59)",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "one escapeHtml and one git runner shared across server/lib and services",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "scope the last-line check to the list and repeat the checks after a reload",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "one Files header in the project sidebar, LoadScreen reads through lib/readJson, and a guard that catches every spelling of a copy",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        },
+        {
+          "it": "rename a helper in the guard to an English word",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        },
+        {
+          "it": "declare what the machine overview tests cover",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ]
     }
@@ -122,6 +786,22 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "Piano come quarta vista dello slider, filtri rapidi con conteggio (Serve te, Jarvis, Agenti, Programmate)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Test dei filtri rapidi: dichiara cosa copre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Scheletro della board: riga dei filtri rapidi con la stessa altezza",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "a message written while a turn runs joins it at the next round",
           "en": "",

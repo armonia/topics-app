@@ -2,7 +2,122 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.94 — 2026-11-13
+
+### Novità
+- **test** · test:touched runs only the unit tests the diff reaches, with a whole-suite fallback
+- **test** · test-touched-measure replays the selector on red CI runs and demands a proof for every miss
+- **heavy-slot** · a machine-wide queue for heavy commands, served by Topics
+- **heavy-slot** · native sessions queue their heavy bash commands in the machine-wide line (KANBAN-114)
+- **ci-evidence** · a redelivery closes the card's superseded PR and cancels its live runs
+- **agent-tools** · Tools page in the user menu with GET /api/agent-tools and `topics tools`
+
+### Correzioni
+- **machines** · 44px targets for the provider token, fake hub in the e2e
+- **profile** · the public page escapes the owner's name in the meta description
+- **comments** · English wording in the public-profile escape test
+- **worktree-gc** · the GC archives a closed card's commits under a ref instead of merging them into main
+- **tests** · the profile escape guard declares its requirement and keeps its comment in English
+- **relay** · hold the client close until its write queue drains
+- **client** · clear the 9 react-hooks/exhaustive-deps warnings
+- **client+e2e+spike** · empty catches disproved by a scan get real reasons
+- **landing-audit** · landed means on origin/main, and an undone land is not a land
+- **run-git** · name the timeout in stderr; runGitCap and the cloud node git go through runGit; comments and identity test
+- **client** · MediaBlocks comment in English, ui-language baseline follows the move
+- **client** · English comment, trimmedNote name, loadAdvice test follows the move
+- **dispatcher** · a node delivery measures the branch over its base and trusts the worktree HEAD
+- **test** · test:touched runs the whole suite for code outside the graph, covers tests/e2e, real-code mutant and more tests
+- **client** · split tests follow the moved code, covers tag, floating-surface exit entry, bundle ceiling follows the CI measure
+- **client** · log and surface 8 silent catches instead of swallowing them
+- **client** · footer memo recomputes when the session key changes
+- **test** · test-touched-measure compares with main as it was when CI ran and reports the selection's share of suite time
+- **heavy-slot** · reach https Topics, pid leases outlive the renewal TTL, shell acquire/release
+- **heavy-slot** · identifier name
+- **test-touched** · align the unit kickoff test with the touched rule, isolated git env in the selector test, English name in the measure script
+- **heavy-slot** · knip ignore for the test seam
+- **test-touched** · knip.jsonc selects the tests that name it instead of the whole suite, path literals with five-letter extensions
+- **test-touched** · package.json selects by scripts-only diff, not the whole suite
+- **test-touched** · TREE_WALKER recognizes git grep as a tree walker
+- **landing-audit** · git env in the origin test, report:landed asks origin/main, candidates keep their column
+- **heavy-slot** · native sessions ask the server's line over HTTP, a detached turn-host no longer builds a private one; tests
+- **server** · catches that swallowed real errors now log or answer 400
+- **identifier-language** · allow GitHub's 'cancelled' conclusion value, refresh baseline
+
+### Sotto il cofano
+- branch/main-on-origin, branch-status/inventory and delivery-sheet use the shared runGit and escapeHtml; restore strip-ctrl and expand-home tests
+- Revert the stray merge of card 48588f6e
+- spec-flow dal pacchetto npm, la living-doc la ripubblica la CI (#837)
+- declare what the expand-home and public-profile escape tests cover
+- cover ids that exist in the specs
+- **client** · UsageRow reads through lib/readJson; guard sees promise-chain and early-return copies; translate a comment
+- declare @covers on the three new empty-catch tests
+- **client** · media renderers and ImageThumbnail leave MessageContent for MediaBlocks
+- **client** · RemoteBrowserPanel hooks move to browserPanelHooks
+- **client** · ChatPane slash commands, composer picks, plan and goal hooks into sibling modules
+- **client** · KanbanBoardPane toolbar controls, header filters, drag-drop, created flash and worktree status into sibling modules
+- topicsRouting passage list follows useComposerPicks
+- **client** · TaskDetail delivery band, comments and chat, checks and files, header and metadata into sibling modules
+- accept mirrored model its catalog does not list; model rejection requeues the card unpinned
+- Map model_rejected status
+- **client** · App bootstrap hooks, boot deep-link, sidebar shell, dialogs and first-run/update screens into sibling modules
+- Cloud node recipe: sshd drop-ins and origin commit identity
+- **unit-shards** · the fake bun reads the file as the last argument
+- **landing-audit** · trace the origin/main audit test to LAND-05
+- **client** · readJson guard sees generic, cast and if/return copies
+- Trace the cloud node recipe test to LAND-13
+- unit: il JUnit della living-doc resta del runner, non dei runner annidati (#846)
+- **heavy-slot** · KANBAN-114 names the machine-wide line, and its test says it covers it
+- unit: il claim del JUnit dei figli scrive nella cartella del giro, non in /tmp (CI unit rossa su main)
+- Tray quota strip: port the original design (uppercase bold names, provider icons, thick bars, +N collapse)
+- Tray strip: system faces with synthetic weight, open header tracking, larger reset glyph; parity bar at 2%
+- Tray strip: real variable-weight system faces, exact original colours, parity bar at 25% fuzz with colour check and mutations
+- Close leftover processes of a finished card run by worktree cwd
+- Declare RUNTIME-25 spec and cover it from the leftovers test
+- unit: il test CLI parte senza TOPICS_GATE_SLOT_DIR ereditata dal runner esterno
+- drop a permanent-node booking once its run has no pending job on the label
+- Tray parity bar: per-column colour check (distance 3), colour mutation
+- Landing audit: a merge delivery commit answers empty, so the branch is asked
+- Leftover sweep: async process listing instead of sync spawns
+- unit: il claim del JUnit per file non passa da /tmp/topics-gate-slots (#882)
+- re-measure (unrelated e2e flakes: topbar webkit, first-send chromium)
+- ci-changes: heavy-slot-client is a tauri trigger (red on main)
+- ci-changes: heavy-slot-client is a tauri trigger
+- ci-changes: heavy-slot-client also triggers tauri
+- test-unit-shards cli test: drop duplicate gateSlotDir field (red on main)
+- test-unit-shards.cli.test: drop duplicate gateSlotDir field
+- Toglie il campo gateSlotDir duplicato nel test delle shard (typecheck server)
+- Toglie la proprietà duplicata gateSlotDir che rompe il typecheck
+- Aggiunge heavy-slot-client ai trigger del job tauri (ci-changes)
+- ci-changes: heavy-slot-client è un trigger del job tauri
+- Match cloud nodes by the hostname and public IPs they report, never a loopback base_url
+- Pulizia a fine corsa: solo gli orfani, mai discendenti del server o del bridge PTY
+- Add check:backup-residue rail and sed -i kickoff rule
+- strict topics/* ancestors do not hide a card's own commits; no-branch land never reads as accepted
+- test comment in English
+- node-branch-plant: accept a re-delivery whose local branch has only board realign merges on top
+- own old delivery/prior branches excluded from isolation; no-branch land reason says not on main
+- layout cache and fastMode mirror failures are visible; a 'data: null' SSE frame no longer aborts the stream
+- Add backup-residue to qa-gate loop
+- **ci** · why the permanent node keeps 4 runners and no per-run quota (measured)
+- **ci-evidence** · move supersedePreviousDelivery into ci-supersede.ts, one source for the card tag
+- node-branch-plant: read the re-delivery tip from the bundle, not FETCH_HEAD; detach a clean worktree before moving the ref
+- **ci-supersede** · declare @covers KANBAN-115 and add the requirement to the kanban spec
+- Run the fast static guards (gates:fast) before a delivery opens its pull request
+- fast: pass the default test timeout like the other bun test scripts
+- a resumed node turn handing back the rejected tip with no summary does not reach review
+- Same-tip test: declare what it covers
+- Leggi le descrizioni skill scritte come blocco YAML
+- Node resend: persist the node run id on the card, archive a finished mirror on POST
+- Adopting a Claude Code session keeps the same conversation, in its project and worktree (#903)
+- Fill node_run_id in the all-columns fixture
+- Count every earlier delivery branch of a card as its own in the land gate
+- Rebase past delivery branches migration on current main
+- history-limit-cost: count hydrated rows instead of timing the full read
+
 ## 2.3.93 — 2026-11-12
+
+### Novità
+- **machines** · remote machines in Processes and the tray like the Mac, with provider extras
 
 ### Correzioni
 - **mcp** · read CRLF SSE events and close orphaned stdio children
@@ -13,22 +128,35 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **nodes** · a node refusing a card parks it with its reason
 - **boot** · the shipped boot.js matches its source again
 - **tray** · a machine without the usage service keeps the plain icon
+- **machines** · Gauge in its own module (no import cycle), English identifiers
 
 ### Sotto il cofano
 - Keep shipped service worker copy identical
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-12 [skip ci]
 - **gates** · lower the any ratchet to 332
+- **e2e** · a reply sent through a tool and closed with NO_REPLY stays in the chat
 - **solido** · every empty catch says why, utils.ts loses its any, the any ratchet sees all of server/
 - example that shows the quota strip as a status item for a photo
+- Barra di parità TS 5 vs TS 7: script, test e config ripristinati, dichiarata in knip
 - **solido** · the any ratchet counts server.ts too, and the last any outside it get real types
+- **client** · a regression guard that keeps one home per client helper
 - sync shipped boot.js with its source (unit gate, c675633f)
+- Test acrylic: boot.js shipped copy resynced, catch search tolerates commented handlers
 - windows-acrylic test: slice boot.js at a catch that now has a comment
 - Regola Topics generica nel kickoff degli agenti
 - Test della regola generica: dichiara il requisito che prova (KANBAN-59)
+- one escapeHtml and one git runner shared across server/lib and services
+- **e2e** · scope the last-line check to the list and repeat the checks after a reload
+- **client** · one Files header in the project sidebar, LoadScreen reads through lib/readJson, and a guard that catches every spelling of a copy
+- **client** · rename a helper in the guard to an English word
+- declare what the machine overview tests cover
 
 ## 2.3.92 — 2026-11-12
 
 ### Sotto il cofano
+- Piano come quarta vista dello slider, filtri rapidi con conteggio (Serve te, Jarvis, Agenti, Programmate)
+- Test dei filtri rapidi: dichiara cosa copre
+- Scheletro della board: riga dei filtri rapidi con la stessa altezza
 - a message written while a turn runs joins it at the next round
 - **steer** · wait on the replayed turn, not on a clock
 - native steer v2: nothing lost, nothing read twice, rows stay answered
