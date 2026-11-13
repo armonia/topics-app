@@ -7,7 +7,7 @@
  * reload (todo, in progress, review), and the waiting line under the last
  * message must name the card while it is going and leave when it reaches review.
  *
- * @covers CHAT-TASK-CARD
+ * @covers CHAT-TASK-CARD-01
  */
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
@@ -26,7 +26,7 @@ async function sessionKeyOf(request: APIRequestContext, topicId: string): Promis
 
 test("the card in the transcript and the waiting line follow the board without a reload", async ({ page, request }) => {
   test.setTimeout(120_000);
-  test.info().annotations.push({ type: "spec", description: "CHAT-TASK-CARD" });
+  test.info().annotations.push({ type: "spec", description: "CHAT-TASK-CARD-01" });
   const stamp = Date.now();
   const topic = await createTopic(request, `Card chat ${stamp}`);
   const sessionKey = await sessionKeyOf(request, topic.id);

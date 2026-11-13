@@ -1,7 +1,7 @@
 /**
  * The chat that opened a card is woken once with its outcome, through a fake
  * chat route (the seam of `subagent-wake.test.ts`): no provider, no turn.
- * @covers CHAT-TASK-CARD
+ * @covers CHAT-TASK-CARD-01
  */
 import { describe, expect, test } from "bun:test";
 import { cardOutcome, cardOutcomeText, createCardOutcomeWake, reportFirstLine, type CardFrame } from "./card-outcome-wake";
