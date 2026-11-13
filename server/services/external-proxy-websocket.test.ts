@@ -416,7 +416,8 @@ describe("WebSocket", () => {
     try {
       const waitFor = async (prefix: string) => { for (let i = 0; i < 1500 && !lines.some((l) => l.startsWith(prefix)); i++) await sleep(10); return lines.some((l) => l.startsWith(prefix)); };
       expect(await waitFor("ws-backpressure "), `no backpressure: ${JSON.stringify(lines)}`).toBe(true);
-      // either the held close was cut by the deadline, or the kernel took the queue and the close went out by itself: the slot comes back in both
+      // the client never reads, so only the deadline can end this: the forced cut, then the place back well before Bun's 120 s idle timeout
+      expect(await waitFor("ws-close-forced "), `no forced close: ${JSON.stringify(lines)}`).toBe(true);
       expect(await waitFor("ws-closed "), `no closed: ${JSON.stringify(lines)}`).toBe(true);
     } finally { child.kill(); await proxy.close(); upstream.stop(true); }
   }, 60_000);
