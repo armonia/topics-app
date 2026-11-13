@@ -2,6 +2,14 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.97 — 2026-11-13
+
+### Correzioni
+- **e2e** · cura la causa dei sette instabili, non il loro timeout
+
+### Sotto il cofano
+- Machine slots accept 0: drained machine takes no new card, pinned ones included
+
 ## 2.3.96 — 2026-11-13
 
 ### Sotto il cofano
