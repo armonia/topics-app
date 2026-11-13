@@ -31,7 +31,9 @@ import { CODING_TOOLS, executeTool, type ToolContext, type ToolResult, type Tool
 import { detectUserInputRequest } from "../ask-user-detector";
 import { PARTIAL_ARGS_EMIT_MS, extractPrimaryToolArg } from "../partial-tool-input";
 import type { ProviderUsage } from "../types";
-import { decide, DEFAULT_AUTONOMY } from "./permissions";
+import { decide, DEFAULT_AUTONOMY, pathsCreatedBy, turnTempDir, type TurnScope } from "./permissions";
+import { isAbsolute, resolve } from "path";
+import { randomUUID } from "crypto";
 import { applyPromptCache } from "../prompt-cache";
 import {
   windowFor, clipToolResult, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS,
@@ -1006,6 +1008,13 @@ export async function runAgentTurn(
   const calibration = opts.calibration ?? { charsPerToken: DEFAULT_CHARS_PER_TOKEN, calibrated: false };
   const recovery: { attempts: number; imagesStripped?: boolean } = { attempts: 0 };
   if (opts.reminder) appendReminder(opts.history, opts.reminder);
+
+  // What THIS turn may `rm` beyond the generic `/tmp` exception (RT-07): its
+  // own scratch folder, and whatever it creates along the way. Grown as
+  // `write_file`/`edit_file`/`mkdir`/`git worktree add` succeed below, read by
+  // `decide` right before the NEXT tool call — never by this one.
+  const turnCreatedPaths = new Set<string>();
+  const turnScope: TurnScope = { tempDir: turnTempDir(randomUUID()), createdPaths: turnCreatedPaths };
   let compactedForNextRequest = false;
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
@@ -1195,7 +1204,7 @@ export async function runAgentTurn(
       // once the wait is already over.
       const askSchema = detectUserInputRequest({ name: t.name!, input: t.input ?? {} });
       if (askSchema) handler.onUserInputRequired?.(t.id!, t.name!, askSchema);
-      const verdict = decide(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.autonomy ?? DEFAULT_AUTONOMY);
+      const verdict = decide(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.autonomy ?? DEFAULT_AUTONOMY, turnScope);
       // THE USER'S HOOK SPEAKS AFTER THE PERMISSION, never instead of it
       // (HOOKS-02): a tool the verdict denied is not offered to the hook, and
       // a tool the verdict allowed can still be refused by the user's own
@@ -1238,6 +1247,21 @@ export async function runAgentTurn(
               ...opts.toolContext,
               onOutput: (tail) => handler.onToolUpdate?.(t.id!, tail),
             });
+      // THE TURN NOW OWNS WHAT IT JUST MADE, and a later `rm` on that same
+      // path is no longer "an rm with the wrong target": it is cleanup of
+      // this turn's own work (RT-07). Only a SUCCESS counts — a failed write
+      // or `mkdir` created nothing to own.
+      if (!out.isError) {
+        const input = (t.input ?? {}) as Record<string, unknown>;
+        if (t.name === "write_file" || t.name === "edit_file") {
+          const raw = String(input.path ?? "");
+          if (raw) turnCreatedPaths.add(isAbsolute(raw) ? resolve(raw) : resolve(opts.toolContext.workspace, raw));
+        } else if (t.name === "bash") {
+          const cwd = input.cwd ? String(input.cwd) : opts.toolContext.workspace;
+          const abs = isAbsolute(cwd) ? resolve(cwd) : resolve(opts.toolContext.workspace, cwd);
+          for (const p of pathsCreatedBy(String(input.command ?? ""), abs)) turnCreatedPaths.add(p);
+        }
+      }
       handler.onToolResult(t.id!, out.content, out.isError);
       // EVERY RESULT IS CAPPED HERE, whichever family produced it (machine,
       // Topics, MCP): one place, one budget. The UI above gets the whole

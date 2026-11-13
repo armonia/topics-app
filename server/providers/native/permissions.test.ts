@@ -13,7 +13,7 @@
   * @covers RT-07
  */
 import { describe, expect, test } from "bun:test";
-import { decide, levelFor, DEFAULT_AUTONOMY } from "./permissions";
+import { decide, levelFor, DEFAULT_AUTONOMY, turnTempDir, pathsCreatedBy } from "./permissions";
 
 describe("il livello di autonomia", () => {
   test("il default NON è `yolo`", () => {
@@ -129,6 +129,39 @@ describe("`auto-apply`: lavora, ma non fa danni irreversibili", () => {
     expect(decide("bash", { command: "echo 'rm -rf /' > note.md" }, "auto-apply").allow).toBe(false);
     // La via d'uscita esiste ed è ovvia.
     expect(decide("write_file", { path: "note.md", content: "rm -rf /" }, "auto-apply").allow).toBe(true);
+  });
+});
+
+describe("RT-07: la cartella del turno e i file che ha creato", () => {
+  test("`turnTempDir` è dentro /tmp ed è specifica dell'id", () => {
+    expect(turnTempDir("abc")).toContain("topics-turn-abc");
+    expect(turnTempDir("abc")).not.toBe(turnTempDir("def"));
+  });
+
+  test("rm dentro la cartella del turno passa, fuori no", () => {
+    const scope = { tempDir: "/tmp/topics-turn-xyz" };
+    expect(decide("bash", { command: "rm -rf /tmp/topics-turn-xyz/scratch" }, "auto-apply", scope).allow).toBe(true);
+    expect(decide("bash", { command: "rm -rf /tmp/topics-turn-xyz" }, "auto-apply", scope).allow).toBe(true);
+    expect(decide("bash", { command: "rm -rf /tmp/topics-turn-other/x" }, "auto-apply", scope).allow).toBe(true); // generic /tmp, invariato
+    expect(decide("bash", { command: "rm -rf /home/x/project" }, "auto-apply", scope).allow).toBe(false);
+  });
+
+  test("rm su un file creato dal turno passa, su uno che non ha creato no", () => {
+    const scope = { createdPaths: new Set(["/home/x/project/scratch.tmp"]) };
+    expect(decide("bash", { command: "rm -f /home/x/project/scratch.tmp" }, "auto-apply", scope).allow).toBe(true);
+    expect(decide("bash", { command: "rm -f /home/x/project/other.tmp" }, "auto-apply", scope).allow).toBe(false);
+  });
+
+  test("senza scope si comporta come prima (generico /tmp, resto bloccato)", () => {
+    expect(decide("bash", { command: "rm -rf /tmp/anything" }, "auto-apply").allow).toBe(true);
+    expect(decide("bash", { command: "rm -rf /home/x/project" }, "auto-apply").allow).toBe(false);
+  });
+
+  test("`pathsCreatedBy` legge mkdir e git worktree add, risolti sul cwd", () => {
+    expect(pathsCreatedBy("mkdir -p sub/dir", "/work")).toEqual(["/work/sub/dir"]);
+    expect(pathsCreatedBy("mkdir /abs/one /abs/two", "/work")).toEqual(["/abs/one", "/abs/two"]);
+    expect(pathsCreatedBy("git worktree add ../scratch feature-x", "/work")).toEqual(["/scratch"]);
+    expect(pathsCreatedBy("echo hello", "/work")).toEqual([]);
   });
 });
 
