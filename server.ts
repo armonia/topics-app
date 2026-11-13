@@ -1378,6 +1378,8 @@ async function watchHeadlessBody(
     // transcript tail is silent for all of it and the judge would misread it.
     isToolRunning: () => {
       const stream = activeStreams.get(sessionKey);
+      // The row is written on a throttle: flush so the running tool's line is on it.
+      if (stream) flushTurnBody(sessionKey);
       return !!stream && foregroundToolHold(getMessageById(stream.messageId), Date.now());
     },
     getTail: () => stallTranscriptTail(sessionKey),
