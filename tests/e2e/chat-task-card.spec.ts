@@ -26,6 +26,7 @@ async function sessionKeyOf(request: APIRequestContext, topicId: string): Promis
 
 test("the card in the transcript and the waiting line follow the board without a reload", async ({ page, request }) => {
   test.setTimeout(120_000);
+  test.info().annotations.push({ type: "spec", description: "CHAT-TASK-CARD" });
   const stamp = Date.now();
   const topic = await createTopic(request, `Card chat ${stamp}`);
   const sessionKey = await sessionKeyOf(request, topic.id);

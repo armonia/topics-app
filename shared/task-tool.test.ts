@@ -1,3 +1,7 @@
+/**
+ * Which tool calls are a board card, and which card each one means.
+ * @covers CHAT-TASK-CARD
+ */
 import { describe, expect, test } from "bun:test";
 import { TASK_TOOL_NAMES, taskIdOf, taskToolCall, taskToolName, taskToolStartsWait } from "./task-tool";
 
