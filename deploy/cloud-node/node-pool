@@ -33,7 +33,7 @@ gli effimeri). Un nodo muore quando è senza card da 10 minuti e alla sua ora pa
 10 minuti; il label expires (+2 h, spostato in avanti mentre lavora) lo cancella anche se questo
 registro lo ha perso.
 """
-import base64, json, math, os, signal, ssl, subprocess, sys, time, urllib.request
+import base64, json, math, os, shlex, signal, ssl, subprocess, sys, time, urllib.request
 
 HOME = os.path.expanduser("~")
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -311,13 +311,20 @@ def commit_of_mac():
     return subprocess.run(["git", "-C", APP_DIR, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
 
 
+def git_identity(key):
+    # Identity of the origin repo; shell-quoted because it lands in the recipe.
+    v = subprocess.run(["git", "-C", APP_DIR, "config", key], capture_output=True, text=True).stdout.strip()
+    return shlex.quote(v)
+
+
 def recipe():
     apt, npm = tools()
     node_major = subprocess.run(["node", "-v"], capture_output=True, text=True).stdout.strip().lstrip("v").split(".")[0] or "22"
     with open(os.path.join(HERE, "user-data.sh.tmpl")) as f:
         t = f.read()
     return (t.replace("@APT@", " ".join(apt)).replace("@NPM@", " ".join(npm))
-             .replace("@NODE_MAJOR@", node_major).replace("@COMMIT@", commit_of_mac()))
+             .replace("@NODE_MAJOR@", node_major).replace("@COMMIT@", commit_of_mac())
+             .replace("@GIT_NAME@", git_identity("user.name")).replace("@GIT_EMAIL@", git_identity("user.email")))
 
 
 def from_snapshot_user_data():
