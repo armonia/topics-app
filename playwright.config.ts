@@ -252,6 +252,29 @@ export default defineConfig({
   ],
   use: {
     /**
+     * No service worker, unless a spec asks for one.
+     *
+     * `public/boot.js` registers `/sw.js` on any SECURE origin, and localhost is
+     * one, so the bench registers it too. The worker takes control at the NEXT
+     * navigation, and a request a service worker answers is NEVER delivered to
+     * `page.route`: the stub is simply skipped and the real server replies. Any
+     * spec that mocks an endpoint and navigates twice is therefore a coin toss,
+     * and which spec reloads twice depends on what ran before it. That is the
+     * shape of the four red rounds of PR #825 and of the two of 2026-11-13: a
+     * different test every round, always outside the diff of the card that took
+     * it (a4689430). Measured on `muse-provider-picker` MUSE-04c, 10 webkit
+     * repetitions: `navigator.serviceWorker.controller` was non-null in every
+     * failure and null in every pass; on `dictation-hermetic` the stubbed
+     * `/api/stt` reached the real server and no bubble was ever written.
+     *
+     * Eleven specs had already found this one at a time and written
+     * `test.use({ serviceWorkers: "block" })` of their own. Here it holds for
+     * all of them, so the next spec does not have to rediscover it. The three
+     * specs that are ABOUT the worker (`push-one-voice`, `push-phone-enroll`,
+     * `sw-restart-vs-offline`) turn it back on with `serviceWorkers: "allow"`.
+     */
+    serviceWorkers: "block",
+    /**
      * Un'azione ha un limite, e prima non ce l'aveva.
      *
      * Il default di Playwright per `actionTimeout` è **0, cioè nessun limite**: un

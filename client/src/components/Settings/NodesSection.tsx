@@ -225,7 +225,7 @@ function NodeSlots() {
   if (nodes.length === 0) return null;
   const save = async (id: string, value: string) => {
     const slots = Number(value);
-    if (!Number.isInteger(slots) || slots < 1 || slots > 8) { reloadMachines(); return; }
+    if (!Number.isInteger(slots) || slots < 0 || slots > 8) { reloadMachines(); return; }
     await apiFetch(`/api/machines/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -238,10 +238,10 @@ function NodeSlots() {
     <div className="space-y-2" data-testid="node-slots">
       {nodes.map((m) => (
         <label key={`${m.id}:${m.slots ?? ''}`} className="flex items-center justify-between gap-3 text-compact text-app-text">
-          <span>{m.name}: {t('settings.machines.slots.label')}</span>
+          <span>{m.name}: {t('settings.machines.slots.label')}{m.slots === 0 ? ` (${t('settings.machines.slots.paused')})` : ''}</span>
           <input
             type="number"
-            min={1}
+            min={0}
             max={8}
             defaultValue={m.slots ?? ''}
             placeholder="2"

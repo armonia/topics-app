@@ -4,10 +4,11 @@
  * type). The UI never names a provider: it reads `ProviderFacts`. A new
  * provider is one more adapter in `createProviderRegistry`, nothing else moves.
  *
- * The API token lives in a 0600 file under the state dir, written from
- * Settings. It is never in the code, in the database or in a response.
+ * The API token lives in a 0600 file under `data/providers/` in the state dir,
+ * written from Settings. It is never in the code, in the database or in a
+ * response.
  */
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { MachineMoney, ProviderFacts } from "../../shared/machine-overview";
 
@@ -29,9 +30,28 @@ export interface ProviderAdapter {
 const TOKEN_SHAPE = /^[A-Za-z0-9_.-]{16,512}$/;
 const ID_SHAPE = /^[a-z][a-z0-9-]{0,31}$/;
 
-function tokenPath(stateDir: string, providerId: string): string {
+// The state dir can be the repo root (LaunchAgent): only `data/` is ignored
+// by git, so the token lives there and never next to the code.
+const TOKEN_DIR = ["data", "providers"] as const;
+// Where the first version wrote it: moved on first use, then gone.
+const LEGACY_TOKEN_DIR = "providers";
+
+export function providerTokenPath(stateDir: string, providerId: string): string {
   if (!ID_SHAPE.test(providerId)) throw new Error("bad provider id");
-  return join(stateDir, "providers", `${providerId}.token`);
+  return join(stateDir, ...TOKEN_DIR, `${providerId}.token`);
+}
+
+function tokenPath(stateDir: string, providerId: string): string {
+  const f = providerTokenPath(stateDir, providerId);
+  const legacy = join(stateDir, LEGACY_TOKEN_DIR, `${providerId}.token`);
+  if (!existsSync(f) && existsSync(legacy)) {
+    mkdirSync(join(stateDir, ...TOKEN_DIR), { recursive: true, mode: 0o700 });
+    renameSync(legacy, f);
+    chmodSync(f, 0o600);
+    // The old folder stays only when something else is in it.
+    try { rmdirSync(join(stateDir, LEGACY_TOKEN_DIR)); } catch { /* not empty */ }
+  }
+  return f;
 }
 
 export function readProviderToken(stateDir: string, providerId: string): string | null {
@@ -49,7 +69,7 @@ export function writeProviderToken(stateDir: string, providerId: string, token: 
   if (token === null) { rmSync(f, { force: true }); return true; }
   const v = token.trim();
   if (!TOKEN_SHAPE.test(v)) return false;
-  mkdirSync(join(stateDir, "providers"), { recursive: true, mode: 0o700 });
+  mkdirSync(join(stateDir, ...TOKEN_DIR), { recursive: true, mode: 0o700 });
   writeFileSync(f, v, { mode: 0o600 });
   chmodSync(f, 0o600);
   return true;
@@ -161,10 +181,23 @@ export function createProviderRegistry(opts: {
   };
 }
 
-/** A provider server is a machine's when the name or the address says so. */
-export function matchServer<T extends ProviderServer>(servers: readonly T[], machine: { name: string; hostname: string; baseUrl: string | null }): T | null {
+const isLoopback = (h: string): boolean => h === "localhost" || h === "::1" || h === "[::1]" || h.startsWith("127.");
+
+/**
+ * A provider server is a machine's when the machine says so itself: the hostname
+ * and public IPs its node reports come first, then the stored name/hostname and
+ * the address in base_url. A loopback base_url (ssh tunnel) is never evidence.
+ */
+export function matchServer<T extends ProviderServer>(
+  servers: readonly T[],
+  machine: { name: string; hostname: string; baseUrl: string | null; reportedHostname?: string; reportedIps?: readonly string[] },
+): T | null {
+  const norm = (n: string | undefined) => (n ?? "").trim().toLowerCase();
+  const reported = servers.find((s) => (machine.reportedIps ?? []).includes(s.ipv4 ?? "\0") || (norm(machine.reportedHostname) !== "" && norm(machine.reportedHostname) === s.name.toLowerCase()));
+  if (reported) return reported;
   let host = "";
   try { host = machine.baseUrl ? new URL(machine.baseUrl).hostname : ""; } catch { /* no address */ }
-  const names = [machine.name, machine.hostname].map((n) => n.trim().toLowerCase()).filter(Boolean);
-  return servers.find((s) => names.includes(s.name.toLowerCase()) || (s.ipv4 !== null && s.ipv4 === host)) ?? null;
+  if (isLoopback(host)) host = "";
+  const names = [machine.name, machine.hostname].map(norm).filter(Boolean);
+  return servers.find((s) => names.includes(s.name.toLowerCase()) || (s.ipv4 !== null && host !== "" && s.ipv4 === host)) ?? null;
 }

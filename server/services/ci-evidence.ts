@@ -68,6 +68,7 @@ import { spawn } from "node:child_process";
 import { GATES_CI_CHECK, NOT_MEASURED_EXIT, UNIT_CI_CHECK, type CheckRun, type ReviewCheck } from "../../shared/board";
 import { lowPriorityArgv } from "../lib/low-priority";
 import { ChecksInterruptedError } from "./checks-gate";
+import { cardTag, supersedePreviousDelivery } from "./ci-supersede";
 import { reviewChecksStopping } from "./review-checks-brakes";
 
 /** No verdict this long after the push is NOT MEASURED (42 min measured in a 10-PR burst). */
@@ -453,9 +454,15 @@ export interface GithubPort {
   mergeState(repo: string, pr: number): Promise<Got<string>>;
   /** One more attempt of a run that ended without a verdict: same sha, new `run_attempt`. */
   rerun(repo: string, runId: number): Promise<Got<void>>;
+  /** Every open pull request of the repo with its head branch and title: the card filter runs in code, on the title. */
+  openPullRequests(cwd: string, repo: string): Promise<Got<OpenPullRequest[]>>;
+  /** The pull request runs of one branch, any status. */
+  branchRuns(repo: string, branch: string): Promise<Got<GithubRun[]>>;
+  cancelRun(repo: string, runId: number): Promise<Got<void>>;
 }
 
 export type PullRequestRef = { number: number; url: string };
+export type OpenPullRequest = PullRequestRef & { headRefName: string; title: string };
 
 type Spawned = { code: number; out: string; err: string };
 
@@ -613,6 +620,12 @@ export function githubPort(): GithubPort {
     mergeState: (repo, pr) => call(["gh", "pr", "view", String(pr), "--repo", repo, "--json", "mergeable"], process.cwd(),
       (o) => String((JSON.parse(o) as Record<string, unknown>).mergeable ?? "")),
     rerun: (repo, runId) => call(["gh", "run", "rerun", String(runId), "--repo", repo], process.cwd(), () => undefined),
+    openPullRequests: (cwd, repo) => call(
+      ["gh", "pr", "list", "--repo", repo, "--state", "open", "--json", "number,url,headRefName,title", "--limit", "200"], cwd,
+      (o) => JSON.parse(o) as OpenPullRequest[]),
+    branchRuns: (repo, branch) => call(["gh", "api", `repos/${repo}/actions/runs?branch=${encodeURIComponent(branch)}&event=pull_request&per_page=50`], process.cwd(),
+      (o) => listField<GithubRun>(o, "workflow_runs")),
+    cancelRun: (repo, runId) => call(["gh", "run", "cancel", String(runId), "--repo", repo], process.cwd(), () => undefined),
   };
 }
 
@@ -703,10 +716,12 @@ export async function awaitCiEvidence(
   }
 
   const pr = await port.draftPullRequest(cwd, repo.value, branch.value,
-    `board: ${branch.value} (card ${input.taskId.slice(0, 8)})`,
+    `board: ${branch.value} ${cardTag(input.taskId)}`,
     `Draft opened by the Topics board for commit ${sha.slice(0, 8)} of card ${input.taskId.slice(0, 8)}, ` +
       "to read the pull request CI (e2e jobs, unit tests). Not a request to merge: a person marks it ready when the card lands.");
   if (!pr.ok) return notMeasured(`cannot open or find the draft pull request: ${pr.error}`);
+  await supersedePreviousDelivery(port, { cwd, repo: repo.value, taskId: input.taskId, branch: branch.value, sha, pr: pr.value, baseBranch: CI_BASE_BRANCH })
+    .catch(() => undefined);
   const ctx: RunContext = { repo: repo.value, prUrl: pr.value.url };
   const pushedAt = now();
   let toldRunUrl = "";

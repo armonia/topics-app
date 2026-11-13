@@ -28,14 +28,16 @@ import { worktreeDirtProbe } from "./task-automerge";
 import { branchStatusFromRepo } from "./branch-status";
 import { abandonNoticeFromRepo } from "./worktree-abandon-notice";
 import { formatMb, parseSlimSkip, slimWorktree } from "./worktree-slim";
+import { archiveBranchRef } from "./worktree-archive";
 import { commitWorktreeResidue } from "./worktree-residue";
 import { isTopicsSpawned } from "../lib/ghost-script";
+import { isInsideDir } from "../lib/path-containment";
 import { topicSessionKey } from "./agent-census";
 
 /**
  * Tutto cio' che la potatura chiede al resto del server, dichiarato.
  *
- * Sono closure e non valori di proposito: alcune di queste cose (`tryMerge`,
+ * Sono closure e non valori di proposito: alcune di queste cose (`previewList`,
  * l'anteprima) nascono DOPO il punto in cui la fabbrica viene costruita, e
  * leggerle alla chiamata e' esattamente cio' che l'hoisting garantiva prima.
  */
@@ -53,7 +55,7 @@ export interface WorktreeGcDeps {
    * touched, however old (the per-project queue can legitimately hold one
    * behind other installs).
    */
-  worktreeManager: { delete(id: string, opts?: any): Promise<any>; isMaterialising?(id: string): boolean };
+  worktreeManager: { delete(id: string, opts?: any): Promise<any>; isMaterialising?(id: string): boolean; worktreesDir?(): string };
   /** Il progetto di un worktree, per leggere lo stato del ramo dal checkout principale. */
   projectStore: { get(id: string): { path?: string } | null | undefined };
   getTopicBySessionKey: (sessionKey: string) => any;
@@ -90,23 +92,8 @@ export interface WorktreeGcDeps {
   isInFlight: (taskId: string) => boolean;
   /** Il worktree di un task, risolto dal server (task -> topic -> worktree). */
   worktreeOfTask: (taskId: string) => { id: string; absPath: string; projectId: string; name?: string; mode?: string; branchName?: string | null } | null;
-  /** Il progetto che possiede un percorso: serve a datare il ramo dal checkout giusto. */
-  projectIdForPath: (path: string) => string | null;
   /** La consegna e' su main? Risposta per CONTENUTO, non per discendenza. */
   deliveryIsOnMain: (repoPath: string, commit: string) => Promise<boolean | null>;
-  /**
-   * Il merge del ramo del task nel checkout principale (nasce dopo: closure).
-   *
-   * Il terzo argomento NON e' decorazione: e' la fotografia della consegna
-   * (ramo e commit gia' registrati sulla card), ed e' cio' che tiene una card
-   * landabile quando la cartella del worktree non c'e' piu'. Toglierlo fa
-   * fallire il land proprio nei casi per cui questa potatura esiste.
-   */
-  tryMerge: (
-    taskId: string,
-    text: string,
-    delivery?: { branch: string | null; commit: string | null },
-  ) => Promise<any>;
   /** L'anteprima viva di un task, se c'e' (nasce dopo: closure). */
   previewList: () => { taskId: string }[];
   previewTeardown: (taskId: string) => Promise<void>;
@@ -232,8 +219,9 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
   // other terminal path (reject+abandon, delete, an approve the old dirty-main
   // bug skipped, an orphan) leaked one forever. This periodic sweep applies the
   // SAME safety contract to the whole population — reaping only when there is
-  // provably nothing to lose, landing a closed task's unmerged-but-clean commits
-  // first. See server/services/worktree-gc.ts.
+  // provably nothing to lose. A closed task's unmerged-but-clean commits are
+  // never landed here: they are pinned under an archive ref, then the checkout
+  // is freed. See server/services/worktree-gc.ts.
   const WORKTREE_GC_INTERVAL_MS = 30 * 60_000;
   // After how many days without a single sign of life an `in_progress` task counts
   // as abandoned and gives its checkout back (branch kept — see worktree-gc.ts).
@@ -244,12 +232,11 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
   /**
    * La card com'e' ADESSO, a tutti i client aperti.
    *
-   * `projectId` si legge dal TASK e non dal worktree, ed e' la stessa trappola
-   * che `autoMergeEnabled` documenta piu' sotto: `wt.projectId` e' l'uuid del
-   * projectStore, mentre la board filtra per l'id di BOARD, che e' quello
-   * scritto sulla card. Col primo il frame arriverebbe e verrebbe scartato dal
-   * client, cioe' esattamente il silenzio che questa funzione esiste per
-   * togliere — senza nemmeno un errore a dirlo.
+   * `projectId` is read from the TASK, not from the worktree: `wt.projectId`
+   * is the projectStore uuid, while the board filters by the BOARD id, which
+   * is the one written on the card. With the former the frame would arrive and
+   * be dropped by the client: exactly the silence this function exists to
+   * remove, without even an error to say so.
    *
    * Best-effort come ogni altro effetto collaterale di questo giro: un filo
    * rotto non deve fermare una potatura.
@@ -472,6 +459,13 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
         return { taskId: t.id, status: (t.status ?? "todo") as GcTaskStatus, archived: !!t.archived };
       },
       isBusy: (taskId) => deps.isInFlight(taskId),
+      // Only the folders under Topics' own root are Topics' to judge: an
+      // adopted session's checkout elsewhere is kept as is. A manager that
+      // cannot name its root (tests, older hosts) judges everything, as before.
+      foreign: (w) => {
+        const root = deps.worktreeManager.worktreesDir?.();
+        return !!root && !isInsideDir(w.absPath, root);
+      },
       liveInside: (w) => {
         if (deps.chatActive) {
           const rows = deps.db.prepare("SELECT id FROM topics WHERE worktree_id = ?").all(w.id) as { id: string }[];
@@ -491,24 +485,6 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
         const repoPath = deps.projectStore.get(w.projectId)?.path;
         if (!repoPath) return Promise.resolve("gone" as const);
         return branchStatusFromRepo(repoPath, w.branchName);
-      },
-      // DUE NAMESPACE, UNO SOLO GIUSTO. `wt.projectId` è l'uuid del projectStore
-      // (`75e5098a-…`); `board_settings` è chiavata sull'id di BOARD, cioè
-      // `deps.projectIdForPath(path)` (`topics-app-ar3jt5`). Passare il primo dove va il
-      // secondo non solleva niente: `getBoardSettings` non trova la riga e
-      // restituisce i default, dove `dispatchAutoMerge` è `false`.
-      //
-      // Effetto misurato l'11/08: `dispatch_auto_merge = 1` su entrambe le board, e
-      // il GC che stampava «77× commit non mergiati, AUTOMERGE NON DISPONIBILE».
-      // Il ramo `land-then-reap` — quello che porta su main il lavoro di un task
-      // chiuso prima di liberarne la cartella — non è mai partito, nemmeno una
-      // volta, da quando esiste. Un id sbagliato non fallisce: mente in silenzio.
-      autoMergeEnabled: (projectId) => {
-        try {
-          const path = deps.projectStore.get(projectId)?.path;
-          if (!path) return false;
-          return !!deps.svc.getBoardSettings(deps.projectIdForPath(path)).dispatchAutoMerge;
-        } catch { return false; }
       },
       abandonAfterDays: WORKTREE_ABANDON_DAYS,
       idleDays: (taskId) => idleDaysOfTask(taskId),
@@ -582,14 +558,12 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
         // `deleteBranch: false` is the whole point of this path.
         return deps.worktreeManager.delete(wt.id, { deleteBranch: false });
       },
-      tryLand: async (taskId) => {
-        const t = deps.svc.get(taskId)?.task;
-        const text = t?.text ?? "";
-        const res = await deps.tryMerge(taskId, text, {
-          branch: t?.deliveryBranch ?? null,
-          commit: t?.deliveryCommit ?? null,
-        });
-        return res.status === "merged" ? "landed" : res.status === "nothing" ? "nothing" : res.status === "conflict" ? "conflict" : "skipped";
+      // Never a merge: see the archive branch in `sweepWorktrees`. Wired
+      // whatever the board's auto-merge setting says: archiving is not landing.
+      archiveBranch: async (taskId, wt) => {
+        const repoPath = deps.projectStore.get(wt.projectId)?.path;
+        if (!repoPath || !wt.branchName) return false;
+        return archiveBranchRef(repoPath, wt.branchName, taskId);
       },
       // Solo la cartella. `deleteBranch: false` è tutta la differenza con `reap`
       // qui sotto: i commit restano raggiungibili dal ref, e il worktree smette di
