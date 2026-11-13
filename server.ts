@@ -230,6 +230,7 @@ import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } fr
 import { createProvidersRouter } from "./server/routes/providers";
 import { createAppSettingsRouter } from "./server/routes/app-settings";
 import { createCalendarRouter } from "./server/routes/calendar";
+import { createHeavySlotRouter } from "./server/routes/heavy-slot";
 import { createAgentChannelsRouter } from "./server/routes/agent-channels";
 import { createAgentConfigRouter } from "./server/routes/agent-config";
 import {
@@ -594,7 +595,7 @@ const nativeHostLiveness = createNativeHostLiveness<MirrorSocket>({
     nativeDelegateRegistry.unregister(contextId, socket);
     browserWsClients.get(contextId)?.delete(socket as never);
     hostMirror.onClose(socket, contextId);
-    try { (socket as unknown as ServerWebSocket<WSData>).close(1001, "Native host unresponsive"); } catch {}
+    try { (socket as unknown as ServerWebSocket<WSData>).close(1001, "Native host unresponsive"); } catch { /* handle may already be closed */ }
   },
 });
 
@@ -3142,6 +3143,8 @@ const providersRouter = createProvidersRouter(ctx);
 const appSettingsRouter = createAppSettingsRouter(ctx);
 // L'agenda del calendario configurato, e la prova di un indirizzo prima di salvarlo.
 const calendarRouter = createCalendarRouter(ctx);
+// The machine-wide queue for heavy commands, asked by every harness on this Mac.
+const heavySlotRouter = createHeavySlotRouter(ctx);
 // The titles of the agents' Discord and WhatsApp chats, read from jarvis-channels.
 const agentChannelsRouter = createAgentChannelsRouter(ctx);
 // Anagrafica di Jarvis e Visione: legge e scrive i file di jarvis-channels.
@@ -3235,6 +3238,10 @@ const nodesRouter = createNodesRouter(ctx, {
   deleteBoardTask: deleteDelegatedBoardTask,
   revocations: delegatedRevocations,
   onEnterTodo: (projectId, taskId) => taskDispatcher.onEnterTodo(projectId, taskId),
+  worktreeOfTask: (taskId) => {
+    const wt = worktreeOfTask(taskId);
+    return wt ? { absPath: wt.absPath, branchName: wt.branchName, mode: wt.mode } : null;
+  },
   // The browser acceptance server intentionally has no live coding account.
   // Give only that hermetic process one inert catalogue value so it can prove
   // the authorization handshake without probing or invoking an LLM.
@@ -3427,10 +3434,10 @@ const wsHeartbeatTimer = setInterval(() => {
     if (now - ws.data.lastPong > WS_TIMEOUT_MS) {
       console.log(`[WS] Removing stale client ${ws.data.id} (no pong for ${Math.round((now - ws.data.lastPong) / 1000)}s)`);
       wsClients.delete(ws);
-      try { ws.close(1001, "Connection timeout"); } catch {}
+      try { ws.close(1001, "Connection timeout"); } catch { /* handle may already be closed */ }
       continue;
     }
-    if (ws.readyState === 1) { try { ws.ping(); } catch {} }
+    if (ws.readyState === 1) { try { ws.ping(); } catch { /* ping on a dying socket: the next sweep drops it */ } }
   }
   // Browser screencast sockets are kept OUT of wsClients, so reap them here too.
   // Without this, a half-open TCP break (laptop sleep / network drop) never
@@ -3458,7 +3465,7 @@ const wsHeartbeatTimer = setInterval(() => {
         });
         continue;
       }
-      if (ws.readyState === 1) { try { ws.ping(); } catch {} }
+      if (ws.readyState === 1) { try { ws.ping(); } catch { /* ping on a dying socket: the next sweep drops it */ } }
     }
     if (set.size === 0) {
       browserWsClients.delete(ctxId);
@@ -3721,6 +3728,7 @@ const apiRouteTable = buildRouteTable({
   providersRouter,
   appSettingsRouter,
   calendarRouter,
+  heavySlotRouter,
   agentChannelsRouter,
   agentConfigRouter,
   tabsRouter,
@@ -4508,7 +4516,7 @@ const opzioniServer = {
             console.warn(`[WS][browser] startScreencast failed for ${ctxId}:`, err.message);
             try {
               ws.send(JSON.stringify({ type: 'error', message: `Screencast start failed: ${err.message}` }));
-            } catch {}
+            } catch { /* socket may have closed before the error could be sent */ }
           });
         };
         hostBootRace.begin(ws, ctxId, ws.data.expectsNativeHost === true, (frames) => {
@@ -4714,7 +4722,7 @@ const opzioniServer = {
           // handled before parseBrowserWsMessage.
           const delegated = handleNativeDelegationFrame(
             raw, ctxId,
-            (m) => { try { ws.send(JSON.stringify(m)); } catch {} },
+            (m) => { try { ws.send(JSON.stringify(m)); } catch { /* socket may already be closed */ } },
             nativeDelegateRegistry,
             ws, // owner — lets unregister() skip stale-socket cleanups after a re-register
             // Liveness del proprietario corrente: e' cio' che distingue una
@@ -4736,7 +4744,7 @@ const opzioniServer = {
                 reason: "un esecutore nativo vivo serve gia' questo contextId",
               }));
             } catch { /* socket gia' andato */ }
-            try { ws.close(1008, "native executor already registered"); } catch {}
+            try { ws.close(1008, "native executor already registered"); } catch { /* socket may already be closed */ }
             return;
           }
           if (delegated === 'registered') {

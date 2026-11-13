@@ -53,6 +53,8 @@ let boardId: string;
 let mainSha: string;
 let deliverySha: string;
 let failNodeBoardDelete = false;
+/** Per-run worktree stubs (KANBAN-76 part 2), keyed by run id; empty by default. */
+const worktreeByTask = new Map<string, { absPath: string; branchName: string | null; mode: "branch" | "reuse" | "detached" }>();
 
 async function call(
   method: string,
@@ -159,6 +161,7 @@ beforeAll(async () => {
       return tasksRouter(new Request(url, { method: "DELETE" }), url, url.pathname, "DELETE");
     },
     taskModels: () => ["gpt-5", "gpt-mini"],
+    worktreeOfTask: (taskId) => worktreeByTask.get(taskId) ?? null,
   });
 });
 
@@ -438,6 +441,35 @@ describe("nodes routes: ingress of a mirrored card", () => {
     const never = await mirror("origin-task-4");
     const noBranch = await call("GET", `/api/nodes/runs/${never.body.runId}/bundle`);
     expect(await noBranch.json()).toEqual({ empty: true, baseSha: mainSha });
+  });
+
+  test("worktree passato a un ramo nuovo: il ramo registrato, fermo, non si consegna come se fosse nuovo", async () => {
+    const wtPath = join(ROOT, "node-worktree-switched");
+    const registered = "topics/registered-branch";
+    const actual = "topics/registered-branch-actual";
+    git(REPO, "worktree", "add", "-q", "-b", registered, wtPath, "main");
+    git(wtPath, "checkout", "-q", "-b", actual);
+    appendFileSync(join(wtPath, "README.md"), "committed on a branch the task never registered\n");
+    git(wtPath, "commit", "-q", "-am", "actual node work");
+
+    const { body } = await mirror("origin-task-head-mismatch");
+    worktreeByTask.set(body.runId, { absPath: wtPath, branchName: registered, mode: "branch" });
+    try {
+      const { createTaskService } = await import("../../server/services/tasks");
+      createTaskService(ctx.db).recordDelivery({ taskId: body.runId, branch: registered, commit: null });
+
+      const run = await (await call("GET", `/api/nodes/runs/${body.runId}`)).json();
+      expect(run.deliveryBranch).toBeNull();
+      expect(run.deliveryCommit).toBeNull();
+      expect(run.reason).toContain(actual);
+      expect(run.reason).toContain(registered);
+
+      const bundle = await call("GET", `/api/nodes/runs/${body.runId}/bundle`);
+      expect(await bundle.json()).toEqual({ empty: true, baseSha: mainSha });
+    } finally {
+      worktreeByTask.delete(body.runId);
+      git(REPO, "worktree", "remove", "-f", wtPath);
+    }
   });
 
   test("DELETE archivia, e' idempotente, e libera la chiave per una corsa nuova", async () => {

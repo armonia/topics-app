@@ -428,8 +428,8 @@ export class CodexProvider implements AIProvider {
     this.started = false;
     const exits: Promise<void>[] = [];
     for (const [, child] of this.activeChildren) {
-      try { child.kill("SIGTERM"); } catch {}
-      setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, KILL_GRACE_MS);
+      try { child.kill("SIGTERM"); } catch { /* best-effort: the child may already have exited */ }
+      setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* best-effort: the child may already have exited */ } }, KILL_GRACE_MS);
       exits.push(childExited(child, KILL_GRACE_MS + 500));
     }
     this.activeChildren.clear();
@@ -724,13 +724,13 @@ export class CodexProvider implements AIProvider {
       sessionKey,
       isHumanHold,
       onExpired: () => {
-        try { child.kill("SIGTERM"); } catch {}
+        try { child.kill("SIGTERM"); } catch { /* best-effort: the child may already have exited */ }
         handler.onError("Codex turn timed out after 30 minutes");
         // SIGKILL fallback if it ignores SIGTERM, so the close handler runs and
         // we don't leak an orphan child. Mirrors abort()'s grace-window guard.
         setTimeout(() => {
           if (this.activeChildren.get(sessionKey) === child) {
-            try { child.kill("SIGKILL"); } catch {}
+            try { child.kill("SIGKILL"); } catch { /* best-effort: the child may already have exited */ }
           }
         }, KILL_GRACE_MS);
       },
@@ -767,7 +767,7 @@ export class CodexProvider implements AIProvider {
       // Owner-scoped cleanup (see turnState above): never strip a newer turn's
       // entries, and read THIS turn's state, not whatever the map holds now.
       if (this.activeChildren.get(sessionKey) === child) this.activeChildren.delete(sessionKey);
-      try { rl.close(); } catch {}
+      try { rl.close(); } catch { /* best-effort: readline may already be closed */ }
 
       const state = turnState;
       if (this.sessionState.get(sessionKey) === turnState) this.sessionState.delete(sessionKey);
@@ -1286,12 +1286,12 @@ export class CodexProvider implements AIProvider {
     if (!child) return;
     const state = this.sessionState.get(sessionKey);
     if (state) state.aborted = true;
-    try { child.kill("SIGINT"); } catch {}
+    try { child.kill("SIGINT"); } catch { /* best-effort: the child may already have exited */ }
     setTimeout(() => {
       // Still alive after the grace window? Force-kill so the close handler
       // runs and the user isn't stuck with a phantom stream.
       if (this.activeChildren.get(sessionKey) === child) {
-        try { child.kill("SIGKILL"); } catch {}
+        try { child.kill("SIGKILL"); } catch { /* best-effort: the child may already have exited */ }
       }
     }, KILL_GRACE_MS);
   }

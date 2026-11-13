@@ -300,7 +300,7 @@ export function loadPersistedState(
   try {
     const raw = localStorage.getItem(storageKey(projectPath));
     if (raw) tabState = JSON.parse(raw) as PersistedTabState;
-  } catch {}
+  } catch { /* corrupt tab cache: start without it, the server snapshot refills */ }
   if (onUpdate) subscribeToProjectLayout(projectPath, onUpdate);
 
   let layout: PersistedLayoutState | null = null;

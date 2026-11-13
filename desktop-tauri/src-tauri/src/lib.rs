@@ -25,6 +25,8 @@ mod shortcuts_generated;
 /// outside the tests.
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod chords;
+mod tray_machines;
+mod tray_quota;
 #[cfg(target_os = "windows")]
 mod chords_win;
 
@@ -3049,6 +3051,7 @@ fn set_app_status(
     count: u32,
     items: Vec<StatusItem>,
     groups: Option<Vec<StatusGroup>>,
+    machines: Option<Vec<tray_machines::StatusMachine>>,
 ) {
     if !accepts_app_status_from(window.label()) {
         return;
@@ -3061,6 +3064,7 @@ fn set_app_status(
         use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
         use tauri::Manager;
         let groups = groups.unwrap_or_default();
+        let machines = machines.unwrap_or_default();
         // The dock-tile badge is an AppKit UI mutation — must run on the main thread.
         if let Some(win) = app.get_window("main") {
             let _ = win.run_on_main_thread(move || set_dock_badge(count));
@@ -3133,6 +3137,39 @@ fn set_app_status(
                 }
                 mb = mb.separator();
             }
+            // Every machine Topics knows: a submenu with its gauges, the provider
+            // extras as disabled rows and the history line as the icon of the
+            // first one. The client wrote the words; this side only draws.
+            if !machines.is_empty() {
+                for m in &machines {
+                    let mut sb = SubmenuBuilder::new(&app, tray_label(&m.title));
+                    if let Ok(head) = tauri::menu::IconMenuItemBuilder::new(tray_label(&m.title))
+                        .id(format!("machine-head:{}", m.id))
+                        .icon(tauri::image::Image::new_owned(
+                            tray_machines::render_spark(&m.spark),
+                            tray_machines::SPARK_W,
+                            tray_machines::SPARK_H,
+                        ))
+                        .enabled(false)
+                        .build(&app)
+                    {
+                        sb = sb.item(&head);
+                    }
+                    for (i, line) in m.lines.iter().enumerate() {
+                        if let Ok(row) = MenuItemBuilder::with_id(format!("machine-line:{}:{i}", m.id), tray_label(line))
+                            .enabled(false)
+                            .build(&app)
+                        {
+                            sb = sb.item(&row);
+                        }
+                    }
+                    sb = sb.separator().text(format!("machine-open:{}", m.id), "Apri Processi");
+                    if let Ok(sub) = sb.build() {
+                        mb = mb.item(&sub);
+                    }
+                }
+                mb = mb.separator();
+            }
             // Le azioni che il menu si era perso per strada: la app è cresciuta
             // (chat, board, aggiornatore) e la tray era rimasta a Mostra/Esci,
             // cioè non sapeva far FARE niente. Sono le stesse porte del menu
@@ -3159,7 +3196,7 @@ fn set_app_status(
         Ok(())
     });
     #[cfg(not(target_os = "macos"))]
-    let _ = (app, count, items, groups);
+    let _ = (app, count, items, groups, machines);
 }
 
 /// Set (or clear, when 0) the macOS dock-icon badge label via the shared
@@ -12040,6 +12077,9 @@ pub fn run() {
                             // Identico alla voce del menu nativo (updater_check +
                             // UpdaterToast lato client).
                             tray_dispatch(app, "topics:check-for-updates", None);
+                        } else if id.starts_with("machine-open:") {
+                            // Every machine's detail lives in the Processes view.
+                            tray_dispatch(app, "topics:tray-open-processes", None);
                         } else if id.starts_with("board:") {
                             // La testa della sezione e il piede di ogni sottomenu:
                             // portano alla board, che è dove il lavoro si guarda per
@@ -12066,6 +12106,17 @@ pub fn run() {
                     builder = builder.icon(icon.clone());
                 }
                 let _ = builder.build(app.handle())?;
+                // The quota strip polls the service itself (hidden window, restarted
+                // client: it keeps updating). Card c675633f.
+                let tray_handle = app.handle().clone();
+                tray_quota::spawn_poller(move |strip| {
+                    if let Some(tray) = tray_handle.tray_by_id("main") {
+                        let img = tauri::image::Image::new_owned(strip.rgba, strip.width, strip.height);
+                        let _ = tray.set_icon(Some(img));
+                        #[cfg(target_os = "macos")]
+                        let _ = tray.set_icon_as_template(false);
+                    }
+                });
             }
 
             // Restore the persisted always-on-top state (Electron parity — it was

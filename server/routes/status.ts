@@ -316,7 +316,7 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
       let fleet: Awaited<ReturnType<typeof getFleetUsage>> | null = null;
       try {
         fleet = await getFleetUsage();
-      } catch {}
+      } catch { /* fleet usage is optional: memory falls back to process RSS (see fleet?.supported below) */ }
 
       // How busy the whole Mac is, as the two percentages the one number on
       // the status dot is made of (`machineBusyPct` on the client). The same

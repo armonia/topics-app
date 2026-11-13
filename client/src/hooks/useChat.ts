@@ -417,7 +417,7 @@ function getCachedMessages(sessionKey: string): ChatMessage[] | null {
 }
 
 function clearCachedMessages(sessionKey: string) {
-  try { localStorage.removeItem(CACHE_PREFIX + sessionKey); } catch {}
+  try { localStorage.removeItem(CACHE_PREFIX + sessionKey); } catch { /* cache entry may already be gone or storage blocked */ }
 }
 
 /**
@@ -1915,6 +1915,7 @@ export function useChat() {
         }
         break;
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- handleStreamEventRef is a stable ref mirror declared right after this callback
   }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn, relightSettledTurn, reserveThinkingRow]);
   // The held frames run through the handler of the moment they are released.
   const handleStreamEventRef = useRefMirror(handleStreamEvent);
@@ -1972,7 +1973,7 @@ export function useChat() {
     }
     // Forward to registered handlers
     for (const handler of wsHandlersRef.current) {
-      try { handler(event); } catch {}
+      try { handler(event); } catch (e) { console.error('[chat] ws handler threw', e); }
     }
   }, [handleStreamEvent]);
 
@@ -2338,7 +2339,9 @@ export function useChat() {
         hydratedSessionsRef.current.add(sessionKey);
         // The whole thread, in one answer: nothing is missing above it.
         markHistoryComplete(sessionKey);
-      } catch {}
+      } catch (e) {
+        console.warn('[chat] history reload after stream failed', e);
+      }
 
       // Turno concluso in casa (SSE locale): stessa regola dello `stream:end`
       // via WS — tocca alla coda, se non è stata messa in freno da uno stop.

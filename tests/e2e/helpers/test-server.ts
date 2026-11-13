@@ -93,6 +93,11 @@ export function hubPortFor(port: number = E2E_PORT): number {
   return port + 2000;
 }
 
+/** Where the test server finds a hosting provider's API: a port only a spec's fake listens on (+3000, free of the tunnel and the hub). */
+export function providerApiPortFor(port: number = E2E_PORT): number {
+  return port + 3000;
+}
+
 export const E2E_TUNNEL_BASE = `http://127.0.0.1:${tunnelPortFor(E2E_PORT)}`;
 export const E2E_TUNNEL_WS_BASE = `ws://127.0.0.1:${tunnelPortFor(E2E_PORT)}`;
 
@@ -336,6 +341,8 @@ export function testServerEnv(port: number = E2E_PORT): Record<string, string> {
     TOPICS_HUB_URL: `http://127.0.0.1:${hubPortFor(port)}`,
     // The Claude proxy's account log: the same fake answers its paths too.
     TOPICS_SWITCHBOARD_URL: `http://127.0.0.1:${hubPortFor(port)}`,
+    // The hosting provider's API (cost, location): never the real one.
+    TOPICS_HETZNER_API_URL: `http://127.0.0.1:${providerApiPortFor(port)}`,
   };
 }
 

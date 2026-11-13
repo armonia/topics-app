@@ -76,6 +76,28 @@ function sessions(): Row[] {
 const fmt = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n));
 const pad = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + "…" : s.padEnd(n));
 
+/** One content block of a transcript message: only text blocks are read. */
+interface TranscriptContentBlock {
+  type?: string;
+  text?: string;
+}
+
+/** One line of a CLI transcript: only the content blocks and usage this scan reads. */
+interface TranscriptLine {
+  message?: {
+    id?: string;
+    model?: string;
+    content?: string | TranscriptContentBlock[];
+    usage?: {
+      input_tokens?: number;
+      cache_read_input_tokens?: number;
+      cache_creation_input_tokens?: number;
+      cache_creation?: { ephemeral_1h_input_tokens?: number };
+    };
+  };
+  requestId?: string;
+}
+
 /** Il modello che ha risposto per ultimo, e quante volte il preambolo è ripartito. */
 function scanTranscript(path: string): {
   model: string | null;
@@ -96,18 +118,20 @@ function scanTranscript(path: string): {
 
   for (const line of raw.split("\n")) {
     if (!line) continue;
-    let j: any;
-    try { j = JSON.parse(line); } catch { continue; }
+    let j: TranscriptLine | undefined;
+    try { j = JSON.parse(line) as TranscriptLine; } catch { continue; }
 
     const content = j?.message?.content;
     const texts: string[] = typeof content === "string"
       ? [content]
-      : Array.isArray(content) ? content.filter((c: any) => c?.type === "text").map((c: any) => c.text) : [];
+      : Array.isArray(content)
+        ? content.filter((c): c is TranscriptContentBlock & { text: string } => c?.type === "text" && typeof c?.text === "string").map((c) => c.text)
+        : [];
     for (const t of texts) if (typeof t === "string" && t.includes("<context>")) preambles++;
 
     const u = j?.message?.usage;
     if (!u) continue;
-    const id = j.message?.id ?? j.requestId;
+    const id = j?.message?.id ?? j?.requestId;
     if (id) {
       if (seen.has(id)) continue; // riga per content-block della stessa risposta
       seen.add(id);
@@ -117,7 +141,7 @@ function scanTranscript(path: string): {
     // chiamata" azzera il contesto e perde il nome del modello — il ring del
     // server è immune perché scarta le misure <= 0 (`recordSessionContext`),
     // questo script no.
-    const rowModel: string | undefined = j.message?.model;
+    const rowModel: string | undefined = j?.message?.model;
     if (rowModel === "<synthetic>") continue;
     calls++;
     if (rowModel) model = rowModel;

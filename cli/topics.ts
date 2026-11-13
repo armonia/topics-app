@@ -58,7 +58,7 @@ function readDaemonState(): DaemonState | null {
       typeof obj?.token === "string" &&
       typeof obj?.startedAt === "string"
     ) return obj;
-  } catch {}
+  } catch { /* unreadable or malformed state file: treated as no daemon */ }
   return null;
 }
 
@@ -126,7 +126,7 @@ async function daemonRequest(
     signal: AbortSignal.timeout(3000),
   });
   let body: unknown = null;
-  try { body = await res.json(); } catch {}
+  try { body = await res.json(); } catch { /* non-JSON body: fall back to the default */ }
   return { status: res.status, body };
 }
 
@@ -148,8 +148,14 @@ async function apiRequest<T>(
   if (body !== undefined) init.body = JSON.stringify(body);
   const res = await fetchLocal(port, path, init);
   let parsed: T | null = null;
-  try { parsed = (await res.json()) as T; } catch {}
+  try { parsed = (await res.json()) as T; } catch { /* non-JSON body: fall back to the default */ }
   return { status: res.status, body: parsed };
+}
+
+/** What a caught value says: its `message` when it has one, else the value itself as text. */
+function errorText(err: unknown): string {
+  if (typeof err === "object" && err !== null && "message" in err) return String(err.message);
+  return String(err);
 }
 
 function usage(): string {
@@ -208,8 +214,8 @@ async function cmdAuth(sub: string) {
       } else {
         console.log(`status: state file present but daemon unreachable (HTTP ${status})`);
       }
-    } catch (err: any) {
-      console.log(`status: state file present but unreachable (${err?.message ?? err})`);
+    } catch (err) {
+      console.log(`status: state file present but unreachable (${errorText(err)})`);
     }
     return;
   }
@@ -267,7 +273,7 @@ async function cmdDaemon(sub: string) {
         try {
           const { status } = await daemonRequest(fresh, "/__daemon/healthz");
           if (status === 200) { online = true; break; }
-        } catch {}
+        } catch { /* healthz not up yet: keep polling until the deadline */ }
       }
       await new Promise((r) => setTimeout(r, 150));
     }
@@ -302,8 +308,8 @@ async function cmdDaemon(sub: string) {
     try {
       process.kill(state.pid, "SIGTERM");
       console.log(`SIGTERM sent to pid ${state.pid}`);
-    } catch (err: any) {
-      console.error(`failed to signal pid ${state.pid}: ${err?.message ?? err}`);
+    } catch (err) {
+      console.error(`failed to signal pid ${state.pid}: ${errorText(err)}`);
       process.exit(1);
     }
     return;

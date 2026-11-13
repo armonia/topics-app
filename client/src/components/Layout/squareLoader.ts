@@ -29,7 +29,7 @@ const SMALL_FRAME_MS = 1000 / 30;
 const SETTLE_S = 1;
 /** How fast a small body follows its shape: slow while changing, tight once settled. Alpha keeps the slow pace. */
 const RATE_FREE = 6.5;
-/** A small body crosses cells: any faster and a point lands on the next cell in one frame. */
+/** A small body crosses cells: step faster and a point lands on the next cell in one frame. */
 const RATE_SMALL_CHANGE = 4;
 /** A change starts from standing: the pace ramps up over this long (seconds). */
 const RAMP_S = 0.3;

@@ -499,7 +499,7 @@ export function ProjectSidebar({
     try {
       const saved = readLayout(SECTIONS_KEY) ?? sessionStorage.getItem('sidebar-sections');
       if (saved) return JSON.parse(saved);
-    } catch {}
+    } catch { /* unreadable saved sections: use the defaults below */ }
     return { files: true, git: false, processes: false };
   });
 
@@ -612,7 +612,7 @@ export function ProjectSidebar({
     try {
       const saved = readLayout(HEIGHTS_KEY);
       if (saved) return JSON.parse(saved);
-    } catch {}
+    } catch { /* unreadable saved heights: fall back to automatic heights */ }
     return { git: null, processes: null };
   });
 

@@ -50,8 +50,8 @@ function makeTabId(): string {
 function applyIncomingSnapshot(incoming: unknown): void {
   if (!incoming || typeof incoming !== 'object') return;
   // Narrow only the fields we gate on; the rest of the shape is validated by
-  // sanitizeSnapshot inside the reducer. `as any` is confined to the dispatch
-  // payload — matches the parsed-JSON shape of the original implementation.
+  // sanitizeSnapshot inside the reducer. Spread as `object` so the untrusted
+  // wire props stay invisible to the typechecker, like the WS frames in syncWS.
   const snap = incoming as { senderId?: unknown; server_seq?: unknown };
   // Bug #4: self-originated frame — drop. Matches storage + BroadcastChannel.
   if (typeof snap.senderId === 'string' && snap.senderId === tabId) return;
@@ -64,8 +64,7 @@ function applyIncomingSnapshot(incoming: unknown): void {
   // HYDRATE_FROM_SNAPSHOT runs the sanitizer (B3) so device-local fields
   // from the originating tab's localStorage can't leak in here either.
   // `senderId` is not part of the store shape; the sanitizer drops it.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const payloadSnapshot = { ...(incoming as Record<string, unknown>), seq: incomingSeq } as any;
+  const payloadSnapshot = { ...(incoming as object), seq: incomingSeq };
   usePaneStore.getState().dispatch({
     type: 'HYDRATE_FROM_SNAPSHOT',
     payload: { snapshot: payloadSnapshot },

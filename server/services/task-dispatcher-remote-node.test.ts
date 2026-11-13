@@ -120,6 +120,29 @@ describe("la card parte sul nodo, non qui", () => {
     expect(t.dispatchError ?? "").toContain("troppo grande");
   });
 
+  it("400 dal nodo (modello fuori catalogo): la card si parcheggia col motivo del nodo, non resta in coda come node_unreachable", async () => {
+    const h = harness({ createRun: () => Promise.reject(Object.assign(new Error("create run answered 400: Il modello scelto non è nel catalogo attuale"), { reason: "rejected" })) });
+    h.seed();
+
+    await dispatch(h);
+
+    const t = h.task();
+    expect(t.dispatchError).not.toBe("node_unreachable");
+    expect(t.dispatchDeferredUntil).toBeNull();
+    expect(t.dispatchError ?? "").toContain("non è nel catalogo");
+  });
+
+  it("modello rifiutato dal nodo: la card torna in coda senza macchina fissa, non in backlog", async () => {
+    const h = harness({ createRun: () => Promise.reject(Object.assign(new Error("create run answered 400"), { reason: "model_rejected" })) });
+    h.seed();
+
+    await dispatch(h);
+
+    const t = h.task();
+    expect(t.status).toBe("todo");
+    expect(t.machineId ?? null).toBeNull();
+  });
+
   it("nodo muto due volte: la card resta in coda, il tetto dei rimandi dell'agente non la ferma", async () => {
     // The node's retry opens no turn, so it keeps the wide streak cap; the
     // agent's cap (one wait, then the card asks) would park it on the second.
@@ -856,7 +879,7 @@ describe("lo specchio: stato, commenti e il ramo che torna", () => {
   it("il ramo che non si pianta arriva comunque in review, col motivo scritto", async () => {
     const h = harness({
       bundle: new Uint8Array([9, 9]),
-      planted: { planted: false, commit: null, reason: "il commit di base 1234abcd non è in questo checkout" },
+      planted: { planted: false, commit: null, commitCount: 0, reason: "il commit di base 1234abcd non è in questo checkout" },
       readRun: () =>
         Promise.resolve(report({ status: "review", deliveryBranch: "topics/corsa-remota", baseSha: "1234abcd" })),
     });
@@ -1087,12 +1110,19 @@ describe("la copia vecchia che il nodo restituisce dopo un riavvio", () => {
 describe("la consegna del nodo è una consegna come le altre", () => {
   const BRANCH = "topics/corsa-remota";
   /** A node that finished with a branch; what `git` would say about it is a parameter. */
-  function plantedHarness(own: { commit: string | null; files: TaskFile[] }, dispatchError?: string) {
+  function plantedHarness(
+    own: { commit: string | null; files: TaskFile[] },
+    dispatchError?: string,
+    // How many commits the planted branch carries above its base: what `plantBranch`
+    // itself would measure on the branch, independent of this run's own commits.
+    commitCount = own.commit ? 1 : 0,
+  ) {
     let capture: DeliveryCapture | null = null;
     const asked: string[] = [];
     const measured: Array<{ taskId: string; commit: string | null }> = [];
     const h = harness({
       bundle: new Uint8Array([1, 2, 3]),
+      planted: { planted: true, commit: "c0ffeec0ffee", commitCount, reason: null },
       readRun: () => Promise.resolve(report({ status: "review", deliveryBranch: BRANCH, deliveryCommit: "deadbeefdeadbeef", baseSha: "abcdef0123456789", ...(dispatchError ? { dispatchError } : {}) })),
     }, {
       captureDelivery: (id) => (capture ? capture(id) : Promise.resolve(false)),
@@ -1144,6 +1174,22 @@ describe("la consegna del nodo è una consegna come le altre", () => {
     expect(t.status).toBe("todo");
     expect(t.stayLocal).toBe(true);
     expect(t.machineId).toBeNull();
+  });
+
+  it("ramo con 2 commit propri sopra main, corsa con 0 commit nuovi: resta in review con la consegna", async () => {
+    // The run's OWN capture finds nothing new (`commit: null`), but the branch
+    // itself carries 2 commits above its base from an earlier delivery —
+    // `plantBranch` measures those, and that is what decides the card is not empty.
+    const { h } = plantedHarness({ commit: null, files: [] }, undefined, 2);
+    h.seed();
+    h.db.run("UPDATE tasks SET overflowed_at = ? WHERE id = ?", [new Date().toISOString(), TASK]);
+    await dispatch(h);
+    h.svc.updateBoardSettings(PID, { autoDispatch: false });
+    await poll(h);
+
+    const t = h.task();
+    expect(t.status).toBe("review");
+    expect(h.comments().some((c) => c.content.includes("finita senza nessun commit"))).toBe(false);
   });
 
   it("zero commit propri, card messa sul nodo dal sistema: torna in todo e salta quel nodo, senza «solo Mac»", async () => {

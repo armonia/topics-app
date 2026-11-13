@@ -92,7 +92,7 @@ function getInitialWorkspaceProjects(): string[] {
       const parsed = JSON.parse(cached);
       if (Array.isArray(parsed)) return parsed;
     }
-  } catch {}
+  } catch { /* unreadable cache: start empty until the server answers */ }
   return [];
 }
 
@@ -181,7 +181,7 @@ export function useTopics() {
     })();
     archivedLoadRef.current = load;
     return load;
-  }, []);
+  }, [bucketsRef]);
 
   /**
    * The retry waiting to fire, and how many have failed in a row before it.

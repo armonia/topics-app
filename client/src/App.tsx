@@ -999,7 +999,7 @@ function App() {
     };
     window.addEventListener('topics:open-terminal-pane', handler as EventListener);
     return () => window.removeEventListener('topics:open-terminal-pane', handler as EventListener);
-  }, [handleTerminalClick]);
+  }, [handleTerminalClick, topicsRef]);
 
   // «Open in terminal» under a code block of a reply (CHAT-RUN-05): a shell
   // where that chat's agent works, with the command typed and not run. Same
@@ -1392,11 +1392,14 @@ function App() {
       if (taskId) openTaskInApp({ taskId });
     };
     const onBoard = () => { handleOpenBoard(); };
+    const onProcesses = () => { window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'processes' } })); };
+    window.addEventListener('topics:tray-open-processes', onProcesses);
     window.addEventListener('topics:tray-open-task', onTask as EventListener);
     window.addEventListener('topics:tray-open-board', onBoard);
     return () => {
       window.removeEventListener('topics:tray-open-task', onTask as EventListener);
       window.removeEventListener('topics:tray-open-board', onBoard);
+      window.removeEventListener('topics:tray-open-processes', onProcesses);
     };
   }, [handleOpenBoard]);
 
