@@ -1,5 +1,31 @@
 [
   {
+    "version": "2.3.98",
+    "date": "2026-11-13",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Read the Hetzner location from the server, not only from datacenter",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Declare the requirement the Hetzner location test covers",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Write the spec requirement HETZNER-LOC-1 the adapter test declares",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.97",
     "date": "2026-11-13",
     "sections": {
@@ -16,6 +42,16 @@
       "internal": [
         {
           "it": "Machine slots accept 0: drained machine takes no new card, pinned ones included",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tray strip: Mac dial and pace gauge, same collapse rule as the original, full 22 pt image size (card 23ec388a)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tray quota tests in their own file (size gate)",
           "en": "",
           "scope": null
         }
@@ -260,6 +296,12 @@
           "en": "",
           "scope": "identifier-language",
           "breaking": false
+        },
+        {
+          "it": "a held 1013 close is cut after a grace and frees its slot; backlog test is event-driven",
+          "en": "",
+          "scope": "relay",
+          "breaking": false
         }
       ],
       "perf": [],
@@ -291,6 +333,16 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Tray menu: tests in their own file (size gate)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tray tests: no slashes in a string that reads as a comment",
+          "en": "",
+          "scope": null
         },
         {
           "it": "UsageRow reads through lib/readJson; guard sees promise-chain and early-return copies; translate a comment",
@@ -369,9 +421,21 @@
           "breaking": false
         },
         {
+          "it": "backup from the service with a cache, five-hour row matched by email, fresh census for the close, prefs keep their keys, defaults on",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "trace the origin/main audit test to LAND-05",
           "en": "",
           "scope": "landing-audit",
+          "breaking": false
+        },
+        {
+          "it": "Prefs default all on, like the old tray",
+          "en": "",
+          "scope": null,
           "breaking": false
         },
         {
@@ -439,6 +503,11 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Tray tests: the fake service reads the whole request head before answering",
+          "en": "",
+          "scope": null
         },
         {
           "it": "Tray parity bar: per-column colour check (distance 3), colour mutation",
@@ -659,6 +728,12 @@
     "sections": {
       "new": [
         {
+          "it": "hub menu in the Topics tray (quotas, machines, processes, projects, brake, backup) with tested actions",
+          "en": "",
+          "scope": "tray",
+          "breaking": false
+        },
+        {
           "it": "remote machines in Processes and the tray like the Mac, with provider extras",
           "en": "",
           "scope": "machines",
@@ -710,6 +785,12 @@
         },
         {
           "it": "a machine without the usage service keeps the plain icon",
+          "en": "",
+          "scope": "tray",
+          "breaking": false
+        },
+        {
+          "it": "destructured lazy import for the hub row",
           "en": "",
           "scope": "tray",
           "breaking": false
