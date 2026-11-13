@@ -167,3 +167,40 @@ fn snapshot() {
     enc.write_header().unwrap().write_image_data(&strip.rgba).unwrap();
 }
 
+
+/// Sum of the absolute horizontal and vertical alpha steps: the edge energy of the ink.
+#[cfg(target_os = "macos")]
+fn edge_energy(c: &Canvas) -> f32 {
+    let at = |x: u32, y: u32| c.px[((y * c.w + x) * 4 + 3) as usize] as f32;
+    let mut sum = 0.0;
+    for y in 0..c.h - 1 {
+        for x in 0..c.w - 1 {
+            sum += (at(x + 1, y) - at(x, y)).abs() + (at(x, y + 1) - at(x, y)).abs();
+        }
+    }
+    sum
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn coretext_text_is_at_least_as_sharp_as_ab_glyph() {
+    let mut ct = Canvas::new(80, 40);
+    let mut ab = Canvas::new(80, 40);
+    let px = PCT_PT * SCALE;
+    ct.glyphs(Face::MonoBold, "16%", 6.0, 26.0, px, [255, 255, 255], 1.0);
+    ab.glyphs_ab(Face::MonoBold, "16%", 6.0, 26.0, px, [255, 255, 255], 1.0);
+    let (e_ct, e_ab) = (edge_energy(&ct), edge_energy(&ab));
+    assert!(e_ab > 0.0 && e_ct > 0.0, "no ink: ct {e_ct} ab {e_ab}");
+    assert!(ct.px != ab.px, "the macOS path must not be ab_glyph");
+    assert!(e_ct >= e_ab, "CoreText edge energy {e_ct} below ab_glyph {e_ab}");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn coretext_honours_the_weight_axis() {
+    let ink = |w: f32| -> u32 {
+        let m = crate::tray_coretext::rasterize("/System/Library/Fonts/SFNSMono.ttf", w, OPTICAL_SIZE_TEXT, 18.0, &['1', '6'], &[0.0, 11.0], 22.0).unwrap();
+        m.a.iter().map(|&v| v as u32).sum()
+    };
+    assert!(ink(900.0) > ink(300.0) * 11 / 10, "weight variation has no effect");
+}

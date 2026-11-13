@@ -345,7 +345,45 @@ impl Canvas {
         }
         self.px[i + 3] = (oa * 255.0).round() as u8;
     }
+    /// macOS: CoreText with pixel-snapped pens. Elsewhere (and as the fallback when CoreText
+    /// cannot load the font) the ab_glyph rasterizer.
     fn glyphs(&mut self, face: Face, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32) -> f32 {
+        #[cfg(target_os = "macos")]
+        if let Some(w) = self.glyphs_coretext(face, s, x, baseline, size, c, a) {
+            return w;
+        }
+        self.glyphs_ab(face, s, x, baseline, size, c, a)
+    }
+    #[cfg(target_os = "macos")]
+    fn glyphs_coretext(&mut self, face: Face, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32) -> Option<f32> {
+        let (path, wght) = match face {
+            Face::Sans => ("/System/Library/Fonts/SFNS.ttf", WEIGHT_SEMIBOLD),
+            Face::SansMetrics => ("/System/Library/Fonts/SFNS.ttf", WEIGHT_SEMIBOLD_LAYOUT),
+            Face::Mono => ("/System/Library/Fonts/SFNSMono.ttf", WEIGHT_REGULAR),
+            Face::MonoBold => ("/System/Library/Fonts/SFNSMono.ttf", WEIGHT_BOLD),
+        };
+        let chars: Vec<char> = s.chars().collect();
+        let mut pens = Vec::with_capacity(chars.len());
+        let mut pen = 0.0_f32;
+        for &ch in &chars {
+            pens.push(pen);
+            pen += match glyph_font(face, ch) {
+                Some(f) => advance(face, f, ch, size),
+                None => size * 0.55,
+            };
+        }
+        let origin = x.round();
+        let mask = crate::tray_coretext::rasterize(path, wght, OPTICAL_SIZE_TEXT, size, &chars, &pens, pen)?;
+        let (left, top) = (origin as i32 - mask.margin, baseline.round() as i32 - mask.base_row);
+        for (i, cov) in mask.a.iter().enumerate() {
+            if *cov > 0 {
+                self.blend(left + (i % mask.w) as i32, top + (i / mask.w) as i32, c, *cov as f32 / 255.0 * a);
+            }
+        }
+        Some(pen)
+    }
+    #[cfg_attr(not(any(test, not(target_os = "macos"))), allow(dead_code))]
+    fn glyphs_ab(&mut self, face: Face, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32) -> f32 {
         let mut pen = x;
         for ch in s.chars() {
             let Some(f) = glyph_font(face, ch) else {
