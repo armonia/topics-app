@@ -580,3 +580,32 @@ MISURA: `tests/e2e/helpers/drain-terminals.test.ts`.
 #### Scenario: budget a zero
 - **GIVEN** nessun margine di tempo
 - **THEN** parte comunque un giro di DELETE: mai meno di ciò che il guardiano ha sempre fatto
+
+### Requirement: E2E-GATE-13 — La credenziale finta di uno spec ucciso non sopravvive alla run dopo
+
+Tre spec (`chat-native-tool-phases`, `chat-turn-end-still`,
+`restart-loses-nothing`) scrivono nella HOME del server di prova una credenziale
+finta e un `ANTHROPIC_BASE_URL` di loopback, e li tolgono nel loro `afterAll`.
+Un job annullato o ucciso a metà spec non ci arriva. Sul nodo fisso `/tmp`
+sopravvive al job: la credenziale resta, il runtime nativo risulta connesso, e
+ogni chat successiva senza runtime fissato va al motore e aspetta una porta
+morta.
+
+Il setup globale SHALL togliere, prima che il server di prova parta, la
+credenziale che porta il token finto e il base URL di loopback, e SHALL lasciare
+ogni altra credenziale e impostazione com'era.
+
+MISURATO il 13/11/2026, PR #903, shard 4 su `topics-permanent-node-2`: quattro
+rossi (usability-audit, chat-strips-in-transcript, processes-run-command) in
+spec che non toccano il motore, «runtime fissato su "topics"» nel log; lo
+stesso schema nello shard 3 della run di main su 72b5ce212.
+
+MISURA: `tests/unit/stale-fake-anthropic.test.ts`.
+
+#### Scenario: il residuo di un undo mai eseguito
+- **GIVEN** la credenziale finta e il base URL di loopback nella HOME di prova
+- **THEN** il setup li toglie e le altre impostazioni restano
+
+#### Scenario: una credenziale vera
+- **GIVEN** una credenziale senza il token finto e un base URL non di loopback
+- **THEN** restano identici

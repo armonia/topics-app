@@ -94,6 +94,13 @@ describe("isTranscriptOrphaned", () => {
   it("no updated_at (0) skips the grace guard and still evaluates existence", () => {
     expect(isTranscriptOrphaned({ ...base, updatedAtMs: 0, transcriptExists: () => false })).toBe(true);
   });
+
+  it("a transcript filed under ANOTHER cwd is moved, not gone: the CLI resumes it by id", () => {
+    // An adopted session born in a scratch folder, now bound to its project.
+    const elsewhere = "/Users/x/.claude/projects/-scratch-abc/c3069509.jsonl";
+    expect(isTranscriptOrphaned({ ...base, transcriptExists: () => false, findAnywhere: () => elsewhere })).toBe(false);
+    expect(isTranscriptOrphaned({ ...base, transcriptExists: () => false, findAnywhere: () => null })).toBe(true);
+  });
 });
 
 /**
