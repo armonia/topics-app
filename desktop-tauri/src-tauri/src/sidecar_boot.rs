@@ -2479,6 +2479,12 @@ pub(crate) fn app_setup(
                     // Identico alla voce del menu nativo (updater_check +
                     // UpdaterToast lato client).
                     tray_dispatch(app, "topics:check-for-updates", None);
+                } else if id == "tray-refresh" {
+                    #[cfg(target_os = "macos")]
+                    {
+                        let a = app.clone();
+                        let _ = std::thread::Builder::new().name("tray-refresh".into()).spawn(move || refresh_hub_menu(&a));
+                    }
                 } else if id.starts_with("machine-open:") {
                     // Every machine's detail lives in the Processes view.
                     tray_dispatch(app, "topics:tray-open-processes", None);
@@ -2502,6 +2508,9 @@ pub(crate) fn app_setup(
                     // the @tauri-apps/event dependency — same bridge the native
                     // shortcut forwarder uses.
                     tray_dispatch(app, "topics:tray-navigate", Some(("topicId", topic_id)));
+                } else {
+                    #[cfg(target_os = "macos")]
+                    run_hub_action(app, id);
                 }
             });
         if let Some(icon) = app.default_window_icon() {
@@ -2516,12 +2525,44 @@ pub(crate) fn app_setup(
         }
         tray_quota::spawn_poller(move |strip| {
             if let Some(tray) = tray_handle.tray_by_id("main") {
-                let img = tauri::image::Image::new_owned(strip.rgba, strip.width, strip.height);
+                let (strip_w, strip_h) = (strip.width, strip.height);
+                let img = tauri::image::Image::new_owned(strip.rgba, strip_w, strip_h);
                 let _ = tray.set_icon(Some(img));
                 #[cfg(target_os = "macos")]
-                let _ = tray.set_icon_as_template(false);
+                {
+                    let _ = tray.set_icon_as_template(false);
+                    // The tray library forces every image to 18 pt tall; the strip is
+                    // drawn for the full 22 pt button, like the original one, so its
+                    // text would come out about a fifth too small. Restore the size.
+                    use crate::mac::{id, msg_send, nil, NSSize};
+                    let (w_pt, h_pt) = (strip_w as f64 / tray_quota::SCALE as f64, strip_h as f64 / tray_quota::SCALE as f64);
+                    let _ = tray.with_inner_tray_icon(move |inner| {
+                        if let Some(item) = inner.ns_status_item() {
+                            unsafe {
+                                let item: id = objc2::rc::Retained::as_ptr(&item) as id;
+                                let button: id = msg_send![item, button];
+                                if button != nil {
+                                    let image: id = msg_send![button, image];
+                                    if image != nil {
+                                        let _: () = msg_send![image, setSize: NSSize::new(w_pt, h_pt)];
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
             }
         });
+        // The menu content follows the same service, on its own thread, so it
+        // keeps updating with the window hidden or the client restarted.
+        #[cfg(target_os = "macos")]
+        {
+            let menu_handle = app.handle().clone();
+            let _ = std::thread::Builder::new().name("tray-menu".into()).spawn(move || loop {
+                refresh_hub_menu(&menu_handle);
+                std::thread::sleep(std::time::Duration::from_secs(tray_quota::POLL_SECS));
+            });
+        }
     }
 
     // Restore the persisted always-on-top state (Electron parity — it was

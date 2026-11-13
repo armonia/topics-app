@@ -182,6 +182,74 @@ export async function openGlobalBoard(page: Page) {
   await expect(page.getByTestId("filter-project-chip")).toBeVisible({ timeout: 10000 });
 }
 
+/** Where the page-side watcher of the strip's resizes keeps its state. */
+const STRIP_WATCH_KEY = "__topbarStripWatch";
+
+/**
+ * Watches, IN THE PAGE, the ResizeObserver cycle the bar recomputes itself on,
+ * and says whether the cycle for the width the strip has NOW has arrived.
+ *
+ * The count of inline chips is produced by a ResizeObserver on the strip
+ * (`ProjectFilterPicker`). A second observer on that same element therefore
+ * knows when the cycle has been DELIVERED for a given width, which is the one
+ * fact a wait on the count cannot get at: "the number did not move" is equally
+ * true of a bar that has already recomputed and of one that has not been told
+ * about the resize yet. See `chipsSettled` in the spec for the verdict built on
+ * top of it.
+ *
+ * It LATCHES ON AGAIN when the strip node changes, and that is not an extra: at
+ * 390px the bar remounts, so the node the first observer was on ends up
+ * detached (measured: `isConnected` false, one single strip in the page). A
+ * re-latch reports `stale`, so the read it happens on proves nothing and the
+ * verdict waits for the next cycle on the new node.
+ *
+ * The first call must come BEFORE the first viewport change: an observer
+ * reports the size once when it starts observing, so one started after a resize
+ * would already carry the new width and would say "recomputed" about a bar that
+ * recomputed nothing.
+ */
+export async function stripWatch(page: Page) {
+  return page.evaluate(async (key) => {
+    // TWO FRAMES before reading. The observers' callbacks run inside the frame,
+    // after layout, and the React render they schedule is flushed right after
+    // that frame: a read taken in the same task would find the width already
+    // measured and the chips not yet repainted.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    const strip = document.querySelector('[data-testid="project-filter-strip"]');
+    type Watch = { target: Element; width: number; generation: number; observer: ResizeObserver };
+    const store = window as unknown as Record<string, Watch | undefined>;
+    let state = store[key];
+    const relatched = !state || state.target !== strip;
+    if (strip && relatched) {
+      state?.observer.disconnect();
+      const next: Watch = { target: strip, width: -1, generation: (state?.generation ?? 0) + 1, observer: null as unknown as ResizeObserver };
+      next.observer = new ResizeObserver(() => { next.width = strip.clientWidth; });
+      next.observer.observe(strip);
+      store[key] = next;
+      state = next;
+    }
+    return {
+      /** Is the strip in the page at all? At the narrow widths of the project
+       *  board the picker does not render, so there is no row to redistribute. */
+      present: !!strip,
+      /** The strip width the last delivered cycle carried. */
+      measuredFor: state ? state.width : -1,
+      /** The width the strip has right now. */
+      current: strip ? strip.clientWidth : -1,
+      /** Which strip node this is: a bump means the bar has remounted. */
+      generation: state ? state.generation : -1,
+      /** The strip is not there, or the watcher has just latched onto it. */
+      stale: !strip || relatched,
+    };
+  }, STRIP_WATCH_KEY);
+}
+
+/** Starts the watcher, and it has to run before the first resize: see `stripWatch`. */
+export async function watchStripResizes(page: Page): Promise<void> {
+  const first = await stripWatch(page);
+  expect(first.current, "la striscia dei progetti non è in pagina: il watcher parte a barra già su").toBeGreaterThanOrEqual(0);
+}
+
 /** The project chips that are REALLY visible (those past the cut are `invisible`). */
 export async function inlineChips(page: Page) {
   return page.locator('[data-testid^="project-filter-chip-"]:visible').count();
