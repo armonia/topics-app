@@ -1317,6 +1317,7 @@ const EN = {
   'chat.queue.editTitle': 'Fix it before it goes out',
   'chat.queue.removeTitle': 'Do not send it',
   'chat.queue.clear': 'Clear',
+  'chat.queue.unsaved': 'Not saved: browser storage is full, so these messages are lost if you reload.',
   'chat.queue.clearTitle': 'Discard every message still waiting to go out',
   'chat.voice.play': 'Play the voice message',
   'chat.voice.pause': 'Pause the voice message',

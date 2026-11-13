@@ -1400,6 +1400,7 @@ const IT: Dict = {
   'chat.queue.editTitle': 'Correggilo prima che parta',
   'chat.queue.removeTitle': 'Non mandarlo',
   'chat.queue.clear': 'Svuota',
+  'chat.queue.unsaved': 'Non salvati: la memoria del browser è piena, ricaricando questi messaggi si perdono.',
   'chat.queue.clearTitle': 'Butta tutti i messaggi ancora da inviare',
   'chat.voice.play': 'Ascolta il messaggio vocale',
   'chat.voice.pause': 'Metti in pausa il messaggio vocale',
