@@ -22,6 +22,7 @@
 import { commitIsIn, listOwnCommits, type GitRunner } from "./own-commits";
 import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
 import { changeUndoneOn } from "./change-undone";
+import { runGit } from "../lib/run-git";
 
 /** Generated, build-output, lockfile and lockstep-version paths — never unique work. */
 const NOISE_RE =
@@ -50,7 +51,7 @@ export async function gitExit(cwd: string, args: string[], run?: GitRunner): Pro
   if (run) {
     try { return (await run(cwd, args)).code; } catch { return 1; }
   }
-  return (await runBounded(["git", "-C", cwd, ...args], { stdout: "ignore", timeoutMs: SPAWN_TIMEOUT.query })).exitCode ?? 1;
+  return (await runGit(cwd, args, { timeoutMs: SPAWN_TIMEOUT.query })).code;
 }
 
 /** The published main, when the repo has an origin that has one. */
@@ -70,7 +71,7 @@ export async function gitOut(cwd: string, args: string[], run?: GitRunner): Prom
   if (run) {
     try { const r = await run(cwd, args); return r.code === 0 ? r.stdout : ""; } catch { return ""; }
   }
-  return (await runBounded(["git", "-C", cwd, ...args], { timeoutMs: SPAWN_TIMEOUT.query })).stdout;
+  return (await runGit(cwd, args, { timeoutMs: SPAWN_TIMEOUT.query })).stdout;
 }
 
 /**
@@ -95,6 +96,9 @@ export async function commitIsAncestor(
   commit: string,
   mainRef = "main",
 ): Promise<boolean | null> {
+  // Stays on `runBounded` on purpose: `runGit` folds a failed spawn into exit 1,
+  // which here would read as a verified "not an ancestor". This one needs
+  // the spawn failure to stay `null` ("cannot tell").
   const { exitCode } = await runBounded(["git", "-C", repoPath, "merge-base", "--is-ancestor", commit, mainRef], {
     stdout: "ignore", timeoutMs: SPAWN_TIMEOUT.query,
   });

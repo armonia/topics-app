@@ -6,7 +6,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { CommentBubble } from './TaskDetail';
+import { CommentBubble } from './TaskComments';
 import type { TaskComment } from '../../../../shared/board';
 
 function comment(over: Partial<TaskComment>): TaskComment {
