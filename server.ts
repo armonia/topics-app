@@ -2659,7 +2659,13 @@ const taskAutoMerge = createTaskAutoMerge({
   // non-landabile. La card però il ramo lo dichiara da sé (`delivery_branch`,
   // registrato quando è entrata in review), e il checkout del suo progetto si
   // ricava dal board id come fa l'audit: invertendo l'hash del percorso.
-  ownBranches: (taskId) => taskAttemptStore.list(taskId).map((a) => a.branch).filter((b): b is string => typeof b === "string" && b.length > 0),
+  // Attempt branches plus the card's own delivery/prior pointers: an old delivery
+  // branch of the same card is its history, never "another session".
+  ownBranches: (taskId) => {
+    const task = dispatcherSvc.get(taskId)?.task;
+    const named = [...taskAttemptStore.list(taskId).map((a) => a.branch), task?.deliveryBranch, task?.priorBranch];
+    return [...new Set(named.filter((b): b is string => typeof b === "string" && b.length > 0))];
+  },
   declaredDelivery: (taskId) => {
     const task = dispatcherSvc.get(taskId)?.task;
     if (!task) return null;
