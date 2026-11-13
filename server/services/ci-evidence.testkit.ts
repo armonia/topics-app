@@ -57,6 +57,9 @@ export function fakePort(over: Partial<GithubPort> = {}): { port: GithubPort; ca
     openPullRequest: async () => ({ ok: true, value: null }),
     closePullRequest: async () => ({ ok: true, value: "closed" }),
     deleteRemoteBranch: async () => ({ ok: true, value: "deleted" }),
+    openPullRequests: async () => ({ ok: true, value: [] }),
+    branchRuns: async () => ({ ok: true, value: [] }),
+    cancelRun: async () => ({ ok: true, value: undefined }),
     ...over,
   };
   // Keep the counters when a test overrides a counted method.
