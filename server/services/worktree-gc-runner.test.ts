@@ -46,13 +46,10 @@ function fakeDeps(over: Partial<WorktreeGcDeps> = {}): { deps: WorktreeGcDeps; t
       release: () => { toccati.push("release"); },
       addComment: () => { toccati.push("addComment"); },
       recordDelivery: () => { toccati.push("recordDelivery"); },
-      getBoardSettings: () => ({ dispatchAutoMerge: false }),
     },
     isInFlight: () => false,
     worktreeOfTask: () => null,
-    projectIdForPath: () => null,
     deliveryIsOnMain: async () => null,
-    tryMerge: async () => { toccati.push("tryMerge"); return { status: "nothing" }; },
     previewList: () => [],
     previewTeardown: async () => { toccati.push("previewTeardown"); },
     ...over,
@@ -269,7 +266,6 @@ describe("la potatura ANNUNCIA cio' che scrive sulle card", () => {
       addComment: () => { toccati.push("addComment"); },
       setDeliveryBranch: () => { toccati.push("setDeliveryBranch"); },
       recordDelivery: () => { toccati.push("recordDelivery"); },
-      getBoardSettings: () => ({ dispatchAutoMerge: false }),
     };
   }
 

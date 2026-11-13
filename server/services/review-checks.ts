@@ -30,7 +30,7 @@ import { psStates, slotCount } from "../../scripts/gate-slot";
 import { parseGateSlowdown } from "../../shared/gate-slowdown";
 import { TIME_SLACK_ENV, timeSlack, timeSlackNote } from "../../shared/test-time-slack";
 import { cpus, loadavg } from "node:os";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { recordCardMemPeak, treeFootprintKB } from "../lib/card-memory-peaks";
 import { lowPriorityArgv } from "../lib/low-priority";
@@ -975,4 +975,21 @@ export function formatChecksThreadSummary(runs: CheckRun[], opts?: { commit?: st
   }
   const why = ci ? ciRedWhy(failed) : failed.spawnError ? "non è partito" : `exit ${failed.code}`;
   return `Consegna fermata dai controlli automatici${where}: ${check} ${why}. Apri i dettagli dei check per comando e log.`;
+}
+
+/**
+ * The fast static guards a delivery runs before anything slow or public. The
+ * command list lives in the `gates:fast` script of package.json, which CI runs
+ * as well: this is the only place the server names it, never the guards.
+ */
+export const FAST_GATES_CHECK: ReviewCheck = { name: "gates:fast", cmd: "bun run gates:fast" };
+
+/** Does this checkout declare the `gates:fast` script? Other projects do not. */
+export function hasFastGates(cwd: string): boolean {
+  try {
+    const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf-8")) as { scripts?: Record<string, string> };
+    return typeof pkg.scripts?.["gates:fast"] === "string";
+  } catch {
+    return false;
+  }
 }

@@ -2707,9 +2707,7 @@ const worktreeGc = createWorktreeGcRunner({
   broadcast: (msg) => ctx.broadcastToAll(msg as Parameters<typeof ctx.broadcastToAll>[0]),
   isInFlight: (taskId) => taskDispatcher.isInFlight(taskId),
   worktreeOfTask: (taskId) => worktreeOfTask(taskId),
-  projectIdForPath: (path) => projectIdForPath(path),
   deliveryIsOnMain: (repoPath, commit) => deliveryIsOnMain(repoPath, commit),
-  tryMerge: (taskId, text, delivery) => taskAutoMerge.tryMerge(taskId, text, delivery),
   previewList: () => previewManager?.list() ?? [],
   previewTeardown: (taskId) => previewManager?.teardown(taskId) ?? Promise.resolve(),
   // PUNTO 3 (task e3240a22): lista degli script vivi per rimandare lo slim.
