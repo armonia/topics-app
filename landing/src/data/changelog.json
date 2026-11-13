@@ -1,9 +1,187 @@
 [
   {
+    "version": "2.3.97",
+    "date": "2026-11-13",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "cura la causa dei sette instabili, non il loro timeout",
+          "scope": "e2e"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.3.94",
+    "date": "2026-11-13",
+    "sections": {
+      "new": [
+        {
+          "text": "test:touched runs only the unit tests the diff reaches, with a whole-suite fallback",
+          "scope": "test"
+        },
+        {
+          "text": "test-touched-measure replays the selector on red CI runs and demands a proof for every miss",
+          "scope": "test"
+        },
+        {
+          "text": "a machine-wide queue for heavy commands, served by Topics",
+          "scope": "heavy-slot"
+        },
+        {
+          "text": "native sessions queue their heavy bash commands in the machine-wide line (KANBAN-114)",
+          "scope": "heavy-slot"
+        },
+        {
+          "text": "a redelivery closes the card's superseded PR and cancels its live runs",
+          "scope": "ci-evidence"
+        },
+        {
+          "text": "Tools page in the user menu with GET /api/agent-tools and `topics tools`",
+          "scope": "agent-tools"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "44px targets for the provider token, fake hub in the e2e",
+          "scope": "machines"
+        },
+        {
+          "text": "the public page escapes the owner's name in the meta description",
+          "scope": "profile"
+        },
+        {
+          "text": "English wording in the public-profile escape test",
+          "scope": "comments"
+        },
+        {
+          "text": "the GC archives a closed card's commits under a ref instead of merging them into main",
+          "scope": "worktree-gc"
+        },
+        {
+          "text": "the profile escape guard declares its requirement and keeps its comment in English",
+          "scope": "tests"
+        },
+        {
+          "text": "hold the client close until its write queue drains",
+          "scope": "relay"
+        },
+        {
+          "text": "clear the 9 react-hooks/exhaustive-deps warnings",
+          "scope": "client"
+        },
+        {
+          "text": "empty catches disproved by a scan get real reasons",
+          "scope": "client+e2e+spike"
+        },
+        {
+          "text": "landed means on origin/main, and an undone land is not a land",
+          "scope": "landing-audit"
+        },
+        {
+          "text": "name the timeout in stderr; runGitCap and the cloud node git go through runGit; comments and identity test",
+          "scope": "run-git"
+        },
+        {
+          "text": "MediaBlocks comment in English, ui-language baseline follows the move",
+          "scope": "client"
+        },
+        {
+          "text": "English comment, trimmedNote name, loadAdvice test follows the move",
+          "scope": "client"
+        },
+        {
+          "text": "a node delivery measures the branch over its base and trusts the worktree HEAD",
+          "scope": "dispatcher"
+        },
+        {
+          "text": "test:touched runs the whole suite for code outside the graph, covers tests/e2e, real-code mutant and more tests",
+          "scope": "test"
+        },
+        {
+          "text": "split tests follow the moved code, covers tag, floating-surface exit entry, bundle ceiling follows the CI measure",
+          "scope": "client"
+        },
+        {
+          "text": "log and surface 8 silent catches instead of swallowing them",
+          "scope": "client"
+        },
+        {
+          "text": "footer memo recomputes when the session key changes",
+          "scope": "client"
+        },
+        {
+          "text": "test-touched-measure compares with main as it was when CI ran and reports the selection's share of suite time",
+          "scope": "test"
+        },
+        {
+          "text": "reach https Topics, pid leases outlive the renewal TTL, shell acquire/release",
+          "scope": "heavy-slot"
+        },
+        {
+          "text": "identifier name",
+          "scope": "heavy-slot"
+        },
+        {
+          "text": "align the unit kickoff test with the touched rule, isolated git env in the selector test, English name in the measure script",
+          "scope": "test-touched"
+        },
+        {
+          "text": "knip ignore for the test seam",
+          "scope": "heavy-slot"
+        },
+        {
+          "text": "knip.jsonc selects the tests that name it instead of the whole suite, path literals with five-letter extensions",
+          "scope": "test-touched"
+        },
+        {
+          "text": "package.json selects by scripts-only diff, not the whole suite",
+          "scope": "test-touched"
+        },
+        {
+          "text": "TREE_WALKER recognizes git grep as a tree walker",
+          "scope": "test-touched"
+        },
+        {
+          "text": "git env in the origin test, report:landed asks origin/main, candidates keep their column",
+          "scope": "landing-audit"
+        },
+        {
+          "text": "native sessions ask the server's line over HTTP, a detached turn-host no longer builds a private one; tests",
+          "scope": "heavy-slot"
+        },
+        {
+          "text": "catches that swallowed real errors now log or answer 400",
+          "scope": "server"
+        },
+        {
+          "text": "allow GitHub's 'cancelled' conclusion value, refresh baseline",
+          "scope": "identifier-language"
+        },
+        {
+          "text": "a held 1013 close is cut after a grace and frees its slot; backlog test is event-driven",
+          "scope": "relay"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.3.93",
     "date": "2026-11-12",
     "sections": {
-      "new": [],
+      "new": [
+        {
+          "text": "hub menu in the Topics tray (quotas, machines, processes, projects, brake, backup) with tested actions",
+          "scope": "tray"
+        },
+        {
+          "text": "remote machines in Processes and the tray like the Mac, with provider extras",
+          "scope": "machines"
+        }
+      ],
       "fixes": [
         {
           "text": "read CRLF SSE events and close orphaned stdio children",
@@ -36,6 +214,14 @@
         {
           "text": "a machine without the usage service keeps the plain icon",
           "scope": "tray"
+        },
+        {
+          "text": "destructured lazy import for the hub row",
+          "scope": "tray"
+        },
+        {
+          "text": "Gauge in its own module (no import cycle), English identifiers",
+          "scope": "machines"
         }
       ],
       "perf": []

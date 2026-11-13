@@ -16,6 +16,7 @@ import { useComposerDock } from './useComposerDock';
 import { composerMayTakeFocus } from './composerFocus';
 import { markDraftTouched, setDraftDirty } from '../../state/draftPane';
 import { ChatEmptyState } from './ChatEmptyState';
+import { readDraft, saveDraft } from './chatDraft';
 import { forkModeFor } from '../../../../shared/chat-fork';
 import { useConfirm } from '../../hooks/useConfirm';
 import { chatAcceptsFileDrag, watchFileDragEnd } from './chatFileDrop';
@@ -133,11 +134,6 @@ const EMPTY_MESSAGES: ChatMessage[] = [];
 const QUEUE_KICK_ATTEMPTS = 6;
 const QUEUE_KICK_RETRY_MS = 150;
 
-/** The composer's saved text (`draft:<topicId>`), empty when there is none or localStorage refuses (private mode). */
-function readDraft(key: string): string {
-  try { return localStorage.getItem(key) || ''; } catch { return ''; }
-}
-
 function ChatPaneComponent({
   topic, isFocused,
   getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped, stopSession, sendMessage, loadHistory,
@@ -184,7 +180,7 @@ function ChatPaneComponent({
   }, [topic.id]);
   // Persist draft to localStorage
   useEffect(() => {
-    try { if (message) localStorage.setItem(draftKey, message); else localStorage.removeItem(draftKey); } catch {}
+    saveDraft(draftKey, message);
   }, [message, draftKey]);
 
   /**

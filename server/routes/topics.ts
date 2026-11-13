@@ -1611,6 +1611,37 @@ export function createTopicsRouter(
         // line (mid-write) is deliberately left for the sweep to re-read whole.
         const lastNl = text.lastIndexOf("\n");
         const importOffset = lastNl >= 0 ? Buffer.byteLength(text.slice(0, lastNl + 1), "utf-8") : 0;
+
+        // INTO A CHAT THAT ALREADY HAS IT. A chat that lost its binding (the
+        // boot sweep of a server before #903 forgot every session whose
+        // transcript sat under another folder) still shows the whole
+        // conversation, and its CLI may still be running it: a second topic
+        // would be a copy. `topicId` writes the binding back into that chat,
+        // the cursor at the end of the file because its rows are already there.
+        if (typeof body?.topicId === "string" && body.topicId) {
+          const target = getTopicById(body.topicId);
+          if (!target?.sessionKey) return json({ error: "topic not found" }, 404);
+          if (boundRow?.session_key && boundRow.session_key !== target.sessionKey) {
+            return json({ error: `session ${sessionId} belongs to another chat` }, 409);
+          }
+          const own = ctx.db
+            .prepare(`SELECT claude_session_id FROM claude_code_sessions WHERE session_key = ?`)
+            .get(target.sessionKey) as { claude_session_id?: string } | undefined;
+          if (own?.claude_session_id && own.claude_session_id !== sessionId) {
+            return json({ error: `the chat already runs session ${own.claude_session_id}` }, 409);
+          }
+          const nowIso = new Date().toISOString();
+          ctx.db.prepare(
+            `INSERT INTO claude_code_sessions (session_key, claude_session_id, created_at, updated_at, jsonl_path, import_offset)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(session_key) DO UPDATE SET
+               claude_session_id = excluded.claude_session_id,
+               updated_at = excluded.updated_at,
+               jsonl_path = excluded.jsonl_path,
+               import_offset = excluded.import_offset`,
+          ).run(target.sessionKey, sessionId, nowIso, nowIso, transcriptPath, importOffset);
+          return json({ ...target, rebound: true }, 200);
+        }
         // A session working in a linked worktree belongs to the REPOSITORY, and
         // works in the worktree: project = the repo, cwd = a registered
         // worktree row (`lib/adopted-checkout.ts`). Otherwise the worktree
