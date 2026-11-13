@@ -8,6 +8,7 @@
 //! separate from the I/O so they are unit tested without a display.
 //! Card c675633f.
 
+use crate::tray_dials::{draw_mac, draw_pace, parse_mac, parse_pace, Extras, MAC_W};
 use serde::Deserialize;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
@@ -21,8 +22,8 @@ const DEFAULT_HUB: &str = "http://127.0.0.1:3360";
 pub const POLL_SECS: u64 = 60;
 
 /// Rendering scale (retina): every metric below is in logical points.
-const SCALE: f32 = 2.0;
-const HEIGHT_PT: f32 = 22.0;
+pub(crate) const SCALE: f32 = 2.0;
+pub(crate) const HEIGHT_PT: f32 = 22.0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Quota {
@@ -145,6 +146,14 @@ pub fn hub_base() -> String {
 }
 
 /// One poll: `None` means the service is down or answered garbage.
+/// The two dials of the strip, from the same service. Either one may be missing.
+pub fn fetch_extras(base: &str) -> Extras {
+    Extras {
+        mac: http_get(base, "/api/mac").and_then(|b| parse_mac(&b)),
+        pace: http_get(base, "/api/board").and_then(|b| parse_pace(&b)),
+    }
+}
+
 pub fn fetch_columns(base: &str) -> Option<Vec<Column>> {
     parse_overview(&http_get(base, "/api/overview")?)
 }
@@ -205,7 +214,7 @@ pub struct Strip {
 }
 
 #[derive(Clone, Copy)]
-enum Face {
+pub(crate) enum Face {
     /// Header and labels: the semibold system sans.
     Sans,
     /// Reset time: monospaced regular.
@@ -307,22 +316,22 @@ fn text_width(face: Face, s: &str, px: f32) -> f32 {
 }
 
 /// Advance of `s` in points at `pt` font size.
-fn width_pt(face: Face, s: &str, pt: f32) -> f32 {
+pub(crate) fn width_pt(face: Face, s: &str, pt: f32) -> f32 {
     text_width(face, s, pt * SCALE) / SCALE
 }
 
-struct Canvas {
+pub(crate) struct Canvas {
     w: u32,
     h: u32,
     px: Vec<u8>,
 }
 
 impl Canvas {
-    fn new(w: u32, h: u32) -> Self {
+    pub(crate) fn new(w: u32, h: u32) -> Self {
         Canvas { w, h, px: vec![0; (w * h * 4) as usize] }
     }
     /// Source-over blend of a straight-alpha colour.
-    fn blend(&mut self, x: i32, y: i32, c: [u8; 3], a: f32) {
+    pub(crate) fn blend(&mut self, x: i32, y: i32, c: [u8; 3], a: f32) {
         if x < 0 || y < 0 || x >= self.w as i32 || y >= self.h as i32 || a <= 0.0 {
             return;
         }
@@ -367,7 +376,7 @@ impl Canvas {
     }
     /// Text with the soft drop shadow the original draws under every string.
     /// `baseline` is in pixels from the TOP edge; `size` is the em size in pixels.
-    fn text(&mut self, face: Face, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32) -> f32 {
+    pub(crate) fn text(&mut self, face: Face, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32) -> f32 {
         self.glyphs(face, s, x, baseline + 0.5 * SCALE, size, [0, 0, 0], SHADOW_ALPHA * a);
         self.glyphs(face, s, x, baseline, size, c, a)
     }
@@ -451,9 +460,9 @@ fn provider_icon(id: &str) -> Option<&'static Icon> {
     icons[i].as_ref()
 }
 
-const WHITE: [u8; 3] = [255, 255, 255];
+pub(crate) const WHITE: [u8; 3] = [255, 255, 255];
 
-fn status_color(status: &str) -> ([u8; 3], f32) {
+pub(crate) fn status_color(status: &str) -> ([u8; 3], f32) {
     match status {
         "ok" => ([48, 209, 88], 1.0),
         "warning" => ([255, 145, 46], 1.0),
@@ -493,25 +502,13 @@ struct Cell<'a> {
 }
 
 /// Draws the strip. `None` (service down) renders the word "offline", never an empty image.
-pub fn render_strip(cols: Option<&[Column]>) -> Strip {
-    render_strip_on(cols, screen_width_pt())
+pub fn render_strip(cols: Option<&[Column]>, extras: &Extras) -> Strip {
+    render_strip_on(cols, extras, screen_width_pt())
 }
 
-pub fn render_strip_on(cols: Option<&[Column]>, screen_pt: f32) -> Strip {
-    let s = SCALE;
-    let h = (HEIGHT_PT * s) as u32;
-
-    let Some(cols) = cols.filter(|c| !c.is_empty()) else {
-        let label = if cols.is_none() { "offline" } else { "nessun account" };
-        let w = (text_width(Face::Sans, label, 9.0 * s) + PAD_X * 3.0 * s).ceil() as u32;
-        let mut cv = Canvas::new(w, h);
-        cv.text(Face::Sans, label, PAD_X * 1.5 * s, h as f32 * 0.66, 9.0 * s, WHITE, 0.85);
-        return Strip { width: w, height: h, rgba: cv.px };
-    };
-
-    // First pass: the width of every account, no positions yet.
-    let cells: Vec<Cell> = cols
-        .iter()
+/// First pass: the width of every account, no positions yet.
+fn measure(cols: &[Column]) -> Vec<Cell<'_>> {
+    cols.iter()
         .map(|c| {
             let badge = if c.reset_credits > 0 { format!(" ↻{}", c.reset_credits) } else { String::new() };
             let badge_w = width_pt(Face::Sans, &badge, HEADER_PT);
@@ -520,11 +517,14 @@ pub fn render_strip_on(cols: Option<&[Column]>, screen_pt: f32) -> Strip {
             let hw = ICON_INDENT + width_pt(Face::Sans, &header, HEADER_PT) + badge_w;
             Cell { col: c, header, badge, width: hw.max(qw) }
         })
-        .collect();
+        .collect()
+}
 
-    // Who fits: active accounts first, then the most loaded; the rest becomes "+N".
+/// Who fits: active accounts first, then the most loaded; the rest becomes "+N".
+/// The Mac dial and the pace gauge sit at the head and take their room first.
+fn kept_cells(cells: &[Cell], extras: &Extras, screen_pt: f32) -> Vec<bool> {
     let plus_w = width_pt(Face::Sans, "+9", HEADER_PT) + ACCOUNT_GAP;
-    let room = (MAX_STRIP_PT.min(screen_pt * SCREEN_SHARE)) - PAD_X * 2.0 - plus_w;
+    let room = (MAX_STRIP_PT.min(screen_pt * SCREEN_SHARE)) - PAD_X * 2.0 - extras.head_width(ACCOUNT_GAP) - plus_w;
     let peak = |c: &Column| c.quotas.iter().map(|q| q.used_pct).max().unwrap_or(0);
     let mut ranked: Vec<usize> = (0..cells.len()).collect();
     ranked.sort_by(|&a, &b| {
@@ -542,10 +542,35 @@ pub fn render_strip_on(cols: Option<&[Column]>, screen_pt: f32) -> Strip {
             kept += 1;
         }
     }
-    let hidden = cells.len() - kept;
+    keep
+}
+
+/// How many accounts end up in the "+N" for these dials on this screen.
+#[cfg(test)]
+fn hidden_count(cols: &[Column], extras: &Extras, screen_pt: f32) -> usize {
+    cols.len() - kept_cells(&measure(cols), extras, screen_pt).iter().filter(|k| **k).count()
+}
+
+pub fn render_strip_on(cols: Option<&[Column]>, extras: &Extras, screen_pt: f32) -> Strip {
+    let s = SCALE;
+    let h = (HEIGHT_PT * s) as u32;
+
+    let Some(cols) = cols.filter(|c| !c.is_empty()) else {
+        let label = if cols.is_none() { "offline" } else { "nessun account" };
+        let w = (text_width(Face::Sans, label, 9.0 * s) + PAD_X * 3.0 * s).ceil() as u32;
+        let mut cv = Canvas::new(w, h);
+        cv.text(Face::Sans, label, PAD_X * 1.5 * s, h as f32 * 0.66, 9.0 * s, WHITE, 0.85);
+        return Strip { width: w, height: h, rgba: cv.px };
+    };
+
+    let cells = measure(cols);
+    let head = extras.head_width(ACCOUNT_GAP);
+    let keep = kept_cells(&cells, extras, screen_pt);
+    let hidden = keep.iter().filter(|k| !**k).count();
+    let plus_w = width_pt(Face::Sans, "+9", HEADER_PT) + ACCOUNT_GAP;
 
     // Second pass: positions for the survivors, in service order.
-    let mut x = PAD_X;
+    let mut x = PAD_X + head;
     let mut placed: Vec<(f32, &Cell)> = Vec::new();
     for (i, cell) in cells.iter().enumerate().filter(|(i, _)| keep[*i]) {
         let _ = i;
@@ -561,6 +586,14 @@ pub fn render_strip_on(cols: Option<&[Column]>, screen_pt: f32) -> Strip {
     let mut cv = Canvas::new((total_pt * s).ceil() as u32, h);
 
     let top = |bottom_origin: f32| (HEIGHT_PT - bottom_origin) * s;
+    let mut hx = PAD_X;
+    if let Some(m) = &extras.mac {
+        draw_mac(&mut cv, hx, m);
+        hx += MAC_W + ACCOUNT_GAP;
+    }
+    if let Some(p) = &extras.pace {
+        draw_pace(&mut cv, hx, p);
+    }
     for (cx, cell) in placed {
         let c = cell.col;
         let text_dim = if c.active { 1.0 } else { NOT_ACTIVE_TEXT_DIM };
@@ -621,7 +654,7 @@ where
             let cols = fetch_columns(&base);
             let answered_now = cols.is_some();
             if strip_due(ever_answered, answered_now) {
-                apply(render_strip(cols.as_deref()));
+                apply(render_strip(cols.as_deref(), &fetch_extras(&base)));
             }
             ever_answered |= answered_now;
             std::thread::sleep(Duration::from_secs(POLL_SECS));
@@ -675,15 +708,15 @@ mod tests {
 
     #[test]
     fn service_down_draws_offline_not_blank() {
-        let s = render_strip(None);
+        let s = render_strip(None, &Extras::default());
         assert!(s.width > 20 && opaque(&s) > 50, "offline strip must have ink");
     }
 
     #[test]
     fn strip_has_ink_and_scales_with_accounts() {
         let cols = parse_overview(SAMPLE).unwrap();
-        let two = render_strip(Some(&cols));
-        let one = render_strip(Some(&cols[..1]));
+        let two = render_strip(Some(&cols), &Extras::default());
+        let one = render_strip(Some(&cols[..1]), &Extras::default());
         assert_eq!(two.height, 44);
         assert!(two.width > one.width && opaque(&two) > opaque(&one));
     }
@@ -693,10 +726,10 @@ mod tests {
     #[test]
     fn redraw_is_cheap_and_stable() {
         let cols = parse_overview(SAMPLE).unwrap();
-        let first = render_strip(Some(&cols));
+        let first = render_strip(Some(&cols), &Extras::default());
         let t = std::time::Instant::now();
         for _ in 0..200 {
-            let s = render_strip(Some(&cols));
+            let s = render_strip(Some(&cols), &Extras::default());
             assert_eq!((s.width, s.rgba.len()), (first.width, first.rgba.len()));
             assert!(s.rgba == first.rgba, "redraw must be deterministic");
         }
@@ -722,11 +755,65 @@ mod tests {
             quotas: vec![Quota { key: "7D".into(), status: "ok".into(), used_pct: 10, reset_text: "5d6h".into() }],
         };
         let many: Vec<Column> = (0..20).map(one).collect();
-        let narrow = render_strip_on(Some(&many), 1000.0);
+        let narrow = render_strip_on(Some(&many), &Extras::default(), 1000.0);
         assert!(narrow.width as f32 <= MAX_STRIP_PT.min(1000.0 * SCREEN_SHARE) * SCALE + 4.0, "capped by the screen share");
-        let wide = render_strip_on(Some(&many), 5000.0);
+        let wide = render_strip_on(Some(&many), &Extras::default(), 5000.0);
         assert!(wide.width > narrow.width);
         assert!(wide.width as f32 <= MAX_STRIP_PT * SCALE + 4.0);
+    }
+
+    /// A live service reading, names replaced: six accounts on a wide screen. The
+    /// original strip showed four columns and "+2"; the dials at its head are why.
+    #[test]
+    fn live_overview_collapses_like_the_original_strip() {
+        let cols = parse_overview(include_str!("tray_overview_live.json")).expect("fixture parses");
+        assert_eq!(cols.len(), 6);
+        let extras = Extras {
+            mac: crate::tray_dials::parse_mac(r#"{"effort":{"loadPct":100,"parts":[{"key":"cpu","pct":66,"level":2},{"key":"mem","pct":30,"level":0},{"key":"gpu","pct":60,"level":0},{"key":"disk","pct":77,"level":0}]}}"#),
+            pace: crate::tray_dials::parse_pace(r#"{"overall":{"value":4.41,"zone":"sopra"}}"#),
+        };
+        assert!(extras.mac.is_some() && extras.pace.is_some());
+        let with = render_strip_on(Some(&cols), &extras, 3440.0);
+        let without = render_strip_on(Some(&cols), &Extras::default(), 3440.0);
+        assert!(with.width as f32 / SCALE <= MAX_STRIP_PT, "capped");
+        assert!(without.width > 0 && with.width > 0);
+        let kept = |e: &Extras| hidden_count(&cols, e, 3440.0);
+        assert_eq!(kept(&extras), 2, "four columns and +2 with the dials");
+        assert_eq!(kept(&Extras::default()), 1, "without the dials one more fits");
+    }
+
+    /// Dumps the live-fixture strip as a PPM on a menu-bar grey when `TRAY_STRIP_DUMP`
+    /// names a file: the offscreen render the visual comparison starts from.
+    #[test]
+    fn dump_strip_for_the_visual_comparison() {
+        let Ok(path) = std::env::var("TRAY_STRIP_DUMP") else { return };
+        let cols = parse_overview(include_str!("tray_overview_live.json")).unwrap();
+        let extras = Extras {
+            mac: crate::tray_dials::parse_mac(r#"{"effort":{"loadPct":100,"parts":[{"key":"cpu","pct":66,"level":2},{"key":"mem","pct":30,"level":0},{"key":"gpu","pct":60,"level":0},{"key":"disk","pct":77,"level":0}]}}"#),
+            pace: crate::tray_dials::parse_pace(r#"{"overall":{"value":4.41,"zone":"sopra"}}"#),
+        };
+        let st = render_strip_on(Some(&cols), &extras, 3440.0);
+        let mut out = format!("P6\n{} {}\n255\n", st.width, st.height).into_bytes();
+        for px in st.rgba.chunks(4) {
+            let a = px[3] as f32 / 255.0;
+            for c in 0..3 {
+                out.push((px[c] as f32 * a + 40.0 * (1.0 - a)) as u8);
+            }
+        }
+        std::fs::write(path, out).unwrap();
+    }
+
+    #[test]
+    fn dials_leave_ink_and_pace_text_uses_a_comma() {
+        let cols = parse_overview(SAMPLE).unwrap();
+        let extras = Extras {
+            mac: crate::tray_dials::parse_mac(r#"{"effort":{"loadPct":40,"parts":[{"key":"cpu","pct":66,"level":2},{"key":"mem","pct":30,"level":0}]}}"#),
+            pace: crate::tray_dials::parse_pace(r#"{"overall":{"value":1.2,"zone":"sopra"}}"#),
+        };
+        assert!(opaque(&render_strip_on(Some(&cols), &extras, 3440.0)) > opaque(&render_strip_on(Some(&cols), &Extras::default(), 3440.0)));
+        assert_eq!(crate::tray_dials::pace_text(4.47), "4,47×");
+        assert_eq!(crate::tray_dials::pace_text(1.2), "1,2×");
+        assert!(crate::tray_dials::parse_pace(r#"{"overall":{"value":null}}"#).is_none());
     }
 
     #[test]
@@ -745,7 +832,7 @@ mod tests {
             Err(_) => fetch_columns(&hub_base()),
         };
         let screen = std::env::var("TRAY_SNAPSHOT_SCREEN_W").ok().and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_SCREEN_PT);
-        let strip = render_strip_on(cols.as_deref(), screen);
+        let strip = render_strip_on(cols.as_deref(), &Extras::default(), screen);
         let file = std::fs::File::create(out).unwrap();
         let mut enc = png::Encoder::new(file, strip.width, strip.height);
         enc.set_color(png::ColorType::Rgba);
