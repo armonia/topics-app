@@ -2493,6 +2493,10 @@ mod macos_notifications;
 #[cfg(target_os = "macos")]
 #[path = "tray_overlay.rs"]
 mod tray_overlay;
+#[cfg(target_os = "macos")]
+mod tray_strip_apply;
+#[cfg(target_os = "macos")]
+mod tray_tracking;
 
 /// Focus / Do-Not-Disturb state, read from the OS so the client can silence its
 /// completion banners while the user has a Focus on.
@@ -3297,7 +3301,10 @@ fn rebuild_tray_menu(app: &tauri::AppHandle) {
                 .text("tray-show", "Apri Topics")
                 .text("tray-quit", "Esci");
             if let Ok(menu) = mb.build() {
-                let _ = tray.set_menu(Some(menu));
+                // Never replace the menu while it is open: that closes it.
+                tray_tracking::defer("menu", move || {
+                    let _ = tray.set_menu(Some(menu));
+                });
             }
 }
 
@@ -7733,25 +7740,6 @@ async fn browser_eval_js(app: tauri::AppHandle, id: String, js: String, preserve
     })
     .await
     .map_err(|e| e.to_string())?
-}
-
-/// The tray strip as an NSImage of `w_pt` x `h_pt` points, not a template, retained
-/// (+1: the caller releases it once the button holds it). nil when the bytes do not
-/// decode. SAFETY: AppKit main thread, or a headless test.
-#[cfg(target_os = "macos")]
-unsafe fn strip_nsimage(png: &[u8], w_pt: f64, h_pt: f64) -> crate::mac::id {
-    use crate::mac::*;
-    let data: id = msg_send![class!(NSData), dataWithBytes: png.as_ptr() as *const std::ffi::c_void, length: png.len()];
-    if data == nil {
-        return nil;
-    }
-    let image: id = msg_send![class!(NSImage), alloc];
-    let image: id = msg_send![image, initWithData: data];
-    if image != nil {
-        let _: () = msg_send![image, setSize: NSSize::new(w_pt, h_pt)];
-        let _: () = msg_send![image, setTemplate: NO];
-    }
-    image
 }
 
 /// The novel/risky part of screenshotting, isolated so it's unit-testable headless
@@ -12315,73 +12303,23 @@ pub fn run() {
                     tray_quota::set_screen_width_pt(m.size().width as f32 / m.scale_factor() as f32);
                 }
                 let overlay_handle = app.handle().clone();
+                #[cfg(target_os = "macos")]
+                tray_tracking::install();
+                let apply_handle = tray_handle.clone();
                 tray_poller::spawn_poller(move |strip| {
-                    if let Some(tray) = tray_handle.tray_by_id("main") {
-                        let (strip_w, strip_h) = (strip.width, strip.height);
-                        #[cfg(not(target_os = "macos"))]
-                        {
-                            let img = tauri::image::Image::new_owned(strip.rgba, strip_w, strip_h);
-                            let _ = tray.set_icon(Some(img));
-                        }
-                        #[cfg(target_os = "macos")]
-                        {
-                            // The image goes on the button directly, already at its final size.
-                            // Through the tray library it was first forced to 18 pt tall: the
-                            // variable-length item shrank by a fifth and grew back when we
-                            // restored the 22 pt size, so the strip and every item left of it
-                            // jumped sideways on each redraw.
-                            use crate::mac::{id, msg_send, nil, NSRect};
-                            let (w_pt, h_pt) = (strip_w as f64 / tray_quota::SCALE as f64, strip_h as f64 / tray_quota::SCALE as f64);
-                            tray_overlay::set_strip_width_pt(w_pt);
-                            let Some(png) = strip.to_png() else { return };
-                            let _ = tray.with_inner_tray_icon(move |inner| {
-                                if let Some(item) = inner.ns_status_item() {
-                                    unsafe {
-                                        let item: id = objc2::rc::Retained::as_ptr(&item) as id;
-                                        let button: id = msg_send![item, button];
-                                        let image = strip_nsimage(&png, w_pt, h_pt);
-                                        if button != nil && image != nil {
-                                            // A fixed length: the item is exactly as wide as the
-                                            // strip, so neither end is cut and nothing reflows.
-                                            let _: () = msg_send![item, setLength: w_pt];
-                                            let _: () = msg_send![button, setImage: image];
-                                        }
-                                        if image != nil {
-                                            let _: () = msg_send![image, release];
-                                        }
-                                        if button != nil {
-                                            // The library's click-catching overlay (the subview that
-                                            // opens the menu) was sized on its own 18 pt image and does
-                                            // not see the image set above: without this, most of the
-                                            // strip would not open the menu. Make it track the button.
-                                            let _: () = msg_send![button, layoutSubtreeIfNeeded];
-                                            let bounds: NSRect = msg_send![button, bounds];
-                                            let subs: id = msg_send![button, subviews];
-                                            let n: usize = msg_send![subs, count];
-                                            for i in 0..n {
-                                                let v: id = msg_send![subs, objectAtIndex: i];
-                                                let _: () = msg_send![v, setAutoresizingMask: 18usize];
-                                                let _: () = msg_send![v, setFrame: bounds];
-                                            }
-                                        }
-                                    }
-                                }
-                            });
-                        }
+                    #[cfg(target_os = "macos")]
+                    if let Some(tray) = apply_handle.tray_by_id("main") {
+                        tray_strip_apply::apply_strip(tray, strip);
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    if let Some(tray) = apply_handle.tray_by_id("main") {
+                        let img = tauri::image::Image::new_owned(strip.rgba, strip.width, strip.height);
+                        let _ = tray.set_icon(Some(img));
                     }
                 }, move |frame| {
-                    // Only a layer swap: no image, no PNG, no relayout of the button.
                     #[cfg(target_os = "macos")]
                     if let Some(tray) = overlay_handle.tray_by_id("main") {
-                        let _ = tray.with_inner_tray_icon(move |inner| {
-                            if let Some(item) = inner.ns_status_item() {
-                                unsafe {
-                                    let item: crate::mac::id = objc2::rc::Retained::as_ptr(&item) as crate::mac::id;
-                                    let button: crate::mac::id = crate::mac::msg_send![item, button];
-                                    tray_overlay::show(button, frame);
-                                }
-                            }
-                        });
+                        tray_strip_apply::apply_overlay(&tray, frame);
                     }
                     #[cfg(not(target_os = "macos"))]
                     let _ = (&overlay_handle, frame);
@@ -13044,25 +12982,6 @@ mod screenshot_tests {
     // a synthetic 4x4 RGBA NSImage → nsimage_to_png_base64 → a string whose bytes
     // are a real PNG. PNG magic (\x89PNG\r\n\x1a\n) base64-encodes to a fixed
     // "iVBORw0KGgo" prefix, so a prefix check needs no base64 decoder.
-    // The tray strip reaches the status button already at its final size: if the
-    // image came out at the PNG's pixel size (or as a template), the item would
-    // reflow or turn monochrome on every redraw.
-    #[test]
-    fn strip_image_has_the_strip_size_and_its_colours() {
-        let strip = crate::tray_quota::Strip { width: 8, height: 4, rgba: vec![200u8; 8 * 4 * 4] };
-        let png = strip.to_png().expect("png");
-        unsafe {
-            let img = super::strip_nsimage(&png, 4.0, 2.0);
-            assert!(img != nil, "the PNG decodes");
-            let size: NSSize = msg_send![img, size];
-            assert_eq!((size.width, size.height), (4.0, 2.0));
-            let template: bool = msg_send![img, isTemplate];
-            assert!(!template);
-            let _: () = msg_send![img, release];
-            assert!(super::strip_nsimage(b"not a png", 4.0, 2.0) == nil);
-        }
-    }
-
     #[test]
     fn nsimage_converts_to_valid_png_base64() {
         unsafe {
