@@ -73,6 +73,8 @@ async function measure(page: Page) {
 test("MOBILE-LIST — la lista parte dalla safe area e scorre sotto header e footer", async ({ page }) => {
   await page.goto(E2E_BASE);
   await expect(page.locator(BAR)).toBeVisible();
+  // The column mounts after the bar: measuring before it exists throws inside the page.
+  await expect(page.locator(SCROLLER)).toBeVisible();
   await expect.poll(async () => (await measure(page)).rows).toBeGreaterThan(8);
 
   const atRest = await measure(page);
