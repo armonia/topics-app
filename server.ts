@@ -3238,6 +3238,10 @@ const nodesRouter = createNodesRouter(ctx, {
   deleteBoardTask: deleteDelegatedBoardTask,
   revocations: delegatedRevocations,
   onEnterTodo: (projectId, taskId) => taskDispatcher.onEnterTodo(projectId, taskId),
+  worktreeOfTask: (taskId) => {
+    const wt = worktreeOfTask(taskId);
+    return wt ? { absPath: wt.absPath, branchName: wt.branchName, mode: wt.mode } : null;
+  },
   // The browser acceptance server intentionally has no live coding account.
   // Give only that hermetic process one inert catalogue value so it can prove
   // the authorization handshake without probing or invoking an LLM.
