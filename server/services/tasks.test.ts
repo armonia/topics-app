@@ -2333,6 +2333,8 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          base_branch = 'topics/endless-calf',
          -- Same migration: the branch kept when the card went back to the queue.
          prior_branch = 'topics/endless-calf',
+         -- 20261113120000: every delivery branch the card left behind.
+         past_delivery_branches = 'topics/old-one topics/endless-calf',
          -- Same migration: the uncommitted files kept when it went back to the queue.
          prior_uncommitted_files = 3,
          -- 20261113120000: the tip sent back, for the same-tip redelivery guard.
