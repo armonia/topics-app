@@ -352,6 +352,14 @@ export interface WorktreeGcDeps {
    * answer it can give is "keep it".
    */
   liveInside?: (wt: GcWorktree) => boolean;
+  /**
+   * NOT OURS TO REMOVE. A folder outside Topics' worktree root was registered
+   * by adopting a session that already worked there (Claude Desktop's
+   * `<repo>/.claude/worktrees/`, a `git worktree add` by hand). Its row has no
+   * task, and `reuse` reads as "merged", so without this the pass would reap
+   * another tool's checkout, or slim its `node_modules`, on its first run.
+   */
+  foreign?: (wt: GcWorktree) => boolean;
   /** Whether the worktree directory still exists on disk. */
   diskPresent: (absPath: string) => boolean;
   /**
@@ -619,6 +627,7 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
       // a sub-agent's worktree survives the pass that would find it orphaned,
       // clean and already on main.
       if (deps.liveInside?.(wt)) { keep("sessione viva nella cartella"); continue; }
+      if (deps.foreign?.(wt)) { keep("cartella fuori dai worktree di Topics"); continue; }
 
       const t = deps.resolveTask(wt.id);
       const taskId = t.taskId;

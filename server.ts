@@ -258,7 +258,7 @@ import { compressJson } from "./server/lib/compress-json";
 import { isSseCommentOnly } from "./server/lib/sse-ping";
 import { currentRouteFault, applyRouteFault } from "./server/lib/route-fault";
 import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
-import { isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
+import { findClaudeTranscript, isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
 import { keepLiveTranscripts, restoreSweptTranscript } from "./server/lib/transcript-keeper";
 import { pendingForkSessions } from "./server/lib/chat-fork-store";
 import { createProjectsRouter } from "./server/routes/projects";
@@ -6148,6 +6148,8 @@ function reconcileOrphanedTranscripts(): void {
         nowMs: now,
         graceMs: ORPHAN_TRANSCRIPT_GRACE_MS,
         transcriptExists: existsSync,
+        // Moved, not gone: `--resume` finds it by id from any folder.
+        findAnywhere: (id) => findClaudeTranscript(cwd ?? "/", id),
       })
     )
       continue;
