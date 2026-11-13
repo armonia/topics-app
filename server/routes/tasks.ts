@@ -42,6 +42,7 @@ import { getTerminalSessionById } from "./terminal";
 import { createBoardRoutes } from "./tasks-board";
 import { applySpendCapPatch, hasSpendCapPatch, spendCapFields, spendSnapshot } from "./task-spend-caps";
 import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
+import { runGit } from "../lib/run-git";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import { confirmCardOrigin } from "../services/card-origin-notice";
 import { logActivity } from "../db/activity-log";
@@ -90,7 +91,9 @@ import { ChecksInterruptedError, clampLegMs, createChecksGate, type ChecksLane, 
 import { forgetDelivery, reviewChecksStopping, swapInterruptedDelivery, throwIfStopping, type MemoryFloor } from "../services/review-checks-brakes";
 import { bumpPendingDeliveryRound, forgetPendingDelivery, loadPendingDeliveries, savePendingDelivery, type PendingDelivery } from "../services/pending-delivery-store";
 import { ciNotMeasured, closeCiDraft, type CloseCiDraftInput, type DraftCleanup } from "../services/ci-evidence";
-import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
+import { sweepRunLeftovers, describeLeftovers } from "../lib/run-leftovers";
+import { getSessionCliPid } from "../providers/session-pids";
+import { createTaskAttemptStore, setAttemptFinishedListener, type TaskAttempt } from "../services/task-attempts";
 import type { ScheduledCardsService } from "../services/scheduled-cards";
 import { recordRetirement } from "../services/retirement";
 import { conditionalJson } from "../lib/conditional-json";
@@ -564,14 +567,8 @@ function requestCardProcessStop(opts: TasksRouterOpts | undefined, cardId: strin
  * fast instead of hanging the request.
  */
 export async function runGitCap(cwd: string, args: string[], timeoutMs: number = SPAWN_TIMEOUT.write): Promise<{ code: number; out: string; err: string }> {
-  const r = await runBounded(["git", ...args], {
-    cwd,
-    stderr: "pipe",
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-    timeoutMs,
-  });
-  if (r.spawnFailed) return { code: 1, out: "", err: r.spawnError ?? "" };
-  return { code: r.exitCode ?? 124, out: r.stdout, err: r.stderr };
+  const r = await runGit(cwd, args, { timeoutMs, env: { GIT_TERMINAL_PROMPT: "0" } });
+  return { code: r.code, out: r.stdout, err: r.stderr };
 }
 
 /**
@@ -704,6 +701,20 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     },
   });
   const attempts = createTaskAttemptStore(db);
+  // Run end: close what the run left behind in its worktree (orphans, detached
+  // children). Fire-and-forget; the one thread line says how many and which.
+  setAttemptFinishedListener((a) => {
+    const wt = a.worktreeId ? ctx.worktreeStore.get(a.worktreeId) : null;
+    if (!wt?.absPath) return;
+    const topicKey = a.topicId ? "topic:" + a.topicId.slice(0, 8) : "";
+    void sweepRunLeftovers(wt.absPath, { spare: [topicKey ? getSessionCliPid(topicKey) : null] })
+      .then((found) => {
+        if (!found.length) return;
+        console.warn(`[run-leftovers] ${a.taskId}: ${describeLeftovers(found)}`);
+        svc.addComment({ taskId: a.taskId, author: "system", kind: "service", content: describeLeftovers(found) });
+      })
+      .catch(() => { /* best-effort */ });
+  });
 
   /**
    * UN TITOLO LEGGIBILE, in sottofondo, per una card appena nata.

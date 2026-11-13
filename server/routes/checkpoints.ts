@@ -299,28 +299,54 @@ export function createCheckpointsRouter(ctx: AppContext): RouteHandler {
     // Shared by the preflight and the restore, so they never pick differently.
     const targetTurnPoint = async (
       topic: { projectPath?: string; sessionKey: string }, req: Request,
-    ): Promise<{ checkpoint: TurnCheckpoint | null; plan: RestorePlan }> => {
+    ): Promise<{ checkpoint: TurnCheckpoint | null; plan: RestorePlan; badRequest?: string }> => {
       if (!topic.projectPath || !existsSync(topic.projectPath)) return { checkpoint: null, plan: refusedPlan("not-a-repo") };
-      let body: { commit?: string } = {};
-      try { body = await req.json(); } catch {}
+      // An empty body means "no commit requested" (fall back to the newest
+      // restore point) — the historical behavior, kept as-is. A NON-empty body
+      // must parse into an object whose `commit`, if present, is a non-empty
+      // string; anything else (malformed JSON, `null`, an array, `""`) is a 400
+      // rather than silently falling back to the newest point.
+      const text = await req.text();
+      let commit: string | undefined;
+      if (text.trim().length > 0) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          return { checkpoint: null, plan: refusedPlan("no-checkpoint"), badRequest: "invalid JSON body" };
+        }
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          return { checkpoint: null, plan: refusedPlan("no-checkpoint"), badRequest: "body must be a JSON object" };
+        }
+        const requested = (parsed as { commit?: unknown }).commit;
+        if (requested !== undefined) {
+          if (typeof requested !== "string" || requested.length === 0) {
+            return { checkpoint: null, plan: refusedPlan("no-checkpoint"), badRequest: "commit must be a non-empty string" };
+          }
+          commit = requested;
+        }
+      }
       const list = await listRestorePoints(topic.projectPath, topic.sessionKey);
-      const target = body.commit ? list.find((c) => c.commit === body.commit) : list[0];
-      if (!target) return { checkpoint: null, plan: refusedPlan("no-checkpoint", body.commit ?? "") };
+      const target = commit ? list.find((c) => c.commit === commit) : list[0];
+      if (!target) return { checkpoint: null, plan: refusedPlan("no-checkpoint", commit ?? "") };
       const plan = await buildRestorePlan(topic.projectPath, topic.sessionKey, target.commit, {
         turnActive: ctx.activeStreams.has(topic.sessionKey),
       });
       return { checkpoint: target, plan };
     };
 
-    // POST /api/topics/:id/turn-checkpoints/plan: the preflight. Always 200,
-    // refused plans included, same reason as the manual one above.
+    // POST /api/topics/:id/turn-checkpoints/plan: the preflight. 200 for a
+    // refused PLAN (same reason as the manual one above — a blocked plan is an
+    // answer, not an error); a malformed request body is a 400 instead, since
+    // that is the client's mistake, not a plan outcome.
     {
       const params = matchRoute(pathname, "/api/topics/:id/turn-checkpoints/plan");
       if (params && method === "POST") {
         const data = loadTopics();
         const topic = data.topics[params.id];
         if (!topic) return json({ error: "Topic not found" }, 404);
-        const { checkpoint, plan } = await targetTurnPoint(topic, req);
+        const { checkpoint, plan, badRequest } = await targetTurnPoint(topic, req);
+        if (badRequest) return json({ error: badRequest }, 400);
         return json({ checkpoint, plan, ...verdictFor(plan, "turn") });
       }
     }
@@ -340,7 +366,8 @@ export function createCheckpointsRouter(ctx: AppContext): RouteHandler {
           // not on every failure of a chat that happens to have no project.
           return json({ error: "This chat is not bound to a project folder", code: "no_project" }, 400);
         }
-        const { checkpoint, plan } = await targetTurnPoint(topic, req);
+        const { checkpoint, plan, badRequest } = await targetTurnPoint(topic, req);
+        if (badRequest) return json({ error: badRequest }, 400);
         const verdict = verdictFor(plan, "turn");
         if (!checkpoint || !verdict.canProceed) return json({ error: "Restore refused", plan, ...verdict }, 409);
         try {

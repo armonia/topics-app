@@ -16,6 +16,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { readDrawerSource } from './drawerSource.test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { deliveryMeasure } from '../../lib/gitVisibility';
 import { diffFocusFor, diffFocusPath, mediaPaneIdFor } from './constants';
@@ -66,7 +67,7 @@ describe('a row opens the file in the task', () => {
   });
 
   test('the drawer reads the diff focus: delivery band open, workspace closed, file handed to «Modifiche»', () => {
-    const src = readFileSync(join(import.meta.dir, 'TaskDetail.tsx'), 'utf8');
+    const src = readDrawerSource(import.meta.dir);
     expect(src).toContain('const focusDiff = diffFocusPath(focusPaneId);');
     expect(src).toContain('useState(!!focusDiff)');
     expect(src).toMatch(/<TaskChangesSection[^>]*focusPath=\{focusDiff\}/);
