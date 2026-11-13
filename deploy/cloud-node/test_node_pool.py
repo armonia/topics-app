@@ -15,7 +15,8 @@ class R:
 class Drain(unittest.TestCase):
     def setUp(self):
         self.busy, self.ssh_rc, self.cmds, self.patches = 1, 0, [], []
-        np.slot_busy = lambda m: self.busy
+        self.queued = 0
+        np.slot_busy = lambda m, running_only=False: self.busy + (0 if running_only else self.queued)
         np.ssh = lambda ip, cmd, timeout=120, inp=None: (self.cmds.append(cmd), R(self.ssh_rc))[1]
         np.mac = lambda method, path, body=None, timeout=30: self.patches.append(body["slots"])
         self.sl = {"machine_id": "m1", "aligned": "old", "slots": 4}
@@ -56,6 +57,20 @@ class Drain(unittest.TestCase):
         self.assertEqual(self.patches, [])
         self.assertFalse(self.sl.get("draining"))
         self.assertEqual(self.restarts(), [])
+
+    def test_e_moving_commit_does_not_reset_the_clock(self):
+        for i in range(6):
+            self.run_at(1000 + i * 600, c=f"c{i}")
+        self.run_at(1000 + np.BEHIND_S, c="c6")
+        self.assertEqual(self.patches, [0])
+        self.assertTrue(self.sl["draining"])
+
+    def test_f_draining_ignores_queued_cards(self):
+        self.run_at(1000); self.run_at(1000 + np.BEHIND_S)
+        self.busy, self.queued = 0, 2
+        self.run_at(1000 + np.BEHIND_S + 60)
+        self.assertEqual(len(self.restarts()), 1)
+        self.assertEqual(self.patches, [0, 4])
 
     def test_drain_cap_gives_up(self):
         self.run_at(1000); t = 1000 + np.BEHIND_S; self.run_at(t)

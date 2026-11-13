@@ -275,14 +275,16 @@ def machine_row(slot):
         db.close()
 
 
-def slot_busy(machine_id):
-    """Card vive del posto sul Mac: in coda o al lavoro con questa macchina."""
+def slot_busy(machine_id, running_only=False):
+    """Card vive del posto sul Mac: in coda o al lavoro con questa macchina. While draining only
+    the running ones count: queued cards cannot start with slots 0, they wait for the realign."""
     if not machine_id:
         return 0
     import sqlite3
     db = sqlite3.connect(f"file:{MAC_DB}?mode=ro", uri=True, timeout=5)
     try:
-        return db.execute("select count(*) from tasks where machine_id=? and status in ('todo','in_progress')",
+        states = "('in_progress')" if running_only else "('todo','in_progress')"
+        return db.execute(f"select count(*) from tasks where machine_id=? and status in {states}",
                           (machine_id,)).fetchone()[0]
     finally:
         db.close()
@@ -633,12 +635,13 @@ def align_permanent(sl, ip, key, c, ci_busy, now=None):
     # «aligned», not HEAD: a checkout that worked with a failed `bun install` moves HEAD
     # while the running node is still the old one
     if not c or sl.get("aligned") == c or sl.get("align_failed") == c:
-        sl.pop("behind_commit", None)
+        sl.pop("behind_since", None)
         sl["draining"] = False
         return
-    if sl.get("behind_commit") != c:
-        sl["behind_commit"], sl["behind_since"] = c, now
-    busy = slot_busy(sl.get("machine_id"))
+    # The clock starts when the node first falls behind and only stops once it is aligned again:
+    # a Mac commit that moves every few minutes must not restart it
+    sl.setdefault("behind_since", now)
+    busy = slot_busy(sl.get("machine_id"), running_only=bool(sl.get("draining")))
     if busy:
         if not sl.get("draining") and now - sl["behind_since"] >= BEHIND_S and sl.get("machine_id"):
             if set_slots(sl, key, 0):
@@ -662,7 +665,7 @@ def align_permanent(sl, ip, key, c, ci_busy, now=None):
     if sl.get("draining"):
         sl["draining"] = False
         set_slots(sl, key, permanent_slots(ci_busy))
-    sl.pop("behind_commit", None)
+    sl.pop("behind_since", None)
 
 
 def permanent_ci():
