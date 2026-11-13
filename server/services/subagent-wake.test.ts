@@ -181,4 +181,10 @@ describe("the wake's text", () => {
       .toContain(`reason="api-error" reason_detail="Overloaded '529' <\\x>">`);
     expect(subagentWakeText([result()])).toMatch(/status="completed">\n/);
   });
+
+  test("a result cut by the machine tells the parent how to resume the child", () => {
+    const text = subagentWakeText([result({ agentId: "child-42", status: "stopped", partial: true, text: "x", reason: { code: "machine-cut", detail: "stall" } })]);
+    expect(text).toContain("stopped by the system (stall)");
+    expect(text).toContain("`send_to_agent` with agent_id `child-42`");
+  });
 });
