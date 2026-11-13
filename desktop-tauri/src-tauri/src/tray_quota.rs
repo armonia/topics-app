@@ -220,17 +220,21 @@ pub(crate) enum Face {
     Sans,
     /// Reset time: monospaced regular.
     Mono,
-    /// Window tag and percentage: monospaced bold.
+    /// Percentage: monospaced bold.
     MonoBold,
     /// Never drawn: the semibold sans used to decide where a name is cropped. The drawn weight
     /// is pushed heavier to match the original's text rasterizer, which would crop a letter early.
     SansMetrics,
+    /// Window tag: monospaced semibold (drawn heavier than the original only by ab_glyph).
+    MonoSemibold,
 }
 
+#[cfg(target_os = "macos")]
+use crate::tray_coretext::{FontSpec, SystemWeight};
 use ab_glyph::{Font as _, FontVec, ScaleFont as _, VariableFont as _};
 
 type Chain = Vec<FontVec>;
-static FONTS: OnceLock<[Chain; 4]> = OnceLock::new();
+static FONTS: OnceLock<[Chain; 5]> = OnceLock::new();
 
 /// Variable weight axis values and the optical size the system uses for text this small.
 const WEIGHT_SEMIBOLD: f32 = 800.0;
@@ -257,7 +261,7 @@ fn load_chain(primary: &[&str], weight: f32) -> Chain {
     chain
 }
 
-fn chains() -> &'static [Chain; 4] {
+fn chains() -> &'static [Chain; 5] {
     FONTS.get_or_init(|| {
         [
             load_chain(
@@ -275,6 +279,10 @@ fn chains() -> &'static [Chain; 4] {
             load_chain(
                 &["/System/Library/Fonts/SFNS.ttf", "C:\\Windows\\Fonts\\seguisb.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"],
                 WEIGHT_SEMIBOLD_LAYOUT,
+            ),
+            load_chain(
+                &["/System/Library/Fonts/SFNSMono.ttf", "C:\\Windows\\Fonts\\consolab.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"],
+                WEIGHT_BOLD,
             ),
         ]
     })
@@ -301,7 +309,7 @@ fn advance(face: Face, font: &FontVec, ch: char, px: f32) -> f32 {
             Some(scale) => font.as_scaled(scale).h_advance(font.glyph_id(ch)),
             None => px * 0.55,
         },
-        Face::Mono | Face::MonoBold => px * MONO_ADVANCE_EM,
+        Face::Mono | Face::MonoBold | Face::MonoSemibold => px * MONO_ADVANCE_EM,
     }
 }
 
@@ -345,7 +353,47 @@ impl Canvas {
         }
         self.px[i + 3] = (oa * 255.0).round() as u8;
     }
+    /// macOS: CoreText with pixel-snapped pens. Elsewhere (and as the fallback when CoreText
+    /// cannot load the font) the ab_glyph rasterizer.
     fn glyphs(&mut self, face: Face, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32) -> f32 {
+        #[cfg(target_os = "macos")]
+        if let Some(w) = self.glyphs_coretext(face, s, x, baseline, size, c, a) {
+            return w;
+        }
+        self.glyphs_ab(face, s, x, baseline, size, c, a)
+    }
+    #[cfg(target_os = "macos")]
+    fn glyphs_coretext(&mut self, face: Face, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32) -> Option<f32> {
+        // True system weights (what AppKit draws), not the inflated ab_glyph axis values.
+        let spec = match face {
+            Face::Sans => FontSpec { mono: false, weight: SystemWeight::Semibold },
+            Face::SansMetrics => return None,
+            Face::Mono => FontSpec { mono: true, weight: SystemWeight::Regular },
+            Face::MonoSemibold => FontSpec { mono: true, weight: SystemWeight::Semibold },
+            Face::MonoBold => FontSpec { mono: true, weight: SystemWeight::Bold },
+        };
+        let chars: Vec<char> = s.chars().collect();
+        let mut pens = Vec::with_capacity(chars.len());
+        let mut pen = 0.0_f32;
+        for &ch in &chars {
+            pens.push(pen);
+            pen += match glyph_font(face, ch) {
+                Some(f) => advance(face, f, ch, size),
+                None => size * 0.55,
+            };
+        }
+        let origin = x.round();
+        let mask = crate::tray_coretext::rasterize(spec, size, &chars, &pens, pen)?;
+        let (left, top) = (origin as i32 - mask.margin, baseline.round() as i32 - mask.base_row);
+        for (i, cov) in mask.a.iter().enumerate() {
+            if *cov > 0 {
+                self.blend(left + (i % mask.w) as i32, top + (i / mask.w) as i32, c, *cov as f32 / 255.0 * a);
+            }
+        }
+        Some(pen)
+    }
+    #[cfg_attr(not(any(test, not(target_os = "macos"))), allow(dead_code))]
+    fn glyphs_ab(&mut self, face: Face, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32) -> f32 {
         let mut pen = x;
         for ch in s.chars() {
             let Some(f) = glyph_font(face, ch) else {
@@ -622,7 +670,7 @@ pub fn render_strip_agents(cols: Option<&[Column]>, extras: &Extras, screen_pt: 
             let base = if ri == 0 { ROW_TOP_BASELINE } else { ROW_BOTTOM_BASELINE };
             let mut qx = cx;
             let tag_w = width_pt(Face::MonoBold, &q.key, TAG_PT);
-            cv.text(Face::MonoBold, &q.key, qx * s, top(base + TAG_BASELINE_SHIFT), TAG_PT * s, WHITE, text_dim);
+            cv.text(Face::MonoSemibold, &q.key, qx * s, top(base + TAG_BASELINE_SHIFT), TAG_PT * s, WHITE, text_dim);
             qx += tag_w + GAP;
             let (color, calpha) = status_color(&q.status);
             let fill_w = BAR_W * s * q.used_pct.min(100) as f32 / 100.0;
