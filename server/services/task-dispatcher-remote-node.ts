@@ -632,6 +632,21 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         );
         return;
       }
+      // The node does not run this card's model: another machine may. The card
+      // goes back to the queue with no fixed machine and says so in its thread.
+      if (nodeFailureReason(err) === "model_rejected") {
+        try { releaseAndEmit({ taskId: task.id, requeue: true, rollbackAttempt: true }); }
+        catch (e) { log(`nodo: la card ${task.id} non è tornata in coda dopo il rifiuto del modello`, e); parkNodeCard(task, `Il nodo «${name}» non esegue il modello della card.`); return; }
+        try { emit(svc.update({ taskId: task.id, actor: "agent", by: "dispatcher", patch: { machineId: null } })); }
+        catch (e) { log(`nodo: la card ${task.id} non ha lasciato la macchina fissa`, e); }
+        try {
+          svc.addComment({
+            taskId: task.id, author: "system", kind: "service",
+            content: `Il nodo «${name}» non esegue il modello di questa card. Tolgo la macchina fissa e la rimetto in coda: parte dove il modello c'è.`,
+          });
+        } catch { /* the requeue stands without its line */ }
+        return;
+      }
       // A 400/422 is the node refusing THIS card (12/11: a model outside its
       // catalog, retried every 5 minutes for half an hour as a silent node).
       if (nodeFailureReason(err) === "rejected") {
