@@ -36,4 +36,32 @@ describe("buildAgentToolsInventory", () => {
       rmSync(home, { recursive: true, force: true });
     }
   });
+
+  test("reads a block-scalar description (|-) as its indented lines joined by a space", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-tools-"));
+    try {
+      mkdirSync(join(home, ".agents", "skills", "claude-api"), { recursive: true });
+      writeFileSync(
+        join(home, ".agents", "skills", "claude-api", "SKILL.md"),
+        "---\nname: claude-api\ndescription: |-\n  Reference for the Claude API.\n  TRIGGER when code imports anthropic.\nallowed-tools: Read\n---\nbody",
+      );
+      mkdirSync(join(home, ".agents", "skills", "folded"), { recursive: true });
+      writeFileSync(
+        join(home, ".agents", "skills", "folded", "SKILL.md"),
+        "---\nname: folded\ndescription: >-\n  First folded line\n  second line\n---\nbody",
+      );
+      const result = buildAgentToolsInventory({
+        home,
+        settings: { extraMcpFiles: [], extraSkillDirs: [], parkedMcp: [] },
+        fleet: { enabled: true, mounting: false, source: null, servers: [] },
+        clis: [],
+      });
+      expect(result.skills).toEqual([
+        { name: "claude-api", description: "Reference for the Claude API. TRIGGER when code imports anthropic.", source: "~/.agents/skills" },
+        { name: "folded", description: "First folded line second line", source: "~/.agents/skills" },
+      ]);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
 });
