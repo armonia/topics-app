@@ -1245,6 +1245,7 @@ const EN = {
   'settings.machines.provider.placeholder': "API token",
   'settings.machines.provider.save': "Save",
   'settings.machines.slots.label': 'Cards at once',
+  'settings.machines.slots.paused': 'Paused: no new cards',
   'settings.machines.pair.address': 'Node address',
   'settings.machines.pair.addressPlaceholder': 'https://node.local:3333',
   'settings.machines.pair.start': 'Request access',
