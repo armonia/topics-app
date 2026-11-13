@@ -557,7 +557,7 @@ export function nativeTurnOutcome(input: {
   if (!input.end) return { status: "failed", partial: true, text, reason: { code: "exited-mid-turn" } };
   if (input.end.end === "cancelled") {
     return input.end.cause && MACHINE_CUTS.has(input.end.cause)
-      ? { status: "stopped", partial: true, text, reason: { code: "swept" } }
+      ? { status: "stopped", partial: true, text, reason: { code: "machine-cut", detail: input.end.cause } }
       : { status: "stopped", partial: true, text };
   }
   if (input.end.end === "end_turn") return { status: "completed", partial: false, text };
