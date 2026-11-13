@@ -198,8 +198,20 @@ async function run(cmd: string[], timeoutMs = 10_000): Promise<{ code: number; o
 
 /** Restart only when no turn is in flight: a restart would cut a live reply. */
 async function reload(paths: Paths): Promise<string> {
+  const inflightPath = join(paths.home, "inflight.json");
   let inflight: Json = {};
-  try { inflight = readJson(join(paths.home, "inflight.json")); } catch {}
+  if (existsSync(inflightPath)) {
+    try {
+      inflight = readJson(inflightPath);
+    } catch (err) {
+      // inflight.json exists but is unreadable or malformed (e.g. a partial
+      // write mid-flush) — unlike a missing file, this is NOT "no turn in
+      // flight": defer the restart instead of risking a kickstart that
+      // SIGKILLs a live reply.
+      console.warn("[agent-config] could not read inflight.json, deferring restart:", err);
+      return "pending";
+    }
+  }
   if (Object.keys(inflight).length) return "pending";
   if (process.env.AGENT_CONFIG_NO_RESTART) return "skipped";
   const userId = process.getuid?.() ?? 501;
