@@ -3,6 +3,7 @@
  * the current one puts `location` on the server, the older one under
  * `datacenter`. The price must come from the price list of THAT location, not
  * from whichever price comes first.
+ * @covers HETZNER-LOC-1
  */
 import { describe, expect, test } from "bun:test";
 import { hetznerAdapter, HETZNER_API_ENV } from "./machine-providers";
