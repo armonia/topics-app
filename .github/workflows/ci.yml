@@ -440,6 +440,8 @@ jobs:
           # language, git env in tests): ONE list, in package.json, which the
           # delivery gate also runs before it opens the pull request.
           bun run gates:fast
+          git fetch --no-tags --depth=1 origin +main:refs/remotes/origin/main
+          bun run check:backup-residue
           bun run check:route-shadowing
           # La scala tipografica e' UNA, e sta nel blocco `@theme` di
           # index.css. Questo rifiuta le due strade per uscirne: una misura
