@@ -4,6 +4,8 @@
 //! text drawn by AppKit. Here every string is drawn with `CTLineDraw` into an alpha-only
 //! bitmap context, one glyph per pen position rounded to a whole pixel, so stems land on
 //! the pixel grid. Layout (advances) stays with the caller: only the rasterization moves.
+use objc2::msg_send;
+use objc2::runtime::AnyClass;
 use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CString};
 use std::sync::Mutex;
@@ -22,17 +24,14 @@ extern "C" {
     static kCFTypeDictionaryKeyCallBacks: c_void;
     static kCFTypeDictionaryValueCallBacks: c_void;
     fn CFRelease(r: Ref);
+    fn CFRetain(r: Ref) -> Ref;
     fn CFStringCreateWithCString(alloc: Ref, s: *const c_char, enc: u32) -> Ref;
-    fn CFNumberCreate(alloc: Ref, ty: isize, v: *const c_void) -> Ref;
     fn CFDictionaryCreate(alloc: Ref, keys: *const Ref, vals: *const Ref, n: isize, kc: *const c_void, vc: *const c_void) -> Ref;
     fn CFAttributedStringCreate(alloc: Ref, s: Ref, attrs: Ref) -> Ref;
 }
 
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
-    fn CGDataProviderCreateWithFilename(path: *const c_char) -> Ref;
-    fn CGFontCreateWithDataProvider(p: Ref) -> Ref;
-    fn CGFontCreateCopyWithVariations(f: Ref, vars: Ref) -> Ref;
     fn CGBitmapContextCreate(data: *mut c_void, w: usize, h: usize, bpc: usize, bpr: usize, cs: Ref, info: u32) -> Ref;
     fn CGContextSetGrayFillColor(c: Ref, gray: f64, alpha: f64);
     fn CGContextSetShouldSmoothFonts(c: Ref, on: bool);
@@ -41,16 +40,22 @@ extern "C" {
     fn CGContextRelease(c: Ref);
 }
 
+#[link(name = "AppKit", kind = "framework")]
+extern "C" {
+    static NSFontWeightRegular: f64;
+    static NSFontWeightSemibold: f64;
+    static NSFontWeightBold: f64;
+}
+
 #[link(name = "CoreText", kind = "framework")]
 extern "C" {
     static kCTFontAttributeName: Ref;
-    fn CTFontCreateWithGraphicsFont(f: Ref, size: f64, m: Ref, attrs: Ref) -> Ref;
+
     fn CTLineCreateWithAttributedString(s: Ref) -> Ref;
     fn CTLineDraw(l: Ref, c: Ref);
 }
 
 const UTF8: u32 = 0x0800_0100;
-const CF_NUMBER_DOUBLE: isize = 13;
 const ALPHA_ONLY: u32 = 7;
 
 /// An 8-bit coverage mask: `rows` of `w` bytes, top row first.
@@ -63,14 +68,22 @@ pub(crate) struct Mask {
     pub base_row: i32,
 }
 
-struct FontKey {
-    path: &'static str,
-    wght: u32,
-    opsz: u32,
-    px: u32,
+/// Weights as AppKit names them for the system font.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) enum SystemWeight {
+    Regular,
+    Semibold,
+    Bold,
 }
 
-static FONTS: Mutex<Option<HashMap<(String, u32, u32, u32), usize>>> = Mutex::new(None);
+/// Which system face: the proportional UI font or the monospaced one.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) struct FontSpec {
+    pub mono: bool,
+    pub weight: SystemWeight,
+}
+
+static FONTS: Mutex<Option<HashMap<(FontSpec, u32), usize>>> = Mutex::new(None);
 
 fn cf_str(s: &str) -> Ref {
     let c = CString::new(s).unwrap_or_default();
@@ -78,66 +91,48 @@ fn cf_str(s: &str) -> Ref {
     unsafe { CFStringCreateWithCString(std::ptr::null(), c.as_ptr(), UTF8) }
 }
 
-fn cf_num(v: f64) -> Ref {
-    // SAFETY: `v` outlives the call, CFNumber copies it.
-    unsafe { CFNumberCreate(std::ptr::null(), CF_NUMBER_DOUBLE, &v as *const f64 as *const c_void) }
-}
-
-/// A CTFont for `path` at the given variable-axis values, cached for the process lifetime.
-fn font(path: &'static str, wght: f32, opsz: f32, px: f32) -> Option<Ref> {
-    let key = FontKey { path, wght: wght as u32, opsz: opsz as u32, px: (px * 100.0) as u32 };
+/// The system font at `px`, from AppKit itself (`NSFont.systemFont(ofSize:weight:)` and
+/// `monospacedSystemFont(ofSize:weight:)`, toll-free bridged to CTFont), so weight, optical
+/// size and tracking are the ones the OS picks. Cached for the process lifetime.
+fn font(spec: FontSpec, px: f32) -> Option<Ref> {
     let mut guard = FONTS.lock().ok()?;
     let map = guard.get_or_insert_with(HashMap::new);
-    let k = (key.path.to_string(), key.wght, key.opsz, key.px);
+    let k = (spec, (px * 100.0) as u32);
     if let Some(p) = map.get(&k) {
         return Some(*p as Ref);
     }
-    let cpath = CString::new(path).ok()?;
-    // SAFETY: plain CoreFoundation/CoreGraphics construction; every temporary is released and
-    // the final CTFont is kept alive on purpose (cached).
-    unsafe {
-        let provider = CGDataProviderCreateWithFilename(cpath.as_ptr());
-        if provider.is_null() {
+    // SAFETY: the NSFont statics are plain CGFloat constants; the class methods return an
+    // autoreleased font that is retained once and kept in the cache on purpose.
+    let ct: Ref = unsafe {
+        let weight = match spec.weight {
+            SystemWeight::Regular => NSFontWeightRegular,
+            SystemWeight::Semibold => NSFontWeightSemibold,
+            SystemWeight::Bold => NSFontWeightBold,
+        };
+        let class = AnyClass::get(c"NSFont")?;
+        let f: Ref = if spec.mono {
+            msg_send![class, monospacedSystemFontOfSize: px as f64, weight: weight]
+        } else {
+            msg_send![class, systemFontOfSize: px as f64, weight: weight]
+        };
+        if f.is_null() {
             return None;
         }
-        let cg = CGFontCreateWithDataProvider(provider);
-        CFRelease(provider);
-        if cg.is_null() {
-            return None;
-        }
-        let (kw, ko) = (cf_str("Weight"), cf_str("Optical Size"));
-        let (vw, vo) = (cf_num(wght as f64), cf_num(opsz as f64));
-        let vars = CFDictionaryCreate(
-            std::ptr::null(),
-            [kw, ko].as_ptr(),
-            [vw, vo].as_ptr(),
-            2,
-            &kCFTypeDictionaryKeyCallBacks,
-            &kCFTypeDictionaryValueCallBacks,
-        );
-        let varied = CGFontCreateCopyWithVariations(cg, vars);
-        for r in [kw, ko, vw, vo, vars] {
-            CFRelease(r);
-        }
-        let base = if varied.is_null() { cg } else { varied };
-        let ct = CTFontCreateWithGraphicsFont(base, px as f64, std::ptr::null(), std::ptr::null());
-        if !varied.is_null() {
-            CFRelease(varied);
-        }
-        CFRelease(cg);
-        if ct.is_null() {
-            return None;
-        }
-        map.insert(k, ct as usize);
-        Some(ct)
-    }
+        CFRetain(f)
+    };
+    map.insert(k, ct as usize);
+    Some(ct)
 }
 
 /// Draw `chars` (each at `pens[i]` pixels from the start, rounded to whole pixels) and return
 /// the coverage mask. `start_frac` is the fractional part of the string origin, dropped so
 /// the whole string snaps to the pixel grid.
-pub(crate) fn rasterize(path: &'static str, wght: f32, opsz: f32, px: f32, chars: &[char], pens: &[f32], total: f32) -> Option<Mask> {
-    let ct = font(path, wght, opsz, px)?;
+pub(crate) fn rasterize(spec: FontSpec, px: f32, chars: &[char], pens: &[f32], total: f32) -> Option<Mask> {
+    rasterize_font(font(spec, px)?, px, chars, pens, total)
+}
+
+/// Same as [`rasterize`] for an already built CTFont (also lets tests draw a reference font).
+pub(crate) fn rasterize_font(ct: *const c_void, px: f32, chars: &[char], pens: &[f32], total: f32) -> Option<Mask> {
     let margin = 3_i32;
     let w = total.ceil() as usize + 2 * margin as usize + 1;
     let base_row = (px * 1.1).ceil() as i32 + 1;

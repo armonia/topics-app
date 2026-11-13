@@ -114,12 +114,24 @@ fn live_overview_collapses_like_the_original_strip() {
 #[test]
 fn dump_strip_for_the_visual_comparison() {
     let Ok(path) = std::env::var("TRAY_STRIP_DUMP") else { return };
+    // TRAY_STRIP_LIVE=1 reads the same overview the original tray reads, from the service.
+    if std::env::var("TRAY_STRIP_LIVE").is_ok() {
+        let base = hub_base();
+        let (cols, extras) = (fetch_columns(&base), fetch_extras(&base));
+        let st = render_strip_on(cols.as_deref(), &extras, 3440.0);
+        write_ppm(&path, &st);
+        return;
+    }
     let cols = parse_overview(include_str!("tray_overview_live.json")).unwrap();
     let extras = Extras {
         mac: crate::tray_dials::parse_mac(r#"{"effort":{"loadPct":100,"parts":[{"key":"cpu","pct":66,"level":2},{"key":"mem","pct":30,"level":0},{"key":"gpu","pct":60,"level":0},{"key":"disk","pct":77,"level":0}]}}"#),
         pace: crate::tray_dials::parse_pace(r#"{"overall":{"value":4.41,"zone":"sopra"}}"#),
     };
     let st = render_strip_on(Some(&cols), &extras, 3440.0);
+    write_ppm(&path, &st);
+}
+
+fn write_ppm(path: &str, st: &Strip) {
     let mut out = format!("P6\n{} {}\n255\n", st.width, st.height).into_bytes();
     for px in st.rgba.chunks(4) {
         let a = px[3] as f32 / 255.0;
@@ -196,11 +208,60 @@ fn coretext_text_is_at_least_as_sharp_as_ab_glyph() {
 }
 
 #[cfg(target_os = "macos")]
-#[test]
-fn coretext_honours_the_weight_axis() {
-    let ink = |w: f32| -> u32 {
-        let m = crate::tray_coretext::rasterize("/System/Library/Fonts/SFNSMono.ttf", w, OPTICAL_SIZE_TEXT, 18.0, &['1', '6'], &[0.0, 11.0], 22.0).unwrap();
-        m.a.iter().map(|&v| v as u32).sum()
-    };
-    assert!(ink(900.0) > ink(300.0) * 11 / 10, "weight variation has no effect");
+mod weight {
+    use super::*;
+    use objc2::msg_send;
+    use objc2::runtime::AnyClass;
+
+    #[link(name = "AppKit", kind = "framework")]
+    extern "C" {}
+
+    /// Ink (sum of alpha) of `s` drawn by AppKit's own system font, bridged to a CTFont.
+    fn appkit_ink(mono: bool, weight: f64, s: &str, px: f32) -> f64 {
+        let class = AnyClass::get(c"NSFont").expect("NSFont");
+        let font: *const std::ffi::c_void = unsafe {
+            if mono {
+                msg_send![class, monospacedSystemFontOfSize: px as f64, weight: weight]
+            } else {
+                msg_send![class, systemFontOfSize: px as f64, weight: weight]
+            }
+        };
+        let chars: Vec<char> = s.chars().collect();
+        let pens: Vec<f32> = (0..chars.len()).map(|i| i as f32 * px * MONO_ADVANCE_EM).collect();
+        let m = crate::tray_coretext::rasterize_font(font, px, &chars, &pens, chars.len() as f32 * px * MONO_ADVANCE_EM).unwrap();
+        m.a.iter().map(|&v| v as f64).sum()
+    }
+
+    /// Ink of `s` as the strip draws it (all glyphs at the same pen positions as the reference).
+    fn strip_ink(face: Face, s: &str, px: f32) -> f64 {
+        let mut c = Canvas::new(400, 80);
+        // Monospaced and proportional text both go through the strip's own `glyphs`.
+        c.glyphs(face, s, 6.0, 40.0, px, [255, 255, 255], 1.0);
+        c.px.chunks(4).map(|p| p[3] as f64).sum()
+    }
+
+    fn within(a: f64, b: f64, what: &str) {
+        let r = a / b;
+        assert!((0.94..=1.06).contains(&r), "{what}: strip ink {a} vs AppKit {b} (ratio {r:.3}), outside 6%");
+    }
+
+    // AppKit NSFont.Weight values: regular 0.0, semibold 0.3, bold 0.4.
+    #[test]
+    fn mono_regular_ink_matches_appkit() {
+        let px = 10.5 * SCALE;
+        within(strip_ink(Face::Mono, "16% 4d5h", px), appkit_ink(true, 0.0, "16% 4d5h", px), "mono regular");
+    }
+
+    #[test]
+    fn mono_bold_and_semibold_ink_match_appkit() {
+        let px = 11.5 * SCALE;
+        within(strip_ink(Face::MonoBold, "16% 90%", px), appkit_ink(true, 0.4, "16% 90%", px), "mono bold");
+        within(strip_ink(Face::MonoSemibold, "5H 7D", px), appkit_ink(true, 0.3, "5H 7D", px), "mono semibold");
+    }
+
+    #[test]
+    fn sans_semibold_ink_matches_appkit() {
+        let px = 10.0 * SCALE;
+        within(strip_ink(Face::Sans, "ATTILIO", px), appkit_ink(false, 0.3, "ATTILIO", px), "sans semibold");
+    }
 }
