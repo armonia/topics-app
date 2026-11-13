@@ -220,6 +220,19 @@ pub struct Strip {
     pub rgba: Vec<u8>,
 }
 
+impl Strip {
+    /// The strip as PNG bytes, for the macOS status item, which takes an image file
+    /// rather than raw pixels.
+    pub fn to_png(&self) -> Option<Vec<u8>> {
+        let mut out = Vec::new();
+        let mut enc = png::Encoder::new(&mut out, self.width, self.height);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.write_header().ok()?.write_image_data(&self.rgba).ok()?;
+        Some(out)
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(crate) enum Face {
     /// Header and labels: the semibold system sans.
