@@ -39,6 +39,7 @@
 
 import { request as playwrightRequest, type APIRequestContext } from "@playwright/test";
 import { E2E_BASE } from "../helpers/test-server";
+import { acquireServerLock } from "../helpers/server-lock";
 import { slackMs } from "../../helpers/time-slack";
 import { drainTerminalSessions } from "../helpers/drain-terminals";
 import { closeAllBrowserContexts, waitForPaneStoreQuiet } from "../helpers/api-fixtures";
@@ -233,11 +234,23 @@ async function resetToBaselineInner(request: APIRequestContext): Promise<void> {
  * `test.extend`. Chiediamo solo `beforeAll`: è tutto ciò che serve, e così
  * qualunque fixture custom va bene senza cast.
  */
-type HookRegistrar = { beforeAll: (fn: () => Promise<void>) => void };
+type HookRegistrar = {
+  beforeAll: (fn: () => Promise<void>) => void;
+  afterAll: (fn: () => Promise<void>) => void;
+};
 
 /** Registra il confine ermetico per QUESTO file di spec. Va chiamata a top-level. */
 export function hermetic(test: HookRegistrar): void {
+  // The reset and the pane store are server-wide, so with --workers=2 a file
+  // starting on one worker wipes the other worker's topics mid-test. Files take
+  // turns: the lock is held from this reset to the file's afterAll.
+  let release: (() => void) | null = null;
   test.beforeAll(async () => {
+    release = await acquireServerLock(E2E_BASE);
     await resetToBaseline();
+  });
+  test.afterAll(async () => {
+    release?.();
+    release = null;
   });
 }
