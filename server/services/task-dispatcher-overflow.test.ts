@@ -207,7 +207,7 @@ function harness(opts: {
       nameOf: (id) => NAME[id] ?? null,
       localMachineId: () => LOCAL,
       originUrlOf: async () => "git@github.com:acme/alpha.git",
-      plantBranch: async () => ({ planted: true, commit: "c0ffeec0ffee", reason: null }),
+      plantBranch: async () => ({ planted: true, commit: "c0ffeec0ffee", commitCount: 1, reason: null }),
       bundleBranch: async ({ branch }) => (opts.noOrigin ? bundleBranch(opts.noOrigin.mac, branch) : null),
       ensureBranchOnOrigin: async ({ branch }) => { pushed.push(branch); return opts.ensure?.(branch) ?? { ok: true }; },
     },
@@ -468,6 +468,17 @@ describe("overflow: una card rimandata in coda dopo la review porta il suo ramo"
     h.db.run("UPDATE tasks SET status = 'todo', machine_id = ? WHERE id = ?", [PC, CARD]);
     await h.tick();
     expect(h.bodies).toEqual([{ originTaskId: CARD, baseBranch: "topics/endless-calf" }]);
+  });
+
+  it("three rejected deliveries keep every delivery branch, not only the last", () => {
+    const h = harness({ floor: false });
+    h.seed(CARD);
+    for (const branch of ["topics/del-a", "topics/del-b"]) {
+      h.db.run("UPDATE tasks SET status = 'review', delivery_branch = ?, delivery_commit = 'abc1234' WHERE id = ?", [branch, CARD]);
+      h.svc.reviewDecision({ taskId: CARD, by: "reviewer", decision: "reject", comment: "again" });
+    }
+    expect(h.task(CARD).priorBranch).toBe("topics/del-b");
+    expect(h.task(CARD).pastDeliveryBranches).toEqual(["topics/del-a", "topics/del-b"]);
   });
 
   it("un ramo già atterrato su main non fa da base: main è più nuovo", async () => {

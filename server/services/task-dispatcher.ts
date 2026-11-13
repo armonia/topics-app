@@ -3259,7 +3259,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const UNIT_CI_KICKOFF_LINE =
     "- UNIT TESTS RUN ON GITHUB CI, NEVER HERE: the full unit suite of your delivery is read from the step `Unit + integration tests` of the `check` job, " +
     "in the pull request CI run of the exact commit the board measured, after the same push and draft pull request (one push and one wait serve the e2e row too). " +
-    "Do not run `bun run test:unit` on this machine; targeted `bun test <file>` for the files you touched stays allowed and is how you check your change before delivering. " +
+    "Do not run `bun run test:unit` on this machine; `bun run test:touched` picks the tests of your diff by itself (the changed tests plus every test that imports what you changed, the whole suite on config) and is how you check your change before delivering; do not choose the files by hand. " +
     "A red step comes back with `gh run view --job <id> --log-failed`; a step skipped, cancelled or never reached is NOT MEASURED, never green.";
 
   // The same question on a board WITHOUT that row: nobody pushes, nobody reads a
@@ -3303,6 +3303,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           : []),
         "- Comments SHORT and useful: 1-2 sentences at the milestones (what is done / what is blocking). Never logs, diffs or code dumps in the thread (the server rejects long comments).",
         GENERIC_PRODUCT_RULE,
+        "- On macOS use `sed -i ''`, never `sed -i -e`: BSD sed reads `-e` as the backup suffix and leaves a `<file>-e` copy that lands in the delivery.",
         "- Lean context (keep the turns light): Grep to find, then Read in slices (offset/limit) on files over ~400 lines — never read whole files 'to be safe'.",
         `- ${longCommandsRule()}`,
         // Il coordinatore. Sta QUI, subito dopo la riga sul contesto snello,

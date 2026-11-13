@@ -222,6 +222,7 @@ const CHAT_EN: Dict = {
   'processlog.stopTitle': 'Stop process',
   'processlog.fetchFailed': 'Failed to fetch output',
   'processlog.readError': 'Error: {error}',
+  'processlog.stopFailed': 'Stop failed: the process is still running',
   ...VIEWS_EN,
 };
 

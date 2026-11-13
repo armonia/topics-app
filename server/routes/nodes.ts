@@ -23,6 +23,7 @@ import { createTaskService, TaskServiceError, type Task } from "../services/task
 import { STALE_TASK_MODEL_ERROR, isStaleMirroredModel } from "../services/task-model-catalog";
 import { deliveryFacts } from "../services/delivery-facts";
 import { defaultRunGit, type GitRunner } from "../services/own-commits";
+import { nodeRunDelivery, type NodeRunWorktreeLookup } from "../services/node-run-head";
 import type { DelegatedNodeBinding } from "../services/node-client";
 import { actingPersonId } from "../lib/orgs";
 import { hashToken, mintSessionToken, buildSessionCookie } from "../lib/device-auth";
@@ -56,6 +57,8 @@ export interface NodesRouterOpts {
   taskModelSnapshot?: () => ProvidersSnapshot | null;
   /** Shared server-side retry loop; tests may omit it and get the same service locally. */
   revocations?: DelegatedRevocationRetry;
+  /** The worktree this run is dispatched on, when this machine still has one (see `nodeRunHeadMismatch`). */
+  worktreeOfTask?: NodeRunWorktreeLookup;
 }
 
 /**
@@ -608,11 +611,15 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       // would make every rerun after a DELETE (KANBAN-77) fail with a
       // constraint error instead of starting.
       const key = RUN_KEY_PREFIX + originTaskId;
-      const prior = db.query("SELECT id, project_id, archived FROM tasks WHERE claude_task_id = ?").get(key) as
-        | { id: string; project_id: string; archived: number }
+      const prior = db.query("SELECT id, project_id, archived, status, dispatch_state FROM tasks WHERE claude_task_id = ?").get(key) as
+        | { id: string; project_id: string; archived: number; status: string; dispatch_state: string | null }
         | null;
       if (prior && prior.archived === 0) {
-        return json({ runId: prior.id, projectId: prior.project_id });
+        // A finished copy is a resend: archive it, or its old delivery replays (13/11).
+        const idle = prior.dispatch_state !== "working" && prior.dispatch_state !== "starting";
+        if (!(idle && (prior.status === "review" || prior.status === "done"))) return json({ runId: prior.id, projectId: prior.project_id });
+        const resp = await opts.deleteBoardTask(prior.project_id, prior.id);
+        if (!resp || !resp.ok) return resp ?? json({ error: "board delete unavailable", code: "internal" }, 500);
       }
       if (prior) db.run("UPDATE tasks SET claude_task_id = NULL WHERE id = ?", [prior.id]);
 
@@ -673,7 +680,7 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       if (!got) return json({ error: "run not found", code: "not_found" }, 404);
       const repoPath = repoPathOf(got.task);
       if (!repoPath) return json({ error: "project of the run has no checkout", code: "repo_unresolved" }, 409);
-      const branch = got.task.deliveryBranch;
+      const { branch } = await nodeRunDelivery(runGit, opts.worktreeOfTask, got.task);
       // A ref that starts with "-" would be read by git as an option. The
       // value comes from our own row, but a bundle is the one place where a
       // stray name turns into a flag on a subprocess.
@@ -706,7 +713,7 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       const task = await confinedRun(req, delegatedBundle.id);
       if (!task) return json({ error: "run not found", code: "not_found" }, 404);
       const repoPath = repoPathOf(task)!;
-      const branch = task.deliveryBranch;
+      const { branch } = await nodeRunDelivery(runGit, opts.worktreeOfTask, task);
       if (branch && branch.startsWith("-")) return json({ error: "invalid delivery branch", code: "invalid_input" }, 400);
       const facts = await deliveryFacts(runGit, repoPath, branch);
       if (!branch || facts.commitCount === 0 || !facts.baseSha) return json({ empty: true, baseSha: facts.baseSha });
@@ -734,18 +741,12 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
           .filter((c) => !since || c.createdAt >= since)
           .map((c) => ({ id: c.id, author: c.author, content: c.content, kind: c.kind, createdAt: c.createdAt }));
         const repoPath = repoPathOf(task);
-        const facts = repoPath ? await deliveryFacts(runGit, repoPath, task.deliveryBranch) : { baseSha: null, commitCount: 0 };
+        const { branch, commit, reason } = await nodeRunDelivery(runGit, opts.worktreeOfTask, task);
+        const facts = repoPath ? await deliveryFacts(runGit, repoPath, branch) : { baseSha: null, commitCount: 0 };
         return json({
-          runId: task.id,
-          status: task.status,
-          dispatchState: task.dispatchState,
-          dispatchError: task.dispatchError,
-          comments,
-          deliveryBranch: task.deliveryBranch,
-          deliveryCommit: task.deliveryCommit,
-          baseSha: facts.baseSha,
-          commitCount: facts.commitCount,
-          stat: statOf(task),
+          runId: task.id, status: task.status, dispatchState: task.dispatchState, dispatchError: task.dispatchError,
+          comments, deliveryBranch: branch, deliveryCommit: commit, baseSha: facts.baseSha,
+          commitCount: facts.commitCount, stat: statOf(task), reason,
         });
       }
       if (method === "DELETE") {
@@ -775,12 +776,13 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
             kind: comment.kind, createdAt: comment.createdAt,
           }));
         const repoPath = repoPathOf(task)!;
-        const facts = await deliveryFacts(runGit, repoPath, task.deliveryBranch);
+        const { branch, commit, reason } = await nodeRunDelivery(runGit, opts.worktreeOfTask, task);
+        const facts = await deliveryFacts(runGit, repoPath, branch);
         return json({
           runId: task.id, status: task.status, dispatchState: task.dispatchState,
-          dispatchError: task.dispatchError, comments, deliveryBranch: task.deliveryBranch,
-          deliveryCommit: task.deliveryCommit, baseSha: facts.baseSha,
-          commitCount: facts.commitCount, stat: statOf(task),
+          dispatchError: task.dispatchError, comments, deliveryBranch: branch,
+          deliveryCommit: commit, baseSha: facts.baseSha,
+          commitCount: facts.commitCount, stat: statOf(task), reason,
         });
       }
       if (method === "DELETE") {

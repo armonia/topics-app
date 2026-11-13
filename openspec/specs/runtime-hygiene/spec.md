@@ -1230,3 +1230,16 @@ una lettura che serve solo una vista resta spenta quando la vista è chiusa.
 #### Scenario: il pannello Processi è chiuso
 - **GIVEN** nessuna richiesta recente del pannello Processi
 - **THEN** il detector NON SHALL lanciare i sondaggi periodici `lsof`
+
+### Requirement: RUNTIME-25 — A fine corsa non resta nessun processo della card
+
+Quando la corsa di una card finisce (consegna, fallimento, stop, crash),
+Topics SHALL chiudere ogni processo il cui cwd sta dentro il worktree della
+card, anche se è orfano (ppid 1) o staccato in una sessione propria: SIGTERM,
+poi SIGKILL dopo la grazia. La CLI della sessione NON SHALL essere toccata.
+Nel filo della card SHALL comparire una riga con quanti e quali.
+
+#### Scenario: un figlio staccato sopravvive alla corsa
+- **GIVEN** una corsa finita che ha lasciato `sleep` staccato con cwd nel worktree
+- **WHEN** il tentativo termina
+- **THEN** quel processo SHALL non esistere più, e un processo con cwd fuori dal worktree SHALL restare vivo
