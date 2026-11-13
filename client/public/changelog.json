@@ -1,5 +1,53 @@
 [
   {
+    "version": "2.3.100",
+    "date": "2026-11-13",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "non rimandare in un turno che il registro tiene aperto (#945)",
+          "en": "",
+          "scope": "ripresa",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "agents counted by state with animated working glyph, left of the quota strip",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "click overlay follows the full-size strip so the menu opens again (card 066276b6)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il wake di un figlio tagliato dalla macchina porta il comando per riprenderlo",
+          "en": "",
+          "scope": "ripresa",
+          "breaking": false
+        },
+        {
+          "it": "asserzione sul comando di ripresa con l'id",
+          "en": "",
+          "scope": "ripresa",
+          "breaking": false
+        },
+        {
+          "it": "astro 7.4.12 per gli avvisi XSS e lettura file che facevano rosso il cancello dipendenze",
+          "en": "",
+          "scope": "landing",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.99",
     "date": "2026-11-13",
     "sections": {
@@ -17,6 +65,11 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Machine-cut sub-agent results tell the parent how to resume the child",
+          "en": "",
+          "scope": null
         }
       ]
     }
