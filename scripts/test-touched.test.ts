@@ -33,6 +33,7 @@ const SOURCES: Record<string, string> = {
   "tests/unit/reads-path.test.ts": 'readFileSync("shared/leaf.ts", "utf8");',
   "tests/unit/reads-knip.test.ts": 'readFileSync(join(ROOT, "knip.jsonc"), "utf8");',
   "tests/unit/walks-tree.test.ts": 'Bun.spawnSync(["git", "ls-files"]);',
+  "tests/unit/walks-tree-grep.test.ts": 'spawnSync("git", ["grep", "-l", "x"]);',
   "tests/e2e/helper.ts": "export const helper = 1;",
   "tests/unit/uses-e2e-helper.test.ts": 'import { helper } from "../e2e/helper";',
   "package.json": "{}",
@@ -74,9 +75,9 @@ describe("selectTests", () => {
     expect(selectTests(["server/lib/reader.ts"], graph(), suite)).toEqual({ kind: "tests", tests: ["tests/unit/reads-text.test.ts"] });
   });
   test("a test that walks the tree runs on any code change", () => {
-    expect(walkers).toEqual(new Set(["tests/unit/walks-tree.test.ts"]));
+    expect(walkers).toEqual(new Set(["tests/unit/walks-tree.test.ts", "tests/unit/walks-tree-grep.test.ts"]));
     const selection = selectTests(["server/alone.ts"], graph(), suite, () => false, walkers);
-    expect(selection).toEqual({ kind: "tests", tests: ["server/alone.test.ts", "tests/unit/walks-tree.test.ts"] });
+    expect(selection).toEqual({ kind: "tests", tests: ["server/alone.test.ts", "tests/unit/walks-tree-grep.test.ts", "tests/unit/walks-tree.test.ts"] });
   });
   test("a changed test selects itself and nothing else", () => {
     expect(selectTests(["server/alone.test.ts"], graph(), suite)).toEqual({ kind: "tests", tests: ["server/alone.test.ts"] });
