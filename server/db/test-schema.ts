@@ -174,6 +174,8 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   base_branch TEXT,
   -- Same migration: an origin card's delivery branch, kept when it went back to the queue.
   prior_branch TEXT,
+  -- 20261113120000: all the delivery branches the card left behind, space separated.
+  past_delivery_branches TEXT,
   -- Same migration: the uncommitted files the card had when it went back to the queue.
   prior_uncommitted_files INTEGER,
   stage TEXT,

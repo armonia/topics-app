@@ -2725,6 +2725,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       ...(r.overflowed_at && r.machine_id ? { overflowedAt: r.overflowed_at } : {}),
       ...(r.base_branch ? { baseBranch: r.base_branch } : {}),
       ...(r.prior_branch ? { priorBranch: r.prior_branch } : {}),
+      ...(r.past_delivery_branches ? { pastDeliveryBranches: String(r.past_delivery_branches).split(/\s+/).filter(Boolean) } : {}),
       ...(r.prior_uncommitted_files ? { priorUncommittedFiles: r.prior_uncommitted_files } : {}),
       // WHO opened it; NULL for every card written before the column.
       createdBy: r.created_by ?? null,
@@ -4556,6 +4557,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // machine, starts FROM it (df5fd8c5 restarted from main without it).
           // A branch already on main is no base: main itself is newer.
           if (row.delivery_branch) put("prior_branch", branchStillAhead(row) ? row.delivery_branch : null);
+          if (row.delivery_branch) put("past_delivery_branches", `${row.past_delivery_branches ?? ""} ${row.delivery_branch}`.trim());
           // The uncommitted files outlive their count too: they are still in
           // this machine's worktree, and the overflow must not leave them behind.
           if (row.delivery_uncommitted_files != null) put("prior_uncommitted_files", row.delivery_uncommitted_files || null);
@@ -5091,6 +5093,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             // Read before the snapshot is cleared (SQLite evaluates SET on the old row).
             "prior_branch = CASE WHEN delivery_branch IS NULL THEN prior_branch " +
             "WHEN landing_state IN ('landed', 'superseded') THEN NULL ELSE delivery_branch END, " +
+            "past_delivery_branches = CASE WHEN delivery_branch IS NULL THEN past_delivery_branches " +
+            "ELSE TRIM(COALESCE(past_delivery_branches, '') || ' ' || delivery_branch) END, " +
             "prior_uncommitted_files = CASE WHEN delivery_uncommitted_files IS NULL THEN prior_uncommitted_files " +
             "ELSE NULLIF(delivery_uncommitted_files, 0) END, " +
             DELIVERY_SNAPSHOT_COLUMNS.map((c) => `${c} = NULL`).join(", ") + ", " +
