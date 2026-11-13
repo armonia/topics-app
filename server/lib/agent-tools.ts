@@ -38,13 +38,27 @@ function readMcpFile(path: string): Record<string, { type?: string; url?: string
   }
 }
 
-/** Minimal frontmatter reader: only `name` and `description`, one line each. */
+/**
+ * Minimal frontmatter reader: only `name` and `description`. A block scalar
+ * (`|`, `|-`, `>`, `>-`, with optional `+` or digit) is read from the indented
+ * lines that follow and folded into one line, which is enough for a preview.
+ */
 function readSkillHeader(text: string): { name?: string; description?: string } {
   const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
   if (!m) return {};
+  const lines = m[1].split(/\r?\n/);
   const pick = (key: string) => {
-    const line = new RegExp(`^${key}:\\s*(.*)$`, "m").exec(m[1]);
-    return line ? line[1].trim().replace(/^["']|["']$/g, "") : undefined;
+    const at = lines.findIndex((l) => l.startsWith(`${key}:`));
+    if (at < 0) return undefined;
+    const value = lines[at].slice(key.length + 1).trim();
+    if (/^[|>][+-]?\d*$/.test(value)) {
+      const body: string[] = [];
+      for (let i = at + 1; i < lines.length && (lines[i].trim() === "" || /^\s/.test(lines[i])); i++) {
+        if (lines[i].trim()) body.push(lines[i].trim());
+      }
+      return body.join(" ");
+    }
+    return value.replace(/^["']|["']$/g, "");
   };
   return { name: pick("name"), description: pick("description") };
 }
