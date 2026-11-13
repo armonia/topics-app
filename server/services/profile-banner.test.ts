@@ -10,7 +10,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { renderBanner, compact, esc, sparkPath } from "./profile-banner";
+import { renderBanner, compact, sparkPath } from "./profile-banner";
+import { escapeHtml } from "../lib/escape-html";
 import type { ProfileStats } from "./profile-stats";
 
 /**
@@ -90,10 +91,10 @@ describe("compact", () => {
   });
 });
 
-describe("esc", () => {
+describe("escapeHtml", () => {
   test("copre i cinque caratteri che rompono XML, e `&` per prima", () => {
-    expect(esc(`Tizio & <Caio> "d'accordo"`)).toBe(
-      "Tizio &amp; &lt;Caio&gt; &quot;d&apos;accordo&quot;",
+    expect(escapeHtml(`Tizio & <Caio> "d'accordo"`)).toBe(
+      "Tizio &amp; &lt;Caio&gt; &quot;d&#39;accordo&quot;",
     );
   });
 });

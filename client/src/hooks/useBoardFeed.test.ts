@@ -360,7 +360,7 @@ describe('il feed globale ha un lettore solo', () => {
   });
 
   test('e chi scrive la rilascia quando la PATCH ha risposto, non prima', () => {
-    const pane = src('../components/Board/KanbanBoardPane.tsx');
+    const pane = src('../components/Board/useBoardDrag.ts');
     // Il `finally` di `dropTo` e nessun altro: la vecchia regex accettava
     // QUALUNQUE `finally` seguito, entro 800 caratteri, da un
     // `flushDeferredRead()` — in un file da 2.000 righe non poteva fallire.
@@ -378,7 +378,7 @@ describe('il feed globale ha un lettore solo', () => {
     // il feed e le colonne.
     const pane = src('../components/Board/KanbanBoardPane.tsx');
     expect(pane).toContain('applyPendingWrites(feedTasks, pendingWrites)');
-    expect(pane).toContain('setPendingWrites(');
+    expect(src('../components/Board/useBoardDrag.ts')).toContain('setPendingWrites(');
   });
 
   test('the general board gets a STABLE onOpenTopic, like the project one', () => {

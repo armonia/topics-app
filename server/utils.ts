@@ -2924,25 +2924,39 @@ export function createAppContext(baseDir: string): AppContext {
           try {
             const lines = readFileSync(jsonlPath, "utf-8").split("\n").filter(Boolean);
             for (const line of lines) {
+              let d: unknown;
               try {
-                const d = JSON.parse(line);
-                if (d.type === "message" && d.message) {
-                  const msg = d.message;
-                  if (msg.role === "user" || msg.role === "assistant") {
-                    let text = "";
-                    if (typeof msg.content === "string") text = msg.content;
-                    else if (Array.isArray(msg.content)) text = (msg.content as { type?: string; text?: string }[]).filter((c) => c.type === "text").map((c) => c.text).join("\n");
-                    if (text.toLowerCase().includes(lowerQuery)) {
-                      results.push({ messageId: null, sessionKey: key, topicId: topic?.id || null, topicName: topic?.name || key, topicIcon: topic?.icon || "MessageSquare", role: msg.role, content: text, timestamp: d.timestamp || null });
-                      if (results.length >= limit) return results;
-                    }
+                d = JSON.parse(line);
+              } catch {
+                continue;
+              }
+              // Skip non-object rows (e.g. a bare `null` line) before touching
+              // .type/.message below — otherwise a single malformed row throws
+              // outside any try and aborts the whole session's scan.
+              if (!d || typeof d !== "object") continue;
+              const entryRecord = d as { type?: string; message?: unknown; timestamp?: string | null };
+              if (entryRecord.type === "message" && entryRecord.message && typeof entryRecord.message === "object") {
+                const msg = entryRecord.message as { role?: string; content?: unknown };
+                if (msg.role === "user" || msg.role === "assistant") {
+                  let text = "";
+                  if (typeof msg.content === "string") text = msg.content;
+                  else if (Array.isArray(msg.content)) text = (msg.content as { type?: string; text?: string }[]).filter((c) => c && typeof c === "object" && c.type === "text").map((c) => c.text).join("\n");
+                  if (text.toLowerCase().includes(lowerQuery)) {
+                    results.push({ messageId: null, sessionKey: key, topicId: topic?.id || null, topicName: topic?.name || key, topicIcon: topic?.icon || "MessageSquare", role: msg.role, content: text, timestamp: entryRecord.timestamp || null });
+                    if (results.length >= limit) return results;
                   }
                 }
-              } catch {}
+              }
             }
-          } catch {}
+          } catch (err) {
+            console.warn(`[Search] legacy transcript scan failed for ${entry.sessionId}:`, err);
+          }
         }
-      } catch {}
+      } catch (err) {
+        // sessions.json is unreadable or malformed: legacy JSONL transcripts are
+        // skipped for this search, but the SQLite `messages` hits above still apply.
+        console.warn("[Search] legacy sessions.json scan failed:", err);
+      }
     }
 
     return results;
