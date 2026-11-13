@@ -123,7 +123,7 @@ export const TAURI_TRIGGERS: readonly RegExp[] = [
   /^public\//,
   /^tests\/tauri-shell\//,
   /^tests\/integration\//,
-  /^scripts\/(gate-slot|stray-ai-bridges|fix-node-pty-exec-bit|measure-file-tree|gen-migrations-manifest|build-[\w-]+|check-cross-shell)\.(ts|sh)$/,
+  /^scripts\/(gate-slot|heavy-slot-client|stray-ai-bridges|fix-node-pty-exec-bit|measure-file-tree|gen-migrations-manifest|build-[\w-]+|check-cross-shell)\.(ts|sh)$/,
   /^scripts\/claude-hooks\//,
   ...RUST_ROOT_CONFIG,
   ...WALKED_TREE_CONFIG,
