@@ -24,7 +24,7 @@ const PANE = readFileSync(join(DIR, 'KanbanBoardPane.tsx'), 'utf8');
 const CARD = readFileSync(join(DIR, 'Card.tsx'), 'utf8');
 // The column width classes moved to `boardGeometry.ts` so the loading
 // skeleton draws the same columns; the width assertions read them there.
-const VIEW_HOOK = readFileSync(join(DIR, 'useBoardViewPrefs.ts'), 'utf8');
+const VIEW_HOOK = readFileSync(join(DIR, 'useBoardViewState.ts'), 'utf8');
 const GEOMETRY = readFileSync(join(DIR, 'boardGeometry.ts'), 'utf8');
 const WIDTH_BLOCK = GEOMETRY.slice(GEOMETRY.indexOf('export const COLUMN_WIDTH'), GEOMETRY.indexOf('/** The column frame'));
 
@@ -35,8 +35,8 @@ describe('il tasto della vista lista, accanto alla ricerca', () => {
   });
 
   test('la scelta è persistita, non solo in memoria del componente', () => {
-    // Per board, written by the setter (useBoardViewPrefs), never from an effect.
-    expect(PANE).toContain('useBoardViewPrefs(mode');
+    // Per board, written by the setter (useBoardViewState), never from an effect.
+    expect(PANE).toContain('useBoardViewState(mode');
     expect(VIEW_HOOK).toContain('writeBoardPreference(boardStorageKey(storageKey, boardId), value)');
   });
 

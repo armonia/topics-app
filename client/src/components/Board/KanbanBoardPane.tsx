@@ -54,7 +54,7 @@ import { columnIdOfDropTarget, dropsOnOtherProject, laneDropId } from './boardLa
 import { DoneToggle, GroupSelectors, ViewSelector } from './BoardViewControls';
 import { GroupedBoard } from './GroupedBoard';
 import { effectiveLevels, groupTasks, leavesOf, projectOfPath, NO_VALUE, type GroupKey, type GroupNode } from './boardGrouping';
-import { useBoardViewPrefs } from './useBoardViewPrefs';
+import { useBoardViewState } from './useBoardViewState';
 import { draftLaneOf } from './draftPreview';
 import { useCollapsedProjects } from './useCollapsedProjects';
 import { QUICK_FILTERS, countQuickFilters, taskMatchesQuick, type QuickFilter } from './quickFilters';
@@ -920,7 +920,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // property of the task — localStorage, not the server: no board needs to
   // know which view you're looking at it in.
   // The view and the grouping are kept PER BOARD (the global one and each project).
-  const { detail, setDetail, groupBy: groupByPref, thenBy: thenByPref, setGroupBy, setThenBy } = useBoardViewPrefs(mode === 'all' ? 'all' : projectId);
+  const { detail, setDetail, groupBy: groupByPref, thenBy: thenByPref, setGroupBy, setThenBy } = useBoardViewState(mode === 'all' ? 'all' : projectId);
   const planVisible = detail === 'plan';
   // One-click filter above the board, in AND with the search filters and with every view.
   const [quick, setQuick] = useState<QuickFilter | null>(null);

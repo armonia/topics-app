@@ -5,9 +5,9 @@ import {
 } from './boardGeometry';
 import { DETAIL_STORAGE_KEY, readDetailLevel, type DetailLevel } from './detailLevel';
 
-interface Prefs { detail: DetailLevel; groupBy: BoardGroupBy; thenBy: BoardGroupBy }
+interface ViewState { detail: DetailLevel; groupBy: BoardGroupBy; thenBy: BoardGroupBy }
 
-const read = (boardId: string): Prefs => ({
+const read = (boardId: string): ViewState => ({
   detail: readDetailLevel(boardId), groupBy: readBoardGroupBy(boardId), thenBy: readBoardThenBy(boardId),
 });
 
@@ -17,23 +17,23 @@ const read = (boardId: string): Prefs => ({
  * the setter, not in an effect, so a switch of board never writes the old
  * board's choice under the new board's key.
  */
-export function useBoardViewPrefs(boardId: string): Prefs & {
+export function useBoardViewState(boardId: string): ViewState & {
   setDetail: (v: DetailLevel) => void;
   setGroupBy: (v: BoardGroupBy) => void;
   setThenBy: (v: BoardGroupBy) => void;
 } {
-  const [state, setState] = useState(() => ({ boardId, prefs: read(boardId) }));
-  let prefs = state.prefs;
+  const [state, setState] = useState(() => ({ boardId, view: read(boardId) }));
+  let view = state.view;
   if (state.boardId !== boardId) {
-    prefs = read(boardId);
-    setState({ boardId, prefs });
+    view = read(boardId);
+    setState({ boardId, view });
   }
-  const set = useCallback(<K extends keyof Prefs>(field: K, storageKey: string, value: Prefs[K]) => {
+  const set = useCallback(<K extends keyof ViewState>(field: K, storageKey: string, value: ViewState[K]) => {
     writeBoardPreference(boardStorageKey(storageKey, boardId), value);
-    setState((s) => ({ boardId, prefs: { ...(s.boardId === boardId ? s.prefs : read(boardId)), [field]: value } }));
+    setState((s) => ({ boardId, view: { ...(s.boardId === boardId ? s.view : read(boardId)), [field]: value } }));
   }, [boardId]);
   const setDetail = useCallback((v: DetailLevel) => set('detail', DETAIL_STORAGE_KEY, v), [set]);
   const setGroupBy = useCallback((v: BoardGroupBy) => set('groupBy', BOARD_GROUP_BY_STORAGE_KEY, v), [set]);
   const setThenBy = useCallback((v: BoardGroupBy) => set('thenBy', BOARD_THEN_BY_STORAGE_KEY, v), [set]);
-  return { ...prefs, setDetail, setGroupBy, setThenBy };
+  return { ...view, setDetail, setGroupBy, setThenBy };
 }
