@@ -617,6 +617,22 @@ bun run scripts/check-comment-language.ts --list server/services/tasks.ts
 The Italian that stays is `client/src/lib/i18n.ts`: there it is DATA, keyed and
 switchable, which is the whole point of the translation layer.
 
+## macOS status-bar helper: performance notes
+
+`NSImage.draw(in:from:operation:fraction:respectFlipped:hints:)` transfers its bitmap
+through the Window Server on every call. After any idle period the compositor evicts
+the backing surface, so the first draw after a menu open blocks the main thread for
+100-2000ms.
+
+Prefer `layer.contents = cgImage` (set once in the warm-up pass, composited without
+`draw()` for unchanged views) or `NSGraphicsContext.current?.cgContext.draw(cg, in:)`
+for overlay paths that need to paint on top of the cached image.
+
+The `--perf-bench` flag on the status-bar binary measures fixture opens; it does not
+catch IPC eviction because the bench warms the cache immediately before each simulated
+open. Use the live-measurement script (reads from the process log) to confirm the fix
+holds across real idle periods.
+
 ## Reporting Issues
 
 Open an issue with:
