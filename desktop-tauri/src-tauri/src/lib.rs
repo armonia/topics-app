@@ -12307,6 +12307,12 @@ pub fn run() {
                                         let item: id = objc2::rc::Retained::as_ptr(&item) as id;
                                         let button: id = msg_send![item, button];
                                         if button != nil {
+                                            // The variable-length item measured the button on the
+                                            // 18 pt image, so it is a fifth narrower than the strip:
+                                            // the strip, centred, lost both ends (the working glyph
+                                            // on the left, the reset times on the right). Pin the
+                                            // item to the strip's own width.
+                                            let _: () = msg_send![item, setLength: w_pt];
                                             let image: id = msg_send![button, image];
                                             if image != nil {
                                                 let _: () = msg_send![image, setSize: NSSize::new(w_pt, h_pt)];
