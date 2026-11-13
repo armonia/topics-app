@@ -11,7 +11,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GRAPH_ROOTS, buildGraph, changedFiles, pathLiterals, resolveSpecifier, selectTests, specifiersOf, treeWalkers } from "./test-touched.ts";
+import { GRAPH_ROOTS, buildGraph, changedFiles, isScriptsOnlyChange, mergeBaseSha, pathLiterals, resolveSpecifier, selectTests, specifiersOf, treeWalkers } from "./test-touched.ts";
 import { gitEnv } from "../tests/setup/bun-test-preload";
 
 // Spelled in two pieces so the module-mock scan does not read the fixture as a real mock.
@@ -36,6 +36,9 @@ const SOURCES: Record<string, string> = {
   "tests/e2e/helper.ts": "export const helper = 1;",
   "tests/unit/uses-e2e-helper.test.ts": 'import { helper } from "../e2e/helper";',
   "package.json": "{}",
+  "client/package.json": "{}",
+  "tests/unit/reads-package.test.ts": 'JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8"));',
+  "tests/unit/reads-client-package.test.ts": 'readFileSync(join(ROOT, "client/package.json"), "utf8");',
   "bun.lock": "",
   "bunfig.toml": "",
   "tsconfig.server.json": "{}",
@@ -96,6 +99,48 @@ describe("selectTests", () => {
   });
   test("knip.jsonc feeds only the dead-code gate: it selects the tests that name it, not the whole suite", () => {
     expect(selectTests(["knip.jsonc"], graph(), suite)).toEqual({ kind: "tests", tests: ["tests/unit/reads-knip.test.ts"] });
+  });
+  test("package.json with only scripts changed selects the tests that name it, not the whole suite", () => {
+    expect(selectTests(["package.json"], graph(), suite, () => false, new Set(), () => true)).toEqual({ kind: "tests", tests: ["tests/unit/reads-package.test.ts"] });
+    expect(selectTests(["client/package.json"], graph(), suite, () => false, new Set(), () => true)).toEqual({ kind: "tests", tests: ["tests/unit/reads-client-package.test.ts"] });
+  });
+  test("package.json with a dependency (or any non-scripts field) changed falls back to the whole suite", () => {
+    expect(selectTests(["package.json"], graph(), suite, () => false, new Set(), () => false).kind).toBe("full");
+  });
+  test("package.json unreadable at the merge base is not scripts-only, so it falls back to the whole suite", () => {
+    const dir = mkdtempSync(join(tmpdir(), "touched-pkg-"));
+    const git = (...args: string[]) => {
+      const r = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...args], { cwd: dir, env: gitEnv() });
+      if (r.exitCode !== 0) throw new Error(r.stderr.toString());
+    };
+    try {
+      git("init", "-q", "-b", "main");
+      writeFileSync(join(dir, "other.ts"), "export {};");
+      git("add", "-A");
+      git("commit", "-q", "-m", "base, no package.json");
+      git("checkout", "-q", "-b", "work");
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { a: "1" } }));
+      git("add", "-A");
+      git("commit", "-q", "-m", "add package.json");
+      const base = mergeBaseSha("main", dir);
+      expect(isScriptsOnlyChange("package.json", base, dir)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  test("MUTANT: removing the package.json scripts-only check sends a dependency bump to the whole suite", async () => {
+    const original = await Bun.file(join(import.meta.dir, "test-touched.ts")).text();
+    const guard = 'if (PACKAGE_JSON_PATTERN.test(file) && !scriptsOnly(file)) return { kind: "full", reason: `${file} changed a field other than "scripts"` };';
+    expect(original).toContain(guard);
+    const mutantPath = join(import.meta.dir, `test-touched.mutant-pkg-${process.pid}.tmp.ts`);
+    writeFileSync(mutantPath, original.replace(guard, ""));
+    try {
+      const mutant = (await import(mutantPath)) as typeof import("./test-touched.ts");
+      expect(selectTests(["package.json"], graph(), suite, () => false, new Set(), () => false).kind).toBe("full");
+      expect(mutant.selectTests(["package.json"], graph(), suite, () => false, new Set(), () => false).kind).not.toBe("full");
+    } finally {
+      rmSync(mutantPath, { force: true });
+    }
   });
   test("an unknown data file falls back to the whole suite, a deleted one does not", () => {
     expect(selectTests([".github/workflows/ci.yml"], graph(), suite).kind).toBe("full");
