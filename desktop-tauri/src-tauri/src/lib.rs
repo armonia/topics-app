@@ -25,6 +25,7 @@ mod shortcuts_generated;
 /// outside the tests.
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod chords;
+mod tray_agents;
 mod tray_dials;
 mod tray_machines;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -3055,6 +3056,7 @@ fn set_app_status(
     items: Vec<StatusItem>,
     groups: Option<Vec<StatusGroup>>,
     machines: Option<Vec<tray_machines::StatusMachine>>,
+    agents: Option<tray_agents::AgentStates>,
 ) {
     if !accepts_app_status_from(window.label()) {
         return;
@@ -3067,6 +3069,8 @@ fn set_app_status(
         use tauri::Manager;
         let groups = groups.unwrap_or_default();
         let machines = machines.unwrap_or_default();
+        // The agents by state replace the single number on the strip, on its left.
+        tray_quota::set_agents(agents.unwrap_or_default());
         // The dock-tile badge is an AppKit UI mutation — must run on the main thread.
         if let Some(win) = app.get_window("main") {
             let _ = win.run_on_main_thread(move || set_dock_badge(count));
@@ -3081,7 +3085,8 @@ fn set_app_status(
             }
             rebuild_tray_menu(&app);
 
-            let title = if count > 0 { Some(count.to_string()) } else { None };
+            // No number next to the strip: the glyph group on its left says it by state.
+            let title: Option<String> = None;
             let tip = if count > 0 {
                 format!("Topics — {count} in attesa")
             } else {
@@ -3093,7 +3098,7 @@ fn set_app_status(
         Ok(())
     });
     #[cfg(not(target_os = "macos"))]
-    let _ = (app, count, items, groups, machines);
+    let _ = (app, count, items, groups, machines, agents);
 }
 
 /// Last attention rows and board columns, kept so the service poller can redraw the

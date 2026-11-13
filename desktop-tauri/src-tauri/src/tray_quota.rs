@@ -8,6 +8,7 @@
 //! separate from the I/O so they are unit tested without a display.
 //! Card c675633f.
 
+use crate::tray_agents::{self, AgentStates};
 use crate::tray_dials::{draw_mac, draw_pace, parse_mac, parse_pace, Extras, MAC_W};
 use serde::Deserialize;
 use std::io::{Read, Write};
@@ -522,9 +523,9 @@ fn measure(cols: &[Column]) -> Vec<Cell<'_>> {
 
 /// Who fits: active accounts first, then the most loaded; the rest becomes "+N".
 /// The Mac dial and the pace gauge sit at the head and take their room first.
-fn kept_cells(cells: &[Cell], extras: &Extras, screen_pt: f32) -> Vec<bool> {
+fn kept_cells(cells: &[Cell], extras: &Extras, screen_pt: f32, lead: f32) -> Vec<bool> {
     let plus_w = width_pt(Face::Sans, "+9", HEADER_PT) + ACCOUNT_GAP;
-    let room = (MAX_STRIP_PT.min(screen_pt * SCREEN_SHARE)) - PAD_X * 2.0 - extras.head_width(ACCOUNT_GAP) - plus_w;
+    let room = (MAX_STRIP_PT.min(screen_pt * SCREEN_SHARE)) - PAD_X * 2.0 - lead - extras.head_width(ACCOUNT_GAP) - plus_w;
     let peak = |c: &Column| c.quotas.iter().map(|q| q.used_pct).max().unwrap_or(0);
     let mut ranked: Vec<usize> = (0..cells.len()).collect();
     ranked.sort_by(|&a, &b| {
@@ -548,29 +549,37 @@ fn kept_cells(cells: &[Cell], extras: &Extras, screen_pt: f32) -> Vec<bool> {
 /// How many accounts end up in the "+N" for these dials on this screen.
 #[cfg(test)]
 fn hidden_count(cols: &[Column], extras: &Extras, screen_pt: f32) -> usize {
-    cols.len() - kept_cells(&measure(cols), extras, screen_pt).iter().filter(|k| **k).count()
+    cols.len() - kept_cells(&measure(cols), extras, screen_pt, 0.0).iter().filter(|k| **k).count()
 }
 
 pub fn render_strip_on(cols: Option<&[Column]>, extras: &Extras, screen_pt: f32) -> Strip {
+    render_strip_agents(cols, extras, screen_pt, &AgentStates::default(), 0)
+}
+
+/// The strip with the agents-by-state group on its LEFT, before the Mac dial and the
+/// quota columns. `frame` turns the working glyph; it changes nothing else.
+pub fn render_strip_agents(cols: Option<&[Column]>, extras: &Extras, screen_pt: f32, agents: &AgentStates, frame: u32) -> Strip {
     let s = SCALE;
+    let lead = agents.width();
     let h = (HEIGHT_PT * s) as u32;
 
     let Some(cols) = cols.filter(|c| !c.is_empty()) else {
         let label = if cols.is_none() { "offline" } else { "nessun account" };
-        let w = (text_width(Face::Sans, label, 9.0 * s) + PAD_X * 3.0 * s).ceil() as u32;
+        let w = (text_width(Face::Sans, label, 9.0 * s) + (PAD_X * 3.0 + lead) * s).ceil() as u32;
         let mut cv = Canvas::new(w, h);
-        cv.text(Face::Sans, label, PAD_X * 1.5 * s, h as f32 * 0.66, 9.0 * s, WHITE, 0.85);
+        tray_agents::draw(&mut cv, PAD_X, agents, frame);
+        cv.text(Face::Sans, label, (PAD_X * 1.5 + lead) * s, h as f32 * 0.66, 9.0 * s, WHITE, 0.85);
         return Strip { width: w, height: h, rgba: cv.px };
     };
 
     let cells = measure(cols);
     let head = extras.head_width(ACCOUNT_GAP);
-    let keep = kept_cells(&cells, extras, screen_pt);
+    let keep = kept_cells(&cells, extras, screen_pt, lead);
     let hidden = keep.iter().filter(|k| !**k).count();
     let plus_w = width_pt(Face::Sans, "+9", HEADER_PT) + ACCOUNT_GAP;
 
     // Second pass: positions for the survivors, in service order.
-    let mut x = PAD_X + head;
+    let mut x = PAD_X + lead + head;
     let mut placed: Vec<(f32, &Cell)> = Vec::new();
     for (i, cell) in cells.iter().enumerate().filter(|(i, _)| keep[*i]) {
         let _ = i;
@@ -586,7 +595,8 @@ pub fn render_strip_on(cols: Option<&[Column]>, extras: &Extras, screen_pt: f32)
     let mut cv = Canvas::new((total_pt * s).ceil() as u32, h);
 
     let top = |bottom_origin: f32| (HEIGHT_PT - bottom_origin) * s;
-    let mut hx = PAD_X;
+    let mut hx = PAD_X + lead;
+    tray_agents::draw(&mut cv, PAD_X, agents, frame);
     if let Some(m) = &extras.mac {
         draw_mac(&mut cv, hx, m);
         hx += MAC_W + ACCOUNT_GAP;
@@ -641,23 +651,74 @@ pub fn render_strip_on(cols: Option<&[Column]>, extras: &Extras, screen_pt: f32)
     Strip { width: cv.w, height: cv.h, rgba: cv.px }
 }
 
-/// Worker: polls every `POLL_SECS`, hands each rendered strip to `apply`.
-/// Runs on its own thread so a hidden window or a restarted client changes nothing.
+/// What the strip is drawn from; the poller refreshes it, the animation and the
+/// client's agent counts redraw from it without asking the service again.
+struct Latest {
+    cols: Option<Vec<Column>>,
+    extras: Extras,
+    ever_answered: bool,
+}
+
+static LATEST: std::sync::Mutex<Option<Latest>> = std::sync::Mutex::new(None);
+static AGENTS: std::sync::Mutex<AgentStates> = std::sync::Mutex::new(AgentStates { working: 0, review: 0, waiting: 0, stopped: 0 });
+
+/// The client's latest count of agents by state; the next frame draws it.
+pub fn set_agents(states: AgentStates) {
+    if let Ok(mut g) = AGENTS.lock() {
+        *g = states;
+    }
+}
+
+fn render_latest(frame: u32) -> Option<Strip> {
+    let agents = AGENTS.lock().map(|g| *g).unwrap_or_default();
+    let guard = LATEST.lock().ok()?;
+    let l = guard.as_ref()?;
+    if !strip_due(l.ever_answered, l.cols.is_some()) {
+        return None;
+    }
+    Some(render_strip_agents(l.cols.as_deref(), &l.extras, screen_width_pt(), &agents, frame))
+}
+
+/// Worker: polls every `POLL_SECS`, hands each rendered strip to `apply`; a second
+/// thread turns the working glyph while an agent is at work (and redraws when the
+/// counts change). Both run on their own threads, so a hidden window or a restarted
+/// client changes nothing.
 pub fn spawn_poller<F>(apply: F)
 where
-    F: Fn(Strip) + Send + 'static,
+    F: Fn(Strip) + Send + Sync + 'static,
 {
+    let apply = std::sync::Arc::new(apply);
+    let poll_apply = apply.clone();
     let _ = std::thread::Builder::new().name("tray-quota".into()).spawn(move || {
         let mut ever_answered = false;
         loop {
             let base = hub_base();
             let cols = fetch_columns(&base);
-            let answered_now = cols.is_some();
-            if strip_due(ever_answered, answered_now) {
-                apply(render_strip(cols.as_deref(), &fetch_extras(&base)));
+            ever_answered |= cols.is_some();
+            let extras = fetch_extras(&base);
+            if let Ok(mut g) = LATEST.lock() {
+                *g = Some(Latest { cols, extras, ever_answered });
             }
-            ever_answered |= answered_now;
+            if let Some(strip) = render_latest(0) {
+                poll_apply(strip);
+            }
             std::thread::sleep(Duration::from_secs(POLL_SECS));
+        }
+    });
+    let _ = std::thread::Builder::new().name("tray-agents".into()).spawn(move || {
+        let (mut frame, mut last) = (0u32, AgentStates::default());
+        loop {
+            std::thread::sleep(Duration::from_millis(tray_agents::FRAME_MS));
+            let now = AGENTS.lock().map(|g| *g).unwrap_or_default();
+            if now.is_animated() {
+                frame = (frame + 1) % tray_agents::TURN_FRAMES;
+            } else if now == last {
+                continue;
+            }
+            last = now;
+            if let Some(strip) = render_latest(frame) {
+                apply(strip);
+            }
         }
     });
 }
