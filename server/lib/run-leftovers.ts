@@ -14,7 +14,7 @@
  */
 import { readdirSync, readlinkSync, realpathSync } from "node:fs";
 import { relative, isAbsolute, sep } from "node:path";
-import { spawnSync } from "node:child_process";
+import { SPAWN_TIMEOUT, spawnBounded } from "./bounded-spawn";
 import { killProcessTree } from "./process-tree";
 
 export interface Leftover { pid: number; cwd: string; cmd: string }
@@ -25,7 +25,7 @@ function inside(dir: string, cwd: string): boolean {
 }
 
 /** pid → cwd for every process we can see (Linux /proc, else one `lsof`). */
-export function readProcessCwds(): Map<number, string> {
+export async function readProcessCwds(): Promise<Map<number, string>> {
   const out = new Map<number, string>();
   try {
     if (process.platform === "linux") {
@@ -35,9 +35,9 @@ export function readProcessCwds(): Map<number, string> {
       }
       return out;
     }
-    const r = spawnSync("lsof", ["-a", "-d", "cwd", "-Fpn"], { encoding: "utf8", timeout: 10_000 });
+    const text = await runText(["lsof", "-a", "-d", "cwd", "-Fpn"]);
     let pid = 0;
-    for (const line of (r.stdout ?? "").split("\n")) {
+    for (const line of text.split("\n")) {
       if (line.startsWith("p")) pid = +line.slice(1);
       else if (line.startsWith("n") && pid) out.set(pid, line.slice(1));
     }
@@ -45,17 +45,23 @@ export function readProcessCwds(): Map<number, string> {
   return out;
 }
 
-function commandOf(pid: number): string {
+async function runText(cmd: string[]): Promise<string> {
+  const proc = spawnBounded(cmd, { stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
+  const text = await new Response(proc.stdout).text();
+  await proc.exited;
+  return text;
+}
+
+async function commandOf(pid: number): Promise<string> {
   try {
-    const r = spawnSync("ps", ["-o", "comm=", "-p", String(pid)], { encoding: "utf8", timeout: 5000 });
-    return (r.stdout ?? "").trim().split("/").pop() || "?";
+    return (await runText(["ps", "-o", "comm=", "-p", String(pid)])).trim().split("/").pop() || "?";
   } catch { return "?"; }
 }
 
 export interface SweepDeps {
-  cwds(): Map<number, string>;
+  cwds(): Promise<Map<number, string>>;
   kill(pid: number): Promise<void>;
-  describe(pid: number): string;
+  describe(pid: number): Promise<string>;
 }
 
 /** Returns the processes it signalled; never throws. */
@@ -69,9 +75,9 @@ export async function sweepRunLeftovers(
   try { root = realpathSync(worktreePath); } catch { /* directory already gone: match the literal path */ }
   const spare = new Set<number>([process.pid, process.ppid, ...(opts.spare ?? []).filter((p): p is number => !!p)]);
   const found: Leftover[] = [];
-  for (const [pid, cwd] of deps.cwds()) {
+  for (const [pid, cwd] of await deps.cwds()) {
     if (spare.has(pid) || !(inside(root, cwd) || inside(worktreePath, cwd))) continue;
-    found.push({ pid, cwd, cmd: deps.describe(pid) });
+    found.push({ pid, cwd, cmd: await deps.describe(pid) });
   }
   await Promise.all(found.map((f) => deps.kill(f.pid).catch(() => { /* already dead */ })));
   return found;
