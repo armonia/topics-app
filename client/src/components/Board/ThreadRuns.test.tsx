@@ -28,8 +28,7 @@
   * @covers THREAD-05
  */
 import { describe, test, expect } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readDrawerSource } from './drawerSource.test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ThreadRuns, type ThreadRunsRow } from './ThreadRuns';
 
@@ -121,7 +120,7 @@ describe('the thread folds the bookkeeping and keeps every row', () => {
     // it, and that is a one-line edit in a 2600-line file. The drawer's own
     // wiring has no unit mount (TaskDetail pulls the API, the pane layout and a
     // dozen stores), so the presence of the call is checked on the source.
-    const src = readFileSync(join(import.meta.dir, 'TaskDetail.tsx'), 'utf8');
+    const src = readDrawerSource(import.meta.dir);
     // The boundary matters: `<ThreadRunsSomethingElse` must not pass for it.
     expect(/<ThreadRuns[\s/>]/.test(src)).toBe(true);
     expect(/from '\.\/ThreadRuns'/.test(src)).toBe(true);

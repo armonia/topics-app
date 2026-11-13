@@ -37,6 +37,7 @@ interface FakeCall {
   topicsHome: string | null;
   ci: string | null;
   gateHeld: string | null;
+  gateSlotDir: string | null;
   timeSlack: string | null;
   runId: string | null;
   gateMaxRunMs: string | null;
@@ -63,6 +64,7 @@ function runRunner(options: {
   sleepMs?: number;
   redBasename?: string;
   leakBasename?: string;
+  junitOut?: string;
 }): RunResult {
   const dir = mkdtempSync(join(tmpdir(), "unit-shards-cli-"));
   const executable = join(dir, "bun");
@@ -77,7 +79,8 @@ import { join } from "node:path";
 const args = process.argv.slice(2);
 const timeoutAt = args.indexOf("--timeout");
 const timeout = timeoutAt >= 0 ? args[timeoutAt + 1] : null;
-const file = timeoutAt >= 0 ? args[timeoutAt + 2] : args[args.length - 1];
+// The file is always the LAST argument: reporter flags may sit between --timeout and it.
+const file = args[args.length - 1];
 const start = Date.now();
 const sleepMs = Number(process.env.TOPICS_SHARDS_CLI_SLEEP_MS ?? "0");
 if (sleepMs > 0) await new Promise((r) => setTimeout(r, sleepMs));
@@ -95,9 +98,10 @@ const record = {
   tmpdir: process.env.TMPDIR ?? null, tmp: process.env.TMP ?? null, temp: process.env.TEMP ?? null,
   dataDir: process.env.DATA_DIR ?? null, topicsDataDir: process.env.TOPICS_DATA_DIR ?? null,
   topicsHome: process.env.TOPICS_HOME ?? null,
-  ci: process.env.CI ?? null, gateHeld: process.env.TOPICS_GATE_HELD ?? null,
+  ci: process.env.CI ?? null, gateHeld: process.env.TOPICS_GATE_HELD ?? null, gateSlotDir: process.env.TOPICS_GATE_SLOT_DIR ?? null,
   timeSlack: process.env.TOPICS_TEST_TIME_SLACK ?? null, runId: process.env.TOPICS_TEST_RUN_ID ?? null,
   gateMaxRunMs: process.env.TOPICS_GATE_MAX_RUN_MS ?? null,
+  gateSlotDir: process.env.TOPICS_GATE_SLOT_DIR ?? null,
   stdoutIsFile: stat1.isFile(), stdoutIsPipe: stat1.isFIFO() || stat1.isSocket(),
   start, end: Date.now(),
 };
@@ -118,6 +122,10 @@ if (isRed) process.exit(7);
   if (options.ci !== undefined) env.CI = options.ci;
   if (options.timeoutMs !== undefined) env.TOPICS_TEST_TIMEOUT_MS = options.timeoutMs;
   if (options.shards !== undefined) env.TOPICS_UNIT_SHARDS = options.shards;
+  delete env.TOPICS_UNIT_JUNIT_OUT;
+  // The outer runner sets it for this very file; the inner one must start from a bare environment.
+  delete env.TOPICS_GATE_SLOT_DIR;
+  if (options.junitOut !== undefined) env.TOPICS_UNIT_JUNIT_OUT = options.junitOut;
   env.PATH = `${dir}${delimiter}${env.PATH ?? ""}`;
   env.TOPICS_GATE_HELD = "unit-shards-cli-fixture";
   env.TOPICS_TEST_TIME_SLACK = "1";
@@ -225,6 +233,39 @@ describe("unit shards CLI", () => {
       expect(call.args).toEqual(["test", "--timeout", "17000", call.file]);
       expect(call.timeout).toBe("17000");
       expect(call.ci).toBeNull();
+    }
+  });
+
+  test("TOPICS_UNIT_JUNIT_OUT adds the reporter flags, and the file stays the last argument", () => {
+    const junit = join(tmpdir(), `unit-shards-cli-junit-${process.pid}.xml`);
+    try {
+      const result = runRunner({ files: ALL_FILES, junitOut: junit });
+      expect(result.code).toBe(0);
+      expect(result.calls.length).toBe(ALL_FILES.length);
+      for (const call of result.calls) {
+        expect(call.args.slice(0, 3)).toEqual(["test", "--timeout", call.timeout!]);
+        expect(call.args).toContain("--reporter=junit");
+        // One report per file, in the runner's scratch area; the merged file is written at the end.
+        expect(call.args.some((a) => a.startsWith("--reporter-outfile="))).toBe(true);
+        // The fake reads the file from the last argument: it must be the real file, not a flag.
+        expect(call.args[call.args.length - 1]).toBe(call.file);
+        expect(ALL_FILES).toContain(call.file);
+        // The preload claims the outfile inside the gate-slot folder: it must be the file's own
+        // scratch, never the machine-wide /tmp/topics-gate-slots (a leak the CI run turns red).
+        expect(call.gateSlotDir).toBe(`${call.tmpdir}/slots`);
+      }
+      expect(existsSync(junit)).toBe(true);
+    } finally {
+      rmSync(junit, { force: true });
+    }
+  });
+
+  test("the children's gate slot dir lives inside the run root, never in the real temp root", () => {
+    const result = runRunner({ files: ALL_FILES });
+    expect(result.code).toBe(0);
+    for (const call of result.calls) {
+      expect(call.gateSlotDir).not.toBeNull();
+      expect(call.gateSlotDir!.startsWith(join(tmpdir(), "tu-"))).toBe(true);
     }
   });
 

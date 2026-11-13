@@ -21,6 +21,7 @@
 
 import { commitIsIn, listOwnCommits, type GitRunner } from "./own-commits";
 import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
+import { runGit } from "../lib/run-git";
 
 /** Generated, build-output, lockfile and lockstep-version paths — never unique work. */
 const NOISE_RE =
@@ -49,14 +50,14 @@ export async function gitExit(cwd: string, args: string[], run?: GitRunner): Pro
   if (run) {
     try { return (await run(cwd, args)).code; } catch { return 1; }
   }
-  return (await runBounded(["git", "-C", cwd, ...args], { stdout: "ignore", timeoutMs: SPAWN_TIMEOUT.query })).exitCode ?? 1;
+  return (await runGit(cwd, args, { timeoutMs: SPAWN_TIMEOUT.query })).code;
 }
 
 export async function gitOut(cwd: string, args: string[], run?: GitRunner): Promise<string> {
   if (run) {
     try { const r = await run(cwd, args); return r.code === 0 ? r.stdout : ""; } catch { return ""; }
   }
-  return (await runBounded(["git", "-C", cwd, ...args], { timeoutMs: SPAWN_TIMEOUT.query })).stdout;
+  return (await runGit(cwd, args, { timeoutMs: SPAWN_TIMEOUT.query })).stdout;
 }
 
 /**
@@ -81,6 +82,9 @@ export async function commitIsAncestor(
   commit: string,
   mainRef = "main",
 ): Promise<boolean | null> {
+  // Stays on `runBounded` on purpose: `runGit` folds a failed spawn into exit 1,
+  // which here would read as a verified "not an ancestor". This one needs
+  // the spawn failure to stay `null` ("cannot tell").
   const { exitCode } = await runBounded(["git", "-C", repoPath, "merge-base", "--is-ancestor", commit, mainRef], {
     stdout: "ignore", timeoutMs: SPAWN_TIMEOUT.query,
   });
@@ -163,6 +167,13 @@ export async function commitStatusFromRepo(
   // per decidere se c'è qualcosa da rifare. Due copie che divergono vogliono dire
   // ridispacciare ciò che il land ha appena chiuso.
   if ((await commitIsIn(repoPath, commit, mainRef, { runGit })) === true) return "merged";
+
+  // A MERGE commit cannot speak for the branch under it. The realign step puts
+  // "bring origin/main into the branch" on the tip: its diff against the first
+  // parent is main's own commits, identical on main by construction, so check
+  // (3) would acquit a branch whose work is still outside (task 7dd1601a). Same
+  // answer as an empty commit: the audit then asks the branch.
+  if ((await gitOut(repoPath, ["rev-list", "--parents", "-n", "1", commit], runGit)).trim().split(/\s+/).length > 2) return "empty";
 
   // (2) La copia ricopiata dal land. `-F` perché l'oggetto di un commit è prosa
   // e contiene parentesi, backtick e accenti: come regex sarebbe un'altra

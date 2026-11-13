@@ -39,6 +39,13 @@ export interface PlantBranchResult {
   planted: boolean;
   /** The tip the branch points at once planted, when git could name it. */
   commit: string | null;
+  /**
+   * How many commits the planted branch carries above `baseSha` — the fork
+   * point on the default branch, not this run's own commits. A run that adds
+   * nothing to a branch already ahead of its base is still a real delivery:
+   * `0` here, and only here, is what makes the run an empty one.
+   */
+  commitCount: number;
   /** Why nothing was planted, in words meant for the card. `null` when it was. */
   reason: string | null;
 }
@@ -90,11 +97,18 @@ export function createNodeBranchPlanter(deps: NodeBranchPlantDeps): NodeBranchPl
 
     async plantBranch({ projectId, branch, baseSha, bundle }) {
       const repo = deps.repoPathOf(projectId);
-      if (!repo) return { planted: false, commit: null, reason: "questo progetto non ha un checkout su questa macchina" };
-      if (!refIsSafe(branch)) return { planted: false, commit: null, reason: `il nome del ramo «${branch}» non è utilizzabile` };
+      if (!repo) return { planted: false, commit: null, commitCount: 0, reason: "questo progetto non ha un checkout su questa macchina" };
+      if (!refIsSafe(branch)) return { planted: false, commit: null, commitCount: 0, reason: `il nome del ramo «${branch}» non è utilizzabile` };
       if (!baseSha || !shaIsSafe(baseSha)) {
-        return { planted: false, commit: null, reason: "il nodo non ha dichiarato il commit di base della consegna" };
+        return { planted: false, commit: null, commitCount: 0, reason: "il nodo non ha dichiarato il commit di base della consegna" };
       }
+      // How much the planted branch carries above `baseSha`, regardless of
+      // whether THIS call's bundle added anything: a branch already ahead of
+      // its base from an earlier delivery is not an empty one.
+      const commitsAboveBase = async (tip: string): Promise<number> => {
+        const r = await runGit(repo, ["rev-list", "--count", `${baseSha}..${tip}`]);
+        return r.code === 0 ? Number.parseInt(r.stdout.trim(), 10) || 0 : 0;
+      };
       // The precondition, checked BEFORE the fetch: see the header. `^{commit}`
       // so a sha that exists as another object type is not read as a commit.
       const hasBase = async () => (await runGit(repo, ["cat-file", "-e", `${baseSha}^{commit}`])).code === 0;
@@ -112,6 +126,7 @@ export function createNodeBranchPlanter(deps: NodeBranchPlantDeps): NodeBranchPl
         return {
           planted: false,
           commit: null,
+          commitCount: 0,
           reason:
             `il commit di base ${baseSha.slice(0, 8)} non è in questo checkout, nemmeno dopo un fetch di origin: ` +
             "il bundle del nodo contiene solo il lavoro dopo quel punto, quindi non si applica. " +
@@ -119,31 +134,34 @@ export function createNodeBranchPlanter(deps: NodeBranchPlantDeps): NodeBranchPl
         };
       }
       if (!bundle || bundle.length === 0) {
-        // Nothing to deliver: the branch exists so the card has an address, and
-        // it points at the base. `git branch` refuses to move an existing one,
-        // which is the safe answer: we never overwrite somebody's ref.
+        // Nothing to deliver THIS call: the branch exists so the card has an
+        // address. When it already exists (a previous delivery planted it),
+        // `git branch` refuses to move it, which is the safe answer — and its
+        // tip may already carry commits above base from that earlier delivery.
         const made = await runGit(repo, ["branch", branch, baseSha]);
         if (made.code !== 0) {
           const tip = await runGit(repo, ["rev-parse", "--verify", "-q", `refs/heads/${branch}`]);
-          if (tip.code !== 0) return { planted: false, commit: null, reason: `git branch: ${made.stderr ?? ""}`.trim() };
-          return { planted: true, commit: tip.stdout.trim() || null, reason: null };
+          if (tip.code !== 0) return { planted: false, commit: null, commitCount: 0, reason: `git branch: ${made.stderr ?? ""}`.trim() };
+          const resolved = tip.stdout.trim() || null;
+          return { planted: true, commit: resolved, commitCount: resolved ? await commitsAboveBase(resolved) : 0, reason: null };
         }
-        return { planted: true, commit: baseSha, reason: null };
+        return { planted: true, commit: baseSha, commitCount: 0, reason: null };
       }
       const { file, cleanup } = await writeBundle(bundle);
       try {
         const verified = await runGit(repo, ["bundle", "verify", file]);
         if (verified.code !== 0) {
-          return { planted: false, commit: null, reason: `il bundle del nodo non è valido: ${(verified.stderr ?? "").trim()}` };
+          return { planted: false, commit: null, commitCount: 0, reason: `il bundle del nodo non è valido: ${(verified.stderr ?? "").trim()}` };
         }
         // No `+`: a fetch that is not a fast-forward is REFUSED instead of
         // rewriting a branch of the same name that already carries work here.
         const fetched = await runGit(repo, ["fetch", file, `${branch}:refs/heads/${branch}`]);
         if (fetched.code !== 0) {
-          return { planted: false, commit: null, reason: `git fetch dal bundle è fallito: ${(fetched.stderr ?? "").trim()}` };
+          return { planted: false, commit: null, commitCount: 0, reason: `git fetch dal bundle è fallito: ${(fetched.stderr ?? "").trim()}` };
         }
         const tip = await runGit(repo, ["rev-parse", "--verify", "-q", `refs/heads/${branch}`]);
-        return { planted: true, commit: tip.code === 0 ? tip.stdout.trim() || null : null, reason: null };
+        const resolved = tip.code === 0 ? tip.stdout.trim() || null : null;
+        return { planted: true, commit: resolved, commitCount: resolved ? await commitsAboveBase(resolved) : 0, reason: null };
       } finally {
         await cleanup().catch(() => { /* a temp dir left behind must not fail a delivery */ });
       }

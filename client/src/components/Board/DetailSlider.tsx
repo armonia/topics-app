@@ -3,22 +3,22 @@ import { useT } from '../../hooks/useT';
 import { DETAIL_LEVELS, detailAtFraction, stepDetail, type DetailLevel } from './detailLevel';
 
 /**
- * A custom range input for the board's level of detail: three stops on a
+ * A custom range input for the board's level of detail: a stop per level on a
  * track, a thumb that snaps to the nearest one while dragged, arrow keys,
  * and a click on a stop. Left is the least detail (projects and counts),
  * right is the most (the kanban).
  */
-export function DetailSlider({ value, onChange }: { value: DetailLevel; onChange: (next: DetailLevel) => void }) {
+export function DetailSlider({ value, onChange, levels = DETAIL_LEVELS }: { value: DetailLevel; onChange: (next: DetailLevel) => void; levels?: readonly DetailLevel[] }) {
   const tr = useT();
   const trackRef = useRef<HTMLDivElement>(null);
-  const index = DETAIL_LEVELS.indexOf(value);
-  const last = DETAIL_LEVELS.length - 1;
+  const index = levels.indexOf(value);
+  const last = levels.length - 1;
   const levelText = tr(`board.toolbar.detail.${value}`);
 
   const fromPointer = (clientX: number) => {
     const rect = trackRef.current?.getBoundingClientRect();
     if (!rect || rect.width === 0) return;
-    onChange(detailAtFraction((clientX - rect.left) / rect.width));
+    onChange(detailAtFraction((clientX - rect.left) / rect.width, levels));
   };
 
   return (
@@ -37,14 +37,14 @@ export function DetailSlider({ value, onChange }: { value: DetailLevel; onChange
       onPointerMove={(e) => { if (e.currentTarget.hasPointerCapture(e.pointerId)) fromPointer(e.clientX); }}
       onKeyDown={(e) => {
         const delta = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -1 : 0;
-        if (e.key === 'Home') { e.preventDefault(); onChange(DETAIL_LEVELS[0]); }
-        else if (e.key === 'End') { e.preventDefault(); onChange(DETAIL_LEVELS[last]); }
-        else if (delta) { e.preventDefault(); onChange(stepDetail(value, delta)); }
+        if (e.key === 'Home') { e.preventDefault(); onChange(levels[0]); }
+        else if (e.key === 'End') { e.preventDefault(); onChange(levels[last]); }
+        else if (delta) { e.preventDefault(); onChange(stepDetail(value, delta, levels)); }
       }}
       className="relative mx-1 h-6 w-16 shrink-0 cursor-pointer touch-none select-none rounded outline-none focus-visible:ring-1 focus-visible:ring-primary coarse:h-11 coarse:w-24"
     >
       <div className="absolute inset-x-2 top-1/2 h-0.5 -translate-y-1/2 rounded bg-white/15" />
-      {DETAIL_LEVELS.map((level, i) => (
+      {levels.map((level, i) => (
         <span
           key={level}
           data-level={level}

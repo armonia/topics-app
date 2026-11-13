@@ -39,7 +39,7 @@ import { lastLook } from "./landing-last-look";
 import { branchContentIsOnMain, commitStatusFromRepo } from "./branch-status";
 import { landedMergeRange } from "./task-diff-range";
 import { fetchRemoteBase } from "./worktree-base-ref";
-import { runGitWithIdentity } from "../lib/git-run-identity";
+import { runGit } from "../lib/run-git";
 import { missingPackageManager, runScriptArgv } from "../lib/project-scripts";
 import { MIGRATIONS_DIR, findNumberCollisions } from "../../shared/migration-numbers";
 import { makeSerialQueue } from "../lib/serial-queue";
@@ -391,7 +391,7 @@ export interface BuildOutcome extends GitRunResult {
 
 export async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult> {
   // The land CREATES commits, so the signing identity matters (`git-identity.ts`).
-  return runGitWithIdentity(cwd, args, args[0] === "fetch" ? SPAWN_TIMEOUT.query : SPAWN_TIMEOUT.long);
+  return runGit(cwd, args, { identity: true, timeoutMs: args[0] === "fetch" ? SPAWN_TIMEOUT.query : SPAWN_TIMEOUT.long });
 }
 
 /** La firma del «manca un pezzo sotto» nell'output di git. */
