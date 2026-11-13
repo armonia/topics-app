@@ -149,7 +149,7 @@ describe("worktree-manager.del(): la cartella prima della riga", () => {
     const absPath = join(repo, ".claude", "worktrees", "desk-wt");
     expect(git(repo, "worktree", "add", "-q", "-b", "claude/desk-wt", absPath, "main").code).toBe(0);
     writeFileSync(join(absPath, "lavoro.txt"), "non committato\n");
-    // `branch` mode is the worst case: it is the one whose branch del() deletes.
+    // A branch-mode row is the worst case: that is the row whose branch gets deleted.
     const { m, deleted } = manager({ id: "w9", absPath, branchName: "claude/desk-wt" });
 
     expect(await m.delete("w9")).toBe(true);
