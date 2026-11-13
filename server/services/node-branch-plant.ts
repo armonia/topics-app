@@ -69,6 +69,38 @@ function shaIsSafe(sha: string): boolean {
   return /^[0-9a-f]{7,64}$/i.test(sha);
 }
 
+/** `origin/main`, or whatever `origin/HEAD` actually points at — same fallback as `delivery-facts.ts`. */
+async function originDefaultBranchRef(repo: string, runGit: GitRunner): Promise<string> {
+  const head = await runGit(repo, ["symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"]);
+  const remoteHead = head.stdout.trim();
+  if (head.code === 0 && remoteHead) return remoteHead;
+  for (const candidate of ["origin/main", "origin/master"]) {
+    const r = await runGit(repo, ["rev-parse", "--verify", "-q", `refs/remotes/${candidate.replace(/^origin\//, "")}`]);
+    if (r.code === 0) return candidate;
+  }
+  return "origin/main";
+}
+
+/**
+ * `sha` carries nothing of the card's own: either it is the board's own
+ * realign merge (`task-automerge.ts`'s "Riporta <main> nel ramo prima del land" allow-italian: quoting the literal commit message the board writes
+ * — a merge whose non-first parents are already on the default branch,
+ * so its only content is what the branch already shared with it), or the
+ * commit itself already sits on the default branch under another name. A
+ * commit that is neither is the card's own work, and the delivery is refused.
+ */
+async function isBoardRealignOnly(repo: string, runGit: GitRunner, sha: string, mainRef: string): Promise<boolean> {
+  const parents = (await runGit(repo, ["rev-list", "--parents", "-n", "1", sha])).stdout.trim().split(/\s+/);
+  const mergedParents = parents.slice(2); // [0] is `sha` itself, [1] is the first parent.
+  if (mergedParents.length > 0) {
+    const checks = await Promise.all(
+      mergedParents.map((p) => runGit(repo, ["merge-base", "--is-ancestor", p, mainRef])),
+    );
+    if (checks.every((r) => r.code === 0)) return true;
+  }
+  return (await runGit(repo, ["merge-base", "--is-ancestor", sha, mainRef])).code === 0;
+}
+
 async function defaultWriteBundle(bytes: Uint8Array): Promise<{ file: string; cleanup: () => Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), "topics-node-bundle-"));
   const file = join(dir, `${randomBytes(6).toString("hex")}.bundle`);
@@ -157,7 +189,38 @@ export function createNodeBranchPlanter(deps: NodeBranchPlantDeps): NodeBranchPl
         // rewriting a branch of the same name that already carries work here.
         const fetched = await runGit(repo, ["fetch", file, `${branch}:refs/heads/${branch}`]);
         if (fetched.code !== 0) {
-          return { planted: false, commit: null, commitCount: 0, reason: `git fetch dal bundle è fallito: ${(fetched.stderr ?? "").trim()}` };
+          const baseReason = `git fetch dal bundle è fallito: ${(fetched.stderr ?? "").trim()}`;
+          // The branch restarted on the node from its OWN bundle base, without
+          // the realign merge the board had put on the local branch before the
+          // previous round (KANBAN-76 follow-up). Non-fast-forward is still the
+          // right refusal when the local branch carries anything else: only a
+          // local branch whose own-extra commits are ALL board realign merges
+          // (or already on the default branch) is safe to fast-forward past.
+          const localTip = (await runGit(repo, ["rev-parse", "--verify", "-q", `refs/heads/${branch}`])).stdout.trim();
+          if (!localTip) return { planted: false, commit: null, commitCount: 0, reason: baseReason };
+          const resolvedFetch = await runGit(repo, ["fetch", file, branch]);
+          const newTip = resolvedFetch.code === 0
+            ? (await runGit(repo, ["rev-parse", "--verify", "-q", "FETCH_HEAD"])).stdout.trim()
+            : "";
+          if (!newTip) return { planted: false, commit: null, commitCount: 0, reason: baseReason };
+          const extrasOut = await runGit(repo, ["rev-list", `${newTip}..${localTip}`]);
+          const extras = extrasOut.code === 0 ? extrasOut.stdout.trim().split("\n").filter(Boolean) : null;
+          if (extras === null) return { planted: false, commit: null, commitCount: 0, reason: baseReason };
+          const mainRef = await originDefaultBranchRef(repo, runGit);
+          for (const extra of extras) {
+            if (await isBoardRealignOnly(repo, runGit, extra, mainRef)) continue;
+            const subject = (await runGit(repo, ["log", "-1", "--format=%s", extra])).stdout.trim();
+            return {
+              planted: false, commit: null, commitCount: 0,
+              reason: `${baseReason} (il ramo locale ha un commit che non è una fusione di riallineamento: ${extra.slice(0, 8)} «${subject}»)`,
+            };
+          }
+          // Every local-only commit was only a realign of the board, or already
+          // on the default branch: moving the branch onto the bundle's tip loses
+          // nothing of the card's own.
+          const moved = await runGit(repo, ["update-ref", `refs/heads/${branch}`, newTip]);
+          if (moved.code !== 0) return { planted: false, commit: null, commitCount: 0, reason: baseReason };
+          return { planted: true, commit: newTip, commitCount: await commitsAboveBase(newTip), reason: null };
         }
         const tip = await runGit(repo, ["rev-parse", "--verify", "-q", `refs/heads/${branch}`]);
         const resolved = tip.code === 0 ? tip.stdout.trim() || null : null;

@@ -141,6 +141,52 @@ describe("plantBranch, base commit precondition", () => {
     const r = await planterFor(repo).plantBranch({ projectId: "p", branch: "card/work", baseSha, bundle: bundleBytes });
     expect(r.planted).toBe(false);
     expect(r.reason).toContain("git fetch dal bundle è fallito");
+    expect(r.reason).toContain(own.slice(0, 8));
     expect(git(repo, "rev-parse", "refs/heads/card/work")).toBe(own);
+  }, T);
+});
+
+describe("plantBranch, re-delivery from the same node", () => {
+  // The node restarted FROM ITS OWN BRANCH, without the realign merge the
+  // board had put on the local branch before the previous round (KANBAN-76
+  // follow-up): the local branch is `bundleOld + "bring main in"`, the new
+  // bundle is `bundleOld + one more commit`. Neither is an ancestor of the
+  // other, so the plain fetch is a non-fast-forward — and the branch should
+  // still move, because the local-only commits carry nothing of the card's own.
+  test("local-only commits that are ONLY a board realign are fast-forwarded past", async () => {
+    const repo = join(root, "mac-realign-only");
+    execFileSync("git", ["clone", "-q", "--no-local", mac, repo], { env: GIT_ENV });
+    git(repo, "remote", "set-url", "origin", origin);
+    git(repo, "fetch", "-q", "origin");
+
+    // First round: plant the bundle as-is (base -> one commit).
+    const first = await planterFor(repo).plantBranch({ projectId: "p", branch: "card/work", baseSha, bundle: bundleBytes });
+    expect(first.planted).toBe(true);
+    const bundleOldTip = first.commit!;
+
+    // Origin moves on: this is what the board's realign merges into the branch.
+    const seed2 = join(root, "seed2");
+    execFileSync("git", ["clone", "-q", origin, seed2], { env: GIT_ENV });
+    commit(seed2, "d.txt", "four");
+    git(seed2, "push", "-q", "origin", "main");
+
+    // The board's own realign, before a land that never happened.
+    git(repo, "fetch", "-q", "origin");
+    git(repo, "switch", "-q", "card/work");
+    git(repo, "merge", "-q", "--no-edit", "-m", "Riporta main nel ramo prima del land", "origin/main");
+    const localTip = git(repo, "rev-parse", "card/work");
+    expect(localTip).not.toBe(bundleOldTip);
+    git(repo, "switch", "-q", "main");
+
+    // The node, unaware of the realign, restarted from its OWN bundle tip and
+    // added one more commit.
+    const extraTip = commit(node, "e.txt", "five");
+    const bundle2File = join(root, "redelivered.bundle");
+    git(node, "bundle", "create", bundle2File, "card/work", "--not", baseSha);
+    const bundle2 = new Uint8Array(readFileSync(bundle2File));
+
+    const second = await planterFor(repo).plantBranch({ projectId: "p", branch: "card/work", baseSha, bundle: bundle2 });
+    expect(second).toEqual({ planted: true, commit: extraTip, commitCount: 2, reason: null });
+    expect(git(repo, "rev-parse", "card/work")).toBe(extraTip);
   }, T);
 });
