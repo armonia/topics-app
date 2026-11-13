@@ -735,6 +735,36 @@ describe('edit and regenerate, with a row written beside the new answer', () => 
     app.unmount();
   });
 
+  test('a `data: null` frame is skipped, the stream goes on and the chunks around it arrive', async () => {
+    const app = mountBoth();
+    await loaded(app);
+    const asked = new Promise<void>((r) => { net.historyAsked = r; });
+    const branch = app.chat().regenerateMessage(chat.sk, 'row-old');
+    await asked;
+    net.releaseHistory!([{ id: 'row-q', role: 'user', content: 'q' }]);
+    await settle();
+    net.sse.content('New ');
+    await settle();
+    const warn = console.warn;
+    const calls: unknown[][] = [];
+    console.warn = (...a: unknown[]) => { calls.push(a); };
+    net.sse.nullFrame();
+    await settle();
+    console.warn = warn;
+    expect(calls.length).toBe(0);
+    net.sse.content('answer.');
+    await settle();
+    net.historyAnswer = [
+      { id: 'row-q', role: 'user', content: 'q' }, { id: 'row-new', role: 'assistant', content: 'New answer.' },
+    ];
+    net.sse.done();
+    await branch;
+    await settle();
+    // The malformed line cost nothing beyond itself: both good chunks landed.
+    expect(answerOf(app)).toEqual([['New answer.', false]]);
+    app.unmount();
+  });
+
   test('E4: Stop mid-regenerate, a row beside: the answer is closed by its id', async () => {
     const app = mountBoth();
     await loaded(app);

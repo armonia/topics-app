@@ -19,6 +19,7 @@ import { ChatEmptyState } from './ChatEmptyState';
 import { findPendingPlan, planApprovalMessage } from './planDetection';
 import { clearAskDraft, readAskDraft } from './askDraft';
 import { readDraft, saveDraft } from './chatDraft';
+import { cacheFastMode } from './fastModeCache';
 import { PLAN_APPROVAL_QUESTION, PLAN_APPROVE_LABEL, PLAN_EDIT_KEY, PLAN_REJECT_LABEL } from '../../../../shared/plan-decision';
 import { forkModeFor } from '../../../../shared/chat-fork';
 import { providerLabel } from '../../../../shared/provider-labels';
@@ -1384,7 +1385,7 @@ function ChatPaneComponent({
     // local mirror for cold-boot hydration; a draft has no server row yet, so
     // for a draft topic this write (plus `fastModeRef`) is the only copy
     // until promotion carries the bit to the real topic id.
-    try { localStorage.setItem(`fastMode:${topic.id}`, String(next)); } catch (e) { console.warn('[ChatPane] fastMode could not be cached locally', e); }
+    cacheFastMode(topic.id, next);
     // Draft topics aren't persisted yet — skip the PUT (would 404). Local
     // state is sufficient until the draft is promoted; the promotion effect
     // above migrates the bit to the new real topic id once it exists.

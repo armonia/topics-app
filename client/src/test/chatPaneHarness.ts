@@ -69,6 +69,8 @@ export function drivenSse() {
     content(text: string) { controller.enqueue(sseFrame(JSON.stringify({ choices: [{ delta: { content: text } }] }))); },
     /** A `data:` line that is not valid JSON — a malformed or truncated frame. */
     malformed() { controller.enqueue(sseFrame('{not json')); },
+    /** A valid JSON frame that is not an object (`data: null`). */
+    nullFrame() { controller.enqueue(sseFrame('null')); },
     done() { controller.enqueue(sseFrame('[DONE]')); controller.close(); },
     /** What a browser does to the body of a fetch aborted mid-stream. */
     abort() { try { controller.error(new DOMException('The operation was aborted.', 'AbortError')); } catch { /* already closed */ } },

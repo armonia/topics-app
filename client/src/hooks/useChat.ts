@@ -3129,7 +3129,7 @@ export function useChat() {
             const data = line.slice(6).trim();
             if (data === '[DONE]') { isDone = true; continue; }
 
-            let parsed: { choices?: Array<{ delta?: { content?: string } }> };
+            let parsed: { choices?: Array<{ delta?: { content?: string } }> } | null;
             try {
               parsed = JSON.parse(data);
             } catch (e) {
@@ -3140,7 +3140,7 @@ export function useChat() {
               console.warn('[useChat] SSE data line failed to parse, skipping', e);
               continue;
             }
-            const delta = parsed.choices?.[0]?.delta;
+            const delta = parsed?.choices?.[0]?.delta;
             if (delta?.content) {
               let chunk = delta.content;
               if (chunk.includes('<thinking>')) { isInThinking = true; setThinking(prev => ({ ...prev, [sessionKey]: true })); chunk = chunk.replace('<thinking>', ''); }
