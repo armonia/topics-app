@@ -38,6 +38,7 @@ import {
   isValidWorktreeName,
 } from "../utils/worktree-naming";
 import { makeSerialQueue } from "../lib/serial-queue";
+import { isInsideDir } from "../lib/path-containment";
 import { provisionTauriSidecars } from "./worktree-sidecars";
 import { existsSync, mkdirSync, statSync, cpSync } from "node:fs";
 import { rm } from "node:fs/promises";
@@ -672,6 +673,16 @@ export function createWorktreeManager(
     const project = deps.projectStore.get(wt.projectId);
     // Even if project is gone (defensive), proceed with row delete.
     return chainOnProjectQueue(wt.projectId, async () => {
+      // NOT OURS TO REMOVE: a folder outside the worktree root came in by
+      // adopting a session that already worked there (Claude Desktop's
+      // `<repo>/.claude/worktrees/`, a `git worktree add` by hand). Topics
+      // forgets the row; the folder, its git registration and its branch
+      // belong to whoever made them.
+      if (!isInsideDir(wt.absPath, worktreesDir)) {
+        const removed = deps.worktreeStore.delete(id);
+        setupResults.delete(id);
+        return removed;
+      }
       // Best-effort: remove from disk, then the branch if we own it.
       if (project && existsSync(wt.absPath)) {
         const archive = readWorktreeProjectConfig(project.path).archive;

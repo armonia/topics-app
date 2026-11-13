@@ -34,6 +34,7 @@ import { missingBundleAssets } from "../../server/lib/client-bundle";
 import { SERVER_DEATH_GRACE_MS, portHolders } from "./helpers/server-death";
 import { killSavedTestServer, killTestListeners, refuseProductionPort } from "./helpers/port-guard";
 import { removeTmpDir } from "./helpers/file-project";
+import { removeStaleFakeAnthropic } from "./helpers/fake-anthropic-api";
 
 /** True when the machine can listen on ::1 (the server's default bind is "::"). */
 function hasIpv6Loopback(): boolean {
@@ -551,6 +552,10 @@ async function globalSetup() {
   // che il server apra la porta, così ciò che serve per tutta la run è un
   // insieme di file che nessuno riscriverà più.
   await snapshotBundle();
+
+  // A fake credential left by a spec whose job was killed before its undo
+  // would make every later chat reach the native runtime (fake-anthropic-api.ts).
+  removeStaleFakeAnthropic(join(TEST_DATA_DIR, ".home"));
 
   // Start isolated test server
   await startTestServer();
