@@ -47,6 +47,14 @@ async function openGlobalBoard(page: Page) {
   await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
 }
 
+/** Opens one of the grouping menus and picks an entry (or just opens it when `choose` is false). */
+async function pick(page: Page, menu: string, label: string, choose = true) {
+  await page.getByTestId(menu).click();
+  const option = page.getByRole("option", { name: label, exact: true });
+  await expect(option).toBeVisible();
+  if (choose) await option.click();
+}
+
 const lane = (page: Page, id: string) => page.locator(`[data-testid="board-lane"][data-project-id="${id}"]`);
 
 test.describe("Selettore di vista e raggruppamento a due livelli", () => {
@@ -97,13 +105,14 @@ test.describe("Selettore di vista e raggruppamento a due livelli", () => {
     await freshBoard(page);
     await expect(page.getByTestId("board-view-grid")).toHaveAttribute("aria-checked", "true");
     // The kanban never offers «status»: its columns already are the status.
-    await expect(page.getByTestId("board-group-by").locator('option[value="status"]')).toHaveCount(0);
+    await pick(page, "board-group-by", "Nessun raggruppamento", false);
+    await expect(page.getByRole("option", { name: "Stato", exact: true })).toHaveCount(0);
+    await page.keyboard.press("Escape");
     await expect(page.getByTestId("board-then-by")).toHaveCount(0);
 
     await page.getByTestId("board-view-list").click();
-    await expect(page.getByTestId("board-group-by").locator('option[value="status"]')).toHaveCount(1);
-    await page.getByTestId("board-group-by").selectOption("project");
-    await page.getByTestId("board-then-by").selectOption("assignee");
+    await pick(page, "board-group-by", "Progetto");
+    await pick(page, "board-then-by", "Assegnatario");
 
     const alfa = lane(page, ID_A);
     await expect(alfa.getByTestId("board-group-count").first()).toHaveText("2");
@@ -115,16 +124,16 @@ test.describe("Selettore di vista e raggruppamento a due livelli", () => {
     await page.reload();
     await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId("board-view-list")).toHaveAttribute("aria-checked", "true");
-    await expect(page.getByTestId("board-group-by")).toHaveValue("project");
-    await expect(page.getByTestId("board-then-by")).toHaveValue("assignee");
+    await expect(page.getByTestId("board-group-by")).toContainText("Progetto");
+    await expect(page.getByTestId("board-then-by")).toContainText("Assegnatario");
     await expect(lane(page, ID_A).locator('[data-testid="board-group"][data-group-level="assignee"]')).toHaveCount(2);
   });
 
   test("«Serve te» con progetto poi assegnatario mostra solo la card che aspetta la persona", async ({ page }, testInfo) => {
     await freshBoard(page);
     await page.getByTestId("board-view-list").click();
-    await page.getByTestId("board-group-by").selectOption("project");
-    await page.getByTestId("board-then-by").selectOption("assignee");
+    await pick(page, "board-group-by", "Progetto");
+    await pick(page, "board-then-by", "Assegnatario");
     await page.getByTestId("board-quick-me").click();
     await expect(page.getByTestId("board-quick-me")).toHaveAttribute("aria-pressed", "true");
 
@@ -141,7 +150,7 @@ test.describe("Selettore di vista e raggruppamento a due livelli", () => {
   test("la vista a card raggruppa senza colonne di stato e conta i gruppi", async ({ page }, testInfo) => {
     await freshBoard(page);
     await page.getByTestId("board-view-plan").click();
-    await page.getByTestId("board-group-by").selectOption("closer");
+    await pick(page, "board-group-by", "Chi la chiude");
     const plan = page.getByTestId("plan-view");
     await expect(plan).toBeVisible();
     await expect(plan.getByTestId("kanban-column-todo")).toHaveCount(0);
@@ -151,8 +160,8 @@ test.describe("Selettore di vista e raggruppamento a due livelli", () => {
     await expect(first.locator(`[data-task-card="${asked}"]`)).toBeVisible();
     await expect(first.getByTestId("board-group-count")).toHaveText("1");
     await page.screenshot({ path: testInfo.outputPath("card-per-chi-la-chiude.png") });
-    // The rest sits in «None», last, with its count.
-    await expect(plan.locator('[data-testid="board-group"]').last()).toHaveAttribute("data-group-path", "_none");
-    await expect(plan.locator(`[data-task-card="${bob}"]`)).toBeVisible();
+    // A card opened through the API belongs to «Agents», the next group, with its own count.
+    const agents = plan.locator('[data-testid="board-group"][data-group-path="agents"]');
+    await expect(agents.locator(`[data-task-card="${bob}"]`)).toBeVisible();
   });
 });

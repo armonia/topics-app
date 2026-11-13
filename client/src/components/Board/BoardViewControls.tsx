@@ -8,6 +8,7 @@ import { useT } from '../../hooks/useT';
 import type { BoardGroupBy } from './boardGeometry';
 import { groupKeysFor } from './boardGrouping';
 import { TOOLBAR_CONTROL_H, TOOLBAR_ICON_W } from './constants';
+import { Select } from '../Shared/Select';
 import { DETAIL_LEVELS, type DetailLevel } from './detailLevel';
 
 const VIEW_ICON = { grid: SquareKanban, list: List, plan: LayoutGrid } as const;
@@ -18,7 +19,7 @@ export function ViewSelector({ value, onChange }: { value: DetailLevel; onChange
   return (
     <div
       role="radiogroup" data-testid="board-view-selector" aria-label={tr('board.view.label')}
-      className="mx-1 flex shrink-0 items-center rounded bg-white/5 p-px"
+      className="mx-1 flex shrink-0 items-center gap-px rounded bg-white/5"
       onKeyDown={(e) => {
         const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
         if (!step) return;
@@ -43,7 +44,8 @@ export function ViewSelector({ value, onChange }: { value: DetailLevel; onChange
   );
 }
 
-const selectClass = `${TOOLBAR_CONTROL_H} min-w-0 max-w-[7.5rem] shrink rounded border border-app-border bg-transparent px-1 text-compact leading-4 text-app-text-secondary outline-none focus-visible:ring-1 focus-visible:ring-primary disabled:opacity-40`;
+// h-6 like every other control of the bar; the shared Select's own vertical padding is cancelled.
+const selectClass = `${TOOLBAR_CONTROL_H} min-w-0 max-w-[8rem] shrink !py-0 text-compact`;
 
 /** «Group by» and, once the first is chosen, «then by»: two levels at most. */
 export function GroupSelectors({ view, hasProjects, groupBy, thenBy, onGroupBy, onThenBy }: {
@@ -55,20 +57,22 @@ export function GroupSelectors({ view, hasProjects, groupBy, thenBy, onGroupBy, 
   const keys = groupKeysFor(view, hasProjects);
   const first = keys.includes(groupBy) ? groupBy : 'none';
   const second = first !== 'none' && thenBy !== first && keys.includes(thenBy) ? thenBy : 'none';
+  const optionsFor = (skip: BoardGroupBy | null) => keys.filter((k) => k !== skip).map((k) => ({
+    value: k, label: k === 'none' ? tr('board.groupBy.none') : tr(`board.groupBy.${k}`),
+  }));
+  // «None» shows the caption of the control, not a value: an empty control reads as «Group by».
   return <>
-    <select
-      data-testid="board-group-by" aria-label={tr('board.groupBy.label')} title={tr('board.groupBy.label')}
-      value={first} onChange={(e) => onGroupBy(e.target.value as BoardGroupBy)} className={selectClass}
-    >
-      {keys.map((k) => <option key={k} value={k}>{k === 'none' ? tr('board.groupBy.label') : tr(`board.groupBy.${k}`)}</option>)}
-    </select>
+    <Select<BoardGroupBy>
+      testId="board-group-by" ariaLabel={tr('board.groupBy.label')}
+      value={(first === 'none' ? '' : first) as BoardGroupBy} options={optionsFor(null)} onChange={onGroupBy}
+      className={selectClass} placeholder={tr('board.groupBy.label')}
+    />
     {first !== 'none' && (
-      <select
-        data-testid="board-then-by" aria-label={tr('board.thenBy.label')} title={tr('board.thenBy.label')}
-        value={second} onChange={(e) => onThenBy(e.target.value as BoardGroupBy)} className={selectClass}
-      >
-        {keys.filter((k) => k !== first).map((k) => <option key={k} value={k}>{k === 'none' ? tr('board.thenBy.label') : tr(`board.groupBy.${k}`)}</option>)}
-      </select>
+      <Select<BoardGroupBy>
+        testId="board-then-by" ariaLabel={tr('board.thenBy.label')}
+        value={(second === 'none' ? '' : second) as BoardGroupBy} options={optionsFor(first)} onChange={onThenBy}
+        className={selectClass} placeholder={tr('board.thenBy.label')}
+      />
     )}
   </>;
 }

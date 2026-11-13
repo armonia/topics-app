@@ -154,7 +154,7 @@ test.describe("Board per progetto e card compatte", () => {
     await expect(liveCard).toBeVisible({ timeout: 15000 });
 
     // ── 1. The default: flat board, full cards, the description is drawn ───
-    await expect(group).toHaveValue("none");
+    await expect(group).toContainText("Raggruppa per");
     await expect(doneToggle).toHaveAttribute("aria-pressed", "false");
     await expect(page.getByTestId("kanban-column-done")).toHaveCount(0);
     await expect(page.getByTestId("board-lane")).toHaveCount(0);
@@ -164,8 +164,9 @@ test.describe("Board per progetto e card compatte", () => {
     await page.screenshot({ path: testInfo.outputPath("prima.png") });
 
     // ── 2. Grouped: one lane per project, each with its counts ─────────────
-    await group.selectOption("project");
-    await expect(group).toHaveValue("project");
+    await group.click();
+    await page.getByRole("option", { name: "Progetto", exact: true }).click();
+    await expect(group).toContainText("Progetto");
     const laneA = page.locator(`[data-testid="board-lane"][data-project-id="${ID_A}"]`);
     const laneB = page.locator(`[data-testid="board-lane"][data-project-id="${ID_B}"]`);
     await expect(laneA).toBeVisible();
@@ -202,7 +203,7 @@ test.describe("Board per progetto e card compatte", () => {
     // ── 5. All three choices survive a reload ─────────────────────────────
     await page.reload();
     await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
-    await expect(page.getByTestId("board-group-by")).toHaveValue("project");
+    await expect(page.getByTestId("board-group-by")).toContainText("Progetto");
     await expect(page.locator(`[data-testid="board-lane"][data-project-id="${ID_B}"]`)).toHaveAttribute("data-collapsed", "true");
 
     // ── 6. The Plan: same fold, same compact card ─────────────────────────
