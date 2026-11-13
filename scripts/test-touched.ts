@@ -18,6 +18,10 @@
  * data file nobody imports (a workflow, a migration read through fs). For
  * those the whole suite runs, and the output says so. CI always runs the whole
  * suite anyway: a false negative here costs a CI round, not a broken main.
+ * `package.json` (root or `client/`) is the one exception with its own check:
+ * a change confined to "scripts" cannot affect a unit test, so it only
+ * selects the tests that name it, same as `knip.jsonc`; any other field
+ * (dependencies, overrides, workspaces, type...) still runs the whole suite.
  *
  * WHAT IT DOES NOT CATCH, said out loud:
  *   - a test that reads a file as text through a path built at run time (not a
@@ -41,19 +45,26 @@ import { SUITE_ROOTS, enumerateTestFiles } from "./test-unit-shards.ts";
 const REPO_ROOT = resolve(import.meta.dir, "..");
 
 /**
- * Where modules a test may import live, beyond the suite roots. `knip.jsonc` is here as a file: only the
- * dead-code gate and the tests that name it read it, so a change selects those tests instead of the whole suite.
+ * Where modules a test may import live, beyond the suite roots. `knip.jsonc`, `package.json` and
+ * `client/package.json` are here as files only: nothing imports them, so a change selects the tests
+ * that name them (literal path) instead of the whole suite — unless the comparison in `selectTests`
+ * decides otherwise (see `PACKAGE_JSON_PATTERN` below).
  */
-export const GRAPH_ROOTS = [...SUITE_ROOTS, "tests/helpers", "tests/setup", "tests/fixtures", "tests/e2e", "server.ts", "knip.jsonc"] as const;
+export const GRAPH_ROOTS = [...SUITE_ROOTS, "tests/helpers", "tests/setup", "tests/fixtures", "tests/e2e", "server.ts", "knip.jsonc", "package.json", "client/package.json"] as const;
 
 const CODE_EXTENSIONS = [".ts", ".tsx", ".mjs", ".js", ".json"] as const;
 
 /** Changed files that cannot affect a unit test. */
 const INERT_EXTENSIONS = new Set([".md", ".txt", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff2", ".webp"]);
 
+/**
+ * `package.json` (root or `client/`) is handled on its own, not as a blanket full-suite pattern: a
+ * change confined to "scripts" cannot affect a unit test, so `selectTests` treats it as a regular graph
+ * leaf (path-literal matches only) once `scriptsOnly` says the rest of the file is unchanged.
+ */
+const PACKAGE_JSON_PATTERN = /^(client\/)?package\.json$/;
+
 const FULL_SUITE_PATTERNS: readonly RegExp[] = [
-  /^package\.json$/,
-  /^client\/package\.json$/,
   /^(bun\.lockb?|client\/bun\.lockb?|package-lock\.json)$/,
   /^bunfig\.toml$/,
   /(^|\/)tsconfig[^/]*\.json$/,
@@ -106,15 +117,18 @@ export function pathLiterals(text: string, files: readonly string[]): Set<string
     if (!/\.[a-z]{2,5}$/.test(token)) continue;
     const hits = bySuffix.get(token);
     if (!hits) continue;
-    // A bare file name is evidence only when it names one file.
-    if (!token.includes("/") && hits.length > 1) continue;
-    for (const h of hits) out.add(h);
+    // A bare file name is evidence only when it names one file, unless one of the
+    // candidates sits at the repo root and so equals the bare token outright (e.g.
+    // "package.json" means the root one even though "client/package.json" shares the name).
+    const atRoot = hits.find((h) => h === token);
+    if (!token.includes("/") && hits.length > 1 && !atRoot) continue;
+    for (const h of atRoot ? [atRoot] : hits) out.add(h);
   }
   return out;
 }
 
 /** A test that walks the tree looking at every file: whatever changed, it may care. */
-const TREE_WALKER = /ls-files|\.scanSync\(|\.scan\(|readdirSync\([^)]*recursive/;
+const TREE_WALKER = /ls-files|\.scanSync\(|\.scan\(|readdirSync\([^)]*recursive|git["'`][^)]*grep["'`]|git grep/;
 
 /** file -> the files it imports or reads, built from `files` (repo-relative) and a reader. */
 export function buildGraph(files: readonly string[], read: (rel: string) => string): Map<string, Set<string>> {
@@ -152,7 +166,14 @@ export type Selection = { kind: "tests"; tests: string[] } | { kind: "full"; rea
  * says a changed path no longer exists (a deletion selects nothing by itself:
  * whoever imported it changed too).
  */
-export function selectTests(changed: readonly string[], graph: Map<string, Set<string>>, suiteTests: ReadonlySet<string>, gone: (file: string) => boolean = () => false, walkers: ReadonlySet<string> = new Set()): Selection {
+export function selectTests(
+  changed: readonly string[],
+  graph: Map<string, Set<string>>,
+  suiteTests: ReadonlySet<string>,
+  gone: (file: string) => boolean = () => false,
+  walkers: ReadonlySet<string> = new Set(),
+  scriptsOnly: (file: string) => boolean = () => false,
+): Selection {
   const reverse = new Map<string, Set<string>>();
   for (const [file, deps] of graph) {
     for (const d of deps) {
@@ -164,7 +185,8 @@ export function selectTests(changed: readonly string[], graph: Map<string, Set<s
   const selected = new Set<string>();
   for (const file of changed) {
     if (!INERT_EXTENSIONS.has(extname(file)) && !gone(file)) for (const w of walkers) if (suiteTests.has(w)) selected.add(w);
-    if (FULL_SUITE_PATTERNS.some((p) => p.test(file))) return { kind: "full", reason: `${file} is config, lockfile, test setup or shared types` };
+    if (PACKAGE_JSON_PATTERN.test(file) && !scriptsOnly(file)) return { kind: "full", reason: `${file} changed a field other than "scripts"` };
+    if (!PACKAGE_JSON_PATTERN.test(file) && FULL_SUITE_PATTERNS.some((p) => p.test(file))) return { kind: "full", reason: `${file} is config, lockfile, test setup or shared types` };
     if (!graph.has(file)) {
       if (INERT_EXTENSIONS.has(extname(file)) || gone(file)) continue;
       return { kind: "full", reason: `${file} is outside the import graph, a test may read it directly` };
@@ -182,6 +204,13 @@ export function selectTests(changed: readonly string[], graph: Map<string, Set<s
   return { kind: "tests", tests: [...selected].sort() };
 }
 
+/** The merge base commit of `base` with `HEAD`. */
+export function mergeBaseSha(base: string, cwd = REPO_ROOT): string {
+  const r = Bun.spawnSync(["git", "merge-base", base, "HEAD"], { cwd });
+  if (r.exitCode !== 0) throw new Error(`git merge-base ${base} HEAD: ${r.stderr.toString().trim()}`);
+  return r.stdout.toString().trim();
+}
+
 /** Repo-relative files changed against the merge base with `base`, plus the working tree. */
 export function changedFiles(base: string, cwd = REPO_ROOT): string[] {
   const git = (...args: string[]) => {
@@ -189,12 +218,37 @@ export function changedFiles(base: string, cwd = REPO_ROOT): string[] {
     if (r.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr.toString().trim()}`);
     return r.stdout.toString();
   };
-  const mergeBase = git("merge-base", base, "HEAD").trim();
+  const mergeBase = mergeBaseSha(base, cwd);
   const names = new Set<string>();
   for (const out of [git("diff", "--name-only", mergeBase), git("ls-files", "--others", "--exclude-standard")]) {
     for (const line of out.split("\n")) if (line.trim()) names.add(line.trim());
   }
   return [...names].sort();
+}
+
+/**
+ * True when `file`'s JSON at `mergeBase` differs from its current content only in "scripts". An
+ * unreadable or unparsable file at either end counts as NOT scripts-only, so the caller falls back
+ * to the whole suite rather than assume a dependency bump is harmless.
+ */
+export function isScriptsOnlyChange(file: string, mergeBase: string, cwd = REPO_ROOT): boolean {
+  const shown = Bun.spawnSync(["git", "show", `${mergeBase}:${file}`], { cwd });
+  if (shown.exitCode !== 0) return false;
+  let base: unknown;
+  let head: unknown;
+  try {
+    base = JSON.parse(shown.stdout.toString());
+    head = JSON.parse(readFileSync(join(cwd, file), "utf8"));
+  } catch {
+    return false;
+  }
+  if (typeof base !== "object" || base === null || typeof head !== "object" || head === null) return false;
+  const withoutScripts = (o: Record<string, unknown>) => {
+    const rest = { ...o };
+    delete rest.scripts;
+    return rest;
+  };
+  return JSON.stringify(withoutScripts(base as Record<string, unknown>)) === JSON.stringify(withoutScripts(head as Record<string, unknown>));
 }
 
 export function graphFiles(cwd: string): string[] {
@@ -221,7 +275,12 @@ export function selectForBase(base: string, cwd = REPO_ROOT): Selection & { chan
   const read = (rel: string) => readFileSync(join(cwd, rel), "utf8");
   const graph = buildGraph(files, read);
   const suiteTests = new Set(enumerateTestFiles(SUITE_ROOTS, cwd).map((f) => f.replaceAll("\\", "/")));
-  return { ...selectTests(changed, graph, suiteTests, (f) => !existsSync(join(cwd, f)), treeWalkers(files, read)), changed };
+  let mergeBase: string | null = null;
+  const scriptsOnly = (file: string) => {
+    mergeBase ??= mergeBaseSha(base, cwd);
+    return isScriptsOnlyChange(file, mergeBase, cwd);
+  };
+  return { ...selectTests(changed, graph, suiteTests, (f) => !existsSync(join(cwd, f)), treeWalkers(files, read), scriptsOnly), changed };
 }
 
 async function runShards(tests: string[], listOnly: boolean): Promise<number> {

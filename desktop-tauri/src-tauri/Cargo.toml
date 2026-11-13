@@ -40,6 +40,8 @@ strip = true
 tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
+# Decodes the provider logos drawn on the menu-bar strip.
+png = "0.18"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
@@ -79,7 +81,7 @@ sysinfo = "0.33"
 # won't trust). tokio comes via tauri's async runtime.
 tokio = { version = "1", features = ["net", "io-util", "rt"] }
 # Rasterises the text of the tray quota strip (tray_quota.rs).
-fontdue = { version = "0.9", default-features = false, features = ["std"] }
+ab_glyph = "0.2"
 tokio-native-tls = "0.3"
 native-tls = "0.2"
 
@@ -164,4 +166,3 @@ objc2-user-notifications = { version = "0.3", features = [
 ] }
 
 [dev-dependencies]
-png = "0.18"
