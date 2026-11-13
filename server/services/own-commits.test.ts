@@ -116,12 +116,24 @@ describe("own-commits — su git vero", () => {
     const declared = await otherLocalBranches(repo, "topics/seconda", { ownRefs: ["topics/prima"] });
     expect(declared).not.toContain("refs/heads/topics/prima");
     expect(await countOwnCommits(repo, "topics/seconda", { others: declared! })).toBe(2);
-    // Even undeclared, a strict ancestor of the card branch is not subtracted:
-    // its commits are part of the branch's own history (13/11, land refused as
-    // "not isolable" because of four older delivery branches).
+    // Without the declaration the subtraction stays as it was: the old branch is foreign.
     const all = await otherLocalBranches(repo, "topics/seconda");
-    expect(all).not.toContain("refs/heads/topics/prima");
-    expect(await countOwnCommits(repo, "topics/seconda", { others: all! })).toBe(2);
+    expect(all).toContain("refs/heads/topics/prima");
+    expect(await countOwnCommits(repo, "topics/seconda", { others: all! })).toBe(1);
+  });
+
+  test("an older delivery branch of the same card (ancestor) does not hide its commits", async () => {
+    git(repo, "checkout", "-q", "-b", "topics/old-delivery", "main");
+    commit(repo, "oa.txt", "a\n", "card commit A");
+    git(repo, "checkout", "-q", "-b", "topics/new-delivery", "topics/old-delivery");
+    commit(repo, "ob.txt", "b\n", "card commit B");
+    git(repo, "checkout", "-q", "main");
+    const own = ["topics/old-delivery"];
+    const others = await otherLocalBranches(repo, "topics/new-delivery", { ownRefs: own });
+    expect(await countOwnCommits(repo, "topics/new-delivery", { others: others! })).toBe(2);
+    // Mutation check: without the own-refs filter the old branch is subtracted and A is lost.
+    const unfiltered = await otherLocalBranches(repo, "topics/new-delivery");
+    expect(await countOwnCommits(repo, "topics/new-delivery", { others: unfiltered! })).toBe(1);
   });
 
   test("i commit propri arrivano dal più recente: il primo è il puntatore di consegna", async () => {
@@ -238,8 +250,7 @@ describe("own-commits — su git vero", () => {
   test("gli altri branch locali: tutti tranne sé stesso e quello d'integrazione", async () => {
     const others = await otherLocalBranches(repo, "topics/card");
     expect(others).toContain("refs/heads/dev");
-    // the empty topics branch is a strict ancestor of the card: dropped, while dev still covers A.
-    expect(others).not.toContain("refs/heads/topics/vuota");
+    expect(others).toContain("refs/heads/topics/vuota");
     expect(others).not.toContain("refs/heads/topics/card");
     expect(others).not.toContain("refs/heads/main");
     // Il nome si accetta anche già in forma di ref: è come lo passa la consegna.
