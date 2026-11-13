@@ -2250,7 +2250,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               ? `il ramo era indietro di ${res.realignConflict.behind} commit e il realign ha fatto conflitto`
               : "il merge ha fatto conflitto con main")
             : res.status === "skipped" ? (res.reason ?? null) : null)
-          : null;
+          : res.status === "skipped" && res.code === "no-branch"
+            // Never let a caller read an empty reason as "accepted": nothing was landed.
+            ? "nessun ramo di consegna: non c'è niente da atterrare e la card NON risulta su main"
+            : null;
       return { outcome: ticketOutcome, reason: ticketReason };
     } catch (e) {
       // ── The path that produced "zero comments, zero reason" ────────────────

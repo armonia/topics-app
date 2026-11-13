@@ -164,7 +164,24 @@ export async function otherLocalBranches(
   const res = await run(repoPath, ["for-each-ref", "--format=%(refname)", "refs/heads/"]);
   if (res.code !== 0) return null;
   const excluded = new Set([refName(branch), refName(opts.mainRef ?? "main"), ...(opts.ownRefs ?? []).map(refName)]);
-  return lines(res.stdout).filter((r) => !excluded.has(r));
+  const candidates = lines(res.stdout).filter((r) => !excluded.has(r));
+  // A dispatch-made branch (`refs/heads/topics/*`) that is a STRICT ancestor of
+  // the card's branch is an earlier delivery of the same line of work: its
+  // commits are already part of this branch's history, so subtracting it makes
+  // the card's own commits look foreign and the land unisolable. Ancestors
+  // outside that namespace (a long-lived `dev`, say) stay foreign: a card built
+  // on top of somebody else's work must not claim it.
+  const kept: string[] = [];
+  for (const ref of candidates) {
+    if (!ref.startsWith("refs/heads/topics/")) { kept.push(ref); continue; }
+    const behind = await run(repoPath, ["merge-base", "--is-ancestor", ref, refName(branch)]);
+    if (behind.code === 0) {
+      const same = await run(repoPath, ["merge-base", "--is-ancestor", refName(branch), ref]);
+      if (same.code !== 0) continue;
+    }
+    kept.push(ref);
+  }
+  return kept;
 }
 
 /**
