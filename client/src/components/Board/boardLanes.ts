@@ -146,10 +146,14 @@ export function dropsOnOtherProject(
   task: { projectId: string },
   overId: string | null,
   cardProjectOf: (cardId: string) => string | undefined,
+  projectOfLane: (laneKey: string) => string | null = (key) => key,
 ): boolean {
   if (!overId) return false;
-  const laneProject = projectIdOfDropTarget(overId);
-  if (laneProject !== null) return laneProject !== task.projectId;
+  const laneKey = projectIdOfDropTarget(overId);
+  if (laneKey !== null) {
+    const laneProject = projectOfLane(laneKey);
+    return laneProject !== null && laneProject !== task.projectId;
+  }
   const cardProject = cardProjectOf(overId);
   return cardProject !== undefined && cardProject !== task.projectId;
 }

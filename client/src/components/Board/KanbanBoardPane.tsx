@@ -8,13 +8,14 @@
  * project-scoped board API (client/src/lib/board.ts).
  */
 import { useHeldDraft } from './useHeldDraft';
+import { DraftCard } from './DraftCard';
 import { useCreatedFlash } from './useCreatedFlash';
 import { useWorktreeStatus } from './useWorktreeStatus';
 import { EMPTY_WRITES, useBoardDrag, useDragPreview } from './useBoardDrag';
 import { DeliveryControl, LoadAdviceChip, MissionsMenu, WorktreeControl } from './BoardToolbarControls';
 import { InlineFilters } from './InlineFilters';
 import { useT } from '../../hooks/useT';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay } from '@dnd-kit/core';
 import { Archive, ChevronRight, Music4, Settings } from 'lucide-react';
@@ -44,22 +45,22 @@ import { useRowSnapHold } from './useRowSnapHold';
 import { BoardSkeleton } from './BoardSkeleton';
 import { DropNotice } from './DropNotice';
 import {
-  BOARD_GROUP_BY_STORAGE_KEY, BOARD_SHOW_DONE_STORAGE_KEY, COLUMNS_ROW_GRID, COLUMNS_ROW_LIST,
-  readBoardGroupBy, readBoardShowDone, writeBoardPreference, type BoardGroupBy, type BoardLayout,
+  BOARD_SHOW_DONE_STORAGE_KEY, COLUMNS_ROW_GRID, COLUMNS_ROW_LIST,
+  readBoardShowDone, writeBoardPreference, type BoardLayout,
 } from './boardGeometry';
-import { laneDropId, type BoardLane } from './boardLanes';
-import { BoardViewToggles, ProjectLanes } from './ProjectLanes';
-import { useProjectLanes } from './useProjectLanes';
+import { laneDropId } from './boardLanes';
+import { DoneToggle, GroupSelectors, ViewSelector } from './BoardViewControls';
+import { GroupedBoard } from './GroupedBoard';
+import { effectiveLevels, groupTasks, leavesOf, NO_VALUE, type GroupKey, type GroupNode } from './boardGrouping';
+import { useBoardViewState } from './useBoardViewState';
+import { draftLaneOf } from './draftPreview';
 import { useCollapsedProjects } from './useCollapsedProjects';
-import { DETAIL_LEVELS, DETAIL_STORAGE_KEY, countByProject, readDetailLevel, type DetailLevel } from './detailLevel';
 import { QUICK_FILTERS, countQuickFilters, taskMatchesQuick, type QuickFilter } from './quickFilters';
-import { DetailSlider } from './DetailSlider';
-import { ProjectsSummary } from './ProjectsSummary';
 import { useColumnClearance } from './columnClearance';
 import { scrollDelta } from '../../lib/scrollDelta';
-import { useBoardProjectLabels } from '../../lib/boardProjectsStore';
+import { resolveProjectRefs, useBoardProjectLabels } from '../../lib/boardProjectsStore';
 import { useCardBoardSettings } from '../../hooks/useCardBoardSettings';
-import { CREATED_FLASH_MS, PRIORITY_DOT, TOOLBAR_CONTROL_H, TOOLBAR_ICON_W, type BoardFilters, type LiveUsage, type OpenTask } from './constants';
+import { CREATED_FLASH_MS, PRIORITY_DOT, PRIORITY_LABEL, TOOLBAR_CONTROL_H, TOOLBAR_ICON_W, type BoardFilters, type LiveUsage, type OpenTask } from './constants';
 import { taskMatchesFilters } from './taskFilter';
 import { boardCollision } from './format';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
@@ -69,17 +70,10 @@ import { TaskDetail } from './TaskDetail';
 import { OrchestratorDrawer } from './OrchestratorDrawer';
 import { BoardSettingsPanel } from './BoardSettingsPanel';
 import { ScheduledCardsControl } from './ScheduledCardsControl';
-import { SpinnerFallback } from '../Shared/Spinner';
 import { GlobalOnlySettingsPanel } from './BoardSettingsSections';
 import type { Mission } from '../../lib/missions';
 import { useDevInstall } from '../../hooks/useDevInstall';
 import { registerFindFallback, useFindPaneId } from '../../state/findRegistry';
-
-// Lazy: the Plan is opened from the global board only, it stays out of the first load.
-const PlanView = lazy(async () => {
-  const { PlanView: Body } = await import('./PlanView');
-  return { default: Body };
-});
 
 /** The Plan's cards are not dragged: one stable empty sensor list for its DndContext. */
 const NO_SENSORS: never[] = [];
@@ -371,23 +365,17 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // prop). A preference the person flips on and off between sessions, not a
   // property of the task — localStorage, not the server: no board needs to
   // know which view you're looking at it in.
-  const [storedDetail, setDetail] = useState(readDetailLevel);
-  // The Plan is a view of the GLOBAL board only; a project board falls back to the kanban.
-  const detail: DetailLevel = mode !== 'all' && storedDetail === 'plan' ? 'grid' : storedDetail;
+  // The view and the grouping are kept PER BOARD (the global one and each project).
+  const { detail, setDetail, groupBy: groupByPref, thenBy: thenByPref, setGroupBy, setThenBy } = useBoardViewState(mode === 'all' ? 'all' : projectId);
   const planVisible = detail === 'plan';
-  const detailLevels = useMemo(() => DETAIL_LEVELS.filter((l) => mode === 'all' || l !== 'plan'), [mode]);
   // One-click filter above the board, in AND with the search filters and with every view.
   const [quick, setQuick] = useState<QuickFilter | null>(null);
-  useEffect(() => {
-    try { localStorage.setItem(DETAIL_STORAGE_KEY, storedDetail); } catch { /* private mode, best effort */ }
-  }, [storedDetail]);
-  // The summary level has no columns; the row below it keeps the grid shape.
+  // The cards view has no columns; the row below it keeps the grid shape.
   const boardLayout: BoardLayout = detail === 'list' ? 'list' : 'grid';
-  // Per-viewer view choices, kept beside the layout: lanes per project, and the Done column.
-  const [groupByPref, setGroupByPref] = useState<BoardGroupBy>(readBoardGroupBy);
+  // The levels the view can really draw (the kanban never groups by status; a project board has no project level).
+  const groupLevels = useMemo(() => effectiveLevels(groupByPref, thenByPref, detail, mode === 'all'), [groupByPref, thenByPref, detail, mode]);
   // The Done column is out of the way until asked for: a board of live work.
   const [showDone, setShowDone] = useState(readBoardShowDone);
-  useEffect(() => { writeBoardPreference(BOARD_GROUP_BY_STORAGE_KEY, groupByPref); }, [groupByPref]);
   useEffect(() => { writeBoardPreference(BOARD_SHOW_DONE_STORAGE_KEY, String(showDone)); }, [showDone]);
   const { collapsed: collapsedProjects, toggle: toggleProjectCollapsed } = useCollapsedProjects();
   // Le righe non le legge più questa pane: le legge `useBoardFeed`, che in
@@ -539,13 +527,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   const filtered = useMemo(() => tasks.filter((task) => taskMatchesFilters(task, filters)), [tasks, filters]);
   const quickCounts = useMemo(() => countQuickFilters(filtered), [filtered]);
   const visibleTasks = useMemo(() => (quick ? filtered.filter((task) => taskMatchesQuick(task, quick)) : filtered), [filtered, quick]);
-  // The Plan hides the board cards these filters hide; a card the board does not hold (a sub-card) stays.
-  const visibleTaskIds = useMemo(() => {
-    if (!quick && filtered.length === tasks.length) return null;
-    const hidden = new Set(tasks.map((t) => t.id));
-    for (const t of visibleTasks) hidden.delete(t.id);
-    return (id: string) => !hidden.has(id);
-  }, [tasks, filtered, visibleTasks, quick]);
   const byStatus = useMemo(() => groupByStatus(visibleTasks, orderScope), [visibleTasks, orderScope]);
 
   /**
@@ -822,16 +803,41 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     [projectIndex],
   );
 
-  // ONE LANE PER PROJECT, only on the cross-project board (a project board has
-  // one project, its lane would be the board itself). Split after the columns
-  // (`splitIntoLanes`), so a lane keeps the board's order inside each column.
-  const grouped = mode === 'all' && groupByPref === 'project';
+  // THE GROUPS, up to two levels, in every view and mode. The split happens
+  // after the column split, so a group keeps the board's order inside each
+  // column; the hidden columns (Done) are left out before the counts are made.
+  const grouped = groupLevels.length > 0;
   // The archive view keeps every column: what was closed is what it is there to show.
   const shownColumns = useMemo(() => (showDone || showArchived ? boardColumns : boardColumns.filter((c) => c.base !== 'done')), [boardColumns, showDone, showArchived]);
-  const columnIds = useMemo(() => boardColumns.map((c) => c.id), [boardColumns]);
-  const { lanes, draftPlacement, draftLane, laneNameById } = useProjectLanes({
-    grouped, showArchived, draft, tasks, byColumn, columnIds, projectIndex,
-  });
+  const groupSource = useMemo(() => shownColumns.flatMap((c) => byColumn.get(c.id) ?? []), [shownColumns, byColumn]);
+  const projectNameById = useMemo(
+    () => new Map<string, string>(resolveProjectRefs([...new Set(tasks.map((t) => t.projectId))], projectIndex).map((p) => [p.projectId, p.name])),
+    [tasks, projectIndex],
+  );
+  // Where the composer's ghost sits: in its project's group when the first level is the project, above the groups otherwise.
+  const draftPlacement = useMemo(
+    () => (grouped && !showArchived ? draftLaneOf(draft ?? null, groupSource.map((t) => t.projectId)) : null),
+    [grouped, showArchived, draft, groupSource],
+  );
+  const draftProject = draftPlacement && draftPlacement.kind !== 'above' && groupLevels[0] === 'project' ? draftPlacement.projectId : null;
+  const groups = useMemo(() => (grouped ? groupTasks(groupSource, groupLevels, {
+    nameOfProject: (id) => projectNameById.get(id) ?? id,
+    statusOrder: TASK_STATUSES,
+    keepEmptyProject: draftProject,
+  }) : []), [grouped, groupSource, groupLevels, projectNameById, draftProject]);
+  const draftLeafPath = useMemo(
+    () => (draftProject ? leavesOf(groups.filter((g) => g.key === draftProject))[0]?.path ?? null : null),
+    [groups, draftProject],
+  );
+  const groupLabel = useCallback((level: GroupKey, key: string): string => {
+    if (key === NO_VALUE) return tr('board.group.none');
+    switch (level) {
+      case 'status': return STATUS_LABEL[key as TaskStatus] ?? key;
+      case 'closer': return tr(`board.quick.${key}`);
+      case 'priority': return PRIORITY_LABEL[Number(key)] ?? key;
+      default: return key;
+    }
+  }, [tr]);
 
   // Il movimento della board si aggancia qui: misura le colonne quando la firma
   // cambia e anima chi si e' spostato. Mentre una card e' IN MANO non anima
@@ -863,17 +869,17 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     return () => { window.removeEventListener('focusin', sync); window.removeEventListener('focusout', sync); };
   }, []);
   const { sensors, onDragStart, onDragEnd } = useBoardDrag({
-    tasks, byStatus, boardColumns, grouped, orderScope, setActiveId, setDropNotice, setPendingWrites,
+    tasks, byStatus, boardColumns, groupLevels, orderScope, setActiveId, setDropNotice, setPendingWrites,
     onCardError, patchTask, refetch, beginDrag, endDrag, flushDeferredRead, holdColumnsSnap, skipFlight,
   });
   const activeTask = activeId ? tasks.find((t) => t.id === activeId) ?? null : null;
   // The Plan draws the board's own card, compact: one card, two views (Plan + Kanban).
-  const renderPlanCard = useCallback((taskId: string) => {
+  const renderPlanCard = useCallback((taskId: string, showProject = false) => {
     const t = tasksById.get(taskId);
     if (!t) return null;
     return (
       <Card
-        task={t} onOpen={openTask} showProject={false} onRefetch={refetch} onOpenTopic={onOpenTopic}
+        task={t} onOpen={openTask} showProject={showProject} onRefetch={refetch} onOpenTopic={onOpenTopic}
         error={cardError?.taskId === t.id ? cardError.message : null}
         onError={onCardError}
         sessionState={resolveSession(t.assignedTopicId)}
@@ -890,11 +896,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   const renderColumn = (
     { id: columnKey, base: status, label: columnLabel }: (typeof boardColumns)[number],
     columnTasks: BoardTask[],
-    lane?: BoardLane,
+    lane?: { path: string; projectKnown: boolean },
   ) => (
     <Column
-      key={lane ? laneDropId(columnKey, lane.projectId) : columnKey}
-      dropId={lane ? laneDropId(columnKey, lane.projectId) : undefined}
+      key={lane ? laneDropId(columnKey, lane.path) : columnKey}
+      dropId={lane ? laneDropId(columnKey, lane.path) : undefined}
       inLane={!!lane}
       status={status}
       columnId={columnKey === status ? undefined : columnKey}
@@ -903,10 +909,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       onOpen={openTask}
       onCreate={(text) => create(status, text)}
       canCreate={mode === 'project' && !showArchived}
-      // In a lane the header already names the project: the eyebrow would repeat it on every card.
-      showProject={mode === 'all' && !lane}
+      // When a group header already names the project, the eyebrow would repeat it on every card.
+      showProject={mode === 'all' && !lane?.projectKnown}
       layout={boardLayout}
-      viewKey={`${mode === 'all' ? 'all' : projectId}:${showArchived ? 'archive' : 'live'}${lane ? `:${lane.projectId}` : ''}`}
+      viewKey={`${mode === 'all' ? 'all' : projectId}:${showArchived ? 'archive' : 'live'}${lane ? `:${lane.path}` : ''}`}
       cardError={cardError}
       onCardError={onCardError}
       onRefetch={refetch}
@@ -923,8 +929,27 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       archived={showArchived}
       onOpenSettings={toggleSettings}
       draft={draft && draft.status === status && !showArchived && columnOfTask(boardColumns, { status })?.id === columnKey
-        && (!lane || lane.projectId === draftLane) ? draft : undefined}
+        && (!grouped ? true : lane?.path === draftLeafPath) ? draft : undefined}
     />
+  );
+
+  // The composer's ghost: above the groups when it belongs to no group of its own (or the view has no columns to put it in).
+  const draftAbove = grouped && !showArchived && draft && (planVisible || !draftLeafPath) ? draft : undefined;
+  // A group of the kanban/list: the status columns, holding only the group's cards.
+  const renderColumnsLeaf = (node: GroupNode) => {
+    const ids = new Set(node.tasks.map((t) => t.id));
+    const lane = { path: node.path, projectKnown: groupLevels.includes('project') };
+    return (
+      <div className={boardLayout === 'list' ? 'flex flex-col gap-2' : 'flex min-w-0 gap-2 overflow-x-auto pb-1 sm:gap-3'}>
+        {shownColumns.map((column) => renderColumn(column, (byColumn.get(column.id) ?? []).filter((t) => ids.has(t.id)), lane))}
+      </div>
+    );
+  };
+  // A group of the cards view: the cards alone, no status columns.
+  const renderCardsLeaf = (node: GroupNode) => (
+    <div data-testid="board-cards-grid" className="grid grid-cols-1 gap-2 sm:grid-cols-[repeat(auto-fill,minmax(18rem,1fr))]">
+      {node.tasks.map((t) => <div key={t.id} className="min-w-0">{renderPlanCard(t.id, mode === 'all' && !groupLevels.includes('project'))}</div>)}
+    </div>
   );
 
   const dragPreview = useDragPreview(activeTask, mode, projectIndex);
@@ -1169,12 +1194,12 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             button that swaps side-by-side columns for stacked sections (see
             `boardLayout` above and `layout` on `Column`). Same spot, same
             style as the archive toggle below — not a second menu. */}
-        <DetailSlider value={detail} onChange={setDetail} levels={detailLevels} />
-        <BoardViewToggles
-          canGroup={mode === 'all'}
-          groupBy={groupByPref} onGroupBy={setGroupByPref}
-          showDone={showDone} onShowDone={setShowDone}
+        <ViewSelector value={detail} onChange={setDetail} />
+        <GroupSelectors
+          view={detail} hasProjects={mode === 'all'}
+          groupBy={groupByPref} thenBy={thenByPref} onGroupBy={setGroupBy} onThenBy={setThenBy}
         />
+        <DoneToggle showDone={showDone} onShowDone={setShowDone} />
         <div className="ml-auto flex items-center gap-2">
           {hasProject && mode === 'project' && <ScheduledCardsControl projectId={projectId} />}
           {/* THE COUNT IS GONE (asked on 29/08): in "all" mode the toggle two
@@ -1335,14 +1360,23 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             ))}
           </div>
           {planVisible ? (
-            <Suspense fallback={<SpinnerFallback fill />}>
-              {/* A DndContext with no sensors: the board's card is a sortable,
-                  and here nothing is dragged — the Plan moves cards with its
-                  own «move to» control. */}
-              <DndContext sensors={NO_SENSORS}>
-                <PlanView onOpenTask={openTask} onOpenTopic={onOpenTopic} renderTaskCard={renderPlanCard} isVisible={visibleTaskIds} />
-              </DndContext>
-            </Suspense>
+            /* A DndContext with no sensors: the board's card is a sortable, and
+               here nothing is dragged. The cards are the board's own, compact. */
+            <DndContext sensors={NO_SENSORS}>
+              <div data-testid="plan-view" className={COLUMNS_ROW_LIST}>
+                {grouped ? (
+                  <GroupedBoard
+                    groups={groups} levels={groupLevels} columns={shownColumns} showColumnCounts={false} wide
+                    collapsed={collapsedProjects} onToggle={toggleProjectCollapsed}
+                    nameById={projectNameById} pathById={projectPathById} labelOf={groupLabel}
+                    draftAbove={draftAbove} renderLeaf={renderCardsLeaf}
+                  />
+                ) : <>
+                  {draftAbove && <div data-testid="board-draft-above" className="mx-auto w-full max-w-3xl shrink-0"><DraftCard draft={draftAbove} /></div>}
+                  {renderCardsLeaf({ tasks: groupSource } as GroupNode)}
+                </>}
+              </div>
+            </DndContext>
           ) : <>
           <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveId(null); endDrag(); flushDeferredRead(); setDropNotice(null); }}>
             {/* NO `scroll-smooth` ON A PHONE, and that is the fix for "the
@@ -1373,27 +1407,19 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                 snap-carousel (there's nothing to peek at off to the side).
                 The test id is the row's handle for the e2e: its snap classes
                 come and go with `useRowSnapHold`, so they cannot name it. */}
-            {detail === 'summary' ? (
-              <ProjectsSummary
-                rows={countByProject(boardColumns.map((c) => byColumn.get(c.id) ?? []))}
-                columnLabels={boardColumns.map((c) => c.label ?? STATUS_LABEL[c.base])}
-              />
-            ) : (
             <div ref={columnsScrollRef} data-testid="kanban-columns-row" data-keeps-smooth-scroll="" className={boardLayout === 'list' || grouped
               ? COLUMNS_ROW_LIST
               : `${COLUMNS_ROW_GRID} ${columnsSnap.held ? '' : 'snap-x snap-mandatory'} sm:scroll-smooth`}>
               {grouped ? (
-                <ProjectLanes
-                  lanes={lanes} columns={shownColumns} layout={boardLayout}
-                  nameById={laneNameById} pathById={projectPathById}
+                <GroupedBoard
+                  groups={groups} levels={groupLevels} columns={shownColumns} showColumnCounts wide={boardLayout === 'list'}
                   collapsed={collapsedProjects} onToggle={toggleProjectCollapsed}
-                  draftAbove={draftPlacement?.kind === 'above' ? draft ?? undefined : undefined}
-                  draftLane={draftLane}
-                  renderColumn={renderColumn}
+                  forceOpenPath={(node) => node.path === draftLeafPath}
+                  nameById={projectNameById} pathById={projectPathById} labelOf={groupLabel}
+                  draftAbove={draftAbove} renderLeaf={renderColumnsLeaf}
                 />
               ) : shownColumns.map((column) => renderColumn(column, byColumn.get(column.id) ?? []))}
             </div>
-            )}
             {/* Portal to <body>: the overlay is position:fixed, and a transformed
                 ancestor (pane translateX, FLIP animations) would re-anchor fixed
                 positioning to itself — the ghost card then renders far from the

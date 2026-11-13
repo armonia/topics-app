@@ -143,18 +143,18 @@ test.describe("Board per progetto e card compatte", () => {
     await resetPaneStore(page.request, []);
     await page.goto("/");
     await page.evaluate(() => {
-      for (const k of ["topics.board.groupBy", "topics.board.collapsedProjects", "topics.board.showDone"]) localStorage.removeItem(k);
+      for (const k of ["topics.board.groupBy", "topics.board.groupBy:all", "topics.board.collapsedProjects", "topics.board.showDone"]) localStorage.removeItem(k);
     });
     await openGlobalBoard(page);
 
-    const group = page.getByTestId("board-group-toggle");
+    const group = page.getByTestId("board-group-by");
     const doneToggle = page.getByTestId("board-done-toggle");
     const liveCard = page.locator(`[data-task-card="${live}"]`);
     const plainCard = page.locator(`[data-task-card="${plain}"]`);
     await expect(liveCard).toBeVisible({ timeout: 15000 });
 
     // ── 1. The default: flat board, full cards, the description is drawn ───
-    await expect(group).toHaveAttribute("aria-pressed", "false");
+    await expect(group).toContainText("Raggruppa per");
     await expect(doneToggle).toHaveAttribute("aria-pressed", "false");
     await expect(page.getByTestId("kanban-column-done")).toHaveCount(0);
     await expect(page.getByTestId("board-lane")).toHaveCount(0);
@@ -165,7 +165,8 @@ test.describe("Board per progetto e card compatte", () => {
 
     // ── 2. Grouped: one lane per project, each with its counts ─────────────
     await group.click();
-    await expect(group).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("option", { name: "Progetto", exact: true }).click();
+    await expect(group).toContainText("Progetto");
     const laneA = page.locator(`[data-testid="board-lane"][data-project-id="${ID_A}"]`);
     const laneB = page.locator(`[data-testid="board-lane"][data-project-id="${ID_B}"]`);
     await expect(laneA).toBeVisible();
@@ -202,26 +203,24 @@ test.describe("Board per progetto e card compatte", () => {
     // ── 5. All three choices survive a reload ─────────────────────────────
     await page.reload();
     await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
-    await expect(page.getByTestId("board-group-toggle")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("board-group-by")).toContainText("Progetto");
     await expect(page.locator(`[data-testid="board-lane"][data-project-id="${ID_B}"]`)).toHaveAttribute("data-collapsed", "true");
 
     // ── 6. The Plan: same fold, same compact card ─────────────────────────
-    await page.getByTestId("board-detail-slider").focus();
-    await page.keyboard.press("End");
+    await page.getByTestId("board-view-plan").click();
     const plan = page.getByTestId("plan-view");
     await expect(plan).toBeVisible({ timeout: 15000 });
-    await expect(plan.locator(`[data-testid="plan-project"][data-project-id="${ID_B}"]`)).toHaveAttribute("data-collapsed", "true");
-    const tileA = plan.locator(`[data-testid="plan-project"][data-project-id="${ID_A}"]`);
+    await expect(plan.locator(`[data-testid="board-lane"][data-project-id="${ID_B}"]`)).toHaveAttribute("data-collapsed", "true");
+    const tileA = plan.locator(`[data-testid="board-lane"][data-project-id="${ID_A}"]`);
     await expect(tileA).not.toHaveAttribute("data-collapsed", "true");
     const planCard = tileA.locator(`[data-task-card="${live}"]`);
     await expect(planCard).toHaveAttribute("data-density", "compact");
     await expect(planCard.getByTestId("card-open-session")).toBeVisible();
-    // Every root card in the Plan carries its status sign: no column says it there.
-    const planRows = tileA.locator('[data-testid="plan-card"][data-board-card]');
-    await expect(planRows).toHaveCount(2);
-    for (const row of await planRows.all()) await expect(row.locator(":scope > svg")).toHaveCount(1);
+    // The cards view has no status columns: just the project's two cards, one grid.
+    await expect(tileA.getByTestId("board-cards-grid").locator("[data-task-card]")).toHaveCount(2);
+    await expect(tileA.getByTestId("kanban-column-todo")).toHaveCount(0);
     // Same order as the lanes, for the two projects of this test.
-    const tileOrder = await plan.getByTestId("plan-project").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
+    const tileOrder = await plan.getByTestId("board-lane").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
     const pick = (ids: (string | null)[]) => ids.filter((id) => id === ID_A || id === ID_B);
     expect(pick(tileOrder)).toEqual(pick(laneOrder));
     // «zeta» waits for a person (the review card): it leads in both, though «alfa» comes first by name.
@@ -255,14 +254,13 @@ test.describe("Board per progetto e card compatte", () => {
     await expect(laneC.getByTestId("board-lane-header")).not.toContainText("e2e-lane-gamma");
     const laneOrder = await page.getByTestId("board-lane").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
 
-    await page.getByTestId("board-detail-slider").focus();
-    await page.keyboard.press("End");
+    await page.getByTestId("board-view-plan").click();
     const plan = page.getByTestId("plan-view");
-    const tileC = plan.locator(`[data-testid="plan-project"][data-project-id="${ID_C}"]`);
+    const tileC = plan.locator(`[data-testid="board-lane"][data-project-id="${ID_C}"]`);
     await expect(tileC).toBeVisible({ timeout: 15000 });
     await expect(tileC).toContainText(NAME_C);
     await expect(tileC).not.toContainText("e2e-lane-gamma");
-    const tileOrder = await plan.getByTestId("plan-project").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
+    const tileOrder = await plan.getByTestId("board-lane").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
 
     // The waiting project first, then by name: renamed before alfa. By folder it would be alfa, gamma.
     const among = [ID_A, ID_B, ID_C];
@@ -282,13 +280,12 @@ test.describe("Board per progetto e card compatte", () => {
     await expect(laneE.getByTestId("board-lane-header")).toContainText(NAME_E);
     const laneOrder = await page.getByTestId("board-lane").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
 
-    await page.getByTestId("board-detail-slider").focus();
-    await page.keyboard.press("End");
+    await page.getByTestId("board-view-plan").click();
     const plan = page.getByTestId("plan-view");
-    const tileE = plan.locator(`[data-testid="plan-project"][data-project-id="${ID_E}"]`);
+    const tileE = plan.locator(`[data-testid="board-lane"][data-project-id="${ID_E}"]`);
     await expect(tileE).toBeVisible({ timeout: 15000 });
-    await expect(tileE.getByRole("heading")).toHaveText(NAME_E);
-    const tileOrder = await plan.getByTestId("plan-project").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
+    await expect(tileE.getByTestId("board-lane-header")).toContainText(NAME_E);
+    const tileOrder = await plan.getByTestId("board-lane").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
     const among = [ID_A, ID_B, ID_C, ID_E];
     expect(orderOf(laneOrder, among)).toEqual([ID_B, ID_C, ID_E, ID_A]);
     expect(orderOf(tileOrder, among)).toEqual(orderOf(laneOrder, among));
@@ -349,8 +346,7 @@ test.describe("Board per progetto e card compatte", () => {
     expect(posted.status(), await posted.text()).toBe(201);
 
     await freshGrouped(page, null);
-    await page.getByTestId("board-detail-slider").focus();
-    await page.keyboard.press("End");
+    await page.getByTestId("board-view-plan").click();
     const card = page.getByTestId("plan-view").locator(`[data-task-card="${asked}"]`);
     await expect(card).toHaveAttribute("data-density", "compact");
     const question = card.getByTestId("card-compact-question");
@@ -372,8 +368,7 @@ test.describe("Board per progetto e card compatte", () => {
     expect(posted.status(), await posted.text()).toBe(201);
 
     await freshGrouped(page, null);
-    await page.getByTestId("board-detail-slider").focus();
-    await page.keyboard.press("End");
+    await page.getByTestId("board-view-plan").click();
     const card = page.getByTestId("plan-view").locator(`[data-task-card="${asked}"]`);
     await expect(card).toHaveAttribute("data-density", "compact");
     // The sentence is there; the reply that would duplicate the card's own choice is not.
@@ -458,17 +453,14 @@ test.describe("Board per progetto e card compatte", () => {
     await freshGrouped(page, null);
     await page.getByTestId("board-quick-me").click();
     await expect(page.getByTestId("board-quick-me")).toHaveAttribute("aria-pressed", "true");
-    const slider = page.getByTestId("board-detail-slider");
-    await slider.focus();
-    // Kanban (grid), then list, then Plan: the same two cards, the same filter.
-    await page.keyboard.press("End");
-    await page.keyboard.press("ArrowLeft");
+    // Kanban (grid), then list, then cards: the same two cards, the same filter.
+    await page.getByTestId("board-view-grid").click();
     await expect(page.locator(`[data-task-card="${asked}"]`).first()).toBeVisible();
     await expect(page.locator(`[data-task-card="${quiet}"]`)).toHaveCount(0);
-    await page.keyboard.press("ArrowLeft");
+    await page.getByTestId("board-view-list").click();
     await expect(page.locator(`[data-task-card="${asked}"]`).first()).toBeVisible();
     await expect(page.locator(`[data-task-card="${quiet}"]`)).toHaveCount(0);
-    await page.keyboard.press("End");
+    await page.getByTestId("board-view-plan").click();
     const plan = page.getByTestId("plan-view");
     await expect(plan.locator(`[data-task-card="${asked}"]`)).toBeVisible({ timeout: 15000 });
     await expect(plan.locator(`[data-task-card="${quiet}"]`)).toHaveCount(0);

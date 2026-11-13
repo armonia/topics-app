@@ -1,50 +1,21 @@
+import { readStoredForBoard } from './boardGeometry';
+
 /**
- * The board's DETAIL LEVELS, from the least detailed (projects with counts)
- * to the most detailed (the kanban), then the Plan: the same cards laid out by milestone. Pure helpers, shared by the slider and
- * the pane so the stored preference and the arrow keys agree on the order.
+ * The board's VIEWS, in the order the selector shows them: the kanban (`grid`,
+ * a column per status), the list, and the cards (`plan`: grouped cards, no
+ * status columns). One selector, three entries; the stored key predates it, so
+ * 'list' and 'grid' still read back.
  */
-export const DETAIL_LEVELS = ['summary', 'list', 'grid', 'plan'] as const;
+export const DETAIL_LEVELS = ['grid', 'list', 'plan'] as const;
 export type DetailLevel = (typeof DETAIL_LEVELS)[number];
 
-/** Where the preference is kept; the key predates the summary level, so 'list' and 'grid' still read back. */
+/** Where the preference is kept (per board, see `boardStorageKey`). */
 export const DETAIL_STORAGE_KEY = 'topics.board.layout';
 
 export function parseDetailLevel(raw: string | null): DetailLevel {
-  return raw === 'summary' || raw === 'list' || raw === 'plan' ? raw : 'grid';
+  return raw === 'list' || raw === 'plan' ? raw : 'grid';
 }
 
-export function readDetailLevel(): DetailLevel {
-  try { return parseDetailLevel(localStorage.getItem(DETAIL_STORAGE_KEY)); }
-  catch { return 'grid'; }
-}
-
-/** A step along the scale, clamped at both ends. */
-export function stepDetail(level: DetailLevel, delta: number, levels: readonly DetailLevel[] = DETAIL_LEVELS): DetailLevel {
-  const i = levels.indexOf(level) + delta;
-  return levels[Math.min(levels.length - 1, Math.max(0, i))];
-}
-
-/** The level nearest to a pointer position, as a 0..1 fraction of the track. */
-export function detailAtFraction(fraction: number, levels: readonly DetailLevel[] = DETAIL_LEVELS): DetailLevel {
-  const i = Math.round(Math.min(1, Math.max(0, fraction)) * (levels.length - 1));
-  return levels[i];
-}
-
-export interface ProjectCount { projectId: string; label: string; total: number; perColumn: number[] }
-
-/** Tasks grouped by project, one count per column, busiest project first. */
-export function countByProject(columns: ReadonlyArray<ReadonlyArray<{ projectId: string }>>): ProjectCount[] {
-  const out = new Map<string, ProjectCount>();
-  columns.forEach((tasks, col) => {
-    for (const t of tasks) {
-      let row = out.get(t.projectId);
-      if (!row) {
-        row = { projectId: t.projectId, label: t.projectId.replace(/-[^-]+$/, ''), total: 0, perColumn: columns.map(() => 0) };
-        out.set(t.projectId, row);
-      }
-      row.total += 1;
-      row.perColumn[col] += 1;
-    }
-  });
-  return [...out.values()].sort((a, b) => b.total - a.total || a.label.localeCompare(b.label));
+export function readDetailLevel(boardId = 'all'): DetailLevel {
+  return parseDetailLevel(readStoredForBoard(DETAIL_STORAGE_KEY, boardId));
 }

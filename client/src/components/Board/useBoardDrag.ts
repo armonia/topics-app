@@ -10,6 +10,7 @@ import { groupByStatus, planDrop, type DropPlan, type OrderScope } from '../../l
 import { resolveProjectRefs, type useBoardProjectLabels } from '../../lib/boardProjectsStore';
 import type { useBoardFeed } from '../../hooks/useBoardFeed';
 import { columnIdOfDropTarget, dropsOnOtherProject } from './boardLanes';
+import { projectOfPath, type GroupKey } from './boardGrouping';
 import { PRIORITY_LABEL } from './constants';
 import { taskActionErrorMessage } from './taskActionError';
 import type { useBoardMotion } from './useBoardMotion';
@@ -37,7 +38,8 @@ interface BoardDragArgs {
   tasks: readonly BoardTask[];
   byStatus: Parameters<typeof planDrop>[0]['byStatus'];
   boardColumns: Parameters<typeof columnOfTask>[0];
-  grouped: boolean;
+  /** The grouping levels in force: a drop across projects is refused when one of them is the project. */
+  groupLevels: readonly GroupKey[];
   orderScope: OrderScope;
   setActiveId: (id: string | null) => void;
   setDropNotice: (notice: string | null) => void;
@@ -55,7 +57,7 @@ interface BoardDragArgs {
 /** The drag-and-drop wiring of the board: sensors, the two dnd-kit handlers and
  *  the optimistic write a drop turns into. */
 export function useBoardDrag({
-  tasks, byStatus, boardColumns, grouped, orderScope, setActiveId, setDropNotice, setPendingWrites,
+  tasks, byStatus, boardColumns, groupLevels, orderScope, setActiveId, setDropNotice, setPendingWrites,
   onCardError, patchTask, refetch, beginDrag, endDrag, flushDeferredRead, holdColumnsSnap, skipFlight,
 }: BoardDragArgs) {
   const tr = useT();
@@ -169,7 +171,7 @@ export function useBoardDrag({
     // the column's base; the column itself travels as `stage`.
     // A card keeps its project: a drop in another project's lane is refused with
     // a word, not carried out as a status change in a project nobody aimed at.
-    if (grouped && dropsOnOtherProject(task, e.over ? String(e.over.id) : null, (id) => tasks.find((t) => t.id === id)?.projectId)) {
+    if (groupLevels.includes('project') && dropsOnOtherProject(task, e.over ? String(e.over.id) : null, (id) => tasks.find((t) => t.id === id)?.projectId, (path) => projectOfPath(path, groupLevels))) {
       setDropNotice(tr('board.drop.otherProject'));
       flushDeferredRead();
       return;
@@ -209,7 +211,7 @@ export function useBoardDrag({
     // No plan = no write to wait for: the parked read has nothing left to
     // queue behind.
     if (plan) dropTo(task, plan); else flushDeferredRead();
-  }, [tasks, byStatus, boardColumns, dropTo, endDrag, flushDeferredRead, grouped, orderScope, setActiveId, setDropNotice, skipFlight, tr]);
+  }, [tasks, byStatus, boardColumns, dropTo, endDrag, flushDeferredRead, groupLevels, orderScope, setActiveId, setDropNotice, skipFlight, tr]);
   return { sensors, onDragStart, onDragEnd };
 }
 
