@@ -6363,6 +6363,8 @@ const resumeCtx: CtxRipresa = {
   getTopicBySessionKey: (sk) => ctx.getTopicBySessionKey(sk),
   defaultProvider: getDefaultProviderName,
   isStreaming: (sk) => ctx.isStreaming(sk),
+  // The resend carries `ripresa`, so the route's gate ignores the boot hold too.
+  turnOpen: (sk) => turnLedger.isOpen(sk, { ignore: ["boot"] }),
   providerBusy: sessionHasPendingSend,
   bootedAtMs: SERVER_STARTED_AT,
   broadcast: (msg) => ctx.broadcastToAll(msg),
