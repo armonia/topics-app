@@ -18,11 +18,20 @@
 # A booking whose run is over (cancelled before `release`, a dead job) is dropped by the
 # next `reserve`, so a runner is never held by a run that no longer exists.
 #
+# Slots: the node serves at most PERMANENT_MAX_RUNS runs at once (default 2). Each run
+# is held to its share of the pool (pool size / max runs, rounded up), so two runs fit
+# side by side and neither starves the other; a third finds both slots taken and its
+# shards go to GitHub as before. The slot is the booking itself: it is released with the
+# run's label, by `release`, by the next `reserve` or by the sweeper, so a cancelled run
+# cannot hold one. Isolation of the two runs (ports, HOME, /tmp, cgroup) is per runner,
+# see deploy/permanent-node/ci-runners.sh.
+#
 # Needs GH_TOKEN (repository admin, to edit runner labels) and GITHUB_REPOSITORY.
 set -uo pipefail
 
 PREFIX=pn-
 SETTLE_S=${PERMANENT_SETTLE_S:-4}
+MAX_RUNS=${PERMANENT_MAX_RUNS:-2}
 
 gh_api() {  # <method> <path> [json body]: the GitHub REST API, overridden by the test
   local m=$1 p=$2
@@ -53,12 +62,30 @@ drop_stale() {  # bookings of runs that are over
     done
 }
 
+busy_slots() {  # <runners json> <pool> <my label>: runs other than mine holding a runner of the pool
+  jq -r --arg pool "$2" --arg p "$PREFIX" --arg mine "$3" '
+    [.runners[] | select(any(.labels[]; .name == $pool)) | .labels[].name
+      | select(startswith($p) and . != $mine and (endswith("-prep") | not)) | ltrimstr($p) | split("-")[0]]
+    | unique | length' <<<"$1"
+}
+
+pool_size() {  # <runners json> <pool>: runners of ours in the pool, whatever their state
+  jq -r --arg pool "$2" '[.runners[] | select((.name | startswith("topics-permanent-node-")) and any(.labels[]; .name == $pool))] | length' <<<"$1"
+}
+
 reserve() {
   local pool=$1 want=$2 mine=$3 all ids kept=0 id
   [[ $want =~ ^[0-9]+$ ]] && [ "$want" -gt 0 ] || { echo 0; return 0; }
   all=$(runners) || { echo 0; return 0; }
   drop_stale "$all"
   all=$(runners) || { echo 0; return 0; }
+  # The shard pool is split between runs; the prep pool has one runner and needs no cap.
+  if [ "$pool" != permanent-prep ]; then
+    local size quota
+    [ "$(busy_slots "$all" "$pool" "$mine")" -lt "$MAX_RUNS" ] || { echo 0; return 0; }
+    size=$(pool_size "$all" "$pool"); quota=$(( (size + MAX_RUNS - 1) / MAX_RUNS ))
+    [ "$want" -le "$quota" ] || want=$quota
+  fi
   # Free = online, idle, one of ours by name (a runner registered by anybody else with
 # the same label is never booked), in the pool, booked by nobody.
   ids=$(jq -r --arg pool "$pool" --arg p "$PREFIX" --argjson n "$want" '
