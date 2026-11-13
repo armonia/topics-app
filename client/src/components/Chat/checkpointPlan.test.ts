@@ -169,7 +169,7 @@ describe('what a failed /rewind says', () => {
   });
 
   test('ChatPane decides with it, not with «the chat has no projectPath»', () => {
-    const src = readFileSync(join(import.meta.dir, 'ChatPane.tsx'), 'utf8');
+    const src = readFileSync(join(import.meta.dir, 'ChatPane.tsx'), 'utf8') + readFileSync(join(import.meta.dir, 'chatSlashCommands.ts'), 'utf8');
     expect(src).toContain('rewindFailureText({');
     expect(src).not.toMatch(/!topic\.projectPath\s*\?\s*tr\('chat\.rewind\.noProject'\)/);
   });

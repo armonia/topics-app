@@ -347,4 +347,71 @@ describe("the automatic turn checkpoints", () => {
     expect(read("a.txt")).toBe("a before\n");
     expect(read("b.txt")).toBe("b by hand\n");
   });
+
+  test("an empty commit string is refused with 400, not treated as 'no commit requested'", async () => {
+    await captureTurnCheckpoint(repo, SESSION, "before", "before");
+    write("a.txt", "a by the turn\n");
+    await closeTurn();
+
+    const r = await call("POST", `/api/topics/${TOPIC}/turn-checkpoints/restore`, { commit: "" });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe("commit must be a non-empty string");
+    // Pre-fix this restored the newest point with 200 — unchanged files prove it did not.
+    expect(read("a.txt")).toBe("a by the turn\n");
+
+    const plan = await call("POST", `/api/topics/${TOPIC}/turn-checkpoints/plan`, { commit: "" });
+    expect(plan.status).toBe(400);
+    expect(plan.body.error).toBe("commit must be a non-empty string");
+  });
+
+  test("a `null` JSON body is refused with 400, not a 500", async () => {
+    await captureTurnCheckpoint(repo, SESSION, "before", "before");
+    const r = await call("POST", `/api/topics/${TOPIC}/turn-checkpoints/restore`, null);
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe("body must be a JSON object");
+  });
+
+  test("a non-object JSON body (array) is refused with 400", async () => {
+    await captureTurnCheckpoint(repo, SESSION, "before", "before");
+    const r = await call("POST", `/api/topics/${TOPIC}/turn-checkpoints/restore`, []);
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe("body must be a JSON object");
+  });
+
+  test("a body that fails to parse as JSON is refused with 400", async () => {
+    await captureTurnCheckpoint(repo, SESSION, "before", "before");
+    const req = new Request(`http://x/api/topics/${TOPIC}/turn-checkpoints/restore`, {
+      method: "POST", body: "{not json", headers: { "content-type": "application/json" },
+    });
+    const res = await router(req, new URL(req.url), `/api/topics/${TOPIC}/turn-checkpoints/restore`, "POST");
+    expect(res?.status).toBe(400);
+    expect((await res!.json()).error).toBe("invalid JSON body");
+  });
+
+  test("no body at all still falls back to the newest restore point (unchanged behavior)", async () => {
+    const before = await captureTurnCheckpoint(repo, SESSION, "before", "before");
+    write("a.txt", "a by the turn\n");
+    await closeTurn();
+
+    const r = await call("POST", `/api/topics/${TOPIC}/turn-checkpoints/restore`);
+    expect(r.status).toBe(200);
+    expect(r.body.checkpoint.commit).toBe(before!.commit);
+    expect(read("a.txt")).toBe("a before\n");
+  });
+
+  test("a valid commit picks that exact point, not just the newest", async () => {
+    const older = await captureTurnCheckpoint(repo, SESSION, "older", "before");
+    write("a.txt", "a after older\n");
+    await closeTurn();
+    write("b.txt", "b after older\n");
+    const newer = await captureTurnCheckpoint(repo, SESSION, "newer", "before");
+    write("b.txt", "b after newer\n");
+    await closeTurn();
+
+    const r = await call("POST", `/api/topics/${TOPIC}/turn-checkpoints/restore`, { commit: older!.commit });
+    expect(r.status).toBe(200);
+    expect(r.body.checkpoint.commit).toBe(older!.commit);
+    expect(r.body.checkpoint.commit).not.toBe(newer!.commit);
+    expect(read("a.txt")).toBe("a before\n");
+  });
 });
