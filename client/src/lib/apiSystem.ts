@@ -351,6 +351,19 @@ export const calendarApi = {
 // data type from the same module it imports the call from. Declaring them again
 // on this side is the mirror `tests/unit/no-type-mirrors.test.ts` refuses.
 // ─────────────────────────────────────────────────────────────────────────────
+export type { AgentToolsInventory } from '../../../shared/agent-tools';
+import type { AgentToolsInventory } from '../../../shared/agent-tools';
+
+export const agentToolsApi = {
+  async inventory(signal?: AbortSignal): Promise<AgentToolsInventory> {
+    return request<AgentToolsInventory>('/agent-tools', { signal });
+  },
+  /** Park (`park`) or mount (`mount`) one MCP server, or set the extra sources. */
+  async configure(change: { park?: string; mount?: string; extraMcpFiles?: string[]; extraSkillDirs?: string[] }): Promise<void> {
+    await request<unknown>('/agent-tools/settings', { method: 'POST', body: JSON.stringify(change) });
+  },
+};
+
 export type { McpFleetStatus, McpServerStatus } from '../../../shared/session-environment';
 export const mcpApi = {
   /**

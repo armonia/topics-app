@@ -28,7 +28,7 @@ import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { parseReviewChecks, serializeReviewChecks, type CheckRun } from "./review-checks";
-import { listLandingAuditCandidates } from "./landing-candidates";
+import { listLandingAuditCandidates, type LandingAuditCandidate } from "./landing-candidates";
 import { imageShape } from "./image-shape";
 import { renderDeliverySheet } from "./delivery-sheet";
 import { isAutoCapturedPreview, isDeliverySheetPath } from "../../shared/media-kind";
@@ -266,6 +266,9 @@ const VALID_DISPATCH_MCP = new Set(["bridge-only", "inherit"]);
  * `checksState` per decidere se il conduttore puo' chiudere da solo, e
  * senza azzeramento decide su dati di una consegna che non esiste piu'.
  */
+/** Consecutive same-tip redeliveries sent back to todo before the card goes to review flagged. */
+const SAME_TIP_BOUNCE_CAP = 2;
+
 const DELIVERY_SNAPSHOT_COLUMNS = [
   "delivery_branch",
   "delivery_commit",
@@ -611,6 +614,8 @@ export interface TaskService {
      * question, or its buttons vanish. System questions stay loud elsewhere.
      */
     quietReason?: boolean;
+    /** The commit this turn hands in, when the caller knows it (node lane). Same as the one sent back + no summary = no review. */
+    deliveredTip?: string | null;
     /**
      * How many files the worktree changed WITHOUT committing them, counted now.
      * `undefined`/`null` = nobody could measure it, which the sheet reads
@@ -974,6 +979,10 @@ export interface TaskService {
   deferForWait(args: { taskId: string; reason: string; minutes?: number; by?: string; source?: "agent" | "machine" }): Task;
   /** Overwrite the topic binding of a claimed task (dispatcher: placeholder → real topic). */
   bindTopic(args: { taskId: string; topicId: string; freshSession?: boolean }): Task;
+  /** The run this card last created on a paired node (persisted, survives a restart), or null. */
+  nodeRunOf(taskId: string): string | null;
+  /** Remember (or forget, with null) the card's run on a paired node. */
+  setNodeRun(taskId: string, runId: string | null): void;
   /** Update just the dispatch state/error (queued|starting|working|needs_input). */
   setDispatchState(args: { taskId: string; state: string | null; error?: string | null }): Task;
   /** Persist the model actually resolved for a run (auto-pick → concrete id) so
@@ -1125,7 +1134,7 @@ export interface TaskService {
    * esattamente il modo in cui `landing_state` è finito a dire `unlanded` su
    * card dimostrabilmente dentro main.
    */
-  listLandingAuditCandidates(): Array<{ id: string; projectId: string; deliveryBranch: string | null; deliveryCommit: string | null }>;
+  listLandingAuditCandidates(): LandingAuditCandidate[];
   /**
    * Persist a landing verdict. `witnessed` = lo scrive chi il land l'ha VISTO
    * (merge uscito zero, o fallito), non chi lo deduce dopo: quel verdetto
@@ -2725,6 +2734,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       ...(r.overflowed_at && r.machine_id ? { overflowedAt: r.overflowed_at } : {}),
       ...(r.base_branch ? { baseBranch: r.base_branch } : {}),
       ...(r.prior_branch ? { priorBranch: r.prior_branch } : {}),
+      ...(r.past_delivery_branches ? { pastDeliveryBranches: String(r.past_delivery_branches).split(/\s+/).filter(Boolean) } : {}),
       ...(r.prior_uncommitted_files ? { priorUncommittedFiles: r.prior_uncommitted_files } : {}),
       // WHO opened it; NULL for every card written before the column.
       createdBy: r.created_by ?? null,
@@ -4556,6 +4566,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // machine, starts FROM it (df5fd8c5 restarted from main without it).
           // A branch already on main is no base: main itself is newer.
           if (row.delivery_branch) put("prior_branch", branchStillAhead(row) ? row.delivery_branch : null);
+          // The tip that was sent back: a resumed turn handing in this same commit did no work.
+          if (row.delivery_commit) put("prior_commit", row.delivery_commit);
+          if (row.delivery_branch) put("past_delivery_branches", `${row.past_delivery_branches ?? ""} ${row.delivery_branch}`.trim());
           // The uncommitted files outlive their count too: they are still in
           // this machine's worktree, and the overflow must not leave them behind.
           if (row.delivery_uncommitted_files != null) put("prior_uncommitted_files", row.delivery_uncommitted_files || null);
@@ -5091,6 +5104,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             // Read before the snapshot is cleared (SQLite evaluates SET on the old row).
             "prior_branch = CASE WHEN delivery_branch IS NULL THEN prior_branch " +
             "WHEN landing_state IN ('landed', 'superseded') THEN NULL ELSE delivery_branch END, " +
+            "prior_commit = COALESCE(delivery_commit, prior_commit), " +
+            "past_delivery_branches = CASE WHEN delivery_branch IS NULL THEN past_delivery_branches " +
+            "ELSE TRIM(COALESCE(past_delivery_branches, '') || ' ' || delivery_branch) END, " +
             "prior_uncommitted_files = CASE WHEN delivery_uncommitted_files IS NULL THEN prior_uncommitted_files " +
             "ELSE NULLIF(delivery_uncommitted_files, 0) END, " +
             DELIVERY_SNAPSHOT_COLUMNS.map((c) => `${c} = NULL`).join(", ") + ", " +
@@ -5678,10 +5694,46 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    deliverToReviewBySystem({ taskId, reason, cause, nextMove, uncommittedFiles, messageId, quietReason }): Task {
+    deliverToReviewBySystem({ taskId, reason, cause, nextMove, uncommittedFiles, messageId, quietReason, deliveredTip }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       const ts = now();
+      // SAME TIP AS THE ONE SENT BACK, NO WORD FROM THE AGENT: a resumed turn
+      // that hands in the commit that was just rejected did no work, and
+      // review would open a full CI run on it (13/11, same commit three times).
+      // First time: back to todo with the reason. Second: review, flagged, so a
+      // person decides instead of the loop going on.
+      const sameTip = !!deliveredTip && !!row.prior_commit && deliveredTip === row.prior_commit
+        && !hasFreshAgentComment(taskId);
+      if (sameTip) {
+        const bounces = Number(row.same_tip_bounces ?? 0) + 1;
+        if (bounces < SAME_TIP_BOUNCE_CAP) {
+          db.prepare(
+            `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
+                status = 'todo', dispatch_state = NULL, dispatch_error = NULL,
+                wait_streak = 0, wait_reason = NULL, wait_since = NULL,
+                dispatch_deferred_until = NULL, same_tip_bounces = ?, updated_at = ? WHERE id = ?`,
+          ).run(bounces, ts, taskId);
+          if (row.status !== "todo") logStatus(taskId, row.status, "todo", "dispatcher");
+          markReopened(taskId, row.status, "todo", "system", "dispatcher");
+          try {
+            this.addComment({
+              taskId, author: "system", kind: "service", messageId: messageId ?? null,
+              content: "Il turno ha riconsegnato lo stesso commit di prima, senza commit nuovi e senza resoconto: non apro la review. Torna in lavorazione: leggi il motivo del rimando, fai le modifiche e commenta cosa hai cambiato.",
+            });
+          } catch { /* best-effort */ }
+          return rowToTask(getTaskRow(taskId));
+        }
+        db.prepare("UPDATE tasks SET same_tip_bounces = 0 WHERE id = ?").run(taskId);
+        try {
+          this.addComment({
+            taskId, author: "system", kind: "comment",
+            content: "Nessun lavoro fatto: anche il secondo turno ha riconsegnato lo stesso commit rimandato, senza resoconto.",
+          });
+        } catch { /* best-effort */ }
+      } else if (Number(row.same_tip_bounces ?? 0) > 0) {
+        db.prepare("UPDATE tasks SET same_tip_bounces = 0 WHERE id = ?").run(taskId);
+      }
       // LA RIGA SI SCRIVE DOPO LE GUARDIE, non prima. Stava in cima perché così
       // era «l'ultima parola sulla card» — ragione caduta con `ad1516aca`, che
       // garantisce il trasporto dell'ultima parola vera quale che sia la sua
@@ -6615,6 +6667,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         "UPDATE tasks SET agent_tokens = MAX(COALESCE(agent_tokens, 0), ?), agent_cache_read_tokens = MAX(COALESCE(agent_cache_read_tokens, 0), ?), updated_at = ? WHERE id = ?",
       ).run(tok, cr, now(), taskId);
       return rowToTask(getTaskRow(taskId));
+    },
+
+    nodeRunOf(taskId) {
+      const row = db.prepare("SELECT node_run_id FROM tasks WHERE id = ?").get(taskId) as { node_run_id: string | null } | null;
+      return row?.node_run_id ?? null;
+    },
+
+    setNodeRun(taskId, runId) {
+      db.prepare("UPDATE tasks SET node_run_id = ? WHERE id = ?").run(runId, taskId);
     },
 
     setDispatchState({ taskId, state, error }): Task {

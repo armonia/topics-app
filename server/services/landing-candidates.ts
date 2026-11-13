@@ -32,6 +32,8 @@ export interface LandingAuditCandidate {
   projectId: string;
   deliveryBranch: string | null;
   deliveryCommit: string | null;
+  /** The column, so the pass can tell debt (done) from work awaiting review. */
+  status: string;
 }
 
 interface CandidateRow {
@@ -39,11 +41,12 @@ interface CandidateRow {
   project_id: string;
   delivery_branch: string | null;
   delivery_commit: string | null;
+  status: string;
 }
 
 export function listLandingAuditCandidates(db: Database, nowIso: string): LandingAuditCandidate[] {
   return db.prepare<CandidateRow, [string]>(
-    `SELECT id, project_id, delivery_branch, delivery_commit
+    `SELECT id, project_id, delivery_branch, delivery_commit, status
        FROM tasks
       WHERE archived = 0
         -- A BRANCH IS A DELIVERY, no less than a commit is. debtVerdict
@@ -95,5 +98,6 @@ export function listLandingAuditCandidates(db: Database, nowIso: string): Landin
     projectId: r.project_id,
     deliveryBranch: r.delivery_branch ?? null,
     deliveryCommit: r.delivery_commit ?? null,
+    status: r.status,
   }));
 }

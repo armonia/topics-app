@@ -76,7 +76,6 @@
       "multi"
     ],
     "client/src/components/Board/TaskDetail.tsx": [
-      "editCancelled",
       "escGuardRef",
       "openProjMenu",
       "prioBtnRef",
@@ -360,7 +359,6 @@
       "obs"
     ],
     "client/src/components/Editor/FilePane.tsx": [
-      "cancelled",
       "filename",
       "handleBreadcrumbOpen",
       "obs"
@@ -460,7 +458,6 @@
       "RipresoBanner",
       "WokenBanner",
       "approxK",
-      "cancelled",
       "hljsReady",
       "resto",
       "ripreso",
@@ -470,14 +467,8 @@
       "adesso",
       "origine"
     ],
-    "client/src/components/Modals/NewTopicModal.tsx": [
-      "cancelled"
-    ],
     "client/src/components/Modals/TopicSettingsModal.test.tsx": [
       "reso"
-    ],
-    "client/src/components/Modals/TopicSettingsModal.tsx": [
-      "cancelled"
     ],
     "client/src/components/Profile/ProfilePane.tsx": [
       "chiesta"
@@ -647,7 +638,6 @@
       "togli"
     ],
     "client/src/components/Shared/CommandPalette.tsx": [
-      "cancelled",
       "descBits",
       "projLabel"
     ],
@@ -877,7 +867,6 @@
     ],
     "client/src/components/Terminal/SingleTerminalPane.tsx": [
       "buf",
-      "cancelled",
       "fitAddon",
       "obs",
       "raf",
@@ -998,11 +987,7 @@
       "SRV_U2"
     ],
     "client/src/hooks/useClaudeSessionState.ts": [
-      "cancelled",
       "flushRafRef"
-    ],
-    "client/src/hooks/useCostProbe.ts": [
-      "cancelled"
     ],
     "client/src/hooks/useDetectedScripts.ts": [
       "VUOTO",
@@ -1087,9 +1072,6 @@
       "unsubscribe",
       "urlBase64ToUint8Array"
     ],
-    "client/src/hooks/useRealContext.ts": [
-      "cancelled"
-    ],
     "client/src/hooks/useRemoteBrowser.ts": [
       "MAX_DSF",
       "WEBRTC_CONNECT_TIMEOUT_MS",
@@ -1098,7 +1080,6 @@
       "WEBRTC_NO_ANSWER_TIMEOUT_MS",
       "WEBRTC_RETRY_DELAY_MS",
       "armWebrtcWatchdog",
-      "cancelled",
       "coords",
       "dsf",
       "dsfRef",
@@ -1195,7 +1176,6 @@
       "ttsAudioRef"
     ],
     "client/src/hooks/useTauriBrowser.ts": [
-      "cancelled",
       "fwd"
     ],
     "client/src/hooks/useWaitedProcess.test.ts": [
@@ -1857,8 +1837,7 @@
       "dopo"
     ],
     "client/src/state/useSignalsSync.ts": [
-      "byCsid",
-      "cancelled"
+      "byCsid"
     ],
     "client/src/state/workLongevity.test.ts": [
       "ferma",
@@ -2730,7 +2709,6 @@
       "CARTELLI_RIPRENDIBILI",
       "CAUSE_NOSTRE",
       "avvisoPerTurno",
-      "cancelledNotice",
       "eCartelloDiInterruzione",
       "perche"
     ],
@@ -3689,7 +3667,6 @@
     ],
     "server/providers/stop-reason.ts": [
       "ACP_STOP_REASONS",
-      "cancelled",
       "isAcpStopReason"
     ],
     "server/providers/types.ts": [

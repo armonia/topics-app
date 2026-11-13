@@ -3303,6 +3303,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           : []),
         "- Comments SHORT and useful: 1-2 sentences at the milestones (what is done / what is blocking). Never logs, diffs or code dumps in the thread (the server rejects long comments).",
         GENERIC_PRODUCT_RULE,
+        "- On macOS use `sed -i ''`, never `sed -i -e`: BSD sed reads `-e` as the backup suffix and leaves a `<file>-e` copy that lands in the delivery.",
         "- Lean context (keep the turns light): Grep to find, then Read in slices (offset/limit) on files over ~400 lines — never read whole files 'to be safe'.",
         `- ${longCommandsRule()}`,
         // Il coordinatore. Sta QUI, subito dopo la riga sul contesto snello,
