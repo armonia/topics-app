@@ -54,9 +54,9 @@ export function resolveAdoptedCheckout(cwd: string, fs: CheckoutFs): AdoptedChec
   const adminDir = resolve(cwd, m[1]!);
   // `<repo>/.git/worktrees/<name>`: a submodule's `.git` file points at
   // `<repo>/.git/modules/<name>`, which is not a worktree and has no commondir.
-  const commondir = fs.readFile(resolve(adminDir, "commondir"));
-  if (commondir === null) return plain;
-  const common = commondir.trim();
+  const commonFile = fs.readFile(resolve(adminDir, "commondir"));
+  if (commonFile === null) return plain;
+  const common = commonFile.trim();
   if (!common) return plain;
   const sharedGit = isAbsolute(common) ? resolve(common) : resolve(adminDir, common);
   const projectDir = dirname(sharedGit);

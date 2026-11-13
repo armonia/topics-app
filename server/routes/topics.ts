@@ -721,7 +721,7 @@ export function createTopicsRouter(
     const project = projectStore.getByPath(projectDir)
       ?? projectStore.list().find((p) => canonicalProjectPath(p.path) === projectDir)
       ?? null;
-    if (!project) return { error: `no Topics project at ${projectDir}: open it once, then adopt again` };
+    if (!project) return { error: `no Topics project at ${projectDir}` };
     const existing = worktreeStore.getByAbsPath(absPath);
     if (existing) {
       if (existing.projectId !== project.id) return { error: `worktree ${absPath} already belongs to another project` };
@@ -1613,12 +1613,22 @@ export function createTopicsRouter(
           readFile: (p) => { try { return statSync(p).isFile() ? readFileSync(p, "utf-8") : null; } catch { return null; } },
           isDir: (p) => isExistingDir(p),
         });
-        const projectDir = resolveProjectRef(checkout.projectDir, { trustRawPaths: true });
+        let projectDir = resolveProjectRef(checkout.projectDir, { trustRawPaths: true });
         let worktreeId: string | null = null;
+        let worktreePath: string | null = null;
         if (projectDir && checkout.worktreeDir) {
           const reg = registerAdoptedWorktree(projectDir, checkout.worktreeDir, checkout.worktreeName, facts.branch);
-          if ("error" in reg) return json({ error: reg.error }, 409);
-          worktreeId = reg.id;
+          if ("error" in reg) {
+            // The repository is not a Topics project (or the folder is another
+            // project's): adopt as before this rule, the worktree folder as the
+            // project, so the CLI still runs where it ran. Refusing here broke
+            // an adoption that used to work.
+            console.warn(`[adopt-claude] ${reg.error}: the worktree folder becomes the project`);
+            projectDir = resolveProjectRef(checkout.worktreeDir, { trustRawPaths: true });
+          } else {
+            worktreeId = reg.id;
+            worktreePath = checkout.worktreeDir;
+          }
         }
         const id = crypto.randomUUID();
         const sessionKey = "topic:" + id.slice(0, 8);
@@ -1682,7 +1692,7 @@ export function createTopicsRouter(
 
         broadcastToAll({ type: "topic:created", topic });
         if (projectDir) bindTopicToProject(topic.id, projectDir, { focus: true });
-        return json({ ...topic, importedMessages: messages.length, worktreePath: checkout.worktreeDir }, 201);
+        return json({ ...topic, importedMessages: messages.length, worktreePath }, 201);
       } catch (err: any) {
         console.warn("[adopt-claude] failed:", err);
         return json({ error: `adopt failed: ${err?.message || String(err)}` }, 500);

@@ -56,6 +56,11 @@ describe("worktree-manager.del(): la cartella prima della riga", () => {
     git(repo, "add", "-A");
     git(repo, "commit", "-q", "-m", "base");
     restoreModes = [];
+    // The manager reads its root when it is built and removes only what is
+    // under it: the folders `mount` makes live there.
+    const origRoot = process.env.TOPICS_WORKTREES_DIR;
+    process.env.TOPICS_WORKTREES_DIR = wtBase;
+    restoreModes.push(() => { if (origRoot === undefined) delete process.env.TOPICS_WORKTREES_DIR; else process.env.TOPICS_WORKTREES_DIR = origRoot; });
   });
   afterEach(() => {
     for (const r of restoreModes.splice(0)) { try { r(); } catch { /* best-effort */ } }
@@ -137,6 +142,22 @@ describe("worktree-manager.del(): la cartella prima della riga", () => {
     expect(notified).toHaveLength(1);
     expect(notified[0].body).toContain(absPath);
     expect(notified[0].dedupeKey).toBe(`worktree-rm-failed:${absPath}`);
+  }, 10_000);
+
+  test("a folder outside the worktree root (an adopted session's) is only forgotten: folder, registration and branch stay", async () => {
+    // Claude Desktop's layout: `<repo>/.claude/worktrees/<name>`, NOT under wtBase.
+    const absPath = join(repo, ".claude", "worktrees", "desk-wt");
+    expect(git(repo, "worktree", "add", "-q", "-b", "claude/desk-wt", absPath, "main").code).toBe(0);
+    writeFileSync(join(absPath, "lavoro.txt"), "non committato\n");
+    // `branch` mode is the worst case: it is the one whose branch del() deletes.
+    const { m, deleted } = manager({ id: "w9", absPath, branchName: "claude/desk-wt" });
+
+    expect(await m.delete("w9")).toBe(true);
+
+    expect(deleted).toEqual(["w9"]);
+    expect(readFileSync(join(absPath, "lavoro.txt"), "utf-8")).toBe("non committato\n");
+    expect(git(repo, "worktree", "list").out).toContain(absPath);
+    expect(git(repo, "rev-parse", "--verify", "--quiet", "refs/heads/claude/desk-wt").code).toBe(0);
   }, 10_000);
 
   test("isMaterialising: vera finche' la closure di create() non si e' chiusa, poi falsa", async () => {

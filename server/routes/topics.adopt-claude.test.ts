@@ -19,6 +19,7 @@ import { spawnSync } from "child_process";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { claudeProjectDirName } from "../lib/claude-transcript-path";
 import { createTopicsRouter } from "./topics";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 /**
  * The route finds a transcript under `homedir()`, and Bun's `homedir()` reads
@@ -48,7 +49,7 @@ let REPO = "";
 let WT = "";
 
 function git(cwd: string, ...args: string[]) {
-  const r = spawnSync("git", args, { cwd, encoding: "utf-8" });
+  const r = spawnSync("git", args, { cwd, encoding: "utf-8", env: gitEnv() });
   if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
 }
 
@@ -149,7 +150,7 @@ describe.if(inFakeHome)("POST /api/topics/adopt-claude", () => {
     expect(again.body.worktreeId).toBe(body.worktreeId);
   });
 
-  test("a worktree of a repo Topics does not know is refused, nothing half-made", async () => {
+  test("a worktree of a repo Topics does not know is adopted as before: the worktree folder is the project", async () => {
     const other = join(ROOT, "other");
     mkdirSync(other, { recursive: true });
     const otherReal = realpathSync(other);
@@ -159,9 +160,12 @@ describe.if(inFakeHome)("POST /api/topics/adopt-claude", () => {
     git(otherReal, "worktree", "add", "-q", "-b", "x", wt);
     const sid = "77777777-7777-4777-8777-777777777777";
     seedTranscript(wt, sid);
-    const { ctx, status } = await adopt({ sessionId: sid });
-    expect(status).toBe(409);
-    const bound = ctx.db.query("SELECT 1 FROM claude_code_sessions WHERE claude_session_id = ?").get(sid);
-    expect(bound).toBeNull();
+    const { ctx, status, body } = await adopt({ sessionId: sid });
+    expect(status).toBe(201);
+    expect(body.projectPath).toBe(wt);
+    expect(body.worktreeId ?? null).toBeNull();
+    expect(body.worktreePath).toBeNull();
+    expect(ctx.worktreeStore.getByAbsPath(wt)).toBeNull();
+    expect(ctx.resolveTopicCwd(ctx.getTopicById(body.id))).toBe(wt);
   });
 });
