@@ -130,6 +130,7 @@ describe("commitStatusFromRepo", () => {
   let assente = "";     // consegna che su main non c'è, in nessuna forma
   let empty = "";       // EMPTY delivery on top of a branch that is not on main
   let radice = "";
+  let realigned = "";   // work branch tip = merge of main back into it
 
   beforeAll(() => {
     repo = mkdtempSync(join(tmpdir(), "cstat-"));
@@ -185,6 +186,11 @@ describe("commitStatusFromRepo", () => {
     git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "il lavoro vero");
     git(repo, "commit", "-q", "--allow-empty", "-m", "chore: retrigger pre-review checks");
     empty = git(repo, "rev-parse", "HEAD");
+    git(repo, "checkout", "-q", "-b", "topics/realigned", base);
+    writeFileSync(join(repo, "realigned.txt"), "work still outside main\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "realigned work");
+    git(repo, "merge", "-q", "--no-ff", "-m", "Riporta origin/main nel ramo", "main");
+    realigned = git(repo, "rev-parse", "HEAD");
     git(repo, "checkout", "-q", "main");
   }, 30_000);
 
@@ -206,6 +212,10 @@ describe("commitStatusFromRepo", () => {
 
   test("commit RADICE (nessun padre) → si guarda comunque il suo contenuto", async () => {
     expect(await commitStatusFromRepo(repo, radice)).toBe("merged");
+  });
+
+  test("a realign MERGE tip over unlanded work -> empty, not merged", async () => {
+    expect(await commitStatusFromRepo(repo, realigned)).toBe("empty");
   });
 
   test("an EMPTY delivery -> empty, not merged: a no-op cannot answer for its branch", async () => {
