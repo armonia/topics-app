@@ -185,12 +185,9 @@ function fakePort(over: Partial<GithubPort> = {}): { port: GithubPort; calls: Ca
     runs: async () => { calls.runs += 1; return { ok: true, value: [run()] }; },
     jobs: async () => ({ ok: true, value: green }),
     mergeState: async () => { calls.merge += 1; return { ok: true, value: "MERGEABLE" }; },
-    // Nothing in this file asks for a re-run - that is `ci-evidence-wait.test.ts`,
-    // which counts them. Here the port only has to be complete.
+    // Re-runs are counted in `ci-evidence-wait.test.ts`; here the port only has to be complete.
     rerun: async () => ({ ok: true, value: undefined }),
-    openPullRequests: async () => ({ ok: true, value: [] }),
-    branchRuns: async () => ({ ok: true, value: [] }),
-    cancelRun: async () => ({ ok: true, value: undefined }),
+    openPullRequests: async () => ({ ok: true, value: [] }), branchRuns: async () => ({ ok: true, value: [] }), cancelRun: async () => ({ ok: true, value: undefined }),
     ...over,
   };
   // Keep the counters when a test overrides a counted method.

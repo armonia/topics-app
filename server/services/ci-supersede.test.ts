@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { supersedePreviousDelivery, type GithubRun, type OpenPullRequest } from "./ci-evidence";
+import type { GithubRun, OpenPullRequest } from "./ci-evidence";
+import { cardTag, supersedePreviousDelivery } from "./ci-supersede";
 import { fakePort, run } from "./ci-evidence.testkit";
 
 const pr = (number: number, headRefName: string, card: string): OpenPullRequest => ({
-  number, url: `https://github.com/o/r/pull/${number}`, headRefName, title: `board: ${headRefName} (card ${card})`,
+  number, url: `https://github.com/o/r/pull/${number}`, headRefName, title: `board: ${headRefName} ${cardTag(card)}`,
 });
 
 describe("supersedePreviousDelivery", () => {
@@ -23,7 +24,7 @@ describe("supersedePreviousDelivery", () => {
       closePullRequest: async (_cwd, _repo, n, comment) => { closed.push({ n, comment }); return { ok: true, value: "closed" }; },
       cancelRun: async (_repo, id) => { cancelled.push(id); return { ok: true, value: undefined }; },
     });
-    const out = await supersedePreviousDelivery(port, { cwd: "/tmp", repo: "o/r", taskId: "12345678-card", branch: "topics/y", sha: "new", pr: { number: 11, url: "u" } });
+    const out = await supersedePreviousDelivery(port, { cwd: "/tmp", repo: "o/r", taskId: "12345678-card", branch: "topics/y", sha: "new", pr: { number: 11, url: "u" }, baseBranch: "main" });
     expect(closed.map((c) => c.n)).toEqual([7]);
     expect(closed[0]!.comment).toContain("Superseded by #11");
     // 101 is the old PR's live run, 401 an older commit on the same branch.
