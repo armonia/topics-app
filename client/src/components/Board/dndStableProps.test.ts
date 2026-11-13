@@ -23,7 +23,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const BOARD_DIR = import.meta.dir;
-const board = readFileSync(join(BOARD_DIR, 'KanbanBoardPane.tsx'), 'utf8');
+const board = readFileSync(join(BOARD_DIR, 'useBoardDrag.ts'), 'utf8');
 const card = readFileSync(join(BOARD_DIR, 'Card.tsx'), 'utf8');
 
 /** Every `useSensor(<sensor>, <options>)` call in the pane, with its arguments. */
@@ -50,7 +50,7 @@ describe('kanban sensors are referentially stable', () => {
   });
 
   test('those names are module constants, declared above the component', () => {
-    const componentAt = board.indexOf('export function KanbanBoardPane');
+    const componentAt = board.indexOf('export function useBoardDrag');
     expect(componentAt).toBeGreaterThan(0);
     for (const { options } of sensorCalls(board)) {
       const declaredAt = board.indexOf(`const ${options} =`);
