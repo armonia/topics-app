@@ -184,7 +184,7 @@ const PCT_W: f32 = 22.0;
 const GAP: f32 = 2.0;
 const TIME_GAP: f32 = 3.0;
 const ACCOUNT_GAP: f32 = 6.0;
-const PAD_X: f32 = 4.0;
+pub(crate) const PAD_X: f32 = 4.0;
 /// The strip never takes more than this share of the screen width (and never more than the cap).
 const SCREEN_SHARE: f32 = 0.3;
 const MAX_STRIP_PT: f32 = 520.0;
@@ -206,6 +206,12 @@ fn screen_width_pt() -> f32 {
         0 => DEFAULT_SCREEN_PT,
         w => w as f32,
     }
+}
+
+thread_local! {
+    /// Full strip renders done by this thread; the animation test reads it to prove a
+    /// frame never redraws the strip (text, gauges, bars).
+    pub(crate) static STRIP_RENDERS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
 pub struct Strip {
@@ -332,7 +338,7 @@ pub(crate) fn width_pt(face: Face, s: &str, pt: f32) -> f32 {
 pub(crate) struct Canvas {
     w: u32,
     h: u32,
-    px: Vec<u8>,
+    pub(crate) px: Vec<u8>,
 }
 
 impl Canvas {
@@ -607,6 +613,7 @@ pub fn render_strip_on(cols: Option<&[Column]>, extras: &Extras, screen_pt: f32)
 /// The strip with the agents-by-state group on its LEFT, before the Mac dial and the
 /// quota columns. `frame` turns the working glyph; it changes nothing else.
 pub fn render_strip_agents(cols: Option<&[Column]>, extras: &Extras, screen_pt: f32, agents: &AgentStates, frame: u32) -> Strip {
+    STRIP_RENDERS.with(|c| c.set(c.get() + 1));
     let s = SCALE;
     let lead = agents.width();
     let h = (HEIGHT_PT * s) as u32;
@@ -717,6 +724,13 @@ pub fn set_agents(states: AgentStates) {
     }
 }
 
+/// Test door: seeds the shared state the animation thread reads.
+#[cfg(test)]
+pub(crate) fn seed_for_test(cols: Vec<Column>, states: AgentStates) {
+    *LATEST.lock().unwrap() = Some(Latest { cols: Some(cols), extras: Extras::default(), ever_answered: true });
+    set_agents(states);
+}
+
 fn render_latest(frame: u32) -> Option<Strip> {
     let agents = AGENTS.lock().map(|g| *g).unwrap_or_default();
     let guard = LATEST.lock().ok()?;
@@ -724,16 +738,57 @@ fn render_latest(frame: u32) -> Option<Strip> {
     if !strip_due(l.ever_answered, l.cols.is_some()) {
         return None;
     }
+    // While an agent works its glyph belongs to the native overlay layer.
+    let frame = if agents.is_animated() { tray_agents::STATIC_FRAME } else { frame };
     Some(render_strip_agents(l.cols.as_deref(), &l.extras, screen_width_pt(), &agents, frame))
+}
+
+/// What the animation thread does on one tick.
+pub struct Animation {
+    frame: u32,
+    last: AgentStates,
+}
+
+impl Animation {
+    pub fn new() -> Self {
+        Animation { frame: 0, last: AgentStates::default() }
+    }
+
+    /// One tick: the strip is redrawn only when the counts changed; a plain turn of the
+    /// working glyph only moves the overlay to its next pre-rendered frame.
+    /// `overlay(Some(i))` shows frame `i`, `overlay(None)` hides the layer.
+    pub fn step(&mut self, mut strip: impl FnMut(Strip), mut overlay: impl FnMut(Option<u32>)) {
+        let now = AGENTS.lock().map(|g| *g).unwrap_or_default();
+        let changed = now != self.last;
+        if now.is_animated() {
+            self.frame = (self.frame + 1) % tray_agents::TURN_FRAMES;
+        } else if !changed {
+            return;
+        }
+        self.last = now;
+        if changed {
+            if let Some(s) = render_latest(0) {
+                strip(s);
+            }
+        }
+        overlay(now.is_animated().then_some(self.frame));
+    }
+}
+
+impl Default for Animation {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Worker: polls every `POLL_SECS`, hands each rendered strip to `apply`; a second
 /// thread turns the working glyph while an agent is at work (and redraws when the
 /// counts change). Both run on their own threads, so a hidden window or a restarted
 /// client changes nothing.
-pub fn spawn_poller<F>(apply: F)
+pub fn spawn_poller<F, G>(apply: F, overlay: G)
 where
     F: Fn(Strip) + Send + Sync + 'static,
+    G: Fn(Option<u32>) + Send + 'static,
 {
     let apply = std::sync::Arc::new(apply);
     let poll_apply = apply.clone();
@@ -754,19 +809,10 @@ where
         }
     });
     let _ = std::thread::Builder::new().name("tray-agents".into()).spawn(move || {
-        let (mut frame, mut last) = (0u32, AgentStates::default());
+        let mut anim = Animation::new();
         loop {
             std::thread::sleep(Duration::from_millis(tray_agents::FRAME_MS));
-            let now = AGENTS.lock().map(|g| *g).unwrap_or_default();
-            if now.is_animated() {
-                frame = (frame + 1) % tray_agents::TURN_FRAMES;
-            } else if now == last {
-                continue;
-            }
-            last = now;
-            if let Some(strip) = render_latest(frame) {
-                apply(strip);
-            }
+            anim.step(|s| apply(s), &overlay);
         }
     });
 }

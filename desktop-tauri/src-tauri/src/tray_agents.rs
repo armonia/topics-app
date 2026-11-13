@@ -44,6 +44,34 @@ const MUTED: [u8; 3] = [160, 160, 170];
 /// Frames of one full turn of the working pie, and how long each stays up.
 pub const TURN_FRAMES: u32 = 12;
 pub const FRAME_MS: u64 = 120;
+/// `frame` value meaning "leave the working glyph out": a native overlay layer
+/// turns it from pre-rendered frames, so the strip is not redrawn per frame.
+pub const STATIC_FRAME: u32 = u32::MAX;
+/// Width in points of the box the overlay layer covers (the working glyph).
+pub const OVERLAY_PT: f32 = GLYPH_PT;
+
+/// One RGBA image of every turn step of the working glyph, drawn once.
+pub struct GlyphFrames {
+    pub width: u32,
+    pub height: u32,
+    pub frames: Vec<Vec<u8>>,
+}
+
+/// Pre-rendered working-glyph frames: text-free, built once per process.
+pub fn glyph_frames() -> &'static GlyphFrames {
+    static FRAMES: std::sync::OnceLock<GlyphFrames> = std::sync::OnceLock::new();
+    FRAMES.get_or_init(|| {
+        let (w, h) = ((OVERLAY_PT * SCALE) as u32, (HEIGHT_PT * SCALE) as u32);
+        let frames = (0..TURN_FRAMES)
+            .map(|f| {
+                let mut cv = Canvas::new(w, h);
+                glyph(&mut cv, 0.0, Kind::Working, f);
+                cv.px
+            })
+            .collect();
+        GlyphFrames { width: w, height: h, frames }
+    })
+}
 
 impl AgentStates {
     /// The states that have somebody in them, in reading order.
@@ -127,7 +155,9 @@ fn glyph(cv: &mut Canvas, x_pt: f32, kind: Kind, frame: u32) {
 pub fn draw(cv: &mut Canvas, x_pt: f32, states: &AgentStates, frame: u32) {
     let mut x = x_pt;
     for (kind, n) in states.shown() {
-        glyph(cv, x, kind, frame);
+        if !(frame == STATIC_FRAME && kind == Kind::Working) {
+            glyph(cv, x, kind, frame);
+        }
         x += GLYPH_PT + GLYPH_GAP;
         let label = n.to_string();
         let baseline = (HEIGHT_PT - 7.5) * SCALE;

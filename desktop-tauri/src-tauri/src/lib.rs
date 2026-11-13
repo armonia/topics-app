@@ -2489,6 +2489,10 @@ mod child_reaper;
 #[path = "macos_notifications.rs"]
 mod macos_notifications;
 
+#[cfg(target_os = "macos")]
+#[path = "tray_overlay.rs"]
+mod tray_overlay;
+
 /// Focus / Do-Not-Disturb state, read from the OS so the client can silence its
 /// completion banners while the user has a Focus on.
 ///
@@ -12290,9 +12294,12 @@ pub fn run() {
                 if let Ok(Some(m)) = app.handle().primary_monitor() {
                     tray_quota::set_screen_width_pt(m.size().width as f32 / m.scale_factor() as f32);
                 }
+                let overlay_handle = app.handle().clone();
                 tray_quota::spawn_poller(move |strip| {
                     if let Some(tray) = tray_handle.tray_by_id("main") {
                         let (strip_w, strip_h) = (strip.width, strip.height);
+                        #[cfg(target_os = "macos")]
+                        tray_overlay::set_strip_width_pt(strip_w as f64 / tray_quota::SCALE as f64);
                         let img = tauri::image::Image::new_owned(strip.rgba, strip_w, strip_h);
                         let _ = tray.set_icon(Some(img));
                         #[cfg(target_os = "macos")]
@@ -12338,6 +12345,22 @@ pub fn run() {
                             });
                         }
                     }
+                }, move |frame| {
+                    // Only a layer swap: no image, no PNG, no relayout of the button.
+                    #[cfg(target_os = "macos")]
+                    if let Some(tray) = overlay_handle.tray_by_id("main") {
+                        let _ = tray.with_inner_tray_icon(move |inner| {
+                            if let Some(item) = inner.ns_status_item() {
+                                unsafe {
+                                    let item: crate::mac::id = objc2::rc::Retained::as_ptr(&item) as crate::mac::id;
+                                    let button: crate::mac::id = crate::mac::msg_send![item, button];
+                                    tray_overlay::show(button, frame);
+                                }
+                            }
+                        });
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    let _ = (&overlay_handle, frame);
                 });
                 // The menu content follows the same service, on its own thread, so it
                 // keeps updating with the window hidden or the client restarted.
