@@ -4562,12 +4562,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // machine, starts FROM it (df5fd8c5 restarted from main without it).
           // A branch already on main is no base: main itself is newer.
           if (row.delivery_branch) put("prior_branch", branchStillAhead(row) ? row.delivery_branch : null);
-<<<<<<< HEAD
           // The tip that was sent back: a resumed turn handing in this same commit did no work.
           if (row.delivery_commit) put("prior_commit", row.delivery_commit);
-=======
           if (row.delivery_branch) put("past_delivery_branches", `${row.past_delivery_branches ?? ""} ${row.delivery_branch}`.trim());
->>>>>>> fe4325fe9 (Count every earlier delivery branch of a card as its own in the land gate)
           // The uncommitted files outlive their count too: they are still in
           // this machine's worktree, and the overflow must not leave them behind.
           if (row.delivery_uncommitted_files != null) put("prior_uncommitted_files", row.delivery_uncommitted_files || null);
@@ -5103,12 +5100,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             // Read before the snapshot is cleared (SQLite evaluates SET on the old row).
             "prior_branch = CASE WHEN delivery_branch IS NULL THEN prior_branch " +
             "WHEN landing_state IN ('landed', 'superseded') THEN NULL ELSE delivery_branch END, " +
-<<<<<<< HEAD
             "prior_commit = COALESCE(delivery_commit, prior_commit), " +
-=======
             "past_delivery_branches = CASE WHEN delivery_branch IS NULL THEN past_delivery_branches " +
             "ELSE TRIM(COALESCE(past_delivery_branches, '') || ' ' || delivery_branch) END, " +
->>>>>>> fe4325fe9 (Count every earlier delivery branch of a card as its own in the land gate)
             "prior_uncommitted_files = CASE WHEN delivery_uncommitted_files IS NULL THEN prior_uncommitted_files " +
             "ELSE NULLIF(delivery_uncommitted_files, 0) END, " +
             DELIVERY_SNAPSHOT_COLUMNS.map((c) => `${c} = NULL`).join(", ") + ", " +
