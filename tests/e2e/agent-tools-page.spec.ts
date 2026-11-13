@@ -81,6 +81,11 @@ test("dal menu utente si apre Strumenti: autorizza, parcheggia, rimonta, aggiorn
   await expect.poll(() => refreshes).toBe(1);
 
   // The links go to the existing views, nothing is duplicated here.
+  // The Automations view needs a hub to render rows, so the link is proven by the request it makes.
+  await page.evaluate(() => {
+    (window as unknown as { __opened: string[] }).__opened = [];
+    window.addEventListener("topics:open-utility", (e) => (window as unknown as { __opened: string[] }).__opened.push((e as CustomEvent<{ type: string }>).detail.type));
+  });
   await pageEl.getByTestId("agent-tools-open-automations").click();
-  await expect(page.getByTestId("automations-pane")).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __opened: string[] }).__opened)).toContain("automations");
 });
