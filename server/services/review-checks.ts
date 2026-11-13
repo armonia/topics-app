@@ -150,6 +150,8 @@ export const STATIC_RAILS_CHECK: ReviewCheck = {
     "bun run check:eslint-disable",
     // The eleven that were already on the live board, in the order they had.
     "bun run check:emdash",
+    // A backup copy (`x.md-e`, .orig, .rej, .bak) added by the branch.
+    "bun run check:backup-residue",
     "bun run check:migrations",
     "bun run check:identifier-language",
     "bun run check:comment-language",

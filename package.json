@@ -56,6 +56,7 @@
     "check:api-door": "bun run scripts/check-api-door.ts",
     "check:quality-bar": "bun run scripts/quality-bar.ts",
     "check:emdash": "bun run scripts/check-emdash.ts",
+    "check:backup-residue": "bun run scripts/check-backup-residue.ts",
     "check:repo-pulito": "bun run scripts/check-repo-pulito.ts",
     "hooks:git": "bash scripts/install-graphify-hooks.sh",
     "check:sidecars": "bun run scripts/check-tauri-sidecars.ts",
