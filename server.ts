@@ -2663,7 +2663,7 @@ const taskAutoMerge = createTaskAutoMerge({
   // branch of the same card is its history, never "another session".
   ownBranches: (taskId) => {
     const task = dispatcherSvc.get(taskId)?.task;
-    const named = [...taskAttemptStore.list(taskId).map((a) => a.branch), task?.deliveryBranch, task?.priorBranch];
+    const named = [...taskAttemptStore.list(taskId).map((a) => a.branch), task?.deliveryBranch, task?.priorBranch, ...(task?.pastDeliveryBranches ?? [])];
     return [...new Set(named.filter((b): b is string => typeof b === "string" && b.length > 0))];
   },
   declaredDelivery: (taskId) => {

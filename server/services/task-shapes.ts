@@ -240,6 +240,8 @@ export interface Task {
    * another machine starts FROM (`carriedBranch`).
    */
   priorBranch?: string;
+  /** Every delivery branch the card left behind (history behind `priorBranch`). */
+  pastDeliveryBranches?: string[];
   /**
    * ON THE WIRE only when set: the files the card's worktree held WITHOUT a
    * commit when it went back to the queue. Going back clears
